@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const API_BASE = "https://api.cloudflare.com/client/v4";
 const BOOTSTRAP_MODULE_NAME = "openmeld-bootstrap.mjs";
+const BOOTSTRAP_COMPATIBILITY_DATE = "2026-02-03";
 
 export const OPENMELD_BOOTSTRAP_WORKERS = [
   "openmeld-core-prod",
@@ -132,7 +133,7 @@ function createCloudflareClient({ accountId, apiToken, fetchImpl = fetch }) {
           [
             JSON.stringify({
               bindings: [],
-              compatibility_date: "2026-08-12",
+              compatibility_date: BOOTSTRAP_COMPATIBILITY_DATE,
               main_module: BOOTSTRAP_MODULE_NAME,
             }),
           ],
