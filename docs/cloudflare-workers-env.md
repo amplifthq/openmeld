@@ -35,7 +35,8 @@ Official references:
 7. Every Worker package that owns secrets must also provide `sync:secrets:prod`.
 
 For a brand-new OpenMeld account surface, Core, Auth, and Remote Agent form a
-Service Binding cycle. Before the first real Worker release, run
+Service Binding cycle, while Gateway and Web need stable identities before
+production secrets can be staged. Before the first real Worker release, run
 `pnpm cloudflare:bootstrap:worker-identities -- --apply` with the release token.
 The command creates only missing, route-free Worker identities that return a
 diagnostic `503`; it never overwrites an existing Worker. The guarded production

@@ -51,11 +51,10 @@ test("creates only missing identities and verifies every stable name", async () 
   assert.deepEqual(uploaded, OPENMELD_BOOTSTRAP_WORKERS.slice(1));
   assert.deepEqual(
     result.resources.map(({ action, verified }) => ({ action, verified })),
-    [
-      { action: "existing", verified: true },
-      { action: "created", verified: true },
-      { action: "created", verified: true },
-    ]
+    OPENMELD_BOOTSTRAP_WORKERS.map((_, index) => ({
+      action: index === 0 ? "existing" : "created",
+      verified: true,
+    }))
   );
 });
 

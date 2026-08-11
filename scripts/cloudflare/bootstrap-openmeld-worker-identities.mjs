@@ -10,6 +10,8 @@ export const OPENMELD_BOOTSTRAP_WORKERS = [
   "openmeld-core-prod",
   "openmeld-auth-prod",
   "openmeld-remote-agent-prod",
+  "openmeld-gateway-prod",
+  "openmeld-web-prod",
 ];
 
 export const OPENMELD_BOOTSTRAP_SOURCE = `export default {
@@ -160,9 +162,10 @@ async function runCli(rawArgs) {
   if (parsed.help) {
     console.log(`Usage: node scripts/cloudflare/bootstrap-openmeld-worker-identities.mjs [--apply]
 
-Default mode is read-only. --apply creates only the three missing, route-free,
+Default mode is read-only. --apply creates only the five missing, route-free,
 fail-closed Worker identities needed to break OpenMeld's first-deploy Service
-Binding cycle. Existing Workers are never overwritten.`);
+Binding cycle and stage production secrets before routes become public. Existing
+Workers are never overwritten.`);
     return;
   }
   const summary = await bootstrapOpenMeldWorkerIdentities(parsed);
