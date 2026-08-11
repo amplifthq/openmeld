@@ -352,9 +352,7 @@ test("runs the production database exactly once through its shared entrypoint", 
       "CLOUDFLARE_D1_DATABASE_ID: 15f16284-5240-4675-b626-3b7144e1d684"
     )
   );
-  assert.ok(
-    !dispatcher.includes("7b6714b5-55fe-445d-876d-fc9428145206")
-  );
+  assert.ok(!dispatcher.includes("7b6714b5-55fe-445d-876d-fc9428145206"));
 });
 
 test("maps the GitHub OAuth secret around GitHub's reserved secret prefix", () => {
