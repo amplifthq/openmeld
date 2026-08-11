@@ -3,6 +3,14 @@
   "main": "src/server/cloudflare.ts",
   "compatibility_date": "2026-07-02",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "connectors.openmeld.ai",
+      "custom_domain": true
+    }
+  ],
   "keep_vars": true,
   "cache": {
     "enabled": true

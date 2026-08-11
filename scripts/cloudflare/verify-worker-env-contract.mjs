@@ -394,6 +394,18 @@ const openConnectorWrangler = parseJsoncObject(
   "config/openconnector/wrangler.production.jsonc"
 );
 ensure(
+  openConnectorWrangler.workers_dev === false &&
+    openConnectorWrangler.preview_urls === false,
+  "OpenConnector production must disable workers.dev and preview URLs."
+);
+ensure(
+  Array.isArray(openConnectorWrangler.routes) &&
+    openConnectorWrangler.routes.length === 1 &&
+    openConnectorWrangler.routes[0]?.pattern === "connectors.openmeld.ai" &&
+    openConnectorWrangler.routes[0]?.custom_domain === true,
+  "OpenConnector production must own the connectors.openmeld.ai custom domain."
+);
+ensure(
   JSON.stringify(openConnectorWrangler.secrets?.required) ===
     JSON.stringify([
       "OOMOL_CONNECT_ADMIN_TOKEN",
