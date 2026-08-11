@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   OPENCONNECTOR_PRODUCTION_SECRET_MAPPINGS,
   resolveOpenConnectorProductionEnvironment,
+  resolveOpenConnectorProductionSecrets,
 } from "./openconnector-production-secrets.mjs";
 
 test("maps canonical OpenMeld credentials to the upstream runtime contract", () => {
@@ -27,6 +28,11 @@ test("maps canonical OpenMeld credentials to the upstream runtime contract", () 
     "OPEN_CONNECTOR_OPENMELD_ENCRYPTION_KEY",
     "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
   ]);
+  assert.deepEqual(resolveOpenConnectorProductionSecrets(canonicalValues), {
+    OOMOL_CONNECT_ADMIN_TOKEN: "admin-value",
+    OOMOL_CONNECT_ENCRYPTION_KEY: "encryption-value",
+    OOMOL_CONNECT_RUNTIME_TOKEN: "runtime-value",
+  });
 });
 
 test("fails closed and names every missing canonical credential", () => {

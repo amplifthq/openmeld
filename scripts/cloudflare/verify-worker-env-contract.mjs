@@ -416,6 +416,12 @@ ensure(
 );
 ensure(
   readText("scripts/cloudflare/deploy-openconnector-production.mjs").includes(
+    '"--secrets-file",\n      "/dev/stdin"'
+  ),
+  "OpenConnector production deploy must deliver new-Worker secrets through stdin without writing them to disk."
+);
+ensure(
+  readText("scripts/cloudflare/deploy-openconnector-production.mjs").includes(
     "resolveOpenConnectorProductionEnvironment"
   ),
   "OpenConnector production deploy must map canonical Doppler credentials to the upstream runtime contract."

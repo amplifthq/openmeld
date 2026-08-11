@@ -197,9 +197,10 @@ OpenConnector is an upstream runtime boundary. Doppler owns its credentials
 under the canonical `OPEN_CONNECTOR_OPENMELD_*` names, while the unmodified
 upstream Worker reads `OOMOL_CONNECT_*`. The guarded production deploy maps
 the admin token, runtime token, and encryption key in memory at the child
-process boundary. Do not duplicate the same values under both names in
-Doppler, and do not weaken or fork the upstream runtime contract merely to
-match OpenMeld's credential catalog.
+process boundary. For a new Worker, the deploy sends Wrangler an in-memory JSON
+payload through `/dev/stdin`; it never writes a secret file. Do not duplicate
+the same values under both names in Doppler, and do not weaken or fork the
+upstream runtime contract merely to match OpenMeld's credential catalog.
 
 ## Production Boundary
 

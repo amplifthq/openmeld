@@ -4,7 +4,7 @@ export const OPENCONNECTOR_PRODUCTION_SECRET_MAPPINGS = Object.freeze({
   OOMOL_CONNECT_RUNTIME_TOKEN: "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
 });
 
-export function resolveOpenConnectorProductionEnvironment(env = process.env) {
+export function resolveOpenConnectorProductionSecrets(env = process.env) {
   const missingCanonicalKeys = [];
   const runtimeSecrets = {};
 
@@ -25,5 +25,9 @@ export function resolveOpenConnectorProductionEnvironment(env = process.env) {
     );
   }
 
-  return { ...env, ...runtimeSecrets };
+  return runtimeSecrets;
+}
+
+export function resolveOpenConnectorProductionEnvironment(env = process.env) {
+  return { ...env, ...resolveOpenConnectorProductionSecrets(env) };
 }

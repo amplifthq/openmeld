@@ -2,7 +2,10 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 
-import { resolveOpenConnectorProductionEnvironment } from "./openconnector-production-secrets.mjs";
+import {
+  resolveOpenConnectorProductionEnvironment,
+  resolveOpenConnectorProductionSecrets,
+} from "./openconnector-production-secrets.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const deploymentConfigPath = path.join(
@@ -44,6 +47,7 @@ if (sourceSha !== options.sourceSha) {
 }
 
 const deploymentEnvironment = resolveOpenConnectorProductionEnvironment();
+const deploymentSecrets = resolveOpenConnectorProductionSecrets();
 
 if (existsSync(temporaryConfigPath)) {
   throw new Error(
@@ -87,11 +91,19 @@ try {
     sourceDirectory,
     deploymentEnvironment
   );
-  runStreaming(
+  runStreamingWithInput(
     path.join(sourceDirectory, "node_modules/.bin/wrangler"),
-    ["deploy", "--config", temporaryConfigName, "--minify"],
+    [
+      "deploy",
+      "--config",
+      temporaryConfigName,
+      "--minify",
+      "--secrets-file",
+      "/dev/stdin",
+    ],
     sourceDirectory,
-    deploymentEnvironment
+    deploymentEnvironment,
+    JSON.stringify(deploymentSecrets)
   );
 } finally {
   rmSync(temporaryConfigPath, { force: true });
@@ -131,5 +143,14 @@ function runStreaming(command, args, cwd, env) {
     cwd,
     env,
     stdio: "inherit",
+  });
+}
+
+function runStreamingWithInput(command, args, cwd, env, input) {
+  execFileSync(command, args, {
+    cwd,
+    env,
+    input,
+    stdio: ["pipe", "inherit", "inherit"],
   });
 }
