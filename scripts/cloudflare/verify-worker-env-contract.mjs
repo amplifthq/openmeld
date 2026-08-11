@@ -390,6 +390,25 @@ function readDefinedEnvKeys(relativePath) {
     .filter((key) => key !== null);
 }
 
+const openConnectorWrangler = parseJsoncObject(
+  "config/openconnector/wrangler.production.jsonc"
+);
+ensure(
+  JSON.stringify(openConnectorWrangler.secrets?.required) ===
+    JSON.stringify([
+      "OOMOL_CONNECT_ADMIN_TOKEN",
+      "OOMOL_CONNECT_ENCRYPTION_KEY",
+      "OOMOL_CONNECT_RUNTIME_TOKEN",
+    ]),
+  "OpenConnector production must declare the exact upstream runtime secret contract."
+);
+ensure(
+  readText("scripts/cloudflare/deploy-openconnector-production.mjs").includes(
+    "resolveOpenConnectorProductionEnvironment"
+  ),
+  "OpenConnector production deploy must map canonical Doppler credentials to the upstream runtime contract."
+);
+
 for (const workerPackage of workerPackages) {
   const packageJson = JSON.parse(readText(workerPackage.packageJsonPath));
   const scripts = packageJson.scripts ?? {};

@@ -2,6 +2,8 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 
+import { resolveOpenConnectorProductionEnvironment } from "./openconnector-production-secrets.mjs";
+
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const deploymentConfigPath = path.join(
   repoRoot,
@@ -41,6 +43,8 @@ if (sourceSha !== options.sourceSha) {
   );
 }
 
+const deploymentEnvironment = resolveOpenConnectorProductionEnvironment();
+
 if (existsSync(temporaryConfigPath)) {
   throw new Error(
     `Refusing to overwrite the existing temporary config at ${temporaryConfigPath}.`
@@ -51,9 +55,24 @@ console.log(`Deploying OpenConnector source ${sourceSha}.`);
 copyFileSync(deploymentConfigPath, temporaryConfigPath);
 
 try {
-  runStreaming("npm", ["run", "generate:catalog"], sourceDirectory);
-  runStreaming("npm", ["run", "build:web"], sourceDirectory);
-  runStreaming("node", ["scripts/copy-catalog-assets.ts"], sourceDirectory);
+  runStreaming(
+    "npm",
+    ["run", "generate:catalog"],
+    sourceDirectory,
+    deploymentEnvironment
+  );
+  runStreaming(
+    "npm",
+    ["run", "build:web"],
+    sourceDirectory,
+    deploymentEnvironment
+  );
+  runStreaming(
+    "node",
+    ["scripts/copy-catalog-assets.ts"],
+    sourceDirectory,
+    deploymentEnvironment
+  );
   runStreaming(
     path.join(sourceDirectory, "node_modules/.bin/wrangler"),
     [
@@ -65,12 +84,14 @@ try {
       "--config",
       temporaryConfigName,
     ],
-    sourceDirectory
+    sourceDirectory,
+    deploymentEnvironment
   );
   runStreaming(
     path.join(sourceDirectory, "node_modules/.bin/wrangler"),
     ["deploy", "--config", temporaryConfigName, "--minify"],
-    sourceDirectory
+    sourceDirectory,
+    deploymentEnvironment
   );
 } finally {
   rmSync(temporaryConfigPath, { force: true });
@@ -105,9 +126,10 @@ function run(command, args, cwd) {
   });
 }
 
-function runStreaming(command, args, cwd) {
+function runStreaming(command, args, cwd, env) {
   execFileSync(command, args, {
     cwd,
+    env,
     stdio: "inherit",
   });
 }

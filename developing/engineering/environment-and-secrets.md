@@ -193,6 +193,14 @@ move the files aside yourself before opting into Doppler.
   per-installation runtime refresh tokens in the product's encrypted runtime
   data store, not in Doppler configs.
 
+OpenConnector is an upstream runtime boundary. Doppler owns its credentials
+under the canonical `OPEN_CONNECTOR_OPENMELD_*` names, while the unmodified
+upstream Worker reads `OOMOL_CONNECT_*`. The guarded production deploy maps
+the admin token, runtime token, and encryption key in memory at the child
+process boundary. Do not duplicate the same values under both names in
+Doppler, and do not weaken or fork the upstream runtime contract merely to
+match OpenMeld's credential catalog.
+
 ## Production Boundary
 
 Production remains a separate authority and release action.
