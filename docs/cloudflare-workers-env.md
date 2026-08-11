@@ -588,6 +588,12 @@ The workflow contract is:
    package-local `.dev.vars.prod` source and run that package's
    `sync:secrets:prod`; deploy does not sync those secrets.
 
+GitHub reserves the `GITHUB_` prefix for Actions secrets. The Auth runtime
+contract remains `GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET`, while the
+`production` Environment stores the same value under
+`OPENMELD_GITHUB_AUTH_OAUTH_CLIENT_SECRET`; the Auth sync workflow maps that
+transport-only name back to the runtime contract explicitly.
+
 Production lane selection, scopes, ordering, database safety, smoke boundaries,
 and release evidence are owned by
 `developing/engineering/production-release.md`.

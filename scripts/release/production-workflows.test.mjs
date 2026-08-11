@@ -357,6 +357,21 @@ test("runs the production database exactly once through its shared entrypoint", 
   );
 });
 
+test("maps the GitHub OAuth secret around GitHub's reserved secret prefix", () => {
+  const workflow = readRepoFile(
+    ".github/workflows/sync-auth-worker-secrets.yml"
+  );
+
+  assert.ok(
+    workflow.includes(
+      `GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET: ${GITHUB_EXPRESSION_PREFIX} secrets.OPENMELD_GITHUB_AUTH_OAUTH_CLIENT_SECRET }}`
+    )
+  );
+  assert.ok(
+    !workflow.includes("secrets.GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET")
+  );
+});
+
 test("uses one cached repository setup in current release jobs", () => {
   const setupAction = readRepoFile(
     ".github/actions/setup-node-pnpm/action.yml"
