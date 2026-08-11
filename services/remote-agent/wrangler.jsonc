@@ -39,6 +39,7 @@
   ],
   "containers": [
     {
+      "name": "openmeld-agent-computer",
       "class_name": "AgentComputer",
       "image": "./Dockerfile",
       "instance_type": "standard-2",
@@ -127,6 +128,7 @@
       ],
       "containers": [
         {
+          "name": "openmeld-agent-computer-dev",
           "class_name": "AgentComputer",
           "image": "./Dockerfile",
           "instance_type": "standard-2",
@@ -205,6 +207,7 @@
       ],
       "containers": [
         {
+          "name": "openmeld-agent-computer-prod",
           "class_name": "AgentComputer",
           "image": "./Dockerfile",
           "instance_type": "standard-2",

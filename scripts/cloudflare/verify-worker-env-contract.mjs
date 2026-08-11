@@ -243,6 +243,11 @@ const workerPackages = [
     ],
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",
     requiredConfigEnvironments: ["dev", "prod"],
+    expectedContainerNames: {
+      "top-level": "openmeld-agent-computer",
+      "env.dev": "openmeld-agent-computer-dev",
+      "env.prod": "openmeld-agent-computer-prod",
+    },
     requiredVarNames: [
       "OPENMELD_FEEDBACK_SUBMIT_BASE_URL",
       "OPENMELD_CONNECTORS_BASE_URL",
@@ -456,6 +461,7 @@ for (const workerPackage of workerPackages) {
   verifyObservabilityPolicy(workerPackage, workerConfig);
   verifyRequiredVars(workerPackage, workerConfig);
   verifyRequiredSecrets(workerPackage, workerConfig);
+  verifyContainerNames(workerPackage, workerConfig);
   verifyGeneratedTypeBindings(workerPackage);
 }
 
@@ -672,6 +678,22 @@ function verifyRequiredSecrets(workerPackage, workerConfig) {
         `${workerPackage.name} ${label} secrets.required must declare ${secretName}.`
       );
     }
+  }
+}
+
+function verifyContainerNames(workerPackage, workerConfig) {
+  const expectedNames = workerPackage.expectedContainerNames;
+  if (!expectedNames) {
+    return;
+  }
+
+  for (const { label, value } of getConfigSections(workerConfig)) {
+    const containers = Array.isArray(value?.containers) ? value.containers : [];
+    const expectedName = expectedNames[label];
+    ensure(
+      containers.length === 1 && containers[0]?.name === expectedName,
+      `${workerPackage.name} ${label} must declare one explicit container name: ${expectedName}.`
+    );
   }
 }
 
