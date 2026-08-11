@@ -123,7 +123,7 @@ jobs:
       WEB_APP_URL: http://localhost:8788
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_D1_DATABASE_ID: 7b6714b5-55fe-445d-876d-fc9428145206
+      CLOUDFLARE_D1_DATABASE_ID: 15f16284-5240-4675-b626-3b7144e1d684
     steps:
       - name: Require main
         shell: bash
