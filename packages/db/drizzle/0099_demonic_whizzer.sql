@@ -1,0 +1,1 @@
+ALTER TABLE `space_index_spaces` ADD `direct_message_converted_at_ms` integer;

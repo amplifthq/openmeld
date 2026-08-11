@@ -1,0 +1,1609 @@
+import { describe, expect, it } from "vitest";
+
+import type { SpaceMemberRecord } from "../src/space/infrastructure/sql/space-member-repo";
+import type { SpaceMetaRecord } from "../src/space/infrastructure/sql/space-meta-repo";
+import {
+  projectActiveSpaceIndexSnapshot,
+  projectDeletedSpaceIndexSnapshot,
+} from "../src/space-index/space-index-projection-service";
+import {
+  diagnoseSpaceIndexProjectionDrift,
+  listAccountSpaceIdsFromSpaceIndex,
+  listAccountSpacesFromSpaceIndex,
+  listOrganizationSpacesFromSpaceIndex,
+} from "../src/space-index/space-index-repository";
+import {
+  applyDrizzleMigrationsForTables,
+  createSqliteD1Harness,
+} from "./helpers/sqlite-d1-harness.test-support";
+
+describe("space index AccountSpaces read model", () => {
+  it("reads SpaceIndex truth with account/profile scope, backend limit, dedupe, and history overlay", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Alpha",
+          spaceId: "space-alpha",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-10T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Mira",
+            spaceId: "space-alpha",
+          }),
+          createMember({
+            addedAt: "2026-04-10T00:02:00.000Z",
+            profileId: "agent-1",
+            profileKindSnapshot: "agent",
+            profileNameSnapshot: "Codex",
+            spaceId: "space-alpha",
+          }),
+        ],
+      });
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Beta",
+          spaceId: "space-beta",
+          updatedAt: "2026-04-11T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-11T00:01:00.000Z",
+            profileId: "agent-1",
+            profileKindSnapshot: "agent",
+            profileNameSnapshot: "Codex",
+            spaceId: "space-beta",
+          }),
+        ],
+      });
+      seedMembershipOverlay(harness, {
+        lastJoinedAt: Date.parse("2026-04-12T00:00:00.000Z"),
+        pinnedAt: Date.parse("2026-04-13T00:00:00.000Z"),
+        profileId: "agent-1",
+        spaceId: "space-alpha",
+      });
+
+      const accountLimited = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 1,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+
+      expect(accountLimited.pinnedItems).toHaveLength(1);
+      expect(accountLimited.spaceItems).toHaveLength(0);
+      expect(accountLimited.pinnedItems[0]).toMatchObject({
+        lastJoinedAt: "2026-04-12T00:00:00.000Z",
+        openProfileId: "agent-1",
+        openProfileName: "Codex",
+        pinnedAt: "2026-04-13T00:00:00.000Z",
+        pinnedProfileIds: ["agent-1"],
+        spaceId: "space-alpha",
+        spaceName: "Alpha",
+      });
+      expect(accountLimited.pinnedItems[0]?.joinedProfiles).toEqual([
+        {
+          lastJoinedAt: "2026-04-12T00:00:00.000Z",
+          pinnedAt: "2026-04-13T00:00:00.000Z",
+          profileId: "agent-1",
+          profileName: "Codex",
+        },
+        {
+          lastJoinedAt: "2026-04-10T00:01:00.000Z",
+          pinnedAt: null,
+          profileId: "human-1",
+          profileName: "Mira",
+        },
+      ]);
+
+      const humanScoped = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "profile",
+        selectedProfileId: "human-1",
+      });
+      expect(humanScoped.pinnedItems).toHaveLength(0);
+      expect(humanScoped.spaceItems.map((item) => item.spaceId)).toEqual([
+        "space-alpha",
+      ]);
+
+      const agentScoped = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "profile",
+        selectedProfileId: "agent-1",
+      });
+      expect(
+        [...agentScoped.pinnedItems, ...agentScoped.spaceItems].map(
+          (item) => item.spaceId
+        )
+      ).toEqual(["space-alpha", "space-beta"]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("only returns Space purpose when AccountSpaces callers opt in", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Project Alpha",
+          purpose: "project_alpha",
+          spaceId: "space-alpha",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-10T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Mira",
+            spaceId: "space-alpha",
+          }),
+        ],
+      });
+
+      const legacy = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+      const withPurposes = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        includePurposes: true,
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+
+      expect(legacy.spaceItems[0]).not.toHaveProperty("spacePurpose");
+      expect(withPurposes.spaceItems[0]).toMatchObject({
+        spaceId: "space-alpha",
+        spacePurpose: "project_alpha",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("hides legacy Welcoming Spaces from current account and organization lists", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Mira's OpenMeld Welcoming Space",
+          purpose: "openmeld_welcoming_space",
+          spaceId: "space-welcome",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-10T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Mira",
+            spaceId: "space-welcome",
+          }),
+        ],
+      });
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Project Alpha",
+          spaceId: "space-alpha",
+          updatedAt: "2026-04-11T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-11T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Mira",
+            spaceId: "space-alpha",
+          }),
+        ],
+      });
+
+      const accountSpaces = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        includePurposes: true,
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+      const organizationSpaces = await listOrganizationSpacesFromSpaceIndex({
+        db: harness.db,
+        generatedAt: "2026-04-12T00:00:00.000Z",
+        limit: 10,
+        organizationId: "org-1",
+        ownerUserId: "owner-1",
+      });
+
+      expect(accountSpaces.spaceItems.map((item) => item.spaceId)).toEqual([
+        "space-alpha",
+      ]);
+      expect(organizationSpaces.spaces.map((item) => item.spaceId)).toEqual([
+        "space-alpha",
+      ]);
+      expect(organizationSpaces.spaces[0]?.activeMemberCount).toBe(1);
+
+      await harness.db
+        .prepare(
+          "UPDATE space_index_spaces SET active_member_count = NULL WHERE space_id = ?"
+        )
+        .bind("space-alpha")
+        .run();
+      const organizationSpacesWithUnknownCount =
+        await listOrganizationSpacesFromSpaceIndex({
+          db: harness.db,
+          generatedAt: "2026-04-12T00:01:00.000Z",
+          limit: 10,
+          organizationId: "org-1",
+          ownerUserId: "owner-1",
+        });
+      expect(
+        organizationSpacesWithUnknownCount.spaces[0]?.activeMemberCount
+      ).toBeNull();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("filters Center Agent DMs from AccountSpaces without hiding ordinary DMs", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      seedCenterAgentDesignation(harness, {
+        agentProfileId: "agent-center",
+        organizationId: "org-1",
+      });
+
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          directMessagePairKey: "agent-center:human-1",
+          name: "Mira and Center Agent",
+          purpose: "openmeld_dm_space",
+          spaceId: "space-center-agent-dm",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-10T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Mira",
+            spaceId: "space-center-agent-dm",
+          }),
+          createMember({
+            addedAt: "2026-04-10T00:02:00.000Z",
+            profileId: "agent-center",
+            profileKindSnapshot: "agent",
+            profileNameSnapshot: "Center Agent",
+            spaceId: "space-center-agent-dm",
+          }),
+        ],
+      });
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          directMessagePairKey: "agent-helper:human-1",
+          name: "Mira and Helper Agent",
+          purpose: "openmeld_dm_space",
+          spaceId: "space-ordinary-agent-dm",
+          updatedAt: "2026-04-11T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-11T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Mira",
+            spaceId: "space-ordinary-agent-dm",
+          }),
+          createMember({
+            addedAt: "2026-04-11T00:02:00.000Z",
+            profileId: "agent-helper",
+            profileKindSnapshot: "agent",
+            profileNameSnapshot: "Helper Agent",
+            spaceId: "space-ordinary-agent-dm",
+          }),
+        ],
+      });
+
+      const accountSpaces = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+
+      expect(accountSpaces.spaceItems.map((item) => item.spaceId)).toEqual([
+        "space-ordinary-agent-dm",
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps each account Space open profile scoped to that Space history", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Human Last",
+          spaceId: "space-human-last",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-10T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Test 1",
+            spaceId: "space-human-last",
+          }),
+          createMember({
+            addedAt: "2026-04-10T00:02:00.000Z",
+            profileId: "agent-1",
+            profileKindSnapshot: "agent",
+            profileNameSnapshot: "Codex",
+            spaceId: "space-human-last",
+          }),
+        ],
+      });
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Agent Last",
+          spaceId: "space-agent-last",
+          updatedAt: "2026-04-11T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-11T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Test 1",
+            spaceId: "space-agent-last",
+          }),
+          createMember({
+            addedAt: "2026-04-11T00:02:00.000Z",
+            profileId: "agent-1",
+            profileKindSnapshot: "agent",
+            profileNameSnapshot: "Codex",
+            spaceId: "space-agent-last",
+          }),
+        ],
+      });
+      seedMembershipOverlay(harness, {
+        lastJoinedAt: Date.parse("2026-04-12T00:00:00.000Z"),
+        pinnedAt: null,
+        profileId: "human-1",
+        spaceId: "space-human-last",
+      });
+      seedMembershipOverlay(harness, {
+        lastJoinedAt: Date.parse("2026-04-13T00:00:00.000Z"),
+        pinnedAt: null,
+        profileId: "agent-1",
+        spaceId: "space-agent-last",
+      });
+
+      const accountSpaces = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+
+      expect(
+        accountSpaces.spaceItems.map((item) => ({
+          openProfileId: item.openProfileId,
+          openProfileName: item.openProfileName,
+          spaceId: item.spaceId,
+        }))
+      ).toEqual([
+        {
+          openProfileId: "agent-1",
+          openProfileName: "Codex",
+          spaceId: "space-agent-last",
+        },
+        {
+          openProfileId: "human-1",
+          openProfileName: "Test 1",
+          spaceId: "space-human-last",
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps Space ordering stable when a Space is opened as another profile", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Recently Joined",
+          spaceId: "space-recent",
+          updatedAt: "2026-04-20T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-20T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Test 1",
+            spaceId: "space-recent",
+          }),
+        ],
+      });
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Opened Again",
+          spaceId: "space-opened-again",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-10T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Test 1",
+            spaceId: "space-opened-again",
+          }),
+          createMember({
+            addedAt: "2026-04-10T00:02:00.000Z",
+            profileId: "human-2",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Journey Human",
+            spaceId: "space-opened-again",
+          }),
+        ],
+      });
+      seedMembershipOverlay(harness, {
+        lastJoinedAt: Date.parse("2026-04-10T00:01:00.000Z"),
+        lastSeenTs: Date.parse("2026-06-24T01:46:00.000Z"),
+        pinnedAt: null,
+        profileId: "human-1",
+        spaceId: "space-opened-again",
+      });
+      seedMembershipOverlay(harness, {
+        lastJoinedAt: Date.parse("2026-04-10T00:02:00.000Z"),
+        pinnedAt: null,
+        profileId: "human-2",
+        spaceId: "space-opened-again",
+      });
+
+      const accountSpaces = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+
+      expect(
+        accountSpaces.spaceItems.map((item) => ({
+          openProfileId: item.openProfileId,
+          spaceId: item.spaceId,
+        }))
+      ).toEqual([
+        {
+          openProfileId: "human-1",
+          spaceId: "space-recent",
+        },
+        {
+          openProfileId: "human-1",
+          spaceId: "space-opened-again",
+        },
+      ]);
+      expect(accountSpaces.spaceItems[1]?.lastJoinedAt).toBe(
+        "2026-04-10T00:02:00.000Z"
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps deleted Space evidence before hiding the Space from AccountSpaces", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      const metaRecord = createMeta({
+        name: "Deleted Alpha",
+        spaceId: "space-alpha",
+        updatedAt: "2026-04-10T00:00:00.000Z",
+      });
+      const memberRecords = [
+        createMember({
+          addedAt: "2026-04-10T00:01:00.000Z",
+          profileId: "human-1",
+          profileKindSnapshot: "human",
+          profileNameSnapshot: "Mira",
+          spaceId: "space-alpha",
+        }),
+      ];
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord,
+        memberRecords,
+      });
+      await projectDeletedSpaceIndexSnapshot({
+        db: harness.db,
+        deletedAt: "2026-04-10T00:05:00.000Z",
+        deletedByOwnerUserId: "owner-1",
+        deletedByProfileId: "human-1",
+        deletedByProfileName: "Mira",
+        eventType: "space.deleted",
+        metaRecord,
+        memberRecords,
+      });
+
+      const accountSpaces = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+      const deletedSpaceRow = harness.queryFirst<{
+        deleted_at_ms: number | null;
+        status: string;
+      }>({
+        params: ["space-alpha"],
+        sql: `
+          SELECT status, deleted_at_ms
+          FROM space_index_spaces
+          WHERE space_id = ?
+        `,
+      });
+      const deletedMembershipRow = harness.queryFirst<{
+        removal_reason: string | null;
+        status: string;
+      }>({
+        params: ["space-alpha", "human-1"],
+        sql: `
+          SELECT status, removal_reason
+          FROM space_index_memberships
+          WHERE space_id = ? AND profile_id = ?
+        `,
+      });
+      const deletionEventRow = harness.queryFirst<{ event_type: string }>({
+        params: ["space-alpha"],
+        sql: `
+          SELECT event_type
+          FROM space_index_projection_events
+          WHERE space_id = ?
+          ORDER BY source_updated_at_ms DESC
+          LIMIT 1
+        `,
+      });
+
+      expect(accountSpaces).toEqual({
+        pinnedItems: [],
+        spaceItems: [],
+      });
+      expect(deletedSpaceRow).toEqual({
+        deleted_at_ms: Date.parse("2026-04-10T00:05:00.000Z"),
+        status: "deleted",
+      });
+      expect(deletedMembershipRow).toEqual({
+        removal_reason: "space_deleted",
+        status: "removed",
+      });
+      expect(deletionEventRow).toEqual({ event_type: "space.deleted" });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("records member update projection evidence when only membership truth changes", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      const metaRecord = createMeta({
+        name: "Membership Alpha",
+        spaceId: "space-alpha",
+        updatedAt: "2026-04-10T00:00:00.000Z",
+      });
+      const humanMember = createMember({
+        addedAt: "2026-04-10T00:01:00.000Z",
+        profileId: "human-1",
+        profileKindSnapshot: "human",
+        profileNameSnapshot: "Mira",
+        spaceId: "space-alpha",
+      });
+
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.members_updated",
+        metaRecord,
+        memberRecords: [humanMember],
+      });
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.members_updated",
+        metaRecord,
+        memberRecords: [
+          humanMember,
+          createMember({
+            addedAt: "2026-04-10T00:02:00.000Z",
+            profileId: "agent-1",
+            profileKindSnapshot: "agent",
+            profileNameSnapshot: "Codex",
+            spaceId: "space-alpha",
+          }),
+        ],
+      });
+
+      const projectionEvents = harness.queryAll<{
+        event_type: string;
+        source_updated_at_ms: number;
+      }>({
+        params: ["space-alpha", "space.members_updated"],
+        sql: `
+          SELECT event_type, source_updated_at_ms
+          FROM space_index_projection_events
+          WHERE space_id = ?
+            AND event_type = ?
+          ORDER BY source_updated_at_ms ASC
+        `,
+      });
+
+      expect(projectionEvents).toEqual([
+        {
+          event_type: "space.members_updated",
+          source_updated_at_ms: Date.parse("2026-04-10T00:01:00.000Z"),
+        },
+        {
+          event_type: "space.members_updated",
+          source_updated_at_ms: Date.parse("2026-04-10T00:02:00.000Z"),
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("does not write a completed event when projection rows fail and reports the partial row", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      const oldMeta = createMeta({
+        name: "Old Alpha",
+        spaceId: "space-alpha",
+        updatedAt: "2026-04-10T00:00:00.000Z",
+      });
+      const humanMember = createMember({
+        addedAt: "2026-04-10T00:01:00.000Z",
+        profileId: "human-1",
+        profileKindSnapshot: "human",
+        profileNameSnapshot: "Mira",
+        spaceId: "space-alpha",
+      });
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: oldMeta,
+        memberRecords: [humanMember],
+      });
+
+      await expect(
+        projectActiveSpaceIndexSnapshot({
+          db: createProjectionFailureDb({
+            db: harness.db,
+            failOnSql: "INSERT INTO space_index_memberships",
+          }),
+          eventType: "space.members_updated",
+          metaRecord: createMeta({
+            name: "Renamed Alpha",
+            spaceId: "space-alpha",
+            updatedAt: "2026-04-10T00:10:00.000Z",
+          }),
+          memberRecords: [
+            humanMember,
+            createMember({
+              addedAt: "2026-04-10T00:11:00.000Z",
+              profileId: "agent-1",
+              profileKindSnapshot: "agent",
+              profileNameSnapshot: "Codex",
+              spaceId: "space-alpha",
+            }),
+          ],
+        })
+      ).rejects.toThrow("injected projection failure");
+
+      const completedProjectionEvent = harness.queryFirst<{
+        event_type: string;
+        projection_event_id: string;
+      }>({
+        params: ["space-alpha", "space.members_updated"],
+        sql: `
+          SELECT projection_event_id, event_type
+          FROM space_index_projection_events
+          WHERE space_id = ? AND event_type = ?
+          ORDER BY source_updated_at_ms DESC
+          LIMIT 1
+        `,
+      });
+      const indexedProfiles = harness.queryAll<{ profile_id: string }>({
+        params: ["space-alpha"],
+        sql: `
+          SELECT profile_id
+          FROM space_index_memberships
+          WHERE space_id = ?
+          ORDER BY profile_id ASC
+        `,
+      });
+      const accountSpaces = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+      const diagnostic = await diagnoseSpaceIndexProjectionDrift({
+        db: harness.db,
+        spaceId: "space-alpha",
+      });
+
+      expect(completedProjectionEvent).toBeNull();
+      expect(indexedProfiles).toEqual([{ profile_id: "human-1" }]);
+      expect(accountSpaces.spaceItems[0]).toMatchObject({
+        joinedProfiles: [
+          {
+            lastJoinedAt: "2026-04-10T00:01:00.000Z",
+            pinnedAt: null,
+            profileId: "human-1",
+            profileName: "Mira",
+          },
+        ],
+        spaceId: "space-alpha",
+        spaceName: "Renamed Alpha",
+      });
+      expect(diagnostic.ok).toBe(false);
+      expect(diagnostic.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "space_index_space_missing_completed_event",
+            spaceId: "space-alpha",
+          }),
+        ])
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("detects a completed projection event whose membership rows are incomplete", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      const oldMeta = createMeta({
+        name: "Old Alpha",
+        spaceId: "space-alpha",
+        updatedAt: "2026-04-10T00:00:00.000Z",
+      });
+      const humanMember = createMember({
+        addedAt: "2026-04-10T00:01:00.000Z",
+        profileId: "human-1",
+        profileKindSnapshot: "human",
+        profileNameSnapshot: "Mira",
+        spaceId: "space-alpha",
+      });
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: oldMeta,
+        memberRecords: [humanMember],
+      });
+
+      const partialEventId = "spidx_projection_legacy_partial";
+      harness.run({
+        params: [
+          partialEventId,
+          "space-alpha",
+          "space.members_updated",
+          Date.parse("2026-04-10T00:11:00.000Z"),
+          Date.parse("2026-04-10T00:11:01.000Z"),
+          JSON.stringify({ memberCount: 2, spaceId: "space-alpha" }),
+        ],
+        sql: `
+          INSERT INTO space_index_projection_events (
+            projection_event_id,
+            space_id,
+            event_type,
+            source_updated_at_ms,
+            projected_at_ms,
+            payload_json
+          )
+          VALUES (?, ?, ?, ?, ?, ?)
+        `,
+      });
+
+      const diagnostic = await diagnoseSpaceIndexProjectionDrift({
+        db: harness.db,
+        spaceId: "space-alpha",
+      });
+
+      expect(diagnostic.ok).toBe(false);
+      expect(diagnostic.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: "space_index_space_behind_completed_event",
+            projectionEventId: partialEventId,
+            spaceId: "space-alpha",
+          }),
+          expect.objectContaining({
+            code: "space_index_projection_event_membership_count_mismatch",
+            projectionEventId: partialEventId,
+            spaceId: "space-alpha",
+          }),
+        ])
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("does not let an older active snapshot resurrect a deleted Space", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      const metaRecord = createMeta({
+        name: "Deleted Alpha",
+        spaceId: "space-alpha",
+        updatedAt: "2026-04-10T00:00:00.000Z",
+      });
+      const memberRecords = [
+        createMember({
+          addedAt: "2026-04-10T00:01:00.000Z",
+          profileId: "human-1",
+          profileKindSnapshot: "human",
+          profileNameSnapshot: "Mira",
+          spaceId: "space-alpha",
+        }),
+      ];
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord,
+        memberRecords,
+      });
+      await projectDeletedSpaceIndexSnapshot({
+        db: harness.db,
+        deletedAt: "2026-04-10T00:05:00.000Z",
+        deletedByOwnerUserId: "owner-1",
+        deletedByProfileId: "human-1",
+        deletedByProfileName: "Mira",
+        eventType: "space.deleted",
+        metaRecord,
+        memberRecords,
+      });
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.index_backfilled",
+        metaRecord,
+        memberRecords,
+      });
+
+      const accountSpaces = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+      const deletedSpaceRow = harness.queryFirst<{ status: string }>({
+        params: ["space-alpha"],
+        sql: `
+          SELECT status
+          FROM space_index_spaces
+          WHERE space_id = ?
+        `,
+      });
+      const deletedMembershipRow = harness.queryFirst<{ status: string }>({
+        params: ["space-alpha", "human-1"],
+        sql: `
+          SELECT status
+          FROM space_index_memberships
+          WHERE space_id = ? AND profile_id = ?
+        `,
+      });
+
+      expect(accountSpaces).toEqual({
+        pinnedItems: [],
+        spaceItems: [],
+      });
+      expect(deletedSpaceRow).toEqual({ status: "deleted" });
+      expect(deletedMembershipRow).toEqual({ status: "removed" });
+    } finally {
+      harness.close();
+    }
+  });
+
+  // Production repro (2026-06-14): a whole-space delete wrote status="deleted",
+  // then a ~13s-delayed `space.members_updated` (source ts BEFORE the delete)
+  // landed just after it and revived the space to "active" because the guard was
+  // a non-atomic JS read-then-write. The guard now lives in the ON CONFLICT WHERE
+  // and is evaluated atomically against the live (deleted) row, so the stale
+  // members_updated cannot resurrect the Space or re-activate the removed member.
+  it("keeps a Space deleted when a stale members_updated lands after the delete", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      const metaRecord = createMeta({
+        name: "Raced Alpha",
+        spaceId: "space-alpha",
+        updatedAt: "2026-04-10T00:00:00.000Z",
+      });
+      const memberRecords = [
+        createMember({
+          addedAt: "2026-04-10T00:01:00.000Z",
+          profileId: "human-1",
+          profileKindSnapshot: "human",
+          profileNameSnapshot: "Mira",
+          spaceId: "space-alpha",
+        }),
+      ];
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.members_updated",
+        metaRecord,
+        memberRecords,
+      });
+      await projectDeletedSpaceIndexSnapshot({
+        db: harness.db,
+        deletedAt: "2026-04-10T00:05:00.000Z",
+        deletedByOwnerUserId: "owner-1",
+        deletedByProfileId: "human-1",
+        deletedByProfileName: "Mira",
+        eventType: "space.deleted",
+        metaRecord,
+        memberRecords,
+      });
+      // Stale members_updated (source ts 00:00:00 < delete 00:05:00) applied late.
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.members_updated",
+        metaRecord,
+        memberRecords,
+      });
+
+      const accountSpaces = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+      const spaceRow = harness.queryFirst<{ status: string }>({
+        params: ["space-alpha"],
+        sql: "SELECT status FROM space_index_spaces WHERE space_id = ?",
+      });
+      const membershipRow = harness.queryFirst<{ status: string }>({
+        params: ["space-alpha", "human-1"],
+        sql: "SELECT status FROM space_index_memberships WHERE space_id = ? AND profile_id = ?",
+      });
+
+      expect(accountSpaces).toEqual({
+        pinnedItems: [],
+        spaceItems: [],
+      });
+      expect(spaceRow).toEqual({ status: "deleted" });
+      expect(membershipRow).toEqual({ status: "removed" });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("surfaces a recently deleted Space as a one-time notice with who deleted it", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      const metaRecord = createMeta({
+        name: "Soon Deleted",
+        spaceId: "space-del",
+        updatedAt: "2026-04-10T00:00:00.000Z",
+      });
+      const memberRecords = [
+        createMember({
+          addedAt: "2026-04-10T00:01:00.000Z",
+          profileId: "human-1",
+          profileKindSnapshot: "human",
+          profileNameSnapshot: "Mira",
+          spaceId: "space-del",
+        }),
+      ];
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord,
+        memberRecords,
+      });
+      // Deleted just now -> inside the recent-notice window.
+      await projectDeletedSpaceIndexSnapshot({
+        db: harness.db,
+        deletedAt: new Date(Date.now() - 60_000).toISOString(),
+        deletedByOwnerUserId: "owner-1",
+        deletedByProfileId: "human-1",
+        deletedByProfileName: "Mira",
+        eventType: "space.deleted",
+        metaRecord,
+        memberRecords,
+      });
+
+      const result = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        includeRecentlyDeletedItems: true,
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+
+      // The deleted Space is hidden from the active lists but surfaced once as a
+      // notice carrying who deleted it.
+      expect(result.pinnedItems).toHaveLength(0);
+      expect(result.spaceItems).toHaveLength(0);
+      expect(result.recentlyDeletedItems).toEqual([
+        {
+          deletedAt: expect.any(String),
+          deletedByProfileName: "Mira",
+          spaceId: "space-del",
+          spaceName: "Soon Deleted",
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("does not let history overlay resurrect removed members or deleted Spaces", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      const removedMeta = createMeta({
+        name: "Removed Member Alpha",
+        spaceId: "space-removed-member",
+        updatedAt: "2026-04-10T00:00:00.000Z",
+      });
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.members_updated",
+        metaRecord: removedMeta,
+        memberRecords: [
+          createRemovedMember({
+            addedAt: "2026-04-10T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Mira",
+            removedAt: "2026-04-10T00:02:00.000Z",
+            spaceId: "space-removed-member",
+          }),
+        ],
+      });
+      seedMembershipOverlay(harness, {
+        lastJoinedAt: Date.parse("2026-04-12T00:00:00.000Z"),
+        pinnedAt: Date.parse("2026-04-13T00:00:00.000Z"),
+        profileId: "human-1",
+        spaceId: "space-removed-member",
+      });
+
+      const deletedMeta = createMeta({
+        name: "Deleted Overlay Alpha",
+        spaceId: "space-deleted-overlay",
+        updatedAt: "2026-04-11T00:00:00.000Z",
+      });
+      const deletedMembers = [
+        createMember({
+          addedAt: "2026-04-11T00:01:00.000Z",
+          profileId: "human-1",
+          profileKindSnapshot: "human",
+          profileNameSnapshot: "Mira",
+          spaceId: "space-deleted-overlay",
+        }),
+      ];
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: deletedMeta,
+        memberRecords: deletedMembers,
+      });
+      await projectDeletedSpaceIndexSnapshot({
+        db: harness.db,
+        deletedAt: "2026-04-11T00:05:00.000Z",
+        deletedByOwnerUserId: "owner-1",
+        deletedByProfileId: "human-1",
+        deletedByProfileName: "Mira",
+        eventType: "space.deleted",
+        metaRecord: deletedMeta,
+        memberRecords: deletedMembers,
+      });
+      seedMembershipOverlay(harness, {
+        lastJoinedAt: Date.parse("2026-04-14T00:00:00.000Z"),
+        pinnedAt: Date.parse("2026-04-15T00:00:00.000Z"),
+        profileId: "human-1",
+        spaceId: "space-deleted-overlay",
+      });
+
+      const accountSpaces = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+      const profileSpaces = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "profile",
+        selectedProfileId: "human-1",
+      });
+
+      expect(accountSpaces).toEqual({
+        pinnedItems: [],
+        spaceItems: [],
+      });
+      expect(profileSpaces).toEqual({
+        pinnedItems: [],
+        spaceItems: [],
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  // P0.3 equivalence proof (physical-db-split.md): the overlay read is
+  // gateway-host scoped exactly like the old `h.gateway_host = ?` JOIN
+  // predicate. Overlay stored for one host must NOT surface to a query for a
+  // different host; the space itself still lists (membership is host-agnostic),
+  // only the pin/last-joined overlay is gated.
+  it("scopes overlay to the matching gateway host and ignores a mismatched host", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Host Scoped",
+          spaceId: "space-host",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-10T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Mira",
+            spaceId: "space-host",
+          }),
+        ],
+      });
+      // Overlay stored under a DIFFERENT gateway host than the reader uses.
+      harness.run({
+        params: [
+          "other.example",
+          Date.parse("2026-04-13T00:00:00.000Z"),
+          Date.parse("2026-04-12T00:00:00.000Z"),
+          Date.parse("2026-04-12T00:00:00.000Z"),
+          "space-host",
+          "human-1",
+        ],
+        sql: `
+          UPDATE space_index_memberships SET
+            overlay_gateway_host = ?,
+            overlay_pinned_at_ms = ?,
+            overlay_last_joined_at_ms = ?,
+            overlay_updated_at_ms = ?
+          WHERE space_id = ? AND profile_id = ?
+        `,
+      });
+
+      const mismatched = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+      // Space still lists, but the cross-host overlay must NOT pin it.
+      expect(mismatched.pinnedItems).toHaveLength(0);
+      expect(mismatched.spaceItems.map((item) => item.spaceId)).toEqual([
+        "space-host",
+      ]);
+      expect(mismatched.spaceItems[0]?.pinnedAt ?? null).toBeNull();
+
+      const matched = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "other.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+      // Same overlay row, queried under its own host, DOES surface and pins.
+      expect(matched.pinnedItems.map((item) => item.spaceId)).toEqual([
+        "space-host",
+      ]);
+      expect(matched.pinnedItems[0]?.pinnedAt).toBe("2026-04-13T00:00:00.000Z");
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("lists visible space ids with the same membership predicates as the account read", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: createMeta({
+          name: "Alpha",
+          spaceId: "space-alpha",
+          updatedAt: "2026-04-10T00:00:00.000Z",
+        }),
+        memberRecords: [
+          createMember({
+            addedAt: "2026-04-10T00:01:00.000Z",
+            profileId: "human-1",
+            profileKindSnapshot: "human",
+            profileNameSnapshot: "Mira",
+            spaceId: "space-alpha",
+          }),
+        ],
+      });
+      const betaMetaRecord = createMeta({
+        name: "Beta",
+        spaceId: "space-beta",
+        updatedAt: "2026-04-11T00:00:00.000Z",
+      });
+      const betaMemberRecords = [
+        createMember({
+          addedAt: "2026-04-11T00:01:00.000Z",
+          profileId: "human-1",
+          profileKindSnapshot: "human",
+          profileNameSnapshot: "Mira",
+          spaceId: "space-beta",
+        }),
+      ];
+      await projectActiveSpaceIndexSnapshot({
+        db: harness.db,
+        eventType: "space.created",
+        metaRecord: betaMetaRecord,
+        memberRecords: betaMemberRecords,
+      });
+      await projectDeletedSpaceIndexSnapshot({
+        db: harness.db,
+        deletedAt: "2026-04-12T00:00:00.000Z",
+        deletedByOwnerUserId: "owner-1",
+        deletedByProfileId: "human-1",
+        deletedByProfileName: "Mira",
+        eventType: "space.deleted",
+        metaRecord: betaMetaRecord,
+        memberRecords: betaMemberRecords,
+      });
+
+      const spaceIds = await listAccountSpaceIdsFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 10,
+        ownerUserId: "owner-1",
+      });
+      expect(spaceIds).toEqual(["space-alpha"]);
+
+      await expect(
+        listAccountSpaceIdsFromSpaceIndex({
+          db: harness.db,
+          gatewayHost: "gateway.testing.example",
+          limit: 10,
+          ownerUserId: "owner-unknown",
+        })
+      ).resolves.toEqual([]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("uses the exact account sidebar candidate ordering for bounded fan-out", async () => {
+    const harness = createSpaceIndexHarness();
+    try {
+      for (const [spaceId, name, addedAt] of [
+        ["space-first", "First", "2026-04-10T00:01:00.000Z"],
+        ["space-pinned", "Pinned", "2026-04-11T00:01:00.000Z"],
+      ] as const) {
+        await projectActiveSpaceIndexSnapshot({
+          db: harness.db,
+          eventType: "space.created",
+          metaRecord: createMeta({ name, spaceId, updatedAt: addedAt }),
+          memberRecords: [
+            createMember({
+              addedAt,
+              profileId: "human-1",
+              profileKindSnapshot: "human",
+              profileNameSnapshot: "Mira",
+              spaceId,
+            }),
+          ],
+        });
+      }
+      seedMembershipOverlay(harness, {
+        lastJoinedAt: Date.parse("2026-04-10T00:01:00.000Z"),
+        pinnedAt: Date.parse("2026-04-12T00:00:00.000Z"),
+        profileId: "human-1",
+        spaceId: "space-first",
+      });
+
+      const sidebar = await listAccountSpacesFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 1,
+        ownerUserId: "owner-1",
+        scope: "account",
+        selectedProfileId: "human-1",
+      });
+      const fanOutIds = await listAccountSpaceIdsFromSpaceIndex({
+        db: harness.db,
+        gatewayHost: "gateway.testing.example",
+        limit: 1,
+        ownerUserId: "owner-1",
+      });
+
+      expect(fanOutIds).toEqual(
+        [...sidebar.pinnedItems, ...sidebar.spaceItems].map(
+          (item) => item.spaceId
+        )
+      );
+      expect(fanOutIds).toEqual(["space-first"]);
+    } finally {
+      harness.close();
+    }
+  });
+});
+
+function createSpaceIndexHarness() {
+  const harness = createSqliteD1Harness();
+  applyDrizzleMigrationsForTables(harness, SPACE_INDEX_TABLE_NAMES);
+  for (const sql of SPACE_INDEX_AUXILIARY_TABLES_SQL) {
+    harness.run({ sql });
+  }
+  return harness;
+}
+
+function createMeta(input: {
+  directMessagePairKey?: string;
+  name: string;
+  organizationId?: string;
+  purpose?: string | null;
+  spaceId: string;
+  updatedAt: string;
+  visibility?: "public" | "private";
+}): SpaceMetaRecord {
+  return {
+    v: 1,
+    accessMode: "public",
+    createdAt: "2026-04-09T00:00:00.000Z",
+    creator: {
+      kind: "human",
+      ownerUserId: "owner-1",
+      profileId: "human-1",
+      profileName: "Mira",
+    },
+    ...(typeof input.directMessagePairKey === "string"
+      ? { directMessage: { pairKey: input.directMessagePairKey } }
+      : {}),
+    name: input.name,
+    organizationId: input.organizationId ?? "org-1",
+    ...(typeof input.purpose === "string" ? { purpose: input.purpose } : {}),
+    spaceId: input.spaceId,
+    updatedAt: input.updatedAt,
+    visibility: input.visibility ?? "private",
+  };
+}
+
+function createMember(input: {
+  addedAt: string;
+  profileId: string;
+  profileKindSnapshot: "human" | "agent";
+  profileNameSnapshot: string;
+  spaceId: string;
+}): SpaceMemberRecord {
+  return {
+    addedAt: input.addedAt,
+    addedByDisplayNameSnapshot: "Mira",
+    addedByOwnerUserId: "owner-1",
+    addedByProfileId: "human-1",
+    controllerRefSnapshot: null,
+    createdAt: input.addedAt,
+    firstEnteredAt: null,
+    lastEnteredAt: null,
+    memberSource:
+      input.profileKindSnapshot === "human"
+        ? "space_creator"
+        : "added_by_member",
+    ownerNameSnapshot: "Mira",
+    ownerUserIdSnapshot: "owner-1",
+    profileId: input.profileId,
+    profileKindSnapshot: input.profileKindSnapshot,
+    profileNameSnapshot: input.profileNameSnapshot,
+    removalReason: null,
+    removedAt: null,
+    removedByOwnerUserId: null,
+    removedByProfileId: null,
+    spaceId: input.spaceId,
+    status: "active",
+    updatedAt: input.addedAt,
+  };
+}
+
+function createRemovedMember(input: {
+  addedAt: string;
+  profileId: string;
+  profileKindSnapshot: "human" | "agent";
+  profileNameSnapshot: string;
+  removedAt: string;
+  spaceId: string;
+}): SpaceMemberRecord {
+  return {
+    ...createMember(input),
+    removalReason: "removed_by_member",
+    removedAt: input.removedAt,
+    removedByOwnerUserId: "owner-1",
+    removedByProfileId: "human-1",
+    status: "removed",
+    updatedAt: input.removedAt,
+  };
+}
+
+function createProjectionFailureDb(input: {
+  db: D1Database;
+  failOnSql: string;
+}): D1Database {
+  return {
+    ...input.db,
+    prepare: (sql: string) => {
+      if (sql.includes(input.failOnSql)) {
+        throw new Error(`injected projection failure: ${input.failOnSql}`);
+      }
+      return input.db.prepare(sql);
+    },
+  } as D1Database;
+}
+
+function seedMembershipOverlay(
+  harness: ReturnType<typeof createSqliteD1Harness>,
+  input: {
+    lastJoinedAt: number;
+    lastSeenTs?: number | null;
+    pinnedAt: number | null;
+    profileId: string;
+    spaceId: string;
+  }
+): void {
+  // Overlay values now live as projected columns on the membership row
+  // (physical-db-split.md P0.3); the cross-domain history JOIN is gone.
+  harness.run({
+    params: [
+      "gateway.testing.example",
+      input.pinnedAt,
+      input.lastJoinedAt,
+      input.lastSeenTs ?? null,
+      input.lastJoinedAt,
+      input.spaceId,
+      input.profileId,
+    ],
+    sql: `
+      UPDATE space_index_memberships SET
+        overlay_gateway_host = ?,
+        overlay_pinned_at_ms = ?,
+        overlay_last_joined_at_ms = ?,
+        overlay_last_seen_ts = ?,
+        overlay_updated_at_ms = ?
+      WHERE space_id = ? AND profile_id = ?
+    `,
+  });
+}
+
+function seedCenterAgentDesignation(
+  harness: ReturnType<typeof createSqliteD1Harness>,
+  input: {
+    agentProfileId: string;
+    organizationId: string;
+  }
+): void {
+  harness.run({
+    params: [input.organizationId, input.agentProfileId, "owner-1", 100],
+    sql: `
+      INSERT INTO center_agent_designations (
+        organization_id,
+        agent_profile_id,
+        designated_by,
+        created_at
+      )
+      VALUES (?, ?, ?, ?)
+    `,
+  });
+}
+
+const SPACE_INDEX_TABLE_NAMES = [
+  "space_index_spaces",
+  "space_index_memberships",
+  "space_index_projection_events",
+] as const;
+
+const SPACE_INDEX_AUXILIARY_TABLES_SQL = [
+  `
+    CREATE TABLE center_agent_designations (
+      organization_id TEXT PRIMARY KEY,
+      agent_profile_id TEXT NOT NULL,
+      duty TEXT,
+      designated_by TEXT NOT NULL,
+      operating_state TEXT NOT NULL DEFAULT 'active',
+      paused_at INTEGER,
+      paused_by_user_id TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `,
+  `
+    CREATE TABLE openmeld_profile_space_history (
+      profile_id TEXT NOT NULL,
+      gateway_host TEXT NOT NULL,
+      space_id TEXT NOT NULL,
+      space_name TEXT,
+      creator_profile_id TEXT,
+      creator_kind TEXT,
+      space_created_at INTEGER,
+      space_updated_at INTEGER,
+      last_joined_at INTEGER NOT NULL,
+      last_seen_ts INTEGER,
+      pinned_at INTEGER,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(profile_id, gateway_host, space_id)
+    )
+  `,
+] as const;

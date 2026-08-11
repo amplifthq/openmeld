@@ -1,0 +1,117 @@
+import { z } from "zod/v4";
+import { runtimeCoordinatorExecutionRecordSchema } from "../daemon/runtime-coordinator-execution";
+import { agentInteractionPendingSummarySchema } from "../protocol/agent-interaction";
+import { clientMessageIdSchema } from "../protocol/client-message-id";
+import {
+  nonEmptyTrimmedStringFromUnknown,
+  optionalBooleanQuerySchema,
+} from "../protocol/shared";
+
+const optionalSelectorSchema = z.preprocess((value) => {
+  const normalized = String(value ?? "").trim();
+  return normalized.length > 0 ? normalized : undefined;
+}, z.string().min(1).optional());
+
+export const wakeProgressPhaseSchema = z.enum([
+  "sending",
+  "request_sent",
+  "queued",
+  "connecting",
+  "running",
+  "writing",
+  "publishing",
+  "publication_unknown",
+  "retrying",
+  "failed",
+  "stopped",
+  "replied",
+]);
+
+export const wakeStopEligibilityReasonCodeSchema = z.enum([
+  "agent_controller_interface.cancel_required",
+  "agent_controller_interface.missing",
+  "agent_controller_interface.stop_unsupported",
+  "runtime_coordinator.pre_agent_stop_available",
+  "runtime_coordinator.pre_agent_stop_unavailable",
+]);
+
+export const wakeStopEligibilityReadModelSchema = z.union([
+  z.strictObject({
+    controlMode: z.literal("openmeld_owned_pre_agent_cancel"),
+    reasonCode: z.null(),
+    reliability: z.literal("openmeld_owned_pre_agent"),
+    status: z.literal("eligible"),
+  }),
+  z.strictObject({
+    controlMode: z.literal("cancel"),
+    reasonCode: z.null(),
+    reliability: z.literal("native_cancel"),
+    status: z.literal("eligible"),
+  }),
+  z.strictObject({
+    controlMode: z.literal("interrupt"),
+    reasonCode: z.null(),
+    reliability: z.literal("native_interrupt"),
+    status: z.literal("eligible"),
+  }),
+  z.strictObject({
+    controlMode: z.null(),
+    reasonCode: wakeStopEligibilityReasonCodeSchema,
+    reliability: z.literal("unsupported"),
+    status: z.literal("not_eligible"),
+  }),
+]);
+
+export const wakeProgressItemSchema = z.strictObject({
+  clientMessageId: clientMessageIdSchema.nullable(),
+  sourceSignalId: z.string().trim().min(1).nullable(),
+  dispatchId: z.string().trim().min(1).nullable(),
+  runtimeCoordinatorExecutionId:
+    runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId
+      .nullable()
+      .optional(),
+  targetProfileId: z.string().trim().min(1),
+  targetLabel: z.string().trim().min(1),
+  phase: wakeProgressPhaseSchema,
+  failureReasonCode: z.string().trim().min(1).nullable().optional(),
+  message: z.string().trim().min(1),
+  startedAtMs: z.int().min(0).optional(),
+  updatedAtMs: z.int().min(0),
+  terminal: z.boolean(),
+  wakeStopEligibility: wakeStopEligibilityReadModelSchema.nullable().optional(),
+  pendingInteraction: agentInteractionPendingSummarySchema
+    .nullable()
+    .optional(),
+});
+
+export const getSpaceWakeProgressInputSchema = z.strictObject({
+  spaceId: nonEmptyTrimmedStringFromUnknown,
+  clientMessageId: clientMessageIdSchema,
+  includeTiming: optionalBooleanQuerySchema,
+  includeWakeStopEligibility: optionalBooleanQuerySchema,
+  targetProfileId: optionalSelectorSchema,
+});
+
+export const getSpaceWakeProgressResponseSchema = z.strictObject({
+  query: z.strictObject({
+    spaceId: z.string().trim().min(1),
+    clientMessageId: clientMessageIdSchema.nullable(),
+    targetProfileId: z.string().trim().min(1).nullable(),
+  }),
+  items: z.array(wakeProgressItemSchema),
+});
+
+export const getActiveSpaceWakeProgressInputSchema = z.strictObject({
+  spaceId: nonEmptyTrimmedStringFromUnknown,
+  includeTiming: optionalBooleanQuerySchema,
+  includeWakeStopEligibility: optionalBooleanQuerySchema,
+  targetProfileId: optionalSelectorSchema,
+});
+
+export const getActiveSpaceWakeProgressResponseSchema = z.strictObject({
+  query: z.strictObject({
+    spaceId: z.string().trim().min(1),
+    targetProfileId: z.string().trim().min(1).nullable(),
+  }),
+  items: z.array(wakeProgressItemSchema),
+});

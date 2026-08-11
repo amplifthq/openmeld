@@ -1,0 +1,26 @@
+{
+  "$source": "Reduced from the pinned Wrangler 4.110.0 deployments list --json and versions list --json vendor serializers.",
+  "deployments": [
+    {
+      "created_on": "2026-07-17T00:00:00.000Z",
+      "id": "22222222-2222-2222-2222-222222222222",
+      "versions": [
+        {
+          "percentage": 100,
+          "version_id": "11111111-1111-1111-1111-111111111111"
+        }
+      ]
+    }
+  ],
+  "versions": [
+    {
+      "annotations": {
+        "workers/tag": "openmeld-release-1234567890abcdef"
+      },
+      "id": "11111111-1111-1111-1111-111111111111",
+      "metadata": {
+        "created_on": "2026-07-17T00:00:00.000Z"
+      }
+    }
+  ]
+}

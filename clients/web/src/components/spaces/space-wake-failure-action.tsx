@@ -1,0 +1,78 @@
+import { buttonVariants } from "@openmeld/ui/components/button";
+import { cn } from "@openmeld/ui/lib/utils";
+import { ArrowSquareOutIcon, WrenchIcon } from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
+import {
+	buildOrganizationComputersPath,
+	buildOrganizationWakeAccessPath,
+} from "#/lib/organizations/organization-routes";
+import { buildProfileHomeRoutes } from "#/lib/profile-routes";
+import type { WakeFailureDisplay } from "#/lib/spaces/wake-failure-display";
+
+export function SpaceWakeFailureActionControl(input: {
+	className?: string;
+	display: WakeFailureDisplay;
+	orgSlug: string;
+	prepareSetupHref?: string;
+}) {
+	const orgSlug = input.orgSlug;
+	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);
+	if (input.display.actionTarget === null) {
+		return null;
+	}
+	if (input.display.actionTarget === "cursor_account") {
+		return (
+			<a
+				className={cn(
+					buttonVariants({ size: "sm", variant: "outline" }),
+					"text-foreground",
+					input.className
+				)}
+				href="https://cursor.com/dashboard"
+				rel="noreferrer"
+				target="_blank"
+			>
+				<ArrowSquareOutIcon aria-hidden="true" data-icon="inline-start" />
+				{input.display.primaryActionLabel}
+			</a>
+		);
+	}
+
+	const href = resolveWakeFailureActionHref({
+		actionTarget: input.display.actionTarget,
+		orgSlug,
+		prepareSetupHref: input.prepareSetupHref,
+		directoryAgentsPath: profileHomeRoutes.agents,
+	});
+
+	return (
+		<Link
+			className={cn(
+				buttonVariants({ size: "sm", variant: "outline" }),
+				"text-foreground",
+				input.className
+			)}
+			to={href}
+		>
+			<WrenchIcon aria-hidden="true" data-icon="inline-start" />
+			{input.display.primaryActionLabel}
+		</Link>
+	);
+}
+
+function resolveWakeFailureActionHref(input: {
+	actionTarget: Exclude<WakeFailureDisplay["actionTarget"], null>;
+	orgSlug: string;
+	prepareSetupHref?: string;
+	directoryAgentsPath: string;
+}): string {
+	if (input.actionTarget === "prepare_setup") {
+		return (
+			input.prepareSetupHref ?? buildOrganizationComputersPath(input.orgSlug)
+		);
+	}
+	if (input.actionTarget === "org_wake_access") {
+		return buildOrganizationWakeAccessPath(input.orgSlug);
+	}
+	return input.directoryAgentsPath;
+}

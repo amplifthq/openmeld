@@ -1,0 +1,344 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://openmeld.local/schemas/agents-registry.schema.json",
+  "title": "OpenMeld Agents Registry",
+  "description": "Single source configuration for agent detection, skills installability, and runtime support capability.",
+  "type": "object",
+  "required": ["schemaVersion", "agents"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "agents": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/agent"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "agent": {
+      "type": "object",
+      "required": [
+        "id",
+        "displayName",
+        "category",
+        "detection",
+        "service",
+        "runtime"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-_.]*$"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "enum": ["builtin", "custom"]
+        },
+        "detection": {
+          "$ref": "#/$defs/detection"
+        },
+        "service": {
+          "$ref": "#/$defs/service"
+        },
+        "runtime": {
+          "$ref": "#/$defs/runtimeSupport"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/lifecycle"
+        },
+        "originLaunch": {
+          "$ref": "#/$defs/originLaunch"
+        },
+        "skillsDir": {
+          "type": "string",
+          "minLength": 1
+        },
+        "globalSkillsDir": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          ]
+        },
+        "transportModes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["local-cli", "codex-app-server", "acp"]
+          }
+        },
+        "defaultTransportMode": {
+          "type": "string",
+          "enum": ["local-cli", "codex-app-server", "acp"]
+        },
+        "defaultStreamingMode": {
+          "type": "string",
+          "enum": ["final", "stream"]
+        },
+        "notes": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "runtime": {
+                "type": "object",
+                "properties": {
+                  "supported": {
+                    "const": false
+                  }
+                },
+                "required": ["supported"]
+              }
+            },
+            "required": ["runtime"]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": ["transportModes"]
+                },
+                {
+                  "required": ["defaultTransportMode"]
+                },
+                {
+                  "required": ["defaultStreamingMode"]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["defaultTransportMode"]
+          },
+          "then": {
+            "required": ["transportModes"]
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "detection": {
+      "type": "object",
+      "required": ["mode", "checks"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["all", "any"]
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/detectionCheck"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "detectionCheck": {
+      "type": "object",
+      "required": ["kind", "value"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["pathExists", "fileExists", "envTruthy", "commandExists"]
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "platform": {
+          "type": "string",
+          "enum": ["all", "darwin", "linux", "win32"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "service": {
+      "type": "object",
+      "required": ["skillsInstallable"],
+      "properties": {
+        "skillsInstallable": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "lifecycle": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["active", "suspended"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "originLaunch": {
+      "type": "object",
+      "required": ["commandTemplate"],
+      "properties": {
+        "commandTemplate": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\{(?:agentControllerConversationId|model|workingDirectory)\\}"
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtimeSupport": {
+      "type": "object",
+      "required": ["supported", "adapters"],
+      "properties": {
+        "supported": {
+          "type": "boolean"
+        },
+        "adapters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/adapterBinding"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "supported": {
+                "const": true
+              }
+            },
+            "required": ["supported"]
+          },
+          "then": {
+            "properties": {
+              "adapters": {
+                "minItems": 1
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "adapters": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "adapterBinding": {
+      "type": "object",
+      "required": [
+        "adapterId",
+        "controllerRefMatcher",
+        "transportModes",
+        "capabilityDeclaration"
+      ],
+      "properties": {
+        "adapterId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "controllerRefMatcher": {
+          "type": "object",
+          "required": ["kind", "values"],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["contains", "equals", "prefix", "suffix", "regex"]
+            },
+            "values": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "transportModes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": ["local-cli", "codex-app-server", "acp"]
+          }
+        },
+        "capabilityDeclaration": {
+          "$ref": "#/$defs/providerRuntimeCapabilityDeclaration"
+        }
+      },
+      "additionalProperties": false
+    },
+    "providerRuntimeCapabilityDeclaration": {
+      "type": "object",
+      "required": [
+        "streamingCapability",
+        "runtimeWorkingDirectoryMode",
+        "preparationRequirement",
+        "continuationCapability"
+      ],
+      "properties": {
+        "streamingCapability": {
+          "type": "string",
+          "enum": ["preview_capable", "final_only"]
+        },
+        "runtimeWorkingDirectoryMode": {
+          "type": "string",
+          "enum": ["spawn_cwd", "cli_flag", "provider_workspace", "unsupported"]
+        },
+        "preparationRequirement": {
+          "type": "string",
+          "enum": ["none", "required"]
+        },
+        "continuationCapability": {
+          "type": "string",
+          "enum": ["standard", "provider_specific"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

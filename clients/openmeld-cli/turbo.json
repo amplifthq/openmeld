@@ -1,0 +1,10 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test:daemon": {
+      "dependsOn": ["^build"],
+      "cache": false
+    }
+  }
+}

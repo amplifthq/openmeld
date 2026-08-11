@@ -1,0 +1,1107 @@
+{
+  "schemaVersion": "1.0.0",
+  "updatedAt": "2026-03-02T00:00:00.000Z",
+  "metadata": {
+    "maintainer": "OPENMELD_DAEMON Team",
+    "purpose": "Single source of truth for agent detection, skills installability, and runtime support capability."
+  },
+  "agents": [
+    {
+      "id": "amp",
+      "displayName": "Amp",
+      "category": "builtin",
+      "skillsDir": ".agents/skills",
+      "globalSkillsDir": "${XDG_CONFIG_HOME}/agents/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${XDG_CONFIG_HOME}/amp"
+          },
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.config/amp"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "adal",
+      "displayName": "AdaL",
+      "category": "builtin",
+      "skillsDir": ".adal/skills",
+      "globalSkillsDir": "${HOME}/.adal/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.adal"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "antigravity",
+      "displayName": "Antigravity",
+      "category": "builtin",
+      "skillsDir": ".agent/skills",
+      "globalSkillsDir": "${HOME}/.gemini/antigravity/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.gemini/antigravity"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "augment",
+      "displayName": "Augment",
+      "category": "builtin",
+      "skillsDir": ".augment/skills",
+      "globalSkillsDir": "${HOME}/.augment/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.augment"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "claude-code",
+      "displayName": "Claude Code",
+      "category": "builtin",
+      "skillsDir": ".claude/skills",
+      "globalSkillsDir": "${CLAUDE_CONFIG_DIR}/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.claude"
+          },
+          {
+            "kind": "pathExists",
+            "value": "${CLAUDE_CONFIG_DIR}"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": true,
+        "adapters": [
+          {
+            "adapterId": "claude-code",
+            "controllerRefMatcher": {
+              "kind": "contains",
+              "values": ["claude", "claude-code"]
+            },
+            "transportModes": ["local-cli"],
+            "capabilityDeclaration": {
+              "streamingCapability": "preview_capable",
+              "imageInputCapability": "local_file_path",
+              "runtimeWorkingDirectoryMode": "spawn_cwd",
+              "preparationRequirement": "none",
+              "continuationCapability": "standard",
+              "workspaceResumeBehavior": "validate_only"
+            }
+          }
+        ]
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "originLaunch": {
+        "commandTemplate": "cd {workingDirectory} && claude --model {model} --resume {agentControllerConversationId}"
+      },
+      "transportModes": ["local-cli"],
+      "defaultTransportMode": "local-cli",
+      "defaultStreamingMode": "final"
+    },
+    {
+      "id": "cline",
+      "displayName": "Cline",
+      "category": "builtin",
+      "skillsDir": ".agents/skills",
+      "globalSkillsDir": "${HOME}/.agents/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.cline"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "codex",
+      "aliases": ["builtin:codex"],
+      "displayName": "Codex",
+      "category": "builtin",
+      "skillsDir": ".agents/skills",
+      "globalSkillsDir": "${CODEX_HOME}/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.codex"
+          },
+          {
+            "kind": "pathExists",
+            "value": "${CODEX_HOME}"
+          },
+          {
+            "kind": "pathExists",
+            "value": "/etc/codex"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": true,
+        "adapters": [
+          {
+            "adapterId": "codex",
+            "controllerRefMatcher": {
+              "kind": "contains",
+              "values": ["codex"]
+            },
+            "transportModes": ["codex-app-server"],
+            "capabilityDeclaration": {
+              "streamingCapability": "preview_capable",
+              "imageInputCapability": "local_file_path",
+              "runtimeWorkingDirectoryMode": "spawn_cwd",
+              "preparationRequirement": "none",
+              "continuationCapability": "standard",
+              "workspaceResumeBehavior": "transparent"
+            }
+          }
+        ]
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "originLaunch": {
+        "commandTemplate": "cd {workingDirectory} && codex resume -m {model} {agentControllerConversationId}"
+      },
+      "notes": "Primary runnable agent in current environment.",
+      "transportModes": ["codex-app-server"],
+      "defaultTransportMode": "codex-app-server",
+      "defaultStreamingMode": "final"
+    },
+    {
+      "id": "command-code",
+      "displayName": "Command Code",
+      "category": "builtin",
+      "skillsDir": ".commandcode/skills",
+      "globalSkillsDir": "${HOME}/.commandcode/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.commandcode"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "codebuddy",
+      "displayName": "CodeBuddy",
+      "category": "builtin",
+      "skillsDir": ".codebuddy/skills",
+      "globalSkillsDir": "${HOME}/.codebuddy/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.codebuddy"
+          },
+          {
+            "kind": "pathExists",
+            "value": "${CWD}/.codebuddy"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "continue",
+      "displayName": "Continue",
+      "category": "builtin",
+      "skillsDir": ".continue/skills",
+      "globalSkillsDir": "${HOME}/.continue/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.continue"
+          },
+          {
+            "kind": "pathExists",
+            "value": "${CWD}/.continue"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "cortex",
+      "displayName": "Cortex Code",
+      "category": "builtin",
+      "skillsDir": ".cortex/skills",
+      "globalSkillsDir": "${HOME}/.snowflake/cortex/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.snowflake/cortex"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "crush",
+      "displayName": "Crush",
+      "category": "builtin",
+      "skillsDir": ".crush/skills",
+      "globalSkillsDir": "${HOME}/.config/crush/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.config/crush"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "cursor",
+      "displayName": "Cursor",
+      "category": "builtin",
+      "skillsDir": ".cursor/skills",
+      "globalSkillsDir": "${HOME}/.cursor/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "commandExists",
+            "value": "cursor-agent"
+          },
+          {
+            "kind": "fileExists",
+            "value": "${HOME}/.local/bin/cursor-agent"
+          },
+          {
+            "kind": "fileExists",
+            "value": "${HOME}/.cursor/bin/cursor-agent"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": true,
+        "adapters": [
+          {
+            "adapterId": "cursor",
+            "controllerRefMatcher": {
+              "kind": "contains",
+              "values": ["cursor"]
+            },
+            "transportModes": ["acp"],
+            "capabilityDeclaration": {
+              "streamingCapability": "preview_capable",
+              "runtimeWorkingDirectoryMode": "spawn_cwd",
+              "preparationRequirement": "none",
+              "continuationCapability": "standard",
+              "workspaceResumeBehavior": "validate_only"
+            }
+          }
+        ]
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "transportModes": ["acp"],
+      "defaultTransportMode": "acp",
+      "defaultStreamingMode": "final"
+    },
+    {
+      "id": "droid",
+      "displayName": "Droid",
+      "category": "builtin",
+      "skillsDir": ".factory/skills",
+      "globalSkillsDir": "${HOME}/.factory/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.factory"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "gemini-cli",
+      "displayName": "Gemini CLI",
+      "category": "builtin",
+      "skillsDir": ".agents/skills",
+      "globalSkillsDir": "${HOME}/.gemini/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.gemini"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "github-copilot",
+      "displayName": "GitHub Copilot",
+      "category": "builtin",
+      "skillsDir": ".agents/skills",
+      "globalSkillsDir": "${HOME}/.copilot/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.copilot"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "goose",
+      "displayName": "Goose",
+      "category": "builtin",
+      "skillsDir": ".goose/skills",
+      "globalSkillsDir": "${XDG_CONFIG_HOME}/goose/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${XDG_CONFIG_HOME}/goose"
+          },
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.config/goose"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "iflow-cli",
+      "displayName": "iFlow CLI",
+      "category": "builtin",
+      "skillsDir": ".iflow/skills",
+      "globalSkillsDir": "${HOME}/.iflow/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.iflow"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "junie",
+      "displayName": "Junie",
+      "category": "builtin",
+      "skillsDir": ".junie/skills",
+      "globalSkillsDir": "${HOME}/.junie/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.junie"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "kilo",
+      "displayName": "Kilo Code",
+      "category": "builtin",
+      "skillsDir": ".kilocode/skills",
+      "globalSkillsDir": "${HOME}/.kilocode/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.kilocode"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "kimi-cli",
+      "displayName": "Kimi Code CLI",
+      "category": "builtin",
+      "skillsDir": ".agents/skills",
+      "globalSkillsDir": "${HOME}/.config/agents/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.kimi"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "kiro-cli",
+      "displayName": "Kiro CLI",
+      "category": "builtin",
+      "skillsDir": ".kiro/skills",
+      "globalSkillsDir": "${HOME}/.kiro/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.kiro"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "kode",
+      "displayName": "Kode",
+      "category": "builtin",
+      "skillsDir": ".kode/skills",
+      "globalSkillsDir": "${HOME}/.kode/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.kode"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "mcpjam",
+      "displayName": "MCPJam",
+      "category": "builtin",
+      "skillsDir": ".mcpjam/skills",
+      "globalSkillsDir": "${HOME}/.mcpjam/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.mcpjam"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "mistral-vibe",
+      "displayName": "Mistral Vibe",
+      "category": "builtin",
+      "skillsDir": ".vibe/skills",
+      "globalSkillsDir": "${HOME}/.vibe/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.vibe"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "mux",
+      "displayName": "Mux",
+      "category": "builtin",
+      "skillsDir": ".mux/skills",
+      "globalSkillsDir": "${HOME}/.mux/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.mux"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "neovate",
+      "displayName": "Neovate",
+      "category": "builtin",
+      "skillsDir": ".neovate/skills",
+      "globalSkillsDir": "${HOME}/.neovate/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.neovate"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "opencode",
+      "displayName": "OpenCode",
+      "category": "builtin",
+      "skillsDir": ".agents/skills",
+      "globalSkillsDir": "${XDG_CONFIG_HOME}/opencode/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${XDG_CONFIG_HOME}/opencode"
+          },
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.config/opencode"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": true,
+        "adapters": [
+          {
+            "adapterId": "opencode",
+            "controllerRefMatcher": {
+              "kind": "contains",
+              "values": ["opencode", "open-code"]
+            },
+            "transportModes": ["local-cli"],
+            "capabilityDeclaration": {
+              "streamingCapability": "final_only",
+              "imageInputCapability": "local_file_path",
+              "runtimeWorkingDirectoryMode": "cli_flag",
+              "preparationRequirement": "none",
+              "continuationCapability": "standard",
+              "workspaceResumeBehavior": "transparent"
+            }
+          }
+        ]
+      },
+      "originLaunch": {
+        "commandTemplate": "cd {workingDirectory} && opencode run --session {agentControllerConversationId} --model {model}"
+      },
+      "transportModes": ["local-cli"],
+      "defaultTransportMode": "local-cli",
+      "defaultStreamingMode": "final"
+    },
+    {
+      "id": "openhands",
+      "displayName": "OpenHands",
+      "category": "builtin",
+      "skillsDir": ".openhands/skills",
+      "globalSkillsDir": "${HOME}/.openhands/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.openhands"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "openclaw",
+      "displayName": "OpenClaw",
+      "category": "builtin",
+      "skillsDir": "skills",
+      "globalSkillsDir": [
+        "${HOME}/.openclaw/skills",
+        "${HOME}/.clawdbot/skills",
+        "${HOME}/.moltbot/skills"
+      ],
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.openclaw"
+          },
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.clawdbot"
+          },
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.moltbot"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": true,
+        "adapters": [
+          {
+            "adapterId": "openclaw",
+            "controllerRefMatcher": {
+              "kind": "contains",
+              "values": ["openclaw", "claw"]
+            },
+            "transportModes": ["local-cli"],
+            "capabilityDeclaration": {
+              "streamingCapability": "final_only",
+              "runtimeWorkingDirectoryMode": "provider_workspace",
+              "preparationRequirement": "required",
+              "continuationCapability": "provider_specific",
+              "workspaceResumeBehavior": "provider_specific_switch"
+            }
+          }
+        ]
+      },
+      "lifecycle": {
+        "status": "suspended"
+      },
+      "originLaunch": {
+        "commandTemplate": "openclaw tui --session {agentControllerConversationId}"
+      },
+      "transportModes": ["local-cli"],
+      "defaultTransportMode": "local-cli",
+      "defaultStreamingMode": "final"
+    },
+    {
+      "id": "pi",
+      "displayName": "Pi",
+      "category": "builtin",
+      "skillsDir": ".pi/skills",
+      "globalSkillsDir": "${HOME}/.pi/agent/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.pi/agent"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "pochi",
+      "displayName": "Pochi",
+      "category": "builtin",
+      "skillsDir": ".pochi/skills",
+      "globalSkillsDir": "${HOME}/.pochi/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.pochi"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "qoder",
+      "displayName": "Qoder",
+      "category": "builtin",
+      "skillsDir": ".qoder/skills",
+      "globalSkillsDir": "${HOME}/.qoder/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.qoder"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "qwen-code",
+      "displayName": "Qwen Code",
+      "category": "builtin",
+      "skillsDir": ".qwen/skills",
+      "globalSkillsDir": "${HOME}/.qwen/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.qwen"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "replit",
+      "displayName": "Replit",
+      "category": "builtin",
+      "skillsDir": ".agents/skills",
+      "globalSkillsDir": "${XDG_CONFIG_HOME}/agents/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${CWD}/.replit"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      },
+      "notes": "Keep detection close to upstream behavior; no universal list enforcement in this registry layer."
+    },
+    {
+      "id": "roo",
+      "displayName": "Roo Code",
+      "category": "builtin",
+      "skillsDir": ".roo/skills",
+      "globalSkillsDir": "${HOME}/.roo/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.roo"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "trae",
+      "displayName": "Trae",
+      "category": "builtin",
+      "skillsDir": ".trae/skills",
+      "globalSkillsDir": "${HOME}/.trae/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.trae"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "trae-cn",
+      "displayName": "Trae CN",
+      "category": "builtin",
+      "skillsDir": ".trae/skills",
+      "globalSkillsDir": "${HOME}/.trae-cn/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.trae-cn"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "windsurf",
+      "displayName": "Windsurf",
+      "category": "builtin",
+      "skillsDir": ".windsurf/skills",
+      "globalSkillsDir": "${HOME}/.codeium/windsurf/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.codeium/windsurf"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    },
+    {
+      "id": "zencoder",
+      "displayName": "Zencoder",
+      "category": "builtin",
+      "skillsDir": ".zencoder/skills",
+      "globalSkillsDir": "${HOME}/.zencoder/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "pathExists",
+            "value": "${HOME}/.zencoder"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": false,
+        "adapters": []
+      }
+    }
+  ]
+}

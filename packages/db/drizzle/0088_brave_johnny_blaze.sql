@@ -1,0 +1,1 @@
+ALTER TABLE `slack_user_identity_link_tokens` ADD `consume_nonce` text;

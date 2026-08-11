@@ -1,0 +1,18 @@
+export type {
+  DbCommandFactSummary,
+  DbDebtRegistryItem,
+  DbDiagnosticsPayload,
+  DbFactMode,
+  DbFactPhase,
+  DbFactResult,
+  DbFactService,
+  DbFactSnapshot,
+  DbFactSource,
+  DbFactSubject,
+  DbFactTarget,
+  DbInspectionCheck,
+  DbInspectionCheckStatus,
+  DbInspectionMode,
+  DbInspectionResult,
+  DbInspectionSummary,
+} from "./fact";

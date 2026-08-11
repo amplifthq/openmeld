@@ -1,0 +1,496 @@
+import { z } from "zod/v4";
+import {
+  agentProfileIdSchema,
+  profileWorkingDirectorySchema,
+  profileWorkspaceModeSchema,
+} from "../protocol/profile";
+import { nonEmptyTrimmedStringFromUnknown } from "../protocol/shared";
+import { runtimeTransportModeSchema } from "./controller-contract";
+import { conversationExecutionStateSchema } from "./conversation-execution-state";
+import { providerDispatchRuntimeContextSchema } from "./provider-runtime-context";
+
+export const OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION = 1 as const;
+
+export const openMeldDaemonControlPlaneCommandSchema = z.enum([
+  "status",
+  "health",
+  "history",
+  "interrupt",
+  "cancel",
+  "conversation_execution_status",
+  "sync_route_catalog",
+  "set_local_agent_enabled",
+  "set_profile_workspace",
+  "shutdown",
+]);
+
+export const openMeldDaemonHealthStateSchema = z.enum([
+  "ok",
+  "degraded",
+  "down",
+]);
+
+export const openMeldDaemonRuntimeHealthStateSchema = z.enum([
+  "healthy",
+  "idle",
+  "suspect",
+  "down",
+]);
+
+export const openMeldDaemonControlTargetSelectorSchema = z.discriminatedUnion(
+  "by",
+  [
+    z.strictObject({
+      by: z.literal("dispatch"),
+      dispatchId: z.string().min(1),
+    }),
+    z.strictObject({
+      by: z.literal("task"),
+      taskId: z.string().min(1),
+    }),
+  ]
+);
+
+export const openMeldDaemonInterruptRequestPayloadSchema = z.strictObject({
+  runtimeCoordinatorExecutionId: z.string().min(1).optional(),
+  target: openMeldDaemonControlTargetSelectorSchema,
+  mode: z.enum(["graceful", "force"]).optional(),
+  reason: z.string().min(1).optional(),
+});
+
+export const openMeldDaemonCancelRequestPayloadSchema = z.strictObject({
+  runtimeCoordinatorExecutionId: z.string().min(1).optional(),
+  target: openMeldDaemonControlTargetSelectorSchema,
+  reason: z.string().min(1).optional(),
+});
+
+export const openMeldDaemonShutdownRequestPayloadSchema = z.strictObject({
+  mode: z.enum(["graceful", "force"]).default("graceful"),
+  gracePeriodMs: z.number().int().nonnegative().default(5000),
+});
+
+export const openMeldDaemonConversationExecutionControllerLaunchStatusSchema =
+  z.enum(["missing", "disabled", "repair_required", "ready"]);
+
+const nullableAgentControllerRefSchema = z.union([z.string().min(1), z.null()]);
+const nullableNonEmptyStringSchema = z.union([z.string().min(1), z.null()]);
+
+export const openMeldDaemonConversationExecutionStatusRequestPayloadSchema =
+  z.strictObject({
+    boundAgentControllerRef: nullableAgentControllerRefSchema,
+    agentControllerConversationId: nullableNonEmptyStringSchema,
+    agentControllerRef: z.string().min(1),
+    spaceId: nonEmptyTrimmedStringFromUnknown,
+    targetProfileId: agentProfileIdSchema,
+    transportMode: runtimeTransportModeSchema,
+    validate: z.boolean(),
+  });
+
+export const openMeldDaemonSyncRouteCatalogRequestPayloadSchema =
+  z.strictObject({
+    reason: z.string().min(1),
+  });
+
+export const openMeldDaemonSetLocalAgentEnabledRequestPayloadSchema =
+  z.strictObject({
+    agentId: z.string().trim().min(1).max(256),
+    enabled: z.boolean(),
+  });
+
+export const openMeldDaemonSetProfileWorkspaceRequestPayloadSchema = z
+  .strictObject({
+    targetProfileId: agentProfileIdSchema,
+    workspaceMode: profileWorkspaceModeSchema,
+    workspacePath: profileWorkingDirectorySchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.workspaceMode === "custom" && !value.workspacePath) {
+      context.addIssue({
+        code: "custom",
+        message: "workspacePath is required for a custom profile workspace",
+        path: ["workspacePath"],
+      });
+    }
+    if (value.workspaceMode === "openmeld_managed" && value.workspacePath) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "workspacePath must be omitted for an OpenMeld-managed profile workspace",
+        path: ["workspacePath"],
+      });
+    }
+  });
+
+export const openMeldDaemonConversationExecutionRuntimeWorkspaceReadySchema =
+  z.strictObject({
+    configPath: z.string().min(1),
+    configuredWorkspacePath: z.string().min(1),
+    fingerprint: z.string().min(1),
+    path: z.string().min(1),
+    reasonCode: z.null(),
+    reasonText: z.null(),
+    runtimeContext: providerDispatchRuntimeContextSchema,
+    status: z.literal("ready"),
+    workspaceMode: profileWorkspaceModeSchema,
+  });
+
+export const openMeldDaemonConversationExecutionRuntimeWorkspaceMissingSchema =
+  z.strictObject({
+    configPath: z.string().min(1),
+    configuredWorkspacePath: z.null(),
+    fingerprint: z.null(),
+    path: z.null(),
+    reasonCode: z.literal("workspace.missing"),
+    reasonText: z.string().min(1),
+    runtimeContext: z.null(),
+    status: z.literal("missing"),
+    workspaceMode: z.null(),
+  });
+
+export const openMeldDaemonConversationExecutionRuntimeWorkspaceInvalidSchema =
+  z.strictObject({
+    configPath: z.string().min(1),
+    configuredWorkspacePath: z.union([z.string().min(1), z.null()]),
+    fingerprint: z.null(),
+    path: z.null(),
+    reasonCode: z.literal("workspace.invalid"),
+    reasonText: z.string().min(1),
+    runtimeContext: z.null(),
+    status: z.literal("invalid"),
+    workspaceMode: z.union([profileWorkspaceModeSchema, z.null()]),
+  });
+
+export const openMeldDaemonConversationExecutionRuntimeWorkspaceSchema =
+  z.discriminatedUnion("status", [
+    openMeldDaemonConversationExecutionRuntimeWorkspaceReadySchema,
+    openMeldDaemonConversationExecutionRuntimeWorkspaceMissingSchema,
+    openMeldDaemonConversationExecutionRuntimeWorkspaceInvalidSchema,
+  ]);
+
+export const openMeldDaemonConversationExecutionLocalRuntimeContextStatusSchema =
+  z.enum(["missing", "mismatch", "ready"]);
+
+export const openMeldDaemonProviderConversationProofStatusSchema = z.enum([
+  "failed",
+  "not_applicable",
+  "not_run",
+  "passed",
+]);
+
+export const openMeldDaemonProviderConversationProofProviderSchema = z.enum([
+  "codex",
+  "claude-code",
+  "openclaw",
+]);
+
+export const openMeldDaemonProviderConversationProofMethodSchema = z.enum([
+  "codex_app_server_thread_resume",
+]);
+
+export const openMeldDaemonProviderConversationProofSchema = z.strictObject({
+  agentControllerConversationId: nullableNonEmptyStringSchema,
+  checkedAt: z.union([z.iso.datetime({ offset: true }), z.null()]),
+  errorCode: nullableNonEmptyStringSchema,
+  errorMessage: nullableNonEmptyStringSchema,
+  errorType: nullableNonEmptyStringSchema,
+  expiresAt: z.union([z.iso.datetime({ offset: true }), z.null()]),
+  intrusive: z.literal(false),
+  method: z.union([
+    openMeldDaemonProviderConversationProofMethodSchema,
+    z.null(),
+  ]),
+  provider: z.union([
+    openMeldDaemonProviderConversationProofProviderSchema,
+    z.null(),
+  ]),
+  status: openMeldDaemonProviderConversationProofStatusSchema,
+  transportMode: z.union([runtimeTransportModeSchema, z.null()]),
+});
+
+export const openMeldDaemonConversationExecutionStatusPayloadSchema =
+  z.strictObject({
+    agentContextLookupKey: z.string().min(1),
+    controllerLaunchStatus:
+      openMeldDaemonConversationExecutionControllerLaunchStatusSchema,
+    executionState: conversationExecutionStateSchema.nullable(),
+    localRuntimeContext: z.strictObject({
+      agentContextLookupKey: z.string().min(1),
+      runtimeWorkspaceFingerprint: nullableNonEmptyStringSchema,
+      status:
+        openMeldDaemonConversationExecutionLocalRuntimeContextStatusSchema,
+    }),
+    providerConversationProof: openMeldDaemonProviderConversationProofSchema,
+    runtimeWorkspace: openMeldDaemonConversationExecutionRuntimeWorkspaceSchema,
+  });
+
+export const openMeldDaemonSyncRouteCatalogStatusSchema = z.enum([
+  "changed",
+  "registered",
+  "unchanged",
+  "failed",
+  "deferred",
+]);
+
+export const DAEMON_PROFILE_SKIP_REASON_VALUES = [
+  "projection.missing",
+  "controller.registry.disabled",
+  "controller.launch.needs_repair",
+  "runtime.adapter.unsupported",
+  "controller.binding.disabled",
+  "controller.binding.incomplete",
+  "profile.status.inactive",
+  "profile.binding.read_unavailable",
+  "profile.binding.unbound",
+  "workspace.missing",
+  "workspace.invalid",
+] as const;
+
+export const daemonProfileSkipReasonSchema = z.enum(
+  DAEMON_PROFILE_SKIP_REASON_VALUES
+);
+
+export const skippedDaemonProfileSchema = z.strictObject({
+  profileId: agentProfileIdSchema,
+  profileName: nullableNonEmptyStringSchema,
+  skipReason: daemonProfileSkipReasonSchema,
+});
+
+export const openMeldDaemonSyncRouteCatalogPayloadSchema = z.strictObject({
+  accepted: z.boolean(),
+  syncStatus: openMeldDaemonSyncRouteCatalogStatusSchema,
+  profileIds: z.array(agentProfileIdSchema),
+  addedProfileIds: z.array(agentProfileIdSchema).optional(),
+  keptProfileIds: z.array(agentProfileIdSchema).optional(),
+  removedProfileIds: z.array(agentProfileIdSchema).optional(),
+  skippedProfiles: z.array(skippedDaemonProfileSchema).optional(),
+  note: z.string().min(1).optional(),
+  errorMessage: z.string().min(1).optional(),
+});
+
+export const openMeldDaemonSetLocalAgentEnabledPayloadSchema = z.strictObject({
+  accepted: z.boolean(),
+  agentControllerRef: z.string().min(1).optional(),
+  agentId: z.string().trim().min(1).max(256),
+  changed: z.boolean(),
+  enabled: z.boolean(),
+  message: z.string().min(1).optional(),
+  reasonCode: z.string().min(1).optional(),
+  reportSyncStatus: z.enum(["submitted", "skipped", "failed"]),
+  status: z.enum(["updated", "unchanged", "rejected"]),
+});
+
+export const openMeldDaemonSetProfileWorkspacePayloadSchema =
+  z.discriminatedUnion("accepted", [
+    z.strictObject({
+      accepted: z.literal(true),
+      targetProfileId: agentProfileIdSchema,
+      status: z.literal("updated"),
+      workspaceMode: profileWorkspaceModeSchema,
+      workspacePath: z.string().min(1),
+    }),
+    z.strictObject({
+      accepted: z.literal(false),
+      targetProfileId: agentProfileIdSchema,
+      message: z.string().min(1).optional(),
+      reasonCode: z.string().min(1).optional(),
+      status: z.literal("rejected"),
+    }),
+  ]);
+
+const openMeldDaemonControlPlaneRequestBaseSchema = z.strictObject({
+  v: z.literal(OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION),
+  requestId: z.string().min(1).optional(),
+  authToken: z.string().min(1).optional(),
+});
+
+export const openMeldDaemonControlPlaneRequestSchema = z.discriminatedUnion(
+  "command",
+  [
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("status"),
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("health"),
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("history"),
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("interrupt"),
+      payload: openMeldDaemonInterruptRequestPayloadSchema,
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("cancel"),
+      payload: openMeldDaemonCancelRequestPayloadSchema,
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("conversation_execution_status"),
+      payload: openMeldDaemonConversationExecutionStatusRequestPayloadSchema,
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("sync_route_catalog"),
+      payload: openMeldDaemonSyncRouteCatalogRequestPayloadSchema,
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("set_local_agent_enabled"),
+      payload: openMeldDaemonSetLocalAgentEnabledRequestPayloadSchema,
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("set_profile_workspace"),
+      payload: openMeldDaemonSetProfileWorkspaceRequestPayloadSchema,
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("shutdown"),
+      payload: openMeldDaemonShutdownRequestPayloadSchema.optional(),
+    }),
+  ]
+);
+
+export const openMeldDaemonStatusPayloadSchema = z.strictObject({
+  installed: z.boolean(),
+  running: z.boolean(),
+  daemonVersion: z.string().min(1),
+  runtimeRoot: z.string().min(1),
+  checkedAt: z.string().min(1),
+});
+
+export const openMeldDaemonHealthPayloadSchema = z.strictObject({
+  // External health contract (stable for cross-module automation).
+  state: openMeldDaemonHealthStateSchema,
+  // Internal runtime state projection for daemon diagnostics.
+  runtimeState: openMeldDaemonRuntimeHealthStateSchema.optional(),
+  reasonCode: z.string().min(1),
+  checkedAt: z.string().min(1),
+});
+
+export const openMeldDaemonHistoryEntrySchema = z.strictObject({
+  id: z.string().min(1),
+  ts: z.string().min(1),
+  code: z.string().min(1),
+  message: z.string().min(1),
+});
+
+export const openMeldDaemonHistoryPayloadSchema = z.strictObject({
+  entries: z.array(openMeldDaemonHistoryEntrySchema),
+  nextCursor: z.string().min(1).optional(),
+});
+
+export const openMeldDaemonInterruptPayloadSchema = z.strictObject({
+  accepted: z.boolean(),
+  target: openMeldDaemonControlTargetSelectorSchema,
+  resolvedDispatchId: z.string().min(1).optional(),
+  resolvedRuntimeCoordinatorExecutionId: z.string().min(1).optional(),
+  resolvedTaskId: z.string().min(1).optional(),
+  note: z.string().min(1).optional(),
+  reasonCode: z.string().min(1).optional(),
+});
+
+export const openMeldDaemonCancelPayloadSchema = z.strictObject({
+  accepted: z.boolean(),
+  target: openMeldDaemonControlTargetSelectorSchema,
+  resolvedDispatchId: z.string().min(1).optional(),
+  resolvedRuntimeCoordinatorExecutionId: z.string().min(1).optional(),
+  resolvedTaskId: z.string().min(1).optional(),
+  note: z.string().min(1).optional(),
+  reasonCode: z.string().min(1).optional(),
+});
+
+export const openMeldDaemonControlPlaneErrorPayloadSchema = z.strictObject({
+  errorCode: z.string().min(1),
+  errorMessage: z.string().min(1),
+  note: z.string().min(1).optional(),
+});
+
+export const openMeldDaemonShutdownPayloadSchema = z.strictObject({
+  accepted: z.boolean(),
+  mode: z.enum(["graceful", "force"]),
+  gracePeriodMs: z.number().int().nonnegative(),
+});
+
+const openMeldDaemonControlPlaneResponseBaseSchema = z.strictObject({
+  v: z.literal(OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION),
+  requestId: z.string().min(1).optional(),
+});
+
+export const openMeldDaemonStatusResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.status"),
+    payload: openMeldDaemonStatusPayloadSchema,
+  });
+
+export const openMeldDaemonHealthResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.health"),
+    payload: openMeldDaemonHealthPayloadSchema,
+  });
+
+export const openMeldDaemonHistoryResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.history"),
+    payload: openMeldDaemonHistoryPayloadSchema,
+  });
+
+export const openMeldDaemonInterruptResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.interrupt"),
+    payload: openMeldDaemonInterruptPayloadSchema,
+  });
+
+export const openMeldDaemonCancelResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.cancel"),
+    payload: openMeldDaemonCancelPayloadSchema,
+  });
+
+export const openMeldDaemonConversationExecutionStatusResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.conversation_execution_status"),
+    payload: openMeldDaemonConversationExecutionStatusPayloadSchema,
+  });
+
+export const openMeldDaemonSyncRouteCatalogResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.sync_route_catalog"),
+    payload: openMeldDaemonSyncRouteCatalogPayloadSchema,
+  });
+
+export const openMeldDaemonSetLocalAgentEnabledResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.set_local_agent_enabled"),
+    payload: openMeldDaemonSetLocalAgentEnabledPayloadSchema,
+  });
+
+export const openMeldDaemonSetProfileWorkspaceResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.set_profile_workspace"),
+    payload: openMeldDaemonSetProfileWorkspacePayloadSchema,
+  });
+
+export const openMeldDaemonShutdownResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.shutdown"),
+    payload: openMeldDaemonShutdownPayloadSchema,
+  });
+
+export const openMeldDaemonControlPlaneErrorResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.error"),
+    payload: openMeldDaemonControlPlaneErrorPayloadSchema,
+  });
+
+export const openMeldDaemonControlPlaneResponseSchema = z.discriminatedUnion(
+  "code",
+  [
+    openMeldDaemonStatusResponseSchema,
+    openMeldDaemonHealthResponseSchema,
+    openMeldDaemonHistoryResponseSchema,
+    openMeldDaemonInterruptResponseSchema,
+    openMeldDaemonCancelResponseSchema,
+    openMeldDaemonConversationExecutionStatusResponseSchema,
+    openMeldDaemonSyncRouteCatalogResponseSchema,
+    openMeldDaemonSetLocalAgentEnabledResponseSchema,
+    openMeldDaemonSetProfileWorkspaceResponseSchema,
+    openMeldDaemonShutdownResponseSchema,
+    openMeldDaemonControlPlaneErrorResponseSchema,
+  ]
+);

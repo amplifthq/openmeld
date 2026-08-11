@@ -1,0 +1,243 @@
+import { describe, expect, it } from "vitest";
+import {
+  authRpcSendInboxUrgentEmailInputSchema,
+  dismissInboxItemResponseSchema,
+  INBOX_SPACE_SUMMARY_MAX_SPACES,
+  inboxItemSchema,
+  inboxSourceCandidateSchema,
+  listInboxItemsQuerySchema,
+  markInboxItemReadBodySchema,
+  markSpaceInboxReadThroughBodySchema,
+  spaceInboxSummaryResponseSchema,
+} from "../../src/schemas";
+
+const item = {
+  attention: "action_required",
+  contextLabel: "Build failures",
+  createdAt: "2026-08-04T01:02:03.000Z",
+  id: "inbox_item_1",
+  importance: "urgent",
+  kind: "agent_interaction",
+  occurredAt: "2026-08-04T01:00:00.000Z",
+  organizationId: "org_1",
+  preview: "The agent needs approval to continue.",
+  readAt: null,
+  recipientUserId: "user_1",
+  resolutionStatus: "open",
+  sourceTarget: {
+    interactionId: "interaction_1",
+    kind: "agent_interaction",
+    runtimeCoordinatorExecutionId: "runtime_1",
+    sourceSignalId: "signal_1",
+    spaceId: "space_1",
+  },
+  title: "Approval required",
+  updatedAt: "2026-08-04T01:02:03.000Z",
+} as const;
+
+describe("Inbox HTTP contracts", () => {
+  it("accepts the canonical member-private item shape", () => {
+    expect(inboxItemSchema.parse(item)).toEqual(item);
+  });
+
+  it("targets an exact Center Agent Task without copying its state", () => {
+    expect(
+      inboxItemSchema.parse({
+        ...item,
+        kind: "center_agent_update",
+        sourceTarget: {
+          kind: "center_agent_task",
+          taskId: "task_1",
+        },
+      })
+    ).toMatchObject({
+      sourceTarget: { kind: "center_agent_task", taskId: "task_1" },
+    });
+  });
+
+  it("rejects unknown fields and unsupported source targets", () => {
+    expect(
+      inboxItemSchema.safeParse({ ...item, arbitraryUrl: "https://evil.test" })
+        .success
+    ).toBe(false);
+    expect(
+      inboxItemSchema.safeParse({
+        ...item,
+        sourceTarget: { kind: "url", url: "https://evil.test" },
+      }).success
+    ).toBe(false);
+  });
+
+  it("keeps update and action resolution semantics consistent", () => {
+    expect(
+      inboxItemSchema.safeParse({
+        ...item,
+        attention: "update",
+        resolutionStatus: "open",
+      }).success
+    ).toBe(false);
+    expect(
+      inboxItemSchema.safeParse({
+        ...item,
+        attention: "action_required",
+        resolutionStatus: "not_applicable",
+      }).success
+    ).toBe(false);
+  });
+
+  it("validates list filters and read mutations strictly", () => {
+    expect(listInboxItemsQuerySchema.parse({ view: "needs_action" })).toEqual({
+      view: "needs_action",
+    });
+    expect(
+      listInboxItemsQuerySchema.safeParse({ view: "mentions" }).success
+    ).toBe(false);
+    expect(markInboxItemReadBodySchema.safeParse({ read: true }).success).toBe(
+      true
+    );
+    expect(
+      markInboxItemReadBodySchema.safeParse({ read: true, resolved: true })
+        .success
+    ).toBe(false);
+  });
+
+  it("keeps dismiss responses limited to the removed Inbox projection", () => {
+    expect(
+      dismissInboxItemResponseSchema.parse({
+        dismissedItemId: "inbox_item_1",
+      })
+    ).toEqual({ dismissedItemId: "inbox_item_1" });
+    expect(
+      dismissInboxItemResponseSchema.safeParse({
+        dismissedItemId: "inbox_item_1",
+        resolvedSource: true,
+      }).success
+    ).toBe(false);
+  });
+
+  it("describes unread Inbox updates by Space without duplicating Space metadata", () => {
+    expect(
+      spaceInboxSummaryResponseSchema.parse({
+        organizationId: "org_1",
+        spaces: [
+          {
+            latestUnreadOccurredAtMs: 1_722_736_800_000,
+            spaceId: "space_1",
+            unreadCount: 3,
+          },
+        ],
+      })
+    ).toEqual({
+      organizationId: "org_1",
+      spaces: [
+        {
+          latestUnreadOccurredAtMs: 1_722_736_800_000,
+          spaceId: "space_1",
+          unreadCount: 3,
+        },
+      ],
+    });
+    expect(
+      spaceInboxSummaryResponseSchema.safeParse({
+        organizationId: "org_1",
+        spaces: [
+          {
+            latestUnreadOccurredAtMs: 1_722_736_800_000,
+            spaceId: "space_1",
+            spaceName: "Launch Room",
+            unreadCount: 3,
+          },
+        ],
+      }).success
+    ).toBe(false);
+    expect(
+      spaceInboxSummaryResponseSchema.safeParse({
+        organizationId: "org_1",
+        spaces: Array.from(
+          { length: INBOX_SPACE_SUMMARY_MAX_SPACES + 1 },
+          (_, index) => ({
+            latestUnreadOccurredAtMs: index,
+            spaceId: `space_${index}`,
+            unreadCount: 1,
+          })
+        ),
+      }).success
+    ).toBe(false);
+  });
+
+  it("accepts only a bounded Space read-through watermark", () => {
+    expect(
+      markSpaceInboxReadThroughBodySchema.parse({
+        spaceId: "space_1",
+        throughOccurredAtMs: 1_722_736_800_000,
+      })
+    ).toEqual({
+      spaceId: "space_1",
+      throughOccurredAtMs: 1_722_736_800_000,
+    });
+    expect(
+      markSpaceInboxReadThroughBodySchema.safeParse({
+        spaceId: "space_1",
+        throughOccurredAtMs: -1,
+      }).success
+    ).toBe(false);
+  });
+});
+
+describe("Inbox producer and email contracts", () => {
+  it("accepts a bounded source candidate without recipient-authored HTML", () => {
+    expect(
+      inboxSourceCandidateSchema.parse({
+        attention: "action_required",
+        contextLabel: "Build failures",
+        importance: "urgent",
+        kind: "agent_interaction",
+        occurredAtMs: 1_722_736_800_000,
+        organizationId: "org_1",
+        preview: "The agent needs approval to continue.",
+        recipientUserId: "user_1",
+        sourceKey: "runtime_1:interaction_1",
+        sourceKind: "runtime_coordinator_interaction",
+        sourceTarget: item.sourceTarget,
+        title: "Approval required",
+      })
+    ).toMatchObject({ sourceKey: "runtime_1:interaction_1" });
+  });
+
+  it("accepts a canonical Center Agent Task event as an Inbox source", () => {
+    expect(
+      inboxSourceCandidateSchema.parse({
+        attention: "update",
+        contextLabel: "Center Agent Task",
+        importance: "normal",
+        kind: "center_agent_update",
+        occurredAtMs: 1_722_736_800_000,
+        organizationId: "org_1",
+        preview: "The research is ready to review.",
+        recipientUserId: "user_1",
+        sourceKey: "task_1:event_4",
+        sourceKind: "center_agent_task_event",
+        sourceTarget: { kind: "center_agent_task", taskId: "task_1" },
+        title: "Research competitors",
+      })
+    ).toMatchObject({ sourceKind: "center_agent_task_event" });
+  });
+
+  it("keeps Auth email input limited to safe template variables", () => {
+    const valid = {
+      deliveryId: "delivery_1",
+      itemId: "inbox_item_1",
+      organizationId: "org_1",
+      preview: "The agent needs approval to continue.",
+      title: "Approval required",
+      userId: "user_1",
+    };
+    expect(authRpcSendInboxUrgentEmailInputSchema.parse(valid)).toEqual(valid);
+    expect(
+      authRpcSendInboxUrgentEmailInputSchema.safeParse({
+        ...valid,
+        html: "<script>alert(1)</script>",
+      }).success
+    ).toBe(false);
+  });
+});

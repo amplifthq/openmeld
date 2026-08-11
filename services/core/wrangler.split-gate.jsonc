@@ -1,0 +1,85 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openmeld-core-split-gate",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-03",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "queue_consumer_no_wait_for_wait_until"
+  ],
+  "vars": {
+    "CORS_ORIGINS": "https://gateway.openmeld.ai"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OPENMELD_SPACES",
+        "class_name": "Space"
+      },
+      {
+        "name": "OPENMELD_RUNTIME_TRANSPORT",
+        "class_name": "RuntimeTransportHub"
+      },
+      {
+        "name": "OPENMELD_PREPARE_SESSION_HUB",
+        "class_name": "PrepareSessionHub"
+      }
+    ]
+  },
+  // Physical DB split routing gate (physical-db-split.md Stage B safety net).
+  // Four SEPARATE local D1 databases. Each per-domain binding is seeded with
+  // ONLY that domain's baseline schema by tests-split-gate/apply-split-baselines.ts.
+  // OPENMELD_DB is bound to an intentionally EMPTY trap database (zero application
+  // tables): the `?? OPENMELD_DB` accessor fallback still resolves to a real handle,
+  // so any misrouted read (routed to the wrong domain) OR any not-yet-rewired
+  // read (still reading OPENMELD_DB directly) lands on a schema-less DB and fails
+  // with `no such table` instead of silently passing against the full schema.
+  // This is what makes existing-tests-green insufficient and routing objective.
+  "d1_databases": [
+    {
+      "binding": "OPENMELD_DB",
+      "database_name": "openmeld-db-empty-trap",
+      "database_id": "openmeld-db-empty-trap"
+    },
+    {
+      "binding": "OPENMELD_LOCAL_STATE_DB",
+      "database_name": "openmeld-local-state-test",
+      "database_id": "openmeld-local-state-test"
+    },
+    {
+      "binding": "OPENMELD_WAKE_EVIDENCE_DB",
+      "database_name": "openmeld-wake-evidence-test",
+      "database_id": "openmeld-wake-evidence-test"
+    },
+    {
+      "binding": "OPENMELD_PROJECTIONS_DB",
+      "database_name": "openmeld-projections-test",
+      "database_id": "openmeld-projections-test"
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Space"]
+    },
+    {
+      "tag": "v2",
+      // Applied migration history: keep DaemonHub here; v4 performs the rename.
+      "new_sqlite_classes": ["DaemonHub"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["PrepareSessionHub"]
+    },
+    {
+      "tag": "v4",
+      // Same-worker class rename; preserves existing Durable Object data.
+      "renamed_classes": [
+        {
+          "from": "DaemonHub",
+          "to": "RuntimeTransportHub"
+        }
+      ]
+    }
+  ]
+}

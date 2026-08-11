@@ -1,0 +1,2 @@
+DROP INDEX `openMeldRemoteAgent_native_delivery_routine_run_unique`;--> statement-breakpoint
+CREATE INDEX `idx_openMeldRemoteAgent_native_delivery_routine_run` ON `openMeldRemoteAgent_native_delivery_ledger` (`routine_run_id`);

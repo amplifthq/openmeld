@@ -1,0 +1,26 @@
+{
+  "name": "@openmeld/adapter-openclaw",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --test \"test/**/*.test.js\"",
+    "typecheck": "tsc --noEmit",
+    "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck"
+  },
+  "dependencies": {
+    "@openmeld/adapter-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0"
+  }
+}

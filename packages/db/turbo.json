@@ -1,0 +1,51 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "db:check": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "db:inspect:dev": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "db:generate": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "db:migrate:dev": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "db:migrate:prod": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "db:verify:dev": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "db:verify:prod": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "db:optimize:dev": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "db:optimize:prod": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "auth:generate": {
+      "dependsOn": ["^build", "@openmeld/auth#build"],
+      "cache": false
+    },
+    "db:studio": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

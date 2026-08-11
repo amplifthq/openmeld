@@ -1,0 +1,1010 @@
+#!/usr/bin/env node
+
+import { execFileSync, spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import process from "node:process";
+import { pathToFileURL } from "node:url";
+
+import {
+  isCliReleasePath,
+  isServiceReleasePath,
+  isSkillsReleasePath,
+} from "./release-ready-paths.mjs";
+import { readCurrentWorkerVersionIds } from "./release-stage-probes.mjs";
+
+const DEFAULT_BASE_REF = "origin/main";
+const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
+const LINE_SPLIT_REGEX = /\r?\n/u;
+const TEST_FILE_REGEX =
+  /(?:^|\/)[^/]+\.(?:integration\.)?(?:spec|test)\.[cm]?[jt]sx?$/u;
+const VITEST_CONFIG_REGEX = /(?:^|\/)vitest\.[^/]+config\.[cm]?[jt]s$/u;
+const RELEASE_COMMANDS = new Set(["deploy", "plan", "preflight", "verify"]);
+const DIRECT_SCOPES = new Set([
+  "auth",
+  "cli",
+  "core",
+  "db",
+  "gateway",
+  "remote-agent",
+  "web",
+]);
+const CLOUD_SCOPES = ["auth", "web", "gateway", "core", "remote-agent"];
+const FULL_SCOPES = ["db", ...CLOUD_SCOPES];
+const SCOPE_ORDER = [
+  "db",
+  "cli",
+  "auth",
+  "web",
+  "gateway",
+  "core",
+  "remote-agent",
+];
+const REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER = [
+  "db",
+  "remote-agent",
+  "auth",
+  "core",
+  "gateway",
+  "web",
+  "cli",
+];
+const CENTER_AGENT_CLI_RECEIVER_FIRST_SCOPE_ORDER = [
+  "db",
+  "remote-agent",
+  "auth",
+  "core",
+  "gateway",
+  "web",
+  "cli",
+];
+const CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER = [
+  "db",
+  "auth",
+  "core",
+  "remote-agent",
+  "gateway",
+  "web",
+  "cli",
+];
+const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
+  "center-agent-cli-receiver-first":
+    CENTER_AGENT_CLI_RECEIVER_FIRST_SCOPE_ORDER,
+  "core-worker-response-reader-first":
+    CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
+  "default-auth-receiver-first": SCOPE_ORDER,
+  "remote-agent-receiver-first": REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER,
+};
+const REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS = new Set([
+  "services/remote-agent/.flue/cloudflare.ts",
+  "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
+  "services/remote-agent/flue-adapter/execution-reconciliation.ts",
+]);
+const REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH =
+  "packages/schemas/src/schemas/runtime/remote-agent-worker.ts";
+const REMOTE_AGENT_WORKER_RESPONSE_PRODUCER_PATHS = new Set([
+  "services/remote-agent/.flue/agents/center-agent.ts",
+]);
+const REMOTE_AGENT_WORKER_REQUEST_PRODUCER_PATHS = new Set([
+  "services/core/src/remote-agent/application/remote-agent-conversation-continuity.ts",
+  "services/core/src/remote-agent/application/remote-agent-worker-admission.ts",
+]);
+const REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH =
+  "services/remote-agent/.flue/agents/center-agent.ts";
+const PACKAGE_SCOPE = new Map([
+  ["@openmeld/auth-worker", "auth"],
+  ["@openmeld/core", "core"],
+  ["@openmeld/gateway", "gateway"],
+  ["@openmeld/remote-agent", "remote-agent"],
+  ["openmeld", "cli"],
+  ["openmeld-web", "web"],
+]);
+const DB_MIGRATION_PATH_PREFIX = "packages/db/drizzle/";
+const DB_SCHEMA_PATH_PREFIXES = [
+  "packages/db/src/auth/",
+  "packages/db/src/core/",
+];
+const DB_SCHEMA_PATHS = new Set([
+  "packages/db/src/auth.ts",
+  "packages/db/src/core.ts",
+  "packages/db/src/schema.ts",
+]);
+const DEPENDENCY_RULE_PATHS = new Set([
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+]);
+const GLOBAL_WORKSPACE_RUNTIME_PATHS = new Set([
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "turbo.json",
+]);
+const SCOPE_VERIFY_SPECS = {
+  auth: {
+    filter: "@openmeld/auth-worker...",
+    label: "Verify Auth Worker",
+    tasks: ["check", "test", "test:runtime"],
+  },
+  cli: {
+    filter: "openmeld...",
+    label: "Verify CLI and local components",
+    tasks: ["check", "test", "test:integration"],
+  },
+  core: {
+    filter: "@openmeld/core...",
+    label: "Verify Core Worker",
+    tasks: ["check", "test", "test:integration"],
+  },
+  gateway: {
+    filter: "@openmeld/gateway...",
+    label: "Verify Gateway Worker",
+    tasks: ["check", "test"],
+  },
+  "remote-agent": {
+    filter: "@openmeld/remote-agent...",
+    label: "Verify Remote Agent Worker",
+    tasks: ["check", "test"],
+  },
+  web: {
+    filter: "openmeld-web...",
+    label: "Verify Web",
+    tasks: ["check", "test", "test:integration"],
+  },
+};
+
+export function parseProductionReleaseArgs(argv) {
+  const command = argv[0];
+  if (!RELEASE_COMMANDS.has(command)) {
+    throw new Error(
+      "Production release command must be one of: plan, verify, preflight, deploy."
+    );
+  }
+
+  const options = {
+    base: process.env.OPENMELD_RELEASE_BASE ?? DEFAULT_BASE_REF,
+    command,
+    json: false,
+    scope: "auto",
+  };
+  for (let index = 1; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--") {
+      continue;
+    }
+    if (arg === "--base") {
+      index += 1;
+      options.base = readRequiredArgument(argv, index, arg);
+      continue;
+    }
+    if (arg === "--scope") {
+      index += 1;
+      options.scope = readRequiredArgument(argv, index, arg);
+      continue;
+    }
+    if (arg === "--json") {
+      options.json = true;
+      continue;
+    }
+    throw new Error(`Unknown production release option: ${arg}`);
+  }
+  return options;
+}
+
+export function expandRequestedReleaseScopes(scope) {
+  const normalized = String(scope).trim();
+  if (normalized === "auto") {
+    return null;
+  }
+  if (normalized === "cloud") {
+    return [...CLOUD_SCOPES];
+  }
+  if (normalized === "full") {
+    return [...FULL_SCOPES];
+  }
+
+  const requested = normalized
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (requested.length === 0) {
+    throw new Error("Production release scope cannot be empty.");
+  }
+  for (const value of requested) {
+    if (!DIRECT_SCOPES.has(value)) {
+      throw new Error(
+        `Unknown production release scope: ${value}. Use auto, cloud, full, or a comma-separated list of ${[...DIRECT_SCOPES].join(", ")}.`
+      );
+    }
+  }
+  return sortScopes(requested);
+}
+
+export function resolveAutomaticReleaseScopes(input) {
+  const scopes = new Set();
+  for (const packageName of input.affectedPackages) {
+    const scope = PACKAGE_SCOPE.get(packageName);
+    if (scope) {
+      scopes.add(scope);
+    }
+  }
+
+  if (input.changedPaths.some(isDatabaseSchemaPath)) {
+    scopes.add("db");
+  }
+  if (
+    input.changedPaths.some(
+      (path) =>
+        isCliReleasePath(path) ||
+        isServiceReleasePath(path) ||
+        isSkillsReleasePath(path)
+    )
+  ) {
+    scopes.add("cli");
+  }
+
+  return sortScopes(scopes);
+}
+
+export function buildProductionVerifyStepSpecs(input) {
+  const steps = buildCommonReleaseStepSpecs(input.changedPaths);
+
+  if (input.scopes.some((scope) => scope === "auth" || scope === "gateway")) {
+    steps.push({
+      args: ["turbo", "run", "build", "--filter=@openmeld/core^..."],
+      command: "pnpm",
+      label: "Build Core service-binding dependencies",
+    });
+  }
+
+  for (const scope of sortScopes(input.scopes)) {
+    if (scope === "db") {
+      steps.push(
+        {
+          args: ["db:check"],
+          command: "pnpm",
+          label: "Check database migration truth",
+        },
+        {
+          args: ["--filter", "@openmeld/db", "test"],
+          command: "pnpm",
+          label: "Test database tooling",
+        }
+      );
+      continue;
+    }
+    const spec = SCOPE_VERIFY_SPECS[scope];
+    if (!spec) {
+      continue;
+    }
+    if (scope === "core" && !input.scopes.includes("cli")) {
+      steps.push(coreCliChannelCompatibilityStep());
+    }
+    steps.push({
+      args: [
+        "turbo",
+        "run",
+        ...spec.tasks,
+        `--filter=${spec.filter}`,
+        "--concurrency=2",
+      ],
+      command: "pnpm",
+      label: spec.label,
+    });
+    if (scope === "cli") {
+      steps.push(cliReleaseMetadataStep());
+    }
+  }
+  return steps;
+}
+
+export function buildProductionPreflightStepSpecs(input) {
+  const steps = buildCommonReleaseStepSpecs(input.changedPaths);
+  if (input.scopes.includes("gateway")) {
+    steps.push(productionQueueVerificationStep("gateway"));
+  }
+  if (input.scopes.some((scope) => scope === "cli" || scope === "core")) {
+    steps.push(productionQueueVerificationStep("core"));
+  }
+  if (input.scopes.includes("core") && !input.scopes.includes("cli")) {
+    steps.push(coreCliChannelCompatibilityStep());
+  }
+  return steps;
+}
+
+function productionQueueVerificationStep(scope) {
+  return {
+    args: [
+      "run",
+      "verify:cloudflare:production-queues",
+      "--",
+      `services/${scope}/wrangler.jsonc`,
+    ],
+    command: "pnpm",
+    label: `Verify production ${scope === "core" ? "Core" : "Gateway"} Queue resources`,
+  };
+}
+
+function buildCommonReleaseStepSpecs(changedPaths) {
+  const steps = [
+    {
+      args: ["run", "verify:cloudflare:env-contract"],
+      command: "pnpm",
+      label: "Verify Cloudflare environment contracts",
+    },
+    {
+      args: ["scripts/ci/check-retired-identifiers.sh"],
+      command: "bash",
+      label: "Check retired identifiers",
+    },
+  ];
+
+  if (changedPaths.some((path) => DEPENDENCY_RULE_PATHS.has(path))) {
+    steps.push({
+      args: ["sherif"],
+      command: "pnpm",
+      label: "Check dependency rules",
+    });
+  }
+
+  return steps;
+}
+
+export function buildProductionDeployStepSpecs(scopes, input = {}) {
+  const selected = new Set(scopes);
+  const steps = [];
+  const changedPaths = input.changedPaths ?? [];
+  const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
+  const orderedScopes = resolveProductionDeployScopeOrder(scopes, changedPaths);
+  for (const scope of orderedScopes) {
+    appendProductionDeployScopeSteps({
+      deployOrderProfile,
+      scope,
+      selected,
+      steps,
+    });
+  }
+  if (selected.has("cli")) {
+    steps.push({
+      args: ["run", "release:cli", "--with-binary"],
+      command: "pnpm",
+      label: "Verify final R2/npm/Core alignment",
+    });
+  }
+  return steps;
+}
+
+function appendProductionDeployScopeSteps(input) {
+  if (input.scope === "db") {
+    input.steps.push({
+      args: ["db:release:prod"],
+      command: "pnpm",
+      label: "Synchronize production database",
+    });
+    return;
+  }
+  if (input.scope === "cli") {
+    input.steps.push({
+      args: ["run", "release:cli", "--with-binary"],
+      command: "pnpm",
+      label: "Publish CLI and deploy its Core release projection",
+    });
+    return;
+  }
+  if (input.scope === "web") {
+    input.steps.push(
+      packageDeployStep("openmeld-web", "Deploy Web", {
+        args: ["--config", "clients/web/wrangler.jsonc", "--env", "prod"],
+      }),
+      publicHealthStep("https://openmeld.ai/guide.md", "Verify Web health")
+    );
+    return;
+  }
+  if (input.scope === "gateway") {
+    input.steps.push(
+      packageDeployStep("@openmeld/gateway", "Deploy Gateway Worker", {
+        args: ["--config", "services/gateway/wrangler.jsonc", "--env", "prod"],
+      }),
+      publicHealthStep(
+        "https://gateway.openmeld.ai/health",
+        "Verify Gateway Worker health"
+      )
+    );
+    return;
+  }
+  if (input.scope === "auth") {
+    input.steps.push(
+      packageDeployStep("@openmeld/auth-worker", "Deploy Auth Worker", {
+        args: ["--config", "services/auth/wrangler.jsonc", "--env", "prod"],
+      }),
+      publicHealthStep(
+        "https://auth.openmeld.ai/health",
+        "Verify Auth Worker health"
+      )
+    );
+    return;
+  }
+  if (input.scope === "core") {
+    if (input.selected.has("cli")) {
+      if (input.deployOrderProfile !== "default-auth-receiver-first") {
+        input.steps.push(
+          {
+            args: ["scripts/release/deploy-core-current-cli-projection.mjs"],
+            command: "node",
+            label: "Deploy Core with the current published CLI projection",
+            workerDeploymentArgs: [
+              "--config",
+              "services/core/wrangler.jsonc",
+              "--env",
+              "prod",
+            ],
+          },
+          workerDeploymentHealthStep({
+            args: ["--config", "services/core/wrangler.jsonc", "--env", "prod"],
+            label: "Verify Core deployment is visible",
+          })
+        );
+      }
+      return;
+    }
+    input.steps.push(
+      packageDeployStep("@openmeld/core", "Deploy Core Worker", {
+        args: ["--config", "services/core/wrangler.jsonc", "--env", "prod"],
+      }),
+      workerDeploymentHealthStep({
+        args: ["--config", "services/core/wrangler.jsonc", "--env", "prod"],
+        label: "Verify Core deployment is visible",
+      })
+    );
+    return;
+  }
+  if (input.scope === "remote-agent") {
+    input.steps.push(
+      packageDeployStep(
+        "@openmeld/remote-agent",
+        "Deploy Remote Agent Worker",
+        {
+          args: [
+            "--config",
+            "services/remote-agent/wrangler.jsonc",
+            "--env",
+            "prod",
+          ],
+        }
+      ),
+      workerDeploymentHealthStep({
+        args: [
+          "--config",
+          "services/remote-agent/dist/openmeld_remote_agent/wrangler.prod.json",
+        ],
+        label: "Verify Remote Agent deployment is visible",
+      })
+    );
+  }
+}
+
+function resolveProductionDeployScopeOrder(scopes, changedPaths) {
+  const profile = resolveProductionDeployOrderProfile(changedPaths);
+  const order = DEPLOY_SCOPE_ORDER_BY_PROFILE[profile];
+  const selected = new Set(scopes);
+  return order.filter((scope) => selected.has(scope));
+}
+
+function resolveProductionDeployOrderProfile(changedPaths) {
+  if (isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths)) {
+    return "remote-agent-receiver-first";
+  }
+  if (isCoreWorkerResponseReaderFirstDiff(changedPaths)) {
+    return "core-worker-response-reader-first";
+  }
+  if (changedPaths.some(isRemoteAgentReceiverFirstContractPath)) {
+    return "remote-agent-receiver-first";
+  }
+  if (changedPaths.some(isCenterAgentCliReceiverFirstContractPath)) {
+    return "center-agent-cli-receiver-first";
+  }
+  return "default-auth-receiver-first";
+}
+
+function isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) {
+  return (
+    changedPaths.includes(REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH) &&
+    changedPaths.includes(REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH) &&
+    changedPaths.some((path) =>
+      REMOTE_AGENT_WORKER_REQUEST_PRODUCER_PATHS.has(path)
+    )
+  );
+}
+
+export function buildProductionReleasePlan(input) {
+  const changedPaths = input.changedPaths ?? resolveChangedPaths(input.base);
+  const requested = expandRequestedReleaseScopes(input.scope);
+  const affectedPackages = requested
+    ? []
+    : (input.affectedPackages ?? resolveAffectedPackages(changedPaths));
+  const scopes =
+    requested ??
+    resolveAutomaticReleaseScopes({ affectedPackages, changedPaths });
+  return {
+    affectedPackages,
+    base: input.base,
+    changedPaths,
+    coreProjectionFromCli: scopes.includes("cli"),
+    deployOrderProfile: resolveProductionDeployOrderProfile(changedPaths),
+    deploySteps: buildProductionDeployStepSpecs(scopes, { changedPaths }),
+    preflightSteps: buildProductionPreflightStepSpecs({ changedPaths, scopes }),
+    scopes,
+    sourceSha: input.sourceSha ?? readHeadSha(),
+    verifySteps: buildProductionVerifyStepSpecs({ changedPaths, scopes }),
+  };
+}
+
+function resolveChangedPaths(base) {
+  assertGitRef(base);
+  const outputs = [
+    runGit(["diff", "--name-only", `${base}...HEAD`]),
+    runGit(["diff", "--name-only"]),
+    runGit(["ls-files", "--others", "--exclude-standard"]),
+  ];
+  return [...new Set(outputs.flatMap(splitLines))].toSorted();
+}
+
+function resolveAffectedPackages(changedPaths) {
+  const workspacePackages = readWorkspacePackages();
+  if (
+    changedPaths.some((changedPath) =>
+      GLOBAL_WORKSPACE_RUNTIME_PATHS.has(changedPath)
+    )
+  ) {
+    return workspacePackages.map((workspacePackage) => workspacePackage.name);
+  }
+
+  const changedPackageNames = new Set();
+  for (const changedPath of changedPaths) {
+    const workspacePackage = workspacePackages.find(
+      (candidate) =>
+        changedPath === candidate.relativePath ||
+        changedPath.startsWith(`${candidate.relativePath}/`)
+    );
+    if (
+      workspacePackage &&
+      isWorkspaceRuntimePath(
+        changedPath.slice(workspacePackage.relativePath.length + 1)
+      )
+    ) {
+      changedPackageNames.add(workspacePackage.name);
+    }
+  }
+
+  const affectedPackageNames = new Set(changedPackageNames);
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const workspacePackage of workspacePackages) {
+      if (affectedPackageNames.has(workspacePackage.name)) {
+        continue;
+      }
+      if (
+        workspacePackage.workspaceDependencies.some((dependencyName) =>
+          affectedPackageNames.has(dependencyName)
+        )
+      ) {
+        affectedPackageNames.add(workspacePackage.name);
+        expanded = true;
+      }
+    }
+  }
+  return [...affectedPackageNames].toSorted();
+}
+
+function readWorkspacePackages() {
+  const output = execFileSync(
+    resolveCommandBinary("pnpm"),
+    ["-r", "list", "--depth", "-1", "--json"],
+    { encoding: "utf8", maxBuffer: 1024 * 1024 * 5 }
+  );
+  const listedPackages = JSON.parse(output);
+  const repoRoot = process.cwd();
+  const packageNames = new Set(
+    listedPackages
+      .map((listedPackage) => listedPackage.name)
+      .filter((name) => typeof name === "string")
+  );
+  return listedPackages
+    .filter(
+      (listedPackage) =>
+        typeof listedPackage.name === "string" &&
+        typeof listedPackage.path === "string" &&
+        path.resolve(listedPackage.path) !== path.resolve(repoRoot)
+    )
+    .map((listedPackage) => {
+      const packageJson = JSON.parse(
+        readFileSync(path.join(listedPackage.path, "package.json"), "utf8")
+      );
+      const dependencyNames = new Set([
+        ...Object.keys(packageJson.dependencies ?? {}),
+        ...Object.keys(packageJson.devDependencies ?? {}),
+        ...Object.keys(packageJson.optionalDependencies ?? {}),
+        ...Object.keys(packageJson.peerDependencies ?? {}),
+      ]);
+      return {
+        name: listedPackage.name,
+        relativePath: path
+          .relative(repoRoot, listedPackage.path)
+          .split(path.sep)
+          .join("/"),
+        workspaceDependencies: [...dependencyNames].filter((name) =>
+          packageNames.has(name)
+        ),
+      };
+    });
+}
+
+function assertGitRef(ref) {
+  try {
+    runGit(["rev-parse", "--verify", `${ref}^{commit}`]);
+  } catch {
+    throw new Error(
+      `Production release base ref ${ref} is not available. Fetch it or pass --base <ref>.`
+    );
+  }
+}
+
+function assertCleanWorktree() {
+  const dirty = splitLines(
+    runGit(["status", "--porcelain=v1", "--untracked-files=all"])
+  );
+  if (dirty.length > 0) {
+    throw new Error(
+      [
+        "Local production release requires a clean worktree.",
+        ...dirty.map((path) => `- ${path}`),
+      ].join("\n")
+    );
+  }
+}
+
+function assertSourceStillMatches(sourceSha) {
+  assertCleanWorktree();
+  const currentSha = readHeadSha();
+  if (currentSha !== sourceSha) {
+    throw new Error(
+      `Production release source changed during verification: planned ${sourceSha}, current ${currentSha}. Run the plan again.`
+    );
+  }
+}
+
+function runStep(step) {
+  process.stdout.write(`\n[production-release] ${step.label}\n`);
+  const result = spawnSync(resolveCommandBinary(step.command), step.args, {
+    env: process.env,
+    stdio: "inherit",
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `${step.command} ${step.args.join(" ")} failed with exit code ${String(result.status)}`
+    );
+  }
+}
+
+export function executeProductionDeploySteps(input) {
+  const adapters = {
+    runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
+    runStep: input.adapters?.runStep ?? runStep,
+  };
+  const write = input.write ?? ((value) => process.stdout.write(value));
+  for (const step of input.steps) {
+    if (step.workerDeploymentArgs) {
+      const result = adapters.runCommand({
+        args: [
+          "exec",
+          "wrangler",
+          "deployments",
+          "list",
+          ...step.workerDeploymentArgs,
+          "--json",
+        ],
+        command: "pnpm",
+        env: input.env ?? process.env,
+      });
+      printCurrentWorkerVersions(step.label, result, write);
+    }
+    adapters.runStep(step);
+    input.afterStep?.(step);
+  }
+}
+
+function printCurrentWorkerVersions(label, result, write) {
+  if (result.status !== 0) {
+    const detail =
+      String(result.stderr ?? "").trim() ||
+      String(result.stdout ?? "").trim() ||
+      `exit ${String(result.status)}`;
+    write(
+      `\n[production-release] ${label} — current production version id unavailable: ${detail}; deploy will still RUN\n`
+    );
+    return;
+  }
+  try {
+    const versions = readCurrentWorkerVersionIds(JSON.parse(result.stdout));
+    const detail =
+      versions.length > 0
+        ? versions
+            .map(
+              (version) =>
+                `${version.versionId} (${String(version.percentage)}%)`
+            )
+            .join(", ")
+        : "none";
+    write(
+      `\n[production-release] ${label} — current production version id(s): ${detail}; deploy will RUN\n`
+    );
+  } catch (error) {
+    write(
+      `\n[production-release] ${label} — current production version id unavailable: ${error instanceof Error ? error.message : String(error)}; deploy will still RUN\n`
+    );
+  }
+}
+
+function runReadOnlyCommand(input) {
+  const result = spawnSync(resolveCommandBinary(input.command), input.args, {
+    encoding: "utf8",
+    env: input.env,
+    maxBuffer: 1024 * 1024 * 20,
+    timeout: COMPLETION_PROBE_TIMEOUT_MS,
+  });
+  return {
+    status: result.error ? 1 : (result.status ?? 1),
+    stderr: [String(result.stderr ?? "").trim(), result.error?.message]
+      .filter(Boolean)
+      .join("\n"),
+    stdout: String(result.stdout ?? ""),
+  };
+}
+
+function printPlan(plan, json) {
+  if (json) {
+    process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+    return;
+  }
+  const lines = [
+    "Production release plan",
+    `Source: ${plan.sourceSha}`,
+    `Base: ${plan.base}`,
+    `Scopes: ${plan.scopes.length > 0 ? plan.scopes.join(", ") : "none"}`,
+    `Deploy order: ${plan.deployOrderProfile}`,
+  ];
+  if (plan.coreProjectionFromCli) {
+    lines.push("CLI note: the CLI release owns its required Core projection.");
+  }
+  lines.push("", "Changed paths:");
+  lines.push(
+    ...(plan.changedPaths.length > 0
+      ? plan.changedPaths.map((path) => `- ${path}`)
+      : ["- none"])
+  );
+  lines.push("", "Full confidence verification:");
+  lines.push(
+    ...(plan.verifySteps.length > 0
+      ? plan.verifySteps.map((step) => `- ${step.label}`)
+      : ["- none"])
+  );
+  lines.push("", "Deployment preflight:");
+  lines.push(
+    ...(plan.preflightSteps.length > 0
+      ? plan.preflightSteps.map((step) => `- ${step.label}`)
+      : ["- none"])
+  );
+  lines.push("", "Production actions:");
+  lines.push(
+    ...(plan.deploySteps.length > 0
+      ? plan.deploySteps.map((step) => `- ${step.label}`)
+      : ["- none"])
+  );
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
+function main(argv) {
+  const options = parseProductionReleaseArgs(argv);
+  const plan = buildProductionReleasePlan(options);
+  printPlan(plan, options.json);
+  if (options.command === "plan") {
+    return;
+  }
+  if (plan.scopes.length === 0) {
+    throw new Error(
+      "No production deploy scope was selected. Pass --scope explicitly if this change needs a deploy."
+    );
+  }
+
+  assertCleanWorktree();
+  const preparationSteps =
+    options.command === "verify" ? plan.verifySteps : plan.preflightSteps;
+  for (const step of preparationSteps) {
+    runStep(step);
+  }
+  assertSourceStillMatches(plan.sourceSha);
+  if (options.command === "verify" || options.command === "preflight") {
+    return;
+  }
+  executeProductionDeploySteps({
+    afterStep: () => assertSourceStillMatches(plan.sourceSha),
+    steps: plan.deploySteps,
+  });
+}
+
+function coreCliChannelCompatibilityStep() {
+  return {
+    args: [
+      "run",
+      "verify:release-ready",
+      "--",
+      "--current",
+      "--channel-sync-check",
+    ],
+    command: "pnpm",
+    label: "Verify Core CLI channel compatibility",
+  };
+}
+
+function cliReleaseMetadataStep() {
+  return {
+    args: ["run", "verify:release-ready"],
+    command: "pnpm",
+    label: "Verify CLI release metadata",
+  };
+}
+
+function packageDeployStep(packageName, label, input) {
+  return {
+    args: ["--filter", packageName, "run", "deploy"],
+    command: "pnpm",
+    label,
+    workerDeploymentArgs: input.args,
+  };
+}
+
+function publicHealthStep(url, label) {
+  return {
+    args: [
+      "--fail",
+      "--silent",
+      "--show-error",
+      "--retry",
+      "5",
+      "--retry-all-errors",
+      "--retry-delay",
+      "3",
+      "--output",
+      "/dev/null",
+      url,
+    ],
+    command: "curl",
+    label,
+  };
+}
+
+function workerDeploymentHealthStep(input) {
+  return {
+    args: ["exec", "wrangler", "deployments", "list", ...input.args, "--json"],
+    command: "pnpm",
+    label: input.label,
+  };
+}
+
+function isDatabaseSchemaPath(path) {
+  if (path.startsWith(DB_MIGRATION_PATH_PREFIX)) {
+    return path.endsWith(".sql") || path.endsWith(".json");
+  }
+  return (
+    DB_SCHEMA_PATHS.has(path) ||
+    (DB_SCHEMA_PATH_PREFIXES.some((prefix) => path.startsWith(prefix)) &&
+      (path.endsWith("/schema.ts") || path.endsWith(".schema.ts")))
+  );
+}
+
+function isCenterAgentTaskContractPath(path) {
+  return (
+    path.includes("center-agent-task") || path.includes("center_agent_task")
+  );
+}
+
+function isRemoteAgentReceiverFirstContractPath(path) {
+  return REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS.has(path);
+}
+
+function isCoreWorkerResponseReaderFirstDiff(changedPaths) {
+  return (
+    changedPaths.includes(REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH) &&
+    changedPaths.some((path) =>
+      REMOTE_AGENT_WORKER_RESPONSE_PRODUCER_PATHS.has(path)
+    )
+  );
+}
+
+function isCenterAgentCliReceiverFirstContractPath(path) {
+  return (
+    isCenterAgentTaskContractPath(path) ||
+    isCenterAgentContextManifestContractPath(path)
+  );
+}
+
+function isCenterAgentContextManifestContractPath(path) {
+  return (
+    path.includes("center-agent-context-manifest") ||
+    path.includes("center_agent_context_manifest")
+  );
+}
+
+function isWorkspaceRuntimePath(relativePath) {
+  if (!relativePath) {
+    return false;
+  }
+  if (
+    relativePath === "README.md" ||
+    relativePath.endsWith(".md") ||
+    relativePath.includes("/__fixtures__/") ||
+    relativePath.includes("/__tests__/") ||
+    relativePath.startsWith("test/") ||
+    relativePath.startsWith("tests/") ||
+    VITEST_CONFIG_REGEX.test(relativePath) ||
+    TEST_FILE_REGEX.test(relativePath)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function sortScopes(scopes) {
+  return [...new Set(scopes)].toSorted(
+    (left, right) => SCOPE_ORDER.indexOf(left) - SCOPE_ORDER.indexOf(right)
+  );
+}
+
+function readRequiredArgument(argv, index, option) {
+  const value = argv[index];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${option} requires a value.`);
+  }
+  return value;
+}
+
+function readHeadSha() {
+  return runGit(["rev-parse", "HEAD"]).trim();
+}
+
+function runGit(args) {
+  return execFileSync(resolveCommandBinary("git"), args, {
+    encoding: "utf8",
+  });
+}
+
+function splitLines(value) {
+  return String(value).split(LINE_SPLIT_REGEX).filter(Boolean);
+}
+
+function resolveCommandBinary(command) {
+  if (process.platform !== "win32") {
+    return command;
+  }
+  if (command === "git") {
+    return "git.exe";
+  }
+  if (command === "pnpm") {
+    return "pnpm.cmd";
+  }
+  return command;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    main(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`
+    );
+    process.exitCode = 1;
+  }
+}

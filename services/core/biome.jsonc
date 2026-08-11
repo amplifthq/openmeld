@@ -1,0 +1,14 @@
+{
+  "root": false,
+  "extends": "//",
+  "linter": {
+    "rules": {
+      "style": {
+        "noExportedImports": {
+          // for re-export Durable Object classes from index.ts
+          "level": "off"
+        }
+      }
+    }
+  }
+}

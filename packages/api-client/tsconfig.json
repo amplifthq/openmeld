@@ -1,0 +1,18 @@
+{
+  "extends": "../../tooling/typescript-config/base.jsonc",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "lib": ["ESNext", "WebWorker"],
+    "paths": {
+      "@openmeld/gateway-contract": ["../gateway-contract/src/index.ts"],
+      "@openmeld/protocol": ["../protocol/src/index.ts"],
+      "@openmeld/schemas": ["../schemas/src/index.ts"],
+      "@openmeld/schemas/schemas": ["../schemas/src/schemas/index.ts"],
+      "@openmeld/schemas/testing": ["../schemas/src/testing/space-members.ts"],
+      "@openmeld/schemas/types": ["../schemas/src/types/index.ts"]
+    },
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["src", "tests"]
+}

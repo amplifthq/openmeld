@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+
+push_updates=$(cat)
+
+pnpm run verify:pre-push:checks
+printf '%s\n' "$push_updates" | node scripts/release/pre-push-release-ready.mjs

@@ -1,0 +1,291 @@
+import type { ConnectorService } from "@openmeld/schemas/types";
+import type { QueryClient } from "@tanstack/react-query";
+import { findActiveProfileById } from "#/lib/profiles/profiles";
+import {
+	organizationAppConnectionCatalogQueryOptions,
+	organizationAppServiceConnectionsQueryOptions,
+} from "#/query/organizations/app-connections";
+import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
+import {
+	organizationDirectoryQueryOptions,
+	organizationSpacesQueryOptions,
+} from "#/query/organizations/organization-directory";
+import {
+	organizationScopeQueryKeys,
+	organizationScopeQueryOptions,
+} from "#/query/organizations/organization-scope";
+import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
+import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
+import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
+import { spaceHistoryQueryOptions } from "#/query/spaces/history";
+import { spaceStatusQueryOptions } from "#/query/spaces/status";
+import type {
+	OrganizationScopeAuthorized,
+	OrganizationScopeResolution,
+} from "./organization-types";
+
+type OrganizationRoutePrefetchInput = {
+	organizationSlug: string;
+	queryClient: QueryClient;
+	queryPersistence: BrowserQueryPersistenceController;
+	routeFamily: string;
+};
+
+export async function prefetchAppCatalogRouteData(
+	input: OrganizationRoutePrefetchInput
+): Promise<void> {
+	const scope = await resolveAuthorizedPrefetchScope(input);
+	if (!scope) {
+		return;
+	}
+
+	await input.queryClient.prefetchQuery(
+		organizationAppConnectionCatalogQueryOptions({
+			organizationId: scope.currentOrganization.id,
+			queryClient: input.queryClient,
+		})
+	);
+}
+
+export async function prefetchAppDetailRouteData(
+	input: OrganizationRoutePrefetchInput & { service: ConnectorService }
+): Promise<void> {
+	const scope = await resolveAuthorizedPrefetchScope(input);
+	if (!scope) {
+		return;
+	}
+
+	await input.queryClient.prefetchQuery(
+		organizationAppServiceConnectionsQueryOptions({
+			organizationId: scope.currentOrganization.id,
+			queryClient: input.queryClient,
+			service: input.service,
+		})
+	);
+}
+
+export async function prefetchAgentsRouteData(
+	input: OrganizationRoutePrefetchInput
+): Promise<void> {
+	const scope = await resolveAuthorizedPrefetchScope(input);
+	if (!scope) {
+		return;
+	}
+
+	const queries = [
+		input.queryClient.prefetchQuery(
+			buildStartProfilesQueryOptions({
+				enabled: true,
+				storageScope: scope.storageScope,
+			})
+		),
+	];
+	if (scope.currentOrganization.isPersonal !== true) {
+		queries.push(
+			input.queryClient.prefetchQuery(
+				organizationDirectoryQueryOptions({
+					enabled: true,
+					organizationId: scope.currentOrganization.id,
+				})
+			)
+		);
+	}
+	await Promise.all(queries);
+}
+
+export async function prefetchSpacesRouteData(
+	input: OrganizationRoutePrefetchInput
+): Promise<void> {
+	const scope = await resolveAuthorizedPrefetchScope(input);
+	if (!scope) {
+		return;
+	}
+
+	await Promise.all([
+		input.queryClient.prefetchQuery(
+			buildStartProfilesQueryOptions({
+				enabled: true,
+				storageScope: scope.storageScope,
+			})
+		),
+		input.queryClient.prefetchQuery(
+			organizationSpacesQueryOptions({
+				enabled: true,
+				organizationId: scope.currentOrganization.id,
+			})
+		),
+	]);
+}
+
+export async function prefetchSpaceConversationRouteData(
+	input: OrganizationRoutePrefetchInput & {
+		profileId?: string;
+		spaceId: string;
+	}
+): Promise<void> {
+	const scope = await resolveAuthorizedPrefetchScope(input);
+	if (!scope) {
+		return;
+	}
+	const profiles = await input.queryClient.ensureQueryData(
+		buildStartProfilesQueryOptions({
+			enabled: true,
+			storageScope: scope.storageScope,
+		})
+	);
+	if (!input.profileId) {
+		return;
+	}
+	const selectedHumanProfile = findActiveProfileById(profiles, {
+		profileId: input.profileId,
+		profileKind: "human",
+	});
+	if (!selectedHumanProfile) {
+		return;
+	}
+
+	await prefetchKnownSpaceConversationData({
+		organizationId: scope.currentOrganization.id,
+		organizationSlug: scope.currentOrganization.slug,
+		ownerAccountId: scope.storageScope,
+		queryClient: input.queryClient,
+		queryPersistence: input.queryPersistence,
+		spaceId: input.spaceId,
+		openMeldProfileId: selectedHumanProfile.openMeldProfileId,
+	});
+}
+
+export async function restoreSpaceConversationRouteData(
+	input: OrganizationRoutePrefetchInput & {
+		profileId?: string;
+		spaceId: string;
+	}
+): Promise<void> {
+	if (!input.profileId) {
+		return;
+	}
+	const scope = await resolveAuthorizedPrefetchScope(input);
+	if (!scope) {
+		return;
+	}
+	await input.queryPersistence.activateSpaceConversation({
+		organizationId: scope.currentOrganization.id,
+		organizationSlug: scope.currentOrganization.slug,
+		ownerAccountId: scope.storageScope,
+		queryClient: input.queryClient,
+		spaceId: input.spaceId,
+		openMeldProfileId: input.profileId,
+	});
+}
+
+export async function prefetchCenterAgentConversationData(input: {
+	organizationId: string;
+	organizationSlug: string;
+	ownerAccountId: string;
+	queryClient: QueryClient;
+	queryPersistence: BrowserQueryPersistenceController;
+}): Promise<void> {
+	const projectionResponse = await input.queryClient.ensureQueryData({
+		...centerAgentDirectMessageSpaceProjectionQueryOptions({
+			enabled: true,
+			organizationId: input.organizationId,
+		}),
+		revalidateIfStale: true,
+	});
+	if (projectionResponse.organizationId !== input.organizationId) {
+		throw new Error(
+			`Center Agent prefetch organization mismatch: expected ${input.organizationId}, received ${projectionResponse.organizationId}.`
+		);
+	}
+	const projection = projectionResponse.projection;
+	if (!projection) {
+		// Intent prefetch is read-only. Opening or creating the DM remains an
+		// explicit route/launcher activation owned by the Center Agent loader.
+		return;
+	}
+	if (projection.organizationId !== input.organizationId) {
+		throw new Error(
+			`Center Agent prefetch projection mismatch: expected ${input.organizationId}, received ${projection.organizationId}.`
+		);
+	}
+
+	await prefetchKnownSpaceConversationData({
+		organizationId: input.organizationId,
+		organizationSlug: input.organizationSlug,
+		ownerAccountId: input.ownerAccountId,
+		queryClient: input.queryClient,
+		queryPersistence: input.queryPersistence,
+		spaceId: projection.spaceId,
+		openMeldProfileId: projection.memberProfileId,
+	});
+}
+
+export async function prefetchKnownSpaceConversationData(input: {
+	organizationId: string;
+	organizationSlug: string;
+	ownerAccountId: string;
+	queryClient: QueryClient;
+	queryPersistence: BrowserQueryPersistenceController;
+	spaceId: string;
+	openMeldProfileId: string;
+}): Promise<void> {
+	await Promise.all([
+		input.queryPersistence
+			.activateSpaceConversation({
+				organizationId: input.organizationId,
+				organizationSlug: input.organizationSlug,
+				ownerAccountId: input.ownerAccountId,
+				queryClient: input.queryClient,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.openMeldProfileId,
+			})
+			.then(() =>
+				input.queryClient.prefetchQuery(
+					spaceHistoryQueryOptions({
+						enabled: true,
+						spaceId: input.spaceId,
+						openMeldProfileId: input.openMeldProfileId,
+					})
+				)
+			),
+		input.queryClient.prefetchQuery(
+			spaceStatusQueryOptions({
+				enabled: true,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.openMeldProfileId,
+			})
+		),
+		input.queryClient.prefetchQuery(
+			spaceBootstrapQueryOptions({
+				enabled: true,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.openMeldProfileId,
+			})
+		),
+	]);
+}
+
+async function resolveAuthorizedPrefetchScope(
+	input: OrganizationRoutePrefetchInput
+): Promise<OrganizationScopeAuthorized | null> {
+	const queryOptions = organizationScopeQueryOptions({
+		organizationSlug: input.organizationSlug,
+		routeFamily: input.routeFamily,
+	});
+	const cachedScope =
+		input.queryClient.getQueryData<OrganizationScopeResolution>(
+			organizationScopeQueryKeys.bySlug(input.organizationSlug)
+		);
+	const scope =
+		cachedScope ?? (await input.queryClient.ensureQueryData(queryOptions));
+	if (scope.access !== "authorized") {
+		return null;
+	}
+	await input.queryPersistence.activateAuthorizedScope({
+		organizationId: scope.currentOrganization.id,
+		organizationSlug: scope.currentOrganization.slug,
+		ownerAccountId: scope.storageScope,
+		queryClient: input.queryClient,
+	});
+	return scope;
+}

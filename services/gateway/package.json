@@ -1,0 +1,44 @@
+{
+  "name": "@openmeld/gateway",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "OpenMeld - Gateway",
+  "license": "MIT",
+  "scripts": {
+    "predev": "node ../../scripts/dev/run-guarded-service-predev.mjs gateway \"pnpm -C ../.. exec turbo run build --filter=@openmeld/gateway\"",
+    "dev": "dotenv -e ../../.env -o -- wrangler dev --persist-to ../../.wrangler-dev-state --inspector-port 19332",
+    "predev:isolated": "node ../../scripts/dev/run-guarded-service-predev.mjs gateway \"pnpm -C ../.. exec turbo run build --filter=@openmeld/gateway\"",
+    "dev:isolated": "dotenv -e ../../.env -- node ../../scripts/dev/run-isolated-worker-dev.mjs gateway",
+    "dev:prod": "dotenv -e ../../.env -o -- wrangler dev --env prod --persist-to ../../.wrangler-dev-state --inspector-port 19332",
+    "build:workspace-dependencies": "pnpm -C ../.. exec turbo run build --filter=@openmeld/gateway^...",
+    "deploy": "pnpm run build:workspace-dependencies && dotenv -e ../../.env -o -- wrangler deploy --minify --env prod",
+    "sync:config:prod": "pnpm run deploy",
+    "sync:secrets:prod": "node ../../scripts/cloudflare/sync-worker-secrets.mjs --env prod --file .dev.vars.prod SLACK_OPENMELD_OAUTH_CLIENT_ID SLACK_OPENMELD_OAUTH_CLIENT_SECRET SLACK_OPENMELD_SIGNING_SECRET OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
+    "sync:prod": "pnpm run sync:secrets:prod && pnpm run sync:config:prod",
+    "test": "vitest run",
+    "test:local-smoke": "vitest run --config vitest.local-smoke.config.ts",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck",
+    "cf-typegen": "wrangler types -c ./wrangler.jsonc -c ../core/wrangler.jsonc -c ../auth/wrangler.jsonc --env-interface=CloudflareBindings && pnpm run typecheck"
+  },
+  "dependencies": {
+    "@openmeld/gateway-contract": "workspace:*",
+    "@openmeld/protocol": "workspace:*",
+    "@openmeld/schemas": "workspace:*",
+    "@openmeld/space": "workspace:*",
+    "@openmeld/utils": "workspace:*",
+    "hono": "^4.11.7",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.12.14",
+    "@openmeld/auth-worker": "workspace:*",
+    "@openmeld/core": "workspace:*",
+    "dotenv-cli": "^11.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "~3.2.0",
+    "wrangler": "catalog:"
+  }
+}

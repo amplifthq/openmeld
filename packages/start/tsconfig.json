@@ -1,0 +1,10 @@
+{
+  "extends": "../../tooling/typescript-config/base.jsonc",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "lib": ["ESNext"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["src", "tests"]
+}

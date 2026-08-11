@@ -1,0 +1,55 @@
+{
+  "include": ["**/*.ts", "**/*.tsx"],
+  "compilerOptions": {
+    "target": "ES2022",
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "baseUrl": ".",
+    "paths": {
+      "#/*": ["./src/*"],
+      "@/*": ["./src/*"],
+      "@openmeld/agent-profile": ["../../packages/agent-profile/src/index.ts"],
+      "@openmeld/agent-runtime": ["../../packages/agent-runtime/src/index.ts"],
+      "@openmeld/api-client": ["../../packages/api-client/src/index.ts"],
+      "@openmeld/auth": ["../../packages/auth/src/index.ts"],
+      "@openmeld/auth/client": ["../../packages/auth/src/client.ts"],
+      "@openmeld/auth/server": ["../../packages/auth/src/server.ts"],
+      "@openmeld/gateway-contract": [
+        "../../packages/gateway-contract/src/index.ts"
+      ],
+      "@openmeld/protocol": ["../../packages/protocol/src/index.ts"],
+      "@openmeld/routine-schedule": [
+        "../../packages/routine-schedule/src/index.ts"
+      ],
+      "@openmeld/schemas": ["../../packages/schemas/src/index.ts"],
+      "@openmeld/schemas/schemas": [
+        "../../packages/schemas/src/schemas/index.ts"
+      ],
+      "@openmeld/schemas/testing": [
+        "../../packages/schemas/src/testing/space-members.ts"
+      ],
+      "@openmeld/schemas/types": ["../../packages/schemas/src/types/index.ts"],
+      "@openmeld/space": ["../../packages/space/src/index.ts"],
+      "@openmeld/space-mesh": ["../../packages/space-mesh/src/index.ts"],
+      "@openmeld/start": ["../../packages/start/src/index.ts"],
+      "@openmeld/start/testing": ["../../packages/start/src/testing/index.ts"],
+      "@openmeld/utils": ["../../packages/utils/src/index.ts"]
+    },
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+
+    /* Linting */
+    "skipLibCheck": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  }
+}

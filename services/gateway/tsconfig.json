@@ -1,0 +1,9 @@
+{
+  "extends": "../../tooling/typescript-config/base.jsonc",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ESNext", "WebWorker"],
+    "types": ["./worker-configuration.d.ts"]
+  },
+  "include": ["src", "tests"]
+}

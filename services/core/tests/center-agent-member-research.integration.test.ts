@@ -1,0 +1,784 @@
+import { env } from "cloudflare:test";
+import {
+  HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+  HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+} from "@openmeld/schemas";
+import type {
+  AuthRpcResolveOrganizationAccountIdentityInput,
+  AuthRpcResolveOrganizationAccountIdentityResult,
+} from "@openmeld/schemas/types";
+import { describe, expect, it, vi } from "vitest";
+import { requireCenterAgentMemberResearchDraftTarget } from "../src/center-agent-member-research/member-research-repository";
+import {
+  getCenterAgentMemberResearchStatus,
+  runCenterAgentMemberResearchTick,
+  startCenterAgentMemberResearch,
+} from "../src/center-agent-member-research/member-research-service";
+import type { CoreBindings } from "../src/lib/bindings";
+import { createOrganizationDocumentService } from "../src/organization-documents/organization-document-service";
+import {
+  buildCenterAgentMemberResearchInstructions,
+  submitRemoteAgentMemberResearchDelivery,
+} from "../src/remote-agent/application/native-delivery-service";
+import {
+  markRemoteAgentNativeDeliveryAck,
+  markRemoteAgentNativeDeliveryCompleted,
+  upsertRemoteAgentNativeDeliveryRecord,
+} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+
+describe("Center Agent member research", () => {
+  it("builds a privacy-bounded research instruction with an explicit quality floor", () => {
+    const instructions = buildCenterAgentMemberResearchInstructions({
+      nowMs: Date.UTC(2026, 6, 16, 12),
+      subjectDisplayName: "Morgan Lee",
+      subjectUserId: "user-morgan",
+    });
+
+    expect(instructions).toContain("Morgan Lee (userId: user-morgan)");
+    expect(instructions).toContain("shared GitHub connection");
+    expect(instructions).toContain("Slack workspace directory metadata");
+    expect(instructions).not.toContain("public messages");
+    expect(instructions).toContain(
+      "Never access or infer from local agent session content"
+    );
+    expect(instructions).toContain(
+      "Leave unavailable facts blank. Never invent details"
+    );
+    expect(instructions).toContain(
+      "Identity metadata and missing-source notices are not substantive evidence"
+    );
+    expect(instructions).toContain(
+      "Do not present names, email addresses, Organization roles, profile ownership, connection status, or the absence of activity as observed work"
+    );
+    expect(instructions).toContain("previous 90 days");
+    expect(instructions).toContain("previous 180 days");
+    expect(instructions).toContain(
+      "exactly one accepted draft with openmeld_draft_org_document"
+    );
+    expect(instructions).toContain(
+      "must never write or restate approved content"
+    );
+    expect(instructions).toContain('the title "Morgan Lee Profile Report"');
+    expect(instructions).toContain("memberResearchReport");
+    expect(instructions).toContain(
+      "Do not combine documentId with kind, subjectUserId, or title"
+    );
+    expect(instructions).toContain(
+      "Core validates the report, preserves the approved About section, and renders all Markdown"
+    );
+    expect(instructions).toContain("result to evidence_backed");
+    expect(instructions).toContain(
+      "observedActivity requires at least two distinct evidence items"
+    );
+    expect(instructions).toContain(
+      "GitHub items also require the direct artifact URL in sourceUrl"
+    );
+    expect(instructions).toContain(
+      "Display-name or handle similarity is not enough"
+    );
+    expect(instructions).toContain("For insufficient_evidence");
+  });
+
+  it("lets any active human Organization member accept a single-member research task and audits it", async () => {
+    const fixture = await seedResearchFixture();
+    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+
+    const accepted = await startCenterAgentMemberResearch(
+      coreEnv,
+      {
+        context: humanContext(fixture, fixture.requester),
+        expectedOrganizationId: fixture.organizationId,
+        scope: "member",
+        subjectUserId: fixture.requester.userId,
+      },
+      `ca_dm_${fixture.suffix}`
+    );
+
+    expect(accepted.batch).toMatchObject({
+      completedCount: 0,
+      failedCount: 0,
+      organizationId: fixture.organizationId,
+      scope: "member",
+      status: "queued",
+      totalCount: 1,
+    });
+    expect(accepted.batch.tasks[0]).toMatchObject({
+      status: "queued",
+      subjectUserId: fixture.requester.userId,
+    });
+    const audit = await env.OPENMELD_DB.prepare(
+      `
+        SELECT action, on_behalf_of_user_id, resource_type, resource_id
+        FROM center_agent_audit_journal
+        WHERE organization_id = ?
+      `
+    )
+      .bind(fixture.organizationId)
+      .first<{
+        action: string;
+        on_behalf_of_user_id: string;
+        resource_id: string;
+        resource_type: string;
+      }>();
+    expect(audit).toEqual({
+      action: "research_member",
+      on_behalf_of_user_id: fixture.requester.userId,
+      resource_id: accepted.batch.tasks[0]?.id,
+      resource_type: "member_research_task",
+    });
+
+    await expect(
+      startCenterAgentMemberResearch(
+        coreEnv,
+        {
+          context: {
+            ...humanContext(fixture, fixture.requester),
+            actorContext: {
+              ...humanContext(fixture, fixture.requester).actorContext,
+              callerPrincipalId: `outsider_${fixture.suffix}`,
+              ownerUserId: `outsider_${fixture.suffix}`,
+            },
+          },
+          expectedOrganizationId: fixture.organizationId,
+          scope: "member",
+          subjectUserId: fixture.requester.userId,
+        },
+        `ca_dm_${fixture.suffix}`
+      )
+    ).rejects.toMatchObject({ cause: { status: 403 } });
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM center_agent_member_research_batches WHERE id = ?"
+    )
+      .bind(accepted.batch.id)
+      .run();
+  });
+
+  it("runs all members serially and continues after one delivery fails", async () => {
+    const fixture = await seedResearchFixture();
+    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const accepted = await startCenterAgentMemberResearch(
+      coreEnv,
+      {
+        context: humanContext(fixture, fixture.requester),
+        expectedOrganizationId: fixture.organizationId,
+        scope: "all",
+      },
+      `ca_dm_${fixture.suffix}`
+    );
+    const submitDelivery = vi
+      .fn()
+      .mockResolvedValueOnce({
+        failureCode: "remote_agent.worker_unavailable",
+        status: "failed" as const,
+      })
+      .mockResolvedValueOnce({ status: "submitted" as const });
+
+    await runCenterAgentMemberResearchTick({
+      db: env.OPENMELD_DB,
+      env: coreEnv,
+      nowMs: Date.now() + 1000,
+      submitDelivery,
+    });
+
+    expect(submitDelivery).toHaveBeenCalledTimes(2);
+    expect(submitDelivery.mock.calls[0]?.[0].subjectUserId).toBe(
+      accepted.batch.tasks[0]?.subjectUserId
+    );
+    expect(submitDelivery.mock.calls[1]?.[0].subjectUserId).toBe(
+      accepted.batch.tasks[1]?.subjectUserId
+    );
+    const status = await getCenterAgentMemberResearchStatus(coreEnv, {
+      context: humanContext(fixture, fixture.requester),
+    });
+    expect(status.latestBatch).toMatchObject({
+      failedCount: 1,
+      status: "running",
+      totalCount: 4,
+      tasks: [
+        {
+          failureCode: "remote_agent.worker_unavailable",
+          status: "failed",
+        },
+        { failureCode: null, status: "running" },
+        { failureCode: null, status: "queued" },
+        { failureCode: null, status: "queued" },
+      ],
+    });
+    const auditCount = await env.OPENMELD_DB.prepare(
+      `
+        SELECT COUNT(*) AS count
+        FROM center_agent_audit_journal
+        WHERE organization_id = ? AND action = 'research_member'
+      `
+    )
+      .bind(fixture.organizationId)
+      .first<{ count: number }>();
+    expect(auditCount?.count).toBe(4);
+  });
+
+  it("returns a terminal failure when member research selects an unknown model", async () => {
+    const fixture = await seedResearchFixture();
+    const authority = await seedResearchDeliveryAuthority(fixture, {
+      modelId: "openrouter/not-in-the-catalog",
+    });
+
+    await expect(
+      submitRemoteAgentMemberResearchDelivery({
+        db: env.OPENMELD_DB,
+        directMessageSpaceId: authority.directMessageSpaceId,
+        env: buildResearchDeliveryEnv(fixture),
+        nowMs: 2000,
+        organizationId: fixture.organizationId,
+        requesterUserId: fixture.requester.userId,
+        subjectDisplayName: fixture.requester.displayName,
+        subjectUserId: fixture.requester.userId,
+        taskId: `member_research_unknown_model_${fixture.suffix}`,
+      })
+    ).resolves.toEqual({
+      failureCode: "center_agent_model_unknown",
+      status: "failed",
+    });
+  });
+
+  it("retries an unacknowledged member research submission with the same task identity", async () => {
+    const fixture = await seedResearchFixture();
+    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const accepted = await startCenterAgentMemberResearch(
+      coreEnv,
+      {
+        context: humanContext(fixture, fixture.requester),
+        expectedOrganizationId: fixture.organizationId,
+        scope: "member",
+        subjectUserId: fixture.requester.userId,
+      },
+      `ca_dm_${fixture.suffix}`
+    );
+    const task = accepted.batch.tasks[0];
+    if (!task) {
+      throw new Error("Expected one accepted member research task.");
+    }
+    const submitDelivery = vi.fn().mockResolvedValue({ status: "submitted" });
+
+    await runCenterAgentMemberResearchTick({
+      db: env.OPENMELD_DB,
+      env: coreEnv,
+      nowMs: Date.now() + 1000,
+      submitDelivery,
+    });
+    await upsertRemoteAgentNativeDeliveryRecord({
+      attemptId: null,
+      bindingId: `binding_${fixture.suffix}`,
+      db: env.OPENMELD_DB,
+      dispatchId: task.id,
+      idempotencyKey: task.id,
+      nowMs: Date.now() + 1001,
+      organizationId: fixture.organizationId,
+      profileId: fixture.centerAgentProfileId,
+      spaceId: `ca_dm_${fixture.suffix}`,
+      status: "submitted",
+      triggerMessageId: task.id,
+    });
+
+    await runCenterAgentMemberResearchTick({
+      db: env.OPENMELD_DB,
+      env: coreEnv,
+      nowMs: Date.now() + 2000,
+      submitDelivery,
+    });
+
+    const taskSubmissions = submitDelivery.mock.calls.filter(
+      ([input]) => input.taskId === task.id
+    );
+    expect(taskSubmissions).toHaveLength(2);
+    expect(taskSubmissions[1]?.[0].taskId).toBe(task.id);
+  });
+
+  it("keeps durable draft-origin evidence after the reviewable draft is cleared", async () => {
+    const fixture = await seedResearchFixture();
+    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const startedAtMs = Date.now() + 1000;
+    const accepted = await startCenterAgentMemberResearch(
+      coreEnv,
+      {
+        context: humanContext(fixture, fixture.requester),
+        expectedOrganizationId: fixture.organizationId,
+        scope: "member",
+        subjectUserId: fixture.requester.userId,
+      },
+      `ca_dm_${fixture.suffix}`
+    );
+    const task = accepted.batch.tasks[0];
+    if (!task) {
+      throw new Error("Expected one accepted member research task.");
+    }
+    await runCenterAgentMemberResearchTick({
+      db: env.OPENMELD_DB,
+      env: coreEnv,
+      nowMs: startedAtMs,
+      submitDelivery: vi.fn().mockResolvedValue({ status: "submitted" }),
+    });
+    await upsertRemoteAgentNativeDeliveryRecord({
+      attemptId: null,
+      bindingId: `binding_${fixture.suffix}`,
+      db: env.OPENMELD_DB,
+      dispatchId: task.id,
+      idempotencyKey: task.id,
+      nowMs: startedAtMs,
+      organizationId: fixture.organizationId,
+      profileId: fixture.centerAgentProfileId,
+      spaceId: `ca_dm_${fixture.suffix}`,
+      status: "submitted",
+      triggerMessageId: task.id,
+    });
+    const submissionId = `submission_${fixture.suffix}`;
+    await markRemoteAgentNativeDeliveryAck({
+      accepted: true,
+      db: env.OPENMELD_DB,
+      idempotencyKey: task.id,
+      nowMs: startedAtMs + 1,
+      submissionId,
+    });
+    await expect(
+      requireCenterAgentMemberResearchDraftTarget({
+        db: env.OPENMELD_DB,
+        kind: "member_profile",
+        organizationId: fixture.organizationId,
+        submissionId,
+        subjectUserId: "another-user",
+        taskId: task.id,
+      })
+    ).rejects.toMatchObject({ cause: { status: 409 } });
+    await requireCenterAgentMemberResearchDraftTarget({
+      db: env.OPENMELD_DB,
+      kind: "member_profile",
+      organizationId: fixture.organizationId,
+      submissionId,
+      subjectUserId: fixture.requester.userId,
+      taskId: task.id,
+    });
+    const documentService = createOrganizationDocumentService({
+      db: env.OPENMELD_DB,
+      now: () => startedAtMs + 2,
+    });
+    const draftInput = {
+      draftContent: "",
+      kind: "member_profile" as const,
+      memberResearch: { submissionId, taskId: task.id },
+      memberResearchReport: insufficientEvidenceReport(),
+      subjectUserId: fixture.requester.userId,
+      title: `${fixture.requester.displayName} Profile Report`,
+    };
+    await expect(
+      documentService.draft(
+        fixture.organizationId,
+        {
+          ...draftInput,
+          memberResearch: {
+            submissionId: "another-submission",
+            taskId: task.id,
+          },
+        },
+        memberResearchDocumentReviewerUserIds(fixture)
+      )
+    ).rejects.toMatchObject({ cause: { status: 409 } });
+    await expect(
+      documentService.draft(
+        fixture.organizationId,
+        {
+          ...draftInput,
+          memberResearchReport: {
+            result: "evidence_backed",
+          } as never,
+        },
+        memberResearchDocumentReviewerUserIds(fixture)
+      )
+    ).rejects.toMatchObject({
+      cause: {
+        code: "center_agent_member_research.report_quality_failed",
+        status: 422,
+      },
+    });
+    const unauthorizedDraftCount = await env.OPENMELD_DB.prepare(
+      "SELECT COUNT(*) AS count FROM organization_documents WHERE organization_id = ? AND kind = 'member_profile'"
+    )
+      .bind(fixture.organizationId)
+      .first<{ count: number }>();
+    expect(unauthorizedDraftCount?.count).toBe(0);
+    const drafted = await documentService.draft(
+      fixture.organizationId,
+      draftInput,
+      memberResearchDocumentReviewerUserIds(fixture)
+    );
+    const draftVersion = await env.OPENMELD_DB.prepare(
+      "SELECT draft_created_at FROM organization_documents WHERE id = ?"
+    )
+      .bind(drafted.document.id)
+      .first<{ draft_created_at: number }>();
+    if (!draftVersion) {
+      throw new Error("Expected the member research draft version.");
+    }
+    const renderedDraft = await env.OPENMELD_DB.prepare(
+      "SELECT draft_content FROM organization_documents WHERE id = ?"
+    )
+      .bind(drafted.document.id)
+      .first<{ draft_content: string }>();
+    expect(renderedDraft?.draft_content).toContain("**Insufficient evidence**");
+    expect(renderedDraft?.draft_content).toContain("## Research coverage");
+    await documentService.discardDraft(
+      {
+        organizationId: fixture.organizationId,
+        role: "owner",
+        userId: fixture.requester.userId,
+      },
+      drafted.document.id,
+      new Date(draftVersion.draft_created_at).toISOString()
+    );
+    const replayed = await documentService.draft(
+      fixture.organizationId,
+      draftInput,
+      memberResearchDocumentReviewerUserIds(fixture)
+    );
+    expect(replayed.document).toMatchObject({
+      hasDraft: false,
+      id: drafted.document.id,
+    });
+    await markRemoteAgentNativeDeliveryCompleted({
+      db: env.OPENMELD_DB,
+      nowMs: startedAtMs + 3,
+      publishedSignalId: null,
+      submissionId,
+    });
+
+    await runCenterAgentMemberResearchTick({
+      db: env.OPENMELD_DB,
+      env: coreEnv,
+      nowMs: startedAtMs + 4,
+    });
+
+    const status = await getCenterAgentMemberResearchStatus(coreEnv, {
+      context: humanContext(fixture, fixture.requester),
+    });
+    expect(status.latestBatch).toMatchObject({
+      completedCount: 1,
+      failedCount: 0,
+      status: "completed",
+      tasks: [{ status: "completed" }],
+    });
+  });
+});
+
+async function seedResearchFixture() {
+  const suffix = crypto.randomUUID();
+  const organizationId = `org_member_research_${suffix}`;
+  const users = [
+    {
+      displayName: "Riley Requester",
+      memberId: `member_requester_${suffix}`,
+      profileId: crypto.randomUUID(),
+      role: "member",
+      userId: `user_requester_${suffix}`,
+    },
+    {
+      displayName: "Alex Subject",
+      memberId: `member_alex_${suffix}`,
+      profileId: crypto.randomUUID(),
+      role: "member",
+      userId: `user_alex_${suffix}`,
+    },
+    {
+      displayName: "Morgan Subject",
+      memberId: `member_morgan_${suffix}`,
+      profileId: crypto.randomUUID(),
+      role: "admin",
+      userId: `user_morgan_${suffix}`,
+    },
+  ] as const;
+  await env.OPENMELD_DB.prepare(
+    "INSERT INTO organizations (id, name, slug, created_at) VALUES (?, ?, ?, ?)"
+  )
+    .bind(
+      organizationId,
+      "Member Research Org",
+      `member-research-${suffix}`,
+      1000
+    )
+    .run();
+  for (const [index, user] of users.entries()) {
+    await env.OPENMELD_DB.batch([
+      env.OPENMELD_DB.prepare(
+        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
+      ).bind(
+        user.userId,
+        user.displayName,
+        `member-research-${index}-${suffix}@example.com`,
+        1000,
+        1000
+      ),
+      env.OPENMELD_DB.prepare(
+        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)"
+      ).bind(user.memberId, organizationId, user.userId, user.role, 1000),
+      env.OPENMELD_DB.prepare(
+        `
+          INSERT INTO openmeld_profiles (
+            profile_id, profile_name, profile_handle, profile_kind,
+            is_default, status, owner_user_id, created_by_user_id,
+            source, created_at, updated_at
+          ) VALUES (?, ?, ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', ?, ?)
+        `
+      ).bind(
+        user.profileId,
+        user.displayName,
+        `member-research-${index}-${suffix}`,
+        user.userId,
+        user.userId,
+        1000,
+        1000
+      ),
+    ]);
+  }
+  const membershipOnlyUser = {
+    displayName: "No Profile Subject",
+    memberId: `member_no_profile_${suffix}`,
+    role: "member",
+    userId: `user_no_profile_${suffix}`,
+  } as const;
+  await env.OPENMELD_DB.batch([
+    env.OPENMELD_DB.prepare(
+      "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)"
+    ).bind(
+      membershipOnlyUser.userId,
+      membershipOnlyUser.displayName,
+      `member-research-no-profile-${suffix}@example.com`,
+      1000,
+      1000
+    ),
+    env.OPENMELD_DB.prepare(
+      "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).bind(
+      membershipOnlyUser.memberId,
+      organizationId,
+      membershipOnlyUser.userId,
+      membershipOnlyUser.role,
+      1000
+    ),
+  ]);
+  const centerAgentProfileId = `agt_${crypto.randomUUID()}`;
+  await env.OPENMELD_DB.batch([
+    env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO openmeld_profiles (
+          profile_id, profile_name, profile_handle, profile_kind,
+          is_default, status, organization_id, owner_user_id,
+          created_by_user_id, source, managed_role, created_at, updated_at
+        ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 'center_agent', ?, ?)
+      `
+    ).bind(
+      centerAgentProfileId,
+      `member-research-ca-${suffix}`,
+      organizationId,
+      users[0].userId,
+      users[0].userId,
+      1000,
+      1000
+    ),
+    env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO center_agent_designations (
+          organization_id, agent_profile_id, duty, designated_by, created_at
+        ) VALUES (?, ?, NULL, ?, ?)
+      `
+    ).bind(organizationId, centerAgentProfileId, users[0].userId, 1000),
+  ]);
+  return {
+    centerAgentProfileId,
+    organizationId,
+    requester: users[0],
+    subjects: [...users, membershipOnlyUser],
+    suffix,
+  };
+}
+
+async function seedResearchDeliveryAuthority(
+  fixture: Awaited<ReturnType<typeof seedResearchFixture>>,
+  input: { modelId: string }
+) {
+  const bindingId = `binding_member_research_${fixture.suffix}`;
+  const directMessageSpaceId = `ca_dm_${fixture.suffix}`;
+  await env.OPENMELD_DB.batch([
+    env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO space_index_spaces (
+          space_id, organization_id, organization_visibility, status, space_name,
+          source_updated_at_ms, projected_at_ms, projection_event_id
+        ) VALUES (?, ?, 'private', 'active', 'Center Agent', 1000, 1000, ?)
+      `
+    ).bind(
+      directMessageSpaceId,
+      fixture.organizationId,
+      `member_research_space_${fixture.suffix}`
+    ),
+    env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO space_index_memberships (
+          space_id, profile_id, profile_kind_snapshot, profile_name_snapshot,
+          owner_user_id_snapshot, controller_ref_snapshot, status, member_source,
+          added_at_ms, source_updated_at_ms, projected_at_ms, projection_event_id
+        ) VALUES (?, ?, 'agent', 'Center Agent', ?, ?, 'active', 'member_add',
+          1000, 1000, 1000, ?)
+      `
+    ).bind(
+      directMessageSpaceId,
+      fixture.centerAgentProfileId,
+      fixture.requester.userId,
+      HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      `member_research_membership_${fixture.suffix}`
+    ),
+    env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO openMeldDaemon_agent_profile_bindings (
+          binding_id, owner_kind, owner_id, agent_profile_id,
+          openmeld_service_runtime_id, runtime_kind, hosted_runtime_identity_json,
+          agent_controller_ref, agent_controller_conversation_id, binding_state,
+          model_id, created_at_ms, updated_at_ms
+        ) VALUES (?, 'owner_account', ?, ?, ?, 'hosted_center_agent', ?, ?,
+          'center-agent', 'enabled_primary', ?, 1000, 1000)
+      `
+    ).bind(
+      bindingId,
+      fixture.requester.userId,
+      fixture.centerAgentProfileId,
+      HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
+      JSON.stringify(HOSTED_CENTER_AGENT_RUNTIME_IDENTITY),
+      HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      input.modelId
+    ),
+    env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO organization_binding_authorizations (
+          id, organization_id, binding_id, authorized_by, created_at
+        ) VALUES (?, ?, ?, ?, 1000)
+      `
+    ).bind(
+      `member_research_authorization_${fixture.suffix}`,
+      fixture.organizationId,
+      bindingId,
+      fixture.requester.userId
+    ),
+  ]);
+  return { bindingId, directMessageSpaceId };
+}
+
+function buildResearchDeliveryEnv(
+  fixture: Awaited<ReturnType<typeof seedResearchFixture>>
+): CoreBindings {
+  return {
+    OPENMELD_AUTH_WORKER: {
+      resolveOrganizationAccountIdentity: (
+        request: AuthRpcResolveOrganizationAccountIdentityInput
+      ): Promise<AuthRpcResolveOrganizationAccountIdentityResult> => {
+        if (
+          request.organizationId !== fixture.organizationId ||
+          request.account?.kind !== "user_id" ||
+          request.account.userId !== fixture.requester.userId
+        ) {
+          return Promise.resolve({
+            code: "auth.organization_identity_unavailable",
+            message: "Organization identity is unavailable.",
+            ok: false,
+          });
+        }
+        return Promise.resolve({
+          account: {
+            defaultHumanProfile: {
+              profileId: fixture.requester.profileId,
+              profileName: fixture.requester.displayName,
+            },
+            displayName: fixture.requester.displayName,
+            email: `member-research-0-${fixture.suffix}@example.com`,
+            membership: {
+              memberId: fixture.requester.memberId,
+              role: fixture.requester.role,
+            },
+            userId: fixture.requester.userId,
+          },
+          ok: true,
+          organization: {
+            id: fixture.organizationId,
+            memberCount: fixture.subjects.length,
+            name: "Member Research Org",
+            personal: false,
+            slug: `member-research-${fixture.suffix}`,
+          },
+        });
+      },
+    },
+    OPENMELD_DB: env.OPENMELD_DB,
+  } as CoreBindings;
+}
+
+function humanContext(
+  fixture: Awaited<ReturnType<typeof seedResearchFixture>>,
+  actor: Awaited<ReturnType<typeof seedResearchFixture>>["requester"]
+) {
+  return {
+    activeOrganizationId: fixture.organizationId,
+    actorContext: {
+      callerPrincipalId: actor.userId,
+      ownerUserId: actor.userId,
+      profileKind: "human" as const,
+      profileName: actor.displayName,
+      requestId: `member-research-request-${fixture.suffix}`,
+      openMeldProfileId: actor.profileId,
+    },
+  };
+}
+
+function memberResearchDocumentReviewerUserIds(
+  fixture: Awaited<ReturnType<typeof seedResearchFixture>>
+): string[] {
+  return fixture.subjects
+    .filter((member) => member.role === "admin")
+    .map((member) => member.userId);
+}
+
+function insufficientEvidenceReport() {
+  return {
+    coverage: [
+      {
+        evidence: "Exact subject identity confirmed.",
+        source: "organization_directory" as const,
+        status: "checked" as const,
+        timeRange: "Current",
+      },
+      {
+        evidence: "No approved Profile Report exists.",
+        source: "approved_profile_report" as const,
+        status: "unavailable" as const,
+        timeRange: "Current",
+      },
+      {
+        evidence: "No attributable records were available.",
+        source: "agent_activity" as const,
+        status: "unavailable" as const,
+        timeRange: "Previous 180 days",
+      },
+      {
+        evidence: "No exact identity match was available.",
+        source: "github" as const,
+        status: "not_attributable" as const,
+        timeRange: "Previous 180 days",
+      },
+      {
+        evidence: "The shared Slack directory was unavailable.",
+        source: "slack_workspace_directory" as const,
+        status: "unavailable" as const,
+        timeRange: "Current",
+      },
+    ],
+    nextSteps: [
+      "Connect an attributable work source before researching again.",
+    ],
+    result: "insufficient_evidence" as const,
+  };
+}

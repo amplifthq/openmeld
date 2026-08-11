@@ -1,0 +1,672 @@
+import { randomUUID } from "node:crypto";
+import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  DEFAULT_REMOTE_SESSION_TIMEOUT_MS,
+  LOOPBACK_REMOTE_SESSION_TIMEOUT_MS,
+} from "../strategy-constants";
+import { openMeldRootDir } from "./paths";
+import {
+  deleteAccessToken,
+  isStoredTokenRef,
+  readAccessToken,
+  type StoredTokenRef,
+  storeAccessToken,
+} from "./token-store";
+
+type AuthSessionV1 = {
+  v: 1;
+  tokenRef: StoredTokenRef;
+  tokenType: string;
+  authBaseUrl: string;
+  clientId: string;
+  createdAt: string;
+  expiresAt?: string;
+  scope?: string;
+  user?: {
+    id?: string;
+    email?: string;
+    name?: string;
+  };
+  activeOrganization?: StoredActiveOrganization;
+};
+
+export type StoredActiveOrganization = {
+  id: string;
+  slug: string;
+  name: string;
+  role?: string;
+  personal?: boolean;
+};
+
+export type StoredAuthSession = {
+  v: 1;
+  accessToken: string;
+  tokenType: string;
+  authBaseUrl: string;
+  clientId: string;
+  createdAt: string;
+  expiresAt?: string;
+  scope?: string;
+  user?: {
+    id?: string;
+    email?: string;
+    name?: string;
+  };
+  activeOrganization?: StoredActiveOrganization;
+};
+
+export type AuthSessionState =
+  | "missing"
+  | "valid"
+  | "expired"
+  | "invalid"
+  | "revoked";
+
+export type AuthSessionStateReasonCode =
+  | "remote_session_invalid"
+  | "remote_session_revoked"
+  | "session_expired"
+  | "session_metadata_invalid"
+  | "session_missing"
+  | "session_token_missing"
+  | "session_token_ref_invalid"
+  | "session_token_unavailable";
+
+export type AuthSessionStateResult = {
+  errorMessage?: string;
+  reasonCode?: AuthSessionStateReasonCode;
+  state: AuthSessionState;
+  session: StoredAuthSession | null;
+};
+
+export type AuthSessionMetadata = {
+  authBaseUrl: string;
+  clientId: string;
+  createdAt: string;
+  expiresAt?: string;
+  scope?: string;
+  user?: {
+    id?: string;
+    email?: string;
+    name?: string;
+  };
+  activeOrganization?: StoredActiveOrganization;
+};
+
+type GetAuthSessionStateOptions = {
+  validateRemote?: boolean;
+};
+
+type LocalAuthSessionState =
+  | {
+      errorMessage?: string;
+      reasonCode: Exclude<
+        AuthSessionStateReasonCode,
+        "remote_session_invalid" | "remote_session_revoked" | "session_expired"
+      >;
+      state: "missing" | "invalid";
+      session: null;
+    }
+  | {
+      reasonCode: "session_expired";
+      state: "expired";
+      session: StoredAuthSession;
+    }
+  | {
+      state: "valid";
+      session: StoredAuthSession;
+    };
+
+type RemoteAuthSessionState = "valid" | "invalid" | "revoked" | "unknown";
+type RemoteAuthSessionValidation = {
+  state: RemoteAuthSessionState;
+};
+const TRAILING_SLASHES_RE = /\/+$/u;
+
+export async function getAuthSessionState(
+  options: GetAuthSessionStateOptions = {}
+): Promise<AuthSessionStateResult> {
+  const localState = await getLocalAuthSessionState();
+  switch (localState.state) {
+    case "missing":
+    case "invalid":
+    case "expired":
+      return localState;
+    case "valid":
+      break;
+    default:
+      return localState;
+  }
+  if (!options.validateRemote) {
+    return localState;
+  }
+
+  const remoteValidation = await getRemoteAuthSessionState(localState.session);
+  if (remoteValidation.state === "valid") {
+    return localState;
+  }
+  if (remoteValidation.state === "unknown") {
+    return localState;
+  }
+
+  return {
+    reasonCode: resolveRemoteAuthSessionReasonCode(remoteValidation.state),
+    state: remoteValidation.state,
+    session: null,
+  };
+}
+
+// The signed-in owner user id from the local session, or null when signed
+// out. Callers use this as the expected owner for service account-alignment
+// checks; it never validates remotely.
+export async function getCurrentAuthOwnerUserId(): Promise<string | null> {
+  const authState = await getAuthSessionState({
+    validateRemote: false,
+  }).catch(() => null);
+  const ownerUserId = authState?.session?.user?.id?.trim() ?? "";
+  return ownerUserId.length > 0 ? ownerUserId : null;
+}
+
+export async function setAuthSession(input: {
+  accessToken: string;
+  tokenType?: string;
+  authBaseUrl: string;
+  clientId: string;
+  expiresAt?: string;
+  scope?: string;
+  user?: {
+    id?: string;
+    email?: string;
+    name?: string;
+  };
+  activeOrganization?: StoredActiveOrganization | null;
+}): Promise<void> {
+  const accessToken = String(input.accessToken ?? "").trim();
+  if (!accessToken) {
+    throw new Error("access token is required");
+  }
+
+  const authBaseUrl = String(input.authBaseUrl ?? "").trim();
+  if (!authBaseUrl) {
+    throw new Error("auth base URL is required");
+  }
+
+  const clientId = String(input.clientId ?? "").trim();
+  if (!clientId) {
+    throw new Error("client_id is required");
+  }
+
+  const tokenRef = await storeAccessToken({
+    accessToken,
+    authBaseUrl,
+    clientId,
+  });
+
+  const payload: AuthSessionV1 = {
+    v: 1,
+    tokenRef,
+    tokenType: String(input.tokenType ?? "Bearer").trim() || "Bearer",
+    authBaseUrl,
+    clientId,
+    createdAt: new Date().toISOString(),
+    ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+    ...(input.scope ? { scope: input.scope } : {}),
+    ...buildAuthUserPayload(input.user),
+    ...buildActiveOrganizationPayload(input.activeOrganization),
+  };
+
+  const path = authSessionPath();
+  await mkdir(join(openMeldRootDir(), "auth"), { recursive: true });
+
+  try {
+    await writeSessionPayloadAtomically(path, payload);
+  } catch (error) {
+    await deleteAccessToken(tokenRef).catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function getAuthSession(): Promise<StoredAuthSession | null> {
+  const localState = await getLocalAuthSessionState();
+  if (localState.state === "missing" || localState.state === "invalid") {
+    return null;
+  }
+  return localState.session;
+}
+
+export async function getAuthSessionMetadata(): Promise<AuthSessionMetadata | null> {
+  const payload = await readSessionPayload();
+  if (payload?.v !== 1) {
+    return null;
+  }
+
+  const authBaseUrl = normalizeOptionalString(payload.authBaseUrl);
+  const clientId = normalizeOptionalString(payload.clientId);
+  const createdAt = normalizeOptionalString(payload.createdAt);
+  if (!(authBaseUrl && clientId && createdAt)) {
+    return null;
+  }
+
+  return {
+    authBaseUrl,
+    clientId,
+    createdAt,
+    ...(typeof payload.expiresAt === "string" && payload.expiresAt.trim()
+      ? { expiresAt: payload.expiresAt.trim() }
+      : {}),
+    ...(typeof payload.scope === "string" && payload.scope.trim()
+      ? { scope: payload.scope.trim() }
+      : {}),
+    ...buildAuthUserPayload(payload.user),
+    ...buildActiveOrganizationPayload(payload.activeOrganization),
+  };
+}
+
+export async function updateAuthSessionActiveOrganization(
+  activeOrganization: StoredActiveOrganization | null
+): Promise<void> {
+  const payload = await readSessionPayload();
+  if (payload?.v !== 1) {
+    throw new Error("cannot update active organization without auth session");
+  }
+
+  const tokenRef = normalizeTokenRef(payload.tokenRef);
+  const tokenType = normalizeOptionalString(payload.tokenType);
+  const authBaseUrl = normalizeOptionalString(payload.authBaseUrl);
+  const clientId = normalizeOptionalString(payload.clientId);
+  const createdAt = normalizeOptionalString(payload.createdAt);
+  if (!(tokenRef && tokenType && authBaseUrl && clientId && createdAt)) {
+    throw new Error(
+      "cannot update active organization for invalid auth session"
+    );
+  }
+
+  const nextPayload: AuthSessionV1 = {
+    v: 1,
+    tokenRef,
+    tokenType,
+    authBaseUrl,
+    clientId,
+    createdAt,
+    ...(typeof payload.expiresAt === "string" && payload.expiresAt.trim()
+      ? { expiresAt: payload.expiresAt.trim() }
+      : {}),
+    ...(typeof payload.scope === "string" && payload.scope.trim()
+      ? { scope: payload.scope.trim() }
+      : {}),
+    ...buildAuthUserPayload(payload.user),
+    ...buildActiveOrganizationPayload(activeOrganization),
+  };
+
+  await writeSessionPayloadAtomically(authSessionPath(), nextPayload);
+}
+
+export async function clearAuthSession(): Promise<void> {
+  const payload = await readSessionPayload();
+  if (payload?.v === 1 && isStoredTokenRef(payload.tokenRef)) {
+    await deleteAccessToken(payload.tokenRef).catch(() => undefined);
+  }
+  await removeSessionFileBestEffort();
+}
+
+async function getLocalAuthSessionState(): Promise<LocalAuthSessionState> {
+  const payload = await readSessionPayload();
+  if (payload?.v !== 1) {
+    return {
+      reasonCode: "session_missing",
+      state: "missing",
+      session: null,
+    };
+  }
+
+  const tokenRef = normalizeTokenRef(payload.tokenRef);
+  if (!tokenRef) {
+    return {
+      reasonCode: "session_token_ref_invalid",
+      state: "invalid",
+      session: null,
+    };
+  }
+
+  const tokenType = normalizeOptionalString(payload.tokenType);
+  const authBaseUrl = normalizeOptionalString(payload.authBaseUrl);
+  const clientId = normalizeOptionalString(payload.clientId);
+  const createdAt = normalizeOptionalString(payload.createdAt);
+  if (!(tokenType && authBaseUrl && clientId && createdAt)) {
+    return {
+      reasonCode: "session_metadata_invalid",
+      state: "invalid",
+      session: null,
+    };
+  }
+
+  const accessToken = await readAccessToken(tokenRef);
+  if (accessToken.status === "missing") {
+    return {
+      reasonCode: "session_token_missing",
+      state: "invalid",
+      session: null,
+    };
+  }
+  if (accessToken.status === "unavailable") {
+    return {
+      errorMessage: accessToken.errorMessage,
+      reasonCode: "session_token_unavailable",
+      state: "invalid",
+      session: null,
+    };
+  }
+
+  const session: StoredAuthSession = {
+    v: 1,
+    accessToken: accessToken.accessToken,
+    tokenType,
+    authBaseUrl,
+    clientId,
+    createdAt,
+    ...(typeof payload.expiresAt === "string" && payload.expiresAt.trim()
+      ? { expiresAt: payload.expiresAt.trim() }
+      : {}),
+    ...(typeof payload.scope === "string" && payload.scope.trim()
+      ? { scope: payload.scope.trim() }
+      : {}),
+    ...buildAuthUserPayload(payload.user),
+    ...buildActiveOrganizationPayload(payload.activeOrganization),
+  };
+
+  if (isExpired(session.expiresAt)) {
+    return {
+      reasonCode: "session_expired",
+      state: "expired",
+      session,
+    };
+  }
+
+  return {
+    state: "valid",
+    session,
+  };
+}
+
+function normalizeTokenRef(input: unknown): StoredTokenRef | null {
+  if (!isStoredTokenRef(input)) {
+    return null;
+  }
+  return input;
+}
+
+async function getRemoteAuthSessionState(
+  session: StoredAuthSession
+): Promise<RemoteAuthSessionValidation> {
+  let endpoint = "";
+  try {
+    endpoint = toAuthEndpoint(session.authBaseUrl, "/api/auth/get-session");
+  } catch {
+    return { state: "invalid" };
+  }
+  try {
+    const timeoutMs = resolveRemoteSessionTimeoutMs(endpoint);
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        Authorization: `${normalizeTokenType(session.tokenType)} ${session.accessToken}`,
+      },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      return { state: "revoked" };
+    }
+    if (!response.ok) {
+      // Preserve local credentials on upstream/transient failures.
+      // Non-auth HTTP errors should be retried instead of treated as revocation.
+      return { state: "unknown" };
+    }
+
+    const payload = await parseResponseJson(response);
+    if (!hasActiveSessionPayload(payload)) {
+      return { state: "invalid" };
+    }
+    return { state: "valid" };
+  } catch {
+    return { state: "unknown" };
+  }
+}
+
+function resolveRemoteSessionTimeoutMs(endpoint: string): number {
+  const url = parseUrlOrNull(endpoint);
+  if (url && isLoopbackHostname(url.hostname)) {
+    return LOOPBACK_REMOTE_SESSION_TIMEOUT_MS;
+  }
+  return DEFAULT_REMOTE_SESSION_TIMEOUT_MS;
+}
+
+function parseUrlOrNull(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return (
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+  );
+}
+
+function hasActiveSessionPayload(payload: unknown): boolean {
+  if (!isRecord(payload)) {
+    return false;
+  }
+
+  return (
+    isRecord((payload as Record<string, unknown>).session) &&
+    isRecord((payload as Record<string, unknown>).user)
+  );
+}
+
+function isExpired(expiresAt: string | undefined): boolean {
+  if (!expiresAt) {
+    return false;
+  }
+  const expiresAtMs = Date.parse(expiresAt);
+  if (Number.isNaN(expiresAtMs)) {
+    return false;
+  }
+  return expiresAtMs <= Date.now();
+}
+
+function resolveRemoteAuthSessionReasonCode(
+  state: Exclude<RemoteAuthSessionState, "valid" | "unknown">
+): AuthSessionStateReasonCode {
+  switch (state) {
+    case "invalid":
+      return "remote_session_invalid";
+    case "revoked":
+      return "remote_session_revoked";
+    default: {
+      const exhaustiveState: never = state;
+      throw new Error(
+        `unsupported remote auth session state: ${exhaustiveState}`
+      );
+    }
+  }
+}
+
+async function readSessionPayload(): Promise<Partial<AuthSessionV1> | null> {
+  const raw = await readFile(authSessionPath(), "utf8").catch(() => null);
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw) as Partial<AuthSessionV1>;
+  } catch {
+    return null;
+  }
+}
+
+function authSessionPath(): string {
+  return join(openMeldRootDir(), "auth", "session.json");
+}
+
+async function writeSessionPayloadAtomically(
+  path: string,
+  payload: AuthSessionV1
+): Promise<void> {
+  const tempPath = `${path}.tmp-${process.pid}-${Date.now()}-${randomUUID()}`;
+  try {
+    const file = await open(tempPath, "wx");
+    try {
+      await file.writeFile(`${JSON.stringify(payload, null, 2)}\n`, "utf8");
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+
+    await rename(tempPath, path);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+function buildAuthUserPayload(value: unknown): {
+  user?: {
+    id?: string;
+    email?: string;
+    name?: string;
+  };
+} {
+  if (!(value && typeof value === "object")) {
+    return {};
+  }
+  const record = value as Record<string, unknown>;
+  const id = normalizeOptionalString(record.id);
+  const email = normalizeOptionalString(record.email);
+  const name = normalizeOptionalString(record.name);
+  if (!(id || email || name)) {
+    return {};
+  }
+  return {
+    user: {
+      ...(id ? { id } : {}),
+      ...(email ? { email } : {}),
+      ...(name ? { name } : {}),
+    },
+  };
+}
+
+function buildActiveOrganizationPayload(value: unknown): {
+  activeOrganization?: StoredActiveOrganization;
+} {
+  const activeOrganization = normalizeStoredActiveOrganization(value);
+  return activeOrganization ? { activeOrganization } : {};
+}
+
+export function normalizeStoredActiveOrganization(
+  value: unknown
+): StoredActiveOrganization | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const id = normalizeOptionalString(value.id);
+  const slug = normalizeOptionalString(value.slug);
+  const name = normalizeOptionalString(value.name);
+  const role = normalizeOptionalString(value.role);
+  const personal = readOrganizationIsPersonal(value);
+  if (!(id && slug && name)) {
+    return null;
+  }
+  return {
+    id,
+    slug,
+    name,
+    ...(role ? { role } : {}),
+    ...(personal ? { personal } : {}),
+  };
+}
+
+export function readActiveOrganizationIdFromSessionPayload(
+  payload: unknown
+): string | null {
+  if (!isRecord(payload)) {
+    return null;
+  }
+  return (
+    (isRecord(payload.session)
+      ? normalizeOptionalString(payload.session.activeOrganizationId)
+      : null) ?? normalizeOptionalString(payload.activeOrganizationId)
+  );
+}
+
+function normalizeTokenType(value: string): string {
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : "Bearer";
+}
+
+function normalizeOptionalString(value: unknown): string | null {
+  const normalized = String(value ?? "").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function readOrganizationIsPersonal(value: Record<string, unknown>): boolean {
+  if (value.personal === true || value.isPersonal === true) {
+    return true;
+  }
+
+  const metadata = readOrganizationMetadata(value.metadata);
+  return metadata?.personal === true;
+}
+
+function readOrganizationMetadata(
+  metadata: unknown
+): Record<string, unknown> | null {
+  if (metadata === null || metadata === undefined) {
+    return null;
+  }
+
+  if (typeof metadata === "string") {
+    try {
+      const parsed = JSON.parse(metadata) as unknown;
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return isRecord(metadata) ? metadata : null;
+}
+
+function toAuthEndpoint(baseUrl: string, pathname: string): string {
+  const url = new URL(baseUrl);
+  const normalizedBasePath = url.pathname.replace(TRAILING_SLASHES_RE, "");
+  const normalizedPathname = pathname.startsWith("/")
+    ? pathname
+    : `/${pathname}`;
+  url.pathname = `${normalizedBasePath}${normalizedPathname}` || "/";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object");
+}
+
+async function parseResponseJson(response: Response): Promise<unknown> {
+  const raw = await response.text();
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { message: raw };
+  }
+}
+
+async function removeSessionFileBestEffort(): Promise<void> {
+  await rm(authSessionPath(), { force: true }).catch(() => undefined);
+}

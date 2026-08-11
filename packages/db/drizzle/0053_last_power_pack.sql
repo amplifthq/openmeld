@@ -1,0 +1,4 @@
+CREATE INDEX `agent_controller_tasks_org_owner_occurred_idx` ON `agent_controller_tasks` (`organization_id`,`owner_user_id`,"occurred_at_ms" desc);--> statement-breakpoint
+CREATE INDEX `agent_task_completion_subscriptions_observer_state_idx` ON `agent_task_completion_subscriptions` (`observer_task_key`,`state`);--> statement-breakpoint
+CREATE INDEX `agent_task_completion_subscriptions_continuation_task_state_idx` ON `agent_task_completion_subscriptions` (`continuation_task_key`,`state`);--> statement-breakpoint
+CREATE INDEX `agent_task_terminal_outcomes_observed_idx` ON `agent_task_terminal_outcomes` (`observed_at_ms`);

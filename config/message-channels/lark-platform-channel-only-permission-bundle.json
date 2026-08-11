@@ -1,0 +1,25 @@
+{
+  "callbacks": ["card.action.trigger"],
+  "events": [
+    "im.chat.member.bot.added_v1",
+    "im.chat.member.bot.deleted_v1",
+    "im.message.receive_v1"
+  ],
+  "mode": "channel_only_template",
+  "preset": false,
+  "scopes": [
+    "cardkit:card:read",
+    "cardkit:card:write",
+    "im:chat.members:bot_access",
+    "im:chat:read",
+    "im:message",
+    "im:message.group_at_msg:readonly",
+    "im:message.p2p_msg:readonly",
+    "im:message:readonly",
+    "im:message:send_as_bot",
+    "im:resource"
+  ],
+  "sdkGitHead": "1711494d0cb848b93472f03fb1e8f5366122bcf7",
+  "sdkVersion": "1.71.1",
+  "version": "channel-only-2026-07-18"
+}

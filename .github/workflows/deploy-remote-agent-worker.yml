@@ -1,0 +1,77 @@
+name: 🤖 Deploy Remote Agent Worker
+run-name: Deploy Remote Agent Worker @ ${{ inputs.release_sha || github.sha }}
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: "Deployment environment"
+        required: true
+        type: choice
+        default: production
+        options:
+          - production
+      release_sha:
+        description: "Optional exact main commit to deploy"
+        required: false
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      deploy_environment:
+        description: "Deployment environment"
+        required: false
+        type: string
+        default: production
+      release_sha:
+        description: "Exact main commit to deploy"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  deploy:
+    name: 🤖 Deploy Remote Agent Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-remote-agent-worker-production
+      cancel-in-progress: false
+    environment: production
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Validate production target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.deploy_environment || 'production' }}" != "production" ]; then
+            echo "::error::Unsupported deploy environment. Only production is allowed."
+            exit 1
+          fi
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::Production deploys must run from main. Current ref: ${GITHUB_REF}"
+            exit 1
+          fi
+
+      - name: Checkout release commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+          ref: ${{ inputs.release_sha || github.sha }}
+
+      - name: Setup repository toolchain
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Run Remote Agent Worker deployment preflight
+        run: pnpm run release:preflight:local -- --scope remote-agent --base HEAD
+
+      - name: Deploy Remote Agent Worker
+        run: pnpm -C services/remote-agent run sync:config:prod
+
+      - name: Verify Remote Agent deployment is visible
+        run: pnpm exec wrangler deployments list --config services/remote-agent/dist/openmeld_remote_agent/wrangler.prod.json --json > /dev/null

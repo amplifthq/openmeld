@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-dev-prod",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "openmeld-web", "run", "dev:prod"],
+      "port": 3434
+    }
+  ]
+}

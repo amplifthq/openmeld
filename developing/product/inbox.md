@@ -1,0 +1,340 @@
+# Inbox
+
+## Agent Context
+
+- Purpose: Define OpenMeld's workspace Inbox, attention model, item lifecycle,
+  delivery channels, first-release source coverage, and product boundaries.
+- Read this when: You are changing Inbox items, unread or attention counts,
+  Inbox delivery, notification preferences, browser notifications, urgent email,
+  or a product source that creates or resolves an Inbox item.
+- Update this when: Inbox scope, classification, lifecycle, delivery policy,
+  source coverage, navigation, or ownership changes.
+- Do not use this for: Source-domain business truth, Agent Task execution,
+  Center Agent Task lifecycle, Feedback Issue storage, Space message storage, or
+  provider-specific messaging.
+- Source of truth: This file owns the Inbox product model. Source owner documents
+  remain authoritative for the work or event represented by an Inbox item.
+
+## Product promise
+
+**Inbox** is each member's single workspace-level place to answer one question:
+"What changed, and what needs me?"
+
+It brings relevant work from Spaces, Agents, the Center Agent, Documents, and
+system flows into one calm, scannable surface. It does not replace those
+products. Opening an item takes the member to the source that owns the work.
+
+Inbox is not the same concept as a notification:
+
+- an **Inbox item** is the durable, user-visible record;
+- a **notification** is an optional delivery of that item through a browser or
+  email;
+- the source product remains the authority for approval, execution, message,
+  document, or failure state.
+
+The existing **Feedback Inbox** remains a separate organization-owned intake
+for Feedback Issues. Feedback enters a member's Inbox only after a future
+workflow assigns a specific member or explicitly requests human intervention.
+Phase 1 never broadcasts unassigned Feedback Issues to every member.
+
+## Scope and recipients
+
+Inbox is scoped by both `organizationId` and `recipientUserId`. A person sees
+only their own items in the current workspace. Changing workspaces changes the
+Inbox; it must not merge private attention state across organizations.
+
+Phase 1 recipients are authenticated human members. Agents and the Center
+Agent may create source events that produce items, but they do not receive or
+manage a parallel machine Inbox in phase 1. Future clients and agent-facing
+reads must reuse the same Core contract rather than create another store.
+
+## Classification
+
+Every item has two independent classifications:
+
+- **attention**: `update` or `action_required`;
+- **importance**: `normal` or `urgent`.
+
+`action_required` means the source currently expects a human decision or
+intervention. `urgent` means delaying that attention can block work or cause a
+material failure. An ordinary unread update is not automatically urgent.
+
+Phase 1 source kinds are:
+
+- `space_message`
+- `space_reference`
+- `agent_reply`
+- `agent_interaction`
+- `wake_outcome`
+- `center_agent_update`
+- `center_agent_task`
+- `document_review`
+- `system_issue`
+
+Source adapters choose these values from explicit source facts. Inbox must not
+infer urgency from free text, model output, UI copy, elapsed time, or missing
+data.
+
+## Item contract and ownership
+
+Core owns one canonical item with:
+
+- stable item id and recipient;
+- source kind plus a deterministic source event key;
+- bounded title and preview text safe for the recipient;
+- attention and importance;
+- a structured source target that OpenMeld clients can map to a canonical route;
+- source occurrence and item update timestamps;
+- Inbox-owned `readAt` and dismissal state.
+
+An Agent Interaction target includes its stable source Space signal when the
+producer knows it. The interaction id remains useful while the request is open,
+but resolved history must still navigate after RuntimeCoordinator retires the
+transient interaction state. Older targets without the additive signal remain
+valid during mixed-version rollout.
+
+`organizationId + recipientUserId + sourceEventKey` is unique. Replaying the
+same source event updates the existing item rather than creating duplicates.
+Source content must be bounded and must not copy transcripts, credentials,
+private local paths, raw provider objects, or diagnostic payloads into Inbox.
+
+Inbox owns reading and recipient dismissal in phase 1. The source owns business
+resolution. For example, opening an approval item may mark the Inbox item read,
+but only the Agent Interaction response path can approve or reject it. When a
+source is resolved, its producer updates the Inbox projection; Inbox never
+resolves the source itself.
+
+**Dismiss** removes an item from that recipient's Inbox views and counts without
+approving, rejecting, discarding, or otherwise changing the source work. Core
+records Dismiss in `clearedAt`; the item row is not hard-deleted. The retained
+recipient/source uniqueness row is the durable replay fence that prevents a
+source reconciler from recreating the item or resending delivery. Dismiss is
+idempotent and authorized against the recipient's current source access.
+Organization and account deletion still follow their canonical cascade. A
+future payload-retention pass must first preserve a content-free source receipt
+or tombstone.
+
+## Phase 1 source coverage
+
+The first release creates items for these explicit user-visible events:
+
+1. A visible Space message from another member, with a targeted reply or
+   structured reference receiving the more specific source kind.
+2. An Agent or Center Agent reply intended for the member who initiated the
+   interaction, a current human member explicitly referenced by the reply, or
+   the current human author of the target thread.
+3. An Agent Interaction that explicitly requests approval, an answer, plan
+   review, or other supported human response.
+4. A Wake requested by the member that ends in a visible failure or stopped
+   outcome; a successful final reply uses the Agent reply item instead of a
+   duplicate success item.
+5. A linked member's Center Agent work started through a Message Channel when
+   the result or intervention request is available in OpenMeld.
+6. A Center Agent Task that requests the recipient's action, produces a final
+   result intended for them, or reaches a material failure or visible stopped
+   outcome that requires their attention.
+7. A Center Agent document draft awaiting human review. It is sent only to
+   current owners and admins who can perform that review; one approval,
+   discard, or replacement resolves the corresponding items for every reviewer.
+8. A concrete system problem only after its owner defines a stable event id,
+   exact recipient, safe summary, supported recovery destination, and clear
+   condition. Phase 1 provides the typed adapter but does not synthesize items
+   by polling current-state or diagnostic tables.
+
+Producers must identify one or more exact recipients from source-owned identity
+facts. They must not guess from display names, notify every administrator as a
+fallback, or create an item when the target identity is unknown.
+
+Space-backed producers recheck authoritative current Space membership before a
+delayed write. Inbox list, count, item read, read mutation, and urgent-email
+delivery also fail closed against the current Space Index projection. Losing
+Space access therefore removes the item from the member's usable Inbox surface;
+Organization membership alone never preserves access to private Space content.
+
+Phase 1 intentionally excludes generic Agent Activity events, unassigned
+Feedback Issues, diagnostic-only state, typing/progress/presence events,
+successful background bookkeeping, and internal queue or execution records.
+Those are not human attention merely because they exist.
+
+### Center Agent Task projection
+
+The Center Agent Task domain owns Task status, conversation, access, Stop,
+Retry, Recovery, and business resolution as defined in
+`developing/product/center-agent-tasks.md`. Inbox consumes explicit Task source
+events and stores only the canonical Task id in its structured target. Every
+read and delivery joins the Task owner's current
+`center_agent_task_authorized_readers` projection. Interactive reads still
+require current Organization membership; urgent-email delivery rechecks that
+Auth-owned membership and retries when it cannot be verified. Inbox source JSON
+never becomes Task access authority.
+
+Opening or Dismissing a Task Inbox item does not answer, stop, retry, finish, or
+otherwise resolve the Task. Task progress, typing, presence, child-execution
+bookkeeping, ordinary continuation, and successful background repair never
+create Inbox items. A Task producer rechecks current Task access before delayed
+projection, list, read, mutation, and delivery; Organization membership alone
+does not preserve access to requester-private or Space-scoped Task content.
+
+Task and Inbox realtime behavior requires one end-to-end refresh contract with
+producer, typed signal, transport, consumer, and canonical snapshot refetch.
+Polling remains a recovery trigger, not Task or Inbox truth.
+
+## Read and attention behavior
+
+Inbox provides **All**, **Unread**, and **Needs action** views. Unread items are
+visually explicit without relying on color alone.
+
+Opening an Inbox item marks that item read as part of navigating to its source.
+Keyboard activation behaves the same way. Merely scrolling an item into the
+viewport, hovering it, or focusing the browser does not mark it read. Members
+can mark an item unread and can mark all accessible Inbox items read.
+
+Members can also Dismiss any item they no longer want in Inbox. Dismiss
+immediately removes the item from **All**, **Unread**, **Needs action**, and the
+global attention count, but leaves any unfinished source action available at
+its canonical source.
+
+A resolved action is no longer presented as actively urgent. Its historical
+title and preview may remain visible in **Updates**, but an `Urgent` treatment
+must not imply that the member still has an outstanding decision.
+
+The global Inbox launcher's badge counts uncleared, unresolved `action_required`
+items, whether or not they have been read. Ordinary unread updates remain
+visible in Inbox but do not inflate this high-attention badge. Reading an item
+never makes unfinished work disappear from the badge. The count is capped
+visually at `99+`; the server response retains the exact count.
+
+The compact preview uses that same attention fact: when unresolved actions
+exist, its status names the action count. The preview renders unresolved items
+under **Needs action** and ordinary unread items under **Recent updates** at the
+same time; one section never hides the other. When there are no unresolved
+actions, the bounded preview may use the full available item allowance for
+recent updates. It may say **All caught up** only when there are no unresolved
+actions and no unread items.
+
+### Space message unread behavior
+
+Every Inbox message projection backed by a Space carries its canonical source
+Space id and Signal occurrence time. Web reads one Core summary of at most 500
+unread message projections grouped by Space. Approval, question, and plan-review
+requests remain action items in Inbox; they do not masquerade as unread Space
+messages. The Spaces secondary sidebar shows a static amber dot and stronger
+name treatment for every visible ordinary or pinned Space with unread messages.
+Unpinned Spaces with unread messages sort before read Spaces, newest unread
+first; pinned Spaces keep the member's explicit pin order. The indicator is
+accessible without color, does not pulse, and Direct Messages remain in their
+owning navigation surface instead of reappearing in the Spaces sidebar.
+
+Every final Center Agent reply in its member Direct Message is projected as an
+ordinary Inbox update with a canonical Center Agent target containing both the
+source Space id and source Signal id. While any such item is unread, the Center
+Agent destination in the outer rail independently shows one static amber dot.
+The dot sits immediately after the label in the full rail and on the icon corner
+in compact or collapsed tiers; it includes an accessible unread-count label and
+does not pulse.
+
+Opening any Space destination does not clear unread state on route entry alone.
+Web writes one monotonic per-Space read-through watermark only after the
+document is visible and the member has remained at the latest message for the
+normal read debounce. Scrolling up, switching tabs, or arriving through a deep
+link without viewing the latest reply does not clear it. The watermark also
+makes a delayed projection of an older already-viewed update arrive read, while
+a newer update remains unread. Reading never resolves unfinished source work.
+Opening the exact Inbox item marks that item read and deep-links to its source
+Signal in the same conversation.
+
+The Center Agent may create an explicit response request only for the verified
+member in the current OpenMeld Space conversation. `response_needed` is a
+normal action-required item. `work_blocked` and `material_failure_risk` are
+urgent and are valid only for concrete blocking or time-sensitive material
+risk; model tone, elapsed time, and ordinary unread replies never upgrade an
+item. A normal response request may use browser delivery when enabled but does
+not create urgent email. An urgent request follows the member's urgent-email
+preference. The member's next reply in the same Space resolves all open Center
+Agent response requests for that member and Space; reading or Dismissing alone
+does not resolve them.
+
+## Delivery channels and preferences
+
+The in-product Inbox is always available and cannot be disabled. Phase 1 has
+two optional delivery channels:
+
+- **Browser notifications** are off until the member enables them in this
+  browser and grants browser permission. They deliver newly observed urgent or
+  action-required items while OpenMeld Web is open but hidden. They never form
+  a second unread store.
+- **Urgent email** is enabled by default at the account level and may be turned
+  off in **Settings -> Personal -> Notifications**. Only `urgent` items are
+  eligible. Email links to the same Inbox item/source and carries bounded safe
+  content.
+
+Browser permission is device/browser state. The email preference is durable
+account state. Phase 1 does not provide per-source rules, schedules, digests,
+quiet hours, snooze, Slack delivery, CLI delivery, Web Push for a closed
+browser, Desktop delivery, or Mobile delivery.
+
+## Delivery reliability
+
+Core records one delivery per eligible Inbox item and channel. Urgent email is
+processed from the durable record, retried with bounded backoff by the Core
+scheduled task, and becomes `sent`, `failed`, or `suppressed`. Reading an item
+does not recall already-sent email. A Dismiss, disabled preference, resolved
+action, or revoked source access observed before claim suppresses an unsent
+delivery. Any of those changes racing an already claimed provider send is
+best-effort and cannot recall that in-flight email.
+
+Cloudflare Email Service returns a provider message id but offers no
+delivery-id idempotency key or uncertain-send lookup. The Core ledger therefore
+provides at-least-once delivery across the external-send boundary: after a
+successful provider send, a crash before the ledger records `sent` can produce
+a duplicate retry. Copy and handling must tolerate that narrow case and must
+not claim exactly-once email delivery.
+
+Auth owns account email identity and the Cloudflare Email Service binding.
+Core requests delivery by user id through a strict shared RPC contract; it does
+not read Auth's private user table, persist an email address in Inbox, or log
+message content. Auth sends both plain-text and HTML transactional variants and
+returns only a delivery result safe for Core's ledger.
+
+## Client reuse
+
+Core contracts use organization and recipient identity explicitly and return
+structured source targets rather than Web-only URLs. Web maps those targets to
+routes in phase 1. List pagination and direct recipient-authorized item lookup
+are separate contracts so an email or browser deep link never scans an
+arbitrary number of list pages. Future Desktop and Mobile clients reuse the same item,
+counts, preference, and mutation contracts and may add their own delivery
+adapters without changing Inbox truth.
+
+## Phase 1 acceptance
+
+- The current Organization opens to Home after authorization. Inbox remains a
+  canonical full page reached from its global launcher and Home preview.
+- Inbox stays out of the primary product rail. A bottom-right global launcher
+  remains available across the authorized Web shell and shows the
+  high-attention count.
+- Activating the launcher opens a responsive compact preview. The preview keeps
+  source navigation and read-on-open behavior, shows **Needs action** and
+  **Recent updates** together when both exist, and its maximize action opens the
+  canonical full Inbox page.
+- Unread Center Agent replies show the rail dot in every rail tier and clear
+  only through the visible-at-latest read-through contract.
+- Explicit Center Agent response requests classify normal versus urgent from
+  the model-visible impact enum, and the member's next reply resolves the open
+  source request.
+- Items are deduplicated, private to their recipient, filterable, and have
+  deterministic read/unread behavior.
+- Opening every supported item reaches its canonical source.
+- Task items navigate to the exact authorized Task and never treat Inbox state
+  as Task resolution.
+- Source resolution never occurs through Inbox read or Dismiss mutations.
+- Every full-page item offers Dismiss; it removes only the recipient's Inbox
+  projection and updates unread and attention counts without a refresh.
+- Browser delivery is permission-aware and derives from Inbox data.
+- Urgent email is default-on, user-disableable, retryable, and contains no
+  sensitive diagnostic or transcript data.
+- Source adapters cover every phase 1 row above and reject unknown recipient
+  identity instead of broadcasting.
+- Empty, loading, error, offline, and permission-denied states are explicit.
+- Web styling reuses shared shell, Fluid, focus, color, and shape tokens and
+  remains usable under reduced motion.

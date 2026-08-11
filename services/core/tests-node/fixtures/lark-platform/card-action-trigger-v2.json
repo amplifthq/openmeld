@@ -1,0 +1,29 @@
+{
+  "schema": "2.0",
+  "header": {
+    "event_id": "evt_lark_card_action_1",
+    "event_type": "card.action.trigger",
+    "create_time": "1710000004000",
+    "token": "verification-token",
+    "app_id": "cli_lark_test",
+    "tenant_key": "tenant_lark_test"
+  },
+  "event": {
+    "context": {
+      "open_chat_id": "oc_chat_test",
+      "open_message_id": "om_card_test"
+    },
+    "operator": {
+      "open_id": "ou_sender_test",
+      "user_id": "u_sender_test",
+      "name": "Felix"
+    },
+    "action": {
+      "tag": "button",
+      "name": "openmeld.center_agent.submit",
+      "value": {
+        "prompt": "Continue with the launch plan."
+      }
+    }
+  }
+}

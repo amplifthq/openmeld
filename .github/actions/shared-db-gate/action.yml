@@ -1,0 +1,11 @@
+name: Release production database
+description: Generate committed database artifacts, migrate OPENMELD_DB, verify its physical contract, and optimize planner statistics once.
+
+runs:
+  using: composite
+  steps:
+    - name: Release production database
+      shell: bash
+      env:
+        OPENMELD_DB_EXECUTION_MODE: prod
+      run: pnpm run db:release:prod

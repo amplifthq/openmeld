@@ -1,0 +1,13 @@
+{
+  "extends": "../../tooling/typescript-config/base.jsonc",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    "types": [
+      "./worker-configuration.d.ts",
+      "@cloudflare/vitest-pool-workers",
+      "vitest/globals"
+    ]
+  }
+}

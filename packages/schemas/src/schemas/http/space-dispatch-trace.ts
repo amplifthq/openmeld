@@ -1,0 +1,2092 @@
+import { z } from "zod/v4";
+import { dispatchExecutionSchema } from "../daemon/conversation-lifecycle";
+import { spaceTraceExecutionIdentityProjectionSchema } from "../daemon/execution-identity";
+import {
+  runtimeCoordinatorExecutionCreationDiagnosticSchema,
+  runtimeCoordinatorExecutionEventSchema,
+  runtimeCoordinatorExecutionRecordSchema,
+} from "../daemon/runtime-coordinator-execution";
+import {
+  runtimeTransportRuntimeCoordinatorHeadLifecycleStatusSchema,
+  runtimeTransportRuntimeCoordinatorHeadNoExecutionDecisionSourceSchema,
+  runtimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategorySchema,
+  runtimeTransportRuntimeCoordinatorHeadNoExecutionReasonCodeSchema,
+  runtimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryActionSchema,
+  runtimeTransportRuntimeCoordinatorHeadWaitingCategorySchema,
+  runtimeTransportRuntimeCoordinatorHeadWaitingReasonCodeSchema,
+  runtimeTransportRuntimeCoordinatorHeadWaitingRecoveryActionSchema,
+} from "../daemon/runtime-transport";
+import { openMeldDaemonTaskResultProjectFailureContextSchema } from "../daemon/task-result";
+import {
+  MAX_PROFILE_NAME_LENGTH,
+  MAX_TEXT_LENGTH,
+} from "../protocol/constants";
+import { targetWakeLifecycleIdentitySchema } from "../protocol/target-wake-lifecycle";
+import { remoteAgentWorkerRuntimeDiagnosticsResponseSchema } from "../runtime/remote-agent-worker";
+import { observabilityWakeCorrelationSchema } from "./observability-correlation";
+import { spaceMentionLabelSchema } from "./space-mention-label";
+
+const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
+const trimmedNonEmptyStringSchema = z.string().trim().min(1);
+const SPACE_DISPATCH_TRACE_TIMEOUT_POLICY_MAX_MS = 604_800_000;
+const SPACE_DISPATCH_TRACE_PROMPT_LENGTH_MAX = 1_000_000 as const;
+export const SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS = 1200 as const;
+const SPACE_DISPATCH_TRACE_INVALID_OUTPUT_PREVIEW_MAX_CHARS = 180 as const;
+
+const boundedNullableTrimmedStringSchema = (maxLength: number) =>
+  z.union([trimmedNonEmptyStringSchema.max(maxLength), z.null()]);
+const nullableTrimmedStringSchema = boundedNullableTrimmedStringSchema(4096);
+const nullableSignalTextSchema =
+  boundedNullableTrimmedStringSchema(MAX_TEXT_LENGTH);
+const nullableIsoDateTimeSchema = z.union([ISO_DATE_TIME_SCHEMA, z.null()]);
+const nullableIntegerSchema = z.union([z.int(), z.null()]);
+const boundedNullableNonNegativeIntegerSchema = (maxValue: number) =>
+  z.union([z.int().min(0).max(maxValue), z.null()]);
+const nullableProfileKindSchema = z.union([
+  z.enum(["human", "agent", "system"]),
+  z.null(),
+]);
+
+const dispatchTraceOwnerSchema = z.strictObject({
+  id: trimmedNonEmptyStringSchema,
+  kind: trimmedNonEmptyStringSchema,
+});
+
+export const spaceDispatchTraceDispatchStatusSchema = z.enum([
+  "queued",
+  "dispatching",
+  "succeeded",
+  "failed_retryable",
+  "failed_terminal",
+  "deduped",
+  "blocked",
+  "cancelled",
+]);
+
+export const spaceDispatchTraceAttemptStatusSchema = z.enum([
+  "blocked",
+  "dispatching",
+  "failed_retryable",
+  "failed_terminal",
+  "succeeded",
+  "superseded",
+  "timed_out",
+  "waiting_result",
+]);
+
+export const spaceDispatchTraceQuerySchema = z.strictObject({
+  spaceId: trimmedNonEmptyStringSchema,
+  dispatchId: trimmedNonEmptyStringSchema,
+});
+
+export const spaceDispatchTraceDispatchSchema = z.strictObject({
+  factSource: z.literal("dispatch_ledger"),
+  dispatchId: trimmedNonEmptyStringSchema,
+  idempotencyKey: trimmedNonEmptyStringSchema,
+  sourceEventId: trimmedNonEmptyStringSchema,
+  sourceClientMessageId: nullableTrimmedStringSchema,
+  owner: z.union([dispatchTraceOwnerSchema, z.null()]),
+  targetProfileId: trimmedNonEmptyStringSchema,
+  status: spaceDispatchTraceDispatchStatusSchema,
+  firstSeenAt: ISO_DATE_TIME_SCHEMA,
+  lastAttemptAt: ISO_DATE_TIME_SCHEMA,
+  attemptCount: z.int().min(0),
+  latestAttemptId: nullableTrimmedStringSchema,
+});
+
+export const spaceDispatchTraceLatestAttemptSchema = z.strictObject({
+  factSource: z.literal("dispatch_attempt"),
+  attemptId: trimmedNonEmptyStringSchema,
+  dispatchId: trimmedNonEmptyStringSchema,
+  idempotencyKey: trimmedNonEmptyStringSchema,
+  attemptNo: z.int().min(1),
+  status: spaceDispatchTraceAttemptStatusSchema,
+  daemonSessionId: nullableTrimmedStringSchema,
+  connectionGeneration: nullableIntegerSchema,
+  leaseEpoch: nullableIntegerSchema,
+  createdAt: ISO_DATE_TIME_SCHEMA,
+  startedAt: nullableIsoDateTimeSchema,
+  finishedAt: nullableIsoDateTimeSchema,
+  errorCode: nullableTrimmedStringSchema,
+  errorMessage: nullableTrimmedStringSchema,
+});
+
+export const spaceDispatchTraceNativeDeliverySchema = z.strictObject({
+  factSource: z.literal("remote_agent_native_delivery_ledger"),
+  deliveryId: trimmedNonEmptyStringSchema,
+  dispatchId: trimmedNonEmptyStringSchema,
+  idempotencyKey: trimmedNonEmptyStringSchema,
+  bindingId: trimmedNonEmptyStringSchema,
+  runtimeFamily: z.literal("hosted_center_agent"),
+  status: z.enum([
+    "guardrail_rejected",
+    "flag_rejected",
+    "worker_unavailable",
+    "submitted",
+    "accepted",
+    "retry_observed",
+    "completed",
+    "callback_rejected",
+    "failed",
+  ]),
+  submissionId: nullableTrimmedStringSchema,
+  destination: z.strictObject({
+    conversationKind: z.enum(["message_channel", "slack", "space"]),
+    organizationId: trimmedNonEmptyStringSchema,
+    spaceId: trimmedNonEmptyStringSchema,
+    targetProfileId: trimmedNonEmptyStringSchema,
+  }),
+  controllerNormalization: z.strictObject({
+    factSource: z.literal("remote_agent_native_delivery_ledger"),
+    canonicalAgentControllerRef: z.literal("hosted:center-agent"),
+    reasonCode: z.literal("hosted_runtime_family_controller_canonicalized"),
+    storedAgentControllerRef: nullableTrimmedStringSchema,
+    storedAgentControllerRefStatus: z.enum([
+      "canonical",
+      "stale",
+      "malformed",
+      "missing",
+    ]),
+    bindingUpdatedAt: nullableIsoDateTimeSchema,
+  }),
+  createdAt: ISO_DATE_TIME_SCHEMA,
+  updatedAt: ISO_DATE_TIME_SCHEMA,
+});
+
+export const spaceDispatchTraceOpsDecisionSchema = z.strictObject({
+  factSource: z.literal("ops_decision"),
+  id: trimmedNonEmptyStringSchema,
+  decisionCode: trimmedNonEmptyStringSchema,
+  decidedBy: trimmedNonEmptyStringSchema,
+  source: trimmedNonEmptyStringSchema,
+  decidedAt: ISO_DATE_TIME_SCHEMA,
+  correlationId: nullableTrimmedStringSchema,
+  expectedRecoveryCriteria: nullableTrimmedStringSchema,
+});
+
+export const spaceDispatchTraceReplySignalSchema = z.strictObject({
+  factSource: z.enum([
+    "space_signal_by_published_signal_id",
+    "space_signal_recent_window",
+  ]),
+  signalId: trimmedNonEmptyStringSchema,
+  profileId: trimmedNonEmptyStringSchema,
+  profileKind: nullableProfileKindSchema,
+  profileName: nullableTrimmedStringSchema,
+  text: trimmedNonEmptyStringSchema,
+  createdAt: ISO_DATE_TIME_SCHEMA,
+});
+
+export const spaceDispatchTraceFinalVisibleMessageFactSourceSchema = z.enum([
+  "space_signal_by_published_signal_id",
+  "space_final_reply_claim",
+]);
+
+export const spaceDispatchTraceFinalVisibleMessageSchema = z.strictObject({
+  factSource: spaceDispatchTraceFinalVisibleMessageFactSourceSchema,
+  signalId: trimmedNonEmptyStringSchema,
+  signalType: z.enum(["signal.text", "signal.status", "signal.system_notice"]),
+  dispatchId: trimmedNonEmptyStringSchema,
+  targetProfileId: trimmedNonEmptyStringSchema,
+  profileId: nullableTrimmedStringSchema,
+  profileKind: nullableProfileKindSchema,
+  profileName: nullableTrimmedStringSchema,
+  text: nullableSignalTextSchema,
+  reasonCode: nullableTrimmedStringSchema,
+  noticeType: z.union([
+    z.enum([
+      "policy_blocked",
+      "stay_silent",
+      "terminal_failure",
+      "wake_stopped",
+    ]),
+    z.null(),
+  ]),
+  statusType: nullableTrimmedStringSchema,
+  createdAt: ISO_DATE_TIME_SCHEMA,
+});
+
+export const spaceDispatchTraceFinalVisibleMessageLinkageStatusSchema = z.enum([
+  "matched_published_signal",
+  "matched_final_reply_claim",
+  "projection_pending",
+  "linkage_missing",
+  "storage_inconsistent",
+]);
+
+export const spaceDispatchTraceFinalVisibleMessageLinkageSourceFactSchema =
+  z.enum(["published_signal_candidate", "space_final_reply_claim", "none"]);
+
+export const spaceDispatchTraceFinalVisibleMessageLinkageSchema =
+  z.strictObject({
+    status: spaceDispatchTraceFinalVisibleMessageLinkageStatusSchema,
+    reasonCode: nullableTrimmedStringSchema,
+    sourceFact: spaceDispatchTraceFinalVisibleMessageLinkageSourceFactSchema,
+    candidateSignalIds: z.array(trimmedNonEmptyStringSchema).max(16),
+    claimSignalId: nullableTrimmedStringSchema,
+    selectedSignalId: nullableTrimmedStringSchema,
+  });
+
+export const spaceDispatchTraceFinalVisibleOutcomeStatusSchema = z.enum([
+  "visible_reply",
+  "visible_failure",
+  "visible_stopped",
+  "publication_pending",
+  "publication_retrying",
+  "publication_unresolved",
+  "not_applicable",
+]);
+
+export const spaceDispatchTraceFinalVisibleOutcomePublicationKindSchema =
+  z.enum(["success_reply", "failure_notice", "stopped_notice"]);
+
+export const spaceDispatchTraceFinalVisibleOutcomeSourceFactSchema = z.enum([
+  "final_visible_message",
+  "result_inbox",
+  "runtime_coordinator_execution",
+  "runtime_coordinator_event",
+  "runtime_coordinator_head_lifecycle",
+  "dispatch_result",
+  "none",
+]);
+
+export const spaceDispatchTraceFinalVisibleOutcomeSchema = z.strictObject({
+  delivered: z.boolean(),
+  publicationErrorCode: nullableTrimmedStringSchema,
+  publicationKind: z.union([
+    spaceDispatchTraceFinalVisibleOutcomePublicationKindSchema,
+    z.null(),
+  ]),
+  reasonCode: nullableTrimmedStringSchema,
+  signalId: nullableTrimmedStringSchema,
+  sourceFact: spaceDispatchTraceFinalVisibleOutcomeSourceFactSchema,
+  sourceReasonCode: nullableTrimmedStringSchema,
+  sourceStatus: nullableTrimmedStringSchema,
+  status: spaceDispatchTraceFinalVisibleOutcomeStatusSchema,
+});
+
+// Legacy diagnostic fact kept only so old dispatch trace payloads can still parse.
+export const spaceDispatchTraceClaimLeaseSchema = z.strictObject({
+  factSource: z.literal("dispatch_claim_lease"),
+  claimLeaseId: trimmedNonEmptyStringSchema,
+  dispatchId: trimmedNonEmptyStringSchema,
+  sourceEventId: trimmedNonEmptyStringSchema,
+  sourceClientMessageId: nullableTrimmedStringSchema,
+  targetProfileId: trimmedNonEmptyStringSchema,
+  bindingId: trimmedNonEmptyStringSchema,
+  openMeldServiceRuntimeId: trimmedNonEmptyStringSchema,
+  agentControllerRef: trimmedNonEmptyStringSchema,
+  leaseState: z.enum([
+    "active",
+    "cancelled",
+    "expired",
+    "released",
+    "superseded",
+  ]),
+  claimTraceReason: nullableTrimmedStringSchema,
+  createdAt: ISO_DATE_TIME_SCHEMA,
+  updatedAt: ISO_DATE_TIME_SCHEMA,
+  expiresAt: ISO_DATE_TIME_SCHEMA,
+});
+
+export const spaceDispatchTraceResultSchema = z.strictObject({
+  factSource: z.literal("dispatch_result"),
+  resultRef: trimmedNonEmptyStringSchema,
+  dispatchId: trimmedNonEmptyStringSchema,
+  resultKind: trimmedNonEmptyStringSchema,
+  publicOutcome: trimmedNonEmptyStringSchema,
+  publishedSignalId: nullableTrimmedStringSchema,
+  statusType: nullableTrimmedStringSchema,
+  createdAt: ISO_DATE_TIME_SCHEMA,
+});
+
+export const spaceDispatchTraceResultInboxPublishStateSchema = z.enum([
+  "result_accepted",
+  "late_result_available",
+  "reply_published",
+  "reply_suppressed_stopped",
+  "reply_publication_failed",
+  "invalid_space_action",
+  "legacy_result_quarantined",
+]);
+
+export const spaceDispatchTraceResultInboxSchema = z.strictObject({
+  factSource: z.literal("dispatch_result_inbox"),
+  resultKey: trimmedNonEmptyStringSchema,
+  dispatchId: trimmedNonEmptyStringSchema,
+  attemptId: trimmedNonEmptyStringSchema,
+  taskId: trimmedNonEmptyStringSchema,
+  targetProfileId: trimmedNonEmptyStringSchema,
+  daemonSessionId: trimmedNonEmptyStringSchema,
+  leaseEpoch: z.int(),
+  submittedConnectionGeneration: z.int(),
+  projectFailureContext:
+    openMeldDaemonTaskResultProjectFailureContextSchema.optional(),
+  publishState: spaceDispatchTraceResultInboxPublishStateSchema,
+  publishedSignalId: nullableTrimmedStringSchema,
+  publicationErrorCode: nullableTrimmedStringSchema,
+  acceptedAt: ISO_DATE_TIME_SCHEMA,
+  updatedAt: ISO_DATE_TIME_SCHEMA,
+});
+
+export const spaceDispatchTraceStreamingSchema = z.strictObject({
+  streamingMode: z.enum(["final", "stream"]),
+  previewEmitted: z.boolean(),
+  firstStdoutAt: nullableIsoDateTimeSchema,
+  firstOutputAt: nullableIsoDateTimeSchema,
+});
+
+export const spaceDispatchTraceRuntimeSchema = z.strictObject({
+  processId: nullableIntegerSchema,
+  processSpawnedAt: nullableIsoDateTimeSchema,
+  stdinClosedAt: nullableIsoDateTimeSchema,
+  firstStderrAt: nullableIsoDateTimeSchema,
+  exitObservedAt: nullableIsoDateTimeSchema,
+  exitCode: nullableIntegerSchema,
+  exitSignal: nullableTrimmedStringSchema,
+  timeoutTriggeredAt: nullableIsoDateTimeSchema,
+});
+
+export const spaceDispatchTraceExecutionSchema = z.strictObject({
+  phase: z.enum([
+    "starting",
+    "accepted_local",
+    "running",
+    "completed_local",
+    "result_received",
+  ]),
+  phaseEnteredAt: nullableIsoDateTimeSchema,
+  lastLifecycleAt: nullableIsoDateTimeSchema,
+  progressEvidenceState: z.enum(["active", "stalled", "unknown"]),
+  timeoutPolicy: z.strictObject({
+    finalizationTimeoutMs: boundedNullableNonNegativeIntegerSchema(
+      SPACE_DISPATCH_TRACE_TIMEOUT_POLICY_MAX_MS
+    ),
+    startTimeoutMs: boundedNullableNonNegativeIntegerSchema(
+      SPACE_DISPATCH_TRACE_TIMEOUT_POLICY_MAX_MS
+    ),
+    taskProgressEvidenceStaleAfterMs: boundedNullableNonNegativeIntegerSchema(
+      SPACE_DISPATCH_TRACE_TIMEOUT_POLICY_MAX_MS
+    ),
+    waitWindowMs: boundedNullableNonNegativeIntegerSchema(
+      SPACE_DISPATCH_TRACE_TIMEOUT_POLICY_MAX_MS
+    ),
+  }),
+});
+
+export const spaceDispatchTraceOriginSchema = z.strictObject({
+  agentControllerConversationId: nullableTrimmedStringSchema,
+  agentControllerRef: nullableTrimmedStringSchema,
+  agentControllerConversationKind: nullableTrimmedStringSchema,
+  resolvedAgentControllerConversationId: nullableTrimmedStringSchema,
+  effectiveRuntimeWorkingDirectory: nullableTrimmedStringSchema,
+  runtimeWorkspaceFingerprint: nullableTrimmedStringSchema,
+});
+
+export const spaceDispatchTracePromptSchema = z.strictObject({
+  fingerprint: nullableTrimmedStringSchema,
+  length: boundedNullableNonNegativeIntegerSchema(
+    SPACE_DISPATCH_TRACE_PROMPT_LENGTH_MAX
+  ),
+  preview: boundedNullableTrimmedStringSchema(
+    SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS
+  ),
+});
+
+export const spaceDispatchTraceDispatchExecutionSchema =
+  dispatchExecutionSchema;
+
+export const spaceDispatchTraceExecutionIdentitySchema =
+  spaceTraceExecutionIdentityProjectionSchema;
+
+export const spaceDispatchTraceRuntimeCoordinatorExecutionSchema =
+  runtimeCoordinatorExecutionRecordSchema.extend({
+    factSource: z.literal("runtime_coordinator_projection"),
+  });
+
+export const spaceDispatchTraceRuntimeCoordinatorCreationDiagnosticSchema =
+  runtimeCoordinatorExecutionCreationDiagnosticSchema.extend({
+    factSource: z.literal("runtime_coordinator_projection"),
+  });
+
+export const spaceDispatchTraceRuntimeCoordinatorEventSchema =
+  runtimeCoordinatorExecutionEventSchema.extend({
+    factSource: z.literal("runtime_coordinator_projection"),
+  });
+
+const spaceDispatchTraceRuntimeCoordinatorHeadNoExecutionDecisionSchema =
+  z.strictObject({
+    decidedAt: ISO_DATE_TIME_SCHEMA,
+    publicationCategory:
+      runtimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategorySchema,
+    reasonCode:
+      runtimeTransportRuntimeCoordinatorHeadNoExecutionReasonCodeSchema,
+    source:
+      runtimeTransportRuntimeCoordinatorHeadNoExecutionDecisionSourceSchema,
+    userRecoveryAction:
+      runtimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryActionSchema,
+  });
+
+const spaceDispatchTraceRuntimeCoordinatorHeadPublicationIntentSchema = z.union(
+  [
+    z.strictObject({
+      intentId: trimmedNonEmptyStringSchema.max(4096),
+      kind: z.literal("no_execution_failure"),
+      publicationCategory:
+        runtimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategorySchema,
+      readyAt: ISO_DATE_TIME_SCHEMA,
+      reasonCode:
+        runtimeTransportRuntimeCoordinatorHeadNoExecutionReasonCodeSchema,
+      status: z.literal("ready_for_phase_6"),
+      userRecoveryAction:
+        runtimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryActionSchema,
+    }),
+    z.strictObject({
+      intentId: trimmedNonEmptyStringSchema.max(4096),
+      kind: z.literal("stopped_notice"),
+      readyAt: ISO_DATE_TIME_SCHEMA,
+      reasonCode: z.literal("runtime_coordinator.pre_agent_stop_requested"),
+      status: z.literal("ready_for_phase_6"),
+    }),
+  ]
+);
+
+const spaceDispatchTraceRuntimeCoordinatorHeadPublicationOutcomeSchema =
+  z.strictObject({
+    failurePublicationCommandId: trimmedNonEmptyStringSchema.max(4096),
+    finalMessageKind: z
+      .enum(["failure_notice", "status", "success_reply", "unknown"])
+      .nullable(),
+    observedAt: ISO_DATE_TIME_SCHEMA,
+    publicationErrorCode: z.string().trim().min(1).max(160).nullable(),
+    publishedSignalId: trimmedNonEmptyStringSchema.nullable(),
+    status: z.enum([
+      "failure_published",
+      "already_final",
+      "failure_publication_failed",
+    ]),
+  });
+
+const spaceDispatchTraceRuntimeCoordinatorHeadPublicationExhaustionSchema =
+  z.strictObject({
+    attemptCount: z.int().positive(),
+    exhaustedAt: ISO_DATE_TIME_SCHEMA,
+    lastFailureAt: ISO_DATE_TIME_SCHEMA,
+    lastReasonCode: z.string().trim().min(1).max(160),
+    reasonCode: z.literal("runtime_coordinator.publication_retry_exhausted"),
+    status: z.literal("publication_exhausted"),
+  });
+
+const spaceDispatchTraceRuntimeCoordinatorHeadTargetDisplaySchema =
+  z.strictObject({
+    targetProfileMentionLabel: spaceMentionLabelSchema.nullable(),
+    targetProfileName: z
+      .string()
+      .min(1)
+      .max(MAX_PROFILE_NAME_LENGTH)
+      .nullable(),
+  });
+
+const spaceDispatchTraceRuntimeCoordinatorHeadWaitingBoundarySchema =
+  z.strictObject({
+    deadlineAt: ISO_DATE_TIME_SCHEMA,
+    deadlineOutcome: z.literal("publication_intent_ready"),
+    observedAt: ISO_DATE_TIME_SCHEMA,
+    reasonCode: runtimeTransportRuntimeCoordinatorHeadWaitingReasonCodeSchema,
+    softDeadlineAt: ISO_DATE_TIME_SCHEMA,
+    trigger: z.literal("openmeld_service_route_connected"),
+    triggerOwner: z.literal("runtime_coordinator"),
+    userRecoveryAction:
+      runtimeTransportRuntimeCoordinatorHeadWaitingRecoveryActionSchema,
+    userVisibleState: z.literal("waiting_for_openmeld_service"),
+    waitingCategory:
+      runtimeTransportRuntimeCoordinatorHeadWaitingCategorySchema,
+    waitingFor: z.literal("openmeld_service_route_connection"),
+    waitingSince: ISO_DATE_TIME_SCHEMA,
+  });
+
+export const spaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema =
+  z.discriminatedUnion("readStatus", [
+    z.strictObject({
+      createdAt: ISO_DATE_TIME_SCHEMA,
+      duplicateDispatchCount: z.int().min(0),
+      executionLinkedAt: nullableIsoDateTimeSchema,
+      factSource: z.literal("runtime_coordinator_head_lifecycle"),
+      modelVersion: z.literal("openmeld.runtime_coordinator.head_lifecycle.v1"),
+      noExecutionDecision: z.union([
+        spaceDispatchTraceRuntimeCoordinatorHeadNoExecutionDecisionSchema,
+        z.null(),
+      ]),
+      ownerUserId: trimmedNonEmptyStringSchema,
+      primaryDispatchId: trimmedNonEmptyStringSchema,
+      publicationIntent: z.union([
+        spaceDispatchTraceRuntimeCoordinatorHeadPublicationIntentSchema,
+        z.null(),
+      ]),
+      publicationExhaustion:
+        spaceDispatchTraceRuntimeCoordinatorHeadPublicationExhaustionSchema.optional(),
+      publicationOutcome:
+        spaceDispatchTraceRuntimeCoordinatorHeadPublicationOutcomeSchema.optional(),
+      readStatus: z.literal("found"),
+      runtimeCoordinatorExecutionId:
+        runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId.nullable(),
+      status: runtimeTransportRuntimeCoordinatorHeadLifecycleStatusSchema,
+      targetWakeLifecycleIdentity: targetWakeLifecycleIdentitySchema,
+      targetWakeLifecycleId: trimmedNonEmptyStringSchema.max(2048),
+      targetDisplay:
+        spaceDispatchTraceRuntimeCoordinatorHeadTargetDisplaySchema.optional(),
+      updatedAt: ISO_DATE_TIME_SCHEMA,
+      waitingBoundary: z.union([
+        spaceDispatchTraceRuntimeCoordinatorHeadWaitingBoundarySchema,
+        z.null(),
+      ]),
+    }),
+    z.strictObject({
+      factSource: z.literal("runtime_coordinator_head_lifecycle"),
+      readStatus: z.literal("missing"),
+      reasonCode: z.literal("runtime_coordinator.head_lifecycle_not_found"),
+      targetWakeLifecycleId: trimmedNonEmptyStringSchema.max(2048),
+    }),
+    z.strictObject({
+      factSource: z.literal("runtime_coordinator_head_lifecycle"),
+      readStatus: z.literal("authority_unavailable"),
+      reasonCode: trimmedNonEmptyStringSchema.max(160),
+      targetWakeLifecycleId: trimmedNonEmptyStringSchema.max(2048),
+    }),
+  ]);
+
+export const spaceDispatchTraceStructuredActionFailureSchema = z.strictObject({
+  carrierKind: z.enum([
+    "fenced_block",
+    "invalid_json",
+    "none",
+    "trailing_json",
+  ]),
+  invalidOutputPreview: boundedNullableTrimmedStringSchema(
+    SPACE_DISPATCH_TRACE_INVALID_OUTPUT_PREVIEW_MAX_CHARS
+  ),
+  publicFailureReason: nullableTrimmedStringSchema,
+  repairMode: z.enum([
+    "required_check",
+    "local_synthetic",
+    "controller_roundtrip",
+  ]),
+  spaceActionCandidatePresent: z.boolean(),
+  spaceActionParseError: nullableTrimmedStringSchema,
+});
+
+export const spaceDispatchTraceOpenClawGatewayVisibilitySchema = z.strictObject(
+  {
+    agentId: trimmedNonEmptyStringSchema,
+    gatewayRestartAttempted: z.boolean(),
+    gatewayVisibility: z.enum([
+      "missing_after_restart",
+      "missing_before_restart",
+      "visible",
+      "visible_after_restart",
+    ]),
+  }
+);
+
+export const spaceDispatchTraceOpenClawBindingSchema = z.strictObject({
+  classification: z.enum(["missing", "canonical_owned", "legacy", "foreign"]),
+  bindingSource: z.union([z.enum(["daemon-launch", "imported"]), z.null()]),
+  upgradeApplied: z.boolean(),
+});
+
+export const spaceDispatchTraceSnapshotSchema = z.strictObject({
+  dispatch: spaceDispatchTraceDispatchSchema,
+  nativeDelivery: z
+    .union([spaceDispatchTraceNativeDeliverySchema, z.null()])
+    .optional(),
+  runtimeCoordinatorExecution: z.union([
+    spaceDispatchTraceRuntimeCoordinatorExecutionSchema,
+    z.null(),
+  ]),
+  runtimeCoordinatorCreationDiagnostics: z.array(
+    spaceDispatchTraceRuntimeCoordinatorCreationDiagnosticSchema
+  ),
+  runtimeCoordinatorEvents: z.array(
+    spaceDispatchTraceRuntimeCoordinatorEventSchema
+  ),
+  runtimeCoordinatorHeadLifecycle: z.union([
+    spaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema,
+    z.null(),
+  ]),
+  latestAttempt: z.union([spaceDispatchTraceLatestAttemptSchema, z.null()]),
+  executionIdentity: z.union([
+    spaceDispatchTraceExecutionIdentitySchema,
+    z.null(),
+  ]),
+  // Legacy field. Current RuntimeCoordinator-backed traces project this as null.
+  claimLease: z.union([spaceDispatchTraceClaimLeaseSchema, z.null()]),
+  result: z.union([spaceDispatchTraceResultSchema, z.null()]),
+  resultInbox: z.union([spaceDispatchTraceResultInboxSchema, z.null()]),
+  recentOpsDecisions: z.array(spaceDispatchTraceOpsDecisionSchema),
+  replySignal: z.union([spaceDispatchTraceReplySignalSchema, z.null()]),
+  finalVisibleMessage: z
+    .union([spaceDispatchTraceFinalVisibleMessageSchema, z.null()])
+    .optional(),
+  finalVisibleMessageLinkage: z
+    .union([spaceDispatchTraceFinalVisibleMessageLinkageSchema, z.null()])
+    .optional(),
+  finalVisibleOutcome: spaceDispatchTraceFinalVisibleOutcomeSchema.optional(),
+  streaming: z.union([spaceDispatchTraceStreamingSchema, z.null()]),
+  runtime: z.union([spaceDispatchTraceRuntimeSchema, z.null()]),
+  execution: z.union([spaceDispatchTraceExecutionSchema, z.null()]),
+  origin: z.union([spaceDispatchTraceOriginSchema, z.null()]),
+  prompt: z.union([spaceDispatchTracePromptSchema, z.null()]),
+  dispatchExecution: z.union([
+    spaceDispatchTraceDispatchExecutionSchema,
+    z.null(),
+  ]),
+  openClawGatewayVisibility: z.union([
+    spaceDispatchTraceOpenClawGatewayVisibilitySchema,
+    z.null(),
+  ]),
+  openClawBinding: z.union([spaceDispatchTraceOpenClawBindingSchema, z.null()]),
+  structuredActionFailure: z.union([
+    spaceDispatchTraceStructuredActionFailureSchema,
+    z.null(),
+  ]),
+});
+
+export const spaceDispatchTraceResponseSchema = z
+  .strictObject({
+    correlation: observabilityWakeCorrelationSchema,
+    query: spaceDispatchTraceQuerySchema,
+    remoteAgentRuntimeDiagnostics:
+      remoteAgentWorkerRuntimeDiagnosticsResponseSchema.optional(),
+    trace: z.union([spaceDispatchTraceSnapshotSchema, z.null()]),
+  })
+  .superRefine((value, context) => {
+    expectTraceEvidence(
+      context,
+      value.correlation.selector.kind,
+      "dispatch",
+      ["correlation", "selector", "kind"],
+      "trace response correlation selector must be dispatch"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.spaceId,
+      value.query.spaceId,
+      ["correlation", "spaceId"],
+      "correlation.spaceId must match query.spaceId"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.dispatchId,
+      value.query.dispatchId,
+      ["correlation", "dispatchId"],
+      "correlation.dispatchId must match query.dispatchId"
+    );
+
+    if (value.trace === null) {
+      expectNullTraceEvidence(context, value.correlation.clientMessageId, [
+        "correlation",
+        "clientMessageId",
+      ]);
+      expectNullTraceEvidence(context, value.correlation.sourceSignalId, [
+        "correlation",
+        "sourceSignalId",
+      ]);
+      expectNullTraceEvidence(context, value.correlation.targetProfileId, [
+        "correlation",
+        "targetProfileId",
+      ]);
+      expectNullTraceEvidence(context, value.correlation.latestAttemptId, [
+        "correlation",
+        "latestAttemptId",
+      ]);
+      expectNullTraceEvidence(
+        context,
+        value.correlation.runtimeCoordinatorExecutionId,
+        ["correlation", "runtimeCoordinatorExecutionId"]
+      );
+      expectNullTraceEvidence(context, value.correlation.claimLeaseId, [
+        "correlation",
+        "claimLeaseId",
+      ]);
+      expectNullTraceEvidence(context, value.correlation.bindingId, [
+        "correlation",
+        "bindingId",
+      ]);
+      expectNullTraceEvidence(
+        context,
+        value.correlation.openMeldServiceRuntimeId,
+        ["correlation", "openMeldServiceRuntimeId"]
+      );
+      expectNullTraceEvidence(context, value.correlation.agentControllerRef, [
+        "correlation",
+        "agentControllerRef",
+      ]);
+      expectNullTraceEvidence(context, value.correlation.resultRef, [
+        "correlation",
+        "resultRef",
+      ]);
+      expectNullTraceEvidence(context, value.correlation.publishedSignalId, [
+        "correlation",
+        "publishedSignalId",
+      ]);
+      expectNullTraceEvidence(context, value.correlation.replySignalId, [
+        "correlation",
+        "replySignalId",
+      ]);
+      return;
+    }
+
+    expectTraceEvidence(
+      context,
+      value.trace.dispatch.dispatchId,
+      value.query.dispatchId,
+      ["trace", "dispatch", "dispatchId"],
+      "trace.dispatch.dispatchId must match query.dispatchId"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.clientMessageId,
+      value.trace.dispatch.sourceClientMessageId,
+      ["correlation", "clientMessageId"],
+      "correlation.clientMessageId must match trace.dispatch.sourceClientMessageId"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.sourceSignalId,
+      value.trace.dispatch.sourceEventId,
+      ["correlation", "sourceSignalId"],
+      "correlation.sourceSignalId must match trace.dispatch.sourceEventId"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.targetProfileId,
+      value.trace.dispatch.targetProfileId,
+      ["correlation", "targetProfileId"],
+      "correlation.targetProfileId must match trace.dispatch.targetProfileId"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.latestAttemptId,
+      value.trace.latestAttempt?.attemptId ??
+        value.trace.dispatch.latestAttemptId,
+      ["correlation", "latestAttemptId"],
+      "correlation.latestAttemptId must match latest attempt evidence"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.runtimeCoordinatorExecutionId,
+      value.trace.runtimeCoordinatorExecution?.runtimeCoordinatorExecutionId ??
+        null,
+      ["correlation", "runtimeCoordinatorExecutionId"],
+      "correlation.runtimeCoordinatorExecutionId must match trace.runtimeCoordinatorExecution.runtimeCoordinatorExecutionId"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.claimLeaseId,
+      value.trace.claimLease?.claimLeaseId ?? null,
+      ["correlation", "claimLeaseId"],
+      "correlation.claimLeaseId must match trace.claimLease.claimLeaseId"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.bindingId,
+      value.trace.runtimeCoordinatorExecution?.bindingId ??
+        value.trace.executionIdentity?.core.bindingId ??
+        value.trace.nativeDelivery?.bindingId ??
+        value.trace.claimLease?.bindingId ??
+        null,
+      ["correlation", "bindingId"],
+      "correlation.bindingId must match trace execution identity evidence"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.openMeldServiceRuntimeId,
+      value.trace.runtimeCoordinatorExecution?.openMeldServiceRuntimeId.value ??
+        value.trace.executionIdentity?.core.openMeldServiceRuntimeId.value ??
+        value.trace.claimLease?.openMeldServiceRuntimeId ??
+        null,
+      ["correlation", "openMeldServiceRuntimeId"],
+      "correlation.openMeldServiceRuntimeId must match trace execution identity evidence"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.agentControllerRef,
+      value.trace.runtimeCoordinatorExecution?.agentControllerRef ??
+        value.trace.executionIdentity?.core.agentControllerRef ??
+        value.trace.nativeDelivery?.controllerNormalization
+          .canonicalAgentControllerRef ??
+        value.trace.claimLease?.agentControllerRef ??
+        null,
+      ["correlation", "agentControllerRef"],
+      "correlation.agentControllerRef must match trace execution identity evidence"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.resultRef,
+      value.trace.result?.resultRef ?? null,
+      ["correlation", "resultRef"],
+      "correlation.resultRef must match trace.result.resultRef"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.publishedSignalId,
+      value.trace.result?.publishedSignalId ?? null,
+      ["correlation", "publishedSignalId"],
+      "correlation.publishedSignalId must match trace.result.publishedSignalId"
+    );
+    expectTraceEvidence(
+      context,
+      value.correlation.replySignalId,
+      value.trace.replySignal?.signalId ?? null,
+      ["correlation", "replySignalId"],
+      "correlation.replySignalId must match trace.replySignal.signalId"
+    );
+    expectFinalVisibleMessageTraceEvidence(context, value.trace);
+
+    if (value.trace.latestAttempt) {
+      expectTraceEvidence(
+        context,
+        value.trace.latestAttempt.dispatchId,
+        value.trace.dispatch.dispatchId,
+        ["trace", "latestAttempt", "dispatchId"],
+        "trace.latestAttempt.dispatchId must match trace.dispatch.dispatchId"
+      );
+    }
+    expectNativeDeliveryTraceEvidence(context, {
+      query: value.query,
+      trace: value.trace,
+    });
+    if (value.trace.claimLease) {
+      expectTraceEvidence(
+        context,
+        value.trace.claimLease.dispatchId,
+        value.trace.dispatch.dispatchId,
+        ["trace", "claimLease", "dispatchId"],
+        "trace.claimLease.dispatchId must match trace.dispatch.dispatchId"
+      );
+      expectTraceEvidence(
+        context,
+        value.trace.claimLease.sourceEventId,
+        value.trace.dispatch.sourceEventId,
+        ["trace", "claimLease", "sourceEventId"],
+        "trace.claimLease.sourceEventId must match trace.dispatch.sourceEventId"
+      );
+      expectTraceEvidence(
+        context,
+        value.trace.claimLease.sourceClientMessageId,
+        value.trace.dispatch.sourceClientMessageId,
+        ["trace", "claimLease", "sourceClientMessageId"],
+        "trace.claimLease.sourceClientMessageId must match trace.dispatch.sourceClientMessageId"
+      );
+      expectTraceEvidence(
+        context,
+        value.trace.claimLease.targetProfileId,
+        value.trace.dispatch.targetProfileId,
+        ["trace", "claimLease", "targetProfileId"],
+        "trace.claimLease.targetProfileId must match trace.dispatch.targetProfileId"
+      );
+    }
+    if (value.trace.executionIdentity) {
+      expectTraceEvidence(
+        context,
+        value.trace.executionIdentity.core.spaceId,
+        value.query.spaceId,
+        ["trace", "executionIdentity", "core", "spaceId"],
+        "trace.executionIdentity.core.spaceId must match query.spaceId"
+      );
+      expectTraceEvidence(
+        context,
+        value.trace.executionIdentity.core.dispatchId,
+        value.trace.dispatch.dispatchId,
+        ["trace", "executionIdentity", "core", "dispatchId"],
+        "trace.executionIdentity.core.dispatchId must match trace.dispatch.dispatchId"
+      );
+      expectTraceEvidence(
+        context,
+        value.trace.executionIdentity.core.targetProfileId,
+        value.trace.dispatch.targetProfileId,
+        ["trace", "executionIdentity", "core", "targetProfileId"],
+        "trace.executionIdentity.core.targetProfileId must match trace.dispatch.targetProfileId"
+      );
+    }
+    if (value.trace.runtimeCoordinatorExecution) {
+      expectTraceEvidence(
+        context,
+        value.trace.runtimeCoordinatorExecution.spaceId,
+        value.query.spaceId,
+        ["trace", "runtimeCoordinatorExecution", "spaceId"],
+        "trace.runtimeCoordinatorExecution.spaceId must match query.spaceId"
+      );
+      expectTraceEvidence(
+        context,
+        value.trace.runtimeCoordinatorExecution.dispatchId,
+        value.trace.dispatch.dispatchId,
+        ["trace", "runtimeCoordinatorExecution", "dispatchId"],
+        "trace.runtimeCoordinatorExecution.dispatchId must match trace.dispatch.dispatchId"
+      );
+      expectTraceEvidence(
+        context,
+        value.trace.runtimeCoordinatorExecution.targetProfileId,
+        value.trace.dispatch.targetProfileId,
+        ["trace", "runtimeCoordinatorExecution", "targetProfileId"],
+        "trace.runtimeCoordinatorExecution.targetProfileId must match trace.dispatch.targetProfileId"
+      );
+    }
+    expectRuntimeCoordinatorHeadLifecycleTraceEvidence(context, {
+      query: value.query,
+      trace: value.trace,
+    });
+    for (const diagnostic of value.trace
+      .runtimeCoordinatorCreationDiagnostics) {
+      expectTraceEvidence(
+        context,
+        diagnostic.spaceId,
+        value.query.spaceId,
+        ["trace", "runtimeCoordinatorCreationDiagnostics"],
+        "trace.runtimeCoordinatorCreationDiagnostics.spaceId must match query.spaceId"
+      );
+      expectTraceEvidence(
+        context,
+        diagnostic.dispatchId,
+        value.trace.dispatch.dispatchId,
+        ["trace", "runtimeCoordinatorCreationDiagnostics"],
+        "trace.runtimeCoordinatorCreationDiagnostics.dispatchId must match trace.dispatch.dispatchId"
+      );
+      expectTraceEvidence(
+        context,
+        diagnostic.targetProfileId,
+        value.trace.dispatch.targetProfileId,
+        ["trace", "runtimeCoordinatorCreationDiagnostics"],
+        "trace.runtimeCoordinatorCreationDiagnostics.targetProfileId must match trace.dispatch.targetProfileId"
+      );
+    }
+    for (const event of value.trace.runtimeCoordinatorEvents) {
+      expectTraceEvidence(
+        context,
+        event.runtimeCoordinatorExecutionId,
+        value.trace.runtimeCoordinatorExecution
+          ?.runtimeCoordinatorExecutionId ?? null,
+        ["trace", "runtimeCoordinatorEvents"],
+        "trace.runtimeCoordinatorEvents.runtimeCoordinatorExecutionId must match trace.runtimeCoordinatorExecution.runtimeCoordinatorExecutionId"
+      );
+    }
+    if (value.trace.result) {
+      expectTraceEvidence(
+        context,
+        value.trace.result.dispatchId,
+        value.trace.dispatch.dispatchId,
+        ["trace", "result", "dispatchId"],
+        "trace.result.dispatchId must match trace.dispatch.dispatchId"
+      );
+    }
+    if (value.trace.resultInbox) {
+      expectTraceEvidence(
+        context,
+        value.trace.resultInbox.dispatchId,
+        value.trace.dispatch.dispatchId,
+        ["trace", "resultInbox", "dispatchId"],
+        "trace.resultInbox.dispatchId must match trace.dispatch.dispatchId"
+      );
+      expectTraceEvidence(
+        context,
+        value.trace.resultInbox.targetProfileId,
+        value.trace.dispatch.targetProfileId,
+        ["trace", "resultInbox", "targetProfileId"],
+        "trace.resultInbox.targetProfileId must match trace.dispatch.targetProfileId"
+      );
+      expectTraceEvidence(
+        context,
+        value.trace.resultInbox.attemptId,
+        value.trace.latestAttempt?.attemptId ??
+          value.trace.dispatch.latestAttemptId,
+        ["trace", "resultInbox", "attemptId"],
+        "trace.resultInbox.attemptId must match latest attempt evidence"
+      );
+    }
+  });
+
+type SpaceDispatchTraceSnapshotValue = z.infer<
+  typeof spaceDispatchTraceSnapshotSchema
+>;
+type SpaceDispatchTraceFinalVisibleOutcomeValue = z.infer<
+  typeof spaceDispatchTraceFinalVisibleOutcomeSchema
+>;
+
+export type SpaceDispatchTraceRootCauseProjection = {
+  reasonCode: string;
+  source:
+    | "dispatch"
+    | "final_visible_outcome"
+    | "final_visible_message"
+    | "latest_attempt"
+    | "reply_lookup"
+    | "result_inbox"
+    | "runtime"
+    | "runtime_coordinator";
+};
+
+const FINAL_VISIBLE_OUTCOME_PUBLICATION_PENDING_REASON_CODE =
+  "final_visible_outcome.publication_pending";
+const FINAL_VISIBLE_OUTCOME_PUBLICATION_RETRYING_REASON_CODE =
+  "final_visible_outcome.publication_retrying";
+const FINAL_VISIBLE_OUTCOME_PUBLICATION_UNRESOLVED_REASON_CODE =
+  "final_visible_outcome.publication_unresolved";
+const RUNTIME_COORDINATOR_PUBLICATION_UNRESOLVED_REASON_CODE =
+  "runtime_coordinator.publication_unresolved";
+const RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE =
+  "runtime_coordinator.delivery_expired";
+
+type SpaceDispatchTraceFinalVisibleSignalCandidateInput = Pick<
+  SpaceDispatchTraceSnapshotValue,
+  "result" | "resultInbox" | "runtimeCoordinatorHeadLifecycle"
+> & {
+  runtimeCoordinatorEvents: readonly SpaceDispatchTraceSnapshotValue["runtimeCoordinatorEvents"][number][];
+};
+
+export function listSpaceDispatchTraceFinalVisibleSignalCandidates(
+  trace: SpaceDispatchTraceFinalVisibleSignalCandidateInput
+): string[] {
+  const candidates: string[] = [];
+  addRuntimeCoordinatorStoppedNoticeSignalCandidates(
+    candidates,
+    trace.runtimeCoordinatorEvents
+  );
+  addFinalVisibleSignalCandidate(
+    candidates,
+    trace.runtimeCoordinatorHeadLifecycle?.readStatus === "found"
+      ? trace.runtimeCoordinatorHeadLifecycle.publicationOutcome
+          ?.publishedSignalId
+      : null
+  );
+  addFinalVisibleSignalCandidate(candidates, trace.result?.publishedSignalId);
+  addFinalVisibleSignalCandidate(
+    candidates,
+    trace.resultInbox?.publishedSignalId
+  );
+  return candidates;
+}
+
+function addRuntimeCoordinatorStoppedNoticeSignalCandidates(
+  candidates: string[],
+  events: readonly SpaceDispatchTraceSnapshotValue["runtimeCoordinatorEvents"][number][]
+): void {
+  for (const event of events) {
+    if (event.eventType !== "cancellation_control_accepted") {
+      continue;
+    }
+    const payload = parseRuntimeCoordinatorEventPayload(event);
+    const stoppedNoticePublication = readPayloadObject(
+      payload,
+      "stoppedNoticePublication"
+    );
+    addFinalVisibleSignalCandidate(
+      candidates,
+      readPayloadString(stoppedNoticePublication, "publishedSignalId")
+    );
+  }
+}
+
+function addFinalVisibleSignalCandidate(
+  candidates: string[],
+  value: string | null | undefined
+): void {
+  const normalized = normalizeOptionalTraceText(value);
+  if (normalized && !candidates.includes(normalized)) {
+    candidates.push(normalized);
+  }
+}
+
+function normalizeOptionalTraceText(value: unknown): string | null {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+export function projectSpaceDispatchTraceFinalVisibleOutcome(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceFinalVisibleOutcomeValue {
+  return (
+    resolveFinalVisibleMessageOutcome(trace) ??
+    resolvePublicationBlockerOutcome(trace) ??
+    resolveHeadPublicationExhaustionOutcome(trace) ??
+    resolveHeadPublicationOutcome(trace) ??
+    resolveResultPublicationOutcome(trace) ??
+    resolveRuntimeCoordinatorExecutionPublicationOutcome(trace) ??
+    resolveHeadPublicationIntentOutcome(trace) ??
+    createNotApplicableFinalVisibleOutcome()
+  );
+}
+
+function resolveFinalVisibleMessageOutcome(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceFinalVisibleOutcomeValue | null {
+  const finalVisibleMessage = trace.finalVisibleMessage ?? null;
+  if (!finalVisibleMessage) {
+    return null;
+  }
+  const visibleStopped = isStoppedFinalVisibleSystemNotice(finalVisibleMessage);
+  const visibleFailure = isFailureFinalVisibleSystemNotice(finalVisibleMessage);
+  let publicationKind: SpaceDispatchTraceFinalVisibleOutcomeValue["publicationKind"] =
+    "success_reply";
+  let status: SpaceDispatchTraceFinalVisibleOutcomeValue["status"] =
+    "visible_reply";
+  if (visibleStopped) {
+    publicationKind = "stopped_notice";
+    status = "visible_stopped";
+  } else if (visibleFailure) {
+    publicationKind = "failure_notice";
+    status = "visible_failure";
+  }
+  return {
+    delivered: true,
+    publicationErrorCode: null,
+    publicationKind,
+    reasonCode: resolveFinalVisibleMessageOutcomeReasonCode(
+      finalVisibleMessage,
+      visibleStopped,
+      visibleFailure
+    ),
+    signalId: finalVisibleMessage.signalId,
+    sourceFact: "final_visible_message",
+    sourceReasonCode: finalVisibleMessage.reasonCode,
+    sourceStatus: finalVisibleMessage.signalType,
+    status,
+  };
+}
+
+function isStoppedFinalVisibleSystemNotice(
+  finalVisibleMessage: NonNullable<
+    SpaceDispatchTraceSnapshotValue["finalVisibleMessage"]
+  >
+): boolean {
+  return (
+    finalVisibleMessage.signalType === "signal.system_notice" &&
+    finalVisibleMessage.noticeType === "wake_stopped"
+  );
+}
+
+function isFailureFinalVisibleSystemNotice(
+  finalVisibleMessage: NonNullable<
+    SpaceDispatchTraceSnapshotValue["finalVisibleMessage"]
+  >
+): boolean {
+  return (
+    finalVisibleMessage.signalType === "signal.system_notice" &&
+    (finalVisibleMessage.noticeType === "terminal_failure" ||
+      finalVisibleMessage.noticeType === "policy_blocked")
+  );
+}
+
+function resolveFinalVisibleMessageOutcomeReasonCode(
+  finalVisibleMessage: NonNullable<
+    SpaceDispatchTraceSnapshotValue["finalVisibleMessage"]
+  >,
+  visibleStopped: boolean,
+  visibleFailure: boolean
+): string {
+  if (visibleStopped) {
+    return (
+      finalVisibleMessage.reasonCode ?? "space.wake_stopped_notice_published"
+    );
+  }
+  if (!visibleFailure) {
+    return finalVisibleMessage.noticeType === "stay_silent"
+      ? "space.stay_silent_notice_published"
+      : "reply.delivered";
+  }
+
+  if (finalVisibleMessage.reasonCode) {
+    return finalVisibleMessage.reasonCode;
+  }
+
+  return finalVisibleMessage.noticeType === "policy_blocked"
+    ? "space.policy_blocked_notice_published"
+    : "space.terminal_failure_notice_published";
+}
+
+function resolvePublicationBlockerOutcome(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceFinalVisibleOutcomeValue | null {
+  const publicationBlocker =
+    resolveRuntimeCoordinatorPublicationUnresolvedBlocker(trace);
+  return publicationBlocker
+    ? {
+        delivered: false,
+        publicationErrorCode: null,
+        publicationKind: publicationBlocker.publicationKind,
+        reasonCode: FINAL_VISIBLE_OUTCOME_PUBLICATION_UNRESOLVED_REASON_CODE,
+        signalId: null,
+        sourceFact: "runtime_coordinator_event",
+        sourceReasonCode: publicationBlocker.reasonCode,
+        sourceStatus: publicationBlocker.status,
+        status: "publication_unresolved",
+      }
+    : null;
+}
+
+function resolveHeadPublicationExhaustionOutcome(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceFinalVisibleOutcomeValue | null {
+  const headPublicationExhaustion =
+    trace.runtimeCoordinatorHeadLifecycle?.readStatus === "found"
+      ? (trace.runtimeCoordinatorHeadLifecycle.publicationExhaustion ?? null)
+      : null;
+  if (!headPublicationExhaustion) {
+    return null;
+  }
+  return {
+    delivered: false,
+    publicationErrorCode: null,
+    publicationKind: "failure_notice",
+    reasonCode: FINAL_VISIBLE_OUTCOME_PUBLICATION_UNRESOLVED_REASON_CODE,
+    signalId: null,
+    sourceFact: "runtime_coordinator_head_lifecycle",
+    sourceReasonCode: headPublicationExhaustion.reasonCode,
+    sourceStatus: headPublicationExhaustion.status,
+    status: "publication_unresolved",
+  };
+}
+
+function resolveHeadPublicationOutcome(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceFinalVisibleOutcomeValue | null {
+  const headPublicationOutcome =
+    trace.runtimeCoordinatorHeadLifecycle?.readStatus === "found"
+      ? (trace.runtimeCoordinatorHeadLifecycle.publicationOutcome ?? null)
+      : null;
+  if (!headPublicationOutcome) {
+    return null;
+  }
+
+  if (headPublicationOutcome?.status === "failure_publication_failed") {
+    return {
+      delivered: false,
+      publicationErrorCode: headPublicationOutcome.publicationErrorCode,
+      publicationKind: "failure_notice",
+      reasonCode: FINAL_VISIBLE_OUTCOME_PUBLICATION_RETRYING_REASON_CODE,
+      signalId: headPublicationOutcome.publishedSignalId,
+      sourceFact: "runtime_coordinator_head_lifecycle",
+      sourceReasonCode:
+        headPublicationOutcome.publicationErrorCode ??
+        "runtime_coordinator.failure_publication_failed",
+      sourceStatus: headPublicationOutcome.status,
+      status: "publication_retrying",
+    };
+  }
+  return {
+    delivered: false,
+    publicationErrorCode: headPublicationOutcome.publicationErrorCode,
+    publicationKind:
+      headPublicationOutcome.finalMessageKind === "success_reply"
+        ? "success_reply"
+        : "failure_notice",
+    reasonCode: FINAL_VISIBLE_OUTCOME_PUBLICATION_UNRESOLVED_REASON_CODE,
+    signalId: headPublicationOutcome.publishedSignalId,
+    sourceFact: "runtime_coordinator_head_lifecycle",
+    sourceReasonCode:
+      headPublicationOutcome.publicationErrorCode ?? "reply.not_found",
+    sourceStatus: headPublicationOutcome.status,
+    status: "publication_unresolved",
+  };
+}
+
+function resolveResultPublicationOutcome(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceFinalVisibleOutcomeValue | null {
+  if (hasRuntimeCoordinatorPreResultAuthority(trace)) {
+    return null;
+  }
+  const resultInbox = trace.resultInbox;
+  if (resultInbox?.publishState === "reply_publication_failed") {
+    return {
+      delivered: false,
+      publicationErrorCode: resultInbox.publicationErrorCode,
+      publicationKind: "success_reply",
+      reasonCode: FINAL_VISIBLE_OUTCOME_PUBLICATION_RETRYING_REASON_CODE,
+      signalId: resultInbox.publishedSignalId,
+      sourceFact: "result_inbox",
+      sourceReasonCode:
+        resultInbox.publicationErrorCode ?? "reply.publication_failed",
+      sourceStatus: resultInbox.publishState,
+      status: "publication_retrying",
+    };
+  }
+  if (
+    resultInbox?.publishState === "reply_published" ||
+    trace.result?.publishedSignalId
+  ) {
+    return {
+      delivered: false,
+      publicationErrorCode: resultInbox?.publicationErrorCode ?? null,
+      publicationKind: "success_reply",
+      reasonCode: FINAL_VISIBLE_OUTCOME_PUBLICATION_UNRESOLVED_REASON_CODE,
+      signalId:
+        trace.result?.publishedSignalId ??
+        resultInbox?.publishedSignalId ??
+        null,
+      sourceFact: trace.result?.publishedSignalId
+        ? "dispatch_result"
+        : "result_inbox",
+      sourceReasonCode: "reply.not_found",
+      sourceStatus:
+        resultInbox?.publishState ??
+        (trace.result?.publishedSignalId ? "published_signal_missing" : null),
+      status: "publication_unresolved",
+    };
+  }
+  return null;
+}
+
+function resolveRuntimeCoordinatorExecutionPublicationOutcome(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceFinalVisibleOutcomeValue | null {
+  const runtimeCoordinatorExecution = trace.runtimeCoordinatorExecution;
+  const runtimeCoordinatorReason =
+    runtimeCoordinatorExecution?.terminalOutcome?.reasonCode ?? null;
+  if (
+    runtimeCoordinatorExecution?.status === "failed_retryable" &&
+    isPublicationFailureReasonCode(runtimeCoordinatorReason)
+  ) {
+    return {
+      delivered: false,
+      publicationErrorCode: runtimeCoordinatorReason,
+      publicationKind: "success_reply",
+      reasonCode: FINAL_VISIBLE_OUTCOME_PUBLICATION_RETRYING_REASON_CODE,
+      signalId: null,
+      sourceFact: "runtime_coordinator_execution",
+      sourceReasonCode: runtimeCoordinatorReason,
+      sourceStatus: runtimeCoordinatorExecution.status,
+      status: "publication_retrying",
+    };
+  }
+  if (
+    runtimeCoordinatorExecution?.status === "failed_terminal" &&
+    runtimeCoordinatorReason ===
+      RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE
+  ) {
+    return {
+      delivered: false,
+      publicationErrorCode: null,
+      publicationKind: "failure_notice",
+      reasonCode: FINAL_VISIBLE_OUTCOME_PUBLICATION_UNRESOLVED_REASON_CODE,
+      signalId: null,
+      sourceFact: "runtime_coordinator_execution",
+      sourceReasonCode: runtimeCoordinatorReason,
+      sourceStatus: runtimeCoordinatorExecution.status,
+      status: "publication_unresolved",
+    };
+  }
+  if (runtimeCoordinatorExecution?.status === "reply_published") {
+    return {
+      delivered: false,
+      publicationErrorCode: null,
+      publicationKind: "success_reply",
+      reasonCode: FINAL_VISIBLE_OUTCOME_PUBLICATION_UNRESOLVED_REASON_CODE,
+      signalId: null,
+      sourceFact: "runtime_coordinator_execution",
+      sourceReasonCode: "reply.not_found",
+      sourceStatus: runtimeCoordinatorExecution.status,
+      status: "publication_unresolved",
+    };
+  }
+  if (runtimeCoordinatorExecution?.status === "cancelled") {
+    return {
+      delivered: false,
+      publicationErrorCode: null,
+      publicationKind: "stopped_notice",
+      reasonCode: FINAL_VISIBLE_OUTCOME_PUBLICATION_UNRESOLVED_REASON_CODE,
+      signalId: null,
+      sourceFact: "runtime_coordinator_execution",
+      sourceReasonCode:
+        runtimeCoordinatorReason ?? "space.wake_stopped_notice_missing",
+      sourceStatus: runtimeCoordinatorExecution.status,
+      status: "publication_unresolved",
+    };
+  }
+  return null;
+}
+
+function resolveHeadPublicationIntentOutcome(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceFinalVisibleOutcomeValue | null {
+  const headLifecycle = trace.runtimeCoordinatorHeadLifecycle;
+  if (
+    headLifecycle?.readStatus !== "found" ||
+    !headLifecycle.publicationIntent
+  ) {
+    return null;
+  }
+  return {
+    delivered: false,
+    publicationErrorCode: null,
+    publicationKind:
+      headLifecycle.publicationIntent.kind === "stopped_notice"
+        ? "stopped_notice"
+        : "failure_notice",
+    reasonCode: FINAL_VISIBLE_OUTCOME_PUBLICATION_PENDING_REASON_CODE,
+    signalId: null,
+    sourceFact: "runtime_coordinator_head_lifecycle",
+    sourceReasonCode: headLifecycle.publicationIntent.reasonCode,
+    sourceStatus: headLifecycle.publicationIntent.status,
+    status: "publication_pending",
+  };
+}
+
+function createNotApplicableFinalVisibleOutcome(): SpaceDispatchTraceFinalVisibleOutcomeValue {
+  return {
+    delivered: false,
+    publicationErrorCode: null,
+    publicationKind: null,
+    reasonCode: null,
+    signalId: null,
+    sourceFact: "none",
+    sourceReasonCode: null,
+    sourceStatus: null,
+    status: "not_applicable",
+  };
+}
+
+export function projectSpaceDispatchTraceRootCause(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceRootCauseProjection {
+  const finalVisibleOutcomeRootCause =
+    resolveFinalVisibleOutcomeRootCause(trace);
+  if (finalVisibleOutcomeRootCause) {
+    return finalVisibleOutcomeRootCause;
+  }
+
+  const legacyResultInboxRootCause = resolveLegacyResultInboxRootCause(trace);
+  if (legacyResultInboxRootCause) {
+    return legacyResultInboxRootCause;
+  }
+
+  const headLifecycleRootCause =
+    resolveRuntimeCoordinatorHeadLifecycleRootCause(trace);
+  if (headLifecycleRootCause) {
+    return headLifecycleRootCause;
+  }
+
+  const runtimeCoordinatorCreationFailure =
+    resolveRuntimeCoordinatorCreationRootCause(trace);
+  if (runtimeCoordinatorCreationFailure) {
+    return runtimeCoordinatorCreationFailure;
+  }
+
+  const runtimeProgressStale = resolveRuntimeProgressStaleRootCause(trace);
+  if (runtimeProgressStale) {
+    return runtimeProgressStale;
+  }
+
+  const runtimeCoordinatorRootCause =
+    resolveRuntimeCoordinatorExecutionRootCause(trace);
+  if (runtimeCoordinatorRootCause) {
+    return runtimeCoordinatorRootCause;
+  }
+
+  const attemptErrorRootCause = resolveLatestAttemptErrorRootCause(trace);
+  if (attemptErrorRootCause) {
+    return attemptErrorRootCause;
+  }
+
+  if (trace.result?.publishedSignalId) {
+    return { reasonCode: "reply.not_found", source: "reply_lookup" };
+  }
+
+  if (trace.dispatch.status === "succeeded") {
+    return { reasonCode: "dispatch.succeeded", source: "dispatch" };
+  }
+  if (trace.execution?.progressEvidenceState === "stalled") {
+    return { reasonCode: "daemon.execution_stalled", source: "runtime" };
+  }
+  if (trace.runtime?.timeoutTriggeredAt) {
+    return { reasonCode: "runtime.timeout", source: "runtime" };
+  }
+  if (trace.latestAttempt?.status) {
+    return {
+      reasonCode: `attempt.${trace.latestAttempt.status}`,
+      source: "latest_attempt",
+    };
+  }
+  return {
+    reasonCode: `dispatch.${trace.dispatch.status}`,
+    source: "dispatch",
+  };
+}
+
+export function resolveSpaceDispatchTraceRootCause(
+  trace: SpaceDispatchTraceSnapshotValue
+): string {
+  return projectSpaceDispatchTraceRootCause(trace).reasonCode;
+}
+
+function resolveFinalVisibleOutcomeRootCause(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceRootCauseProjection | null {
+  const finalVisibleOutcome =
+    projectSpaceDispatchTraceFinalVisibleOutcome(trace);
+  switch (finalVisibleOutcome.status) {
+    case "visible_reply":
+      return {
+        reasonCode: finalVisibleOutcome.reasonCode ?? "reply.delivered",
+        source: "final_visible_message",
+      };
+    case "visible_failure":
+      return {
+        reasonCode:
+          finalVisibleOutcome.reasonCode ??
+          "space.terminal_failure_notice_published",
+        source: "final_visible_message",
+      };
+    case "visible_stopped":
+      return {
+        reasonCode:
+          finalVisibleOutcome.reasonCode ??
+          "space.wake_stopped_notice_published",
+        source: "final_visible_message",
+      };
+    case "publication_pending":
+    case "publication_retrying":
+      return {
+        reasonCode:
+          finalVisibleOutcome.reasonCode ??
+          FINAL_VISIBLE_OUTCOME_PUBLICATION_UNRESOLVED_REASON_CODE,
+        source: "final_visible_outcome",
+      };
+    case "publication_unresolved":
+      return (
+        resolveFinalVisibleMessageLinkageRootCause(
+          trace,
+          finalVisibleOutcome
+        ) ?? {
+          reasonCode:
+            finalVisibleOutcome.reasonCode ??
+            FINAL_VISIBLE_OUTCOME_PUBLICATION_UNRESOLVED_REASON_CODE,
+          source: "final_visible_outcome",
+        }
+      );
+    case "not_applicable":
+      return resolveFinalVisibleMessageLinkageRootCause(
+        trace,
+        finalVisibleOutcome
+      );
+    default:
+      return assertNever(finalVisibleOutcome.status);
+  }
+}
+
+function resolveFinalVisibleMessageLinkageRootCause(
+  trace: SpaceDispatchTraceSnapshotValue,
+  finalVisibleOutcome: SpaceDispatchTraceFinalVisibleOutcomeValue
+): SpaceDispatchTraceRootCauseProjection | null {
+  const linkage = trace.finalVisibleMessageLinkage ?? null;
+  if (
+    !linkage ||
+    linkage.status === "matched_published_signal" ||
+    linkage.status === "matched_final_reply_claim" ||
+    linkage.status === "projection_pending"
+  ) {
+    return null;
+  }
+
+  if (isAuthoritativePublicationUnresolved(finalVisibleOutcome)) {
+    return null;
+  }
+
+  if (
+    linkage.status === "linkage_missing" ||
+    linkage.status === "storage_inconsistent"
+  ) {
+    return {
+      reasonCode:
+        linkage.reasonCode ?? `final_visible_message.${linkage.status}`,
+      source: "final_visible_message",
+    };
+  }
+
+  return null;
+}
+
+function isAuthoritativePublicationUnresolved(
+  finalVisibleOutcome: SpaceDispatchTraceFinalVisibleOutcomeValue
+): boolean {
+  return (
+    finalVisibleOutcome.status === "publication_unresolved" &&
+    (finalVisibleOutcome.sourceFact === "runtime_coordinator_event" ||
+      (finalVisibleOutcome.sourceFact ===
+        "runtime_coordinator_head_lifecycle" &&
+        finalVisibleOutcome.signalId === null))
+  );
+}
+
+function resolveLegacyResultInboxRootCause(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceRootCauseProjection | null {
+  if (hasRuntimeCoordinatorPreResultAuthority(trace)) {
+    return null;
+  }
+  if (trace.resultInbox?.publishState === "late_result_available") {
+    return {
+      reasonCode: "runtime_coordinator.late_result_available",
+      source: "result_inbox",
+    };
+  }
+  if (trace.resultInbox?.publishState === "reply_publication_failed") {
+    return { reasonCode: "reply.publication_failed", source: "result_inbox" };
+  }
+  if (trace.resultInbox?.publishState === "invalid_space_action") {
+    return {
+      reasonCode: "reply.invalid_space_action",
+      source: "result_inbox",
+    };
+  }
+  return null;
+}
+
+function resolveRuntimeProgressStaleRootCause(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceRootCauseProjection | null {
+  if (
+    hasRuntimeCoordinatorPreResultAuthority(trace) &&
+    hasRuntimeCoordinatorProgressStalePolicyEvidence(trace)
+  ) {
+    return { reasonCode: "runtime.progress_stale", source: "runtime" };
+  }
+  if (
+    !hasRuntimeCoordinatorPreResultAuthority(trace) &&
+    trace.runtimeCoordinatorExecution
+  ) {
+    return null;
+  }
+  if (trace.execution?.progressEvidenceState === "stalled") {
+    return { reasonCode: "runtime.progress_stale", source: "runtime" };
+  }
+  if (trace.latestAttempt?.errorCode === "daemon.delivery.execution_stalled") {
+    return { reasonCode: "runtime.progress_stale", source: "runtime" };
+  }
+  return null;
+}
+
+function hasRuntimeCoordinatorProgressStalePolicyEvidence(
+  trace: SpaceDispatchTraceSnapshotValue
+): boolean {
+  return trace.runtimeCoordinatorEvents.some(
+    (event) =>
+      event.eventType === "runtime_coordinator_decision_recorded" &&
+      event.reasonCode === "runtime_coordinator.progress_stale_policy_pending"
+  );
+}
+
+function resolveRuntimeCoordinatorHeadLifecycleRootCause(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceRootCauseProjection | null {
+  if (trace.runtimeCoordinatorExecution) {
+    return null;
+  }
+  const headLifecycle = trace.runtimeCoordinatorHeadLifecycle;
+  if (!headLifecycle) {
+    return null;
+  }
+  if (headLifecycle.readStatus === "authority_unavailable") {
+    return {
+      reasonCode: headLifecycle.reasonCode,
+      source: "runtime_coordinator",
+    };
+  }
+  if (headLifecycle.readStatus === "missing") {
+    return {
+      reasonCode: headLifecycle.reasonCode,
+      source: "runtime_coordinator",
+    };
+  }
+  return {
+    reasonCode:
+      headLifecycle.noExecutionDecision?.reasonCode ??
+      headLifecycle.publicationIntent?.reasonCode ??
+      headLifecycle.waitingBoundary?.reasonCode ??
+      resolvePreExecutionNoExecutionEvidenceRootCause(trace) ??
+      resolveRuntimeCoordinatorHeadStatusRootCause(headLifecycle.status),
+    source: "runtime_coordinator",
+  };
+}
+
+function resolveRuntimeCoordinatorHeadStatusRootCause(status: string): string {
+  if (status === "accepted") {
+    return "runtime_coordinator.head_accepted";
+  }
+  if (status === "execution_linked") {
+    return "runtime_coordinator.head_execution_linked";
+  }
+  if (status === "waiting") {
+    return "runtime_coordinator.head_waiting";
+  }
+  return "runtime_coordinator.head_publication_intent_ready";
+}
+
+function resolveRuntimeCoordinatorCreationRootCause(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceRootCauseProjection | null {
+  if (
+    trace.runtimeCoordinatorExecution ||
+    trace.runtimeCoordinatorHeadLifecycle?.readStatus === "found" ||
+    trace.runtimeCoordinatorHeadLifecycle?.readStatus ===
+      "authority_unavailable" ||
+    trace.runtimeCoordinatorCreationDiagnostics.length === 0
+  ) {
+    return null;
+  }
+  return {
+    reasonCode:
+      trace.runtimeCoordinatorCreationDiagnostics.at(-1)?.reasonCode ??
+      "runtime_coordinator.execution_not_created",
+    source: "runtime_coordinator",
+  };
+}
+
+const PRE_EXECUTION_NO_EXECUTION_EVIDENCE_REASON_CODES = new Set([
+  "local_service.identity_mismatch",
+]);
+
+function resolvePreExecutionNoExecutionEvidenceRootCause(
+  trace: SpaceDispatchTraceSnapshotValue
+): string | null {
+  const headLifecycle = trace.runtimeCoordinatorHeadLifecycle;
+  if (
+    trace.runtimeCoordinatorExecution ||
+    headLifecycle?.readStatus !== "found" ||
+    headLifecycle.runtimeCoordinatorExecutionId ||
+    headLifecycle.waitingBoundary
+  ) {
+    return null;
+  }
+
+  const authoritativeHeadReason =
+    headLifecycle.noExecutionDecision?.reasonCode ??
+    headLifecycle.publicationIntent?.reasonCode ??
+    null;
+  return authoritativeHeadReason &&
+    PRE_EXECUTION_NO_EXECUTION_EVIDENCE_REASON_CODES.has(
+      authoritativeHeadReason
+    )
+    ? authoritativeHeadReason
+    : null;
+}
+
+function resolveRuntimeCoordinatorExecutionRootCause(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceRootCauseProjection | null {
+  const execution = trace.runtimeCoordinatorExecution;
+  if (!execution) {
+    return null;
+  }
+  switch (execution.status) {
+    case "failed_retryable":
+    case "failed_terminal":
+      return {
+        reasonCode:
+          execution.terminalOutcome?.reasonCode ??
+          `runtime_coordinator.${execution.status}`,
+        source: "runtime_coordinator",
+      };
+    case "reply_published":
+    case "cancelled":
+      return null;
+    case "state_unknown":
+      return {
+        reasonCode: "runtime_coordinator.state_unknown",
+        source: "runtime_coordinator",
+      };
+    default:
+      return {
+        reasonCode: `runtime_coordinator.${execution.status}`,
+        source: "runtime_coordinator",
+      };
+  }
+}
+
+function resolveLatestAttemptErrorRootCause(
+  trace: SpaceDispatchTraceSnapshotValue
+): SpaceDispatchTraceRootCauseProjection | null {
+  if (!trace.latestAttempt?.errorCode) {
+    return null;
+  }
+  return {
+    reasonCode:
+      resolveAttemptErrorRootCause(trace.latestAttempt.errorCode) ??
+      trace.latestAttempt.errorCode,
+    source: "latest_attempt",
+  };
+}
+
+function resolveAttemptErrorRootCause(errorCode: string): string | null {
+  switch (errorCode) {
+    case "daemon.delivery.execution_stalled":
+      return "runtime.progress_stale";
+    case "timeout":
+    case "timed_out_no_output":
+    case "timed_out_after_output":
+      return "local_adapter.timeout";
+    case "daemon.delivery.timeout":
+    case "daemon.delivery.finalization_timeout":
+      return "delivery.result_timeout";
+    case "daemon.delivery.start_timeout":
+      return "delivery.start_timeout";
+    case "core.transport_restarting":
+      return "runtime_transport.restarting";
+    default:
+      return null;
+  }
+}
+
+function hasRuntimeCoordinatorPreResultAuthority(
+  trace: SpaceDispatchTraceSnapshotValue
+): boolean {
+  switch (trace.runtimeCoordinatorExecution?.status) {
+    case "created":
+    case "delivery_pending":
+    case "delivery_accepted":
+    case "cancellation_requested":
+    case "accepted_local":
+    case "running":
+    case "completed_local":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function resolveRuntimeCoordinatorPublicationUnresolvedBlocker(
+  trace: SpaceDispatchTraceSnapshotValue
+): {
+  publicationKind: "failure_notice" | "stopped_notice" | "success_reply";
+  reasonCode: string | null;
+  status: string;
+} | null {
+  const event = trace.runtimeCoordinatorEvents
+    .filter(
+      (candidate) =>
+        candidate.eventType === "runtime_coordinator_decision_recorded" &&
+        candidate.reasonCode ===
+          RUNTIME_COORDINATOR_PUBLICATION_UNRESOLVED_REASON_CODE
+    )
+    .at(-1);
+  if (!event) {
+    return null;
+  }
+  const payload = parseRuntimeCoordinatorEventPayload(event);
+  if (
+    readPayloadString(payload, "status") !== "unresolved_publication_failure"
+  ) {
+    return null;
+  }
+  const publicationKind = readPayloadString(payload, "publicationKind");
+  let parsedPublicationKind:
+    | "failure_notice"
+    | "stopped_notice"
+    | "success_reply" = "success_reply";
+  if (publicationKind === "failure_notice") {
+    parsedPublicationKind = "failure_notice";
+  } else if (publicationKind === "stopped_notice") {
+    parsedPublicationKind = "stopped_notice";
+  }
+  return {
+    publicationKind: parsedPublicationKind,
+    reasonCode: readPayloadString(payload, "reasonCode"),
+    status: "unresolved_publication_failure",
+  };
+}
+
+function parseRuntimeCoordinatorEventPayload(
+  event: SpaceDispatchTraceSnapshotValue["runtimeCoordinatorEvents"][number]
+): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(event.payloadJson) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readPayloadString(
+  payload: Record<string, unknown> | null,
+  fieldName: string
+): string | null {
+  const value = payload?.[fieldName];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+function readPayloadObject(
+  payload: Record<string, unknown> | null,
+  fieldName: string
+): Record<string, unknown> | null {
+  const value = payload?.[fieldName];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isPublicationFailureReasonCode(reasonCode: string | null): boolean {
+  return Boolean(
+    reasonCode &&
+      (reasonCode.includes("publication") ||
+        reasonCode.includes("finalization") ||
+        reasonCode.includes("space.signal"))
+  );
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected space dispatch trace value: ${String(value)}`);
+}
+
+function expectRuntimeCoordinatorHeadLifecycleTraceEvidence(
+  context: z.RefinementCtx,
+  value: {
+    query: z.infer<typeof spaceDispatchTraceQuerySchema>;
+    trace: z.infer<typeof spaceDispatchTraceSnapshotSchema>;
+  }
+): void {
+  const headLifecycle = value.trace.runtimeCoordinatorHeadLifecycle;
+  if (headLifecycle?.readStatus !== "found") {
+    return;
+  }
+  expectTraceEvidence(
+    context,
+    headLifecycle.targetWakeLifecycleIdentity.spaceId,
+    value.query.spaceId,
+    ["trace", "runtimeCoordinatorHeadLifecycle"],
+    "trace.runtimeCoordinatorHeadLifecycle.spaceId must match query.spaceId"
+  );
+  expectTraceEvidence(
+    context,
+    headLifecycle.targetWakeLifecycleIdentity.sourceSignalId,
+    value.trace.dispatch.sourceEventId,
+    ["trace", "runtimeCoordinatorHeadLifecycle"],
+    "trace.runtimeCoordinatorHeadLifecycle.sourceSignalId must match trace.dispatch.sourceEventId"
+  );
+  expectTraceEvidence(
+    context,
+    headLifecycle.targetWakeLifecycleIdentity.targetProfileId,
+    value.trace.dispatch.targetProfileId,
+    ["trace", "runtimeCoordinatorHeadLifecycle"],
+    "trace.runtimeCoordinatorHeadLifecycle.targetProfileId must match trace.dispatch.targetProfileId"
+  );
+  if (headLifecycle.runtimeCoordinatorExecutionId === null) {
+    return;
+  }
+  expectTraceEvidence(
+    context,
+    headLifecycle.runtimeCoordinatorExecutionId,
+    value.trace.runtimeCoordinatorExecution?.runtimeCoordinatorExecutionId ??
+      null,
+    ["trace", "runtimeCoordinatorHeadLifecycle"],
+    "trace.runtimeCoordinatorHeadLifecycle.runtimeCoordinatorExecutionId must match trace.runtimeCoordinatorExecution"
+  );
+}
+
+function expectNativeDeliveryTraceEvidence(
+  context: z.RefinementCtx,
+  value: {
+    query: z.infer<typeof spaceDispatchTraceQuerySchema>;
+    trace: z.infer<typeof spaceDispatchTraceSnapshotSchema>;
+  }
+): void {
+  const nativeDelivery = value.trace.nativeDelivery;
+  if (!nativeDelivery) {
+    return;
+  }
+  expectTraceEvidence(
+    context,
+    nativeDelivery.dispatchId,
+    value.trace.dispatch.dispatchId,
+    ["trace", "nativeDelivery", "dispatchId"],
+    "trace.nativeDelivery.dispatchId must match trace.dispatch.dispatchId"
+  );
+  expectTraceEvidence(
+    context,
+    nativeDelivery.destination.spaceId,
+    value.query.spaceId,
+    ["trace", "nativeDelivery", "destination", "spaceId"],
+    "trace.nativeDelivery.destination.spaceId must match query.spaceId"
+  );
+  expectTraceEvidence(
+    context,
+    nativeDelivery.destination.targetProfileId,
+    value.trace.dispatch.targetProfileId,
+    ["trace", "nativeDelivery", "destination", "targetProfileId"],
+    "trace.nativeDelivery.destination.targetProfileId must match trace.dispatch.targetProfileId"
+  );
+}
+
+function expectFinalVisibleMessageTraceEvidence(
+  context: z.RefinementCtx,
+  trace: z.infer<typeof spaceDispatchTraceSnapshotSchema>
+): void {
+  if (!trace.finalVisibleMessage) {
+    return;
+  }
+  expectTraceEvidence(
+    context,
+    trace.finalVisibleMessage.dispatchId,
+    trace.dispatch.dispatchId,
+    ["trace", "finalVisibleMessage", "dispatchId"],
+    "trace.finalVisibleMessage.dispatchId must match trace.dispatch.dispatchId"
+  );
+  expectTraceEvidence(
+    context,
+    trace.finalVisibleMessage.targetProfileId,
+    trace.dispatch.targetProfileId,
+    ["trace", "finalVisibleMessage", "targetProfileId"],
+    "trace.finalVisibleMessage.targetProfileId must match trace.dispatch.targetProfileId"
+  );
+  const finalVisibleSignalCandidates =
+    listSpaceDispatchTraceFinalVisibleSignalCandidates(trace);
+  if (
+    trace.finalVisibleMessage.factSource !==
+      "space_signal_by_published_signal_id" ||
+    finalVisibleSignalCandidates.length === 0
+  ) {
+    return;
+  }
+  if (
+    !finalVisibleSignalCandidates.includes(trace.finalVisibleMessage.signalId)
+  ) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "trace.finalVisibleMessage.signalId must match a canonical final visible publication signal",
+      path: ["trace", "finalVisibleMessage", "signalId"],
+    });
+  }
+}
+
+function expectTraceEvidence(
+  context: z.RefinementCtx,
+  actual: string | null,
+  expected: string | null,
+  path: Array<string | number>,
+  message: string
+): void {
+  if (actual !== expected) {
+    context.addIssue({
+      code: "custom",
+      message,
+      path,
+    });
+  }
+}
+
+function expectNullTraceEvidence(
+  context: z.RefinementCtx,
+  actual: string | null,
+  path: Array<string | number>
+): void {
+  expectTraceEvidence(
+    context,
+    actual,
+    null,
+    path,
+    "not-found trace correlation must not include resolved trace evidence"
+  );
+}

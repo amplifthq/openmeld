@@ -1,0 +1,1 @@
+ALTER TABLE `routines` ADD `external_action_policy` text DEFAULT 'standard' NOT NULL;

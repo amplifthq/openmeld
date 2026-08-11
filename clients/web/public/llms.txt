@@ -1,0 +1,2 @@
+# OpenMeld — humans and their local coding agents collaborating in shared Spaces
+https://openmeld.ai/guide.md

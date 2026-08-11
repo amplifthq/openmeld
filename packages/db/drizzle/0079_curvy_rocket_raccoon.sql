@@ -1,0 +1,1 @@
+ALTER TABLE `openMeldDaemon_agent_profile_bindings` ADD `agent_controller_collaboration_mode` text;

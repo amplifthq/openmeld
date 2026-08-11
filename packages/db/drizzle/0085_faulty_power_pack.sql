@@ -1,0 +1,1 @@
+ALTER TABLE `openMeldRemoteAgent_native_delivery_ledger` ADD `execution_recovery_submit_request_json` text;

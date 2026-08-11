@@ -1,0 +1,979 @@
+import { isDirectMessageSpace } from "@openmeld/space";
+import { Bars } from "@openmeld/ui/components/bars";
+import { Button } from "@openmeld/ui/components/button";
+import { Card, CardContent, CardHeader } from "@openmeld/ui/components/card";
+import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { type ComponentProps, type ReactNode, useEffect, useMemo } from "react";
+import { z } from "zod/v4";
+import { AppMainContent } from "#/components/app/app-main-content";
+import { appShellStaticData } from "#/components/app/shell-layout";
+import { useStartFlowState } from "#/components/app/start-flow-state";
+import {
+	AppDirectMessageShell,
+	AppSpaceShell,
+	SpaceWindowShell,
+} from "#/components/spaces/app-space-shell";
+import { SpaceLanding } from "#/components/spaces/space-landing";
+import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
+import { SpaceLandingLoadingShell } from "#/components/spaces/space-state-surfaces";
+import {
+	APP_ROUTE_PENDING_DELAY_MS,
+	APP_ROUTE_PENDING_MIN_DURATION_MS,
+} from "#/lib/app-route-loading";
+import {
+	prefetchSpaceConversationRouteData,
+	restoreSpaceConversationRouteData,
+} from "#/lib/organizations/app-route-prefetch";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
+import {
+	buildOrganizationDirectMessagePath,
+	buildOrganizationSpacePath,
+} from "#/lib/organizations/organization-routes";
+import { findActiveProfileById } from "#/lib/profiles/profiles";
+import {
+	APP_SIDEBAR_DEFAULT_STATES,
+	type AppSidebarPersistedStates,
+	getAppSidebarStatesForRoute,
+} from "#/lib/sidebar-width-cookie";
+import { resolveAppSpacesProfile } from "#/lib/spaces/app-spaces-profile";
+import {
+	readLastUsedHumanProfileId,
+	writeLastUsedHumanProfileId,
+} from "#/lib/spaces/last-used-profile";
+import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
+import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
+import { spaceConversationDisplaySnapshotQueryOptions } from "#/query/spaces/display-snapshot";
+import { spaceStatusQueryOptions } from "#/query/spaces/status";
+
+const appSpaceRouteSearchSchema = z.object({
+	focusInteractionId: z.string().trim().min(1).optional(),
+	focusSignalId: z.string().trim().min(1).optional(),
+	focusThreadRootSignalId: z.string().trim().min(1).optional(),
+	profileId: z.string().trim().min(1).optional(),
+});
+
+type AppSpaceFocusSearch = Pick<
+	z.infer<typeof appSpaceRouteSearchSchema>,
+	"focusInteractionId" | "focusSignalId" | "focusThreadRootSignalId"
+>;
+
+export type AppSpaceNavigationSurface = "directMessages" | "spaces";
+
+export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
+	staticData: appShellStaticData.space,
+	validateSearch: (search) => {
+		const parsed = appSpaceRouteSearchSchema.safeParse(search);
+		return parsed.success ? parsed.data : {};
+	},
+	loaderDeps: ({ search }) => ({ profileId: search.profileId }),
+	pendingComponent: AppSpaceConversationPendingRoute,
+	pendingMinMs: APP_ROUTE_PENDING_MIN_DURATION_MS,
+	pendingMs: APP_ROUTE_PENDING_DELAY_MS,
+	// SSR-read persisted rail/sidebar geometry so the shell renders at the
+	// remembered sizes with no first-paint flash.
+	loader: async ({ context, deps, location, params }) => {
+		const sidebarStates = getAppSidebarStatesForRoute("spaces");
+		await restoreSpaceConversationRouteData({
+			organizationSlug: params.orgSlug,
+			profileId: deps.profileId,
+			queryClient: context.queryClient,
+			queryPersistence: context.queryPersistence,
+			routeFamily: location.href,
+			spaceId: params.spaceId,
+		});
+		prefetchSpaceConversationRouteData({
+			organizationSlug: params.orgSlug,
+			profileId: deps.profileId,
+			queryClient: context.queryClient,
+			queryPersistence: context.queryPersistence,
+			routeFamily: location.href,
+			spaceId: params.spaceId,
+		}).catch((error: unknown) => {
+			console.error("Failed to prefetch the Space conversation data.", error);
+		});
+		return { sidebarStates: await sidebarStates };
+	},
+	component: AppSpaceEntryRoute,
+});
+
+function AppSpaceConversationPendingRoute() {
+	return (
+		<SpaceWindowShell
+			initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
+			initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
+			sidebarPreferenceKey="spaces"
+		>
+			<AppMainContent bodyClassName="flex" header={null}>
+				<SpaceLandingLoadingShell />
+			</AppMainContent>
+		</SpaceWindowShell>
+	);
+}
+
+export function AppSpaceEntryRoute() {
+	const { orgSlug, spaceId } = Route.useParams();
+	const search = Route.useSearch();
+	const { sidebarStates } = Route.useLoaderData();
+
+	return (
+		<AppSpaceEntryContent
+			focusInteractionId={search.focusInteractionId}
+			focusSignalId={search.focusSignalId}
+			focusThreadRootSignalId={search.focusThreadRootSignalId}
+			initialSidebarStates={sidebarStates}
+			orgSlug={orgSlug}
+			profileId={search.profileId}
+			spaceId={spaceId}
+		/>
+	);
+}
+
+export function AppSpaceEntryContent(
+	input: {
+		spaceId: string;
+		orgSlug: string;
+		profileId?: string;
+		initialSidebarStates?: AppSidebarPersistedStates;
+		navigationSurface?: AppSpaceNavigationSurface;
+	} & AppSpaceFocusSearch
+) {
+	const navigationSurface = input.navigationSurface ?? "spaces";
+	if (!input.profileId) {
+		return (
+			<MissingAppSpaceProfileContent
+				focusInteractionId={input.focusInteractionId}
+				focusSignalId={input.focusSignalId}
+				focusThreadRootSignalId={input.focusThreadRootSignalId}
+				initialSidebarStates={input.initialSidebarStates}
+				navigationSurface={navigationSurface}
+				orgSlug={input.orgSlug}
+				spaceId={input.spaceId}
+			/>
+		);
+	}
+
+	return (
+		<ValidatedAppSpaceEntryContent
+			{...input}
+			navigationSurface={navigationSurface}
+			profileId={input.profileId}
+		/>
+	);
+}
+
+function MissingAppSpaceProfileContent(
+	input: {
+		spaceId: string;
+		orgSlug: string;
+		initialSidebarStates?: AppSidebarPersistedStates;
+		navigationSurface: AppSpaceNavigationSurface;
+	} & AppSpaceFocusSearch
+) {
+	const navigate = useNavigate();
+	const { hasRestored, state, storageScope } = useStartFlowState();
+	const profilesQuery = useQuery(
+		buildStartProfilesQueryOptions({
+			enabled: true,
+			storageScope,
+		})
+	);
+	const profilesHaveData = profilesQuery.data !== undefined;
+
+	// Resolve the human profile to open this Space with from memory:
+	// last-used (durable localStorage) → in-session selection → default human.
+	// When one resolves we redirect to the canonical ?profileId URL instead of
+	// stopping the user with a chooser; the chooser only renders on genuine
+	// ambiguity (multiple human profiles, none default, no remembered choice).
+	const isProfilesReady =
+		hasRestored &&
+		(profilesHaveData || !(profilesQuery.isPending || profilesQuery.isError));
+	const recommendedHumanProfile = useMemo(() => {
+		if (!isProfilesReady) {
+			return null;
+		}
+		const rememberedHumanProfileId =
+			readLastUsedHumanProfileId(storageScope) ?? state.selectedHumanProfileId;
+		return resolveAppSpacesProfile({
+			profiles: profilesQuery.data ?? [],
+			selectedHumanProfileId: rememberedHumanProfileId,
+		});
+	}, [
+		isProfilesReady,
+		profilesQuery.data,
+		state.selectedHumanProfileId,
+		storageScope,
+	]);
+	const recommendedProfileId =
+		recommendedHumanProfile?.openMeldProfileId ?? null;
+
+	useEffect(() => {
+		if (!recommendedProfileId) {
+			return;
+		}
+		navigate({
+			params: { orgSlug: input.orgSlug, spaceId: input.spaceId },
+			replace: true,
+			search: buildAppSpaceRouteSearch({
+				focusInteractionId: input.focusInteractionId,
+				focusSignalId: input.focusSignalId,
+				focusThreadRootSignalId: input.focusThreadRootSignalId,
+				profileId: recommendedProfileId,
+			}),
+			to: resolveAppSpaceEntryRouteTo(input.navigationSurface),
+		}).catch((error: unknown) => {
+			console.error("Failed to open Space with the remembered profile.", error);
+		});
+	}, [
+		navigate,
+		recommendedProfileId,
+		input.focusInteractionId,
+		input.focusSignalId,
+		input.focusThreadRootSignalId,
+		input.orgSlug,
+		input.spaceId,
+		input.navigationSurface,
+	]);
+
+	if (!hasRestored || (profilesQuery.isPending && !profilesHaveData)) {
+		return (
+			<AppSpaceEntryShell
+				initialSidebarStates={input.initialSidebarStates}
+				navigationSurface={input.navigationSurface}
+				spaceId={input.spaceId}
+			>
+				<SpaceProfileCheckState />
+			</AppSpaceEntryShell>
+		);
+	}
+
+	if (profilesQuery.isError && !profilesHaveData) {
+		return (
+			<AppSpaceEntryShell
+				initialSidebarStates={input.initialSidebarStates}
+				navigationSurface={input.navigationSurface}
+				spaceId={input.spaceId}
+			>
+				<SpaceProfileLoadFailureState
+					errorMessage={profilesQuery.error.message}
+					isRetrying={profilesQuery.isRefetching}
+					onRetry={() => {
+						profilesQuery.refetch().catch((error) => {
+							console.error("Failed to refresh human profiles.", error);
+						});
+					}}
+				/>
+			</AppSpaceEntryShell>
+		);
+	}
+
+	// A remembered/default profile resolved → show the brief redirecting state
+	// while the effect navigates to the canonical ?profileId URL.
+	if (recommendedProfileId) {
+		return (
+			<AppSpaceEntryShell
+				initialSidebarStates={input.initialSidebarStates}
+				navigationSurface={input.navigationSurface}
+				spaceId={input.spaceId}
+				verifiedProfileId={recommendedProfileId}
+			>
+				<SpaceProfileCheckState />
+			</AppSpaceEntryShell>
+		);
+	}
+
+	return (
+		<AppSpaceEntryShell
+			initialSidebarStates={input.initialSidebarStates}
+			navigationSurface={input.navigationSurface}
+			spaceId={input.spaceId}
+		>
+			<SpaceProfileRequiredState recommendedHumanProfile={null} />
+		</AppSpaceEntryShell>
+	);
+}
+
+function ValidatedAppSpaceEntryContent(
+	input: {
+		spaceId: string;
+		orgSlug: string;
+		profileId: string;
+		initialSidebarStates?: AppSidebarPersistedStates;
+		navigationSurface: AppSpaceNavigationSurface;
+	} & AppSpaceFocusSearch
+) {
+	const { hasRestored, state, storageScope } = useStartFlowState();
+	const { currentOrganization } = useAppOrganization();
+	const profilesQuery = useQuery(
+		buildStartProfilesQueryOptions({
+			enabled: true,
+			storageScope,
+		})
+	);
+	const profilesHaveData = profilesQuery.data !== undefined;
+	const centerAgentDirectMessageProjectionQuery = useQuery(
+		centerAgentDirectMessageSpaceProjectionQueryOptions({
+			enabled: true,
+			organizationId: currentOrganization.id,
+		})
+	);
+
+	// Remember the human profile this Space was opened with so future direct
+	// links resolve silently instead of prompting (durable localStorage). Only
+	// human profiles are remembered — the web speaks as a human; agents are CLI.
+	const accountProfilesData = profilesQuery.data;
+	useEffect(() => {
+		if (!accountProfilesData) {
+			return;
+		}
+		const openedHumanProfile = findActiveProfileById(accountProfilesData, {
+			profileId: input.profileId,
+			profileKind: "human",
+		});
+		if (openedHumanProfile) {
+			writeLastUsedHumanProfileId({
+				profileId: openedHumanProfile.openMeldProfileId,
+				storageScope,
+			});
+		}
+	}, [accountProfilesData, input.profileId, storageScope]);
+
+	if (!hasRestored || (profilesQuery.isPending && !profilesHaveData)) {
+		return (
+			<AppSpaceEntryShell
+				initialSidebarStates={input.initialSidebarStates}
+				navigationSurface={input.navigationSurface}
+				spaceId={input.spaceId}
+			>
+				<SpaceProfileCheckState />
+			</AppSpaceEntryShell>
+		);
+	}
+
+	if (profilesQuery.isError && !profilesHaveData) {
+		return (
+			<AppSpaceEntryShell
+				initialSidebarStates={input.initialSidebarStates}
+				navigationSurface={input.navigationSurface}
+				spaceId={input.spaceId}
+			>
+				<SpaceProfileLoadFailureState
+					errorMessage={profilesQuery.error.message}
+					isRetrying={profilesQuery.isRefetching}
+					onRetry={() => {
+						profilesQuery.refetch().catch((error) => {
+							console.error("Failed to refresh account profiles.", error);
+						});
+					}}
+				/>
+			</AppSpaceEntryShell>
+		);
+	}
+
+	const selectedProfile = findActiveProfileById(profilesQuery.data ?? [], {
+		profileId: input.profileId,
+	});
+	// The link carries a profile that is not in this account (e.g. a Space link
+	// shared by someone else). Don't strand the user on an in-app interstitial —
+	// redirect to the public Space viewer, the single canonical entry where they
+	// can read the conversation (or unlock it) and join in place as their own
+	// human profile. If they are actually a member, the viewer reconciles and
+	// sends them back into the app with their own profile.
+	if (!selectedProfile) {
+		return <RedirectToPublicSpace spaceId={input.spaceId} />;
+	}
+	if (selectedProfile.profileKind !== "human") {
+		const rememberedHumanProfileId =
+			readLastUsedHumanProfileId(storageScope) ?? state.selectedHumanProfileId;
+		const humanProfile = resolveAppSpacesProfile({
+			profiles: profilesQuery.data ?? [],
+			selectedHumanProfileId: rememberedHumanProfileId,
+		});
+		if (humanProfile) {
+			return (
+				<RedirectToAppSpaceProfile
+					focusInteractionId={input.focusInteractionId}
+					focusSignalId={input.focusSignalId}
+					focusThreadRootSignalId={input.focusThreadRootSignalId}
+					initialSidebarStates={input.initialSidebarStates}
+					navigationSurface={input.navigationSurface}
+					orgSlug={input.orgSlug}
+					profileId={humanProfile.openMeldProfileId}
+					spaceId={input.spaceId}
+				/>
+			);
+		}
+		return (
+			<AppSpaceEntryShell
+				initialSidebarStates={input.initialSidebarStates}
+				navigationSurface={input.navigationSurface}
+				spaceId={input.spaceId}
+			>
+				<SpaceProfileRequiredState recommendedHumanProfile={null} />
+			</AppSpaceEntryShell>
+		);
+	}
+
+	if (input.navigationSurface === "directMessages") {
+		return (
+			<ValidatedDirectMessageEntryContent
+				accountProfiles={profilesQuery.data ?? []}
+				focusInteractionId={input.focusInteractionId}
+				focusSignalId={input.focusSignalId}
+				focusThreadRootSignalId={input.focusThreadRootSignalId}
+				initialSidebarStates={input.initialSidebarStates}
+				isPersonalContext={currentOrganization.isPersonal === true}
+				orgSlug={input.orgSlug}
+				profileId={selectedProfile.openMeldProfileId}
+				spaceId={input.spaceId}
+			/>
+		);
+	}
+
+	const currentSpaceIsCenterAgentDirectMessage =
+		centerAgentDirectMessageProjectionQuery.data?.projection?.spaceId ===
+		input.spaceId;
+	const conversation = (
+		<SpaceLanding
+			accountProfiles={profilesQuery.data ?? []}
+			initialFocusInteractionId={input.focusInteractionId}
+			initialFocusSignalId={input.focusSignalId}
+			initialFocusThreadRootSignalId={input.focusThreadRootSignalId}
+			isPersonalContext={currentOrganization.isPersonal === true}
+			key={`${input.spaceId}:${selectedProfile.openMeldProfileId}`}
+			orgSlug={input.orgSlug}
+			profileId={selectedProfile.openMeldProfileId}
+			spaceId={input.spaceId}
+		/>
+	);
+
+	return (
+		<ValidatedSpaceNavigationContent
+			focusInteractionId={input.focusInteractionId}
+			focusSignalId={input.focusSignalId}
+			focusThreadRootSignalId={input.focusThreadRootSignalId}
+			initialSidebarStates={input.initialSidebarStates}
+			orgSlug={input.orgSlug}
+			profileId={selectedProfile.openMeldProfileId}
+			spaceId={input.spaceId}
+		>
+			<AppSpaceShell
+				currentProfileId={selectedProfile.openMeldProfileId}
+				currentSpaceId={input.spaceId}
+				initialOuterSidebarState={
+					input.initialSidebarStates?.outer ?? APP_SIDEBAR_DEFAULT_STATES.outer
+				}
+				initialSidebarState={
+					input.initialSidebarStates?.inner ?? APP_SIDEBAR_DEFAULT_STATES.inner
+				}
+				showSpacesSidebar={!currentSpaceIsCenterAgentDirectMessage}
+			>
+				{conversation}
+			</AppSpaceShell>
+		</ValidatedSpaceNavigationContent>
+	);
+}
+
+function ValidatedSpaceNavigationContent(
+	input: {
+		children: ReactNode;
+		initialSidebarStates?: AppSidebarPersistedStates;
+		orgSlug: string;
+		profileId: string;
+		spaceId: string;
+	} & AppSpaceFocusSearch
+) {
+	const statusQuery = useQuery(
+		spaceStatusQueryOptions({
+			enabled: true,
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+		})
+	);
+	const displaySnapshotQuery = useQuery(
+		spaceConversationDisplaySnapshotQueryOptions({
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+		})
+	);
+	if (
+		!statusQuery.data &&
+		statusQuery.isPending &&
+		!displaySnapshotQuery.data
+	) {
+		return (
+			<AppSpaceEntryShell
+				initialSidebarStates={input.initialSidebarStates}
+				spaceId={input.spaceId}
+				verifiedProfileId={input.profileId}
+			>
+				<SpaceConversationCheckState />
+			</AppSpaceEntryShell>
+		);
+	}
+
+	if (
+		statusQuery.data &&
+		isDirectMessageSpace(toDirectMessageState(statusQuery.data))
+	) {
+		return (
+			<RedirectToCanonicalDirectMessage
+				focusInteractionId={input.focusInteractionId}
+				focusSignalId={input.focusSignalId}
+				focusThreadRootSignalId={input.focusThreadRootSignalId}
+				orgSlug={input.orgSlug}
+				profileId={input.profileId}
+				spaceId={input.spaceId}
+			/>
+		);
+	}
+
+	return input.children;
+}
+
+function ValidatedDirectMessageEntryContent(
+	input: {
+		accountProfiles: ComponentProps<typeof SpaceLanding>["accountProfiles"];
+		initialSidebarStates?: AppSidebarPersistedStates;
+		isPersonalContext: boolean;
+		orgSlug: string;
+		profileId: string;
+		spaceId: string;
+	} & AppSpaceFocusSearch
+) {
+	const statusQuery = useQuery(
+		spaceStatusQueryOptions({
+			enabled: true,
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+		})
+	);
+	const displaySnapshotQuery = useQuery(
+		spaceConversationDisplaySnapshotQueryOptions({
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+		})
+	);
+	if (
+		!statusQuery.data &&
+		statusQuery.isPending &&
+		!displaySnapshotQuery.data
+	) {
+		return (
+			<AppSpaceEntryShell
+				initialSidebarStates={input.initialSidebarStates}
+				navigationSurface="directMessages"
+				spaceId={input.spaceId}
+				verifiedProfileId={input.profileId}
+			>
+				<SpaceConversationCheckState />
+			</AppSpaceEntryShell>
+		);
+	}
+	if (!statusQuery.data && statusQuery.isError && !displaySnapshotQuery.data) {
+		return (
+			<AppSpaceEntryShell
+				initialSidebarStates={input.initialSidebarStates}
+				navigationSurface="directMessages"
+				spaceId={input.spaceId}
+				verifiedProfileId={input.profileId}
+			>
+				<DirectMessagesLoadFailureState
+					isRetrying={statusQuery.isRefetching}
+					onRetry={() => {
+						statusQuery.refetch().catch((error: unknown) => {
+							console.error("Failed to refresh Direct Messages.", error);
+						});
+					}}
+				/>
+			</AppSpaceEntryShell>
+		);
+	}
+	if (
+		statusQuery.data &&
+		!isDirectMessageSpace(toDirectMessageState(statusQuery.data))
+	) {
+		return (
+			<RedirectToCanonicalSpace
+				focusInteractionId={input.focusInteractionId}
+				focusSignalId={input.focusSignalId}
+				focusThreadRootSignalId={input.focusThreadRootSignalId}
+				orgSlug={input.orgSlug}
+				profileId={input.profileId}
+				spaceId={input.spaceId}
+			/>
+		);
+	}
+
+	return (
+		<AppDirectMessageShell
+			currentProfileId={input.profileId}
+			currentSpaceId={input.spaceId}
+			initialOuterSidebarState={
+				input.initialSidebarStates?.outer ?? APP_SIDEBAR_DEFAULT_STATES.outer
+			}
+			initialSidebarState={
+				input.initialSidebarStates?.inner ?? APP_SIDEBAR_DEFAULT_STATES.inner
+			}
+		>
+			<SpaceLanding
+				accountProfiles={input.accountProfiles}
+				initialFocusInteractionId={input.focusInteractionId}
+				initialFocusSignalId={input.focusSignalId}
+				initialFocusThreadRootSignalId={input.focusThreadRootSignalId}
+				isPersonalContext={input.isPersonalContext}
+				key={`${input.spaceId}:${input.profileId}`}
+				orgSlug={input.orgSlug}
+				profileId={input.profileId}
+				spaceId={input.spaceId}
+			/>
+		</AppDirectMessageShell>
+	);
+}
+
+function toDirectMessageState(status: {
+	directMessageConvertedAt?: string;
+	spacePurpose?: string;
+	members: { totalCount: number };
+}) {
+	return {
+		activeMemberCount: status.members.totalCount,
+		directMessageConvertedAt: status.directMessageConvertedAt,
+		purpose: status.spacePurpose,
+	};
+}
+
+function SpaceProfileCheckState() {
+	return (
+		<output
+			aria-label="Checking profile"
+			className="flex w-full max-w-sm flex-col items-center gap-4 text-center"
+		>
+			<Bars aria-hidden="true" className="h-7 w-10 text-muted-foreground" />
+			<div className="space-y-2">
+				<h1 className="font-medium text-base text-foreground">
+					Checking your profile
+				</h1>
+				<p className="text-muted-foreground text-sm">
+					OpenMeld is confirming which profile can open this Space.
+				</p>
+			</div>
+		</output>
+	);
+}
+
+function SpaceConversationCheckState() {
+	return (
+		<output
+			aria-label="Opening conversation"
+			className="flex w-full max-w-sm flex-col items-center gap-4 text-center"
+		>
+			<Bars aria-hidden="true" className="h-7 w-10 text-muted-foreground" />
+			<div className="space-y-2">
+				<h1 className="font-medium text-base text-foreground">
+					Opening this conversation
+				</h1>
+				<p className="text-muted-foreground text-sm">
+					OpenMeld is checking access and loading the latest messages.
+				</p>
+			</div>
+		</output>
+	);
+}
+
+function AppSpaceEntryShell(input: {
+	children: ReactNode;
+	spaceId: string;
+	verifiedProfileId?: string;
+	initialSidebarStates?: AppSidebarPersistedStates;
+	navigationSurface?: AppSpaceNavigationSurface;
+}) {
+	const content = (
+		<AppMainContent>
+			<div className="flex h-full items-center justify-center px-6 py-10">
+				{input.children}
+			</div>
+		</AppMainContent>
+	);
+	const outerState =
+		input.initialSidebarStates?.outer ?? APP_SIDEBAR_DEFAULT_STATES.outer;
+	const innerState =
+		input.initialSidebarStates?.inner ?? APP_SIDEBAR_DEFAULT_STATES.inner;
+
+	if (input.verifiedProfileId) {
+		if (input.navigationSurface === "directMessages") {
+			return (
+				<AppDirectMessageShell
+					currentProfileId={input.verifiedProfileId}
+					currentSpaceId={input.spaceId}
+					initialOuterSidebarState={outerState}
+					initialSidebarState={innerState}
+				>
+					{content}
+				</AppDirectMessageShell>
+			);
+		}
+		return (
+			<AppSpaceShell
+				currentProfileId={input.verifiedProfileId}
+				currentSpaceId={input.spaceId}
+				initialOuterSidebarState={outerState}
+				initialSidebarState={innerState}
+			>
+				{content}
+			</AppSpaceShell>
+		);
+	}
+
+	return (
+		<SpaceWindowShell
+			initialOuterSidebarState={outerState}
+			initialSidebarState={innerState}
+			sidebarPreferenceKey="spaces"
+		>
+			{content}
+		</SpaceWindowShell>
+	);
+}
+
+function SpaceProfileLoadFailureState(input: {
+	errorMessage: string;
+	isRetrying: boolean;
+	onRetry: () => void;
+}) {
+	return (
+		<Card className="w-full max-w-md border-destructive bg-destructive/10">
+			<CardHeader className="flex flex-col gap-2">
+				<p className="font-medium text-muted-foreground text-xs">
+					OpenMeld Space
+				</p>
+				<h1 className="font-medium text-base">
+					Couldn&apos;t Load Your Profile
+				</h1>
+			</CardHeader>
+			<CardContent className="flex flex-col gap-4">
+				<p className="max-w-prose text-muted-foreground text-sm">
+					{input.errorMessage}
+				</p>
+				<Button
+					disabled={input.isRetrying}
+					onClick={input.onRetry}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					Retry
+				</Button>
+			</CardContent>
+		</Card>
+	);
+}
+
+function RedirectToPublicSpace(input: { spaceId: string }) {
+	const navigate = useNavigate();
+
+	useEffect(() => {
+		navigate({
+			params: { spaceId: input.spaceId },
+			replace: true,
+			to: "/spaces/$spaceId",
+		}).catch((error: unknown) => {
+			console.error("OpenMeld could not open the public Space view.", error);
+		});
+	}, [navigate, input.spaceId]);
+
+	return (
+		<AppSpaceEntryShell spaceId={input.spaceId}>
+			<SpaceProfileCheckState />
+		</AppSpaceEntryShell>
+	);
+}
+
+function RedirectToAppSpaceProfile(
+	input: {
+		profileId: string;
+		spaceId: string;
+		orgSlug: string;
+		initialSidebarStates?: AppSidebarPersistedStates;
+		navigationSurface: AppSpaceNavigationSurface;
+	} & AppSpaceFocusSearch
+) {
+	const navigate = useNavigate();
+
+	useEffect(() => {
+		navigate({
+			params: { orgSlug: input.orgSlug, spaceId: input.spaceId },
+			replace: true,
+			search: buildAppSpaceRouteSearch({
+				focusInteractionId: input.focusInteractionId,
+				focusSignalId: input.focusSignalId,
+				focusThreadRootSignalId: input.focusThreadRootSignalId,
+				profileId: input.profileId,
+			}),
+			to: resolveAppSpaceEntryRouteTo(input.navigationSurface),
+		}).catch((error: unknown) => {
+			console.error(
+				"OpenMeld could not open the Space with your profile.",
+				error
+			);
+		});
+	}, [
+		navigate,
+		input.focusInteractionId,
+		input.focusSignalId,
+		input.focusThreadRootSignalId,
+		input.profileId,
+		input.orgSlug,
+		input.spaceId,
+		input.navigationSurface,
+	]);
+
+	return (
+		<AppSpaceEntryShell
+			initialSidebarStates={input.initialSidebarStates}
+			navigationSurface={input.navigationSurface}
+			spaceId={input.spaceId}
+			verifiedProfileId={input.profileId}
+		>
+			<SpaceProfileCheckState />
+		</AppSpaceEntryShell>
+	);
+}
+
+function RedirectToCanonicalSpace(
+	input: {
+		orgSlug: string;
+		profileId: string;
+		spaceId: string;
+	} & AppSpaceFocusSearch
+) {
+	const navigate = useNavigate();
+
+	useEffect(() => {
+		navigate({
+			replace: true,
+			to: buildOrganizationSpacePath({
+				orgSlug: input.orgSlug,
+				search: buildAppSpaceRouteSearch({
+					focusInteractionId: input.focusInteractionId,
+					focusSignalId: input.focusSignalId,
+					focusThreadRootSignalId: input.focusThreadRootSignalId,
+					profileId: input.profileId,
+				}),
+				spaceId: input.spaceId,
+			}),
+		}).catch((error: unknown) => {
+			console.error("Failed to open this conversation as a Space.", error);
+		});
+	}, [
+		navigate,
+		input.focusInteractionId,
+		input.focusSignalId,
+		input.focusThreadRootSignalId,
+		input.orgSlug,
+		input.profileId,
+		input.spaceId,
+	]);
+
+	return (
+		<AppSpaceEntryShell spaceId={input.spaceId}>
+			<SpaceProfileCheckState />
+		</AppSpaceEntryShell>
+	);
+}
+
+function RedirectToCanonicalDirectMessage(
+	input: {
+		orgSlug: string;
+		profileId: string;
+		spaceId: string;
+	} & AppSpaceFocusSearch
+) {
+	const navigate = useNavigate();
+
+	useEffect(() => {
+		navigate({
+			replace: true,
+			to: buildOrganizationDirectMessagePath({
+				orgSlug: input.orgSlug,
+				search: buildAppSpaceRouteSearch({
+					focusInteractionId: input.focusInteractionId,
+					focusSignalId: input.focusSignalId,
+					focusThreadRootSignalId: input.focusThreadRootSignalId,
+					profileId: input.profileId,
+				}),
+				spaceId: input.spaceId,
+			}),
+		}).catch((error: unknown) => {
+			console.error(
+				"Failed to open this conversation as a Direct Message.",
+				error
+			);
+		});
+	}, [
+		navigate,
+		input.focusInteractionId,
+		input.focusSignalId,
+		input.focusThreadRootSignalId,
+		input.orgSlug,
+		input.profileId,
+		input.spaceId,
+	]);
+
+	return (
+		<AppSpaceEntryShell spaceId={input.spaceId}>
+			<SpaceProfileCheckState />
+		</AppSpaceEntryShell>
+	);
+}
+
+function DirectMessagesLoadFailureState(input: {
+	isRetrying: boolean;
+	onRetry: () => void;
+}) {
+	return (
+		<Card className="w-full max-w-md border-destructive bg-destructive/10">
+			<CardHeader className="flex flex-col gap-2">
+				<p className="font-medium text-muted-foreground text-xs">
+					Direct Messages
+				</p>
+				<h1 className="font-medium text-base">
+					Couldn&apos;t Verify This Conversation
+				</h1>
+			</CardHeader>
+			<CardContent className="flex flex-col gap-4">
+				<p className="max-w-prose text-muted-foreground text-sm">
+					OpenMeld could not confirm that this is still a Direct Message.
+				</p>
+				<Button
+					disabled={input.isRetrying}
+					onClick={input.onRetry}
+					size="sm"
+					type="button"
+					variant="outline"
+				>
+					Retry
+				</Button>
+			</CardContent>
+		</Card>
+	);
+}
+
+function resolveAppSpaceEntryRouteTo(
+	navigationSurface: AppSpaceNavigationSurface
+): "/o/$orgSlug/direct-messages/$spaceId" | "/o/$orgSlug/spaces/$spaceId" {
+	return navigationSurface === "directMessages"
+		? "/o/$orgSlug/direct-messages/$spaceId"
+		: "/o/$orgSlug/spaces/$spaceId";
+}
+
+function buildAppSpaceRouteSearch(
+	input: AppSpaceFocusSearch & { profileId: string }
+) {
+	return {
+		focusInteractionId: input.focusInteractionId,
+		focusSignalId: input.focusSignalId,
+		focusThreadRootSignalId: input.focusThreadRootSignalId,
+		profileId: input.profileId,
+	};
+}

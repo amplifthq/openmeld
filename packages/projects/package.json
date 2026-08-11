@@ -1,0 +1,32 @@
+{
+  "name": "@openmeld/projects",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "OpenMeld - Shared Project domain primitives",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsdown --watch --no-clean",
+    "build": "tsdown --no-clean",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json",
+    "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck",
+    "fix": "biome check --write --no-errors-on-unmatched ./"
+  },
+  "devDependencies": {
+    "oxc-resolver": "^11.0.0",
+    "tsdown": "^0.20.3",
+    "typescript": "^5.9.3",
+    "vitest": "~3.2.0"
+  }
+}

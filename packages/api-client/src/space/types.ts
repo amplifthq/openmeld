@@ -1,0 +1,256 @@
+import type { SignalEnvelope } from "@openmeld/protocol";
+import type {
+  AddCenterAgentToSpaceBody,
+  AddOrganizationDirectoryProfilesToSpaceBody,
+  CatchupResponse,
+  CreateSpaceBody,
+  CreateSpaceDiagnosticReportBody as CreateSpaceDiagnosticReportBodyFromSchemas,
+  CreateSpaceDiagnosticReportResponse as CreateSpaceDiagnosticReportResponseFromSchemas,
+  CreateSpaceResponse,
+  CreateSpaceThreadBody,
+  CreateSpaceThreadResponse,
+  DeleteSpaceResponse,
+  ExecuteExecutionRecoveryBody,
+  ExecuteExecutionRecoveryResponse,
+  GetActiveSpaceWakeProgressResponse,
+  GetSpaceMessageDetailsResponse,
+  GetSpaceStatusResponse,
+  GetSpaceThreadResponse,
+  GetSpaceUpdatesResponse,
+  GetSpaceWakeProgressResponse,
+  GetSpaceWakeTraceWaterfallResponse,
+  InspectExecutionRecoveryResponse,
+  LeaveSpaceResponse,
+  ListSpaceThreadEventsResponse,
+  ListSpaceThreadSignalsResponse,
+  ListSpaceThreadsResponse,
+  OpenMeldRequestContext,
+  PatchSpaceMetaBody,
+  PostNormalMessageBody,
+  PostNormalMessageResponse,
+  PostSpaceMembersResponse,
+  PostSpaceThreadSignalBody,
+  PostSpaceThreadSignalResponse,
+  PostSpaceWakeStopBody,
+  PostSpaceWakeStopResponse,
+  RemoveSpaceMembersBody,
+  RemoveSpaceMembersResponse,
+  RespondToSpaceAgentInteractionBody,
+  RespondToSpaceAgentInteractionResponse,
+  SetSpaceAccessModeBody,
+  SpaceAccessModeState,
+  SpaceAttachmentDescriptor,
+  SpaceBootstrapResponse,
+  SpaceIdentityDirectory,
+  SpaceMemberDirectory,
+  SpaceMembersSnapshot,
+  SpaceMeta,
+  SpaceViewerMembershipResponse,
+} from "@openmeld/schemas/types";
+import type { OpenMeldApiClientFoundation } from "../client";
+import type { UploadSpaceAttachmentInput } from "./attachments";
+
+export type {
+  CreateSpaceDiagnosticReportBody,
+  CreateSpaceDiagnosticReportResponse,
+} from "@openmeld/schemas/types";
+
+export type SpaceHistorySignalKind = "text" | "status" | "system_notice";
+
+export type SpaceSignalsReadQuery = {
+  afterTs?: number;
+  cursor?: string;
+  recent?: boolean;
+  limit?: number;
+  afterSignalId?: string;
+  aroundSignalId?: string;
+  beforeCount?: number;
+  afterCount?: number;
+  fromProfileIds?: readonly string[];
+  kinds?: readonly SpaceHistorySignalKind[];
+};
+
+export type SpaceRequestInput = {
+  spaceId: string;
+  requestContext?: OpenMeldRequestContext;
+  spacePassword?: string;
+  signal?: AbortSignal;
+  timeoutMs?: number;
+};
+
+export type CreateSpaceInput = {
+  requestContext?: OpenMeldRequestContext;
+  name?: CreateSpaceBody["name"];
+  purpose?: CreateSpaceBody["purpose"];
+  guide?: CreateSpaceBody["guide"];
+  visibility?: CreateSpaceBody["visibility"];
+  accessMode?: CreateSpaceBody["accessMode"];
+  password?: CreateSpaceBody["password"];
+};
+
+export type AddSpaceMembersInput = SpaceRequestInput & {
+  memberProfileIds: PostSpaceMembersResponse["items"][number]["profileId"][];
+};
+
+export type AddCenterAgentToSpaceInput = SpaceRequestInput &
+  AddCenterAgentToSpaceBody;
+
+export type AddOrganizationDirectoryProfilesToSpaceInput = SpaceRequestInput &
+  AddOrganizationDirectoryProfilesToSpaceBody;
+
+export type RemoveSpaceMembersInput = SpaceRequestInput & {
+  memberProfileIds: RemoveSpaceMembersBody["memberProfileIds"];
+};
+
+export type SetSpaceAccessModeInput = SpaceRequestInput &
+  SetSpaceAccessModeBody;
+
+export type UpdateSpaceMetaInput = SpaceRequestInput & PatchSpaceMetaBody;
+
+export type SpaceApi = {
+  createSpace: (input: CreateSpaceInput) => Promise<CreateSpaceResponse>;
+  deleteSpace: (input: SpaceRequestInput) => Promise<DeleteSpaceResponse>;
+  joinSpace: (input: SpaceRequestInput) => Promise<PostSpaceMembersResponse>;
+  addMembers: (
+    input: AddSpaceMembersInput
+  ) => Promise<PostSpaceMembersResponse>;
+  /** @deprecated Use addOrganizationDirectoryProfilesToSpace instead. */
+  addCenterAgentToSpace: (
+    input: AddCenterAgentToSpaceInput
+  ) => Promise<PostSpaceMembersResponse>;
+  addOrganizationDirectoryProfilesToSpace: (
+    input: AddOrganizationDirectoryProfilesToSpaceInput
+  ) => Promise<PostSpaceMembersResponse>;
+  uploadAttachment: (
+    input: UploadSpaceAttachmentInput
+  ) => Promise<SpaceAttachmentDescriptor>;
+  removeMembers: (
+    input: RemoveSpaceMembersInput
+  ) => Promise<RemoveSpaceMembersResponse>;
+  setAccessMode: (
+    input: SetSpaceAccessModeInput
+  ) => Promise<SpaceAccessModeState>;
+  updateMeta: (input: UpdateSpaceMetaInput) => Promise<SpaceMeta>;
+  leaveSpace: (input: SpaceRequestInput) => Promise<LeaveSpaceResponse>;
+  getBootstrap: (
+    input: SpaceRequestInput & {
+      historyQuery?: SpaceSignalsReadQuery;
+      includeAgentStreamPresence?: boolean;
+    }
+  ) => Promise<SpaceBootstrapResponse>;
+  getStatus: (input: SpaceRequestInput) => Promise<GetSpaceStatusResponse>;
+  getMembersSnapshot: (
+    input: SpaceRequestInput
+  ) => Promise<SpaceMembersSnapshot>;
+  getMemberDirectory: (
+    input: SpaceRequestInput
+  ) => Promise<SpaceMemberDirectory>;
+  getIdentityDirectory: (
+    input: SpaceRequestInput
+  ) => Promise<SpaceIdentityDirectory>;
+  getViewerMembership: (
+    input: SpaceRequestInput
+  ) => Promise<SpaceViewerMembershipResponse>;
+  listSignals: (
+    input: SpaceRequestInput & { query?: SpaceSignalsReadQuery }
+  ) => Promise<CatchupResponse>;
+  listSignalEnvelopes: (
+    input: SpaceRequestInput & {
+      query?: SpaceSignalsReadQuery;
+    }
+  ) => Promise<{
+    envelopes: readonly SignalEnvelope[];
+    nextCursor: string | null;
+  }>;
+  getUpdates: (
+    input: SpaceRequestInput & {
+      afterSignalId: string;
+      limit: number;
+    }
+  ) => Promise<GetSpaceUpdatesResponse>;
+  getActiveWakeProgress: (
+    input: SpaceRequestInput & {
+      includeTiming?: boolean;
+      includeWakeStopEligibility?: boolean;
+      targetProfileId?: string;
+    }
+  ) => Promise<GetActiveSpaceWakeProgressResponse>;
+  postWakeStop: (
+    input: SpaceRequestInput & {
+      body: PostSpaceWakeStopBody;
+    }
+  ) => Promise<PostSpaceWakeStopResponse>;
+  inspectExecutionRecovery: (
+    input: SpaceRequestInput & { dispatchId: string }
+  ) => Promise<InspectExecutionRecoveryResponse>;
+  executeExecutionRecovery: (
+    input: SpaceRequestInput & {
+      body: ExecuteExecutionRecoveryBody;
+      dispatchId: string;
+    }
+  ) => Promise<ExecuteExecutionRecoveryResponse>;
+  respondToAgentInteraction: (
+    input: SpaceRequestInput & {
+      body: RespondToSpaceAgentInteractionBody;
+    }
+  ) => Promise<RespondToSpaceAgentInteractionResponse>;
+  getWakeProgress: (
+    input: SpaceRequestInput & {
+      clientMessageId: string;
+      includeTiming?: boolean;
+      includeWakeStopEligibility?: boolean;
+      targetProfileId?: string;
+    }
+  ) => Promise<GetSpaceWakeProgressResponse>;
+  getWakeTraceWaterfall: (
+    input: SpaceRequestInput & {
+      clientMessageId?: string | null;
+      sourceSignalId?: string | null;
+      targetProfileId?: string;
+    }
+  ) => Promise<GetSpaceWakeTraceWaterfallResponse>;
+  getMessageDetails: (
+    input: SpaceRequestInput & {
+      signalId: string;
+    }
+  ) => Promise<GetSpaceMessageDetailsResponse>;
+  createDiagnosticReport: (
+    input: SpaceRequestInput & {
+      body: CreateSpaceDiagnosticReportBodyFromSchemas;
+    }
+  ) => Promise<CreateSpaceDiagnosticReportResponseFromSchemas>;
+  postNormalMessage: (
+    input: SpaceRequestInput & {
+      text: PostNormalMessageBody["text"];
+      attachments?: PostNormalMessageBody["attachments"];
+      messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
+      replyTo?: PostNormalMessageBody["replyTo"];
+      meta?: PostNormalMessageBody["meta"];
+    }
+  ) => Promise<PostNormalMessageResponse>;
+  createThread: (
+    input: SpaceRequestInput & CreateSpaceThreadBody
+  ) => Promise<CreateSpaceThreadResponse>;
+  listThreads: (input: SpaceRequestInput) => Promise<ListSpaceThreadsResponse>;
+  getThread: (
+    input: SpaceRequestInput & { threadId: string }
+  ) => Promise<GetSpaceThreadResponse>;
+  listThreadEvents: (
+    input: SpaceRequestInput & { threadId: string }
+  ) => Promise<ListSpaceThreadEventsResponse>;
+  listThreadSignals: (
+    input: SpaceRequestInput & {
+      afterSignalId?: string;
+      limit?: number;
+      threadId: string;
+    }
+  ) => Promise<ListSpaceThreadSignalsResponse>;
+  postThreadSignal: (
+    input: SpaceRequestInput & {
+      threadId: string;
+      body: PostSpaceThreadSignalBody;
+    }
+  ) => Promise<PostSpaceThreadSignalResponse>;
+};
+
+export type CreateSpaceApi = (client: OpenMeldApiClientFoundation) => SpaceApi;

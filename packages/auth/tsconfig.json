@@ -1,0 +1,10 @@
+{
+  "extends": "../../tooling/typescript-config/base.jsonc",
+  "compilerOptions": {
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "types": ["node", "@cloudflare/workers-types"],
+    "lib": ["ESNext", "WebWorker"]
+  },
+  "include": ["src", "tests"]
+}

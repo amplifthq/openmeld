@@ -1,0 +1,20 @@
+CREATE TABLE `openMeldRemoteAgent_slack_thread_context_cursors` (
+	`organization_id` text NOT NULL,
+	`slack_team_id` text NOT NULL,
+	`slack_channel_id` text NOT NULL,
+	`slack_thread_ts` text NOT NULL,
+	`connection_created_at_ms` integer NOT NULL,
+	`synced_through_ts` text NOT NULL,
+	`synced_through_epoch_micros` integer NOT NULL,
+	`created_at_ms` integer NOT NULL,
+	`updated_at_ms` integer NOT NULL,
+	PRIMARY KEY(`organization_id`, `slack_team_id`, `slack_channel_id`, `slack_thread_ts`, `connection_created_at_ms`),
+	CONSTRAINT "openMeldRemoteAgent_slack_thread_context_org_non_empty_check" CHECK(length(trim("organization_id")) > 0),
+	CONSTRAINT "openMeldRemoteAgent_slack_thread_context_team_non_empty_check" CHECK(length(trim("slack_team_id")) > 0),
+	CONSTRAINT "openMeldRemoteAgent_slack_thread_context_channel_non_empty_check" CHECK(length(trim("slack_channel_id")) > 0),
+	CONSTRAINT "openMeldRemoteAgent_slack_thread_context_thread_non_empty_check" CHECK(length(trim("slack_thread_ts")) > 0),
+	CONSTRAINT "openMeldRemoteAgent_slack_thread_context_connection_created_nonnegative_check" CHECK("connection_created_at_ms" >= 0),
+	CONSTRAINT "openMeldRemoteAgent_slack_thread_context_synced_ts_non_empty_check" CHECK(length(trim("synced_through_ts")) > 0),
+	CONSTRAINT "openMeldRemoteAgent_slack_thread_context_synced_micros_positive_check" CHECK("synced_through_epoch_micros" > 0),
+	CONSTRAINT "openMeldRemoteAgent_slack_thread_context_updated_at_valid_check" CHECK("updated_at_ms" >= "created_at_ms")
+);

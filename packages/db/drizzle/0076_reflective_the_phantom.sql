@@ -1,0 +1,1 @@
+DROP INDEX `organization_skill_releases_skill_digest_unique`;

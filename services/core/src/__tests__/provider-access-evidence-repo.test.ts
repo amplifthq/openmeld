@@ -1,0 +1,332 @@
+import { describe, expect, it } from "vitest";
+import {
+  clearProviderAccessFailureEvidenceForExecutionSuccess,
+  readFreshProviderAccessEvidenceForBinding,
+  writeAcceptedProviderAccessFailureEvidence,
+} from "../agent-execution/infrastructure/d1/provider-access-evidence-repo";
+
+const HOUR_MS = 60 * 60 * 1000;
+
+describe("provider access evidence repo", () => {
+  it("returns only fresh uncleared Claude Code provider access evidence", async () => {
+    const db = createProviderAccessEvidenceDb();
+    const executionIdentity = {
+      bindingId: "binding-1",
+      agentControllerRef: "builtin:claude-code",
+      openMeldServiceRuntimeId: "runtime-1",
+    };
+
+    await expect(
+      writeAcceptedProviderAccessFailureEvidence({
+        agentProfileId: "agt-1",
+        db,
+        evidence: {
+          observedAtMs: 900,
+          provider: "claude-code",
+          reasonCode: "provider_account.subscription_access_unavailable",
+          source: "wake_failure",
+        },
+        executionIdentity,
+        observedAtMs: 1000,
+        sourceAttemptId: "attempt-1",
+        sourceDispatchId: "dispatch-1",
+      })
+    ).resolves.toBe("written");
+
+    await expect(
+      readFreshProviderAccessEvidenceForBinding({
+        agentProfileId: "agt-1",
+        bindingId: "binding-1",
+        agentControllerRef: "builtin:claude-code",
+        db,
+        nowMs: 1000 + HOUR_MS - 1,
+        openMeldServiceRuntimeId: "runtime-1",
+      })
+    ).resolves.toMatchObject({
+      expiresAtMs: 1000 + HOUR_MS,
+      observedAtMs: 1000,
+      provider: "claude-code",
+      reasonCode: "provider_account.subscription_access_unavailable",
+      source: "wake_failure",
+    });
+
+    await expect(
+      readFreshProviderAccessEvidenceForBinding({
+        agentProfileId: "agt-1",
+        bindingId: "binding-1",
+        agentControllerRef: "builtin:claude-code",
+        db,
+        nowMs: 1000 + HOUR_MS,
+        openMeldServiceRuntimeId: "runtime-1",
+      })
+    ).resolves.toBeNull();
+
+    await clearProviderAccessFailureEvidenceForExecutionSuccess({
+      agentProfileId: "agt-1",
+      clearedAtMs: 2000,
+      db,
+      executionIdentity,
+      sourceDispatchId: "dispatch-success",
+    });
+
+    await expect(
+      readFreshProviderAccessEvidenceForBinding({
+        agentProfileId: "agt-1",
+        bindingId: "binding-1",
+        agentControllerRef: "builtin:claude-code",
+        db,
+        nowMs: 2001,
+        openMeldServiceRuntimeId: "runtime-1",
+      })
+    ).resolves.toBeNull();
+  });
+
+  it.each([
+    ["codex", "builtin:codex"],
+    ["opencode", "builtin:opencode"],
+    ["openclaw", "builtin:openclaw"],
+  ] as const)("writes and reads fresh %s provider access evidence", async (provider, agentControllerRef) => {
+    const db = createProviderAccessEvidenceDb();
+    const executionIdentity = {
+      bindingId: "binding-1",
+      agentControllerRef,
+      openMeldServiceRuntimeId: "runtime-1",
+    };
+
+    await expect(
+      writeAcceptedProviderAccessFailureEvidence({
+        agentProfileId: "agt-1",
+        db,
+        evidence: {
+          observedAtMs: 1000,
+          provider,
+          reasonCode: "provider_account.organization_access_disabled",
+          source: "wake_failure",
+        },
+        executionIdentity,
+        observedAtMs: 1000,
+        sourceAttemptId: "attempt-1",
+        sourceDispatchId: "dispatch-1",
+      })
+    ).resolves.toBe("written");
+
+    await expect(
+      readFreshProviderAccessEvidenceForBinding({
+        agentProfileId: "agt-1",
+        bindingId: "binding-1",
+        agentControllerRef,
+        db,
+        nowMs: 1001,
+        openMeldServiceRuntimeId: "runtime-1",
+      })
+    ).resolves.toMatchObject({
+      provider,
+      reasonCode: "provider_account.organization_access_disabled",
+      source: "wake_failure",
+    });
+
+    await expect(
+      clearProviderAccessFailureEvidenceForExecutionSuccess({
+        agentProfileId: "agt-1",
+        clearedAtMs: 1002,
+        db,
+        executionIdentity,
+        sourceDispatchId: "dispatch-success",
+      })
+    ).resolves.toBe("cleared");
+
+    await expect(
+      readFreshProviderAccessEvidenceForBinding({
+        agentProfileId: "agt-1",
+        bindingId: "binding-1",
+        agentControllerRef,
+        db,
+        nowMs: 1003,
+        openMeldServiceRuntimeId: "runtime-1",
+      })
+    ).resolves.toBeNull();
+  });
+
+  it("rejects evidence whose provider does not match the execution controller", async () => {
+    const db = createProviderAccessEvidenceDb();
+
+    await expect(
+      writeAcceptedProviderAccessFailureEvidence({
+        agentProfileId: "agt-1",
+        db,
+        evidence: {
+          observedAtMs: 1000,
+          provider: "codex",
+          reasonCode: "provider_account.organization_access_disabled",
+          source: "wake_failure",
+        },
+        executionIdentity: {
+          bindingId: "binding-1",
+          agentControllerRef: "builtin:opencode",
+          openMeldServiceRuntimeId: "runtime-1",
+        },
+        observedAtMs: 1000,
+        sourceAttemptId: "attempt-1",
+        sourceDispatchId: "dispatch-1",
+      })
+    ).resolves.toBe("not_applicable");
+  });
+});
+
+type ProviderAccessEvidenceRow = {
+  agentProfileId: string;
+  bindingId: string;
+  agentControllerRef: string;
+  clearedAtMs: number | null;
+  clearedByDispatchId: string | null;
+  createdAtMs: number;
+  evidenceId: string;
+  expiresAtMs: number;
+  observedAtMs: number;
+  provider: string;
+  reasonCode: string;
+  openMeldServiceRuntimeId: string;
+  source: string;
+  sourceAttemptId: string;
+  sourceDispatchId: string;
+  updatedAtMs: number;
+};
+
+function createProviderAccessEvidenceDb(): D1Database {
+  const rowsByKey = new Map<string, ProviderAccessEvidenceRow>();
+  return {
+    prepare: (sql: string) => ({
+      bind: (...args: unknown[]) => ({
+        first: () => {
+          const [
+            agentProfileId,
+            bindingId,
+            openMeldServiceRuntimeId,
+            agentControllerRef,
+            provider,
+            nowMs,
+          ] = args;
+          const row = [...rowsByKey.values()]
+            .filter(
+              (candidate) =>
+                candidate.agentProfileId === agentProfileId &&
+                candidate.bindingId === bindingId &&
+                candidate.openMeldServiceRuntimeId ===
+                  openMeldServiceRuntimeId &&
+                candidate.agentControllerRef === agentControllerRef &&
+                candidate.provider === provider &&
+                candidate.clearedAtMs === null &&
+                candidate.expiresAtMs > Number(nowMs)
+            )
+            .sort((left, right) => right.observedAtMs - left.observedAtMs)[0];
+          return row
+            ? {
+                expiresAtMs: row.expiresAtMs,
+                observedAtMs: row.observedAtMs,
+                provider: row.provider,
+                reasonCode: row.reasonCode,
+                source: row.source,
+              }
+            : null;
+        },
+        run: () => {
+          if (
+            sql.includes("INSERT INTO openMeldDaemon_provider_access_evidence")
+          ) {
+            const row = buildProviderAccessEvidenceRow(args);
+            rowsByKey.set(buildProviderAccessEvidenceKey(row), row);
+            return { success: true };
+          }
+          if (sql.includes("UPDATE openMeldDaemon_provider_access_evidence")) {
+            const [
+              clearedAtMs,
+              clearedByDispatchId,
+              updatedAtMs,
+              agentProfileId,
+              bindingId,
+              openMeldServiceRuntimeId,
+              agentControllerRef,
+              provider,
+            ] = args;
+            const key = [
+              agentProfileId,
+              bindingId,
+              openMeldServiceRuntimeId,
+              agentControllerRef,
+              provider,
+            ].join("|");
+            const row = rowsByKey.get(key);
+            if (row && row.clearedAtMs === null) {
+              rowsByKey.set(key, {
+                ...row,
+                clearedAtMs: Number(clearedAtMs),
+                clearedByDispatchId: String(clearedByDispatchId),
+                updatedAtMs: Number(updatedAtMs),
+              });
+            }
+            return { success: true };
+          }
+          throw new Error(`unexpected SQL: ${sql}`);
+        },
+      }),
+    }),
+  } as unknown as D1Database;
+}
+
+function buildProviderAccessEvidenceRow(
+  args: readonly unknown[]
+): ProviderAccessEvidenceRow {
+  const [
+    evidenceId,
+    provider,
+    agentProfileId,
+    bindingId,
+    openMeldServiceRuntimeId,
+    agentControllerRef,
+    reasonCode,
+    source,
+    sourceDispatchId,
+    sourceAttemptId,
+    observedAtMs,
+    expiresAtMs,
+    createdAtMs,
+    updatedAtMs,
+  ] = args;
+  return {
+    agentProfileId: String(agentProfileId),
+    bindingId: String(bindingId),
+    agentControllerRef: String(agentControllerRef),
+    clearedAtMs: null,
+    clearedByDispatchId: null,
+    createdAtMs: Number(createdAtMs),
+    evidenceId: String(evidenceId),
+    expiresAtMs: Number(expiresAtMs),
+    observedAtMs: Number(observedAtMs),
+    provider: String(provider),
+    reasonCode: String(reasonCode),
+    openMeldServiceRuntimeId: String(openMeldServiceRuntimeId),
+    source: String(source),
+    sourceAttemptId: String(sourceAttemptId),
+    sourceDispatchId: String(sourceDispatchId),
+    updatedAtMs: Number(updatedAtMs),
+  };
+}
+
+function buildProviderAccessEvidenceKey(
+  row: Pick<
+    ProviderAccessEvidenceRow,
+    | "agentProfileId"
+    | "bindingId"
+    | "agentControllerRef"
+    | "provider"
+    | "openMeldServiceRuntimeId"
+  >
+): string {
+  return [
+    row.agentProfileId,
+    row.bindingId,
+    row.openMeldServiceRuntimeId,
+    row.agentControllerRef,
+    row.provider,
+  ].join("|");
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `slack_oauth_states` ADD `move_from_organization_id` text;

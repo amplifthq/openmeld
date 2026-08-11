@@ -1,0 +1,2 @@
+export const APP_ROUTE_PENDING_DELAY_MS = 300;
+export const APP_ROUTE_PENDING_MIN_DURATION_MS = 0;

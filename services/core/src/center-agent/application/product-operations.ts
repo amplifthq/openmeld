@@ -1,0 +1,1049 @@
+import type {
+  CenterAgentCheckAgentProfileReadinessResponse,
+  CenterAgentComputerSetupOption,
+  CenterAgentConnectAgentProfileToLocalAgentBody,
+  CenterAgentConnectAgentProfileToLocalAgentResponse,
+  CenterAgentCreateAgentProfileResponse,
+  CenterAgentCreateConfiguredAgentProfileBody,
+  CenterAgentCreateConfiguredAgentProfileResponse,
+  CenterAgentListLocalAgentConnectionCandidatesResponse,
+  CenterAgentLocalAgentConnectionCandidate,
+  CenterAgentUpdateAgentProfileRuntimeSettingsBody,
+  CenterAgentUpdateAgentProfileRuntimeSettingsResponse,
+  EnsureAgentProfilePrimaryBindingResponse,
+  LocalRuntimesResponse,
+  SetCurrentAgentProfileWorkspaceResponse,
+} from "@openmeld/schemas/types";
+import { createCoreRpcHttpError } from "../../rpc/errors";
+
+type OperationStep =
+  CenterAgentConnectAgentProfileToLocalAgentResponse["steps"][number];
+
+type RuntimeSettingsInput = Pick<
+  CenterAgentConnectAgentProfileToLocalAgentBody,
+  | "agentControllerCollaborationMode"
+  | "agentControllerPermissionMode"
+  | "modelId"
+  | "openCodePermission"
+  | "reasoningLevel"
+>;
+
+export type CenterAgentProductOperationDeps = {
+  addAgentProfileToSpace(input: {
+    agentProfileId: string;
+    onBehalfOf?: CenterAgentCreateConfiguredAgentProfileBody["onBehalfOf"];
+    spaceId: string;
+  }): Promise<void>;
+  authorizeAgentProfileForOrganization(input: {
+    agentProfileId: string;
+  }): Promise<void>;
+  checkAgentProfileReadiness(input: {
+    agentProfileId: string;
+  }): Promise<CenterAgentCheckAgentProfileReadinessResponse>;
+  createAgentProfile(input: {
+    onBehalfOf?: CenterAgentCreateConfiguredAgentProfileBody["onBehalfOf"];
+    profileName: string;
+  }): Promise<CenterAgentCreateAgentProfileResponse>;
+  enableAgentProfile(input: {
+    agentProfileId: string;
+    onBehalfOf?: CenterAgentCreateConfiguredAgentProfileBody["onBehalfOf"];
+  }): Promise<void>;
+  ensureAgentProfilePrimaryBinding(input: {
+    agentProfileId: string;
+    candidate: CenterAgentLocalAgentConnectionCandidate;
+    settings: RuntimeSettingsInput;
+  }): Promise<EnsureAgentProfilePrimaryBindingResponse>;
+  listLocalAgentConnectionCandidates(): Promise<CenterAgentListLocalAgentConnectionCandidatesResponse>;
+  setAgentProfileWorkspace?(input: {
+    agentProfileId: string;
+    workspaceMode: NonNullable<
+      CenterAgentUpdateAgentProfileRuntimeSettingsBody["workspaceMode"]
+    >;
+    workspacePath?: CenterAgentUpdateAgentProfileRuntimeSettingsBody["workspacePath"];
+  }): Promise<SetCurrentAgentProfileWorkspaceResponse>;
+  updateAgentControllerCollaborationMode(input: {
+    agentControllerCollaborationMode: NonNullable<
+      CenterAgentUpdateAgentProfileRuntimeSettingsBody["agentControllerCollaborationMode"]
+    >;
+    agentProfileId: string;
+  }): Promise<EnsureAgentProfilePrimaryBindingResponse>;
+  updateAgentControllerPermissionMode(input: {
+    agentControllerPermissionMode: NonNullable<
+      CenterAgentUpdateAgentProfileRuntimeSettingsBody["agentControllerPermissionMode"]
+    >;
+    agentProfileId: string;
+  }): Promise<EnsureAgentProfilePrimaryBindingResponse>;
+  updateModelSelection(input: {
+    agentProfileId: string;
+    modelId: NonNullable<
+      CenterAgentUpdateAgentProfileRuntimeSettingsBody["modelId"]
+    >;
+    reasoningLevel?: CenterAgentUpdateAgentProfileRuntimeSettingsBody["reasoningLevel"];
+  }): Promise<EnsureAgentProfilePrimaryBindingResponse>;
+  updateOpenCodePermission(input: {
+    agentProfileId: string;
+    openCodePermission: NonNullable<
+      CenterAgentUpdateAgentProfileRuntimeSettingsBody["openCodePermission"]
+    >;
+  }): Promise<EnsureAgentProfilePrimaryBindingResponse>;
+};
+
+export function projectCenterAgentLocalAgentConnectionCandidates(input: {
+  localRuntimes: LocalRuntimesResponse;
+  organizationId: string;
+}): CenterAgentListLocalAgentConnectionCandidatesResponse {
+  const candidates: CenterAgentLocalAgentConnectionCandidate[] = [];
+  for (const computer of input.localRuntimes.localRuntimes) {
+    for (const target of computer.executionTargets) {
+      if (!target.openMeldServiceRuntimeId) {
+        continue;
+      }
+      for (const capability of target.capabilities) {
+        const freshness = resolveCandidateFreshness(capability.status);
+        const agentDisplayName =
+          capability.agentControllerInterface?.displayName ??
+          formatAgentControllerRef(capability.agentControllerRef);
+        const candidate = {
+          agentControllerRef: capability.agentControllerRef,
+          agentDisplayName,
+          candidateId: buildCenterAgentLocalAgentConnectionCandidateId({
+            agentControllerRef: capability.agentControllerRef,
+            deviceId: target.deviceId,
+            runtimeLane: target.runtimeLane,
+            openMeldServiceRuntimeId: target.openMeldServiceRuntimeId.value,
+          }),
+          connectable:
+            capability.enabled &&
+            capability.status === "ready" &&
+            target.status !== "stale",
+          deviceDisplayName: computer.deviceDisplayName,
+          deviceId: target.deviceId,
+          freshness,
+          lastObservedAtMs: target.lastObservedAtMs,
+          reasonCodes: [
+            ...new Set([...target.reasonCodes, ...capability.reasonCodes]),
+          ],
+          runtimeLane: target.runtimeLane,
+          status: capability.status,
+          openMeldServiceRuntimeId: target.openMeldServiceRuntimeId,
+        };
+        candidates.push(candidate);
+      }
+    }
+  }
+
+  return {
+    candidates: candidates.sort((left, right) =>
+      left.deviceDisplayName === right.deviceDisplayName
+        ? left.agentDisplayName.localeCompare(right.agentDisplayName)
+        : left.deviceDisplayName.localeCompare(right.deviceDisplayName)
+    ),
+    organizationId: input.organizationId,
+  };
+}
+
+export function projectCenterAgentComputerSetupOptions(
+  localRuntimes: LocalRuntimesResponse
+): CenterAgentComputerSetupOption[] {
+  return localRuntimes.localRuntimes
+    .map((computer) => {
+      const reasonCodes = [
+        ...new Set(
+          computer.executionTargets.flatMap((target) => [
+            ...target.reasonCodes,
+            ...target.capabilities.flatMap(
+              (capability) => capability.reasonCodes
+            ),
+          ])
+        ),
+      ];
+      const connectedComputerId = computer.connectedComputerId ?? null;
+      const hasRequiredUpdate = reasonCodes.some(isServiceUpdateReasonCode);
+      const hasReadyTarget = computer.executionTargets.some(
+        (target) => target.status === "ready"
+      );
+      let recommendedMode: CenterAgentComputerSetupOption["recommendedMode"] =
+        null;
+      let status: CenterAgentComputerSetupOption["status"] = "connected";
+
+      if (connectedComputerId === null) {
+        recommendedMode = "setup";
+        status = "not_connected";
+      } else if (hasRequiredUpdate) {
+        recommendedMode = "update_service";
+        status = "needs_attention";
+      } else if (
+        computer.connectionStatus === "legacy_disconnected" ||
+        !hasReadyTarget
+      ) {
+        recommendedMode = "reconnect";
+        status = "needs_attention";
+      }
+
+      return {
+        connectedComputerId,
+        deviceDisplayName: computer.deviceDisplayName,
+        deviceId: computer.deviceId,
+        isCurrent: computer.isCurrent,
+        lastObservedAtMs: computer.lastObservedAtMs,
+        reasonCodes,
+        recommendedMode,
+        status,
+      };
+    })
+    .sort((left, right) => {
+      if (left.isCurrent !== right.isCurrent) {
+        return left.isCurrent ? -1 : 1;
+      }
+      return left.deviceDisplayName.localeCompare(right.deviceDisplayName);
+    });
+}
+
+function isServiceUpdateReasonCode(reasonCode: string): boolean {
+  return (
+    reasonCode === "service.update_required" ||
+    reasonCode === "background_helper.update_required"
+  );
+}
+
+export function buildCenterAgentLocalAgentConnectionCandidateId(input: {
+  agentControllerRef: string;
+  deviceId: string;
+  runtimeLane: string;
+  openMeldServiceRuntimeId: string;
+}): string {
+  return [
+    "local-agent",
+    input.deviceId,
+    input.runtimeLane,
+    input.openMeldServiceRuntimeId,
+    input.agentControllerRef,
+  ]
+    .map(encodeURIComponent)
+    .join(":");
+}
+
+export async function listLocalAgentConnectionCandidatesOperation(input: {
+  deps: Pick<
+    CenterAgentProductOperationDeps,
+    "listLocalAgentConnectionCandidates"
+  >;
+}): Promise<CenterAgentListLocalAgentConnectionCandidatesResponse> {
+  return await input.deps.listLocalAgentConnectionCandidates();
+}
+
+export async function checkAgentProfileReadinessOperation(input: {
+  agentProfileId: string;
+  deps: Pick<CenterAgentProductOperationDeps, "checkAgentProfileReadiness">;
+}): Promise<CenterAgentCheckAgentProfileReadinessResponse> {
+  return await input.deps.checkAgentProfileReadiness({
+    agentProfileId: input.agentProfileId,
+  });
+}
+
+export async function connectAgentProfileToLocalAgentOperation(input: {
+  deps: Pick<
+    CenterAgentProductOperationDeps,
+    | "checkAgentProfileReadiness"
+    | "ensureAgentProfilePrimaryBinding"
+    | "listLocalAgentConnectionCandidates"
+  >;
+  request: CenterAgentConnectAgentProfileToLocalAgentBody;
+}): Promise<CenterAgentConnectAgentProfileToLocalAgentResponse> {
+  const connection = await connectAgentProfileToLocalAgentMutation(input);
+  if (connection.status !== "completed") {
+    return connection;
+  }
+
+  const steps = [...connection.steps];
+  let readiness: CenterAgentCheckAgentProfileReadinessResponse;
+  try {
+    readiness = await input.deps.checkAgentProfileReadiness({
+      agentProfileId: input.request.agentProfileId,
+    });
+  } catch (error) {
+    steps.push(failedStep("check_agent_profile_readiness", error));
+    return blockedConnectionResponse({
+      agentProfileId: input.request.agentProfileId,
+      binding: connection.binding,
+      candidate: connection.candidate,
+      organizationId: connection.organizationId,
+      steps,
+    });
+  }
+  steps.push({
+    name: "check_agent_profile_readiness",
+    status: readiness.canReply ? "completed" : "failed",
+    ...(readiness.canReply
+      ? { message: "Agent Profile can reply now." }
+      : {
+          message: readiness.summary,
+          nextAction:
+            "Use the readiness blockers to finish setup before waking this Agent Profile.",
+        }),
+  });
+
+  return {
+    ...connection,
+    canReply: readiness.canReply,
+    readiness,
+    status: readiness.canReply ? "completed" : "blocked",
+    steps,
+  };
+}
+
+async function connectAgentProfileToLocalAgentMutation(input: {
+  candidates?: CenterAgentListLocalAgentConnectionCandidatesResponse;
+  deps: Pick<
+    CenterAgentProductOperationDeps,
+    "ensureAgentProfilePrimaryBinding" | "listLocalAgentConnectionCandidates"
+  >;
+  request: CenterAgentConnectAgentProfileToLocalAgentBody;
+}): Promise<CenterAgentConnectAgentProfileToLocalAgentResponse> {
+  const steps: OperationStep[] = [];
+  const candidates =
+    input.candidates ?? (await input.deps.listLocalAgentConnectionCandidates());
+  const candidate = candidates.candidates.find(
+    (item) => item.candidateId === input.request.candidateId
+  );
+  if (!candidate) {
+    steps.push({
+      name: "select_local_agent_connection_candidate",
+      nextAction:
+        "List local agent connection candidates again and choose a current candidate.",
+      status: "failed",
+      message: "Local agent connection candidate was not found.",
+    });
+    return blockedConnectionResponse({
+      agentProfileId: input.request.agentProfileId,
+      organizationId: candidates.organizationId,
+      steps,
+    });
+  }
+  steps.push({
+    name: "select_local_agent_connection_candidate",
+    status: "completed",
+    message: `Selected ${candidate.agentDisplayName} on ${candidate.deviceDisplayName}.`,
+  });
+
+  if (!candidate.connectable) {
+    steps.push({
+      name: "connect_agent_profile_to_local_agent",
+      nextAction:
+        "Refresh local agents on that computer, then choose a ready candidate.",
+      status: "failed",
+      message: "The selected local agent is not ready to connect.",
+    });
+    return blockedConnectionResponse({
+      agentProfileId: input.request.agentProfileId,
+      candidate,
+      organizationId: candidates.organizationId,
+      steps,
+    });
+  }
+
+  let binding: EnsureAgentProfilePrimaryBindingResponse;
+  try {
+    binding = await input.deps.ensureAgentProfilePrimaryBinding({
+      agentProfileId: input.request.agentProfileId,
+      candidate,
+      settings: pickRuntimeSettings(input.request),
+    });
+  } catch (error) {
+    steps.push(failedStep("connect_agent_profile_to_local_agent", error));
+    return blockedConnectionResponse({
+      agentProfileId: input.request.agentProfileId,
+      candidate,
+      organizationId: candidates.organizationId,
+      steps,
+    });
+  }
+  if (binding.status !== "accepted") {
+    steps.push({
+      name: "connect_agent_profile_to_local_agent",
+      nextAction:
+        "Review the returned Binding reason codes, then reconnect this Agent Profile.",
+      status: "failed",
+      message: `Binding was rejected: ${binding.reasonCodes.join(", ") || "unknown reason"}.`,
+    });
+    return blockedConnectionResponse({
+      agentProfileId: input.request.agentProfileId,
+      binding,
+      candidate,
+      organizationId: candidates.organizationId,
+      steps,
+    });
+  }
+  steps.push({
+    name: "connect_agent_profile_to_local_agent",
+    status: "completed",
+    message: "Agent Profile Binding was written.",
+  });
+
+  return {
+    agentProfileId: input.request.agentProfileId,
+    binding,
+    canReply: false,
+    candidate,
+    organizationId: candidates.organizationId,
+    status: "completed",
+    steps,
+  };
+}
+
+export async function updateAgentProfileRuntimeSettingsOperation(input: {
+  deps: Pick<
+    CenterAgentProductOperationDeps,
+    | "checkAgentProfileReadiness"
+    | "setAgentProfileWorkspace"
+    | "updateAgentControllerCollaborationMode"
+    | "updateAgentControllerPermissionMode"
+    | "updateModelSelection"
+    | "updateOpenCodePermission"
+  >;
+  organizationId: string;
+  request: CenterAgentUpdateAgentProfileRuntimeSettingsBody;
+}): Promise<CenterAgentUpdateAgentProfileRuntimeSettingsResponse> {
+  const steps: OperationStep[] = [];
+  let binding: EnsureAgentProfilePrimaryBindingResponse | undefined;
+  let workspace: SetCurrentAgentProfileWorkspaceResponse | undefined;
+
+  const collaborationModeResult =
+    await applyAgentControllerCollaborationModeUpdate(input, steps);
+  if (collaborationModeResult?.blockedResponse) {
+    return collaborationModeResult.blockedResponse;
+  }
+  binding = collaborationModeResult?.binding;
+
+  if (input.request.modelId !== undefined) {
+    const result = await applyBindingSettingUpdate({
+      agentProfileId: input.request.agentProfileId,
+      execute: () =>
+        input.deps.updateModelSelection({
+          agentProfileId: input.request.agentProfileId,
+          modelId: input.request.modelId as NonNullable<
+            CenterAgentUpdateAgentProfileRuntimeSettingsBody["modelId"]
+          >,
+          ...(input.request.reasoningLevel === undefined
+            ? {}
+            : { reasoningLevel: input.request.reasoningLevel }),
+        }),
+      organizationId: input.organizationId,
+      steps,
+    });
+    if (result.blockedResponse) {
+      return result.blockedResponse;
+    }
+    binding = result.binding;
+  }
+
+  if (input.request.agentControllerPermissionMode !== undefined) {
+    const result = await applyBindingSettingUpdate({
+      agentProfileId: input.request.agentProfileId,
+      execute: () =>
+        input.deps.updateAgentControllerPermissionMode({
+          agentControllerPermissionMode: input.request
+            .agentControllerPermissionMode as NonNullable<
+            CenterAgentUpdateAgentProfileRuntimeSettingsBody["agentControllerPermissionMode"]
+          >,
+          agentProfileId: input.request.agentProfileId,
+        }),
+      organizationId: input.organizationId,
+      steps,
+    });
+    if (result.blockedResponse) {
+      return result.blockedResponse;
+    }
+    binding = result.binding;
+  }
+
+  if (input.request.openCodePermission !== undefined) {
+    const result = await applyBindingSettingUpdate({
+      agentProfileId: input.request.agentProfileId,
+      execute: () =>
+        input.deps.updateOpenCodePermission({
+          agentProfileId: input.request.agentProfileId,
+          openCodePermission: input.request.openCodePermission as NonNullable<
+            CenterAgentUpdateAgentProfileRuntimeSettingsBody["openCodePermission"]
+          >,
+        }),
+      organizationId: input.organizationId,
+      steps,
+    });
+    if (result.blockedResponse) {
+      return result.blockedResponse;
+    }
+    binding = result.binding;
+  }
+
+  if (input.request.workspaceMode !== undefined) {
+    const result = await updateAgentProfileWorkspaceMutation({
+      agentProfileId: input.request.agentProfileId,
+      setAgentProfileWorkspace: input.deps.setAgentProfileWorkspace,
+      steps,
+      workspaceMode: input.request.workspaceMode,
+      ...(input.request.workspacePath === undefined
+        ? {}
+        : { workspacePath: input.request.workspacePath }),
+    });
+    if (result.status === "failed") {
+      return blockedSettingsResponse({
+        agentProfileId: input.request.agentProfileId,
+        binding,
+        organizationId: input.organizationId,
+        steps,
+      });
+    }
+    workspace = result.workspace;
+  }
+
+  let readiness: CenterAgentCheckAgentProfileReadinessResponse;
+  try {
+    readiness = await input.deps.checkAgentProfileReadiness({
+      agentProfileId: input.request.agentProfileId,
+    });
+  } catch (error) {
+    steps.push(failedStep("check_agent_profile_readiness", error));
+    return blockedSettingsResponse({
+      agentProfileId: input.request.agentProfileId,
+      binding,
+      organizationId: input.organizationId,
+      steps,
+    });
+  }
+  steps.push({
+    name: "check_agent_profile_readiness",
+    status: readiness.canReply ? "completed" : "failed",
+    message: readiness.summary,
+  });
+
+  return {
+    agentProfileId: input.request.agentProfileId,
+    ...(binding === undefined ? {} : { binding }),
+    canReply: readiness.canReply,
+    organizationId: input.organizationId,
+    readiness,
+    status: readiness.canReply ? "completed" : "blocked",
+    steps,
+    ...(workspace === undefined ? {} : { workspace }),
+  };
+}
+
+async function updateAgentProfileWorkspaceMutation(input: {
+  agentProfileId: string;
+  setAgentProfileWorkspace?: CenterAgentProductOperationDeps["setAgentProfileWorkspace"];
+  steps: OperationStep[];
+  workspaceMode: NonNullable<
+    CenterAgentUpdateAgentProfileRuntimeSettingsBody["workspaceMode"]
+  >;
+  workspacePath?: CenterAgentUpdateAgentProfileRuntimeSettingsBody["workspacePath"];
+}): Promise<
+  | { status: "completed"; workspace: SetCurrentAgentProfileWorkspaceResponse }
+  | { status: "failed" }
+> {
+  if (!input.setAgentProfileWorkspace) {
+    input.steps.push({
+      name: "update_agent_profile_workspace",
+      nextAction:
+        "Connect a local OpenMeld Service that supports Project folder changes.",
+      status: "failed",
+      message: "Project folder changes are unavailable.",
+    });
+    return { status: "failed" };
+  }
+  let workspace: SetCurrentAgentProfileWorkspaceResponse;
+  try {
+    workspace = await input.setAgentProfileWorkspace({
+      agentProfileId: input.agentProfileId,
+      workspaceMode: input.workspaceMode,
+      ...(input.workspacePath === undefined
+        ? {}
+        : { workspacePath: input.workspacePath }),
+    });
+  } catch (error) {
+    input.steps.push(failedStep("update_agent_profile_workspace", error));
+    return { status: "failed" };
+  }
+  input.steps.push({
+    name: "update_agent_profile_workspace",
+    status: "completed",
+    message: "Project folder was updated through the local OpenMeld Service.",
+  });
+  return { status: "completed", workspace };
+}
+
+export async function createConfiguredAgentProfileOperation(input: {
+  deps: CenterAgentProductOperationDeps;
+  request: CenterAgentCreateConfiguredAgentProfileBody;
+}): Promise<CenterAgentCreateConfiguredAgentProfileResponse> {
+  const steps: OperationStep[] = [];
+  const plannedStepNames = configuredAgentProfileStepPlan(input.request);
+  const candidates = await listConfiguredAgentProfileCandidates(input.deps);
+  let created: CenterAgentCreateAgentProfileResponse;
+  try {
+    created = await input.deps.createAgentProfile({
+      ...(input.request.onBehalfOf === undefined
+        ? {}
+        : { onBehalfOf: input.request.onBehalfOf }),
+      profileName: input.request.profileName,
+    });
+  } catch (error) {
+    steps.push(failedStep("create_agent_profile", error));
+    return blockedConfiguredAgentProfileResponse({
+      organizationId: candidates.organizationId,
+      plannedStepNames,
+      spaceId: input.request.spaceId,
+      steps,
+    });
+  }
+  const agentProfileId = created.profile.openMeldProfileId;
+  steps.push({
+    name: "create_agent_profile",
+    status: "completed",
+    message: "Agent Profile was created.",
+  });
+
+  try {
+    await input.deps.enableAgentProfile({
+      agentProfileId,
+      ...(input.request.onBehalfOf === undefined
+        ? {}
+        : { onBehalfOf: input.request.onBehalfOf }),
+    });
+    steps.push({
+      name: "enable_agent_profile",
+      status: "completed",
+      message: "Agent Profile was enabled.",
+    });
+  } catch (error) {
+    steps.push(failedStep("enable_agent_profile", error));
+    return blockedConfiguredAgentProfileResponse({
+      agentProfileId,
+      organizationId: candidates.organizationId,
+      plannedStepNames,
+      profile: created.profile,
+      spaceId: input.request.spaceId,
+      steps,
+    });
+  }
+
+  const connection = await connectAgentProfileToLocalAgentMutation({
+    candidates,
+    deps: input.deps,
+    request: {
+      agentProfileId,
+      candidateId: input.request.candidateId,
+      ...pickRuntimeSettings(input.request),
+    },
+  });
+  steps.push(...connection.steps);
+  if (connection.status !== "completed") {
+    return blockedConfiguredAgentProfileResponse({
+      agentProfileId,
+      connection,
+      organizationId: candidates.organizationId,
+      plannedStepNames,
+      profile: created.profile,
+      spaceId: input.request.spaceId,
+      steps,
+    });
+  }
+
+  try {
+    await input.deps.authorizeAgentProfileForOrganization({ agentProfileId });
+    steps.push({
+      name: "authorize_agent_profile_for_organization",
+      status: "completed",
+      message: "Wake access was turned on for this Organization.",
+    });
+  } catch (error) {
+    steps.push(failedStep("authorize_agent_profile_for_organization", error));
+    return blockedConfiguredAgentProfileResponse({
+      agentProfileId,
+      connection,
+      organizationId: candidates.organizationId,
+      plannedStepNames,
+      profile: created.profile,
+      spaceId: input.request.spaceId,
+      steps,
+    });
+  }
+
+  let workspace: SetCurrentAgentProfileWorkspaceResponse | undefined;
+  if (input.request.workspaceMode !== undefined) {
+    const result = await updateAgentProfileWorkspaceMutation({
+      agentProfileId,
+      setAgentProfileWorkspace: input.deps.setAgentProfileWorkspace,
+      steps,
+      workspaceMode: input.request.workspaceMode,
+      ...(input.request.workspacePath === undefined
+        ? {}
+        : { workspacePath: input.request.workspacePath }),
+    });
+    if (result.status === "failed") {
+      return blockedConfiguredAgentProfileResponse({
+        agentProfileId,
+        connection,
+        organizationId: candidates.organizationId,
+        plannedStepNames,
+        profile: created.profile,
+        spaceId: input.request.spaceId,
+        steps,
+      });
+    }
+    workspace = result.workspace;
+  }
+
+  try {
+    await input.deps.addAgentProfileToSpace({
+      agentProfileId,
+      ...(input.request.onBehalfOf === undefined
+        ? {}
+        : { onBehalfOf: input.request.onBehalfOf }),
+      spaceId: input.request.spaceId,
+    });
+    steps.push({
+      name: "add_agent_profile_to_space",
+      status: "completed",
+      message: "Agent Profile was added to the Space.",
+    });
+  } catch (error) {
+    steps.push(failedStep("add_agent_profile_to_space", error));
+    return blockedConfiguredAgentProfileResponse({
+      agentProfileId,
+      connection,
+      organizationId: candidates.organizationId,
+      plannedStepNames,
+      profile: created.profile,
+      spaceId: input.request.spaceId,
+      steps,
+      workspace,
+    });
+  }
+
+  let readiness: CenterAgentCheckAgentProfileReadinessResponse;
+  try {
+    readiness = await input.deps.checkAgentProfileReadiness({
+      agentProfileId,
+    });
+  } catch (error) {
+    steps.push(failedStep("check_agent_profile_readiness", error));
+    return blockedConfiguredAgentProfileResponse({
+      agentProfileId,
+      connection,
+      organizationId: candidates.organizationId,
+      plannedStepNames,
+      profile: created.profile,
+      spaceId: input.request.spaceId,
+      steps,
+      workspace,
+    });
+  }
+  steps.push({
+    name: "check_agent_profile_readiness",
+    status: "completed",
+    message: readiness.summary,
+  });
+
+  return {
+    agentProfileId,
+    canReply: readiness.canReply,
+    connection: {
+      ...connection,
+      canReply: readiness.canReply,
+      readiness,
+    },
+    organizationId: candidates.organizationId,
+    profile: created.profile,
+    readiness,
+    spaceId: input.request.spaceId,
+    status: readiness.canReply ? "completed" : "blocked",
+    steps,
+    ...(workspace === undefined ? {} : { workspace }),
+  };
+}
+
+async function listConfiguredAgentProfileCandidates(
+  deps: Pick<
+    CenterAgentProductOperationDeps,
+    "listLocalAgentConnectionCandidates"
+  >
+): Promise<CenterAgentListLocalAgentConnectionCandidatesResponse> {
+  try {
+    return await deps.listLocalAgentConnectionCandidates();
+  } catch (error) {
+    if (isStableCoreRpcHttpError(error)) {
+      throw error;
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    const structuredError = createCoreRpcHttpError({
+      code: "center_agent.local_agent_connection_candidates_unavailable",
+      reason: `Local agent connection candidates are unavailable: ${reason}`,
+      status: 503,
+    });
+    if (error instanceof Error && error.stack) {
+      structuredError.stack = `${structuredError.stack ?? structuredError.message}\nCaused by: ${error.stack}`;
+    }
+    throw structuredError;
+  }
+}
+
+function configuredAgentProfileStepPlan(
+  request: CenterAgentCreateConfiguredAgentProfileBody
+): OperationStep["name"][] {
+  return [
+    "create_agent_profile",
+    "enable_agent_profile",
+    "select_local_agent_connection_candidate",
+    "connect_agent_profile_to_local_agent",
+    "authorize_agent_profile_for_organization",
+    ...(request.workspaceMode === undefined
+      ? []
+      : (["update_agent_profile_workspace"] as const)),
+    "add_agent_profile_to_space",
+    "check_agent_profile_readiness",
+  ];
+}
+
+function blockedConfiguredAgentProfileResponse(input: {
+  agentProfileId?: string;
+  connection?: CenterAgentConnectAgentProfileToLocalAgentResponse;
+  organizationId: string;
+  plannedStepNames: OperationStep["name"][];
+  profile?: CenterAgentCreateAgentProfileResponse["profile"];
+  spaceId: string;
+  steps: OperationStep[];
+  workspace?: SetCurrentAgentProfileWorkspaceResponse;
+}): CenterAgentCreateConfiguredAgentProfileResponse {
+  for (const name of input.plannedStepNames.slice(input.steps.length)) {
+    input.steps.push({
+      name,
+      status: "skipped",
+      message: "Skipped because an earlier step failed.",
+    });
+  }
+
+  return {
+    ...(input.agentProfileId === undefined
+      ? {}
+      : { agentProfileId: input.agentProfileId }),
+    canReply: false,
+    ...(input.connection === undefined ? {} : { connection: input.connection }),
+    organizationId: input.organizationId,
+    ...(input.profile === undefined ? {} : { profile: input.profile }),
+    spaceId: input.spaceId,
+    status: "blocked",
+    steps: input.steps,
+    ...(input.workspace === undefined ? {} : { workspace: input.workspace }),
+  };
+}
+
+export function buildCenterAgentReadinessResponse(input: {
+  organizationId: string;
+  readiness: import("@openmeld/schemas/types").GetAgentExecutionReadinessResponse;
+}): CenterAgentCheckAgentProfileReadinessResponse {
+  const reasonCodes = input.readiness.agentExecutionReadiness.reasonCodes;
+  return {
+    agentProfileId: input.readiness.agentProfileId,
+    blockers: reasonCodes.map((reasonCode) => ({
+      explanation: reasonCode,
+      reasonCode,
+    })),
+    canReply: input.readiness.agentExecutionReadiness.displayState === "ready",
+    organizationId: input.organizationId,
+    readiness: input.readiness,
+    summary: input.readiness.agentWakeAvailability.summary,
+  };
+}
+
+async function applyAgentControllerCollaborationModeUpdate(
+  input: {
+    deps: Pick<
+      CenterAgentProductOperationDeps,
+      "updateAgentControllerCollaborationMode"
+    >;
+    organizationId: string;
+    request: CenterAgentUpdateAgentProfileRuntimeSettingsBody;
+  },
+  steps: OperationStep[]
+) {
+  if (input.request.agentControllerCollaborationMode === undefined) {
+    return null;
+  }
+  return await applyBindingSettingUpdate({
+    agentProfileId: input.request.agentProfileId,
+    execute: () =>
+      input.deps.updateAgentControllerCollaborationMode({
+        agentControllerCollaborationMode: input.request
+          .agentControllerCollaborationMode as NonNullable<
+          CenterAgentUpdateAgentProfileRuntimeSettingsBody["agentControllerCollaborationMode"]
+        >,
+        agentProfileId: input.request.agentProfileId,
+      }),
+    organizationId: input.organizationId,
+    steps,
+  });
+}
+
+function pickRuntimeSettings(
+  input: RuntimeSettingsInput
+): RuntimeSettingsInput {
+  return {
+    ...(input.agentControllerCollaborationMode === undefined
+      ? {}
+      : {
+          agentControllerCollaborationMode:
+            input.agentControllerCollaborationMode,
+        }),
+    ...(input.agentControllerPermissionMode === undefined
+      ? {}
+      : { agentControllerPermissionMode: input.agentControllerPermissionMode }),
+    ...(input.modelId === undefined ? {} : { modelId: input.modelId }),
+    ...(input.openCodePermission === undefined
+      ? {}
+      : { openCodePermission: input.openCodePermission }),
+    ...(input.reasoningLevel === undefined
+      ? {}
+      : { reasoningLevel: input.reasoningLevel }),
+  };
+}
+
+function blockedConnectionResponse(input: {
+  agentProfileId: string;
+  binding?: EnsureAgentProfilePrimaryBindingResponse;
+  candidate?: CenterAgentLocalAgentConnectionCandidate;
+  organizationId: string;
+  steps: OperationStep[];
+}): CenterAgentConnectAgentProfileToLocalAgentResponse {
+  return {
+    agentProfileId: input.agentProfileId,
+    ...(input.binding === undefined ? {} : { binding: input.binding }),
+    canReply: false,
+    ...(input.candidate === undefined ? {} : { candidate: input.candidate }),
+    organizationId: input.organizationId,
+    status: "blocked",
+    steps: input.steps,
+  };
+}
+
+async function applyBindingSettingUpdate(input: {
+  agentProfileId: string;
+  execute(): Promise<EnsureAgentProfilePrimaryBindingResponse>;
+  organizationId: string;
+  steps: OperationStep[];
+}): Promise<{
+  binding?: EnsureAgentProfilePrimaryBindingResponse;
+  blockedResponse?: CenterAgentUpdateAgentProfileRuntimeSettingsResponse;
+}> {
+  let binding: EnsureAgentProfilePrimaryBindingResponse;
+  try {
+    binding = await input.execute();
+  } catch (error) {
+    input.steps.push(
+      failedStep("update_agent_profile_runtime_settings", error)
+    );
+    return {
+      blockedResponse: blockedSettingsResponse({
+        agentProfileId: input.agentProfileId,
+        organizationId: input.organizationId,
+        steps: input.steps,
+      }),
+    };
+  }
+  input.steps.push(
+    toBindingStep(binding, "update_agent_profile_runtime_settings")
+  );
+  if (binding.status !== "accepted") {
+    return {
+      binding,
+      blockedResponse: blockedSettingsResponse({
+        agentProfileId: input.agentProfileId,
+        binding,
+        organizationId: input.organizationId,
+        steps: input.steps,
+      }),
+    };
+  }
+  return { binding };
+}
+
+function blockedSettingsResponse(input: {
+  agentProfileId: string;
+  binding?: EnsureAgentProfilePrimaryBindingResponse;
+  organizationId: string;
+  steps: OperationStep[];
+}): CenterAgentUpdateAgentProfileRuntimeSettingsResponse {
+  return {
+    agentProfileId: input.agentProfileId,
+    ...(input.binding === undefined ? {} : { binding: input.binding }),
+    canReply: false,
+    organizationId: input.organizationId,
+    status: "blocked",
+    steps: input.steps,
+  };
+}
+
+function toBindingStep(
+  binding: EnsureAgentProfilePrimaryBindingResponse,
+  name: OperationStep["name"]
+): OperationStep {
+  return binding.status === "accepted"
+    ? {
+        name,
+        status: "completed",
+        message: "Agent Profile runtime setting was updated.",
+      }
+    : {
+        name,
+        nextAction:
+          "Review the returned Binding reason codes, then reconnect this Agent Profile.",
+        status: "failed",
+        message: `Binding update was rejected: ${binding.reasonCodes.join(", ") || "unknown reason"}.`,
+      };
+}
+
+function failedStep(
+  name: OperationStep["name"],
+  error: unknown
+): OperationStep {
+  return {
+    name,
+    nextAction: "Review this failed step, then retry the operation.",
+    status: "failed",
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function isStableCoreRpcHttpError(
+  error: unknown
+): error is Error & { code: string; status: number } {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const candidate = error as Error & { code?: unknown; status?: unknown };
+  return (
+    typeof candidate.code === "string" &&
+    candidate.code.trim().length > 0 &&
+    typeof candidate.status === "number"
+  );
+}
+
+function resolveCandidateFreshness(
+  status: CenterAgentLocalAgentConnectionCandidate["status"]
+): CenterAgentLocalAgentConnectionCandidate["freshness"] {
+  if (status === "stale") {
+    return "stale";
+  }
+  if (status === "unknown") {
+    return "unknown";
+  }
+  return "fresh";
+}
+
+function formatAgentControllerRef(agentControllerRef: string): string {
+  const [, rawId = agentControllerRef] = agentControllerRef.split(":");
+  return rawId
+    .split("-")
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}

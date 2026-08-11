@@ -1,0 +1,1 @@
+ALTER TABLE `openMeldRemoteAgent_native_delivery_ledger` ADD `source_client_message_id` text;

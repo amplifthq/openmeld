@@ -1,0 +1,1501 @@
+import {
+  OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+  RUNTIME_TRANSPORT_SCHEMA_VERSION,
+} from "@openmeld/schemas";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  DISPATCH_CONVERSATION_LIFECYCLE_DECISION_CODE,
+  DISPATCH_EXECUTION_LIFECYCLE_DECISION_CODE,
+  DISPATCH_OPENCLAW_BINDING_DECISION_CODE,
+  DISPATCH_RUNTIME_TELEMETRY_DECISION_CODE,
+  DISPATCH_STREAMING_TELEMETRY_DECISION_CODE,
+  DISPATCH_STRUCTURED_ACTION_FAILURE_DECISION_CODE,
+} from "../dispatch/application/dispatch-trace-decision-codes";
+// biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
+import * as dispatchLedgerD1 from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
+import { listRecentOpenMeldDaemonOpsDecisions } from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
+import {
+  readDispatchLedgerStatus,
+  readDispatchResultConversationFacts,
+  readSpaceDispatchLookup,
+  readSpaceDispatchLookupByClientMessageId,
+  readSpaceDispatchTrace,
+} from "../space/infrastructure/d1/space-dispatch-read-repo";
+
+describe("space dispatch read repo", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  beforeEach(() => {
+    // vi.mock module factories do not reach the worker-entry module graph in
+    // vitest-pool-workers, so spy on the shared module namespace instead.
+    vi.spyOn(
+      dispatchLedgerD1,
+      "listRecentOpenMeldDaemonOpsDecisions"
+    ).mockResolvedValue([]);
+  });
+
+  it("projects path-free Default Project failure context from the result inbox", async () => {
+    const db = createTraceDb({
+      resultInboxRowPatch: {
+        resultPayloadJson: JSON.stringify({
+          code: "service.task_result",
+          payload: {
+            agentId: "agt-target-1",
+            attemptId: "attempt-1",
+            deduped: false,
+            errorCode: "project.local_connection.folder_missing",
+            errorType: "config",
+            projectFailureContext: {
+              bindingGeneration: "binding-1",
+              projectId: "project-1",
+            },
+            sourceEventId: "sig-source-1",
+            status: "failed",
+            taskId: "task-1",
+          },
+          v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+        }),
+      },
+    });
+
+    const result = await readSpaceDispatchTrace({
+      db,
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockResolvedValue(null),
+      spaceId: "space-1",
+    });
+
+    expect(result.trace?.resultInbox?.projectFailureContext).toEqual({
+      bindingGeneration: "binding-1",
+      projectId: "project-1",
+    });
+  });
+
+  it("keeps hosted controller normalization history stable after Binding mutation or deletion", async () => {
+    const readRuntimeCoordinatorHeadLifecycleTrace = vi.fn();
+    const mutableBindingControllerRef: { current: string | null } = {
+      current: "builtin:codex",
+    };
+    const db = createTraceDb({
+      mutableBindingControllerRef,
+      nativeDeliveryRow: {
+        bindingId: "binding-hosted-1",
+        bindingUpdatedAtMs: 1_700_000_002_100,
+        conversationKind: "space",
+        createdAtMs: 1_700_000_002_000,
+        deliveryId: "delivery-hosted-1",
+        dispatchId: "dispatch-1",
+        idempotencyKey: "idem-1",
+        organizationId: "org-1",
+        profileId: "agt-target-1",
+        spaceId: "space-1",
+        status: "accepted",
+        storedAgentControllerRef: "not-a-controller-ref",
+        storedAgentControllerRefStatus: "malformed",
+        submissionId: "submission-hosted-1",
+        updatedAtMs: 1_700_000_003_000,
+      },
+    });
+    const readTrace = () =>
+      readSpaceDispatchTrace({
+        db,
+        dispatchId: "dispatch-1",
+        readReplySignalTrace: vi.fn().mockResolvedValue(null),
+        readRuntimeCoordinatorHeadLifecycleTrace,
+        spaceId: "space-1",
+      });
+    const result = await readTrace();
+
+    expect(result.trace).toMatchObject({
+      nativeDelivery: {
+        bindingId: "binding-hosted-1",
+        controllerNormalization: {
+          canonicalAgentControllerRef: "hosted:center-agent",
+          factSource: "remote_agent_native_delivery_ledger",
+          reasonCode: "hosted_runtime_family_controller_canonicalized",
+          storedAgentControllerRef: "not-a-controller-ref",
+          storedAgentControllerRefStatus: "malformed",
+        },
+        destination: {
+          conversationKind: "space",
+          organizationId: "org-1",
+          spaceId: "space-1",
+          targetProfileId: "agt-target-1",
+        },
+        factSource: "remote_agent_native_delivery_ledger",
+        runtimeFamily: "hosted_center_agent",
+        status: "accepted",
+        submissionId: "submission-hosted-1",
+      },
+      runtimeCoordinatorExecution: null,
+      runtimeCoordinatorHeadLifecycle: null,
+    });
+    expect(result.correlation).toMatchObject({
+      agentControllerRef: "hosted:center-agent",
+      bindingId: "binding-hosted-1",
+      runtimeCoordinatorExecutionId: null,
+      openMeldServiceRuntimeId: null,
+    });
+    mutableBindingControllerRef.current = "builtin:claude-code";
+    const afterBindingMutation = await readTrace();
+    mutableBindingControllerRef.current = null;
+    const afterBindingDeletion = await readTrace();
+    expect(afterBindingMutation.trace?.nativeDelivery).toEqual(
+      result.trace?.nativeDelivery
+    );
+    expect(afterBindingDeletion.trace?.nativeDelivery).toEqual(
+      result.trace?.nativeDelivery
+    );
+    expect(readRuntimeCoordinatorHeadLifecycleTrace).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(db.prepare)
+        .mock.calls.find(([query]) =>
+          String(query).includes("deliveries.delivery_id AS deliveryId")
+        )?.[0]
+    ).not.toContain("openMeldDaemon_agent_profile_bindings");
+  });
+
+  it("qualifies joined ledger status reads through the shared repo", async () => {
+    let capturedQuery = "";
+    const db = {
+      prepare: vi.fn((query: string) => {
+        capturedQuery = query;
+        return {
+          bind: vi.fn().mockReturnValue({
+            first: vi.fn().mockResolvedValue({
+              status: "queued",
+              lastAttemptAtMs: 1_700_000_000_000,
+              latestAttemptStatus: "dispatching",
+              latestAttemptErrorCode: null,
+              daemonSessionId: "daemon-session-1",
+              connectionGeneration: 1,
+              leaseEpoch: 2,
+            }),
+          }),
+        };
+      }),
+    } as unknown as D1Database;
+
+    const result = await readDispatchLedgerStatus({
+      db,
+      idempotencyKey: "idem-1",
+    });
+
+    expect(capturedQuery).toContain("WHERE ledger.idempotency_key = ?");
+    expect(result).toEqual({
+      status: "queued",
+      lastAttemptAtMs: 1_700_000_000_000,
+      latestAttemptStatus: "dispatching",
+      latestAttemptErrorCode: null,
+      daemonSessionId: "daemon-session-1",
+      connectionGeneration: 1,
+      leaseEpoch: 2,
+    });
+  });
+
+  it("normalizes lookup rows through the shared repo", async () => {
+    const db = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn().mockReturnValue({
+          all: vi.fn().mockResolvedValue({
+            results: [
+              {
+                dispatchId: "dispatch-1",
+                sourceSignalId: "sig-source-1",
+                targetProfileId: "agt-target-1",
+                dispatchStatus: "dispatching",
+                attemptCount: 2,
+                latestAttemptId: "attempt-2",
+                latestAttemptStatus: "waiting_result",
+                latestAttemptErrorCode: null,
+                latestAttemptErrorMessage: null,
+              },
+            ],
+          }),
+        }),
+      })),
+    } as unknown as D1Database;
+
+    const result = await readSpaceDispatchLookup({
+      clientMessageId: "client-message-1",
+      db,
+      sourceSignalId: "sig-source-1",
+      spaceId: "space-1",
+      targetProfileId: "agt-target-1",
+    });
+
+    expect(result).toEqual({
+      query: {
+        spaceId: "space-1",
+        sourceSignalId: "sig-source-1",
+        clientMessageId: "client-message-1",
+        targetProfileId: "agt-target-1",
+      },
+      matches: [
+        {
+          dispatchId: "dispatch-1",
+          sourceSignalId: "sig-source-1",
+          targetProfileId: "agt-target-1",
+          status: "dispatching",
+          attemptCount: 2,
+          latestAttemptId: "attempt-2",
+          latestAttemptStatus: "waiting_result",
+          latestAttemptErrorCode: null,
+          latestAttemptErrorMessage: null,
+        },
+      ],
+    });
+  });
+
+  it("reads dispatch lookup rows by durable source client message id", async () => {
+    let capturedQuery = "";
+    let capturedBindings: unknown[] = [];
+    const db = {
+      prepare: vi.fn((query: string) => {
+        capturedQuery = query;
+        return {
+          bind: vi.fn((...args: unknown[]) => {
+            capturedBindings = args;
+            return {
+              all: vi.fn().mockResolvedValue({
+                results: [
+                  {
+                    dispatchId: "dispatch-1",
+                    sourceSignalId: "sig-source-1",
+                    targetProfileId: "agt-target-1",
+                    dispatchStatus: "dispatching",
+                    attemptCount: 2,
+                    latestAttemptId: "attempt-2",
+                    latestAttemptStatus: "waiting_result",
+                    latestAttemptErrorCode: null,
+                    latestAttemptErrorMessage: null,
+                  },
+                ],
+              }),
+            };
+          }),
+        };
+      }),
+    } as unknown as D1Database;
+
+    const result = await readSpaceDispatchLookupByClientMessageId({
+      clientMessageId: "client-message-1",
+      db,
+      spaceId: "space-1",
+      targetProfileId: "agt-target-1",
+    });
+
+    expect(capturedQuery).toContain("ledger.source_client_message_id = ?");
+    expect(capturedQuery).not.toContain("ledger.source_event_id = ?");
+    expect(capturedBindings).toEqual([
+      "space-1",
+      "client-message-1",
+      "agt-target-1",
+    ]);
+    expect(result).toEqual({
+      query: {
+        spaceId: "space-1",
+        sourceSignalId: "sig-source-1",
+        clientMessageId: "client-message-1",
+        targetProfileId: "agt-target-1",
+      },
+      matches: [
+        {
+          dispatchId: "dispatch-1",
+          sourceSignalId: "sig-source-1",
+          targetProfileId: "agt-target-1",
+          status: "dispatching",
+          attemptCount: 2,
+          latestAttemptId: "attempt-2",
+          latestAttemptStatus: "waiting_result",
+          latestAttemptErrorCode: null,
+          latestAttemptErrorMessage: null,
+        },
+      ],
+    });
+  });
+
+  it("fails closed before querying when clientMessageId lookup key is empty", async () => {
+    const db = {
+      prepare: vi.fn(),
+    } as unknown as D1Database;
+
+    await expect(
+      readSpaceDispatchLookupByClientMessageId({
+        clientMessageId: "  ",
+        db,
+        spaceId: "space-1",
+        targetProfileId: "agt-target-1",
+      })
+    ).rejects.toThrow("clientMessageId is required");
+
+    expect(db.prepare).not.toHaveBeenCalled();
+  });
+
+  it("builds a dispatch trace snapshot from shared read-side queries", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([
+      createDecisionRecord({
+        decisionCode: DISPATCH_STREAMING_TELEMETRY_DECISION_CODE,
+        payload: {
+          streamingMode: "stream",
+          previewEmitted: true,
+          firstStdoutAtMs: 1_700_000_005_000,
+          firstOutputAtMs: 1_700_000_006_000,
+        },
+      }),
+      createDecisionRecord({
+        decisionCode: DISPATCH_RUNTIME_TELEMETRY_DECISION_CODE,
+        payload: {
+          agentControllerConversationId: "thread-1",
+          agentControllerRef: "builtin:openai",
+          resolvedAgentControllerConversationId: "conv-1",
+          agentControllerConversationKind: "thread",
+          effectiveRuntimeWorkingDirectory: "/tmp/demo",
+          runtimeWorkspaceFingerprint: "sha256:workspace-demo",
+          promptFingerprint: "sha256:demo",
+          promptLength: 42,
+          promptPreview: "Dispatch prompt preview",
+          processId: 321,
+          exitCode: 0,
+          exitObservedAtMs: 1_700_000_007_000,
+          firstStderrAtMs: 1_700_000_006_500,
+          processSpawnedAtMs: 1_700_000_004_000,
+          stdinClosedAtMs: 1_700_000_004_500,
+          timeoutTriggeredAtMs: null,
+          openClawGatewayAgentId: "agt-openclaw-1",
+          openClawGatewayRestartAttempted: true,
+          openClawGatewayVisibility: "visible_after_restart",
+        },
+      }),
+      createDecisionRecord({
+        decisionCode: DISPATCH_EXECUTION_LIFECYCLE_DECISION_CODE,
+        payload: {
+          phase: "running",
+          progressEvidenceState: "active",
+          phaseEnteredAtMs: 1_700_000_004_250,
+          lastLifecycleAtMs: 1_700_000_007_250,
+          finalizationTimeoutMs: 60_000,
+          startTimeoutMs: 10_000,
+          taskProgressEvidenceStaleAfterMs: 30_000,
+          waitWindowMs: 120_000,
+        },
+      }),
+      createDecisionRecord({
+        decisionCode: DISPATCH_CONVERSATION_LIFECYCLE_DECISION_CODE,
+        payload: {
+          agentControllerConversationResume: {
+            status: "continued",
+          },
+          localRuntimeContext: {
+            status: "reused",
+            reason: null,
+          },
+          bootstrap: {
+            status: "applied",
+            reason: null,
+          },
+        },
+      }),
+      createDecisionRecord({
+        decisionCode: DISPATCH_OPENCLAW_BINDING_DECISION_CODE,
+        payload: {
+          classification: "canonical_owned",
+          bindingSource: "daemon-launch",
+          upgradeApplied: true,
+        },
+      }),
+      createDecisionRecord({
+        decisionCode: DISPATCH_STRUCTURED_ACTION_FAILURE_DECISION_CODE,
+        payload: {
+          carrierKind: "invalid_json",
+          invalidOutputPreview: "{oops",
+          publicFailureReason: "Malformed action payload",
+          repairMode: "required_check",
+          spaceActionCandidatePresent: false,
+          spaceActionParseError: "invalid json",
+        },
+      }),
+      createDecisionRecord({
+        decisionCode: "dispatch.reply.emit_failed",
+        payload: {},
+      }),
+    ]);
+
+    const db = createTraceDb();
+    const replySignal = {
+      factSource: "space_signal_by_published_signal_id" as const,
+      signalId: "sig-reply-1",
+      profileId: "agt-target-1",
+      profileKind: "agent" as const,
+      profileName: "Codex",
+      text: "Final reply",
+      createdAt: "2024-11-14T22:13:20.000Z",
+    };
+    const finalVisibleMessage = {
+      factSource: "space_signal_by_published_signal_id" as const,
+      signalId: "sig-reply-1",
+      signalType: "signal.text" as const,
+      dispatchId: "dispatch-1",
+      targetProfileId: "agt-target-1",
+      profileId: "agt-target-1",
+      profileKind: "agent" as const,
+      profileName: "Codex",
+      text: "Final reply",
+      reasonCode: null,
+      noticeType: null,
+      statusType: null,
+      createdAt: "2024-11-14T22:13:20.000Z",
+    };
+    const readReplySignalTrace = vi.fn().mockReturnValue(replySignal);
+    const readFinalVisibleMessageTrace = vi.fn().mockReturnValue({
+      finalVisibleMessage,
+      finalVisibleMessageLinkage: {
+        status: "matched_published_signal",
+        reasonCode: "final_visible_message.matched_published_signal",
+        sourceFact: "published_signal_candidate",
+        candidateSignalIds: ["sig-reply-1"],
+        claimSignalId: null,
+        selectedSignalId: "sig-reply-1",
+      },
+    });
+
+    const result = await readSpaceDispatchTrace({
+      db,
+      dispatchId: "dispatch-1",
+      readFinalVisibleMessageTrace,
+      readReplySignalTrace,
+      spaceId: "space-1",
+    });
+
+    expect(result.correlation).toMatchObject({
+      modelVersion: "openmeld.observability.wake.v1",
+      clientMessageId: "client-message-1",
+      sourceSignalId: "sig-source-1",
+      targetProfileId: "agt-target-1",
+      dispatchId: "dispatch-1",
+      latestAttemptId: "attempt-1",
+      claimLeaseId: null,
+      bindingId: null,
+      openMeldServiceRuntimeId: null,
+      agentControllerRef: null,
+      resultRef: "result-1",
+      publishedSignalId: "sig-reply-1",
+      replySignalId: "sig-reply-1",
+    });
+    expect(result.trace?.dispatch).toMatchObject({
+      factSource: "dispatch_ledger",
+      dispatchId: "dispatch-1",
+      latestAttemptId: "attempt-1",
+      sourceClientMessageId: "client-message-1",
+      status: "dispatching",
+    });
+    expect(result.trace?.latestAttempt).toMatchObject({
+      factSource: "dispatch_attempt",
+      attemptId: "attempt-1",
+      status: "waiting_result",
+    });
+    expect(result.trace?.claimLease).toBeNull();
+    expect(result.trace?.result).toMatchObject({
+      factSource: "dispatch_result",
+      resultRef: "result-1",
+      publishedSignalId: "sig-reply-1",
+      publicOutcome: "succeeded",
+    });
+    expect(result.trace?.resultInbox).toMatchObject({
+      factSource: "dispatch_result_inbox",
+      resultKey: "dispatch-1::attempt-1",
+      attemptId: "attempt-1",
+      publishState: "reply_published",
+      publishedSignalId: "sig-reply-1",
+    });
+    expect(result.trace?.recentOpsDecisions).toHaveLength(1);
+    expect(result.trace?.streaming).toMatchObject({
+      streamingMode: "stream",
+      previewEmitted: true,
+    });
+    expect(result.trace?.runtime).toMatchObject({
+      processId: 321,
+      exitCode: 0,
+    });
+    expect(result.trace?.origin).toMatchObject({
+      agentControllerConversationId: "thread-1",
+      effectiveRuntimeWorkingDirectory: "/tmp/demo",
+    });
+    expect(result.trace?.prompt).toEqual({
+      fingerprint: "sha256:demo",
+      length: 42,
+      preview: "Dispatch prompt preview",
+    });
+    expect(result.trace?.execution).toMatchObject({
+      phase: "running",
+      progressEvidenceState: "active",
+    });
+    expect(result.trace?.dispatchExecution).toMatchObject({
+      agentControllerConversationResume: {
+        status: "continued",
+      },
+      bootstrap: {
+        status: "applied",
+        reason: null,
+      },
+    });
+    expect(result.trace?.openClawGatewayVisibility).toMatchObject({
+      agentId: "agt-openclaw-1",
+      gatewayVisibility: "visible_after_restart",
+    });
+    expect(result.trace?.openClawBinding).toMatchObject({
+      classification: "canonical_owned",
+      bindingSource: "daemon-launch",
+      upgradeApplied: true,
+    });
+    expect(result.trace?.structuredActionFailure).toMatchObject({
+      carrierKind: "invalid_json",
+      publicFailureReason: "Malformed action payload",
+    });
+    expect(result.trace?.replySignal).toEqual(replySignal);
+    expect(result.trace?.finalVisibleMessage).toEqual(finalVisibleMessage);
+    expect(result.trace?.finalVisibleMessageLinkage).toMatchObject({
+      status: "matched_published_signal",
+      selectedSignalId: "sig-reply-1",
+    });
+    expect(readReplySignalTrace).toHaveBeenCalledWith({
+      dispatchId: "dispatch-1",
+      publishedSignalId: "sig-reply-1",
+    });
+    expect(readFinalVisibleMessageTrace).toHaveBeenCalledWith({
+      dispatchId: "dispatch-1",
+      publishedSignalIdCandidates: ["sig-reply-1"],
+      targetProfileId: "agt-target-1",
+    });
+    expect(listRecentOpenMeldDaemonOpsDecisions).toHaveBeenCalledTimes(1);
+    expect(listRecentOpenMeldDaemonOpsDecisions).toHaveBeenCalledWith({
+      db,
+      correlationId: "dispatch-1",
+      limit: 200,
+    });
+  });
+
+  it("reads final visible messages from RuntimeCoordinator head publication candidates before result signals", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const finalVisibleMessage = {
+      factSource: "space_signal_by_published_signal_id" as const,
+      signalId: "sig-head-failure-1",
+      signalType: "signal.system_notice" as const,
+      dispatchId: "dispatch-1",
+      targetProfileId: "agt-target-1",
+      profileId: "openmeld-system",
+      profileKind: "system" as const,
+      profileName: "OpenMeld",
+      text: "Runner is connected to a different OpenMeld account.",
+      reasonCode: "agent_profile_binding.owner_mismatch",
+      noticeType: "terminal_failure" as const,
+      statusType: null,
+      createdAt: "2024-11-14T22:13:21.000Z",
+    };
+    const readRuntimeCoordinatorHeadLifecycleTrace = vi
+      .fn()
+      .mockImplementation(({ request }) =>
+        Promise.resolve({
+          lifecycle: {
+            createdAtMs: 1_700_000_001_100,
+            duplicateDispatchCount: 0,
+            executionLinkedAtMs: null,
+            modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+            noExecutionDecision: {
+              decidedAtMs: 1_700_000_001_200,
+              publicationCategory: "binding_required",
+              reasonCode: "agent_profile_binding.owner_mismatch",
+              source: "dispatch_preflight",
+              userRecoveryAction: "reconnect_agent_binding",
+            },
+            ownerUserId: "owner-1",
+            primaryDispatchId: "dispatch-1",
+            publicationIntent: {
+              intentId:
+                "twl_space-1_sig-source-1_agt-target-1::no-execution-failure",
+              kind: "no_execution_failure",
+              publicationCategory: "binding_required",
+              readyAtMs: 1_700_000_001_300,
+              reasonCode: "agent_profile_binding.owner_mismatch",
+              status: "ready_for_phase_6",
+              userRecoveryAction: "reconnect_agent_binding",
+            },
+            publicationOutcome: {
+              failurePublicationCommandId: "fpc-1",
+              finalMessageKind: "failure_notice",
+              observedAtMs: 1_700_000_001_400,
+              publicationErrorCode: null,
+              publishedSignalId: "sig-head-failure-1",
+              status: "failure_published",
+            },
+            runtimeCoordinatorExecutionId: null,
+            status: "publication_intent_ready",
+            targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+            targetWakeLifecycleId:
+              request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+            updatedAtMs: 1_700_000_001_400,
+            waitingBoundary: null,
+          },
+          ok: true,
+          readStatus: "found",
+        })
+      );
+    const readFinalVisibleMessageTrace = vi.fn().mockReturnValue({
+      finalVisibleMessage,
+      finalVisibleMessageLinkage: {
+        status: "matched_published_signal",
+        reasonCode: "final_visible_message.matched_published_signal",
+        sourceFact: "published_signal_candidate",
+        candidateSignalIds: ["sig-head-failure-1", "sig-result-inbox-1"],
+        claimSignalId: null,
+        selectedSignalId: "sig-head-failure-1",
+      },
+    });
+
+    const result = await readSpaceDispatchTrace({
+      db: createTraceDb({
+        resultRow: null,
+        resultInboxRowPatch: {
+          publishedSignalId: "sig-result-inbox-1",
+        },
+        runtimeCoordinatorExecutionRow: undefined,
+      }),
+      dispatchId: "dispatch-1",
+      readFinalVisibleMessageTrace,
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      readRuntimeCoordinatorHeadLifecycleTrace,
+      spaceId: "space-1",
+    });
+
+    expect(readFinalVisibleMessageTrace).toHaveBeenCalledWith({
+      dispatchId: "dispatch-1",
+      publishedSignalIdCandidates: ["sig-head-failure-1", "sig-result-inbox-1"],
+      targetProfileId: "agt-target-1",
+    });
+    expect(result.trace?.finalVisibleMessage).toEqual(finalVisibleMessage);
+    expect(result.trace?.finalVisibleOutcome).toMatchObject({
+      delivered: true,
+      publicationKind: "failure_notice",
+      reasonCode: "agent_profile_binding.owner_mismatch",
+      signalId: "sig-head-failure-1",
+      sourceFact: "final_visible_message",
+      status: "visible_failure",
+    });
+    expect(result.correlation.publishedSignalId).toBeNull();
+  });
+
+  it("reads stopped notices from RuntimeCoordinator accepted cancellation events before late result signals", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const finalVisibleMessage = {
+      factSource: "space_signal_by_published_signal_id" as const,
+      signalId: "sig-stop-1",
+      signalType: "signal.system_notice" as const,
+      dispatchId: "dispatch-1",
+      targetProfileId: "agt-target-1",
+      profileId: "openmeld-system",
+      profileKind: "system" as const,
+      profileName: "OpenMeld",
+      text: "Wake was stopped for @Agent.",
+      reasonCode: "adapter.cancel.accepted",
+      noticeType: "wake_stopped" as const,
+      statusType: null,
+      createdAt: "2024-11-14T22:13:21.000Z",
+    };
+    const readFinalVisibleMessageTrace = vi.fn().mockReturnValue({
+      finalVisibleMessage,
+      finalVisibleMessageLinkage: {
+        status: "matched_published_signal",
+        reasonCode: "final_visible_message.matched_published_signal",
+        sourceFact: "published_signal_candidate",
+        candidateSignalIds: ["sig-stop-1", "sig-late-reply-1", "sig-inbox-1"],
+        claimSignalId: null,
+        selectedSignalId: "sig-stop-1",
+      },
+    });
+
+    const result = await readSpaceDispatchTrace({
+      db: createTraceDb({
+        resultInboxRowPatch: {
+          publishedSignalId: "sig-inbox-1",
+        },
+        resultRowPatch: {
+          publishedSignalId: "sig-late-reply-1",
+        },
+        runtimeCoordinatorEventRows: [
+          {
+            event_id: "event-cancel-accepted",
+            event_type: "cancellation_control_accepted",
+            idempotency_key: "wake-stop-control:accepted",
+            observed_at_ms: 1_700_000_003_250,
+            payload_json: JSON.stringify({
+              accepted: true,
+              stoppedNoticePublication: {
+                publishedSignalId: "sig-stop-1",
+                status: "published",
+              },
+            }),
+            reason_code: "adapter.cancel.accepted",
+            runtime_coordinator_execution_id: "rce-dispatch-1",
+            status_after: "cancelled",
+          },
+        ],
+        runtimeCoordinatorExecutionRow: {
+          status: "cancelled",
+          terminal_outcome_json: JSON.stringify({
+            kind: "cancelled",
+            observedAtMs: 1_700_000_003_250,
+            reasonCode: "adapter.cancel.accepted",
+          }),
+        },
+      }),
+      dispatchId: "dispatch-1",
+      readFinalVisibleMessageTrace,
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      spaceId: "space-1",
+    });
+
+    expect(readFinalVisibleMessageTrace).toHaveBeenCalledWith({
+      dispatchId: "dispatch-1",
+      publishedSignalIdCandidates: [
+        "sig-stop-1",
+        "sig-late-reply-1",
+        "sig-inbox-1",
+      ],
+      targetProfileId: "agt-target-1",
+    });
+    expect(result.trace?.finalVisibleMessage).toEqual(finalVisibleMessage);
+    expect(result.trace?.finalVisibleOutcome).toMatchObject({
+      delivered: true,
+      publicationKind: "stopped_notice",
+      reasonCode: "adapter.cancel.accepted",
+      signalId: "sig-stop-1",
+      sourceFact: "final_visible_message",
+      status: "visible_stopped",
+    });
+  });
+
+  it("falls back to the latest dispatch result inbox fact when the latest attempt has no result", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const db = createTraceDb({
+      resultInboxRows: [
+        null,
+        {
+          resultKey: "dispatch-1::attempt-original",
+          attemptId: "attempt-original",
+          taskId: "task-1",
+          targetProfileId: "agt-target-1",
+          daemonSessionId: "daemon-session-1",
+          leaseEpoch: 4,
+          submittedConnectionGeneration: 3,
+          acceptedAtMs: 1_700_000_003_500,
+          publishState: "result_accepted",
+          publishedSignalId: null,
+          publicationErrorCode: null,
+          updatedAtMs: 1_700_000_003_500,
+        },
+      ],
+    });
+
+    const result = await readSpaceDispatchTrace({
+      db,
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      spaceId: "space-1",
+    });
+
+    expect(result.trace?.latestAttempt?.attemptId).toBe("attempt-1");
+    expect(result.trace?.resultInbox).toMatchObject({
+      factSource: "dispatch_result_inbox",
+      resultKey: "dispatch-1::attempt-original",
+      attemptId: "attempt-original",
+      publishState: "result_accepted",
+    });
+  });
+
+  it("surfaces quarantined legacy result inbox facts without treating them as replies", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const db = createTraceDb({
+      resultInboxRowPatch: {
+        publishState: "legacy_result_quarantined",
+        publishedSignalId: null,
+        publicationErrorCode: "runtime_coordinator.execution_token_required",
+      },
+      resultRow: null,
+    });
+
+    const result = await readSpaceDispatchTrace({
+      db,
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      spaceId: "space-1",
+    });
+
+    expect(result.trace?.resultInbox).toMatchObject({
+      factSource: "dispatch_result_inbox",
+      resultKey: "dispatch-1::attempt-1",
+      publishState: "legacy_result_quarantined",
+      publishedSignalId: null,
+      publicationErrorCode: "runtime_coordinator.execution_token_required",
+    });
+  });
+
+  it("surfaces stopped suppressed result inbox facts for late replies", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const db = createTraceDb({
+      resultInboxRowPatch: {
+        publishState: "reply_suppressed_stopped",
+        publishedSignalId: "sig-stop-1",
+        publicationErrorCode: "runtime_coordinator.wake_stop_requested",
+      },
+      resultRow: null,
+    });
+
+    const result = await readSpaceDispatchTrace({
+      db,
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      spaceId: "space-1",
+    });
+
+    expect(result.trace?.resultInbox).toMatchObject({
+      factSource: "dispatch_result_inbox",
+      resultKey: "dispatch-1::attempt-1",
+      publishState: "reply_suppressed_stopped",
+      publishedSignalId: "sig-stop-1",
+      publicationErrorCode: "runtime_coordinator.wake_stop_requested",
+    });
+  });
+
+  it("surfaces runtime coordinator diagnostic events through dispatch trace", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const db = createTraceDb({
+      runtimeCoordinatorEventRows: [
+        {
+          event_id: "event-owner-conflict-stale",
+          event_type: "owner_conflict_stale_token",
+          idempotency_key: "rce-dispatch-1::run-old::owner-conflict",
+          observed_at_ms: 1_700_000_003_250,
+          payload_json: JSON.stringify({
+            conflictSummary: "stale owner conflict ignored",
+            tokenFingerprint: "etfp_v1_bbbbbbbbbbbbbbbb",
+            tokenStatus: "superseded",
+          }),
+          reason_code: "owner_conflict.stale_token",
+          runtime_coordinator_execution_id: "rce-dispatch-1",
+          status_after: null,
+        },
+      ],
+      runtimeCoordinatorExecutionRow: {
+        status: "delivery_accepted",
+      },
+    });
+
+    const result = await readSpaceDispatchTrace({
+      db,
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      spaceId: "space-1",
+    });
+
+    expect(result.trace?.runtimeCoordinatorEvents).toEqual([
+      expect.objectContaining({
+        eventType: "owner_conflict_stale_token",
+        factSource: "runtime_coordinator_projection",
+        reasonCode: "owner_conflict.stale_token",
+        runtimeCoordinatorExecutionId: "rce-dispatch-1",
+      }),
+    ]);
+  });
+
+  it("reads RuntimeCoordinator head lifecycle through verified dispatch owner evidence", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const readRuntimeCoordinatorHeadLifecycleTrace = vi
+      .fn()
+      .mockImplementation(({ request }) =>
+        Promise.resolve({
+          lifecycle: {
+            createdAtMs: 1_700_000_001_100,
+            duplicateDispatchCount: 0,
+            executionLinkedAtMs: null,
+            modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+            noExecutionDecision: {
+              decidedAtMs: 1_700_000_001_200,
+              publicationCategory: "binding_required",
+              reasonCode: "agent_profile_binding.missing",
+              source: "dispatch_preflight",
+              userRecoveryAction: "set_up_agent_binding",
+            },
+            ownerUserId: "owner-1",
+            primaryDispatchId: "dispatch-1",
+            publicationIntent: {
+              intentId:
+                "twl_space-1_sig-source-1_agt-target-1::no-execution-failure",
+              kind: "no_execution_failure",
+              publicationCategory: "binding_required",
+              readyAtMs: 1_700_000_001_300,
+              reasonCode: "agent_profile_binding.missing",
+              status: "ready_for_phase_6",
+              userRecoveryAction: "set_up_agent_binding",
+            },
+            runtimeCoordinatorExecutionId: null,
+            status: "publication_intent_ready",
+            targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+            targetWakeLifecycleId:
+              request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+            updatedAtMs: 1_700_000_001_300,
+            waitingBoundary: null,
+          },
+          ok: true,
+          readStatus: "found",
+        })
+      );
+
+    const result = await readSpaceDispatchTrace({
+      db: createTraceDb({
+        runtimeCoordinatorExecutionRow: undefined,
+      }),
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      readRuntimeCoordinatorHeadLifecycleTrace,
+      spaceId: "space-1",
+    });
+
+    expect(readRuntimeCoordinatorHeadLifecycleTrace).toHaveBeenCalledWith({
+      dispatch: expect.objectContaining({
+        dispatchId: "dispatch-1",
+        owner: {
+          id: "owner-1",
+          kind: "owner_account",
+        },
+      }),
+      ownerUserId: "owner-1",
+      request: {
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        targetWakeLifecycleIdentity: expect.objectContaining({
+          clientMessageId: "client-message-1",
+          dispatchId: "dispatch-1",
+          sourceSignalId: "sig-source-1",
+          spaceId: "space-1",
+          targetProfileId: "agt-target-1",
+        }),
+      },
+    });
+    expect(result.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject({
+      factSource: "runtime_coordinator_head_lifecycle",
+      noExecutionDecision: {
+        reasonCode: "agent_profile_binding.missing",
+        userRecoveryAction: "set_up_agent_binding",
+      },
+      publicationIntent: {
+        reasonCode: "agent_profile_binding.missing",
+        status: "ready_for_phase_6",
+      },
+      readStatus: "found",
+      runtimeCoordinatorExecutionId: null,
+      status: "publication_intent_ready",
+    });
+  });
+
+  it("surfaces the runtime token diagnostic trace matrix without token secrets", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const rawToken = "rcet_v1_never_persist_this_runtime_execution_token";
+    const eventRows = [
+      {
+        event_id: "event-token-superseded",
+        event_type: "execution_token_validation_failed",
+        idempotency_key: "rce-dispatch-1::run-old::late-result",
+        observed_at_ms: 1_700_000_003_250,
+        payload_json: JSON.stringify({
+          ignoredEventSummary: "late result ignored",
+          runId: "run-old",
+          tokenFingerprint: "etfp_v1_bbbbbbbbbbbbbbbb",
+          tokenStatus: "superseded",
+        }),
+        reason_code: "execution_token_superseded",
+        runtime_coordinator_execution_id: "rce-dispatch-1",
+        status_after: null,
+      },
+      {
+        event_id: "event-token-terminal-late",
+        event_type: "execution_token_terminal_late",
+        idempotency_key: "rce-dispatch-1::run-old::after-terminal",
+        observed_at_ms: 1_700_000_003_350,
+        payload_json: JSON.stringify({
+          ignoredEventSummary: "result arrived after terminal outcome",
+          runId: "run-old",
+          tokenFingerprint: "etfp_v1_bbbbbbbbbbbbbbbb",
+          tokenStatus: "terminal",
+        }),
+        reason_code: "execution_token_terminal_late",
+        runtime_coordinator_execution_id: "rce-dispatch-1",
+        status_after: "result_accepted",
+      },
+      {
+        event_id: "event-owner-conflict-stale",
+        event_type: "owner_conflict_stale_token",
+        idempotency_key: "rce-dispatch-1::run-old::owner-conflict",
+        observed_at_ms: 1_700_000_003_450,
+        payload_json: JSON.stringify({
+          conflictSummary: "stale owner conflict ignored",
+          tokenFingerprint: "etfp_v1_bbbbbbbbbbbbbbbb",
+          tokenStatus: "superseded",
+        }),
+        reason_code: "owner_conflict.stale_token",
+        runtime_coordinator_execution_id: "rce-dispatch-1",
+        status_after: null,
+      },
+    ];
+    const db = createTraceDb({
+      runtimeCoordinatorEventRows: eventRows,
+      runtimeCoordinatorExecutionRow: {
+        status: "result_accepted",
+      },
+    });
+
+    const result = await readSpaceDispatchTrace({
+      db,
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      spaceId: "space-1",
+    });
+
+    expect(JSON.stringify(result)).not.toContain(rawToken);
+    expect(result.correlation.runtimeCoordinatorExecutionId).toBe(
+      "rce-dispatch-1"
+    );
+    expect(result.trace?.runtimeCoordinatorEvents).toEqual(
+      eventRows.map((row) =>
+        expect.objectContaining({
+          eventType: row.event_type,
+          factSource: "runtime_coordinator_projection",
+          reasonCode: row.reason_code,
+          runtimeCoordinatorExecutionId: "rce-dispatch-1",
+        })
+      )
+    );
+  });
+
+  it("does not leak raw execution tokens from invalid runtime coordinator event rows", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const rawToken = "rcet_v1_abcdefghijklmnopqrstuvwxyz123456";
+    const db = createTraceDb({
+      runtimeCoordinatorEventRows: [
+        {
+          event_id: "event-raw-token",
+          event_type: "execution_token_validation_failed",
+          idempotency_key: "raw-token-event",
+          observed_at_ms: 1_700_000_003_250,
+          payload_json: JSON.stringify({
+            executionToken: rawToken,
+            tokenFingerprint: "etfp_v1_aaaaaaaaaaaaaaaa",
+          }),
+          reason_code: "execution_token_mismatch",
+          runtime_coordinator_execution_id: "rce-dispatch-1",
+          status_after: null,
+        },
+      ],
+      runtimeCoordinatorExecutionRow: {
+        status: "delivery_accepted",
+      },
+    });
+
+    const result = await readSpaceDispatchTrace({
+      db,
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      spaceId: "space-1",
+    });
+
+    expect(JSON.stringify(result)).not.toContain(rawToken);
+    expect(result.trace?.runtimeCoordinatorEvents).toEqual([]);
+  });
+
+  it("rejects dispatch trace when result evidence does not match the ledger fact", async () => {
+    const db = createTraceDb({
+      resultRowPatch: {
+        spaceId: "space-other",
+      },
+    });
+
+    await expect(
+      readSpaceDispatchTrace({
+        db,
+        dispatchId: "dispatch-1",
+        readReplySignalTrace: vi.fn().mockReturnValue(null),
+        spaceId: "space-1",
+      })
+    ).rejects.toThrow("invalid dispatch result trace evidence");
+  });
+
+  it("surfaces dispatch result trace read failures instead of reporting missing evidence", async () => {
+    const db = createTraceDb({
+      resultReadError: new Error("D1 read failed"),
+    });
+
+    await expect(
+      readSpaceDispatchTrace({
+        db,
+        dispatchId: "dispatch-1",
+        readReplySignalTrace: vi.fn().mockReturnValue(null),
+        spaceId: "space-1",
+      })
+    ).rejects.toThrow(
+      "dispatch result trace read failed for dispatch dispatch-1"
+    );
+  });
+
+  it("rejects dispatch trace when result inbox evidence does not match the ledger fact", async () => {
+    const db = createTraceDb({
+      resultInboxRowPatch: {
+        targetProfileId: "agt-other",
+      },
+    });
+
+    await expect(
+      readSpaceDispatchTrace({
+        db,
+        dispatchId: "dispatch-1",
+        readReplySignalTrace: vi.fn().mockReturnValue(null),
+        spaceId: "space-1",
+      })
+    ).rejects.toThrow("invalid dispatch result inbox trace evidence");
+  });
+
+  it("surfaces dispatch result inbox trace read failures", async () => {
+    const db = createTraceDb({
+      resultInboxReadError: new Error("D1 read failed"),
+    });
+
+    await expect(
+      readSpaceDispatchTrace({
+        db,
+        dispatchId: "dispatch-1",
+        readReplySignalTrace: vi.fn().mockReturnValue(null),
+        spaceId: "space-1",
+      })
+    ).rejects.toThrow(
+      "dispatch result inbox trace read failed for dispatch dispatch-1"
+    );
+  });
+
+  it("reads archived dispatch result dispatch execution facts from runtime and lifecycle decisions", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([
+      createDecisionRecord({
+        decisionCode: DISPATCH_RUNTIME_TELEMETRY_DECISION_CODE,
+        payload: {
+          agentControllerConversationId: "thread-1",
+          effectiveRuntimeWorkingDirectory: "/tmp/demo",
+          runtimeWorkspaceFingerprint: "sha256:workspace-demo",
+          agentControllerRef: "builtin:codex",
+          resolvedAgentControllerConversationId:
+            "019d8ac0-46e2-78e2-9f4a-a41b3a6674c8",
+          agentControllerConversationKind: "thread",
+        },
+      }),
+      createDecisionRecord({
+        decisionCode: DISPATCH_CONVERSATION_LIFECYCLE_DECISION_CODE,
+        payload: {
+          attemptId: "attempt-1",
+          agentControllerConversationResume: {
+            status: "continued",
+          },
+          localRuntimeContext: {
+            status: "reused",
+            reason: null,
+          },
+          bootstrap: {
+            status: "applied",
+            reason: null,
+          },
+        },
+      }),
+    ]);
+
+    const result = await readDispatchResultConversationFacts({
+      db: createTraceDb(),
+      dispatchId: "dispatch-1",
+    });
+
+    expect(result).toEqual({
+      dispatchExecution: {
+        agentControllerConversationResume: {
+          status: "continued",
+        },
+        localRuntimeContext: {
+          status: "reused",
+          reason: null,
+        },
+        bootstrap: {
+          status: "applied",
+          reason: null,
+        },
+      },
+      runtimeWorkspace: {
+        path: "/tmp/demo",
+        fingerprint: "sha256:workspace-demo",
+      },
+      agentControllerConversation: {
+        agentControllerConversationId: "019d8ac0-46e2-78e2-9f4a-a41b3a6674c8",
+        agentControllerRef: "builtin:codex",
+        agentControllerConversationKind: "thread",
+      },
+    });
+    expect(listRecentOpenMeldDaemonOpsDecisions).toHaveBeenCalledTimes(1);
+    expect(listRecentOpenMeldDaemonOpsDecisions).toHaveBeenCalledWith({
+      db: expect.anything(),
+      correlationId: "dispatch-1",
+      limit: 200,
+    });
+  });
+});
+
+const createTraceDb = (
+  input: {
+    mutableBindingControllerRef?: { current: string | null };
+    resultInboxReadError?: Error;
+    resultInboxRowPatch?: Record<string, unknown>;
+    resultInboxRows?: Array<Record<string, unknown> | null>;
+    resultReadError?: Error;
+    resultRow?: Record<string, unknown> | null;
+    resultRowPatch?: Record<string, unknown>;
+    nativeDeliveryRow?: Record<string, unknown> | null;
+    runtimeCoordinatorEventRows?: Record<string, unknown>[];
+    runtimeCoordinatorExecutionRow?: Record<string, unknown>;
+  } = {}
+) =>
+  ({
+    prepare: vi.fn((query: string) => {
+      if (query.includes("openMeldDaemon_agent_profile_bindings")) {
+        return {
+          bind: vi.fn().mockReturnValue({
+            first: vi.fn().mockResolvedValue(
+              input.nativeDeliveryRow
+                ? {
+                    ...input.nativeDeliveryRow,
+                    storedAgentControllerRef:
+                      input.mutableBindingControllerRef?.current ?? null,
+                  }
+                : null
+            ),
+          }),
+        };
+      }
+      if (
+        query.includes("FROM openMeldDaemon_dispatch_ledger") &&
+        query.includes("WHERE dispatch_id = ?")
+      ) {
+        return {
+          bind: vi.fn().mockReturnValue({
+            first: vi.fn().mockResolvedValue({
+              dispatchId: "dispatch-1",
+              idempotencyKey: "idem-1",
+              sourceEventId: "sig-source-1",
+              sourceClientMessageId: "client-message-1",
+              dispatchOwnerKind: "owner_account",
+              dispatchOwnerId: "owner-1",
+              targetProfileId: "agt-target-1",
+              status: "dispatching",
+              spaceId: "space-1",
+              firstSeenAtMs: 1_700_000_001_000,
+              lastAttemptAtMs: 1_700_000_002_000,
+              attemptCount: 1,
+              latestAttemptId: "attempt-1",
+            }),
+          }),
+        };
+      }
+
+      if (query.includes("FROM openMeldDaemon_dispatch_attempts")) {
+        return {
+          bind: vi.fn().mockReturnValue({
+            first: vi.fn().mockResolvedValue({
+              attemptId: "attempt-1",
+              dispatchId: "dispatch-1",
+              idempotencyKey: "idem-1",
+              attemptNo: 1,
+              status: "waiting_result",
+              daemonSessionId: "daemon-session-1",
+              connectionGeneration: 2,
+              leaseEpoch: 4,
+              createdAtMs: 1_700_000_002_000,
+              startedAtMs: 1_700_000_003_000,
+              finishedAtMs: null,
+              errorCode: null,
+              errorMessage: null,
+            }),
+          }),
+        };
+      }
+
+      if (query.includes("FROM openMeldRemoteAgent_native_delivery_ledger")) {
+        return {
+          bind: vi.fn().mockReturnValue({
+            first: vi.fn().mockResolvedValue(input.nativeDeliveryRow ?? null),
+          }),
+        };
+      }
+
+      if (query.includes("FROM openMeldDaemon_dispatch_results")) {
+        if (input.resultReadError) {
+          return {
+            bind: vi.fn().mockReturnValue({
+              first: vi.fn().mockRejectedValue(input.resultReadError),
+            }),
+          };
+        }
+        const resultRow =
+          input.resultRow === undefined
+            ? {
+                resultRef: "result-1",
+                dispatchId: "dispatch-1",
+                spaceId: "space-1",
+                actorProfileId: "agt-target-1",
+                replyToSignalId: "sig-source-1",
+                resultKind: "final_text",
+                publicOutcome: "succeeded",
+                publishedSignalId: "sig-reply-1",
+                statusType: null,
+                createdAtMs: 1_700_000_004_000,
+                ...input.resultRowPatch,
+              }
+            : input.resultRow;
+        return {
+          bind: vi.fn().mockReturnValue({
+            first: vi.fn().mockResolvedValue(resultRow),
+          }),
+        };
+      }
+
+      if (query.includes("FROM openMeldDaemon_dispatch_result_inbox")) {
+        if (input.resultInboxReadError) {
+          return {
+            bind: vi.fn().mockReturnValue({
+              first: vi.fn().mockRejectedValue(input.resultInboxReadError),
+            }),
+          };
+        }
+        const nextResultInboxRow = input.resultInboxRows?.shift();
+        if (input.resultInboxRows && nextResultInboxRow === null) {
+          return {
+            bind: vi.fn().mockReturnValue({
+              first: vi.fn().mockResolvedValue(null),
+            }),
+          };
+        }
+        return {
+          bind: vi.fn().mockReturnValue({
+            first: vi.fn().mockResolvedValue({
+              resultKey: "dispatch-1::attempt-1",
+              dispatchId: "dispatch-1",
+              attemptId: "attempt-1",
+              taskId: "task-1",
+              targetProfileId: "agt-target-1",
+              daemonSessionId: "daemon-session-1",
+              leaseEpoch: 4,
+              submittedConnectionGeneration: 3,
+              resultPayloadJson: JSON.stringify({
+                code: "service.task_result",
+                payload: {
+                  agentId: "agt-target-1",
+                  attemptId: "attempt-1",
+                  deduped: false,
+                  output: "done",
+                  sourceEventId: "sig-source-1",
+                  status: "success",
+                  taskId: "task-1",
+                },
+                v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+              }),
+              acceptedAtMs: 1_700_000_003_500,
+              publishState: "reply_published",
+              publishedSignalId: "sig-reply-1",
+              publicationErrorCode: null,
+              updatedAtMs: 1_700_000_004_000,
+              ...(nextResultInboxRow ?? {}),
+              ...input.resultInboxRowPatch,
+            }),
+          }),
+        };
+      }
+
+      if (
+        query.includes("FROM openMeldDaemon_runtime_coordinator_executions")
+      ) {
+        return {
+          bind: vi.fn().mockReturnValue({
+            first: vi.fn().mockResolvedValue(
+              input.runtimeCoordinatorExecutionRow
+                ? {
+                    attempt_id: "attempt-1",
+                    binding_id: "binding-1",
+                    agent_controller_ref: "builtin:codex",
+                    claim_lease_id: null,
+                    connection_generation: 2,
+                    created_at_ms: 1_700_000_002_250,
+                    daemon_session_id: "daemon-session-1",
+                    dispatch_id: "dispatch-1",
+                    lease_epoch: 4,
+                    model_version: "openmeld.runtime_coordinator.execution.v1",
+                    runtime_coordinator_execution_id: "rce-dispatch-1",
+                    openmeld_service_runtime_id: "runtime-1",
+                    openmeld_service_runtime_id_source:
+                      "runtime_registry_authority",
+                    source_client_message_id: "client-message-1",
+                    space_id: "space-1",
+                    status: "delivery_accepted",
+                    target_profile_id: "agt-target-1",
+                    terminal_outcome_json: null,
+                    updated_at_ms: 1_700_000_002_500,
+                    ...input.runtimeCoordinatorExecutionRow,
+                  }
+                : null
+            ),
+          }),
+        };
+      }
+
+      if (
+        query.includes(
+          "FROM openMeldDaemon_runtime_coordinator_execution_events"
+        )
+      ) {
+        return {
+          bind: vi.fn().mockReturnValue({
+            all: vi.fn().mockResolvedValue({
+              results: (input.runtimeCoordinatorEventRows ?? []).map((row) => ({
+                event_id: "event-1",
+                event_type: "runtime_evidence_observed",
+                idempotency_key: "event-idempotency-1",
+                observed_at_ms: 1_700_000_003_000,
+                payload_json: "{}",
+                reason_code: null,
+                runtime_coordinator_execution_id: "rce-dispatch-1",
+                status_after: null,
+                ...row,
+              })),
+            }),
+          }),
+        };
+      }
+
+      throw new Error(`unexpected query: ${query}`);
+    }),
+  }) as unknown as D1Database;
+
+const createDecisionRecord = (input: {
+  decisionCode: string;
+  payload: Record<string, unknown>;
+}) => ({
+  id: `${input.decisionCode}-1`,
+  decisionCode: input.decisionCode,
+  decidedBy: "test",
+  source: "test",
+  decidedAtMs: 1_700_000_010_000,
+  correlationId: "dispatch-1",
+  expectedRecoveryCriteria: "n/a",
+  decisionPayloadJson: JSON.stringify(input.payload),
+});

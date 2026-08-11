@@ -1,0 +1,126 @@
+name: 🧪 Deep Confidence
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deep-confidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Deep Confidence / ${{ matrix.check.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        check:
+          - name: Control Plane
+            command: pnpm run verify:local-execution:control-plane
+          - name: Data Plane
+            command: pnpm run verify:local-execution:data-plane
+          - name: Adapter and Mention Dispatch
+            command: pnpm run verify:local-execution:adapter-and-mention-dispatch
+          - name: Decision Matrix
+            command: pnpm run test:local-execution:decision-matrix
+          # CLI and Web tests go through Turbo so workspace dependencies are
+          # built first (test dependsOn ^build) — a fresh CI checkout has no
+          # dist/ and direct vitest runs fail on unresolved workspace imports.
+          - name: CLI Unit Tests
+            command: pnpm exec turbo run test --filter=openmeld
+          - name: Web Tests
+            command: pnpm exec turbo run test --filter=openmeld-web
+          - name: Static Rules
+            command: pnpm sherif && pnpm run verify:cloudflare:env-contract && bash scripts/ci/check-retired-identifiers.sh
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js, pnpm, and dependencies
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Fetch base ref
+        run: git fetch origin main --depth=1
+
+      - name: Run ${{ matrix.check.name }}
+        env:
+          NODE_OPTIONS: ${{ matrix.check.node_options || '' }}
+        run: ${{ matrix.check.command }}
+
+  workers-integration:
+    name: Deep Confidence / Workers Integration ${{ matrix.shard }}/4
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js, pnpm, and dependencies
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Build Core Worker integration dependencies
+        run: pnpm exec turbo run build --filter=@openmeld/core^...
+
+      - name: Run Workers Integration ${{ matrix.shard }}/4
+        working-directory: services/core
+        run: pnpm exec vitest run --config vitest.config.ts --shard=${{ matrix.shard }}/4
+
+  cli-integration:
+    name: Deep Confidence / CLI Integration Tests ${{ matrix.shard }}/10
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+          - 6
+          - 7
+          - 8
+          - 9
+          - 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js, pnpm, and dependencies
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Run CLI Integration Tests ${{ matrix.shard }}/10
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: pnpm exec turbo run test:integration --filter=openmeld -- --shard=${{ matrix.shard }}/10
+
+  runtime:
+    name: Deep Confidence / Runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js, pnpm, and dependencies
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Run runtime lane
+        run: pnpm run test:runtime

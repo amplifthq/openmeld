@@ -1,0 +1,28 @@
+name: Cache Fast PR Turbo outputs
+description: Restore and save one PR job's non-sensitive Turbo task cache.
+
+inputs:
+  cache-suffix:
+    description: Stable job or shard name used to isolate concurrent cache writers.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Require pull request cache scope
+      shell: bash
+      env:
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        if [[ -z "$PR_NUMBER" ]]; then
+          echo "Fast PR Turbo cache requires a pull request event."
+          exit 1
+        fi
+
+    - name: Restore and save Turbo cache
+      uses: actions/cache@v4
+      with:
+        path: .turbo/cache
+        key: fast-pr-turbo-${{ runner.os }}-node24-pr-${{ github.event.pull_request.number }}-${{ hashFiles('pnpm-lock.yaml', 'turbo.json') }}-${{ inputs.cache-suffix }}-${{ github.sha }}
+        restore-keys: |
+          fast-pr-turbo-${{ runner.os }}-node24-pr-${{ github.event.pull_request.number }}-${{ hashFiles('pnpm-lock.yaml', 'turbo.json') }}-${{ inputs.cache-suffix }}-

@@ -1,0 +1,257 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openmeld-remote-agent",
+  "workers_dev": false,
+  // Internal-only: Core calls this Worker through OPENMELD_REMOTE_AGENT_WORKER.
+  "compatibility_date": "2026-07-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "dev": {
+    "ip": "localhost",
+    "port": 8790,
+    "inspector_port": 9233
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
+  },
+  "analytics_engine_datasets": [
+    {
+      "binding": "OPENMELD_OBSERVABILITY",
+      "dataset": "openmeld_runtime_evidence"
+    }
+  ],
+  "browser": {
+    "binding": "BROWSER",
+    "remote": true
+  },
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ],
+  "containers": [
+    {
+      "class_name": "AgentComputer",
+      "image": "./Dockerfile",
+      "instance_type": "standard-2",
+      "max_instances": 10
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "AgentComputer",
+        "name": "AGENT_COMPUTER"
+      }
+    ]
+  },
+  "r2_buckets": [
+    {
+      "binding": "OPENMELD_SPACE_ATTACHMENTS",
+      "bucket_name": "openmeld-space-attachments-preview",
+      "preview_bucket_name": "openmeld-space-attachments-preview"
+    }
+  ],
+  "vars": {
+    "OPENMELD_WORKER_ENVIRONMENT": "local",
+    "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
+    "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID": "e74a33891b4c7a16b1fe853c41011f52",
+    "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID": "openmeld-remote-agent",
+    "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS": "openrouter",
+    "OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID": "x-ai/grok-4.5",
+    "OPENMELD_REMOTE_AGENT_WORK_SURFACE_MODEL_ID": "openai/gpt-5.4-mini",
+    "OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "false",
+    "OPENMELD_AGENT_ACTIVITY_DIGEST_MODEL_ID": "",
+    "OPENMELD_FEEDBACK_SUBMIT_BASE_URL": "",
+    "OPENMELD_OFFICIAL_FEEDBACK_INBOX_KEY": ""
+  },
+  "secrets": {
+    "required": [
+      "CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN",
+      "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN"
+    ]
+  },
+  "services": [
+    {
+      "binding": "OPENMELD_CORE_WORKER",
+      "service": "openmeld-core",
+      "entrypoint": "CenterAgentRpcEntrypoint"
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1_openmeld_greenfield",
+      "new_sqlite_classes": [
+        "FlueRegistry",
+        "FlueCenterAgentAgent",
+        "AgentComputer"
+      ]
+    }
+  ],
+  "env": {
+    "dev": {
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence"
+        }
+      ],
+      "browser": {
+        "binding": "BROWSER",
+        "remote": true
+      },
+      "worker_loaders": [
+        {
+          "binding": "LOADER"
+        }
+      ],
+      "containers": [
+        {
+          "class_name": "AgentComputer",
+          "image": "./Dockerfile",
+          "instance_type": "standard-2",
+          "max_instances": 10
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "class_name": "AgentComputer",
+            "name": "AGENT_COMPUTER"
+          }
+        ]
+      },
+      "r2_buckets": [
+        {
+          "binding": "OPENMELD_SPACE_ATTACHMENTS",
+          "bucket_name": "openmeld-space-attachments-preview",
+          "preview_bucket_name": "openmeld-space-attachments-preview"
+        }
+      ],
+      "vars": {
+        "OPENMELD_WORKER_ENVIRONMENT": "dev",
+        "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
+        "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID": "e74a33891b4c7a16b1fe853c41011f52",
+        "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID": "openmeld-remote-agent",
+        "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS": "openrouter",
+        "OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID": "x-ai/grok-4.5",
+        "OPENMELD_REMOTE_AGENT_WORK_SURFACE_MODEL_ID": "openai/gpt-5.4-mini",
+        "OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "false",
+        "OPENMELD_AGENT_ACTIVITY_DIGEST_MODEL_ID": "",
+        "OPENMELD_FEEDBACK_SUBMIT_BASE_URL": "",
+        "OPENMELD_OFFICIAL_FEEDBACK_INBOX_KEY": ""
+      },
+      "secrets": {
+        "required": [
+          "CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN",
+          "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN"
+        ]
+      },
+      "services": [
+        {
+          "binding": "OPENMELD_CORE_WORKER",
+          "service": "openmeld-core",
+          "entrypoint": "CenterAgentRpcEntrypoint"
+        }
+      ]
+    },
+    "prod": {
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence_prod"
+        }
+      ],
+      "browser": {
+        "binding": "BROWSER",
+        "remote": true
+      },
+      "worker_loaders": [
+        {
+          "binding": "LOADER"
+        }
+      ],
+      "containers": [
+        {
+          "class_name": "AgentComputer",
+          "image": "./Dockerfile",
+          "instance_type": "standard-2",
+          "max_instances": 10
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "class_name": "AgentComputer",
+            "name": "AGENT_COMPUTER"
+          }
+        ]
+      },
+      "r2_buckets": [
+        {
+          "binding": "OPENMELD_SPACE_ATTACHMENTS",
+          "bucket_name": "openmeld-space-attachments-prod",
+          "preview_bucket_name": "openmeld-space-attachments-preview"
+        }
+      ],
+      "vars": {
+        "OPENMELD_WORKER_ENVIRONMENT": "prod",
+        "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
+        "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID": "e74a33891b4c7a16b1fe853c41011f52",
+        "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID": "openmeld-remote-agent-prod",
+        "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS": "openrouter",
+        "OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID": "x-ai/grok-4.5",
+        "OPENMELD_REMOTE_AGENT_WORK_SURFACE_MODEL_ID": "openai/gpt-5.4-mini",
+        "OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "false",
+        "OPENMELD_AGENT_ACTIVITY_DIGEST_MODEL_ID": "",
+        "OPENMELD_FEEDBACK_SUBMIT_BASE_URL": "https://gateway.openmeld.ai",
+        "OPENMELD_OFFICIAL_FEEDBACK_INBOX_KEY": "feedback_key_8oDRg9Aq-Q4crzVGV6hUqhKT2dQpKkBn4bKg9bjXLcE"
+      },
+      "secrets": {
+        "required": [
+          "CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN",
+          "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN"
+        ]
+      },
+      "services": [
+        {
+          "binding": "OPENMELD_CORE_WORKER",
+          "service": "openmeld-core-prod",
+          "entrypoint": "CenterAgentRpcEntrypoint"
+        }
+      ]
+    }
+  }
+}

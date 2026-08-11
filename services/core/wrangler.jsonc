@@ -1,0 +1,365 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openmeld-core",
+  "main": "src/index.ts",
+  "workers_dev": false,
+  // Production endpoint is intentionally internal-only. Calls should come via
+  // Gateway OPENMELD_CORE_WORKER service binding, not direct HTTP access.
+  "compatibility_date": "2026-02-03",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "queue_consumer_no_wait_for_wait_until"
+  ],
+  "dev": {
+    "ip": "localhost",
+    "port": 8787,
+    "inspector_port": 9229
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
+  },
+  "triggers": {
+    "crons": ["* * * * *", "0 4 * * *", "0 5 * * 1"]
+  },
+  "workflows": [
+    {
+      "binding": "OPENMELD_ROUTINE_RUN_WORKFLOW",
+      "class_name": "RoutineRunWorkflow",
+      "name": "openmeld-routine-run"
+    }
+  ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "OPENMELD_OBSERVABILITY",
+      "dataset": "openmeld_runtime_evidence"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "OPENMELD_SPACE_ATTACHMENTS",
+      "bucket_name": "openmeld-space-attachments-preview",
+      "preview_bucket_name": "openmeld-space-attachments-preview"
+    },
+    {
+      "binding": "OPENMELD_ORGANIZATION_SKILLS",
+      "bucket_name": "openmeld-organization-skills-preview",
+      "preview_bucket_name": "openmeld-organization-skills-preview"
+    }
+  ],
+  "vars": {
+    "OPENMELD_WORKER_ENVIRONMENT": "local",
+    "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "true",
+    "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "",
+    "OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT": "200",
+    "OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED": "true",
+    "OPENMELD_LARK_CHANNEL_ENABLED": "true",
+    "OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS": "*",
+    "OPENMELD_FEISHU_CHANNEL_ENABLED": "false",
+    "OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS": "",
+    "OPENMELD_GATEWAY_URL": "http://localhost:8080",
+    "OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED": "false",
+    "OPENMELD_ROUTINE_ENGINE_DEFAULT": "workflow",
+    "OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS": "",
+    "WEB_APP_URL": "http://localhost:3000",
+    "CORS_ORIGINS": "http://localhost:8080"
+  },
+  "secrets": {
+    "required": [
+      "GITHUB_OPENMELD_API_TOKEN",
+      "SLACK_OPENMELD_BOT_TOKEN",
+      "SLACK_OPENMELD_TOKEN_CRYPTO_KEY",
+      "LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY",
+      "ZEP_OPENMELD_API_KEY"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "OPENMELD_DB",
+      "database_name": "openmeld-db-prod",
+      "database_id": "15f16284-5240-4675-b626-3b7144e1d684",
+      "migrations_dir": "../../packages/db/drizzle"
+    },
+    // Per-domain bindings, ALIASED to the OpenMeld production DB (single physical DB). The
+    // 4-way physical split was attempted and REVERTED 2026-06-14 (Felix); see
+    // physical-db-split.md "DIRECTION CHANGE". These stay aliased; do NOT flip them.
+    // Kept so the code stays split-ready: a future observability-only split would
+    // flip ONLY OPENMELD_WAKE_EVIDENCE_DB, not these.
+    {
+      "binding": "OPENMELD_LOCAL_STATE_DB",
+      "database_name": "openmeld-db-prod",
+      "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+    },
+    {
+      "binding": "OPENMELD_WAKE_EVIDENCE_DB",
+      "database_name": "openmeld-db-prod",
+      "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+    },
+    {
+      "binding": "OPENMELD_PROJECTIONS_DB",
+      "database_name": "openmeld-db-prod",
+      "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OPENMELD_SPACES",
+        "class_name": "Space"
+      },
+      {
+        "name": "OPENMELD_RUNTIME_TRANSPORT",
+        "class_name": "RuntimeTransportHub"
+      },
+      {
+        "name": "OPENMELD_PREPARE_SESSION_HUB",
+        "class_name": "PrepareSessionHub"
+      }
+    ]
+  },
+  "services": [
+    {
+      "binding": "OPENMELD_AUTH_WORKER",
+      "service": "openmeld-auth"
+    },
+    {
+      "binding": "OPENMELD_REMOTE_AGENT_WORKER",
+      "service": "openmeld-remote-agent"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "OPENMELD_DAEMON_DISPATCH_QUEUE",
+        "queue": "openmeld-daemon-dispatch"
+      },
+      {
+        "binding": "OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE",
+        "queue": "openmeld-message-channel-events"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "openmeld-daemon-dispatch",
+        "max_batch_size": 20,
+        "max_batch_timeout": 0,
+        "max_retries": 3
+      },
+      {
+        "queue": "openmeld-message-channel-events",
+        "max_batch_size": 20,
+        "max_batch_timeout": 0,
+        "max_retries": 3
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Space"]
+    },
+    {
+      "tag": "v2",
+      // Applied migration history: keep DaemonHub here; v4 performs the rename.
+      "new_sqlite_classes": ["DaemonHub"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["PrepareSessionHub"]
+    },
+    {
+      "tag": "v4",
+      // Same-worker class rename; preserves existing Durable Object data.
+      "renamed_classes": [
+        {
+          "from": "DaemonHub",
+          "to": "RuntimeTransportHub"
+        }
+      ]
+    }
+  ],
+  "env": {
+    "prod": {
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "triggers": {
+        "crons": ["* * * * *", "0 4 * * *", "0 5 * * 1"]
+      },
+      "workflows": [
+        {
+          "binding": "OPENMELD_ROUTINE_RUN_WORKFLOW",
+          "class_name": "RoutineRunWorkflow",
+          "name": "openmeld-routine-run-prod"
+        }
+      ],
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence_prod"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "OPENMELD_SPACE_ATTACHMENTS",
+          "bucket_name": "openmeld-space-attachments-prod",
+          "preview_bucket_name": "openmeld-space-attachments-preview"
+        },
+        {
+          "binding": "OPENMELD_ORGANIZATION_SKILLS",
+          "bucket_name": "openmeld-organization-skills-prod",
+          "preview_bucket_name": "openmeld-organization-skills-preview"
+        }
+      ],
+      "vars": {
+        "OPENMELD_WORKER_ENVIRONMENT": "prod",
+        "OPENMELD_DAEMON_DISPATCH_OUTBOX_DELIVERY_MODE": "direct",
+        "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "true",
+        "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "",
+        "OPENMELD_REMOTE_AGENT_DAILY_ADMISSION_LIMIT": "200",
+        "OPENMELD_TASK_CONTINUATION_DESTINATION_NEUTRAL_ENABLED": "true",
+        "OPENMELD_LARK_CHANNEL_ENABLED": "true",
+        "OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS": "*",
+        "OPENMELD_FEISHU_CHANNEL_ENABLED": "false",
+        "OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS": "",
+        "OPENMELD_GATEWAY_URL": "https://gateway.openmeld.ai",
+        "OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED": "false",
+        "OPENMELD_ROUTINE_ENGINE_DEFAULT": "workflow",
+        "OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS": "",
+        "WEB_APP_URL": "https://openmeld.ai",
+        "CORS_ORIGINS": "https://gateway.openmeld.ai"
+      },
+      "secrets": {
+        "required": [
+          "GITHUB_OPENMELD_API_TOKEN",
+          "SLACK_OPENMELD_BOT_TOKEN",
+          "SLACK_OPENMELD_TOKEN_CRYPTO_KEY",
+          "LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY",
+          "ZEP_OPENMELD_API_KEY"
+        ]
+      },
+      "d1_databases": [
+        {
+          "binding": "OPENMELD_DB",
+          "database_name": "openmeld-db-prod",
+          "database_id": "15f16284-5240-4675-b626-3b7144e1d684",
+          "migrations_dir": "../../packages/db/drizzle"
+        },
+        // Per-domain bindings, ALIASED to the OpenMeld production DB (single physical DB). The
+        // 4-way physical split was attempted and REVERTED 2026-06-14 (Felix); see
+        // physical-db-split.md "DIRECTION CHANGE". These stay aliased; do NOT flip.
+        // Kept so the code stays split-ready: a future observability-only split
+        // would flip ONLY OPENMELD_WAKE_EVIDENCE_DB, not these.
+        {
+          "binding": "OPENMELD_LOCAL_STATE_DB",
+          "database_name": "openmeld-db-prod",
+          "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+        },
+        {
+          "binding": "OPENMELD_WAKE_EVIDENCE_DB",
+          "database_name": "openmeld-db-prod",
+          "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+        },
+        {
+          "binding": "OPENMELD_PROJECTIONS_DB",
+          "database_name": "openmeld-db-prod",
+          "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "OPENMELD_SPACES",
+            "class_name": "Space"
+          },
+          {
+            "name": "OPENMELD_RUNTIME_TRANSPORT",
+            "class_name": "RuntimeTransportHub"
+          },
+          {
+            "name": "OPENMELD_PREPARE_SESSION_HUB",
+            "class_name": "PrepareSessionHub"
+          }
+        ]
+      },
+      "services": [
+        {
+          "binding": "OPENMELD_AUTH_WORKER",
+          "service": "openmeld-auth-prod"
+        },
+        {
+          "binding": "OPENMELD_REMOTE_AGENT_WORKER",
+          "service": "openmeld-remote-agent-prod"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "OPENMELD_DAEMON_DISPATCH_QUEUE",
+            "queue": "openmeld-daemon-dispatch-prod"
+          },
+          {
+            "binding": "OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE",
+            "queue": "openmeld-message-channel-events-prod"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "openmeld-daemon-dispatch-prod",
+            "max_batch_size": 20,
+            "max_batch_timeout": 0,
+            "max_retries": 3
+          },
+          {
+            "queue": "openmeld-message-channel-events-prod",
+            "max_batch_size": 20,
+            "max_batch_timeout": 0,
+            "max_retries": 3
+          }
+        ]
+      }
+    }
+  }
+  // "vars": {
+  //   "MY_VAR": "my-variable"
+  // },
+  // "kv_namespaces": [
+  //   {
+  //     "binding": "MY_KV_NAMESPACE",
+  //     "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  //   }
+  // ],
+  // "r2_buckets": [
+  //   {
+  //     "binding": "MY_BUCKET",
+  //     "bucket_name": "my-bucket"
+  //   }
+  // ],
+  // "d1_databases": [
+  //   {
+  //     "binding": "MY_DB",
+  //     "database_name": "my-database",
+  //     "database_id": ""
+  //   }
+  // ],
+  // "ai": {
+  //   "binding": "AI"
+  // }
+}

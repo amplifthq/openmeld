@@ -1,0 +1,21 @@
+name: Setup Node.js and pnpm
+description: Install the repository-pinned Node.js and pnpm toolchain with the shared pnpm store cache.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v6
+      with:
+        version: 10.30.0
+        run_install: false
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: "24"
+        cache: pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

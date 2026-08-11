@@ -1,0 +1,40 @@
+import { createRouter as createTanStackRouter } from "@tanstack/react-router";
+import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
+import { resolveAppQueryClient } from "./integrations/tanstack-query/query-client";
+import {
+	APP_ROUTE_PENDING_DELAY_MS,
+	APP_ROUTE_PENDING_MIN_DURATION_MS,
+} from "./lib/app-route-loading";
+import { resolveAppQueryPersistenceController } from "./query/persistence/app-query-persistence";
+import { routeTree } from "./routeTree.gen";
+
+export function getRouter(options?: { isServer?: boolean }) {
+	const queryClient = resolveAppQueryClient({ isServer: options?.isServer });
+	const queryPersistence = resolveAppQueryPersistenceController({
+		isServer: options?.isServer,
+	});
+	const router = createTanStackRouter({
+		routeTree,
+
+		context: { queryClient, queryPersistence },
+
+		scrollRestoration: true,
+		defaultPreload: "intent",
+		// TanStack Query owns freshness for loader-prefetched data. Keeping the
+		// Router cache at zero prevents a second, unrelated freshness clock from
+		// skipping the exact Query checks owned by each route.
+		defaultPreloadStaleTime: 0,
+		defaultPendingMinMs: APP_ROUTE_PENDING_MIN_DURATION_MS,
+		defaultPendingMs: APP_ROUTE_PENDING_DELAY_MS,
+	});
+
+	setupRouterSsrQueryIntegration({ queryClient, router });
+
+	return router;
+}
+
+declare module "@tanstack/react-router" {
+	interface Register {
+		router: ReturnType<typeof getRouter>;
+	}
+}

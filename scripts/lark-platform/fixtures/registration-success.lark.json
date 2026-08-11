@@ -1,0 +1,8 @@
+{
+  "client_id": "<redacted-development-app-id>",
+  "client_secret": "<redacted-development-app-secret>",
+  "user_info": {
+    "open_id": "<redacted-operator-open-id>",
+    "tenant_brand": "lark"
+  }
+}

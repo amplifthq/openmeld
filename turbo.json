@@ -1,0 +1,141 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "futureFlags": {
+    "errorsOnlyShowHash": true
+  },
+  "ui": "stream-with-experimental-timestamps",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", "out/**"]
+    },
+    "lint": {},
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build"]
+    },
+    "transit": {
+      "dependsOn": ["^transit"]
+    },
+    "test:integration": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:runtime": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "cf-typegen": {
+      "dependsOn": ["^cf-typegen"]
+    },
+    "check": {
+      "dependsOn": ["^build"]
+    },
+    "deploy": {
+      "cache": false
+    },
+    "fix": {},
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
+    },
+    "dev:isolated": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": [
+        "BETTER_AUTH_URL",
+        "VITE_BETTER_AUTH_URL",
+        "VITE_OPENMELD_HOME",
+        "OPENMELD_AUTH_URL",
+        "OPENMELD_DEV_AUTH_INSPECTOR_PORT",
+        "OPENMELD_DEV_AUTH_PORT",
+        "OPENMELD_DEV_CORE_INSPECTOR_PORT",
+        "OPENMELD_DEV_ENVIRONMENT_SOURCE",
+        "OPENMELD_DEV_GATEWAY_INSPECTOR_PORT",
+        "OPENMELD_DEV_GATEWAY_PORT",
+        "OPENMELD_DEV_ISOLATED",
+        "OPENMELD_DEV_LANE_ID",
+        "OPENMELD_DEV_REMOTE_AGENT_INSPECTOR_PORT",
+        "OPENMELD_DEV_REMOTE_AGENT_PORT",
+        "OPENMELD_DEV_REMOTE_AGENT_SANDBOX_ENABLED",
+        "OPENMELD_DEV_WEB_INSPECTOR_PORT",
+        "OPENMELD_DEV_WEB_PORT",
+        "OPENMELD_DEV_WRANGLER_STATE_DIR",
+        "OPENMELD_GATEWAY_URL",
+        "OPENMELD_HOME",
+        "OPENMELD_SLACK_OAUTH_REDIRECT_URL",
+        "WEB_APP_URL",
+        "WRANGLER_REGISTRY_PATH"
+      ]
+    },
+    "db:check": {
+      "cache": false,
+      "passThroughEnv": [
+        "OPENMELD_DB_EXECUTION_MODE",
+        "OPENMELD_DEV_WRANGLER_STATE_DIR",
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_D1_DATABASE_ID"
+      ]
+    },
+    "db:migrate:dev": {
+      "cache": false,
+      "passThroughEnv": [
+        "OPENMELD_DB_EXECUTION_MODE",
+        "OPENMELD_DEV_WRANGLER_STATE_DIR"
+      ]
+    },
+    "db:verify:dev": {
+      "cache": false,
+      "passThroughEnv": [
+        "OPENMELD_DB_EXECUTION_MODE",
+        "OPENMELD_DEV_WRANGLER_STATE_DIR"
+      ]
+    },
+    "db:generate": {
+      "cache": false,
+      "passThroughEnv": [
+        "OPENMELD_DB_EXECUTION_MODE",
+        "BETTER_AUTH_OPENMELD_SECRET",
+        "AUTH_WORKER_NODE_ENV",
+        "BETTER_AUTH_URL",
+        "WEB_APP_URL",
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_D1_DATABASE_ID"
+      ]
+    },
+    "db:migrate:prod": {
+      "cache": false,
+      "passThroughEnv": [
+        "OPENMELD_DB_EXECUTION_MODE",
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_D1_DATABASE_ID"
+      ]
+    },
+    "db:verify:prod": {
+      "cache": false,
+      "passThroughEnv": [
+        "OPENMELD_DB_EXECUTION_MODE",
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_D1_DATABASE_ID"
+      ]
+    },
+    "db:optimize:prod": {
+      "cache": false,
+      "passThroughEnv": [
+        "OPENMELD_DB_EXECUTION_MODE",
+        "CLOUDFLARE_ACCOUNT_ID",
+        "CLOUDFLARE_API_TOKEN",
+        "CLOUDFLARE_D1_DATABASE_ID"
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "extends": "../../tooling/typescript-config/base.jsonc",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "worker-configuration.d.ts",
+    "drizzle.config.ts",
+    "scripts/**/*.ts",
+    "src/lib/db/**/*.ts"
+  ]
+}

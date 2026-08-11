@@ -1,0 +1,873 @@
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
+import { MotionConfig } from "framer-motion";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS,
+	SPACE_RESPONSE_TRUNCATED_MARKER,
+	SPACE_RESPONSE_TRUNCATED_SUFFIX,
+	SpaceMessageBody,
+} from "./space-message-body";
+
+const SHOW_FULL_MESSAGE_PATTERN = /show full message/i;
+const REFERENCED_SPACE_ID = "a".repeat(64);
+
+vi.mock("@tanstack/react-router", () => ({
+	Link: ({
+		children,
+		params,
+		to,
+		...props
+	}: {
+		children: ReactNode;
+		params?: { spaceId: string };
+		to: string;
+	}) => (
+		<a href={params ? to.replace("$spaceId", params.spaceId) : to} {...props}>
+			{children}
+		</a>
+	),
+}));
+
+vi.mock("./center-agent-computer-setup-card", () => ({
+	CenterAgentComputerSetupCard: () => (
+		<section data-slot="computer-setup-flow">Computer setup</section>
+	),
+}));
+
+describe("SpaceMessageBody", () => {
+	afterEach(() => {
+		cleanup();
+		vi.useRealTimers();
+	});
+
+	it("omits the body wrapper when the message has no visible content", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: "",
+				}}
+			/>
+		);
+
+		expect(view.container.childElementCount).toBe(0);
+	});
+
+	it("keeps human-authored Markdown syntax as plain text", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: "**bold** and [Docs](https://example.com/docs)",
+				}}
+			/>
+		);
+
+		expect(
+			screen.getByText("**bold** and [Docs](https://example.com/docs)")
+		).toBeTruthy();
+		expect(screen.queryByRole("link", { name: "Docs" })).toBeNull();
+	});
+
+	it("renders Markdown for ordinary Agent-authored Space messages", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					actorProfileKind: "agent",
+					isAgentFinalReply: false,
+					text: "## Review\n\n**Accepted**\n\n- Run the smoke test",
+				}}
+			/>
+		);
+
+		expect(
+			screen.getByRole("heading", { level: 2, name: "Review" })
+		).toBeTruthy();
+		expect(screen.getByText("Accepted").tagName).toBe("STRONG");
+		expect(screen.getByText("Run the smoke test").tagName).toBe("LI");
+		expect(view.container.querySelector(".typeset-chat")).toBeTruthy();
+	});
+
+	it("renders an accessible Space reference in a human-authored message", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: `Open /spaces/${REFERENCED_SPACE_ID} next.`,
+				}}
+				spaceReferencesById={createResolvedSpaceReferences()}
+			/>
+		);
+
+		const link = screen.getByRole("link", {
+			name: "Open Space Launch Planning",
+		});
+
+		expect(link.getAttribute("href")).toBe(`/spaces/${REFERENCED_SPACE_ID}`);
+		expect(link.getAttribute("target")).toBeNull();
+		expect(screen.getByText("Launch Planning")).toBeTruthy();
+	});
+
+	it("uses the authenticated Organization Space route when the resolved reference provides it", () => {
+		const href = `/o/acme/spaces/${REFERENCED_SPACE_ID}?profileId=profile-1`;
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: `Open /spaces/${REFERENCED_SPACE_ID} next.`,
+				}}
+				spaceReferencesById={
+					new Map([
+						[
+							REFERENCED_SPACE_ID,
+							{
+								href,
+								name: "Launch Planning",
+								spaceId: REFERENCED_SPACE_ID,
+							},
+						],
+					])
+				}
+			/>
+		);
+
+		expect(
+			screen
+				.getByRole("link", { name: "Open Space Launch Planning" })
+				.getAttribute("href")
+		).toBe(href);
+	});
+
+	it("keeps legacy singular Space references clickable through the canonical route", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: `/space/${REFERENCED_SPACE_ID}`,
+				}}
+				spaceReferencesById={createResolvedSpaceReferences()}
+			/>
+		);
+
+		expect(
+			screen
+				.getByRole("link", { name: "Open Space Launch Planning" })
+				.getAttribute("href")
+		).toBe(`/spaces/${REFERENCED_SPACE_ID}`);
+	});
+
+	it("recognizes a Space reference next to ordinary sentence punctuation", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: `See (/spaces/${REFERENCED_SPACE_ID}).`,
+				}}
+				spaceReferencesById={createResolvedSpaceReferences()}
+			/>
+		);
+
+		expect(
+			screen.getByRole("link", { name: "Open Space Launch Planning" })
+		).toBeTruthy();
+	});
+
+	it("normalizes uppercase hexadecimal Space references", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: `/spaces/${REFERENCED_SPACE_ID.toUpperCase()}`,
+				}}
+				spaceReferencesById={createResolvedSpaceReferences()}
+			/>
+		);
+
+		expect(
+			screen
+				.getByRole("link", { name: "Open Space Launch Planning" })
+				.getAttribute("href")
+		).toBe(`/spaces/${REFERENCED_SPACE_ID}`);
+	});
+
+	it("keeps unresolved and malformed Space paths as plain text", () => {
+		const unresolvedPath = `/spaces/${"b".repeat(64)}`;
+		const tooShortPath = `/spaces/${"c".repeat(63)}`;
+		const tooLongPath = `/spaces/${"d".repeat(65)}`;
+		const externalUrls = [
+			`https://example.com/spaces/${REFERENCED_SPACE_ID}`,
+			`https://example.com//spaces/${REFERENCED_SPACE_ID}`,
+			`https://example.com/?next=/spaces/${REFERENCED_SPACE_ID}`,
+			`https://example.com./spaces/${REFERENCED_SPACE_ID}`,
+			`https://[::1]/spaces/${REFERENCED_SPACE_ID}`,
+			`https://例子.测试/spaces/${REFERENCED_SPACE_ID}`,
+			`/spaces/${REFERENCED_SPACE_ID}/activity`,
+			`/spaces/${REFERENCED_SPACE_ID}.json`,
+			`label_/spaces/${REFERENCED_SPACE_ID}`,
+			`/spaces/${REFERENCED_SPACE_ID}-extra`,
+			`/spaces/${REFERENCED_SPACE_ID}_extra`,
+		];
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: [
+						unresolvedPath,
+						tooShortPath,
+						tooLongPath,
+						...externalUrls,
+					].join("\n"),
+				}}
+				spaceReferencesById={createResolvedSpaceReferences()}
+			/>
+		);
+
+		expect(screen.queryByRole("link")).toBeNull();
+		expect(view.container.textContent).toContain(unresolvedPath);
+		expect(view.container.textContent).toContain(tooShortPath);
+		expect(view.container.textContent).toContain(tooLongPath);
+		for (const externalUrl of externalUrls) {
+			expect(view.container.textContent).toContain(externalUrl);
+		}
+	});
+
+	it("uses a shortened ID when a resolved Space has no name", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: `/spaces/${REFERENCED_SPACE_ID}`,
+				}}
+				spaceReferencesById={createResolvedSpaceReferences(null)}
+			/>
+		);
+
+		expect(
+			screen.getByRole("link", { name: "Open Space aaaaaaaa…aaaa" })
+		).toBeTruthy();
+	});
+
+	it("allows self message text and controls to align to the right", () => {
+		const view = render(
+			<SpaceMessageBody
+				className="text-right"
+				containerClassName="items-end text-right"
+				item={{
+					isAgentFinalReply: false,
+					text: "hello",
+				}}
+			/>
+		);
+
+		const bodyContainer = view.container.firstElementChild;
+
+		expect(bodyContainer?.className).toContain("items-end");
+		expect(bodyContainer?.className).toContain("text-right");
+		expect(screen.getByText("hello").className).toContain("text-right");
+	});
+
+	it("renders Markdown for agent final replies only", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: true,
+					text: "**bold**\n\n- first\n- second",
+				}}
+			/>
+		);
+
+		expect(screen.getByText("bold")).toBeTruthy();
+		expect(screen.queryByText("**bold**")).toBeNull();
+		expect(screen.getByText("first").tagName).toBe("LI");
+		expect(screen.getByText("second").tagName).toBe("LI");
+		const messageBody = view.container.querySelector(".typeset-chat");
+		expect(messageBody?.classList.contains("typeset")).toBe(true);
+		expect(messageBody?.classList.contains("typeset-chat")).toBe(true);
+	});
+
+	it("animates words while an agent reply is streaming", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					agentStreamState: {
+						reasonCode: null,
+						sequence: 1,
+						status: "streaming",
+						streamId: "stream-1",
+					},
+					isAgentFinalReply: true,
+					text: "Words arrive smoothly",
+				}}
+			/>
+		);
+
+		expect(
+			view.container.querySelectorAll("span[data-sd-animate]").length
+		).toBeGreaterThan(0);
+	});
+
+	it("paces newly accumulated agent text instead of revealing the whole snapshot", async () => {
+		vi.useFakeTimers();
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					agentStreamState: {
+						reasonCode: null,
+						sequence: 1,
+						status: "streaming",
+						streamId: "stream-1",
+					},
+					isAgentFinalReply: true,
+					text: "I found ",
+				}}
+			/>
+		);
+
+		view.rerender(
+			<SpaceMessageBody
+				item={{
+					agentStreamState: {
+						reasonCode: null,
+						sequence: 2,
+						status: "streaming",
+						streamId: "stream-1",
+					},
+					isAgentFinalReply: true,
+					text: "I found the problem in the stream.",
+				}}
+			/>
+		);
+
+		expect(view.container.textContent).toContain("I found");
+		expect(view.container.textContent).not.toContain(
+			"I found the problem in the stream."
+		);
+
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(20);
+		});
+		expect(view.container.textContent).toContain("I found the");
+		expect(view.container.textContent).not.toContain(
+			"I found the problem in the stream."
+		);
+
+		for (let step = 0; step < 10; step += 1) {
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(20);
+			});
+		}
+		expect(view.container.textContent).toContain(
+			"I found the problem in the stream."
+		);
+	});
+
+	it("shows the complete accumulated text immediately when the stream ends", () => {
+		vi.useFakeTimers();
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					agentStreamState: {
+						reasonCode: null,
+						sequence: 1,
+						status: "streaming",
+						streamId: "stream-1",
+					},
+					isAgentFinalReply: true,
+					text: "Working ",
+				}}
+			/>
+		);
+
+		view.rerender(
+			<SpaceMessageBody
+				item={{
+					agentStreamState: {
+						reasonCode: null,
+						sequence: 2,
+						status: "streaming",
+						streamId: "stream-1",
+					},
+					isAgentFinalReply: true,
+					text: "Working through the remaining details.",
+				}}
+			/>
+		);
+
+		expect(view.container.textContent).not.toContain(
+			"Working through the remaining details."
+		);
+
+		view.rerender(
+			<SpaceMessageBody
+				item={{
+					agentStreamState: {
+						reasonCode: "agent_stopped",
+						sequence: 3,
+						status: "stopped",
+						streamId: "stream-1",
+					},
+					isAgentFinalReply: true,
+					text: "Working through the remaining details.",
+				}}
+			/>
+		);
+
+		expect(view.container.textContent).toContain(
+			"Working through the remaining details."
+		);
+		expect(view.container.querySelector("[data-sd-animate]")).toBeNull();
+	});
+
+	it("shows accumulated text immediately when reduced motion is enabled", () => {
+		vi.useFakeTimers();
+		const view = render(
+			<MotionConfig reducedMotion="always">
+				<SpaceMessageBody
+					item={{
+						agentStreamState: {
+							reasonCode: null,
+							sequence: 1,
+							status: "streaming",
+							streamId: "stream-1",
+						},
+						isAgentFinalReply: true,
+						text: "I found ",
+					}}
+				/>
+			</MotionConfig>
+		);
+
+		view.rerender(
+			<MotionConfig reducedMotion="always">
+				<SpaceMessageBody
+					item={{
+						agentStreamState: {
+							reasonCode: null,
+							sequence: 2,
+							status: "streaming",
+							streamId: "stream-1",
+						},
+						isAgentFinalReply: true,
+						text: "I found the problem in the stream.",
+					}}
+				/>
+			</MotionConfig>
+		);
+
+		expect(view.container.textContent).toContain(
+			"I found the problem in the stream."
+		);
+	});
+
+	it("leaves no animation spans in a completed agent reply", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: true,
+					text: "Completed replies stay lightweight",
+				}}
+			/>
+		);
+
+		expect(view.container.querySelector("[data-sd-animate]")).toBeNull();
+	});
+
+	it("does not animate text inside a streaming code block", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					agentStreamState: {
+						reasonCode: null,
+						sequence: 1,
+						status: "streaming",
+						streamId: "stream-1",
+					},
+					isAgentFinalReply: true,
+					text: 'Before\n\n```ts\nconst chunk = "inside code";\n```\n\nAfter',
+				}}
+			/>
+		);
+
+		expect(view.container.querySelector("[data-sd-animate]")).toBeTruthy();
+		expect(view.container.querySelector("code [data-sd-animate]")).toBeNull();
+	});
+
+	it("wraps Markdown tables in the shape-aware typeset scroll container", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: true,
+					text: "| Name | Status |\n| --- | --- |\n| OpenMeld | Ready |",
+				}}
+			/>
+		);
+
+		const scrollContainer = view.container.querySelector(".typeset-scroll");
+		expect(scrollContainer?.querySelector("table")).toBeTruthy();
+		expect(scrollContainer?.classList.contains("w-fit")).toBe(true);
+		expect(scrollContainer?.classList.contains("max-w-full")).toBe(true);
+		expect(scrollContainer?.classList.contains("rounded-md")).toBe(true);
+	});
+
+	it("renders a resolved Space reference without breaking agent Markdown", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: true,
+					text: `**Created:** /spaces/${REFERENCED_SPACE_ID}`,
+				}}
+				spaceReferencesById={createResolvedSpaceReferences()}
+			/>
+		);
+
+		expect(screen.getByText("Created:").tagName).toBe("STRONG");
+		expect(
+			screen.getByRole("link", { name: "Open Space Launch Planning" })
+		).toBeTruthy();
+	});
+
+	it("renders a trusted Navigation Action as a button link", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: true,
+					navigationAction: {
+						label: "Open this Project",
+						target: { kind: "project", projectId: "project_123" },
+						url: "http://localhost:5173/o/acme/projects/project_123",
+					},
+					text: "Project created.",
+				}}
+			/>
+		);
+
+		const action = screen.getByRole("link", { name: "Open this Project" });
+		expect(action.getAttribute("href")).toBe(
+			"http://localhost:5173/o/acme/projects/project_123"
+		);
+		expect(action.getAttribute("data-slot")).toBe("navigation-action");
+		expect(action.getAttribute("target")).toBeNull();
+	});
+
+	it("renders computer setup inline only with trusted Center Agent conversation context", () => {
+		const view = render(
+			<SpaceMessageBody
+				computerSetupContext={{
+					orgSlug: "acme",
+					profileId: "human_profile_1",
+					spaceId: "center_agent_dm_1",
+				}}
+				item={{
+					isAgentFinalReply: true,
+					navigationAction: {
+						label: "Reconnect this computer",
+						target: {
+							connectedComputerId: "computer_1",
+							kind: "computer_setup",
+							mode: "reconnect",
+						},
+						url: "http://localhost:5173/o/acme/connect?connectedComputerId=computer_1&session=fresh",
+					},
+					text: "Let's reconnect this computer.",
+				}}
+			/>
+		);
+
+		expect(
+			view.container.querySelector('[data-slot="computer-setup-flow"]')
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("link", { name: "Reconnect this computer" })
+		).toBeNull();
+	});
+
+	it("keeps computer setup as a trusted link outside a Center Agent conversation", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: true,
+					navigationAction: {
+						label: "Connect this computer",
+						target: {
+							kind: "computer_setup",
+							mode: "setup",
+						},
+						url: "http://localhost:5173/o/acme/connect",
+					},
+					text: "Connect this computer to continue.",
+				}}
+			/>
+		);
+
+		expect(
+			screen
+				.getByRole("link", { name: "Connect this computer" })
+				.getAttribute("href")
+		).toBe("http://localhost:5173/o/acme/connect");
+	});
+
+	it("does not let assistant Markdown impersonate a Navigation Action button", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: true,
+					text: "[Open this Project](https://example.com/fake)",
+				}}
+			/>
+		);
+
+		const link = screen.getByRole("link", { name: "Open this Project" });
+		expect(link.getAttribute("data-slot")).toBeNull();
+		expect(link.getAttribute("target")).toBe("_blank");
+	});
+
+	it("does not turn Space paths inside agent code into links", () => {
+		const path = `/spaces/${REFERENCED_SPACE_ID}`;
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: true,
+					text: `Inline: \`${path}\`\n\n\`\`\`text\n${path}\n\`\`\``,
+				}}
+				spaceReferencesById={createResolvedSpaceReferences()}
+			/>
+		);
+
+		expect(screen.queryByRole("link")).toBeNull();
+		expect(screen.getAllByText(path)).toHaveLength(2);
+	});
+
+	it("opens allowed links in a new tab and strips unsafe links", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: true,
+					text: "[Docs](https://example.com/docs) [Email](mailto:help@example.com) [Bad](javascript:alert(1))",
+				}}
+			/>
+		);
+
+		const docsLink = screen.getByRole("link", { name: "Docs" });
+		const emailLink = screen.getByRole("link", { name: "Email" });
+		const badText = screen.getByText("Bad");
+
+		expect(docsLink.getAttribute("href")).toBe("https://example.com/docs");
+		expect(docsLink.getAttribute("target")).toBe("_blank");
+		expect(docsLink.getAttribute("rel")).toBe("noopener noreferrer");
+		expect(emailLink.getAttribute("href")).toBe("mailto:help@example.com");
+		expect(badText.closest("a")).toBeNull();
+	});
+
+	it("keeps an unresolved internal Markdown link non-clickable", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: true,
+					text: `[Private Space](/spaces/${REFERENCED_SPACE_ID})`,
+				}}
+				spaceReferencesById={new Map()}
+			/>
+		);
+
+		expect(screen.getByText("Private Space").closest("a")).toBeNull();
+	});
+
+	it("does not render Markdown images or raw HTML", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: true,
+					text: '![alt](https://example.com/image.png)\n\n<strong data-testid="raw-html">raw</strong>',
+				}}
+			/>
+		);
+
+		expect(screen.queryByRole("img")).toBeNull();
+		expect(screen.queryByTestId("raw-html")).toBeNull();
+		expect(screen.getByText("raw").closest("strong")).toBeNull();
+	});
+
+	it("renders structured image attachments with authenticated download links", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					attachments: [
+						{
+							fileName: "diagram.png",
+							height: 600,
+							id: "attachment-diagram",
+							localPreviewUrl: null,
+							mimeType: "image/png",
+							sizeBytes: 2048,
+							width: 800,
+						},
+						{
+							fileName: "photo.jpg",
+							height: 900,
+							id: "attachment-photo",
+							localPreviewUrl: "blob:photo-preview",
+							mimeType: "image/jpeg",
+							sizeBytes: 4096,
+							width: 1200,
+						},
+					],
+					isAgentFinalReply: false,
+					spaceId: "space-123",
+					text: "Here are the images.",
+				}}
+				orgSlug="acme"
+			/>
+		);
+
+		expect(screen.getByLabelText("2 attached images")).toBeTruthy();
+		expect(
+			screen.getByRole("img", { name: "diagram.png" }).getAttribute("src")
+		).toBe(
+			"/v1/spaces/space-123/attachments/attachment-diagram?__openmeld_organization_slug=acme"
+		);
+		expect(
+			screen.getByRole("img", { name: "photo.jpg" }).getAttribute("src")
+		).toBe("blob:photo-preview");
+		const photoTrigger = screen.getByRole("button", {
+			name: "Open photo.jpg",
+		});
+		expect(photoTrigger.getAttribute("type")).toBe("button");
+		expect(photoTrigger.getAttribute("aria-haspopup")).toBe("dialog");
+		expect(screen.queryByRole("link")).toBeNull();
+	});
+
+	it("opens an attachment image in a dialog instead of navigating away", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					attachments: [
+						{
+							fileName: "photo.jpg",
+							height: 900,
+							id: "attachment-photo",
+							localPreviewUrl: "blob:photo-preview",
+							mimeType: "image/jpeg",
+							sizeBytes: 4096,
+							width: 1200,
+						},
+					],
+					isAgentFinalReply: false,
+					spaceId: "space-123",
+					text: "Here is the image.",
+				}}
+				orgSlug="acme"
+			/>
+		);
+
+		expect(screen.queryByRole("dialog")).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Open photo.jpg" }));
+
+		expect(screen.getByRole("dialog")).toBeTruthy();
+		expect(
+			screen.getAllByRole("img", { name: "photo.jpg" }).length
+		).toBeGreaterThan(1);
+		const originalLink = screen.getByRole("link", { name: "Open original" });
+		expect(originalLink.getAttribute("href")).toBe(
+			"/v1/spaces/space-123/attachments/attachment-photo?__openmeld_organization_slug=acme"
+		);
+		expect(originalLink.getAttribute("target")).toBe("_blank");
+		expect(originalLink.getAttribute("rel")).toBe("noreferrer");
+
+		fireEvent.keyDown(document, { key: "Escape" });
+		expect(document.body.classList.contains("overflow-hidden")).toBe(false);
+	});
+
+	it("replaces a broken attachment image with a stable placeholder", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					attachments: [
+						{
+							fileName: "broken.jpg",
+							id: "attachment-broken",
+							localPreviewUrl: null,
+							mimeType: "image/jpeg",
+							sizeBytes: 2048,
+						},
+					],
+					isAgentFinalReply: false,
+					spaceId: "space-123",
+					text: "This image may fail.",
+				}}
+			/>
+		);
+
+		fireEvent.error(screen.getByRole("img", { name: "broken.jpg" }));
+
+		expect(screen.getByText("Image unavailable")).toBeTruthy();
+		expect(screen.queryByRole("img", { name: "broken.jpg" })).toBeNull();
+	});
+
+	it("locally collapses long complete messages with Show more and Show less", () => {
+		const hiddenTail = "Hidden tail";
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: `${"x".repeat(SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS)} ${hiddenTail}`,
+				}}
+			/>
+		);
+
+		expect(view.container.textContent).not.toContain(hiddenTail);
+
+		fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+
+		expect(view.container.textContent).toContain(hiddenTail);
+		expect(
+			screen
+				.getByRole("button", { name: "Show less" })
+				.getAttribute("aria-expanded")
+		).toBe("true");
+
+		fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+
+		expect(view.container.textContent).not.toContain(hiddenTail);
+		expect(screen.getByRole("button", { name: "Show more" })).toBeTruthy();
+	});
+
+	it("renders the server truncation marker as an independent notice", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: true,
+					text: `Visible answer${SPACE_RESPONSE_TRUNCATED_SUFFIX}`,
+				}}
+			/>
+		);
+
+		expect(screen.getByText("Visible answer")).toBeTruthy();
+		expect(view.container.textContent).not.toContain(
+			SPACE_RESPONSE_TRUNCATED_MARKER
+		);
+		expect(
+			screen.getByText(
+				"OpenMeld shortened this reply because it reached the message limit."
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: SHOW_FULL_MESSAGE_PATTERN })
+		).toBeNull();
+	});
+});
+
+function createResolvedSpaceReferences(
+	name: string | null = "Launch Planning"
+) {
+	return new Map([
+		[REFERENCED_SPACE_ID, { name, spaceId: REFERENCED_SPACE_ID }] as const,
+	]);
+}

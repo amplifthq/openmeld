@@ -1,0 +1,8 @@
+{
+  "distIntegrity": "sha512-Z4cZmgWvwiE7tCHqGm+t7DKvbpNRRTH2HqVwcYiOMAwbjIytXSoQqWytsOVu3p+d0fIvrtyIPZok5HOV/VNxxw==",
+  "distShasum": "6ccae05bb9470f3c95ad24a26c259627102fcd12",
+  "gitHead": "1711494d0cb848b93472f03fb1e8f5366122bcf7",
+  "package": "@larksuiteoapi/node-sdk",
+  "publishedAt": "2026-07-14T12:41:57.714Z",
+  "version": "1.71.1"
+}

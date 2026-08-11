@@ -1,0 +1,12 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "check": {
+      "dependsOn": ["^build", "@openmeld/core#build"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build", "@openmeld/core#build"]
+    }
+  }
+}

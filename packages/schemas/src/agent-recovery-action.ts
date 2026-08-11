@@ -1,0 +1,22 @@
+export const agentRecoveryActionLabels = {
+  check_status: "Check status",
+  choose_local_agent: "Choose local agent",
+  connect_openmeld_service: "Connect OpenMeld Service",
+  connect_local_agent: "Connect local agent",
+  manage_cursor_plan: "Manage Cursor plan",
+  reconnect_openmeld_service: "Reconnect OpenMeld Service",
+  reconnect_local_agent: "Reconnect local agent",
+  review_agent_permissions: "Review Agent Profile permissions",
+  review_agent_settings: "Review agent settings",
+  turn_on_local_agent: "Turn on local agent",
+  update_openmeld_service: "Update OpenMeld Service",
+  update_openmeld_skills: "Update OpenMeld skills",
+} as const;
+
+export type AgentRecoveryActionId = keyof typeof agentRecoveryActionLabels;
+
+export function formatAgentRecoveryActionLabel(
+  actionId: AgentRecoveryActionId
+): string {
+  return agentRecoveryActionLabels[actionId];
+}

@@ -1,0 +1,1 @@
+CREATE INDEX `idx_openMeldDaemon_rce_space_status_updated` ON `openMeldDaemon_runtime_coordinator_executions` (`space_id`,`status`,"updated_at_ms" desc);

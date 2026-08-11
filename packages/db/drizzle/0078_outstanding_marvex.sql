@@ -1,0 +1,1 @@
+ALTER TABLE `openMeldRemoteAgent_native_delivery_ledger` ADD `anonymous_member_speaker_json` text;

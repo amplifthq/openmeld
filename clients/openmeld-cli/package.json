@@ -1,0 +1,86 @@
+{
+  "$schema": "https://www.schemastore.org/package.json",
+  "name": "openmeld",
+  "version": "0.3.41",
+  "openMeldReleaseDate": "2026-08-11",
+  "description": "OpenMeld CLI - https://openmeld.ai",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "openmeld": "dist/openmeld.js"
+  },
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "README.md",
+    "dist",
+    "!dist/binary/**",
+    "skills"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "prepack": "pnpm -C ../.. run verify:release-ready -- --force && pnpm run verify:pack-readme",
+    "deploy": "pnpm -C ../.. run release:cli",
+    "publish:npm": "npm publish",
+    "prepublishOnly": "pnpm run verify:pack-readme",
+    "verify:pack-readme": "node scripts/verify-npm-pack-readme.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "biome check --no-errors-on-unmatched ./ && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "test:integration": "node scripts/run-integration-tests.mjs",
+    "test:full": "pnpm run test && pnpm run test:integration",
+    "test:local-service": "vitest run --config vitest.integration.config.ts tests/local-service-state.integration.test.ts tests/local-service-command.integration.test.ts tests/local-service-menu.integration.test.ts tests/local-service-run.integration.test.ts tests/local-service-bootstrap-recommendation.test.ts",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.195",
+    "@anthropic-ai/sdk": "^0.93.0",
+    "@clack/prompts": "^1.0.1",
+    "@mariozechner/pi-tui": "0.57.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@opencode-ai/sdk": "^1.18.7",
+    "commander": "^14.0.0",
+    "picocolors": "^1.1.1",
+    "string-width": "^8.1.0",
+    "wrap-ansi": "10.0.0",
+    "ws": "^8.18.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@openmeld/adapter-claude-code": "workspace:*",
+    "@openmeld/adapter-codex": "workspace:*",
+    "@openmeld/adapter-core": "workspace:*",
+    "@openmeld/adapter-cursor": "workspace:*",
+    "@openmeld/adapter-openclaw": "workspace:*",
+    "@openmeld/adapter-opencode": "workspace:*",
+    "@openmeld/agent-runtime": "workspace:*",
+    "@openmeld/api-client": "workspace:*",
+    "@openmeld/gateway-contract": "workspace:*",
+    "@openmeld/local-execution": "workspace:*",
+    "@openmeld/local-service": "workspace:*",
+    "@openmeld/projects": "workspace:*",
+    "@openmeld/protocol": "workspace:*",
+    "@openmeld/routine-schedule": "workspace:*",
+    "@openmeld/schemas": "workspace:*",
+    "@openmeld/space": "workspace:*",
+    "@openmeld/space-mesh": "workspace:*",
+    "@openmeld/start": "workspace:*",
+    "@openmeld/utils": "workspace:*",
+    "@types/node": "^24.3.0",
+    "@types/ws": "^8.18.1",
+    "oxc-resolver": "^11.0.0",
+    "tsdown": "^0.20.3",
+    "typescript": "^5.9.3",
+    "unplugin-lightningcss": "^0.4.0",
+    "vitest": "~3.2.0"
+  },
+  "openmeld": {
+    "releaseLine": "openmeld-greenfield-2026-07",
+    "minRequiredCliVersion": "0.3.8"
+  }
+}

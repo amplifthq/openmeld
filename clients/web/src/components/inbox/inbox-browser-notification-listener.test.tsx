@@ -1,0 +1,199 @@
+import type { InboxItem } from "@openmeld/schemas/types";
+import { cleanup, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { InboxBrowserNotificationListener } from "./inbox-browser-notification-listener";
+
+const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
+const showInboxBrowserNotificationMock = vi.hoisted(() => vi.fn());
+const invalidateInboxSummaryMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@tanstack/react-query", () => ({
+	useInfiniteQuery: useInfiniteQueryMock,
+	useQueryClient: () => ({}),
+}));
+
+vi.mock("#/lib/inbox/browser-notifications", () => ({
+	isInboxBrowserNotificationEligible: (item: InboxItem) =>
+		item.importance === "urgent" ||
+		(item.attention === "action_required" && item.resolutionStatus === "open"),
+	readInboxBrowserNotificationSettings: () => ({
+		enabled: true,
+		permission: "granted",
+	}),
+	showInboxBrowserNotification: showInboxBrowserNotificationMock,
+	subscribeInboxBrowserNotificationSettings: () => () => undefined,
+}));
+
+vi.mock("#/query/organizations/inbox", () => ({
+	inboxItemsInfiniteQueryOptions: (input: unknown) => input,
+	invalidateInboxSummary: invalidateInboxSummaryMock,
+}));
+
+describe("InboxBrowserNotificationListener", () => {
+	let currentItems: InboxItem[];
+
+	beforeEach(() => {
+		currentItems = [];
+		showInboxBrowserNotificationMock.mockReset().mockResolvedValue(null);
+		invalidateInboxSummaryMock.mockReset().mockResolvedValue(undefined);
+		useInfiniteQueryMock.mockReset().mockImplementation(() => ({
+			data: {
+				pageParams: [undefined],
+				pages: [
+					{
+						items: currentItems,
+						nextCursor: null,
+						organizationId: "organization-123",
+					},
+				],
+			},
+		}));
+	});
+
+	afterEach(() => {
+		cleanup();
+		vi.restoreAllMocks();
+	});
+
+	it("primes existing items without notifying, then delivers a newly arrived urgent item", () => {
+		const existingItem = createInboxItem({ id: "existing-item" });
+		const newItem = createInboxItem({
+			id: "new-item",
+			importance: "urgent",
+		});
+		currentItems = [existingItem];
+		const view = renderListener();
+
+		expect(showInboxBrowserNotificationMock).not.toHaveBeenCalled();
+
+		currentItems = [newItem, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(invalidateInboxSummaryMock).toHaveBeenCalledWith({
+			organizationId: "organization-123",
+			queryClient: {},
+		});
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				item: newItem,
+				sourcePath: "/o/amplift/inbox?item=new-item",
+			})
+		);
+	});
+
+	it("keeps ordinary updates and resolved actions in Inbox without browser delivery", () => {
+		const existingItem = createInboxItem({ id: "existing-item" });
+		currentItems = [existingItem];
+		const view = renderListener();
+
+		currentItems = [
+			createInboxItem({ id: "ordinary-update" }),
+			createInboxItem({
+				attention: "action_required",
+				id: "resolved-action",
+				resolutionStatus: "resolved",
+			}),
+			existingItem,
+		];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+
+		expect(showInboxBrowserNotificationMock).not.toHaveBeenCalled();
+		expect(invalidateInboxSummaryMock).toHaveBeenCalledOnce();
+	});
+
+	it("re-primes the seen-item set when the signed-in user changes", () => {
+		const existingItem = createInboxItem({ id: "existing-item" });
+		const firstUserItem = createInboxItem({
+			id: "first-user-item",
+			importance: "urgent",
+		});
+		currentItems = [existingItem];
+		const view = renderListener();
+
+		currentItems = [firstUserItem, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-456"
+			/>
+		);
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+
+		const secondUserItem = createInboxItem({
+			id: "second-user-item",
+			importance: "urgent",
+			recipientUserId: "user-456",
+		});
+		currentItems = [secondUserItem, firstUserItem, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-456"
+			/>
+		);
+
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+		expect(showInboxBrowserNotificationMock).toHaveBeenLastCalledWith(
+			expect.objectContaining({ item: secondUserItem })
+		);
+	});
+});
+
+function renderListener() {
+	return render(
+		<InboxBrowserNotificationListener
+			organizationId="organization-123"
+			organizationSlug="amplift"
+			userId="user-123"
+		/>
+	);
+}
+
+function createInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
+	return {
+		attention: "update",
+		contextLabel: "Design Room",
+		createdAt: "2026-08-04T01:00:00.000Z",
+		id: "item-123",
+		importance: "normal",
+		kind: "space_message",
+		occurredAt: "2026-08-04T01:00:00.000Z",
+		organizationId: "organization-123",
+		preview: "Review the latest message.",
+		readAt: null,
+		recipientUserId: "user-123",
+		resolutionStatus: "not_applicable",
+		sourceTarget: {
+			kind: "space",
+			signalId: "signal-123",
+			spaceId: "space-123",
+		},
+		title: "New Space message",
+		updatedAt: "2026-08-04T01:00:00.000Z",
+		...overrides,
+	};
+}

@@ -1,0 +1,15 @@
+{
+  "extends": "../../tooling/typescript-config/base.jsonc",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": [
+    "drizzle.config.ts",
+    "scripts",
+    "src",
+    "tests",
+    "tsdown.config.ts"
+  ]
+}

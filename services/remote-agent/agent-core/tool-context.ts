@@ -1,0 +1,110 @@
+import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
+import type {
+  CenterAgentToolSpeaker,
+  OpenMeldRequestContext,
+} from "@openmeld/schemas/types";
+import {
+  assertCoreOriginatedTurnContext,
+  type RemoteAgentCallbackContext,
+  type RemoteAgentReadableStorage,
+  readRemoteAgentCallbackContext,
+} from "./callback-context";
+
+export async function buildRemoteAgentToolContext(input: {
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+  toolName: string;
+}): Promise<{
+  context: OpenMeldRequestContext;
+  conversationId: RemoteAgentCallbackContext["conversationId"];
+  conversationIdentity: RemoteAgentCallbackContext["conversationIdentity"];
+  modelRoute: RemoteAgentCallbackContext["modelRoute"];
+  turnEnvelope: RemoteAgentCallbackContext["turnEnvelope"];
+}> {
+  const turnContext = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.submissionId
+  );
+  assertCoreOriginatedTurnContext(turnContext);
+  const context = buildRemoteAgentCoreContext(
+    turnContext,
+    ["remote-agent-tool", input.toolName, turnContext.submissionId].join(":")
+  );
+  return {
+    context,
+    conversationId: turnContext.conversationId,
+    conversationIdentity: turnContext.conversationIdentity,
+    modelRoute: turnContext.modelRoute,
+    turnEnvelope: turnContext.turnEnvelope,
+  };
+}
+
+export function buildRemoteAgentCoreContext(
+  turnContext: RemoteAgentCallbackContext,
+  requestId: string
+): OpenMeldRequestContext {
+  assertCoreOriginatedTurnContext(turnContext);
+  if (!turnContext.agentProfileOwnerUserId) {
+    throw new Error(
+      "OpenMeld product tools require the Remote Agent submission owner context."
+    );
+  }
+  return {
+    activeOrganizationId: turnContext.organizationId,
+    actorContext: {
+      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      callerPrincipalId: turnContext.agentProfileOwnerUserId,
+      ownerUserId: turnContext.agentProfileOwnerUserId,
+      profileKind: "agent",
+      requestId,
+      openMeldProfileId: turnContext.agentProfileId,
+    },
+    agentControllerConversationId: turnContext.submissionId,
+  };
+}
+
+export function resolveVerifiedTurnEnvelopeSpeaker(
+  envelope: RemoteAgentCallbackContext["turnEnvelope"]
+): { memberId: string; userId: string } | undefined {
+  if (
+    envelope?.sender.kind === "routine" &&
+    envelope.sender.delegatedBy?.verified
+  ) {
+    return {
+      memberId: envelope.sender.delegatedBy.id,
+      userId: envelope.sender.delegatedBy.ownerUserId,
+    };
+  }
+  if (
+    envelope?.sender.kind !== "member" ||
+    !envelope.sender.verified ||
+    !envelope.sender.ownerUserId
+  ) {
+    return undefined;
+  }
+  return {
+    memberId: envelope.sender.id,
+    userId: envelope.sender.ownerUserId,
+  };
+}
+
+export function resolveOrganizationMemberTurnEnvelopeSpeaker(
+  envelope: RemoteAgentCallbackContext["turnEnvelope"]
+): CenterAgentToolSpeaker | undefined {
+  const verifiedSpeaker = resolveVerifiedTurnEnvelopeSpeaker(envelope);
+  if (verifiedSpeaker) {
+    return verifiedSpeaker;
+  }
+  if (
+    envelope?.sender.kind !== "member" ||
+    envelope.sender.verified ||
+    !envelope.sender.messageChannelIdentity
+  ) {
+    return undefined;
+  }
+  return {
+    displayName: envelope.sender.displayName,
+    kind: "anonymous_member",
+    messageChannelIdentity: envelope.sender.messageChannelIdentity,
+  };
+}

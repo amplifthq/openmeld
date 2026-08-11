@@ -1,0 +1,393 @@
+import { ThinkingIndicator } from "@openmeld/ui/components/thinking-indicator";
+import { fontWeights } from "@openmeld/ui/lib/font-weight";
+import { cn } from "@openmeld/ui/lib/utils";
+import { type ReactNode, useRef } from "react";
+import {
+	isSpaceWakeProgressWaitingForFinalStatus,
+	SPACE_AGENT_WORKING_STATUS_TEXT,
+} from "#/lib/spaces/message-state";
+import { useNowMs } from "#/lib/spaces/use-now-ms";
+import type { SpaceMessageWakeThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
+import { AnimatedMobiusIcon } from "./animated-mobius-icon";
+import { SpaceAgentOrb, type SpaceAgentOrbState } from "./space-agent-orb";
+import { SpaceMessageProgressRow } from "./space-message-progress-row";
+
+const WAKE_PROGRESS_DELAYED_STATUS_TEXT = "Still waiting for the final status.";
+
+export function SpaceMessageWakeThinkingIndicator(input: {
+	align?: "start" | "end";
+	className?: string;
+	control?: ReactNode;
+	entries: readonly SpaceMessageWakeThinkingEntry[];
+	onOpenMessageDetails?: () => void;
+	showAgentWorkingState?: boolean;
+}) {
+	const isEndAligned = input.align === "end";
+	const previewEntries = input.entries.filter(
+		(entry) => entry.kind === "preview"
+	);
+	const latestPreviewEntry = previewEntries.at(-1) ?? null;
+	const progressEntries = input.entries.filter(
+		(entry) => entry.kind === "progress"
+	);
+	const statusEntries = input.entries.filter(
+		(entry) => entry.kind === "status"
+	);
+	const rawElapsedEntry = resolveSingleElapsedEntry(progressEntries);
+	const elapsedEntry = useStableElapsedEntry(rawElapsedEntry);
+	const nowMs = useNowMs(elapsedEntry ? 1000 : null);
+	const isWaitingForFinalStatus = isSpaceWakeProgressWaitingForFinalStatus({
+		lastEvidenceAtMs: rawElapsedEntry?.elapsedStartedAtMs ?? null,
+		nowMs,
+	});
+	const words = progressEntries.map((entry) =>
+		formatThinkingEntryText({
+			entry,
+			isWaitingForFinalStatus,
+			nowMs,
+			showAgentWorkingState: input.showAgentWorkingState === true,
+			showElapsedTime: entry === elapsedEntry,
+		})
+	);
+
+	if (input.entries.length === 0 && !input.control) {
+		return null;
+	}
+
+	const indicator = buildWakeThinkingIndicator({
+		className: input.className,
+		elapsedEntry,
+		isWaitingForFinalStatus,
+		latestPreviewEntry,
+		nowMs,
+		onOpenMessageDetails: input.onOpenMessageDetails !== undefined,
+		progressEntries,
+		showAgentWorkingState: input.showAgentWorkingState === true,
+		words,
+	});
+
+	const indicatorContent =
+		input.onOpenMessageDetails && indicator ? (
+			<button
+				aria-label="Open message details"
+				className={cn(
+					"w-fit min-w-0 max-w-full cursor-pointer appearance-none overflow-hidden border-0 bg-transparent p-0 text-muted-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-4",
+					isEndAligned ? "text-right" : "text-left"
+				)}
+				data-testid="space-wake-thinking-indicator"
+				onClick={input.onOpenMessageDetails}
+				type="button"
+			>
+				{indicator}
+			</button>
+		) : (
+			indicator
+		);
+	const statusContent = statusEntries.map((entry) => (
+		<output
+			className="text-[13px] text-muted-foreground"
+			data-testid="space-wake-status"
+			key={entry.key}
+			style={{ fontVariationSettings: fontWeights.medium }}
+		>
+			{entry.text}
+		</output>
+	));
+
+	return (
+		<SpaceMessageProgressRow
+			align={input.align}
+			control={input.control}
+			slot="space-wake-thinking-row"
+			testId="space-wake-thinking-row"
+		>
+			<div
+				className={cn(
+					"flex w-full min-w-0 flex-col gap-1",
+					isEndAligned ? "items-end" : "items-start"
+				)}
+			>
+				{indicatorContent}
+				{statusContent}
+			</div>
+		</SpaceMessageProgressRow>
+	);
+}
+
+function buildWakeThinkingIndicator(input: {
+	className?: string;
+	elapsedEntry: SpaceMessageWakeThinkingEntry | null;
+	isWaitingForFinalStatus: boolean;
+	latestPreviewEntry: SpaceMessageWakeThinkingEntry | null;
+	nowMs: number;
+	onOpenMessageDetails: boolean;
+	progressEntries: readonly SpaceMessageWakeThinkingEntry[];
+	showAgentWorkingState: boolean;
+	words: readonly string[];
+}): ReactNode {
+	const dataTestId = input.onOpenMessageDetails
+		? undefined
+		: "space-wake-thinking-indicator";
+	if (input.latestPreviewEntry) {
+		return (
+			<InlineWakePreviewIndicator
+				className={input.className}
+				data-testid={dataTestId}
+				text={input.latestPreviewEntry.text}
+			/>
+		);
+	}
+	if (input.elapsedEntry) {
+		return (
+			<StaticElapsedThinkingIndicator
+				className={input.className}
+				data-testid={dataTestId}
+				entry={input.elapsedEntry}
+				isWaitingForFinalStatus={input.isWaitingForFinalStatus}
+				nowMs={input.nowMs}
+				showAgentWorkingState={input.showAgentWorkingState}
+			/>
+		);
+	}
+	if (input.progressEntries.length === 0) {
+		return null;
+	}
+	const orbState = resolveWakeProgressOrbState(input.progressEntries);
+	return (
+		<ThinkingIndicator
+			className={cn(
+				"max-w-full px-0 py-0 text-muted-foreground",
+				input.className
+			)}
+			data-testid={dataTestId}
+			icon={orbState ? <SpaceAgentOrb state={orbState} /> : undefined}
+			words={input.words}
+		/>
+	);
+}
+
+function InlineWakePreviewIndicator(input: {
+	className?: string;
+	"data-testid"?: string;
+	text: string;
+}) {
+	return (
+		<output
+			className={cn(
+				"flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden px-0 py-0 text-muted-foreground",
+				input.className
+			)}
+			data-testid={input["data-testid"]}
+		>
+			<span
+				aria-hidden="true"
+				className="flex size-5 shrink-0 items-center justify-center"
+			>
+				<SpaceAgentOrb state="composing" />
+			</span>
+			<span
+				className="shimmer-text min-w-0 flex-1 truncate whitespace-nowrap text-[13px]"
+				data-testid="space-wake-preview-text"
+				style={{ fontVariationSettings: fontWeights.medium }}
+			>
+				{formatWakeProgress(input.text, true)}
+			</span>
+		</output>
+	);
+}
+
+function StaticElapsedThinkingIndicator(input: {
+	className?: string;
+	"data-testid"?: string;
+	entry: SpaceMessageWakeThinkingEntry;
+	isWaitingForFinalStatus: boolean;
+	nowMs: number;
+	showAgentWorkingState: boolean;
+}) {
+	return (
+		<output
+			className={cn(
+				"flex max-w-full items-center gap-2 px-0 py-0 text-muted-foreground",
+				input.className
+			)}
+			data-testid={input["data-testid"]}
+		>
+			<span
+				aria-hidden="true"
+				className="flex size-5 shrink-0 items-center justify-center"
+			>
+				{input.isWaitingForFinalStatus ? (
+					<AnimatedMobiusIcon />
+				) : (
+					<SpaceAgentOrb />
+				)}
+			</span>
+			<span
+				className="min-w-0 text-[13px]"
+				style={{ fontVariationSettings: fontWeights.medium }}
+			>
+				{input.isWaitingForFinalStatus ? (
+					<span>
+						{formatWakeProgress(
+							WAKE_PROGRESS_DELAYED_STATUS_TEXT,
+							input.showAgentWorkingState
+						)}
+					</span>
+				) : (
+					<>
+						<span>
+							{formatWakeProgress(
+								input.entry.text,
+								input.showAgentWorkingState
+							)}{" "}
+							·{" "}
+						</span>
+						<span>{formatElapsedDuration(resolveElapsedSeconds(input))}</span>
+					</>
+				)}
+			</span>
+		</output>
+	);
+}
+
+function resolveWakeProgressOrbState(
+	entries: readonly SpaceMessageWakeThinkingEntry[]
+): SpaceAgentOrbState | null {
+	const phases = new Set(entries.map((entry) => entry.phase));
+	if (phases.size !== 1) {
+		return null;
+	}
+
+	switch (entries[0]?.phase) {
+		case "running":
+			return "solving";
+		case "publishing":
+			return "composing";
+		default:
+			return null;
+	}
+}
+
+function resolveSingleElapsedEntry(
+	entries: readonly SpaceMessageWakeThinkingEntry[]
+): SpaceMessageWakeThinkingEntry | null {
+	if (entries.length !== 1) {
+		return null;
+	}
+	const entry = entries[0];
+	if (!entry || entry.elapsedStartedAtMs === null) {
+		return null;
+	}
+	return entry;
+}
+
+function useStableElapsedEntry(
+	entry: SpaceMessageWakeThinkingEntry | null
+): SpaceMessageWakeThinkingEntry | null {
+	const anchorRef = useRef<{
+		elapsedStartedAtMs: number;
+		identity: string;
+	} | null>(null);
+
+	if (!entry || entry.elapsedStartedAtMs === null) {
+		anchorRef.current = null;
+		return null;
+	}
+
+	const identity = resolveElapsedEntryIdentity(entry);
+	const previousAnchor = anchorRef.current;
+	const elapsedStartedAtMs =
+		previousAnchor?.identity === identity
+			? Math.min(previousAnchor.elapsedStartedAtMs, entry.elapsedStartedAtMs)
+			: entry.elapsedStartedAtMs;
+
+	anchorRef.current = {
+		elapsedStartedAtMs,
+		identity,
+	};
+
+	if (elapsedStartedAtMs === entry.elapsedStartedAtMs) {
+		return entry;
+	}
+	return {
+		...entry,
+		elapsedStartedAtMs,
+	};
+}
+
+function resolveElapsedEntryIdentity(
+	entry: SpaceMessageWakeThinkingEntry
+): string {
+	return [
+		entry.targetProfileId,
+		entry.text,
+		entry.step.label,
+		entry.step.status,
+	]
+		.map((value) => String(value).trim())
+		.join("\u0000");
+}
+
+function formatThinkingEntryText(input: {
+	entry: SpaceMessageWakeThinkingEntry;
+	isWaitingForFinalStatus: boolean;
+	nowMs: number;
+	showAgentWorkingState: boolean;
+	showElapsedTime: boolean;
+}): string {
+	if (input.isWaitingForFinalStatus) {
+		return formatWakeProgress(
+			WAKE_PROGRESS_DELAYED_STATUS_TEXT,
+			input.showAgentWorkingState
+		);
+	}
+	if (!input.showElapsedTime || input.entry.elapsedStartedAtMs === null) {
+		return formatWakeProgress(input.entry.text, input.showAgentWorkingState);
+	}
+	return `${formatWakeProgress(
+		input.entry.text,
+		input.showAgentWorkingState
+	)} · ${formatElapsedDuration(resolveElapsedSeconds(input))}`;
+}
+
+function formatWakeProgress(
+	detail: string,
+	showAgentWorkingState: boolean
+): string {
+	const trimmedDetail = detail.trim();
+	if (!showAgentWorkingState) {
+		return trimmedDetail;
+	}
+	if (
+		trimmedDetail.length === 0 ||
+		trimmedDetail === SPACE_AGENT_WORKING_STATUS_TEXT
+	) {
+		return SPACE_AGENT_WORKING_STATUS_TEXT;
+	}
+	return `${SPACE_AGENT_WORKING_STATUS_TEXT} · ${trimmedDetail}`;
+}
+
+function resolveElapsedSeconds(input: {
+	entry: SpaceMessageWakeThinkingEntry;
+	nowMs: number;
+}): number {
+	const elapsedStartedAtMs = input.entry.elapsedStartedAtMs;
+	if (elapsedStartedAtMs === null) {
+		return 0;
+	}
+	return Math.max(0, Math.floor((input.nowMs - elapsedStartedAtMs) / 1000));
+}
+
+function formatElapsedDuration(totalSeconds: number): string {
+	if (totalSeconds < 60) {
+		return `${totalSeconds}s`;
+	}
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = totalSeconds % 60;
+	if (minutes < 60) {
+		return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+	}
+	const hours = Math.floor(minutes / 60);
+	const remainingMinutes = minutes % 60;
+	return `${hours}h ${remainingMinutes.toString().padStart(2, "0")}m`;
+}

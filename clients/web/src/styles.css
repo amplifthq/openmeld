@@ -1,0 +1,550 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "./styles/typeset.css";
+@import "streamdown/styles.css";
+@import "@openmeld/ui/globals.css";
+
+@source "../../../packages/ui/src";
+@source "../node_modules/streamdown/dist";
+
+.typeset-chat {
+  --typeset-size: 1em;
+  --typeset-leading: 1.71;
+  --typeset-flow: 0.875em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-sd-animate] {
+    animation: none;
+  }
+}
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/Geist-Variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Fallback";
+  src: local("Arial");
+  ascent-override: 95.94%;
+  descent-override: 28.16%;
+  line-gap-override: 0%;
+  size-adjust: 104.76%;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/GeistMono-Variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono Fallback";
+  src: local("Arial");
+  ascent-override: 74.67%;
+  descent-override: 21.92%;
+  line-gap-override: 0%;
+  size-adjust: 134.59%;
+}
+
+@font-face {
+  font-family: "GeistPixelSquare";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/GeistPixel-Square.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "GeistPixelLine";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/GeistPixel-Line.woff2") format("woff2");
+}
+
+.font-geist-pixel-square {
+	font-family:
+		"GeistPixelSquare", "Geist Mono", ui-monospace, SFMono-Regular,
+		"Roboto Mono", Menlo, Monaco, "Liberation Mono", "DejaVu Sans Mono",
+		"Courier New", monospace;
+	font-style: normal;
+	font-weight: 500;
+}
+
+.font-geist-pixel-line {
+	font-family:
+		"GeistPixelLine", "Geist Mono", ui-monospace, SFMono-Regular,
+		"Roboto Mono", Menlo, Monaco, "Liberation Mono", "DejaVu Sans Mono",
+		"Courier New", monospace;
+	font-style: normal;
+	font-weight: 500;
+}
+
+.landing-copy-weight {
+	font-weight: 350;
+}
+
+.font-geist-vars {
+	--font-ui-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace,
+		SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+		monospace;
+	--font-ui-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui,
+		sans-serif;
+}
+
+:root {
+  --app-canvas: #f5f5f4;
+  --border: oklch(0 0 0 / 7%);
+  --sidebar-accent: oklch(0 0 0 / 6%);
+  --sidebar-border: var(--border);
+  --space-conversation-header-height: 4.3125rem;
+  --space-conversation-centered-max-width: 64rem;
+  --space-conversation-inline-padding: 1rem;
+}
+
+.dark {
+  --app-canvas: #0b0b0a;
+  --border: oklch(1 0 0 / 6%);
+  --sidebar-accent: oklch(1 0 0 / 8%);
+  --sidebar-border: var(--border);
+}
+
+html[data-space-conversation-layout="centered"]
+  [data-space-conversation-content-width] {
+  width: 100%;
+  max-width: var(--space-conversation-centered-max-width);
+  margin-inline: auto;
+}
+
+html[data-space-conversation-layout="centered"]
+  [data-space-conversation-presentation="compact"]
+  [data-space-conversation-content-width] {
+  max-width: min(var(--space-conversation-centered-max-width), 100%);
+}
+
+[data-space-conversation-content-width] {
+  width: 100%;
+  padding-inline: var(--space-conversation-inline-padding);
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"][data-slot="message"] {
+  flex-direction: row;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  > [data-slot="message-content"]
+  > [data-slot] {
+  align-self: flex-start;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="bubble"],
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="bubble-content"],
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="space-message-body"] {
+  align-items: flex-start;
+  align-self: flex-start;
+  text-align: left;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="message-footer"] {
+  justify-content: flex-start;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="message-hover-actions"][data-space-message-actions-offset="outside"] {
+  right: -0.25rem;
+  left: auto;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="message-hover-actions"][data-space-message-actions-offset="inside"] {
+  right: 0.75rem;
+  left: auto;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="reply-preview"][data-align="end"] {
+  align-items: flex-start;
+  border-right-width: 0;
+  border-left-width: 1px;
+  padding-right: 0;
+  padding-left: 0.75rem;
+  text-align: left;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="space-outcome-row"][data-align="end"] {
+  justify-content: flex-start;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="space-outcome-row"][data-align="end"]
+  [data-slot="marker-content"] {
+  text-align: left;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-space-message-delivery-status][data-align="end"] {
+  margin-left: 0;
+  text-align: left;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="space-message-progress-content"][data-align="end"] {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+html[data-space-self-message-alignment="left"]
+  [data-space-self-message="true"]
+  [data-slot="space-message-progress-content"][data-align="end"]
+  button {
+  text-align: left;
+}
+
+@media (min-width: 1280px) {
+  html[data-space-conversation-layout="centered"]
+    [data-space-conversation-content-width] {
+    max-width: min(
+      var(--space-conversation-centered-max-width),
+      calc(100% - var(--space-members-panel-width, 22rem))
+    );
+  }
+
+  html[data-space-conversation-layout="centered"]
+    [data-space-members-panel-open="true"]
+    [data-space-conversation-content-width],
+  html[data-space-conversation-layout="centered"]
+    [data-space-thread-panel-open="true"]
+    [data-space-conversation-content-width] {
+    max-width: min(var(--space-conversation-centered-max-width), 100%);
+  }
+}
+
+@layer base {
+  ::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: var(--radius);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .landing-display-tight {
+    letter-spacing: -0.055em !important;
+  }
+}
+
+@keyframes terminal-demo-cursor-pulse {
+  0%,
+  100% {
+    opacity: 0.38;
+    box-shadow: 0 0 0 color-mix(in oklab, var(--foreground) 0%, transparent);
+  }
+
+  50% {
+    opacity: 1;
+    box-shadow:
+      0 0 10px color-mix(in oklab, var(--foreground) 28%, transparent),
+      0 0 18px color-mix(in oklab, var(--foreground) 14%, transparent);
+  }
+}
+
+@keyframes terminal-demo-selection-sweep {
+  from {
+    background-size: 0% 100%;
+  }
+
+  to {
+    background-size: 100% 100%;
+  }
+}
+
+@keyframes local-agent-recovery-command-highlight {
+  0%,
+  100% {
+    border-color: var(--border);
+    background-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  18%,
+  58% {
+    border-color: color-mix(in oklab, var(--foreground) 58%, var(--border));
+    background-color: color-mix(
+      in oklab,
+      var(--foreground) 3%,
+      transparent
+    );
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--foreground) 24%, transparent),
+      0 0 22px color-mix(in oklab, var(--foreground) 12%, transparent);
+  }
+
+  34%,
+  74% {
+    border-color: var(--border);
+    background-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@keyframes agent-profile-row-highlight {
+  0%,
+  100% {
+    border-color: var(--border);
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  18%,
+  58% {
+    border-color: color-mix(in oklab, var(--foreground) 62%, var(--border));
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--foreground) 28%, transparent),
+      0 0 28px color-mix(in oklab, var(--foreground) 14%, transparent);
+  }
+
+  34%,
+  74% {
+    border-color: var(--border);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@keyframes add-members-recall-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  12%,
+  40%,
+  68% {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--foreground) 30%, transparent),
+      0 0 18px color-mix(in oklab, var(--foreground) 12%, transparent);
+  }
+
+  26%,
+  54%,
+  82% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@keyframes welcome-add-computer-icon-breathe {
+  0%,
+  100% {
+    border-color: color-mix(in oklab, var(--foreground) 24%, var(--border));
+    color: color-mix(in oklab, var(--foreground) 52%, transparent);
+    background-color: color-mix(in oklab, var(--foreground) 3%, transparent);
+    box-shadow: 0 0 0 0 transparent;
+    transform: scale(1);
+  }
+
+  50% {
+    border-color: color-mix(in oklab, var(--foreground) 70%, var(--border));
+    color: var(--foreground);
+    background-color: color-mix(in oklab, var(--foreground) 8%, transparent);
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--foreground) 26%, transparent),
+      0 0 24px color-mix(in oklab, var(--foreground) 16%, transparent);
+    transform: scale(1.04);
+  }
+}
+
+@keyframes welcome-add-computer-title-breathe {
+  0%,
+  100% {
+    color: color-mix(in oklab, var(--foreground) 78%, transparent);
+    text-shadow: 0 0 0 transparent;
+  }
+
+  50% {
+    color: var(--foreground);
+    text-shadow: 0 0 16px
+      color-mix(in oklab, var(--foreground) 20%, transparent);
+  }
+}
+
+@keyframes agent-activity-presence-breathe {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: scale(0.82);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes agent-activity-segment-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  50% {
+    box-shadow: 0 0 10px -1px currentColor;
+  }
+}
+
+@layer utilities {
+  /* Three thin, soft pulses to point a just-arrived user at the Add-members
+     card after they click "Add agents" in the Get-set-up banner. */
+  .add-members-recall-flash {
+    animation: add-members-recall-flash 1.6s ease-in-out;
+  }
+
+  .welcome-add-computer-icon-breathe {
+    animation: welcome-add-computer-icon-breathe 2.4s ease-in-out infinite;
+    transform-origin: center;
+  }
+
+  .welcome-add-computer-title-breathe {
+    animation: welcome-add-computer-title-breathe 2.4s ease-in-out infinite;
+  }
+
+  .terminal-demo-cursor {
+    display: inline-block;
+    width: 0.72ch;
+    height: 1.02em;
+    translate: 0 0.13em;
+    background: color-mix(in oklab, var(--foreground) 90%, transparent);
+    box-shadow: 0 0 0 transparent;
+    animation: terminal-demo-cursor-pulse 1.35s ease-in-out infinite;
+  }
+
+  .terminal-demo-selection-neutral {
+    --terminal-demo-selection-color: color-mix(
+      in oklab,
+      var(--foreground) 18%,
+      transparent
+    );
+  }
+
+  .terminal-demo-selection-text {
+    display: inline;
+    padding-inline: 0.08em;
+    background-image: linear-gradient(
+      var(--terminal-demo-selection-color),
+      var(--terminal-demo-selection-color)
+    );
+    background-position: 0 100%;
+    background-repeat: no-repeat;
+    background-size: 0% 100%;
+    box-decoration-break: clone;
+    transition: color 220ms ease-out;
+    -webkit-box-decoration-break: clone;
+  }
+
+  .terminal-demo-selection-text[data-active="true"] {
+    animation: terminal-demo-selection-sweep 760ms cubic-bezier(0.16, 1, 0.3, 1)
+      forwards;
+  }
+
+  .local-agent-recovery-command-highlight {
+    animation: local-agent-recovery-command-highlight 1400ms
+      cubic-bezier(0.2, 0, 0, 1) 1;
+  }
+
+  .agent-profile-row-highlight {
+    animation: agent-profile-row-highlight 1800ms cubic-bezier(0.2, 0, 0, 1) 1;
+  }
+
+  .agent-activity-presence-breathe {
+    animation: agent-activity-presence-breathe 2.2s ease-out infinite;
+    transform-origin: center;
+  }
+
+  .agent-activity-active-segment {
+    animation: agent-activity-segment-glow 2.4s ease-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .welcome-add-computer-icon-breathe {
+      border-color: color-mix(in oklab, var(--foreground) 52%, var(--border));
+      color: var(--foreground);
+      animation: none;
+      box-shadow: 0 0 0 1px
+        color-mix(in oklab, var(--foreground) 18%, transparent);
+      transform: none;
+    }
+
+    .welcome-add-computer-title-breathe {
+      color: var(--foreground);
+      animation: none;
+      text-shadow: none;
+    }
+
+    .terminal-demo-selection-text[data-active="true"] {
+      animation: none;
+      background-size: 100% 100%;
+    }
+
+    .local-agent-recovery-command-highlight {
+      border-color: color-mix(in oklab, var(--foreground) 42%, var(--border));
+      animation: none;
+      box-shadow: 0 0 0 1px
+        color-mix(in oklab, var(--foreground) 18%, transparent);
+    }
+
+    .agent-profile-row-highlight {
+      border-color: color-mix(in oklab, var(--foreground) 42%, var(--border));
+      animation: none;
+      box-shadow: 0 0 0 1px
+        color-mix(in oklab, var(--foreground) 18%, transparent);
+    }
+
+    .agent-activity-presence-breathe,
+    .agent-activity-active-segment {
+      animation: none;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .agent-activity-working-indicator svg {
+      display: none;
+    }
+
+    .agent-activity-rhythm * {
+      transition-duration: 0s;
+    }
+  }
+}

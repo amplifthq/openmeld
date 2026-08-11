@@ -1,0 +1,23 @@
+{
+  "projectName": "openmeld-web",
+  "mode": "file-router",
+  "typescript": true,
+  "tailwind": true,
+  "packageManager": "npm",
+  "git": true,
+  "install": true,
+  "addOnOptions": {},
+  "includeExamples": true,
+  "envVarValues": {},
+  "routerOnly": false,
+  "version": 1,
+  "framework": "react",
+  "chosenAddOns": [
+    "cloudflare",
+    "tanstack-query",
+    "better-auth",
+    "t3env",
+    "biome",
+    "compiler"
+  ]
+}

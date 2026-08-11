@@ -1,0 +1,199 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openmeld-auth",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-18",
+  "compatibility_flags": ["nodejs_compat"],
+  // Periodic Space Index overlay reconcile (physical-db-split.md D7): self-heals
+  // any dropped/failed Auth→Core overlay announcement. Per-env triggers do not
+  // inherit, so the prod block below repeats this.
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
+  "placement": {
+    "mode": "smart"
+  },
+  "dev": {
+    "ip": "localhost",
+    "port": 8788,
+    "inspector_port": 9231
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
+  },
+  "analytics_engine_datasets": [
+    {
+      "binding": "OPENMELD_OBSERVABILITY",
+      "dataset": "openmeld_runtime_evidence"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "AUTH_EMAIL"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER",
+      "namespace_id": "1003",
+      "simple": { "limit": 10, "period": 60 }
+    }
+  ],
+  "route": {
+    "custom_domain": true,
+    "pattern": "auth.openmeld.ai"
+  },
+  "secrets": {
+    "required": [
+      "BETTER_AUTH_OPENMELD_SECRET",
+      "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET",
+      "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_SECRET"
+    ]
+  },
+  "vars": {
+    "OPENMELD_WORKER_ENVIRONMENT": "local",
+    "BETTER_AUTH_URL": "http://localhost:8788",
+    "WEB_APP_URL": "http://localhost:3000",
+    "AUTH_WORKER_NODE_ENV": "development",
+    "AUTH_DEVICE_ALLOWED_CLIENT_IDS": "openmeld-cli,openmeld-cli-dev",
+    "OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED": "false",
+    "AUTH_BRAND_NAME": "OpenMeld",
+    "AUTH_FROM_EMAIL": "OpenMeld <noreply@openmeld.ai>",
+    "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID": "Ov23liep0dDgdCIsncTe",
+    "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_ID": "1013651302197-kdf7ffmegpkpjpn2ln6efuh9d3eseq7e.apps.googleusercontent.com",
+    "AUTH_COOKIE_DOMAIN": "localhost",
+    "PASSKEY_RP_ID": "localhost",
+    "AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS": "300"
+  },
+  "d1_databases": [
+    {
+      "binding": "OPENMELD_DB",
+      "database_name": "openmeld-db-prod",
+      "database_id": "15f16284-5240-4675-b626-3b7144e1d684",
+      "migrations_dir": "../../packages/db/drizzle"
+    },
+    // OPENMELD_IDENTITY_DB, ALIASED to the OpenMeld production DB (single physical DB). The physical
+    // DB split was attempted and REVERTED 2026-06-14 (physical-db-split.md
+    // "DIRECTION CHANGE"). No auth code reads this binding; it stays aliased — do
+    // NOT flip it. (A future split would isolate only wake-evidence, not identity.)
+    {
+      "binding": "OPENMELD_IDENTITY_DB",
+      "database_name": "openmeld-db-prod",
+      "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "OPENMELD_AUTH_KV",
+      "id": "89407cf3ca6c4df9928b2e7c4c001aba"
+    }
+  ],
+  "services": [
+    {
+      "binding": "OPENMELD_CORE_WORKER",
+      "service": "openmeld-core",
+      "entrypoint": "ProfileLifecycleEntrypoint"
+    }
+  ],
+  "env": {
+    "prod": {
+      // Per-env triggers do not inherit the top-level block; declare the
+      // overlay-reconcile cron explicitly for the prod deploy (physical-db-split.md D7).
+      "triggers": {
+        "crons": ["*/15 * * * *"]
+      },
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence_prod"
+        }
+      ],
+      "send_email": [
+        {
+          "name": "AUTH_EMAIL"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "OPENMELD_ORGANIZATION_JOIN_LINK_ACCEPT_RATE_LIMITER",
+          "namespace_id": "1003",
+          "simple": { "limit": 10, "period": 60 }
+        }
+      ],
+      "secrets": {
+        "required": [
+          "BETTER_AUTH_OPENMELD_SECRET",
+          "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET",
+          "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_SECRET"
+        ]
+      },
+      "vars": {
+        "OPENMELD_WORKER_ENVIRONMENT": "prod",
+        "BETTER_AUTH_URL": "https://auth.openmeld.ai",
+        "WEB_APP_URL": "https://openmeld.ai",
+        "AUTH_WORKER_NODE_ENV": "production",
+        "AUTH_DEVICE_ALLOWED_CLIENT_IDS": "openmeld-cli,openmeld-cli-dev",
+        "OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED": "false",
+        "AUTH_BRAND_NAME": "OpenMeld",
+        "AUTH_FROM_EMAIL": "OpenMeld <noreply@openmeld.ai>",
+        "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID": "Ov23liep0dDgdCIsncTe",
+        "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_ID": "1013651302197-kdf7ffmegpkpjpn2ln6efuh9d3eseq7e.apps.googleusercontent.com",
+        "AUTH_COOKIE_DOMAIN": "openmeld.ai",
+        "PASSKEY_RP_ID": "openmeld.ai",
+        "AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS": "300"
+      },
+      "d1_databases": [
+        {
+          "binding": "OPENMELD_DB",
+          "database_name": "openmeld-db-prod",
+          "database_id": "15f16284-5240-4675-b626-3b7144e1d684",
+          "migrations_dir": "../../packages/db/drizzle"
+        },
+        // OPENMELD_IDENTITY_DB, ALIASED to the OpenMeld production DB (single physical DB). The
+        // physical DB split was attempted and REVERTED 2026-06-14
+        // (physical-db-split.md "DIRECTION CHANGE"). No auth code reads this
+        // binding; it stays aliased — do NOT flip it. (A future split would
+        // isolate only wake-evidence, not identity.)
+        {
+          "binding": "OPENMELD_IDENTITY_DB",
+          "database_name": "openmeld-db-prod",
+          "database_id": "15f16284-5240-4675-b626-3b7144e1d684"
+        }
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "OPENMELD_AUTH_KV",
+          "id": "89407cf3ca6c4df9928b2e7c4c001aba"
+        }
+      ],
+      "services": [
+        {
+          "binding": "OPENMELD_CORE_WORKER",
+          "service": "openmeld-core-prod",
+          "entrypoint": "ProfileLifecycleEntrypoint"
+        }
+      ]
+    }
+  }
+}

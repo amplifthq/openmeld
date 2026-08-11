@@ -1,0 +1,325 @@
+import type {
+	AgentControllerCollaborationMode,
+	AgentControllerPermissionMode,
+	AgentProfileBindingOpenCodePermission,
+	AuthProfileView,
+	DaemonServiceLane,
+	GetAgentProfilePrimaryBindingResponse,
+	LocalRuntimeExecutionTarget,
+	OrganizationDirectoryResponse,
+} from "@openmeld/schemas/types";
+import type { QueryClient } from "@tanstack/react-query";
+import { isOpenCodeAgentControllerRef } from "#/components/profiles/open-code-permissions-field";
+import {
+	updateAgentProfilePrimaryBindingAgentControllerCollaborationMode,
+	updateAgentProfilePrimaryBindingAgentControllerPermissionMode,
+	updateAgentProfilePrimaryBindingModelSelection,
+	updateAgentProfilePrimaryBindingOpenCodePermission,
+} from "#/lib/profiles/agent-profile-primary-binding";
+import {
+	ensureWebAgentProfileRuntimeBinding,
+	formatWebAgentProfileRuntimeBindingFailure,
+} from "#/lib/profiles/agent-profile-runtime-binding";
+import { renameOpenMeldProfile } from "#/lib/profiles/rename-profile";
+import { refreshWebAgentReadinessFacts } from "#/query/agents/execution-readiness";
+import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import {
+	agentProfilePrimaryBindingQueryKeys,
+	agentProfilePrimaryBindingQueryOptions,
+} from "#/query/profiles/primary-binding";
+import { startQueryKeys } from "#/query/query-keys";
+
+export type AgentProfileModelSelectionUpdate = {
+	modelId: string;
+	reasoningLevel: string | null;
+};
+
+export type AgentProfileControllerChangeUpdate = {
+	agentControllerCollaborationMode: AgentControllerCollaborationMode | null;
+	agentControllerPermissionMode: AgentControllerPermissionMode | null;
+	agentControllerRef: string;
+	modelId: string | null;
+	openCodePermission: AgentProfileBindingOpenCodePermission | null;
+	reasoningLevel: string | null;
+};
+
+export type AgentProfileEditActionContext = {
+	actorProfileId: string | null;
+	deviceId: string | null;
+	executionTarget: LocalRuntimeExecutionTarget | null;
+	onBindingUpdated?: (
+		binding: NonNullable<GetAgentProfilePrimaryBindingResponse["binding"]>
+	) => void;
+	profile: AuthProfileView;
+	queryClient: QueryClient;
+	runtimeLane: DaemonServiceLane | null;
+	storageScope: string;
+};
+
+type AgentProfileBindingUpdateResult = {
+	binding?: GetAgentProfilePrimaryBindingResponse["binding"];
+	status: "accepted" | "rejected";
+};
+
+export function formatAgentProfileRuntimeSettingsSavedMessage(
+	profileName: string
+): string {
+	return `Agent settings saved for ${profileName}. New work will wait for this computer to sync the changes before it starts.`;
+}
+
+export async function changeAgentProfileController(input: {
+	context: AgentProfileEditActionContext;
+	update: AgentProfileControllerChangeUpdate;
+}) {
+	const deviceId =
+		input.context.executionTarget?.deviceId ?? input.context.deviceId;
+	const runtimeLane =
+		input.context.executionTarget?.runtimeLane ?? input.context.runtimeLane;
+	if (!(deviceId && runtimeLane)) {
+		throw new Error(
+			"Connect OpenMeld Service on this computer before changing the controller."
+		);
+	}
+	const bindingResult = await ensureWebAgentProfileRuntimeBinding({
+		actorProfileId: input.context.actorProfileId,
+		agentControllerRef: input.update.agentControllerRef,
+		agentProfileId: input.context.profile.openMeldProfileId,
+		...(input.update.agentControllerCollaborationMode
+			? {
+					agentControllerCollaborationMode:
+						input.update.agentControllerCollaborationMode,
+				}
+			: {}),
+		...(input.update.agentControllerPermissionMode
+			? {
+					agentControllerPermissionMode:
+						input.update.agentControllerPermissionMode,
+				}
+			: {}),
+		deviceId,
+		modelId: input.update.modelId,
+		openCodePermission: isOpenCodeAgentControllerRef(
+			input.update.agentControllerRef
+		)
+			? input.update.openCodePermission
+			: null,
+		reasoningLevel: input.update.reasoningLevel,
+		runtimeLane,
+		writeMode: "reconnect",
+	});
+	if (bindingResult.status !== "accepted") {
+		throw new Error(formatWebAgentProfileRuntimeBindingFailure(bindingResult));
+	}
+	const queryKey = agentProfilePrimaryBindingQueryKeys.profile(
+		input.context.storageScope,
+		input.context.profile.openMeldProfileId
+	);
+	await invalidateAgentProfilePrimaryBindingEditQueries({
+		queryClient: input.context.queryClient,
+		queryKey,
+		storageScope: input.context.storageScope,
+	});
+	const primaryBindingResponse = await input.context.queryClient.fetchQuery(
+		agentProfilePrimaryBindingQueryOptions({
+			agentProfileId: input.context.profile.openMeldProfileId,
+			enabled: true,
+			storageScope: input.context.storageScope,
+		})
+	);
+	if (!primaryBindingResponse.binding) {
+		throw new Error(
+			"OpenMeld could not load the updated Agent Profile settings."
+		);
+	}
+	await commitAgentProfileBindingUpdate({
+		binding: primaryBindingResponse.binding,
+		context: input.context,
+	});
+	await refreshWebAgentReadinessFacts({
+		agentProfileIds: [input.context.profile.openMeldProfileId],
+		queryClient: input.context.queryClient,
+		storageScope: input.context.storageScope,
+	});
+}
+
+export async function updateAgentProfileControllerCollaborationMode(input: {
+	agentControllerCollaborationMode: AgentControllerCollaborationMode;
+	context: AgentProfileEditActionContext;
+}) {
+	await runAgentProfileBindingUpdate({
+		context: input.context,
+		update: async () =>
+			await updateAgentProfilePrimaryBindingAgentControllerCollaborationMode({
+				actorProfileId: input.context.actorProfileId,
+				agentControllerCollaborationMode:
+					input.agentControllerCollaborationMode,
+				agentProfileId: input.context.profile.openMeldProfileId,
+			}),
+	});
+}
+
+export async function updateAgentProfileControllerPermissionMode(input: {
+	agentControllerPermissionMode: AgentControllerPermissionMode;
+	context: AgentProfileEditActionContext;
+}) {
+	await runAgentProfileBindingUpdate({
+		context: input.context,
+		update: async () =>
+			await updateAgentProfilePrimaryBindingAgentControllerPermissionMode({
+				actorProfileId: input.context.actorProfileId,
+				agentControllerPermissionMode: input.agentControllerPermissionMode,
+				agentProfileId: input.context.profile.openMeldProfileId,
+			}),
+	});
+}
+
+export async function updateAgentProfileModelSelection(input: {
+	context: AgentProfileEditActionContext;
+	modelSelection: AgentProfileModelSelectionUpdate;
+}) {
+	await runAgentProfileBindingUpdate({
+		context: input.context,
+		update: async () =>
+			await updateAgentProfilePrimaryBindingModelSelection({
+				actorProfileId: input.context.actorProfileId,
+				agentProfileId: input.context.profile.openMeldProfileId,
+				modelId: input.modelSelection.modelId,
+				reasoningLevel: input.modelSelection.reasoningLevel,
+			}),
+	});
+}
+
+export async function updateAgentProfileOpenCodePermission(input: {
+	context: AgentProfileEditActionContext;
+	openCodePermission: AgentProfileBindingOpenCodePermission | null;
+}) {
+	await runAgentProfileBindingUpdate({
+		context: input.context,
+		update: async () =>
+			await updateAgentProfilePrimaryBindingOpenCodePermission({
+				actorProfileId: input.context.actorProfileId,
+				agentProfileId: input.context.profile.openMeldProfileId,
+				openCodePermission: input.openCodePermission,
+			}),
+	});
+}
+
+export async function renameAgentProfile(input: {
+	context: AgentProfileEditActionContext;
+	profileName: string;
+}) {
+	const updatedProfile = await renameOpenMeldProfile({
+		actorProfileId: input.context.actorProfileId,
+		profileId: input.context.profile.openMeldProfileId,
+		profileName: input.profileName,
+	});
+	updateAgentProfileListCaches({
+		profile: updatedProfile,
+		queryClient: input.context.queryClient,
+		storageScope: input.context.storageScope,
+	});
+	await Promise.all([
+		input.context.queryClient.invalidateQueries({
+			queryKey: startQueryKeys.profilesForStorageScope(
+				input.context.storageScope
+			),
+		}),
+		input.context.queryClient.invalidateQueries({
+			queryKey: organizationQueryKeys.all,
+		}),
+	]);
+	return updatedProfile;
+}
+
+export function updateAgentProfileListCaches(input: {
+	profile: AuthProfileView;
+	queryClient: QueryClient;
+	storageScope: string;
+}) {
+	input.queryClient.setQueriesData<readonly AuthProfileView[]>(
+		{
+			queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
+		},
+		(current) =>
+			current?.map((profile) =>
+				profile.openMeldProfileId === input.profile.openMeldProfileId
+					? input.profile
+					: profile
+			)
+	);
+	input.queryClient.setQueriesData<OrganizationDirectoryResponse>(
+		{
+			queryKey: organizationQueryKeys.all,
+		},
+		(current) =>
+			current
+				? {
+						...current,
+						agentProfiles: current.agentProfiles.map((profile) =>
+							profile.profileId === input.profile.openMeldProfileId
+								? {
+										...profile,
+										profileHandle: input.profile.profileHandle,
+										profileName: input.profile.profileName,
+										updatedAt: input.profile.updatedAt,
+									}
+								: profile
+						),
+					}
+				: current
+	);
+}
+
+export async function invalidateAgentProfilePrimaryBindingEditQueries(input: {
+	queryClient: QueryClient;
+	queryKey: ReturnType<typeof agentProfilePrimaryBindingQueryKeys.profile>;
+	storageScope: string;
+}) {
+	await Promise.all([
+		input.queryClient.invalidateQueries({ queryKey: input.queryKey }),
+		input.queryClient.invalidateQueries({
+			queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
+		}),
+		input.queryClient.invalidateQueries({
+			queryKey: organizationQueryKeys.all,
+		}),
+	]);
+}
+
+async function runAgentProfileBindingUpdate(input: {
+	context: AgentProfileEditActionContext;
+	update: () => Promise<AgentProfileBindingUpdateResult>;
+}) {
+	const response = await input.update();
+	if (response.status !== "accepted" || !response.binding) {
+		throw new Error("OpenMeld could not save the Agent Profile settings.");
+	}
+	await commitAgentProfileBindingUpdate({
+		binding: response.binding,
+		context: input.context,
+	});
+}
+
+async function commitAgentProfileBindingUpdate(input: {
+	binding: NonNullable<GetAgentProfilePrimaryBindingResponse["binding"]>;
+	context: AgentProfileEditActionContext;
+}) {
+	const queryKey = agentProfilePrimaryBindingQueryKeys.profile(
+		input.context.storageScope,
+		input.context.profile.openMeldProfileId
+	);
+	input.context.queryClient.setQueryData<GetAgentProfilePrimaryBindingResponse>(
+		queryKey,
+		{
+			binding: input.binding,
+			grantsClaimSuccess: false,
+			status: "found",
+		}
+	);
+	input.context.onBindingUpdated?.(input.binding);
+	await invalidateAgentProfilePrimaryBindingEditQueries({
+		queryClient: input.context.queryClient,
+		queryKey,
+		storageScope: input.context.storageScope,
+	});
+}

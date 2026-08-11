@@ -1,0 +1,169 @@
+name: 📦 CLI Release
+run-name: CLI Release ${{ inputs.mode }} @ ${{ inputs.release_sha || github.sha }}
+
+permissions:
+  contents: write
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Verify safely by default or publish the release"
+        required: true
+        type: choice
+        default: verify
+        options:
+          - verify
+          - release
+      release_sha:
+        description: "Optional exact commit to release or recover; leave empty for the dispatched main SHA"
+        required: false
+        type: string
+        default: ""
+      release_path:
+        description: "Use normal unless recovering the same release after a completed stage"
+        required: true
+        type: choice
+        default: normal
+        options:
+          - normal
+          - resume-after-binary-upload
+          - resume-after-npm-publish
+
+concurrency:
+  group: cli-production-release
+  cancel-in-progress: false
+
+jobs:
+  reject_non_main:
+    name: Reject Non-Main CLI Release
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require main
+        run: |
+          echo "::error::CLI releases must run from main. Current ref: ${GITHUB_REF}"
+          exit 1
+
+  verify:
+    name: Verify CLI Release Readiness
+    if: github.ref == 'refs/heads/main' && inputs.mode == 'verify'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ inputs.release_sha || github.sha }}
+
+      - name: Setup repository toolchain
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Fetch release tags
+        run: git fetch --tags --force
+
+      - name: Verify release-ready local components
+        run: pnpm run verify:release-ready
+
+  cli_release:
+    name: Publish CLI And Release Core
+    if: github.ref == 'refs/heads/main' && inputs.mode == 'release'
+    runs-on: macos-15
+    timeout-minutes: 45
+    environment: production
+    steps:
+      - name: Validate immutable release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::CLI releases must run from main. Current ref: ${GITHUB_REF}"
+            exit 1
+          fi
+          release_sha="${{ inputs.release_sha }}"
+          if [ -n "$release_sha" ] && ! [[ "$release_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::release_sha must be an exact 40-character lowercase commit SHA."
+            exit 1
+          fi
+
+      - name: Checkout release commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ inputs.release_sha || github.sha }}
+
+      - name: Setup repository toolchain
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Fetch release tags
+        run: git fetch --tags --force
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Setup npm Trusted Publishing client
+        run: |
+          npm install --global npm@11.18.0
+          npm --version
+
+      - name: Build Core release dependencies
+        run: pnpm turbo run build --filter=@openmeld/core...
+
+      - name: Configure release tag identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Publish signed and notarized CLI, binary channel, npm package, tag, and Core
+        shell: bash
+        env:
+          APPLE_DEVELOPER_ID_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # npm Trusted Publishing authenticates private repositories through OIDC,
+          # but npm cannot write public Sigstore provenance for a private source repo.
+          NPM_CONFIG_PROVENANCE: "false"
+        run: |
+          set -euo pipefail
+          case "${{ inputs.release_path }}" in
+            normal|resume-after-binary-upload|resume-after-npm-publish)
+              pnpm run release:cli --with-binary
+              ;;
+            *)
+              echo "::error::Unknown release path: ${{ inputs.release_path }}"
+              exit 1
+              ;;
+          esac
+
+      - name: Preserve a failed Core startup profile
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-startup-profile-${{ inputs.release_sha || github.sha }}
+          if-no-files-found: ignore
+          path: services/core/.wrangler/tmp/startup-profile-*/worker.cpuprofile
+          retention-days: 14
+
+      - name: Verify Core deployment is visible
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: pnpm exec wrangler deployments list --config services/core/wrangler.jsonc --env prod --json > /dev/null
+
+      - name: Push the release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./clients/openmeld-cli/package.json').version")"
+          git push origin "refs/tags/v${version}"

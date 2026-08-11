@@ -1,0 +1,9 @@
+# Production secrets for openmeld-auth.
+BETTER_AUTH_OPENMELD_SECRET=
+
+# OAuth
+# GitHub OAuth client secret
+GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET=
+
+# Google OAuth client secret
+GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_SECRET=

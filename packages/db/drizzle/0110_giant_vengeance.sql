@@ -1,0 +1,2 @@
+ALTER TABLE `openMeldRemoteAgent_native_delivery_ledger` ADD `accepted_probe_next_due_at_ms` integer;--> statement-breakpoint
+CREATE INDEX `idx_openMeldRemoteAgent_native_delivery_accepted_probe_due` ON `openMeldRemoteAgent_native_delivery_ledger` (`status`,`accepted_probe_next_due_at_ms`,`updated_at_ms`);

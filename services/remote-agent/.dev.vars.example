@@ -1,0 +1,12 @@
+# Cloudflare AI Gateway authenticated gateway token with AI Gateway Run permission.
+CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN=
+
+# OpenConnector runtime token used only for the approved action execution surface.
+OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN=
+
+# Non-secret model route config is managed in wrangler.jsonc vars:
+# - OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID
+# - OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID
+# - OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS
+# - OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID
+# - OPENMELD_CONNECTORS_BASE_URL

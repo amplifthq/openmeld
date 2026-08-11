@@ -1,0 +1,9 @@
+# Local development secret for openmeld-web worker runtime (server-only).
+WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET="replace-with-a-local-server-secret"
+
+# Non-sensitive runtime URLs and public Vite vars are managed in wrangler.jsonc vars/env.prod.vars:
+# - OPENMELD_GATEWAY_URL
+# - WEB_APP_URL
+# - BETTER_AUTH_URL
+# - VITE_BETTER_AUTH_URL
+# - VITE_APP_TITLE

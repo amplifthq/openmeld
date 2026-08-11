@@ -1,0 +1,14 @@
+{
+  "extends": "../../tooling/typescript-config/base.jsonc",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ESNext", "WebWorker"],
+    "types": ["./worker-configuration.d.ts"]
+  },
+  "include": ["src"],
+  "exclude": [
+    "src/lib/db/tooling-check.ts",
+    "src/lib/db/tooling-fact-snapshot.ts",
+    "src/lib/db/tooling-facts.ts"
+  ]
+}

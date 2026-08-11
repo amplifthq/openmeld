@@ -1,0 +1,55 @@
+{
+  "capturedAt": "2026-07-17T06:58:00Z",
+  "sourceCommands": [
+    "npm view openmeld dist-tags versions --json",
+    "npm view openmeld@0.2.43 version gitHead dist.integrity --json"
+  ],
+  "distTagsAndVersions": {
+    "dist-tags": {
+      "latest": "0.2.43"
+    },
+    "versions": [
+      "0.1.0",
+      "0.1.1",
+      "0.2.0",
+      "0.2.1",
+      "0.2.2",
+      "0.2.6",
+      "0.2.7",
+      "0.2.9",
+      "0.2.10",
+      "0.2.11",
+      "0.2.12",
+      "0.2.13",
+      "0.2.14",
+      "0.2.15",
+      "0.2.16",
+      "0.2.17",
+      "0.2.18",
+      "0.2.19",
+      "0.2.20",
+      "0.2.21",
+      "0.2.22",
+      "0.2.23",
+      "0.2.24",
+      "0.2.26",
+      "0.2.30",
+      "0.2.31",
+      "0.2.32",
+      "0.2.33",
+      "0.2.34",
+      "0.2.35",
+      "0.2.36",
+      "0.2.38",
+      "0.2.39",
+      "0.2.40",
+      "0.2.41",
+      "0.2.42",
+      "0.2.43"
+    ]
+  },
+  "publishedVersion": {
+    "version": "0.2.43",
+    "dist.integrity": "sha512-G2lyEQqu0YNGOu9OwJ/XpxiKo6Bx8KCQOdmR0WyYQYEQ/Dq1pyOEMgeQ+JWbxOL+ry8ujYGKWG5lpa22bavpjg=="
+  }
+}

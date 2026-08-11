@@ -1,0 +1,444 @@
+import {
+	resolveHostCapabilities,
+	resolveSettingsSections,
+	toSettingsNavItems,
+} from "@openmeld/ui/lib/settings-contract";
+import { isRedirect } from "@tanstack/react-router";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { OrganizationSummary } from "#/lib/organizations/organization-types";
+import { buildSettingsRoutes } from "#/lib/settings-routes";
+import { TestQueryClientProvider } from "#/test-support/query-client";
+import {
+	SettingsContentFrame,
+	SettingsInnerSidebar,
+	SettingsPage,
+} from "./settings-page";
+import { buildSettingsSections } from "./settings-sections";
+
+const CLOUD_CAPABILITIES = resolveHostCapabilities("cloud");
+const TEST_ORG_SLUG = "acme";
+const testSettingsRoutes = buildSettingsRoutes(TEST_ORG_SLUG);
+const testSettingsSections = buildSettingsSections(TEST_ORG_SLUG);
+const getActiveOrganizationMemberRoleMock = vi.hoisted(() =>
+	vi.fn().mockResolvedValue("owner")
+);
+let currentOrganization: OrganizationSummary = {
+	id: "org-acme",
+	name: "Acme",
+	slug: "acme",
+};
+
+vi.mock("@tanstack/react-router", async () => {
+	const actual = await vi.importActual<typeof import("@tanstack/react-router")>(
+		"@tanstack/react-router"
+	);
+	return {
+		...actual,
+		Link: ({ children, to }: { children: ReactNode; to: string }) => (
+			<a href={to}>{children}</a>
+		),
+	};
+});
+
+vi.mock("#/lib/organizations/organization-context", () => ({
+	useAppOrganization: () => ({
+		currentOrganization,
+		currentUserId: "user-123",
+	}),
+	useCurrentOrganizationSlug: () => currentOrganization.slug,
+}));
+
+vi.mock("#/components/app/app-inner-sidebar", () => ({
+	AppInnerSidebar: ({ children }: { children: ReactNode }) => <>{children}</>,
+	AppInnerSidebarHeader: ({ title }: { title: string }) => (
+		<h2 className="text-xs">{title}</h2>
+	),
+}));
+
+vi.mock("#/components/app/app-outer-rail", () => ({
+	AppOuterRail: () => null,
+}));
+
+vi.mock("#/components/app/app-global-controls", () => ({
+	AppGlobalControls: () => <div data-testid="global-controls" />,
+}));
+
+vi.mock("#/components/app/app-shell-account", () => ({
+	useAppShellAccount: () => ({
+		email: "owner@example.com",
+		image: null,
+		name: "Owner",
+	}),
+}));
+
+vi.mock("#/components/app/use-settings-attention-tone", () => ({
+	useSettingsAttentionTone: () => null,
+}));
+
+vi.mock("#/lib/organizations/auth-organizations", () => ({
+	getActiveOrganizationMemberRole: getActiveOrganizationMemberRoleMock,
+}));
+
+vi.mock("#/query/organizations/organization-directory", async () => {
+	const actual = await vi.importActual<
+		typeof import("#/query/organizations/organization-directory")
+	>("#/query/organizations/organization-directory");
+	return {
+		...actual,
+		organizationMemberRoleQueryOptions: (input: {
+			enabled: boolean;
+			organizationId: string;
+			userId: string;
+		}) => ({
+			enabled: input.enabled,
+			queryFn: () => getActiveOrganizationMemberRoleMock(),
+			queryKey: actual.organizationQueryKeys.role(
+				input.organizationId,
+				input.userId
+			),
+			retry: false,
+			staleTime: 60_000,
+		}),
+	};
+});
+
+vi.mock("./account-section", () => ({
+	AccountSection: () => <div>Account settings content</div>,
+}));
+
+afterEach(() => {
+	cleanup();
+	currentOrganization = {
+		id: "org-acme",
+		name: "Acme",
+		slug: "acme",
+	};
+});
+
+describe("Web Settings capability gating", () => {
+	it("drops the local-service Service section on a plain Web (cloud) host", () => {
+		const sections = resolveSettingsSections(
+			testSettingsSections,
+			CLOUD_CAPABILITIES
+		);
+		const ids = sections.map((section) => section.id);
+
+		expect(ids).toEqual([
+			"account",
+			"appearance",
+			"notifications",
+			"privacy",
+			"general",
+		]);
+		expect(ids).not.toContain("service");
+	});
+
+	it("projects the cloud-tier Settings nav items on Web", () => {
+		const navItems = toSettingsNavItems(
+			resolveSettingsSections(testSettingsSections, CLOUD_CAPABILITIES)
+		);
+
+		expect(navItems.map((item) => item.id)).toEqual([
+			"account",
+			"appearance",
+			"notifications",
+			"privacy",
+			"general",
+		]);
+		expect(navItems.map((item) => item.to)).toEqual([
+			testSettingsRoutes.account,
+			testSettingsRoutes.appearance,
+			testSettingsRoutes.notifications,
+			testSettingsRoutes.privacy,
+			testSettingsRoutes.general,
+		]);
+	});
+
+	it("keeps the same Settings structure in a personal workspace", () => {
+		const personalSections = resolveSettingsSections(
+			buildSettingsSections("felix"),
+			CLOUD_CAPABILITIES
+		);
+
+		expect(personalSections.map((section) => section.id)).toEqual([
+			"account",
+			"appearance",
+			"notifications",
+			"privacy",
+			"general",
+		]);
+	});
+});
+
+describe("Settings grouped navigation", () => {
+	it("shows Personal and the current organization name with the organization role", () => {
+		const onSendFeedback = vi.fn();
+		const navItems = toSettingsNavItems(
+			resolveSettingsSections(testSettingsSections, CLOUD_CAPABILITIES)
+		);
+
+		render(
+			<SettingsInnerSidebar
+				activeSectionId="account"
+				isPersonalWorkspace={false}
+				items={navItems}
+				onSendFeedback={onSendFeedback}
+				organizationName="Acme"
+				organizationRole="owner"
+			/>
+		);
+
+		expect(
+			screen.getByRole("heading", { level: 2, name: "Personal" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { level: 2, name: "Acme" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { level: 2, name: "Settings" }).className
+		).toContain("text-xs");
+		expect(
+			screen.queryByText("Manage personal and organization settings.")
+		).toBeNull();
+		expect(screen.queryByText("You")).toBeNull();
+		expect(screen.queryByText("Workspace")).toBeNull();
+		const organizationLabel = screen.getByRole("heading", {
+			level: 2,
+			name: "Acme",
+		});
+		expect(
+			Array.from(
+				organizationLabel?.querySelectorAll("[data-slot=badge]") ?? []
+			).map((badge) => badge.textContent)
+		).toEqual(["Org", "owner"]);
+		expect(screen.getByLabelText("Organization role: owner").textContent).toBe(
+			"owner"
+		);
+		const personalNavigation = screen.getByRole("navigation", {
+			name: "Personal settings",
+		});
+		expect(
+			Array.from(personalNavigation.querySelectorAll("a, button")).map(
+				(item) => item.textContent
+			)
+		).toEqual([
+			"Account",
+			"Appearance",
+			"Notifications",
+			"Privacy & Safety",
+			"Send feedback",
+		]);
+		fireEvent.click(
+			within(personalNavigation).getByRole("button", {
+				name: "Send feedback",
+			})
+		);
+		expect(onSendFeedback).toHaveBeenCalledOnce();
+		expect(screen.queryByRole("link", { name: "Connected Apps" })).toBeNull();
+		expect(
+			Array.from(
+				screen
+					.getByRole("navigation", { name: "Acme settings" })
+					.querySelectorAll("a")
+			).map((link) => link.textContent)
+		).toEqual(["General"]);
+	});
+
+	it("uses the shared compact app-nav scale for labels and items", () => {
+		const navItems = toSettingsNavItems(
+			resolveSettingsSections(testSettingsSections, CLOUD_CAPABILITIES)
+		);
+
+		render(
+			<SettingsInnerSidebar
+				activeSectionId="account"
+				isPersonalWorkspace={false}
+				items={navItems}
+				onSendFeedback={vi.fn()}
+				organizationName="Acme"
+				organizationRole="owner"
+			/>
+		);
+
+		const personalLabel = screen.getByRole("heading", {
+			level: 2,
+			name: "Personal",
+		});
+		const accountItem = screen.getByRole("link", {
+			name: "Account",
+		}).firstElementChild;
+
+		expect(personalLabel?.className).toContain("ps-[5px]");
+		expect(personalLabel?.className).toContain("pe-2");
+		expect(personalLabel?.className).not.toContain("px-2");
+		expect(personalLabel?.className).toContain("text-sidebar-foreground/55");
+		expect(accountItem?.className).toContain("h-7");
+		expect(accountItem?.className).toContain("px-1");
+		expect(accountItem?.className).toContain("text-[13px]");
+		expect(accountItem?.className).not.toContain("min-h-10");
+		expect(accountItem?.className).not.toContain("text-sm");
+	});
+
+	it("opens the existing Send feedback dialog from Personal settings", async () => {
+		render(
+			<TestQueryClientProvider>
+				<SettingsPage activeSectionId="account" />
+			</TestQueryClientProvider>
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Send feedback" })
+		);
+
+		expect(screen.getByRole("dialog", { name: "Send feedback" })).toBeTruthy();
+	});
+
+	it("keeps the same items while identifying the active organization or personal workspace by name", async () => {
+		const renderNavigationFor = async (organization: OrganizationSummary) => {
+			currentOrganization = organization;
+			const organizationLabel = organization.name;
+			const view = render(
+				<TestQueryClientProvider>
+					<SettingsPage activeSectionId="account" />
+				</TestQueryClientProvider>
+			);
+			await screen.findByLabelText("Organization role: owner");
+			const groupLabel = screen.getByRole("heading", {
+				level: 2,
+				name: organizationLabel,
+			});
+			const itemLabels = {
+				badges: Array.from(
+					groupLabel?.querySelectorAll("[data-slot=badge]") ?? []
+				).map((badge) => badge.textContent),
+				organizationLabel,
+				storedOrganizationNameVisible: Boolean(
+					screen.queryByRole("heading", {
+						level: 2,
+						name: organization.name,
+					})
+				),
+				personal: Array.from(
+					screen
+						.getByRole("navigation", { name: "Personal settings" })
+						.querySelectorAll("a, button")
+				).map((item) => item.textContent),
+				organization: within(
+					screen.getByRole("navigation", {
+						name: `${organizationLabel} settings`,
+					})
+				)
+					.getAllByRole("link")
+					.map((link) => link.textContent),
+			};
+			view.unmount();
+			return itemLabels;
+		};
+
+		const organizationItems = await renderNavigationFor({
+			id: "org-acme",
+			name: "Acme",
+			slug: "acme",
+		});
+		const personalItems = await renderNavigationFor({
+			id: "org-personal",
+			isPersonal: true,
+			name: "Felix",
+			slug: "felix",
+		});
+
+		expect(personalItems.personal).toEqual(organizationItems.personal);
+		expect(personalItems.organization).toEqual(organizationItems.organization);
+		expect(organizationItems).toEqual({
+			badges: ["Org", "owner"],
+			organization: ["General"],
+			organizationLabel: "Acme",
+			personal: [
+				"Account",
+				"Appearance",
+				"Notifications",
+				"Privacy & Safety",
+				"Send feedback",
+			],
+			storedOrganizationNameVisible: true,
+		});
+		expect(personalItems).toEqual({
+			badges: ["owner"],
+			organization: ["General"],
+			organizationLabel: "Felix",
+			personal: [
+				"Account",
+				"Appearance",
+				"Notifications",
+				"Privacy & Safety",
+				"Send feedback",
+			],
+			storedOrganizationNameVisible: true,
+		});
+	});
+});
+
+describe("SettingsPage gated-route guard", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("redirects the org-scoped Service settings route to Account on a plain Web host", () => {
+		// The Service leaf is gated out on a cloud host, so its section is absent
+		// from the capability-filtered registry. Rendering its route must redirect
+		// to the always-present Account leaf, never silently render another panel.
+		// React logs the thrown render error; silence it so the run stays clean.
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {
+			// Intentionally swallow the expected render-time throw log.
+		});
+
+		let thrown: unknown;
+		try {
+			render(<SettingsPage activeSectionId="service" />);
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeDefined();
+		expect(isRedirect(thrown)).toBe(true);
+		expect((thrown as { options: { to: string } }).options.to).toBe(
+			testSettingsRoutes.account
+		);
+		errorSpy.mockRestore();
+	});
+});
+
+describe("SettingsContentFrame", () => {
+	it("renders an empty shell header strip aligned to the app sidebar headers", () => {
+		const { container, getByText } = render(
+			<SettingsContentFrame>
+				<div>Settings body</div>
+			</SettingsContentFrame>
+		);
+
+		const header = container.querySelector<HTMLElement>(
+			'[data-slot="settings-content-header"]'
+		);
+		expect(header).toBeTruthy();
+		expect(header?.getAttribute("aria-hidden")).toBe("true");
+		expect(header?.className).toContain(
+			"h-[var(--space-conversation-header-height)]"
+		);
+		expect(header?.className).toContain("border-b");
+		expect(getByText("Settings body").parentElement?.className).toContain(
+			"max-w-7xl"
+		);
+		expect(getByText("Settings body").parentElement?.className).toContain(
+			"pt-3"
+		);
+		expect(getByText("Settings body")).toBeTruthy();
+	});
+});

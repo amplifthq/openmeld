@@ -1,0 +1,2 @@
+ALTER TABLE `openMeldRemoteAgent_native_delivery_ledger` ADD `inbox_projection_suppressed_reason` text;--> statement-breakpoint
+ALTER TABLE `openMeldRemoteAgent_native_delivery_ledger` ADD `inbox_projection_suppressed_at_ms` integer;

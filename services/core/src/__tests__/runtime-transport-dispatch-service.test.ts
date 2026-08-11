@@ -1,0 +1,1443 @@
+import {
+  CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+  RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
+} from "@openmeld/schemas";
+import type { RuntimeTransportDeliverDispatchRequest } from "@openmeld/schemas/types";
+import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
+import { describe, expect, it, vi } from "vitest";
+import {
+  deliverDispatch,
+  handleDispatchLifecycle,
+  handleSubmitTaskResult,
+} from "../runtime-transport/application/runtime-transport-dispatch-service";
+import {
+  buildDispatchAttemptKey,
+  createRuntimeTransportMutableState,
+  type PendingDispatchState,
+} from "../runtime-transport/application/runtime-transport-state";
+
+const COMPATIBLE_EXECUTION_CONTRACT = {
+  expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+  observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+  reasonCode: "daemon.runtime_contract.compatible" as const,
+  status: "compatible" as const,
+};
+
+const MISSING_EXECUTION_CONTRACT = {
+  expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+  observedEpoch: null,
+  reasonCode: "daemon.runtime_contract.missing" as const,
+  status: "update_required" as const,
+};
+
+const MISMATCHED_EXECUTION_CONTRACT = {
+  expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+  observedEpoch: "daemon-runtime-epoch-before-execution-token",
+  reasonCode: "daemon.runtime_contract.mismatch" as const,
+  status: "update_required" as const,
+};
+
+const createDeliveryExecutionIdentity = (overrides?: {
+  dispatchId?: string;
+  openMeldServiceRuntimeId?: string;
+  targetProfileId?: string;
+}) => ({
+  authority: "core_runtime_registry_binding_route" as const,
+  core: {
+    modelVersion: RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
+    spaceId: "space-1",
+    dispatchId: overrides?.dispatchId ?? "dispatch-1",
+    targetProfileId: overrides?.targetProfileId ?? "agt-1",
+    openMeldServiceRuntimeId: {
+      source: "runtime_registry_authority" as const,
+      value: overrides?.openMeldServiceRuntimeId ?? "runtime-1",
+    },
+    bindingId: "binding-1",
+    agentControllerRef: "builtin:codex",
+  },
+});
+
+const createResultIdentityEcho = (
+  executionIdentity = createDeliveryExecutionIdentity()
+) => ({
+  echoSource: "daemon_delivery_context" as const,
+  core: executionIdentity.core,
+});
+
+const createExecutionTokenEnvelope = () => ({
+  authorityScope: {
+    bindingId: "binding-1",
+    agentControllerRef: "builtin:codex",
+    openMeldServiceRuntimeId: "runtime-1",
+  },
+  deliveryIdempotencyKey: "rce-dispatch-1:run-1",
+  deliveryProvenance: {
+    connectionGeneration: 1,
+    daemonSessionId: "session-2",
+    leaseEpoch: 2,
+  },
+  executionScope: {
+    dispatchId: "dispatch-1",
+    runtimeCoordinatorExecutionId: "rce-dispatch-1",
+    sourceClientMessageId: "client-message-1",
+    spaceId: "space-1",
+    targetProfileId: "agt-1",
+  },
+  executionToken:
+    "rcet_v1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  expiresAtMs: null,
+  issuedAtMs: 1_700_000_000_000,
+  modelVersion: "openmeld.runtime_coordinator.execution_token.v1" as const,
+  runId: "run-1",
+  tokenFingerprint: "etfp_v1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  tokenStatus: "active" as const,
+});
+
+const createDispatchRequest = (overrides?: {
+  attemptId?: string;
+  connectionGeneration?: number;
+  daemonSessionId?: string;
+  leaseEpoch?: number;
+}) => {
+  const attemptId = overrides?.attemptId ?? "attempt-1";
+
+  return {
+    v: 1 as const,
+    dispatchId: "dispatch-1",
+    attemptId,
+    ownerUserId: "owner-1",
+    profileId: "agt-1",
+    daemonSessionId: overrides?.daemonSessionId ?? "session-2",
+    connectionGeneration: overrides?.connectionGeneration ?? 1,
+    leaseEpoch: overrides?.leaseEpoch ?? 2,
+    payload: {
+      runtimeCoordinatorExecutionId: "rce-dispatch-1",
+      attemptId,
+      dispatchId: "dispatch-1",
+      executionIdentity: createDeliveryExecutionIdentity({
+        dispatchId: "dispatch-1",
+        targetProfileId: "agt-1",
+      }),
+      taskId: "task-1",
+      spaceId: "space-1",
+      sourceEventId: "evt-1",
+      sourceSignal: {
+        text: "hello",
+        profileId: "hum-1",
+        profileKind: "human" as const,
+      },
+      targetProfileId: "agt-1",
+      dispatchChainId: "chain-1",
+      autoRelayDepth: 0,
+      visitedProfileIds: [],
+      visitedProfileIdsHash: "hash-1",
+      dispatchContractVersion: 2,
+      dispatchPolicy: "mention_only" as const,
+      transportMode: null,
+      controllerSnapshot: {
+        targetBindingState: "bound" as const,
+        targetBindingEnabled: true,
+        agentControllerRef: "codex",
+      },
+      contextIdMappingSpec: null,
+      dispatchRulesSnapshot: {
+        dispatchPolicy: "mention_only" as const,
+        ruleSource: "registry" as const,
+        ruleId: "registry.default.all_members.v1",
+        ruleReason: "default allow all members mention",
+      },
+      enqueuedAtMs: 1_700_000_000_000,
+      idempotencyKey: "idempotency-1",
+    },
+  };
+};
+
+const createState = () => {
+  const state = createRuntimeTransportMutableState();
+  const socket = {} as WebSocket;
+
+  state.ownerUserId = "owner-1";
+  state.sessionsById.set("session-2", {
+    ownerUserId: "owner-1",
+    daemonSessionId: "session-2",
+    deviceId: "device-2",
+    lane: "dev-local",
+    connectionGeneration: 1,
+    connectedAtMs: 1_700_000_000_000,
+    lastHeartbeatMs: 1_700_000_000_000,
+    deliveryDisconnectedAtMs: null,
+    capabilities: {},
+    executionCompatibility: COMPATIBLE_EXECUTION_CONTRACT,
+    profileIds: new Set(["agt-1"]),
+    localWakeRouteReport: null,
+    rejectedProfileRegistrationsByProfileId: new Map(),
+    socket,
+  });
+  state.profileLeasesByProfileId.set("agt-1", {
+    profileId: "agt-1",
+    daemonSessionId: "session-2",
+    deviceId: "device-2",
+    lane: "dev-local",
+    leaseEpoch: 2,
+    lastHeartbeatMs: 1_700_000_000_000,
+    capabilities: {},
+    executionCompatibility: COMPATIBLE_EXECUTION_CONTRACT,
+  });
+
+  return { state, socket };
+};
+
+const buildPendingDispatch = (
+  input: Partial<PendingDispatchState> = {}
+): PendingDispatchState => {
+  const createdAtMs = input.createdAtMs ?? 1_700_000_000_000;
+  return {
+    acceptedLocalAtMs: input.acceptedLocalAtMs ?? null,
+    attemptId: input.attemptId ?? "attempt-1",
+    completedLocalAtMs: input.completedLocalAtMs ?? null,
+    dispatchId: input.dispatchId ?? "dispatch-1",
+    daemonSessionId: input.daemonSessionId ?? "session-2",
+    executionIdentity:
+      input.executionIdentity ??
+      createDeliveryExecutionIdentity({
+        dispatchId: input.dispatchId ?? "dispatch-1",
+        targetProfileId: input.profileId ?? "agt-1",
+      }),
+    connectionGeneration: input.connectionGeneration ?? 1,
+    createdAtMs,
+    lastLifecycleAtMs: input.lastLifecycleAtMs ?? createdAtMs,
+    leaseEpoch: input.leaseEpoch ?? 2,
+    phase: input.phase ?? "starting",
+    profileId: input.profileId ?? "agt-1",
+    runningAtMs: input.runningAtMs ?? null,
+    runtimeCoordinatorExecutionId:
+      input.runtimeCoordinatorExecutionId ?? "rce-dispatch-1",
+    sourceClientMessageId: input.sourceClientMessageId ?? "client-message-1",
+    sourceSignalId: input.sourceSignalId ?? "signal-1",
+    spaceAccess:
+      input.spaceAccess ??
+      createDispatchContinuationSpaceAccessContext({
+        attemptId: input.attemptId ?? "attempt-1",
+        dispatchId: input.dispatchId ?? "dispatch-1",
+        requestContext: {
+          actorContext: {
+            openMeldProfileId: input.profileId ?? "agt-1",
+            profileKind: "agent",
+            requestId: "dispatch-access-1",
+          },
+        },
+        sourceSignalId: "signal-1",
+        spaceId: input.spaceId ?? "space-1",
+        targetProfileId: input.profileId ?? "agt-1",
+      }),
+    spaceId: input.spaceId ?? "space-1",
+    taskId: input.taskId ?? "task-1",
+    targetProfileName: input.targetProfileName ?? "dev-repro-claude",
+  };
+};
+
+describe("runtime transport dispatch service", () => {
+  it("rejects delivery until the local route has the accepted binding configuration", async () => {
+    const { state } = createState();
+    const sendFrame = vi.fn();
+    const session = state.sessionsById.get("session-2");
+    if (!session) {
+      throw new Error("test session missing");
+    }
+    (
+      session.capabilities as typeof session.capabilities &
+        Record<string, unknown>
+    ).profileConfigurationRevision = true;
+    session.localWakeRouteReport = {
+      daemonSessionId: "session-2",
+      deviceId: "device-2",
+      includedProfileIds: ["agt-1"],
+      lane: "dev-local",
+      reportedAtMs: 1_700_000_000_000,
+      profileConfigurationRevisions: [
+        {
+          bindingId: "binding-1",
+          configurationRevision: 6,
+          profileId: "agt-1",
+        },
+      ],
+      skippedProfiles: [],
+    } as typeof session.localWakeRouteReport;
+    const request: RuntimeTransportDeliverDispatchRequest =
+      createDispatchRequest();
+    (
+      request.payload
+        .controllerSnapshot as typeof request.payload.controllerSnapshot &
+        Record<string, unknown>
+    ).bindingId = "binding-1";
+    (
+      request.payload
+        .controllerSnapshot as typeof request.payload.controllerSnapshot &
+        Record<string, unknown>
+    ).configurationRevision = 7;
+
+    const response = await deliverDispatch(state, request, {
+      reapExpiredLeases: () => undefined,
+      sendFrame,
+      resolvePendingResultWaiters: () => undefined,
+      cleanupCompletedResults: () => undefined,
+    });
+
+    expect(response).toEqual({
+      accepted: false,
+      reasonCode: "daemon.profile.configuration_not_synced",
+      status: "rejected",
+    });
+    expect(sendFrame).not.toHaveBeenCalled();
+  });
+
+  it("delivers the exact accepted binding configuration to a capable local service", async () => {
+    const { state } = createState();
+    const sendFrame = vi.fn();
+    const session = state.sessionsById.get("session-2");
+    if (!session) {
+      throw new Error("test session missing");
+    }
+    session.capabilities.profileConfigurationRevision = true;
+    session.localWakeRouteReport = {
+      daemonSessionId: "session-2",
+      deviceId: "device-2",
+      includedProfileIds: ["agt-1"],
+      lane: "dev-local",
+      reportedAtMs: 1_700_000_000_000,
+      profileConfigurationRevisions: [
+        {
+          bindingId: "binding-1",
+          configurationRevision: 7,
+          profileId: "agt-1",
+        },
+      ],
+      skippedProfiles: [],
+    };
+    const request: RuntimeTransportDeliverDispatchRequest =
+      createDispatchRequest();
+    request.payload.controllerSnapshot.bindingId = "binding-1";
+    request.payload.controllerSnapshot.configurationRevision = 7;
+
+    const response = await deliverDispatch(state, request, {
+      reapExpiredLeases: () => undefined,
+      sendFrame,
+      resolvePendingResultWaiters: () => undefined,
+      cleanupCompletedResults: () => undefined,
+    });
+
+    expect(response).toEqual({
+      accepted: true,
+      status: "delivered",
+    });
+    expect(sendFrame).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          payload: expect.objectContaining({
+            controllerSnapshot: expect.objectContaining({
+              bindingId: "binding-1",
+              configurationRevision: 7,
+            }),
+          }),
+        }),
+      })
+    );
+  });
+
+  it("keeps old local services compatible by omitting new configuration identity", async () => {
+    const { state } = createState();
+    const sendFrame = vi.fn();
+    const request: RuntimeTransportDeliverDispatchRequest =
+      createDispatchRequest();
+    request.payload.controllerSnapshot.bindingId = "binding-1";
+    request.payload.controllerSnapshot.configurationRevision = 7;
+
+    const response = await deliverDispatch(state, request, {
+      reapExpiredLeases: () => undefined,
+      sendFrame,
+      resolvePendingResultWaiters: () => undefined,
+      cleanupCompletedResults: () => undefined,
+    });
+
+    expect(response).toEqual({
+      accepted: true,
+      status: "delivered",
+    });
+    const deliveredRequest = sendFrame.mock.calls[0]?.[1]?.payload as
+      | RuntimeTransportDeliverDispatchRequest
+      | undefined;
+    expect(deliveredRequest?.payload.controllerSnapshot).not.toHaveProperty(
+      "bindingId"
+    );
+    expect(deliveredRequest?.payload.controllerSnapshot).not.toHaveProperty(
+      "configurationRevision"
+    );
+  });
+
+  it("short-circuits completed replay without re-delivering to the daemon", async () => {
+    const { state } = createState();
+    const sendFrame = vi.fn();
+
+    state.completedDispatchResults.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      {
+        attemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        daemonSessionId: "session-2",
+        executionIdentity: createDeliveryExecutionIdentity(),
+        connectionGeneration: 1,
+        leaseEpoch: 2,
+        receivedAtMs: 1_700_000_000_100,
+        runtimeCoordinatorExecutionId: "rce-dispatch-1",
+        sourceClientMessageId: "client-message-1",
+        submittedConnectionGeneration: 1,
+        taskId: "task-1",
+        targetProfileId: "agt-1",
+        taskResult: {
+          v: 1,
+          code: "service.task_result",
+          payload: {
+            status: "success",
+            taskId: "task-1",
+            sourceEventId: "evt-1",
+            agentId: "agt-1",
+            deduped: false,
+            output: "already completed",
+          },
+        },
+      }
+    );
+
+    const response = await deliverDispatch(state, createDispatchRequest(), {
+      reapExpiredLeases: () => undefined,
+      sendFrame,
+      resolvePendingResultWaiters: () => undefined,
+      cleanupCompletedResults: () => undefined,
+    });
+
+    expect(response).toEqual({
+      accepted: true,
+      completedAttemptId: "attempt-1",
+      status: "already_completed",
+    });
+    expect(sendFrame).not.toHaveBeenCalled();
+    expect(state.pendingDispatches.has("dispatch-1")).toBe(false);
+  });
+
+  it("keeps in-flight replay idempotent while the same lease is still pending", async () => {
+    const { state } = createState();
+    const sendFrame = vi.fn();
+
+    state.pendingDispatches.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      buildPendingDispatch()
+    );
+
+    const response = await deliverDispatch(state, createDispatchRequest(), {
+      reapExpiredLeases: () => undefined,
+      sendFrame,
+      resolvePendingResultWaiters: () => undefined,
+      cleanupCompletedResults: () => undefined,
+    });
+
+    expect(response).toEqual({
+      accepted: true,
+      existingAttemptId: "attempt-1",
+      status: "already_pending",
+    });
+    expect(sendFrame).not.toHaveBeenCalled();
+    expect(
+      state.pendingDispatches.get(
+        buildDispatchAttemptKey("dispatch-1", "attempt-1")
+      )
+    ).toEqual(
+      expect.objectContaining({
+        attemptId: "attempt-1",
+        daemonSessionId: "session-2",
+        dispatchId: "dispatch-1",
+        leaseEpoch: 2,
+        profileId: "agt-1",
+      })
+    );
+  });
+
+  it("does not correlate a duplicate attempt before the original has local runtime ownership evidence", async () => {
+    const { state } = createState();
+    const sendFrame = vi.fn();
+
+    state.pendingDispatches.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      buildPendingDispatch({
+        attemptId: "attempt-1",
+        phase: "starting",
+      })
+    );
+
+    const response = await deliverDispatch(
+      state,
+      createDispatchRequest({ attemptId: "attempt-2" }),
+      {
+        reapExpiredLeases: () => undefined,
+        sendFrame,
+        resolvePendingResultWaiters: () => undefined,
+        cleanupCompletedResults: () => undefined,
+      }
+    );
+
+    expect(response).toEqual({
+      accepted: true,
+      status: "delivered",
+    });
+    expect(sendFrame).toHaveBeenCalledTimes(1);
+    expect(
+      state.pendingDispatches.get(
+        buildDispatchAttemptKey("dispatch-1", "attempt-2")
+      )
+    ).toEqual(
+      expect.objectContaining({
+        attemptId: "attempt-2",
+        phase: "starting",
+      })
+    );
+  });
+
+  it("prepares execution token delivery only after the dispatch is accepted for local send", async () => {
+    const { state } = createState();
+    const sendFrame = vi.fn();
+    const prepareAcceptedDelivery = vi.fn(async (request) => ({
+      ok: true as const,
+      request: {
+        ...request,
+        payload: {
+          ...request.payload,
+          executionToken: createExecutionTokenEnvelope(),
+        },
+      },
+    }));
+
+    const response = await deliverDispatch(state, createDispatchRequest(), {
+      cleanupCompletedResults: () => undefined,
+      prepareAcceptedDelivery,
+      reapExpiredLeases: () => undefined,
+      resolvePendingResultWaiters: () => undefined,
+      sendFrame,
+    });
+
+    expect(response).toEqual({
+      accepted: true,
+      status: "delivered",
+    });
+    expect(prepareAcceptedDelivery).toHaveBeenCalledTimes(1);
+    expect(sendFrame).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        code: "daemon.dispatch.deliver",
+        payload: expect.objectContaining({
+          payload: expect.objectContaining({
+            executionToken: expect.objectContaining({
+              executionToken:
+                "rcet_v1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              runId: "run-1",
+              tokenFingerprint: "etfp_v1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            }),
+          }),
+        }),
+      })
+    );
+    expect(
+      state.pendingDispatches.get(
+        buildDispatchAttemptKey("dispatch-1", "attempt-1")
+      )
+    ).toEqual(
+      expect.objectContaining({
+        executionTokenFingerprint: "etfp_v1_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        executionTokenRunId: "run-1",
+      })
+    );
+  });
+
+  it("rejects delivery before token preparation when the lease is execution-incompatible", async () => {
+    const { state } = createState();
+    const lease = state.profileLeasesByProfileId.get("agt-1");
+    if (!lease) {
+      throw new Error("Expected fixture lease for agt-1.");
+    }
+    state.profileLeasesByProfileId.set("agt-1", {
+      ...lease,
+      executionCompatibility: MISSING_EXECUTION_CONTRACT,
+    });
+
+    const sendFrame = vi.fn();
+    const prepareAcceptedDelivery = vi.fn(async (request) => ({
+      ok: true as const,
+      request,
+    }));
+
+    const response = await deliverDispatch(state, createDispatchRequest(), {
+      cleanupCompletedResults: () => undefined,
+      prepareAcceptedDelivery,
+      reapExpiredLeases: () => undefined,
+      resolvePendingResultWaiters: () => undefined,
+      sendFrame,
+    });
+
+    expect(response).toEqual({
+      accepted: false,
+      reasonCode: "daemon.runtime_contract.missing",
+      status: "rejected",
+    });
+    expect(prepareAcceptedDelivery).not.toHaveBeenCalled();
+    expect(sendFrame).not.toHaveBeenCalled();
+    expect(
+      state.pendingDispatches.has(
+        buildDispatchAttemptKey("dispatch-1", "attempt-1")
+      )
+    ).toBe(false);
+  });
+
+  it("rejects delivery before token preparation when the live session is execution-incompatible", async () => {
+    const { state } = createState();
+    const session = state.sessionsById.get("session-2");
+    if (!session) {
+      throw new Error("Expected fixture session session-2.");
+    }
+    state.sessionsById.set("session-2", {
+      ...session,
+      executionCompatibility: MISMATCHED_EXECUTION_CONTRACT,
+    });
+
+    const sendFrame = vi.fn();
+    const prepareAcceptedDelivery = vi.fn(async (request) => ({
+      ok: true as const,
+      request,
+    }));
+
+    const response = await deliverDispatch(state, createDispatchRequest(), {
+      cleanupCompletedResults: () => undefined,
+      prepareAcceptedDelivery,
+      reapExpiredLeases: () => undefined,
+      resolvePendingResultWaiters: () => undefined,
+      sendFrame,
+    });
+
+    expect(response).toEqual({
+      accepted: false,
+      reasonCode: "daemon.runtime_contract.mismatch",
+      status: "rejected",
+    });
+    expect(prepareAcceptedDelivery).not.toHaveBeenCalled();
+    expect(sendFrame).not.toHaveBeenCalled();
+    expect(
+      state.pendingDispatches.has(
+        buildDispatchAttemptKey("dispatch-1", "attempt-1")
+      )
+    ).toBe(false);
+  });
+
+  it("correlates a duplicate attempt after the original has local runtime ownership evidence", async () => {
+    const { state } = createState();
+    const sendFrame = vi.fn();
+
+    state.pendingDispatches.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      buildPendingDispatch({
+        attemptId: "attempt-1",
+        phase: "running",
+        runningAtMs: 20,
+      })
+    );
+
+    const response = await deliverDispatch(
+      state,
+      createDispatchRequest({ attemptId: "attempt-2" }),
+      {
+        reapExpiredLeases: () => undefined,
+        sendFrame,
+        resolvePendingResultWaiters: () => undefined,
+        cleanupCompletedResults: () => undefined,
+      }
+    );
+
+    expect(response).toEqual({
+      accepted: true,
+      existingAttemptId: "attempt-1",
+      status: "already_pending",
+    });
+    expect(sendFrame).not.toHaveBeenCalled();
+    expect(
+      state.pendingDispatches.has(
+        buildDispatchAttemptKey("dispatch-1", "attempt-2")
+      )
+    ).toBe(false);
+  });
+
+  it("does not let stale lease replay bypass the completed-result fence", async () => {
+    const { state } = createState();
+    const sendFrame = vi.fn();
+
+    state.completedDispatchResults.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      {
+        attemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        daemonSessionId: "session-2",
+        executionIdentity: createDeliveryExecutionIdentity(),
+        connectionGeneration: 1,
+        leaseEpoch: 2,
+        receivedAtMs: 1_700_000_000_100,
+        runtimeCoordinatorExecutionId: "rce-dispatch-1",
+        sourceClientMessageId: "client-message-1",
+        submittedConnectionGeneration: 1,
+        taskId: "task-1",
+        targetProfileId: "agt-1",
+        taskResult: {
+          v: 1,
+          code: "service.task_result",
+          payload: {
+            status: "success",
+            taskId: "task-1",
+            sourceEventId: "evt-1",
+            agentId: "agt-1",
+            deduped: false,
+            output: "already completed",
+          },
+        },
+      }
+    );
+
+    const response = await deliverDispatch(
+      state,
+      createDispatchRequest({
+        attemptId: "attempt-1",
+        daemonSessionId: "session-1",
+        leaseEpoch: 1,
+      }),
+      {
+        reapExpiredLeases: () => undefined,
+        sendFrame,
+        resolvePendingResultWaiters: () => undefined,
+        cleanupCompletedResults: () => undefined,
+      }
+    );
+
+    expect(response).toEqual({
+      accepted: false,
+      reasonCode: "daemon.session.stale_lease",
+      status: "rejected",
+    });
+    expect(sendFrame).not.toHaveBeenCalled();
+    expect(state.pendingDispatches.has("dispatch-1")).toBe(false);
+  });
+
+  it("clamps lifecycle timestamps to the server receipt time", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-03-24T00:00:05.000Z"));
+      const { state } = createState();
+      state.pendingDispatches.set(
+        buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+        buildPendingDispatch({
+          createdAtMs: Date.parse("2026-03-24T00:00:00.000Z"),
+          lastLifecycleAtMs: Date.parse("2026-03-24T00:00:01.000Z"),
+          phase: "starting",
+        })
+      );
+
+      const response = handleDispatchLifecycle(state, {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        daemonSessionId: "session-2",
+        connectionGeneration: 1,
+        leaseEpoch: 2,
+        lifecycleAtMs: Date.parse("2026-03-24T00:00:30.000Z"),
+        phase: "running",
+      });
+
+      expect(response).toEqual({ ok: true });
+      expect(
+        state.pendingDispatches.get(
+          buildDispatchAttemptKey("dispatch-1", "attempt-1")
+        )
+      ).toEqual(
+        expect.objectContaining({
+          acceptedLocalAtMs: Date.parse("2026-03-24T00:00:05.000Z"),
+          lastLifecycleAtMs: Date.parse("2026-03-24T00:00:05.000Z"),
+          phase: "running",
+          runningAtMs: Date.parse("2026-03-24T00:00:05.000Z"),
+        })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps completed lifecycle snapshots monotonic when finishing a result", async () => {
+    const { state } = createState();
+    const resolvePendingResultWaiters = vi.fn();
+    const cleanupCompletedResults = vi.fn();
+
+    state.pendingDispatches.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      buildPendingDispatch({
+        acceptedLocalAtMs: 10,
+        completedLocalAtMs: 100,
+        lastLifecycleAtMs: 90,
+        phase: "completed_local",
+        runningAtMs: 50,
+      })
+    );
+
+    const response = await handleSubmitTaskResult(
+      state,
+      {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        executionIdentityEcho: createResultIdentityEcho(),
+        daemonSessionId: "session-2",
+        connectionGeneration: 1,
+        leaseEpoch: 2,
+        taskResult: {
+          v: 4,
+          code: "service.task_result",
+          payload: {
+            agentId: "agt-1",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "done",
+            sourceEventId: "evt-1",
+            status: "success",
+            taskId: "task-1",
+          },
+        },
+      },
+      {
+        acceptDispatchResult: async () => ({ ok: true, status: "accepted" }),
+        cleanupCompletedResults,
+        resolvePendingResultWaiters,
+      }
+    );
+
+    expect(response).toEqual({ ok: true, status: "accepted" });
+    expect(resolvePendingResultWaiters).toHaveBeenCalledWith(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      expect.objectContaining({
+        lifecycle: expect.objectContaining({
+          completedLocalAtMs: 100,
+          lastLifecycleAtMs: 100,
+        }),
+        state: "completed",
+      })
+    );
+  });
+
+  it("accepts a result submitted on a newer connection when business identity and lease match", async () => {
+    const { state } = createState();
+    const resolvePendingResultWaiters = vi.fn();
+    const acceptDispatchResult = vi.fn(async () => ({
+      ok: true as const,
+      status: "accepted" as const,
+    }));
+
+    state.pendingDispatches.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      buildPendingDispatch({
+        acceptedLocalAtMs: 10,
+        lastLifecycleAtMs: 20,
+        phase: "running",
+        runningAtMs: 20,
+      })
+    );
+
+    const response = await handleSubmitTaskResult(
+      state,
+      {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        executionIdentityEcho: createResultIdentityEcho(),
+        daemonSessionId: "session-2",
+        connectionGeneration: 2,
+        leaseEpoch: 2,
+        taskResult: {
+          v: 4,
+          code: "service.task_result",
+          payload: {
+            agentId: "agt-1",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "done after reconnect",
+            sourceEventId: "evt-1",
+            status: "success",
+            taskId: "task-1",
+          },
+        },
+      },
+      {
+        acceptDispatchResult,
+        cleanupCompletedResults: () => undefined,
+        resolvePendingResultWaiters,
+      }
+    );
+
+    expect(response).toEqual({ ok: true, status: "accepted" });
+    expect(acceptDispatchResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        leaseEpoch: 2,
+        submittedConnectionGeneration: 2,
+        targetProfileId: "agt-1",
+        taskId: "task-1",
+      })
+    );
+    expect(
+      state.completedDispatchResults.get(
+        buildDispatchAttemptKey("dispatch-1", "attempt-1")
+      )
+    ).toEqual(
+      expect.objectContaining({
+        connectionGeneration: 1,
+        submittedConnectionGeneration: 2,
+      })
+    );
+    expect(state.pendingDispatches.has("dispatch-1::attempt-1")).toBe(false);
+  });
+
+  it("logs result identity echo mismatch without replacing pending authority", async () => {
+    const { state } = createState();
+    const acceptDispatchResult = vi.fn(async () => ({
+      ok: true as const,
+      status: "accepted" as const,
+    }));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
+      // Silence expected mismatch diagnostics in the test output.
+    });
+
+    state.pendingDispatches.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      buildPendingDispatch({ phase: "running", runningAtMs: 20 })
+    );
+
+    try {
+      const response = await handleSubmitTaskResult(
+        state,
+        {
+          v: 1,
+          dispatchId: "dispatch-1",
+          attemptId: "attempt-1",
+          executionIdentityEcho: createResultIdentityEcho(
+            createDeliveryExecutionIdentity({
+              openMeldServiceRuntimeId: "runtime-2",
+            })
+          ),
+          daemonSessionId: "session-2",
+          connectionGeneration: 2,
+          leaseEpoch: 2,
+          taskResult: {
+            v: 4,
+            code: "service.task_result",
+            payload: {
+              agentId: "agt-1",
+              attemptId: "attempt-1",
+              deduped: false,
+              output: "done with mismatched echo",
+              sourceEventId: "evt-1",
+              status: "success",
+              taskId: "task-1",
+            },
+          },
+        },
+        {
+          acceptDispatchResult,
+          cleanupCompletedResults: () => undefined,
+          resolvePendingResultWaiters: () => undefined,
+        }
+      );
+
+      expect(response).toEqual({ ok: true, status: "accepted" });
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[core.runtime_transport.result_identity_echo_mismatch]",
+        expect.objectContaining({
+          authoritativeRuntimeId: "runtime-1",
+          echoedRuntimeId: "runtime-2",
+          mismatchField: "openMeldServiceRuntimeId",
+        })
+      );
+      expect(
+        state.completedDispatchResults.get(
+          buildDispatchAttemptKey("dispatch-1", "attempt-1")
+        )?.executionIdentity.core.openMeldServiceRuntimeId.value
+      ).toBe("runtime-1");
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("rejects a result with a different task identity", async () => {
+    const { state } = createState();
+    const acceptDispatchResult = vi.fn(async () => ({
+      ok: true as const,
+      status: "accepted" as const,
+    }));
+
+    state.pendingDispatches.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      buildPendingDispatch({ phase: "running", runningAtMs: 20 })
+    );
+
+    const response = await handleSubmitTaskResult(
+      state,
+      {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        executionIdentityEcho: createResultIdentityEcho(),
+        daemonSessionId: "session-2",
+        connectionGeneration: 1,
+        leaseEpoch: 2,
+        taskResult: {
+          v: 1,
+          code: "service.task_result",
+          payload: {
+            agentId: "agt-1",
+            deduped: false,
+            output: "wrong task",
+            sourceEventId: "evt-1",
+            status: "success",
+            taskId: "task-2",
+          },
+        },
+      },
+      {
+        acceptDispatchResult,
+        cleanupCompletedResults: () => undefined,
+        resolvePendingResultWaiters: () => undefined,
+      }
+    );
+
+    expect(response).toEqual({
+      ok: false,
+      reasonCode: "daemon.result.identity_mismatch",
+      status: "rejected_terminal",
+    });
+    expect(acceptDispatchResult).not.toHaveBeenCalled();
+  });
+
+  it("rejects a result with a different lease", async () => {
+    const { state } = createState();
+    const acceptDispatchResult = vi.fn(async () => ({
+      ok: true as const,
+      status: "accepted" as const,
+    }));
+
+    state.pendingDispatches.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      buildPendingDispatch({ phase: "running", runningAtMs: 20 })
+    );
+
+    const response = await handleSubmitTaskResult(
+      state,
+      {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        executionIdentityEcho: createResultIdentityEcho(),
+        daemonSessionId: "session-2",
+        connectionGeneration: 1,
+        leaseEpoch: 3,
+        taskResult: {
+          v: 4,
+          code: "service.task_result",
+          payload: {
+            agentId: "agt-1",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "wrong lease",
+            sourceEventId: "evt-1",
+            status: "success",
+            taskId: "task-1",
+          },
+        },
+      },
+      {
+        acceptDispatchResult,
+        cleanupCompletedResults: () => undefined,
+        resolvePendingResultWaiters: () => undefined,
+      }
+    );
+
+    expect(response).toEqual({
+      ok: false,
+      reasonCode: "daemon.session.stale_lease",
+      status: "rejected_terminal",
+    });
+    expect(acceptDispatchResult).not.toHaveBeenCalled();
+  });
+
+  it("rejects a result with a different target profile identity", async () => {
+    const { state } = createState();
+    const acceptDispatchResult = vi.fn(async () => ({
+      ok: true as const,
+      status: "accepted" as const,
+    }));
+
+    state.pendingDispatches.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      buildPendingDispatch({ phase: "running", runningAtMs: 20 })
+    );
+
+    const response = await handleSubmitTaskResult(
+      state,
+      {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        executionIdentityEcho: createResultIdentityEcho(),
+        daemonSessionId: "session-2",
+        connectionGeneration: 1,
+        leaseEpoch: 2,
+        taskResult: {
+          v: 4,
+          code: "service.task_result",
+          payload: {
+            agentId: "agt-2",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "wrong agent",
+            sourceEventId: "evt-1",
+            status: "success",
+            taskId: "task-1",
+          },
+        },
+      },
+      {
+        acceptDispatchResult,
+        cleanupCompletedResults: () => undefined,
+        resolvePendingResultWaiters: () => undefined,
+      }
+    );
+
+    expect(response).toEqual({
+      ok: false,
+      reasonCode: "daemon.result.identity_mismatch",
+      status: "rejected_terminal",
+    });
+    expect(acceptDispatchResult).not.toHaveBeenCalled();
+  });
+
+  it("accepts duplicate completed result only when the payload matches", async () => {
+    const { state } = createState();
+    const taskResult = {
+      v: 4 as const,
+      code: "service.task_result" as const,
+      payload: {
+        agentId: "agt-1",
+        attemptId: "attempt-1",
+        deduped: false,
+        output: "already accepted",
+        sourceEventId: "evt-1",
+        status: "success" as const,
+        taskId: "task-1",
+      },
+    };
+
+    state.completedDispatchResults.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      {
+        attemptId: "attempt-1",
+        connectionGeneration: 1,
+        daemonSessionId: "session-2",
+        dispatchId: "dispatch-1",
+        executionIdentity: createDeliveryExecutionIdentity(),
+        leaseEpoch: 2,
+        receivedAtMs: 1_700_000_000_100,
+        runtimeCoordinatorExecutionId: "rce-dispatch-1",
+        sourceClientMessageId: "client-message-1",
+        submittedConnectionGeneration: 1,
+        targetProfileId: "agt-1",
+        taskId: "task-1",
+        taskResult,
+      }
+    );
+
+    const samePayloadResponse = await handleSubmitTaskResult(
+      state,
+      {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        executionIdentityEcho: createResultIdentityEcho(),
+        daemonSessionId: "session-2",
+        connectionGeneration: 2,
+        leaseEpoch: 2,
+        taskResult,
+      },
+      {
+        acceptDispatchResult: async () => ({
+          ok: true,
+          status: "already_accepted",
+        }),
+        cleanupCompletedResults: () => undefined,
+        resolvePendingResultWaiters: () => undefined,
+      }
+    );
+    expect(samePayloadResponse).toEqual({ ok: true, status: "accepted" });
+
+    const conflictingPayloadResponse = await handleSubmitTaskResult(
+      state,
+      {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        executionIdentityEcho: createResultIdentityEcho(),
+        daemonSessionId: "session-2",
+        connectionGeneration: 2,
+        leaseEpoch: 2,
+        taskResult: {
+          ...taskResult,
+          payload: {
+            ...taskResult.payload,
+            output: "conflicting output",
+          },
+        },
+      },
+      {
+        acceptDispatchResult: async () => ({
+          ok: true,
+          status: "already_accepted",
+        }),
+        cleanupCompletedResults: () => undefined,
+        resolvePendingResultWaiters: () => undefined,
+      }
+    );
+    expect(conflictingPayloadResponse).toEqual({
+      ok: false,
+      reasonCode: "daemon.result.conflict",
+      status: "rejected_terminal",
+    });
+  });
+
+  it("accepts a durable result after pending dispatch memory is gone", async () => {
+    const { state } = createState();
+    const resolveDurableDispatchResultAcceptance = vi.fn(async () => ({
+      ok: true as const,
+      result: {
+        acceptedAtMs: 1_700_000_000_100,
+        attemptId: "attempt-1",
+        daemonSessionId: "session-2",
+        dispatchId: "dispatch-1",
+        executionTokenFingerprint: null,
+        executionTokenRunId: null,
+        finalizationRequired: true,
+        leaseEpoch: 2,
+        runtimeCoordinatorExecutionId: null,
+        spaceId: "space-1",
+        submittedConnectionGeneration: 3,
+        targetProfileId: "agt-1",
+        taskId: "task-1",
+        taskResult: {
+          v: 4 as const,
+          code: "service.task_result" as const,
+          payload: {
+            agentId: "agt-1",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "done after object restart",
+            sourceEventId: "evt-1",
+            status: "success" as const,
+            taskId: "task-1",
+          },
+        },
+      },
+    }));
+    const acceptDispatchResult = vi.fn(async () => ({
+      ok: true as const,
+      status: "accepted" as const,
+    }));
+    const finalizeDurableDispatchResult = vi.fn(async () => ({
+      ok: true as const,
+    }));
+
+    const response = await handleSubmitTaskResult(
+      state,
+      {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        executionIdentityEcho: createResultIdentityEcho(),
+        daemonSessionId: "session-2",
+        connectionGeneration: 3,
+        leaseEpoch: 2,
+        taskResult: {
+          v: 4,
+          code: "service.task_result",
+          payload: {
+            agentId: "agt-1",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "done after object restart",
+            sourceEventId: "evt-1",
+            status: "success",
+            taskId: "task-1",
+          },
+        },
+      },
+      {
+        acceptDispatchResult,
+        cleanupCompletedResults: () => undefined,
+        finalizeDurableDispatchResult,
+        resolveDurableDispatchResultAcceptance,
+        resolvePendingResultWaiters: () => undefined,
+      }
+    );
+
+    expect(response).toEqual({ ok: true, status: "accepted" });
+    expect(resolveDurableDispatchResultAcceptance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptId: "attempt-1",
+        connectionGeneration: 3,
+        daemonSessionId: "session-2",
+        dispatchId: "dispatch-1",
+        leaseEpoch: 2,
+      })
+    );
+    expect(acceptDispatchResult).toHaveBeenCalledTimes(1);
+    expect(finalizeDurableDispatchResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        finalizationRequired: true,
+        spaceId: "space-1",
+      })
+    );
+  });
+
+  it("keeps a durable result retryable when accepted result finalization is unavailable", async () => {
+    const { state } = createState();
+    const taskResult = {
+      v: 4 as const,
+      code: "service.task_result" as const,
+      payload: {
+        agentId: "agt-1",
+        attemptId: "attempt-1",
+        deduped: false,
+        output: "done after object restart",
+        sourceEventId: "evt-1",
+        status: "success" as const,
+        taskId: "task-1",
+      },
+    };
+    const resolveDurableDispatchResultAcceptance = vi.fn(async () => ({
+      ok: true as const,
+      result: {
+        acceptedAtMs: 1_700_000_000_100,
+        attemptId: "attempt-1",
+        daemonSessionId: "session-2",
+        dispatchId: "dispatch-1",
+        executionTokenFingerprint: null,
+        executionTokenRunId: null,
+        finalizationRequired: true,
+        leaseEpoch: 2,
+        runtimeCoordinatorExecutionId: null,
+        spaceId: "space-1",
+        submittedConnectionGeneration: 3,
+        targetProfileId: "agt-1",
+        taskId: "task-1",
+        taskResult,
+      },
+    }));
+    const acceptDispatchResult = vi.fn(async () => ({
+      ok: true as const,
+      status: "accepted" as const,
+    }));
+    const finalizeDurableDispatchResult = vi.fn(async () => ({
+      ok: false as const,
+      reasonCode: "daemon.result.finalization_unavailable" as const,
+      status: "retry_later" as const,
+    }));
+
+    const response = await handleSubmitTaskResult(
+      state,
+      {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        executionIdentityEcho: createResultIdentityEcho(),
+        daemonSessionId: "session-2",
+        connectionGeneration: 3,
+        leaseEpoch: 2,
+        taskResult,
+      },
+      {
+        acceptDispatchResult,
+        cleanupCompletedResults: () => undefined,
+        finalizeDurableDispatchResult,
+        resolveDurableDispatchResultAcceptance,
+        resolvePendingResultWaiters: () => undefined,
+      }
+    );
+
+    expect(response).toEqual({
+      ok: false,
+      reasonCode: "daemon.result.finalization_unavailable",
+      status: "retry_later",
+    });
+    expect(acceptDispatchResult).toHaveBeenCalledTimes(1);
+    expect(finalizeDurableDispatchResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a durable result retryable when the result inbox is unavailable", async () => {
+    const { state } = createState();
+    const resolveDurableDispatchResultAcceptance = vi.fn(async () => ({
+      ok: false as const,
+      reasonCode: "daemon.result.inbox_unavailable" as const,
+      status: "retry_later" as const,
+    }));
+    const acceptDispatchResult = vi.fn(async () => ({
+      ok: true as const,
+      status: "accepted" as const,
+    }));
+
+    const response = await handleSubmitTaskResult(
+      state,
+      {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        executionIdentityEcho: createResultIdentityEcho(),
+        daemonSessionId: "session-2",
+        connectionGeneration: 3,
+        leaseEpoch: 2,
+        taskResult: {
+          v: 4,
+          code: "service.task_result",
+          payload: {
+            agentId: "agt-1",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "done after object restart",
+            sourceEventId: "evt-1",
+            status: "success",
+            taskId: "task-1",
+          },
+        },
+      },
+      {
+        acceptDispatchResult,
+        cleanupCompletedResults: () => undefined,
+        resolveDurableDispatchResultAcceptance,
+        resolvePendingResultWaiters: () => undefined,
+      }
+    );
+
+    expect(response).toEqual({
+      ok: false,
+      reasonCode: "daemon.result.inbox_unavailable",
+      status: "retry_later",
+    });
+    expect(acceptDispatchResult).not.toHaveBeenCalled();
+  });
+});

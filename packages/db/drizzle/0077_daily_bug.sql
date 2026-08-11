@@ -1,0 +1,2 @@
+ALTER TABLE `center_agent_audit_journal` ADD `source_native_delivery_id` text;--> statement-breakpoint
+CREATE INDEX `center_agent_audit_journal_source_native_delivery_idx` ON `center_agent_audit_journal` (`source_native_delivery_id`);

@@ -1,0 +1,49 @@
+{
+  "name": "@openmeld/remote-agent",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "flue build --target cloudflare",
+    "build:workspace-dependencies": "pnpm -C ../.. exec turbo run build --filter=@openmeld/remote-agent^...",
+    "build:prod-config": "node scripts/write-flue-wrangler-env-config.mjs prod",
+    "predev": "node ../../scripts/dev/run-guarded-service-predev.mjs remote-agent \"corepack pnpm -C ../.. exec turbo run build --filter=@openmeld/remote-agent\"",
+    "dev": "dotenv -e ../../.env -o -- sh -c 'pnpm run build && wrangler dev --config dist/openmeld_remote_agent/wrangler.json --persist-to ../../.wrangler-dev-state --inspector-port 19333'",
+    "predev:isolated": "node ../../scripts/dev/run-guarded-service-predev.mjs remote-agent \"corepack pnpm -C ../.. exec turbo run build --filter=@openmeld/remote-agent\"",
+    "dev:isolated": "dotenv -e ../../.env -- node ../../scripts/dev/run-isolated-worker-dev.mjs remote-agent",
+    "dev:prod": "dotenv -e ../../.env -o -- sh -c 'pnpm run build && pnpm run build:prod-config && wrangler dev --config dist/openmeld_remote_agent/wrangler.prod.json --persist-to ../../.wrangler-dev-state --inspector-port 19333'",
+    "deploy": "pnpm run build:workspace-dependencies && dotenv -e ../../.env -o -- sh -c 'pnpm run build && pnpm run build:prod-config && wrangler deploy --config dist/openmeld_remote_agent/wrangler.prod.json'",
+    "sync:config:prod": "pnpm run deploy",
+    "sync:secrets:prod": "node ../../scripts/cloudflare/sync-worker-secrets.mjs --env prod --file .dev.vars.prod CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
+    "sync:prod": "pnpm run sync:secrets:prod && pnpm run sync:config:prod",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "check": "biome check . && pnpm run typecheck",
+    "cf-typegen": "pnpm run build && wrangler types --config dist/openmeld_remote_agent/wrangler.json --env-interface=CloudflareBindings && biome check --write worker-configuration.d.ts && pnpm run typecheck"
+  },
+  "dependencies": {
+    "@cloudflare/codemode": "0.5.1",
+    "@cloudflare/computer": "0.1.1",
+    "@earendil-works/pi-ai": "0.80.3",
+    "@flue/runtime": "1.0.0-beta.9",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openmeld/agent-runtime": "workspace:*",
+    "@openmeld/schemas": "workspace:*",
+    "@valibot/to-json-schema": "1.7.1",
+    "agents": "0.14.5",
+    "ai": "6.0.219",
+    "hono": "^4.11.7",
+    "valibot": "1.4.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.0",
+    "@cloudflare/workers-types": "catalog:",
+    "@flue/cli": "1.0.0-beta.9",
+    "dotenv-cli": "^11.0.0",
+    "rolldown": "1.1.4",
+    "typescript": "^5.9.3",
+    "vitest": "~3.2.0",
+    "wrangler": "catalog:"
+  }
+}

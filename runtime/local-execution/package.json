@@ -1,0 +1,43 @@
+{
+  "name": "@openmeld/local-execution",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:auth:control-plane": "vitest run test/control-plane-auth.test.ts",
+    "test:data-plane:contract": "vitest run test/data-plane-contract.test.ts",
+    "test:scheduler:policy": "vitest run test/scheduler-policy.test.ts",
+    "test:runtime:multi-binding": "vitest run test/runtime-multi-binding-integration.test.ts",
+    "test:runtime:replay-proof": "vitest run test/runtime-replay-proof.test.ts --reporter=json --outputFile /tmp/runtime-replay-proof.json && test -s /tmp/runtime-replay-proof.json",
+    "test:runtime:observability-proof": "vitest run test/runtime-observability-proof.test.ts --reporter=json --outputFile /tmp/runtime-observability-proof.json && test -s /tmp/runtime-observability-proof.json",
+    "test:data-plane:result-envelope": "vitest run test/result-envelope.test.ts",
+    "test:data-plane:dedupe-pre-adapter": "vitest run test/dedupe-pre-adapter.test.ts",
+    "test:ledger-recovery:boundary": "vitest run test/dedupe-window-boundary-restart.test.ts test/ledger-atomic-write.test.ts test/ledger-schema-failfast-backup.test.ts test/recovery-replay-once.test.ts test/partial-success-compensation.test.ts",
+    "test:runtime:task-orchestrator": "vitest run test/runtime-task-orchestrator.test.ts",
+    "test:mention-dispatch": "vitest run test/mention-only-dispatch-closure.test.ts test/mention-decision-chain.test.ts test/adapter-routing.test.ts test/mention-dispatch-routing.test.ts",
+    "test:liveness:low-traffic": "vitest run test/heartbeat-watchdog.low-traffic.test.ts",
+    "test:liveness:reconnect-fault": "vitest run test/heartbeat-watchdog.reconnect-fault-injection.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck"
+  },
+  "dependencies": {
+    "@openmeld/adapter-codex": "workspace:*",
+    "@openmeld/adapter-core": "workspace:*",
+    "@openmeld/agent-runtime": "workspace:*",
+    "@openmeld/schemas": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "vitest": "~3.2.0"
+  }
+}

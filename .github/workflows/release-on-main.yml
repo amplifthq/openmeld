@@ -1,0 +1,260 @@
+name: 🚀 Scoped Production Release
+run-name: Scoped Production Release ${{ inputs.mode }} / ${{ inputs.scope }} @ ${{ inputs.release_sha }}
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Preview the plan or deploy it"
+        required: true
+        type: choice
+        default: preview
+        options:
+          - preview
+          - deploy
+      release_sha:
+        description: "Exact 40-character main commit SHA approved for this release"
+        required: true
+        type: string
+      scope:
+        description: "One component by default; cloud/full are explicit fleet releases"
+        required: true
+        type: choice
+        default: web
+        options:
+          - database
+          - database-auth
+          - database-core
+          - web
+          - gateway
+          - auth
+          - core
+          - remote-agent
+          - cloud
+          - full
+
+jobs:
+  reject_non_main:
+    name: Reject Non-Main Production Deploy
+    if: inputs.mode == 'deploy' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require main
+        run: |
+          echo "::error::Production deploys must run from main. Current ref: ${GITHUB_REF}"
+          exit 1
+
+  validate_release_source:
+    name: Validate Immutable Main Release Source
+    if: inputs.mode == 'preview' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate exact release SHA
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::release_sha must be an exact 40-character lowercase commit SHA."
+            exit 1
+          fi
+
+      - name: Checkout main history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Require release SHA from main
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          release_sha="$RELEASE_SHA"
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          if ! git cat-file -e "${release_sha}^{commit}" 2>/dev/null || \
+             ! git merge-base --is-ancestor "$release_sha" refs/remotes/origin/main; then
+            echo "::error::release_sha must identify a commit in the main branch history."
+            exit 1
+          fi
+
+  preview:
+    name: Preview Release Plan
+    needs: validate_release_source
+    if: inputs.mode == 'preview'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show selected release
+        run: |
+          {
+            echo "## Scoped Production Release Preview"
+            echo ""
+            echo "- Commit: \`${{ inputs.release_sha }}\`"
+            echo "- Scope: \`${{ inputs.scope }}\`"
+            echo ""
+            echo "Deploy mode runs only the selected production stages. CLI publishing stays separate."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  database:
+    name: Release Production Database
+    needs: validate_release_source
+    if: >-
+      inputs.mode == 'deploy' &&
+      github.ref == 'refs/heads/main' &&
+      (inputs.scope == 'database' ||
+       inputs.scope == 'database-auth' ||
+       inputs.scope == 'database-core' ||
+       inputs.scope == 'full')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: release-production-database
+      cancel-in-progress: false
+    environment: production
+    env:
+      BETTER_AUTH_OPENMELD_SECRET: ci_codegen_only_secret_please_do_not_use_1234567890
+      AUTH_WORKER_NODE_ENV: development
+      BETTER_AUTH_URL: http://localhost:8788
+      WEB_APP_URL: http://localhost:8788
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_D1_DATABASE_ID: 7b6714b5-55fe-445d-876d-fc9428145206
+    steps:
+      - name: Require main
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::Production deploys must run from main. Current ref: ${GITHUB_REF}"
+            exit 1
+          fi
+
+      - name: Checkout release commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+          ref: ${{ inputs.release_sha }}
+
+      - name: Setup repository toolchain
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Generate, migrate, verify, and optimize production database
+        uses: ./.github/actions/shared-db-gate
+
+  web:
+    name: Release Web
+    needs:
+      - database
+      - auth
+      - validate_release_source
+    if: >-
+      always() &&
+      inputs.mode == 'deploy' &&
+      github.ref == 'refs/heads/main' &&
+      (inputs.scope == 'web' || inputs.scope == 'cloud' || inputs.scope == 'full') &&
+      needs.validate_release_source.result == 'success' &&
+      (needs.database.result == 'success' || needs.database.result == 'skipped') &&
+      (needs.auth.result == 'success' || needs.auth.result == 'skipped')
+    uses: ./.github/workflows/deploy-web.yml
+    with:
+      deploy_environment: production
+      release_sha: ${{ inputs.release_sha }}
+    secrets: inherit
+
+  gateway:
+    name: Release Gateway Worker
+    needs:
+      - database
+      - web
+      - validate_release_source
+    if: >-
+      always() &&
+      inputs.mode == 'deploy' &&
+      github.ref == 'refs/heads/main' &&
+      (inputs.scope == 'gateway' || inputs.scope == 'cloud' || inputs.scope == 'full') &&
+      needs.validate_release_source.result == 'success' &&
+      (needs.database.result == 'success' || needs.database.result == 'skipped') &&
+      (needs.web.result == 'success' || needs.web.result == 'skipped')
+    uses: ./.github/workflows/deploy-gateway-worker.yml
+    with:
+      deploy_environment: production
+      release_sha: ${{ inputs.release_sha }}
+    secrets: inherit
+
+  auth:
+    name: Release Auth Worker
+    needs:
+      - database
+      - validate_release_source
+    if: >-
+      always() &&
+      inputs.mode == 'deploy' &&
+      github.ref == 'refs/heads/main' &&
+      (inputs.scope == 'auth' ||
+       inputs.scope == 'database-auth' ||
+       inputs.scope == 'cloud' ||
+       inputs.scope == 'full') &&
+      needs.validate_release_source.result == 'success' &&
+      (needs.database.result == 'success' || needs.database.result == 'skipped')
+    uses: ./.github/workflows/deploy-auth-worker.yml
+    with:
+      deploy_environment: production
+      release_sha: ${{ inputs.release_sha }}
+    secrets: inherit
+
+  core:
+    name: Release Core Worker
+    needs:
+      - database
+      - web
+      - gateway
+      - auth
+      - validate_release_source
+    if: >-
+      always() &&
+      inputs.mode == 'deploy' &&
+      github.ref == 'refs/heads/main' &&
+      (inputs.scope == 'core' ||
+       inputs.scope == 'database-core' ||
+       inputs.scope == 'cloud' ||
+       inputs.scope == 'full') &&
+      needs.validate_release_source.result == 'success' &&
+      (needs.database.result == 'success' || needs.database.result == 'skipped') &&
+      (needs.web.result == 'success' || needs.web.result == 'skipped') &&
+      (needs.gateway.result == 'success' || needs.gateway.result == 'skipped') &&
+      (needs.auth.result == 'success' || needs.auth.result == 'skipped')
+    uses: ./.github/workflows/deploy-core-worker.yml
+    with:
+      deploy_environment: production
+      release_sha: ${{ inputs.release_sha }}
+    secrets: inherit
+
+  remote_agent:
+    name: Release Remote Agent Worker
+    needs:
+      - database
+      - web
+      - gateway
+      - auth
+      - core
+      - validate_release_source
+    if: >-
+      always() &&
+      inputs.mode == 'deploy' &&
+      github.ref == 'refs/heads/main' &&
+      (inputs.scope == 'remote-agent' || inputs.scope == 'cloud' || inputs.scope == 'full') &&
+      needs.validate_release_source.result == 'success' &&
+      (needs.database.result == 'success' || needs.database.result == 'skipped') &&
+      (needs.web.result == 'success' || needs.web.result == 'skipped') &&
+      (needs.gateway.result == 'success' || needs.gateway.result == 'skipped') &&
+      (needs.auth.result == 'success' || needs.auth.result == 'skipped') &&
+      (needs.core.result == 'success' || needs.core.result == 'skipped')
+    uses: ./.github/workflows/deploy-remote-agent-worker.yml
+    with:
+      deploy_environment: production
+      release_sha: ${{ inputs.release_sha }}
+    secrets: inherit

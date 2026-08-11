@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openmeld-gateway-local-smoke",
+  "main": "tests/local-smoke/worker.ts",
+  "compatibility_date": "2026-02-03",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OPENMELD_SPACES",
+        "class_name": "Space"
+      }
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "OPENMELD_DB",
+      "database_name": "openmeld-gateway-local-smoke",
+      "database_id": "openmeld-gateway-local-smoke",
+      "migrations_dir": "../../packages/db/drizzle"
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Space"]
+    }
+  ]
+}

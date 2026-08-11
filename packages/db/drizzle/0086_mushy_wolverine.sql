@@ -1,0 +1,1 @@
+ALTER TABLE `openMeldDaemon_agent_profile_bindings` ADD `configuration_revision` integer DEFAULT 1 NOT NULL;

@@ -1,0 +1,93 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openmeld-web",
+  "compatibility_date": "2026-04-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "@tanstack/react-start/server-entry",
+  "placement": {
+    "mode": "smart"
+  },
+  "dev": {
+    "ip": "localhost",
+    "port": 3000,
+    "inspector_port": 9232
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
+  },
+  "analytics_engine_datasets": [
+    {
+      "binding": "OPENMELD_OBSERVABILITY",
+      "dataset": "openmeld_runtime_evidence"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "OPENMELD_DESKTOP_DOWNLOADS",
+      "bucket_name": "openmeld-desktop-downloads-prod"
+    }
+  ],
+  "route": {
+    "custom_domain": true,
+    "pattern": "openmeld.ai"
+  },
+  "secrets": {
+    "required": ["WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"]
+  },
+  "vars": {
+    "OPENMELD_WORKER_ENVIRONMENT": "local",
+    "OPENMELD_GATEWAY_URL": "http://localhost:8080",
+    "WEB_APP_URL": "http://localhost:3000",
+    "BETTER_AUTH_URL": "http://localhost:8788",
+    "VITE_BETTER_AUTH_URL": "http://localhost:8788",
+    "VITE_APP_TITLE": "OpenMeld Web"
+  },
+  "env": {
+    "prod": {
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence_prod"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "OPENMELD_DESKTOP_DOWNLOADS",
+          "bucket_name": "openmeld-desktop-downloads-prod"
+        }
+      ],
+      "secrets": {
+        "required": ["WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"]
+      },
+      "vars": {
+        "OPENMELD_WORKER_ENVIRONMENT": "prod",
+        "OPENMELD_GATEWAY_URL": "https://gateway.openmeld.ai",
+        "WEB_APP_URL": "https://openmeld.ai",
+        "BETTER_AUTH_URL": "https://auth.openmeld.ai",
+        "VITE_BETTER_AUTH_URL": "https://auth.openmeld.ai",
+        "VITE_APP_TITLE": "OpenMeld Web"
+      }
+    }
+  }
+}

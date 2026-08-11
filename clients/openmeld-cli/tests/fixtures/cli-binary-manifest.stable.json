@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "channels": {
+    "stable": {
+      "version": "0.2.14",
+      "minRequiredCliVersion": "0.2.14",
+      "platforms": {
+        "darwin-arm64": {
+          "url": "https://openmeld.ai/cli/download/openmeld-cli-darwin-arm64-0.2.14",
+          "sha256": "95381a4f7a425eff7a79c05c446052c91eadd410af69249f912f60347918ebb0",
+          "sizeBytes": 68899792
+        }
+      }
+    }
+  }
+}

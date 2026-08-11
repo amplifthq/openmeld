@@ -1,0 +1,52 @@
+import { describe, expect, it } from "vitest";
+import {
+	FEISHU_CHANNEL_IDENTITY,
+	findAppDefinition,
+	LARK_CHANNEL_IDENTITY,
+} from "./app-catalog";
+
+describe("Message channel identities", () => {
+	it("uses the Feishu mark for both Lark platform variants", () => {
+		expect(LARK_CHANNEL_IDENTITY.logoPath).toBe("/app-logos/feishu.svg");
+		expect(FEISHU_CHANNEL_IDENTITY.logoPath).toBe(
+			LARK_CHANNEL_IDENTITY.logoPath
+		);
+	});
+});
+
+describe("App catalog connection paths", () => {
+	it("connects Figma through OpenMeld's public OAuth app", () => {
+		const figma = findAppDefinition("figma");
+
+		expect(figma).toMatchObject({
+			availability: "available",
+			connection: {
+				auth: { kind: "oauth" },
+			},
+		});
+	});
+
+	it("connects Notion with an officially configured internal connection", () => {
+		const notion = findAppDefinition("notion");
+
+		expect(notion).toMatchObject({
+			availability: "available",
+			connection: {
+				auth: {
+					authType: "api_key",
+					fields: [
+						{
+							description:
+								"The installation access token from a Notion internal connection created by a Workspace Owner. Enable the capabilities OpenMeld should use, then grant Content access to the pages and databases you choose.",
+							key: "apiKey",
+							label: "Installation access token",
+							placeholder: "Paste the token from Notion",
+							secret: true,
+						},
+					],
+					kind: "credential",
+				},
+			},
+		});
+	});
+});

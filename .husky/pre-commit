@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+
+# Only fix/check staged files (no custom stash/restore logic).
+corepack pnpm lint-staged

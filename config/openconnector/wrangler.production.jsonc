@@ -1,0 +1,61 @@
+{
+  "name": "openmeld-open-connector-prod",
+  "main": "src/server/cloudflare.ts",
+  "compatibility_date": "2026-07-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "keep_vars": true,
+  "cache": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "dist/web",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/v1/*",
+      "/mcp*",
+      "/oauth/*",
+      "/docs",
+      "/docs/*",
+      "/openapi.json",
+      "/health"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+      "persist": true
+    }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "openmeld-open-connector-db-prod",
+      "database_id": "9db3bb57-28db-4ce2-a664-c573569b2846",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "TRANSIT_FILES",
+      "bucket_name": "openmeld-open-connector-transit-files-prod"
+    }
+  ],
+  "vars": {
+    "OOMOL_CONNECT_ORIGIN": "https://connectors.openmeld.ai",
+    "OOMOL_CONNECT_ALLOWED_ACTIONS": "github.*,gmail.*,googlecalendar.*,googledrive.*,notion.*,linear.*,figma.*,posthog.*,cloudflare_browser_rendering.*,cloudflare_dns.*,cloudflare_r2.*,cloudflare_worker.*",
+    "OOMOL_CONNECT_BLOCKED_ACTIONS": "github.delete_repository,github.create_release",
+    "OOMOL_CONNECT_BLOCKED_PROXIES": "*"
+  },
+  "secrets": {
+    "required": [
+      "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN",
+      "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
+      "OOMOL_CONNECT_GITHUB_APP_ID",
+      "GITHUB_OPENMELD_APP_PRIVATE_KEY"
+    ]
+  }
+}

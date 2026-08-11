@@ -1,0 +1,3166 @@
+import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import {
+	createDirectMessageApi,
+	type StructuredApiClientFailure,
+} from "@openmeld/api-client";
+import type {
+	AuthProfileView,
+	CenterAgentSlackWorkspaceConnection,
+	ConvertDirectMessageToSpaceResponse,
+	CurrentLocalRuntimeReplyReadinessResponse,
+	GetSpaceStatusResponse,
+	RemoveSpaceMembersResponse,
+	SpaceMembersSnapshot,
+	WakeProgressItem,
+} from "@openmeld/schemas/types";
+import {
+	isAgentDirectConversationSpace,
+	isDirectMessageSpace,
+	resolveSpaceMemberAgentOwnerWakeDiagnosticsView,
+} from "@openmeld/space";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
+import type { ComponentProps, CSSProperties, ReactNode } from "react";
+import {
+	useCallback,
+	useEffect,
+	useEffectEvent,
+	useId,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
+import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
+import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { AppMainContent } from "#/components/app/app-main-content";
+import { COMPLETED_PREPARE_SESSION_POINTER_STORAGE_KEY } from "#/components/connect/prepare-session-pointer";
+import { CenterAgentSlackChannelsShortcut } from "#/components/organizations/center-agent-slack-channels-shortcut";
+import { useAccountAvatar } from "#/hooks/account.hooks";
+import {
+	planAgentProfileReplyRecoveryFromWebEvidence,
+	type WebAgentProfileReplyRecoveryLocalAgentCatalog,
+} from "#/lib/agents/agent-profile-reply-recovery";
+import type {
+	ComposerDraftRecord,
+	ComposerDraftScope,
+} from "#/lib/composer-draft-storage";
+import { buildConnectComputerPath } from "#/lib/connect/connect-route";
+import { resolveConnectedRuntimeTarget } from "#/lib/connect/connected-runtime";
+import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
+import { recordProfileSpaceHistory } from "#/lib/onboarding/record-profile-space-history";
+import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import {
+	buildOrganizationSpacePath,
+	buildOrganizationSpacesPath,
+} from "#/lib/organizations/organization-routes";
+import { buildProfileRequestContext } from "#/lib/profiles/human-profiles";
+import { resolveProfileBindingCatalogExecutionTarget } from "#/lib/profiles/profile-binding-target";
+import { listActiveProfilesByKind } from "#/lib/profiles/profiles";
+import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
+import { createWebSpaceApi } from "#/lib/spaces/api";
+import {
+	applySpaceMemberRemovalToCache,
+	applySpaceMembersResponseToCache,
+} from "#/lib/spaces/member-cache";
+import {
+	readSpaceMembersPanelOpen,
+	writeSpaceMembersPanelOpen,
+} from "#/lib/spaces/members-panel-storage";
+import type { PendingSpaceMessage } from "#/lib/spaces/pending-message";
+import { resolveCurrentSpaceProfileName } from "#/lib/spaces/profile-display";
+import {
+	resolveWakeFailureTargetContext,
+	type WakeFailureTargetContext,
+} from "#/lib/spaces/wake-failure-display";
+import {
+	refreshWebAgentReadinessAfterCoreFactsChanged,
+	refreshWebAgentReadinessFacts,
+	refreshWebAgentReadinessSharedCaches,
+	type WebAgentReadinessRefreshFailure,
+} from "#/query/agents/execution-readiness";
+import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
+import {
+	centerAgentDesignationQueryOptions,
+	centerAgentDirectMessageSpaceProjectionQueryOptions,
+} from "#/query/organizations/center-agent";
+import { isQueryCancellationError } from "#/query/query-cancellation";
+import {
+	accountSpaceItemsQueryOptions,
+	accountSpaceQueryKeys,
+} from "#/query/spaces/account-spaces";
+import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
+import { spaceQueryKeys } from "#/query/spaces/status";
+import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participation";
+import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
+import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
+import { SpaceConversationPanel } from "./space-conversation-panel";
+import { SpaceHeader } from "./space-header";
+import {
+	isSameOwnerUserId,
+	resolveCurrentSpaceProfileOwnerUserId,
+} from "./space-member-ownership";
+import {
+	SPACE_MEMBERS_SIDE_PANEL_QUERY,
+	type SpaceAddOrganizationDirectoryProfilesInput,
+	type SpaceAddProfilesResult,
+	type SpaceConvertDirectMessageInput,
+	SpaceMembersDrawer,
+	SpaceMembersSidePanel,
+	SpaceMembersToggleButton,
+	type SpaceRemoveMemberResult,
+} from "./space-members-drawer";
+import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
+import {
+	SetupRecallButton,
+	SpaceConversationRecoveryBanner,
+	type SpaceSetupVisibility,
+} from "./space-onboarding-banner";
+import { SpaceProfileSwitcher } from "./space-profile-switcher";
+import { buildSpaceReferenceMessageTexts } from "./space-reference-message-texts";
+import {
+	SpaceLandingFailureSurface,
+	SpaceLandingLoadingShell,
+	SpacePasswordRecoverySurface,
+} from "./space-state-surfaces";
+import { SpaceThreadPanel } from "./space-thread-panel";
+import type { SpaceView } from "./space-view";
+import { SpaceViewTabs } from "./space-view-tabs";
+import {
+	isSpaceWakeStatusAutoRefreshable,
+	isSpaceWakeStatusPassiveRefreshCandidate,
+	isSpaceWakeStatusRefreshCandidate,
+	resolveSpaceWakeStatusTransientState,
+	SPACE_WAKE_STATUS_AUTO_REFRESH_ATTEMPTS,
+	SPACE_WAKE_STATUS_FRESHNESS_REFRESH_INTERVAL_MS,
+	SPACE_WAKE_STATUS_REFRESH_INTERVAL_MS,
+	SPACE_WAKE_STATUS_REFRESH_WINDOW_MS,
+} from "./space-wake-status-refresh";
+import { useSpaceConversationReadCache } from "./use-space-conversation-read-cache";
+import { useSpaceInboxReadPosition } from "./use-space-inbox-read-position";
+import { useSpaceLandingController } from "./use-space-landing-controller";
+import { useSpaceMessageReferences } from "./use-space-message-references";
+import { useSpacePanelWidth } from "./use-space-panel-width";
+import { useWakeDisplayDebounce } from "./use-wake-display-debounce";
+
+const EMPTY_ACCOUNT_PROFILES: readonly AuthProfileView[] = [];
+const ACTIVE_WAKE_DISPLAY_PHASES = new Set<WakeProgressItem["phase"]>([
+	"sending",
+	"request_sent",
+	"queued",
+	"connecting",
+	"running",
+	"writing",
+	"publishing",
+	"retrying",
+]);
+
+type WakeFinalOutcomeFactsRefreshInput = {
+	agentProfileIds: readonly string[];
+	signalIds: readonly string[];
+};
+
+type CurrentSpaceMemberFactsRefreshInput = {
+	agentProfileIds?: readonly string[];
+	forceNetwork?: boolean;
+};
+
+// Recall + Add-agents-highlight state for the Get-set-up panel, lifted here so
+// the header recall action and the Members-drawer flash can share it. Extracted
+// from SpaceLanding to keep that component's cognitive complexity in budget.
+function useSpaceSetupRecallWiring(input: {
+	activeView: SpaceView;
+	onViewChange: (view: SpaceView) => void;
+	setMembersOpen: (open: boolean) => void;
+}) {
+	const [setupRecallNonce, setSetupRecallNonce] = useState(0);
+	const [setupVisibility, setSetupVisibility] = useState<SpaceSetupVisibility>({
+		allHidden: false,
+		hasSetup: false,
+	});
+	const [addMembersFlashNonce, setAddMembersFlashNonce] = useState(0);
+	const handleSetupVisibilityChange = useCallback(
+		(visibility: SpaceSetupVisibility) => {
+			setSetupVisibility(visibility);
+		},
+		[]
+	);
+	const handleRecallSetup = useCallback(() => {
+		input.onViewChange("messages");
+		setSetupRecallNonce((nonce) => nonce + 1);
+		setSetupVisibility((current) => ({ ...current, allHidden: false }));
+	}, [input.onViewChange]);
+	const handleAddAgentsFromBanner = useCallback(() => {
+		input.setMembersOpen(true);
+		setAddMembersFlashNonce((nonce) => nonce + 1);
+	}, [input.setMembersOpen]);
+	const setupRecallAction =
+		setupVisibility.hasSetup &&
+		(setupVisibility.allHidden || input.activeView === "graph") ? (
+			<SetupRecallButton onClick={handleRecallSetup} />
+		) : null;
+	return {
+		addMembersFlashNonce,
+		handleAddAgentsFromBanner,
+		handleSetupVisibilityChange,
+		setupRecallAction,
+		setupRecallNonce,
+	};
+}
+
+function resolveCurrentSpaceControls(input: {
+	isCurrentAccessConfirmed: boolean;
+	currentSpaceIsCenterAgentDirectMessage: boolean;
+	currentSpaceIsDirectMessage: boolean;
+	handleAddAgentsFromBanner: () => void;
+	handleAddOrganizationDirectoryProfiles: (
+		input: SpaceAddOrganizationDirectoryProfilesInput
+	) => Promise<SpaceAddProfilesResult>;
+	handleAddProfiles: (
+		profileIds: readonly string[]
+	) => Promise<SpaceAddProfilesResult>;
+	handleConvertDirectMessageToSpace: (
+		input: SpaceConvertDirectMessageInput
+	) => Promise<SpaceAddProfilesResult>;
+	showDeleteSpaceAction: boolean;
+}): {
+	canManageSpaceAccess: boolean;
+	canManageSpaceName: boolean;
+	hideShareControl: boolean;
+	managementControl: ReactNode;
+	onAddAgentsFromBanner?: () => void;
+	onAddOrganizationDirectoryProfiles?: (
+		input: SpaceAddOrganizationDirectoryProfilesInput
+	) => Promise<SpaceAddProfilesResult>;
+	onAddProfiles?: (
+		profileIds: readonly string[]
+	) => Promise<SpaceAddProfilesResult>;
+	onConvertDirectMessageToSpace?: (
+		input: SpaceConvertDirectMessageInput
+	) => Promise<SpaceAddProfilesResult>;
+} {
+	if (!input.isCurrentAccessConfirmed) {
+		return {
+			canManageSpaceAccess: false,
+			canManageSpaceName: false,
+			hideShareControl: true,
+			managementControl: null,
+		};
+	}
+	if (input.currentSpaceIsCenterAgentDirectMessage) {
+		return {
+			canManageSpaceAccess: false,
+			canManageSpaceName: false,
+			hideShareControl: true,
+			managementControl: null,
+		};
+	}
+	if (input.currentSpaceIsDirectMessage) {
+		return {
+			canManageSpaceAccess: false,
+			canManageSpaceName: false,
+			hideShareControl: true,
+			managementControl: null,
+			onAddOrganizationDirectoryProfiles:
+				input.handleAddOrganizationDirectoryProfiles,
+			onAddProfiles: input.handleAddProfiles,
+			onConvertDirectMessageToSpace: input.handleConvertDirectMessageToSpace,
+		};
+	}
+
+	return {
+		canManageSpaceAccess: input.showDeleteSpaceAction,
+		canManageSpaceName: input.showDeleteSpaceAction,
+		hideShareControl: false,
+		managementControl: null,
+		onAddAgentsFromBanner: input.handleAddAgentsFromBanner,
+		onAddOrganizationDirectoryProfiles:
+			input.handleAddOrganizationDirectoryProfiles,
+		onAddProfiles: input.handleAddProfiles,
+	};
+}
+
+function useSpaceCenterAgentState(input: {
+	knownCenterAgentDirectMessage?: boolean;
+	organizationId: string | null;
+	spaceId: string;
+}) {
+	const projectionQuery = useQuery(
+		centerAgentDirectMessageSpaceProjectionQueryOptions({
+			enabled: input.organizationId !== null,
+			organizationId: input.organizationId ?? "",
+		})
+	);
+	const designationQuery = useQuery(
+		centerAgentDesignationQueryOptions({
+			enabled: input.organizationId !== null,
+			organizationId: input.organizationId ?? "",
+		})
+	);
+	const currentSpaceProjection =
+		projectionQuery.data?.projection?.spaceId === input.spaceId
+			? projectionQuery.data.projection
+			: null;
+	const projectionMatchesCurrentSpace = currentSpaceProjection !== null;
+
+	return {
+		centerAgentProfileId:
+			currentSpaceProjection?.centerAgentProfileId ??
+			designationQuery.data?.designation?.agentProfileId ??
+			null,
+		designationPending: designationQuery.isPending,
+		isCenterAgentDirectMessage:
+			input.knownCenterAgentDirectMessage ?? projectionMatchesCurrentSpace,
+		slackConnection: designationQuery.data?.slackConnection,
+	};
+}
+
+function resolveOptionalAppOrganizationId(
+	context: ReturnType<typeof useOptionalAppOrganization>
+) {
+	return context?.currentOrganization.id ?? null;
+}
+
+function useActiveWakeTargetProfileIds(
+	controller: ReturnType<typeof useSpaceLandingController>
+) {
+	const activeWakeWaitingTargetProfileIds = useMemo(
+		() =>
+			controller.mode === "ready"
+				? resolveActiveWakeWaitingTargetProfileIds(
+						controller.ephemeralActivityItems,
+						controller.threadEphemeralActivityItems
+					)
+				: new Set<string>(),
+		[controller]
+	);
+	const activeWakeDisplayTargetProfileIds = useMemo(
+		() =>
+			controller.mode === "ready"
+				? resolveActiveWakeDisplayTargetProfileIds(
+						controller.ephemeralActivityItems,
+						controller.threadEphemeralActivityItems
+					)
+				: new Set<string>(),
+		[controller]
+	);
+	return {
+		activeWakeDisplayTargetProfileIds,
+		activeWakeWaitingTargetProfileIds,
+	};
+}
+
+function SpaceSlackSettingsShortcutControl(input: {
+	designationPending: boolean;
+	isCenterAgentDirectMessage: boolean;
+	organizationId: string | null;
+	organizationSlug: string;
+	slackConnection?: CenterAgentSlackWorkspaceConnection;
+}) {
+	if (
+		!input.isCenterAgentDirectMessage ||
+		input.organizationId === null ||
+		input.designationPending
+	) {
+		return null;
+	}
+
+	return (
+		<CenterAgentSlackChannelsShortcut
+			organizationSlug={input.organizationSlug}
+			slackConnection={input.slackConnection}
+		/>
+	);
+}
+
+type SpaceLandingInput = {
+	accountProfiles?: readonly AuthProfileView[];
+	centerAgentAboutControl?: ReactNode;
+	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
+	currentUserAvatarImageUrl?: string | null;
+	initialComposerDraft?: ComposerDraftRecord | null;
+	initialFocusInteractionId?: string;
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
+	initialPendingMessage?: PendingSpaceMessage | null;
+	isPersonalContext?: boolean;
+	isCenterAgentDirectMessage?: boolean;
+	loadingFallback?: ReactNode;
+	onInitialPendingMessageConsumed?: () => void;
+	orgSlug: string;
+	presentation?: "compact" | "full";
+	spaceId: string;
+	profileId: string;
+};
+
+function useSpaceLandingState(input: SpaceLandingInput) {
+	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	const generatedSpaceViewId = useId();
+	const spaceViewIdPrefix = `space-view-${generatedSpaceViewId}`;
+	const [spaceView, setSpaceView] = useState<SpaceView>("messages");
+	const accountProfiles = resolveSpaceLandingAccountProfiles(
+		input.accountProfiles
+	);
+	const organizationContext = useOptionalAppOrganization();
+	const currentUserAvatarImageUrl = useSpaceLandingCurrentUserAvatarImageUrl(
+		input.currentUserAvatarImageUrl
+	);
+	const { data: modelCatalog = null } = useQuery(modelCatalogQueryOptions());
+	const organizationId = resolveOptionalAppOrganizationId(organizationContext);
+	const persistSpaceInboxReadPosition = useSpaceInboxReadPosition({
+		organizationId,
+		spaceId: input.spaceId,
+	});
+	const centerAgentState = useSpaceCenterAgentState({
+		knownCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+		organizationId,
+		spaceId: input.spaceId,
+	});
+	const currentSpaceIsCenterAgentDirectMessage =
+		centerAgentState.isCenterAgentDirectMessage;
+	const recovery = useLocalAgentRecoveryController({
+		currentLocalRuntimeReplyReadinessRefetchIntervalMs: false,
+		loadAgentExecutionReadiness: false,
+		loadAgentProfiles: false,
+		loadSetupState: false,
+	});
+	const wakeFinalOutcomeFactsRefreshRef = useRef<
+		((refreshInput: WakeFinalOutcomeFactsRefreshInput) => Promise<void>) | null
+	>(null);
+	const currentSpaceMemberFactsRefreshRef = useRef<
+		| ((refreshInput?: CurrentSpaceMemberFactsRefreshInput) => Promise<void>)
+		| null
+	>(null);
+	const readinessInvalidationProfileIdsRef = useRef(new Set<string>());
+	const readinessInvalidationRefreshTimerRef = useRef<number | null>(null);
+	const routeCatalogRefreshProfileIdsRef = useRef(new Set<string>());
+	const refreshWakeFinalOutcomeFacts = useCallback(
+		async (refreshInput: WakeFinalOutcomeFactsRefreshInput) => {
+			await wakeFinalOutcomeFactsRefreshRef.current?.(refreshInput);
+		},
+		[]
+	);
+	const refreshCurrentSpaceMemberFacts = useCallback(
+		async (refreshInput?: CurrentSpaceMemberFactsRefreshInput) => {
+			await currentSpaceMemberFactsRefreshRef.current?.(refreshInput);
+		},
+		[]
+	);
+	const flushAgentReadinessInvalidated = useCallback(async () => {
+		const agentProfileIds = [...readinessInvalidationProfileIdsRef.current];
+		readinessInvalidationProfileIdsRef.current.clear();
+		readinessInvalidationRefreshTimerRef.current = null;
+		await refreshWebAgentReadinessSharedCaches({
+			agentProfileIds,
+			includeLocalRuntimeCaches: false,
+			queryClient,
+			storageScope: recovery.storageScope,
+		});
+	}, [queryClient, recovery.storageScope]);
+	const refreshAgentReadinessInvalidated = useCallback(
+		(input: { agentProfileIds: readonly string[] }) => {
+			for (const agentProfileId of input.agentProfileIds) {
+				const normalizedProfileId = agentProfileId.trim();
+				if (normalizedProfileId.length > 0) {
+					readinessInvalidationProfileIdsRef.current.add(normalizedProfileId);
+				}
+			}
+			if (readinessInvalidationRefreshTimerRef.current !== null) {
+				return;
+			}
+			readinessInvalidationRefreshTimerRef.current = window.setTimeout(() => {
+				flushAgentReadinessInvalidated().catch((error: unknown) => {
+					console.warn(
+						"Failed to refresh Agent readiness after live invalidation.",
+						error
+					);
+				});
+			}, 500);
+		},
+		[flushAgentReadinessInvalidated]
+	);
+	useEffect(
+		() => () => {
+			if (readinessInvalidationRefreshTimerRef.current !== null) {
+				window.clearTimeout(readinessInvalidationRefreshTimerRef.current);
+				readinessInvalidationRefreshTimerRef.current = null;
+			}
+			readinessInvalidationProfileIdsRef.current.clear();
+		},
+		[]
+	);
+	const controller = useSpaceLandingController({
+		...input,
+		onViewedThroughTs: persistSpaceInboxReadPosition,
+		onAgentReadinessInvalidated: refreshAgentReadinessInvalidated,
+		onInitialPendingMessageConsumed: input.onInitialPendingMessageConsumed,
+		onWakeFinalOutcomeFactsRefresh: refreshWakeFinalOutcomeFacts,
+		ownerAccountId: recovery.storageScope,
+		organizationId,
+	});
+	// A Space the viewer is looking at can be deleted by anyone (e.g. via the CLI),
+	// which makes the Space load fail; this redirects away from the dead URL instead
+	// of stranding the viewer on a futile "Try Again" (extracted to a hook to keep
+	// this component under the cognitive-complexity budget).
+	const { currentSpaceWasDeleted, isCheckingForDeletion } =
+		useRedirectAwayFromDeletedSpace({
+			controllerMode: controller.mode,
+			orgSlug: input.orgSlug,
+			profileId: input.profileId,
+			spaceId: input.spaceId,
+		});
+	const isDesktopMembersPanel = useMediaQuery(SPACE_MEMBERS_SIDE_PANEL_QUERY);
+	const [membersPanelOpenOverrides, setMembersPanelOpenOverrides] = useState<
+		ReadonlyMap<string, boolean>
+	>(() => new Map());
+	const membersOpen =
+		membersPanelOpenOverrides.get(input.spaceId) ??
+		resolveInitialMembersPanelOpen({
+			isDesktopMembersPanel,
+			spaceId: input.spaceId,
+		});
+	const setMembersOpen = useCallback(
+		(open: boolean) => {
+			setMembersPanelOpenOverrides((current) => {
+				const next = new Map(current);
+				next.set(input.spaceId, open);
+				return next;
+			});
+		},
+		[input.spaceId]
+	);
+	const membersPanelWidth = useSpacePanelWidth({
+		panel: "members",
+		spaceId: input.spaceId,
+	});
+	const setupPromptedSpaceIdRef = useRef<string | null>(null);
+	const autoRefreshAttemptsRef = useRef(new Map<string, number>());
+	const localRuntimeReadinessEventStateRef =
+		useRef<LocalRuntimeReadinessEventState | null>(null);
+	const localAgentRecoveryRefreshWindowTimerRef = useRef<number | null>(null);
+	const [autoRefreshExhaustedProfileIds, setAutoRefreshExhaustedProfileIds] =
+		useState<ReadonlySet<string>>(() => new Set());
+	const [
+		localAgentRecoveryRefreshWindowActive,
+		setLocalAgentRecoveryRefreshWindowActive,
+	] = useState(false);
+	const pageVisible = useSyncExternalStore(
+		subscribeDocumentVisibility,
+		getDocumentVisibilitySnapshot,
+		getServerDocumentVisibilitySnapshot
+	);
+	const previousPageVisibleRef = useRef(pageVisible);
+	const membersSnapshot =
+		controller.mode === "ready" ? controller.membersSnapshot : null;
+	// One debounce timer for the whole Members surface so desktop SidePanel and
+	// mobile Drawer share a single display-only override (never count down
+	// independently). Visual smoothing only -- raw snapshot still drives dispatch.
+	const wakeDisplayOverrideByProfileId = useWakeDisplayDebounce(
+		membersSnapshot?.agents ?? []
+	);
+	const {
+		activeWakeDisplayTargetProfileIds,
+		activeWakeWaitingTargetProfileIds,
+	} = useActiveWakeTargetProfileIds(controller);
+	const currentOwnerUserId = useMemo(
+		() =>
+			resolveCurrentSpaceProfileOwnerUserId({
+				currentProfileId: input.profileId,
+				snapshot: membersSnapshot,
+			}),
+		[input.profileId, membersSnapshot]
+	);
+	const currentAccountProfile = useMemo(
+		() =>
+			accountProfiles.find(
+				(profile) => profile.openMeldProfileId === input.profileId
+			) ?? null,
+		[accountProfiles, input.profileId]
+	);
+	const canCurrentProfileRemoveSpaceMembers = useMemo(
+		() =>
+			resolveCanCurrentProfileRemoveSpaceMembers({
+				currentOwnerUserId,
+				currentProfile: currentAccountProfile,
+				snapshot: membersSnapshot,
+			}),
+		[currentAccountProfile, currentOwnerUserId, membersSnapshot]
+	);
+	// Normalize the optional Space name (string | undefined) to string | null for
+	// the onboarding banner's create-first-agent launcher. Memoized so the guard
+	// and nullish coalescing live in this nested scope rather than SpaceLanding's
+	// body. controller.status only exists once the controller is "ready".
+	const spaceName = useMemo(
+		() =>
+			controller.mode === "ready" ? (controller.status.name ?? null) : null,
+		[controller]
+	);
+	const spaceReferenceInputs = resolveSpaceReferenceInputs(controller);
+	const spaceReferenceMessageTexts = useMemo(
+		() =>
+			buildSpaceReferenceMessageTexts({
+				membersSnapshot: spaceReferenceInputs.membersSnapshot,
+				threadSignals: spaceReferenceInputs.threadSignals,
+				timelineItems: spaceReferenceInputs.timelineItems,
+			}),
+		[
+			spaceReferenceInputs.membersSnapshot,
+			spaceReferenceInputs.threadSignals,
+			spaceReferenceInputs.timelineItems,
+		]
+	);
+	const spaceReferencesById = useSpaceMessageReferences({
+		accountProfileId: input.profileId,
+		currentSpace: spaceReferenceInputs.currentSpace,
+		messageTexts: spaceReferenceMessageTexts,
+		organizationId,
+		organizationSlug: input.orgSlug,
+	});
+	const localAgentRecoveryAutoRefreshActive =
+		localAgentRecoveryRefreshWindowActive ||
+		activeWakeWaitingTargetProfileIds.size > 0;
+	const computerReplyReadiness = useMemo(
+		() =>
+			resolveSpaceComputerReplyReadiness({
+				isFetching: recovery.currentLocalRuntimeReplyReadinessQuery.isFetching,
+				isPending: recovery.currentLocalRuntimeReplyReadinessQuery.isPending,
+				readiness: recovery.currentLocalRuntimeReplyReadinessQuery.data ?? null,
+			}),
+		[
+			recovery.currentLocalRuntimeReplyReadinessQuery.data,
+			recovery.currentLocalRuntimeReplyReadinessQuery.isFetching,
+			recovery.currentLocalRuntimeReplyReadinessQuery.isPending,
+		]
+	);
+	const deviceAgentCatalog = useMemo(
+		() => recovery.selectedExecutionTarget?.localAgentCatalog ?? null,
+		[recovery.selectedExecutionTarget]
+	);
+	const agentRecoveryPlansByProfileId = useMemo(
+		() =>
+			buildSpaceAgentRecoveryPlansByProfileId({
+				autoRefreshActive: localAgentRecoveryAutoRefreshActive,
+				autoRefreshExhaustedProfileIds,
+				computerReplyReadiness,
+				currentOwnerUserId,
+				deviceAgentCatalog,
+				snapshot: membersSnapshot,
+			}),
+		[
+			autoRefreshExhaustedProfileIds,
+			computerReplyReadiness,
+			currentOwnerUserId,
+			deviceAgentCatalog,
+			localAgentRecoveryAutoRefreshActive,
+			membersSnapshot,
+		]
+	);
+	const wakeFailureTargetContextsByProfileId = useMemo(
+		() =>
+			buildWakeFailureTargetContextsByProfileId({
+				currentOwnerUserId,
+				snapshot: membersSnapshot,
+			}),
+		[currentOwnerUserId, membersSnapshot]
+	);
+	const shouldOpenMembersPanelOnEntry = useMemo(
+		() =>
+			shouldOpenMembersPanelOnSpaceEntry({
+				agentRecoveryPlansByProfileId,
+				autoRefreshExhaustedProfileIds,
+				currentOwnerUserId,
+				snapshot: membersSnapshot,
+			}),
+		[
+			agentRecoveryPlansByProfileId,
+			autoRefreshExhaustedProfileIds,
+			currentOwnerUserId,
+			membersSnapshot,
+		]
+	);
+	const shouldAutoRefreshLocalAgentRecovery = useMemo(
+		() =>
+			shouldAutoRefreshSpaceAgentRecovery({
+				activeWakeWaitingTargetProfileIds,
+				agentRecoveryPlansByProfileId,
+				autoRefreshExhaustedProfileIds,
+				currentOwnerUserId,
+				recoveryRefreshWindowActive: localAgentRecoveryRefreshWindowActive,
+				snapshot: membersSnapshot,
+			}),
+		[
+			activeWakeWaitingTargetProfileIds,
+			agentRecoveryPlansByProfileId,
+			autoRefreshExhaustedProfileIds,
+			currentOwnerUserId,
+			localAgentRecoveryRefreshWindowActive,
+			membersSnapshot,
+		]
+	);
+	const shouldStartPassiveLocalAgentRecoveryRefreshWindow = useMemo(
+		() =>
+			shouldStartPassiveLocalAgentRecoveryRefresh({
+				agentRecoveryPlansByProfileId,
+				autoRefreshExhaustedProfileIds,
+				currentOwnerUserId,
+				recoveryRefreshWindowActive: localAgentRecoveryRefreshWindowActive,
+				snapshot: membersSnapshot,
+			}),
+		[
+			agentRecoveryPlansByProfileId,
+			autoRefreshExhaustedProfileIds,
+			currentOwnerUserId,
+			localAgentRecoveryRefreshWindowActive,
+			membersSnapshot,
+		]
+	);
+	const shouldRunHighFrequencyRecoveryRefresh =
+		pageVisible && shouldAutoRefreshLocalAgentRecovery;
+	useEffect(() => {
+		if (!membersSnapshot) {
+			autoRefreshAttemptsRef.current.clear();
+			setAutoRefreshExhaustedProfileIds((current) =>
+				current.size === 0 ? current : new Set()
+			);
+			return;
+		}
+		const refreshableProfileIds = new Set<string>();
+		for (const agent of membersSnapshot.agents) {
+			if (
+				isCurrentOwnerSpaceAgentMember({
+					agent,
+					currentOwnerUserId,
+				}) &&
+				isSpaceWakeStatusRefreshCandidate({
+					agent,
+					plan: agentRecoveryPlansByProfileId.get(agent.profileId),
+				})
+			) {
+				refreshableProfileIds.add(agent.profileId);
+			}
+		}
+		for (const profileId of [...autoRefreshAttemptsRef.current.keys()]) {
+			if (!refreshableProfileIds.has(profileId)) {
+				autoRefreshAttemptsRef.current.delete(profileId);
+			}
+		}
+		setAutoRefreshExhaustedProfileIds((current) =>
+			replaceSetIfChanged(
+				current,
+				[...current].filter((profileId) => refreshableProfileIds.has(profileId))
+			)
+		);
+	}, [agentRecoveryPlansByProfileId, currentOwnerUserId, membersSnapshot]);
+	const startLocalAgentRecoveryRefreshWindow = useCallback(() => {
+		autoRefreshAttemptsRef.current.clear();
+		routeCatalogRefreshProfileIdsRef.current.clear();
+		setAutoRefreshExhaustedProfileIds((current) =>
+			current.size === 0 ? current : new Set()
+		);
+		setLocalAgentRecoveryRefreshWindowActive(true);
+		if (localAgentRecoveryRefreshWindowTimerRef.current) {
+			clearTimeout(localAgentRecoveryRefreshWindowTimerRef.current);
+		}
+		localAgentRecoveryRefreshWindowTimerRef.current = window.setTimeout(() => {
+			localAgentRecoveryRefreshWindowTimerRef.current = null;
+			routeCatalogRefreshProfileIdsRef.current.clear();
+			setLocalAgentRecoveryRefreshWindowActive(false);
+		}, SPACE_WAKE_STATUS_REFRESH_WINDOW_MS);
+	}, []);
+	useEffect(
+		() => () => {
+			if (localAgentRecoveryRefreshWindowTimerRef.current) {
+				clearTimeout(localAgentRecoveryRefreshWindowTimerRef.current);
+			}
+		},
+		[]
+	);
+	useLayoutEffect(() => {
+		wakeFinalOutcomeFactsRefreshRef.current = async (refreshInput) => {
+			const agentProfileIds = normalizeAgentProfileIds(
+				refreshInput.agentProfileIds
+			);
+			const signalIds = normalizeSignalIds(refreshInput.signalIds);
+			const currentOwnerAgentProfileIds = filterCurrentOwnerAgentProfileIds({
+				agentProfileIds,
+				currentOwnerUserId,
+				snapshot: membersSnapshot,
+			});
+			const currentOwnerEvidenceAvailable =
+				membersSnapshot !== null && currentOwnerUserId !== null;
+			if (currentOwnerAgentProfileIds.length > 0) {
+				startLocalAgentRecoveryRefreshWindow();
+				await refreshWebAgentReadinessAfterCoreFactsChanged({
+					agentProfileIds: currentOwnerAgentProfileIds,
+					includeLocalRuntimeCaches: false,
+					onStepFailure: (failure) =>
+						warnWakeFinalOutcomeRefreshFailure({
+							...failure,
+							signalIds,
+							spaceId: input.spaceId,
+						}),
+					maxAttempts: 2,
+					queryClient,
+					storageScope: recovery.storageScope,
+				});
+			} else if (!currentOwnerEvidenceAvailable && agentProfileIds.length > 0) {
+				await refreshWebAgentReadinessAfterCoreFactsChanged({
+					agentProfileIds: [],
+					includeLocalRuntimeCaches: false,
+					onStepFailure: (failure) =>
+						warnWakeFinalOutcomeRefreshFailure({
+							...failure,
+							signalIds,
+							spaceId: input.spaceId,
+						}),
+					maxAttempts: 2,
+					queryClient,
+					storageScope: recovery.storageScope,
+				});
+			}
+			if (controller.mode === "ready") {
+				await runWakeFinalOutcomeRefreshStep({
+					agentProfileIds,
+					action: controller.onRefreshStatusAndMembers,
+					signalIds,
+					spaceId: input.spaceId,
+					step: "status_members",
+					maxAttempts: 2,
+				});
+			}
+		};
+
+		return () => {
+			wakeFinalOutcomeFactsRefreshRef.current = null;
+		};
+	}, [
+		controller,
+		currentOwnerUserId,
+		input.spaceId,
+		membersSnapshot,
+		queryClient,
+		recovery.storageScope,
+		startLocalAgentRecoveryRefreshWindow,
+	]);
+	useLayoutEffect(() => {
+		currentSpaceMemberFactsRefreshRef.current = async (refreshInput) => {
+			if (controller.mode !== "ready") {
+				return;
+			}
+			const requestedAgentProfileIds = normalizeAgentProfileIds(
+				refreshInput?.agentProfileIds ?? []
+			);
+			if (requestedAgentProfileIds.length > 0) {
+				startLocalAgentRecoveryRefreshWindow();
+			}
+			const profileIdsToRefresh =
+				requestedAgentProfileIds.length > 0
+					? requestedAgentProfileIds
+					: normalizeAgentProfileIds(
+							listCurrentOwnerActiveAgentProfileIds({
+								currentOwnerUserId,
+								snapshot: controller.membersSnapshot,
+							})
+						);
+			if (requestedAgentProfileIds.length > 0) {
+				await refreshWebAgentReadinessFacts({
+					agentProfileIds: profileIdsToRefresh,
+					includeLocalRuntimeCaches: false,
+					queryClient,
+					storageScope: recovery.storageScope,
+				});
+			} else {
+				await refreshWebAgentReadinessAfterCoreFactsChanged({
+					agentProfileIds: profileIdsToRefresh,
+					includeLocalRuntimeCaches: false,
+					queryClient,
+					storageScope: recovery.storageScope,
+				});
+			}
+			await Promise.all([
+				recovery.refreshAll(),
+				refreshInput?.forceNetwork
+					? controller.onHardRefreshStatusAndMembers()
+					: controller.onRefreshStatusAndMembers(),
+			]);
+		};
+
+		return () => {
+			currentSpaceMemberFactsRefreshRef.current = null;
+		};
+	}, [
+		controller,
+		currentOwnerUserId,
+		queryClient,
+		recovery.refreshAll,
+		recovery.storageScope,
+		startLocalAgentRecoveryRefreshWindow,
+	]);
+	useEffect(() => {
+		if (
+			!pageVisible ||
+			controller.mode !== "ready" ||
+			!shouldStartPassiveLocalAgentRecoveryRefreshWindow
+		) {
+			return;
+		}
+		startLocalAgentRecoveryRefreshWindow();
+	}, [
+		controller.mode,
+		pageVisible,
+		shouldStartPassiveLocalAgentRecoveryRefreshWindow,
+		startLocalAgentRecoveryRefreshWindow,
+	]);
+	const refreshLocalAgentRecoveryState = useEffectEvent(async () => {
+		if (controller.mode !== "ready") {
+			return;
+		}
+		const snapshot = controller.membersSnapshot;
+		if (!snapshot) {
+			return;
+		}
+
+		const profileIdsToRefresh = resolveAutoRefreshProfileIds({
+			activeWakeWaitingTargetProfileIds,
+			agentRecoveryPlansByProfileId,
+			autoRefreshExhaustedProfileIds,
+			attemptsByProfileId: autoRefreshAttemptsRef.current,
+			currentOwnerUserId,
+			recoveryRefreshWindowActive: localAgentRecoveryRefreshWindowActive,
+			snapshot,
+		});
+		setAutoRefreshExhaustedProfileIds((current) =>
+			replaceSetIfChanged(
+				current,
+				resolveExhaustedAutoRefreshProfileIds({
+					agentRecoveryPlansByProfileId,
+					attemptsByProfileId: autoRefreshAttemptsRef.current,
+					currentOwnerUserId,
+					snapshot,
+				})
+			)
+		);
+		if (profileIdsToRefresh.length === 0) {
+			return;
+		}
+		for (const profileId of profileIdsToRefresh) {
+			const attempts = autoRefreshAttemptsRef.current.get(profileId) ?? 0;
+			autoRefreshAttemptsRef.current.set(profileId, attempts + 1);
+		}
+
+		const profileIdsNeedingRouteCatalogRefresh: string[] = [];
+		const profileIdsNeedingReadOnlyRefresh: string[] = [];
+		for (const profileId of profileIdsToRefresh) {
+			if (routeCatalogRefreshProfileIdsRef.current.has(profileId)) {
+				profileIdsNeedingReadOnlyRefresh.push(profileId);
+			} else {
+				routeCatalogRefreshProfileIdsRef.current.add(profileId);
+				profileIdsNeedingRouteCatalogRefresh.push(profileId);
+			}
+		}
+		if (profileIdsNeedingRouteCatalogRefresh.length > 0) {
+			await refreshWebAgentReadinessFacts({
+				agentProfileIds: profileIdsNeedingRouteCatalogRefresh,
+				includeLocalRuntimeCaches: false,
+				queryClient,
+				storageScope: recovery.storageScope,
+			});
+		}
+		if (profileIdsNeedingReadOnlyRefresh.length > 0) {
+			await refreshWebAgentReadinessAfterCoreFactsChanged({
+				agentProfileIds: profileIdsNeedingReadOnlyRefresh,
+				includeLocalRuntimeCaches: false,
+				queryClient,
+				storageScope: recovery.storageScope,
+			});
+		}
+		await controller.onRefreshStatusAndMembers();
+		setAutoRefreshExhaustedProfileIds((current) =>
+			replaceSetIfChanged(
+				current,
+				resolveExhaustedAutoRefreshProfileIds({
+					agentRecoveryPlansByProfileId,
+					attemptsByProfileId: autoRefreshAttemptsRef.current,
+					currentOwnerUserId,
+					snapshot,
+				})
+			)
+		);
+	});
+	const refreshSpaceAfterLocalRuntimeReadinessChange = useEffectEvent(
+		async () => {
+			if (controller.mode !== "ready") {
+				return;
+			}
+			const profileIdsToRefresh = listCurrentOwnerActiveAgentProfileIds({
+				currentOwnerUserId,
+				snapshot: controller.membersSnapshot,
+			});
+			await refreshWebAgentReadinessAfterCoreFactsChanged({
+				agentProfileIds: profileIdsToRefresh,
+				includeLocalRuntimeCaches: false,
+				queryClient,
+				storageScope: recovery.storageScope,
+			});
+			await controller.onRefreshStatusAndMembers();
+		}
+	);
+	useEffect(() => {
+		if (controller.mode !== "ready" || !shouldRunHighFrequencyRecoveryRefresh) {
+			return;
+		}
+
+		const intervalId = window.setInterval(() => {
+			refreshLocalAgentRecoveryState().catch((error) => {
+				warnSpaceRefreshFailure(
+					"Failed to refresh local agent recovery state.",
+					error
+				);
+			});
+		}, SPACE_WAKE_STATUS_REFRESH_INTERVAL_MS);
+
+		return () => window.clearInterval(intervalId);
+	}, [controller.mode, shouldRunHighFrequencyRecoveryRefresh]);
+	useEffect(() => {
+		if (controller.mode !== "ready" || !shouldRunHighFrequencyRecoveryRefresh) {
+			return;
+		}
+		refreshLocalAgentRecoveryState().catch((error) => {
+			warnSpaceRefreshFailure(
+				"Failed to refresh local agent recovery state.",
+				error
+			);
+		});
+	}, [controller.mode, shouldRunHighFrequencyRecoveryRefresh]);
+	useEffect(() => {
+		if (
+			controller.mode !== "ready" ||
+			!pageVisible ||
+			shouldRunHighFrequencyRecoveryRefresh
+		) {
+			return;
+		}
+
+		const intervalId = window.setInterval(() => {
+			refreshCurrentSpaceMemberFacts().catch((error) => {
+				warnSpaceRefreshFailure(
+					"Failed to refresh Space member readiness.",
+					error
+				);
+			});
+		}, SPACE_WAKE_STATUS_FRESHNESS_REFRESH_INTERVAL_MS);
+
+		return () => window.clearInterval(intervalId);
+	}, [
+		controller.mode,
+		pageVisible,
+		refreshCurrentSpaceMemberFacts,
+		shouldRunHighFrequencyRecoveryRefresh,
+	]);
+	useEffect(() => {
+		const readiness = recovery.currentLocalRuntimeReplyReadinessQuery.data;
+		const currentState =
+			readiness === undefined
+				? null
+				: resolveLocalRuntimeReadinessEventState(readiness);
+		const previousState = localRuntimeReadinessEventStateRef.current;
+		localRuntimeReadinessEventStateRef.current = currentState;
+		if (!(previousState && currentState)) {
+			return;
+		}
+		if (
+			(previousState.canReplyFromThisComputer === false &&
+				currentState.canReplyFromThisComputer) ||
+			(previousState.serviceConnected === false &&
+				currentState.serviceConnected)
+		) {
+			refreshSpaceAfterLocalRuntimeReadinessChange().catch((error) => {
+				warnSpaceRefreshFailure(
+					"Failed to refresh Space after OpenMeld Service readiness changed.",
+					error
+				);
+			});
+		}
+	}, [recovery.currentLocalRuntimeReplyReadinessQuery.data]);
+	useEffect(() => {
+		const onStorage = (event: StorageEvent) => {
+			if (
+				event.key !== COMPLETED_PREPARE_SESSION_POINTER_STORAGE_KEY ||
+				event.newValue === event.oldValue
+			) {
+				return;
+			}
+			startLocalAgentRecoveryRefreshWindow();
+		};
+
+		window.addEventListener("storage", onStorage);
+		return () => window.removeEventListener("storage", onStorage);
+	}, [startLocalAgentRecoveryRefreshWindow]);
+	useEffect(() => {
+		const wasVisible = previousPageVisibleRef.current;
+		previousPageVisibleRef.current = pageVisible;
+		if (
+			controller.mode !== "ready" ||
+			wasVisible ||
+			!pageVisible ||
+			shouldRunHighFrequencyRecoveryRefresh
+		) {
+			return;
+		}
+		refreshCurrentSpaceMemberFacts().catch((error) => {
+			warnSpaceRefreshFailure(
+				"Failed to refresh Space after the page became visible.",
+				error
+			);
+		});
+	}, [
+		controller.mode,
+		pageVisible,
+		refreshCurrentSpaceMemberFacts,
+		shouldRunHighFrequencyRecoveryRefresh,
+	]);
+	useEffect(() => {
+		if (
+			controller.mode !== "ready" ||
+			!isDesktopMembersPanel ||
+			!shouldOpenMembersPanelOnEntry
+		) {
+			return;
+		}
+		if (setupPromptedSpaceIdRef.current === input.spaceId) {
+			return;
+		}
+		if (readSpaceMembersPanelOpen({ spaceId: input.spaceId }) === false) {
+			return;
+		}
+
+		setupPromptedSpaceIdRef.current = input.spaceId;
+		setMembersOpen(true);
+	}, [
+		controller.mode,
+		input.spaceId,
+		isDesktopMembersPanel,
+		setMembersOpen,
+		shouldOpenMembersPanelOnEntry,
+	]);
+	const handleAgentRecoveryAction = useCallback(
+		async (plan: SpaceAgentProfileBindingRecoveryPlan) => {
+			if (controller.mode !== "ready") {
+				return;
+			}
+
+			const connectedRuntimeTarget = resolveConnectedRuntimeTarget(recovery);
+			await controller.onUpdateAgentProfileBinding({
+				controllerEnabled: true,
+				agentControllerRef: plan.agentControllerRef,
+				// Bind the agent to the connected runtime. connectedRuntimeTarget is
+				// liveness-first (Binding target when present, else the live
+				// ServiceRuntime session), so recovery works for a connected computer
+				// regardless of the Binding-derived current-device pointer.
+				deviceId: connectedRuntimeTarget?.deviceId ?? null,
+				profileId: plan.profileId,
+				profileName: plan.profileName,
+				runtimeLane:
+					connectedRuntimeTarget?.runtimeLane ?? recovery.runtimeLane,
+			});
+			startLocalAgentRecoveryRefreshWindow();
+			await refreshWebAgentReadinessFacts({
+				agentProfileIds: [plan.profileId],
+				queryClient,
+				storageScope: recovery.storageScope,
+			});
+			await Promise.all([
+				recovery.refreshAll(),
+				controller.onRefreshStatusAndMembers(),
+			]);
+		},
+		[controller, queryClient, recovery, startLocalAgentRecoveryRefreshWindow]
+	);
+	const handleMembersOpenChange = useCallback(
+		(open: boolean) => {
+			setMembersOpen(open);
+			writeSpaceMembersPanelOpen({
+				open,
+				spaceId: input.spaceId,
+			});
+		},
+		[input.spaceId, setMembersOpen]
+	);
+	// Get-set-up panel recall + Add-agents highlight wiring (drives the header
+	// recall action and the Add-members card flash).
+	const {
+		addMembersFlashNonce,
+		handleAddAgentsFromBanner,
+		handleSetupVisibilityChange,
+		setupRecallAction,
+		setupRecallNonce,
+	} = useSpaceSetupRecallWiring({
+		activeView: spaceView,
+		onViewChange: setSpaceView,
+		setMembersOpen: handleMembersOpenChange,
+	});
+	const handleAddProfiles = useSpaceAddProfilesHandler({
+		accountProfiles,
+		controller,
+		queryClient,
+		storageScope: recovery.storageScope,
+	});
+	const handleAddOrganizationDirectoryProfiles =
+		useSpaceAddOrganizationDirectoryProfilesHandler({
+			controller,
+			queryClient,
+		});
+	const handleConvertDirectMessageToSpace =
+		useConvertDirectMessageToSpaceHandler({
+			controller,
+			navigate,
+			orgSlug: input.orgSlug,
+			queryClient,
+		});
+	const handleRemoveMember = useSpaceRemoveMemberHandler({
+		accountProfiles,
+		controller,
+		queryClient,
+	});
+	const isDirectMessage =
+		controller.mode === "ready" &&
+		isDirectMessageSpace({
+			activeMemberCount: controller.status.members.totalCount,
+			directMessageConvertedAt: controller.status.directMessageConvertedAt,
+			purpose: controller.status.spacePurpose,
+		});
+	const spaceMemberRemovalHandler = resolveSpaceMemberRemovalHandler({
+		canRemoveMembers: canCurrentProfileRemoveSpaceMembers,
+		isDirectMessage,
+		onRemoveMember: handleRemoveMember,
+	});
+	return {
+		accountProfiles,
+		activeWakeDisplayTargetProfileIds,
+		activeWakeWaitingTargetProfileIds,
+		addMembersFlashNonce,
+		agentRecoveryPlansByProfileId,
+		autoRefreshExhaustedProfileIds,
+		centerAgentState,
+		controller,
+		currentOwnerUserId,
+		currentSpaceIsCenterAgentDirectMessage,
+		currentSpaceWasDeleted,
+		currentUserAvatarImageUrl,
+		handleAddAgentsFromBanner,
+		handleAddOrganizationDirectoryProfiles,
+		handleAddProfiles,
+		handleConvertDirectMessageToSpace,
+		handleAgentRecoveryAction,
+		handleMembersOpenChange,
+		handleSetupVisibilityChange,
+		isCheckingForDeletion,
+		isDirectMessage,
+		isDesktopMembersPanel,
+		membersOpen,
+		membersPanelWidth,
+		modelCatalog,
+		navigate,
+		organizationId,
+		recovery,
+		refreshCurrentSpaceMemberFacts,
+		setupRecallAction,
+		setupRecallNonce,
+		spaceMemberRemovalHandler,
+		spaceName,
+		spaceReferencesById,
+		spaceView,
+		spaceViewIdPrefix,
+		setSpaceView,
+		wakeDisplayOverrideByProfileId,
+		wakeFailureTargetContextsByProfileId,
+	};
+}
+
+type SpaceLandingState = ReturnType<typeof useSpaceLandingState>;
+type ReadySpaceLandingController = Extract<
+	SpaceLandingState["controller"],
+	{ mode: "ready" }
+>;
+
+export function SpaceLanding(input: SpaceLandingInput) {
+	useSpaceConversationReadCache({
+		spaceId: input.spaceId,
+		openMeldProfileId: input.profileId,
+	});
+	const state = useSpaceLandingState(input);
+	const { controller } = state;
+	if (controller.mode === "loading") {
+		return input.loadingFallback ?? <SpaceLandingLoadingShell />;
+	}
+
+	if (controller.mode === "password") {
+		return (
+			<SpacePasswordRecoverySurface
+				inlineErrorMessage={controller.inlineErrorMessage}
+				isSubmitting={controller.isSubmitting}
+				onPasswordChange={controller.onPasswordChange}
+				onRefresh={controller.onRefresh}
+				onSubmit={controller.onSubmit}
+				password={controller.password}
+				spaceId={controller.spaceId}
+			/>
+		);
+	}
+
+	if (controller.mode === "failure") {
+		return (
+			<SpaceLoadFailure
+				currentSpaceWasDeleted={state.currentSpaceWasDeleted}
+				error={controller.error}
+				isCheckingForDeletion={state.isCheckingForDeletion}
+				onRetry={controller.onRetry}
+				spaceId={controller.spaceId}
+			/>
+		);
+	}
+
+	return (
+		<SpaceLandingReady controller={controller} input={input} state={state} />
+	);
+}
+
+function SpaceLandingReady({
+	controller,
+	input,
+	state,
+}: {
+	controller: ReadySpaceLandingController;
+	input: SpaceLandingInput;
+	state: SpaceLandingState;
+}) {
+	const {
+		accountProfiles,
+		centerAgentState,
+		currentSpaceIsCenterAgentDirectMessage,
+		handleAddAgentsFromBanner,
+		handleAddOrganizationDirectoryProfiles,
+		handleAddProfiles,
+		handleConvertDirectMessageToSpace,
+		handleMembersOpenChange,
+		isDirectMessage,
+		isDesktopMembersPanel,
+		membersOpen,
+		membersPanelWidth,
+		navigate,
+		organizationId,
+		recovery,
+		refreshCurrentSpaceMemberFacts,
+		setupRecallAction,
+		spaceView,
+		spaceViewIdPrefix,
+		setSpaceView,
+	} = state;
+	const currentSpaceControls = resolveCurrentSpaceControls({
+		isCurrentAccessConfirmed: controller.isCurrentAccessConfirmed,
+		currentSpaceIsDirectMessage: isDirectMessage,
+		currentSpaceIsCenterAgentDirectMessage,
+		handleAddAgentsFromBanner,
+		handleAddOrganizationDirectoryProfiles,
+		handleAddProfiles,
+		handleConvertDirectMessageToSpace,
+		showDeleteSpaceAction: controller.showDeleteSpaceAction,
+	});
+	const slackSettingsShortcut = (
+		<SpaceSlackSettingsShortcutControl
+			designationPending={centerAgentState.designationPending}
+			isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
+			organizationId={organizationId}
+			organizationSlug={input.orgSlug}
+			slackConnection={centerAgentState.slackConnection}
+		/>
+	);
+
+	const historyErrorMessage =
+		controller.historyError && controller.timelineItems.length === 0
+			? `Couldn't load recent history. ${controller.historyError.message}${
+					controller.historyError.requestId
+						? ` Request ID: ${controller.historyError.requestId}`
+						: ""
+				}`
+			: null;
+	const membersControl =
+		currentSpaceIsCenterAgentDirectMessage ||
+		!controller.isCurrentAccessConfirmed ? null : (
+			<SpaceMembersToggleButton
+				controlsId={
+					isDesktopMembersPanel ? "space-members-panel" : "space-members-drawer"
+				}
+				memberCount={controller.status.members.totalCount}
+				onOpenChange={handleMembersOpenChange}
+				open={membersOpen}
+			/>
+		);
+	const currentProfileName = resolveCurrentSpaceProfileName({
+		currentProfileId: controller.profileId,
+		snapshot: controller.membersSnapshot,
+	});
+	const agentDirectConversationKind = resolveAgentDirectConversationKind(
+		controller.status
+	);
+	// In-Space identity switcher (built by a module helper to keep this
+	// component's complexity flat): renders only when the account has more than
+	// one human profile. Switching re-opens the same Space with a different
+	// ?profileId; the route's entry effect remembers the choice on the remount.
+	const composerProfileControl = buildSpaceProfileControl({
+		currentProfileId: controller.profileId,
+		currentProfileName,
+		humanProfiles: listActiveProfilesByKind(accountProfiles, "human"),
+		navigate,
+		orgSlug: input.orgSlug,
+		spaceId: input.spaceId,
+	});
+	// The shared "Connect this computer" recovery link for this Space. It carries
+	// only returnTo=space + spaceId (the viewer is resolved on arrival from the
+	// Space's last-used human profile) and forces a fresh setup session.
+	// Consumed by the prepare_agent_profile recovery action and the Wake-failure
+	// "prepare_setup" link. review_computer uses the Get-set-up banner instead.
+	const prepareSetupHref = buildConnectComputerPath({
+		orgSlug: input.orgSlug,
+		returnTo: "space",
+		session: "fresh",
+		spaceId: controller.spaceId,
+	});
+	const agentProfileEditContext = resolveAgentProfileEditDialogContext({
+		onSaved: async (profileId) => {
+			await Promise.all([
+				refreshCurrentSpaceMemberFacts({
+					agentProfileIds: [profileId],
+					forceNetwork: true,
+				}),
+				recovery.refreshAll(),
+			]);
+		},
+		recovery,
+	});
+	const isCompactPresentation = input.presentation === "compact";
+
+	return (
+		<AppMainContent
+			bodyClassName="flex"
+			bodySlotName={resolveSpaceLandingBodySlotName(input.presentation)}
+			header={
+				<SpaceHeader
+					accessModeErrorMessage={controller.accessModeErrorMessage}
+					canManageSpaceAccess={currentSpaceControls.canManageSpaceAccess}
+					canManageSpaceName={currentSpaceControls.canManageSpaceName}
+					currentProfileName={currentProfileName}
+					deleteSpaceErrorMessage={controller.deleteSpaceErrorMessage}
+					hideShareControl={currentSpaceControls.hideShareControl}
+					isAccessModePending={controller.isAccessModePending}
+					isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
+					isDeleteSpacePending={controller.isDeleteSpacePending}
+					isLeaveSpacePending={controller.isLeaveSpacePending}
+					isSpaceNamePending={controller.isSpaceNamePending}
+					leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
+					liveErrorMessage={controller.liveErrorMessage}
+					liveState={controller.liveState}
+					managementControl={
+						<>
+							{input.centerAgentAboutControl}
+							{currentSpaceControls.managementControl}
+							{slackSettingsShortcut}
+						</>
+					}
+					membersControl={membersControl}
+					onDeleteSpace={controller.onDeleteSpace}
+					onLeaveSpace={
+						controller.isCurrentAccessConfirmed
+							? controller.onLeaveSpace
+							: undefined
+					}
+					onReconnectLiveUpdates={controller.onReconnectLiveUpdates}
+					onSetAccessMode={controller.onSetAccessMode}
+					onUpdateSpaceName={controller.onUpdateSpaceName}
+					renderFrame={false}
+					setupRecallAction={setupRecallAction}
+					showDeleteSpaceAction={
+						controller.isCurrentAccessConfirmed &&
+						controller.showDeleteSpaceAction
+					}
+					spaceNameErrorMessage={controller.spaceNameErrorMessage}
+					status={controller.status}
+					unreadCount={controller.unreadCount}
+					viewControl={
+						<SpaceViewTabs
+							activeView={spaceView}
+							className="shrink-0"
+							idPrefix={spaceViewIdPrefix}
+							onViewChange={setSpaceView}
+						/>
+					}
+				/>
+			}
+			showHeader={!isCompactPresentation}
+		>
+			<div
+				className="flex min-h-0 flex-1 overflow-hidden"
+				data-space-conversation-presentation={input.presentation}
+				data-space-members-panel-open={
+					isDesktopMembersPanel &&
+					membersOpen &&
+					!currentSpaceIsCenterAgentDirectMessage
+				}
+				data-space-thread-panel-open={controller.activeThread !== null}
+				style={
+					{
+						"--space-members-panel-width": membersPanelWidth.width,
+					} as CSSProperties
+				}
+			>
+				<SpaceLandingConversation
+					agentDirectConversationKind={agentDirectConversationKind}
+					composerProfileControl={composerProfileControl}
+					controller={controller}
+					currentSpaceControls={currentSpaceControls}
+					historyErrorMessage={historyErrorMessage}
+					input={input}
+					prepareSetupHref={prepareSetupHref}
+					state={state}
+				/>
+				{isCompactPresentation ||
+				!controller.isCurrentAccessConfirmed ? null : (
+					<SpaceLandingSecondaryPanels
+						agentDirectConversationKind={agentDirectConversationKind}
+						agentProfileEditContext={agentProfileEditContext}
+						composerProfileControl={composerProfileControl}
+						controller={controller}
+						currentSpaceControls={currentSpaceControls}
+						input={input}
+						prepareSetupHref={prepareSetupHref}
+						state={state}
+					/>
+				)}
+			</div>
+		</AppMainContent>
+	);
+}
+
+function SpaceLandingConversation({
+	agentDirectConversationKind,
+	composerProfileControl,
+	controller,
+	currentSpaceControls,
+	historyErrorMessage,
+	input,
+	prepareSetupHref,
+	state,
+}: {
+	agentDirectConversationKind: ReturnType<
+		typeof resolveAgentDirectConversationKind
+	>;
+	composerProfileControl: ReactNode;
+	controller: ReadySpaceLandingController;
+	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
+	historyErrorMessage: string | null;
+	input: SpaceLandingInput;
+	prepareSetupHref: string;
+	state: SpaceLandingState;
+}) {
+	const {
+		accountProfiles,
+		agentRecoveryPlansByProfileId,
+		centerAgentState,
+		currentOwnerUserId,
+		currentSpaceIsCenterAgentDirectMessage,
+		currentUserAvatarImageUrl,
+		handleAgentRecoveryAction,
+		handleSetupVisibilityChange,
+		isDirectMessage,
+		modelCatalog,
+		recovery,
+		setupRecallNonce,
+		spaceName,
+		spaceReferencesById,
+		spaceView,
+		spaceViewIdPrefix,
+		setSpaceView,
+		wakeFailureTargetContextsByProfileId,
+	} = state;
+	return (
+		<SpaceConversationPanel
+			activeSpaceView={spaceView}
+			agentDirectConversationKind={agentDirectConversationKind}
+			agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
+			allowedActions={controller.status.allowedActions}
+			centerAgentProfileId={centerAgentState.centerAgentProfileId}
+			className="min-w-0"
+			composerAddressingSummary={controller.composerAddressingSummary}
+			composerAddressingTargets={controller.composerAddressingTargets}
+			composerAttachmentLimitReached={controller.composerAttachmentLimitReached}
+			composerAttachments={controller.composerAttachments}
+			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
+			composerErrorMessage={controller.composerErrorMessage}
+			composerHasAuthoredMentions={controller.composerHasAuthoredMentions}
+			composerReplyToSignalId={controller.composerReplyToSignalId}
+			composerSelection={controller.composerSelection}
+			composerText={controller.composerText}
+			currentOwnerUserId={currentOwnerUserId}
+			ephemeralActivityItems={controller.ephemeralActivityItems}
+			firstUnreadSignalId={controller.firstUnreadSignalId}
+			hasEarlierHistory={controller.hasEarlierHistory}
+			historyActionErrorMessage={controller.historyActionErrorMessage}
+			historyErrorMessage={historyErrorMessage}
+			historyIsPending={controller.historyIsPending}
+			initialFocusInteractionId={input.initialFocusInteractionId}
+			initialFocusSignalId={input.initialFocusSignalId}
+			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
+			isAgentRecoveryPending={controller.isAgentRecoveryPending}
+			isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
+			isCreatingThread={controller.isCreatingThread}
+			isDiagnosticReportPending={controller.isDiagnosticReportPending}
+			isDiagnosticReportSent={controller.isDiagnosticReportSent}
+			isLoadingEarlierHistory={controller.isLoadingEarlierHistory}
+			isPersonalContext={input.isPersonalContext === true}
+			isSendingMessage={controller.isSendingMessage}
+			localAgentRecoveryBanner={
+				controller.isCurrentAccessConfirmed ? (
+					<SpaceConversationRecoveryBanner
+						accountProfiles={accountProfiles}
+						actingProfileId={input.profileId}
+						isDirectMessage={isDirectMessage}
+						onAddAgents={currentSpaceControls.onAddAgentsFromBanner}
+						onSetupVisibilityChange={handleSetupVisibilityChange}
+						orgSlug={input.orgSlug}
+						recovery={recovery}
+						setupRecallNonce={setupRecallNonce}
+						snapshot={controller.membersSnapshot}
+						spaceId={controller.spaceId}
+						spaceName={spaceName}
+					/>
+				) : null
+			}
+			membersSnapshot={controller.membersSnapshot}
+			mentionPopoverState={controller.mentionPopoverState}
+			modelCatalog={modelCatalog}
+			onAddComposerImages={controller.onAddComposerImages}
+			onAgentInteractionResponse={controller.onAgentInteractionResponse}
+			onAgentRecoveryAction={handleAgentRecoveryAction}
+			onClearComposerReplyTo={controller.onClearComposerReplyTo}
+			onComposerChange={controller.onComposerChange}
+			onComposerKeyDown={controller.onComposerKeyDown}
+			onComposerSelectionChange={controller.onComposerSelectionChange}
+			onCreateThread={controller.onCreateThread}
+			onJumpToDate={controller.onJumpToDate}
+			onLoadEarlierHistory={controller.onLoadEarlierHistory}
+			onMentionItemHover={controller.onMentionItemHover}
+			onMentionItemSelect={controller.onMentionItemSelect}
+			onMentionPopoverClose={controller.onMentionPopoverClose}
+			onMentionRelationChange={controller.onMentionRelationChange}
+			onOpenThread={controller.onOpenThread}
+			onRecoverExecution={controller.onRecoverExecution}
+			onRemoveComposerAttachment={controller.onRemoveComposerAttachment}
+			onReplyToMessage={controller.onReplyToMessage}
+			onReportMessage={controller.onReportMessage}
+			onRetryWakeTarget={controller.onRetryWakeTarget}
+			onSend={controller.onSend}
+			onSendStarterPrompt={controller.onSendText}
+			onSpaceViewChange={setSpaceView}
+			onViewingLatestChange={controller.onConversationViewingLatestChange}
+			onWakeStopRequest={controller.onWakeStopRequest}
+			orgSlug={input.orgSlug}
+			prepareSetupHref={prepareSetupHref}
+			presentedWakeProgressItems={controller.presentedWakeProgressItems}
+			profileControl={composerProfileControl}
+			readOnly={!controller.isCurrentAccessConfirmed}
+			readOnlyComposerPlaceholder="Checking access…"
+			selfAvatarImageUrl={currentUserAvatarImageUrl}
+			selfProfileId={controller.profileId}
+			spaceId={controller.spaceId}
+			spaceReferencesById={spaceReferencesById}
+			spaceViewIdPrefix={spaceViewIdPrefix}
+			textareaRef={controller.textareaRef}
+			threadPreviews={controller.threadPreviews}
+			threads={controller.threads}
+			threadsErrorMessage={controller.threadsErrorMessage}
+			threadsIsLoading={controller.threadsIsLoading}
+			timelineItems={controller.timelineItems}
+			unreadCount={controller.unreadCount}
+			unreadStateReady={controller.unreadStateReady}
+			wakeFailureTargetContextsByProfileId={
+				wakeFailureTargetContextsByProfileId
+			}
+			wakeStopRequestStatusBySelectorKey={
+				controller.wakeStopRequestStatusBySelectorKey
+			}
+		/>
+	);
+}
+
+function SpaceLandingSecondaryPanels({
+	agentDirectConversationKind,
+	agentProfileEditContext,
+	composerProfileControl,
+	controller,
+	currentSpaceControls,
+	input,
+	prepareSetupHref,
+	state,
+}: {
+	agentDirectConversationKind: ReturnType<
+		typeof resolveAgentDirectConversationKind
+	>;
+	agentProfileEditContext: ReturnType<
+		typeof resolveAgentProfileEditDialogContext
+	>;
+	composerProfileControl: ReactNode;
+	controller: ReadySpaceLandingController;
+	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
+	input: SpaceLandingInput;
+	prepareSetupHref: string;
+	state: SpaceLandingState;
+}) {
+	const {
+		accountProfiles,
+		activeWakeDisplayTargetProfileIds,
+		activeWakeWaitingTargetProfileIds,
+		addMembersFlashNonce,
+		agentRecoveryPlansByProfileId,
+		autoRefreshExhaustedProfileIds,
+		centerAgentState,
+		currentOwnerUserId,
+		currentSpaceIsCenterAgentDirectMessage,
+		currentUserAvatarImageUrl,
+		handleAgentRecoveryAction,
+		handleMembersOpenChange,
+		isDesktopMembersPanel,
+		membersOpen,
+		membersPanelWidth,
+		modelCatalog,
+		refreshCurrentSpaceMemberFacts,
+		spaceMemberRemovalHandler,
+		spaceReferencesById,
+		wakeDisplayOverrideByProfileId,
+		wakeFailureTargetContextsByProfileId,
+	} = state;
+	const sharedMembersProps = {
+		accountProfiles,
+		agentProfileEditContext,
+		activeWakeDisplayTargetProfileIds,
+		activeWakeWaitingTargetProfileIds,
+		agentRecoveryPlansByProfileId,
+		autoRefreshExhaustedProfileIds,
+		centerAgentProfileId: centerAgentState.centerAgentProfileId,
+		currentOwnerUserId,
+		currentProfileId: controller.profileId,
+		displayWakeOverrideByProfileId: wakeDisplayOverrideByProfileId,
+		isAgentRecoveryPending: controller.isAgentRecoveryPending,
+		isLoading: controller.isMembersLoading,
+		membersError: resolveSpaceMembersLoadErrorMessage(controller.membersError),
+		modelCatalog,
+		onAddOrganizationDirectoryProfiles:
+			currentSpaceControls.onAddOrganizationDirectoryProfiles,
+		onAddProfiles: currentSpaceControls.onAddProfiles,
+		onConvertDirectMessageToSpace:
+			currentSpaceControls.onConvertDirectMessageToSpace,
+		onAgentRecoveryAction: handleAgentRecoveryAction,
+		onOpenChange: handleMembersOpenChange,
+		onRefresh: refreshCurrentSpaceMemberFacts,
+		onRemoveMember: spaceMemberRemovalHandler,
+		openAddMembersNonce: addMembersFlashNonce,
+		orgSlug: input.orgSlug,
+		prepareSetupHref,
+		snapshot: controller.membersSnapshot,
+		spaceId: controller.spaceId,
+		spaceName: controller.status.name,
+	};
+	return (
+		<>
+			<SpaceThreadPanel
+				activeThread={controller.activeThread}
+				agentDirectConversationKind={agentDirectConversationKind}
+				agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
+				agentStreams={controller.agentStreams}
+				centerAgentProfileId={centerAgentState.centerAgentProfileId}
+				composerAddressingSummary={controller.threadComposerAddressingSummary}
+				composerAddressingTargets={controller.threadComposerAddressingTargets}
+				composerBlockedWakeProfileId={
+					controller.threadComposerBlockedWakeProfileId
+				}
+				composerErrorMessage={controller.threadComposerErrorMessage}
+				composerHasAuthoredMentions={
+					controller.threadComposerHasAuthoredMentions
+				}
+				composerSelection={controller.threadComposerSelection}
+				composerText={controller.threadComposerText}
+				ephemeralActivityItems={controller.threadEphemeralActivityItems}
+				initialFocusSignalId={input.initialFocusSignalId}
+				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
+				isAgentRecoveryPending={controller.isAgentRecoveryPending}
+				isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
+				isDiagnosticReportPending={controller.isDiagnosticReportPending}
+				isDiagnosticReportSent={controller.isDiagnosticReportSent}
+				isPersonalContext={input.isPersonalContext === true}
+				isSendingMessage={controller.isSendingThreadMessage}
+				membersSnapshot={controller.membersSnapshot}
+				mentionPopoverState={controller.threadMentionPopoverState}
+				onAgentInteractionResponse={controller.onAgentInteractionResponse}
+				onAgentRecoveryAction={handleAgentRecoveryAction}
+				onClose={controller.onCloseThread}
+				onComposerChange={controller.onThreadComposerChange}
+				onComposerKeyDown={controller.onThreadComposerKeyDown}
+				onComposerSelectionChange={controller.onThreadComposerSelectionChange}
+				onMentionItemHover={controller.onThreadMentionItemHover}
+				onMentionItemSelect={controller.onThreadMentionItemSelect}
+				onMentionPopoverClose={controller.onThreadMentionPopoverClose}
+				onMentionRelationChange={controller.onThreadMentionRelationChange}
+				onRecoverExecution={controller.onRecoverExecution}
+				onReportMessage={controller.onReportMessage}
+				onRetryWakeTarget={controller.onRetryWakeTarget}
+				onSend={controller.onThreadSend}
+				onSendText={controller.onThreadSendText}
+				onWakeStopRequest={controller.onWakeStopRequest}
+				orgSlug={input.orgSlug}
+				prepareSetupHref={prepareSetupHref}
+				profileControl={composerProfileControl}
+				selfAvatarImageUrl={currentUserAvatarImageUrl}
+				selfProfileId={controller.profileId}
+				signals={controller.threadSignals}
+				signalsErrorMessage={controller.threadSignalsErrorMessage}
+				signalsIsLoading={controller.threadSignalsIsLoading}
+				spaceReferencesById={spaceReferencesById}
+				spaceTimelineItems={controller.timelineItems}
+				textareaRef={controller.threadTextareaRef}
+				wakeFailureTargetContextsByProfileId={
+					wakeFailureTargetContextsByProfileId
+				}
+				wakeStopRequestStatusBySelectorKey={
+					controller.wakeStopRequestStatusBySelectorKey
+				}
+			/>
+			<SpaceLandingMembersChrome
+				drawerProps={{
+					...sharedMembersProps,
+					onOpenChange: handleMembersOpenChange,
+					open: !isDesktopMembersPanel && membersOpen,
+				}}
+				hidden={currentSpaceIsCenterAgentDirectMessage}
+				sidePanelProps={{
+					...sharedMembersProps,
+					onOpenChange: handleMembersOpenChange,
+					onPanelWidthChange: membersPanelWidth.onWidthChange,
+					open: isDesktopMembersPanel && membersOpen,
+					panelWidth: membersPanelWidth.width,
+				}}
+			/>
+		</>
+	);
+}
+
+function resolveSpaceLandingBodySlotName(
+	presentation: "compact" | "full" | undefined
+) {
+	return presentation === "compact"
+		? "center-agent-compact-conversation"
+		: undefined;
+}
+
+function resolveSpaceReferenceInputs(
+	controller: ReturnType<typeof useSpaceLandingController>
+) {
+	if (controller.mode !== "ready") {
+		return {
+			currentSpace: null,
+			membersSnapshot: null,
+			threadSignals: null,
+			timelineItems: null,
+		};
+	}
+
+	return {
+		currentSpace: {
+			name: controller.status.name ?? null,
+			spaceId: controller.spaceId,
+		},
+		membersSnapshot: controller.membersSnapshot,
+		threadSignals: controller.threadSignals,
+		timelineItems: controller.timelineItems,
+	};
+}
+
+function SpaceLandingMembersChrome(input: {
+	hidden: boolean;
+	drawerProps: ComponentProps<typeof SpaceMembersDrawer>;
+	sidePanelProps: ComponentProps<typeof SpaceMembersSidePanel>;
+}) {
+	if (input.hidden) {
+		return null;
+	}
+	return (
+		<>
+			<SpaceMembersSidePanel {...input.sidePanelProps} />
+			<SpaceMembersDrawer {...input.drawerProps} />
+		</>
+	);
+}
+
+function resolveSpaceMemberRemovalHandler(input: {
+	canRemoveMembers: boolean;
+	isDirectMessage: boolean;
+	onRemoveMember: (profileId: string) => Promise<SpaceRemoveMemberResult>;
+}) {
+	if (input.isDirectMessage || !input.canRemoveMembers) {
+		return undefined;
+	}
+	return input.onRemoveMember;
+}
+
+function resolveSpaceMembersLoadErrorMessage(error: unknown) {
+	return error ? SPACE_MEMBERS_LOAD_ERROR_MESSAGE : null;
+}
+
+function resolveAgentProfileEditDialogContext(input: {
+	onSaved: (profileId: string) => Promise<void>;
+	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
+}): AgentProfileEditDialogContext | undefined {
+	if (!input.recovery.selectedHumanProfileId) {
+		return undefined;
+	}
+	return {
+		actorProfileId: input.recovery.selectedHumanProfileId,
+		deviceId: input.recovery.deviceId,
+		executionTarget: resolveProfileBindingCatalogExecutionTarget(
+			input.recovery
+		),
+		onSaved: input.onSaved,
+		runtimeLane: input.recovery.runtimeLane,
+		storageScope: input.recovery.storageScope,
+	};
+}
+
+function SpaceLoadFailure(input: {
+	currentSpaceWasDeleted: boolean;
+	isCheckingForDeletion: boolean;
+	error: StructuredApiClientFailure | null;
+	onRetry: () => Promise<void>;
+	spaceId: string;
+}) {
+	// A deleted Space is redirected away by useRedirectAwayFromDeletedSpace; show the
+	// neutral loading shell while we confirm deletion and during the redirect, rather
+	// than flashing a futile "Try Again".
+	if (input.currentSpaceWasDeleted || input.isCheckingForDeletion) {
+		return <SpaceLandingLoadingShell />;
+	}
+	return (
+		<SpaceLandingFailureSurface
+			error={input.error}
+			onRetry={input.onRetry}
+			spaceId={input.spaceId}
+		/>
+	);
+}
+
+function resolveAgentDirectConversationKind(
+	status: GetSpaceStatusResponse
+): SpaceAgentDirectConversationComposerHintKind | null {
+	const state = {
+		activeMemberCount: status.members.totalCount,
+		agentMemberCount: status.members.agentCount,
+		humanMemberCount: status.members.humanCount,
+		purpose: status.spacePurpose,
+	};
+	if (!isAgentDirectConversationSpace(state)) {
+		return null;
+	}
+	if (
+		isDirectMessageSpace({
+			activeMemberCount: status.members.totalCount,
+			directMessageConvertedAt: status.directMessageConvertedAt,
+			purpose: status.spacePurpose,
+		})
+	) {
+		return "direct_message";
+	}
+	return null;
+}
+
+function useRedirectAwayFromDeletedSpace(input: {
+	controllerMode: string;
+	orgSlug: string;
+	profileId: string;
+	spaceId: string;
+}): { currentSpaceWasDeleted: boolean; isCheckingForDeletion: boolean } {
+	const navigate = useNavigate();
+	const isFailureMode = input.controllerMode === "failure";
+	const accountSpacesQuery = useQuery(
+		accountSpaceItemsQueryOptions({
+			enabled: isFailureMode,
+			profileId: input.profileId,
+			scope: "account",
+		})
+	);
+	// The durable Space Index projection is the authoritative "this Space is gone"
+	// signal — the deleted DO recreates empty, so its status load can't be trusted.
+	const currentSpaceWasDeleted = useMemo(
+		() =>
+			(accountSpacesQuery.data?.recentlyDeletedItems ?? []).some(
+				(item) => item.spaceId === input.spaceId
+			),
+		[accountSpacesQuery.data, input.spaceId]
+	);
+	useEffect(() => {
+		if (isFailureMode && currentSpaceWasDeleted) {
+			navigate({
+				replace: true,
+				to: buildOrganizationSpacesPath(input.orgSlug),
+			}).catch((error: unknown) => {
+				console.error(
+					"Failed to redirect away from a deleted Space's URL.",
+					error
+				);
+			});
+		}
+	}, [isFailureMode, currentSpaceWasDeleted, input.orgSlug, navigate]);
+	return {
+		currentSpaceWasDeleted,
+		isCheckingForDeletion: isFailureMode && accountSpacesQuery.isPending,
+	};
+}
+
+function useSpaceAddProfilesHandler(input: {
+	accountProfiles: readonly AuthProfileView[];
+	controller: ReturnType<typeof useSpaceLandingController>;
+	queryClient: ReturnType<typeof useQueryClient>;
+	storageScope: string;
+}): (profileIds: readonly string[]) => Promise<SpaceAddProfilesResult> {
+	return useCallback(
+		async (profileIds: readonly string[]) => {
+			const memberProfileIds = normalizeSpaceMemberProfileIds(profileIds);
+			if (memberProfileIds.length === 0) {
+				return { addedCount: 0, alreadyMemberCount: 0 };
+			}
+			const controller = input.controller;
+			if (controller.mode !== "ready") {
+				throw new Error(
+					"OpenMeld cannot add profiles until this Space is ready."
+				);
+			}
+			const actingProfile = input.accountProfiles.find(
+				(profile) => profile.openMeldProfileId === controller.profileId
+			);
+			if (!actingProfile) {
+				throw new Error(
+					"OpenMeld could not confirm the current acting profile."
+				);
+			}
+
+			const addMembersResult = await createWebSpaceApi({
+				openMeldProfileId: controller.profileId,
+			}).addMembers({
+				memberProfileIds,
+				requestContext: buildProfileRequestContext(actingProfile),
+				spaceId: controller.spaceId,
+			});
+			const agentProfileIdsToRefresh = listSelectedAgentProfileIds({
+				accountProfiles: input.accountProfiles,
+				memberProfileIds,
+			});
+
+			applySpaceMembersResponseToCache({
+				pendingWakeReadinessProfileIds: agentProfileIdsToRefresh,
+				queryClient: input.queryClient,
+				response: addMembersResult,
+				spaceId: controller.spaceId,
+				viewerProfileId: controller.profileId,
+			});
+
+			recordProfileSpaceHistory({
+				creatorKind: actingProfile.profileKind,
+				creatorProfileId: actingProfile.openMeldProfileId,
+				profileIds: memberProfileIds,
+				spaceId: controller.spaceId,
+				spaceName: controller.status.name ?? null,
+			}).catch((error) => {
+				console.warn(
+					"OpenMeld added Space members but could not update history.",
+					{
+						error,
+						profileIds: memberProfileIds,
+						spaceId: controller.spaceId,
+					}
+				);
+			});
+
+			(async () => {
+				if (agentProfileIdsToRefresh.length > 0) {
+					await refreshWebAgentReadinessAfterCoreFactsChanged({
+						agentProfileIds: agentProfileIdsToRefresh,
+						includeLocalRuntimeCaches: false,
+						queryClient: input.queryClient,
+						storageScope: input.storageScope,
+					});
+				}
+				await Promise.all([
+					input.queryClient.invalidateQueries({
+						queryKey: accountSpaceQueryKeys.all,
+					}),
+					input.queryClient.invalidateQueries({
+						queryKey: spaceQueryKeys.members(
+							controller.spaceId,
+							controller.profileId
+						),
+					}),
+					input.queryClient.invalidateQueries({
+						queryKey: spaceQueryKeys.status(
+							controller.spaceId,
+							controller.profileId
+						),
+					}),
+				]);
+				await controller.onRefreshStatusAndMembers();
+			})().catch((error) => {
+				console.warn(
+					"OpenMeld added Space members but could not refresh Space data.",
+					{
+						error,
+						profileIds: memberProfileIds,
+						spaceId: controller.spaceId,
+					}
+				);
+			});
+
+			return {
+				addedCount: addMembersResult.addedMemberIds.length,
+				alreadyMemberCount: addMembersResult.alreadyMemberIds.length,
+			};
+		},
+		[
+			input.accountProfiles,
+			input.controller,
+			input.queryClient,
+			input.storageScope,
+		]
+	);
+}
+
+function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
+	controller: ReturnType<typeof useSpaceLandingController>;
+	queryClient: ReturnType<typeof useQueryClient>;
+}): (
+	input: SpaceAddOrganizationDirectoryProfilesInput
+) => Promise<SpaceAddProfilesResult> {
+	return useCallback(
+		async (selection: SpaceAddOrganizationDirectoryProfilesInput) => {
+			const directoryProfileIds = normalizeSpaceMemberProfileIds(
+				selection.directoryProfileIds
+			);
+			if (directoryProfileIds.length === 0) {
+				return { addedCount: 0, alreadyMemberCount: 0 };
+			}
+			const controller = input.controller;
+			if (controller.mode !== "ready") {
+				throw new Error(
+					"OpenMeld cannot add Organization Directory profiles until this Space is ready."
+				);
+			}
+
+			const addMembersResult = await createWebSpaceApi({
+				openMeldProfileId: controller.profileId,
+			}).addOrganizationDirectoryProfilesToSpace({
+				directoryProfileIds,
+				...(selection.expectedCenterAgentProfileId
+					? {
+							expectedCenterAgentProfileId:
+								selection.expectedCenterAgentProfileId,
+						}
+					: {}),
+				spaceId: controller.spaceId,
+			});
+
+			applySpaceMembersResponseToCache({
+				queryClient: input.queryClient,
+				response: addMembersResult,
+				spaceId: controller.spaceId,
+				viewerProfileId: controller.profileId,
+			});
+
+			(async () => {
+				await Promise.all([
+					input.queryClient.invalidateQueries({
+						queryKey: accountSpaceQueryKeys.all,
+					}),
+					input.queryClient.invalidateQueries({
+						queryKey: spaceQueryKeys.members(
+							controller.spaceId,
+							controller.profileId
+						),
+					}),
+					input.queryClient.invalidateQueries({
+						queryKey: spaceQueryKeys.status(
+							controller.spaceId,
+							controller.profileId
+						),
+					}),
+				]);
+				await controller.onRefreshStatusAndMembers();
+			})().catch((error) => {
+				console.warn(
+					"OpenMeld added Organization Directory profiles but could not refresh Space data.",
+					{ directoryProfileIds, error, spaceId: controller.spaceId }
+				);
+			});
+
+			return {
+				addedCount: addMembersResult.addedMemberIds.length,
+				alreadyMemberCount: addMembersResult.alreadyMemberIds.length,
+			};
+		},
+		[input.controller, input.queryClient]
+	);
+}
+
+function useConvertDirectMessageToSpaceHandler(input: {
+	controller: ReturnType<typeof useSpaceLandingController>;
+	navigate: ReturnType<typeof useNavigate>;
+	orgSlug: string;
+	queryClient: ReturnType<typeof useQueryClient>;
+}): (input: SpaceConvertDirectMessageInput) => Promise<SpaceAddProfilesResult> {
+	return useCallback(
+		async (conversion: SpaceConvertDirectMessageInput) => {
+			const profileIds = normalizeSpaceMemberProfileIds(conversion.profileIds);
+			const controller = input.controller;
+			if (controller.mode !== "ready") {
+				throw new Error(
+					"OpenMeld cannot turn this Direct Message into a Space until it is ready."
+				);
+			}
+			const result = await createDirectMessageApi(
+				createWebOpenMeldApiFoundation({
+					organizationSlug: input.orgSlug,
+					openMeldProfileId: controller.profileId,
+				})
+			).convertToSpace({
+				name: conversion.name,
+				profileIds,
+				spaceId: controller.spaceId,
+			});
+			const statusQueryKey = spaceQueryKeys.status(
+				controller.spaceId,
+				controller.profileId
+			);
+			input.queryClient.setQueryData<GetSpaceStatusResponse>(
+				statusQueryKey,
+				(status) =>
+					status
+						? applyDirectMessageConversionToSpaceStatus(status, result)
+						: status
+			);
+			input.queryClient.setQueryData<SpaceBootstrapSnapshot>(
+				spaceQueryKeys.bootstrap(controller.spaceId, controller.profileId),
+				(bootstrap) =>
+					bootstrap
+						? {
+								...bootstrap,
+								status: applyDirectMessageConversionToSpaceStatus(
+									bootstrap.status,
+									result
+								),
+							}
+						: bootstrap
+			);
+			input.queryClient.setQueriesData<AccountSpaceSections>(
+				{ queryKey: accountSpaceQueryKeys.all },
+				(sections) =>
+					applyDirectMessageConversionToAccountSpaceSections(sections, result)
+			);
+
+			const navigation = input.navigate({
+				replace: true,
+				search: { profileId: controller.profileId },
+				to: buildOrganizationSpacePath({
+					orgSlug: input.orgSlug,
+					spaceId: controller.spaceId,
+				}),
+			});
+			Promise.all([
+				input.queryClient.invalidateQueries({
+					queryKey: accountSpaceQueryKeys.all,
+				}),
+				input.queryClient.invalidateQueries({
+					queryKey: spaceQueryKeys.members(
+						controller.spaceId,
+						controller.profileId
+					),
+				}),
+				input.queryClient.invalidateQueries({
+					queryKey: statusQueryKey,
+				}),
+			]).catch((error) => {
+				console.warn(
+					"OpenMeld turned the Direct Message into a Space but could not refresh Space data.",
+					{ error, spaceId: controller.spaceId }
+				);
+			});
+			await navigation;
+			return {
+				addedCount: result.addedMemberIds.length,
+				alreadyMemberCount: result.alreadyMemberIds.length,
+			};
+		},
+		[input.controller, input.navigate, input.orgSlug, input.queryClient]
+	);
+}
+
+function applyDirectMessageConversionToSpaceStatus(
+	status: GetSpaceStatusResponse,
+	result: ConvertDirectMessageToSpaceResponse
+): GetSpaceStatusResponse {
+	return {
+		...status,
+		accessMode: result.accessMode,
+		directMessageConvertedAt: result.convertedAt,
+		name: result.name,
+	};
+}
+
+function applyDirectMessageConversionToAccountSpaceSections(
+	sections: AccountSpaceSections | undefined,
+	result: ConvertDirectMessageToSpaceResponse
+): AccountSpaceSections | undefined {
+	if (!sections) {
+		return sections;
+	}
+
+	const updateItem = (
+		item: AccountSpaceSections["spaceItems"][number]
+	): AccountSpaceSections["spaceItems"][number] =>
+		item.spaceId === result.spaceId
+			? {
+					...item,
+					directMessageConvertedAt: result.convertedAt,
+					spaceName: result.name,
+				}
+			: item;
+
+	return {
+		...sections,
+		pinnedItems: sections.pinnedItems.map(updateItem),
+		spaceItems: sections.spaceItems.map(updateItem),
+	};
+}
+
+function useSpaceRemoveMemberHandler(input: {
+	accountProfiles: readonly AuthProfileView[];
+	controller: ReturnType<typeof useSpaceLandingController>;
+	queryClient: ReturnType<typeof useQueryClient>;
+}): (profileId: string) => Promise<SpaceRemoveMemberResult> {
+	return useCallback(
+		async (profileId: string) => {
+			const memberProfileIds = normalizeSpaceMemberProfileIds([profileId]);
+			if (memberProfileIds.length === 0) {
+				return { removedCount: 0, alreadyAbsentCount: 0 };
+			}
+			const controller = input.controller;
+			if (controller.mode !== "ready") {
+				throw new Error(
+					"OpenMeld cannot remove members until this Space is ready."
+				);
+			}
+			const actingProfile = input.accountProfiles.find(
+				(profile) => profile.openMeldProfileId === controller.profileId
+			);
+			if (actingProfile?.profileKind !== "human") {
+				throw new Error(
+					"OpenMeld could not confirm the current human profile."
+				);
+			}
+
+			const membersQueryKey = spaceQueryKeys.members(
+				controller.spaceId,
+				controller.profileId
+			);
+			const bootstrapQueryKey = spaceQueryKeys.bootstrap(
+				controller.spaceId,
+				controller.profileId
+			);
+			await Promise.all([
+				input.queryClient.cancelQueries({ queryKey: membersQueryKey }),
+				input.queryClient.cancelQueries({ queryKey: bootstrapQueryKey }),
+			]);
+			const previousMembersSnapshot =
+				input.queryClient.getQueryData<SpaceMembersSnapshot>(membersQueryKey);
+			const previousBootstrapSnapshot =
+				input.queryClient.getQueryData<SpaceBootstrapSnapshot>(
+					bootstrapQueryKey
+				);
+
+			applySpaceMemberRemovalToCache({
+				memberProfileIds,
+				queryClient: input.queryClient,
+				spaceId: controller.spaceId,
+				viewerProfileId: controller.profileId,
+			});
+
+			let removeMembersResult: RemoveSpaceMembersResponse;
+			try {
+				removeMembersResult = await createWebSpaceApi({
+					openMeldProfileId: controller.profileId,
+				}).removeMembers({
+					memberProfileIds,
+					requestContext: buildProfileRequestContext(actingProfile),
+					spaceId: controller.spaceId,
+				});
+			} catch (error) {
+				input.queryClient.setQueryData(
+					membersQueryKey,
+					previousMembersSnapshot
+				);
+				input.queryClient.setQueryData(
+					bootstrapQueryKey,
+					previousBootstrapSnapshot
+				);
+				throw error;
+			}
+
+			await Promise.all([
+				input.queryClient.invalidateQueries({
+					queryKey: accountSpaceQueryKeys.all,
+				}),
+				input.queryClient.invalidateQueries({
+					queryKey: membersQueryKey,
+				}),
+				input.queryClient.invalidateQueries({
+					queryKey: spaceQueryKeys.status(
+						controller.spaceId,
+						controller.profileId
+					),
+				}),
+			]);
+			await controller.onRefreshStatusAndMembers();
+
+			return {
+				alreadyAbsentCount: removeMembersResult.alreadyAbsentMemberIds.length,
+				removedCount: removeMembersResult.removedMemberIds.length,
+			};
+		},
+		[input.accountProfiles, input.controller, input.queryClient]
+	);
+}
+
+function resolveSpaceLandingAccountProfiles(
+	profiles: readonly AuthProfileView[] | undefined
+): readonly AuthProfileView[] {
+	return profiles ?? EMPTY_ACCOUNT_PROFILES;
+}
+
+function subscribeDocumentVisibility(onStoreChange: () => void): () => void {
+	document.addEventListener("visibilitychange", onStoreChange);
+	return () => document.removeEventListener("visibilitychange", onStoreChange);
+}
+
+function getDocumentVisibilitySnapshot(): boolean {
+	return document.visibilityState === "visible";
+}
+
+function getServerDocumentVisibilitySnapshot(): boolean {
+	return true;
+}
+
+function isCurrentOwnerSpaceAgentMember(input: {
+	agent: SpaceMembersSnapshot["agents"][number];
+	currentOwnerUserId: string | null;
+}): boolean {
+	return isSameOwnerUserId({
+		currentOwnerUserId: input.currentOwnerUserId,
+		ownerUserId: input.agent.ownerUserId,
+	});
+}
+
+function resolveCanCurrentProfileRemoveSpaceMembers(input: {
+	currentOwnerUserId: string | null;
+	currentProfile: AuthProfileView | null;
+	snapshot: SpaceMembersSnapshot | null;
+}): boolean {
+	if (input.currentProfile?.profileKind !== "human") {
+		return false;
+	}
+	return isSameOwnerUserId({
+		currentOwnerUserId: input.currentOwnerUserId,
+		ownerUserId: resolveActiveSpaceCreatorOwnerUserId(input.snapshot),
+	});
+}
+
+function resolveActiveSpaceCreatorOwnerUserId(
+	snapshot: SpaceMembersSnapshot | null
+): string | null {
+	for (const member of [
+		...(snapshot?.humans ?? []),
+		...(snapshot?.agents ?? []),
+	]) {
+		if (member.status === "active" && member.memberSource === "space_creator") {
+			return member.ownerUserId;
+		}
+	}
+	return null;
+}
+
+type LocalRuntimeReadinessEventState = {
+	canReplyFromThisComputer: boolean;
+	serviceConnected: boolean;
+};
+
+function resolveLocalRuntimeReadinessEventState(
+	readiness: CurrentLocalRuntimeReplyReadinessResponse
+): LocalRuntimeReadinessEventState {
+	return {
+		canReplyFromThisComputer: readiness.canReplyFromThisComputer,
+		serviceConnected: readiness.service.connected,
+	};
+}
+
+function listCurrentOwnerActiveAgentProfileIds(input: {
+	currentOwnerUserId: string | null;
+	snapshot: SpaceMembersSnapshot | null;
+}): string[] {
+	const profileIds: string[] = [];
+	for (const agent of input.snapshot?.agents ?? []) {
+		if (
+			agent.status === "active" &&
+			agent.removedAt === null &&
+			isCurrentOwnerSpaceAgentMember({
+				agent,
+				currentOwnerUserId: input.currentOwnerUserId,
+			})
+		) {
+			profileIds.push(agent.profileId);
+		}
+	}
+	return profileIds;
+}
+
+function normalizeAgentProfileIds(profileIds: readonly string[]): string[] {
+	const normalizedProfileIds = new Set<string>();
+	for (const profileId of profileIds) {
+		const normalizedProfileId = normalizeAgentProfileId(profileId);
+		if (normalizedProfileId) {
+			normalizedProfileIds.add(normalizedProfileId);
+		}
+	}
+	return [...normalizedProfileIds];
+}
+
+function normalizeSpaceMemberProfileIds(
+	profileIds: readonly string[]
+): string[] {
+	const normalizedProfileIds = new Set<string>();
+	for (const profileId of profileIds) {
+		const normalizedProfileId = profileId.trim();
+		if (normalizedProfileId.length > 0) {
+			normalizedProfileIds.add(normalizedProfileId);
+		}
+	}
+	return [...normalizedProfileIds];
+}
+
+function listSelectedAgentProfileIds(input: {
+	accountProfiles: readonly AuthProfileView[];
+	memberProfileIds: readonly string[];
+}): string[] {
+	const profileById = new Map(
+		input.accountProfiles.map((profile) => [profile.openMeldProfileId, profile])
+	);
+	return input.memberProfileIds.filter(
+		(profileId) => profileById.get(profileId)?.profileKind === "agent"
+	);
+}
+
+function normalizeAgentProfileId(profileId: string): string | null {
+	const normalizedProfileId = profileId.trim();
+	return normalizedProfileId.startsWith("agt_") ? normalizedProfileId : null;
+}
+
+function normalizeSignalIds(signalIds: readonly string[]): string[] {
+	const normalizedSignalIds = new Set<string>();
+	for (const signalId of signalIds) {
+		const normalizedSignalId = signalId.trim();
+		if (normalizedSignalId.length > 0) {
+			normalizedSignalIds.add(normalizedSignalId);
+		}
+	}
+	return [...normalizedSignalIds];
+}
+
+function filterCurrentOwnerAgentProfileIds(input: {
+	agentProfileIds: readonly string[];
+	currentOwnerUserId: string | null;
+	snapshot: SpaceMembersSnapshot | null;
+}): string[] {
+	const currentOwnerAgentProfileIds = new Set(
+		listCurrentOwnerActiveAgentProfileIds({
+			currentOwnerUserId: input.currentOwnerUserId,
+			snapshot: input.snapshot,
+		})
+	);
+	return input.agentProfileIds.filter((profileId) =>
+		currentOwnerAgentProfileIds.has(profileId)
+	);
+}
+
+async function runWakeFinalOutcomeRefreshStep(input: {
+	action: () => Promise<unknown> | unknown;
+	agentProfileIds: readonly string[];
+	maxAttempts?: number;
+	signalIds: readonly string[];
+	spaceId: string;
+	step: string;
+}) {
+	const maxAttempts = Math.max(1, input.maxAttempts ?? 1);
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			await input.action();
+			return;
+		} catch (error) {
+			warnWakeFinalOutcomeRefreshFailure({
+				agentProfileIds: input.agentProfileIds,
+				attempt,
+				error,
+				maxAttempts,
+				signalIds: input.signalIds,
+				spaceId: input.spaceId,
+				step: input.step,
+				willRetry: attempt < maxAttempts,
+			});
+		}
+	}
+}
+
+function warnWakeFinalOutcomeRefreshFailure(
+	input: Pick<
+		WebAgentReadinessRefreshFailure,
+		"agentProfileIds" | "attempt" | "error" | "maxAttempts" | "willRetry"
+	> & {
+		signalIds: readonly string[];
+		spaceId: string;
+		step: string;
+	}
+) {
+	if (isQueryCancellationError(input.error)) {
+		return;
+	}
+	console.warn("[openmeld.web.space.wake_final_outcome_refresh_failed]", {
+		agentProfileId: input.agentProfileIds[0] ?? null,
+		agentProfileIds: input.agentProfileIds,
+		attempt: input.attempt,
+		error:
+			input.error instanceof Error ? input.error.message : String(input.error),
+		maxAttempts: input.maxAttempts,
+		signalId: input.signalIds[0] ?? null,
+		signalIds: input.signalIds,
+		spaceId: input.spaceId,
+		step: input.step,
+		willRetry: input.willRetry,
+	});
+}
+
+function warnSpaceRefreshFailure(message: string, error: unknown) {
+	if (isQueryCancellationError(error)) {
+		return;
+	}
+	console.warn(message, error);
+}
+
+function resolveActiveWakeWaitingTargetProfileIds(
+	...itemGroups: readonly (readonly WakeProgressItem[])[]
+): ReadonlySet<string> {
+	const targetProfileIds = new Set<string>();
+	for (const itemGroup of itemGroups) {
+		for (const item of itemGroup) {
+			if (
+				!item.terminal &&
+				(item.phase === "queued" ||
+					item.phase === "connecting" ||
+					item.phase === "retrying")
+			) {
+				targetProfileIds.add(item.targetProfileId);
+			}
+		}
+	}
+	return targetProfileIds;
+}
+
+function resolveActiveWakeDisplayTargetProfileIds(
+	...itemGroups: readonly (readonly WakeProgressItem[])[]
+): ReadonlySet<string> {
+	const targetProfileIds = new Set<string>();
+	for (const itemGroup of itemGroups) {
+		for (const item of itemGroup) {
+			if (!item.terminal && ACTIVE_WAKE_DISPLAY_PHASES.has(item.phase)) {
+				targetProfileIds.add(item.targetProfileId);
+			}
+		}
+	}
+	return targetProfileIds;
+}
+
+function buildSpaceAgentRecoveryPlansByProfileId(input: {
+	autoRefreshActive: boolean;
+	autoRefreshExhaustedProfileIds: ReadonlySet<string>;
+	computerReplyReadiness: ReturnType<typeof resolveSpaceComputerReplyReadiness>;
+	currentOwnerUserId: string | null;
+	deviceAgentCatalog: WebAgentProfileReplyRecoveryLocalAgentCatalog | null;
+	snapshot: SpaceMembersSnapshot | null;
+}): ReadonlyMap<string, AgentProfileReplyRecoveryPlan> {
+	const plansByProfileId = new Map<string, AgentProfileReplyRecoveryPlan>();
+	if (!input.snapshot) {
+		return plansByProfileId;
+	}
+
+	// TODO: This is the short-term Web filter for owner-only local controls.
+	// The medium/long-term fix is a viewer-scoped Core/Gateway projection so
+	// non-owners never receive setup, service, repair, or recovery plan facts.
+	for (const agent of input.snapshot.agents) {
+		if (
+			!isCurrentOwnerSpaceAgentMember({
+				agent,
+				currentOwnerUserId: input.currentOwnerUserId,
+			})
+		) {
+			continue;
+		}
+		const plan = planAgentProfileReplyRecoveryFromWebEvidence({
+			autoRefreshExhausted: input.autoRefreshExhaustedProfileIds.has(
+				agent.profileId
+			),
+			currentLocalRuntimeReplyReadiness: input.computerReplyReadiness,
+			localAgentCatalog: input.deviceAgentCatalog,
+			member: agent,
+		});
+		if (plan.kind !== "none") {
+			plansByProfileId.set(agent.profileId, plan);
+		}
+	}
+
+	return plansByProfileId;
+}
+
+function buildWakeFailureTargetContextsByProfileId(input: {
+	currentOwnerUserId: string | null;
+	snapshot: SpaceMembersSnapshot | null;
+}): ReadonlyMap<string, WakeFailureTargetContext> {
+	const contextsByProfileId = new Map<string, WakeFailureTargetContext>();
+	if (!input.snapshot) {
+		return contextsByProfileId;
+	}
+
+	for (const agent of input.snapshot.agents) {
+		contextsByProfileId.set(
+			agent.profileId,
+			resolveWakeFailureTargetContext({
+				controllerDisplayName: agent.runtimeDeviceDisplayName ?? null,
+				currentOwnerUserId: input.currentOwnerUserId,
+				ownerDisplayName: agent.ownerName,
+				ownerUserId: agent.ownerUserId,
+			})
+		);
+	}
+
+	return contextsByProfileId;
+}
+
+function resolveSpaceComputerReplyReadiness(input: {
+	isFetching?: boolean;
+	isPending: boolean;
+	readiness: CurrentLocalRuntimeReplyReadinessResponse | null;
+}) {
+	return mapCurrentLocalRuntimeReplyReadinessQueryState(input);
+}
+
+function shouldAutoRefreshSpaceAgentRecovery(input: {
+	activeWakeWaitingTargetProfileIds: ReadonlySet<string>;
+	agentRecoveryPlansByProfileId: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
+	autoRefreshExhaustedProfileIds: ReadonlySet<string>;
+	currentOwnerUserId: string | null;
+	recoveryRefreshWindowActive: boolean;
+	snapshot: SpaceMembersSnapshot | null;
+}): boolean {
+	if (!input.snapshot) {
+		return false;
+	}
+
+	for (const agent of input.snapshot.agents) {
+		if (
+			isCurrentOwnerSpaceAgentMember({
+				agent,
+				currentOwnerUserId: input.currentOwnerUserId,
+			}) &&
+			(input.recoveryRefreshWindowActive ||
+				input.activeWakeWaitingTargetProfileIds.has(agent.profileId)) &&
+			isSpaceWakeStatusAutoRefreshable({
+				agent,
+				allowResolvedAgentWakeAvailabilityRefresh:
+					input.recoveryRefreshWindowActive ||
+					input.activeWakeWaitingTargetProfileIds.has(agent.profileId),
+				autoRefreshExhaustedProfileIds: input.autoRefreshExhaustedProfileIds,
+				plan: input.agentRecoveryPlansByProfileId.get(agent.profileId),
+			})
+		) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function shouldStartPassiveLocalAgentRecoveryRefresh(input: {
+	agentRecoveryPlansByProfileId: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
+	autoRefreshExhaustedProfileIds: ReadonlySet<string>;
+	currentOwnerUserId: string | null;
+	recoveryRefreshWindowActive: boolean;
+	snapshot: SpaceMembersSnapshot | null;
+}): boolean {
+	if (input.recoveryRefreshWindowActive || !input.snapshot) {
+		return false;
+	}
+
+	for (const agent of input.snapshot.agents) {
+		if (
+			isCurrentOwnerSpaceAgentMember({
+				agent,
+				currentOwnerUserId: input.currentOwnerUserId,
+			}) &&
+			!input.autoRefreshExhaustedProfileIds.has(agent.profileId) &&
+			isSpaceWakeStatusPassiveRefreshCandidate({
+				agent,
+				plan: input.agentRecoveryPlansByProfileId.get(agent.profileId),
+			})
+		) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function resolveAutoRefreshProfileIds(input: {
+	activeWakeWaitingTargetProfileIds: ReadonlySet<string>;
+	agentRecoveryPlansByProfileId: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
+	autoRefreshExhaustedProfileIds: ReadonlySet<string>;
+	attemptsByProfileId: Map<string, number>;
+	currentOwnerUserId: string | null;
+	recoveryRefreshWindowActive: boolean;
+	snapshot: SpaceMembersSnapshot;
+}): string[] {
+	const refreshableProfileIds: string[] = [];
+	for (const agent of input.snapshot.agents) {
+		const wakeIsActive =
+			input.recoveryRefreshWindowActive ||
+			input.activeWakeWaitingTargetProfileIds.has(agent.profileId);
+		if (
+			isCurrentOwnerSpaceAgentMember({
+				agent,
+				currentOwnerUserId: input.currentOwnerUserId,
+			}) &&
+			wakeIsActive &&
+			isSpaceWakeStatusAutoRefreshable({
+				agent,
+				allowResolvedAgentWakeAvailabilityRefresh: wakeIsActive,
+				autoRefreshExhaustedProfileIds: input.autoRefreshExhaustedProfileIds,
+				plan: input.agentRecoveryPlansByProfileId.get(agent.profileId),
+			})
+		) {
+			refreshableProfileIds.push(agent.profileId);
+		}
+	}
+	const refreshableProfileIdSet = new Set(refreshableProfileIds);
+	for (const profileId of [...input.attemptsByProfileId.keys()]) {
+		if (!refreshableProfileIdSet.has(profileId)) {
+			input.attemptsByProfileId.delete(profileId);
+		}
+	}
+
+	return refreshableProfileIds.filter((profileId) => {
+		const attempts = input.attemptsByProfileId.get(profileId) ?? 0;
+		return attempts < SPACE_WAKE_STATUS_AUTO_REFRESH_ATTEMPTS;
+	});
+}
+
+function resolveExhaustedAutoRefreshProfileIds(input: {
+	agentRecoveryPlansByProfileId: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
+	attemptsByProfileId: Map<string, number>;
+	currentOwnerUserId: string | null;
+	snapshot: SpaceMembersSnapshot;
+}): string[] {
+	const exhaustedProfileIds: string[] = [];
+	for (const agent of input.snapshot.agents) {
+		if (
+			isCurrentOwnerSpaceAgentMember({
+				agent,
+				currentOwnerUserId: input.currentOwnerUserId,
+			}) &&
+			isSpaceWakeStatusRefreshCandidate({
+				agent,
+				plan: input.agentRecoveryPlansByProfileId.get(agent.profileId),
+			}) &&
+			(input.attemptsByProfileId.get(agent.profileId) ?? 0) >=
+				SPACE_WAKE_STATUS_AUTO_REFRESH_ATTEMPTS
+		) {
+			exhaustedProfileIds.push(agent.profileId);
+		}
+	}
+	return exhaustedProfileIds;
+}
+
+function replaceSetIfChanged(
+	current: ReadonlySet<string>,
+	nextItems: readonly string[]
+): ReadonlySet<string> {
+	if (
+		current.size === nextItems.length &&
+		nextItems.every((item) => current.has(item))
+	) {
+		return current;
+	}
+	return new Set(nextItems);
+}
+
+function shouldOpenMembersPanelOnSpaceEntry(input: {
+	agentRecoveryPlansByProfileId: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
+	autoRefreshExhaustedProfileIds: ReadonlySet<string>;
+	currentOwnerUserId: string | null;
+	snapshot: SpaceMembersSnapshot | null;
+}): boolean {
+	if (!input.snapshot) {
+		return false;
+	}
+
+	for (const agent of input.snapshot.agents) {
+		if (
+			!isCurrentOwnerSpaceAgentMember({
+				agent,
+				currentOwnerUserId: input.currentOwnerUserId,
+			})
+		) {
+			continue;
+		}
+		const plan = input.agentRecoveryPlansByProfileId.get(agent.profileId);
+		if (!plan || plan.kind === "none") {
+			continue;
+		}
+		if (isManualOnlyAgentRecoveryPlan(plan)) {
+			continue;
+		}
+		if (
+			!input.autoRefreshExhaustedProfileIds.has(agent.profileId) &&
+			isSpaceWakeStatusPassiveRefreshCandidate({ agent, plan })
+		) {
+			continue;
+		}
+		if (
+			isAgentStatusUpdating({
+				agent,
+				autoRefreshExhaustedProfileIds: input.autoRefreshExhaustedProfileIds,
+				plan,
+			})
+		) {
+			return true;
+		}
+		if (isReconnectingAgentRouteRecovery({ agent, plan })) {
+			continue;
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
+// Builds the in-Space identity control passed to Space composers. Kept at module
+// scope so SpaceLanding's body stays flat: returns the interactive switcher only
+// when there is more than one human profile to switch between.
+function buildSpaceProfileControl(input: {
+	currentProfileId: string;
+	currentProfileName: string | null;
+	humanProfiles: readonly AuthProfileView[];
+	navigate: ReturnType<typeof useNavigate>;
+	orgSlug: string;
+	spaceId: string;
+}): ReactNode {
+	if (input.humanProfiles.length < 2) {
+		return;
+	}
+	return (
+		<SpaceProfileSwitcher
+			currentProfileId={input.currentProfileId}
+			currentProfileName={input.currentProfileName}
+			humanProfiles={input.humanProfiles}
+			onSelectProfile={(nextProfileId) => {
+				input
+					.navigate({
+						replace: true,
+						search: { profileId: nextProfileId },
+						to: buildOrganizationSpacePath({
+							orgSlug: input.orgSlug,
+							spaceId: input.spaceId,
+						}),
+					})
+					.catch((error: unknown) => {
+						console.error("Failed to switch the Space profile.", error);
+					});
+			}}
+		/>
+	);
+}
+
+function isAgentStatusUpdating(input: {
+	agent: SpaceMembersSnapshot["agents"][number];
+	autoRefreshExhaustedProfileIds: ReadonlySet<string>;
+	plan: AgentProfileReplyRecoveryPlan;
+}): boolean {
+	return (
+		resolveSpaceWakeStatusTransientState({
+			activeWakeWaitingTargetProfileIds: new Set(),
+			agent: input.agent,
+			autoRefreshExhaustedProfileIds: input.autoRefreshExhaustedProfileIds,
+			isAgentRecoveryPending: false,
+			plan: input.plan,
+		}) !== null
+	);
+}
+
+function isReconnectingAgentRouteRecovery(input: {
+	agent: SpaceMembersSnapshot["agents"][number];
+	plan: AgentProfileReplyRecoveryPlan;
+}): boolean {
+	const wakeRouteEvidence = resolveOwnerWakeRouteEvidence(input.agent);
+	return (
+		input.agent.liveNow === false &&
+		wakeRouteEvidence?.status !== "unavailable" &&
+		isAgentExecutionNotReady(input.agent) &&
+		input.plan.kind === "review_computer" &&
+		isRouteReconnectRecoveryReasonCode(input.plan.recoveryReasonCode)
+	);
+}
+
+function isAgentExecutionNotReady(
+	agent: SpaceMembersSnapshot["agents"][number]
+): boolean {
+	const readiness = resolveOwnerWakeDiagnosticsReadiness(agent);
+	if (readiness) {
+		return readiness.displayState !== "ready";
+	}
+
+	return true;
+}
+
+function resolveOwnerWakeDiagnosticsReadiness(
+	agent: SpaceMembersSnapshot["agents"][number]
+): ReturnType<
+	typeof resolveSpaceMemberAgentOwnerWakeDiagnosticsView
+>["agentExecutionReadiness"] {
+	return resolveSpaceMemberAgentOwnerWakeDiagnosticsView(agent)
+		.agentExecutionReadiness;
+}
+
+function resolveOwnerWakeRouteEvidence(
+	agent: SpaceMembersSnapshot["agents"][number]
+): ReturnType<
+	typeof resolveSpaceMemberAgentOwnerWakeDiagnosticsView
+>["wakeRouteEvidence"] {
+	return resolveSpaceMemberAgentOwnerWakeDiagnosticsView(agent)
+		.wakeRouteEvidence;
+}
+
+function isRouteReconnectRecoveryReasonCode(reasonCode: string): boolean {
+	return (
+		reasonCode === "agent_execution.route_missing" ||
+		reasonCode === "agent_execution.route_offline" ||
+		reasonCode === "agent_execution.route_unavailable" ||
+		reasonCode === "route.not_registered" ||
+		reasonCode === "route.offline" ||
+		reasonCode === "route.unavailable"
+	);
+}
+
+function resolveCurrentUserAvatarImageUrl(input: {
+	canonicalAvatarImageUrl: string | null | undefined;
+	providedAvatarImageUrl: string | null | undefined;
+}): string | null {
+	if (input.providedAvatarImageUrl !== undefined) {
+		return input.providedAvatarImageUrl;
+	}
+	return input.canonicalAvatarImageUrl ?? null;
+}
+
+function useSpaceLandingCurrentUserAvatarImageUrl(
+	providedAvatarImageUrl?: string | null
+): string | null {
+	const { data: currentAccountAvatar } = useAccountAvatar({
+		enabled: providedAvatarImageUrl === undefined,
+	});
+	return resolveCurrentUserAvatarImageUrl({
+		canonicalAvatarImageUrl: currentAccountAvatar?.avatar,
+		providedAvatarImageUrl,
+	});
+}
+
+function resolveInitialMembersPanelOpen(input: {
+	isDesktopMembersPanel: boolean;
+	spaceId: string;
+}): boolean {
+	const storedOpen = readSpaceMembersPanelOpen({ spaceId: input.spaceId });
+	if (storedOpen !== null) {
+		return storedOpen;
+	}
+
+	return input.isDesktopMembersPanel;
+}
+
+function useMediaQuery(query: string): boolean {
+	const subscribe = useCallback(
+		(onStoreChange: () => void) => subscribeMediaQuery(query, onStoreChange),
+		[query]
+	);
+	const getSnapshot = useCallback(() => getMediaQuerySnapshot(query), [query]);
+	return useSyncExternalStore(
+		subscribe,
+		getSnapshot,
+		getServerMediaQuerySnapshot
+	);
+}
+
+function subscribeMediaQuery(
+	query: string,
+	onStoreChange: () => void
+): () => void {
+	const mediaQuery = window.matchMedia?.(query);
+	if (!mediaQuery) {
+		return () => undefined;
+	}
+	if (typeof mediaQuery.addEventListener === "function") {
+		mediaQuery.addEventListener("change", onStoreChange);
+		return () => mediaQuery.removeEventListener("change", onStoreChange);
+	}
+	mediaQuery.addListener(onStoreChange);
+	return () => mediaQuery.removeListener(onStoreChange);
+}
+
+function getMediaQuerySnapshot(query: string): boolean {
+	return window.matchMedia?.(query).matches ?? false;
+}
+
+function getServerMediaQuerySnapshot(): boolean {
+	return false;
+}

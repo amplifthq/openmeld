@@ -1,0 +1,1083 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  findSlackThreadMessageByMetadata,
+  listSlackChannelMemberIds,
+  listSlackChannels,
+  listSlackWorkspaceMembers,
+  postSlackChannelMessageByName,
+  postSlackDirectMessage,
+  postSlackThreadMessage,
+  readSlackChannelHistory,
+  readSlackConversationInfo,
+  readSlackThreadMessages,
+  setSlackThreadStatus,
+} from "../src/remote-agent/application/slack-client";
+
+describe("Slack conversation audience", () => {
+  it("classifies a nameless Slack DM without discarding its audience facts", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        Response.json({ channel: { id: "D123", is_im: true }, ok: true })
+      )
+    );
+
+    await expect(
+      readSlackConversationInfo({
+        botToken: "xoxb-test",
+        channelId: "D123",
+        fetchImpl: fetchMock,
+      })
+    ).resolves.toEqual({
+      channelName: null,
+      interactionEnvironment: "requester_private",
+    });
+  });
+
+  it("fails an incomplete Slack conversation payload to an external audience", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json({ ok: true }))
+    );
+
+    await expect(
+      readSlackConversationInfo({
+        botToken: "xoxb-test",
+        channelId: "C_UNKNOWN",
+        fetchImpl: fetchMock,
+      })
+    ).resolves.toEqual({
+      channelName: null,
+      interactionEnvironment: "externally_shared",
+    });
+  });
+
+  it.each([
+    {
+      channel: { is_im: true, is_private: true, name: "directmessage" },
+      expected: "requester_private",
+      label: "direct message",
+    },
+    {
+      channel: {
+        is_ext_shared: true,
+        is_im: true,
+        is_shared: true,
+        name: "external-direct-message",
+      },
+      expected: "externally_shared",
+      label: "Slack Connect direct message",
+    },
+    {
+      channel: { is_private: true, name: "leadership" },
+      expected: "organization_shared",
+      label: "internal private channel",
+    },
+    {
+      channel: {
+        is_ext_shared: true,
+        is_shared: true,
+        name: "partner-launch",
+      },
+      expected: "externally_shared",
+      label: "Slack Connect channel",
+    },
+    {
+      channel: {
+        is_org_shared: true,
+        is_shared: true,
+        name: "enterprise-launch",
+      },
+      expected: "organization_shared",
+      label: "Enterprise organization channel",
+    },
+    {
+      channel: { is_shared: true, name: "unknown-shared" },
+      expected: "externally_shared",
+      label: "ambiguous shared channel",
+    },
+  ])("classifies a $label from Slack conversation facts", async (input) => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json({ channel: input.channel, ok: true }))
+    );
+
+    await expect(
+      readSlackConversationInfo({
+        botToken: "xoxb-test",
+        channelId: "C123",
+        fetchImpl: fetchMock,
+      })
+    ).resolves.toEqual({
+      channelName: input.channel.name,
+      interactionEnvironment: input.expected,
+    });
+  });
+});
+
+// Mirrors Slack's documented chat.postMessage response, including the complete
+// server-parsed message shape: https://docs.slack.dev/reference/methods/chat.postMessage/#response
+const SLACK_CHAT_POST_MESSAGE_SUCCESS_RESPONSE = {
+  channel: "C123ABC456",
+  message: {
+    attachments: [
+      {
+        fallback: "This is an attachment's fallback",
+        id: 1,
+        text: "This is an attachment",
+      },
+    ],
+    bot_id: "B123ABC456",
+    subtype: "bot_message",
+    text: "Here's a message for you",
+    ts: "1503435956.000247",
+    type: "message",
+    username: "ecto1",
+  },
+  ok: true,
+  ts: "1503435956.000247",
+} as const;
+
+// Slack documents invalid_blocks as a chat.postMessage Web API error code.
+const SLACK_INVALID_BLOCKS_RESPONSE = {
+  error: "invalid_blocks",
+  ok: false,
+} as const;
+
+describe("Slack direct messages", () => {
+  it("posts Block Kit content to the recipient's Slack user ID", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json(SLACK_CHAT_POST_MESSAGE_SUCCESS_RESPONSE))
+    );
+    const blocks = [
+      {
+        text: { text: "Welcome to OpenMeld.", type: "mrkdwn" },
+        type: "section",
+      },
+      {
+        elements: [
+          {
+            action_id: "open_openmeld_github_settings",
+            text: { text: "Connect GitHub", type: "plain_text" },
+            type: "button",
+            url: "https://openmeld.test/o/acme/center-agent/apps/github",
+          },
+        ],
+        type: "actions",
+      },
+    ] as const;
+
+    await expect(
+      postSlackDirectMessage({
+        blocks,
+        botToken: "xoxb-test",
+        fetchImpl: fetchMock,
+        recipientUserId: "U_INSTALLER",
+        text: "Welcome to OpenMeld.",
+      })
+    ).resolves.toEqual({ id: "1503435956.000247" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://slack.com/api/chat.postMessage",
+      expect.objectContaining({
+        headers: {
+          authorization: "Bearer xoxb-test",
+          "content-type": "application/json; charset=utf-8",
+        },
+        method: "POST",
+      })
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      blocks,
+      channel: "U_INSTALLER",
+      text: "Welcome to OpenMeld.",
+    });
+  });
+
+  it("falls back to text exactly once when Slack rejects Block Kit", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(SLACK_INVALID_BLOCKS_RESPONSE))
+      .mockResolvedValueOnce(
+        Response.json(SLACK_CHAT_POST_MESSAGE_SUCCESS_RESPONSE)
+      );
+    const blocks = [
+      {
+        text: { text: "Welcome to OpenMeld.", type: "mrkdwn" },
+        type: "section",
+      },
+    ] as const;
+
+    await expect(
+      postSlackDirectMessage({
+        blocks,
+        botToken: "xoxb-test",
+        fetchImpl: fetchMock,
+        recipientUserId: "U_INSTALLER",
+        text: "Welcome to OpenMeld.",
+      })
+    ).resolves.toEqual({ id: "1503435956.000247" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      blocks,
+      channel: "U_INSTALLER",
+      text: "Welcome to OpenMeld.",
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      channel: "U_INSTALLER",
+      text: "Welcome to OpenMeld.",
+    });
+  });
+});
+
+describe("Slack workspace members", () => {
+  it("returns one cursor-paginated page of active human members", async () => {
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = new URL(String(request));
+      expect(url.pathname).toBe("/api/users.list");
+      expect(url.searchParams.get("limit")).toBe("200");
+      expect(url.searchParams.get("cursor")).toBe("next-page");
+      return Promise.resolve(
+        Response.json({
+          members: [
+            {
+              deleted: false,
+              id: "U_MEMBER",
+              is_admin: true,
+              is_app_user: false,
+              is_bot: false,
+              is_owner: false,
+              is_restricted: false,
+              is_ultra_restricted: false,
+              name: "morgan",
+              profile: {
+                display_name: "Morgan",
+                email: "morgan@example.com",
+                real_name: "Morgan Lee",
+                title: "Staff Engineer",
+              },
+              real_name: "Morgan Lee",
+            },
+            {
+              deleted: true,
+              id: "U_DEACTIVATED",
+              is_bot: false,
+              name: "former-member",
+              profile: { display_name: "Former Member" },
+            },
+            {
+              deleted: false,
+              id: "B_APP",
+              is_app_user: true,
+              is_bot: true,
+              name: "helper-bot",
+              profile: { display_name: "Helper Bot" },
+            },
+          ],
+          ok: true,
+          response_metadata: { next_cursor: "after-this-page" },
+        })
+      );
+    });
+
+    await expect(
+      listSlackWorkspaceMembers({
+        botToken: "xoxb-test",
+        cursor: "next-page",
+        fetchImpl: fetchMock,
+        limit: 200,
+      })
+    ).resolves.toEqual({
+      members: [
+        {
+          displayName: "Morgan",
+          email: "morgan@example.com",
+          isAdmin: true,
+          isGuest: false,
+          isOwner: false,
+          realName: "Morgan Lee",
+          slackUserId: "U_MEMBER",
+          title: "Staff Engineer",
+        },
+      ],
+      nextCursor: "after-this-page",
+    });
+  });
+});
+
+describe("Slack channels", () => {
+  it("returns one cursor-paginated page with the bot membership state", async () => {
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = new URL(String(request));
+      expect(url.pathname).toBe("/api/conversations.list");
+      expect(url.searchParams.get("exclude_archived")).toBe("true");
+      expect(url.searchParams.get("types")).toBe(
+        "public_channel,private_channel"
+      );
+      expect(url.searchParams.get("limit")).toBe("100");
+      expect(url.searchParams.get("cursor")).toBe("next-page");
+      return Promise.resolve(
+        Response.json({
+          channels: [
+            {
+              id: "C_OK8",
+              is_archived: false,
+              is_member: true,
+              is_private: false,
+              name: "ok8-okok",
+              num_members: 12,
+            },
+            {
+              id: "C_PRODUCT",
+              is_archived: false,
+              is_member: false,
+              is_private: false,
+              name: "product",
+              num_members: 42,
+            },
+          ],
+          ok: true,
+          response_metadata: { next_cursor: "after-this-page" },
+        })
+      );
+    });
+
+    await expect(
+      listSlackChannels({
+        botToken: "xoxb-test",
+        cursor: "next-page",
+        fetchImpl: fetchMock,
+        limit: 100,
+      })
+    ).resolves.toEqual({
+      channels: [
+        {
+          channelId: "C_OK8",
+          channelName: "ok8-okok",
+          isMember: true,
+          isPrivate: false,
+          memberCount: 12,
+        },
+        {
+          channelId: "C_PRODUCT",
+          channelName: "product",
+          isMember: false,
+          isPrivate: false,
+          memberCount: 42,
+        },
+      ],
+      nextCursor: "after-this-page",
+    });
+  });
+});
+
+describe("Slack channel members", () => {
+  it("returns one cursor-paginated page of member IDs", async () => {
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = new URL(String(request));
+      expect(url.pathname).toBe("/api/conversations.members");
+      expect(url.searchParams.get("channel")).toBe("C_OK8");
+      expect(url.searchParams.get("limit")).toBe("200");
+      expect(url.searchParams.get("cursor")).toBe("next-page");
+      return Promise.resolve(
+        Response.json({
+          members: ["U_AVA", "U_MORGAN"],
+          ok: true,
+          response_metadata: { next_cursor: "after-this-page" },
+        })
+      );
+    });
+
+    await expect(
+      listSlackChannelMemberIds({
+        botToken: "xoxb-test",
+        channelId: "C_OK8",
+        cursor: "next-page",
+        fetchImpl: fetchMock,
+        limit: 200,
+      })
+    ).resolves.toEqual({
+      memberIds: ["U_AVA", "U_MORGAN"],
+      nextCursor: "after-this-page",
+    });
+  });
+});
+
+describe("Slack channel history", () => {
+  it("returns one cursor-paginated page of messages without joining the channel", async () => {
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = new URL(String(request));
+      expect(url.pathname).toBe("/api/conversations.history");
+      expect(url.searchParams.get("channel")).toBe("C_OK8");
+      expect(url.searchParams.get("limit")).toBe("15");
+      expect(url.searchParams.get("cursor")).toBe("next-page");
+      return Promise.resolve(
+        Response.json({
+          messages: [
+            {
+              text: "Latest release update",
+              ts: "1710000003.000350",
+              user: "U_AVA",
+            },
+            {
+              bot_id: "B_CENTER_AGENT",
+              bot_profile: { name: "OpenMeld Center Agent" },
+              subtype: "bot_message",
+              text: "Earlier summary",
+              ts: "1710000002.000300",
+            },
+          ],
+          ok: true,
+          response_metadata: { next_cursor: "after-this-page" },
+        })
+      );
+    });
+
+    await expect(
+      readSlackChannelHistory({
+        botToken: "xoxb-test",
+        channelId: "C_OK8",
+        cursor: "next-page",
+        fetchImpl: fetchMock,
+        limit: 15,
+      })
+    ).resolves.toEqual({
+      messages: [
+        {
+          botId: null,
+          displayName: null,
+          subtype: null,
+          text: "Latest release update",
+          ts: "1710000003.000350",
+          userId: "U_AVA",
+        },
+        {
+          botId: "B_CENTER_AGENT",
+          displayName: "OpenMeld Center Agent",
+          subtype: "bot_message",
+          text: "Earlier summary",
+          ts: "1710000002.000300",
+          userId: null,
+        },
+      ],
+      nextCursor: "after-this-page",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Slack thread messages", () => {
+  it("reads one bounded ordered page through conversations.replies", async () => {
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const url = new URL(String(request));
+      expect(url.pathname).toBe("/api/conversations.replies");
+      expect(url.searchParams.get("channel")).toBe("C_THREAD");
+      expect(url.searchParams.get("ts")).toBe("1710000000.000100");
+      expect(url.searchParams.get("oldest")).toBe("1710000001.000200");
+      expect(url.searchParams.get("latest")).toBe("1710000003.000400");
+      expect(url.searchParams.get("inclusive")).toBe("true");
+      expect(url.searchParams.get("limit")).toBe("15");
+      return Promise.resolve(
+        Response.json({
+          has_more: true,
+          messages: [
+            {
+              text: "Center Agent summary",
+              ts: "1710000002.000300",
+              bot_id: "B_CENTER_AGENT",
+              bot_profile: { name: "OpenMeld Center Agent" },
+              subtype: "bot_message",
+              username: "OpenMeld Center Agent",
+            },
+            {
+              text: "Please add the repository links.",
+              ts: "1710000003.000350",
+              user: "U_ASHLEY",
+            },
+          ],
+          ok: true,
+          response_metadata: { next_cursor: "next-page" },
+        })
+      );
+    });
+
+    await expect(
+      readSlackThreadMessages({
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        fetchImpl: fetchMock,
+        latestTs: "1710000003.000400",
+        oldestTs: "1710000001.000200",
+        threadTs: "1710000000.000100",
+      })
+    ).resolves.toEqual({
+      hasMore: true,
+      messages: [
+        {
+          botId: "B_CENTER_AGENT",
+          displayName: "OpenMeld Center Agent",
+          subtype: "bot_message",
+          text: "Center Agent summary",
+          ts: "1710000002.000300",
+          userId: null,
+        },
+        {
+          botId: null,
+          displayName: null,
+          subtype: null,
+          text: "Please add the repository links.",
+          ts: "1710000003.000350",
+          userId: "U_ASHLEY",
+        },
+      ],
+    });
+  });
+
+  it("preserves Slack reply rate-limit evidence", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        Response.json(
+          { error: "ratelimited", ok: false },
+          { headers: { "retry-after": "60" }, status: 429 }
+        )
+      )
+    );
+
+    await expect(
+      readSlackThreadMessages({
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        fetchImpl: fetchMock,
+        latestTs: "1710000003.000400",
+        threadTs: "1710000000.000100",
+      })
+    ).rejects.toMatchObject({
+      errorCode: "ratelimited",
+      message: "Slack conversations.replies failed: ratelimited",
+      name: "SlackApiError",
+      retryAfterSeconds: 60,
+      status: 429,
+    });
+  });
+
+  it("posts controlled blocks with the existing thread and fallback text", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json(SLACK_CHAT_POST_MESSAGE_SUCCESS_RESPONSE))
+    );
+
+    await expect(
+      postSlackThreadMessage({
+        blocks: [{ text: "**Done**", type: "markdown" }],
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        fetchImpl: fetchMock,
+        text: "*Done*",
+        threadTs: "1710000000.001",
+      })
+    ).resolves.toEqual({ id: "1503435956.000247" });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      blocks: [{ text: "**Done**", type: "markdown" }],
+      channel: "C_THREAD",
+      text: "*Done*",
+      thread_ts: "1710000000.001",
+    });
+  });
+
+  it("posts and reconciles an execution recovery operation through Slack metadata", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      Response.json({
+        messages: [
+          {
+            metadata: {
+              event_payload: { operation_id: "operation-1" },
+              event_type: "openmeld_execution_recovery",
+            },
+            ts: "1503435956.000247",
+          },
+        ],
+        ok: true,
+      })
+    );
+
+    await expect(
+      findSlackThreadMessageByMetadata({
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        eventPayloadKey: "operation_id",
+        eventPayloadValue: "operation-1",
+        eventType: "openmeld_execution_recovery",
+        fetchImpl: fetchMock,
+        threadTs: "1710000000.001",
+      })
+    ).resolves.toEqual({ id: "1503435956.000247" });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "include_all_metadata=true"
+    );
+  });
+
+  it("includes the stable recovery metadata in chat.postMessage", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json(SLACK_CHAT_POST_MESSAGE_SUCCESS_RESPONSE))
+    );
+
+    await postSlackThreadMessage({
+      botToken: "xoxb-test",
+      channelId: "C_THREAD",
+      fetchImpl: fetchMock,
+      metadata: {
+        eventPayload: { operation_id: "operation-1" },
+        eventType: "openmeld_execution_recovery",
+      },
+      text: "Recovered result",
+      threadTs: "1710000000.001",
+    });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      channel: "C_THREAD",
+      metadata: {
+        event_payload: { operation_id: "operation-1" },
+        event_type: "openmeld_execution_recovery",
+      },
+      text: "Recovered result",
+      thread_ts: "1710000000.001",
+    });
+  });
+
+  it("falls back to text exactly once when Slack rejects controlled blocks", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(SLACK_INVALID_BLOCKS_RESPONSE))
+      .mockResolvedValueOnce(
+        Response.json(SLACK_CHAT_POST_MESSAGE_SUCCESS_RESPONSE)
+      );
+
+    await expect(
+      postSlackThreadMessage({
+        blocks: [{ text: "**Done**", type: "markdown" }],
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        fetchImpl: fetchMock,
+        text: "*Done*",
+        threadTs: "1710000000.001",
+      })
+    ).resolves.toEqual({ id: "1503435956.000247" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      channel: "C_THREAD",
+      text: "*Done*",
+      thread_ts: "1710000000.001",
+    });
+  });
+
+  it("does not retry confirmed non-presentation failures", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json({ error: "channel_not_found", ok: false }))
+    );
+
+    await expect(
+      postSlackThreadMessage({
+        blocks: [{ text: "**Done**", type: "markdown" }],
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        fetchImpl: fetchMock,
+        text: "*Done*",
+        threadTs: "1710000000.001",
+      })
+    ).rejects.toMatchObject({
+      errorCode: "channel_not_found",
+      message: "Slack chat.postMessage failed: channel_not_found",
+      name: "SlackMessagePublicationError",
+      publicationOutcome: "not_published",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("preserves non-success HTTP status context as provider-ambiguous", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response(null, { status: 503 }))
+    );
+
+    await expect(
+      postSlackThreadMessage({
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        fetchImpl: fetchMock,
+        text: "Done",
+        threadTs: "1710000000.001",
+      })
+    ).rejects.toMatchObject({
+      message: "Slack chat.postMessage outcome is unknown: HTTP 503",
+      name: "SlackMessagePublicationError",
+      publicationOutcome: "unknown",
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("keeps transport failures provider-ambiguous", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.reject(new Error("socket closed"))
+    );
+
+    await expect(
+      postSlackThreadMessage({
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        fetchImpl: fetchMock,
+        text: "Done",
+        threadTs: "1710000000.001",
+      })
+    ).rejects.toMatchObject({
+      message: "Slack chat.postMessage outcome is unknown: socket closed",
+      name: "SlackMessagePublicationError",
+      publicationOutcome: "unknown",
+    });
+  });
+
+  it("keeps invalid Slack response bodies provider-ambiguous", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response("not JSON"))
+    );
+
+    await expect(
+      postSlackThreadMessage({
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        fetchImpl: fetchMock,
+        text: "Done",
+        threadTs: "1710000000.001",
+      })
+    ).rejects.toMatchObject({
+      message:
+        "Slack chat.postMessage outcome is unknown: Slack API returned invalid JSON",
+      name: "SlackMessagePublicationError",
+      publicationOutcome: "unknown",
+    });
+  });
+});
+
+describe("Slack thread status", () => {
+  it("sets a working status on the existing Slack thread", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json({ ok: true }))
+    );
+
+    await expect(
+      setSlackThreadStatus({
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        fetchImpl: fetchMock,
+        status: "is working on your request…",
+        threadTs: "1710000000.001",
+      })
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://slack.com/api/assistant.threads.setStatus",
+      expect.objectContaining({
+        headers: {
+          authorization: "Bearer xoxb-test",
+          "content-type": "application/json; charset=utf-8",
+        },
+        method: "POST",
+      })
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      channel_id: "C_THREAD",
+      status: "is working on your request…",
+      thread_ts: "1710000000.001",
+    });
+  });
+
+  it("preserves Slack provider error context", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json({ error: "invalid_thread_ts", ok: false }))
+    );
+
+    await expect(
+      setSlackThreadStatus({
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        fetchImpl: fetchMock,
+        status: "is working on your request…",
+        threadTs: "1710000000.001",
+      })
+    ).rejects.toThrow(
+      "Slack assistant.threads.setStatus failed: invalid_thread_ts"
+    );
+  });
+
+  it("preserves transport error context", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.reject(new Error("socket closed"))
+    );
+
+    await expect(
+      setSlackThreadStatus({
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        fetchImpl: fetchMock,
+        status: "is working on your request…",
+        threadTs: "1710000000.001",
+      })
+    ).rejects.toThrow(
+      "Slack assistant.threads.setStatus failed: socket closed"
+    );
+  });
+
+  it("preserves invalid response context", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response("not JSON"))
+    );
+
+    await expect(
+      setSlackThreadStatus({
+        botToken: "xoxb-test",
+        channelId: "C_THREAD",
+        fetchImpl: fetchMock,
+        status: "is working on your request…",
+        threadTs: "1710000000.001",
+      })
+    ).rejects.toThrow(
+      "Slack assistant.threads.setStatus failed: Slack API returned invalid JSON"
+    );
+  });
+});
+
+describe("Slack channel messages", () => {
+  it("joins an accessible public channel and posts to its main conversation", async () => {
+    const fetchMock = createSlackApiFetchMock({
+      channels: [
+        {
+          id: "C_RELEASE",
+          is_archived: false,
+          is_member: false,
+          is_private: false,
+          name: "release",
+        },
+      ],
+      messageTs: "1710000000.001",
+    });
+
+    await expect(
+      postSlackChannelMessageByName({
+        botToken: "xoxb-test",
+        channelName: "#Release",
+        fetchImpl: fetchMock,
+        text: "The release is ready.",
+      })
+    ).resolves.toEqual({
+      channelId: "C_RELEASE",
+      channelName: "release",
+      joinedChannel: true,
+      messageTs: "1710000000.001",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "/conversations.list?"
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://slack.com/api/conversations.join"
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      channel: "C_RELEASE",
+    });
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      "https://slack.com/api/chat.postMessage"
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body))).toEqual({
+      channel: "C_RELEASE",
+      text: "The release is ready.",
+    });
+  });
+
+  it("classifies a channel join failure as definitely not published", async () => {
+    const fetchMock = vi.fn<typeof fetch>((request) => {
+      const pathname = new URL(String(request)).pathname;
+      if (pathname === "/api/conversations.list") {
+        return Promise.resolve(
+          Response.json({
+            channels: [
+              {
+                id: "C_RELEASE",
+                is_archived: false,
+                is_member: false,
+                is_private: false,
+                name: "release",
+              },
+            ],
+            ok: true,
+            response_metadata: { next_cursor: "" },
+          })
+        );
+      }
+      if (pathname === "/api/conversations.join") {
+        return Promise.resolve(
+          Response.json({ error: "channel_not_found", ok: false })
+        );
+      }
+      throw new Error(`Unexpected Slack API request: ${pathname}`);
+    });
+
+    await expect(
+      postSlackChannelMessageByName({
+        botToken: "xoxb-test",
+        channelName: "release",
+        fetchImpl: fetchMock,
+        text: "The release is ready.",
+      })
+    ).rejects.toMatchObject({
+      errorCode: "channel_not_found",
+      publicationOutcome: "not_published",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("posts to an accessible private channel without trying to join it", async () => {
+    const fetchMock = createSlackApiFetchMock({
+      channels: [
+        {
+          id: "G_LEADERSHIP",
+          is_archived: false,
+          is_member: true,
+          is_private: true,
+          name: "leadership",
+        },
+      ],
+      messageTs: "1710000000.002",
+    });
+
+    await expect(
+      postSlackChannelMessageByName({
+        botToken: "xoxb-test",
+        channelName: "leadership",
+        fetchImpl: fetchMock,
+        text: "The private update is ready.",
+      })
+    ).resolves.toEqual({
+      channelId: "G_LEADERSHIP",
+      channelName: "leadership",
+      joinedChannel: false,
+      messageTs: "1710000000.002",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://slack.com/api/chat.postMessage"
+    );
+  });
+
+  it("normalizes code-wrapped presentation tokens before posting channel text", async () => {
+    const fetchMock = createSlackApiFetchMock({
+      channels: [
+        {
+          id: "C_RELEASE",
+          is_archived: false,
+          is_member: true,
+          is_private: false,
+          name: "release",
+        },
+      ],
+      messageTs: "1710000000.003",
+    });
+
+    await expect(
+      postSlackChannelMessageByName({
+        botToken: "xoxb-test",
+        channelName: "release",
+        fetchImpl: fetchMock,
+        text: [
+          "`<https://github.com/amplifthq/reply/pull/154|#154 fix P0>`",
+          "See `[Open Space](https://openmeld.ai/o/amplift/spaces/space_123)` and notify `<@U123456>`.",
+        ].join("\n"),
+      })
+    ).resolves.toMatchObject({
+      channelId: "C_RELEASE",
+      joinedChannel: false,
+      messageTs: "1710000000.003",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      channel: "C_RELEASE",
+      text: [
+        "<https://github.com/amplifthq/reply/pull/154|#154 fix P0>",
+        "See <https://openmeld.ai/o/amplift/spaces/space_123|Open Space> and notify <@U123456>.",
+      ].join("\n"),
+    });
+  });
+
+  it("explains that private channels must invite the app when no channel is accessible", async () => {
+    const fetchMock = createSlackApiFetchMock({ channels: [] });
+
+    await expect(
+      postSlackChannelMessageByName({
+        botToken: "xoxb-test",
+        channelName: "secret-launch",
+        fetchImpl: fetchMock,
+        text: "Launch update.",
+      })
+    ).rejects.toThrow(
+      "I couldn't find #secret-launch in the connected Slack workspace. If it is private, invite the OpenMeld app to that channel first."
+    );
+  });
+
+  it("refuses a visible private channel that has not invited the app", async () => {
+    const fetchMock = createSlackApiFetchMock({
+      channels: [
+        {
+          id: "G_SECRET",
+          is_archived: false,
+          is_member: false,
+          is_private: true,
+          name: "secret-launch",
+        },
+      ],
+    });
+
+    await expect(
+      postSlackChannelMessageByName({
+        botToken: "xoxb-test",
+        channelName: "secret-launch",
+        fetchImpl: fetchMock,
+        text: "Launch update.",
+      })
+    ).rejects.toThrow(
+      "I can't join #secret-launch because it is private. Invite the OpenMeld app to that channel first."
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+function createSlackApiFetchMock(input: {
+  channels: Array<{
+    id: string;
+    is_archived: boolean;
+    is_member: boolean;
+    is_private: boolean;
+    name: string;
+  }>;
+  messageTs?: string;
+}) {
+  return vi.fn<typeof fetch>((request) => {
+    const pathname = new URL(String(request)).pathname;
+    if (pathname === "/api/conversations.list") {
+      return Promise.resolve(
+        Response.json({
+          channels: input.channels,
+          ok: true,
+          response_metadata: { next_cursor: "" },
+        })
+      );
+    }
+    if (pathname === "/api/conversations.join") {
+      return Promise.resolve(Response.json({ ok: true }));
+    }
+    if (pathname === "/api/chat.postMessage" && input.messageTs) {
+      return Promise.resolve(Response.json({ ok: true, ts: input.messageTs }));
+    }
+    throw new Error(`Unexpected Slack API request: ${pathname}`);
+  });
+}

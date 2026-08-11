@@ -1,0 +1,2 @@
+ALTER TABLE `openMeldDaemon_prepare_sessions` ADD `creation_idempotency_key` text;--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_openMeldDaemon_prepare_sessions_owner_creation_idempotency` ON `openMeldDaemon_prepare_sessions` (`owner_user_id`,`creation_idempotency_key`);

@@ -1,0 +1,60 @@
+{
+  "success": true,
+  "message": "OK",
+  "data": [
+    {
+      "id": "posthog.list_projects",
+      "service": "posthog",
+      "name": "List projects",
+      "description": "List projects.",
+      "execution": {
+        "locallyExecutable": true,
+        "catalogOnly": false,
+        "requiredAuthTypes": ["api_key"],
+        "noAuthRunnable": false,
+        "needsCredential": true
+      },
+      "requiredScopes": ["project:read"],
+      "providerPermissions": ["project:read"],
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "array"
+      },
+      "followUpActions": [],
+      "asyncLifecycle": null
+    },
+    {
+      "id": "posthog.create_dashboard",
+      "service": "posthog",
+      "name": "Create dashboard",
+      "description": "Create a dashboard.",
+      "execution": {
+        "locallyExecutable": false,
+        "catalogOnly": true,
+        "requiredAuthTypes": ["api_key"],
+        "noAuthRunnable": false,
+        "needsCredential": true
+      },
+      "requiredScopes": ["dashboard:write"],
+      "providerPermissions": ["dashboard:write"],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": ["name"]
+      },
+      "outputSchema": {
+        "type": "object"
+      },
+      "followUpActions": [],
+      "asyncLifecycle": null
+    }
+  ],
+  "meta": {}
+}

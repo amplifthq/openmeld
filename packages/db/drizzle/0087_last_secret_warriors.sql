@@ -1,0 +1,1 @@
+ALTER TABLE `slack_user_identity_link_tokens` ADD `organization_id` text;

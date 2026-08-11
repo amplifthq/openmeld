@@ -1,0 +1,91 @@
+name: 🌐 Deploy Web
+run-name: Deploy Web @ ${{ inputs.release_sha || github.sha }}
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: "Deployment environment"
+        required: true
+        type: choice
+        default: production
+        options:
+          - production
+      release_sha:
+        description: "Optional exact main commit to deploy"
+        required: false
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      deploy_environment:
+        description: "Deployment environment"
+        required: false
+        type: string
+        default: production
+      release_sha:
+        description: "Exact main commit to deploy"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  deploy:
+    name: 🌐 Deploy Web
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NODE_OPTIONS: "--max-old-space-size=4096"
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    concurrency:
+      group: deploy-web-production
+      cancel-in-progress: false
+    environment: production
+    steps:
+      - name: Validate production target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.deploy_environment || 'production' }}" != "production" ]; then
+            echo "::error::Unsupported deploy environment. Only production is allowed."
+            exit 1
+          fi
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::Production deploys must run from main. Current ref: ${GITHUB_REF}"
+            exit 1
+          fi
+
+      - name: Checkout release commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+          ref: ${{ inputs.release_sha || github.sha }}
+
+      - name: Setup repository toolchain
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Run Web deployment preflight
+        run: pnpm run release:preflight:local -- --scope web --base HEAD
+
+      - name: Deploy Web
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET}" ]; then
+            echo "::error::Missing WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET in GitHub environment secrets."
+            exit 1
+          fi
+
+          secrets_file="clients/web/.dev.vars.prod"
+          trap 'rm -f "$secrets_file"' EXIT
+          printf "WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET=%s\n" "${WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET}" > "$secrets_file"
+          pnpm -C clients/web run sync:config:prod
+        env:
+          WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET: ${{ secrets.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET }}
+
+      - name: Verify Web health
+        run: curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 https://openmeld.ai/guide.md > /dev/null

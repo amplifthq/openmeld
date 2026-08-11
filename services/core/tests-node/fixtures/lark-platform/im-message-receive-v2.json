@@ -1,0 +1,45 @@
+{
+  "schema": "2.0",
+  "header": {
+    "event_id": "evt_lark_message_1",
+    "event_type": "im.message.receive_v1",
+    "create_time": "1710000000000",
+    "token": "verification-token",
+    "app_id": "cli_lark_test",
+    "tenant_key": "tenant_lark_test"
+  },
+  "event": {
+    "sender": {
+      "sender_id": {
+        "open_id": "ou_sender_test",
+        "union_id": "on_sender_test",
+        "user_id": "u_sender_test"
+      },
+      "sender_type": "user",
+      "tenant_key": "tenant_lark_test"
+    },
+    "message": {
+      "message_id": "om_reply_test",
+      "root_id": "om_root_test",
+      "parent_id": "om_root_test",
+      "thread_id": "omt_thread_test",
+      "create_time": "1710000000000",
+      "chat_id": "oc_chat_test",
+      "chat_type": "group",
+      "message_type": "text",
+      "content": "{\"text\":\"@_user_1 Ship the launch plan.\"}",
+      "mentions": [
+        {
+          "key": "@_user_1",
+          "id": {
+            "open_id": "ou_bot_test",
+            "union_id": "on_bot_test",
+            "user_id": ""
+          },
+          "name": "Center Agent",
+          "tenant_key": "tenant_lark_test"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,318 @@
+import { buttonVariants } from "@openmeld/ui/components/button";
+import { TooltipProvider } from "@openmeld/ui/components/tooltip";
+import { OPENMELD_LOGO_THEME_COLORS } from "@openmeld/ui/lib/openmeld-logo-theme";
+import type { QueryClient } from "@tanstack/react-query";
+import {
+	createRootRouteWithContext,
+	type ErrorComponentProps,
+	HeadContent,
+	Link,
+	Scripts,
+} from "@tanstack/react-router";
+import { ThemeProvider, useTheme } from "next-themes";
+import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
+import { useEffect } from "react";
+import { ApplicationErrorState } from "#/components/app/application-error-state";
+import { PublicPageHeader } from "#/components/app/public-page-header";
+import { AppearanceShapeProvider } from "#/components/appearance/appearance-shape-provider";
+import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
+import { Toaster } from "#/components/ui/sonner";
+import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-slot";
+import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-preference";
+import { buildPublicPageHead, siteConfig } from "#/lib/site";
+import { SPACE_CONVERSATION_LAYOUT_BOOTSTRAP_SCRIPT } from "#/lib/spaces/conversation-layout-preference";
+import { SPACE_SELF_MESSAGE_ALIGNMENT_BOOTSTRAP_SCRIPT } from "#/lib/spaces/self-message-alignment-preference";
+import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
+import appCss from "../styles.css?url";
+
+type RouterContext = {
+	queryClient: QueryClient;
+	queryPersistence: BrowserQueryPersistenceController;
+};
+
+const FONT_PRELOAD_LINKS = [
+	"/fonts/Geist-Variable.woff2",
+	"/fonts/GeistMono-Variable.woff2",
+	"/fonts/GeistPixel-Square.woff2",
+	"/fonts/GeistPixel-Line.woff2",
+] as const;
+const FAVICON_VERSION = "20260705a";
+const DARK_THEME_COLOR = "#111110";
+const LIGHT_THEME_COLOR = "#ffffff";
+const THEME_STORAGE_KEY = "theme";
+const THEME_BOOTSTRAP_SCRIPT = `(() => {
+	const root = document.documentElement;
+	const themes = ["light", "dark"];
+	try {
+		const storedTheme = localStorage.getItem("${THEME_STORAGE_KEY}") || "system";
+		const resolvedTheme = storedTheme === "system"
+			? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+			: storedTheme;
+		root.classList.remove(...themes);
+		root.classList.add(resolvedTheme);
+		if (themes.includes(resolvedTheme)) {
+			root.style.colorScheme = resolvedTheme;
+		}
+	} catch {}
+})();`;
+
+const NOT_FOUND_LOGO_SCALE = 0.72;
+
+export const Route = createRootRouteWithContext<RouterContext>()({
+	headers: () => ({
+		"Cache-Control": "no-cache",
+	}),
+	head: () => {
+		const defaultPublicPageHead = buildPublicPageHead({
+			includeCanonical: false,
+			includeRobots: false,
+		});
+
+		return {
+			meta: [
+				{
+					charSet: "utf-8",
+				},
+				{
+					name: "viewport",
+					content: "width=device-width, initial-scale=1",
+				},
+				{
+					name: "application-name",
+					content: siteConfig.name,
+				},
+				{
+					name: "theme-color",
+					content: DARK_THEME_COLOR,
+				},
+				{
+					name: "keywords",
+					content: siteConfig.keywords,
+				},
+				{
+					property: "og:type",
+					content: "website",
+				},
+				{
+					property: "og:locale",
+					content: "en_US",
+				},
+				{
+					property: "og:site_name",
+					content: siteConfig.name,
+				},
+				...defaultPublicPageHead.meta,
+			],
+			links: [
+				...FONT_PRELOAD_LINKS.map((href) => ({
+					as: "font" as const,
+					crossOrigin: "anonymous" as const,
+					href,
+					rel: "preload" as const,
+					type: "font/woff2" as const,
+				})),
+				{
+					rel: "stylesheet",
+					href: appCss,
+				},
+				{
+					rel: "icon",
+					type: "image/png",
+					sizes: "32x32",
+					href: `/favicon-32x32.png?v=${FAVICON_VERSION}`,
+				},
+				{
+					rel: "icon",
+					type: "image/png",
+					sizes: "16x16",
+					href: `/favicon-16x16.png?v=${FAVICON_VERSION}`,
+				},
+				{
+					rel: "shortcut icon",
+					href: `/favicon.ico?v=${FAVICON_VERSION}`,
+				},
+				{
+					rel: "apple-touch-icon",
+					sizes: "180x180",
+					href: `/apple-touch-icon.png?v=${FAVICON_VERSION}`,
+				},
+				{
+					rel: "manifest",
+					href: `/manifest.webmanifest?v=${FAVICON_VERSION}`,
+				},
+			],
+		};
+	},
+	errorComponent: RootErrorComponent,
+	notFoundComponent: RootNotFoundComponent,
+	shellComponent: RootDocument,
+});
+
+function RootDocument({ children }: { children: React.ReactNode }) {
+	return (
+		<html lang="en" suppressHydrationWarning>
+			<head>
+				<script
+					dangerouslySetInnerHTML={{
+						__html: APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT,
+					}}
+					suppressHydrationWarning
+				/>
+				<script
+					dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }}
+					suppressHydrationWarning
+				/>
+				<script
+					dangerouslySetInnerHTML={{
+						__html: SPACE_CONVERSATION_LAYOUT_BOOTSTRAP_SCRIPT,
+					}}
+					suppressHydrationWarning
+				/>
+				<script
+					dangerouslySetInnerHTML={{
+						__html: SPACE_SELF_MESSAGE_ALIGNMENT_BOOTSTRAP_SCRIPT,
+					}}
+					suppressHydrationWarning
+				/>
+				<HeadContent />
+			</head>
+			<body className="font-geist-vars antialiased">
+				<ThemeProvider
+					attribute="class"
+					defaultTheme="system"
+					disableTransitionOnChange
+					enableColorScheme
+					enableSystem
+					storageKey={THEME_STORAGE_KEY}
+				>
+					<AppearanceShapeProvider>
+						<ThemeColorMeta />
+						<TooltipProvider>
+							<NuqsAdapter>{children}</NuqsAdapter>
+						</TooltipProvider>
+						<Toaster position="bottom-right" />
+						<TanStackDevtoolsSlot />
+					</AppearanceShapeProvider>
+					<Scripts />
+				</ThemeProvider>
+			</body>
+		</html>
+	);
+}
+
+export function ThemeColorMeta() {
+	const { resolvedTheme } = useTheme();
+
+	useEffect(() => {
+		if (resolvedTheme !== "light" && resolvedTheme !== "dark") {
+			return;
+		}
+
+		const themeColorMeta = document.querySelector<HTMLMetaElement>(
+			'meta[name="theme-color"]'
+		);
+		themeColorMeta?.setAttribute(
+			"content",
+			resolvedTheme === "light" ? LIGHT_THEME_COLOR : DARK_THEME_COLOR
+		);
+	}, [resolvedTheme]);
+
+	return null;
+}
+
+export function RootErrorComponent({ error }: ErrorComponentProps) {
+	let message = "Unexpected runtime error";
+	if (error instanceof Error) {
+		message = error.message;
+	} else if (typeof error === "string") {
+		message = error;
+	}
+
+	const isEnvError =
+		message.includes("[env]") ||
+		message.includes("Invalid environment variables");
+	const normalizedMessage = message.toLowerCase();
+	const isClientVersionError = [
+		"error loading dynamically imported module",
+		"failed to fetch dynamically imported module",
+		"importing a module script failed",
+		"unable to preload css for",
+	].some((fragment) => normalizedMessage.includes(fragment));
+	let description = "Unhandled application error.";
+	let displayMessage = message;
+	if (isEnvError) {
+		description = "Environment configuration is invalid. See details below.";
+	} else if (isClientVersionError) {
+		description = "OpenMeld was updated while this page was open.";
+		displayMessage = "Refresh to load the latest version.";
+	}
+
+	return (
+		<div className="min-h-svh bg-background">
+			<PublicPageHeader />
+			<main className="flex min-h-[calc(100svh-3.5rem)] w-full items-center justify-center px-4 py-6 sm:px-6">
+				<ApplicationErrorState
+					description={description}
+					message={displayMessage}
+					onAction={() => {
+						if (typeof window !== "undefined") {
+							window.location.reload();
+						}
+					}}
+				>
+					{isEnvError ? (
+						<div className="space-y-1 text-left text-muted-foreground text-xs">
+							<p>Quick fix checklist:</p>
+							<p>
+								1. `clients/web/wrangler.jsonc` has `OPENMELD_GATEWAY_URL`,
+								`WEB_APP_URL`, and `BETTER_AUTH_URL`.
+							</p>
+							<p>
+								2. `clients/web/.dev.vars` or `.dev.vars.prod` has
+								`WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET`.
+							</p>
+							<p>3. Restart `pnpm dev` after changing env files.</p>
+						</div>
+					) : null}
+				</ApplicationErrorState>
+			</main>
+		</div>
+	);
+}
+
+export function RootNotFoundComponent() {
+	return (
+		<div className="min-h-svh bg-background">
+			<PublicPageHeader />
+			<main className="flex min-h-[calc(100svh-3.5rem)] w-full items-center justify-center px-4 py-6 sm:px-6">
+				<section className="w-fit text-center">
+					<OpenMeldLogo
+						colors={OPENMELD_LOGO_THEME_COLORS}
+						scale={NOT_FOUND_LOGO_SCALE}
+					/>
+
+					<div className="mt-6 space-y-2">
+						<p className="font-geist-pixel-square text-[clamp(0.8rem,2vw,1.4rem)]">
+							OPENMELD
+						</p>
+						<p className="font-geist-pixel-square text-[clamp(1.2rem,4vw,2.6rem)]">
+							404
+						</p>
+						<p className="text-muted-foreground text-sm">
+							This page does not exist.
+						</p>
+					</div>
+
+					<div className="mt-4 flex justify-center">
+						<Link
+							className={buttonVariants({ size: "sm", variant: "outline" })}
+							to="/"
+						>
+							Back to home
+						</Link>
+					</div>
+				</section>
+			</main>
+		</div>
+	);
+}

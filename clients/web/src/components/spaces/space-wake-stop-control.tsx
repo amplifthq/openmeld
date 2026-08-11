@@ -1,0 +1,809 @@
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
+import type { PostSpaceWakeStopResponse } from "@openmeld/schemas/types";
+import { Button } from "@openmeld/ui/components/button";
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@openmeld/ui/components/dialog";
+import { cn } from "@openmeld/ui/lib/utils";
+import { StopIcon } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
+import { useState } from "react";
+import type { SpaceWakeStopTargetResolution } from "#/lib/spaces/wake-stop-target";
+
+export type SpaceWakeStopRequestHandler = (
+	target: SpaceWakeStopTargetResolution
+) => Promise<PostSpaceWakeStopResponse>;
+
+export function SpaceWakeStopControl(input: {
+	className?: string;
+	onStopWake: SpaceWakeStopRequestHandler;
+	target?: SpaceWakeStopTargetResolution | null;
+	targets?: readonly SpaceWakeStopTargetResolution[];
+	variant?: "timeline" | "details";
+}) {
+	const variant = input.variant ?? "timeline";
+	const [open, setOpen] = useState(false);
+	const [pendingSelectorKeys, setPendingSelectorKeys] = useState<
+		ReadonlySet<string>
+	>(() => new Set());
+	const [statusMessage, setStatusMessage] = useState<string | null>(null);
+	const [dialogTargetSnapshots, setDialogTargetSnapshots] = useState<
+		readonly SpaceWakeStopTargetResolution[] | null
+	>(null);
+	const targets = normalizeWakeStopTargets(input.targets ?? input.target);
+	const renderableTargets = targets.filter((target) =>
+		shouldRenderSpaceWakeStopTarget(target, variant)
+	);
+	const primaryTarget = renderableTargets[0] ?? null;
+
+	if (!primaryTarget) {
+		return null;
+	}
+
+	const singleTargetState = renderSingleWakeStopTargetState({
+		className: input.className,
+		target: primaryTarget,
+		targetCount: renderableTargets.length,
+		variant,
+	});
+	if (singleTargetState) {
+		return singleTargetState;
+	}
+
+	const hasPendingRequest = pendingSelectorKeys.size > 0;
+	const targetLabel = resolveWakeStopTargetLabel(primaryTarget, {
+		fallback: "this agent",
+	});
+	const controlLabel = resolveWakeStopControlLabel({
+		isPending: hasPendingRequest,
+		targetCount: renderableTargets.length,
+		targets: renderableTargets,
+		status: primaryTarget.status,
+		targetLabel,
+	});
+	const disabled =
+		hasPendingRequest ||
+		!renderableTargets.some((target) => target.canStop === true);
+	const statusCopy =
+		statusMessage ?? resolveWakeStopStatusCopy(primaryTarget.status);
+	const buttonText = resolveWakeStopButtonText({
+		isPending: hasPendingRequest,
+		targets: renderableTargets,
+	});
+	const dialogTargets = resolveWakeStopDialogTargets({
+		dialogTargetSnapshots,
+		renderableTargets,
+		targets,
+	});
+	const dialogPrimaryTarget = dialogTargets[0] ?? primaryTarget;
+	const hasMultipleDialogTargets = dialogTargets.length > 1;
+
+	return (
+		<div
+			className={cn(
+				variant === "timeline"
+					? "inline-flex shrink-0 items-center"
+					: "flex min-w-0 flex-col items-start gap-1.5",
+				input.className
+			)}
+		>
+			<Button
+				aria-label={controlLabel}
+				className={cn(
+					"text-muted-foreground hover:text-foreground",
+					variant === "timeline" ? "gap-1 px-1.5" : null
+				)}
+				disabled={disabled}
+				onClick={() => {
+					setStatusMessage(null);
+					setDialogTargetSnapshots(renderableTargets);
+					setOpen(true);
+				}}
+				size={variant === "details" ? "sm" : "xs"}
+				type="button"
+				variant={variant === "details" ? "outline" : "ghost"}
+			>
+				<StopIcon aria-hidden="true" weight="fill" />
+				<span>{buttonText}</span>
+			</Button>
+			{variant === "details" && statusCopy ? (
+				<p className="text-muted-foreground text-xs leading-5">{statusCopy}</p>
+			) : null}
+			<Dialog
+				onOpenChange={(nextOpen) => {
+					setOpen(nextOpen);
+					if (!nextOpen) {
+						setDialogTargetSnapshots(null);
+						setStatusMessage(null);
+					}
+				}}
+				open={open}
+			>
+				<DialogContent>
+					{hasMultipleDialogTargets ? (
+						<MultiTargetWakeStopDialog
+							onStopWake={input.onStopWake}
+							pendingSelectorKeys={pendingSelectorKeys}
+							setPendingSelectorKeys={setPendingSelectorKeys}
+							setStatusMessage={setStatusMessage}
+							setStoppedTargetSnapshot={setDialogTargetSnapshots}
+							statusMessage={statusMessage}
+							targets={dialogTargets}
+						/>
+					) : (
+						<SingleTargetWakeStopDialog
+							onStopWake={input.onStopWake}
+							pendingSelectorKeys={pendingSelectorKeys}
+							setOpen={setOpen}
+							setPendingSelectorKeys={setPendingSelectorKeys}
+							setStatusMessage={setStatusMessage}
+							setStoppedTargetSnapshot={setDialogTargetSnapshots}
+							statusMessage={statusMessage}
+							target={dialogPrimaryTarget}
+						/>
+					)}
+				</DialogContent>
+			</Dialog>
+		</div>
+	);
+}
+
+function resolveWakeStopDialogTargets(input: {
+	dialogTargetSnapshots: readonly SpaceWakeStopTargetResolution[] | null;
+	renderableTargets: readonly SpaceWakeStopTargetResolution[];
+	targets: readonly SpaceWakeStopTargetResolution[];
+}): readonly SpaceWakeStopTargetResolution[] {
+	if (
+		!input.dialogTargetSnapshots ||
+		input.dialogTargetSnapshots.length === 0
+	) {
+		return input.renderableTargets;
+	}
+	const targetByKey = new Map<string, SpaceWakeStopTargetResolution>();
+	for (const target of input.targets) {
+		const key = resolveWakeStopTargetDialogKey(target);
+		if (key) {
+			targetByKey.set(key, target);
+		}
+	}
+	return input.dialogTargetSnapshots
+		.map((snapshot) => {
+			const key = resolveWakeStopTargetDialogKey(snapshot);
+			return key ? (targetByKey.get(key) ?? snapshot) : snapshot;
+		})
+		.filter((target): target is SpaceWakeStopTargetResolution =>
+			Boolean(
+				target?.selector &&
+					target.status !== "not_stoppable" &&
+					target.status !== "unavailable"
+			)
+		);
+}
+
+function resolveWakeStopTargetDialogKey(
+	target: SpaceWakeStopTargetResolution
+): string | null {
+	return (
+		target.selectorKey ??
+		target.targetProfileId ??
+		target.sourceSignalId ??
+		target.targetLabel
+	);
+}
+
+function renderSingleWakeStopTargetState(input: {
+	className?: string;
+	target: SpaceWakeStopTargetResolution;
+	targetCount: number;
+	variant: "timeline" | "details";
+}): ReactNode | null {
+	if (input.targetCount !== 1) {
+		return null;
+	}
+	if (input.target.status === "stopped") {
+		return (
+			<p
+				className={cn(
+					"text-muted-foreground text-xs",
+					input.variant === "details" ? "text-sm" : null,
+					input.className
+				)}
+			>
+				Wake was stopped.
+			</p>
+		);
+	}
+	if (input.target.status !== "unsupported" || input.variant !== "details") {
+		return null;
+	}
+	return (
+		<p
+			className={cn("text-muted-foreground text-xs leading-5", input.className)}
+		>
+			Stop is not supported for this local agent.
+		</p>
+	);
+}
+
+export function shouldRenderSpaceWakeStopControl(
+	target:
+		| SpaceWakeStopTargetResolution
+		| readonly SpaceWakeStopTargetResolution[]
+		| null
+		| undefined,
+	variant: "timeline" | "details" = "timeline"
+): boolean {
+	return normalizeWakeStopTargets(target).some((candidate) =>
+		shouldRenderSpaceWakeStopTarget(candidate, variant)
+	);
+}
+
+function shouldRenderSpaceWakeStopTarget(
+	target: SpaceWakeStopTargetResolution,
+	variant: "timeline" | "details"
+): boolean {
+	if (!target.selector) {
+		return false;
+	}
+	if (target.status === "not_stoppable" || target.status === "unavailable") {
+		return false;
+	}
+	if (variant === "timeline" && target.status === "unsupported") {
+		return false;
+	}
+	return variant === "details" || target.status !== "stopped";
+}
+
+async function handleConfirmStop(input: {
+	onStopWake: SpaceWakeStopRequestHandler;
+	setPendingSelectorKeys: (
+		updater: (current: ReadonlySet<string>) => ReadonlySet<string>
+	) => void;
+	setOpen: (open: boolean) => void;
+	setStatusMessage: (message: string | null) => void;
+	setStoppedTargetSnapshot: (
+		updater: (
+			current: readonly SpaceWakeStopTargetResolution[] | null
+		) => readonly SpaceWakeStopTargetResolution[] | null
+	) => void;
+	target: SpaceWakeStopTargetResolution;
+}): Promise<void> {
+	setWakeStopTargetPending({
+		pending: true,
+		setPendingSelectorKeys: input.setPendingSelectorKeys,
+		target: input.target,
+	});
+	input.setStatusMessage(null);
+	try {
+		const response = await input.onStopWake(input.target);
+		input.setStatusMessage(resolveWakeStopResponseMessage(response));
+		input.setStoppedTargetSnapshot((current) =>
+			updateWakeStopDialogTargetSnapshots({
+				current,
+				response,
+				target: input.target,
+			})
+		);
+		if (response.status === "cancellation_requested" || response.ok) {
+			input.setOpen(false);
+		}
+	} catch (error) {
+		input.setStatusMessage(resolveWakeStopRequestErrorMessage(error));
+	} finally {
+		setWakeStopTargetPending({
+			pending: false,
+			setPendingSelectorKeys: input.setPendingSelectorKeys,
+			target: input.target,
+		});
+	}
+}
+
+async function handleConfirmStopAll(input: {
+	onStopWake: SpaceWakeStopRequestHandler;
+	setPendingSelectorKeys: (
+		updater: (current: ReadonlySet<string>) => ReadonlySet<string>
+	) => void;
+	setStatusMessage: (message: string | null) => void;
+	setStoppedTargetSnapshot: (
+		updater: (
+			current: readonly SpaceWakeStopTargetResolution[] | null
+		) => readonly SpaceWakeStopTargetResolution[] | null
+	) => void;
+	targets: readonly SpaceWakeStopTargetResolution[];
+}): Promise<void> {
+	const stoppableTargets = input.targets.filter((target) => target.canStop);
+	if (stoppableTargets.length === 0) {
+		input.setStatusMessage("This Wake is no longer stoppable.");
+		return;
+	}
+
+	input.setStatusMessage(null);
+	let requestedCount = 0;
+	for (const target of stoppableTargets) {
+		setWakeStopTargetPending({
+			pending: true,
+			setPendingSelectorKeys: input.setPendingSelectorKeys,
+			target,
+		});
+		try {
+			const response = await input.onStopWake(target);
+			input.setStoppedTargetSnapshot((current) =>
+				updateWakeStopDialogTargetSnapshots({ current, response, target })
+			);
+			requestedCount += 1;
+		} catch (error) {
+			input.setStatusMessage(resolveWakeStopRequestErrorMessage(error));
+			return;
+		} finally {
+			setWakeStopTargetPending({
+				pending: false,
+				setPendingSelectorKeys: input.setPendingSelectorKeys,
+				target,
+			});
+		}
+	}
+
+	input.setStatusMessage(
+		`Stop requested for ${requestedCount} ${requestedCount === 1 ? "agent" : "agents"}.`
+	);
+}
+
+function SingleTargetWakeStopDialog(input: {
+	onStopWake: SpaceWakeStopRequestHandler;
+	pendingSelectorKeys: ReadonlySet<string>;
+	setOpen: (open: boolean) => void;
+	setPendingSelectorKeys: (
+		updater: (current: ReadonlySet<string>) => ReadonlySet<string>
+	) => void;
+	setStatusMessage: (message: string | null) => void;
+	setStoppedTargetSnapshot: (
+		updater: (
+			current: readonly SpaceWakeStopTargetResolution[] | null
+		) => readonly SpaceWakeStopTargetResolution[] | null
+	) => void;
+	statusMessage: string | null;
+	target: SpaceWakeStopTargetResolution;
+}) {
+	const targetLabel = resolveWakeStopTargetLabel(input.target, {
+		fallback: "this agent",
+	});
+	const isPending = isWakeStopTargetPending({
+		pendingSelectorKeys: input.pendingSelectorKeys,
+		target: input.target,
+	});
+	const description = `OpenMeld will stop this Wake for ${targetLabel}. If the agent has already started, confirmation may take a moment.`;
+
+	return (
+		<>
+			<DialogHeader>
+				<DialogTitle>Stop this Wake?</DialogTitle>
+				<DialogDescription>{description}</DialogDescription>
+			</DialogHeader>
+			{input.statusMessage ? (
+				<p className="text-muted-foreground text-xs leading-5">
+					{input.statusMessage}
+				</p>
+			) : null}
+			<DialogFooter>
+				<DialogClose render={<Button type="button" variant="outline" />}>
+					Keep Running
+				</DialogClose>
+				<Button
+					disabled={isPending || !input.target.canStop}
+					onClick={() => {
+						handleConfirmStop({
+							onStopWake: input.onStopWake,
+							setOpen: input.setOpen,
+							setPendingSelectorKeys: input.setPendingSelectorKeys,
+							setStatusMessage: input.setStatusMessage,
+							setStoppedTargetSnapshot: input.setStoppedTargetSnapshot,
+							target: input.target,
+						}).catch((error) => {
+							console.error("Failed to stop a Space Wake.", error);
+						});
+					}}
+					type="button"
+					variant="destructive"
+				>
+					{isPending ? "Requesting Stop..." : "Stop Wake"}
+				</Button>
+			</DialogFooter>
+		</>
+	);
+}
+
+function MultiTargetWakeStopDialog(input: {
+	onStopWake: SpaceWakeStopRequestHandler;
+	pendingSelectorKeys: ReadonlySet<string>;
+	setPendingSelectorKeys: (
+		updater: (current: ReadonlySet<string>) => ReadonlySet<string>
+	) => void;
+	setStatusMessage: (message: string | null) => void;
+	setStoppedTargetSnapshot: (
+		updater: (
+			current: readonly SpaceWakeStopTargetResolution[] | null
+		) => readonly SpaceWakeStopTargetResolution[] | null
+	) => void;
+	statusMessage: string | null;
+	targets: readonly SpaceWakeStopTargetResolution[];
+}) {
+	const canStopTargets = input.targets.filter((target) => target.canStop);
+	const hasPendingRequest = input.pendingSelectorKeys.size > 0;
+
+	return (
+		<>
+			<DialogHeader>
+				<DialogTitle>Stop agents in this Wake</DialogTitle>
+				<DialogDescription>
+					Choose which agent to stop. OpenMeld will keep the others running.
+				</DialogDescription>
+			</DialogHeader>
+			<div className="flex flex-col divide-y divide-border/70">
+				{input.targets.map((target) => {
+					const targetLabel = resolveWakeStopTargetLabel(target, {
+						fallback: "Agent",
+						includeProfileIdFallback: true,
+					});
+					const isPending = isWakeStopTargetPending({
+						pendingSelectorKeys: input.pendingSelectorKeys,
+						target,
+					});
+					const rowStatus = resolveWakeStopTargetRowStatus({
+						isPending,
+						target,
+					});
+					return (
+						<div
+							className="flex min-w-0 items-center justify-between gap-3 py-3"
+							key={target.selectorKey ?? target.targetProfileId ?? targetLabel}
+						>
+							<div className="min-w-0">
+								<p className="truncate font-medium text-sm">{targetLabel}</p>
+								<p className="text-muted-foreground text-xs leading-5">
+									{rowStatus}
+								</p>
+							</div>
+							<Button
+								aria-label={resolveWakeStopTargetActionLabel({
+									target,
+									targetLabel,
+								})}
+								disabled={hasPendingRequest || !target.canStop}
+								onClick={() => {
+									handleConfirmStop({
+										onStopWake: input.onStopWake,
+										setOpen: () => undefined,
+										setPendingSelectorKeys: input.setPendingSelectorKeys,
+										setStatusMessage: input.setStatusMessage,
+										setStoppedTargetSnapshot: input.setStoppedTargetSnapshot,
+										target,
+									}).catch((error) => {
+										console.error("Failed to stop a Space Wake.", error);
+									});
+								}}
+								size="sm"
+								type="button"
+								variant={target.canStop ? "destructive" : "outline"}
+							>
+								{resolveWakeStopTargetActionText({ isPending, target })}
+							</Button>
+						</div>
+					);
+				})}
+			</div>
+			{input.statusMessage ? (
+				<p className="text-muted-foreground text-xs leading-5">
+					{input.statusMessage}
+				</p>
+			) : null}
+			<DialogFooter>
+				<DialogClose render={<Button type="button" variant="outline" />}>
+					Keep Running
+				</DialogClose>
+				{canStopTargets.length > 1 ? (
+					<Button
+						disabled={hasPendingRequest}
+						onClick={() => {
+							handleConfirmStopAll({
+								onStopWake: input.onStopWake,
+								setPendingSelectorKeys: input.setPendingSelectorKeys,
+								setStatusMessage: input.setStatusMessage,
+								setStoppedTargetSnapshot: input.setStoppedTargetSnapshot,
+								targets: canStopTargets,
+							}).catch((error) => {
+								console.error("Failed to stop Space Wake targets.", error);
+							});
+						}}
+						type="button"
+						variant="destructive"
+					>
+						Stop All
+					</Button>
+				) : null}
+			</DialogFooter>
+		</>
+	);
+}
+
+function resolveWakeStopRequestErrorMessage(error: unknown): string {
+	const failure = toStructuredApiClientFailure(error);
+	return `OpenMeld couldn't request Stop. ${failure.message}`;
+}
+
+function updateWakeStopDialogTargetSnapshots(input: {
+	current: readonly SpaceWakeStopTargetResolution[] | null;
+	response: PostSpaceWakeStopResponse;
+	target: SpaceWakeStopTargetResolution;
+}): readonly SpaceWakeStopTargetResolution[] | null {
+	if (!input.current || input.current.length === 0) {
+		return input.current;
+	}
+	const targetKey = resolveWakeStopTargetDialogKey(input.target);
+	if (!targetKey) {
+		return input.current;
+	}
+	const nextTargetState = resolveWakeStopResponseTargetState(input.response);
+	if (!nextTargetState) {
+		return input.current;
+	}
+	return input.current.map((candidate) => {
+		if (resolveWakeStopTargetDialogKey(candidate) !== targetKey) {
+			return candidate;
+		}
+		return {
+			...candidate,
+			...nextTargetState,
+		};
+	});
+}
+
+function resolveWakeStopResponseTargetState(
+	response: PostSpaceWakeStopResponse
+): Pick<SpaceWakeStopTargetResolution, "canStop" | "status"> | null {
+	switch (response.status) {
+		case "already_cancelled":
+		case "cancelled":
+			return {
+				canStop: false,
+				status: "stopped",
+			};
+		case "cancellation_requested":
+			return {
+				canStop: false,
+				status: "stopping",
+			};
+		case "retry_later":
+			return {
+				canStop: true,
+				status: "retry_later",
+			};
+		case "unsupported":
+			return {
+				canStop: false,
+				status: "unsupported",
+			};
+		case "not_found":
+		case "not_stoppable":
+			return {
+				canStop: false,
+				status: "not_stoppable",
+			};
+		default:
+			return null;
+	}
+}
+
+function resolveWakeStopControlLabel(input: {
+	isPending: boolean;
+	status: SpaceWakeStopTargetResolution["status"];
+	targetCount: number;
+	targetLabel: string;
+	targets: readonly SpaceWakeStopTargetResolution[];
+}): string {
+	if (input.isPending) {
+		return input.targetCount > 1
+			? "Stop request pending for this Wake"
+			: `Stop request pending for ${input.targetLabel}`;
+	}
+	if (input.targetCount > 1) {
+		const stoppableCount = input.targets.filter(
+			(target) => target.canStop
+		).length;
+		if (stoppableCount === 0) {
+			return "Stop request pending for this Wake";
+		}
+		return `Stop Wake for ${input.targetCount} agents`;
+	}
+	switch (input.status) {
+		case "stopping":
+			return `Stop request pending for ${input.targetLabel}`;
+		case "retry_later":
+			return `Retry Stop for ${input.targetLabel}`;
+		case "unsupported":
+			return `Wake Stop unavailable for ${input.targetLabel}`;
+		case "unavailable":
+			return `Wake Stop unavailable for ${input.targetLabel}`;
+		default:
+			return `Stop Wake for ${input.targetLabel}`;
+	}
+}
+
+function resolveWakeStopButtonText(input: {
+	isPending: boolean;
+	targets: readonly SpaceWakeStopTargetResolution[];
+}): string {
+	const hasStoppableTarget = input.targets.some((target) => target.canStop);
+	const hasStoppingTarget = input.targets.some(
+		(target) => target.status === "stopping"
+	);
+	if (input.isPending || (!hasStoppableTarget && hasStoppingTarget)) {
+		return "Stopping...";
+	}
+	if (input.targets.some((target) => target.status === "retry_later")) {
+		return "Retry Stop";
+	}
+	return "Stop";
+}
+
+function resolveWakeStopStatusCopy(
+	status: SpaceWakeStopTargetResolution["status"]
+): string | null {
+	switch (status) {
+		case "stopping":
+			return "Stop requested. Waiting for OpenMeld to confirm this Wake was stopped.";
+		case "unsupported":
+			return "Stop is not supported for this local agent.";
+		case "unavailable":
+			return null;
+		case "retry_later":
+			return "OpenMeld could not reach the local service. Try again in a moment.";
+		default:
+			return null;
+	}
+}
+
+function resolveWakeStopResponseMessage(
+	response: PostSpaceWakeStopResponse
+): string {
+	switch (response.status) {
+		case "cancellation_requested":
+			return "Stop requested. Waiting for OpenMeld to confirm this Wake was stopped.";
+		case "cancelled":
+		case "already_cancelled":
+			return "Stop confirmed. Refreshing Wake status.";
+		case "unsupported":
+			return "Stop is not supported for this local agent.";
+		case "retry_later":
+			return "OpenMeld could not reach the local service. Try again in a moment.";
+		case "not_found":
+		case "not_stoppable":
+			return "This Wake is no longer stoppable.";
+		default:
+			return "OpenMeld received the Stop response. Refreshing Wake status.";
+	}
+}
+
+function normalizeWakeStopTargets(
+	target:
+		| SpaceWakeStopTargetResolution
+		| readonly SpaceWakeStopTargetResolution[]
+		| null
+		| undefined
+): readonly SpaceWakeStopTargetResolution[] {
+	if (!target) {
+		return [];
+	}
+	if (Array.isArray(target)) {
+		return target;
+	}
+	return [target as SpaceWakeStopTargetResolution];
+}
+
+function resolveWakeStopTargetLabel(
+	target: SpaceWakeStopTargetResolution,
+	input: { fallback: string; includeProfileIdFallback?: boolean }
+): string {
+	const label = target.targetLabel?.trim();
+	if (label) {
+		return label;
+	}
+	const profileId = target.targetProfileId?.trim();
+	if (profileId && input.includeProfileIdFallback) {
+		return profileId;
+	}
+	return input.fallback;
+}
+
+function isWakeStopTargetPending(input: {
+	pendingSelectorKeys: ReadonlySet<string>;
+	target: SpaceWakeStopTargetResolution;
+}): boolean {
+	return Boolean(
+		input.target.selectorKey &&
+			input.pendingSelectorKeys.has(input.target.selectorKey)
+	);
+}
+
+function setWakeStopTargetPending(input: {
+	pending: boolean;
+	setPendingSelectorKeys: (
+		updater: (current: ReadonlySet<string>) => ReadonlySet<string>
+	) => void;
+	target: SpaceWakeStopTargetResolution;
+}): void {
+	const selectorKey = input.target.selectorKey;
+	if (!selectorKey) {
+		return;
+	}
+	input.setPendingSelectorKeys((current) => {
+		const next = new Set(current);
+		if (input.pending) {
+			next.add(selectorKey);
+		} else {
+			next.delete(selectorKey);
+		}
+		return next;
+	});
+}
+
+function resolveWakeStopTargetRowStatus(input: {
+	isPending: boolean;
+	target: SpaceWakeStopTargetResolution;
+}): string {
+	if (input.isPending || input.target.status === "stopping") {
+		return "Stopping...";
+	}
+	switch (input.target.status) {
+		case "retry_later":
+			return "Ready to retry.";
+		case "unsupported":
+			return "Stop is not supported for this local agent.";
+		case "stopped":
+			return "Stopped.";
+		default:
+			return input.target.canStop ? "Ready to stop." : "Not stoppable.";
+	}
+}
+
+function resolveWakeStopTargetActionText(input: {
+	isPending: boolean;
+	target: SpaceWakeStopTargetResolution;
+}): string {
+	if (input.isPending || input.target.status === "stopping") {
+		return "Stopping...";
+	}
+	if (input.target.status === "stopped") {
+		return "Stopped";
+	}
+	if (input.target.status === "retry_later") {
+		return "Retry";
+	}
+	if (!input.target.canStop) {
+		return "Unavailable";
+	}
+	return "Stop";
+}
+
+function resolveWakeStopTargetActionLabel(input: {
+	target: SpaceWakeStopTargetResolution;
+	targetLabel: string;
+}): string {
+	switch (input.target.status) {
+		case "stopped":
+			return `${input.targetLabel} stopped`;
+		case "retry_later":
+			return `Retry Stop for ${input.targetLabel}`;
+		case "unsupported":
+		case "unavailable":
+		case "not_stoppable":
+			return `Wake Stop unavailable for ${input.targetLabel}`;
+		default:
+			return `Stop ${input.targetLabel}`;
+	}
+}

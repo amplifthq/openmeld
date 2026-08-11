@@ -1,0 +1,147 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  createRemoteAgentCallbackContext,
+  putRemoteAgentCallbackContext,
+  readRemoteAgentCallbackContext,
+} from "../agent-core/callback-context";
+import {
+  initializeRemoteAgentExecutionState,
+  markRemoteAgentExecutionProgress,
+} from "../agent-core/execution-state";
+import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
+import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
+import { InMemoryDurableObjectStorage } from "./storage";
+
+describe("remote agent execution reconciliation", () => {
+  it("publishes one visible failure after Flue exhausts an interrupted submission", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const submissionId = "submission_oom_exhausted";
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId,
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: TEST_NOW_MS,
+      identity,
+      storage,
+    });
+    await putRemoteAgentCallbackContext(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: request.idempotencyKey,
+          requestId: submissionId,
+          status: "pending",
+          submissionId,
+        },
+        nowMs: TEST_NOW_MS,
+        request,
+      })
+    );
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_visible_failure",
+      status: "accepted" as const,
+    }));
+    const readSubmission = vi.fn(async () => ({
+      error: "Agent submission exhausted its retry budget after 5 attempts.",
+      status: "settled" as const,
+    }));
+
+    const first = await reconcileRemoteAgentExecution({
+      coreWorker: { completeRemoteAgentSubmission },
+      identity,
+      nowMs: () => TEST_NOW_MS + 1000,
+      readSubmission,
+      storage,
+    });
+    const second = await reconcileRemoteAgentExecution({
+      coreWorker: { completeRemoteAgentSubmission },
+      identity,
+      nowMs: () => TEST_NOW_MS + 2000,
+      readSubmission,
+      storage,
+    });
+
+    expect(first).toMatchObject({
+      execution: {
+        completedAtMs: TEST_NOW_MS + 1000,
+        lastProgressKind: "prompt_failed",
+        status: "failed",
+      },
+      status: "found",
+    });
+    expect(second).toEqual(first);
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.turn_not_completed",
+        failureMessage:
+          "Remote Agent could not finish this request. Please try again or open diagnostics.",
+        status: "failed",
+        submissionId,
+      })
+    );
+    await expect(
+      readRemoteAgentCallbackContext(storage, submissionId)
+    ).resolves.toMatchObject({
+      callbackAttempts: 1,
+      callbackStatus: "failed",
+      lastCoreResponse: {
+        publishedSignalId: "signal_visible_failure",
+        status: "accepted",
+      },
+      terminalFailureFact: {
+        code: "remote_agent.turn_not_completed",
+        detail: "Agent submission exhausted its retry budget after 5 attempts.",
+      },
+    });
+  });
+
+  it("does not change an active execution or invoke Core", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId: "submission_active",
+      v: 1 as const,
+    };
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: TEST_NOW_MS,
+      identity,
+      storage,
+    });
+    await markRemoteAgentExecutionProgress({
+      identity,
+      nowMs: TEST_NOW_MS + 500,
+      progressKind: "tool_started",
+      storage,
+    });
+    const completeRemoteAgentSubmission = vi.fn();
+
+    await expect(
+      reconcileRemoteAgentExecution({
+        coreWorker: { completeRemoteAgentSubmission },
+        identity,
+        nowMs: () => TEST_NOW_MS + 1000,
+        readSubmission: async () => ({ status: "running" }),
+        storage,
+      })
+    ).resolves.toMatchObject({
+      execution: {
+        lastProgressAtMs: TEST_NOW_MS + 500,
+        lastProgressKind: "tool_started",
+        status: "running",
+      },
+      status: "found",
+    });
+    expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+  });
+});

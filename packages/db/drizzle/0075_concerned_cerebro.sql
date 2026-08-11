@@ -1,0 +1,1 @@
+ALTER TABLE `organization_skills` ADD `maintainer_update_token` text;

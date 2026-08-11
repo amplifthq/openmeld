@@ -1,0 +1,36 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@openmeld/ui/globals.css";
+
+@source "../../../../packages/ui/src";
+
+:root {
+  --openmeld-desktop-shell-header-height: 5.25rem;
+  --openmeld-desktop-titlebar-gap: 1.25rem;
+  --space-conversation-header-height: calc(
+    var(--openmeld-desktop-shell-header-height) +
+    var(--openmeld-desktop-titlebar-gap)
+  );
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* Window dragging when the native title bar is hidden (titleBarStyle inset). */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}

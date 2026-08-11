@@ -1,0 +1,2 @@
+ALTER TABLE `openMeldRemoteAgent_lark_platform_channel_connections` ADD `events_webhook_verified_at_ms` integer;--> statement-breakpoint
+ALTER TABLE `openMeldRemoteAgent_lark_platform_channel_connections` ADD `callbacks_webhook_verified_at_ms` integer;

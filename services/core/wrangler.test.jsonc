@@ -1,0 +1,87 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openmeld-core-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-03",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "queue_consumer_no_wait_for_wait_until"
+  ],
+  "vars": {
+    "CORS_ORIGINS": "https://gateway.openmeld.invalid",
+    "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED": "false",
+    "OPENMELD_LARK_CHANNEL_ENABLED": "false",
+    "OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS": "",
+    "OPENMELD_FEISHU_CHANNEL_ENABLED": "false",
+    "OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS": "",
+    "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "",
+    "OPENMELD_ROUTINE_ENGINE_DEFAULT": "workflow",
+    "OPENMELD_ROUTINE_LEGACY_ORGANIZATION_IDS": ""
+  },
+  "workflows": [
+    {
+      "binding": "OPENMELD_ROUTINE_RUN_WORKFLOW",
+      "class_name": "RoutineRunWorkflow",
+      "name": "openmeld-routine-run-test"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OPENMELD_SPACES",
+        "class_name": "Space"
+      },
+      {
+        "name": "OPENMELD_RUNTIME_TRANSPORT",
+        "class_name": "RuntimeTransportHub"
+      },
+      {
+        "name": "OPENMELD_PREPARE_SESSION_HUB",
+        "class_name": "PrepareSessionHub"
+      }
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "OPENMELD_DB",
+      "database_name": "openmeld-db-test",
+      "database_id": "openmeld-db-test",
+      "migrations_dir": "../../packages/db/drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "OPENMELD_ORGANIZATION_SKILLS",
+      "bucket_name": "openmeld-organization-skills-test"
+    }
+  ],
+  // Intentionally keep queue bindings out of integration tests so space-api
+  // suites avoid async queue side effects leaking across isolated-storage
+  // boundaries. Space mutation tests still need OPENMELD_DB because SpaceIndex is
+  // now part of the mutation contract.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Space"]
+    },
+    {
+      "tag": "v2",
+      // Applied migration history: keep DaemonHub here; v4 performs the rename.
+      "new_sqlite_classes": ["DaemonHub"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["PrepareSessionHub"]
+    },
+    {
+      "tag": "v4",
+      // Same-worker class rename; preserves existing Durable Object data.
+      "renamed_classes": [
+        {
+          "from": "DaemonHub",
+          "to": "RuntimeTransportHub"
+        }
+      ]
+    }
+  ]
+}

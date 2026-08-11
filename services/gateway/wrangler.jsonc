@@ -1,0 +1,309 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openmeld-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-03",
+  "compatibility_flags": ["nodejs_compat"],
+  "dev": {
+    "ip": "localhost",
+    "port": 8080,
+    "inspector_port": 9230
+  },
+  "route": {
+    "custom_domain": true,
+    "pattern": "gateway.openmeld.ai"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
+  },
+  "analytics_engine_datasets": [
+    {
+      "binding": "OPENMELD_OBSERVABILITY",
+      "dataset": "openmeld_runtime_evidence"
+    }
+  ],
+  "images": {
+    "binding": "OPENMELD_IMAGES",
+    "remote": true
+  },
+  "r2_buckets": [
+    {
+      "binding": "OPENMELD_SPACE_ATTACHMENTS",
+      "bucket_name": "openmeld-space-attachments-preview",
+      "preview_bucket_name": "openmeld-space-attachments-preview"
+    },
+    {
+      "binding": "OPENMELD_ORGANIZATION_LOGOS",
+      "bucket_name": "openmeld-organization-logos-preview",
+      "preview_bucket_name": "openmeld-organization-logos-preview"
+    },
+    {
+      "binding": "OPENMELD_ACCOUNT_AVATARS",
+      "bucket_name": "openmeld-organization-logos-preview",
+      "preview_bucket_name": "openmeld-organization-logos-preview"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    {
+      "name": "OPENMELD_FEEDBACK_INBOX_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": { "limit": 120, "period": 60 }
+    },
+    {
+      "name": "OPENMELD_SPACE_PASSWORD_RATE_LIMITER",
+      "namespace_id": "1004",
+      "simple": { "limit": 10, "period": 60 }
+    }
+  ],
+  "vars": {
+    "OPENMELD_WORKER_ENVIRONMENT": "local",
+    "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
+    "OPENMELD_GATEWAY_URL": "http://localhost:8080",
+    "WEB_APP_URL": "http://localhost:3000",
+    // Slack must reach the callback over HTTPS; this tunnel forwards to the
+    // default local Gateway on port 8080.
+    "OPENMELD_SLACK_OAUTH_REDIRECT_URL": "https://longer-drunk-discount-restructuring.trycloudflare.com/slack/oauth/callback"
+  },
+  "secrets": {
+    "required": [
+      "SLACK_OPENMELD_OAUTH_CLIENT_ID",
+      "SLACK_OPENMELD_OAUTH_CLIENT_SECRET",
+      "SLACK_OPENMELD_SIGNING_SECRET",
+      "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN"
+    ]
+  },
+  "services": [
+    {
+      "binding": "OPENMELD_CORE_WORKER",
+      "service": "openmeld-core",
+      "entrypoint": "GatewayRpcEntrypoint"
+    },
+    {
+      "binding": "OPENMELD_AUTH_WORKER",
+      "service": "openmeld-auth",
+      "entrypoint": "GatewayAuthRpcEntrypoint"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "OPENMELD_REMOTE_AGENT_SLACK_EVENTS_QUEUE",
+        "queue": "openmeld-daemon-dispatch"
+      },
+      {
+        "binding": "OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE",
+        "queue": "openmeld-message-channel-events"
+      }
+    ]
+  },
+  "env": {
+    "dev": {
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence"
+        }
+      ],
+      "images": {
+        "binding": "OPENMELD_IMAGES",
+        "remote": true
+      },
+      "r2_buckets": [
+        {
+          "binding": "OPENMELD_SPACE_ATTACHMENTS",
+          "bucket_name": "openmeld-space-attachments-preview",
+          "preview_bucket_name": "openmeld-space-attachments-preview"
+        },
+        {
+          "binding": "OPENMELD_ORGANIZATION_LOGOS",
+          "bucket_name": "openmeld-organization-logos-preview",
+          "preview_bucket_name": "openmeld-organization-logos-preview"
+        },
+        {
+          "binding": "OPENMELD_ACCOUNT_AVATARS",
+          "bucket_name": "openmeld-organization-logos-preview",
+          "preview_bucket_name": "openmeld-organization-logos-preview"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
+          "namespace_id": "1001",
+          "simple": { "limit": 10, "period": 60 }
+        },
+        {
+          "name": "OPENMELD_FEEDBACK_INBOX_RATE_LIMITER",
+          "namespace_id": "1002",
+          "simple": { "limit": 120, "period": 60 }
+        },
+        {
+          "name": "OPENMELD_SPACE_PASSWORD_RATE_LIMITER",
+          "namespace_id": "1004",
+          "simple": { "limit": 10, "period": 60 }
+        }
+      ],
+      "vars": {
+        "OPENMELD_WORKER_ENVIRONMENT": "dev",
+        "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
+        "OPENMELD_GATEWAY_URL": "http://localhost:8080",
+        "WEB_APP_URL": "http://localhost:3000",
+        "OPENMELD_SLACK_OAUTH_REDIRECT_URL": "https://longer-drunk-discount-restructuring.trycloudflare.com/slack/oauth/callback"
+      },
+      "secrets": {
+        "required": [
+          "SLACK_OPENMELD_OAUTH_CLIENT_ID",
+          "SLACK_OPENMELD_OAUTH_CLIENT_SECRET",
+          "SLACK_OPENMELD_SIGNING_SECRET",
+          "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN"
+        ]
+      },
+      "services": [
+        {
+          "binding": "OPENMELD_CORE_WORKER",
+          "service": "openmeld-core",
+          "entrypoint": "GatewayRpcEntrypoint"
+        },
+        {
+          "binding": "OPENMELD_AUTH_WORKER",
+          "service": "openmeld-auth",
+          "entrypoint": "GatewayAuthRpcEntrypoint"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "OPENMELD_REMOTE_AGENT_SLACK_EVENTS_QUEUE",
+            "queue": "openmeld-daemon-dispatch"
+          },
+          {
+            "binding": "OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE",
+            "queue": "openmeld-message-channel-events"
+          }
+        ]
+      }
+    },
+    "prod": {
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "invocation_logs": true
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1
+        }
+      },
+      "analytics_engine_datasets": [
+        {
+          "binding": "OPENMELD_OBSERVABILITY",
+          "dataset": "openmeld_runtime_evidence_prod"
+        }
+      ],
+      "images": {
+        "binding": "OPENMELD_IMAGES"
+      },
+      "r2_buckets": [
+        {
+          "binding": "OPENMELD_SPACE_ATTACHMENTS",
+          "bucket_name": "openmeld-space-attachments-prod",
+          "preview_bucket_name": "openmeld-space-attachments-preview"
+        },
+        {
+          "binding": "OPENMELD_ORGANIZATION_LOGOS",
+          "bucket_name": "openmeld-organization-logos-prod",
+          "preview_bucket_name": "openmeld-organization-logos-preview"
+        },
+        {
+          "binding": "OPENMELD_ACCOUNT_AVATARS",
+          "bucket_name": "openmeld-organization-logos-prod",
+          "preview_bucket_name": "openmeld-organization-logos-preview"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "OPENMELD_FEEDBACK_IP_RATE_LIMITER",
+          "namespace_id": "1001",
+          "simple": { "limit": 10, "period": 60 }
+        },
+        {
+          "name": "OPENMELD_FEEDBACK_INBOX_RATE_LIMITER",
+          "namespace_id": "1002",
+          "simple": { "limit": 120, "period": 60 }
+        },
+        {
+          "name": "OPENMELD_SPACE_PASSWORD_RATE_LIMITER",
+          "namespace_id": "1004",
+          "simple": { "limit": 10, "period": 60 }
+        }
+      ],
+      "vars": {
+        "OPENMELD_WORKER_ENVIRONMENT": "prod",
+        "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
+        "OPENMELD_GATEWAY_URL": "https://gateway.openmeld.ai",
+        "GITHUB_OPENMELD_APP_SLUG": "openmeld",
+        "WEB_APP_URL": "https://openmeld.ai",
+        "OPENMELD_SLACK_OAUTH_REDIRECT_URL": "https://gateway.openmeld.ai/slack/oauth/callback"
+      },
+      "secrets": {
+        "required": [
+          "SLACK_OPENMELD_OAUTH_CLIENT_ID",
+          "SLACK_OPENMELD_OAUTH_CLIENT_SECRET",
+          "SLACK_OPENMELD_SIGNING_SECRET",
+          "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN"
+        ]
+      },
+      "services": [
+        {
+          "binding": "OPENMELD_CORE_WORKER",
+          "service": "openmeld-core-prod",
+          "entrypoint": "GatewayRpcEntrypoint"
+        },
+        {
+          "binding": "OPENMELD_AUTH_WORKER",
+          "service": "openmeld-auth-prod",
+          "entrypoint": "GatewayAuthRpcEntrypoint"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "OPENMELD_REMOTE_AGENT_SLACK_EVENTS_QUEUE",
+            "queue": "openmeld-daemon-dispatch-prod"
+          },
+          {
+            "binding": "OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE",
+            "queue": "openmeld-message-channel-events-prod"
+          }
+        ]
+      }
+    }
+  }
+}

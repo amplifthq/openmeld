@@ -1,0 +1,81 @@
+name: 🛡️ Deploy Auth Worker
+run-name: Deploy Auth Worker @ ${{ inputs.release_sha || github.sha }}
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: "Deployment environment"
+        required: true
+        type: choice
+        default: production
+        options:
+          - production
+      release_sha:
+        description: "Optional exact main commit to deploy"
+        required: false
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      deploy_environment:
+        description: "Deployment environment"
+        required: false
+        type: string
+        default: production
+      release_sha:
+        description: "Exact main commit to deploy"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  deploy:
+    name: 🛡️ Deploy Auth Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-auth-worker-production
+      cancel-in-progress: false
+    environment: production
+    env:
+      BETTER_AUTH_OPENMELD_SECRET: ci_codegen_only_secret_please_do_not_use_1234567890
+      AUTH_WORKER_NODE_ENV: development
+      BETTER_AUTH_URL: http://localhost:8788
+      WEB_APP_URL: http://localhost:8788
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Validate production target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.deploy_environment || 'production' }}" != "production" ]; then
+            echo "::error::Unsupported deploy environment. Only production is allowed."
+            exit 1
+          fi
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::Production deploys must run from main. Current ref: ${GITHUB_REF}"
+            exit 1
+          fi
+
+      - name: Checkout release commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+          ref: ${{ inputs.release_sha || github.sha }}
+
+      - name: Setup repository toolchain
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Run Auth Worker deployment preflight
+        run: pnpm run release:preflight:local -- --scope auth --base HEAD
+
+      - name: Deploy Auth Worker
+        run: pnpm -C services/auth run sync:config:prod
+
+      - name: Verify Auth Worker health
+        run: curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 https://auth.openmeld.ai/health > /dev/null

@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openmeld-auth-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "BETTER_AUTH_URL": "http://localhost",
+    "BETTER_AUTH_OPENMELD_SECRET": "test-secret-abcdefghijklmnopqrstuvwxyz-1234567890",
+    "WEB_APP_URL": "http://localhost:3000",
+    "AUTH_WORKER_NODE_ENV": "development",
+    "AUTH_DEVICE_ALLOWED_CLIENT_IDS": "openmeld-cli,openmeld-cli-dev",
+    "OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED": "false",
+    "AUTH_BRAND_NAME": "OpenMeld",
+    "AUTH_FROM_EMAIL": "OpenMeld <noreply@openmeld.invalid>",
+    "AUTH_COOKIE_DOMAIN": "localhost",
+    "PASSKEY_RP_ID": "localhost",
+    "AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS": "300",
+    "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID": "test-github-client-id",
+    "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_SECRET": "test-github-client-secret",
+    "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_ID": "test-google-client-id",
+    "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_SECRET": "test-google-client-secret"
+  },
+  "d1_databases": [
+    {
+      "binding": "OPENMELD_DB",
+      "database_name": "openmeld-auth-test",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+      "migrations_dir": "../../packages/db/drizzle"
+    }
+  ]
+}

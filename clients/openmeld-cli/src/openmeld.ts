@@ -1,0 +1,5077 @@
+import { Command, Option } from "commander";
+import packageJson from "../package.json";
+import {
+  runActivityContext,
+  runActivityHealth,
+  runActivityHook,
+  runActivityInstall,
+  runActivityStatus,
+  runActivitySync,
+  runActivityUninstall,
+} from "./agent-activity/activity-command";
+import {
+  runAgentActivityRead,
+  runProjectsArchive,
+  runProjectsBind,
+  runProjectsCreate,
+  runProjectsList,
+  runProjectsUnbind,
+  runProjectsUpdate,
+} from "./agent-activity/command";
+import { runProjectsCliCommand } from "./agent-activity/entry";
+import {
+  runProjectsConnectionsList,
+  runProjectsConnectionsRemove,
+  runProjectsConnectionsSetDefault,
+} from "./agent-activity/project-connections-command";
+import {
+  type ProjectArchiveOptions,
+  type ProjectBindOptions,
+  type ProjectConnectionsRemoveOptions,
+  type ProjectConnectionsSetDefaultOptions,
+  type ProjectCreateOptions,
+  type ProjectOutputOptions,
+  type ProjectUnbindOptions,
+  type ProjectUpdateOptions,
+  registerAgentActivityCommands,
+  registerProjectCommands,
+} from "./agent-activity/registration";
+import { registerBuiltinAgentSelectionOptions } from "./agents/builtin-selection-contract";
+import {
+  runBindingAuthorize,
+  runBindingList,
+  runBindingRevoke,
+} from "./binding/command";
+import { runCenterAgentAsk } from "./center-agent/ask-command";
+import {
+  runCenterAgentContext,
+  runCenterAgentContextReceipt,
+} from "./center-agent/context-command";
+import {
+  runCenterAgentAudit,
+  runCenterAgentDesignate,
+  runCenterAgentPause,
+  runCenterAgentResume,
+  runCenterAgentStatus,
+} from "./center-agent/management-command";
+import { registerDaemonControlTargetOptions } from "./command-contracts/service-control-target";
+import {
+  finishCurrentCommandCheckScope,
+  startCurrentCommandCheckScope,
+} from "./command-entry-checks/current-command-check-state";
+import { applyEntryCheckResult } from "./command-entry-checks/entry-check-blocked-json";
+import { runCommandEntryFlow } from "./command-entry-checks/run-command-entry-flow";
+import {
+  runAgents,
+  runAgentsConfig,
+  runAgentsCustomAdd,
+  runAgentsCustomList,
+  runAgentsCustomRemove,
+  runAgentsCustomUpdate,
+  runAgentsDetect,
+  runAgentsDisable,
+  runAgentsEnable,
+  runAgentsList,
+  runAgentsManage,
+  runAgentsRepair,
+  runAgentsShow,
+} from "./commands/agents";
+import {
+  runAuthLogin,
+  runAuthLogout,
+  runAuthMenu,
+  runAuthStatus,
+} from "./commands/auth";
+import {
+  runComputerCurrent,
+  runComputerList,
+  runComputerRename,
+} from "./commands/computer";
+import { runDoctor } from "./commands/doctor";
+import { runFeedback } from "./commands/feedback";
+import { runInstallSelf } from "./commands/install-self";
+import { emitLocalHelperSkillsDeprecation } from "./commands/local-helper-skills-deprecation";
+import { applyProductionReleaseDefaultsToProcessEnv } from "./commands/production-release-defaults";
+import {
+  runProfileCreate,
+  runProfileDelete,
+  runProfileList,
+  runProfileMenu,
+  runProfileSet,
+  runProfileShow,
+  runProfileUpdate,
+} from "./commands/profile";
+import { runPrompt } from "./commands/prompt";
+import { runRepairLocalState } from "./commands/repair";
+import { runReset } from "./commands/reset";
+import {
+  runDaemon,
+  runDaemonAutostart,
+  runDaemonCancel,
+  runDaemonInstall,
+  runDaemonInterrupt,
+  runDaemonReinstall,
+  runDaemonRun,
+  runDaemonSnapshot,
+  runDaemonStatusFlow,
+  runDaemonStop,
+  runDaemonUninstall,
+} from "./commands/service";
+import { emitDaemonAgentOverview } from "./commands/service-agent-overview";
+import { runServiceTrace } from "./commands/service-trace";
+import { runSetup } from "./commands/setup";
+import {
+  runSkillsCheck,
+  runSkillsEnsure,
+  runSkillsInstall,
+  runSkillsUninstall,
+  runSkillsUpdate,
+} from "./commands/skills";
+import {
+  emitTopLevelAgentOverview,
+  emitTopLevelCliAgentOverview,
+} from "./commands/top-level-agent-overview";
+import {
+  runUninstall,
+  UNINSTALL_INTERNAL_SAFE_VALIDATION_FLAG,
+} from "./commands/uninstall";
+import {
+  isUpgradeOutputHandledError,
+  runUpgrade,
+  UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG,
+} from "./commands/upgrade";
+import { runViewCommand } from "./commands/view";
+import { runWhoami } from "./commands/whoami";
+import { resolveOpenMeldEnvironmentTarget } from "./config/openmeld-environment-target";
+import { ensureSystemLayout } from "./config/system-layout";
+import { parseNonNegativeIntegerOption } from "./lib/number-options";
+import {
+  resolveManagedCliDelegation,
+  runManagedCliDelegation,
+} from "./local-components/managed-command-authority";
+import { emitStartupAgentOverviewForCommand } from "./openmeld-agent-overview";
+import {
+  runStartFromCliOptions,
+  withAuthLoginOptions,
+  withSpaceProfileOption,
+  withStartOptions,
+} from "./openmeld-cli-command-options";
+import {
+  normalizeOptionalString,
+  runCommandWithEntryChecks,
+} from "./openmeld-cli-entry-checks";
+import {
+  emitAgentViewHumanRecoveryHint,
+  emitCliError,
+  readCliErrorRequestId,
+  resolveCliErrorCode,
+  stripCliErrorCodePrefix,
+} from "./openmeld-cli-error-output";
+import {
+  parseHelpTargetTokens,
+  resolveHelpCommandTarget,
+} from "./openmeld-cli-help-target";
+import {
+  buildCommandHelpExamples,
+  buildTopLevelHelpText,
+  DEFAULT_AGENT_EXAMPLE_PAIR,
+} from "./openmeld-cli-help-text";
+import {
+  emitHelpfulHints,
+  emitSetupFirstHint,
+  emitSpaceAddAgentsMemberAliasHint,
+} from "./openmeld-cli-hints";
+import type {
+  AgentsConfigCliOptions,
+  AgentsCustomAddCliOptions,
+  AgentsCustomRemoveCliOptions,
+  AgentsCustomUpdateCliOptions,
+  AgentsEnableCliOptions,
+  AuthLoginCliOptions,
+  ComputerRenameCliOptions,
+  FeedbackCliOptions,
+  ResetCliOptions,
+  ServiceControlCliOptions,
+  ServiceReinstallCliOptions,
+  ServiceRunCliOptions,
+  ServiceSnapshotCliOptions,
+  ServiceStopCliOptions,
+  ServiceTraceCliOptions,
+  SkillsInstallCliOptions,
+  SkillsUninstallCliOptions,
+  SpaceAddMeCliOptions,
+  SpaceAddMembersCliOptions,
+  SpaceLeaveCliOptions,
+  SpaceRemoveMembersCliOptions,
+  UninstallCliOptions,
+  UpgradeCliOptions,
+  ViewCliOptions,
+} from "./openmeld-cli-options";
+import {
+  getGlobalViewOption,
+  readConfiguredDefaultView,
+  resolveEffectiveViewForError,
+  resolveEffectiveViewForOutput,
+  stripViewArgs,
+} from "./openmeld-cli-view";
+import {
+  runOrgCurrent,
+  runOrgDirectory,
+  runOrgInviteLink,
+  runOrgList,
+  runOrgSwitch,
+} from "./org/command";
+import {
+  runOrganizationSkillsList,
+  runOrganizationSkillsLoad,
+  runOrganizationSkillsShow,
+} from "./organization-skills/command";
+import { formatAgentControllerPermissionModeHelp } from "./profile/controller-permission-mode-input";
+import { hasExplicitProfileUpdateField } from "./profile/profile-update-cli-options";
+import {
+  runRoutinesCreate,
+  runRoutinesDelete,
+  runRoutinesList,
+  runRoutinesPause,
+  runRoutinesResume,
+  runRoutinesRuns,
+  runRoutinesShow,
+  runRoutinesUpdate,
+} from "./routines/command";
+import { runRoutinesCliCommand } from "./routines/entry";
+import {
+  type RoutineCreateOptions,
+  type RoutineDeleteOptions,
+  type RoutineOutputOptions,
+  type RoutineRunsOptions,
+  type RoutineUpdateOptions,
+  registerRoutinesCommands,
+} from "./routines/registration";
+import { shouldEmitAgentOverview } from "./runtime/agent-overview-output";
+import {
+  formatInlineOpenMeldCliCommands,
+  resolveUserFacingCliEntryCommand,
+} from "./runtime/cli-entry-command";
+import { emitCliErrorJson } from "./runtime/cli-error-json";
+import { emitCliJsonEnvelope } from "./runtime/cli-json-output";
+import { installCliOutputErrorHandlers } from "./runtime/cli-output-error-handler";
+import { resolveRuntimeContext } from "./runtime/context";
+import {
+  isBinaryDistribution,
+  resolveOpenMeldDistribution,
+} from "./runtime/distribution";
+import {
+  createProfileActionGuideError,
+  createProfileCreateGuideError,
+  createSpaceAddMembersGuideError,
+  createSpaceAliasTargetGuideError,
+  createSpaceContractSetGuideError,
+  createSpaceLeaveGuideError,
+  createSpacePublicationSetGuideError,
+  createSpaceRemoveMembersGuideError,
+  createSpaceResultGuideError,
+  createSpaceSubcommandTargetGuideError,
+  createSpaceTargetGuideError,
+  createSpaceUpdatesGuideError,
+} from "./runtime/dual-view-guide-catalog";
+import { createPresenter } from "./runtime/presenter/index";
+import { createSilentPresenter } from "./runtime/presenter/silent";
+import { resolveRetiredCliCommandMessage } from "./runtime/retired-command-argv";
+import {
+  hasJsonOutputArgv,
+  isPassiveCliQueryArgv,
+  isStandaloneViewQueryArgv,
+  parseLeadingCommandTokensFromArgv,
+  parseStandaloneViewSwitchArgv,
+  parseViewFromArgv,
+} from "./runtime/view-argv";
+import { registerSkillsTargetSelectionOptions } from "./skills/target-selection-contract";
+import {
+  runSpaceActionHelp,
+  runSpaceActionReply,
+  runSpaceActionSilent,
+  runSpaceActionStatus,
+  runSpaceActionTargets,
+  runSpaceActionWake,
+} from "./space/action-command";
+import { runSpaceAddMe } from "./space/add-me-command";
+import { runSpaceBoard } from "./space/board-command";
+import {
+  runSpaceAddMembers,
+  runSpaceCreate,
+  runSpaceDelete,
+  runSpaceHistory,
+  runSpaceJoin,
+  runSpaceLeave,
+  runSpaceList,
+  runSpacePassword,
+  runSpaceRemoveMembers,
+  runSpaceSend,
+  runSpaceWatch,
+} from "./space/command";
+import { resolveSpaceCommandCliOptions } from "./space/command-cli-options";
+import { isSpaceCommandOutputHandledError } from "./space/command-output-handled";
+import { runSpaceContract } from "./space/contract-command";
+import { runSpaceContractSet } from "./space/contract-set-command";
+import { normalizePublicationModeCliValue } from "./space/contract-set-options";
+import {
+  runSpaceGuideClear,
+  runSpaceGuideRead,
+  runSpaceGuideSet,
+} from "./space/guide-command";
+import { registerSpaceMemberSelectionOptions } from "./space/member-selection-contract";
+import { runSpaceMembers } from "./space/members-command";
+import { runSpaceMenu } from "./space/menu";
+import {
+  runSpaceOrganizationList,
+  runSpaceSelfServeJoin,
+} from "./space/organization-space-command";
+import { getRemovedCcCliInputMessage } from "./space/removed-addressing";
+import { runSpaceResult } from "./space/result-command";
+import { runSpaceStatus } from "./space/status-command";
+import { runSpaceThread } from "./space/thread";
+import { runSpaceUpdates } from "./space/updates-command";
+import {
+  runSpaceWakeProgress,
+  runSpaceWakeStop,
+} from "./space/wake-control-command";
+import { printOpenMeldBanner, renderOpenMeldTagline } from "./ui/brand";
+import { errLine, outLine } from "./ui/io";
+
+installCliOutputErrorHandlers();
+
+const program = new Command();
+const AGENT_RAW_STREAM_OPTION_DESCRIPTION =
+  "Agent raw stream: keep session meta and members, then emit raw events without overview or hints";
+const TAGLINE_COMMANDS = new Set([
+  "auth",
+  "org",
+  "binding",
+  "bindings",
+  "center-agent",
+  "routines",
+  "agents",
+  "computer",
+  "service",
+  "daemon",
+  "space",
+  "spaces",
+  "profiles",
+  "profile",
+  "setup",
+  "doctor",
+  "whoami",
+]);
+
+type SpaceHistoryKindOption = "text" | "status" | "system_notice";
+
+function collectRepeatedOptionValue(
+  value: string,
+  previous: readonly string[] = []
+): string[] {
+  return [...previous, value];
+}
+
+function parseSpaceHistoryKindOption(value: string): SpaceHistoryKindOption {
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "text" ||
+    normalized === "status" ||
+    normalized === "system_notice"
+  ) {
+    return normalized;
+  }
+  throw new Error("kind must be one of: text, status, system_notice");
+}
+
+applyProductionReleaseDefaultsToProcessEnv();
+
+program.name(resolveUserFacingCliEntryCommand()).version(packageJson.version);
+program.option("--view <mode>", "View mode: auto|human|agent", "auto");
+program.option(
+  "--service-auto-install <mode>",
+  "Service auto-install policy on startup: ask|always|never",
+  "ask"
+);
+program.configureHelp({ showGlobalOptions: true });
+program.showHelpAfterError(
+  formatInlineOpenMeldCliCommands("(run `openmeld --help` for usage)")
+);
+program.addHelpText("after", buildTopLevelHelpText());
+
+program
+  .command("prompt")
+  .alias("p")
+  .description("Read the OpenMeld guide entry or one guide topic.")
+  .argument(
+    "[topic]",
+    "Guide topic: overview|onboarding|space|commands|runtime"
+  )
+  .option(
+    "--raw",
+    "Print the original Markdown source for the selected topic",
+    false
+  )
+  .option("--json", "Print canonical StructuredGuidePayload JSON", false)
+  .action(async (topic, opts: { raw?: boolean; json?: boolean }) => {
+    await runPrompt({
+      topic: typeof topic === "string" ? topic : undefined,
+      raw: opts.raw === true,
+      json: opts.json === true,
+    });
+  });
+
+program
+  .command("view")
+  .description("Show or change the default view mode.")
+  .argument("[mode]", "View mode: auto|human|agent")
+  .option(
+    "--profile <name>",
+    "Profile to use (defaults to your selected profile)"
+  )
+  .action(async (mode, opts: ViewCliOptions) => {
+    await runCommandWithEntryChecks({
+      routeTokens: ["view"],
+      profile: opts.profile,
+      run: async () => {
+        const effectiveView = await resolveEffectiveViewForOutput();
+        await runViewCommand({
+          effectiveView,
+          mode,
+          profile: opts.profile,
+        });
+      },
+    });
+  });
+
+program
+  .command("feedback")
+  .description("Send product feedback to OpenMeld.")
+  .argument("<message>", "Short feedback summary or full message")
+  .option(
+    "--category <category>",
+    "Feedback category: bug|experience|idea|question",
+    "experience"
+  )
+  .option("--details <text>", "Additional details")
+  .option("--email <address>", "Contact email for follow-up")
+  .option("--as <kind>", "Submitter kind: human|local_agent")
+  .option("--no-context", "Do not include CLI version or operating system")
+  .option("--inbox-key <key>", "Feedback Inbox key")
+  .option("--json", "Print one machine-readable JSON envelope", false)
+  .action(async (message: string, opts: FeedbackCliOptions) => {
+    const view = opts.json === true ? "agent" : getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["feedback"],
+      view,
+      run: async () => {
+        await runFeedback({
+          message,
+          category: opts.category,
+          details: opts.details,
+          email: opts.email,
+          submitterKind: opts.as,
+          includeContext: opts.context !== false,
+          inboxKey: opts.inboxKey,
+          view,
+        });
+      },
+    });
+  });
+
+withStartOptions(
+  program
+    .command("start")
+    .description("Initial onboarding: set up your OpenMeld identity profile.")
+).action(async (opts) => {
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["start"],
+    view,
+    profile: opts.profileId,
+    gatewayUrl: opts.gatewayUrl,
+    run: async () => {
+      await runStartFromCliOptions({
+        ...opts,
+        view,
+      });
+    },
+  });
+});
+
+program
+  .command("setup")
+  .description("Set up this computer for OpenMeld Space Wake.")
+  .option(
+    "--profile <id>",
+    "Existing OpenMeld agent profile ID to connect to this computer"
+  )
+  .option(
+    "--agent <id...>",
+    "Builtin local agent ID to repair directly when you already know the target"
+  )
+  .option(
+    "--human-profile <id>",
+    "Retired OpenMeld Web setup flag; copy a fresh setup command from OpenMeld Web instead"
+  )
+  .option(
+    "--ott <token>",
+    "One-time token to sign in on this device before setup"
+  )
+  .option(
+    "--start-session <opaque-token>",
+    "Continue an OpenMeld Web Prepare setup command on this device"
+  )
+  .option(
+    "--local-agents <mode>",
+    "Select local agents during setup: all or none"
+  )
+  .option(
+    "--local-agent <id...>",
+    "Select specific local agent IDs during setup"
+  )
+  .option(
+    "--reset-this-computer",
+    "Stop stale local OpenMeld Service state before reconnecting this computer"
+  )
+  .addHelpText(
+    "after",
+    buildCommandHelpExamples("Primary entry points", [
+      "openmeld setup",
+      "openmeld setup --start-session <opaque-token> --local-agents all",
+      "openmeld setup --profile <agent-profile-id> --local-agent <local-agent-id>",
+    ])
+  )
+  .action(
+    async (opts: {
+      agent?: string[];
+      humanProfile?: string;
+      localAgent?: string[];
+      localAgents?: string;
+      ott?: string;
+      profile?: string;
+      resetThisComputer?: boolean;
+      startSession?: string;
+    }) => {
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["setup"],
+        view,
+        profile: opts.profile,
+        run: async () => {
+          await runSetup({
+            agent: opts.agent,
+            humanProfile: opts.humanProfile,
+            localAgent: opts.localAgent,
+            localAgents: opts.localAgents,
+            ott: opts.ott,
+            profile: opts.profile,
+            resetThisComputer: Boolean(opts.resetThisComputer),
+            startSession: opts.startSession,
+            view,
+          });
+          await maybeRunAgentViewRecoveryAfterSuccess({
+            view,
+            profile: opts.profile,
+          });
+        },
+      });
+    }
+  );
+
+const repairCommand = program
+  .command("repair", { hidden: true })
+  .description("Repair your local OpenMeld data.")
+  .action(async () => {
+    emitSetupFirstHint("openmeld repair");
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["repair"],
+      view,
+      run: async () => {
+        await runRepairLocalState({
+          view,
+        });
+      },
+    });
+  });
+
+repairCommand
+  .command("local-state")
+  .description("Run automatic local OpenMeld data upgrade and cleanup.")
+  .option(
+    "--data-only",
+    "Repair local OpenMeld data without checking OpenMeld Service."
+  )
+  .action(async (opts: { dataOnly?: boolean }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["repair", "local-state"],
+      view,
+      run: async () => {
+        await runRepairLocalState({
+          includeDaemonService: !opts.dataOnly,
+          view,
+        });
+      },
+    });
+  });
+
+program
+  .command("uninstall")
+  .description("Remove your local OpenMeld data from this device.")
+  .option("--yes", "Skip confirmation in interactive mode")
+  .option(
+    "--force",
+    "Required together with --all-lanes in non-interactive mode"
+  )
+  .option("--keep-skills", "Keep OpenMeld-installed skills on this device")
+  .option(
+    "--remove-skills",
+    "Remove OpenMeld-installed skills managed by OpenMeld for the selected scope"
+  )
+  .option("--keep-auth-tokens", "Keep OpenMeld auth tokens on this device")
+  .option(
+    "--remove-auth-tokens",
+    "Remove OpenMeld auth tokens from this device too"
+  )
+  .addOption(new Option(UNINSTALL_INTERNAL_SAFE_VALIDATION_FLAG).hideHelp())
+  .addOption(
+    new Option(
+      "--all-lanes",
+      "Remove local OpenMeld data for OpenMeld, OpenMeld Dev, and OpenMeld Canary"
+    ).hideHelp()
+  )
+  .action(async (opts: UninstallCliOptions) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["uninstall"],
+      view,
+      run: async () => {
+        await runUninstall({
+          yes: Boolean(opts.yes),
+          force: Boolean(opts.force),
+          allLanes: Boolean(opts.allLanes),
+          keepSkills: Boolean(opts.keepSkills),
+          removeSkills: Boolean(opts.removeSkills),
+          keepAuthTokens: Boolean(opts.keepAuthTokens),
+          removeAuthTokens: Boolean(opts.removeAuthTokens),
+          internalSafeValidation: Boolean(opts.internalSafeValidation),
+          view,
+        });
+      },
+    });
+  });
+
+program
+  .command("reset", { hidden: true })
+  .description("Reset local OpenMeld state and reinitialize baseline files.")
+  .option("--yes", "Skip confirmation prompts and execute reset immediately")
+  .action(async (opts: ResetCliOptions) => {
+    emitSetupFirstHint("openmeld reset");
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["reset"],
+      view,
+      run: async () => {
+        await runReset({
+          yes: Boolean(opts.yes),
+          view,
+        });
+      },
+    });
+  });
+
+program
+  .command("upgrade")
+  .description("Check latest OpenMeld CLI version and upgrade when needed.")
+  .option("--yes", "Skip confirmation prompts and execute upgrade")
+  .option("--check", "Check version only without installing")
+  .addOption(new Option(UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG).hideHelp())
+  .action(async (opts: UpgradeCliOptions) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["upgrade"],
+      view,
+      run: async () => {
+        await runUpgrade({
+          yes: Boolean(opts.yes),
+          check: Boolean(opts.check),
+          internalAlignService: Boolean(opts.internalAlignService),
+          view,
+        });
+      },
+    });
+  });
+
+// Binary distribution only: install this binary into the managed layout.
+// Called by the install script (curl | sh delegates to `<tmp>/openmeld
+// install-self`) and by `openmeld update`. Hidden and absent under npm.
+if (isBinaryDistribution()) {
+  program
+    .command("install-self", { hidden: true })
+    .description(
+      "Install this binary into the managed OpenMeld layout and point the current-version link at it."
+    )
+    .option("--json", "Print machine-readable JSON.", false)
+    .option(
+      "--force",
+      "Install even if a newer version is already present.",
+      false
+    )
+    .action(async (opts: { json?: boolean; force?: boolean }) => {
+      await runInstallSelf({
+        json: opts.json === true,
+        force: opts.force === true,
+      });
+    });
+}
+
+const authCmd = program
+  .command("auth")
+  .description("Manage your OpenMeld sign-in.");
+
+authCmd.action(async () => {
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["auth"],
+    view,
+    run: async () => {
+      await runAuthMenu({
+        view,
+      });
+      await maybeRunAgentViewRecoveryAfterSuccess({
+        view,
+      });
+    },
+  });
+});
+
+authCmd
+  .command("status")
+  .description("Show your sign-in status.")
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["auth", "status"],
+      view,
+      run: async () => {
+        await runAuthStatus({
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+withAuthLoginOptions(
+  authCmd.command("login").description("Sign in through your browser.")
+).action(async (opts: AuthLoginCliOptions) => {
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["auth", "login"],
+    view,
+    run: async () => {
+      await runAuthLogin({
+        authUrl: opts.authUrl,
+        clientId: opts.clientId,
+        open: opts.open,
+        method: opts.method,
+        ott: opts.ott,
+        view,
+      });
+    },
+  });
+});
+
+authCmd
+  .command("logout")
+  .description("Sign out on this device.")
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["auth", "logout"],
+      view,
+      run: async () => {
+        await runAuthLogout({
+          view,
+        });
+      },
+    });
+  });
+
+const orgCmd = program
+  .command("org")
+  .description("Manage OpenMeld organizations.");
+
+orgCmd
+  .command("list")
+  .description("List your OpenMeld organizations.")
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["org", "list"],
+      view,
+      run: async () => {
+        await runOrgList({
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+orgCmd
+  .command("current")
+  .description("Show the active OpenMeld organization.")
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["org", "current"],
+      view,
+      run: async () => {
+        await runOrgCurrent({
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+orgCmd
+  .command("switch")
+  .description("Switch the active OpenMeld organization.")
+  .argument("<slug>", "OpenMeld organization slug")
+  .action(async (slug: string) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["org", "switch"],
+      view,
+      run: async () => {
+        await runOrgSwitch({
+          slug,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+orgCmd
+  .command("directory")
+  .description("List Organization members and Agent Profiles.")
+  .option("--json", "Print one machine-readable JSON envelope.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const json = opts.json === true;
+    const view = json ? "agent" : getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      jsonOutput: json,
+      routeTokens: ["org", "directory"],
+      view,
+      run: async () => {
+        await runOrgDirectory({ json, view });
+      },
+    });
+  });
+
+const orgInviteLinkCmd = orgCmd
+  .command("invite-link")
+  .description("Manage the active Organization invite link.");
+
+for (const action of ["get", "create", "revoke"] as const) {
+  orgInviteLinkCmd
+    .command(action)
+    .description(resolveOrganizationInviteLinkDescription(action))
+    .option("--json", "Print one machine-readable JSON envelope.", false)
+    .action(async (opts: { json?: boolean }) => {
+      const json = opts.json === true;
+      const view = json ? "agent" : getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        jsonOutput: json,
+        routeTokens: ["org", "invite-link", action],
+        view,
+        run: async () => {
+          await runOrgInviteLink({ action, json, view });
+        },
+      });
+    });
+}
+
+function resolveOrganizationInviteLinkDescription(
+  action: "get" | "create" | "revoke"
+): string {
+  if (action === "get") {
+    return "Show the active Organization invite link.";
+  }
+  if (action === "create") {
+    return "Create or reset the Organization invite link.";
+  }
+  return "Revoke the active Organization invite link.";
+}
+
+const bindingCmd = program
+  .command("binding")
+  .alias("bindings")
+  .description(
+    "Manage organization authorizations for Agent Profile Bindings."
+  );
+
+bindingCmd
+  .command("authorize")
+  .description(
+    "Authorize an Agent Profile primary Binding for the active organization."
+  )
+  .argument("<agent-profile-id>", "OpenMeld Agent Profile ID")
+  .action(async (agentProfileId: string) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["binding", "authorize"],
+      view,
+      run: async () => {
+        await runBindingAuthorize({
+          agentProfileId,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+bindingCmd
+  .command("revoke")
+  .description(
+    "Revoke an Agent Profile primary Binding authorization from the active organization."
+  )
+  .argument("<agent-profile-id>", "OpenMeld Agent Profile ID")
+  .action(async (agentProfileId: string) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["binding", "revoke"],
+      view,
+      run: async () => {
+        await runBindingRevoke({
+          agentProfileId,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+bindingCmd
+  .command("list")
+  .description(
+    "List Agent Profile Binding authorizations for the active organization."
+  )
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["binding", "list"],
+      view,
+      run: async () => {
+        await runBindingList({
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+const centerAgentCmd = program
+  .command("center-agent")
+  .description("Use and manage an Organization Center Agent.");
+
+centerAgentCmd
+  .command("ask")
+  .description(
+    "Ask the Center Agent from a Local Agent through your existing Center Agent Chat."
+  )
+  .argument("[text...]", "Request for the Center Agent")
+  .option("--stdin", "Read request text from stdin (EOF to finish)", false)
+  .option("--file <path>", "Read request text from a UTF-8 file")
+  .option(
+    "--organization <slug-or-id>",
+    "Use this Organization instead of the active Organization"
+  )
+  .option(
+    "--via <client>",
+    "Override the automatically detected Local Agent client shown in OpenMeld"
+  )
+  .option(
+    "--session <id>",
+    "Override the automatically detected Local Agent session locator"
+  )
+  .option(
+    "--timeout <seconds>",
+    "Maximum time to wait for a reply (default: 600; max: 3600)"
+  )
+  .option(
+    "--no-wait",
+    "Submit to Center Agent Chat and return without waiting for a reply"
+  )
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(
+    async (
+      textParts: string[] | undefined,
+      opts: {
+        file?: string;
+        json?: boolean;
+        organization?: string;
+        session?: string;
+        stdin?: boolean;
+        timeout?: string;
+        via?: string;
+        wait?: boolean;
+      }
+    ) => {
+      const view = opts.json === true ? "agent" : getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["center-agent", "ask"],
+        view,
+        run: async () => {
+          await runCenterAgentAsk({
+            file: opts.file,
+            organization: opts.organization,
+            sessionId: opts.session,
+            stdin: opts.stdin === true,
+            text: Array.isArray(textParts) ? textParts.join(" ") : "",
+            timeoutSeconds: parseNonNegativeIntegerOption(
+              opts.timeout,
+              "--timeout"
+            ),
+            via: opts.via,
+            view,
+            wait: opts.wait !== false,
+          });
+          await maybeRunAgentViewRecoveryAfterSuccess({
+            view,
+          });
+        },
+      });
+    }
+  );
+
+centerAgentCmd
+  .command("status")
+  .description("Show the active Organization Center Agent designation.")
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const view = opts.json === true ? "agent" : getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["center-agent", "status"],
+      view,
+      run: async () => {
+        await runCenterAgentStatus({
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+const centerAgentContextCmd = centerAgentCmd
+  .command("context")
+  .description(
+    "Read a bounded, source-linked projection of your Center Agent Chat for a Local Agent."
+  )
+  .option("--cursor <cursor>", "Continue with older visible messages")
+  .option("--limit <count>", "Maximum visible messages (default: 20; max: 50)")
+  .option(
+    "--max-tokens <count>",
+    "Maximum estimated context tokens (default: 8000; max: 32768)"
+  )
+  .option(
+    "--organization <slug-or-id>",
+    "Use this Organization instead of the active Organization"
+  )
+  .option(
+    "--via <client>",
+    "Override the automatically detected Local Agent client shown in OpenMeld"
+  )
+  .option(
+    "--session <id>",
+    "Override the automatically detected Local Agent session locator"
+  )
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(
+    async (opts: {
+      cursor?: string;
+      json?: boolean;
+      limit?: string;
+      maxTokens?: string;
+      organization?: string;
+      session?: string;
+      via?: string;
+    }) => {
+      const view = opts.json === true ? "agent" : getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["center-agent", "context"],
+        view,
+        run: async () => {
+          await runCenterAgentContext({
+            cursor: opts.cursor,
+            limit: parseNonNegativeIntegerOption(opts.limit, "--limit"),
+            maxContextTokens: parseNonNegativeIntegerOption(
+              opts.maxTokens,
+              "--max-tokens"
+            ),
+            organization: opts.organization,
+            sessionId: opts.session,
+            via: opts.via,
+            view,
+          });
+          await maybeRunAgentViewRecoveryAfterSuccess({ view });
+        },
+      });
+    }
+  );
+
+centerAgentContextCmd
+  .command("receipt")
+  .description(
+    "Record which manifest messages the Local Agent added to its working context."
+  )
+  .argument("<manifest-id>", "Center Agent Context Manifest ID")
+  .option("--all", "Record every message in the manifest as loaded", false)
+  .option(
+    "--entry <source-ref-id=materialized-content-hash>",
+    "Record one exact loaded manifest entry (repeatable)",
+    collectRepeatedOptionValue,
+    []
+  )
+  .option(
+    "--organization <slug-or-id>",
+    "Use the Organization that issued this context manifest"
+  )
+  .option(
+    "--via <client>",
+    "Override the automatically detected Local Agent client shown in OpenMeld"
+  )
+  .option(
+    "--session <id>",
+    "Override the automatically detected Local Agent session locator"
+  )
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(
+    async (
+      manifestId: string,
+      opts: {
+        all?: boolean;
+        entry?: string[];
+        json?: boolean;
+        organization?: string;
+        session?: string;
+        via?: string;
+      }
+    ) => {
+      const view = opts.json === true ? "agent" : getGlobalViewOption();
+      const organization =
+        opts.organization ??
+        centerAgentContextCmd.opts<{ organization?: string }>().organization;
+      await runCommandWithEntryChecks({
+        routeTokens: ["center-agent", "context"],
+        view,
+        run: async () => {
+          await runCenterAgentContextReceipt({
+            all: opts.all === true,
+            entries: opts.entry,
+            manifestId,
+            organization,
+            sessionId: opts.session,
+            via: opts.via,
+            view,
+          });
+          await maybeRunAgentViewRecoveryAfterSuccess({ view });
+        },
+      });
+    }
+  );
+
+centerAgentCmd
+  .command("designate")
+  .description("Designate an Agent Profile as the Center Agent.")
+  .argument("<agent-profile-id>", "OpenMeld Agent Profile ID")
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (agentProfileId: string, opts: { json?: boolean }) => {
+    const view = opts.json === true ? "agent" : getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["center-agent", "designate"],
+      view,
+      run: async () => {
+        await runCenterAgentDesignate({
+          agentProfileId,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+centerAgentCmd
+  .command("pause")
+  .description(
+    "Pause the active Organization Center Agent and stop its current tasks."
+  )
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const view = opts.json === true ? "agent" : getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["center-agent", "pause"],
+      view,
+      run: async () => {
+        await runCenterAgentPause({
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+centerAgentCmd
+  .command("resume")
+  .description("Resume the active Organization Center Agent.")
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const view = opts.json === true ? "agent" : getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["center-agent", "resume"],
+      view,
+      run: async () => {
+        await runCenterAgentResume({
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+centerAgentCmd
+  .command("audit")
+  .description("List Center Agent audit entries for the active Organization.")
+  .option("--limit <count>", "Maximum audit entries to list (1-200)")
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: { json?: boolean; limit?: string }) => {
+    const view = opts.json === true ? "agent" : getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["center-agent", "audit"],
+      view,
+      run: async () => {
+        await runCenterAgentAudit({
+          limit: parseNonNegativeIntegerOption(opts.limit, "--limit"),
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+registerRoutinesCommands(program, {
+  list: async (opts: RoutineOutputOptions) => {
+    await runRoutinesCliCommand({
+      command: "list",
+      json: opts.json,
+      run: runRoutinesList,
+    });
+  },
+  create: async (opts: RoutineCreateOptions) => {
+    await runRoutinesCliCommand({
+      command: "create",
+      json: opts.json,
+      run: async (output) => {
+        await runRoutinesCreate({
+          ...output,
+          cronExpression: opts.cron,
+          dailyTime: opts.daily,
+          instructions: opts.instructions,
+          name: opts.name,
+          runAtIso: opts.runAt,
+          targetSpaceId: opts.targetSpace,
+          timezone: opts.timezone,
+        });
+      },
+    });
+  },
+  show: async (routineId: string, opts: RoutineOutputOptions) => {
+    await runRoutinesCliCommand({
+      command: "show",
+      json: opts.json,
+      run: async (output) => {
+        await runRoutinesShow({ ...output, routineId });
+      },
+    });
+  },
+  update: async (routineId: string, opts: RoutineUpdateOptions) => {
+    await runRoutinesCliCommand({
+      command: "update",
+      json: opts.json,
+      run: async (output) => {
+        await runRoutinesUpdate({
+          ...output,
+          cronExpression: opts.cron,
+          dailyTime: opts.daily,
+          instructions: opts.instructions,
+          name: opts.name,
+          runAtIso: opts.runAt,
+          routineId,
+          targetSpaceId: opts.targetSpace,
+          timezone: opts.timezone,
+        });
+      },
+    });
+  },
+  pause: async (routineId: string, opts: RoutineOutputOptions) => {
+    await runRoutinesCliCommand({
+      command: "pause",
+      json: opts.json,
+      run: async (output) => {
+        await runRoutinesPause({ ...output, routineId });
+      },
+    });
+  },
+  resume: async (routineId: string, opts: RoutineOutputOptions) => {
+    await runRoutinesCliCommand({
+      command: "resume",
+      json: opts.json,
+      run: async (output) => {
+        await runRoutinesResume({ ...output, routineId });
+      },
+    });
+  },
+  delete: async (routineId: string, opts: RoutineDeleteOptions) => {
+    await runRoutinesCliCommand({
+      command: "delete",
+      json: opts.json,
+      run: async (output) => {
+        await runRoutinesDelete({
+          ...output,
+          routineId,
+          yes: opts.yes,
+        });
+      },
+    });
+  },
+  runs: async (routineId: string, opts: RoutineRunsOptions) => {
+    await runRoutinesCliCommand({
+      command: "runs",
+      json: opts.json,
+      run: async (output) => {
+        await runRoutinesRuns({
+          ...output,
+          beforeScheduledFor: opts.beforeScheduledFor,
+          limit: opts.limit,
+          routineId,
+        });
+      },
+    });
+  },
+});
+
+registerProjectCommands(program, {
+  list: async (opts: ProjectOutputOptions) => {
+    await runProjectsCliCommand({
+      command: "list",
+      json: opts.json,
+      run: runProjectsList,
+    });
+  },
+  create: async (opts: ProjectCreateOptions) => {
+    await runProjectsCliCommand({
+      command: "create",
+      json: opts.json,
+      run: async (output) => {
+        await runProjectsCreate({
+          ...output,
+          name: opts.name,
+          slug: opts.slug,
+        });
+      },
+    });
+  },
+  update: async (projectId: string, opts: ProjectUpdateOptions) => {
+    await runProjectsCliCommand({
+      command: "update",
+      json: opts.json,
+      run: async (output) => {
+        await runProjectsUpdate({
+          ...output,
+          name: opts.name,
+          projectId,
+          slug: opts.slug,
+        });
+      },
+    });
+  },
+  archive: async (projectId: string, opts: ProjectArchiveOptions) => {
+    await runProjectsCliCommand({
+      command: "archive",
+      json: opts.json,
+      run: async (output) => {
+        await runProjectsArchive({
+          ...output,
+          projectId,
+          yes: opts.yes,
+        });
+      },
+    });
+  },
+  bind: async (projectSlug: string, opts: ProjectBindOptions) => {
+    await runProjectsCliCommand({
+      command: "bind",
+      json: opts.json,
+      run: async (output) => {
+        await runProjectsBind({
+          ...output,
+          allowUnverified: opts.allowUnverified,
+          path: opts.path,
+          projectSlug,
+        });
+      },
+    });
+  },
+  connectionsList: async (projectSlug: string, opts: ProjectOutputOptions) => {
+    await runProjectsCliCommand({
+      command: "connections.list",
+      json: opts.json,
+      run: async (output) => {
+        await runProjectsConnectionsList({
+          ...output,
+          projectSlug,
+        });
+      },
+    });
+  },
+  connectionsSetDefault: async (
+    projectSlug: string,
+    opts: ProjectConnectionsSetDefaultOptions
+  ) => {
+    await runProjectsCliCommand({
+      command: "connections.set-default",
+      json: opts.json,
+      run: async (output) => {
+        await runProjectsConnectionsSetDefault({
+          ...output,
+          generation: opts.generation,
+          projectSlug,
+        });
+      },
+    });
+  },
+  connectionsRemove: async (
+    projectSlug: string,
+    opts: ProjectConnectionsRemoveOptions
+  ) => {
+    await runProjectsCliCommand({
+      command: "connections.remove",
+      json: opts.json,
+      run: async (output) => {
+        await runProjectsConnectionsRemove({
+          ...output,
+          generation: opts.generation,
+          path: opts.path,
+          projectSlug,
+          replacementGeneration: opts.replacementGeneration,
+        });
+      },
+    });
+  },
+  unbind: async (projectSlug: string, opts: ProjectUnbindOptions) => {
+    await runProjectsCliCommand({
+      command: "unbind",
+      json: opts.json,
+      run: async (output) => {
+        await runProjectsUnbind({
+          ...output,
+          organizationId: opts.organization,
+          projectId: opts.projectId,
+          projectSlug,
+        });
+      },
+    });
+  },
+});
+
+registerAgentActivityCommands(program, {
+  context: runActivityContext,
+  health: runActivityHealth,
+  hook: runActivityHook,
+  install: runActivityInstall,
+  read: runAgentActivityRead,
+  status: runActivityStatus,
+  sync: runActivitySync,
+  uninstall: runActivityUninstall,
+});
+
+withAuthLoginOptions(
+  program.command("login").description("Alias for `openmeld auth login`.")
+).action(async (opts: AuthLoginCliOptions) => {
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["login"],
+    view,
+    run: async () => {
+      await runAuthLogin({
+        authUrl: opts.authUrl,
+        clientId: opts.clientId,
+        open: opts.open,
+        method: opts.method,
+        ott: opts.ott,
+        view,
+      });
+    },
+  });
+});
+
+program
+  .command("logout")
+  .description("Alias for `openmeld auth logout`.")
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["logout"],
+      view,
+      run: async () => {
+        await runAuthLogout({
+          view,
+        });
+      },
+    });
+  });
+
+const computerCmd = program
+  .command("computer")
+  .description("Name this computer in OpenMeld.");
+
+computerCmd.addHelpText(
+  "after",
+  buildCommandHelpExamples("Examples", [
+    "openmeld computer list",
+    "openmeld computer current",
+    'openmeld computer rename "Office MacBook"',
+    "openmeld computer rename --clear",
+  ])
+);
+
+computerCmd.action(() => {
+  computerCmd.help();
+});
+
+computerCmd
+  .command("list")
+  .description("List computers on your account.")
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["computer", "list"],
+      view,
+      run: async () => {
+        await runComputerList({ view });
+      },
+    });
+  });
+
+computerCmd
+  .command("current")
+  .description("Show this computer in OpenMeld.")
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["computer", "current"],
+      view,
+      run: async () => {
+        await runComputerCurrent({ view });
+      },
+    });
+  });
+
+computerCmd
+  .command("rename")
+  .description("Rename this computer in OpenMeld.")
+  .argument("[name...]", "New computer name")
+  .option("--clear", "Use this computer's system name again")
+  .action(
+    async (nameParts: string[] | undefined, opts: ComputerRenameCliOptions) => {
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["computer", "rename"],
+        view,
+        run: async () => {
+          await runComputerRename({
+            clear: Boolean(opts.clear),
+            nameParts: nameParts ?? [],
+            view,
+          });
+        },
+      });
+    }
+  );
+
+const skillsCmd = program
+  .command("skills")
+  .description("Read and load Organization Skills.")
+  .option("--json", "Print one machine-readable JSON envelope.", false);
+
+skillsCmd.action(async (opts: { json?: boolean }) => {
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["skills"],
+    view,
+    run: async () => {
+      await runOrganizationSkillsList({
+        json: opts.json === true,
+        view,
+      });
+    },
+  });
+});
+
+registerSkillsTargetSelectionOptions({
+  command: skillsCmd
+    .command("ensure")
+    .description(
+      "Install or update OpenMeld skills for your agents on this device."
+    ),
+  selectionCommand: "ensure",
+  agentExampleArg: DEFAULT_AGENT_EXAMPLE_PAIR,
+}).action(async (opts: SkillsInstallCliOptions) => {
+  const view = getGlobalViewOption();
+  emitLocalHelperSkillsDeprecation("ensure");
+  await runCommandWithEntryChecks({
+    routeTokens: ["skills", "ensure"],
+    view,
+    run: async () => {
+      await runSkillsEnsure({
+        ...opts,
+        view,
+      });
+    },
+  });
+});
+
+registerSkillsTargetSelectionOptions({
+  command: skillsCmd
+    .command("install")
+    .description("Install OpenMeld skills for your agents on this device."),
+  selectionCommand: "install",
+  agentExampleArg: DEFAULT_AGENT_EXAMPLE_PAIR,
+}).action(async (opts: SkillsInstallCliOptions) => {
+  const view = getGlobalViewOption();
+  emitLocalHelperSkillsDeprecation("install");
+  await runCommandWithEntryChecks({
+    routeTokens: ["skills", "install"],
+    view,
+    run: async () => {
+      await runSkillsInstall({
+        ...opts,
+        view,
+      });
+    },
+  });
+});
+
+registerSkillsTargetSelectionOptions({
+  command: skillsCmd
+    .command("uninstall")
+    .description("Remove OpenMeld skills from your agents on this device."),
+  selectionCommand: "uninstall",
+  agentExampleArg: DEFAULT_AGENT_EXAMPLE_PAIR,
+})
+  .option("--dry-run", "Preview uninstall targets without removing files")
+  .option(
+    "--allow-external-targets",
+    "Allow uninstall on targets outside this OpenMeld installation"
+  )
+  .action(async (opts: SkillsUninstallCliOptions) => {
+    const view = getGlobalViewOption();
+    emitLocalHelperSkillsDeprecation("uninstall");
+    await runCommandWithEntryChecks({
+      routeTokens: ["skills", "uninstall"],
+      view,
+      run: async () => {
+        await runSkillsUninstall({
+          ...opts,
+          view,
+        });
+      },
+    });
+  });
+
+skillsCmd
+  .command("list")
+  .alias("ls")
+  .description("List Skills in the active Organization.")
+  .option("--json", "Print one machine-readable JSON envelope.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["skills", "list"],
+      view,
+      run: async () => {
+        await runOrganizationSkillsList({
+          json: opts.json === true,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+skillsCmd
+  .command("show")
+  .description("Show one Skill in the active Organization.")
+  .argument("<skill>", "Organization Skill name or id")
+  .option("--json", "Print one machine-readable JSON envelope.", false)
+  .action(async (skill: string, opts: { json?: boolean }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["skills", "show"],
+      view,
+      run: async () => {
+        await runOrganizationSkillsShow({
+          json: opts.json === true,
+          skill,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+skillsCmd
+  .command("load")
+  .description("Load one enabled Skill into the private OpenMeld cache.")
+  .argument("<skill>", "Organization Skill name or id")
+  .option("--json", "Print one machine-readable JSON envelope.", false)
+  .action(async (skill: string, opts: { json?: boolean }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["skills", "load"],
+      view,
+      run: async () => {
+        await runOrganizationSkillsLoad({
+          json: opts.json === true,
+          skill,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+skillsCmd
+  .command("check")
+  .description("Check whether OpenMeld skills are installed and up to date.")
+  .action(async () => {
+    const view = getGlobalViewOption();
+    emitLocalHelperSkillsDeprecation("check");
+    await runCommandWithEntryChecks({
+      routeTokens: ["skills", "check"],
+      view,
+      run: async () => {
+        await runSkillsCheck({
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+skillsCmd
+  .command("update")
+  .alias("upgrade")
+  .description("Update OpenMeld skills where they are already installed.")
+  .action(async () => {
+    const view = getGlobalViewOption();
+    emitLocalHelperSkillsDeprecation("update");
+    await runCommandWithEntryChecks({
+      routeTokens: ["skills", "update"],
+      view,
+      run: async () => {
+        await runSkillsUpdate({
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+const agentsCmd = program
+  .command("agents")
+  .description("Find, enable, and review OpenMeld agents on this device.");
+
+agentsCmd.action(async () => {
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["agents"],
+    view,
+    run: async () => {
+      await runAgents({
+        view,
+      });
+      await maybeRunAgentViewRecoveryAfterSuccess({
+        view,
+      });
+    },
+  });
+});
+
+agentsCmd
+  .command("detect")
+  .description("Find supported AI tools on this device.")
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agents", "detect"],
+      view,
+      run: async () => {
+        await runAgentsDetect({
+          json: Boolean(opts.json),
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+agentsCmd
+  .command("list")
+  .alias("ls")
+  .description("List the agents OpenMeld can use on this device.")
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agents", "list"],
+      view,
+      run: async () => {
+        await runAgentsList({
+          json: Boolean(opts.json),
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+agentsCmd
+  .command("manage")
+  .description(
+    "Review connected agents and enable or disable them interactively."
+  )
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agents", "manage"],
+      view,
+      run: async () => {
+        await runAgentsManage({
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+registerBuiltinAgentSelectionOptions({
+  command: agentsCmd
+    .command("enable")
+    .alias("register")
+    .description(
+      "Enable agents so people can mention them in Spaces and OpenMeld can use them in automations."
+    ),
+  selectionCommand: "enable",
+})
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: AgentsEnableCliOptions & { json?: boolean }) => {
+    const json = opts.json === true;
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agents", "enable"],
+      view,
+      run: async () => {
+        await runAgentsEnable({
+          all: Boolean(opts.all),
+          agent: opts.agent,
+          install: opts.install,
+          json,
+          view,
+        });
+        if (!json) {
+          await maybeRunAgentViewRecoveryAfterSuccess({
+            view,
+          });
+        }
+      },
+    });
+  });
+
+registerBuiltinAgentSelectionOptions({
+  command: agentsCmd
+    .command("repair")
+    .description(
+      "Refresh how OpenMeld starts one or more connected agents here."
+    ),
+  selectionCommand: "repair",
+}).action(async (opts: AgentsEnableCliOptions) => {
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["agents", "repair"],
+    view,
+    run: async () => {
+      await runAgentsRepair({
+        all: Boolean(opts.all),
+        agent: opts.agent,
+        install: opts.install,
+        view,
+      });
+      await maybeRunAgentViewRecoveryAfterSuccess({
+        view,
+      });
+    },
+  });
+});
+
+registerBuiltinAgentSelectionOptions({
+  command: agentsCmd
+    .command("disable")
+    .alias("unregister")
+    .description("Disable one or more connected agents in OpenMeld.")
+    .argument(
+      "[agent-id]",
+      "Registered agent ID (optional positional compatibility)"
+    ),
+  selectionCommand: "disable",
+})
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(
+    async (
+      agentId: string | undefined,
+      opts: AgentsEnableCliOptions & { json?: boolean }
+    ) => {
+      const json = opts.json === true;
+      const requestedAgents = [
+        ...(Array.isArray(opts.agent) ? opts.agent : []),
+        ...(typeof agentId === "string" ? [agentId] : []),
+      ];
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["agents", "disable"],
+        view,
+        run: async () => {
+          await runAgentsDisable({
+            all: Boolean(opts.all),
+            agent: requestedAgents,
+            json,
+            view,
+          });
+          if (!json) {
+            await maybeRunAgentViewRecoveryAfterSuccess({
+              view,
+            });
+          }
+        },
+      });
+    }
+  );
+
+agentsCmd
+  .command("show")
+  .description(
+    "Show how a connected agent is currently configured in OpenMeld."
+  )
+  .argument("[agent-id]", "Registered agent ID")
+  .action(async (agentId: string | undefined) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agents", "show"],
+      view,
+      run: async () => {
+        await runAgentsShow({
+          agentId,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+const agentsCustomCmd = agentsCmd
+  .command("custom")
+  .description("Manage custom agent targets stored in local OpenMeld config.");
+
+agentsCustomCmd
+  .command("list")
+  .alias("ls")
+  .description("List custom agent targets.")
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agents", "custom", "list"],
+      view,
+      run: async () => {
+        await runAgentsCustomList({
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+agentsCustomCmd
+  .command("add")
+  .description("Add a custom agent target.")
+  .option("--id <id>", "Custom target ID (optional; auto-generated from dir)")
+  .option("--name <name>", "Custom target display name")
+  .option("--dir <dir>", "Custom target absolute directory path")
+  .action(async (opts: AgentsCustomAddCliOptions) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agents", "custom", "add"],
+      view,
+      run: async () => {
+        await runAgentsCustomAdd({
+          id: opts.id,
+          name: opts.name,
+          dir: opts.dir,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+agentsCustomCmd
+  .command("update")
+  .description("Update a custom agent target (ID is immutable).")
+  .option("--id <id>", "Custom target ID")
+  .option("--name <name>", "New custom target display name")
+  .option("--dir <dir>", "New custom target absolute directory path")
+  .action(async (opts: AgentsCustomUpdateCliOptions) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agents", "custom", "update"],
+      view,
+      run: async () => {
+        await runAgentsCustomUpdate({
+          id: opts.id,
+          name: opts.name,
+          dir: opts.dir,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+agentsCustomCmd
+  .command("remove")
+  .description(
+    "Remove a custom agent target (blocked when the target is still registered)."
+  )
+  .option("--id <id>", "Custom target ID")
+  .action(async (opts: AgentsCustomRemoveCliOptions) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agents", "custom", "remove"],
+      view,
+      run: async () => {
+        await runAgentsCustomRemove({
+          id: opts.id,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+agentsCmd
+  .command("config")
+  .description(
+    "Update a registered agent's local OpenMeld configuration. Prefer `openmeld agents manage` for the interactive flow."
+  )
+  .argument("[agent-id]", "Registered agent ID")
+  .option("--enabled <value>", "Set enabled: true|false")
+  .action(async (agentId: string | undefined, opts: AgentsConfigCliOptions) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["agents", "config"],
+      view,
+      run: async () => {
+        await runAgentsConfig({
+          agentId,
+          enabled: opts.enabled,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+const serviceCmd = program
+  .command("service")
+  .alias("daemon")
+  .description("Manage OpenMeld Service on this device.")
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["service"],
+      view,
+      run: async () => {
+        await runDaemon({
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+serviceCmd
+  .command("start")
+  .description("Start OpenMeld Service on this device.")
+  .option("--mode <mode>", "Start mode: background (default) or foreground")
+  .option(
+    "--gateway-url <url>",
+    "OpenMeld gateway URL (command line, OPENMELD_GATEWAY_URL, or saved OpenMeld settings)"
+  )
+  .option(
+    "--profile <id-or-name>",
+    "Optional OpenMeld profile override used for owner resolution"
+  )
+  .option("--device-id <id>", "Override daemon device id for this run")
+  .option(
+    "--heartbeat-ms <n>",
+    "Heartbeat interval in milliseconds (default: 25000)"
+  )
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(runServiceStartCliAction);
+
+serviceCmd
+  .command("run", { hidden: true })
+  .description(
+    "Run OpenMeld Service in this process. System service entrypoint (launchd/systemd unit definitions call this); humans should use `openmeld service start`."
+  )
+  .option("--mode <mode>", "Run mode: background (default) or foreground")
+  .option(
+    "--gateway-url <url>",
+    "OpenMeld gateway URL (command line, OPENMELD_GATEWAY_URL, or saved OpenMeld settings)"
+  )
+  .option(
+    "--profile <id-or-name>",
+    "Optional OpenMeld profile override used for owner resolution"
+  )
+  .option("--device-id <id>", "Override daemon device id for this run")
+  .option(
+    "--heartbeat-ms <n>",
+    "Heartbeat interval in milliseconds (default: 25000)"
+  )
+  .action(runServiceStartCliAction);
+
+serviceCmd
+  .command("status")
+  .description("Show OpenMeld Service status on this device.")
+  .option("--json", "Print machine-readable JSON.", false)
+  .option(
+    "--profile <id-or-name>",
+    "Optional OpenMeld profile context for local service diagnostics"
+  )
+  .action(async (opts: { profile?: string; json?: boolean }) => {
+    const json = opts.json === true;
+    const view = json ? "agent" : getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["service", "status"],
+      profile: opts.profile,
+      view,
+      run: async () => {
+        await runDaemonStatusFlow({
+          json,
+          profile: opts.profile,
+          view,
+        });
+        if (!json) {
+          await maybeRunAgentViewRecoveryAfterSuccess({
+            view,
+          });
+        }
+      },
+    });
+  });
+
+const serviceAutostartCmd = serviceCmd
+  .command("autostart")
+  .description(
+    "Manage OpenMeld Service automatic startup without changing the current process state."
+  );
+
+serviceAutostartCmd
+  .command("enable")
+  .description(
+    "Allow OpenMeld Service to start automatically when you sign in."
+  )
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const json = opts.json === true;
+    const view = json ? "agent" : getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["service", "autostart", "enable"],
+      view,
+      run: async () => {
+        await runDaemonAutostart({
+          action: "enable",
+          json,
+          view,
+        });
+        if (!json) {
+          await maybeRunAgentViewRecoveryAfterSuccess({
+            view,
+          });
+        }
+      },
+    });
+  });
+
+serviceAutostartCmd
+  .command("disable")
+  .description(
+    "Prevent OpenMeld Service from starting automatically when you sign in."
+  )
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const json = opts.json === true;
+    const view = json ? "agent" : getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["service", "autostart", "disable"],
+      view,
+      run: async () => {
+        await runDaemonAutostart({
+          action: "disable",
+          json,
+          view,
+        });
+        if (!json) {
+          await maybeRunAgentViewRecoveryAfterSuccess({
+            view,
+          });
+        }
+      },
+    });
+  });
+
+serviceCmd
+  .command("snapshot")
+  .description("Capture an OpenMeld Service evidence snapshot on this device.")
+  .option(
+    "--profile <id-or-name>",
+    "OpenMeld profile used for route observation"
+  )
+  .action(async (opts: ServiceSnapshotCliOptions) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["service", "snapshot"],
+      profile: opts.profile,
+      view,
+      run: async () => {
+        await runDaemonSnapshot({
+          profile: opts.profile,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+registerDaemonControlTargetOptions({
+  command: serviceCmd
+    .command("interrupt")
+    .description("Send an interrupt request to an inflight local daemon task."),
+}).action(async (opts: ServiceControlCliOptions) => {
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["service", "interrupt"],
+    view,
+    run: async () => {
+      await runDaemonInterrupt({
+        dispatch: opts.dispatch,
+        reason: opts.reason,
+        task: opts.task,
+        view,
+      });
+      await maybeRunAgentViewRecoveryAfterSuccess({
+        view,
+      });
+    },
+  });
+});
+
+registerDaemonControlTargetOptions({
+  command: serviceCmd
+    .command("cancel")
+    .description("Send a cancel request to an inflight local daemon task."),
+}).action(async (opts: ServiceControlCliOptions) => {
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["service", "cancel"],
+    view,
+    run: async () => {
+      await runDaemonCancel({
+        dispatch: opts.dispatch,
+        reason: opts.reason,
+        task: opts.task,
+        view,
+      });
+      await maybeRunAgentViewRecoveryAfterSuccess({
+        view,
+      });
+    },
+  });
+});
+
+serviceCmd
+  .command("trace")
+  .description("Read a Space delivery trace for debugging.")
+  .requiredOption("--space <id>", "Space ID (64-character hex)")
+  .option("--dispatch <id>", "Dispatch ID")
+  .option("--source-signal <id>", "Source signal ID")
+  .option("--client-message <id>", "Client message ID from the sender")
+  .option(
+    "--target-profile <id>",
+    "Target OpenMeld profile ID for source-signal lookup"
+  )
+  .option("--password <value>", "Space password for protected access")
+  .option("--profile <id>", "OpenMeld profile ID used for auth context")
+  .option(
+    "--gateway-url <url>",
+    "OpenMeld gateway URL (command line, OPENMELD_GATEWAY_URL, or saved OpenMeld settings)"
+  )
+  .option("--details", "Print the full trace payload in agent view", false)
+  .action(async (opts: ServiceTraceCliOptions) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["service", "trace"],
+      view,
+      profile: opts.profile,
+      gatewayUrl: opts.gatewayUrl,
+      run: async () => {
+        const dispatchId = normalizeOptionalString(opts.dispatch);
+        const sourceSignalId = normalizeOptionalString(opts.sourceSignal);
+        const clientMessageId = normalizeOptionalString(opts.clientMessage);
+        const targetProfileId = normalizeOptionalString(opts.targetProfile);
+        const selectorCount =
+          Number(dispatchId !== null) +
+          Number(sourceSignalId !== null) +
+          Number(clientMessageId !== null);
+        if (selectorCount !== 1) {
+          throw new Error(
+            "exactly one of --dispatch, --source-signal, or --client-message is required"
+          );
+        }
+        await runServiceTrace({
+          profile: opts.profile,
+          baseUrl: opts.gatewayUrl,
+          space: String(opts.space ?? ""),
+          ...(dispatchId ? { dispatchId } : {}),
+          details: opts.details === true,
+          ...(sourceSignalId ? { sourceSignalId } : {}),
+          ...(clientMessageId ? { clientMessageId } : {}),
+          ...(targetProfileId ? { targetProfileId } : {}),
+          password: opts.password,
+          view,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+          profile: opts.profile,
+        });
+      },
+    });
+  });
+
+serviceCmd
+  .command("install")
+  .description("Install OpenMeld Service on this device.")
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const json = opts.json === true;
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["service", "install"],
+      view,
+      run: async () => {
+        await runDaemonInstall({
+          json,
+          view,
+        });
+        if (!json) {
+          await maybeRunAgentViewRecoveryAfterSuccess({
+            view,
+          });
+        }
+      },
+    });
+  });
+
+serviceCmd
+  .command("uninstall")
+  .description("Remove OpenMeld Service from this device.")
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const json = opts.json === true;
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["service", "uninstall"],
+      view,
+      run: async () => {
+        await runDaemonUninstall({
+          json,
+          view,
+        });
+        if (!json) {
+          await maybeRunAgentViewRecoveryAfterSuccess({
+            view,
+          });
+        }
+      },
+    });
+  });
+
+serviceCmd
+  .command("repair")
+  .description("Repair OpenMeld Service on this device.")
+  .option(
+    "--force",
+    "Allow force-continue when graceful stop/drain times out (may drop in-flight tasks)"
+  )
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: ServiceReinstallCliOptions & { json?: boolean }) => {
+    await runServiceMaintenanceCliAction(opts, "repair");
+  });
+
+serviceCmd
+  .command("update")
+  .description("Update OpenMeld Service on this device.")
+  .option(
+    "--force",
+    "Allow force-continue when graceful stop/drain times out (may drop in-flight tasks)"
+  )
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: ServiceReinstallCliOptions & { json?: boolean }) => {
+    await runServiceMaintenanceCliAction(opts, "update");
+  });
+
+serviceCmd
+  .command("reinstall", { hidden: true })
+  .description("Deprecated alias for `openmeld service repair`.")
+  .option(
+    "--force",
+    "Allow force-continue when graceful stop/drain times out (may drop in-flight tasks)"
+  )
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: ServiceReinstallCliOptions & { json?: boolean }) => {
+    errLine(
+      "hint: `openmeld service reinstall` is a deprecated alias; use `openmeld service repair`."
+    );
+    await runServiceMaintenanceCliAction(opts, "repair");
+  });
+
+serviceCmd
+  .command("stop")
+  .description("Stop OpenMeld Service on this device.")
+  .option(
+    "--force",
+    "Send SIGKILL immediately instead of SIGTERM (human flow defaults to confirmation)"
+  )
+  .option(
+    "--profile <id-or-name>",
+    "Optional OpenMeld profile override used for state sync"
+  )
+  .option("--json", "Print machine-readable JSON.", false)
+  .action(async (opts: ServiceStopCliOptions & { json?: boolean }) => {
+    const json = opts.json === true;
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["service", "stop"],
+      view,
+      run: async () => {
+        await runDaemonStop({
+          force: Boolean(opts.force),
+          json,
+          profile: opts.profile,
+          view,
+        });
+        if (!json) {
+          await maybeRunAgentViewRecoveryAfterSuccess({
+            view,
+          });
+        }
+      },
+    });
+  });
+
+async function runServiceStartCliAction(
+  opts: ServiceRunCliOptions & { json?: boolean }
+): Promise<void> {
+  const json = opts.json === true;
+  const view = getGlobalViewOption();
+  if (
+    !json &&
+    shouldEmitAgentOverview({
+      resolvedView: view === "agent" ? "agent" : "human",
+    })
+  ) {
+    const runtime = await resolveRuntimeContext({
+      view,
+    });
+    const presenter = createPresenter(runtime);
+    emitDaemonAgentOverview({
+      presenter,
+      command: "run",
+    });
+  }
+  await runCommandWithEntryChecks({
+    routeTokens: ["service", "run"],
+    view,
+    profile: opts.profile,
+    gatewayUrl: opts.gatewayUrl,
+    run: async () => {
+      const result = await runDaemonRun({
+        deviceId: opts.deviceId,
+        gatewayUrl: opts.gatewayUrl,
+        heartbeatMs: parseNonNegativeIntegerOption(
+          opts.heartbeatMs,
+          "--heartbeat-ms"
+        ),
+        profile: opts.profile,
+        mode: opts.mode,
+        view,
+        agentOverviewHandled: view === "agent",
+        entryChecksHandled: true,
+        outputMode: json ? "silent" : "normal",
+      });
+      if (json) {
+        emitCliJsonEnvelope({
+          schemaVersion: 1,
+          type: "daemon.run",
+          ok: result.ok,
+          reason: result.reason,
+        });
+      } else {
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      }
+    },
+  });
+}
+
+async function runServiceMaintenanceCliAction(
+  opts: ServiceReinstallCliOptions & { json?: boolean },
+  displayAction: "repair" | "update"
+): Promise<void> {
+  const json = opts.json === true;
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["service", "reinstall"],
+    view,
+    run: async () => {
+      const result = await runDaemonReinstall(
+        {
+          displayAction,
+          force: Boolean(opts.force),
+          json,
+          view,
+        },
+        {
+          suppressInstallOutput: true,
+        }
+      );
+      if (result.ok && !json) {
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      }
+    },
+  });
+}
+
+const spaceCmd = program
+  .command("space")
+  .alias("spaces")
+  .description("Manage OpenMeld spaces.");
+spaceCmd
+  .option(
+    "--gateway-url <url>",
+    "OpenMeld gateway URL (command line, OPENMELD_GATEWAY_URL, or saved OpenMeld settings)"
+  )
+  .option(
+    "--profile <id>",
+    "OpenMeld profile ID (defaults to your selected profile)"
+  )
+  .action(async (opts) => {
+    const view = getGlobalViewOption();
+    if (view === "agent") {
+      await runSpaceMenu({
+        profile: opts.profile,
+        baseUrl: opts.gatewayUrl,
+        view,
+        entryChecksHandled: true,
+      });
+      return;
+    }
+    await runCommandWithEntryChecks({
+      routeTokens: ["space"],
+      view,
+      profile: opts.profile,
+      gatewayUrl: opts.gatewayUrl,
+      run: async () => {
+        await runSpaceMenu({
+          profile: opts.profile,
+          baseUrl: opts.gatewayUrl,
+          view,
+          entryChecksHandled: true,
+        });
+      },
+    });
+  });
+
+const spaceActionCmd = spaceCmd
+  .command("action")
+  .description("Record a dispatch-scoped OpenMeld Space Action.")
+  .action(async () => {
+    await runSpaceActionHelp();
+  });
+
+spaceActionCmd
+  .command("reply")
+  .description("Record a final Space reply for the current dispatch.")
+  .argument("<message...>", "Reply message")
+  .option(
+    "--wake <target>",
+    "Wake another Agent Profile with this reply",
+    collectRepeatedOptionValue,
+    []
+  )
+  .option(
+    "--reference <target>",
+    "Reference a Human or Agent Profile",
+    collectRepeatedOptionValue,
+    []
+  )
+  .action(async (messageParts, opts) => {
+    await runSpaceActionReply({
+      messageParts: Array.isArray(messageParts) ? messageParts : [],
+      wakeTargets: Array.isArray(opts.wake) ? opts.wake : [],
+      referenceTargets: Array.isArray(opts.reference) ? opts.reference : [],
+    });
+  });
+
+spaceActionCmd
+  .command("wake")
+  .description(
+    "Record a final handoff message that wakes another Agent Profile."
+  )
+  .argument("<target>", "Target Agent Profile")
+  .argument("<message...>", "Handoff message")
+  .action(async (target, messageParts) => {
+    await runSpaceActionWake({
+      target,
+      messageParts: Array.isArray(messageParts) ? messageParts : [],
+    });
+  });
+
+spaceActionCmd
+  .command("status")
+  .description("Record a final Space status for the current dispatch.")
+  .argument("<status>", "Final status: done|blocked|needs_input|handoff")
+  .argument("<text...>", "Short status text")
+  .action(async (status, textParts) => {
+    await runSpaceActionStatus({
+      status,
+      textParts: Array.isArray(textParts) ? textParts : [],
+    });
+  });
+
+spaceActionCmd
+  .command("silent")
+  .description("Record an explicit no-public-reply final outcome.")
+  .requiredOption("--reason <reason>", "Reason for staying silent")
+  .action(async (opts) => {
+    await runSpaceActionSilent({
+      reason: opts.reason,
+    });
+  });
+
+spaceActionCmd
+  .command("targets")
+  .description("List current dispatch Space Action targets.")
+  .action(async () => {
+    await runSpaceActionTargets();
+  });
+
+spaceActionCmd
+  .command("help")
+  .description("Show OpenMeld Space Action help.")
+  .action(async () => {
+    await runSpaceActionHelp();
+  });
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("create")
+    .description("Create a new space and print its space ID.")
+    .option(
+      "--name <name>",
+      "Space name (<=80 chars; prompted in human interactive mode)"
+    )
+    .option(
+      "--visibility <public|private>",
+      "Organization visibility for this space"
+    )
+    .option("--guide <text>", "Optional space guide")
+    .option(
+      "--password <value>",
+      "Optional space password (minimum 6 characters; numbers/letters/symbols accepted)"
+    )
+    .option("--join", "Join immediately after create")
+    .option("--no-join", "Do not ask to join after create")
+    .option(
+      "--output <mode>",
+      "Output mode when auto-joining: ndjson|text",
+      "text"
+    )
+).action(async (opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const view = getGlobalViewOption();
+  if (
+    view === "agent" &&
+    (normalizeOptionalString(opts.name) === null ||
+      normalizeOptionalString(opts.visibility) === null)
+  ) {
+    await runSpaceCreate({
+      profile: cliOptions.profile,
+      baseUrl: cliOptions.gatewayUrl,
+      name: opts.name,
+      visibility: opts.visibility,
+      guide: opts.guide,
+      password: opts.password,
+      join: opts.join,
+      output: opts.output,
+      view,
+    });
+    return;
+  }
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "create"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceCreate({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        name: opts.name,
+        visibility: opts.visibility,
+        guide: opts.guide,
+        password: opts.password,
+        join: opts.join,
+        output: opts.output,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("delete")
+    .description("Delete one or more spaces (requires owner confirmation).")
+    .argument("[space]", "Space ID (64-character hex)")
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "delete"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceDelete({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: typeof space === "string" ? space : undefined,
+        password: cliOptions.password,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("join")
+    .description(
+      "Open an existing Space membership and chat; use --self-serve to join a public Organization Space and exit."
+    )
+    .argument("[space]", "Space ID (64-character hex)")
+    .option(
+      "--self-serve",
+      "Join a public Organization Space as the current Human Profile without opening chat",
+      false
+    )
+    .option(
+      "--local-echo",
+      "Show local optimistic echo before server events (enabled by default in human interactive join)"
+    )
+    .option("--no-local-echo", "Clean mode: only render server events")
+    .option(
+      "--history-limit <n>",
+      "Recent history preload size on join (default: 100; 0 disables preload)",
+      "100"
+    )
+    .option("--role <text>", "Role in this space")
+    .option(
+      "--mention-alias <token>",
+      "Space-level mention alias (used by @alias in this space)"
+    )
+    .option("--password <value>", "Space password for protected access")
+    .option(
+      "--output <mode>",
+      "Output mode: ndjson|text (default: text)",
+      "text"
+    )
+    .option("--raw-stream", AGENT_RAW_STREAM_OPTION_DESCRIPTION, false)
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const localEcho = opts.noLocalEcho !== true;
+  const view = getGlobalViewOption();
+  if (opts.selfServe === true) {
+    const spaceValue = normalizeOptionalString(space);
+    if (!spaceValue) {
+      throw Object.assign(
+        new Error(
+          "space join --self-serve requires an explicit public Organization Space ID"
+        ),
+        { code: "space.join.self_serve.space_required" }
+      );
+    }
+    await runCommandWithEntryChecks({
+      routeTokens: ["space", "join", "--self-serve"],
+      view,
+      profile: cliOptions.profile,
+      gatewayUrl: cliOptions.gatewayUrl,
+      run: async () => {
+        await runSpaceSelfServeJoin({
+          profile: cliOptions.profile,
+          baseUrl: cliOptions.gatewayUrl,
+          space: spaceValue,
+          password: opts.password,
+          view,
+          entryChecksHandled: true,
+        });
+      },
+    });
+    return;
+  }
+  if (view === "agent" && normalizeOptionalString(space) === null) {
+    await runSpaceJoin({
+      profile: cliOptions.profile,
+      baseUrl: cliOptions.gatewayUrl,
+      space: typeof space === "string" ? space : undefined,
+      output: opts.output,
+      password: opts.password,
+      localEcho,
+      historyLimit: parseNonNegativeIntegerOption(
+        opts.historyLimit,
+        "history-limit"
+      ),
+      role: opts.role,
+      mentionAlias: opts.mentionAlias,
+      rawStream: opts.rawStream === true,
+      view,
+    });
+    return;
+  }
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "join"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceJoin({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: typeof space === "string" ? space : undefined,
+        output: opts.output,
+        password: cliOptions.password,
+        localEcho,
+        historyLimit: parseNonNegativeIntegerOption(
+          opts.historyLimit,
+          "history-limit"
+        ),
+        role: opts.role,
+        mentionAlias: opts.mentionAlias,
+        rawStream: opts.rawStream === true,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("wake-progress")
+    .description(
+      "Read live Wake progress for this Space; use result or service trace after execution."
+    )
+    .argument("<space>", "Space ID (64-character hex)")
+    .option(
+      "--client-message <client-message-id>",
+      "Read progress for one client message instead of the active Space summary"
+    )
+    .option(
+      "--target-profile <profile-id>",
+      "Narrow progress to one target Agent Profile"
+    )
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "wake-progress"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceWakeProgress({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: String(space),
+        clientMessageId:
+          normalizeOptionalString(opts.clientMessage) ?? undefined,
+        targetProfileId:
+          normalizeOptionalString(opts.targetProfile) ?? undefined,
+        password: cliOptions.password,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("wake-stop")
+    .description(
+      "Request Stop for one live Wake and report only the server-confirmed state."
+    )
+    .argument("<space>", "Space ID (64-character hex)")
+    .option(
+      "--client-message <client-message-id>",
+      "Select the Wake by client message ID"
+    )
+    .option(
+      "--source-signal <signal-id>",
+      "Select the Wake by source Space signal ID"
+    )
+    .requiredOption(
+      "--target-profile <profile-id>",
+      "Target Agent Profile ID for the selected Wake"
+    )
+    .option("--reason <text>", "Reason recorded with the Stop request")
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "wake-stop"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceWakeStop({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: String(space),
+        clientMessageId:
+          normalizeOptionalString(opts.clientMessage) ?? undefined,
+        sourceSignalId: normalizeOptionalString(opts.sourceSignal) ?? undefined,
+        targetProfileId: String(opts.targetProfile),
+        reason: normalizeOptionalString(opts.reason) ?? undefined,
+        password: cliOptions.password,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("add-me")
+    .description("Add me to this Space.")
+    .argument("<space>", "Space URL or Space ID")
+    .option("--password <value>", "Space password for protected access")
+    .option(
+      "--project-folder <path>",
+      "Project folder for this agent profile",
+      collectRepeatedOptionValue
+    )
+    .option(
+      "--workspace-path <path>",
+      "Alias for --project-folder",
+      collectRepeatedOptionValue
+    )
+    .option(
+      "--working-directory <path>",
+      "Alias for --project-folder",
+      collectRepeatedOptionValue
+    )
+    .option(
+      "--cwd <path>",
+      "Alias for --project-folder",
+      collectRepeatedOptionValue
+    )
+    .option(
+      "--agent-controller-permission-mode <policy>",
+      formatAgentControllerPermissionModeHelp()
+    )
+    .option(
+      "--confirm-dangerous-agent-controller-permission-mode",
+      "Confirm a dangerous Agent Controller Permission Mode without prompting",
+      false
+    )
+    .option("--details", "Print detailed add-me diagnostics")
+    .option("--json", "Print machine-readable add-me diagnostics", false)
+).action(
+  async (
+    space,
+    opts: SpaceAddMeCliOptions,
+    command: Command
+  ): Promise<void> => {
+    const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["space", "add-me"],
+      view,
+      profile: cliOptions.profile,
+      gatewayUrl: cliOptions.gatewayUrl,
+      run: async () => {
+        await runSpaceAddMe({
+          profile: cliOptions.profile,
+          baseUrl: cliOptions.gatewayUrl,
+          space,
+          password: cliOptions.password,
+          projectFolders: {
+            projectFolder: opts.projectFolder,
+            workspacePath: opts.workspacePath,
+            workingDirectory: opts.workingDirectory,
+            cwd: opts.cwd,
+          },
+          agentControllerPermissionModeInput:
+            opts.agentControllerPermissionMode,
+          confirmDangerousAgentControllerPermissionMode:
+            opts.confirmDangerousAgentControllerPermissionMode === true,
+          details: opts.details === true,
+          json: opts.json === true,
+          view,
+          entryChecksHandled: true,
+        });
+      },
+    });
+  }
+);
+
+withSpaceProfileOption(
+  registerSpaceMemberSelectionOptions({
+    command: spaceCmd
+      .command("add-members")
+      .alias("add-profiles")
+      .description("Add Organization Directory profiles to a Space.")
+      .argument("[space]", "Space ID (64-character hex)")
+      .option("--password <value>", "Space password for protected access")
+      .option("--details", "Print detailed add-members progress in agent view"),
+    selectionCommand: "add-members",
+  })
+).action(
+  async (
+    space,
+    opts: SpaceAddMembersCliOptions,
+    command: Command
+  ): Promise<void> => {
+    const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+    const outputView = await resolveEffectiveViewForOutput();
+    let members: string[] | undefined;
+    if (Array.isArray(opts.member)) {
+      members = opts.member;
+    } else if (typeof opts.member === "string") {
+      members = [opts.member];
+    }
+    if (
+      outputView === "agent" &&
+      (typeof space !== "string" || space.trim().length === 0) &&
+      !(opts.all === true) &&
+      !members?.length
+    ) {
+      throw createSpaceAddMembersGuideError();
+    }
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["space", "add-members"],
+      view,
+      profile: cliOptions.profile,
+      gatewayUrl: cliOptions.gatewayUrl,
+      run: async () => {
+        await runSpaceAddMembers({
+          mode: "profiles",
+          profile: cliOptions.profile,
+          baseUrl: cliOptions.gatewayUrl,
+          space: typeof space === "string" ? space : undefined,
+          password: cliOptions.password,
+          members,
+          all: opts.all === true,
+          details: opts.details === true,
+          view,
+          entryChecksHandled: true,
+          membershipSource: "organization_directory",
+        });
+      },
+    });
+  }
+);
+
+withSpaceProfileOption(
+  registerSpaceMemberSelectionOptions({
+    command: spaceCmd
+      .command("add-agents")
+      .description("Add Organization Directory Agent Profiles to a Space.")
+      .argument("[space]", "Space ID (64-character hex)")
+      .option("--password <value>", "Space password for protected access")
+      .option("--details", "Print detailed add-agents progress in agent view")
+      .addOption(
+        new Option(
+          "--member <profile-id...>",
+          "Agent Profile id(s) to add (compatibility alias)"
+        ).hideHelp()
+      ),
+    selectionCommand: "add-agents",
+  })
+).action(
+  async (
+    space,
+    opts: SpaceAddMembersCliOptions,
+    command: Command
+  ): Promise<void> => {
+    const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+    const outputView = await resolveEffectiveViewForOutput();
+    let members: string[] | undefined;
+    if (Array.isArray(opts.agentProfile)) {
+      members = opts.agentProfile;
+    } else if (typeof opts.agentProfile === "string") {
+      members = [opts.agentProfile];
+    } else if (Array.isArray(opts.member)) {
+      members = opts.member;
+      emitSpaceAddAgentsMemberAliasHint();
+    } else if (typeof opts.member === "string") {
+      members = [opts.member];
+      emitSpaceAddAgentsMemberAliasHint();
+    }
+    if (
+      outputView === "agent" &&
+      (typeof space !== "string" || space.trim().length === 0) &&
+      !(opts.all === true) &&
+      !members?.length
+    ) {
+      throw createSpaceAddMembersGuideError(
+        "openmeld space add-agents in agent/non-interactive mode requires explicit space and Agent Profile arguments.",
+        "space.add-agents"
+      );
+    }
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["space", "add-agents"],
+      view,
+      profile: cliOptions.profile,
+      gatewayUrl: cliOptions.gatewayUrl,
+      run: async () => {
+        await runSpaceAddMembers({
+          mode: "agents",
+          profile: cliOptions.profile,
+          baseUrl: cliOptions.gatewayUrl,
+          space: typeof space === "string" ? space : undefined,
+          password: cliOptions.password,
+          members,
+          all: opts.all === true,
+          details: opts.details === true,
+          view,
+          entryChecksHandled: true,
+          membershipSource: "organization_directory",
+        });
+      },
+    });
+  }
+);
+
+withSpaceProfileOption(
+  registerSpaceMemberSelectionOptions({
+    command: spaceCmd
+      .command("add-human-profiles")
+      .description("Add your own Human Profiles as members of a space.")
+      .argument("[space]", "Space ID (64-character hex)")
+      .option("--password <value>", "Space password for protected access")
+      .option(
+        "--details",
+        "Print detailed add-human-profiles progress in agent view"
+      ),
+    selectionCommand: "add-human-profiles",
+  })
+).action(
+  async (
+    space,
+    opts: SpaceAddMembersCliOptions,
+    command: Command
+  ): Promise<void> => {
+    const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+    const outputView = await resolveEffectiveViewForOutput();
+    let members: string[] | undefined;
+    if (Array.isArray(opts.humanProfile)) {
+      members = opts.humanProfile;
+    } else if (typeof opts.humanProfile === "string") {
+      members = [opts.humanProfile];
+    }
+    if (
+      outputView === "agent" &&
+      (typeof space !== "string" || space.trim().length === 0) &&
+      !(opts.all === true) &&
+      !members?.length
+    ) {
+      throw createSpaceAddMembersGuideError(
+        "openmeld space add-human-profiles in agent/non-interactive mode requires explicit space and Human Profile arguments.",
+        "space.add-human-profiles"
+      );
+    }
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["space", "add-human-profiles"],
+      view,
+      profile: cliOptions.profile,
+      gatewayUrl: cliOptions.gatewayUrl,
+      run: async () => {
+        await runSpaceAddMembers({
+          mode: "human_profiles",
+          profile: cliOptions.profile,
+          baseUrl: cliOptions.gatewayUrl,
+          space: typeof space === "string" ? space : undefined,
+          password: cliOptions.password,
+          members,
+          all: opts.all === true,
+          details: opts.details === true,
+          view,
+          entryChecksHandled: true,
+        });
+      },
+    });
+  }
+);
+
+withSpaceProfileOption(
+  registerSpaceMemberSelectionOptions({
+    command: spaceCmd
+      .command("remove-members")
+      .description("Remove your managed members from a space.")
+      .argument("[space]", "Space ID (64-character hex)")
+      .option("--password <value>", "Space password for protected access"),
+    selectionCommand: "remove-members",
+  })
+).action(
+  async (
+    space,
+    opts: SpaceRemoveMembersCliOptions,
+    command: Command
+  ): Promise<void> => {
+    const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+    const outputView = await resolveEffectiveViewForOutput();
+    let members: string[] | undefined;
+    if (Array.isArray(opts.member)) {
+      members = opts.member;
+    } else if (typeof opts.member === "string") {
+      members = [opts.member];
+    }
+    if (
+      outputView === "agent" &&
+      (typeof space !== "string" || space.trim().length === 0) &&
+      !(opts.all === true) &&
+      !members?.length
+    ) {
+      throw createSpaceRemoveMembersGuideError();
+    }
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["space", "remove-members"],
+      view,
+      profile: cliOptions.profile,
+      gatewayUrl: cliOptions.gatewayUrl,
+      run: async () => {
+        await runSpaceRemoveMembers({
+          profile: cliOptions.profile,
+          baseUrl: cliOptions.gatewayUrl,
+          space: typeof space === "string" ? space : undefined,
+          password: cliOptions.password,
+          members,
+          all: opts.all === true,
+          view,
+          entryChecksHandled: true,
+        });
+      },
+    });
+  }
+);
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("leave")
+    .description("Leave a space with the current profile.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .option("--password <value>", "Space password for protected access")
+).action(
+  async (
+    space,
+    opts: SpaceLeaveCliOptions,
+    command: Command
+  ): Promise<void> => {
+    const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+    const outputView = await resolveEffectiveViewForOutput();
+    if (
+      outputView === "agent" &&
+      (typeof space !== "string" || space.trim().length === 0)
+    ) {
+      throw createSpaceLeaveGuideError();
+    }
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["space", "leave"],
+      view,
+      profile: cliOptions.profile,
+      gatewayUrl: cliOptions.gatewayUrl,
+      run: async () => {
+        await runSpaceLeave({
+          profile: cliOptions.profile,
+          baseUrl: cliOptions.gatewayUrl,
+          space: typeof space === "string" ? space : undefined,
+          password: cliOptions.password,
+          view,
+          entryChecksHandled: true,
+        });
+      },
+    });
+  }
+);
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("watch")
+    .description("Watch a space in read-only mode.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .option(
+      "--history-limit <n>",
+      "Recent history preload size on watch (default: 100; 0 disables preload)",
+      "100"
+    )
+    .option("--password <value>", "Space password for protected access")
+    .option(
+      "--output <mode>",
+      "Output mode: ndjson|text (default: text)",
+      "text"
+    )
+    .option("--raw-stream", AGENT_RAW_STREAM_OPTION_DESCRIPTION, false)
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const outputView = await resolveEffectiveViewForOutput();
+  if (
+    outputView === "agent" &&
+    (typeof space !== "string" || space.trim().length === 0)
+  ) {
+    throw createSpaceTargetGuideError("watch");
+  }
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "watch"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceWatch({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: typeof space === "string" ? space : undefined,
+        password: cliOptions.password,
+        output: opts.output,
+        historyLimit: parseNonNegativeIntegerOption(
+          opts.historyLimit,
+          "history-limit"
+        ),
+        rawStream: opts.rawStream === true,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("send")
+    .description("Send one message to a Space.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .argument("[text...]", "Text to send")
+    .option(
+      "--attach <path>",
+      "Upload a JPEG or PNG attachment before sending (repeatable, max 4)",
+      collectRepeatedOptionValue,
+      []
+    )
+    .option("--stdin", "Read message text from stdin (EOF to finish)", false)
+    .option("--file <path>", "Read message text from a UTF-8 file")
+    .option(
+      "--plain",
+      "Send text literally without resolving @Name(wake) or @Name(reference) mentions",
+      false
+    )
+    .option(
+      "--reply-to <signal-id>",
+      "Reply into the thread of a message (creates the thread if it does not exist yet)"
+    )
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, textParts, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const spaceValue = String(space ?? "").trim();
+  const outputView = await resolveEffectiveViewForOutput();
+  if (!spaceValue) {
+    if (outputView === "agent") {
+      throw createSpaceSubcommandTargetGuideError("send");
+    }
+    throw createSpaceSubcommandTargetGuideError("send");
+  }
+  const textValue = Array.isArray(textParts)
+    ? textParts.join(" ")
+    : String(textParts ?? "");
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "send"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceSend({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: spaceValue,
+        attachmentPaths: Array.isArray(opts.attach)
+          ? opts.attach.map(String)
+          : [],
+        password: cliOptions.password,
+        text: textValue,
+        stdin: Boolean(opts.stdin),
+        file: typeof opts.file === "string" ? opts.file : undefined,
+        plainText: opts.plain === true,
+        replyToSignalId:
+          typeof opts.replyTo === "string" ? opts.replyTo : undefined,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("history")
+    .description("Read recent or anchored space history.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .option("--limit <n>", "Max items (default: 20)")
+    .option(
+      "--after-signal <signal-id>",
+      "Read history strictly after one signal"
+    )
+    .option(
+      "--around-signal <signal-id>",
+      "Read a local context window around one signal"
+    )
+    .option(
+      "--before <n>",
+      "Context items before --around-signal anchor (requires --around-signal)"
+    )
+    .option(
+      "--after <n>",
+      "Context items after --around-signal anchor (requires --around-signal)"
+    )
+    .option(
+      "--from-profile <profile-id>",
+      "Filter history to one sender profile ID (repeatable)",
+      collectRepeatedOptionValue,
+      []
+    )
+    .option(
+      "--kind <text|status|system_notice>",
+      "Filter history to one public signal kind (repeatable)",
+      (value: string, previous: readonly SpaceHistoryKindOption[] = []) => {
+        return [
+          ...previous,
+          parseSpaceHistoryKindOption(value),
+        ] as SpaceHistoryKindOption[];
+      },
+      []
+    )
+    .option(
+      "--brief",
+      "Print compact message-only JSON for quick agent checks",
+      false
+    )
+    .option("--json", "Print raw JSON envelopes (ndjson)", false)
+    .option("--raw-stream", AGENT_RAW_STREAM_OPTION_DESCRIPTION, false)
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const spaceValue = String(space ?? "").trim();
+  const outputView = await resolveEffectiveViewForOutput();
+  if (!spaceValue) {
+    if (outputView === "agent") {
+      throw createSpaceSubcommandTargetGuideError("history");
+    }
+    throw new Error(
+      "missing required 'space' argument for openmeld space history"
+    );
+  }
+
+  const limit = parseNonNegativeIntegerOption(opts.limit, "limit");
+  const beforeCount = parseNonNegativeIntegerOption(opts.before, "before");
+  const afterCount = parseNonNegativeIntegerOption(opts.after, "after");
+  if (typeof opts.aroundSignal === "string" && opts.limit !== undefined) {
+    throw new Error("--around-signal cannot be combined with --limit");
+  }
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "history"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceHistory({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: spaceValue,
+        password: cliOptions.password,
+        limit: limit ?? 20,
+        brief: Boolean(opts.brief),
+        json: Boolean(opts.json),
+        rawStream: opts.rawStream === true,
+        afterSignalId: opts.afterSignal,
+        aroundSignalId: opts.aroundSignal,
+        beforeCount,
+        afterCount,
+        fromProfileIds: opts.fromProfile,
+        kinds: opts.kind,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("thread")
+    .description("Read a thread's nested replies by thread ID.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .argument("[thread]", "Thread ID (thr_...)")
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, thread, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const spaceValue = String(space ?? "").trim();
+  const threadValue = String(thread ?? "").trim();
+  if (!spaceValue) {
+    throw createSpaceSubcommandTargetGuideError("thread");
+  }
+  if (!threadValue) {
+    throw new Error(
+      "missing required 'thread' argument for openmeld space thread"
+    );
+  }
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "thread"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceThread({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: spaceValue,
+        threadId: threadValue,
+        password: cliOptions.password,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+const spaceContractCmd = withSpaceProfileOption(
+  spaceCmd
+    .command("contract")
+    .description("Read the current space contract.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .option("--json", "Print canonical JSON", false)
+    .option("--password <value>", "Space password for protected access")
+);
+
+spaceContractCmd.action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const spaceValue = String(space ?? "").trim();
+  const outputView = await resolveEffectiveViewForOutput();
+  if (!spaceValue && outputView === "agent") {
+    throw createSpaceTargetGuideError("contract");
+  }
+
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "contract"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceContract({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: spaceValue,
+        password: cliOptions.password,
+        json: Boolean(opts.json),
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+const spaceBoardCmd = withSpaceProfileOption(
+  spaceCmd
+    .command("board")
+    .description("Read the current Space Board.")
+    .argument("<space>", "Space ID (64-character hex)")
+    .option("--json", "Print canonical JSON", false)
+    .option("--password <value>", "Space password for protected access")
+);
+
+spaceBoardCmd.action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const spaceValue = String(space).trim();
+
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "board"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceBoard({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: spaceValue,
+        password: cliOptions.password,
+        json: Boolean(opts.json),
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("members")
+    .description("List the people and agents in a Space.")
+    .argument("<space>", "Space ID (64-character hex)")
+    .option("--json", "Print the versioned machine-readable envelope", false)
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "members"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceMembers({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: String(space).trim(),
+        password: cliOptions.password,
+        json: cliOptions.json === true,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceContractCmd
+    .command("set")
+    .description("Update the current space contract.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .option(
+      "--dispatch-policy <mode>",
+      "Dispatch policy: mention_only|listen_all"
+    )
+    .option(
+      "--publication-mode <mode>",
+      "Publication mode: collaboration|transparent"
+    )
+    .option(
+      "--allowed-actions <values>",
+      "Comma-separated actions: post_message,post_status,stay_silent"
+    )
+    .option(
+      "--result-archive-mode <mode>",
+      "Result archive mode: none|space_reply_only|all_final_results"
+    )
+    .option("--entry-brief <mode>", "Entry Brief mode: default|none")
+    .option("--dispatch-brief <mode>", "Dispatch Brief mode: default|none")
+    .option("--json", "Print canonical JSON", false)
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const spaceValue = String(space ?? "").trim();
+  const outputView = await resolveEffectiveViewForOutput();
+  if (!spaceValue && outputView === "agent") {
+    throw createSpaceContractSetGuideError();
+  }
+
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "contract", "set"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceContractSet({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: spaceValue,
+        password: cliOptions.password,
+        dispatchPolicy:
+          typeof opts.dispatchPolicy === "string"
+            ? opts.dispatchPolicy
+            : undefined,
+        publicationMode:
+          typeof opts.publicationMode === "string"
+            ? opts.publicationMode
+            : undefined,
+        allowedActions:
+          typeof opts.allowedActions === "string"
+            ? opts.allowedActions
+            : undefined,
+        resultArchiveMode:
+          typeof opts.resultArchiveMode === "string"
+            ? opts.resultArchiveMode
+            : undefined,
+        entryBrief:
+          typeof opts.entryBrief === "string" ? opts.entryBrief : undefined,
+        dispatchBrief:
+          typeof opts.dispatchBrief === "string"
+            ? opts.dispatchBrief
+            : undefined,
+        json: cliOptions.json === true,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+const spacePublicationCmd = spaceCmd
+  .command("publication")
+  .description("Manage how a Space publishes agent output.");
+
+withSpaceProfileOption(
+  spacePublicationCmd
+    .command("set")
+    .description("Set Space publication mode.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .argument("[mode]", "Publication mode: collaboration|transparent")
+    .option("--json", "Print canonical JSON", false)
+    .option(
+      "--password <value>",
+      "Space password proof; required to change publication mode"
+    )
+).action(async (space, mode, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const spaceValue = String(space ?? "").trim();
+  const publicationMode = normalizePublicationModeCliValue(
+    typeof mode === "string" ? mode : undefined
+  );
+  const outputView = await resolveEffectiveViewForOutput();
+  const hasPassword = String(cliOptions.password ?? "").trim().length > 0;
+  if (
+    !(spaceValue && publicationMode && hasPassword) &&
+    outputView === "agent"
+  ) {
+    throw createSpacePublicationSetGuideError();
+  }
+  if (!(spaceValue && publicationMode)) {
+    throw new Error(
+      "missing required arguments for openmeld space publication set: <space-id> <collaboration|transparent>"
+    );
+  }
+
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "publication", "set"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceContractSet({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: spaceValue,
+        password: cliOptions.password,
+        publicationMode,
+        outputTitle: "Space publication mode updated:",
+        json: cliOptions.json === true,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("status")
+    .description("Read the current space status.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .option("--json", "Print canonical JSON", false)
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const spaceValue = String(space ?? "").trim();
+  const outputView = await resolveEffectiveViewForOutput();
+  if (!spaceValue && outputView === "agent") {
+    throw createSpaceTargetGuideError("status");
+  }
+
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "status"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceStatus({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: spaceValue,
+        password: cliOptions.password,
+        json: Boolean(opts.json),
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("updates")
+    .description("Read formal updates after a specific signal.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .requiredOption(
+      "--after-signal <signal-id>",
+      "Read updates strictly after this signal ID"
+    )
+    .option("--limit <n>", "Max updates to show (default: 20)", "20")
+    .option("--json", "Print filtered raw signals as ndjson", false)
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const spaceValue = String(space ?? "").trim();
+  const afterSignalId = String(opts.afterSignal ?? "").trim();
+  const outputView = await resolveEffectiveViewForOutput();
+  if (!(spaceValue && afterSignalId) && outputView === "agent") {
+    throw createSpaceUpdatesGuideError();
+  }
+
+  const limit = parseNonNegativeIntegerOption(opts.limit, "limit");
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "updates"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceUpdates({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: spaceValue,
+        afterSignalId,
+        limit: limit ?? 20,
+        password: cliOptions.password,
+        json: Boolean(opts.json),
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("result")
+    .description("Read one formal dispatch result scoped to this space.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .option("--dispatch <dispatch-id>", "Lookup by dispatch ID")
+    .option("--result-ref <result-ref>", "Lookup by dispatch result ref")
+    .option("--json", "Print canonical JSON", false)
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const spaceValue = String(space ?? "").trim();
+  const dispatchId = normalizeOptionalString(opts.dispatch);
+  const resultRef = normalizeOptionalString(opts.resultRef);
+  const selectorCount =
+    Number(dispatchId !== null) + Number(resultRef !== null);
+  const outputView = await resolveEffectiveViewForOutput();
+  if (
+    (spaceValue.length === 0 || selectorCount !== 1) &&
+    outputView === "agent"
+  ) {
+    throw createSpaceResultGuideError();
+  }
+
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "result"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceResult({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: spaceValue,
+        ...(dispatchId ? { dispatchId } : {}),
+        ...(resultRef ? { resultRef } : {}),
+        password: cliOptions.password,
+        json: Boolean(opts.json),
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("list")
+    .alias("ls")
+    .description(
+      "List known Spaces; use --organization to discover the active Organization Space directory."
+    )
+    .option("--limit <n>", "Max spaces to show (default: 20)", "20")
+    .option(
+      "--organization",
+      "List the active Organization Space directory, including public Spaces",
+      false
+    )
+    .option("--json", "Print machine-readable JSON", false)
+).action(async (opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const limit = parseNonNegativeIntegerOption(opts.limit, "limit");
+  const view = getGlobalViewOption();
+  if (opts.organization === true) {
+    await runCommandWithEntryChecks({
+      routeTokens: ["space", "list", "--organization"],
+      view,
+      profile: cliOptions.profile,
+      gatewayUrl: cliOptions.gatewayUrl,
+      jsonOutput: Boolean(opts.json),
+      run: async () => {
+        await runSpaceOrganizationList({
+          profile: cliOptions.profile,
+          baseUrl: cliOptions.gatewayUrl,
+          limit: limit ?? 20,
+          json: Boolean(opts.json),
+          view,
+          entryChecksHandled: true,
+        });
+      },
+    });
+    return;
+  }
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "list"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceList({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        limit: limit ?? 20,
+        json: Boolean(opts.json),
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceCmd
+    .command("password")
+    .description("Set, change, or clear a space password.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .option("--password <value>", "New space password value")
+    .option("--clear", "Clear current space password", false)
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const spaceValue = String(space ?? "").trim();
+  const outputView = await resolveEffectiveViewForOutput();
+  const passwordValue =
+    typeof opts.password === "string" ? opts.password : undefined;
+  const clearRequested = opts.clear === true ? true : undefined;
+  if (
+    outputView === "agent" &&
+    (spaceValue.length === 0 ||
+      (passwordValue === undefined && !clearRequested))
+  ) {
+    throw createSpaceSubcommandTargetGuideError("password");
+  }
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "password"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpacePassword({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: spaceValue.length > 0 ? spaceValue : undefined,
+        password: passwordValue,
+        clear: clearRequested,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+program
+  .command("send")
+  .description("Alias for `openmeld space send`.")
+  .argument("[text...]", "Text to send")
+  .option("--profile <id>", "OpenMeld profile ID")
+  .option("--base-url <url>", "OpenMeld gateway URL")
+  .option("--space <space>", "Space ID (64-character hex)")
+  .option("--stdin", "Read message text from stdin (EOF to finish)", false)
+  .option("--file <path>", "Read message text from a UTF-8 file")
+  .option(
+    "--plain",
+    "Send text literally without resolving @Name(wake) or @Name(reference) mentions",
+    false
+  )
+  .option("--password <value>", "Space password for protected access")
+  .action(
+    async (
+      textParts: string[] | undefined,
+      opts: {
+        profile?: string;
+        baseUrl?: string;
+        space?: string;
+        stdin?: boolean;
+        file?: string;
+        plain?: boolean;
+        password?: string;
+      }
+    ) => {
+      const space = String(opts.space ?? "").trim();
+      if (!space) {
+        throw createSpaceAliasTargetGuideError("send");
+      }
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["send"],
+        view,
+        profile: opts.profile,
+        gatewayUrl: opts.baseUrl,
+        run: async () => {
+          await runSpaceSend({
+            profile: opts.profile,
+            baseUrl: opts.baseUrl,
+            space,
+            password: opts.password,
+            text: Array.isArray(textParts) ? textParts.join(" ") : "",
+            stdin: Boolean(opts.stdin),
+            file: typeof opts.file === "string" ? opts.file : undefined,
+            plainText: opts.plain === true,
+            view,
+            entryChecksHandled: true,
+          });
+        },
+      });
+    }
+  );
+
+program
+  .command("tail")
+  .description("Alias for `openmeld space history`.")
+  .option("--profile <id>", "OpenMeld profile ID")
+  .option("--base-url <url>", "OpenMeld gateway URL")
+  .option("--space <space>", "Space ID (64-character hex)")
+  .option("--limit <n>", "Max items (default: 20)")
+  .option(
+    "--after-signal <signal-id>",
+    "Read history strictly after one signal"
+  )
+  .option(
+    "--around-signal <signal-id>",
+    "Read a local context window around one signal"
+  )
+  .option(
+    "--before <n>",
+    "Context items before --around-signal anchor (requires --around-signal)"
+  )
+  .option(
+    "--after <n>",
+    "Context items after --around-signal anchor (requires --around-signal)"
+  )
+  .option(
+    "--from-profile <profile-id>",
+    "Filter history to one sender profile ID (repeatable)",
+    collectRepeatedOptionValue,
+    []
+  )
+  .option(
+    "--kind <text|status|system_notice>",
+    "Filter history to one public signal kind (repeatable)",
+    (value: string, previous: readonly SpaceHistoryKindOption[] = []) => {
+      return [
+        ...previous,
+        parseSpaceHistoryKindOption(value),
+      ] as SpaceHistoryKindOption[];
+    },
+    []
+  )
+  .option("--json", "Print raw JSON envelopes (ndjson)", false)
+  .option("--raw-stream", AGENT_RAW_STREAM_OPTION_DESCRIPTION, false)
+  .option("--password <value>", "Space password for protected access")
+  .action(
+    async (opts: {
+      profile?: string;
+      baseUrl?: string;
+      space?: string;
+      limit?: string;
+      afterSignal?: string;
+      aroundSignal?: string;
+      before?: string;
+      after?: string;
+      fromProfile?: readonly string[];
+      kind?: readonly SpaceHistoryKindOption[];
+      json?: boolean;
+      password?: string;
+      rawStream?: boolean;
+    }) => {
+      const space = String(opts.space ?? "").trim();
+      if (!space) {
+        throw createSpaceAliasTargetGuideError("tail");
+      }
+      const limit = parseNonNegativeIntegerOption(opts.limit, "limit");
+      const beforeCount = parseNonNegativeIntegerOption(opts.before, "before");
+      const afterCount = parseNonNegativeIntegerOption(opts.after, "after");
+      if (typeof opts.aroundSignal === "string" && opts.limit !== undefined) {
+        throw new Error("--around-signal cannot be combined with --limit");
+      }
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["tail"],
+        view,
+        profile: opts.profile,
+        gatewayUrl: opts.baseUrl,
+        run: async () => {
+          await runSpaceHistory({
+            profile: opts.profile,
+            baseUrl: opts.baseUrl,
+            space,
+            password: opts.password,
+            limit: limit ?? 20,
+            json: Boolean(opts.json),
+            rawStream: opts.rawStream === true,
+            afterSignalId: opts.afterSignal,
+            aroundSignalId: opts.aroundSignal,
+            beforeCount,
+            afterCount,
+            fromProfileIds: opts.fromProfile,
+            kinds: opts.kind,
+            view,
+            entryChecksHandled: true,
+          });
+        },
+      });
+    }
+  );
+
+const spaceGuideCmd = withSpaceProfileOption(
+  spaceCmd
+    .command("guide")
+    .description("Read the current space guide.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .option("--json", "Print canonical StructuredGuidePayload JSON", false)
+    .option("--password <value>", "Space password for protected access")
+);
+
+spaceGuideCmd.action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const outputView = await resolveEffectiveViewForOutput();
+  if (
+    outputView === "agent" &&
+    (typeof space !== "string" || space.trim().length === 0)
+  ) {
+    throw createSpaceTargetGuideError("guide");
+  }
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "guide"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceGuideRead({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: String(space ?? "").trim(),
+        password: cliOptions.password,
+        json: cliOptions.json === true,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceGuideCmd
+    .command("set")
+    .description("Update the current space guide.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .argument("<text...>", "Guide text to set")
+    .option("--json", "Print canonical StructuredGuidePayload JSON", false)
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, textParts, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const guide = Array.isArray(textParts) ? textParts.join(" ").trim() : "";
+  const outputView = await resolveEffectiveViewForOutput();
+  if (outputView === "agent" && String(space ?? "").trim().length === 0) {
+    throw createSpaceTargetGuideError("guide");
+  }
+  if (guide.length === 0) {
+    throw new Error("space guide text cannot be empty");
+  }
+
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "guide", "set"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceGuideSet({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: String(space ?? "").trim(),
+        password: cliOptions.password,
+        guide,
+        json: cliOptions.json === true,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+withSpaceProfileOption(
+  spaceGuideCmd
+    .command("clear")
+    .description("Clear the current space guide.")
+    .argument("[space]", "Space ID (64-character hex)")
+    .option("--json", "Print canonical StructuredGuidePayload JSON", false)
+    .option("--password <value>", "Space password for protected access")
+).action(async (space, opts, command: Command) => {
+  const cliOptions = resolveSpaceCommandCliOptions(command, opts);
+  const outputView = await resolveEffectiveViewForOutput();
+  if (outputView === "agent" && String(space ?? "").trim().length === 0) {
+    throw createSpaceTargetGuideError("guide");
+  }
+
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["space", "guide", "clear"],
+    view,
+    profile: cliOptions.profile,
+    gatewayUrl: cliOptions.gatewayUrl,
+    run: async () => {
+      await runSpaceGuideClear({
+        profile: cliOptions.profile,
+        baseUrl: cliOptions.gatewayUrl,
+        space: String(space ?? "").trim(),
+        password: cliOptions.password,
+        json: cliOptions.json === true,
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+program
+  .command("doctor")
+  .description("Check your OpenMeld setup on this device.")
+  .option(
+    "--gateway-url <url>",
+    "OpenMeld gateway URL (command line, OPENMELD_GATEWAY_URL, or saved OpenMeld settings)"
+  )
+  .option(
+    "--profile <id>",
+    "OpenMeld profile ID (defaults to your selected profile)"
+  )
+  .option("--repair", "Repair your OpenMeld setup when possible.")
+  .action(async (opts) => {
+    const view = getGlobalViewOption();
+    if (
+      shouldEmitAgentOverview({
+        resolvedView: view === "agent" ? "agent" : "human",
+      })
+    ) {
+      emitTopLevelCliAgentOverview("doctor");
+    }
+    await runCommandWithEntryChecks({
+      routeTokens: ["doctor"],
+      view,
+      profile: opts.profile,
+      gatewayUrl: opts.gatewayUrl,
+      run: async () => {
+        await runDoctor({
+          baseUrl: opts.gatewayUrl,
+          profile: opts.profile,
+          view,
+          repair: Boolean(opts.repair),
+          agentOverviewHandled: view === "agent",
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+          profile: opts.profile,
+        });
+      },
+    });
+  });
+
+program
+  .command("whoami")
+  .description("Show your sign-in and selected profile.")
+  .option(
+    "--profile <id>",
+    "OpenMeld profile ID (defaults to your selected profile)"
+  )
+  .action(async (opts) => {
+    const view = getGlobalViewOption();
+    if (
+      shouldEmitAgentOverview({
+        resolvedView: view === "agent" ? "agent" : "human",
+      })
+    ) {
+      emitTopLevelCliAgentOverview("whoami");
+    }
+    await runCommandWithEntryChecks({
+      routeTokens: ["whoami"],
+      view,
+      profile: opts.profile,
+      run: async () => {
+        await runWhoami({
+          profile: opts.profile,
+          view,
+          agentOverviewHandled: view === "agent",
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+          profile: opts.profile,
+        });
+      },
+    });
+  });
+
+const profileCmd = program
+  .command("profiles")
+  .alias("profile")
+  .description("Manage OpenMeld profiles.");
+
+profileCmd.action(async () => {
+  const view = getGlobalViewOption();
+  await runCommandWithEntryChecks({
+    routeTokens: ["profile"],
+    view,
+    run: async () => {
+      await runProfileMenu({
+        view,
+        entryChecksHandled: true,
+      });
+    },
+  });
+});
+
+profileCmd
+  .command("create")
+  .description(
+    "Create an Agent Profile, or an additional Human Profile when enabled."
+  )
+  .argument("[profileName]", "OpenMeld profile name")
+  .option("--name <profileName>", "OpenMeld profile name")
+  .option(
+    "--kind <kind>",
+    "Profile kind (agent; human when additional Human Profile creation is enabled)"
+  )
+  .option(
+    "--agent-controller <ref>",
+    "Agent controller for this profile, such as builtin:codex or custom:reviewer"
+  )
+  .option(
+    "--agent-controller-conversation-id <id>",
+    "Private Agent Controller conversation ID for this Agent Profile"
+  )
+  .option("--model <modelId>", "Model intent for this Agent Profile Binding")
+  .option(
+    "--reasoning-effort <level>",
+    "Reasoning effort intent for the selected model"
+  )
+  .option(
+    "--agent-controller-permission-mode <policy>",
+    formatAgentControllerPermissionModeHelp()
+  )
+  .option(
+    "--confirm-dangerous-agent-controller-permission-mode",
+    "Confirm a dangerous Agent Controller Permission Mode without prompting",
+    false
+  )
+  .action(async (profileName, opts) => {
+    const outputView = await resolveEffectiveViewForOutput();
+    const targetName =
+      (typeof profileName === "string" ? profileName : undefined) ?? opts.name;
+    if (outputView === "agent") {
+      if (
+        typeof opts.kind !== "string" ||
+        opts.kind.trim().toLowerCase() !== "agent"
+      ) {
+        throw createProfileCreateGuideError(
+          "agent view can only create agent profiles; pass --kind agent."
+        );
+      }
+      if (typeof targetName !== "string" || targetName.trim().length === 0) {
+        throw createProfileCreateGuideError(
+          "explicit profile name is required in agent view."
+        );
+      }
+    }
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "create"],
+      view,
+      run: async () => {
+        await runProfileCreate({
+          profileName: targetName,
+          kind: opts.kind,
+          agentController: opts.agentController,
+          agentControllerConversationId: opts.agentControllerConversationId,
+          agentControllerPermissionModeInput:
+            typeof opts.agentControllerPermissionMode === "string"
+              ? opts.agentControllerPermissionMode
+              : undefined,
+          confirmDangerousAgentControllerPermissionMode: Boolean(
+            opts.confirmDangerousAgentControllerPermissionMode
+          ),
+          model: typeof opts.model === "string" ? opts.model : undefined,
+          reasoningEffort:
+            typeof opts.reasoningEffort === "string"
+              ? opts.reasoningEffort
+              : undefined,
+          view,
+          entryChecksHandled: true,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+profileCmd
+  .command("list")
+  .alias("ls")
+  .description("List OpenMeld profiles.")
+  .action(async () => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "list"],
+      view,
+      run: async () => {
+        await runProfileList({
+          view,
+          entryChecksHandled: true,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+profileCmd
+  .command("set")
+  .description("Switch to a different OpenMeld profile.")
+  .argument("[profile]", "OpenMeld profile ID")
+  .option("--profile <id>", "OpenMeld profile ID")
+  .action(async (profile, opts) => {
+    const outputView = await resolveEffectiveViewForOutput();
+    const view = getGlobalViewOption();
+    const targetProfile =
+      (typeof profile === "string" ? profile : undefined) ?? opts.profile;
+    if (
+      outputView === "agent" &&
+      (typeof targetProfile !== "string" || targetProfile.trim().length === 0)
+    ) {
+      throw createProfileActionGuideError(
+        "set",
+        "explicit profile argument is required in agent view."
+      );
+    }
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "set"],
+      view,
+      profile: targetProfile,
+      run: async () => {
+        await runProfileSet({
+          profile: targetProfile,
+          view,
+          entryChecksHandled: true,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+          profile: targetProfile,
+        });
+      },
+    });
+  });
+
+profileCmd
+  .command("show")
+  .description("Show one OpenMeld profile.")
+  .argument("[profile]", "OpenMeld profile ID")
+  .option("--profile <id>", "OpenMeld profile ID")
+  .option("--json", "Print machine-readable JSON", false)
+  .action(async (profile, opts) => {
+    const view = getGlobalViewOption();
+    const targetProfile =
+      (typeof profile === "string" ? profile : undefined) ?? opts.profile;
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "show"],
+      view,
+      profile: targetProfile,
+      run: async () => {
+        await runProfileShow({
+          profile: targetProfile,
+          json: Boolean(opts.json),
+          view,
+          entryChecksHandled: true,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+          profile: targetProfile,
+        });
+      },
+    });
+  });
+
+profileCmd
+  .command("update")
+  .description("Update an OpenMeld profile.")
+  .argument("[profile]", "OpenMeld profile ID")
+  .option("--profile <id>", "OpenMeld profile ID")
+  .option("--name <profileName>", "OpenMeld profile name")
+  .option(
+    "--agent-controller <ref>",
+    "Agent controller for this profile, such as builtin:codex or custom:reviewer"
+  )
+  .option(
+    "--agent-controller-conversation-id <id>",
+    "Private Agent Controller conversation ID for this Agent Profile"
+  )
+  .option("--model <modelId>", "Model intent for this Agent Profile Binding")
+  .option(
+    "--reasoning-effort <level>",
+    "Reasoning effort intent for the selected model"
+  )
+  .option(
+    "--agent-controller-permission-mode <policy>",
+    formatAgentControllerPermissionModeHelp()
+  )
+  .option(
+    "--confirm-dangerous-agent-controller-permission-mode",
+    "Confirm a dangerous Agent Controller Permission Mode without prompting",
+    false
+  )
+  .option(
+    "--workspace-mode <mode>",
+    "Workspace mode for this agent profile: openmeld-managed or custom"
+  )
+  .option(
+    "--workspace-path <path>",
+    "Custom workspace folder for this agent profile"
+  )
+  .action(async (profile, opts) => {
+    const outputView = await resolveEffectiveViewForOutput();
+    const view = getGlobalViewOption();
+    const targetProfile =
+      (typeof profile === "string" ? profile : undefined) ?? opts.profile;
+    if (outputView === "agent") {
+      if (
+        typeof targetProfile !== "string" ||
+        targetProfile.trim().length === 0
+      ) {
+        throw createProfileActionGuideError(
+          "update",
+          "explicit profile argument is required in agent view."
+        );
+      }
+      if (!hasExplicitProfileUpdateField(opts)) {
+        throw createProfileActionGuideError(
+          "update",
+          "at least one update field is required in agent view."
+        );
+      }
+    }
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "update"],
+      view,
+      profile: targetProfile,
+      run: async () => {
+        await runProfileUpdate({
+          profile: targetProfile,
+          profileName: opts.name,
+          agentController:
+            typeof opts.agentController === "string"
+              ? opts.agentController
+              : undefined,
+          agentControllerConversationId:
+            typeof opts.agentControllerConversationId === "string"
+              ? opts.agentControllerConversationId
+              : undefined,
+          agentControllerPermissionModeInput:
+            typeof opts.agentControllerPermissionMode === "string"
+              ? opts.agentControllerPermissionMode
+              : undefined,
+          confirmDangerousAgentControllerPermissionMode: Boolean(
+            opts.confirmDangerousAgentControllerPermissionMode
+          ),
+          model: typeof opts.model === "string" ? opts.model : undefined,
+          reasoningEffort:
+            typeof opts.reasoningEffort === "string"
+              ? opts.reasoningEffort
+              : undefined,
+          workspaceMode:
+            typeof opts.workspaceMode === "string"
+              ? opts.workspaceMode
+              : undefined,
+          workspacePath:
+            typeof opts.workspacePath === "string"
+              ? opts.workspacePath
+              : undefined,
+          view,
+          entryChecksHandled: true,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+          profile: targetProfile,
+        });
+      },
+    });
+  });
+
+profileCmd
+  .command("delete")
+  .description("Delete an OpenMeld profile.")
+  .argument("[profile]", "OpenMeld profile ID")
+  .option("--profile <id>", "OpenMeld profile ID")
+  .option("--force", "Delete without confirmation")
+  .action(async (profile, opts) => {
+    const outputView = await resolveEffectiveViewForOutput();
+    const view = getGlobalViewOption();
+    const targetProfile =
+      (typeof profile === "string" ? profile : undefined) ?? opts.profile;
+    if (
+      outputView === "agent" &&
+      (typeof targetProfile !== "string" || targetProfile.trim().length === 0)
+    ) {
+      throw createProfileActionGuideError(
+        "delete",
+        "explicit profile argument is required in agent view."
+      );
+    }
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "delete"],
+      view,
+      profile: targetProfile,
+      run: async () => {
+        await runProfileDelete({
+          profile: targetProfile,
+          force: Boolean(opts.force),
+          view,
+          entryChecksHandled: true,
+        });
+        await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+          profile: targetProfile,
+        });
+      },
+    });
+  });
+
+async function maybeRunAgentViewRecoveryAfterSuccess(input: {
+  view?: string;
+  profile?: string;
+}): Promise<void> {
+  const runtime = await resolveRuntimeContext({
+    view: input.view,
+    profile: input.profile,
+  });
+  if (runtime.resolvedView !== "agent") {
+    return;
+  }
+  emitAgentViewHumanRecoveryHint();
+}
+
+async function handlePreParseStandaloneCommand(
+  argv: string[]
+): Promise<boolean> {
+  if (await handleExplicitHelpCommand(argv)) {
+    return true;
+  }
+
+  if (isPassiveCliQueryArgv(argv)) {
+    await program.parseAsync(argv);
+    return true;
+  }
+
+  if (argv.length <= 2) {
+    await runRootCommand();
+    return true;
+  }
+
+  if (isStandaloneViewQueryArgv(argv)) {
+    await runViewCommand({
+      effectiveView: await resolveEffectiveViewForOutput(),
+    });
+    return true;
+  }
+
+  const viewSwitch = parseStandaloneViewSwitchArgv(argv);
+  if (viewSwitch) {
+    await runViewCommand({
+      effectiveView: await resolveEffectiveViewForOutput(),
+      mode: viewSwitch,
+    });
+    return true;
+  }
+
+  return false;
+}
+
+async function main() {
+  const argv = process.argv.map((arg) => (arg === "--h" ? "--help" : arg));
+  if (await delegateToManagedCliIfAuthoritative(argv)) {
+    return;
+  }
+  await runLocalCli(argv);
+}
+
+async function runLocalCli(argv: string[]): Promise<void> {
+  try {
+    await ensureSystemLayout();
+
+    const removedCcInputMessage = getRemovedCcCliInputMessage(argv);
+    if (removedCcInputMessage) {
+      throw new Error(removedCcInputMessage);
+    }
+
+    const retiredCommandMessage = resolveRetiredCliCommandMessage(argv);
+    if (retiredCommandMessage) {
+      throw new Error(retiredCommandMessage);
+    }
+
+    if (await handlePreParseStandaloneCommand(argv)) {
+      return;
+    }
+
+    const startupOutputView = await resolveEffectiveViewForOutput();
+    const [
+      firstCommandToken = null,
+      secondCommandToken = null,
+      thirdCommandToken = null,
+    ] = parseLeadingCommandTokensFromArgv(argv, 3);
+    if (
+      startupOutputView === "agent" &&
+      argv.includes("--details") &&
+      !isPassiveCliQueryArgv(argv) &&
+      !argv.includes("--raw-stream") &&
+      !argv.includes(UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG)
+    ) {
+      emitStartupAgentOverviewForCommand({
+        firstCommandToken,
+        secondCommandToken,
+        thirdCommandToken,
+      });
+    }
+
+    const explicitView = parseViewFromArgv(argv);
+    const configuredView = await readConfiguredDefaultView({ argv });
+    const effectiveView = explicitView ?? configuredView;
+
+    if (await shouldPrintTagline(argv, effectiveView)) {
+      outLine(renderOpenMeldTagline());
+      outLine("");
+    }
+
+    await program.parseAsync(argv);
+  } catch (err) {
+    if (isUpgradeOutputHandledError(err)) {
+      process.exitCode = 1;
+      return;
+    }
+    if (isSpaceCommandOutputHandledError(err)) {
+      if (err.shouldPrintMessage && err.message.trim()) {
+        errLine(err.message);
+      }
+      process.exitCode = 1;
+      return;
+    }
+    const effectiveView = await resolveEffectiveViewForError(argv);
+    const message = err instanceof Error ? err.message : String(err);
+    const code = resolveCliErrorCode({
+      defaultCode: "cli.error",
+      message,
+      error: err,
+    });
+    const normalizedMessage = stripCliErrorCodePrefix(message, code);
+
+    if (hasJsonOutputArgv(argv)) {
+      emitCliErrorJson({
+        code,
+        message: normalizedMessage,
+        requestId: readCliErrorRequestId(err),
+      });
+      process.exitCode = 1;
+      return;
+    }
+
+    await emitCliError({
+      argv,
+      effectiveView,
+      code,
+      message: normalizedMessage,
+      error: err,
+    });
+    emitHelpfulHints({ argv, effectiveView, message, error: err });
+    process.exitCode = 1;
+  }
+}
+
+async function runRootCommand(): Promise<void> {
+  const jsonOutput = hasJsonOutputArgv(process.argv);
+  const runtime = await resolveRuntimeContext();
+  const presenter = jsonOutput
+    ? createSilentPresenter(runtime.resolvedView)
+    : createPresenter(runtime);
+  const environmentTarget = await resolveOpenMeldEnvironmentTarget();
+
+  if (runtime.resolvedView === "agent") {
+    emitTopLevelAgentOverview({
+      presenter,
+      command: "root",
+    });
+  }
+
+  startCurrentCommandCheckScope();
+  try {
+    const result = await runCommandEntryFlow({
+      entryName: "root",
+      argv: process.argv,
+      runtime,
+      presenter,
+      allowPrompt: runtime.interactive,
+      environmentTarget,
+      gatewayUrl: null,
+      profileArg: null,
+      jsonOutput,
+    });
+    if (
+      applyEntryCheckResult({ result, jsonOutput }) &&
+      runtime.resolvedView !== "agent"
+    ) {
+      printOpenMeldBanner();
+    }
+  } finally {
+    finishCurrentCommandCheckScope();
+  }
+}
+
+async function delegateToManagedCliIfAuthoritative(
+  argv: string[]
+): Promise<boolean> {
+  const delegation = await resolveManagedCliDelegation({
+    argv,
+    currentVersion: packageJson.version,
+    distribution: resolveOpenMeldDistribution(),
+  });
+  if (delegation.status !== "delegate") {
+    return false;
+  }
+  process.exitCode = await runManagedCliDelegation(delegation);
+  return true;
+}
+
+async function shouldPrintTagline(
+  argv: string[],
+  effectiveView: "auto" | "human" | "agent"
+): Promise<boolean> {
+  if (hasJsonOutputArgv(argv)) {
+    return false;
+  }
+
+  const resolvedView =
+    effectiveView === "auto"
+      ? (await resolveRuntimeContext({ view: "auto" })).resolvedView
+      : effectiveView;
+
+  if (resolvedView === "agent") {
+    return false;
+  }
+
+  const [firstCommand] = parseLeadingCommandTokensFromArgv(argv, 2);
+  if (firstCommand === "setup") {
+    return false;
+  }
+
+  const token = firstCommand;
+  if (!token) {
+    return false;
+  }
+  return TAGLINE_COMMANDS.has(token);
+}
+
+async function handleExplicitHelpCommand(argv: string[]): Promise<boolean> {
+  const args = stripViewArgs(argv.slice(2));
+  if (args.length === 0 || args[0] !== "help") {
+    return false;
+  }
+
+  const targetTokens = parseHelpTargetTokens(args.slice(1));
+  const effectiveView = await resolveEffectiveViewForOutput();
+  if (targetTokens.length === 0) {
+    if (effectiveView === "agent") {
+      emitTopLevelCliAgentOverview("root");
+      return true;
+    }
+    program.outputHelp();
+    return true;
+  }
+
+  const targetCommand = resolveHelpCommandTarget(program, targetTokens);
+  if (!targetCommand) {
+    throw new Error(`unknown help target: ${targetTokens.join(" ")}`);
+  }
+  if (
+    effectiveView === "agent" &&
+    emitStartupAgentOverviewForCommand({
+      firstCommandToken: targetTokens[0] ?? null,
+      secondCommandToken: targetTokens[1] ?? null,
+      thirdCommandToken: targetTokens[2] ?? null,
+    })
+  ) {
+    return true;
+  }
+  targetCommand.outputHelp();
+  return true;
+}
+
+main().catch((error: unknown) => {
+  const message =
+    error instanceof Error ? (error.stack ?? error.message) : String(error);
+  errLine(message);
+  process.exitCode = 1;
+});

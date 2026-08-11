@@ -1,0 +1,3 @@
+{
+  "routeFileIgnorePattern": "\\.(test|spec)\\.[jt]sx?$"
+}

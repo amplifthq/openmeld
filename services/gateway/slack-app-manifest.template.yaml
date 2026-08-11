@@ -1,0 +1,86 @@
+# Slack App manifest template for OpenMeld.
+#
+# Render one manifest per environment and create the app via the Slack UI
+# ("Create New App -> From a manifest") or the apps.manifest.create API
+# (requires an App Configuration Token; see tooling.tokens.rotate for the
+# 12-hour access/refresh rotation pair).
+#
+# Placeholders:
+#   ${APP_NAME}       dev: "OpenMeld Dev"   prod: "OpenMeld"
+#   ${BOT_USER_DISPLAY_NAME}
+#                     dev: "OpenMeld Dev"   prod: "OpenMeld"
+#                     (formal bot name; avoid parentheses and most punctuation)
+#   ${REQUEST_URL}    dev: an https tunnel to the local gateway, path /slack/events
+#                     prod: https://gateway.openmeld.ai/slack/events
+#   ${INTERACTIVITY_REQUEST_URL}
+#                     dev: the same https tunnel, path /slack/interactive
+#                     prod: https://gateway.openmeld.ai/slack/interactive
+#   ${OAUTH_REDIRECT_URL}
+#                     dev: the same https tunnel, path /slack/oauth/callback
+#                     prod: https://gateway.openmeld.ai/slack/oauth/callback
+#
+# Note: setting request_url in a manifest does NOT trigger Slack's
+# url_verification at creation time; verify it manually from the app's
+# settings page once the endpoint is deployed and reachable.
+# The Bot User OAuth Token is issued when a user approves Add to Slack.
+#
+# Credential homes (never commit real values):
+#   signing secret -> services/gateway/.dev.vars SLACK_OPENMELD_SIGNING_SECRET (prod: gateway worker secret)
+#   OAuth client   -> services/gateway/.dev.vars SLACK_OPENMELD_OAUTH_CLIENT_ID and SLACK_OPENMELD_OAUTH_CLIENT_SECRET
+#   token crypto   -> services/core/.dev.vars    SLACK_OPENMELD_TOKEN_CRYPTO_KEY
+#   fallback token -> services/core/.dev.vars    SLACK_OPENMELD_BOT_TOKEN
+
+_metadata:
+  major_version: 1
+
+display_information:
+  name: "${APP_NAME}"
+  description: "People and agents, working as one."
+
+features:
+  bot_user:
+    display_name: "${BOT_USER_DISPLAY_NAME}"
+    always_online: true
+
+oauth_config:
+  redirect_urls:
+    - "${OAUTH_REDIRECT_URL}"
+  scopes:
+    bot:
+      - app_mentions:read
+      - bookmarks:read
+      - bookmarks:write
+      - canvases:read
+      - canvases:write
+      - channels:history
+      - channels:join
+      - channels:read
+      - chat:write
+      - commands
+      - files:read
+      - groups:history
+      - groups:read
+      - groups:write
+      - links:read
+      - links:write
+      - pins:read
+      - pins:write
+      - reactions:read
+      - reactions:write
+      - search:read.files
+      - search:read.public
+      - usergroups:read
+      - users:read
+      - users:read.email
+
+settings:
+  event_subscriptions:
+    request_url: "${REQUEST_URL}"
+    bot_events:
+      - app_mention
+  interactivity:
+    is_enabled: true
+    request_url: "${INTERACTIVITY_REQUEST_URL}"
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

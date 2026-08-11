@@ -1,0 +1,64 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+.wrangler
+.wrangler-isolated.json
+.wrangler-dev-state
+
+# Local env files
+.env
+.env.local
+.env.development.local
+.env.test
+.env.test.local
+.env.production.local
+.env.production
+
+.vars
+.dev.vars
+.dev.vars.dev
+.dev.vars.local
+.dev.vars.dev.local
+.dev.vars.development.local
+.dev.vars.test.local
+.dev.vars.production.local
+.dev.vars.prod
+.dev.vars.production
+.dev.vars.test
+
+# Testing
+coverage
+
+# Turbo
+.turbo
+
+# Vercel
+.vercel
+
+# Build Outputs
+.next/
+out/
+build
+dist
+.flue-vite/
+.flue-vite.wrangler.jsonc
+*.tgz
+
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Misc
+.DS_Store
+*.pem
+
+# dev
+cli/_spike/
+dev-tmp/
+sandbox/
+/video/

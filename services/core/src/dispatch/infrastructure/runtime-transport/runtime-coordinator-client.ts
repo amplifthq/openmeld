@@ -1,0 +1,827 @@
+import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import {
+  buildRuntimeCoordinatorExecutionId,
+  RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  runtimeTransportDeliverDispatchPayloadSchema,
+  runtimeTransportDeliverDispatchRequestSchema,
+  runtimeTransportDeliverDispatchResponseSchema,
+  runtimeTransportPreExecutionHandoffRequestSchema,
+  runtimeTransportPreExecutionHandoffResponseSchema,
+  runtimeTransportRuntimeCoordinatorDecisionRequestSchema,
+  runtimeTransportRuntimeCoordinatorDecisionResponseSchema,
+  runtimeTransportRuntimeCoordinatorHeadAcceptRequestSchema,
+  runtimeTransportRuntimeCoordinatorHeadAcceptResponseSchema,
+  runtimeTransportRuntimeCoordinatorHeadLifecycleTraceRequestSchema,
+  runtimeTransportRuntimeCoordinatorHeadLifecycleTraceResponseSchema,
+  runtimeTransportRuntimeCoordinatorHeadNoExecutionRequestSchema,
+  runtimeTransportRuntimeCoordinatorHeadNoExecutionResponseSchema,
+  runtimeTransportRuntimeCoordinatorHeadPreAgentStopRequestSchema,
+  runtimeTransportRuntimeCoordinatorHeadPreAgentStopResponseSchema,
+  runtimeTransportRuntimeCoordinatorHeadWaitingRequestSchema,
+  runtimeTransportRuntimeCoordinatorHeadWaitingResponseSchema,
+  runtimeTransportRuntimeCoordinatorReadInteractionRequestSchema,
+  runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema,
+  runtimeTransportRuntimeCoordinatorRespondInteractionRequestSchema,
+  runtimeTransportRuntimeCoordinatorRespondInteractionResponseSchema,
+  runtimeTransportRuntimeCoordinatorWakeStopRequestSchema,
+  runtimeTransportRuntimeCoordinatorWakeStopResponseSchema,
+  runtimeTransportWaitDispatchResultRequestSchema,
+  runtimeTransportWaitDispatchResultResponseSchema,
+} from "@openmeld/schemas";
+import type {
+  OpenMeldDaemonDispatchQueueMessage,
+  RuntimeTransportDeliverDispatchPayload,
+  RuntimeTransportDeliverDispatchRequest,
+  RuntimeTransportDeliverDispatchResponse,
+  RuntimeTransportDeliveryExecutionIdentity,
+  RuntimeTransportLookupRouteResponse,
+  RuntimeTransportPreExecutionHandoffRequest,
+  RuntimeTransportPreExecutionHandoffResponse,
+  RuntimeTransportRuntimeCoordinatorDecisionRequest,
+  RuntimeTransportRuntimeCoordinatorDecisionResponse,
+  RuntimeTransportRuntimeCoordinatorHeadAcceptRequest,
+  RuntimeTransportRuntimeCoordinatorHeadAcceptResponse,
+  RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceRequest,
+  RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse,
+  RuntimeTransportRuntimeCoordinatorHeadNoExecutionRequest,
+  RuntimeTransportRuntimeCoordinatorHeadNoExecutionResponse,
+  RuntimeTransportRuntimeCoordinatorHeadPreAgentStopRequest,
+  RuntimeTransportRuntimeCoordinatorHeadPreAgentStopResponse,
+  RuntimeTransportRuntimeCoordinatorHeadWaitingRequest,
+  RuntimeTransportRuntimeCoordinatorHeadWaitingResponse,
+  RuntimeTransportRuntimeCoordinatorReadInteractionRequest,
+  RuntimeTransportRuntimeCoordinatorReadInteractionResponse,
+  RuntimeTransportRuntimeCoordinatorRespondInteractionRequest,
+  RuntimeTransportRuntimeCoordinatorRespondInteractionResponse,
+  RuntimeTransportRuntimeCoordinatorWakeStopRequest,
+  RuntimeTransportRuntimeCoordinatorWakeStopResponse,
+  RuntimeTransportWaitDispatchResultRequest,
+  RuntimeTransportWaitDispatchResultResponse,
+} from "@openmeld/schemas/types";
+import type { CoreBindings } from "../../../lib/bindings";
+import type { SpaceBootstrapTimingCollector } from "../../../space/application/space-bootstrap-timing";
+import { callRuntimeTransportApi } from "./runtime-transport-api-client";
+
+async function measureRuntimeTransportClientTiming<T>(input: {
+  description: string;
+  name: string;
+  read: () => Promise<T> | T;
+  timing?: SpaceBootstrapTimingCollector;
+}): Promise<T> {
+  if (!input.timing) {
+    return await input.read();
+  }
+  return await input.timing.measure(
+    {
+      description: input.description,
+      name: input.name,
+    },
+    input.read
+  );
+}
+
+export const deliverRuntimeTransportDispatch = async (input: {
+  env: CoreBindings;
+  ownerUserId: string;
+  dispatch: RuntimeTransportDeliverDispatchRequest;
+  timing?: SpaceBootstrapTimingCollector;
+}): Promise<RuntimeTransportDeliverDispatchResponse> => {
+  const parsedRequest = await measureRuntimeTransportClientTiming({
+    description: "Validate the RuntimeTransport delivery request",
+    name: "openmeld_dispatch_deliver_request_parse",
+    read: () =>
+      runtimeTransportDeliverDispatchRequestSchema.safeParse(input.dispatch),
+    timing: input.timing,
+  });
+  if (!parsedRequest.success) {
+    return {
+      accepted: false,
+      status: "rejected",
+      reasonCode: "daemon.session.not_found",
+    };
+  }
+
+  const response = await measureRuntimeTransportClientTiming({
+    description: "Call RuntimeTransport deliver-dispatch",
+    name: "openmeld_dispatch_deliver_rpc",
+    read: () =>
+      callRuntimeTransportApi({
+        env: input.env,
+        ownerUserId: input.ownerUserId,
+        path: "/deliver-dispatch",
+        body: parsedRequest.data,
+      }),
+    timing: input.timing,
+  });
+
+  const parsed = await measureRuntimeTransportClientTiming({
+    description: "Validate the RuntimeTransport delivery response",
+    name: "openmeld_dispatch_deliver_response_parse",
+    read: () =>
+      runtimeTransportDeliverDispatchResponseSchema.safeParse(response),
+    timing: input.timing,
+  });
+  if (!parsed.success) {
+    return {
+      accepted: false,
+      status: "rejected",
+      reasonCode: "daemon.session.not_found",
+    };
+  }
+
+  return parsed.data;
+};
+
+export const waitRuntimeTransportDispatchResult = async (input: {
+  env: CoreBindings;
+  ownerUserId: string;
+  attemptId: string;
+  dispatchId: string;
+  daemonSessionId: string;
+  connectionGeneration: number;
+  leaseEpoch: number;
+  timeoutMs?: number;
+}): Promise<RuntimeTransportWaitDispatchResultResponse> => {
+  const requestBody = parseWaitDispatchResultRequest({
+    attemptId: input.attemptId,
+    dispatchId: input.dispatchId,
+    daemonSessionId: input.daemonSessionId,
+    connectionGeneration: input.connectionGeneration,
+    leaseEpoch: input.leaseEpoch,
+    timeoutMs: input.timeoutMs,
+  });
+  if (!requestBody) {
+    return {
+      state: "failed",
+      reasonCode: "daemon.delivery.timeout",
+    };
+  }
+
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/wait-dispatch-result",
+    body: requestBody,
+  });
+
+  return parseWaitDispatchResultResponse(response);
+};
+
+export const buildRuntimeTransportDeliverDispatchRequest = (input: {
+  attemptId: string;
+  executionIdentity: RuntimeTransportDeliveryExecutionIdentity;
+  ownerUserId: string;
+  route: Extract<RuntimeTransportLookupRouteResponse, { online: true }>;
+  message: OpenMeldDaemonDispatchQueueMessage;
+  agentControllerConversationId?: string | null;
+  sourceSignal: {
+    profileId: string | null;
+    profileKind: "agent" | "human" | "system" | null;
+    profileHandle?: string | null;
+    profileMentionLabel?: string | null;
+    text: string;
+  };
+  targetProfileMentionLabel?: string | null;
+  targetProfileIsCenterAgent?: boolean | null;
+  targetProfileName?: string | null;
+  defaultProjectId?: string | null;
+  organizationProtectedInformation?: string | null;
+}): RuntimeTransportDeliverDispatchRequest => {
+  const sourceProfileHandle = normalizeOptionalText(
+    input.sourceSignal.profileHandle
+  );
+  const sourceProfileMentionLabel = normalizeOptionalText(
+    input.sourceSignal.profileMentionLabel
+  );
+  const sourceSignalSnapshot = buildRuntimeTransportSourceSignalSnapshot({
+    executionIdentity: input.executionIdentity,
+    route: input.route,
+    sourceSignalSnapshot: input.message.sourceSignalSnapshot,
+  });
+  const payloadCandidate: RuntimeTransportDeliverDispatchPayload = {
+    runtimeCoordinatorExecutionId: buildRuntimeCoordinatorExecutionId({
+      dispatchId: input.message.dispatchId,
+      spaceId: input.message.spaceId,
+      targetProfileId: input.message.targetProfileId,
+    }),
+    attemptId: input.attemptId,
+    dispatchId: input.message.dispatchId,
+    executionIdentity: input.executionIdentity,
+    taskId: input.message.taskId,
+    spaceId: input.message.spaceId,
+    sourceEventId: input.message.sourceEventId,
+    sourceClientMessageId: input.message.sourceClientMessageId ?? null,
+    sourceSignal: {
+      profileId: input.sourceSignal.profileId,
+      profileKind: input.sourceSignal.profileKind,
+      ...(sourceProfileHandle ? { profileHandle: sourceProfileHandle } : {}),
+      ...(sourceProfileMentionLabel
+        ? { profileMentionLabel: sourceProfileMentionLabel }
+        : {}),
+      text: input.sourceSignal.text,
+    },
+    targetProfileId: input.message.targetProfileId,
+    ...(normalizeOptionalText(input.defaultProjectId)
+      ? {
+          defaultProjectId: normalizeOptionalText(
+            input.defaultProjectId
+          ) as string,
+        }
+      : {}),
+    ...(normalizeOptionalText(input.organizationProtectedInformation)
+      ? {
+          organizationProtectedInformation: normalizeOptionalText(
+            input.organizationProtectedInformation
+          ) as string,
+        }
+      : {}),
+    dispatchContractVersion: input.message.dispatchContractVersion,
+    dispatchPolicy: input.message.dispatchPolicy,
+    controllerSnapshot: input.message.controllerSnapshot,
+    contextIdMappingSpec: input.message.contextIdMappingSpec,
+    dispatchRulesSnapshot: input.message.dispatchRulesSnapshot,
+    ...(input.message.spaceContractSnapshot
+      ? { spaceContractSnapshot: input.message.spaceContractSnapshot }
+      : {}),
+    ...(input.message.continuitySnapshot
+      ? { continuitySnapshot: input.message.continuitySnapshot }
+      : {}),
+    ...(sourceSignalSnapshot ? { sourceSignalSnapshot } : {}),
+    ...(input.message.sourceMessageEnvelope
+      ? { sourceMessageEnvelope: input.message.sourceMessageEnvelope }
+      : {}),
+    ...(input.message.replyToSnapshot
+      ? { replyToSnapshot: input.message.replyToSnapshot }
+      : {}),
+    ...(input.message.threadContext
+      ? { threadContext: input.message.threadContext }
+      : {}),
+    ...(input.message.spaceNameSnapshot
+      ? { spaceNameSnapshot: input.message.spaceNameSnapshot }
+      : {}),
+    enqueuedAtMs: input.message.enqueuedAtMs,
+    idempotencyKey: input.message.idempotencyKey,
+    ...(input.message.spacePassword
+      ? { spacePassword: input.message.spacePassword }
+      : {}),
+    ...(input.targetProfileName
+      ? { targetProfileName: input.targetProfileName }
+      : {}),
+    ...(input.targetProfileMentionLabel
+      ? { targetProfileMentionLabel: input.targetProfileMentionLabel }
+      : {}),
+    ...(input.targetProfileIsCenterAgent === true
+      ? { targetProfileIsCenterAgent: true }
+      : {}),
+    ...(normalizeOptionalText(input.agentControllerConversationId)
+      ? {
+          agentControllerConversationId: normalizeOptionalText(
+            input.agentControllerConversationId
+          ) as string,
+        }
+      : {}),
+    ...(input.message.deliveryRecoveryReason
+      ? { deliveryRecoveryReason: input.message.deliveryRecoveryReason }
+      : {}),
+    ...(input.message.dispatchChainId
+      ? { dispatchChainId: input.message.dispatchChainId }
+      : {}),
+    autoRelayDepth: input.message.autoRelayDepth,
+    visitedProfileIds: input.message.visitedProfileIds,
+    visitedProfileIdsHash: input.message.visitedProfileIdsHash,
+    transportMode: input.message.transportMode,
+  };
+  const parsedPayload =
+    runtimeTransportDeliverDispatchPayloadSchema.safeParse(payloadCandidate);
+  if (!parsedPayload.success) {
+    throw new Error("invalid runtime transport dispatch payload");
+  }
+
+  const requestCandidate: RuntimeTransportDeliverDispatchRequest = {
+    v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+    dispatchId: input.message.dispatchId,
+    attemptId: input.attemptId,
+    ownerUserId: input.ownerUserId,
+    profileId: input.message.targetProfileId,
+    daemonSessionId: input.route.daemonSessionId,
+    connectionGeneration: input.route.connectionGeneration,
+    leaseEpoch: input.route.leaseEpoch,
+    payload: parsedPayload.data,
+  };
+  return requestCandidate;
+};
+
+function buildRuntimeTransportSourceSignalSnapshot(input: {
+  executionIdentity: RuntimeTransportDeliveryExecutionIdentity;
+  route: Extract<RuntimeTransportLookupRouteResponse, { online: true }>;
+  sourceSignalSnapshot?: OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"];
+}): OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"] | undefined {
+  const snapshot = input.sourceSignalSnapshot;
+  if (!snapshot) {
+    return undefined;
+  }
+  if (routeSupportsLocalFileImageInput(input)) {
+    return snapshot;
+  }
+  const { attachments: _attachments, ...textOnlySnapshot } = snapshot;
+  return textOnlySnapshot;
+}
+
+function routeSupportsLocalFileImageInput(input: {
+  executionIdentity: RuntimeTransportDeliveryExecutionIdentity;
+  route: Extract<RuntimeTransportLookupRouteResponse, { online: true }>;
+}): boolean {
+  const adapterId = parseAgentControllerRef(
+    input.executionIdentity.core.agentControllerRef
+  )?.id;
+  if (!adapterId) {
+    return false;
+  }
+  return (
+    input.route.capabilities.runtimeAdapters?.some(
+      (adapter) =>
+        adapter.adapterId === adapterId &&
+        adapter.capabilityDeclaration.imageInputCapability === "local_file_path"
+    ) ?? false
+  );
+}
+
+export const decideRuntimeTransportRuntimeCoordinatorExecution = async (input: {
+  decision: RuntimeTransportRuntimeCoordinatorDecisionRequest;
+  env: CoreBindings;
+  ownerUserId: string;
+}): Promise<RuntimeTransportRuntimeCoordinatorDecisionResponse> => {
+  const parsedRequest =
+    runtimeTransportRuntimeCoordinatorDecisionRequestSchema.safeParse(
+      input.decision
+    );
+  if (!parsedRequest.success) {
+    return {
+      ok: false,
+      reasonCode: "runtime_coordinator.decision_request_invalid",
+      runtimeCoordinatorExecutionId:
+        input.decision.runtimeCoordinatorExecutionId,
+      status: "retry_later",
+    };
+  }
+
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/runtime-coordinator/decide",
+    body: parsedRequest.data,
+  });
+  const parsed =
+    runtimeTransportRuntimeCoordinatorDecisionResponseSchema.safeParse(
+      response
+    );
+  if (!parsed.success) {
+    return {
+      ok: false,
+      reasonCode: "runtime_coordinator.decision_unavailable",
+      runtimeCoordinatorExecutionId:
+        parsedRequest.data.runtimeCoordinatorExecutionId,
+      status: "retry_later",
+    };
+  }
+  return parsed.data;
+};
+
+export const acceptRuntimeTransportRuntimeCoordinatorHead = async (input: {
+  env: CoreBindings;
+  head: RuntimeTransportRuntimeCoordinatorHeadAcceptRequest;
+  ownerUserId: string;
+}): Promise<RuntimeTransportRuntimeCoordinatorHeadAcceptResponse> => {
+  const parsedRequest =
+    runtimeTransportRuntimeCoordinatorHeadAcceptRequestSchema.safeParse(
+      input.head
+    );
+  const targetWakeLifecycleId =
+    input.head.targetWakeLifecycleIdentity?.targetWakeLifecycleId ?? "";
+  if (!parsedRequest.success) {
+    return {
+      ok: false,
+      primaryDispatchId: null,
+      reasonCode: "runtime_coordinator.head_accept_request_invalid",
+      status: "retry_later",
+      targetWakeLifecycleId,
+    };
+  }
+
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/runtime-coordinator/head/accept",
+    body: parsedRequest.data,
+  });
+  const parsed =
+    runtimeTransportRuntimeCoordinatorHeadAcceptResponseSchema.safeParse(
+      response
+    );
+  if (!parsed.success) {
+    return {
+      ok: false,
+      primaryDispatchId: null,
+      reasonCode: "runtime_coordinator.head_accept_unavailable",
+      status: "retry_later",
+      targetWakeLifecycleId:
+        parsedRequest.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    };
+  }
+  return parsed.data;
+};
+
+export const recordRuntimeTransportRuntimeCoordinatorHeadNoExecution =
+  async (input: {
+    env: CoreBindings;
+    noExecution: RuntimeTransportRuntimeCoordinatorHeadNoExecutionRequest;
+    ownerUserId: string;
+  }): Promise<RuntimeTransportRuntimeCoordinatorHeadNoExecutionResponse> => {
+    const parsedRequest =
+      runtimeTransportRuntimeCoordinatorHeadNoExecutionRequestSchema.safeParse(
+        input.noExecution
+      );
+    const targetWakeLifecycleId =
+      input.noExecution.targetWakeLifecycleIdentity?.targetWakeLifecycleId ??
+      "";
+    if (!parsedRequest.success) {
+      return {
+        ok: false,
+        primaryDispatchId: null,
+        publicationIntentId: null,
+        reasonCode: "runtime_coordinator.head_no_execution_request_invalid",
+        runtimeCoordinatorExecutionId: null,
+        status: "retry_later",
+        targetWakeLifecycleId,
+      };
+    }
+
+    const response = await callRuntimeTransportApi({
+      env: input.env,
+      ownerUserId: input.ownerUserId,
+      path: "/runtime-coordinator/head/no-execution",
+      body: parsedRequest.data,
+    });
+    const parsed =
+      runtimeTransportRuntimeCoordinatorHeadNoExecutionResponseSchema.safeParse(
+        response
+      );
+    if (!parsed.success) {
+      return {
+        ok: false,
+        primaryDispatchId: null,
+        publicationIntentId: null,
+        reasonCode: "runtime_coordinator.head_no_execution_unavailable",
+        runtimeCoordinatorExecutionId: null,
+        status: "retry_later",
+        targetWakeLifecycleId:
+          parsedRequest.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      };
+    }
+    return parsed.data;
+  };
+
+export const recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop =
+  async (input: {
+    env: CoreBindings;
+    ownerUserId: string;
+    preAgentStop: RuntimeTransportRuntimeCoordinatorHeadPreAgentStopRequest;
+  }): Promise<RuntimeTransportRuntimeCoordinatorHeadPreAgentStopResponse> => {
+    const parsedRequest =
+      runtimeTransportRuntimeCoordinatorHeadPreAgentStopRequestSchema.safeParse(
+        input.preAgentStop
+      );
+    const targetWakeLifecycleId =
+      input.preAgentStop.targetWakeLifecycleIdentity?.targetWakeLifecycleId ??
+      "";
+    if (!parsedRequest.success) {
+      return {
+        ok: false,
+        primaryDispatchId: null,
+        publicationIntentId: null,
+        reasonCode: "runtime_coordinator.pre_agent_stop_request_invalid",
+        runtimeCoordinatorExecutionId: null,
+        status: "retry_later",
+        targetWakeLifecycleId,
+      };
+    }
+
+    const response = await callRuntimeTransportApi({
+      env: input.env,
+      ownerUserId: input.ownerUserId,
+      path: "/runtime-coordinator/head/pre-agent-stop",
+      body: parsedRequest.data,
+    });
+    const parsed =
+      runtimeTransportRuntimeCoordinatorHeadPreAgentStopResponseSchema.safeParse(
+        response
+      );
+    if (!parsed.success) {
+      return {
+        ok: false,
+        primaryDispatchId: null,
+        publicationIntentId: null,
+        reasonCode: "runtime_coordinator.pre_agent_stop_unavailable",
+        runtimeCoordinatorExecutionId: null,
+        status: "retry_later",
+        targetWakeLifecycleId:
+          parsedRequest.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      };
+    }
+    return parsed.data;
+  };
+
+export const recordRuntimeTransportRuntimeCoordinatorHeadWaiting =
+  async (input: {
+    env: CoreBindings;
+    ownerUserId: string;
+    waiting: RuntimeTransportRuntimeCoordinatorHeadWaitingRequest;
+  }): Promise<RuntimeTransportRuntimeCoordinatorHeadWaitingResponse> => {
+    const parsedRequest =
+      runtimeTransportRuntimeCoordinatorHeadWaitingRequestSchema.safeParse(
+        input.waiting
+      );
+    const targetWakeLifecycleId =
+      input.waiting.targetWakeLifecycleIdentity?.targetWakeLifecycleId ??
+      "unknown";
+    if (!parsedRequest.success) {
+      return {
+        ok: false,
+        primaryDispatchId: null,
+        reasonCode: "runtime_coordinator.head_waiting_request_invalid",
+        runtimeCoordinatorExecutionId: null,
+        status: "retry_later",
+        targetWakeLifecycleId,
+      };
+    }
+
+    const response = await callRuntimeTransportApi({
+      env: input.env,
+      ownerUserId: input.ownerUserId,
+      path: "/runtime-coordinator/head/waiting",
+      body: parsedRequest.data,
+    });
+    const parsed =
+      runtimeTransportRuntimeCoordinatorHeadWaitingResponseSchema.safeParse(
+        response
+      );
+    if (!parsed.success) {
+      return {
+        ok: false,
+        primaryDispatchId: null,
+        reasonCode: "runtime_coordinator.head_waiting_unavailable",
+        runtimeCoordinatorExecutionId: null,
+        status: "retry_later",
+        targetWakeLifecycleId:
+          parsedRequest.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      };
+    }
+    return parsed.data;
+  };
+
+export const readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace =
+  async (input: {
+    env: CoreBindings;
+    ownerUserId: string;
+    request: RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceRequest;
+  }): Promise<RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse> => {
+    const parsedRequest =
+      runtimeTransportRuntimeCoordinatorHeadLifecycleTraceRequestSchema.safeParse(
+        input.request
+      );
+    const targetWakeLifecycleId =
+      input.request.targetWakeLifecycleIdentity?.targetWakeLifecycleId ??
+      "unknown";
+    if (!parsedRequest.success) {
+      return {
+        ok: false,
+        readStatus: "authority_unavailable",
+        reasonCode: "runtime_coordinator.head_lifecycle_trace_request_invalid",
+        targetWakeLifecycleId,
+      };
+    }
+
+    const response = await callRuntimeTransportApi({
+      env: input.env,
+      ownerUserId: input.ownerUserId,
+      path: "/runtime-coordinator/head/trace",
+      body: parsedRequest.data,
+    });
+    const parsed =
+      runtimeTransportRuntimeCoordinatorHeadLifecycleTraceResponseSchema.safeParse(
+        response
+      );
+    if (!parsed.success) {
+      return {
+        ok: false,
+        readStatus: "authority_unavailable",
+        reasonCode: "runtime_coordinator.head_lifecycle_trace_unavailable",
+        targetWakeLifecycleId:
+          parsedRequest.data.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+      };
+    }
+    return parsed.data;
+  };
+
+export const requestRuntimeTransportRuntimeCoordinatorWakeStop = async (input: {
+  env: CoreBindings;
+  ownerUserId: string;
+  wakeStop: RuntimeTransportRuntimeCoordinatorWakeStopRequest;
+}): Promise<RuntimeTransportRuntimeCoordinatorWakeStopResponse> => {
+  const parsedRequest =
+    runtimeTransportRuntimeCoordinatorWakeStopRequestSchema.safeParse(
+      input.wakeStop
+    );
+  if (!parsedRequest.success) {
+    return buildRuntimeCoordinatorWakeStopRetryLaterResponse({
+      reasonCode: "runtime_coordinator.wake_stop_request_invalid",
+      runtimeCoordinatorExecutionId:
+        input.wakeStop.runtimeCoordinatorExecutionId ?? null,
+      targetProfileId: input.wakeStop.targetProfileId,
+    });
+  }
+
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/runtime-coordinator/wake-stop",
+    body: parsedRequest.data,
+  });
+  const parsed =
+    runtimeTransportRuntimeCoordinatorWakeStopResponseSchema.safeParse(
+      response
+    );
+  if (!parsed.success) {
+    return buildRuntimeCoordinatorWakeStopRetryLaterResponse({
+      reasonCode: "runtime_coordinator.wake_stop_unavailable",
+      runtimeCoordinatorExecutionId:
+        parsedRequest.data.runtimeCoordinatorExecutionId,
+      targetProfileId: parsedRequest.data.targetProfileId,
+    });
+  }
+  return parsed.data;
+};
+
+export const readRuntimeTransportRuntimeCoordinatorInteraction = async (input: {
+  env: CoreBindings;
+  ownerUserId: string;
+  request: RuntimeTransportRuntimeCoordinatorReadInteractionRequest;
+}): Promise<RuntimeTransportRuntimeCoordinatorReadInteractionResponse> => {
+  const parsedRequest =
+    runtimeTransportRuntimeCoordinatorReadInteractionRequestSchema.safeParse(
+      input.request
+    );
+  if (!parsedRequest.success) {
+    return { pendingInteraction: null };
+  }
+
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/runtime-coordinator/interaction/read",
+    body: parsedRequest.data,
+  });
+  const parsed =
+    runtimeTransportRuntimeCoordinatorReadInteractionResponseSchema.safeParse(
+      response
+    );
+  return parsed.success ? parsed.data : { pendingInteraction: null };
+};
+
+export const respondToRuntimeTransportRuntimeCoordinatorInteraction =
+  async (input: {
+    env: CoreBindings;
+    ownerUserId: string;
+    request: RuntimeTransportRuntimeCoordinatorRespondInteractionRequest;
+  }): Promise<RuntimeTransportRuntimeCoordinatorRespondInteractionResponse> => {
+    const parsedRequest =
+      runtimeTransportRuntimeCoordinatorRespondInteractionRequestSchema.safeParse(
+        input.request
+      );
+    if (!parsedRequest.success) {
+      return {
+        message: "The interaction response is invalid.",
+        ok: false,
+        status: "response_invalid",
+      };
+    }
+
+    const response = await callRuntimeTransportApi({
+      env: input.env,
+      ownerUserId: input.ownerUserId,
+      path: "/runtime-coordinator/interaction/respond",
+      body: parsedRequest.data,
+    });
+    const parsed =
+      runtimeTransportRuntimeCoordinatorRespondInteractionResponseSchema.safeParse(
+        response
+      );
+    return parsed.success
+      ? parsed.data
+      : {
+          message:
+            "OpenMeld could not deliver this answer right now. Please try again.",
+          ok: false,
+          status: "retry_later",
+        };
+  };
+
+export const recordRuntimeTransportPreExecutionHandoff = async (input: {
+  env: CoreBindings;
+  ownerUserId: string;
+  handoff: RuntimeTransportPreExecutionHandoffRequest;
+}): Promise<RuntimeTransportPreExecutionHandoffResponse> => {
+  const parsedRequest =
+    runtimeTransportPreExecutionHandoffRequestSchema.safeParse(input.handoff);
+  if (!parsedRequest.success) {
+    return {
+      ok: false,
+      reasonCode: "runtime_coordinator.pre_execution_handoff_request_invalid",
+      status: "retry_later",
+    };
+  }
+
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/runtime-coordinator/pre-execution-handoff",
+    body: parsedRequest.data,
+  });
+  const parsed =
+    runtimeTransportPreExecutionHandoffResponseSchema.safeParse(response);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      reasonCode: "runtime_coordinator.pre_execution_handoff_unavailable",
+      status: "retry_later",
+    };
+  }
+  return parsed.data;
+};
+
+const buildRuntimeCoordinatorWakeStopRetryLaterResponse = (input: {
+  reasonCode: string;
+  runtimeCoordinatorExecutionId: string | null;
+  targetProfileId: string;
+}): RuntimeTransportRuntimeCoordinatorWakeStopResponse => ({
+  ok: false,
+  reasonCode: input.reasonCode,
+  runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+  status: "retry_later",
+  targetProfileId: input.targetProfileId,
+  cancellationState: {
+    observedAtMs: Date.now(),
+    reasonCode: input.reasonCode,
+    status: "delivery_rejected",
+  },
+});
+
+const parseWaitDispatchResultRequest = (raw: {
+  attemptId: string;
+  dispatchId: string;
+  daemonSessionId: string;
+  connectionGeneration: number;
+  leaseEpoch: number;
+  timeoutMs?: number;
+}): RuntimeTransportWaitDispatchResultRequest | null => {
+  const parsed = runtimeTransportWaitDispatchResultRequestSchema.safeParse({
+    attemptId: normalizeOptionalText(raw.attemptId),
+    dispatchId: normalizeOptionalText(raw.dispatchId),
+    daemonSessionId: normalizeOptionalText(raw.daemonSessionId),
+    connectionGeneration:
+      Number.isInteger(raw.connectionGeneration) && raw.connectionGeneration > 0
+        ? raw.connectionGeneration
+        : null,
+    leaseEpoch:
+      Number.isInteger(raw.leaseEpoch) && raw.leaseEpoch > 0
+        ? raw.leaseEpoch
+        : null,
+    timeoutMs:
+      typeof raw.timeoutMs === "number" && Number.isFinite(raw.timeoutMs)
+        ? Math.max(1, Math.trunc(raw.timeoutMs))
+        : undefined,
+  });
+  return parsed.success ? parsed.data : null;
+};
+
+const parseWaitDispatchResultResponse = (
+  raw: unknown
+): RuntimeTransportWaitDispatchResultResponse => {
+  const parsed =
+    runtimeTransportWaitDispatchResultResponseSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      state: "failed",
+      reasonCode: "daemon.delivery.timeout",
+    };
+  }
+  return parsed.data;
+};
+
+const normalizeOptionalText = (value: unknown): string | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+};

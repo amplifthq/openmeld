@@ -1,0 +1,27 @@
+# GitHub API token used only for bounded public Organization Skill import
+# metadata requests. It prevents all tenants from sharing GitHub's anonymous
+# per-IP request budget.
+GITHUB_OPENMELD_API_TOKEN=
+
+# Hosted Center Agent Slack channel: bot token Core uses to call the Slack
+# Web API (users.info identity mapping, chat.postMessage thread replies).
+SLACK_OPENMELD_BOT_TOKEN=
+
+# Base64-encoded 32-byte AES-GCM key for per-workspace Slack bot tokens.
+SLACK_OPENMELD_TOKEN_CRYPTO_KEY=
+
+# Base64-encoded 32-byte AES-GCM key for Lark and Feishu Channel credentials.
+LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY=
+
+# Zep Cloud API key for Core-owned Center Agent memory.
+ZEP_OPENMELD_API_KEY=
+
+# Non-secret Remote Agent config is managed in wrangler.jsonc vars:
+# - OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED (global kill switch)
+# - OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS (ops blocklist)
+# - OPENMELD_LARK_CHANNEL_ENABLED (independent provider gate; disabled by default)
+# - OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS (comma-separated pilot org IDs, or * for public)
+# - OPENMELD_FEISHU_CHANNEL_ENABLED (mainland gate; disabled by default)
+# - OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS (comma-separated pilot org IDs, or * for public)
+# - OPENMELD_ROUTINE_ENGINE_DEFAULT (legacy or workflow; legacy by default)
+# - OPENMELD_ROUTINE_WORKFLOW_ORGANIZATION_IDS (comma-separated dogfood org IDs)

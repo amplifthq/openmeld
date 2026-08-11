@@ -1,0 +1,447 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const {
+  detectInstalledSkillsAgentsMock,
+  refreshBuiltinControllerPersistedLaunchContractMock,
+} = vi.hoisted(() => ({
+  detectInstalledSkillsAgentsMock: vi.fn(),
+  refreshBuiltinControllerPersistedLaunchContractMock: vi.fn(),
+}));
+
+vi.mock("../src/skills/agents", async () => {
+  const actual = await vi.importActual<typeof import("../src/skills/agents")>(
+    "../src/skills/agents"
+  );
+  return {
+    ...actual,
+    detectInstalledSkillsAgents: detectInstalledSkillsAgentsMock,
+  };
+});
+
+vi.mock("../src/agents/local-controller-install", async () => {
+  const actual = await vi.importActual<
+    typeof import("../src/agents/local-controller-install")
+  >("../src/agents/local-controller-install");
+  return {
+    ...actual,
+    refreshBuiltinControllerPersistedLaunchContract: (input: unknown) =>
+      refreshBuiltinControllerPersistedLaunchContractMock(input),
+  };
+});
+
+import {
+  type AgentTargetState,
+  listAgentRegistrations,
+  listAgentTargetStates,
+  reconcileNewRunnableBuiltinAgentsForSetup,
+  resolveAgentContextBinding,
+  resolveAgentTargetState,
+} from "../src/agents/registry";
+import {
+  getConfiguredDeviceRuntimeState,
+  setConfiguredDeviceRuntimeState,
+  setConfiguredSkillsConfig,
+} from "../src/config/runtime-config";
+import { withTempHome } from "./helpers/fs";
+
+describe("agents registry resolve target state", () => {
+  beforeEach(() => {
+    detectInstalledSkillsAgentsMock.mockResolvedValue(["codex"]);
+    refreshBuiltinControllerPersistedLaunchContractMock.mockImplementation(
+      async (input: { launchContract: unknown }) => input.launchContract
+    );
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    detectInstalledSkillsAgentsMock.mockReset();
+  });
+
+  it("persists an adapter-refreshed launch contract without changing controller state", async () => {
+    await withTempHome(async () => {
+      const oldLaunchContract = {
+        kind: "node_script" as const,
+        nodePath: "/usr/bin/env",
+        scriptPath:
+          "/Users/test/.local/share/cursor-agent/versions/old/cursor-agent",
+      };
+      const stableLaunchContract = {
+        kind: "node_script" as const,
+        nodePath: "/usr/bin/env",
+        scriptPath: "/Users/test/.local/bin/cursor-agent",
+      };
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "codex",
+            displayName: "Codex",
+            enabled: true,
+            launchContract: oldLaunchContract,
+            registeredAt: "2026-02-23T00:00:00.000Z",
+            updatedAt: "2026-02-23T00:00:00.000Z",
+          },
+        ],
+      });
+      refreshBuiltinControllerPersistedLaunchContractMock.mockResolvedValue(
+        stableLaunchContract
+      );
+
+      const registrations = await listAgentRegistrations();
+
+      expect(registrations[0]).toMatchObject({
+        agentId: "codex",
+        enabled: true,
+        launchContract: stableLaunchContract,
+      });
+      expect(
+        (await getConfiguredDeviceRuntimeState())?.controllers?.[0]
+          ?.launchContract
+      ).toEqual(stableLaunchContract);
+    });
+  });
+
+  it("uses caller-provided states when available", async () => {
+    const preloaded: AgentTargetState = {
+      agentId: "codex",
+      displayName: "Codex",
+      targetKind: "builtin",
+      detected: true,
+      runtimeSupported: true,
+      transportModes: [
+        {
+          mode: "local-cli",
+          label: "Local CLI (Default)",
+          description:
+            "Run via local CLI on this computer, with session continuation when available.",
+        },
+      ],
+      defaultTransportMode: "local-cli",
+      contextIdMappingSpec: {
+        sourceField: "OPENMELD_CLI_CONTEXT_ID",
+        mappingVersion: 1,
+      },
+      lifecycleStatus: "active",
+      selectable: true,
+      selectableReason: null,
+      installChoices: [],
+      launchStatus: "ready",
+      launchStatusDetail: null,
+      launchContract: null,
+      registered: false,
+      enabled: false,
+      registration: null,
+    };
+
+    const resolved = await resolveAgentTargetState("  codex  ", [preloaded]);
+    expect(resolved).toEqual(preloaded);
+  });
+
+  it("prefers built-in state when custom id collides", async () => {
+    await withTempHome(async () => {
+      await setConfiguredSkillsConfig({
+        customTargets: [
+          {
+            id: "codex",
+            name: "Custom Codex",
+            dir: "/tmp/custom-codex",
+          },
+        ],
+      });
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "codex",
+            displayName: "Custom Codex",
+            enabled: true,
+            registeredAt: "2026-02-23T00:00:00.000Z",
+            updatedAt: "2026-02-23T00:00:00.000Z",
+          },
+        ],
+      });
+
+      const state = await resolveAgentTargetState("codex");
+      expect(state?.targetKind).toBe("builtin");
+      expect(state?.displayName).toBe("Codex");
+      expect(state?.registered).toBe(true);
+    });
+  });
+
+  it("exposes stable custom target ids as custom local agent ids", async () => {
+    await withTempHome(async () => {
+      await setConfiguredSkillsConfig({
+        customTargets: [
+          {
+            id: "custom-target-001",
+            name: "Executor Agent",
+            dir: "/tmp/agent-executor",
+          },
+        ],
+      });
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "custom-target-001",
+            displayName: "Executor Agent",
+            enabled: true,
+            registeredAt: "2026-02-23T00:00:00.000Z",
+            updatedAt: "2026-02-23T00:00:00.000Z",
+          },
+        ],
+      });
+
+      const states = await listAgentTargetStates();
+      const customState = states.find(
+        (state) => state.agentId === "custom-target-001"
+      );
+
+      expect(customState).toMatchObject({
+        agentId: "custom-target-001",
+        displayName: "Executor Agent",
+        targetKind: "custom",
+        registered: false,
+        enabled: false,
+        selectable: false,
+        selectableReason: "custom_coming_soon",
+      });
+    });
+  });
+
+  it("returns null and prunes unknown registration when catalog entry is missing", async () => {
+    await withTempHome(async () => {
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "legacy-custom-001",
+            displayName: "Legacy Custom",
+            enabled: false,
+            registeredAt: "2026-02-23T00:00:00.000Z",
+            updatedAt: "2026-02-23T00:00:00.000Z",
+          },
+        ],
+      });
+
+      const state = await resolveAgentTargetState("legacy-custom-001");
+      expect(state).toBeNull();
+      expect(
+        (await getConfiguredDeviceRuntimeState())?.controllers ?? []
+      ).toEqual([]);
+    });
+  });
+
+  it("returns null for blank ids", async () => {
+    await expect(resolveAgentTargetState("  ")).resolves.toBeNull();
+  });
+
+  it("enables only newly detected runnable agents and preserves explicit Off decisions", async () => {
+    await withTempHome(async () => {
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "claude-code",
+            displayName: "Claude Code",
+            enabled: false,
+            registeredAt: "2026-07-01T00:00:00.000Z",
+            updatedAt: "2026-07-01T00:00:00.000Z",
+          },
+          {
+            agentId: "codex",
+            displayName: "Codex",
+            enabled: true,
+            registeredAt: "2026-07-01T00:00:00.000Z",
+            updatedAt: "2026-07-01T00:00:00.000Z",
+          },
+        ],
+      });
+
+      const result = await reconcileNewRunnableBuiltinAgentsForSetup({
+        states: [
+          buildBuiltinState({
+            agentId: "claude-code",
+            displayName: "Claude Code",
+            enabled: false,
+            registered: true,
+          }),
+          buildBuiltinState({
+            agentId: "codex",
+            displayName: "Codex",
+            enabled: true,
+            registered: true,
+          }),
+          buildBuiltinState({
+            agentId: "opencode",
+            displayName: "OpenCode",
+            enabled: false,
+            registered: false,
+          }),
+        ],
+      });
+
+      expect(result).toEqual({
+        registeredAgentIds: ["opencode"],
+        preservedDisabledAgentIds: ["claude-code"],
+        preservedEnabledAgentIds: ["codex"],
+      });
+      expect(
+        (await getConfiguredDeviceRuntimeState())?.controllers?.map(
+          ({ agentId, enabled }) => ({ agentId, enabled })
+        )
+      ).toEqual([
+        { agentId: "claude-code", enabled: false },
+        { agentId: "codex", enabled: true },
+        { agentId: "opencode", enabled: true },
+      ]);
+    });
+  });
+
+  it("does not re-enable a controller disabled concurrently after discovery", async () => {
+    await withTempHome(async () => {
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "opencode",
+            displayName: "OpenCode",
+            enabled: false,
+            registeredAt: "2026-07-01T00:00:00.000Z",
+            updatedAt: "2026-07-01T00:00:00.000Z",
+          },
+        ],
+      });
+
+      const result = await reconcileNewRunnableBuiltinAgentsForSetup({
+        states: [
+          buildBuiltinState({
+            agentId: "opencode",
+            displayName: "OpenCode",
+            enabled: false,
+            registered: false,
+          }),
+        ],
+      });
+
+      expect(result).toEqual({
+        registeredAgentIds: [],
+        preservedDisabledAgentIds: ["opencode"],
+        preservedEnabledAgentIds: [],
+      });
+      expect(
+        (await getConfiguredDeviceRuntimeState())?.controllers?.[0]?.enabled
+      ).toBe(false);
+    });
+  });
+
+  it("keeps enabled built-in targets that need repair selectable for setup convergence", async () => {
+    await withTempHome(async () => {
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "codex",
+            displayName: "Codex",
+            enabled: true,
+            registeredAt: "2026-02-23T00:00:00.000Z",
+            updatedAt: "2026-02-23T00:00:00.000Z",
+          },
+        ],
+      });
+
+      const state = await resolveAgentTargetState("codex");
+
+      expect(state).toMatchObject({
+        agentId: "codex",
+        targetKind: "builtin",
+        detected: true,
+        enabled: true,
+        registered: true,
+        launchStatus: "needs_repair",
+        selectable: true,
+        selectableReason: null,
+      });
+    });
+  });
+
+  it("keeps suspended built-in targets technically selectable for existing users", async () => {
+    detectInstalledSkillsAgentsMock.mockResolvedValueOnce(["openclaw"]);
+
+    await withTempHome(async () => {
+      const state = await resolveAgentTargetState("openclaw");
+
+      // Pin only the selectability contract: a suspended but detected built-in
+      // stays technically selectable for existing users. launchStatus is left
+      // unasserted on purpose — it is derived from the real host's installed
+      // OpenClaw binaries (0 installs -> needs_repair, 1 -> ready, >1 ->
+      // needs_choice), and withTempHome isolates HOME but not PATH, so pinning
+      // it here would make the test non-hermetic.
+      expect(state).toMatchObject({
+        agentId: "openclaw",
+        targetKind: "builtin",
+        detected: true,
+        lifecycleStatus: "suspended",
+        selectable: true,
+        selectableReason: null,
+      });
+    });
+  });
+
+  it("resolves agent context binding from registry mapping spec", async () => {
+    await withTempHome(async () => {
+      const binding = await resolveAgentContextBinding({
+        agentId: "codex",
+        env: {
+          OPENMELD_CLI_CONTEXT_ID: "ctx-codex-1",
+        },
+      });
+
+      expect(binding).toEqual({
+        agentControllerConversationId: "ctx-codex-1",
+        sourceField: "OPENMELD_CLI_CONTEXT_ID",
+        mappingVersion: 1,
+      });
+    });
+  });
+
+  it("reads default streaming mode from registry for runtime-supported agent", async () => {
+    await withTempHome(async () => {
+      const state = await resolveAgentTargetState("codex");
+      expect(state?.defaultStreamingMode).toBe("final");
+    });
+  });
+});
+
+function buildBuiltinState(input: {
+  agentId: string;
+  displayName: string;
+  enabled: boolean;
+  registered: boolean;
+}): AgentTargetState {
+  return {
+    agentId: input.agentId,
+    displayName: input.displayName,
+    targetKind: "builtin",
+    detected: true,
+    runtimeSupported: true,
+    transportModes: [
+      {
+        mode: "local-cli",
+        label: "Local CLI (Default)",
+        description: "Run this agent through its local CLI on this computer.",
+      },
+    ],
+    defaultTransportMode: "local-cli",
+    contextIdMappingSpec: {
+      sourceField: "OPENMELD_CLI_CONTEXT_ID",
+      mappingVersion: 1,
+    },
+    lifecycleStatus: "active",
+    selectable: true,
+    selectableReason: null,
+    installChoices: [],
+    launchStatus: "ready",
+    launchStatusDetail: null,
+    launchContract: {
+      commandPath: `/usr/local/bin/${input.agentId}`,
+      kind: "executable",
+    },
+    registered: input.registered,
+    enabled: input.enabled,
+    registration: null,
+  };
+}

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://www.schemastore.org/package.json",
+  "name": "@openmeld/db",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "OpenMeld - DB tooling, facts, registries, and diagnostics helpers",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.mts",
+      "default": "./dist/auth.mjs"
+    },
+    "./core": {
+      "types": "./dist/core.d.mts",
+      "default": "./dist/core.mjs"
+    },
+    "./core/facts": {
+      "types": "./dist/core-facts.d.mts",
+      "default": "./dist/core-facts.mjs"
+    },
+    "./diagnostics": {
+      "types": "./dist/diagnostics.d.mts",
+      "default": "./dist/diagnostics.mjs"
+    },
+    "./facts": {
+      "types": "./dist/facts.d.mts",
+      "default": "./dist/facts.mjs"
+    },
+    "./tooling": {
+      "types": "./dist/tooling.d.mts",
+      "default": "./dist/tooling.mjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsdown --watch --no-clean",
+    "build": "tsdown --no-clean",
+    "db:check": "node --experimental-strip-types ./scripts/db-check.ts",
+    "db:inspect:dev": "node --experimental-strip-types ./scripts/db-inspect.ts dev",
+    "db:generate": "node --experimental-strip-types ./scripts/db-generate.ts",
+    "db:migrate:dev": "node --experimental-strip-types ./scripts/db-migrate.ts dev",
+    "db:migrate:prod": "node --experimental-strip-types ./scripts/db-migrate.ts prod",
+    "db:verify:dev": "node --experimental-strip-types ./scripts/db-verify.ts dev",
+    "db:verify:prod": "node --experimental-strip-types ./scripts/db-verify.ts prod",
+    "db:optimize:dev": "node --experimental-strip-types ./scripts/db-optimize.ts dev",
+    "db:optimize:prod": "node --experimental-strip-types ./scripts/db-optimize.ts prod",
+    "auth:generate": "node --experimental-strip-types ./scripts/auth-generate.ts",
+    "db:studio": "pnpm exec drizzle-kit studio --config drizzle.config.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json",
+    "check": "biome check --no-errors-on-unmatched ./ && pnpm run typecheck",
+    "fix": "biome check --write --no-errors-on-unmatched ./"
+  },
+  "dependencies": {
+    "@openmeld/schemas": "workspace:*",
+    "better-sqlite3": "^12.6.2",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.3.0",
+    "drizzle-kit": "^0.31.9",
+    "oxc-resolver": "^11.0.0",
+    "tsdown": "^0.20.3",
+    "typescript": "^5.9.3",
+    "vitest": "~3.2.0",
+    "wrangler": "catalog:"
+  }
+}

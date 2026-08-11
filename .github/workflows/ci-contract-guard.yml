@@ -1,0 +1,54 @@
+name: CI Contract Guard
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/actions/**"
+      - ".github/workflows/**"
+      - "scripts/ci/**"
+      - "scripts/dev/affected-workspaces.mjs"
+      - "scripts/dev/dev-isolated*"
+      - "scripts/dev/doppler-environment*"
+      - "scripts/dev/run-isolated-worker-dev*"
+      - "scripts/dev/turbo-affected.mjs"
+      - "scripts/release/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "turbo.json"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-contract-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: CI And Release Contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup repository toolchain
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Check dependency rules
+        run: pnpm sherif
+
+      - name: Check Cloudflare Worker env contract
+        run: pnpm run verify:cloudflare:env-contract
+
+      - name: Check Doppler development environment contract
+        run: pnpm run verify:doppler-environment
+
+      - name: Check retired identifiers
+        run: bash scripts/ci/check-retired-identifiers.sh
+
+      - name: Check CI and release workflow contracts
+        run: pnpm run verify:release-workflows

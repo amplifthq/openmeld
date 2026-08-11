@@ -1,0 +1,58 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test:auth:control-plane": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:data-plane:contract": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:scheduler:policy": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:runtime:multi-binding": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:runtime:replay-proof": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:runtime:observability-proof": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:data-plane:result-envelope": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:data-plane:dedupe-pre-adapter": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:ledger-recovery:boundary": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:runtime:task-orchestrator": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:mention-dispatch": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:liveness:low-traffic": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "test:liveness:reconnect-fault": {
+      "dependsOn": ["^build"],
+      "cache": false
+    }
+  }
+}

@@ -1,0 +1,77 @@
+name: 🚪 Deploy Gateway Worker
+run-name: Deploy Gateway Worker @ ${{ inputs.release_sha || github.sha }}
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: "Deployment environment"
+        required: true
+        type: choice
+        default: production
+        options:
+          - production
+      release_sha:
+        description: "Optional exact main commit to deploy"
+        required: false
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      deploy_environment:
+        description: "Deployment environment"
+        required: false
+        type: string
+        default: production
+      release_sha:
+        description: "Exact main commit to deploy"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  deploy:
+    name: 🚪 Deploy Gateway Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: deploy-gateway-worker-production
+      cancel-in-progress: false
+    environment: production
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Validate production target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.deploy_environment || 'production' }}" != "production" ]; then
+            echo "::error::Unsupported deploy environment. Only production is allowed."
+            exit 1
+          fi
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::Production deploys must run from main. Current ref: ${GITHUB_REF}"
+            exit 1
+          fi
+
+      - name: Checkout release commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+          ref: ${{ inputs.release_sha || github.sha }}
+
+      - name: Setup repository toolchain
+        uses: ./.github/actions/setup-node-pnpm
+
+      - name: Run Gateway Worker deployment preflight
+        run: pnpm run release:preflight:local -- --scope gateway --base HEAD
+
+      - name: Deploy Gateway Worker
+        run: pnpm -C services/gateway run sync:config:prod
+
+      - name: Verify Gateway Worker health
+        run: curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 https://gateway.openmeld.ai/health > /dev/null

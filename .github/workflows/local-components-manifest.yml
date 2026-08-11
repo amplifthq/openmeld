@@ -1,0 +1,102 @@
+name: Local Components Manifest
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/local-components-manifest.yml"
+      - "clients/openmeld-cli/package.json"
+      - "clients/openmeld-cli/src/**"
+      - "clients/openmeld-cli/skills/**"
+      - "packages/schemas/src/**"
+      - "packages/schemas/tests/daemon/**"
+      - "runtime/local-service/package.json"
+      - "runtime/local-service/src/**"
+      - "runtime/local-service/tsconfig.build.json"
+      - "runtime/local-service/tsconfig.json"
+      - "release/local-components.json"
+      - "scripts/ci/select-release-ready-paths.mjs"
+      - "scripts/release/build-packaged-openmeld-cli.mjs"
+      - "scripts/release/local-components.mjs"
+      - "scripts/release/release-ready-paths.mjs"
+      - "scripts/release/verify-release-ready.mjs"
+  workflow_dispatch:
+
+concurrency:
+  group: local-components-manifest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Local Components Manifest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Resolve manifest guard scope
+        id: scope
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          zero_sha="0000000000000000000000000000000000000000"
+          if [ "$EVENT_NAME" != "push" ] || [ -z "${BEFORE_SHA}" ] || [ "$BEFORE_SHA" = "$zero_sha" ]; then
+            echo "required=true" >> "$GITHUB_OUTPUT"
+            echo "mode=current" >> "$GITHUB_OUTPUT"
+            echo "No push base SHA is available, so the workflow will verify the current local component facts." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          changed_paths="$(git diff --name-only "${BEFORE_SHA}...HEAD" || git diff --name-only "${BEFORE_SHA}" HEAD)"
+          release_ready_paths="$(printf "%s\n" "$changed_paths" | node scripts/ci/select-release-ready-paths.mjs)"
+
+          if [ -z "$release_ready_paths" ]; then
+            echo "required=false" >> "$GITHUB_OUTPUT"
+            echo "No local component release paths changed; skipped release-ready manifest verification." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "required=true" >> "$GITHUB_OUTPUT"
+          echo "mode=base" >> "$GITHUB_OUTPUT"
+          echo "base=${BEFORE_SHA}" >> "$GITHUB_OUTPUT"
+          {
+            echo "Release-ready manifest verification is required for these paths:"
+            echo ""
+            printf "%s\n" "$release_ready_paths" | sed "s/^/- /"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Setup pnpm
+        if: steps.scope.outputs.required == 'true'
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.30.0 --activate
+
+      - name: Install dependencies
+        if: steps.scope.outputs.required == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify changed local components manifest
+        if: steps.scope.outputs.required == 'true' && steps.scope.outputs.mode == 'base'
+        env:
+          OPENMELD_AFFECTED_BASE: ${{ steps.scope.outputs.base }}
+        run: pnpm run verify:release-ready
+
+      - name: Verify current local components manifest
+        if: steps.scope.outputs.required == 'true' && steps.scope.outputs.mode == 'current'
+        run: pnpm run verify:release-ready -- --current

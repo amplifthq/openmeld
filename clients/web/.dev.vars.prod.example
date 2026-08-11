@@ -1,0 +1,13 @@
+# Production values used by:
+# 1) `pnpm build:prod` (with CLOUDFLARE_ENV=prod)
+# 2) `pnpm run sync:secrets:prod`
+# Server-only secret values (non-VITE)
+WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET="replace-with-a-production-server-secret"
+
+
+# Non-sensitive runtime URLs and public Vite vars are managed in wrangler.jsonc env.prod.vars:
+# - OPENMELD_GATEWAY_URL
+# - WEB_APP_URL
+# - BETTER_AUTH_URL
+# - VITE_BETTER_AUTH_URL
+# - VITE_APP_TITLE

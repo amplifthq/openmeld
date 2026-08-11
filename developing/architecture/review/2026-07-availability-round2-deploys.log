@@ -1,0 +1,23 @@
+# Availability Round 2 deploy log
+#
+# TSV columns:
+# deployed_at_utc	component	command_or_action	revision	notes
+#
+# Actual deployment rows are appended after the web -> gateway -> core deploy
+# sequence and the single combined CLI-side release.
+2026-07-02T08:58:48Z	web	corepack pnpm --filter openmeld-web run deploy	392d9efa8	wrangler version 67990f8d-eecd-496e-afe6-92a7d80689f1; deployed first per web -> gateway -> core order
+2026-07-02T08:59:24Z	gateway	corepack pnpm --filter @openmeld/gateway run deploy	392d9efa8	wrangler version 2fa62383-3ca8-401d-bded-8ce446c56fe3; deployed second per web -> gateway -> core order
+2026-07-02T08:59:49Z	core	corepack pnpm --filter @openmeld/core run deploy	392d9efa8	wrangler version ba653708-6aaf-49a2-be9b-8a7e64204744; deployed third per web -> gateway -> core order
+2026-07-02T09:02:35Z	cli-release	PATH=/Users/felix/Library/pnpm/.tools/pnpm/10.30.0/bin:$PATH pnpm run release:cli	392d9efa8	npm published openmeld@0.7.93; release script core deploy initially failed because clean release worktree lacked @openmeld/db dist; reran pnpm --filter @openmeld/db run build then pnpm run deploy:core:local-components successfully
+2026-07-02T09:02:35Z	core-local-components	PATH=/Users/felix/Library/pnpm/.tools/pnpm/10.30.0/bin:$PATH pnpm run deploy:core:local-components	392d9efa8	wrangler version d70a8504-8b3d-425c-8833-9fe2f99b3040; final Core deploy after single CLI-side release
+2026-07-02T10:02:37Z	web	corepack pnpm --filter openmeld-web run deploy	a42ed9ebc	wrangler version bf73ad68-8abf-4190-bdb0-4a29f4ab32d8; post-review hotfix deploy first per web -> gateway -> core order
+2026-07-02T10:02:37Z	gateway	corepack pnpm --filter @openmeld/gateway run deploy	a42ed9ebc	wrangler version c39d6c2f-1fdd-4752-b524-6584ac678f14; post-review hotfix deploy second per web -> gateway -> core order
+2026-07-02T10:02:54Z	core	corepack pnpm --filter @openmeld/core run deploy	a42ed9ebc	wrangler version 947d13aa-fe45-414f-850c-0441d2c4d472; accepts heartbeat local component capabilities before npm 0.7.94 publish
+2026-07-02T10:03:16Z	cli-release	PATH=/Users/felix/Library/pnpm/.tools/pnpm/10.30.0/bin:$PATH pnpm run release:cli	a42ed9ebc	npm published openmeld@0.7.94 from clean temp worktree /tmp/openmeld-cli-release-0.7.94.9WTAwY
+2026-07-02T10:04:59Z	core-local-components	PATH=/Users/felix/Library/pnpm/.tools/pnpm/10.30.0/bin:$PATH pnpm run release:cli	a42ed9ebc	wrangler version 290aedeb-5514-49ff-b2f1-bdaf67e230f4; release script final Core deploy after npm 0.7.94 publish
+2026-07-02T11:10:23Z	core-local-components	corepack pnpm run deploy:core:local-components	9c4803314	wrangler version de76ab30-06d1-41a2-9ad2-779e7eff26d5; STOPGAP policy downgrade to available after verifying production Wake was blocked by service.update_required
+2026-07-02T12:57:20Z	web	corepack pnpm --filter openmeld-web run deploy	e81cf322c	wrangler version db6eae7b-0431-4bd9-b04d-00227e184990; closeout deploy first per web -> gateway -> core order
+2026-07-02T12:57:37Z	gateway	corepack pnpm --filter @openmeld/gateway run deploy	e81cf322c	wrangler version d3c4944b-3149-43b6-abb0-e7ce14ae1785; closeout deploy second per web -> gateway -> core order
+2026-07-02T12:58:22Z	cli-release	corepack pnpm run release:cli	e81cf322c	npm published openmeld@0.7.95; release-ready passed before publish
+2026-07-02T12:58:22Z	core-local-components	corepack pnpm run release:cli	e81cf322c	wrangler version a0d9903b-6e16-4461-9694-13ae01bbf5c3; release script final Core deploy after npm 0.7.95 publish
+2026-07-02T14:07:06Z	core	corepack pnpm --filter @openmeld/core run deploy	9ed604e00	wrangler version d243d702-5e23-4c26-94b0-0463c5f479a3; P0 readiness primaryBinding HTTP projection hotfix deployed from clean temp worktree after pnpm build

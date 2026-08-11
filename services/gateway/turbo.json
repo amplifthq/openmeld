@@ -1,0 +1,21 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "cf-typegen": {
+      "dependsOn": ["^build", "@openmeld/auth#build"]
+    },
+    "check": {
+      "dependsOn": ["^build", "@openmeld/auth#build"]
+    },
+    "dev": {
+      "with": ["@openmeld/auth-worker#dev"]
+    },
+    "test": {
+      "dependsOn": ["^build", "@openmeld/auth#build"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build", "@openmeld/auth#build"]
+    }
+  }
+}

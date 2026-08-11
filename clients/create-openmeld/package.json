@@ -1,0 +1,10 @@
+{
+  "name": "create-openmeld",
+  "version": "0.0.1",
+  "description": "Create OpenMeld",
+  "license": "MIT",
+  "private": false,
+  "files": [
+    "README.md"
+  ]
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `openMeldRemoteAgent_native_delivery_ledger` ADD `failure_detail` text;

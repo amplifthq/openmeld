@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "openmeld-gateway-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-03",
+  "compatibility_flags": ["nodejs_compat"],
+  "images": {
+    "binding": "OPENMELD_IMAGES"
+  },
+  "r2_buckets": [
+    {
+      "binding": "OPENMELD_SPACE_ATTACHMENTS",
+      "bucket_name": "openmeld-space-attachments-test"
+    },
+    {
+      "binding": "OPENMELD_ORGANIZATION_LOGOS",
+      "bucket_name": "openmeld-organization-logos-test"
+    },
+    {
+      "binding": "OPENMELD_ACCOUNT_AVATARS",
+      "bucket_name": "openmeld-organization-logos-test"
+    }
+  ]
+}

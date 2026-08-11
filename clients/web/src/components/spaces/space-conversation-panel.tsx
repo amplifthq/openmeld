@@ -1,0 +1,3252 @@
+import type { AgentProfileReplyRecoveryPlan } from "@openmeld/agent-profile";
+import type { MessageMentionType } from "@openmeld/schemas";
+import type {
+	ModelCatalog,
+	SpaceMembersSnapshot,
+	SpaceThread,
+	SpaceThreadPreview,
+} from "@openmeld/schemas/types";
+import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
+import { Badge } from "@openmeld/ui/components/badge";
+import { Bars } from "@openmeld/ui/components/bars";
+import { Button } from "@openmeld/ui/components/button";
+import { OpenMeldLetterLogoStrong } from "@openmeld/ui/components/openmeld-letter-logo-strong";
+import { ProgressiveBlur } from "@openmeld/ui/components/progressive-blur";
+import {
+	resolveStatusToneIndicatorClassName,
+	resolveStatusToneStrongTextClassName,
+} from "@openmeld/ui/lib/status-tone";
+import { cn } from "@openmeld/ui/lib/utils";
+import {
+	ArrowBendUpLeftIcon,
+	ArrowUpIcon,
+	CaretDoubleDownIcon,
+	ChatCircleIcon,
+	InfoIcon,
+	XIcon,
+} from "@phosphor-icons/react";
+import {
+	useMessageScroller,
+	useMessageScrollerScrollable,
+} from "@shadcn/react/message-scroller";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import {
+	Fragment,
+	type KeyboardEvent,
+	memo,
+	type ReactNode,
+	type Ref,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import {
+	PromptInput,
+	PromptInputAction,
+	PromptInputActions,
+	PromptInputTextarea,
+} from "#/components/ibelick/prompt-input";
+import {
+	SpaceComposerAttachmentTray,
+	SpaceComposerImagePickerAction,
+	useSpaceComposerImageInput,
+} from "#/components/spaces/space-composer-attachments";
+import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
+import { buildCenterAgentOptimisticReplyItem } from "#/lib/spaces/center-agent-optimistic-reply";
+import {
+	isSpaceComposerAttachmentInProgress,
+	type SpaceComposerAttachment,
+} from "#/lib/spaces/composer-attachment";
+import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
+import {
+	buildAnchoredSpaceOutcomeNoticesBySourceSignalId,
+	buildSpaceConversationEntries,
+	type SpaceConversationBubbleRun,
+	type SpaceConversationEntry,
+} from "#/lib/spaces/presentation";
+import {
+	buildSpaceTimelineItems,
+	isSpaceOutcomeNoticeItem,
+	type SpaceTimelineItem,
+} from "#/lib/spaces/timeline";
+import type { WakeFailureTargetContext } from "#/lib/spaces/wake-failure-display";
+import {
+	buildWakeProblemSourceSignalIds,
+	resolveSpaceMessageWakeProgressFallbackEntries,
+	resolveSpaceMessageWakeProgressState,
+} from "#/lib/spaces/wake-progress-presentation";
+import {
+	buildSpaceWakeOutcomeIndex,
+	resolveSpaceMessageWakeStopTarget,
+	resolveSpaceMessageWakeStopTargets,
+	type SpaceWakeOutcomeIndex,
+	type SpaceWakeStopRequestStatus,
+} from "#/lib/spaces/wake-stop-target";
+import {
+	CenterAgentComputerSetupCard,
+	type CenterAgentComputerSetupContext,
+	resolveLatestComputerSetupActionSignalId,
+} from "./center-agent-computer-setup-card";
+import { CenterAgentStarterActions } from "./center-agent-starter-actions";
+import { Bubble, BubbleContent, BubbleGroup } from "./primitives/bubble";
+import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
+import { Message, MessageContent, MessageHeader } from "./primitives/message";
+import {
+	MessageScroller,
+	MessageScrollerButton,
+	MessageScrollerContent,
+	MessageScrollerItem,
+	MessageScrollerProvider,
+	MessageScrollerViewport,
+} from "./primitives/message-scroller";
+import { formatSpaceAgentControlLabel } from "./space-agent-control-label";
+import {
+	SpaceAgentInteractionCard,
+	type SpaceAgentInteractionResponseHandler,
+} from "./space-agent-interaction-card";
+import {
+	type SpaceAgentProfileBindingRecoveryPlan,
+	SpaceAgentRecoveryActionControl,
+} from "./space-agent-recovery-action";
+import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
+import {
+	buildSpaceCollaborationProfilePresentations,
+	buildSpaceMemberDirectoryEntryByProfileId,
+	buildWakeStopTargetLabelsByProfileId,
+} from "./space-collaboration-profile";
+import { SpaceComposerAddressingChips } from "./space-composer-addressing";
+import {
+	resolveSpaceAgentDirectConversationComposerHint,
+	resolveSpaceComposerWakeTextHint,
+	SPACE_WAKE_COMPOSER_HINT,
+	type SpaceAgentDirectConversationComposerHintKind,
+} from "./space-composer-copy";
+import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
+import { resolveLocalDateKey } from "./space-conversation-date";
+import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
+import { SpaceConversationSendScrollController } from "./space-conversation-scroll-controller";
+import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
+import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
+import { SpaceGraph, type SpaceGraphFocusRequest } from "./space-graph";
+import { buildSpaceGraphPresentation } from "./space-graph-presentation";
+import { SpaceMentionPopover } from "./space-mention-popover";
+import {
+	MessageActionTooltip,
+	MessageDetailsActionButton,
+	MessageHoverActionSlot,
+} from "./space-message-actions";
+import { SpaceMessageBody } from "./space-message-body";
+import {
+	resolveSpaceMessageActionButtonClassName,
+	resolveSpaceMessageBubblePresentationClass,
+	resolveSpaceMessageRowLayoutClassName,
+	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
+	SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS,
+	SPACE_MESSAGE_ROW_HOVER_SAFE_ZONE_CLASS,
+	SPACE_MESSAGE_ROW_LAYOUT_CLASS,
+	SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
+	SPACE_SELF_MESSAGE_MIN_WIDTH_CLASS,
+} from "./space-message-bubble-style";
+import { SpaceMessageDetailsDrawer } from "./space-message-details-drawer";
+import { resolveMessageDetailsDiagnosticReportStatus } from "./space-message-details-presentation";
+import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
+import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
+import { SpaceMessageProgressStatus } from "./space-message-progress-status";
+import {
+	EMPTY_SPACE_MESSAGE_REFERENCES,
+	hasResolvedSpaceMessageReference,
+	type SpaceMessageReferencesById,
+	SpaceMessageReferenceText,
+} from "./space-message-reference";
+import {
+	resolveSpaceMessageStateTuningTimelineItems,
+	resolveSpaceMessageStateTuningVisibility,
+	useSpaceMessageStateTuningPreviewItems,
+} from "./space-message-state-tuning-preview";
+import { SpaceMessageWakeReceipt } from "./space-message-wake-receipt";
+import {
+	groupAnchoredOutcomeNotices,
+	resolveGroupedOutcomeRowText,
+	SpaceOutcomeRow,
+} from "./space-outcome-row";
+import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
+import { getSpaceViewIndex, type SpaceView } from "./space-view";
+import {
+	resolveAnchoredSpaceExecutionRecoveryRequest,
+	resolveAnchoredSpaceWakeRetryRequest,
+	type SpaceExecutionRecoveryHandler,
+	type SpaceWakeRetryHandler,
+} from "./space-wake-retry";
+import {
+	SpaceWakeStopControl,
+	type SpaceWakeStopRequestHandler,
+	shouldRenderSpaceWakeStopControl,
+} from "./space-wake-stop-control";
+import { useSpaceGraphLayout } from "./use-space-graph-layout";
+import type {
+	SpaceComposerAddressingTarget,
+	SpaceComposerSelection,
+	SpaceMentionPopoverState,
+} from "./use-space-mention-authoring";
+import { useSpaceProfileDetailsDialog } from "./use-space-profile-details-dialog";
+
+type SpaceConversationPanelProps = {
+	activeSpaceView: SpaceView;
+	allowedActions: readonly string[];
+	agentRecoveryPlansByProfileId: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
+	centerAgentProfileId: string | null;
+	className?: string;
+	composerErrorMessage: string | null;
+	composerAttachments: readonly SpaceComposerAttachment[];
+	composerAttachmentLimitReached: boolean;
+	composerAddressingSummary?: string | null;
+	composerAddressingTargets?: readonly SpaceComposerAddressingTarget[];
+	composerBlockedWakeProfileId: string | null;
+	composerHasAuthoredMentions?: boolean;
+	composerSelection: SpaceComposerSelection;
+	composerReplyToSignalId: string | null;
+	composerText: string;
+	profileControl?: ReactNode;
+	currentOwnerUserId: string | null;
+	wakeFailureTargetContextsByProfileId: ReadonlyMap<
+		string,
+		WakeFailureTargetContext
+	>;
+	wakeStopRequestStatusBySelectorKey?: ReadonlyMap<
+		string,
+		SpaceWakeStopRequestStatus
+	>;
+	emptyStateDescription?: string | null;
+	emptyStateTitle?: string;
+	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
+	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
+	firstUnreadSignalId: string | null;
+	hasEarlierHistory: boolean;
+	historyActionErrorMessage: string | null;
+	historyErrorMessage: string | null;
+	historyIsPending: boolean;
+	initialFocusInteractionId?: string;
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
+	agentDirectConversationKind?: SpaceAgentDirectConversationComposerHintKind | null;
+	isCenterAgentDirectMessage: boolean;
+	isPersonalContext?: boolean;
+	isAgentRecoveryPending: (profileId: string) => boolean;
+	isLoadingEarlierHistory: boolean;
+	isDiagnosticReportPending: (signalId: string) => boolean;
+	isDiagnosticReportSent: (signalId: string) => boolean;
+	isSendingMessage: boolean;
+	localAgentRecoveryBanner?: ReactNode;
+	mentionPopoverState: SpaceMentionPopoverState;
+	membersSnapshot: SpaceMembersSnapshot | null;
+	modelCatalog: ModelCatalog | null;
+	onComposerChange: (value: string, selection: SpaceComposerSelection) => void;
+	onAddComposerImages: (files: readonly File[]) => Promise<void>;
+	onClearComposerReplyTo: () => void;
+	onComposerKeyDown: (
+		event: KeyboardEvent<HTMLTextAreaElement>
+	) => Promise<void>;
+	onComposerSelectionChange: (selection: SpaceComposerSelection) => void;
+	onLoadEarlierHistory: () => Promise<void>;
+	onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
+	onJumpToDate?: (date: Date) => Promise<string | null>;
+	onAgentRecoveryAction: (
+		plan: SpaceAgentProfileBindingRecoveryPlan
+	) => Promise<void>;
+	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
+	onOpenThread: (threadId: string) => void;
+	onReplyToMessage: (item: SpaceTimelineItem) => void;
+	onRemoveComposerAttachment: (localId: string) => void;
+	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
+	onRecoverExecution?: SpaceExecutionRecoveryHandler;
+	onRetryWakeTarget?: SpaceWakeRetryHandler;
+	onWakeStopRequest?: SpaceWakeStopRequestHandler;
+	onMentionItemHover: (index: number) => void;
+	onMentionItemSelect: (index: number, relation?: MessageMentionType) => void;
+	onMentionRelationChange?: (
+		profileId: string,
+		relation: MessageMentionType
+	) => void;
+	onMentionPopoverClose: () => void;
+	onSend: () => Promise<void>;
+	onSendStarterPrompt: (prompt: string) => Promise<void>;
+	onSpaceViewChange: (view: SpaceView) => void;
+	orgSlug?: string;
+	// Fired with whether the conversation is scrolled to the latest message, so
+	// the unread watermark only advances while the user is actually at the bottom.
+	onViewingLatestChange?: (isViewingLatest: boolean) => void;
+	prepareSetupHref?: string;
+	readOnly?: boolean;
+	readOnlyComposerPlaceholder?: string;
+	selfProfileId: string;
+	selfAvatarImageUrl?: string | null;
+	spaceId?: string;
+	spaceViewIdPrefix: string;
+	spaceReferencesById?: SpaceMessageReferencesById;
+	textareaRef: { current: HTMLTextAreaElement | null };
+	threads: readonly SpaceThread[];
+	threadsErrorMessage?: string | null;
+	threadsIsLoading?: boolean;
+	threadPreviews: readonly SpaceThreadPreview[];
+	isCreatingThread: boolean;
+	timelineItems: readonly SpaceTimelineItem[];
+	unreadCount: number;
+	unreadStateReady: boolean;
+};
+
+const MAX_SPACE_FOCUS_HISTORY_LOAD_ATTEMPTS = 9;
+
+function hasCurrentUserAuthoredSpaceMessage(input: {
+	items: readonly SpaceTimelineItem[];
+	selfProfileId: string;
+}): boolean {
+	return input.items.some(
+		(item) =>
+			item.actorProfileId === input.selfProfileId &&
+			item.actorProfileKind === "human" &&
+			item.signalType === "signal.text"
+	);
+}
+
+function hasSpaceComposerDraft(input: {
+	attachments: readonly SpaceComposerAttachment[];
+	replyToSignalId: string | null;
+	text: string;
+}): boolean {
+	return (
+		input.text.trim().length > 0 ||
+		input.attachments.length > 0 ||
+		input.replyToSignalId !== null
+	);
+}
+
+function shouldShowCenterAgentStarterActions(input: {
+	canSendMessage: boolean;
+	hasComposerDraft: boolean;
+	hasCurrentUserAuthoredMessage: boolean;
+	isCenterAgentDirectMessage: boolean;
+}): boolean {
+	return (
+		input.isCenterAgentDirectMessage &&
+		input.canSendMessage &&
+		!input.hasComposerDraft &&
+		!input.hasCurrentUserAuthoredMessage
+	);
+}
+
+function resolveWritableSpaceAction<T>(
+	isReadOnly: boolean,
+	action: T | undefined
+): T | undefined {
+	if (isReadOnly) {
+		return undefined;
+	}
+	return action;
+}
+
+function shouldRenderSpaceComposer(input: {
+	activeView: SpaceView;
+	isReadOnly: boolean;
+	showComposerWhenReadOnly: boolean;
+}): boolean {
+	return (
+		input.activeView === "messages" &&
+		(!input.isReadOnly || input.showComposerWhenReadOnly)
+	);
+}
+
+export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
+	const isReadOnly = input.readOnly === true;
+	const canSendMessage =
+		!isReadOnly && input.allowedActions.includes("post_message");
+	const composerAttachmentUploadInProgress = input.composerAttachments.some(
+		isSpaceComposerAttachmentInProgress
+	);
+	const composerAttachmentNeedsNote =
+		input.composerAttachments.length > 0 &&
+		input.composerText.trim().length === 0;
+	const composerAttachmentSendBlocked =
+		composerAttachmentUploadInProgress || composerAttachmentNeedsNote;
+	const showComposer = shouldRenderSpaceComposer({
+		activeView: input.activeSpaceView,
+		isReadOnly,
+		showComposerWhenReadOnly: input.readOnlyComposerPlaceholder !== undefined,
+	});
+	const conversationScrollRef = useRef<HTMLDivElement | null>(null);
+	const [conversationScrollElement, setConversationScrollElement] =
+		useState<HTMLDivElement | null>(null);
+	const [stuckConversationDateMs, setStuckConversationDateMs] = useState<
+		number | null
+	>(null);
+	const registerConversationScrollElement = useCallback(
+		(element: HTMLDivElement | null) => {
+			conversationScrollRef.current = element;
+			setConversationScrollElement(element);
+		},
+		[]
+	);
+	const [conversationTopOverlayElement, setConversationTopOverlayElement] =
+		useState<HTMLDivElement | null>(null);
+	const messageElementsBySignalIdRef = useRef(new Map<string, HTMLElement>());
+	const highlightMessageTimerRef = useRef<number | null>(null);
+	const appliedInitialFocusRef = useRef<string | null>(null);
+	const appliedInitialThreadFocusRef = useRef<string | null>(null);
+	const focusHistorySearchRef = useRef({ attempts: 0, targetKey: "" });
+	const graphFocusRequestIdRef = useRef(0);
+	const [messageDetailsItem, setMessageDetailsItem] =
+		useState<SpaceTimelineItem | null>(null);
+	const [spaceGraphFocusRequest, setSpaceGraphFocusRequest] =
+		useState<SpaceGraphFocusRequest | null>(null);
+	const spaceGraphLayout = useSpaceGraphLayout(input.spaceId);
+	const [highlightedSignalId, setHighlightedSignalId] = useState<string | null>(
+		null
+	);
+	const [mainFocusStatusMessage, setMainFocusStatusMessage] = useState<
+		string | null
+	>(null);
+	const [starterComputerSetupOpen, setStarterComputerSetupOpen] =
+		useState(false);
+	const threadSignalIds = useMemo(
+		() => buildThreadSignalIds(input.threadPreviews),
+		[input.threadPreviews]
+	);
+	const baseMainTimelineItems = useMemo(
+		() => input.timelineItems.filter((item) => !threadSignalIds.has(item.id)),
+		[input.timelineItems, threadSignalIds]
+	);
+	const profileEntriesById = useMemo(
+		() => buildSpaceMemberDirectoryEntryByProfileId(input.membersSnapshot),
+		[input.membersSnapshot]
+	);
+	const profilePresentationsById = useMemo(
+		() =>
+			buildSpaceCollaborationProfilePresentations({
+				centerAgentProfileId: input.centerAgentProfileId,
+				entriesByProfileId: profileEntriesById,
+			}),
+		[input.centerAgentProfileId, profileEntriesById]
+	);
+	const messageStateTuningPreviewItems = useSpaceMessageStateTuningPreviewItems(
+		{
+			centerAgentProfileId: input.centerAgentProfileId,
+			profileEntriesById,
+			selfProfileId: input.selfProfileId,
+			spaceId: input.spaceId,
+		}
+	);
+	const optimisticCenterAgentReplyItem = useMemo(
+		() =>
+			buildCenterAgentOptimisticReplyItem({
+				activityItems: input.presentedWakeProgressItems,
+				isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+				profileEntriesById,
+				selfProfileId: input.selfProfileId,
+				timelineItems: baseMainTimelineItems,
+			}),
+		[
+			baseMainTimelineItems,
+			input.isCenterAgentDirectMessage,
+			input.presentedWakeProgressItems,
+			input.selfProfileId,
+			profileEntriesById,
+		]
+	);
+	const mainTimelineItems = useMemo(
+		() =>
+			resolveSpaceMessageStateTuningTimelineItems({
+				baseItems: baseMainTimelineItems,
+				optimisticItem: optimisticCenterAgentReplyItem,
+				previewItems: messageStateTuningPreviewItems,
+			}),
+		[
+			baseMainTimelineItems,
+			messageStateTuningPreviewItems,
+			optimisticCenterAgentReplyItem,
+		]
+	);
+	const hasCurrentUserAuthoredMessage = hasCurrentUserAuthoredSpaceMessage({
+		items: input.timelineItems,
+		selfProfileId: input.selfProfileId,
+	});
+	const hasComposerDraft = hasSpaceComposerDraft({
+		attachments: input.composerAttachments,
+		replyToSignalId: input.composerReplyToSignalId,
+		text: input.composerText,
+	});
+	const messageStateTuningVisibility = resolveSpaceMessageStateTuningVisibility(
+		{
+			isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+			previewItems: messageStateTuningPreviewItems,
+			showCenterAgentStarterActions: shouldShowCenterAgentStarterActions({
+				canSendMessage,
+				hasComposerDraft,
+				hasCurrentUserAuthoredMessage,
+				isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+			}),
+		}
+	);
+	const wakeOutcomeIndex = useMemo(
+		() => buildSpaceWakeOutcomeIndex(mainTimelineItems),
+		[mainTimelineItems]
+	);
+	const entries = useMemo(
+		() =>
+			buildSpaceConversationEntries({
+				groupBoundarySignalIds: input.firstUnreadSignalId
+					? new Set([input.firstUnreadSignalId])
+					: undefined,
+				selfProfileId: input.selfProfileId,
+				timelineItems: mainTimelineItems,
+			}),
+		[input.firstUnreadSignalId, input.selfProfileId, mainTimelineItems]
+	);
+	const wakeStopTargetLabelsByProfileId = useMemo(
+		() => buildWakeStopTargetLabelsByProfileId(profileEntriesById),
+		[profileEntriesById]
+	);
+	const spaceGraph = useMemo(
+		() =>
+			buildSpaceGraphPresentation({
+				profileNamesById: wakeStopTargetLabelsByProfileId,
+				profilePresentationsById,
+				timelineItems: mainTimelineItems,
+				wakeProgressItems: input.ephemeralActivityItems,
+			}),
+		[
+			input.ephemeralActivityItems,
+			mainTimelineItems,
+			profilePresentationsById,
+			wakeStopTargetLabelsByProfileId,
+		]
+	);
+	const onAgentRecoveryAction = useLatestCallback(input.onAgentRecoveryAction);
+	const onCreateThread = useLatestCallback(input.onCreateThread);
+	const onOpenThread = useLatestCallback(input.onOpenThread);
+	const onReportMessage = useLatestCallback(input.onReportMessage);
+	const onReplyToMessage = useLatestCallback(input.onReplyToMessage);
+	const onViewMessageInGraph = useLatestCallback((signalId: string) => {
+		graphFocusRequestIdRef.current += 1;
+		setSpaceGraphFocusRequest({
+			requestId: graphFocusRequestIdRef.current,
+			signalId,
+		});
+		input.onSpaceViewChange("graph");
+	});
+	const onWakeStopRequest = useLatestCallback(
+		input.onWakeStopRequest ?? UNAVAILABLE_SPACE_WAKE_STOP_REQUEST
+	);
+	const threadsByRootSignalId = useMemo(() => {
+		const byRootSignalId = new Map<string, SpaceThread>();
+		for (const thread of input.threads) {
+			byRootSignalId.set(thread.rootSignalId, thread);
+		}
+		return byRootSignalId;
+	}, [input.threads]);
+	const threadPreviewByThreadId = useMemo(
+		() => buildThreadPreviewByThreadId(input.threadPreviews),
+		[input.threadPreviews]
+	);
+	const composerPlaceholder = resolveComposerPlaceholder({
+		canSendMessage,
+		readOnlyPlaceholder: isReadOnly
+			? input.readOnlyComposerPlaceholder
+			: undefined,
+	});
+	const sendButtonLabel = resolveSendButtonLabel(input.isSendingMessage);
+	const wakeTextHint = input.agentDirectConversationKind
+		? null
+		: resolveSpaceComposerWakeTextHint(input.composerText, {
+				hasAuthoredMentions: input.composerHasAuthoredMentions,
+			});
+	const showEarlierHistoryLoadingIndicator =
+		mainTimelineItems.length > 0 && input.isLoadingEarlierHistory;
+	const loadedMainTimelineSignalIds = useMemo(
+		() => new Set(mainTimelineItems.map((item) => item.id)),
+		[mainTimelineItems]
+	);
+	const wakeProblemSourceSignalIds = useMemo(
+		() =>
+			buildWakeProblemSourceSignalIds({
+				items: mainTimelineItems,
+				wakeProgressItems: input.ephemeralActivityItems,
+			}),
+		[mainTimelineItems, input.ephemeralActivityItems]
+	);
+	const anchoredOutcomeNoticesBySourceSignalId = useMemo(
+		() => buildAnchoredSpaceOutcomeNoticesBySourceSignalId(mainTimelineItems),
+		[mainTimelineItems]
+	);
+	const messageDetailsWakeProgressState = useMemo(
+		() =>
+			messageDetailsItem
+				? resolveSpaceMessageWakeProgressState({
+						agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
+						isPersonalContext: input.isPersonalContext === true,
+						item: messageDetailsItem,
+						items: input.ephemeralActivityItems,
+						timelineItems: mainTimelineItems,
+						wakeOutcomeIndex,
+						wakeFailureTargetContextsByProfileId:
+							input.wakeFailureTargetContextsByProfileId,
+					})
+				: null,
+		[
+			input.agentRecoveryPlansByProfileId,
+			input.ephemeralActivityItems,
+			input.isPersonalContext,
+			input.wakeFailureTargetContextsByProfileId,
+			mainTimelineItems,
+			messageDetailsItem,
+			wakeOutcomeIndex,
+		]
+	);
+	const messageDetailsProgressEntries = readMessageDetailsProgressEntries(
+		messageDetailsWakeProgressState
+	);
+	const messageDetailsWakeStopTarget = useMemo(
+		() =>
+			messageDetailsItem
+				? resolveSpaceMessageWakeStopTarget({
+						item: messageDetailsItem,
+						stopRequestStatusBySelectorKey:
+							input.wakeStopRequestStatusBySelectorKey,
+						targetLabelsByProfileId: wakeStopTargetLabelsByProfileId,
+						timelineItems: mainTimelineItems,
+						wakeOutcomeIndex,
+						wakeProgressItems: input.ephemeralActivityItems,
+					})
+				: null,
+		[
+			input.ephemeralActivityItems,
+			input.wakeStopRequestStatusBySelectorKey,
+			mainTimelineItems,
+			messageDetailsItem,
+			wakeOutcomeIndex,
+			wakeStopTargetLabelsByProfileId,
+		]
+	);
+	const messageDetailsReplyItems = messageDetailsItem
+		? resolveReplyItemsForMessage({
+				item: messageDetailsItem,
+				timelineItems: mainTimelineItems,
+			})
+		: [];
+	const registerMessageElement = useCallback(
+		(signalId: string, element: HTMLElement | null) => {
+			if (element) {
+				messageElementsBySignalIdRef.current.set(signalId, element);
+				return;
+			}
+			messageElementsBySignalIdRef.current.delete(signalId);
+		},
+		[]
+	);
+	const jumpToMessage = useCallback((signalId: string) => {
+		const messageElement = messageElementsBySignalIdRef.current.get(signalId);
+		if (!messageElement) {
+			return;
+		}
+		messageElement.scrollIntoView({
+			block: "center",
+		});
+		messageElement.focus({ preventScroll: true });
+		setHighlightedSignalId(signalId);
+		if (highlightMessageTimerRef.current !== null) {
+			window.clearTimeout(highlightMessageTimerRef.current);
+		}
+		highlightMessageTimerRef.current = window.setTimeout(() => {
+			highlightMessageTimerRef.current = null;
+			setHighlightedSignalId(null);
+		}, 1800);
+	}, []);
+	const onJumpToMessage = useLatestCallback((signalId: string) => {
+		if (input.activeSpaceView === "messages") {
+			jumpToMessage(signalId);
+			return;
+		}
+		input.onSpaceViewChange("messages");
+		window.requestAnimationFrame(() => jumpToMessage(signalId));
+	});
+	const centerAgentComputerSetupContext =
+		resolveCenterAgentComputerSetupContext({
+			isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+			orgSlug: input.orgSlug,
+			profileId: input.selfProfileId,
+			spaceId: input.spaceId,
+		});
+	const conversationBody = renderConversationBody({
+		agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
+		anchoredOutcomeNoticesBySourceSignalId,
+		centerAgentProfileId: input.centerAgentProfileId,
+		computerSetupContext: centerAgentComputerSetupContext,
+		currentOwnerUserId: input.currentOwnerUserId,
+		emptyStateDescription: input.emptyStateDescription,
+		emptyStateTitle: input.emptyStateTitle,
+		entries,
+		ephemeralActivityItems: input.ephemeralActivityItems,
+		firstUnreadSignalId: input.firstUnreadSignalId,
+		historyIsPending: input.historyIsPending,
+		isAgentRecoveryPending: input.isAgentRecoveryPending,
+		isCenterAgentDirectMessage:
+			messageStateTuningVisibility.isCenterAgentDirectMessage,
+		isSendingMessage: input.isSendingMessage,
+		isCreatingThread: input.isCreatingThread,
+		isPersonalContext: input.isPersonalContext === true,
+		loadedMainTimelineSignalIds,
+		membersSnapshot: input.membersSnapshot,
+		modelCatalog: input.modelCatalog,
+		onAgentRecoveryAction,
+		onAgentInteractionResponse: input.onAgentInteractionResponse,
+		onCreateThread,
+		onJumpToDate: input.onJumpToDate,
+		onJumpToMessage,
+		onOpenMessageDetails: setMessageDetailsItem,
+		onOpenThread,
+		onReplyToMessage,
+		onReportMessage,
+		// The details panel renders the same exact recovery action. Suppress the
+		// timeline copy while details are open so one execution has one CTA.
+		onRecoverExecution: messageDetailsItem
+			? undefined
+			: input.onRecoverExecution,
+		onRetryWakeTarget: input.onRetryWakeTarget,
+		onSendStarterPrompt: input.onSendStarterPrompt,
+		onStartComputerSetup: () => setStarterComputerSetupOpen(true),
+		onWakeStopRequest: input.onWakeStopRequest ? onWakeStopRequest : undefined,
+		orgSlug: input.orgSlug,
+		prepareSetupHref: input.prepareSetupHref,
+		profileEntriesById,
+		readOnly: isReadOnly,
+		showCenterAgentStarterActions:
+			messageStateTuningVisibility.showCenterAgentStarterActions,
+		showStarterComputerSetup: starterComputerSetupOpen,
+		registerMessageElement,
+		selfAvatarImageUrl: input.selfAvatarImageUrl ?? null,
+		selfProfileId: input.selfProfileId,
+		spaceId: input.spaceId,
+		spaceReferencesById: input.spaceReferencesById,
+		stuckDateMs: stuckConversationDateMs,
+		highlightedSignalId,
+		timelineItems: mainTimelineItems,
+		wakeOutcomeIndex,
+		threadsByRootSignalId,
+		threadPreviewByThreadId,
+		wakeFailureTargetContextsByProfileId:
+			input.wakeFailureTargetContextsByProfileId,
+		wakeProblemSourceSignalIds,
+		wakeStopRequestStatusBySelectorKey:
+			input.wakeStopRequestStatusBySelectorKey,
+		wakeStopTargetLabelsByProfileId,
+	});
+	const loadEarlierHistory = useCallback(async () => {
+		if (!input.hasEarlierHistory || input.isLoadingEarlierHistory) {
+			return;
+		}
+
+		await input.onLoadEarlierHistory();
+	}, [
+		input.hasEarlierHistory,
+		input.isLoadingEarlierHistory,
+		input.onLoadEarlierHistory,
+	]);
+	const initialMainFocusSignalId = resolveInitialMainFocusSignalId({
+		ephemeralActivityItems: input.ephemeralActivityItems,
+		initialFocusInteractionId: input.initialFocusInteractionId,
+		initialFocusSignalId: input.initialFocusSignalId,
+		presentedWakeProgressItems: input.presentedWakeProgressItems,
+	});
+	const initialFocusThread = input.initialFocusThreadRootSignalId
+		? threadsByRootSignalId.get(input.initialFocusThreadRootSignalId)
+		: undefined;
+	const threadFocusStatusMessage = resolveInitialThreadFocusStatusMessage({
+		hasTargetThread: initialFocusThread !== undefined,
+		isLoading: input.threadsIsLoading === true,
+		rootSignalId: input.initialFocusThreadRootSignalId,
+		threadsErrorMessage: input.threadsErrorMessage,
+	});
+	useEffect(() => {
+		const rootSignalId = input.initialFocusThreadRootSignalId;
+		if (!rootSignalId) {
+			appliedInitialThreadFocusRef.current = null;
+			return;
+		}
+		const targetKey = `${input.spaceId ?? "space"}:${rootSignalId}`;
+		if (appliedInitialThreadFocusRef.current === targetKey) {
+			return;
+		}
+		if (initialFocusThread) {
+			appliedInitialThreadFocusRef.current = targetKey;
+			onOpenThread(initialFocusThread.threadId);
+		}
+	}, [
+		input.initialFocusThreadRootSignalId,
+		input.spaceId,
+		initialFocusThread,
+		onOpenThread,
+	]);
+	useEffect(() => {
+		if (input.initialFocusThreadRootSignalId) {
+			return;
+		}
+		const targetKey =
+			input.initialFocusInteractionId ?? input.initialFocusSignalId ?? null;
+		if (!targetKey) {
+			appliedInitialFocusRef.current = null;
+			focusHistorySearchRef.current = { attempts: 0, targetKey: "" };
+			setMainFocusStatusMessage(null);
+			return;
+		}
+		if (focusHistorySearchRef.current.targetKey !== targetKey) {
+			focusHistorySearchRef.current = { attempts: 0, targetKey };
+			appliedInitialFocusRef.current = null;
+			setMainFocusStatusMessage(null);
+		}
+		if (appliedInitialFocusRef.current === targetKey) {
+			return;
+		}
+		if (input.activeSpaceView === "graph") {
+			input.onSpaceViewChange("messages");
+			return;
+		}
+		continueInitialMainTimelineFocusSearch({
+			appliedInitialFocusRef,
+			focusHistorySearchRef,
+			hasEarlierHistory: input.hasEarlierHistory,
+			historyActionErrorMessage: input.historyActionErrorMessage,
+			historyIsPending: input.historyIsPending,
+			isLoadingEarlierHistory: input.isLoadingEarlierHistory,
+			jumpToMessage,
+			loadEarlierHistory,
+			mainTimelineItemCount: mainTimelineItems.length,
+			messageElementsBySignalIdRef,
+			setMainFocusStatusMessage,
+			signalId: initialMainFocusSignalId,
+			spaceId: input.spaceId,
+			targetKey,
+		});
+	}, [
+		input.hasEarlierHistory,
+		input.historyActionErrorMessage,
+		input.historyIsPending,
+		input.initialFocusInteractionId,
+		input.initialFocusSignalId,
+		input.initialFocusThreadRootSignalId,
+		input.isLoadingEarlierHistory,
+		input.spaceId,
+		initialMainFocusSignalId,
+		jumpToMessage,
+		loadEarlierHistory,
+		mainTimelineItems,
+		input.activeSpaceView,
+		input.onSpaceViewChange,
+	]);
+	useEffect(() => {
+		if (input.activeSpaceView === "graph") {
+			input.onViewingLatestChange?.(false);
+		}
+	}, [input.activeSpaceView, input.onViewingLatestChange]);
+	const submitComposer = () => {
+		if (composerAttachmentSendBlocked) {
+			return;
+		}
+		input.onSend().catch((error) => {
+			console.error("Failed to send a space message from composer.", error);
+		});
+	};
+	const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+		input.onComposerKeyDown(event).catch((error) => {
+			console.error("Failed to handle space composer keyboard input.", error);
+		});
+	};
+	useEffect(() => {
+		const conversationScrollElement = conversationScrollRef.current;
+		if (
+			input.initialFocusInteractionId ||
+			input.initialFocusSignalId ||
+			input.initialFocusThreadRootSignalId ||
+			!(conversationScrollElement && input.hasEarlierHistory) ||
+			input.isLoadingEarlierHistory ||
+			mainTimelineItems.length === 0 ||
+			conversationScrollElement.clientHeight === 0 ||
+			conversationScrollElement.scrollHeight >
+				conversationScrollElement.clientHeight
+		) {
+			return;
+		}
+
+		loadEarlierHistory().catch((error) => {
+			console.error("Failed to auto-load earlier space history.", error);
+		});
+	}, [
+		input.hasEarlierHistory,
+		input.initialFocusInteractionId,
+		input.initialFocusSignalId,
+		input.initialFocusThreadRootSignalId,
+		input.isLoadingEarlierHistory,
+		loadEarlierHistory,
+		mainTimelineItems.length,
+	]);
+
+	useEffect(
+		() => () => {
+			if (highlightMessageTimerRef.current !== null) {
+				window.clearTimeout(highlightMessageTimerRef.current);
+			}
+		},
+		[]
+	);
+
+	return (
+		<section
+			aria-label="Space conversation"
+			className={cn(
+				"flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
+				input.className
+			)}
+		>
+			{input.historyActionErrorMessage || input.historyErrorMessage ? (
+				<div className="border-border border-b bg-destructive/10 px-4 py-3 text-destructive text-sm sm:px-5">
+					{input.historyActionErrorMessage ?? input.historyErrorMessage}
+				</div>
+			) : null}
+			{renderInitialSpaceFocusStatus({
+				mainMessage: mainFocusStatusMessage,
+				threadMessage: threadFocusStatusMessage,
+			})}
+
+			<SpacePrimaryView
+				activeView={input.activeSpaceView}
+				graph={
+					<SpaceGraph
+						focusRequest={spaceGraphFocusRequest}
+						graph={spaceGraph}
+						hasEarlierHistory={input.hasEarlierHistory}
+						isLoadingEarlierHistory={input.isLoadingEarlierHistory}
+						nodePositions={spaceGraphLayout.nodePositions}
+						onLoadEarlierHistory={() => {
+							loadEarlierHistory().catch((error) => {
+								console.error(
+									"Failed to load earlier activity in the Space Graph.",
+									error
+								);
+							});
+						}}
+						onNodePositionChange={spaceGraphLayout.onNodePositionChange}
+						onOpenMessageDetails={setMessageDetailsItem}
+						onResetNodePositions={spaceGraphLayout.onResetNodePositions}
+					/>
+				}
+				idPrefix={input.spaceViewIdPrefix}
+				messages={
+					<MessageScrollerProvider
+						autoScroll={true}
+						defaultScrollPosition="end"
+					>
+						<SpaceConversationSendScrollController
+							isSendingMessage={input.isSendingMessage}
+						/>
+						<MessageScroller className="relative min-h-0 flex-1">
+							<ConversationLatestObserver
+								onChange={input.onViewingLatestChange}
+							/>
+							<SpaceConversationTopOverlay
+								overlayRef={setConversationTopOverlayElement}
+							>
+								<EarlierHistoryLoadingIndicator
+									visible={showEarlierHistoryLoadingIndicator}
+								/>
+								{input.localAgentRecoveryBanner ?? null}
+							</SpaceConversationTopOverlay>
+							<MessageScrollerViewport
+								aria-busy={
+									input.historyIsPending || input.isLoadingEarlierHistory
+								}
+								aria-label="Conversation history"
+								aria-live="polite"
+								className="h-full py-4"
+								data-scroll-restoration-id={buildSpaceConversationScrollRestorationId(
+									input.spaceId
+								)}
+								onScroll={(event) => {
+									const conversationScrollElement = event.currentTarget;
+									if (conversationScrollElement.scrollTop > 48) {
+										return;
+									}
+
+									loadEarlierHistory().catch((error) => {
+										console.error(
+											"Failed to lazy-load earlier space history from scroll.",
+											error
+										);
+									});
+								}}
+								ref={registerConversationScrollElement}
+								role="log"
+							>
+								<SpaceConversationStickyDate
+									loadedSignalCount={loadedMainTimelineSignalIds.size}
+									onActiveDateMsChange={setStuckConversationDateMs}
+									onJumpToDate={input.onJumpToDate}
+									scrollElement={conversationScrollElement}
+									topOverlayElement={conversationTopOverlayElement}
+								/>
+								<MessageScrollerContent
+									className="w-full gap-0"
+									data-space-conversation-content-width=""
+								>
+									{conversationBody}
+								</MessageScrollerContent>
+							</MessageScrollerViewport>
+
+							<ConversationJumpButton
+								firstUnreadSignalId={input.firstUnreadSignalId}
+								unreadCount={input.unreadCount}
+								unreadStateReady={input.unreadStateReady}
+							/>
+						</MessageScroller>
+					</MessageScrollerProvider>
+				}
+			/>
+
+			{showComposer ? (
+				<SpaceComposerSection
+					canSendMessage={canSendMessage}
+					composerAttachmentSendBlocked={composerAttachmentSendBlocked}
+					composerPlaceholder={composerPlaceholder}
+					handleComposerKeyDown={handleComposerKeyDown}
+					input={input}
+					sendButtonLabel={sendButtonLabel}
+					submitComposer={submitComposer}
+					wakeTextHint={wakeTextHint}
+				/>
+			) : null}
+			{messageDetailsItem && input.spaceId ? (
+				<SpaceMessageDetailsDrawer
+					canJumpToMessage={(signalId) =>
+						loadedMainTimelineSignalIds.has(signalId)
+					}
+					diagnosticReportStatus={resolveMessageDetailsDiagnosticReportStatus({
+						isPending: input.isDiagnosticReportPending(messageDetailsItem.id),
+						isSent: input.isDiagnosticReportSent(messageDetailsItem.id),
+					})}
+					errorLogMessage="Failed to report a space message."
+					isAgentRecoveryPending={input.isAgentRecoveryPending}
+					isPersonalContext={input.isPersonalContext}
+					item={messageDetailsItem}
+					onAgentRecoveryAction={input.onAgentRecoveryAction}
+					onJumpToMessage={onJumpToMessage}
+					onOpenChange={(open) => {
+						if (!open) {
+							setMessageDetailsItem(null);
+						}
+					}}
+					onRecoverExecution={resolveWritableSpaceAction(
+						isReadOnly,
+						input.onRecoverExecution
+					)}
+					onReportMessage={onReportMessage}
+					onRetryWakeTarget={resolveWritableSpaceAction(
+						isReadOnly,
+						input.onRetryWakeTarget
+					)}
+					onViewInGraph={onViewMessageInGraph}
+					onWakeStopRequest={input.onWakeStopRequest}
+					open={true}
+					openMeldProfileId={input.selfProfileId}
+					orgSlug={input.orgSlug}
+					prepareSetupHref={input.prepareSetupHref}
+					profilePresentationsById={profilePresentationsById}
+					replyItems={messageDetailsReplyItems}
+					spaceId={input.spaceId}
+					spaceReferencesById={input.spaceReferencesById}
+					targetProfileDisplayNamesByProfileId={wakeStopTargetLabelsByProfileId}
+					wakeFailureTargetContextsByProfileId={
+						input.wakeFailureTargetContextsByProfileId
+					}
+					wakeIssueEntries={messageDetailsProgressEntries.issueEntries}
+					wakeProgressEntries={messageDetailsProgressEntries.thinkingEntries}
+					wakeStopTarget={messageDetailsWakeStopTarget}
+				/>
+			) : null}
+		</section>
+	);
+}
+
+function SpacePrimaryView(input: {
+	activeView: SpaceView;
+	graph: ReactNode;
+	idPrefix: string;
+	messages: ReactNode;
+}) {
+	const selectedIndex = getSpaceViewIndex(input.activeView);
+	return (
+		<div
+			aria-labelledby={`${input.idPrefix}-tab-${selectedIndex}`}
+			className="flex min-h-0 flex-1 flex-col"
+			id={`${input.idPrefix}-panel-${selectedIndex}`}
+			role="tabpanel"
+		>
+			{input.activeView === "messages" ? input.messages : input.graph}
+		</div>
+	);
+}
+
+function resolveInitialMainFocusSignalId(
+	input: Pick<
+		SpaceConversationPanelProps,
+		| "ephemeralActivityItems"
+		| "initialFocusInteractionId"
+		| "initialFocusSignalId"
+		| "presentedWakeProgressItems"
+	>
+): string | undefined {
+	if (input.initialFocusSignalId) {
+		return input.initialFocusSignalId;
+	}
+	if (!input.initialFocusInteractionId) {
+		return undefined;
+	}
+	return (
+		[...input.ephemeralActivityItems, ...input.presentedWakeProgressItems].find(
+			(item) =>
+				item.pendingInteraction?.interactionId ===
+				input.initialFocusInteractionId
+		)?.sourceSignalId ?? undefined
+	);
+}
+
+function resolveInitialThreadFocusStatusMessage(input: {
+	hasTargetThread: boolean;
+	isLoading: boolean;
+	rootSignalId?: string;
+	threadsErrorMessage?: string | null;
+}): string | null {
+	if (!input.rootSignalId || input.hasTargetThread || input.isLoading) {
+		return null;
+	}
+	return input.threadsErrorMessage
+		? "Couldn’t open the linked thread. Refresh this Space and try again."
+		: "This linked thread isn’t available. It may have been removed or you may no longer have access.";
+}
+
+function continueInitialMainTimelineFocusSearch(input: {
+	appliedInitialFocusRef: { current: string | null };
+	focusHistorySearchRef: {
+		current: { attempts: number; targetKey: string };
+	};
+	hasEarlierHistory: boolean;
+	historyActionErrorMessage: string | null;
+	historyIsPending: boolean;
+	isLoadingEarlierHistory: boolean;
+	jumpToMessage: (signalId: string) => void;
+	loadEarlierHistory: () => Promise<void>;
+	mainTimelineItemCount: number;
+	messageElementsBySignalIdRef: {
+		current: ReadonlyMap<string, HTMLElement>;
+	};
+	setMainFocusStatusMessage: (message: string | null) => void;
+	signalId?: string;
+	spaceId?: string;
+	targetKey: string;
+}) {
+	if (
+		input.signalId &&
+		input.messageElementsBySignalIdRef.current.has(input.signalId)
+	) {
+		input.appliedInitialFocusRef.current = input.targetKey;
+		input.setMainFocusStatusMessage(null);
+		input.jumpToMessage(input.signalId);
+		return;
+	}
+	if (input.historyIsPending || input.isLoadingEarlierHistory) {
+		return;
+	}
+	if (input.historyActionErrorMessage) {
+		input.setMainFocusStatusMessage(
+			"Couldn’t load older messages to find this link. Try loading earlier messages again."
+		);
+		return;
+	}
+	if (
+		input.hasEarlierHistory &&
+		input.mainTimelineItemCount > 0 &&
+		input.focusHistorySearchRef.current.attempts <
+			MAX_SPACE_FOCUS_HISTORY_LOAD_ATTEMPTS
+	) {
+		input.focusHistorySearchRef.current.attempts += 1;
+		input.loadEarlierHistory().catch((error: unknown) => {
+			console.warn("[openmeld.web.space.inbox_focus_history_failed]", {
+				error: error instanceof Error ? error.message : String(error),
+				signalId: input.signalId,
+				spaceId: input.spaceId,
+			});
+			input.setMainFocusStatusMessage(
+				"Couldn’t load older messages to find this link. Try loading earlier messages again."
+			);
+		});
+		return;
+	}
+	input.setMainFocusStatusMessage(
+		"This linked message isn’t available. It may have been removed or be outside the available Space history."
+	);
+}
+
+function renderInitialSpaceFocusStatus(input: {
+	mainMessage: string | null;
+	threadMessage: string | null;
+}) {
+	const message = input.threadMessage ?? input.mainMessage;
+	if (!message) {
+		return null;
+	}
+	return (
+		<output
+			aria-label={
+				input.threadMessage
+					? "Linked thread isn't available"
+					: "Linked message isn't available"
+			}
+			className="border-border border-b bg-muted/40 px-4 py-3 text-muted-foreground text-sm sm:px-5"
+		>
+			{message}
+		</output>
+	);
+}
+
+function ConversationLatestObserver(input: {
+	onChange?: (isViewingLatest: boolean) => void;
+}) {
+	const { end: canScrollToEnd } = useMessageScrollerScrollable();
+
+	useEffect(() => {
+		input.onChange?.(!canScrollToEnd);
+	}, [canScrollToEnd, input.onChange]);
+
+	return null;
+}
+
+function ConversationJumpButton(input: {
+	firstUnreadSignalId: string | null;
+	unreadCount: number;
+	unreadStateReady: boolean;
+}) {
+	const messageScroller = useMessageScroller();
+	const shouldReduceMotion = useReducedMotion();
+	const hasUnreadTarget =
+		input.unreadStateReady &&
+		input.unreadCount > 0 &&
+		input.firstUnreadSignalId !== null;
+	const unreadLabel = `${String(input.unreadCount)} new ${input.unreadCount === 1 ? "message" : "messages"}`;
+	const accessibleLabel = hasUnreadTarget
+		? `${unreadLabel}. Jump to first new message`
+		: "Jump to latest message";
+
+	return (
+		<MessageScrollerButton
+			aria-label={accessibleLabel}
+			behavior={shouldReduceMotion ? "auto" : "smooth"}
+			className="z-20 min-h-11 min-w-11 gap-1.5 rounded-full border border-border bg-background/95 px-3 text-foreground shadow-md backdrop-blur-sm hover:bg-muted"
+			direction="end"
+			onClick={(event) => {
+				if (!(hasUnreadTarget && input.firstUnreadSignalId)) {
+					return;
+				}
+				event.preventDefault();
+				messageScroller.scrollToMessage(input.firstUnreadSignalId, {
+					align: "center",
+					behavior: shouldReduceMotion ? "auto" : "smooth",
+				});
+			}}
+			size={hasUnreadTarget ? "sm" : "icon-lg"}
+			type="button"
+			variant="secondary"
+		>
+			<CaretDoubleDownIcon aria-hidden="true" weight="bold" />
+			{hasUnreadTarget ? <span>{unreadLabel}</span> : null}
+		</MessageScrollerButton>
+	);
+}
+
+function EarlierHistoryLoadingIndicator(input: { visible: boolean }) {
+	const shouldReduceMotion = useReducedMotion();
+	const hiddenFrame = shouldReduceMotion
+		? { opacity: 0 }
+		: { opacity: 0, transform: "translateY(-4px)" };
+	const visibleFrame = shouldReduceMotion
+		? { opacity: 1 }
+		: { opacity: 1, transform: "translateY(0px)" };
+
+	return (
+		<AnimatePresence initial={false}>
+			{input.visible ? (
+				<motion.div
+					animate={visibleFrame}
+					className="pointer-events-none h-16 shrink-0"
+					data-slot="earlier-history-loading"
+					exit={hiddenFrame}
+					initial={hiddenFrame}
+					key="earlier-history-loading"
+					transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+				>
+					<div
+						className="relative mx-auto flex h-full items-center justify-center"
+						data-space-conversation-content-width=""
+					>
+						<ProgressiveBlur blurAmount="6px" height="100%" />
+						<output className="relative z-10 inline-flex max-w-full items-center gap-2 overflow-hidden px-3 text-muted-foreground text-xs">
+							<Bars aria-hidden="true" className="h-3 w-5 shrink-0" />
+							<span className="truncate">Loading earlier messages...</span>
+						</output>
+					</div>
+				</motion.div>
+			) : null}
+		</AnimatePresence>
+	);
+}
+
+function SpaceConversationTopOverlay(input: {
+	children: ReactNode;
+	overlayRef: Ref<HTMLDivElement>;
+}) {
+	return (
+		<div
+			className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col"
+			data-slot="space-conversation-top-overlay"
+			ref={input.overlayRef}
+		>
+			{input.children}
+		</div>
+	);
+}
+
+function SpaceComposerSection(input: {
+	canSendMessage: boolean;
+	composerAttachmentSendBlocked: boolean;
+	composerPlaceholder: string;
+	handleComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+	input: SpaceConversationPanelProps;
+	sendButtonLabel: string;
+	submitComposer: () => void;
+	wakeTextHint: string | null;
+}) {
+	const panel = input.input;
+	const attachmentUploadInProgress = panel.composerAttachments.some(
+		isSpaceComposerAttachmentInProgress
+	);
+	const attachmentNeedsNote =
+		panel.composerAttachments.length > 0 &&
+		panel.composerText.trim().length === 0;
+	const attachmentActionsDisabled =
+		panel.isSendingMessage ||
+		!input.canSendMessage ||
+		panel.composerAttachmentLimitReached;
+	const {
+		addImages,
+		handleDragLeave,
+		handleDragOver,
+		handleDrop,
+		handlePaste,
+		isDraggingImages,
+	} = useSpaceComposerImageInput({
+		disabled: attachmentActionsDisabled,
+		onAddImages: panel.onAddComposerImages,
+	});
+	const attachmentHint = resolveSpaceComposerAttachmentHint({
+		attachmentLimitReached: panel.composerAttachmentLimitReached,
+		attachmentNeedsNote,
+		attachmentUploadInProgress,
+	});
+	const defaultComposerHint = panel.agentDirectConversationKind
+		? resolveSpaceAgentDirectConversationComposerHint(
+				panel.agentDirectConversationKind
+			)
+		: SPACE_WAKE_COMPOSER_HINT;
+	const composerHint =
+		attachmentHint ??
+		panel.composerAddressingSummary ??
+		input.wakeTextHint ??
+		defaultComposerHint;
+	const composerHintClassName = resolveSpaceComposerHintClassName({
+		attachmentNeedsNote,
+		wakeTextHint: input.wakeTextHint,
+	});
+
+	return (
+		<div className="shrink-0 bg-background" data-slot="space-composer-section">
+			<div
+				className="flex w-full flex-col gap-3 py-4"
+				data-space-conversation-content-width=""
+			>
+				<div className="relative">
+					{isDraggingImages ? (
+						<div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-md border border-foreground/30 bg-background/90 text-foreground text-sm shadow-sm backdrop-blur-sm">
+							Drop images to attach
+						</div>
+					) : null}
+					<SpaceMentionPopover
+						centerAgentProfileId={panel.centerAgentProfileId}
+						composerSelection={panel.composerSelection}
+						composerText={panel.composerText}
+						onHoverItem={panel.onMentionItemHover}
+						onRequestClose={panel.onMentionPopoverClose}
+						onSelectItem={panel.onMentionItemSelect}
+						state={panel.mentionPopoverState}
+						textareaRef={panel.textareaRef}
+					/>
+					{panel.composerReplyToSignalId ? (
+						<div
+							className="mb-2 flex items-center justify-between gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm"
+							data-slot="composer-reply-banner"
+						>
+							<p className="min-w-0 truncate text-muted-foreground">
+								Replying to{" "}
+								<span className="font-bold text-foreground">
+									{resolveReplyToDisplayText({
+										signalId: panel.composerReplyToSignalId,
+										timelineItems: panel.timelineItems,
+									})}
+								</span>
+							</p>
+							<Button
+								aria-label="Cancel reply"
+								className="size-7 shrink-0"
+								onClick={panel.onClearComposerReplyTo}
+								size="icon-sm"
+								type="button"
+								variant="ghost"
+							>
+								<XIcon aria-hidden="true" />
+							</Button>
+						</div>
+					) : null}
+					<PromptInput
+						className="w-full"
+						disabled={panel.isSendingMessage || !input.canSendMessage}
+						isLoading={panel.isSendingMessage}
+						maxHeight={240}
+						onSubmit={input.submitComposer}
+						value={panel.composerText}
+					>
+						<SpaceComposerAttachmentTray
+							attachments={panel.composerAttachments}
+							disabled={panel.isSendingMessage}
+							onRemove={panel.onRemoveComposerAttachment}
+						/>
+						<PromptInputTextarea
+							aria-label="Message this space"
+							autoComplete="off"
+							className="px-1 py-2 text-sm leading-6 placeholder:text-muted-foreground"
+							disabled={panel.isSendingMessage || !input.canSendMessage}
+							name="space-message"
+							onChange={(event) => {
+								panel.onComposerChange(event.target.value, {
+									end: event.target.selectionEnd,
+									start: event.target.selectionStart,
+								});
+							}}
+							onDragEnter={handleDragOver}
+							onDragLeave={handleDragLeave}
+							onDragOver={handleDragOver}
+							onDrop={handleDrop}
+							onKeyDown={input.handleComposerKeyDown}
+							onPaste={handlePaste}
+							onSelect={(event) => {
+								panel.onComposerSelectionChange({
+									end: event.currentTarget.selectionEnd,
+									start: event.currentTarget.selectionStart,
+								});
+							}}
+							placeholder={input.composerPlaceholder}
+							ref={(element) => {
+								panel.textareaRef.current = element;
+							}}
+						/>
+						<SpaceComposerAddressingChips
+							onRelationChange={
+								panel.onMentionRelationChange ?? NOOP_MENTION_RELATION_CHANGE
+							}
+							targets={panel.composerAddressingTargets ?? []}
+						/>
+						<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
+							<div className="flex min-w-0 flex-1 items-center gap-2">
+								<SpaceComposerImagePickerAction
+									addImages={addImages}
+									disabled={attachmentActionsDisabled}
+									limitReached={panel.composerAttachmentLimitReached}
+								/>
+								<p
+									aria-live="polite"
+									className={cn(
+										"min-w-0 flex-1 truncate text-xs leading-5",
+										composerHintClassName
+									)}
+								>
+									{composerHint}
+								</p>
+							</div>
+							<div className="flex min-w-0 shrink-0 items-center justify-end gap-2">
+								{panel.profileControl}
+								<PromptInputAction
+									className="hidden sm:inline-flex"
+									tooltip={panel.isSendingMessage ? "Sending…" : "Send message"}
+								>
+									<Button
+										aria-label={input.sendButtonLabel}
+										disabled={
+											panel.isSendingMessage ||
+											!input.canSendMessage ||
+											input.composerAttachmentSendBlocked
+										}
+										onClick={input.submitComposer}
+										size="icon-sm"
+										type="button"
+									>
+										<ArrowUpIcon aria-hidden="true" weight="bold" />
+									</Button>
+								</PromptInputAction>
+							</div>
+						</PromptInputActions>
+					</PromptInput>
+				</div>
+				{panel.composerErrorMessage ? (
+					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
+						<p>{panel.composerErrorMessage}</p>
+						{renderComposerBlockedWakeRecoveryAction({
+							agentRecoveryPlansByProfileId:
+								panel.agentRecoveryPlansByProfileId,
+							blockedWakeProfileId: panel.composerBlockedWakeProfileId,
+							isAgentRecoveryPending: panel.isAgentRecoveryPending,
+							onAgentRecoveryAction: panel.onAgentRecoveryAction,
+							orgSlug: panel.orgSlug,
+							prepareSetupHref: panel.prepareSetupHref,
+						})}
+					</div>
+				) : null}
+			</div>
+		</div>
+	);
+}
+
+function resolveSpaceComposerAttachmentHint(input: {
+	attachmentLimitReached: boolean;
+	attachmentNeedsNote: boolean;
+	attachmentUploadInProgress: boolean;
+}): string | null {
+	if (input.attachmentNeedsNote) {
+		return "Add a note about the image(s)";
+	}
+	if (input.attachmentUploadInProgress) {
+		return "Preparing images before sending…";
+	}
+	if (input.attachmentLimitReached) {
+		return "You can attach up to 4 images.";
+	}
+	return null;
+}
+
+function resolveSpaceComposerHintClassName(input: {
+	attachmentNeedsNote: boolean;
+	wakeTextHint: string | null;
+}): string {
+	if (input.attachmentNeedsNote) {
+		return resolveStatusToneStrongTextClassName("warning");
+	}
+	return input.wakeTextHint ? "text-foreground" : "text-muted-foreground";
+}
+
+function renderConversationBody(input: {
+	agentRecoveryPlansByProfileId: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
+	anchoredOutcomeNoticesBySourceSignalId: ReadonlyMap<
+		string,
+		readonly SpaceTimelineItem[]
+	>;
+	centerAgentProfileId: string | null;
+	computerSetupContext?: CenterAgentComputerSetupContext;
+	currentOwnerUserId: string | null;
+	emptyStateDescription?: string | null;
+	emptyStateTitle?: string;
+	entries: ReturnType<typeof buildSpaceConversationEntries>;
+	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
+	firstUnreadSignalId: string | null;
+	historyIsPending: boolean;
+	isAgentRecoveryPending: (profileId: string) => boolean;
+	isCenterAgentDirectMessage: boolean;
+	isCreatingThread: boolean;
+	isPersonalContext: boolean;
+	isSendingMessage: boolean;
+	loadedMainTimelineSignalIds: ReadonlySet<string>;
+	membersSnapshot: SpaceMembersSnapshot | null;
+	modelCatalog: ModelCatalog | null;
+	onAgentRecoveryAction: (
+		plan: SpaceAgentProfileBindingRecoveryPlan
+	) => Promise<void>;
+	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
+	onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
+	onJumpToDate?: (date: Date) => Promise<string | null>;
+	onJumpToMessage: (signalId: string) => void;
+	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+	onOpenThread: (threadId: string) => void;
+	onReplyToMessage: (item: SpaceTimelineItem) => void;
+	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
+	onRecoverExecution?: SpaceExecutionRecoveryHandler;
+	onRetryWakeTarget?: SpaceWakeRetryHandler;
+	onSendStarterPrompt: (prompt: string) => Promise<void>;
+	onStartComputerSetup: () => void;
+	onWakeStopRequest?: SpaceWakeStopRequestHandler;
+	orgSlug?: string;
+	prepareSetupHref?: string;
+	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+	readOnly: boolean;
+	showCenterAgentStarterActions: boolean;
+	showStarterComputerSetup: boolean;
+	registerMessageElement: (
+		signalId: string,
+		element: HTMLElement | null
+	) => void;
+	selfAvatarImageUrl: string | null;
+	selfProfileId: string;
+	spaceId?: string;
+	spaceReferencesById?: SpaceMessageReferencesById;
+	stuckDateMs: number | null;
+	highlightedSignalId: string | null;
+	timelineItems: readonly SpaceTimelineItem[];
+	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
+	threadsByRootSignalId: ReadonlyMap<string, SpaceThread>;
+	threadPreviewByThreadId: ReadonlyMap<string, SpaceThreadPreview>;
+	wakeFailureTargetContextsByProfileId: ReadonlyMap<
+		string,
+		WakeFailureTargetContext
+	>;
+	wakeProblemSourceSignalIds: ReadonlySet<string>;
+	wakeStopRequestStatusBySelectorKey?: ReadonlyMap<
+		string,
+		SpaceWakeStopRequestStatus
+	>;
+	wakeStopTargetLabelsByProfileId: ReadonlyMap<string, string>;
+}) {
+	const inlineComputerSetupActionSignalId =
+		input.computerSetupContext === undefined
+			? null
+			: resolveLatestComputerSetupActionSignalId({
+					timelineItems: input.timelineItems,
+				});
+	// Regular messages use content-visibility:auto for scroll performance, which
+	// also paint-contains their overflow. Keep this one decorative intro visible
+	// so the Logo glow can fade outside the centered content rail.
+	const centerAgentDirectMessageIntroItem = input.isCenterAgentDirectMessage ? (
+		<MessageScrollerItem
+			className="[content-visibility:visible]"
+			messageId="center-agent-intro"
+		>
+			<CenterAgentDirectMessageIntro
+				computerSetupContext={input.computerSetupContext}
+				disabled={input.isSendingMessage}
+				isPersonalContext={input.isPersonalContext}
+				onSelectStarterAction={input.onSendStarterPrompt}
+				onStartComputerSetup={input.onStartComputerSetup}
+				showStarterActions={input.showCenterAgentStarterActions}
+				showStarterComputerSetup={input.showStarterComputerSetup}
+			/>
+		</MessageScrollerItem>
+	) : null;
+
+	if (input.historyIsPending) {
+		return (
+			<>
+				{Array.from({ length: 4 }).map((_, index) => (
+					<MessageScrollerItem
+						key={`space-conversation-loading-${String(index)}`}
+						messageId={`space-conversation-loading-${String(index)}`}
+					>
+						<div className="h-20 border border-border bg-muted" />
+					</MessageScrollerItem>
+				))}
+			</>
+		);
+	}
+
+	if (input.entries.length === 0) {
+		if (centerAgentDirectMessageIntroItem) {
+			return centerAgentDirectMessageIntroItem;
+		}
+
+		return (
+			<MessageScrollerItem messageId="space-conversation-empty">
+				<div className="flex h-full min-h-56 items-center justify-center">
+					<div className="flex max-w-sm flex-col gap-2 text-center">
+						<p className="font-medium text-lg">
+							{input.emptyStateTitle ?? "No messages yet"}
+						</p>
+						{input.emptyStateDescription === null ? null : (
+							<p className="text-muted-foreground text-sm leading-6">
+								{input.emptyStateDescription ??
+									"Send the first message to start the conversation."}
+							</p>
+						)}
+					</div>
+				</div>
+			</MessageScrollerItem>
+		);
+	}
+	let previousDateKey: string | null = null;
+	let unreadBoundaryRendered = false;
+
+	return (
+		<>
+			{centerAgentDirectMessageIntroItem}
+			{input.entries.map((entry) => {
+				const createdAtMs = resolveConversationEntryCreatedAtMs(entry);
+				const date = new Date(createdAtMs);
+				const dateKey = resolveLocalDateKey(date);
+				const shouldRenderDateMarker = dateKey !== previousDateKey;
+				previousDateKey = dateKey;
+				const firstSignalId = resolveConversationEntryFirstSignalId(entry);
+				const shouldRenderUnreadBoundary =
+					!unreadBoundaryRendered &&
+					input.firstUnreadSignalId !== null &&
+					firstSignalId === input.firstUnreadSignalId;
+				if (shouldRenderUnreadBoundary) {
+					unreadBoundaryRendered = true;
+				}
+				const entryKey = resolveConversationEntryKey(entry);
+				const wrapEntry = (content: ReactNode) => (
+					<Fragment key={entryKey}>
+						{shouldRenderDateMarker ? (
+							<MessageScrollerItem
+								className="[content-visibility:visible]"
+								data-conversation-date-marker=""
+								data-conversation-date-ms={createdAtMs}
+								messageId={`date-marker:${dateKey}`}
+							>
+								<SpaceConversationDateMarker
+									date={date}
+									loadedSignalCount={input.loadedMainTimelineSignalIds.size}
+									onJumpToDate={input.onJumpToDate}
+									stuck={createdAtMs === input.stuckDateMs}
+								/>
+							</MessageScrollerItem>
+						) : null}
+						{shouldRenderUnreadBoundary ? (
+							<MessageScrollerItem
+								className="[content-visibility:visible]"
+								messageId={`unread-marker:${input.firstUnreadSignalId}`}
+							>
+								<Marker
+									aria-label="New messages"
+									className="py-3 font-medium text-foreground"
+									role="separator"
+									variant="separator"
+								>
+									<MarkerContent>New messages</MarkerContent>
+								</Marker>
+							</MessageScrollerItem>
+						) : null}
+						{content}
+					</Fragment>
+				);
+				if (entry.kind === "system_event") {
+					return wrapEntry(
+						<MessageScrollerItem messageId={entry.item.id}>
+							<SystemEventRow
+								highlightedSignalId={input.highlightedSignalId}
+								isPersonalContext={input.isPersonalContext === true}
+								item={entry.item}
+								onOpenMessageDetails={input.onOpenMessageDetails}
+								orgSlug={input.orgSlug}
+								prepareSetupHref={input.prepareSetupHref}
+								profileEntriesById={input.profileEntriesById}
+								readOnly={input.readOnly}
+								registerMessageElement={input.registerMessageElement}
+								spaceReferencesById={input.spaceReferencesById}
+								wakeFailureTargetContextsByProfileId={
+									input.wakeFailureTargetContextsByProfileId
+								}
+							/>
+						</MessageScrollerItem>
+					);
+				}
+				if (entry.kind === "conversation_compaction") {
+					return wrapEntry(<SpaceConversationCompactionMarker id={entry.id} />);
+				}
+				return wrapEntry(
+					<ConversationBubbleRun
+						agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
+						anchoredOutcomeNoticesBySourceSignalId={
+							input.anchoredOutcomeNoticesBySourceSignalId
+						}
+						centerAgentProfileId={input.centerAgentProfileId}
+						currentOwnerUserId={input.currentOwnerUserId}
+						ephemeralActivityItems={input.ephemeralActivityItems}
+						highlightedSignalId={input.highlightedSignalId}
+						inlineComputerSetupActionSignalId={
+							inlineComputerSetupActionSignalId
+						}
+						isAgentRecoveryPending={input.isAgentRecoveryPending}
+						isCenterAgentDirectMessage={input.isCenterAgentDirectMessage}
+						isCreatingThread={input.isCreatingThread}
+						isPersonalContext={input.isPersonalContext === true}
+						loadedMainTimelineSignalIds={input.loadedMainTimelineSignalIds}
+						membersSnapshot={input.membersSnapshot}
+						modelCatalog={input.modelCatalog}
+						onAgentInteractionResponse={input.onAgentInteractionResponse}
+						onAgentRecoveryAction={input.onAgentRecoveryAction}
+						onCreateThread={input.onCreateThread}
+						onJumpToMessage={input.onJumpToMessage}
+						onOpenMessageDetails={input.onOpenMessageDetails}
+						onOpenThread={input.onOpenThread}
+						onRecoverExecution={input.onRecoverExecution}
+						onReplyToMessage={input.onReplyToMessage}
+						onRetryWakeTarget={input.onRetryWakeTarget}
+						onSendStarterPrompt={input.onSendStarterPrompt}
+						onWakeStopRequest={input.onWakeStopRequest}
+						orgSlug={input.orgSlug}
+						prepareSetupHref={input.prepareSetupHref}
+						profileDetailsEntry={
+							input.profileEntriesById.get(entry.run.speaker.profileId) ?? null
+						}
+						profileEntriesById={input.profileEntriesById}
+						readOnly={input.readOnly}
+						registerMessageElement={input.registerMessageElement}
+						run={entry.run}
+						selfAvatarImageUrl={input.selfAvatarImageUrl}
+						selfProfileId={input.selfProfileId}
+						spaceId={input.spaceId}
+						spaceReferencesById={input.spaceReferencesById}
+						threadPreviewByThreadId={input.threadPreviewByThreadId}
+						threadsByRootSignalId={input.threadsByRootSignalId}
+						timelineItems={input.timelineItems}
+						wakeFailureTargetContextsByProfileId={
+							input.wakeFailureTargetContextsByProfileId
+						}
+						wakeOutcomeIndex={input.wakeOutcomeIndex}
+						wakeProblemSourceSignalIds={input.wakeProblemSourceSignalIds}
+						wakeStopRequestStatusBySelectorKey={
+							input.wakeStopRequestStatusBySelectorKey
+						}
+						wakeStopTargetLabelsByProfileId={
+							input.wakeStopTargetLabelsByProfileId
+						}
+					/>
+				);
+			})}
+		</>
+	);
+}
+
+function resolveConversationEntryCreatedAtMs(
+	entry: SpaceConversationEntry
+): number {
+	if (entry.kind === "system_event") {
+		return entry.item.createdAtMs;
+	}
+	if (entry.kind === "conversation_compaction") {
+		return entry.createdAtMs;
+	}
+	const firstItem = entry.run.items[0];
+	if (!firstItem) {
+		throw new Error(`Conversation run ${entry.run.id} has no messages.`);
+	}
+	return firstItem.createdAtMs;
+}
+
+function resolveConversationEntryFirstSignalId(
+	entry: SpaceConversationEntry
+): string {
+	if (entry.kind === "system_event") {
+		return entry.item.id;
+	}
+	if (entry.kind === "conversation_compaction") {
+		return entry.sourceSignalId;
+	}
+	const firstItem = entry.run.items[0];
+	if (!firstItem) {
+		throw new Error(`Conversation run ${entry.run.id} has no messages.`);
+	}
+	return firstItem.id;
+}
+
+function resolveConversationEntryKey(entry: SpaceConversationEntry): string {
+	if (entry.kind === "system_event") {
+		return entry.item.id;
+	}
+	return entry.kind === "conversation_compaction" ? entry.id : entry.run.id;
+}
+
+function CenterAgentDirectMessageIntro(input: {
+	computerSetupContext?: CenterAgentComputerSetupContext;
+	disabled: boolean;
+	isPersonalContext: boolean;
+	onSelectStarterAction: (prompt: string) => Promise<void>;
+	onStartComputerSetup: () => void;
+	showStarterActions: boolean;
+	showStarterComputerSetup: boolean;
+}) {
+	let starterContent: ReactNode = null;
+	if (input.showStarterComputerSetup && input.computerSetupContext) {
+		starterContent = (
+			<CenterAgentComputerSetupCard
+				context={input.computerSetupContext}
+				target={{ kind: "computer_setup", mode: "setup" }}
+			/>
+		);
+	} else if (input.showStarterActions) {
+		starterContent = (
+			<CenterAgentStarterActions
+				disabled={input.disabled}
+				onConnectComputer={input.onStartComputerSetup}
+				onSelect={input.onSelectStarterAction}
+			/>
+		);
+	}
+
+	return (
+		<div
+			className="flex min-h-72 flex-col justify-end pt-12 pb-10"
+			data-center-agent-direct-message-intro=""
+		>
+			<div className="flex flex-col gap-6">
+				<div className="flex items-end gap-5">
+					<div className="flex h-28 shrink-0 items-center text-foreground">
+						<OpenMeldLetterLogoStrong
+							ariaLabel="OpenMeld O logo"
+							className="translate-y-2"
+							pointerTracking="viewport"
+							size={16}
+						/>
+					</div>
+					<div className="min-w-0 pb-1">
+						<div className="flex min-w-0 items-center gap-2">
+							<h2 className="break-words font-semibold text-3xl text-foreground">
+								Center Agent
+							</h2>
+							<Badge
+								className="h-6 bg-muted px-2 text-muted-foreground uppercase leading-none"
+								variant="outline"
+							>
+								Remote
+							</Badge>
+							<span
+								aria-label="Online"
+								className={cn(
+									"size-3 shrink-0 rounded-full",
+									resolveStatusToneIndicatorClassName("ready", "solid")
+								)}
+								role="img"
+							/>
+						</div>
+					</div>
+				</div>
+				<div className="flex max-w-3xl flex-col gap-4">
+					<p className="text-foreground text-xl leading-8">
+						{input.isPersonalContext
+							? "Your private chat with the Center Agent — your always-on coordinator."
+							: "Your private chat with the Center Agent — your organization's always-on coordinator."}
+					</p>
+					{starterContent}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
+	agentRecoveryPlansByProfileId: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
+	anchoredOutcomeNoticesBySourceSignalId: ReadonlyMap<
+		string,
+		readonly SpaceTimelineItem[]
+	>;
+	centerAgentProfileId: string | null;
+	currentOwnerUserId: string | null;
+	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
+	highlightedSignalId: string | null;
+	inlineComputerSetupActionSignalId: string | null;
+	isAgentRecoveryPending: (profileId: string) => boolean;
+	isCenterAgentDirectMessage: boolean;
+	isCreatingThread: boolean;
+	isPersonalContext: boolean;
+	loadedMainTimelineSignalIds: ReadonlySet<string>;
+	membersSnapshot: SpaceMembersSnapshot | null;
+	modelCatalog: ModelCatalog | null;
+	onAgentRecoveryAction: (
+		plan: SpaceAgentProfileBindingRecoveryPlan
+	) => Promise<void>;
+	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
+	onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
+	onJumpToMessage: (signalId: string) => void;
+	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+	onOpenThread: (threadId: string) => void;
+	onReplyToMessage: (item: SpaceTimelineItem) => void;
+	onRecoverExecution?: SpaceExecutionRecoveryHandler;
+	onRetryWakeTarget?: SpaceWakeRetryHandler;
+	onSendStarterPrompt: (prompt: string) => Promise<void>;
+	onWakeStopRequest?: SpaceWakeStopRequestHandler;
+	orgSlug?: string;
+	prepareSetupHref?: string;
+	profileDetailsEntry: SpaceMemberDirectoryEntry | null;
+	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+	readOnly: boolean;
+	registerMessageElement: (
+		signalId: string,
+		element: HTMLElement | null
+	) => void;
+	run: SpaceConversationBubbleRun;
+	selfAvatarImageUrl: string | null;
+	selfProfileId: string;
+	spaceId?: string;
+	spaceReferencesById?: SpaceMessageReferencesById;
+	timelineItems: readonly SpaceTimelineItem[];
+	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
+	threadsByRootSignalId: ReadonlyMap<string, SpaceThread>;
+	threadPreviewByThreadId: ReadonlyMap<string, SpaceThreadPreview>;
+	wakeFailureTargetContextsByProfileId: ReadonlyMap<
+		string,
+		WakeFailureTargetContext
+	>;
+	wakeProblemSourceSignalIds: ReadonlySet<string>;
+	wakeStopRequestStatusBySelectorKey?: ReadonlyMap<
+		string,
+		SpaceWakeStopRequestStatus
+	>;
+	wakeStopTargetLabelsByProfileId: ReadonlyMap<string, string>;
+}) {
+	const agentControlLabel = formatSpaceAgentControlLabel({
+		agentControllerRef: input.run.speaker.agentControllerRef,
+		controllerDisplay: input.run.speaker.controllerDisplay,
+		profileKind: input.run.speaker.profileKind,
+		runtimeDeviceDisplayName: input.run.speaker.runtimeDeviceDisplayName,
+	});
+	const messageAlign = resolveSpaceMessageDirectionalAlign(input.run.isSelf);
+	const actionPlacement = resolveSpaceMessageActionPlacement(input.run.isSelf);
+	const selfBubbleClassName = resolveSelfSpaceMessageBubbleClassName(
+		input.run.isSelf
+	);
+	const selfBodyContainerClassName =
+		resolveSelfSpaceMessageBodyContainerClassName(input.run.isSelf);
+	const runCreatedAtMs = input.run.items.at(0)?.createdAtMs ?? null;
+	const isCenterAgentRun = resolveIsCenterAgentConversationRun({
+		centerAgentProfileId: input.centerAgentProfileId,
+		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+		run: input.run,
+	});
+	const detailsDialog = useSpaceProfileDetailsDialog({
+		currentOwnerUserId: input.currentOwnerUserId,
+		entry: input.profileDetailsEntry,
+		modelCatalog: input.modelCatalog,
+	});
+	const computerSetupContext = resolveCenterAgentComputerSetupContext({
+		isCenterAgentDirectMessage: input.isCenterAgentDirectMessage,
+		orgSlug: input.orgSlug,
+		profileId: input.selfProfileId,
+		spaceId: input.spaceId,
+	});
+	const speakerHeaderContent = (
+		<>
+			<SpaceMessageProfileAvatar
+				agentControllerRef={input.run.speaker.agentControllerRef}
+				avatarImageUrl={
+					input.run.speaker.avatarImageUrl ??
+					(input.run.speaker.profileId === input.selfProfileId
+						? input.selfAvatarImageUrl
+						: null)
+				}
+				displayName={input.run.speaker.displayName}
+				isCenterAgent={isCenterAgentRun}
+				profileId={input.run.speaker.profileId}
+				profileKind={input.run.speaker.profileKind}
+			/>
+			<span className="min-w-0 break-words font-bold text-foreground text-sm">
+				{input.run.speaker.displayName}
+			</span>
+			{runCreatedAtMs === null ? null : (
+				<>
+					<span className="shrink-0 text-muted-foreground">·</span>
+					<span className="shrink-0 text-muted-foreground">
+						{TIMELINE_TIME_FORMATTER.format(runCreatedAtMs)}
+					</span>
+				</>
+			)}
+			{agentControlLabel ? (
+				<>
+					<span className="shrink-0 text-muted-foreground">·</span>
+					<span className="min-w-0 text-muted-foreground">
+						{agentControlLabel}
+					</span>
+				</>
+			) : null}
+		</>
+	);
+
+	return (
+		<>
+			{input.run.items.map((item, index) => {
+				const wakePresentationItem = resolveSpaceMessageWakePresentationItem({
+					item,
+					timelineItems: input.timelineItems,
+				});
+				const wakeProgressState = resolveSpaceMessageWakeProgressState({
+					agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
+					isPersonalContext: input.isPersonalContext === true,
+					item: wakePresentationItem,
+					items: input.ephemeralActivityItems,
+					timelineItems: input.timelineItems,
+					wakeOutcomeIndex: input.wakeOutcomeIndex,
+					wakeFailureTargetContextsByProfileId:
+						input.wakeFailureTargetContextsByProfileId,
+				});
+				const wakeStopTargets = resolveSpaceMessageWakeStopTargets({
+					item: wakePresentationItem,
+					stopRequestStatusBySelectorKey:
+						input.wakeStopRequestStatusBySelectorKey,
+					targetLabelsByProfileId: input.wakeStopTargetLabelsByProfileId,
+					timelineItems: input.timelineItems,
+					wakeOutcomeIndex: input.wakeOutcomeIndex,
+					wakeProgressItems: input.ephemeralActivityItems,
+				});
+				const wakeStopControl =
+					!input.readOnly &&
+					input.onWakeStopRequest &&
+					shouldRenderSpaceWakeStopControl(wakeStopTargets) ? (
+						<SpaceWakeStopControl
+							onStopWake={input.onWakeStopRequest}
+							targets={wakeStopTargets}
+						/>
+					) : null;
+				const agentInteractionItems = resolveSpaceMessageAgentInteractionItems({
+					sourceItem: item,
+					wakeProgressItems: input.ephemeralActivityItems,
+				});
+				const wakeThinkingEntries = resolveSpaceMessageWakeThinkingEntries({
+					item,
+					wakePresentationItem,
+					wakeProgressState,
+					wakeStopTargets,
+				});
+				const hasWakeProblem =
+					wakeProgressState.hasProblem ||
+					input.wakeProblemSourceSignalIds.has(item.id);
+				const isHighlighted = input.highlightedSignalId === item.id;
+				const canUseMessageActions = canUseTimelineItemActions({
+					item,
+					readOnly: input.readOnly,
+				});
+				const canOpenMessageDetails = canOpenTimelineItemDetails({
+					item,
+					readOnly: input.readOnly,
+				});
+				const isCenterAgentOptimisticReplySource =
+					hasCenterAgentOptimisticReplyForSource({
+						item,
+						timelineItems: input.timelineItems,
+					});
+				const bubblePresentationClass =
+					resolveSpaceMessageBubblePresentationClass({
+						isHighlighted,
+					});
+				const actionButtonClassName = resolveSpaceMessageActionButtonClassName({
+					isHighlighted,
+				});
+				const showProgressInAnswerArea =
+					shouldShowSpaceMessageProgressInAnswerArea(item);
+				const messageBubbleVisibilityClassName =
+					resolveSpaceMessageBubbleVisibilityClassName({
+						item,
+						showProgressInAnswerArea,
+					});
+				const messageProgressStatus = renderConversationMessageProgressStatus({
+					align: messageAlign,
+					canOpenMessageDetails,
+					control: wakeStopControl,
+					entries: wakeThinkingEntries,
+					hideForCenterAgentOptimisticReplySource:
+						isCenterAgentOptimisticReplySource,
+					item,
+					onOpenMessageDetails: input.onOpenMessageDetails,
+				});
+				const answerProgressStatus = renderSpaceMessageProgressAt({
+					placement: "answer",
+					showProgressInAnswerArea,
+					status: messageProgressStatus,
+				});
+				const rowProgressStatus = renderSpaceMessageProgressAt({
+					placement: "row",
+					showProgressInAnswerArea,
+					status: messageProgressStatus,
+				});
+				const computerSetupPresentation =
+					resolveInlineComputerSetupPresentation({
+						actionSignalId: input.inlineComputerSetupActionSignalId,
+						context: computerSetupContext,
+						itemId: item.id,
+					});
+
+				const isGroupedRow = index !== 0;
+				const isLastGroupedRow = index === input.run.items.length - 1;
+
+				return (
+					<MessageScrollerItem
+						className={resolveSpaceMessageScrollerItemClassName(isGroupedRow)}
+						key={item.id}
+						messageId={item.id}
+					>
+						<Message
+							align={messageAlign}
+							className={resolveSpaceMessageRunLayoutClassName({
+								isFirstInGroup: index === 0,
+								isGroupedRow,
+								isLastInGroup: isLastGroupedRow,
+							})}
+							data-space-self-message={String(input.run.isSelf)}
+						>
+							<MessageContent
+								className={cn(
+									"w-full min-w-0 gap-0",
+									SPACE_MESSAGE_SURFACE_WIDTH_CLASS
+								)}
+							>
+								{index === 0 ? (
+									<>
+										<MessageHeader className="px-0">
+											{detailsDialog.canOpenProfileDetails ? (
+												<button
+													aria-label={`About ${input.run.speaker.displayName}`}
+													className="inline-flex min-w-0 max-w-full cursor-pointer flex-wrap items-center gap-x-1.5 gap-y-1 self-start rounded-md text-left text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+													onClick={detailsDialog.openProfileDetails}
+													type="button"
+												>
+													{speakerHeaderContent}
+												</button>
+											) : (
+												<div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
+													{speakerHeaderContent}
+												</div>
+											)}
+										</MessageHeader>
+										{detailsDialog.profileDetailsDialog}
+									</>
+								) : null}
+								<BubbleGroup className="w-full gap-0">
+									<div
+										className={cn(
+											"group/message-row relative flex w-full min-w-0 max-w-full flex-col gap-0",
+											SPACE_MESSAGE_ROW_HOVER_COLOR_CLASS
+										)}
+										data-message-row-id={item.id}
+									>
+										{canUseMessageActions ? (
+											<MessageHoverActions
+												actionButtonClassName={actionButtonClassName}
+												hasWakeProblem={hasWakeProblem}
+												isCreatingThread={input.isCreatingThread}
+												item={item}
+												onCreateThread={input.onCreateThread}
+												onOpenMessageDetails={input.onOpenMessageDetails}
+												onOpenThread={input.onOpenThread}
+												onReplyToMessage={input.onReplyToMessage}
+												placement={actionPlacement}
+												showTimestamp={index !== 0}
+												thread={
+													input.threadsByRootSignalId.get(item.id) ?? null
+												}
+											/>
+										) : null}
+										<Bubble
+											align={messageAlign}
+											className={messageBubbleVisibilityClassName}
+										>
+											<BubbleContent
+												className={cn(
+													"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
+													SPACE_MESSAGE_CONTENT_PADDING_CLASS,
+													SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
+													selfBubbleClassName,
+													bubblePresentationClass,
+													getTimelineItemDeliveryClass(item)
+												)}
+												data-highlighted={isHighlighted ? "true" : undefined}
+												data-signal-id={item.id}
+												ref={(element) => {
+													input.registerMessageElement(item.id, element);
+												}}
+												tabIndex={-1}
+											>
+												<ReplyPreview
+													align={messageAlign}
+													item={item}
+													loadedMainTimelineSignalIds={
+														input.loadedMainTimelineSignalIds
+													}
+													onJumpToMessage={input.onJumpToMessage}
+													spaceReferencesById={input.spaceReferencesById}
+												/>
+												{answerProgressStatus}
+												<SpaceMessageBody
+													computerSetupContext={
+														computerSetupPresentation.context
+													}
+													computerSetupSourceSignalId={item.id}
+													containerClassName={selfBodyContainerClassName}
+													item={item}
+													orgSlug={input.orgSlug}
+													spaceReferencesById={input.spaceReferencesById}
+												/>
+												<SpaceMessageInteractionSource
+													source={item.centerAgentInteractionSource}
+												/>
+												{agentInteractionItems.map((interactionItem) => (
+													<SpaceAgentInteractionCard
+														item={interactionItem}
+														key={
+															interactionItem.pendingInteraction
+																?.interactionId ??
+															`${interactionItem.targetProfileId}:interaction`
+														}
+														onRespond={
+															input.readOnly
+																? undefined
+																: input.onAgentInteractionResponse
+														}
+													/>
+												))}
+												{renderDurableAgentActivity({
+													item,
+													onOpenDetails: getOpenMessageDetailsHandler({
+														enabled: canUseMessageActions,
+														item,
+														onOpenMessageDetails: input.onOpenMessageDetails,
+													}),
+												})}
+												<ReplyStalenessMarker
+													align={messageAlign}
+													item={item}
+												/>
+												{shouldShowConversationWakeReceipt({
+													isCenterAgentDirectMessage:
+														input.isCenterAgentDirectMessage,
+													isCenterAgentOptimisticReplySource,
+												}) ? (
+													<SpaceMessageWakeReceipt
+														targetLabelsByProfileId={
+															input.wakeStopTargetLabelsByProfileId
+														}
+														targetProfileIds={item.wakeTargetProfileIds}
+													/>
+												) : null}
+												<ThreadPreview
+													membersSnapshot={input.membersSnapshot}
+													onOpenThread={input.onOpenThread}
+													preview={
+														input.threadPreviewByThreadId.get(
+															input.threadsByRootSignalId.get(item.id)
+																?.threadId ?? ""
+														) ?? null
+													}
+													spaceReferencesById={input.spaceReferencesById}
+													thread={
+														input.threadsByRootSignalId.get(item.id) ?? null
+													}
+												/>
+												{renderAnchoredSpaceOutcomeRows({
+													align: messageAlign,
+													notices:
+														input.anchoredOutcomeNoticesBySourceSignalId.get(
+															item.id
+														) ?? EMPTY_ANCHORED_OUTCOME_NOTICES,
+													onOpenMessageDetails: input.onOpenMessageDetails,
+													onRecoverExecution: input.onRecoverExecution,
+													onRetryWakeTarget: input.onRetryWakeTarget,
+													profileEntriesById: input.profileEntriesById,
+													readOnly: input.readOnly,
+													sourceItem: item,
+													spaceReferencesById: input.spaceReferencesById,
+												})}
+											</BubbleContent>
+										</Bubble>
+										{rowProgressStatus}
+									</div>
+								</BubbleGroup>
+							</MessageContent>
+						</Message>
+					</MessageScrollerItem>
+				);
+			})}
+		</>
+	);
+});
+
+function useLatestCallback<Arguments extends unknown[], Result>(
+	callback: (...args: Arguments) => Result
+): (...args: Arguments) => Result {
+	const callbackRef = useRef(callback);
+	useLayoutEffect(() => {
+		callbackRef.current = callback;
+	}, [callback]);
+	return useCallback((...args: Arguments) => callbackRef.current(...args), []);
+}
+
+function resolveSpaceMessageScrollerItemClassName(
+	isGroupedRow: boolean
+): string | undefined {
+	return isGroupedRow ? SPACE_MESSAGE_ROW_HOVER_SAFE_ZONE_CLASS : undefined;
+}
+
+function resolveSpaceMessageRunLayoutClassName(input: {
+	isFirstInGroup: boolean;
+	isGroupedRow: boolean;
+	isLastInGroup: boolean;
+}): string {
+	return cn(
+		resolveSpaceMessageRowLayoutClassName(input),
+		"px-0",
+		input.isGroupedRow && "pointer-events-auto"
+	);
+}
+
+function canUseTimelineItemActions(input: {
+	item: SpaceTimelineItem;
+	readOnly: boolean;
+}) {
+	return (
+		!input.readOnly &&
+		input.item.deliveryState === "sent" &&
+		input.item.agentStreamState === undefined
+	);
+}
+
+function canOpenTimelineItemDetails(input: {
+	item: SpaceTimelineItem;
+	readOnly: boolean;
+}) {
+	return !input.readOnly && input.item.deliveryState === "sent";
+}
+
+function getTimelineItemDeliveryClass(item: SpaceTimelineItem) {
+	return item.deliveryState === "pending" ? "opacity-70" : null;
+}
+
+function resolveSpaceMessageBubbleVisibilityClassName(input: {
+	item: SpaceTimelineItem;
+	showProgressInAnswerArea: boolean;
+}): string | undefined {
+	return input.showProgressInAnswerArea ||
+		input.item.text.trim().length > 0 ||
+		Boolean(input.item.agentStreamState?.thinking) ||
+		input.item.attachments.length > 0
+		? undefined
+		: "hidden";
+}
+
+function shouldShowSpaceMessageProgressInAnswerArea(
+	item: SpaceTimelineItem
+): boolean {
+	return item.optimisticAgentReplyState !== undefined;
+}
+
+function resolveSpaceMessageWakePresentationItem(input: {
+	item: SpaceTimelineItem;
+	timelineItems: readonly SpaceTimelineItem[];
+}): SpaceTimelineItem {
+	const sourceItemId = input.item.optimisticAgentReplySourceItemId;
+	if (!sourceItemId) {
+		return input.item;
+	}
+	return (
+		input.timelineItems.find((candidate) => candidate.id === sourceItemId) ??
+		input.item
+	);
+}
+
+function resolveSpaceMessageWakeThinkingEntries(input: {
+	item: SpaceTimelineItem;
+	wakePresentationItem: SpaceTimelineItem;
+	wakeProgressState: ReturnType<typeof resolveSpaceMessageWakeProgressState>;
+	wakeStopTargets: ReturnType<typeof resolveSpaceMessageWakeStopTargets>;
+}) {
+	if (input.item.optimisticAgentReplyState !== undefined) {
+		return [];
+	}
+	if (input.wakeProgressState.thinkingEntries.length > 0) {
+		return input.wakeProgressState.thinkingEntries;
+	}
+	return resolveSpaceMessageWakeProgressFallbackEntries({
+		item: input.wakePresentationItem,
+		wakeStopTargets: input.wakeStopTargets,
+	});
+}
+
+function renderConversationMessageProgressStatus(input: {
+	align: "start" | "end";
+	canOpenMessageDetails: boolean;
+	containerClassName?: string;
+	control: ReactNode;
+	entries: ReturnType<
+		typeof resolveSpaceMessageWakeProgressState
+	>["thinkingEntries"];
+	hideForCenterAgentOptimisticReplySource: boolean;
+	item: SpaceTimelineItem;
+	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+}): ReactNode {
+	if (input.hideForCenterAgentOptimisticReplySource) {
+		return null;
+	}
+	return (
+		<SpaceMessageProgressStatus
+			align={input.align}
+			containerClassName={input.containerClassName}
+			control={input.control}
+			entries={input.entries}
+			item={input.item}
+			onOpenMessageDetails={getOpenMessageDetailsHandler({
+				enabled: input.canOpenMessageDetails,
+				item: input.item,
+				onOpenMessageDetails: input.onOpenMessageDetails,
+			})}
+		/>
+	);
+}
+
+function hasCenterAgentOptimisticReplyForSource(input: {
+	item: SpaceTimelineItem;
+	timelineItems: readonly SpaceTimelineItem[];
+}): boolean {
+	return input.timelineItems.some(
+		(candidate) => candidate.optimisticAgentReplySourceItemId === input.item.id
+	);
+}
+
+function resolveIsCenterAgentConversationRun(input: {
+	centerAgentProfileId: string | null;
+	isCenterAgentDirectMessage: boolean;
+	run: SpaceConversationBubbleRun;
+}): boolean {
+	if (input.run.speaker.profileKind !== "agent") {
+		return false;
+	}
+	return (
+		input.isCenterAgentDirectMessage ||
+		input.run.items.some(
+			(item) => item.optimisticAgentReplyState !== undefined
+		) ||
+		input.run.speaker.profileId === input.centerAgentProfileId
+	);
+}
+
+function shouldShowConversationWakeReceipt(input: {
+	isCenterAgentDirectMessage: boolean;
+	isCenterAgentOptimisticReplySource: boolean;
+}): boolean {
+	return !(
+		input.isCenterAgentDirectMessage || input.isCenterAgentOptimisticReplySource
+	);
+}
+
+function renderSpaceMessageProgressAt(input: {
+	placement: "answer" | "row";
+	showProgressInAnswerArea: boolean;
+	status: ReactNode;
+}): ReactNode {
+	if (input.placement === "answer") {
+		return input.showProgressInAnswerArea ? input.status : null;
+	}
+	return input.showProgressInAnswerArea ? null : input.status;
+}
+
+function resolveSpaceMessageDirectionalAlign(isSelf: boolean): "start" | "end" {
+	return isSelf ? "end" : "start";
+}
+
+function resolveInlineComputerSetupPresentation(input: {
+	actionSignalId: string | null;
+	context?: CenterAgentComputerSetupContext;
+	itemId: string;
+}): {
+	context?: CenterAgentComputerSetupContext;
+} {
+	if (input.actionSignalId !== input.itemId) {
+		return {};
+	}
+	return {
+		...(input.context ? { context: input.context } : {}),
+	};
+}
+
+function resolveCenterAgentComputerSetupContext(input: {
+	isCenterAgentDirectMessage: boolean;
+	orgSlug?: string;
+	profileId: string;
+	spaceId?: string;
+}) {
+	if (!(input.isCenterAgentDirectMessage && input.orgSlug && input.spaceId)) {
+		return undefined;
+	}
+
+	return {
+		orgSlug: input.orgSlug,
+		profileId: input.profileId,
+		spaceId: input.spaceId,
+	};
+}
+
+function resolveSpaceMessageActionPlacement(isSelf: boolean): "left" | "right" {
+	return isSelf ? "left" : "right";
+}
+
+function resolveSelfSpaceMessageBubbleClassName(
+	isSelf: boolean
+): string | null {
+	return isSelf
+		? `${SPACE_SELF_MESSAGE_MIN_WIDTH_CLASS} items-end text-right`
+		: null;
+}
+
+function resolveSelfSpaceMessageBodyContainerClassName(
+	isSelf: boolean
+): string | undefined {
+	return isSelf ? "items-end text-right" : undefined;
+}
+
+function getOpenMessageDetailsHandler(input: {
+	enabled: boolean;
+	item: SpaceTimelineItem;
+	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+}) {
+	if (!input.enabled) {
+		return undefined;
+	}
+	return () => input.onOpenMessageDetails(input.item);
+}
+
+function renderDurableAgentActivity(input: {
+	item: SpaceTimelineItem;
+	onOpenDetails?: () => void;
+}) {
+	if (!input.item.agentActivity) {
+		return null;
+	}
+	return (
+		<SpaceAgentToolActivity
+			item={input.item}
+			onOpenDetails={input.onOpenDetails}
+			placement="message"
+		/>
+	);
+}
+
+function MessageHoverActions(input: {
+	actionButtonClassName: string;
+	hasWakeProblem: boolean;
+	isCreatingThread: boolean;
+	item: SpaceTimelineItem;
+	onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
+	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+	onOpenThread: (threadId: string) => void;
+	onReplyToMessage: (item: SpaceTimelineItem) => void;
+	placement: "left" | "right";
+	showTimestamp: boolean;
+	thread: SpaceThread | null;
+}) {
+	if (input.item.transientActivityPurpose !== null) {
+		return null;
+	}
+
+	const canReplyOrThread = input.item.signalType === "signal.text";
+	const threadLabel = input.thread ? "Open thread" : "Reply in thread";
+	const openThread = () => {
+		if (input.thread) {
+			input.onOpenThread(input.thread.threadId);
+			return;
+		}
+		input.onCreateThread({ rootSignalId: input.item.id }).catch((error) => {
+			console.error("Failed to open a thread from the message.", error);
+		});
+	};
+	const placementClassName =
+		input.placement === "left" ? "-left-1" : "-right-1";
+	return (
+		<div
+			className={cn(
+				"pointer-events-none absolute -top-6 z-20 flex items-center gap-1",
+				placementClassName
+			)}
+			data-slot="message-hover-actions"
+			data-space-message-actions-offset="outside"
+		>
+			{input.showTimestamp ? (
+				<MessageHoverActionSlot>
+					<span className="pointer-events-none text-muted-foreground text-xs">
+						{TIMELINE_TIME_FORMATTER.format(input.item.createdAtMs)}
+					</span>
+				</MessageHoverActionSlot>
+			) : null}
+			{canReplyOrThread ? (
+				<MessageHoverActionSlot>
+					<MessageActionTooltip label="Reply">
+						<Button
+							aria-label="Reply"
+							className={cn("size-8", input.actionButtonClassName)}
+							onClick={() => input.onReplyToMessage(input.item)}
+							size="icon-sm"
+							type="button"
+							variant="ghost"
+						>
+							<ArrowBendUpLeftIcon aria-hidden="true" />
+						</Button>
+					</MessageActionTooltip>
+				</MessageHoverActionSlot>
+			) : null}
+			{canReplyOrThread ? (
+				<MessageHoverActionSlot>
+					<MessageActionTooltip label={threadLabel}>
+						<Button
+							aria-label={threadLabel}
+							className={cn("size-8", input.actionButtonClassName)}
+							disabled={input.isCreatingThread}
+							onClick={openThread}
+							size="icon-sm"
+							type="button"
+							variant="ghost"
+						>
+							<ChatCircleIcon aria-hidden="true" />
+						</Button>
+					</MessageActionTooltip>
+				</MessageHoverActionSlot>
+			) : null}
+			<MessageHoverActionSlot>
+				<MessageDetailsActionButton
+					buttonClassName={input.actionButtonClassName}
+					hasWakeProblem={input.hasWakeProblem}
+					onClick={() => input.onOpenMessageDetails(input.item)}
+				/>
+			</MessageHoverActionSlot>
+		</div>
+	);
+}
+
+function ReplyPreview(input: {
+	align: "start" | "end";
+	item: SpaceTimelineItem;
+	loadedMainTimelineSignalIds: ReadonlySet<string>;
+	onJumpToMessage: (signalId: string) => void;
+	spaceReferencesById?: SpaceMessageReferencesById;
+}) {
+	if (!input.item.replyPreviewText) {
+		return null;
+	}
+
+	const replyToSignalId = input.item.replyToSignalId;
+	const canJump =
+		replyToSignalId !== null &&
+		input.loadedMainTimelineSignalIds.has(replyToSignalId);
+	const spaceReferencesById =
+		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
+	const hasSpaceReference = hasResolvedSpaceMessageReference({
+		referencesById: spaceReferencesById,
+		text: input.item.replyPreviewText,
+	});
+	const replyLabel = (
+		<>
+			Replying to{" "}
+			{input.item.replyToProfileName ? (
+				<span className="font-bold">{input.item.replyToProfileName}</span>
+			) : (
+				"earlier message"
+			)}
+		</>
+	);
+	const content = (
+		<>
+			<p className="text-muted-foreground text-xs leading-5">{replyLabel}</p>
+			<p className="line-clamp-2 text-foreground/78">
+				<SpaceMessageReferenceText
+					referencesById={spaceReferencesById}
+					text={input.item.replyPreviewText}
+				/>
+			</p>
+		</>
+	);
+
+	if (!(canJump && replyToSignalId)) {
+		return (
+			<div
+				className={cn(
+					"flex flex-col gap-1 border-border text-sm",
+					input.align === "end"
+						? "items-end border-r pr-3 text-right"
+						: "border-l pl-3 text-left"
+				)}
+				data-align={input.align}
+				data-slot="reply-preview"
+			>
+				{content}
+			</div>
+		);
+	}
+	if (hasSpaceReference) {
+		return (
+			<div
+				className={cn(
+					"flex flex-col gap-1 border-border text-sm",
+					input.align === "end"
+						? "items-end border-r pr-3 text-right"
+						: "border-l pl-3 text-left"
+				)}
+				data-align={input.align}
+				data-slot="reply-preview"
+			>
+				<button
+					aria-label="Jump to original message"
+					className="text-muted-foreground text-xs leading-5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					onClick={() => input.onJumpToMessage(replyToSignalId)}
+					type="button"
+				>
+					{replyLabel}
+				</button>
+				<p className="line-clamp-2 text-foreground/78">
+					<SpaceMessageReferenceText
+						referencesById={spaceReferencesById}
+						text={input.item.replyPreviewText}
+					/>
+				</p>
+			</div>
+		);
+	}
+
+	return (
+		<button
+			aria-label="Jump to original message"
+			className={cn(
+				"flex flex-col gap-1 border-border text-sm hover:border-foreground/50 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+				input.align === "end"
+					? "items-end border-r pr-3 text-right"
+					: "border-l pl-3 text-left"
+			)}
+			data-align={input.align}
+			data-slot="reply-preview"
+			onClick={() => input.onJumpToMessage(replyToSignalId)}
+			type="button"
+		>
+			{content}
+		</button>
+	);
+}
+
+function resolveReplyItemsForMessage(input: {
+	item: SpaceTimelineItem;
+	timelineItems: readonly SpaceTimelineItem[];
+}): readonly SpaceTimelineItem[] {
+	return input.timelineItems.filter(
+		(candidate) => candidate.replyToSignalId === input.item.id
+	);
+}
+
+function ThreadPreview(input: {
+	membersSnapshot: SpaceMembersSnapshot | null;
+	onOpenThread: (threadId: string) => void;
+	preview: SpaceThreadPreview | null;
+	spaceReferencesById?: SpaceMessageReferencesById;
+	thread: SpaceThread | null;
+}) {
+	const thread = input.thread;
+	if (!thread) {
+		return null;
+	}
+
+	const previewItems = buildSpaceTimelineItems({
+		envelopes: input.preview?.signals ?? [],
+		membersSnapshot: input.membersSnapshot,
+	}).slice(0, 2);
+	const replyCount = input.preview?.replyCount ?? 0;
+	const replyCountText = formatThreadReplyCount(replyCount);
+	const spaceReferencesById =
+		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
+
+	return (
+		<div className="flex min-w-0 flex-col gap-2 overflow-hidden border-border border-t pt-2">
+			{previewItems.length > 0 ? (
+				<fieldset className="flex min-w-0 flex-col gap-1.5 overflow-hidden">
+					<legend className="sr-only">Thread preview</legend>
+					{previewItems.map((item) => (
+						<div
+							className="flex min-w-0 items-start gap-2 overflow-hidden"
+							key={item.id}
+						>
+							<span className="max-w-[40%] shrink-0 truncate font-bold text-foreground/88 text-xs leading-5">
+								{item.actorName}
+							</span>
+							<span className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-5">
+								<SpaceMessageReferenceText
+									referencesById={spaceReferencesById}
+									text={item.text}
+								/>
+							</span>
+						</div>
+					))}
+				</fieldset>
+			) : null}
+			<button
+				aria-label={
+					replyCount > 0 ? `Open thread (${replyCountText})` : "Open thread"
+				}
+				className="inline-flex h-7 w-fit items-center gap-1.5 text-muted-foreground text-xs hover:text-foreground"
+				onClick={() => input.onOpenThread(thread.threadId)}
+				type="button"
+			>
+				<ChatCircleIcon aria-hidden="true" className="size-3.5" />
+				<span>Open thread</span>
+				{replyCount > 0 ? (
+					<span className="text-muted-foreground/75">{replyCountText}</span>
+				) : null}
+			</button>
+		</div>
+	);
+}
+
+function buildThreadPreviewByThreadId(
+	previews: readonly SpaceThreadPreview[]
+): ReadonlyMap<string, SpaceThreadPreview> {
+	const byThreadId = new Map<string, SpaceThreadPreview>();
+	for (const preview of previews) {
+		byThreadId.set(preview.threadId, preview);
+	}
+	return byThreadId;
+}
+
+function readMessageDetailsProgressEntries(
+	state: ReturnType<typeof resolveSpaceMessageWakeProgressState> | null
+) {
+	return {
+		issueEntries: state?.issueEntries ?? [],
+		thinkingEntries: state?.thinkingEntries ?? [],
+	};
+}
+
+function ReplyStalenessMarker(input: {
+	align: "start" | "end";
+	item: SpaceTimelineItem;
+}) {
+	const count = input.item.newMessagesDuringComposition;
+	if (count === null) {
+		return null;
+	}
+	const messageLabel = count === 1 ? "message" : "messages";
+
+	return (
+		<p
+			className={cn(
+				"text-muted-foreground text-xs leading-5",
+				input.align === "end" ? "self-end text-right" : "self-start text-left"
+			)}
+			data-slot="reply-staleness-marker"
+		>
+			written before {count} newer {messageLabel}
+		</p>
+	);
+}
+
+function buildThreadSignalIds(
+	previews: readonly SpaceThreadPreview[]
+): ReadonlySet<string> {
+	const ids = new Set<string>();
+	for (const preview of previews) {
+		for (const placement of preview.placements) {
+			if (placement.placement === "thread") {
+				ids.add(placement.signalId);
+			}
+		}
+	}
+	return ids;
+}
+
+function formatThreadReplyCount(replyCount: number): string {
+	return `${replyCount.toLocaleString("en-US")} ${
+		replyCount === 1 ? "reply" : "replies"
+	}`;
+}
+
+function resolveReplyToDisplayText(input: {
+	signalId: string;
+	timelineItems: readonly SpaceTimelineItem[];
+}): string {
+	const item = input.timelineItems.find(
+		(candidate) => candidate.id === input.signalId
+	);
+	return item?.actorName ?? "message";
+}
+
+function SystemEventRow(input: {
+	highlightedSignalId: string | null;
+	isPersonalContext: boolean;
+	item: SpaceTimelineItem;
+	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+	orgSlug?: string;
+	prepareSetupHref?: string;
+	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+	readOnly: boolean;
+	registerMessageElement: (
+		signalId: string,
+		element: HTMLElement | null
+	) => void;
+	spaceReferencesById?: SpaceMessageReferencesById;
+	wakeFailureTargetContextsByProfileId: ReadonlyMap<
+		string,
+		WakeFailureTargetContext
+	>;
+}) {
+	if (isSpaceOutcomeNoticeItem(input.item)) {
+		return (
+			<div
+				className={cn(
+					"flex w-full justify-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[highlighted=true]:rounded-md data-[highlighted=true]:bg-ring/10 data-[highlighted=true]:ring-1 data-[highlighted=true]:ring-ring/50 motion-reduce:transition-none",
+					SPACE_MESSAGE_ROW_LAYOUT_CLASS,
+					"px-0"
+				)}
+				data-highlighted={
+					input.highlightedSignalId === input.item.id ? "true" : undefined
+				}
+				data-signal-id={input.item.id}
+				ref={(element) => {
+					input.registerMessageElement(input.item.id, element);
+				}}
+				tabIndex={-1}
+			>
+				<SpaceOutcomeRow
+					className="max-w-[min(92vw,44rem)]"
+					onOpenDetails={
+						input.readOnly ? null : () => input.onOpenMessageDetails(input.item)
+					}
+					spaceReferencesById={input.spaceReferencesById}
+					text={input.item.text}
+					tone={resolveSpaceOutcomeRowTone({
+						failureStage: input.item.systemNoticeFailureStage,
+						noticeType: input.item.systemNoticeType,
+						reasonCode: input.item.systemNoticeReasonCode,
+					})}
+				/>
+			</div>
+		);
+	}
+
+	const StatusIcon = InfoIcon;
+	const markerClassName =
+		"max-w-full items-center gap-2 px-3 py-2 text-center text-muted-foreground text-xs leading-6";
+	const markerContent = (
+		<>
+			<MarkerIcon>
+				<StatusIcon aria-hidden="true" className="text-muted-foreground" />
+			</MarkerIcon>
+			<MarkerContent className="line-clamp-2 max-w-full break-words text-muted-foreground">
+				<span className="font-bold text-muted-foreground">
+					{input.item.actorName}
+				</span>
+				<span className="mx-2 text-muted-foreground/60">·</span>
+				<span>{input.item.text}</span>
+			</MarkerContent>
+		</>
+	);
+
+	return (
+		<div className="flex w-full justify-center">
+			{input.readOnly ? (
+				<Marker
+					className={markerClassName}
+					data-highlighted={
+						input.highlightedSignalId === input.item.id ? "true" : undefined
+					}
+					data-signal-id={input.item.id}
+					ref={(element) => {
+						input.registerMessageElement(input.item.id, element);
+					}}
+					variant="separator"
+				>
+					{markerContent}
+				</Marker>
+			) : (
+				<Marker
+					aria-label="Message details"
+					className={cn(
+						markerClassName,
+						"cursor-pointer appearance-none border-0 bg-transparent text-inherit focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-4"
+					)}
+					data-highlighted={
+						input.highlightedSignalId === input.item.id ? "true" : undefined
+					}
+					data-signal-id={input.item.id}
+					onClick={() => input.onOpenMessageDetails(input.item)}
+					ref={(element) => {
+						input.registerMessageElement(input.item.id, element);
+					}}
+					render={<button type="button" />}
+					variant="separator"
+				>
+					{markerContent}
+				</Marker>
+			)}
+		</div>
+	);
+}
+
+const EMPTY_ANCHORED_OUTCOME_NOTICES: readonly SpaceTimelineItem[] = [];
+const NOOP_MENTION_RELATION_CHANGE = () => undefined;
+const UNAVAILABLE_SPACE_WAKE_STOP_REQUEST: SpaceWakeStopRequestHandler = () =>
+	Promise.reject(new Error("Space Wake Stop is unavailable."));
+
+// Renders the terminal_failure/wake_stopped notices anchored to this source
+// message inside its own bubble content, right after the local wake
+// failure/fallback block (Space collaboration's "one final visible outcome"
+// projected onto the request it closes, now visually part of that message's
+// card instead of a trailing sibling row below it). BubbleContent already
+// carries the card's hover coloring, rounded corners, and self/other
+// alignment, so this no longer needs its own align or max-width handling --
+// it renders start-aligned, matching the local wake failure/fallback block
+// right above it.
+//
+// The Details action always opens the SOURCE message's details (not the
+// notice's own), because the notice's own record carries little the user can
+// act on -- the source message's Wake context/failure history is the useful
+// destination, and it is already the thing the reader is looking at.
+function renderAnchoredSpaceOutcomeRows(input: {
+	align?: "end" | "start";
+	notices: readonly SpaceTimelineItem[];
+	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
+	onRecoverExecution?: SpaceExecutionRecoveryHandler;
+	onRetryWakeTarget?: SpaceWakeRetryHandler;
+	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
+	readOnly: boolean;
+	sourceItem: SpaceTimelineItem;
+	spaceReferencesById?: SpaceMessageReferencesById;
+}) {
+	if (input.notices.length === 0) {
+		return null;
+	}
+
+	const outcomeNotices = input.notices.filter(isSpaceOutcomeNoticeItem);
+	const groups = groupAnchoredOutcomeNotices(outcomeNotices);
+
+	return (
+		<>
+			{groups.map((group) => {
+				const outcomeNotice =
+					group.notices.length === 1 ? (group.notices[0] ?? null) : null;
+				const recoveryRequest = outcomeNotice
+					? resolveAnchoredSpaceExecutionRecoveryRequest({
+							notices: input.notices,
+							outcomeNotice,
+						})
+					: null;
+				const retryRequest = outcomeNotice
+					? resolveAnchoredSpaceWakeRetryRequest({
+							notices: input.notices,
+							outcomeNotice,
+							sourceItem: input.sourceItem,
+						})
+					: null;
+				return (
+					<SpaceOutcomeRow
+						align={input.align}
+						key={group.key}
+						onOpenDetails={
+							input.readOnly
+								? null
+								: () => input.onOpenMessageDetails(input.sourceItem)
+						}
+						onRecoverExecution={
+							input.readOnly ? undefined : input.onRecoverExecution
+						}
+						onRetryWakeTarget={
+							input.readOnly ? undefined : input.onRetryWakeTarget
+						}
+						recoveryRequest={recoveryRequest}
+						retryRequest={retryRequest}
+						spaceReferencesById={input.spaceReferencesById}
+						text={resolveGroupedOutcomeRowText({
+							notices: group.notices,
+							resolveTargetLabel: (targetProfileId) =>
+								input.profileEntriesById.get(targetProfileId)?.profileName ??
+								null,
+							tone: group.tone,
+						})}
+						tone={group.tone}
+					/>
+				);
+			})}
+		</>
+	);
+}
+
+function renderComposerBlockedWakeRecoveryAction(input: {
+	agentRecoveryPlansByProfileId: ReadonlyMap<
+		string,
+		AgentProfileReplyRecoveryPlan
+	>;
+	blockedWakeProfileId: string | null;
+	isAgentRecoveryPending: (profileId: string) => boolean;
+	onAgentRecoveryAction: (
+		plan: SpaceAgentProfileBindingRecoveryPlan
+	) => Promise<void>;
+	orgSlug?: string;
+	prepareSetupHref?: string;
+}) {
+	if (!input.blockedWakeProfileId) {
+		return null;
+	}
+
+	if (!input.orgSlug) {
+		return null;
+	}
+
+	const plan =
+		input.agentRecoveryPlansByProfileId.get(input.blockedWakeProfileId) ?? null;
+	if (!plan || plan.kind === "none") {
+		return null;
+	}
+
+	return (
+		<SpaceAgentRecoveryActionControl
+			className="mt-0 border-destructive/50 text-destructive hover:text-destructive"
+			isPending={input.isAgentRecoveryPending(plan.profileId)}
+			onAction={input.onAgentRecoveryAction}
+			orgSlug={input.orgSlug}
+			plan={plan}
+			prepareSetupHref={input.prepareSetupHref}
+		/>
+	);
+}
+
+function resolveComposerPlaceholder(input: {
+	canSendMessage: boolean;
+	readOnlyPlaceholder?: string;
+}): string {
+	if (input.readOnlyPlaceholder) {
+		return input.readOnlyPlaceholder;
+	}
+	if (!input.canSendMessage) {
+		return "Posting is unavailable in this space right now";
+	}
+
+	return "Message this space…";
+}
+
+function resolveSendButtonLabel(isSendingMessage: boolean): string {
+	if (isSendingMessage) {
+		return "Sending…";
+	}
+
+	return "Send message";
+}
+
+const TIMELINE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	hour: "numeric",
+	minute: "2-digit",
+	second: "2-digit",
+});
