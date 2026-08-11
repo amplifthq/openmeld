@@ -318,8 +318,9 @@ node scripts/release/upload-cli-binary.mjs
 ```
 
 - The upload writes the raw executable, `<artifact>.gz`, and any materially
-  smaller exact-base delta to `openmeld-desktop-downloads/cli/`.
-- The upload writes the manifest to `openmeld-desktop-downloads/cli/manifest.json`.
+  smaller exact-base delta to `openmeld-desktop-downloads-prod/cli/`.
+- The upload writes the manifest to
+  `openmeld-desktop-downloads-prod/cli/manifest.json`.
 - The public Web routes are `/cli/manifest.json` and `/cli/download/<artifact>`.
 - Each platform record keeps `url`, `sha256`, and `sizeBytes` for the raw
   executable so older clients continue to work. The additive

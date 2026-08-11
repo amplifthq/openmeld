@@ -13,7 +13,7 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
-export const DEFAULT_R2_BUCKET_NAME = "openmeld-desktop-downloads";
+export const DEFAULT_R2_BUCKET_NAME = "openmeld-desktop-downloads-prod";
 export const DEFAULT_DOWNLOAD_PAGE_URL = "https://openmeld.ai/desktop";
 export const DEFAULT_DOWNLOAD_URL = "https://openmeld.ai/desktop/download";
 export const DESKTOP_PACKAGE_JSON_PATH = "clients/desktop/package.json";

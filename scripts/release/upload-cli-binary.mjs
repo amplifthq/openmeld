@@ -21,7 +21,7 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 // Reuse the Desktop preview bucket with a cli/ prefix (per W-CLI-BIN1). The
 // binary and manifest are served through a production Web route, not a public
 // R2 URL (see AGENTS.md); the download base URL below is that route.
-export const DEFAULT_CLI_R2_BUCKET = "openmeld-desktop-downloads";
+export const DEFAULT_CLI_R2_BUCKET = "openmeld-desktop-downloads-prod";
 export const CLI_R2_OBJECT_PREFIX = "cli";
 export const CLI_MANIFEST_OBJECT_KEY = "cli/manifest.json";
 export const DEFAULT_CLI_DOWNLOAD_BASE_URL = "https://openmeld.ai/cli/download";

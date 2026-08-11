@@ -62,7 +62,7 @@ test("builds remote Wrangler R2 upload arguments with release headers", () => {
       "r2",
       "object",
       "put",
-      "openmeld-desktop-downloads/desktop/OpenMeld-Desktop-0.1.0-preview.0-macos-arm64-unsigned.dmg",
+      "openmeld-desktop-downloads-prod/desktop/OpenMeld-Desktop-0.1.0-preview.0-macos-arm64-unsigned.dmg",
       "--file",
       "/repo/clients/desktop/dist/release/OpenMeld-Desktop-0.1.0-preview.0-macos-arm64-unsigned.dmg",
       "--content-type",
