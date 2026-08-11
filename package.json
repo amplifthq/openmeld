@@ -15,6 +15,7 @@
     "release:deploy:local": "node scripts/release/production-release.mjs deploy",
     "deploy:cloud": "pnpm run release:deploy:local -- --scope cloud",
     "deploy:openconnector:production": "node scripts/cloudflare/deploy-openconnector-production.mjs",
+    "cloudflare:bootstrap:worker-identities": "node scripts/cloudflare/bootstrap-openmeld-worker-identities.mjs",
     "deploy:release-ready": "pnpm run verify:release-ready",
     "deploy:core:local-components": "OPENMELD_RELEASE_CHANNEL_SYNC_CHECK=1 pnpm run deploy:release-ready && pnpm --filter @openmeld/core run deploy",
     "release:cli": "node scripts/release/release-cli.mjs",

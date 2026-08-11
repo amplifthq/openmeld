@@ -33,6 +33,13 @@ Official references:
 5. Secret sync is explicit. Production secret changes do not happen through deploy; they happen through `sync:secrets:prod`.
 6. Every Cloudflare Worker package must provide `cf-typegen`, `sync:config:prod`, and `sync:prod`.
 7. Every Worker package that owns secrets must also provide `sync:secrets:prod`.
+
+For a brand-new OpenMeld account surface, Core, Auth, and Remote Agent form a
+Service Binding cycle. Before the first real Worker release, run
+`pnpm cloudflare:bootstrap:worker-identities -- --apply` with the release token.
+The command creates only missing, route-free Worker identities that return a
+diagnostic `503`; it never overwrites an existing Worker. The guarded production
+release then replaces those placeholders with the real Workers.
 8. After any Worker env, bindings, or `wrangler.jsonc` change, upgrade shared Wrangler first, then rerun `cf-typegen` for every Worker package.
 9. New Cloudflare resources may be created with the local Wrangler CLI, but they
    are not integrated until the owning `wrangler.jsonc`, this document, and
