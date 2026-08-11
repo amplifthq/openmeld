@@ -603,6 +603,53 @@ test("stamp rejects the current-only verification bypass", async () => {
   }
 });
 
+test("stamp treats the first OpenMeld release as a greenfield baseline", async () => {
+  const repoRoot = await createFixtureRepo();
+  try {
+    await writeFixtureFile(
+      repoRoot,
+      "clients/openmeld-cli/package.json",
+      `${JSON.stringify(
+        {
+          version: "1.2.3",
+          openmeld: { releaseLine: OPENMELD_GREENFIELD_RELEASE_LINE },
+        },
+        null,
+        2
+      )}\n`
+    );
+    await initFixtureGitRepo(repoRoot);
+
+    await runLocalComponentsReleaseTool(
+      [
+        "stamp",
+        "--repo-root",
+        repoRoot,
+        "--version",
+        "1.2.4",
+        "--cli",
+        "available",
+        "--service",
+        "available",
+        "--skills",
+        "available",
+        "--reason",
+        "First OpenMeld release",
+        "--now",
+        "2026-08-12T00:00:00.000Z",
+      ],
+      FIXTURE_STAMP_DEPENDENCIES
+    );
+
+    const manifest = JSON.parse(
+      await readFile(join(repoRoot, "release/local-components.json"), "utf8")
+    );
+    assert.equal(manifest.components.cli.packageVersion, "1.2.4");
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test("stamp rolls back its writes when final manifest verification fails", async () => {
   const repoRoot = await createFixtureRepo();
   const packageJsonPath = join(repoRoot, "clients/openmeld-cli/package.json");

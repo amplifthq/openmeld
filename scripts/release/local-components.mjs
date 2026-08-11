@@ -771,6 +771,7 @@ async function runVerifyReleaseCommand(input) {
 async function assertReleaseManifestPolicy(input) {
   const base = resolveEffectiveReleaseBase({
     base: input.parsed.options.base,
+    currentReleaseLine: input.facts.cliReleaseLine,
     currentOnly: input.parsed.options.currentOnly,
     env: process.env,
     latestReleaseTag: await resolveLatestReleaseTag({
