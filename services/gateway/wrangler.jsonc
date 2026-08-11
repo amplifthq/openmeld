@@ -268,7 +268,7 @@
         "OPENMELD_WORKER_ENVIRONMENT": "prod",
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
         "OPENMELD_GATEWAY_URL": "https://gateway.openmeld.ai",
-        "GITHUB_OPENMELD_APP_SLUG": "openmeld",
+        "GITHUB_OPENMELD_APP_SLUG": "openmeld-ai",
         "WEB_APP_URL": "https://openmeld.ai",
         "OPENMELD_SLACK_OAUTH_REDIRECT_URL": "https://gateway.openmeld.ai/slack/oauth/callback"
       },
