@@ -64,6 +64,9 @@ export function parseArgs(rawArgs, env = process.env) {
     apply: false,
   };
   for (const arg of rawArgs) {
+    if (arg === "--") {
+      continue;
+    }
     if (arg === "--apply") {
       parsed.apply = true;
       continue;

@@ -62,3 +62,13 @@ test("creates only missing identities and verifies every stable name", async () 
 test("requires explicit Cloudflare credentials", () => {
   assert.throws(() => parseArgs([], {}), MISSING_CREDENTIALS_REGEX);
 });
+
+test("accepts pnpm's option separator before apply", () => {
+  assert.equal(
+    parseArgs(["--", "--apply"], {
+      CLOUDFLARE_ACCOUNT_ID: "account",
+      CLOUDFLARE_API_TOKEN: "token",
+    }).apply,
+    true
+  );
+});
