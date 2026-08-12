@@ -2,7 +2,7 @@
 
 **People and agents, working as one.**
 
-The open-source operating system for agent-native teams of people and AI agents.
+The open-source operating system for agent-native teams of people and machines.
 
 OpenMeld connects your Center Agent, Slack, shared cloud Spaces, and every
 teammate's local Claude Code, Codex, Cursor, and OpenCode agents into one
