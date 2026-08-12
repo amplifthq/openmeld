@@ -581,6 +581,9 @@ describe("Remote Agent native delivery callback service", () => {
         runtimeConversation: { generation: 1 },
         v: 4,
       });
+      expect(
+        env.__spaceStub.rpcListDispatchConversationContinuitySignalsResult
+      ).toHaveBeenCalledOnce();
     } finally {
       harness.close();
     }
@@ -10724,6 +10727,7 @@ type TestSpaceStub = {
   rpcCloseAgentStream: ReturnType<typeof vi.fn>;
   rpcGetMeta: ReturnType<typeof vi.fn>;
   rpcGetViewerMembership: ReturnType<typeof vi.fn>;
+  rpcListDispatchConversationContinuitySignalsResult: ReturnType<typeof vi.fn>;
   rpcListSignalsResult: ReturnType<typeof vi.fn>;
   rpcPostSignal: ReturnType<typeof vi.fn>;
   rpcPostSignalOnceByClientMessageId: ReturnType<typeof vi.fn>;
@@ -10737,6 +10741,43 @@ function buildEnv(
   options: BuildEnvOptions = {}
 ): CoreBindings & { __spaceStub: TestSpaceStub } {
   let postSignalAttempts = 0;
+  const listSignalsResult = (input: {
+    afterCount?: number;
+    aroundSignalId?: string;
+    beforeCount?: number;
+    limit?: number;
+  }) => {
+    if (options.listSignalsError) {
+      throw options.listSignalsError;
+    }
+    const semantics = resolveListSignalsReadQuerySemantics({
+      recentOnly: false,
+      hasExplicitLimit: input.limit !== undefined,
+      limit: input.limit ?? null,
+      afterSignalId: null,
+      aroundSignalId: input.aroundSignalId ?? null,
+      beforeCount: input.beforeCount ?? null,
+      afterCount: input.afterCount ?? null,
+    });
+    if (!semantics.ok) {
+      return {
+        ok: false,
+        status: 400,
+        message: semantics.issues[0]?.message ?? "Invalid query",
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        signals: options.sourceSignals ?? [
+          options.sourceSignal ?? {
+            ...createSignalEnvelope("signal_1"),
+            data: { text: "Please help." },
+          },
+        ],
+      },
+    };
+  };
   const spaceStub: TestSpaceStub = {
     rpcCloseAgentStream: vi.fn(async () => null),
     rpcGetMeta: vi.fn(() => {
@@ -10763,45 +10804,9 @@ function buildEnv(
       preferredOpenProfileId: AGENT_PROFILE_ID,
       spaceId: SPACE_ID,
     })),
-    rpcListSignalsResult: vi.fn(
-      (input: {
-        afterCount?: number;
-        aroundSignalId?: string;
-        beforeCount?: number;
-        limit?: number;
-      }) => {
-        if (options.listSignalsError) {
-          throw options.listSignalsError;
-        }
-        const semantics = resolveListSignalsReadQuerySemantics({
-          recentOnly: false,
-          hasExplicitLimit: input.limit !== undefined,
-          limit: input.limit ?? null,
-          afterSignalId: null,
-          aroundSignalId: input.aroundSignalId ?? null,
-          beforeCount: input.beforeCount ?? null,
-          afterCount: input.afterCount ?? null,
-        });
-        if (!semantics.ok) {
-          return {
-            ok: false,
-            status: 400,
-            message: semantics.issues[0]?.message ?? "Invalid query",
-          };
-        }
-        return {
-          ok: true,
-          value: {
-            signals: options.sourceSignals ?? [
-              options.sourceSignal ?? {
-                ...createSignalEnvelope("signal_1"),
-                data: { text: "Please help." },
-              },
-            ],
-          },
-        };
-      }
-    ),
+    rpcListDispatchConversationContinuitySignalsResult:
+      vi.fn(listSignalsResult),
+    rpcListSignalsResult: vi.fn(listSignalsResult),
     rpcPostSignal: vi.fn((input) => {
       postSignalAttempts += 1;
       if (

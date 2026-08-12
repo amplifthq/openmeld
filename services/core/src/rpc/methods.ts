@@ -1246,6 +1246,9 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcListSignalsResult(
     input: ListSignalsInput
   ): Promise<SpaceRpcJsonResult<ListSignalsResult>>;
+  rpcListDispatchConversationContinuitySignalsResult(
+    input: ListSignalsInput
+  ): Promise<SpaceRpcJsonResult<ListSignalsResult>>;
   rpcPostSignal(input: PostSignalInput): Promise<SignalEnvelope>;
   rpcPostSignalOnceByClientMessageId(
     input: PostSignalOnceByClientMessageIdInput

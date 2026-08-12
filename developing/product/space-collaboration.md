@@ -440,6 +440,13 @@ If a user Wakes an Agent Profile from a thread, the Agent Profile's reply should
 default back to that same thread. The user asked from that local conversation,
 so the visible answer belongs there.
 
+If the hosted runtime rolls a Space conversation to a fresh internal generation,
+the Space owner uses the exact dispatch's frozen thread placement to rebuild the
+bounded continuity prefix. A thread Wake receives only that thread's root and
+prior replies; interleaved main-timeline messages are not part of its local
+conversation. A main Space Wake continues from the main timeline. Callers do
+not infer this scope from a generic history response.
+
 A UI-only thread that cannot Wake an Agent Profile end to end is not a complete
 OpenMeld Space thread. If thread-aware Wake cannot be supported, the product should
 reject that Wake action instead of silently posting it to the main Space.

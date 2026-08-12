@@ -370,6 +370,7 @@ import {
   readOrInitializeSpaceContractUseCase,
 } from "../../application/space-contract-service";
 import { handlePatchCursorUseCase } from "../../application/space-cursor-service";
+import { resolveSpaceDispatchConversationContinuityScope } from "../../application/space-dispatch-conversation-continuity";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../application/space-inbox-center-agent-candidate";
 import { buildSpaceInboxProjectionOutboxRecord } from "../../application/space-inbox-projection";
 import {
@@ -543,6 +544,7 @@ import {
   listSpaceThreadPreviewEntries,
   listSpaceThreadSignalPlacements,
   listSpaceThreadSignalPlacementsAfter,
+  listSpaceThreadSignalPlacementsBefore,
   listSpaceThreads,
   readSpaceThread,
   readSpaceThreadByRootSignalId,
@@ -2311,6 +2313,44 @@ export class Space extends DurableObject<CoreBindings> {
     });
     const response = await this.dispatchSignalsRequest(request, {
       ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
+    });
+    return readSpaceRpcJsonResult(response);
+  }
+
+  async rpcListDispatchConversationContinuitySignalsResult(
+    input: ListSignalsInput
+  ): Promise<SpaceRpcJsonResult<ListSignalsResult>> {
+    this.applySpaceRef(input.spaceId);
+    const spaceAccess = input.spaceAccess;
+    const actor = spaceAccess?.actor;
+    if (
+      !spaceAccess ||
+      actor?.kind !== "dispatch_continuation" ||
+      input.aroundSignalId !== actor.sourceSignalId ||
+      input.beforeCount === undefined ||
+      !input.signalTypes ||
+      input.signalTypes.length === 0
+    ) {
+      return readSpaceRpcJsonResult(
+        Response.json(
+          {
+            error: {
+              code: "space.continuity.invalid_dispatch_context",
+              message:
+                "Continuity requires one exact dispatch source and access context.",
+            },
+          },
+          { status: 400 }
+        )
+      );
+    }
+    const response = await this.handleDispatchConversationContinuitySignals({
+      beforeCount: input.beforeCount,
+      dispatchId: actor.dispatchId,
+      signalTypes: input.signalTypes,
+      sourceSignalId: actor.sourceSignalId,
+      spaceAccess,
+      targetProfileId: actor.targetProfileId,
     });
     return readSpaceRpcJsonResult(response);
   }
@@ -9847,6 +9887,145 @@ export class Space extends DurableObject<CoreBindings> {
       signals,
       nextCursor: null,
     });
+  }
+
+  private async handleDispatchConversationContinuitySignals(input: {
+    beforeCount: number;
+    dispatchId: string;
+    signalTypes: readonly (
+      | "signal.text"
+      | "signal.status"
+      | "signal.system_notice"
+    )[];
+    sourceSignalId: string;
+    spaceAccess: SpaceAccessContext;
+    targetProfileId: string;
+  }): Promise<Response> {
+    if (
+      !Number.isInteger(input.beforeCount) ||
+      input.beforeCount < 1 ||
+      input.beforeCount > 100
+    ) {
+      return Response.json(
+        {
+          error: {
+            code: "space.continuity.invalid_limit",
+            message: "Continuity beforeCount must be an integer from 1 to 100.",
+          },
+        },
+        { status: 400 }
+      );
+    }
+    const accessResult = await this.authorizeSpaceAccess(input.spaceAccess);
+    if (!accessResult.ok) {
+      return accessResult.response;
+    }
+    const scope = resolveSpaceDispatchConversationContinuityScope({
+      dispatch: readDispatchOutboxRecordByDispatchId(
+        this.ctx.storage.sql,
+        input.dispatchId
+      ),
+      readSourceThreadId: (sourceSignalId) =>
+        readSpaceThreadSignalPlacementBySignalId(
+          this.ctx.storage.sql,
+          sourceSignalId
+        )?.threadId ?? null,
+      readThreadRootSignalId: (threadId) =>
+        readSpaceThread(this.ctx.storage.sql, threadId)?.rootSignalId ?? null,
+      sourceSignalId: input.sourceSignalId,
+      spaceId: this.spaceId,
+      targetProfileId: input.targetProfileId,
+    });
+    if (!scope.ok && scope.code === "space.continuity.dispatch_not_found") {
+      return Response.json(
+        {
+          error: {
+            code: scope.code,
+            message: "The exact Space dispatch is unavailable.",
+          },
+        },
+        { status: 404 }
+      );
+    }
+    if (!scope.ok) {
+      return Response.json(
+        {
+          error: {
+            code: scope.code,
+            message: "The dispatch thread no longer matches its source Signal.",
+          },
+        },
+        { status: 409 }
+      );
+    }
+    const viewer = await this.resolveReadViewerIdentity(input.spaceAccess);
+    if (scope.scope.kind === "main") {
+      try {
+        return Response.json({
+          nextCursor: null,
+          signals: this.loadSignalsAroundAnchor({
+            afterCount: 0,
+            aroundSignalId: input.sourceSignalId,
+            beforeCount: input.beforeCount,
+            filters: {
+              fromProfileIds: [],
+              signalTypes: input.signalTypes,
+            },
+            ...(viewer.viewerOwnerUserId === null
+              ? {}
+              : { viewerOwnerUserId: viewer.viewerOwnerUserId }),
+            ...(viewer.viewerProfileId === null
+              ? {}
+              : { viewerProfileId: viewer.viewerProfileId }),
+            viewerCreatorProfileIdsByProfileId:
+              viewer.creatorProfileIdByProfileId,
+          }).filter((signal) => signal.id !== input.sourceSignalId),
+        });
+      } catch (error) {
+        if (error instanceof SpaceHistoryAnchorNotFoundError) {
+          return Response.json(
+            {
+              error: {
+                code: error.code,
+                message: error.message,
+              },
+            },
+            { status: 404 }
+          );
+        }
+        throw error;
+      }
+    }
+
+    const placements = listSpaceThreadSignalPlacementsBefore(
+      this.ctx.storage.sql,
+      {
+        beforeSignalId: input.sourceSignalId,
+        limit: input.beforeCount,
+        signalTypes: input.signalTypes,
+        threadId: scope.scope.threadContext.threadId,
+      }
+    );
+    if (placements === null) {
+      return Response.json(
+        {
+          error: {
+            code: "space.continuity.source_not_found",
+            message: "The dispatch source Signal is unavailable in its thread.",
+          },
+        },
+        { status: 404 }
+      );
+    }
+    const allowedSignalTypes = new Set<SignalEnvelope["type"]>(
+      input.signalTypes
+    );
+    const signals = placements
+      .map((placement) => this.readSignalById(placement.signalId))
+      .filter((signal): signal is SignalEnvelope => signal !== null)
+      .filter((signal) => allowedSignalTypes.has(signal.type))
+      .map((signal) => this.redactSignalForReadViewer(signal, viewer));
+    return Response.json({ nextCursor: null, signals });
   }
 
   private loadRecentSignals(input: {

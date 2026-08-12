@@ -259,6 +259,77 @@ export function listSpaceThreadSignalPlacementsAfter(
   return rows.map(toSpaceThreadSignalPlacement);
 }
 
+export function listSpaceThreadSignalPlacementsBefore(
+  sql: SqlStorage,
+  input: {
+    beforeSignalId: string;
+    limit: number;
+    signalTypes: readonly string[];
+    threadId: string;
+  }
+): SpaceThreadSignalPlacement[] | null {
+  const signalTypes = [...new Set(input.signalTypes)];
+  if (signalTypes.length === 0) {
+    throw new Error(
+      "Thread history signal types are required before applying its limit."
+    );
+  }
+  const signalTypePlaceholders = signalTypes.map(() => "?").join(", ");
+  const rows = sql
+    .exec<SqlSpaceThreadSignalPlacementRow & { anchor_exists: number }>(
+      `
+        WITH anchor AS (
+          SELECT signal.rowid AS storage_order
+          FROM space_signals AS signal
+          JOIN space_thread_signal_placements AS placement
+            ON placement.signal_id = signal.id
+          WHERE signal.id = ?
+            AND placement.thread_id = ?
+          LIMIT 1
+        )
+        SELECT
+          placement.signal_id,
+          placement.thread_id,
+          placement.placement,
+          placement.created_at_ms,
+          EXISTS(SELECT 1 FROM anchor) AS anchor_exists
+        FROM anchor
+        LEFT JOIN space_signals AS signal
+          ON signal.rowid < anchor.storage_order
+        LEFT JOIN space_thread_signal_placements AS placement
+          ON placement.signal_id = signal.id
+          AND placement.thread_id = ?
+        WHERE placement.signal_id IS NOT NULL
+          AND signal.type IN (${signalTypePlaceholders})
+        ORDER BY signal.rowid DESC
+        LIMIT ?
+      `,
+      input.beforeSignalId,
+      input.threadId,
+      input.threadId,
+      ...signalTypes,
+      input.limit
+    )
+    .toArray();
+  if (rows.length === 0) {
+    const anchorExists = sql
+      .exec<{ anchor_exists: number }>(
+        `
+          SELECT EXISTS(
+            SELECT 1
+            FROM space_thread_signal_placements
+            WHERE signal_id = ? AND thread_id = ?
+          ) AS anchor_exists
+        `,
+        input.beforeSignalId,
+        input.threadId
+      )
+      .toArray()[0]?.anchor_exists;
+    return Number(anchorExists ?? 0) === 1 ? [] : null;
+  }
+  return rows.toReversed().map(toSpaceThreadSignalPlacement);
+}
+
 export function listSpaceThreadPreviewEntries(
   sql: SqlStorage
 ): SpaceThreadPreviewEntry[] {

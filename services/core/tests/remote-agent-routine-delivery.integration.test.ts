@@ -4325,6 +4325,12 @@ function buildEnv(input: {
               ok: true as const,
               value: { signals: input.continuitySignals ?? [] },
             })),
+            rpcListDispatchConversationContinuitySignalsResult: vi.fn(
+              async () => ({
+                ok: true as const,
+                value: { signals: input.continuitySignals ?? [] },
+              })
+            ),
             rpcPostSignalOnceByClientMessageId: vi.fn(async () =>
               createSignal(
                 input.fixture.publishedSignalId,
@@ -4409,6 +4415,7 @@ function buildEnv(input: {
 type TestSpaceStub = {
   rpcCloseAgentStream: ReturnType<typeof vi.fn>;
   rpcGetMeta: ReturnType<typeof vi.fn>;
+  rpcListDispatchConversationContinuitySignalsResult: ReturnType<typeof vi.fn>;
   rpcListSignalsResult: ReturnType<typeof vi.fn>;
   rpcPostSignalOnceByClientMessageId: ReturnType<typeof vi.fn>;
   rpcReadFinalReplyClaimSignalId: ReturnType<typeof vi.fn>;

@@ -1629,6 +1629,84 @@ export async function listCenterAgentTaskEvents(input: {
   return result.results.map((row) => mapStoredEventRow(row).event);
 }
 
+export async function listCenterAgentTaskEventsBefore(input: {
+  beforeEventId: string;
+  db: D1Database;
+  limit: number;
+  organizationId: string;
+  taskId: string;
+}): Promise<CenterAgentTaskEvent[] | null> {
+  const result = await input.db
+    .prepare(
+      `
+        WITH anchor AS (
+          SELECT occurred_at_ms, observed_at_ms, id
+          FROM center_agent_task_events
+          WHERE id = ? AND task_id = ? AND organization_id = ?
+          LIMIT 1
+        )
+        SELECT
+          event.id,
+          event.task_id,
+          event.organization_id,
+          event.idempotency_key,
+          event.attempt_generation,
+          event.kind,
+          event.actor,
+          event.text,
+          event.occurred_at_ms,
+          event.observed_at_ms
+        FROM center_agent_task_events AS event
+        CROSS JOIN anchor
+        WHERE event.task_id = ?
+          AND event.organization_id = ?
+          AND (
+            event.occurred_at_ms < anchor.occurred_at_ms
+            OR (
+              event.occurred_at_ms = anchor.occurred_at_ms
+              AND event.observed_at_ms < anchor.observed_at_ms
+            )
+            OR (
+              event.occurred_at_ms = anchor.occurred_at_ms
+              AND event.observed_at_ms = anchor.observed_at_ms
+              AND event.id < anchor.id
+            )
+          )
+        ORDER BY
+          event.occurred_at_ms DESC,
+          event.observed_at_ms DESC,
+          event.id DESC
+        LIMIT ?
+      `
+    )
+    .bind(
+      input.beforeEventId,
+      input.taskId,
+      input.organizationId,
+      input.taskId,
+      input.organizationId,
+      input.limit
+    )
+    .all<EventRow>();
+  if (result.results.length === 0) {
+    const anchor = await input.db
+      .prepare(
+        `
+          SELECT 1 AS found
+          FROM center_agent_task_events
+          WHERE id = ? AND task_id = ? AND organization_id = ?
+          LIMIT 1
+        `
+      )
+      .bind(input.beforeEventId, input.taskId, input.organizationId)
+      .first<{ found: number }>();
+    if (!anchor) {
+      return null;
+    }
+  }
+  return result.results.toReversed().map((row) => mapStoredEventRow(row).event);
+}
+
 export async function createCenterAgentTaskAttempt(input: {
   attemptId: string;
   db: D1Database;
