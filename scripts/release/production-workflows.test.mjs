@@ -561,7 +561,7 @@ test("keeps Fast PR Turbo caches isolated to one PR job and revision", () => {
   const action = readRepoFile(".github/actions/cache-fast-pr-turbo/action.yml");
   const turbo = JSON.parse(readRepoFile("turbo.json"));
 
-  assert.ok(action.includes("uses: actions/cache@v4"));
+  assert.ok(action.includes("uses: actions/cache@v6"));
   assert.ok(action.includes("path: .turbo/cache"));
   assert.ok(
     action.includes(`${GITHUB_EXPRESSION_PREFIX} inputs.cache-suffix }}`)
