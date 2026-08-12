@@ -218,6 +218,17 @@ Web Chat uses, posts one ordinary member-authored Signal, waits for the normal
 Wake result by default, and returns that durable result. `--no-wait` submits
 the same request without cancelling or changing the execution. A wait timeout
 means that execution is still pending; it is not rewritten as failure.
+The source Signal uses the client message id as its idempotency key. When the
+first transport result is ambiguous, the CLI replays that exact request once
+with the same id. If delivery still cannot be confirmed, the CLI returns
+`submission_unknown`, preserves the client message id and bounded transport
+diagnostics, and tells the user not to submit a duplicate.
+After the source Signal is accepted, a later status or visible-reply read
+failure also returns the request as pending with its stable Space, Signal,
+client-message, and target-profile identifiers plus bounded read-failure
+diagnostics. The CLI must not erase those accepted identifiers, claim the
+request was never submitted, or invite a duplicate retry merely because it
+could not finish observing the result.
 
 OpenMeld automatically detects supported Codex and Claude Code harnesses and
 their current thread or session locator. `--via` and `--session` remain explicit
