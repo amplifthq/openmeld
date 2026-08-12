@@ -38,6 +38,15 @@ RETIRED_BRAND_IDENTIFIERS=(
   "wakeloop"
 )
 
+BRAND_SEARCH_PATHS=(
+  .
+  ":(exclude)dev-tmp/**"
+  ":(exclude).codegraph/**"
+  ":(exclude)**/node_modules/**"
+  ":(exclude)**/dist/**"
+  ":(exclude)scripts/ci/check-retired-identifiers.sh"
+)
+
 failures=0
 for identifier in "${RETIRED_IDENTIFIERS[@]}"; do
   if matches=$(grep -rn --include="*.ts" --include="*.tsx" --include="*.mjs" --include="*.js" \
@@ -50,23 +59,25 @@ for identifier in "${RETIRED_IDENTIFIERS[@]}"; do
 done
 
 for identifier in "${RETIRED_BRAND_IDENTIFIERS[@]}"; do
-  if matches=$(rg -n -F "$identifier" . \
-    --glob '!dev-tmp/**' \
-    --glob '!.codegraph/**' \
-    --glob '!**/node_modules/**' \
-    --glob '!**/dist/**' \
-    --glob '!scripts/ci/check-retired-identifiers.sh' 2>/dev/null); then
+  if matches=$(git grep -n -F -- "$identifier" -- "${BRAND_SEARCH_PATHS[@]}"); then
     echo "RETIRED BRAND IDENTIFIER FOUND: '$identifier'"
     echo "$matches" | head -5
     failures=1
+  else
+    search_status=$?
+    if [ "$search_status" -ne 1 ]; then
+      echo "✗ Retired brand search failed for '$identifier' (git grep exit $search_status)."
+      exit "$search_status"
+    fi
   fi
 done
 
-if path_matches=$(rg --files . \
-  --glob '!dev-tmp/**' \
-  --glob '!.codegraph/**' \
-  --glob '!**/node_modules/**' \
-  --glob '!**/dist/**' | rg -i 'wakeloop'); then
+if ! repository_paths=$(git ls-files -co --exclude-standard); then
+  echo "✗ Could not enumerate repository paths for retired brand checking."
+  exit 2
+fi
+
+if path_matches=$(printf '%s\n' "$repository_paths" | grep -i 'wakeloop'); then
   echo "RETIRED BRAND IDENTIFIER FOUND IN PATH"
   echo "$path_matches" | head -5
   failures=1
