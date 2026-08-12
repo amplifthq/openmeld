@@ -1,9 +1,9 @@
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 
 export const LANDING_PAGE_HERO_HEADING =
-	"The open-source infra for human–agent collaboration.";
+	"The open-source operating system for agent-native teams of people and machines.";
 export const LANDING_PAGE_HERO_TAGLINE =
-	"Your agents learn from your team. Your team evolves with its agents.";
+	"People and agents, working as one—learning and evolving together.";
 
 export function LandingPageHeroSubtitle(input: { className?: string }) {
 	return (
