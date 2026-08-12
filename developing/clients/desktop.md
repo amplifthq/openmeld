@@ -294,6 +294,11 @@ directly; it does not need a headless `auth login`.
 
 ## Release & distribution (Phase 1)
 
+Distribution is currently paused. The public `/desktop` entry deliberately returns
+404, and no production preview artifact is published. Keep the existing release
+page and artifact pipeline dormant until Desktop passes real-device production
+smoke and the product owner explicitly approves distribution.
+
 Current MVP (2026-06-23):
 
 - Build only macOS Apple silicon: `OpenMeld-Desktop-<version>-macos-arm64-unsigned.dmg`.
