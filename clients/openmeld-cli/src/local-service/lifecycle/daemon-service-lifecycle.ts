@@ -213,6 +213,7 @@ export type DaemonServiceLifecycleOutcome =
       failureStage: DaemonServiceFailureStage | null;
       evidencePath: string | null;
       recoveryStatus: DaemonServiceLifecycleRecoveryStatus;
+      errorCode: string | null;
       errorMessage: string;
     };
 
@@ -488,6 +489,7 @@ export async function runDaemonServiceLifecycle(input: {
       failureStage: state.failureStage,
       evidencePath: state.evidencePath,
       recoveryStatus: "failed_before_safe_state",
+      errorCode: resolveLifecycleFailureErrorCode(error),
       errorMessage: toErrorMessage(error),
     };
   } finally {
@@ -731,6 +733,7 @@ async function recoverLifecycleFailure(input: {
   cliScriptPath?: string;
 }): Promise<DaemonServiceLifecycleOutcome> {
   const originalErrorMessage = toErrorMessage(input.error);
+  const originalErrorCode = resolveLifecycleFailureErrorCode(input.error);
   const originalFailureStage = resolveLifecycleFailureStage(
     input.error,
     input.state.failureStage
@@ -782,6 +785,7 @@ async function recoverLifecycleFailure(input: {
         failureStage: originalFailureStage,
         evidencePath: input.state.evidencePath,
         recoveryStatus: "restored_verified_previous_state",
+        errorCode: originalErrorCode,
         errorMessage: originalErrorMessage,
       };
     }
@@ -823,6 +827,7 @@ async function recoverLifecycleFailure(input: {
       failureStage: originalFailureStage,
       evidencePath: input.state.evidencePath,
       recoveryStatus: "failed_before_safe_state",
+      errorCode: originalErrorCode,
       errorMessage: originalErrorMessage,
     };
   }
@@ -2215,6 +2220,23 @@ function resolveLifecycleFailureReasonCodes(
     return error.reasonCodes;
   }
   return [];
+}
+
+function resolveLifecycleFailureErrorCode(error: unknown): string | null {
+  const visited = new Set<unknown>();
+  let current = error;
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    if (current instanceof LocalDaemonControlPlaneClientError) {
+      return current.code;
+    }
+    if (current instanceof Error && current.cause) {
+      current = current.cause;
+      continue;
+    }
+    break;
+  }
+  return null;
 }
 
 function isPidAlive(pid: number): boolean {

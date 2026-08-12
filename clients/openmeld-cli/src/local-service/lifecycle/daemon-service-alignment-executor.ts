@@ -139,6 +139,10 @@ export type DaemonServiceAlignmentResult =
         DaemonServiceLifecycleOutcome,
         { status: "failed" }
       >["evidencePath"];
+      errorCode: Extract<
+        DaemonServiceLifecycleOutcome,
+        { status: "failed" }
+      >["errorCode"];
       errorMessage: string;
     };
 
@@ -209,6 +213,7 @@ export async function runDaemonServiceFullAlignment(input: {
       backupDataPath: null,
       failureStage: null,
       evidencePath: null,
+      errorCode: null,
       errorMessage: buildDaemonServiceAlignmentFailureMessage(error),
     };
   }
@@ -321,6 +326,7 @@ function mapLifecycleResultToAlignmentResult(input: {
         backupDataPath: input.lifecycleResult.backupDataPath,
         failureStage: input.lifecycleResult.failureStage,
         evidencePath: input.lifecycleResult.evidencePath,
+        errorCode: input.lifecycleResult.errorCode,
         errorMessage: input.lifecycleResult.errorMessage,
       };
     default: {

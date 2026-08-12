@@ -66,12 +66,14 @@ export class DaemonReinstallUnexpectedStartError extends Error {
 export class DaemonReinstallFailureError extends Error {
   override readonly cause: unknown;
   readonly backupDataPath: string | null;
+  readonly errorCode: string | null;
   readonly evidencePath: string | null;
   readonly failureStage: DaemonServiceFailureStage | null;
 
   constructor(input: {
     backupDataPath: string | null;
     cause: unknown;
+    errorCode: string | null;
     evidencePath?: string | null;
     failureStage?: DaemonServiceFailureStage | null;
   }) {
@@ -79,6 +81,7 @@ export class DaemonReinstallFailureError extends Error {
     this.name = "DaemonReinstallFailureError";
     this.backupDataPath = input.backupDataPath;
     this.cause = input.cause;
+    this.errorCode = input.errorCode;
     this.evidencePath = input.evidencePath ?? null;
     this.failureStage = input.failureStage ?? null;
   }
@@ -384,6 +387,7 @@ export async function attachDaemonReinstallEvidence(input: {
 export function buildDaemonReinstallFailureMessage(input: {
   action: DaemonServiceMaintenanceAction;
   backupDataPath: string | null;
+  errorCode: string | null;
   errorMessage: string;
   failureStage?: DaemonServiceFailureStage | null;
   evidencePath: string | null;
@@ -392,10 +396,23 @@ export function buildDaemonReinstallFailureMessage(input: {
 }): string {
   const actionLabel = formatDaemonServiceMaintenanceActionLabel(input.action);
   const actionCommand = formatDaemonServiceMaintenanceCommand(input.action);
+  const controlEndpointMissing =
+    input.failureStage === "stop_or_drain" &&
+    input.errorCode === "daemon.control.endpoint_missing";
   if (
     input.resolvedView === "human" &&
     input.includeDiagnosticDetails !== true
   ) {
+    if (controlEndpointMissing) {
+      return formatInlineOpenMeldCliCommands(
+        [
+          `OpenMeld Service ${actionLabel} could not safely stop the existing Service because its control connection is missing.`,
+          "Run `openmeld service status` to check for local Agent work.",
+          `If none is running, run \`${actionCommand} --force\`.`,
+          "The force option stops the old Service process.",
+        ].join(" ")
+      );
+    }
     if (input.errorMessage.includes("test fixture identity")) {
       return formatInlineOpenMeldCliCommands(
         [
@@ -415,9 +432,19 @@ export function buildDaemonReinstallFailureMessage(input: {
     evidencePath: input.evidencePath,
     failureStage: input.failureStage ?? null,
   });
-  return failureContext.length > 0
-    ? `OpenMeld Service ${actionLabel} failed: ${input.errorMessage}. ${failureContext}`
-    : `OpenMeld Service ${actionLabel} failed: ${input.errorMessage}.`;
+  const diagnosticDetails = [
+    `OpenMeld Service ${actionLabel} failed: ${input.errorMessage}.`,
+    ...(input.errorCode ? [`Error code: ${input.errorCode}.`] : []),
+    ...(controlEndpointMissing
+      ? [
+          "Recovery: run `openmeld service status --view agent`.",
+          `Only if no local Agent work is running, run \`${actionCommand} --force --view agent\`.`,
+          "The force option stops the old Service process.",
+        ]
+      : []),
+    ...(failureContext.length > 0 ? [failureContext] : []),
+  ];
+  return diagnosticDetails.join(" ");
 }
 
 export function isDaemonReinstallHealthyAndRunning(
