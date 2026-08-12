@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, globSync, readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  existsSync,
+  globSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -15,6 +23,8 @@ const RELEASE_SHA_CHECKOUT = `ref: ${GITHUB_EXPRESSION_PREFIX} inputs.release_sh
 const PINNED_SCOPED_RELEASE_SHA = `${GITHUB_EXPRESSION_PREFIX} inputs.release_sha }}`;
 const SCOPED_RELEASE_SHA_INPUT =
   /release_sha:\n\s+description: [^\n]+\n\s+required: true\n\s+type: string/u;
+const MAINLINE_RELEASE_ERROR_PATTERN =
+  /release_sha must identify a commit on the main first-parent chain/u;
 const YAML_JOB_BOUNDARY = /\n {2}[a-z_]+:/u;
 const SHELL_GITHUB_SHA = ["$", "{GITHUB_SHA}"].join("");
 const UNPINNED_ULTRACITE_COMMAND = /ultracite (?:check|fix)/u;
@@ -31,6 +41,24 @@ const COMPONENT_WORKFLOWS = [
   ],
   ["web", ".github/workflows/deploy-web.yml", "/guide.md"],
 ];
+
+const createIsolatedGitEnvironment = () => {
+  const environment = { ...process.env };
+  const repositoryLocalVariables = execFileSync(
+    "git",
+    ["rev-parse", "--local-env-vars"],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+    }
+  )
+    .trim()
+    .split("\n");
+  for (const variableName of repositoryLocalVariables) {
+    delete environment[variableName];
+  }
+  return environment;
+};
 
 const PACKAGE_MANIFEST_PATTERNS = [
   "package.json",
@@ -80,24 +108,27 @@ test("keeps the manual production dispatcher scoped by default", () => {
 
 test("pins a scoped production release to one explicit main commit", () => {
   const source = readRepoFile(".github/workflows/release-on-main.yml");
+  const validationScript = readRepoFile(
+    "scripts/release/require-mainline-release-sha.mjs"
+  );
 
   assert.match(source, SCOPED_RELEASE_SHA_INPUT);
   assert.ok(source.includes("  validate_release_source:"));
   assert.ok(
-    source.includes(
+    validationScript.includes(
       "release_sha must be an exact 40-character lowercase commit SHA"
     )
   );
   assert.ok(
-    source.includes(
-      'git merge-base --is-ancestor "$release_sha" refs/remotes/origin/main'
-    )
+    source.includes("node scripts/release/require-mainline-release-sha.mjs \\")
   );
   assert.ok(
-    source.includes(
-      "release_sha must identify a commit in the main branch history"
+    validationScript.includes(
+      "release_sha must identify a commit on the main first-parent chain"
     )
   );
+  assert.ok(validationScript.includes('"--first-parent"'));
+  assert.ok(!source.includes("git merge-base --is-ancestor"));
   assert.ok(source.includes(`ref: ${PINNED_SCOPED_RELEASE_SHA}`));
   assert.equal(
     source.split(`release_sha: ${PINNED_SCOPED_RELEASE_SHA}`).length - 1,
@@ -124,6 +155,63 @@ test("pins a scoped production release to one explicit main commit", () => {
       job?.includes("validate_release_source"),
       `${jobName} must wait for source validation`
     );
+  }
+});
+
+test("accepts only commits on the main first-parent chain as release sources", () => {
+  const repositoryPath = mkdtempSync(
+    path.join(tmpdir(), "openmeld-mainline-release-")
+  );
+  const validationScript = path.join(
+    REPO_ROOT,
+    "scripts/release/require-mainline-release-sha.mjs"
+  );
+  const isolatedGitEnvironment = createIsolatedGitEnvironment();
+  const runGit = (...args) =>
+    execFileSync("git", args, {
+      cwd: repositoryPath,
+      encoding: "utf8",
+      env: isolatedGitEnvironment,
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+  const writeCommit = (fileName, contents, message) => {
+    writeFileSync(path.join(repositoryPath, fileName), contents);
+    runGit("add", fileName);
+    runGit("commit", "-m", message);
+    return runGit("rev-parse", "HEAD");
+  };
+  const validate = (releaseSha) =>
+    spawnSync(process.execPath, [validationScript, releaseSha, "main"], {
+      cwd: repositoryPath,
+      encoding: "utf8",
+      env: isolatedGitEnvironment,
+    });
+
+  try {
+    runGit("init", "--initial-branch=main");
+    runGit("config", "user.email", "release-test@openmeld.test");
+    runGit("config", "user.name", "OpenMeld Release Test");
+    writeCommit("base.txt", "base\n", "base");
+
+    runGit("checkout", "-b", "feature");
+    const featureHead = writeCommit("feature.txt", "feature\n", "feature");
+
+    runGit("checkout", "main");
+    const priorMainHead = writeCommit("main.txt", "main\n", "main update");
+    runGit("merge", "--no-ff", "feature", "-m", "merge feature");
+    const mergeCommit = runGit("rev-parse", "HEAD");
+
+    assert.doesNotThrow(() =>
+      runGit("merge-base", "--is-ancestor", featureHead, "main")
+    );
+    assert.equal(validate(priorMainHead).status, 0);
+    assert.equal(validate(mergeCommit).status, 0);
+
+    const sideBranchValidation = validate(featureHead);
+    assert.equal(sideBranchValidation.status, 1);
+    assert.match(sideBranchValidation.stderr, MAINLINE_RELEASE_ERROR_PATTERN);
+  } finally {
+    rmSync(repositoryPath, { force: true, recursive: true });
   }
 });
 

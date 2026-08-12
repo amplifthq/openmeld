@@ -52,34 +52,22 @@ jobs:
     if: inputs.mode == 'preview' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Validate exact release SHA
-        shell: bash
-        env:
-          RELEASE_SHA: ${{ inputs.release_sha }}
-        run: |
-          set -euo pipefail
-          if ! [[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::release_sha must be an exact 40-character lowercase commit SHA."
-            exit 1
-          fi
-
       - name: Checkout main history
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
 
-      - name: Require release SHA from main
+      - name: Require release SHA from main first-parent history
         shell: bash
         env:
           RELEASE_SHA: ${{ inputs.release_sha }}
         run: |
           set -euo pipefail
-          release_sha="$RELEASE_SHA"
           git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
-          if ! git cat-file -e "${release_sha}^{commit}" 2>/dev/null || \
-             ! git merge-base --is-ancestor "$release_sha" refs/remotes/origin/main; then
-            echo "::error::release_sha must identify a commit in the main branch history."
+          if ! validation_error="$(node scripts/release/require-mainline-release-sha.mjs \
+            "$RELEASE_SHA" refs/remotes/origin/main 2>&1)"; then
+            echo "::error::$validation_error"
             exit 1
           fi
 
