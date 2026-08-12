@@ -25,9 +25,12 @@ export function resolveAgentProfileControllerModelDetail(input: {
 		effectiveModel,
 		modelSelection: input.modelSelection ?? null,
 	});
+	const modelDisplayName =
+		normalizeDisplayPart(effectiveModel.catalogModel?.displayName) ??
+		effectiveModel.modelId;
 	const parts = [
 		controllerDisplayName,
-		effectiveModel.modelId,
+		modelDisplayName,
 		reasoningDisplay,
 	].filter((value): value is string => Boolean(value));
 	return parts.length > 0 ? parts.join(" · ") : null;

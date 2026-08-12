@@ -14,7 +14,7 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 					reasoningLevel: "high",
 				},
 			})
-		).toBe("Codex · gpt-5.3-codex-spark · high");
+		).toBe("Codex · GPT-5.3 Codex Spark · high");
 	});
 
 	it("shows model default when the model is explicit and reasoning effort is not", () => {
@@ -27,7 +27,7 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 					modelId: "gpt-5.4",
 				},
 			})
-		).toBe("Codex · gpt-5.4 · model default");
+		).toBe("Codex · GPT-5.4 · model default");
 	});
 
 	it("shows the controller default model when no model is explicit", () => {
@@ -38,7 +38,7 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 				modelCatalog: buildModelCatalog(),
 				modelSelection: null,
 			})
-		).toBe("Codex · gpt-5.5 · model default");
+		).toBe("Codex · GPT-5.5 · model default");
 	});
 
 	it("does not invent reasoning effort for models without reasoning support", () => {
@@ -51,13 +51,36 @@ describe("resolveAgentProfileControllerModelDetail", () => {
 					modelId: "claude-haiku-4-5",
 				},
 			})
-		).toBe("Claude Code · claude-haiku-4-5");
+		).toBe("Claude Code · Claude Haiku 4.5");
+	});
+
+	it("shows the catalog display name instead of a provider-internal model id", () => {
+		expect(
+			resolveAgentProfileControllerModelDetail({
+				agentControllerRef: "builtin:cursor",
+				controllerDisplayName: "Cursor",
+				modelCatalog: buildModelCatalog(),
+				modelSelection: null,
+			})
+		).toBe("Cursor · Auto");
 	});
 });
 
 function buildModelCatalog(): ModelCatalog {
 	return {
 		agentControllers: {
+			cursor: {
+				defaultModelId: "default[]",
+				models: [
+					{
+						displayName: "Auto",
+						id: "default[]",
+						minCliVersion: null,
+						supportedReasoningLevels: [],
+						unavailable: false,
+					},
+				],
+			},
 			"claude-code": {
 				defaultModelId: "claude-opus-4-8",
 				models: [
