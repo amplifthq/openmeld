@@ -462,10 +462,10 @@ describe("Core Projects", () => {
       role: "owner",
       userId: "owner-1",
     });
-    await service.create(owner, { name: "OpenMeld", slug: "open-meld" });
+    await service.create(owner, { name: "OpenMeld", slug: "openmeld" });
     await expect(
       service.create(owner, { name: "OpenMeld" })
-    ).resolves.toMatchObject({ slug: "open-meld-2" });
+    ).resolves.toMatchObject({ slug: "openmeld-2" });
 
     await env.OPENMELD_DB.prepare(
       `
@@ -482,7 +482,7 @@ describe("Core Projects", () => {
           'slug_limit_' || value,
           ?,
           'OpenMeld ' || value,
-          'open-meld-' || value,
+          'openmeld-' || value,
           NULL,
           ?,
           value,
