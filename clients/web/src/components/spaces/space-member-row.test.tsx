@@ -383,11 +383,11 @@ describe("SpaceMemberRow", () => {
 			modelCatalog: buildModelCatalog(),
 		});
 
-		expect(screen.queryByText("Codex · gpt-5.4 · model default")).toBeNull();
+		expect(screen.queryByText("Codex · GPT-5.4 · model default")).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "About Codex" }));
 		expect(
 			within(screen.getByRole("dialog")).getByText(
-				"Codex · gpt-5.4 · model default"
+				"Codex · GPT-5.4 · model default"
 			)
 		).toBeTruthy();
 	});
@@ -401,11 +401,11 @@ describe("SpaceMemberRow", () => {
 			modelCatalog: buildModelCatalog(),
 		});
 
-		expect(screen.queryByText("Codex · gpt-5.5 · model default")).toBeNull();
+		expect(screen.queryByText("Codex · GPT-5.5 · model default")).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: "About Codex" }));
 		expect(
 			within(screen.getByRole("dialog")).getByText(
-				"Codex · gpt-5.5 · model default"
+				"Codex · GPT-5.5 · model default"
 			)
 		).toBeTruthy();
 	});
