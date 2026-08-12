@@ -2601,9 +2601,14 @@ normal Prepare flow; it never silently reruns an existing Wake.
 Web owns the public OpenMeld Desktop download entry, but it does not own local setup
 truth.
 
+Desktop distribution is currently paused. `/desktop` deliberately returns 404;
+the page and artifact pipeline remain in the repository for a later, explicitly
+approved release.
+
 Current MVP routes:
 
-- `/desktop` renders the public OpenMeld Desktop for macOS download page.
+- `/desktop` is the retained public download-page route and stays behind the
+  distribution pause gate until release approval.
 - `/desktop/download` streams the current unsigned Apple silicon DMG from the
   private R2 bucket binding `OPENMELD_DESKTOP_DOWNLOADS`.
 - `/desktop/update.json` returns the Desktop app update-awareness manifest.

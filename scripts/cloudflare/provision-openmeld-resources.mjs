@@ -5,8 +5,38 @@ import { fileURLToPath } from "node:url";
 const API_BASE = "https://api.cloudflare.com/client/v4";
 const FOUR_DAYS_IN_SECONDS = 4 * 24 * 60 * 60;
 const MAX_ATTEMPTS = 3;
+const OPENMELD_ZONE_ID = "722d0107341d0b03c5bb6294c2dc97ec";
 
 export const OPENMELD_RESOURCES = [
+  zone("openmeld.ai"),
+  dnsRecord("openmeld.ai", "web"),
+  dnsRecord("auth.openmeld.ai", "auth"),
+  dnsRecord("gateway.openmeld.ai", "gateway"),
+  dnsRecord("connectors.openmeld.ai", "open-connector"),
+  worker("openmeld-web-prod", "web"),
+  worker("openmeld-auth-prod", "auth"),
+  worker("openmeld-core-prod", "core"),
+  worker("openmeld-gateway-prod", "gateway"),
+  worker("openmeld-remote-agent-prod", "remote-agent"),
+  worker("openmeld-open-connector-prod", "open-connector"),
+  durableObject("openmeld-core-prod_RuntimeTransportHub", "core", "ephemeral"),
+  durableObject("openmeld-core-prod_Space", "core", "confidential"),
+  durableObject("openmeld-core-prod_PrepareSessionHub", "core", "confidential"),
+  durableObject(
+    "openmeld-remote-agent-prod_FlueCenterAgentAgent",
+    "remote-agent",
+    "confidential"
+  ),
+  durableObject(
+    "openmeld-remote-agent-prod_AgentComputer",
+    "remote-agent",
+    "private"
+  ),
+  durableObject(
+    "openmeld-remote-agent-prod_FlueRegistry",
+    "remote-agent",
+    "private"
+  ),
   d1("openmeld-db-prod", "shared"),
   d1("openmeld-open-connector-db-prod", "open-connector"),
   kv("openmeld-auth-kv-prod", "auth"),
@@ -46,7 +76,9 @@ export async function provisionOpenMeldResources(input) {
   for (const desired of OPENMELD_RESOURCES) {
     try {
       const existing = await findResource(client, desired);
-      if (!(existing || input.apply)) {
+      const mayCreate =
+        input.apply && desired.lifecycle !== "deployment-managed";
+      if (!(existing || mayCreate)) {
         summary.resources.push(toSummary(desired, "missing"));
         summary.ok = false;
         continue;
@@ -61,6 +93,7 @@ export async function provisionOpenMeldResources(input) {
           tagStatus = await reconcileTags(client, desired, resource.id);
         } catch (error) {
           tagStatus = "blocked";
+          summary.ok = false;
           summary.tagWarnings.push(
             `${desired.kind} ${desired.name}: ${formatError(error)}`
           );
@@ -83,6 +116,7 @@ export async function provisionOpenMeldResources(input) {
 
   if (input.apply) {
     await verifyCreatedResources(client, summary);
+    await reconcileActiveWorkerVersionTags(client, summary);
   }
   if (input.outputPath) {
     await writeFile(input.outputPath, `${JSON.stringify(summary, null, 2)}\n`, {
@@ -129,6 +163,73 @@ export function parseArgs(rawArgs, env = process.env) {
     );
   }
   return result;
+}
+
+function worker(name, component) {
+  return resource({
+    component,
+    dataClass: "private",
+    idField: "id",
+    kind: "Worker",
+    lifecycle: "deployment-managed",
+    listPath: "/workers/scripts",
+    name,
+    nameField: "id",
+    resourceType: "worker",
+  });
+}
+
+function zone(name) {
+  return resource({
+    apiScope: "global",
+    component: "shared",
+    dataClass: "public",
+    idField: "id",
+    kind: "Zone",
+    lifecycle: "deployment-managed",
+    listPath: `/zones?name=${encodeURIComponent(name)}`,
+    matches: (candidate) =>
+      candidate?.id === OPENMELD_ZONE_ID &&
+      candidate?.name === name &&
+      candidate?.status === "active",
+    name,
+    resourceType: "zone",
+    tagPath: `/zones/${OPENMELD_ZONE_ID}/tags`,
+  });
+}
+
+function dnsRecord(name, component) {
+  return resource({
+    apiScope: "global",
+    component,
+    dataClass: "public",
+    idField: "id",
+    kind: "DNS record",
+    lifecycle: "deployment-managed",
+    listPath: `/zones/${OPENMELD_ZONE_ID}/dns_records?per_page=100`,
+    matches: (candidate) =>
+      candidate?.name === name &&
+      candidate?.type === "AAAA" &&
+      candidate?.content === "100::" &&
+      candidate?.proxied === true,
+    name,
+    resourceType: "dns_record",
+    tagPath: `/zones/${OPENMELD_ZONE_ID}/tags`,
+  });
+}
+
+function durableObject(name, component, dataClass) {
+  return resource({
+    component,
+    dataClass,
+    idField: "id",
+    kind: "Durable Object namespace",
+    lifecycle: "deployment-managed",
+    listPath: "/workers/durable_objects/namespaces",
+    name,
+    nameField: "name",
+    resourceType: "durable_object_namespace",
+  });
 }
 
 function d1(name, component) {
@@ -242,21 +343,26 @@ function resource(input) {
 }
 
 async function findResource(client, desired) {
-  const response = await client.request(desired.listPath);
+  const response = await client.request(desired.listPath, {
+    apiScope: desired.apiScope,
+  });
   const values = desired.listResultField
     ? response.result?.[desired.listResultField]
     : response.result;
   if (!Array.isArray(values)) {
     throw new Error(`${desired.kind} list returned an unexpected response.`);
   }
-  const match = values.find(
-    (candidate) => candidate?.[desired.nameField] === desired.name
+  const match = values.find((candidate) =>
+    desired.matches
+      ? desired.matches(candidate)
+      : candidate?.[desired.nameField] === desired.name
   );
   return match ? normalizeResource(match, desired) : undefined;
 }
 
 async function createResource(client, desired) {
   const response = await client.request(desired.postPath, {
+    apiScope: desired.apiScope,
     body: desired.createBody,
     method: "POST",
   });
@@ -272,11 +378,12 @@ function normalizeResource(value, desired) {
 }
 
 async function reconcileTags(client, desired, resourceId) {
+  const tagQuery = buildTagQuery(desired, resourceId);
   let currentTags = {};
   try {
-    const current = await client.request(
-      `/tags?resource_type=${encodeURIComponent(desired.resourceType)}&resource_id=${encodeURIComponent(resourceId)}`
-    );
+    const current = await client.request(tagQuery, {
+      apiScope: desired.apiScope,
+    });
     currentTags = current.result?.tags ?? {};
   } catch (error) {
     if (!(error instanceof CloudflareApiError && error.status === 500)) {
@@ -284,17 +391,19 @@ async function reconcileTags(client, desired, resourceId) {
     }
   }
   const tags = mergeTags(currentTags, desired.tags);
-  await client.request("/tags", {
+  await client.request(desired.tagPath ?? "/tags", {
+    apiScope: desired.apiScope,
     body: {
+      ...desired.tagContext,
       resource_id: resourceId,
       resource_type: desired.resourceType,
       tags,
     },
     method: "PUT",
   });
-  const verified = await client.request(
-    `/tags?resource_type=${encodeURIComponent(desired.resourceType)}&resource_id=${encodeURIComponent(resourceId)}`
-  );
+  const verified = await client.request(tagQuery, {
+    apiScope: desired.apiScope,
+  });
   const actual = verified.result?.tags ?? {};
   for (const [key, value] of Object.entries(desired.tags)) {
     if (actual[key] !== value) {
@@ -302,6 +411,90 @@ async function reconcileTags(client, desired, resourceId) {
     }
   }
   return "verified";
+}
+
+function buildTagQuery(desired, resourceId) {
+  const query = new URLSearchParams({
+    resource_id: resourceId,
+    resource_type: desired.resourceType,
+    ...desired.tagContext,
+  });
+  return `${desired.tagPath ?? "/tags"}?${query.toString()}`;
+}
+
+async function reconcileActiveWorkerVersionTags(client, summary) {
+  const availableWorkers = new Set(
+    summary.resources
+      .filter(
+        (item) =>
+          item.kind === "Worker" && item.id && item.action === "existing"
+      )
+      .map((item) => item.name)
+  );
+  const workers = OPENMELD_RESOURCES.filter(
+    (desired) =>
+      desired.resourceType === "worker" && availableWorkers.has(desired.name)
+  );
+  for (const workerResource of workers) {
+    try {
+      const response = await client.request(
+        `/workers/scripts/${encodeURIComponent(workerResource.name)}/deployments`
+      );
+      const deployments = response.result?.deployments;
+      if (!(Array.isArray(deployments) && deployments.length > 0)) {
+        throw new Error("no Worker deployment was found");
+      }
+      const activeDeployment = deployments.toSorted(
+        (left, right) =>
+          Date.parse(right.created_on ?? "") - Date.parse(left.created_on ?? "")
+      )[0];
+      const activeVersions = (activeDeployment.versions ?? []).filter(
+        (version) =>
+          typeof version.version_id === "string" && version.percentage > 0
+      );
+      if (activeVersions.length === 0) {
+        throw new Error("the active Worker deployment has no serving version");
+      }
+      for (const activeVersion of activeVersions) {
+        const desired = resource({
+          component: workerResource.component,
+          dataClass: workerResource.dataClass,
+          kind: "Worker version",
+          name: `${workerResource.name}@${activeVersion.version_id}`,
+          resourceType: "worker_version",
+          tagContext: { worker_id: workerResource.name },
+        });
+        let tagStatus = "verified";
+        try {
+          tagStatus = await reconcileTags(
+            client,
+            desired,
+            activeVersion.version_id
+          );
+        } catch (error) {
+          tagStatus = "blocked";
+          summary.ok = false;
+          summary.tagWarnings.push(
+            `${desired.kind} ${desired.name}: ${formatError(error)}`
+          );
+        }
+        summary.resources.push({
+          ...toSummary(desired, "existing"),
+          id: activeVersion.version_id,
+          idVerified: tagStatus === "verified",
+          tagStatus,
+        });
+      }
+    } catch (error) {
+      summary.ok = false;
+      summary.resources.push({
+        action: "blocked",
+        error: formatError(error),
+        kind: "Worker version",
+        name: `${workerResource.name}@active`,
+      });
+    }
+  }
 }
 
 async function verifyCreatedResources(client, summary) {
@@ -338,7 +531,7 @@ function createCloudflareClient({ accountId, apiToken, fetchImpl = fetch }) {
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
         try {
           const response = await fetchImpl(
-            `${API_BASE}/accounts/${accountId}${path}`,
+            `${cloudflareApiRoot(accountId, options.apiScope)}${path}`,
             {
               body: options.body ? JSON.stringify(options.body) : undefined,
               headers: {
@@ -364,6 +557,10 @@ function createCloudflareClient({ accountId, apiToken, fetchImpl = fetch }) {
       throw lastError;
     },
   };
+}
+
+function cloudflareApiRoot(accountId, apiScope) {
+  return apiScope === "global" ? API_BASE : `${API_BASE}/accounts/${accountId}`;
 }
 
 class CloudflareApiError extends Error {
@@ -402,7 +599,8 @@ async function runCli(rawArgs) {
     console.log(`Usage: node scripts/cloudflare/provision-openmeld-resources.mjs [--apply] [--output PATH]
 
 Default mode is read-only and reports whether each exact resource exists.
---apply creates missing resources, reconciles tags, and verifies IDs by listing again.
+--apply creates missing provisioned resources, requires deployment-managed resources
+to exist, reconciles tags, and verifies IDs by listing again.
 Credentials must be supplied via CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN.`);
     return;
   }

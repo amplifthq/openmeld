@@ -169,7 +169,7 @@ describe("LandingPage", () => {
 		const logo = within(hero).getByRole("img", { name: "OpenMeld logo" });
 		const heading = within(hero).getByRole("heading", {
 			level: 1,
-			name: "The open-source infra for human–agent collaboration.",
+			name: "The open-source operating system for agent-native teams of people and machines.",
 		});
 		const tagline = within(hero).getByTestId("landing-hero-tagline");
 		const summary = within(hero).getByTestId("landing-hero-summary");
@@ -184,7 +184,7 @@ describe("LandingPage", () => {
 		expect(heading.className).toContain("font-geist-pixel-square");
 		expect(heading.className).toContain("landing-display-tight");
 		expect(tagline.textContent).toBe(
-			"Your agents learn from your team. Your team evolves with its agents."
+			"People and agents, working as one—learning and evolving together."
 		);
 		expect(summary.className).toContain("lg:col-span-4");
 		expect(summary.className).toContain("lg:col-start-9");
