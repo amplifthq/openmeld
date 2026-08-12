@@ -1517,6 +1517,7 @@ describe("openmeld service commands", () => {
       failureStage: "verify_final_inventory",
       evidencePath: "/tmp/openmeld-evidence/service-evidence-1",
       recoveryStatus: "failed_before_safe_state",
+      errorCode: null,
       errorMessage:
         "Lifecycle verification failed because the service contract is missing.",
     });
@@ -1544,6 +1545,45 @@ describe("openmeld service commands", () => {
     expect(String(error)).not.toContain("service contract is missing");
   });
 
+  it("shows the deliberate force recovery path when safe drain loses its control connection", async () => {
+    runDaemonServiceLifecycleMock.mockResolvedValueOnce({
+      status: "failed",
+      targetVersion: packageJson.version,
+      inventoryBefore: createCleanDaemonServiceInventory(),
+      inventoryAfter: null,
+      reasonCodes: [],
+      completedPhases: ["inspect", "backup", "stop_or_drain"],
+      desiredState: "background",
+      shouldStartAfterLifecycle: true,
+      backupDataPath: null,
+      failureStage: "stop_or_drain",
+      evidencePath: "/tmp/openmeld-evidence/service-control-missing",
+      recoveryStatus: "failed_before_safe_state",
+      errorCode: "daemon.control.endpoint_missing",
+      errorMessage:
+        "controlled service drain failed: daemon control endpoint is missing",
+    });
+
+    const error = await runDaemonReinstallInTempHome(
+      {
+        view: "human",
+        profile: HUMAN_PROFILE_ID,
+      },
+      {
+        skipConfirm: true,
+        withReconcileLock: async <T>(callback: () => Promise<T>) =>
+          await callback(),
+      }
+    ).catch((caught) => caught);
+
+    expect(String(error)).toContain(
+      "could not safely stop the existing Service because its control connection is missing"
+    );
+    expect(String(error)).toContain("openmeld service status");
+    expect(String(error)).toContain("openmeld service repair --force");
+    expect(String(error)).not.toContain("service-control-missing");
+  });
+
   it("keeps service repair failure context visible for JSON diagnostics", async () => {
     runDaemonServiceLifecycleMock.mockResolvedValueOnce({
       status: "failed",
@@ -1565,6 +1605,7 @@ describe("openmeld service commands", () => {
       failureStage: "verify_final_inventory",
       evidencePath: "/tmp/openmeld-evidence/service-evidence-json",
       recoveryStatus: "failed_before_safe_state",
+      errorCode: null,
       errorMessage:
         "Lifecycle verification failed because the service contract is missing.",
     });

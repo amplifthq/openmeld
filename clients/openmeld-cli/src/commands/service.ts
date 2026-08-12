@@ -877,6 +877,7 @@ export async function runDaemonReinstall(
             buildDaemonReinstallFailureMessage({
               action: displayAction,
               backupDataPath: error.backupDataPath,
+              errorCode: error.errorCode,
               errorMessage: toErrorMessage(error.cause),
               failureStage: error.failureStage,
               evidencePath:
@@ -1001,6 +1002,7 @@ async function performDaemonReinstall(input: {
       throw new DaemonReinstallFailureError({
         backupDataPath: lifecycleResult.backupDataPath,
         cause: new Error(lifecycleResult.errorMessage),
+        errorCode: lifecycleResult.errorCode,
         evidencePath: lifecycleResult.evidencePath,
         failureStage: lifecycleResult.failureStage,
       });

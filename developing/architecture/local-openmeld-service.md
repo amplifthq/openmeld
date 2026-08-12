@@ -1247,6 +1247,13 @@ before the destructive escalation, and the lifecycle journal must retain the
 force-kill or skip decision so later diagnostics can distinguish operator
 intent from a crash or network loss.
 
+Lifecycle failures preserve stable typed error codes through the maintenance
+outcome and Agent View. If a running Service has lost its control endpoint,
+repair and update fail closed and explain the deliberate force command together
+with its no-active-work precondition. They must not infer that a missing control
+endpoint means no local Agent work is running or force-stop the process
+automatically.
+
 Exact-controller recovery is capability-gated. A Service advertises
 `resumeControllerConversation` only when its carrier can validate the frozen
 execution, controller, conversation, working directory, and destination before
