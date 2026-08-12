@@ -14,6 +14,8 @@ export function registerDispatchTraceRoutes(app: Hono<HonoBindings>): void {
   app.get(SPACE_DISPATCH_TRACE_ROUTE, (c) => {
     const spaceId = c.req.param("spaceId");
     const dispatchId = String(c.req.param("dispatchId") ?? "").trim();
+    const includeRemoteAgentRuntimeDiagnostics =
+      c.req.query("includeRemoteAgentRuntimeDiagnostics") === "true";
     const password = readSpacePasswordHeader(c.req.raw.headers);
     if (dispatchId.length === 0) {
       return respondBadRequest({
@@ -34,6 +36,9 @@ export function registerDispatchTraceRoutes(app: Hono<HonoBindings>): void {
         return await c.var.coreRpc.getSpaceDispatchTrace({
           spaceId,
           dispatchId,
+          ...(includeRemoteAgentRuntimeDiagnostics
+            ? { includeRemoteAgentRuntimeDiagnostics: true }
+            : {}),
           ...(password === undefined ? {} : { password }),
           context: buildCoreRpcContext(c),
         });

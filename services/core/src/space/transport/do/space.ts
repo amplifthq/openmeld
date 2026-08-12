@@ -57,7 +57,6 @@ import {
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   readListSignalsQueryRawValues,
   remoteAgentWorkerCancellationResponseSchema,
-  remoteAgentWorkerRuntimeDiagnosticsResponseSchema,
   removeSpaceMembersBodySchema,
   resolveMappedPublicAgentFailureReason,
   respondToSpaceAgentInteractionInputSchema,
@@ -239,6 +238,7 @@ import {
   settleRemoteAgentNativeDeliveryStopped,
   submitRemoteAgentExecutionRecoveryTurn,
 } from "../../../remote-agent/application/native-delivery-service";
+import { readRemoteAgentRuntimeDiagnosticsForDispatch } from "../../../remote-agent/application/remote-agent-runtime-diagnostics-service";
 import {
   type ActiveRemoteAgentNativeDeliveryWakeProgressEvidence,
   listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace,
@@ -5858,8 +5858,14 @@ export class Space extends DurableObject<CoreBindings> {
     input: GetSpaceDispatchTraceInput
   ): Promise<SpaceDispatchTraceResponse> {
     this.applySpaceRef(input.spaceId);
+    const url = new URL(
+      `https://openmeld.local/dispatches/${encodeURIComponent(input.dispatchId)}/trace`
+    );
+    if (input.includeRemoteAgentRuntimeDiagnostics === true) {
+      url.searchParams.set("includeRemoteAgentRuntimeDiagnostics", "true");
+    }
     const request = this.buildDirectRpcRequest({
-      path: `/dispatches/${encodeURIComponent(input.dispatchId)}/trace`,
+      path: `${url.pathname}${url.search}`,
       method: "GET",
       context: input.context,
       ...(input.spaceAccess ? { spaceAccess: input.spaceAccess } : {}),
@@ -13961,23 +13967,28 @@ export class Space extends DurableObject<CoreBindings> {
       readReplySignalTrace: (input) => this.readReplySignalTrace(input),
       spaceId: this.spaceId,
     });
-    if (options.includeRemoteAgentRuntimeDiagnostics !== true) {
+    if (
+      options.includeRemoteAgentRuntimeDiagnostics !== true ||
+      trace.trace?.nativeDelivery?.runtimeFamily !== "hosted_center_agent"
+    ) {
       return trace;
     }
-    const remoteAgentWorker = this.bindings.OPENMELD_REMOTE_AGENT_WORKER;
-    if (typeof remoteAgentWorker?.readRuntimeDiagnostics !== "function") {
+    const targetProfileId = trace.trace?.dispatch.targetProfileId;
+    if (!targetProfileId) {
       throw new Error(
-        "Remote Agent Worker does not expose readRuntimeDiagnostics."
+        "Remote Agent runtime diagnostics require exact dispatch identity."
       );
     }
     return {
       ...trace,
       remoteAgentRuntimeDiagnostics:
-        remoteAgentWorkerRuntimeDiagnosticsResponseSchema.parse(
-          await remoteAgentWorker.readRuntimeDiagnostics({
-            spaceId: this.spaceId,
-          })
-        ),
+        await readRemoteAgentRuntimeDiagnosticsForDispatch({
+          db: wakeEvidenceDb(this.bindings),
+          dispatchId,
+          remoteAgentWorker: this.bindings.OPENMELD_REMOTE_AGENT_WORKER,
+          spaceId: this.spaceId,
+          targetProfileId,
+        }),
     };
   }
 

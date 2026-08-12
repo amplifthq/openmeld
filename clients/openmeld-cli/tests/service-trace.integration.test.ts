@@ -3018,6 +3018,21 @@ describe("service trace command", () => {
         })
       );
 
+      const traceResponse = createTraceResponse();
+      traceResponse.remoteAgentRuntimeDiagnostics = {
+        activeRuns: [],
+        attemptMarkers: [],
+        callbackContexts: [],
+        collectedAt: "2026-03-09T00:00:03.000Z",
+        durableObjectAlarmAtMs: null,
+        fibers: [],
+        schedules: [],
+        spaceId: "space-demo",
+        submissions: [],
+        v: 1,
+      };
+      const fetchTrace = vi.fn().mockResolvedValue(traceResponse);
+
       const { stdout } = await withCapturedStdio(async () => {
         await runServiceTrace(
           {
@@ -3035,7 +3050,7 @@ describe("service trace command", () => {
                 profileKind: "human",
               })
             ),
-            fetchTrace: vi.fn().mockResolvedValue(createTraceResponse()),
+            fetchTrace,
             resolveProfile: vi.fn().mockResolvedValue(
               createProfile({
                 openMeldProfileId: "agt-target",
@@ -3046,6 +3061,12 @@ describe("service trace command", () => {
           }
         );
       });
+
+      expect(fetchTrace).toHaveBeenCalledWith(
+        expect.objectContaining({
+          includeRemoteAgentRuntimeDiagnostics: true,
+        })
+      );
 
       const lines = stdout
         .trim()
@@ -3096,6 +3117,11 @@ describe("service trace command", () => {
             workspaceSource: "Custom",
             configuredWorkspace: "/tmp/trace-agent-workspace",
             effectiveRuntimeWorkingDirectory: "/tmp/trace-agent-workspace",
+          },
+          remoteAgentRuntimeDiagnostics: {
+            collectedAt: "2026-03-09T00:00:03.000Z",
+            spaceId: "space-demo",
+            v: 1,
           },
           agentSummary: {
             currentState: "not_delivered",

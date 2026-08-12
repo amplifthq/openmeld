@@ -1075,6 +1075,12 @@ Profiles.
 CLI trace reads the shared observability model. It must not become a direct D1
 reader, direct Durable Object reader, or second trace system.
 
+In Agent View, `--details` requests the bounded Remote Agent runtime diagnostic
+projection when the selected dispatch used the hosted Center Agent. The caller
+still supplies only the normal Space and dispatch selectors. Core resolves the
+frozen runtime conversation generation; the CLI must not accept or reconstruct
+that generation identity.
+
 When the shared result inbox reports `late_result_available`, trace shows the
 retained result and recovery-notice references, preserves the RuntimeCoordinator
 terminal outcome, and sets `agentSummary.nextAction` to recover the retained

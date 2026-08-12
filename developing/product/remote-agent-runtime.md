@@ -935,6 +935,13 @@ Concurrent callers converge on the same active generation. Runtime generations
 are invisible implementation details: the member remains in the same DM,
 Space, provider conversation, or Task and is never asked to start a new one.
 
+Dispatch diagnostics resolve the exact runtime conversation from the native
+delivery's frozen worker request. They never address a Durable Object from the
+logical Space id after rollover and never copy Core's active-generation pointer
+into the Remote Agent. If the frozen worker and recovery requests disagree or
+the exact identity is unavailable, diagnostics fail closed instead of reading
+another generation.
+
 At 12 MiB every protocol version fails closed before replay or model work with
 `remote_agent.conversation_history_limit_exceeded`. Version-1 through
 version-3 callers retain that legacy terminal behavior because they cannot
@@ -1929,9 +1936,11 @@ consistent with the repo's other `ops:` tools. It reads and writes the Core
 runtime policy variables (`OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED` and
 `OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS`) in Wrangler config, and it
 reads worker-owned usage diagnostics through `readUsageDiagnostics` via a
-temporary service-binding Worker. It does not read or mutate retired Core
-breaker tables. This is internal operator tooling, not a user surface and not
-availability truth.
+temporary service-binding Worker. The operator must provide the exact runtime
+conversation id from a frozen dispatch request; `--space` remains only the
+logical usage-record filter and cannot select a runtime generation. It does
+not read or mutate retired Core breaker tables. This is internal operator
+tooling, not a user surface and not availability truth.
 
 ### Role prompt (staged)
 

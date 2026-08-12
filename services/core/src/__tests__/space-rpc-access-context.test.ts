@@ -307,6 +307,7 @@ describe("Space RPC access context propagation", () => {
 
     await rpcGetSpaceDispatchTrace(env, {
       dispatchId: "dispatch-1",
+      includeRemoteAgentRuntimeDiagnostics: true,
       spaceAccess,
       spaceId: SPACE_ID,
     });
@@ -390,6 +391,9 @@ describe("Space RPC access context propagation", () => {
         (input as { spaceAccess?: typeof spaceAccess }).spaceAccess?.actor.kind
       ).toBe("dispatch_continuation");
     }
+    expect(captured.get("rpcGetDispatchTrace")).toMatchObject({
+      includeRemoteAgentRuntimeDiagnostics: true,
+    });
   });
 
   it("passes structured Space access through Space DO direct RPC handler options", async () => {
@@ -451,6 +455,30 @@ describe("Space RPC access context propagation", () => {
     );
   });
 
+  it("preserves the detailed runtime diagnostics request through the Space DO adapter", async () => {
+    const captured: { path?: string } = {};
+    const space = Object.create(Space.prototype) as DirectDispatchTraceHarness;
+    space.applySpaceRef = (spaceId) => {
+      expect(spaceId).toBe(SPACE_ID);
+    };
+    space.buildDirectRpcRequest = (input) => {
+      captured.path = input.path;
+      return new Request(`https://openmeld.local${input.path}`);
+    };
+    space.dispatchDispatchTraceRequest = () =>
+      Promise.resolve(Response.json({}));
+
+    await space.rpcGetDispatchTrace({
+      dispatchId: "dispatch-1",
+      includeRemoteAgentRuntimeDiagnostics: true,
+      spaceId: SPACE_ID,
+    });
+
+    expect(captured.path).toBe(
+      "/dispatches/dispatch-1/trace?includeRemoteAgentRuntimeDiagnostics=true"
+    );
+  });
+
   it("passes structured Space access through the Space Board DO adapter", async () => {
     const spaceAccess = createDispatchContinuationSpaceAccessContext({
       attemptId: "attempt-board-1",
@@ -503,6 +531,23 @@ type DirectBoardHarness = {
     options?: { spaceAccess?: SpaceAccessContext }
   ) => Promise<Response>;
   rpcGetBoard: Space["rpcGetBoard"];
+};
+
+type DirectDispatchTraceHarness = {
+  applySpaceRef: (spaceId: string) => void;
+  buildDirectRpcRequest: (input: {
+    context?: unknown;
+    method: "GET";
+    path: string;
+    spaceAccess?: SpaceAccessContext;
+    spacePassword?: string;
+  }) => Request;
+  dispatchDispatchTraceRequest: (
+    request: Request,
+    dispatchId: string,
+    options?: { spaceAccess?: SpaceAccessContext }
+  ) => Promise<Response>;
+  rpcGetDispatchTrace: Space["rpcGetDispatchTrace"];
 };
 
 type DirectWakeStopHarness = {

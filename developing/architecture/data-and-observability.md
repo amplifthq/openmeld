@@ -2304,6 +2304,18 @@ Diagnostic Reports, and claim execution diagnostics all read or derive from the
 same Wake correlation model. They must not invent separate selector rules,
 separate field priority rules, or separate observability schemas.
 
+For Remote Agent dispatches, runtime diagnostics use the exact runtime
+conversation identity frozen in that dispatch's native-delivery request. The
+logical Space id is correlation context, not a Durable Object selector after a
+conversation rollover. A missing or inconsistent frozen identity fails closed;
+diagnostics must not guess the active generation or maintain a second generation
+pointer outside Core.
+
+Detailed CLI trace is the supported handoff to local agents and operators. A
+caller supplies the normal Space and dispatch selectors; Core resolves the
+frozen runtime conversation identity and returns the bounded runtime diagnostic
+projection. Callers must not query D1 or supply a runtime generation identity.
+
 When a controller exposes official context telemetry, task-result and local
 runtime observation may retain only bounded numeric token counters, the reported
 model context window, and a compaction-observed flag. They must not retain prompt

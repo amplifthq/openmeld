@@ -55,6 +55,7 @@ const PROD_CORS_ORIGIN_RE =
 const BLOCKED_ORGS_NEW_ONLY_RE =
   /"OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS": "org_new"/u;
 const SPACE_REQUIRED_RE = /--space/u;
+const RUNTIME_CONVERSATION_REQUIRED_RE = /--runtime-conversation/u;
 const READ_USAGE_DIAGNOSTICS_RE = /readUsageDiagnostics/u;
 const REMOTE_AGENT_WORKER_BINDING_RE = /OPENMELD_REMOTE_AGENT_WORKER/u;
 const USAGE_RECORD_COUNT_RE = /records: 1/u;
@@ -148,6 +149,10 @@ test("usage command requires a safe space id", () => {
     () => parseRemoteAgentOpsArgs(["usage", "--space", "space';drop"]),
     SPACE_REQUIRED_RE
   );
+  assert.throws(
+    () => parseRemoteAgentOpsArgs(["usage", "--space", "space_123"]),
+    RUNTIME_CONVERSATION_REQUIRED_RE
+  );
 });
 
 test("usage diagnostics uses the remote-agent service binding target", () => {
@@ -188,9 +193,11 @@ test("usage dry-run formats the temporary wrangler dev command", () => {
     buildUsageDiagnosticsUrl({
       organizationId: "org_1",
       port: 8799,
+      runtimeConversationId:
+        "remote-agent-runtime-generation.v1|5:org_1|7:space_1|2",
       spaceId: "space_1",
     }),
-    "http://127.0.0.1:8799/usage?spaceId=space_1&organizationId=org_1"
+    "http://127.0.0.1:8799/usage?spaceId=space_1&runtimeConversationId=remote-agent-runtime-generation.v1%7C5%3Aorg_1%7C7%3Aspace_1%7C2&organizationId=org_1"
   );
 });
 

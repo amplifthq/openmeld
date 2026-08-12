@@ -1838,6 +1838,7 @@ export type ListSpaceThreadSignalsInput = ListSpaceThreadSignalsQuery & {
 export type GetSpaceDispatchTraceInput = {
   spaceId: string;
   dispatchId: string;
+  includeRemoteAgentRuntimeDiagnostics?: boolean;
   password?: string;
   context?: CoreRpcContextInput;
   spaceAccess?: SpaceAccessContext;
@@ -14141,6 +14142,9 @@ export async function rpcGetSpaceDispatchTrace(
   return await stub.rpcGetDispatchTrace({
     spaceId,
     dispatchId,
+    ...(input.includeRemoteAgentRuntimeDiagnostics === true
+      ? { includeRemoteAgentRuntimeDiagnostics: true }
+      : {}),
     ...access,
   });
 }

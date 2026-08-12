@@ -2266,6 +2266,25 @@ describe("gateway http forwarding", () => {
     });
   });
 
+  it("asks Core to resolve exact Remote Agent runtime diagnostics for detailed traces", async () => {
+    const { env, rpc } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/spaces/demo/dispatches/dispatch-1/trace?includeRemoteAgentRuntimeDiagnostics=true"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    expect(rpc.getSpaceDispatchTrace).toHaveBeenCalledWith({
+      spaceId: "demo",
+      dispatchId: "dispatch-1",
+      includeRemoteAgentRuntimeDiagnostics: true,
+      context: EXPECTED_CORE_CONTEXT,
+    });
+  });
+
   it("passes dispatch trace compatibility reason strings through from core RPC", async () => {
     const { env, rpc } = makeEnv({
       coreOverrides: {
