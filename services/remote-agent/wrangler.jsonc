@@ -245,6 +245,7 @@
       "secrets": {
         "required": [
           "CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN",
+          "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID_OVERRIDE",
           "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN"
         ]
       },
