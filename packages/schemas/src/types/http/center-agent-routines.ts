@@ -8,8 +8,17 @@ export type CenterAgentRoutine = z.infer<
 export type CenterAgentRoutineCapabilityState = z.infer<
   RoutineSchemas["centerAgentRoutineCapabilityStateSchema"]
 >;
+export type CenterAgentRoutineCreationAttribution = z.infer<
+  RoutineSchemas["centerAgentRoutineCreationAttributionSchema"]
+>;
+export type CenterAgentRoutineCreationInteractionSource = z.infer<
+  RoutineSchemas["centerAgentRoutineCreationInteractionSourceSchema"]
+>;
 export type CenterAgentRoutineManagement = z.infer<
   RoutineSchemas["centerAgentRoutineManagementSchema"]
+>;
+export type CenterAgentRoutineManagementV1 = z.infer<
+  RoutineSchemas["centerAgentRoutineManagementV1Schema"]
 >;
 export type CenterAgentRoutineLastRunSummary = z.infer<
   RoutineSchemas["centerAgentRoutineLastRunSummarySchema"]
@@ -61,6 +70,9 @@ export type ListCenterAgentRoutinesResponse = z.infer<
 >;
 export type ListCenterAgentRoutinesManagementResponse = z.infer<
   RoutineSchemas["listCenterAgentRoutinesManagementResponseSchema"]
+>;
+export type ListCenterAgentRoutinesManagementV1Response = z.infer<
+  RoutineSchemas["listCenterAgentRoutinesManagementV1ResponseSchema"]
 >;
 export type ListCenterAgentRoutinesLegacyV1Response = z.infer<
   RoutineSchemas["listCenterAgentRoutinesLegacyV1ResponseSchema"]

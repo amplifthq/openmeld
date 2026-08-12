@@ -1,0 +1,1 @@
+ALTER TABLE `routines` ADD `creation_attribution_json` text;

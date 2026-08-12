@@ -215,6 +215,54 @@ describe("Routine routes", () => {
     );
   });
 
+  it("returns immutable creation attribution only through management-v2", async () => {
+    const { coreRpc, env } = makeEnv({
+      coreOverrides: {
+        listRoutines: vi.fn(async () => ({
+          currentUserId: "owner-1",
+          organizationId: "org-1",
+          routines: [
+            {
+              ...ROUTINE,
+              capabilityState: {
+                approvedKnowledge: true,
+                canRepair: true,
+                externalActionPolicy: "read_only",
+                slackChannelReport: false,
+              },
+              creationAttribution: {
+                displayName: "Mira Chen",
+                interactionSource: { client: "codex", kind: "local_agent" },
+              },
+            },
+          ],
+        })),
+      },
+    });
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/routines?contract=management-v2"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      routines: [
+        {
+          creationAttribution: {
+            displayName: "Mira Chen",
+            interactionSource: { client: "codex", kind: "local_agent" },
+          },
+        },
+      ],
+    });
+    expect(coreRpc.listRoutines).toHaveBeenCalledWith(
+      expect.objectContaining({ contract: "management-v2" })
+    );
+  });
+
   it("rejects unknown Routine contract versions before calling Core", async () => {
     const { coreRpc, env } = makeEnv();
     const response = await app.fetch(

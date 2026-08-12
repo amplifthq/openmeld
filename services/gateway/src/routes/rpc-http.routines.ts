@@ -1,5 +1,6 @@
 import {
   CENTER_AGENT_ROUTINE_MANAGEMENT_CONTRACT,
+  CENTER_AGENT_ROUTINE_MANAGEMENT_V1_CONTRACT,
   centerAgentRoutineContractQuerySchema,
   centerAgentRoutineMutationLegacyV1ResponseSchema,
   centerAgentRoutineRouteParamsSchema,
@@ -12,6 +13,7 @@ import {
   listCenterAgentRoutineRunsResponseSchema,
   listCenterAgentRoutinesLegacyV1ResponseSchema,
   listCenterAgentRoutinesManagementResponseSchema,
+  listCenterAgentRoutinesManagementV1ResponseSchema,
   listCenterAgentRoutinesQuerySchema,
   listCenterAgentRoutinesResponseSchema,
   listCenterAgentRoutineTargetSpacesQuerySchema,
@@ -76,6 +78,10 @@ export function registerRoutineRoutes(app: Hono<HonoBindings>): void {
       listCenterAgentRoutinesLegacyV1ResponseSchema;
     if (query.data.contract === CENTER_AGENT_ROUTINE_MANAGEMENT_CONTRACT) {
       responseSchema = listCenterAgentRoutinesManagementResponseSchema;
+    } else if (
+      query.data.contract === CENTER_AGENT_ROUTINE_MANAGEMENT_V1_CONTRACT
+    ) {
+      responseSchema = listCenterAgentRoutinesManagementV1ResponseSchema;
     } else if (query.data.contract) {
       responseSchema = listCenterAgentRoutinesResponseSchema;
     }

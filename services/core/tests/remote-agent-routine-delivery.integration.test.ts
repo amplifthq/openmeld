@@ -2986,6 +2986,7 @@ describe("Remote Agent Routine native delivery", () => {
       status: "skipped",
     });
     expect(workerReconcile).toHaveBeenCalledWith({
+      conversationId: fixture.spaceId,
       idempotencyKey: fixture.runId,
       organizationId: fixture.organizationId,
       spaceId: fixture.spaceId,
@@ -4246,6 +4247,7 @@ async function seedRoutineDeliveryFixture() {
     authorizedActions: [],
     createdAtMs: nowMs - 1000,
     createdByUserId: creatorUserId,
+    creationAttribution: null,
     cronExpression: "0 12 * * *",
     destinationKind: "space" as const,
     externalActionPolicy: "read_only" as const,

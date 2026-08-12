@@ -12,6 +12,7 @@ import {
 import { CalendarDotsIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { formatCenterAgentInteractionClient } from "#/lib/organizations/center-agent-interaction-source";
 import { formatRoutineTimestamp } from "#/lib/organizations/center-agent-routine-presentation";
 import { resolveCenterAgentRoutineErrorMessage } from "#/lib/organizations/center-agent-routines";
 import { centerAgentRoutinesQueryOptions } from "#/query/organizations/center-agent-routines";
@@ -301,6 +302,7 @@ function CenterAgentRoutinesPanelContent(input: {
 				>
 					{routinesQuery.data.routines.map((routine) => (
 						<RoutineRow
+							currentUserId={routinesQuery.data.currentUserId}
 							isStatusPending={
 								statusMutation.isPending &&
 								statusMutation.variables?.routine.id === routine.id
@@ -370,6 +372,7 @@ function CenterAgentRoutinesPageHeader(input: {
 }
 
 function RoutineRow(input: {
+	currentUserId: string;
 	isStatusPending: boolean;
 	onDelete: () => void;
 	onEdit: () => void;
@@ -380,6 +383,10 @@ function RoutineRow(input: {
 	const schedule = resolveRoutineScheduleLabel(input.routine);
 	const statusLabel = resolveRoutineStatusLabel(input.routine.status);
 	const destinationLabel = resolveRoutineDestinationLabel(input.routine);
+	const creationLabel = resolveRoutineCreationLabel(
+		input.routine,
+		input.currentUserId
+	);
 	const lastRun = input.routine.lastRun;
 	return (
 		<SharedLayoutItem
@@ -398,6 +405,9 @@ function RoutineRow(input: {
 						</Badge>
 					</div>
 					<p className="mt-2 break-words text-foreground text-sm">{schedule}</p>
+					<p className="mt-2 break-words text-muted-foreground text-xs">
+						{creationLabel}
+					</p>
 					<div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground text-xs">
 						<span>{destinationLabel}</span>
 						{input.routine.timezone ? (
@@ -535,4 +545,19 @@ function resolveRoutineDestinationLabel(
 		return routine.slackThreadLabel ?? "Slack thread";
 	}
 	return "OpenMeld Space";
+}
+
+function resolveRoutineCreationLabel(
+	routine: CenterAgentRoutineManagement,
+	currentUserId: string
+): string {
+	const creator =
+		routine.createdByUserId === currentUserId
+			? "you"
+			: (routine.creationAttribution.displayName ?? "an organization member");
+	const interactionSource = routine.creationAttribution.interactionSource;
+	const source = interactionSource
+		? ` via ${formatCenterAgentInteractionClient(interactionSource.client)}`
+		: "";
+	return `Created by ${creator}${source}`;
 }

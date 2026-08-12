@@ -2,16 +2,20 @@ import {
   CENTER_AGENT_ROUTINE_LIMIT,
   CENTER_AGENT_ROUTINE_RUN_LIST_MAX_LIMIT,
   CENTER_AGENT_ROUTINE_TARGET_SPACE_LIST_MAX_ITEMS,
+  centerAgentRoutineCreationAttributionSchema,
 } from "@openmeld/schemas";
 import type {
   CenterAgentAttribution,
   CenterAgentRoutine,
+  CenterAgentRoutineCreationAttribution,
   CenterAgentRoutineManagement,
+  CenterAgentRoutineManagementV1,
   CreateCenterAgentRoutineBody,
   DeleteCenterAgentRoutineResponse,
   ListCenterAgentRoutineRunsQuery,
   ListCenterAgentRoutineRunsResponse,
   ListCenterAgentRoutinesManagementResponse,
+  ListCenterAgentRoutinesManagementV1Response,
   ListCenterAgentRoutinesResponse,
   ListCenterAgentRoutineTargetSpacesResponse,
   UpdateCenterAgentRoutineBody,
@@ -34,6 +38,7 @@ import {
   insertRoutineRecord,
   listRoutineRecords,
   listRoutineRunRecords,
+  type NewStoredRoutine,
   pauseRoutineRecord,
   type RoutineAuditActor,
   readRoutineRecord,
@@ -52,6 +57,7 @@ const ROUTINE_RUN_DEFAULT_LIMIT = 25;
 export type RoutineActor = {
   attribution: CenterAgentAttribution;
   authority: RoutineAuthority;
+  creationDisplayName: string;
   sourceNativeDeliveryId: string | null;
 };
 
@@ -82,6 +88,22 @@ export function createRoutineService(input: {
         organizationId: actor.authority.organizationId,
         routines: routines.map((routine) =>
           toRoutine(routine, actor.authority)
+        ),
+      };
+    },
+
+    async listManagementV1(
+      actor: RoutineActor
+    ): Promise<ListCenterAgentRoutinesManagementV1Response> {
+      const routines = await listRoutineRecords({
+        db: input.db,
+        organizationId: actor.authority.organizationId,
+      });
+      return {
+        currentUserId: actor.authority.userId,
+        organizationId: actor.authority.organizationId,
+        routines: routines.map((routine) =>
+          toManagementRoutineV1(routine, actor.authority)
         ),
       };
     },
@@ -131,6 +153,10 @@ export function createRoutineService(input: {
       });
       const nowMs = now();
       const schedule = await requireValidSchedule(body, nowMs);
+      const creationAttribution =
+        centerAgentRoutineCreationAttributionSchema.parse({
+          displayName: actor.creationDisplayName,
+        });
       await requireValidDestination({
         body,
         db: input.db,
@@ -138,10 +164,11 @@ export function createRoutineService(input: {
         representedHuman,
         targetSpaceEligibility,
       });
-      const routine: StoredRoutine = {
+      const routine: NewStoredRoutine = {
         authorizedActions,
         createdAtMs: nowMs,
         createdByUserId: actor.authority.userId,
+        creationAttribution,
         cronExpression: schedule.cronExpression,
         destinationKind: body.destinationKind,
         externalActionPolicy: body.externalActionPolicy ?? "standard",
@@ -657,6 +684,7 @@ function toRoutine(
 ): CenterAgentRoutine {
   const {
     authorizedActions: _authorizedActions,
+    creationAttribution: _creationAttribution,
     externalActionPolicy: _externalActionPolicy,
     ...publicRoutine
   } = routine;
@@ -669,10 +697,10 @@ function toRoutine(
   };
 }
 
-function toManagementRoutine(
+function toManagementRoutineV1(
   routine: StoredRoutine,
   authority: RoutineAuthority
-): CenterAgentRoutineManagement {
+): CenterAgentRoutineManagementV1 {
   const approvedKnowledge = routine.authorizedActions.includes(
     "organization_documents.save_approved_knowledge"
   );
@@ -691,6 +719,18 @@ function toManagementRoutine(
         "slack.publish_channel_report"
       ),
     },
+  };
+}
+
+function toManagementRoutine(
+  routine: StoredRoutine,
+  authority: RoutineAuthority
+): CenterAgentRoutineManagement {
+  const creationAttribution: CenterAgentRoutineCreationAttribution =
+    routine.creationAttribution ?? { displayName: null };
+  return {
+    ...toManagementRoutineV1(routine, authority),
+    creationAttribution,
   };
 }
 

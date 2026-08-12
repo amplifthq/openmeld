@@ -1,11 +1,13 @@
 import {
   centerAgentRoutineAuthorizedActionsSchema,
+  centerAgentRoutineCreationAttributionSchema,
   centerAgentRoutineExternalActionPolicySchema,
 } from "@openmeld/schemas";
 import type {
   CenterAgentAttribution,
   CenterAgentRoutine,
   CenterAgentRoutineAuthorizedAction,
+  CenterAgentRoutineCreationAttribution,
   CenterAgentRoutineExternalActionPolicy,
   CenterAgentRoutineLastRunSummary,
   CenterAgentRoutineRun,
@@ -21,7 +23,11 @@ type RoutineAuditAction =
 
 export type StoredRoutine = Omit<CenterAgentRoutine, "canManage"> & {
   authorizedActions: CenterAgentRoutineAuthorizedAction[];
+  creationAttribution: CenterAgentRoutineCreationAttribution | null;
   externalActionPolicy: CenterAgentRoutineExternalActionPolicy;
+};
+export type NewStoredRoutine = StoredRoutine & {
+  creationAttribution: CenterAgentRoutineCreationAttribution;
 };
 export type DueRoutine = StoredRoutine & {
   nextDueAt: number;
@@ -52,6 +58,7 @@ type RoutineRow = {
   slack_thread_ts: string | null;
   slack_conversation_id: string | null;
   slack_thread_label: string | null;
+  creation_attribution_json: string | null;
   status: "completed" | "enabled" | "paused";
   next_due_at: number | null;
   created_by_user_id: string;
@@ -126,6 +133,7 @@ const ROUTINE_RECORD_SELECT = `
     routine.slack_thread_ts AS slack_thread_ts,
     routine.slack_conversation_id AS slack_conversation_id,
     routine.slack_thread_label AS slack_thread_label,
+    routine.creation_attribution_json AS creation_attribution_json,
     routine.status AS status,
     routine.next_due_at AS next_due_at,
     routine.created_by_user_id AS created_by_user_id,
@@ -277,7 +285,7 @@ export async function insertRoutineRecord(input: {
   actor: RoutineAuditActor;
   db: D1Database;
   limit: number;
-  routine: StoredRoutine;
+  routine: NewStoredRoutine;
 }): Promise<RoutineInsertOutcome> {
   const insert = input.db
     .prepare(
@@ -300,6 +308,7 @@ export async function insertRoutineRecord(input: {
           slack_thread_ts,
           slack_conversation_id,
           slack_thread_label,
+          creation_attribution_json,
           status,
           next_due_at,
           created_by_user_id,
@@ -307,7 +316,28 @@ export async function insertRoutineRecord(input: {
           created_at_ms,
           updated_at_ms
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, json_patch(
+          json_object('displayName', ?),
+          COALESCE(
+            (
+              SELECT json_object(
+                'interactionSource',
+                json_object(
+                  'client', source_request.resource_id,
+                  'kind', 'local_agent'
+                )
+              )
+              FROM center_agent_audit_journal AS source_request
+              WHERE source_request.organization_id = ?
+                AND source_request.source_native_delivery_id = ?
+                AND source_request.action = 'receive_local_agent_request'
+                AND source_request.resource_type = 'local_agent_client'
+              ORDER BY source_request.created_at ASC, source_request.id ASC
+              LIMIT 1
+            ),
+            '{}'
+          )
+        ), 'enabled', ?, ?, ?, ?, ?
         WHERE (
           SELECT COUNT(*) FROM routines WHERE organization_id = ?
         ) < ?
@@ -331,6 +361,9 @@ export async function insertRoutineRecord(input: {
       input.routine.slackThreadTs,
       input.routine.slackConversationId,
       input.routine.slackThreadLabel,
+      input.routine.creationAttribution.displayName,
+      input.routine.organizationId,
+      input.actor.sourceNativeDeliveryId,
       input.routine.nextDueAt,
       input.routine.createdByUserId,
       input.routine.updatedByUserId,
@@ -1295,6 +1328,11 @@ function mapRoutineRow(row: RoutineRow): StoredRoutine {
     ),
     createdAtMs: Number(row.created_at_ms),
     createdByUserId: row.created_by_user_id,
+    creationAttribution: row.creation_attribution_json
+      ? centerAgentRoutineCreationAttributionSchema.parse(
+          JSON.parse(row.creation_attribution_json) as unknown
+        )
+      : null,
     cronExpression: row.cron_expression,
     destinationKind: row.destination_kind,
     externalActionPolicy: centerAgentRoutineExternalActionPolicySchema.parse(

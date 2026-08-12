@@ -473,6 +473,7 @@ function buildRoutine(): CenterAgentRoutineManagement {
 		},
 		createdAtMs: 1_752_200_000_000,
 		createdByUserId: "user-1",
+		creationAttribution: { displayName: "Current User" },
 		cronExpression: "0 9 * * *",
 		destinationKind: "space",
 		id: "routine-1",

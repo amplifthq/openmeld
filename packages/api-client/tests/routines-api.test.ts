@@ -145,7 +145,7 @@ describe("api-client Routines API", () => {
     const routineUrl =
       "https://gateway.openmeld.invalid/v1/organizations/current/routines";
     const routineDetailUrl = `${routineUrl}/routine%2Fwith%20spaces`;
-    const managementRoutineUrl = `${routineUrl}?contract=management-v1`;
+    const managementRoutineUrl = `${routineUrl}?contract=management-v2`;
     const practicalRoutineUrl = `${routineUrl}?contract=practical-v2`;
     const practicalRoutineDetailUrl = `${routineDetailUrl}?contract=practical-v2`;
     const routineTargetSpacesUrl =
@@ -174,6 +174,10 @@ describe("api-client Routines API", () => {
                   canRepair: true,
                   externalActionPolicy: "read_only",
                   slackChannelReport: false,
+                },
+                creationAttribution: {
+                  displayName: "Mira Chen",
+                  interactionSource: { client: "codex", kind: "local_agent" },
                 },
               },
             ],
@@ -304,7 +308,7 @@ describe("api-client Routines API", () => {
         body: undefined,
         method: "GET",
         operation: "routine.management.list",
-        url: "https://gateway.openmeld.invalid/v1/organizations/current/routines?contract=management-v1",
+        url: "https://gateway.openmeld.invalid/v1/organizations/current/routines?contract=management-v2",
       },
       {
         body: undefined,

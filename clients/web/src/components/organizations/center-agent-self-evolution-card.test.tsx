@@ -272,6 +272,7 @@ describe("CenterAgentSelfEvolutionCard", () => {
 						externalActionPolicy: "standard",
 						slackChannelReport: false,
 					},
+					creationAttribution: { displayName: "Current User" },
 				},
 			],
 		});
@@ -318,6 +319,7 @@ describe("CenterAgentSelfEvolutionCard", () => {
 						externalActionPolicy: "standard",
 						slackChannelReport: false,
 					},
+					creationAttribution: { displayName: "Current User" },
 				},
 			],
 		});

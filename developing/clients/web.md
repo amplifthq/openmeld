@@ -1444,12 +1444,17 @@ shows it only as the unavailable current target. The user must choose an
 eligible replacement before saving; Web must not silently retain, replace, or
 submit the unavailable target.
 
-The shared HTTP client explicitly requests `contract=management-v1` for the
+The shared HTTP client explicitly requests `contract=management-v2` for the
 Routine management list and `contract=practical-v2` for mutations and Run
-history. Requests without an opt-in belong to the frozen published-client
-projection and cannot represent one-time or Slack-thread Routines. Web must not
-infer practical or capability fields from the legacy shape or remove an opt-in
-to make a mixed-version response appear successful.
+history. Each row presents the Core-owned creation snapshot as “Created by
+you,” the frozen member display name, or an explicit organization-member
+fallback for legacy unknown data, followed by the Local Agent client when one
+was verified at creation. Web does not join current profile or audit state to
+reconstruct it. Requests without an opt-in belong to the frozen
+published-client projection and cannot represent one-time or Slack-thread
+Routines. Web must not infer practical, capability, or creation-attribution
+fields from an older shape or remove an opt-in to make a mixed-version response
+appear successful.
 
 `canManage` is the sole browser projection for update, pause, resume, and delete
 controls. When it is false, those controls are absent rather than merely disabled.
