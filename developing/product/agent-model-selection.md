@@ -249,6 +249,13 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
   state.
 - `hostedRuntimePolicy.imageUnderstandingModelId` names the image-capable
   auxiliary model used when the selected primary model is text-only.
+- A worker-owned work-surface auxiliary model may classify and complete only a
+  pre-admitted, self-contained, single-tool Task or Space creation step. This
+  internal coordination model is not selectable, does not replace the frozen
+  primary model used by the created work surface, and is not an automatic
+  fallback after a primary-model failure. One worker runtime-policy value owns
+  both classification and that bounded tool call so the two steps cannot
+  silently drift to different models.
 - `hostedRuntimePolicy.automaticModelFallback` is structurally fixed to
   `false`. A primary-model failure is a turn failure, never authority to choose
   another primary model. This model-identity rule does not disable OpenRouter's

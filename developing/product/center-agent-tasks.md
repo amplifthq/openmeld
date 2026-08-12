@@ -48,9 +48,13 @@ When the user explicitly chooses a new or dedicated Task as the work surface,
 that choice is binding even for short work: the Center Agent creates the Task
 before doing the work and does not silently substitute Chat or a Space. This
 rule is identical across Web, OpenMeld Spaces, Slack, the OpenMeld CLI, and
-other contracted Message Channels. The Remote Agent runtime enforces this
-choice at the shared first-model-step boundary; a prompt reminder or one
-carrier-specific intent rule is not sufficient.
+other contracted Message Channels. The shared Remote Agent admission and
+provider-execution path enforces this choice; a prompt reminder or one
+carrier-specific intent rule is not sufficient. A verified request that is
+both self-contained and exactly one explicit Task creation may use the bounded
+lightweight binding path, but it still executes the canonical Task tool and
+Core mutation. Requests that require earlier conversation, attachments,
+participant lookup, or another action use the complete runtime context.
 
 ## Canonical Vocabulary
 

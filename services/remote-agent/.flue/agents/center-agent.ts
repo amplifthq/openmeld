@@ -35,6 +35,10 @@ import {
 } from "../../agent-core/submission";
 import { buildRemoteAgentCoreContext } from "../../agent-core/tool-context";
 import {
+  buildRemoteAgentWorkSurfaceBindingSystemPrompt,
+  classifyRemoteAgentWorkSurfaceDecision,
+} from "../../agent-core/work-surface-routing";
+import {
   abortFlueCenterAgentSubmission,
   createFlueCenterAgentAdmissionHost,
   prepareFlueCenterAgentAdmission,
@@ -44,7 +48,7 @@ import {
 import { CENTER_AGENT_DURABILITY } from "../../flue-adapter/center-agent-durability";
 import {
   materializeCenterAgentRuntime,
-  resolveCenterAgentRuntimeContextPlan,
+  resolveCenterAgentRuntimeMaterializationPlan,
 } from "../../flue-adapter/center-agent-runtime-materialization";
 import {
   emitRemoteAgentAdmissionStageEvidence,
@@ -91,8 +95,13 @@ export default defineAgent(async () => {
     callbackContext: executionContext,
   });
   const runtimeContextPlan = turnEnvelope
-    ? resolveCenterAgentRuntimeContextPlan(turnEnvelope)
+    ? resolveCenterAgentRuntimeMaterializationPlan({
+        turnEnvelope,
+        workSurfaceBinding: executionContext?.workSurfaceBinding,
+      })
     : {
+        allowedToolNames: null,
+        materializeComputer: true,
         materializeOrganizationDocuments: true,
         materializeOrganizationSkills: true,
       };
@@ -102,7 +111,9 @@ export default defineAgent(async () => {
     executionContext?.organizationSkillReleases ?? [];
   const materialization = await materializeCenterAgentRuntime({
     createSandbox: async () =>
-      executionContext && isRemoteAgentComputerEnabled(env)
+      executionContext &&
+      runtimeContextPlan.materializeComputer &&
+      isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
             context: executionContext,
             coreWorker,
@@ -132,6 +143,7 @@ export default defineAgent(async () => {
               inboxKey: env.OPENMELD_OFFICIAL_FEEDBACK_INBOX_KEY,
             },
             sandboxDefinitions: sandboxCapability.definitions,
+            allowedToolNames: runtimeContextPlan.allowedToolNames,
             storage,
             submissionId: executionContext.submissionId,
             turnEnvelope,
@@ -197,6 +209,9 @@ export default defineAgent(async () => {
     registerModel: async () =>
       await registerRemoteAgentCloudflareProvider({
         env,
+        executionProfile: executionContext?.workSurfaceBinding
+          ? "work_surface_binding"
+          : undefined,
         modelRoute: executionContext?.modelRoute,
         organizationId: executionContext?.organizationId ?? null,
       }),
@@ -226,18 +241,27 @@ export default defineAgent(async () => {
     durability: CENTER_AGENT_DURABILITY,
     model: materialization.model.modelSpecifier,
     skipLocalContextDiscovery: true,
-    thinkingLevel: executionContext?.modelRoute?.reasoningLevel ?? "high",
-    instructions: buildRemoteAgentSystemPrompt({
-      modelDisplayName: resolveRemoteAgentModelDisplayName(
-        env,
-        executionContext?.modelRoute
-      ),
-      organizationBrief: materialization.documents?.briefContent,
-      organizationDocumentTitles: materialization.documents?.documentTitles,
-      organizationProtectedInformation:
-        materialization.documents?.organizationProtectedInformation,
-      turnEnvelope,
-    }),
+    thinkingLevel: executionContext?.workSurfaceBinding
+      ? "low"
+      : (executionContext?.modelRoute?.reasoningLevel ?? "high"),
+    instructions: executionContext?.workSurfaceBinding
+      ? buildRemoteAgentWorkSurfaceBindingSystemPrompt(
+          executionContext.workSurfaceBinding,
+          {
+            operationId: `remote-agent-submission:${executionContext.submissionId}`,
+          }
+        )
+      : buildRemoteAgentSystemPrompt({
+          modelDisplayName: resolveRemoteAgentModelDisplayName(
+            env,
+            executionContext?.modelRoute
+          ),
+          organizationBrief: materialization.documents?.briefContent,
+          organizationDocumentTitles: materialization.documents?.documentTitles,
+          organizationProtectedInformation:
+            materialization.documents?.organizationProtectedInformation,
+          turnEnvelope,
+        }),
     sandbox: materialization.sandbox.sandbox,
     skills: materialization.skills,
     tools: materialization.tools,
@@ -390,6 +414,13 @@ export const cloudflare = extend({
             const result = await submitRemoteAgentConversationTurn({
               agentName: this.name,
               attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
+              classifyWorkSurface: async (currentRequest) =>
+                await classifyRemoteAgentWorkSurfaceDecision({
+                  env,
+                  organizationId: request.organizationId,
+                  request: currentRequest,
+                  timeoutMs: 3000,
+                }),
               host,
               includeContinuityContext:
                 request.v === 4 &&

@@ -31,6 +31,38 @@ import openAiGpt54MiniModel from "./fixtures/openrouter-model-openai-gpt-5.4-min
 import xAiGrok45Model from "./fixtures/openrouter-model-x-ai-grok-4.5.json";
 
 describe("remote agent model routing", () => {
+  it("registers the bounded work-surface model from static metadata", async () => {
+    let resolveRefresh: ((response: Response) => void) | undefined;
+    const fetchModelMetadata = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveRefresh = resolve;
+        })
+    );
+
+    await expect(
+      resolveRemoteAgentModelRuntimeConfigForRegistration({
+        env: {
+          OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID: "openai/gpt-5.4-mini",
+        },
+        fetchModelMetadata,
+      })
+    ).resolves.toEqual({
+      compaction: {
+        keepRecentTokens: 8000,
+        reserveTokens: 40_000,
+      },
+      contextWindow: 400_000,
+      maxTokens: 8192,
+      modelId: "openai/gpt-5.4-mini",
+      modelSpecifier: "openrouter/openai/gpt-5.4-mini",
+    });
+    expect(fetchModelMetadata).toHaveBeenCalledTimes(1);
+
+    resolveRefresh?.(Response.json(openAiGpt54MiniModel));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
   it("registers Grok from static metadata before the background refresh settles", async () => {
     let resolveRefresh: ((response: Response) => void) | undefined;
     const fetchModelMetadata = vi.fn(
@@ -59,6 +91,41 @@ describe("remote agent model routing", () => {
 
     resolveRefresh?.(Response.json(xAiGrok45Model));
     await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  it("uses the internal work-surface model without changing the selected primary model", async () => {
+    resetProviderRuntime();
+    try {
+      const runtime = await registerRemoteAgentCloudflareProvider({
+        env: {
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+        executionProfile: "work_surface_binding",
+        modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
+        organizationId: "org_work_surface",
+      });
+      const model = resolveModel(runtime.modelSpecifier);
+
+      expect(runtime).toMatchObject({
+        contextWindow: 400_000,
+        maxTokens: 8192,
+        modelId: "openai/gpt-5.4-mini",
+      });
+      expect(model).toMatchObject({
+        contextWindow: 400_000,
+        id: "openai/gpt-5.4-mini",
+        input: ["text"],
+        maxTokens: 8192,
+      });
+      expect(JSON.parse(String(model.headers?.["cf-aig-metadata"]))).toEqual(
+        expect.objectContaining({
+          model: "openai/gpt-5.4-mini",
+          organizationId: "org_work_surface",
+        })
+      );
+    } finally {
+      resetProviderRuntime();
+    }
   });
 
   it("keeps legacy v1 image input during a Remote Agent first rollout", async () => {
