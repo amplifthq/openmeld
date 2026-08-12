@@ -182,8 +182,7 @@ function ExistingComputerConnectionGate(input: {
 	const readinessQuery =
 		input.bringAgentsSetup.currentLocalRuntimeReplyReadinessQuery;
 	const checking =
-		readinessQuery.isPending ||
-		("isFetching" in readinessQuery && readinessQuery.isFetching === true);
+		"isFetching" in readinessQuery && readinessQuery.isFetching === true;
 
 	if (setupRequested) {
 		return <ComputerSetupSessionFlow {...input.input} />;

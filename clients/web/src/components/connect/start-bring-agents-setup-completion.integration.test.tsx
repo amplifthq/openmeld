@@ -1008,6 +1008,56 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		expect(screen.queryByText(SETUP_COMMAND_COPY)).toBeNull();
 	});
 
+	it("shows Terminal setup when embedded onboarding has no existing computer to check", async () => {
+		createPrepareSessionMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_active",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot: {
+				...createTerminalDisconnectedSnapshot(),
+				deviceId: null,
+				targetSpaceId: null,
+			},
+		});
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{
+					kind: "account_computer_setup",
+					resetThisComputer: false,
+				},
+				{
+					currentLocalRuntimeReplyReadinessQuery: {
+						data: undefined,
+						isError: false,
+						isFetching: false,
+						isPending: true,
+						refetch: vi.fn().mockResolvedValue(undefined),
+					},
+					deviceId: null,
+					runtimeLane: null,
+				}
+			)
+		);
+
+		render(
+			<TestQueryClientProvider>
+				<StartFlowStateProvider>
+					<ComputerSetupFlow
+						autoReturnOnCompletion={false}
+						orgSlug="acme"
+						preferExistingConnection
+						presentation="embedded"
+					/>
+				</StartFlowStateProvider>
+			</TestQueryClientProvider>
+		);
+
+		expect(
+			await screen.findByRole("button", { name: "Copy setup command" })
+		).toBeTruthy();
+		expect(screen.queryByText("Checking this computer…")).toBeNull();
+		expect(createPrepareSessionMock).toHaveBeenCalledOnce();
+	});
+
 	it("hands a replayed automatic setup action back to the explicit Continue gate", async () => {
 		const onNavigationActionAlreadyStarted = vi.fn();
 		createPrepareSessionMock.mockRejectedValueOnce({
@@ -2179,6 +2229,7 @@ function createSetupContext(
 		currentLocalRuntimeReplyReadinessQuery: {
 			data: CurrentLocalRuntimeReplyReadinessResponse | undefined;
 			isError?: boolean;
+			isFetching?: boolean;
 			isPending?: boolean;
 			refetch: ReturnType<typeof vi.fn>;
 		};
@@ -2203,6 +2254,8 @@ function createSetupContext(
 			data: overrides.currentLocalRuntimeReplyReadinessQuery?.data,
 			isError:
 				overrides.currentLocalRuntimeReplyReadinessQuery?.isError ?? false,
+			isFetching:
+				overrides.currentLocalRuntimeReplyReadinessQuery?.isFetching ?? false,
 			isPending:
 				overrides.currentLocalRuntimeReplyReadinessQuery?.isPending ?? false,
 			refetch:
