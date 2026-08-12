@@ -311,6 +311,18 @@ Worker, apply a D1 migration, or attach a domain.
 
 The manifest owns these resources:
 
+- Zone and DNS: active zone `openmeld.ai` plus the four proxied Custom Domain
+  AAAA records for Web, Auth, Gateway, and Open Connector. The script rediscovers
+  DNS record IDs from their exact hostname and Cloudflare-managed `100::` shape.
+- Workers: `openmeld-web-prod`, `openmeld-auth-prod`, `openmeld-core-prod`,
+  `openmeld-gateway-prod`, `openmeld-remote-agent-prod`, and
+  `openmeld-open-connector-prod`. The script requires these deployment-managed
+  identities to exist and never creates placeholder Worker code. It also
+  discovers every version serving the newest deployment and tags it with the
+  owning Worker ID required by Cloudflare.
+- Durable Object namespaces: the three active Core namespaces and three active
+  Remote Agent namespaces. The script discovers their stable IDs by exact
+  namespace name and never creates namespaces outside a Worker deployment.
 - D1: `openmeld-db-prod`, `openmeld-open-connector-db-prod`
 - KV: `openmeld-auth-kv-prod`
 - R2 production: `openmeld-space-attachments-prod`,
@@ -344,12 +356,11 @@ tags, so do not bypass this merge flow. Cloudflare currently documents a beta
 behavior where the first `GET` for an untagged resource can return 500; the
 script handles only that documented case as an empty tag set.
 
-As of 2026-08-12, all manifest resources were created and their IDs round-trip
-through their product list APIs. The release token returns Cloudflare
-`403/10000` on the account Tagging endpoint, so tag reconciliation remains a
-recorded blocker. Re-run the same idempotent command after the release token is
-authorized for the Tagging API; do not create duplicate resources or substitute
-names in the Dashboard.
+As of 2026-08-12, all manifest resources exist, their IDs round-trip through
+their product list APIs, and their tags pass the script's post-write verification.
+The release token has account-level Tag Read and Tag Write access. Use the same
+idempotent command for later reconciliation; do not create duplicate resources
+or substitute names in the Dashboard.
 
 ### Provision Organization Logo Resources
 
