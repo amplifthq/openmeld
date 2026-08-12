@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-11T19:54:13.596Z",
+  "updatedAt": "2026-08-12T11:18:17.064Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.42",
+      "packageVersion": "0.3.49",
       "updatePolicy": "available",
-      "reason": "Launch the OpenMeld product line with aligned CLI, Service, and managed skills."
+      "reason": "Ship the completed OpenMeld integration and migration as one advisory release."
     },
     "service": {
-      "bundleHash": "495d1cae6de529ccafaa45cd149f0652fbf6468f9ea535a9f256e09ecaf5d2f9",
-      "bundleVersion": "0.3.42",
+      "bundleHash": "0df1a4430a85581e81bcceeab9de32667bd2bb45e1416043ba6059371c5b7ad3",
+      "bundleVersion": "0.3.49",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Launch the OpenMeld product line with aligned CLI, Service, and managed skills."
+      "reason": "Ship the completed OpenMeld integration and migration as one advisory release."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Launch the OpenMeld product line with aligned CLI, Service, and managed skills."
+      "reason": "Ship the completed OpenMeld integration and migration as one advisory release."
     }
   }
 }
