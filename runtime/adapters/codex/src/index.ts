@@ -455,6 +455,7 @@ const resolveDefaultCodexAppServerInvoke = (input: {
     return {
       contextDelta: {
         agentControllerConversationId: result.threadId,
+        ...(result.contextHealed ? { refreshed: true } : {}),
         ...(agentControllerConversation ? { agentControllerConversation } : {}),
       },
       output: result.output,
