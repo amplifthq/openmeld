@@ -27,6 +27,12 @@ import {
 import { buildRemoteAgentTurnTimeContext } from "./prompt";
 import { cleanupExpiredRemoteAgentTurnEndMarkers } from "./turn-end";
 import { renderRemoteAgentTurnEnvelope } from "./turn-envelope";
+import {
+  extractRemoteAgentCurrentUserRequest,
+  type RemoteAgentWorkSurfaceDecision,
+  shouldClassifyRemoteAgentWorkSurface,
+  toRemoteAgentWorkSurfaceBinding,
+} from "./work-surface-routing";
 
 export const REMOTE_AGENT_SUBMISSION_METADATA_VERSION = 1;
 export const REMOTE_AGENT_SUBMISSION_SOURCE = "openmeld-core-native-delivery";
@@ -77,6 +83,9 @@ export type RemoteAgentAdmissionStageReporter = (
 export type RemoteAgentSubmitConversationTurnInput = {
   agentName: string;
   attachmentBucket?: Pick<R2Bucket, "delete" | "get">;
+  classifyWorkSurface?: (
+    request: string
+  ) => Promise<RemoteAgentWorkSurfaceDecision>;
   host: RemoteAgentAdmissionHost;
   input: RemoteAgentWorkerSubmitTurnRequest;
   includeContinuityContext?: boolean;
@@ -625,17 +634,26 @@ export async function submitRemoteAgentConversationTurn(
     status: "pending",
     submissionId,
   });
-  const callbackContext = createRemoteAgentCallbackContext({
-    ack: originalAck,
-    nowMs: originalSubmittedAtMs,
-    request,
-  });
+  const existingCallbackContext = input.storage
+    ? await readRemoteAgentCallbackContext(input.storage, submissionId)
+    : null;
+  const workSurfaceBinding =
+    existingCallbackContext?.workSurfaceBinding ??
+    (await resolveRemoteAgentAdmissionWorkSurfaceBinding({
+      classifyWorkSurface: input.classifyWorkSurface,
+      request,
+      submissionId,
+    }));
+  const callbackContext =
+    existingCallbackContext ??
+    createRemoteAgentCallbackContext({
+      ack: originalAck,
+      nowMs: originalSubmittedAtMs,
+      request,
+      ...(workSurfaceBinding ? { workSurfaceBinding } : {}),
+    });
 
   if (input.storage) {
-    const existingCallbackContext = await readRemoteAgentCallbackContext(
-      input.storage,
-      submissionId
-    );
     if (existingCallbackContext) {
       assertRemoteAgentCallbackContextMatchesAdmission({
         context: existingCallbackContext,
@@ -701,6 +719,46 @@ export async function submitRemoteAgentConversationTurn(
   }
 
   return { ack, callbackContext, request };
+}
+
+async function resolveRemoteAgentAdmissionWorkSurfaceBinding(input: {
+  classifyWorkSurface?: (
+    request: string
+  ) => Promise<RemoteAgentWorkSurfaceDecision>;
+  request: RemoteAgentWorkerSubmitTurnRequest;
+  submissionId: string;
+}) {
+  if (
+    !input.classifyWorkSurface ||
+    input.request.turnEnvelope.sender.kind !== "member" ||
+    !input.request.turnEnvelope.sender.verified ||
+    input.request.messages.some(
+      (message) => (message.attachments?.length ?? 0) > 0
+    ) ||
+    ((input.request.v === 3 || input.request.v === 4) &&
+      input.request.conversationIdentity?.kind === "center_agent_task")
+  ) {
+    return null;
+  }
+  const currentRequest = extractRemoteAgentCurrentUserRequest(
+    buildRemoteAgentPromptMessage(input.request, {
+      includeContinuityContext: false,
+    })
+  );
+  if (!shouldClassifyRemoteAgentWorkSurface(currentRequest)) {
+    return null;
+  }
+  try {
+    return toRemoteAgentWorkSurfaceBinding(
+      await input.classifyWorkSurface(currentRequest)
+    );
+  } catch (error) {
+    console.warn("[remote_agent.work_surface.preclassification_failed]", {
+      error: error instanceof Error ? error.message : String(error),
+      submissionId: input.submissionId,
+    });
+    return null;
+  }
 }
 
 /**
