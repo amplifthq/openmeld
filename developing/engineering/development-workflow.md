@@ -1377,11 +1377,11 @@ pnpm release:local-components stamp --next --cli available --service available -
 Verify the tracked manifest against a freshly rebuilt package, Service bundle,
 skill bundle, and changed paths with the release-ready gate. The base resolves
 in this order: an explicit `--base`, then `OPENMELD_AFFECTED_BASE` when set, then
-the most recent `v*` release tag reachable from HEAD (created automatically by
-`pnpm run release:cli`; it marks the last actually-published state without
-requiring a push), and only then `origin/main` as the pre-tagging fallback. Do
-not treat `origin/main` as the published baseline — in a batched-push workflow
-it can lag arbitrarily far behind the last npm publish:
+the most recent `v*` release tag reachable from HEAD (created locally and
+published to `origin` automatically by `pnpm run release:cli`; it marks the last
+actually-published state), and only then `origin/main` as the pre-tagging
+fallback. Do not treat `origin/main` as the published baseline — in a
+batched-push workflow it can lag arbitrarily far behind the last npm publish:
 
 ```text
 pnpm run verify:release-ready

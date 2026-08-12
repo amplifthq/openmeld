@@ -17,6 +17,8 @@ import {
 const CLI_BINARY_PLATFORM = "darwin-arm64";
 const ARTIFACT_PROBE_TIMEOUT_MS = 60_000;
 const COMPLETION_PROBE_TIMEOUT_MS = 30_000;
+const LINE_SPLIT_REGEX = /\r?\n/u;
+const WHITESPACE_SPLIT_REGEX = /\s+/u;
 const RELEASE_RESUME_COMMAND = "pnpm run release:cli --with-binary";
 const CORE_WRANGLER_ARGS = [
   "--config",
@@ -34,7 +36,9 @@ export async function runResumableCliRelease(input) {
     fetch: input.adapters?.fetch ?? input.fetch ?? fetch,
     runCommand: input.adapters?.runCommand ?? runReadOnlyCommand,
     runStep: input.adapters?.runStep ?? input.release.runStep,
-    tagCliRelease: input.adapters?.tagCliRelease ?? input.release.tagCliRelease,
+    publishCliReleaseTag:
+      input.adapters?.publishCliReleaseTag ??
+      input.release.publishCliReleaseTag,
   };
 
   input.release.assertCleanWorktree({ cwd });
@@ -230,7 +234,7 @@ function runReleaseTagStage(input) {
     return;
   }
   try {
-    input.adapters.tagCliRelease({ cwd: input.cwd });
+    input.adapters.publishCliReleaseTag({ cwd: input.cwd });
   } catch (error) {
     throwReleaseResumeError(
       error,
@@ -382,14 +386,29 @@ async function probeNpmPublishStage(input) {
 }
 
 function probeReleaseTagStage(input) {
-  const tagProbe = readTagCommit({
+  const localTagProbe = readLocalTagCommit({
+    cwd: input.cwd,
+    tagName: input.target.tagName,
+  });
+  if (
+    localTagProbe.localTagSha &&
+    localTagProbe.localTagSha !== input.target.headSha
+  ) {
+    return decideReleaseTagStage({
+      headSha: input.target.headSha,
+      tagName: input.target.tagName,
+      ...localTagProbe,
+    });
+  }
+  const remoteTagProbe = readRemoteTagCommit({
     cwd: input.cwd,
     tagName: input.target.tagName,
   });
   return decideReleaseTagStage({
     headSha: input.target.headSha,
     tagName: input.target.tagName,
-    ...tagProbe,
+    ...localTagProbe,
+    ...remoteTagProbe,
   });
 }
 
@@ -456,21 +475,21 @@ async function probeCoreProjectionStage(input) {
   }
 }
 
-function readTagCommit(input) {
+function readLocalTagCommit(input) {
   const tagRef = `refs/tags/${input.tagName}`;
   const existence = runGitProbe({
     args: ["show-ref", "--verify", "--quiet", tagRef],
     cwd: input.cwd,
   });
   if (existence.error) {
-    return { probeError: existence.error };
+    return { localProbeError: existence.error };
   }
   if (existence.status === 1) {
-    return { tagSha: null };
+    return { localTagSha: null };
   }
   if (existence.status !== 0) {
     return {
-      probeError:
+      localProbeError:
         existence.stderr || `git show-ref exited ${String(existence.status)}`,
     };
   }
@@ -480,13 +499,39 @@ function readTagCommit(input) {
   });
   if (resolved.error || resolved.status !== 0) {
     return {
-      probeError:
+      localProbeError:
         resolved.error ||
         resolved.stderr ||
         `git rev-parse exited ${String(resolved.status)}`,
     };
   }
-  return { tagSha: resolved.stdout.trim() };
+  return { localTagSha: resolved.stdout.trim() };
+}
+
+function readRemoteTagCommit(input) {
+  const tagRef = `refs/tags/${input.tagName}`;
+  const resolved = runGitProbe({
+    args: ["ls-remote", "--tags", "origin", tagRef, `${tagRef}^{}`],
+    cwd: input.cwd,
+  });
+  if (resolved.error || resolved.status !== 0) {
+    return {
+      remoteProbeError:
+        resolved.error ||
+        resolved.stderr ||
+        `git ls-remote exited ${String(resolved.status)}`,
+    };
+  }
+  const refs = new Map(
+    resolved.stdout
+      .split(LINE_SPLIT_REGEX)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.split(WHITESPACE_SPLIT_REGEX))
+      .filter((parts) => parts.length === 2)
+      .map(([sha, ref]) => [ref, sha])
+  );
+  return { remoteTagSha: refs.get(`${tagRef}^{}`) ?? refs.get(tagRef) ?? null };
 }
 
 function printCliReleaseDecisions(decisions, write) {
