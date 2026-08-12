@@ -162,7 +162,16 @@ export function emitProviderRuntimePhaseLine(input: {
     agentControllerRef: input.agentControllerRef,
     dispatchId: input.dispatchId,
     phase: input.event.phase,
+    ...(input.event.phase === "process_spawned" && input.event.processLaunchKind
+      ? { processLaunchKind: input.event.processLaunchKind }
+      : {}),
     processId: "processId" in input.event ? input.event.processId : null,
+    ...(input.event.phase === "process_spawned" &&
+    input.event.processWorkingDirectoryKind
+      ? {
+          processWorkingDirectoryKind: input.event.processWorkingDirectoryKind,
+        }
+      : {}),
     sinceRuntimeStartedMs,
     targetProfileId: input.targetProfileId,
     taskId: input.taskId,

@@ -12,7 +12,9 @@ export type CliDriverLineDecision = {
 export type CliDriverLifecycleEvent =
   | {
       phase: "process_spawned";
+      processLaunchKind?: "native_binary" | "package_entrypoint";
       processId: number | null;
+      processWorkingDirectoryKind?: "provider_workspace" | "runtime_host";
       signalTarget: AgentControllerProcessSignalTarget;
       tsMs: number;
     }
