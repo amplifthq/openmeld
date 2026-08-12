@@ -21,6 +21,7 @@ import type {
   ComputerFileAccessPolicyInput,
 } from "@openmeld/schemas/types";
 import { z } from "zod/v4";
+import { DaemonServiceRunError } from "../core/types";
 
 const LEGACY_COMPUTER_FILE_ACCESS_STORE_SCHEMA =
   "openmeld-computer-file-access-v1" as const;
@@ -64,24 +65,37 @@ export function resolveComputerFileAccessStorePath(
   return join(dataRootPath, "computer-file-access-v1.json");
 }
 
-export class ComputerFileAccessStoreError extends Error {
-  readonly #localDiagnosticContext?: {
-    reason: "incompatible_schema" | "malformed_json";
-    storePath: string;
-  };
-  readonly code: ComputerFileAccessErrorCode;
+type ComputerFileAccessStoreDiagnosticContext =
+  | {
+      reason: "incompatible_schema" | "malformed_json";
+      storePath: string;
+    }
+  | {
+      errorCode: string | null;
+      operation:
+        | "canonicalize_folder"
+        | "create_store_directory"
+        | "inspect_folder"
+        | "read_store"
+        | "rename_store"
+        | "verify_folder_access"
+        | "write_store";
+      path: string;
+      reason: "io_error";
+    };
+
+export class ComputerFileAccessStoreError extends DaemonServiceRunError {
+  readonly #localDiagnosticContext?: ComputerFileAccessStoreDiagnosticContext;
+  declare readonly code: ComputerFileAccessErrorCode;
 
   constructor(
     code: ComputerFileAccessErrorCode,
     message: string,
     options?: {
-      localDiagnosticContext?: {
-        reason: "incompatible_schema" | "malformed_json";
-        storePath: string;
-      };
+      localDiagnosticContext?: ComputerFileAccessStoreDiagnosticContext;
     }
   ) {
-    super(message);
+    super({ code, message });
     this.#localDiagnosticContext = options?.localDiagnosticContext;
     this.code = code;
     this.name = "ComputerFileAccessStoreError";
@@ -259,19 +273,36 @@ async function canonicalizeFolder(folder: string): Promise<string> {
         "OpenMeld couldn’t find that folder on this computer. Check the path and try again."
       );
     }
-    throw error;
+    throw computerFileAccessIoError({
+      error,
+      operation: "canonicalize_folder",
+      path: folder,
+    });
   }
-  const metadata = await stat(canonicalPath);
+  const metadata = await stat(canonicalPath).catch((error: unknown) => {
+    throw computerFileAccessIoError({
+      error,
+      operation: "inspect_folder",
+      path: canonicalPath,
+    });
+  });
   if (!metadata.isDirectory()) {
     throw new ComputerFileAccessStoreError(
       "computer.file_access.path_not_directory",
       "That path is not a folder. Enter a folder path."
     );
   }
-  await access(canonicalPath, constants.R_OK).catch(() => {
+  await access(canonicalPath, constants.R_OK).catch((error: unknown) => {
     throw new ComputerFileAccessStoreError(
       "computer.file_access.path_unreadable",
-      "OpenMeld can’t read that folder. Check its permissions and try again."
+      "OpenMeld can’t read that folder. Check its permissions and try again.",
+      {
+        localDiagnosticContext: buildIoDiagnosticContext({
+          error,
+          operation: "verify_folder_access",
+          path: canonicalPath,
+        }),
+      }
     );
   });
   return canonicalPath;
@@ -332,7 +363,11 @@ async function readStore(storePath: string): Promise<{
         policy: DEFAULT_COMPUTER_FILE_ACCESS_POLICY,
       };
     }
-    throw error;
+    throw computerFileAccessIoError({
+      error,
+      operation: "read_store",
+      path: storePath,
+    });
   }
   let value: unknown;
   try {
@@ -369,14 +404,69 @@ async function writeStore(
   storePath: string,
   value: z.infer<typeof computerFileAccessStoreSchema>
 ): Promise<void> {
-  await mkdir(dirname(storePath), { recursive: true });
+  const storeDirectory = dirname(storePath);
+  await mkdir(storeDirectory, { recursive: true }).catch((error: unknown) => {
+    throw computerFileAccessIoError({
+      error,
+      operation: "create_store_directory",
+      path: storeDirectory,
+    });
+  });
   const tempPath = `${storePath}.tmp-${process.pid}-${Date.now()}`;
   await writeFile(tempPath, `${JSON.stringify(value, null, 2)}\n`, {
     encoding: "utf8",
     mode: 0o600,
+  }).catch((error: unknown) => {
+    throw computerFileAccessIoError({
+      error,
+      operation: "write_store",
+      path: tempPath,
+    });
   });
   await rename(tempPath, storePath).catch(async (error) => {
     await unlink(tempPath).catch(() => undefined);
-    throw error;
+    throw computerFileAccessIoError({
+      error,
+      operation: "rename_store",
+      path: storePath,
+    });
   });
+}
+
+function computerFileAccessIoError(input: {
+  error: unknown;
+  operation: Extract<
+    ComputerFileAccessStoreDiagnosticContext,
+    { reason: "io_error" }
+  >["operation"];
+  path: string;
+}): ComputerFileAccessStoreError {
+  return new ComputerFileAccessStoreError(
+    "computer.file_access.internal_error",
+    "OpenMeld couldn’t access the Computer file access store. Try again or check OpenMeld Service diagnostics.",
+    { localDiagnosticContext: buildIoDiagnosticContext(input) }
+  );
+}
+
+function buildIoDiagnosticContext(input: {
+  error: unknown;
+  operation: Extract<
+    ComputerFileAccessStoreDiagnosticContext,
+    { reason: "io_error" }
+  >["operation"];
+  path: string;
+}): Extract<ComputerFileAccessStoreDiagnosticContext, { reason: "io_error" }> {
+  const errorCode =
+    typeof input.error === "object" &&
+    input.error !== null &&
+    "code" in input.error &&
+    typeof input.error.code === "string"
+      ? input.error.code
+      : null;
+  return {
+    errorCode,
+    operation: input.operation,
+    path: input.path,
+    reason: "io_error",
+  };
 }

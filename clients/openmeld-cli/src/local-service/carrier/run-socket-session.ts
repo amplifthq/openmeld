@@ -1813,6 +1813,10 @@ export async function runDaemonSocketSession(input: {
           computerFileAccessStorePath: input.computerFileAccessStorePath,
           localAdapterContainer: input.localAdapterContainer,
           request: parsed.data,
+          routeConfig:
+            input.routeCatalogState.routeByProfileId.get(
+              parsed.data.identity.targetProfileId
+            ) ?? null,
         }),
       ledgerRootPath: input.ledgerPaths.rootDirPath,
       request: parsed.data,
