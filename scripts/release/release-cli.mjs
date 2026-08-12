@@ -167,6 +167,29 @@ export function tagCliRelease(input = {}) {
   return { created: true, tagName };
 }
 
+/**
+ * Publishes the immutable release tag through the same executor used by local
+ * and GitHub releases. A failed push leaves the local tag intact so a rerun can
+ * safely finish the remote publication without moving the tag.
+ */
+export function publishCliReleaseTag(input = {}) {
+  const cwd = input.cwd ?? process.cwd();
+  const local = tagCliRelease({ cwd });
+  const tagRef = `refs/tags/${local.tagName}`;
+  try {
+    execFileSync(gitBinary(), ["push", "origin", `${tagRef}:${tagRef}`], {
+      cwd,
+      encoding: "utf8",
+    });
+  } catch (error) {
+    throw new Error(
+      `Failed to publish immutable release tag ${local.tagName} to origin. The local tag remains safe to reuse on the next release attempt.`,
+      { cause: error }
+    );
+  }
+  return { ...local, published: true };
+}
+
 function readTagCommit(input) {
   try {
     return execFileSync(
@@ -205,8 +228,8 @@ export async function runCliRelease(input = {}) {
       assertCleanWorktree,
       buildCoreDeployStepSpec,
       buildPreTagCliReleaseStepSpecs,
+      publishCliReleaseTag,
       runStep,
-      tagCliRelease,
     },
   });
 }
@@ -302,12 +325,12 @@ export async function assertChannelReadyForVersionOnlyRelease(input = {}) {
  *
  * Consequently verify-release-ready.mjs runs twice per CLI release: once in
  * step 1, once inside deploy:core:local-components here. By the time this
- * second run happens, tagCliRelease() above has already tagged HEAD as the
- * release version, so resolveEffectiveReleaseBase() resolves that brand-new
- * tag as the base — it diffs empty against HEAD, so this run normally
- * short-circuits to just the channel-sync check instead of repeating
- * build/test/verify. That short circuit depends on no base override being
- * present: if OPENMELD_AFFECTED_BASE is set in the environment, it takes
+ * second run happens, publishCliReleaseTag() above has already tagged HEAD and
+ * published that exact tag to origin, so resolveEffectiveReleaseBase() resolves
+ * the brand-new local tag as the base — it diffs empty against HEAD, so this
+ * run normally short-circuits to just the channel-sync check instead of
+ * repeating build/test/verify. That short circuit depends on no base override
+ * being present: if OPENMELD_AFFECTED_BASE is set in the environment, it takes
  * precedence over the just-created tag (see resolveEffectiveReleaseBase in
  * local-components.mjs), so this second run becomes a full re-verification
  * instead of the cheap short-circuited one.

@@ -160,10 +160,3 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: pnpm exec wrangler deployments list --config services/core/wrangler.jsonc --env prod --json > /dev/null
-
-      - name: Push the release tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="$(node -p "require('./clients/openmeld-cli/package.json').version")"
-          git push origin "refs/tags/v${version}"
