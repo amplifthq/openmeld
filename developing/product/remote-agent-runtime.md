@@ -451,9 +451,10 @@ At the shared provider boundary, the Remote Agent classifies only that current
 request when it names the canonical Task or Space surfaces. An explicit request
 for a new or dedicated Task or Space pins the first model step to the matching
 create tool before large tool catalogs are compacted into Code Mode. That
-already-resolved create step disables extended model reasoning so provider tail
-latency cannot delay a deterministic surface binding; the created Task or Space
-keeps the Organization's normal reasoning policy for its actual work. The rule
+already-resolved create step preserves the frozen model route, including its
+reasoning policy; the provider may require that policy even when the first tool
+is deterministic. The created Task or Space keeps the Organization's normal
+reasoning policy for its actual work. The rule
 does not infer a new work surface from task complexity, does not inspect earlier
 conversation history as current intent, and does not run again after the create
 tool returns. Classification failure preserves the ordinary Center Agent turn

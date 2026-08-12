@@ -299,13 +299,17 @@ Organization-specific control still loads its current live value.
 
 `Skip setup` completes the current version and returns to the originally
 requested feature, retargeted to the Organization selected in the Studio.
-`Open OpenMeld` on the final screen does the same. When there is no valid
-originally requested feature, completion opens the selected Workspace's Center
-Agent chat so the configured system has an immediate, useful entry point. The
-user can always open the stable onboarding route directly to run the Studio
-again. Direct re-entry clears only presentation completion and starts at
-Workspace selection; it does not reset any product data. `?restart=1` provides
-the same deterministic presentation reset for local development and smoke.
+`Open OpenMeld` on the final screen does the same. Before it records completion,
+Web opens the canonical Center Agent Direct Message once so Core can materialize
+the selected Workspace's designated Center Agent through its existing owner
+path. A failed initialization keeps the person on Ready with one retry action;
+it must not expose Home with an unavailable Center Agent or add another writer.
+When there is no valid originally requested feature, completion opens the
+selected Workspace's Home. The user can always open the stable onboarding route
+directly to run the Studio again. Direct re-entry clears only presentation
+completion and starts at Workspace selection; it does not reset any product
+data. `?restart=1` provides the same deterministic presentation reset for local
+development and smoke.
 
 ### Layout and interaction
 

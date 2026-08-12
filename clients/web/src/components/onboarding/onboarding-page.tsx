@@ -1,12 +1,13 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { AppsOnboardingDemo } from "#/components/onboarding/apps-onboarding-demo";
 import { AppsOnboardingStep } from "#/components/onboarding/apps-onboarding-step";
 import { ChannelsOnboardingDemo } from "#/components/onboarding/channels-onboarding-demo";
 import { ChannelsOnboardingStep } from "#/components/onboarding/channels-onboarding-step";
+import { prepareOnboardingDestination } from "#/components/onboarding/complete-onboarding";
 import { CompleteOnboardingDemo } from "#/components/onboarding/complete-onboarding-demo";
 import { useCompleteOnboardingState } from "#/components/onboarding/complete-onboarding-state";
 import { CompleteOnboardingStep } from "#/components/onboarding/complete-onboarding-step";
@@ -118,6 +119,7 @@ function resolveStepCopy(input: {
 
 export function OnboardingPage() {
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const search = useSearch({ from: "/o/$orgSlug/onboarding" });
 	const organizationContext = useAppOrganization();
 	const [progress, setProgress] = useState<OpenMeldOnboardingProgress>(() => {
@@ -324,6 +326,8 @@ export function OnboardingPage() {
 		}
 	};
 	const finishAndEnterOpenMeld = async () => {
+		const organizationId = completeState.organizationId;
+		await prepareOnboardingDestination({ organizationId, queryClient });
 		const completed = completeOnboardingProgress({ current: progress });
 		persistProgress(completed);
 		await navigate({

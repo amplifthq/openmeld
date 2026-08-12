@@ -8,13 +8,15 @@ import {
 	PlugIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { CompleteOnboardingState } from "./complete-onboarding-state";
 
 export function CompleteOnboardingStep(input: {
 	onContinue: () => Promise<void>;
 	state: CompleteOnboardingState;
 }) {
+	const [isOpening, setIsOpening] = useState(false);
+	const [finishError, setFinishError] = useState<string | null>(null);
 	const outcomes = buildOnboardingOutcomes({
 		appNames: input.state.appNames,
 		channelNames: input.state.channelNames,
@@ -38,22 +40,38 @@ export function CompleteOnboardingStep(input: {
 				))}
 			</div>
 
-			<div className="mt-auto flex items-center justify-between gap-4 pt-7">
-				<p className="text-muted-foreground text-xs">
-					Change any of these settings later.
-				</p>
+			<div className="mt-auto flex items-end justify-between gap-4 pt-7">
+				<div>
+					<p className="text-muted-foreground text-xs">
+						Change any of these settings later.
+					</p>
+					{finishError ? (
+						<p className="mt-2 text-destructive text-xs" role="alert">
+							{finishError}
+						</p>
+					) : null}
+				</div>
 				<Button
-					onClick={() => {
-						input.onContinue().catch((error: unknown) => {
+					disabled={isOpening}
+					onClick={async () => {
+						setFinishError(null);
+						setIsOpening(true);
+						try {
+							await input.onContinue();
+						} catch (error) {
 							console.error("OpenMeld could not finish onboarding.", {
 								error,
 								organizationId: input.state.organizationId,
 							});
-						});
+							setFinishError(
+								"OpenMeld couldn’t finish setting up your workspace. Try again."
+							);
+							setIsOpening(false);
+						}
 					}}
 					type="button"
 				>
-					Open OpenMeld
+					{isOpening ? "Opening OpenMeld…" : "Open OpenMeld"}
 					<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
 				</Button>
 			</div>

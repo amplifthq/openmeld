@@ -888,7 +888,6 @@ function enforcePreclassifiedRemoteAgentWorkSurface(
     max_tokens: toolAlreadyRan ? 160 : 2048,
     messages: [bindingSystemMessage, ...compactCurrentTurnMessages],
     parallel_tool_calls: false,
-    reasoning: { enabled: false },
     ...(toolAlreadyRan
       ? { tools: [] }
       : {
@@ -960,11 +959,9 @@ async function enforceRemoteAgentWorkSurface(input: {
   return {
     ...input.payload,
     parallel_tool_calls: false,
-    // The classifier has already resolved the only remaining decision and the
-    // provider must call exactly one tool. Long-form reasoning here adds tail
-    // latency without improving routing; the created Task or Space keeps the
-    // Organization's normal reasoning level for its actual work.
-    reasoning: { enabled: false },
+    // Keep the frozen model route's reasoning contract. Some hosted models
+    // require reasoning and reject an explicit disable even when the remaining
+    // action is one forced tool call.
     tool_choice: { function: { name: toolName }, type: "function" },
     tools: [tool],
   };

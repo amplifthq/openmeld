@@ -508,6 +508,146 @@ describe("CenterAgentAppConnectionCard", () => {
 		openSpy.mockRestore();
 	});
 
+	it("keeps the authorization state stable while connection status refreshes", async () => {
+		const queryClient = createTestQueryClient();
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		} as unknown as Window;
+		vi.spyOn(window, "open").mockReturnValue(popup);
+
+		render(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockReturnValueOnce(new Promise(() => undefined));
+		act(() => {
+			queryClient
+				.invalidateQueries({
+					exact: true,
+					queryKey: organizationAppConnectionQueryKeys.service(
+						"org-acme",
+						"linear"
+					),
+				})
+				.catch(() => undefined);
+		});
+
+		await waitFor(() => {
+			expect(listConnectionsMock).toHaveBeenCalledTimes(2);
+			expect(screen.getByText("Waiting for authorization…")).toBeTruthy();
+			expect(screen.queryByText("Checking…")).toBeNull();
+		});
+	});
+
+	it("stops waiting when the user closes the authorization window", async () => {
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+		popup.closed = true;
+
+		expect(
+			await screen.findByText(
+				"Linear authorization was canceled. Connect again when you are ready."
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Waiting for authorization…")).toBeNull();
+	});
+
+	it("does not carry an authorization attempt into another App", async () => {
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		} as unknown as Window;
+		vi.spyOn(window, "open").mockReturnValue(popup);
+
+		const view = render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const linearButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(linearButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(linearButton);
+		await screen.findByText("Waiting for authorization…");
+
+		view.rerender(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={figmaApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		await waitFor(() => {
+			expect(
+				screen.getByRole("button", { name: "Connect Figma" })
+			).toBeTruthy();
+			expect(screen.queryByText("Waiting for authorization…")).toBeNull();
+			expect(popup.close).toHaveBeenCalledOnce();
+		});
+	});
+
 	it("uses OAuth as the default PostHog connection path", async () => {
 		const popup = {
 			closed: false,

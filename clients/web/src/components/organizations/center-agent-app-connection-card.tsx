@@ -55,6 +55,7 @@ import {
 } from "./app-connection-status-ui";
 
 const AUTHORIZATION_POLL_INTERVAL_MS = 1200;
+const AUTHORIZATION_POPUP_CHECK_INTERVAL_MS = 250;
 const AUTHORIZATION_TIMEOUT_MS = 120_000;
 
 type AuthorizationScope = "member" | "shared";
@@ -109,13 +110,28 @@ function resolveActiveConnectionGroups(input: {
 	};
 }
 
-export function CenterAgentAppConnectionCard(input: {
+type CenterAgentAppConnectionCardProps = {
 	app: Extract<AppDefinition, { availability: "available" }>;
 	canManage: boolean;
 	isPersonalWorkspace?: boolean;
 	mode: "all" | "member";
 	organizationId: string;
-}) {
+};
+
+export function CenterAgentAppConnectionCard(
+	input: CenterAgentAppConnectionCardProps
+) {
+	return (
+		<CenterAgentAppConnectionCardState
+			{...input}
+			key={`${input.organizationId}:${input.app.service}:${input.mode}`}
+		/>
+	);
+}
+
+function CenterAgentAppConnectionCardState(
+	input: CenterAgentAppConnectionCardProps
+) {
 	const queryClient = useQueryClient();
 	const [waitingScope, setWaitingScope] = useState<AuthorizationScope | null>(
 		null
@@ -151,6 +167,14 @@ export function CenterAgentAppConnectionCard(input: {
 		input.app.service
 	);
 
+	useEffect(
+		() => () => {
+			authorizationPopupRef.current?.close();
+			authorizationPopupRef.current = null;
+		},
+		[]
+	);
+
 	useEffect(() => {
 		if (!authorizationCompleted) {
 			return;
@@ -168,6 +192,24 @@ export function CenterAgentAppConnectionCard(input: {
 		}, 0);
 		return () => window.clearTimeout(completion);
 	}, [authorizationCompleted, input.app.name, sharedScopeName, waitingScope]);
+
+	useEffect(() => {
+		if (!waitingScope) {
+			return;
+		}
+		const popupCheck = window.setInterval(() => {
+			const popup = authorizationPopupRef.current;
+			if (!popup?.closed) {
+				return;
+			}
+			authorizationPopupRef.current = null;
+			setWaitingScope(null);
+			setLocalError(
+				`${input.app.name} authorization was canceled. Connect again when you are ready.`
+			);
+		}, AUTHORIZATION_POPUP_CHECK_INTERVAL_MS);
+		return () => window.clearInterval(popupCheck);
+	}, [input.app.name, waitingScope]);
 
 	useEffect(() => {
 		if (!waitingScope) {
@@ -673,18 +715,20 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 		primaryAuth.kind === "oauth" && usingCredentialFallback
 			? (primaryAuth.credentialFallback ?? primaryAuth)
 			: primaryAuth;
+	const connectPending = input.connectPendingKind === auth.kind;
+	const statusChecking = input.statusChecking && !connectPending;
 	const connectActionLabel = resolveConnectActionLabel({
 		appName: input.appName,
-		connectPending: input.connectPendingKind === auth.kind,
+		connectPending,
 		oauth: auth.kind === "oauth",
-		statusChecking: input.statusChecking,
+		statusChecking,
 	});
 	if (auth.kind === "oauth") {
 		return (
 			<div className="mt-4 flex flex-col items-start gap-2">
 				<Button
 					aria-label={
-						input.statusChecking
+						statusChecking
 							? "Checking connection status"
 							: `Connect ${input.appName}`
 					}
@@ -693,7 +737,7 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 					size="sm"
 					type="button"
 				>
-					{input.statusChecking ? (
+					{statusChecking ? (
 						<CircleNotchIcon aria-hidden="true" className="animate-spin" />
 					) : (
 						<ArrowSquareOutIcon aria-hidden="true" />
@@ -748,7 +792,7 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 			<div className="flex flex-wrap items-center gap-3">
 				<Button
 					aria-label={
-						input.statusChecking
+						statusChecking
 							? "Checking connection status"
 							: `Connect ${input.appName}`
 					}
@@ -756,7 +800,7 @@ function DisconnectedConnectionControl(input: ConnectionSectionInput) {
 					size="sm"
 					type="submit"
 				>
-					{input.statusChecking ? (
+					{statusChecking ? (
 						<CircleNotchIcon aria-hidden="true" className="animate-spin" />
 					) : null}
 					{connectActionLabel}

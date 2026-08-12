@@ -255,7 +255,7 @@ describe("Remote Agent model reasoning", () => {
     );
     expect(payload).toMatchObject({
       parallel_tool_calls: false,
-      reasoning: { enabled: false },
+      reasoning: { effort: "high" },
       tool_choice: {
         function: { name: "openmeld_create_task" },
         type: "function",
@@ -321,7 +321,7 @@ describe("Remote Agent model reasoning", () => {
           role: "user",
         },
       ],
-      reasoning: { enabled: false },
+      reasoning: { effort: "high" },
       tool_choice: {
         function: { name: "openmeld_create_task" },
         type: "function",
@@ -369,6 +369,7 @@ describe("Remote Agent model reasoning", () => {
             tool_call_id: "call_1",
           },
         ],
+        reasoning: { effort: "high" },
         tools: [
           {
             function: { name: "openmeld_create_task" },
@@ -383,7 +384,7 @@ describe("Remote Agent model reasoning", () => {
     expect(payload).toMatchObject({
       max_tokens: 160,
       parallel_tool_calls: false,
-      reasoning: { enabled: false },
+      reasoning: { effort: "high" },
       tools: [],
     });
     expect(payload).not.toHaveProperty("tool_choice");
@@ -423,7 +424,7 @@ describe("Remote Agent model reasoning", () => {
     );
 
     expect(payload).toMatchObject({
-      reasoning: { enabled: false },
+      reasoning: { effort: "high" },
       tool_choice: {
         function: { name: "openmeld_create_space" },
         type: "function",

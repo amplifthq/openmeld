@@ -211,7 +211,7 @@ export function AppsOnboardingStep(input: { onContinue: () => void }) {
 				/>
 			</div>
 
-			<div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+			<div className="-mx-1 mt-3 min-h-0 flex-1 overflow-y-auto px-1 pb-1">
 				<div className="flex items-center justify-between py-2">
 					<p className="text-muted-foreground text-xs">
 						{deferredSearch
@@ -303,7 +303,7 @@ export function AppsOnboardingStep(input: { onContinue: () => void }) {
 				) : null}
 			</div>
 
-			<div className="flex items-center justify-between gap-4 border-border/70 border-t pt-5">
+			<div className="flex shrink-0 items-center justify-between gap-4 pt-4">
 				<p className="text-muted-foreground text-xs">
 					Everything here can be changed later.
 				</p>
