@@ -9996,6 +9996,7 @@ export class Space extends DurableObject<CoreBindings> {
       {
         beforeSignalId: input.sourceSignalId,
         limit: input.beforeCount,
+        signalTypes: input.signalTypes,
         threadId: scope.scope.threadContext.threadId,
       }
     );

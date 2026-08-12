@@ -264,9 +264,17 @@ export function listSpaceThreadSignalPlacementsBefore(
   input: {
     beforeSignalId: string;
     limit: number;
+    signalTypes: readonly string[];
     threadId: string;
   }
 ): SpaceThreadSignalPlacement[] | null {
+  const signalTypes = [...new Set(input.signalTypes)];
+  if (signalTypes.length === 0) {
+    throw new Error(
+      "Thread history signal types are required before applying its limit."
+    );
+  }
+  const signalTypePlaceholders = signalTypes.map(() => "?").join(", ");
   const rows = sql
     .exec<SqlSpaceThreadSignalPlacementRow & { anchor_exists: number }>(
       `
@@ -292,12 +300,14 @@ export function listSpaceThreadSignalPlacementsBefore(
           ON placement.signal_id = signal.id
           AND placement.thread_id = ?
         WHERE placement.signal_id IS NOT NULL
+          AND signal.type IN (${signalTypePlaceholders})
         ORDER BY signal.rowid DESC
         LIMIT ?
       `,
       input.beforeSignalId,
       input.threadId,
       input.threadId,
+      ...signalTypes,
       input.limit
     )
     .toArray();

@@ -100,6 +100,7 @@ describe("space-thread-repo", () => {
       const placements = listSpaceThreadSignalPlacementsBefore(harness.sql, {
         beforeSignalId: "source",
         limit: 2,
+        signalTypes: ["signal.text"],
         threadId: "thread-1",
       });
 
@@ -111,9 +112,34 @@ describe("space-thread-repo", () => {
         listSpaceThreadSignalPlacementsBefore(harness.sql, {
           beforeSignalId: "other",
           limit: 2,
+          signalTypes: ["signal.text"],
           threadId: "thread-1",
         })
       ).toBeNull();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("applies signal type filters before bounding thread history", () => {
+    const harness = createSqlStorageHarness();
+    try {
+      harness.insertPlacement("text-1", "thread-1", 1);
+      harness.insertPlacement("status", "thread-1", 2, "signal.status");
+      harness.insertPlacement("text-2", "thread-1", 3);
+      harness.insertPlacement("source", "thread-1", 4);
+
+      const placements = listSpaceThreadSignalPlacementsBefore(harness.sql, {
+        beforeSignalId: "source",
+        limit: 2,
+        signalTypes: ["signal.text"],
+        threadId: "thread-1",
+      });
+
+      expect(placements?.map((placement) => placement.signalId)).toEqual([
+        "text-1",
+        "text-2",
+      ]);
     } finally {
       harness.close();
     }
@@ -122,14 +148,20 @@ describe("space-thread-repo", () => {
 
 function createSqlStorageHarness(): {
   close(): void;
-  insertPlacement(signalId: string, threadId: string, ts: number): void;
+  insertPlacement(
+    signalId: string,
+    threadId: string,
+    ts: number,
+    signalType?: string
+  ): void;
   sql: SqlStorage;
 } {
   const database = new DatabaseSync(":memory:");
   database.exec(`
     CREATE TABLE space_signals (
       id TEXT PRIMARY KEY,
-      ts INTEGER NOT NULL
+      ts INTEGER NOT NULL,
+      type TEXT NOT NULL
     );
     CREATE TABLE space_thread_signal_placements (
       signal_id TEXT PRIMARY KEY,
@@ -140,10 +172,10 @@ function createSqlStorageHarness(): {
   `);
   return {
     close: () => database.close(),
-    insertPlacement: (signalId, threadId, ts) => {
+    insertPlacement: (signalId, threadId, ts, signalType = "signal.text") => {
       database
-        .prepare("INSERT INTO space_signals (id, ts) VALUES (?, ?)")
-        .run(signalId, ts);
+        .prepare("INSERT INTO space_signals (id, ts, type) VALUES (?, ?, ?)")
+        .run(signalId, ts, signalType);
       database
         .prepare(
           `INSERT INTO space_thread_signal_placements (
