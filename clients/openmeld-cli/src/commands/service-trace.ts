@@ -177,6 +177,9 @@ export async function runServiceTrace(
     baseUrl,
     space: resolvedSpaceId,
     dispatchId: selection.dispatchId,
+    ...(input.details === true
+      ? { includeRemoteAgentRuntimeDiagnostics: true }
+      : {}),
     password: input.password,
   });
   const targetContext = await resolveTraceTargetContext({
@@ -214,6 +217,8 @@ export async function runServiceTrace(
   const payload = {
     correlation: traceResponse.correlation,
     query: traceResponse.query,
+    remoteAgentRuntimeDiagnostics:
+      traceResponse.remoteAgentRuntimeDiagnostics ?? null,
     selector: selection.selector,
     lookup: selection.lookup,
     actorProfile: {

@@ -178,6 +178,16 @@ ACI-owned local evidence may include:
 - clear local repair guidance when the controller is missing, ambiguous, old, or
   not authenticated
 
+The selected launch contract remains the install and update identity. When an
+official controller package adds a thin launcher around a packaged native
+runtime, an ACI adapter may execute that native runtime directly only after it
+proves the official package identity, declared entry point, platform package,
+and executable path. This runtime materialization must preserve the selected
+contract's arguments and managed-install environment, remain adapter-owned, and
+fall back to the official entry point for unknown package layouts. It must not
+rewrite Binding truth, create a second install choice, or change how upgrades
+discover the user's selected controller.
+
 ACI must not own:
 
 - Agent Profile identity
@@ -212,6 +222,28 @@ instruction-epoch marker. A legacy thread, an epoch mismatch, or missing source
 evidence must use the complete fallback prompt. Resume and fork do not replace a
 Codex thread's developer instructions, so they must not be used to retrofit a
 legacy thread.
+
+Codex App Server resume is a bounded admission step, not the execution itself.
+OpenMeld requests metadata-only resume without replaying historical turns,
+because the Service needs the controller conversation identity, model, and
+instruction source rather than a duplicate copy of provider history. If an
+existing controller conversation is missing or does not acknowledge resume
+within the short resume admission window, the adapter starts one fresh thread
+and delivers the complete current instruction plan exactly once. The resulting
+context delta replaces the inaccessible provider conversation transparently;
+a person must never be asked to create a new Task or Space to repair it.
+
+Control-operation deadlines are risk-specific. Metadata-only resume and
+collaboration-mode lookup keep a short bound so inaccessible history rolls over
+promptly. Fresh thread creation and `turn/start` acknowledgement use a longer,
+still-bounded admission window because controller cold work such as local
+plugin, skill, MCP, and workspace initialization can be delayed by temporary
+host pressure. A fresh thread-start timeout may be retried once because no user
+turn has been accepted and an unobserved thread is not a published side effect.
+OpenMeld must not automatically resubmit `turn/start` after an acknowledgement
+timeout: the controller may already have accepted the turn, so resubmission
+could duplicate user work. Once a turn is accepted, no fixed total wall-clock
+timeout applies to the healthy running execution.
 
 Controller context fullness, token usage, cache state, or compaction must never
 decide whether required instructions are present. These are diagnostic and
@@ -349,6 +381,13 @@ controller as needing setup or discard the last successful evidence.
 An installed or detected controller that cannot currently launch must remain
 visible with explicit repair evidence; it must not be relabeled as missing or
 silently removed from local-agent selection and diagnostics.
+
+Provider process startup and provider task execution are separate lifecycle
+phases. An adapter may bound and retry a protocol initialization handshake only
+while it can prove that no provider thread or turn request began. Once provider
+initialization succeeds, ordinary long-running work remains governed by fresh
+execution progress, explicit cancellation, and terminal results rather than a
+fixed wall-clock deadline.
 
 Controller snapshots are local evidence. They may power Computer cards, CLI
 diagnostics, Desktop surfaces, and owner-self Agent details, but they must stay
@@ -503,6 +542,15 @@ diagnostic after those signal attempts and must never crash the OpenMeld
 Service or suppress the primary Stop. A wrapper or controller exit therefore
 cannot silently orphan a detached supervised descendant or keep a local
 execution slot occupied after an accepted Stop.
+
+A long-lived or multi-thread Agent Controller whose request protocol carries an
+explicit workspace starts its host process in an OS runtime directory, not in
+the provider workspace. The exact dispatch workspace remains authoritative on
+every provider thread and turn request. This separation prevents controller
+bootstrap from depending on macOS privacy-protected workspace path resolution
+and avoids turning a host-process detail into a second source of workspace
+truth. Ordinary one-shot controller commands that do not carry a request-level
+workspace continue to start in the provider workspace.
 
 ## Local Setup Driver Boundary
 
@@ -1246,6 +1294,13 @@ A forced stop is never presented as a controlled drain. The command must warn
 before the destructive escalation, and the lifecycle journal must retain the
 force-kill or skip decision so later diagnostics can distinguish operator
 intent from a crash or network loss.
+
+Lifecycle failures preserve stable typed error codes through the maintenance
+outcome and Agent View. If a running Service has lost its control endpoint,
+repair and update fail closed and explain the deliberate force command together
+with its no-active-work precondition. They must not infer that a missing control
+endpoint means no local Agent work is running or force-stop the process
+automatically.
 
 Exact-controller recovery is capability-gated. A Service advertises
 `resumeControllerConversation` only when its carrier can validate the frozen

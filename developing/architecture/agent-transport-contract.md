@@ -246,6 +246,12 @@ Important execution rules:
 - Local adapter process watchdogs default to `null`. If a caller supplies a
   positive process timeout, it is an explicit diagnostic or test backstop, not
   the product's normal Agent execution policy.
+- A provider protocol startup handshake may have its own bounded deadline
+  before any provider thread or turn request begins. The adapter may retry that
+  exact startup once only when the typed failure proves no provider turn or
+  user-visible side effect started. This startup boundary must be cleared as
+  soon as initialization succeeds; it must never become a total Agent execution
+  deadline or retry a turn whose outcome may be ambiguous.
 - `accepted_local` means OpenMeld Service has accepted the task on the user's
   computer. If the runtime has not started yet, the local service must attach
   queue diagnostics so Trace can explain whether the task is waiting for the

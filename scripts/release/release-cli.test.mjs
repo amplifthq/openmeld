@@ -17,6 +17,7 @@ import {
   formatDirtyWorktreeReleaseError,
   parseCliReleaseArgs,
   parseGitStatusPorcelain,
+  publishCliReleaseTag,
   resolveCliReleaseTagName,
   runCliRelease,
   tagCliRelease,
@@ -107,6 +108,13 @@ async function createReleaseRepo(version) {
   await git("add", "-A");
   await git("commit", "-m", "seed");
   return { git, repoRoot };
+}
+
+async function configureTestOrigin(input) {
+  const remoteRoot = join(input.repoRoot, ".git", "test-origin.git");
+  await input.git("init", "--bare", remoteRoot);
+  await input.git("remote", "add", "origin", remoteRoot);
+  await input.git("push", "origin", "HEAD:refs/heads/main");
 }
 
 test("parses porcelain status output for release safety checks", () => {
@@ -284,6 +292,34 @@ test("tags the release at HEAD and stays idempotent on reruns", async () => {
     const tagged = await git("rev-parse", "v0.7.96^{commit}");
     const head = await git("rev-parse", "HEAD");
     assert.equal(tagged.stdout.trim(), head.stdout.trim());
+  } finally {
+    await rm(repoRoot, { force: true, recursive: true });
+  }
+});
+
+test("publishes the immutable release tag to origin and stays idempotent", async () => {
+  const { git, repoRoot } = await createReleaseRepo("0.7.96");
+  try {
+    await configureTestOrigin({ git, repoRoot });
+    assert.deepEqual(publishCliReleaseTag({ cwd: repoRoot }), {
+      created: true,
+      published: true,
+      tagName: "v0.7.96",
+    });
+    assert.deepEqual(publishCliReleaseTag({ cwd: repoRoot }), {
+      created: false,
+      published: true,
+      tagName: "v0.7.96",
+    });
+    const head = (await git("rev-parse", "HEAD")).stdout.trim();
+    const remoteTag = (
+      await git(
+        "--git-dir=.git/test-origin.git",
+        "rev-parse",
+        "refs/tags/v0.7.96^{commit}"
+      )
+    ).stdout.trim();
+    assert.equal(remoteTag, head);
   } finally {
     await rm(repoRoot, { force: true, recursive: true });
   }
@@ -607,7 +643,7 @@ test("stops before binary, npm, tag, and Core when the Queue gate fails", async 
               throw new Error("queue gate exploded");
             }
           },
-          tagCliRelease: () => sideEffects.push("tag"),
+          publishCliReleaseTag: () => sideEffects.push("tag"),
         },
         cwd: repoRoot,
         env: {},
@@ -630,7 +666,7 @@ test("stops before binary, npm, tag, and Core when the Queue gate fails", async 
 });
 
 test("a fully completed CLI release rerun skips every stage without side effects", async () => {
-  const { repoRoot } = await createReleaseRepo("0.7.96");
+  const { git, repoRoot } = await createReleaseRepo("0.7.96");
   const releaseManifest = {
     schemaVersion: 1,
     components: {
@@ -644,16 +680,12 @@ test("a fully completed CLI release rerun skips every stage without side effects
     join(repoRoot, "release/local-components.json"),
     `${JSON.stringify(releaseManifest, null, 2)}\n`
   );
-  const git = (...args) =>
-    execFileAsync(
-      "git",
-      ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args],
-      { cwd: repoRoot }
-    );
   await git("add", "release/local-components.json");
   await git("commit", "-m", "add release manifest");
   const head = (await git("rev-parse", "HEAD")).stdout.trim();
+  await configureTestOrigin({ git, repoRoot });
   await git("tag", "-a", "v0.7.96", "-m", "release");
+  await git("push", "origin", "refs/tags/v0.7.96");
   const coreTag = resolveCoreProjectionTag({ cwd: repoRoot });
   const sideEffects = [];
   const output = [];
@@ -704,7 +736,7 @@ test("a fully completed CLI release rerun skips every stage without side effects
           throw new Error(`Unexpected read-only command: ${key}`);
         },
         runStep: (step) => sideEffects.push(step.label),
-        tagCliRelease: () => sideEffects.push("tag"),
+        publishCliReleaseTag: () => sideEffects.push("tag"),
       },
       cwd: repoRoot,
       env: {},

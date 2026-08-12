@@ -20,8 +20,12 @@ import {
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "../agent-core/openrouter-provider-routing";
 import {
   classifyRemoteAgentWorkSurface,
+  compactRemoteAgentWorkSurfaceCurrentUserMessage,
+  DEFAULT_REMOTE_AGENT_WORK_SURFACE_MODEL_ID,
   extractRemoteAgentCurrentUserRequest,
+  REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER,
   type RemoteAgentWorkSurface,
+  resolveRemoteAgentWorkSurfaceModelId,
   shouldClassifyRemoteAgentWorkSurface,
 } from "../agent-core/work-surface-routing";
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
@@ -131,18 +135,30 @@ const registeredRemoteAgentModelCapabilities = new Map<
 
 export async function registerRemoteAgentCloudflareProvider(input: {
   env: RemoteAgentModelEnv;
+  executionProfile?: "work_surface_binding";
   modelRoute?: CenterAgentModelRoute | null;
   organizationId?: string | null;
 }): Promise<RemoteAgentModelRuntimeConfig> {
+  const modelEnv =
+    input.executionProfile === "work_surface_binding"
+      ? {
+          ...input.env,
+          OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID:
+            resolveRemoteAgentWorkSurfaceModelId(input.env),
+        }
+      : input.env;
+  const modelRoute =
+    input.executionProfile === "work_surface_binding" ? null : input.modelRoute;
   const runtimeConfig =
     await resolveRemoteAgentModelRuntimeConfigForRegistration({
-      env: input.env,
-      modelRoute: input.modelRoute,
+      env: modelEnv,
+      modelRoute,
     });
   const { contextWindow, maxTokens, modelId } = runtimeConfig;
   const providerId = await buildRemoteAgentScopedProviderId({
+    executionProfile: input.executionProfile,
     modelId,
-    modelRoute: input.modelRoute,
+    modelRoute,
     organizationId: input.organizationId,
   });
   registerRemoteAgentModelCapabilitiesApi();
@@ -163,9 +179,15 @@ export async function registerRemoteAgentCloudflareProvider(input: {
       thinkingFormat: "openrouter",
     },
     cost: openRouterModel?.cost,
-    inputModalities: input.modelRoute?.inputModalities ?? ["text", "image"],
+    inputModalities:
+      input.executionProfile === "work_surface_binding"
+        ? ["text"]
+        : (input.modelRoute?.inputModalities ?? ["text", "image"]),
     modelId,
-    reasoningLevel: input.modelRoute?.reasoningLevel ?? "high",
+    reasoningLevel:
+      input.executionProfile === "work_surface_binding"
+        ? "low"
+        : (input.modelRoute?.reasoningLevel ?? "high"),
     reportStage: (observation) => {
       if (!observation.submissionId) {
         return;
@@ -214,19 +236,23 @@ export async function registerRemoteAgentCloudflareProvider(input: {
 }
 
 async function buildRemoteAgentScopedProviderId(input: {
+  executionProfile?: "work_surface_binding";
   modelId: string;
   modelRoute?: CenterAgentModelRoute | null;
   organizationId?: string | null;
 }): Promise<string> {
-  const routeIdentity = input.modelRoute
-    ? [
-        input.modelRoute.catalogUpdatedAt,
-        input.modelRoute.contextWindow,
-        input.modelRoute.maxOutputTokens,
-        input.modelRoute.reasoningLevel,
-        input.modelRoute.inputModalities.join(","),
-      ].join(":")
-    : "legacy-v1";
+  let routeIdentity = "legacy-v1";
+  if (input.executionProfile) {
+    routeIdentity = `execution-profile:${input.executionProfile}`;
+  } else if (input.modelRoute) {
+    routeIdentity = [
+      input.modelRoute.catalogUpdatedAt,
+      input.modelRoute.contextWindow,
+      input.modelRoute.maxOutputTokens,
+      input.modelRoute.reasoningLevel,
+      input.modelRoute.inputModalities.join(","),
+    ].join(":");
+  }
   const identity = [
     input.organizationId?.trim() || "unattributed",
     input.modelId,
@@ -409,18 +435,28 @@ function resolveStaticRemoteAgentModelRuntimeConfig(input: {
   env: RemoteAgentModelEnv;
   modelId: string;
 }): RemoteAgentModelRuntimeConfig | null {
-  if (input.modelId !== REMOTE_AGENT_OPENROUTER_MODEL_ID) {
-    return null;
+  if (input.modelId === DEFAULT_REMOTE_AGENT_WORK_SURFACE_MODEL_ID) {
+    // Captured in tests/fixtures/openrouter-model-openai-gpt-5.4-mini.json.
+    return buildRemoteAgentModelRuntimeConfig({
+      contextLength: 400_000,
+      env: input.env,
+      modelId: input.modelId,
+      providerContextLength: 400_000,
+      providerMaxCompletionTokens: 128_000,
+    });
   }
-  // Captured in tests/fixtures/openrouter-model-x-ai-grok-4.5.json.
-  return buildRemoteAgentModelRuntimeConfig({
-    contextLength: 500_000,
-    env: input.env,
-    modelId: input.modelId,
-    pricingOverrides: [{ min_prompt_tokens: 200_000 }],
-    providerContextLength: 500_000,
-    providerMaxCompletionTokens: null,
-  });
+  if (input.modelId === REMOTE_AGENT_OPENROUTER_MODEL_ID) {
+    // Captured in tests/fixtures/openrouter-model-x-ai-grok-4.5.json.
+    return buildRemoteAgentModelRuntimeConfig({
+      contextLength: 500_000,
+      env: input.env,
+      modelId: input.modelId,
+      pricingOverrides: [{ min_prompt_tokens: 200_000 }],
+      providerContextLength: 500_000,
+      providerMaxCompletionTokens: null,
+    });
+  }
+  return null;
 }
 
 function refreshRemoteAgentModelRuntimeConfig(input: {
@@ -671,11 +707,13 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
           "Remote Agent OpenRouter request payload must be an object."
         );
       }
-      const routedPayload = await enforceRemoteAgentWorkSurface({
-        classifyWorkSurface,
-        payload: resolvedPayload,
-        submissionId,
-      });
+      const routedPayload =
+        enforcePreclassifiedRemoteAgentWorkSurface(resolvedPayload) ??
+        (await enforceRemoteAgentWorkSurface({
+          classifyWorkSurface,
+          payload: resolvedPayload,
+          submissionId,
+        }));
       const originalToolCount = Array.isArray(routedPayload.tools)
         ? routedPayload.tools.length
         : 0;
@@ -758,6 +796,107 @@ const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
 const REMOTE_AGENT_CREATE_TASK_TOOL_NAME = "openmeld_create_task";
 const REMOTE_AGENT_CREATE_SPACE_TOOL_NAME = "openmeld_create_space";
 
+function enforcePreclassifiedRemoteAgentWorkSurface(
+  payload: Record<string, unknown>
+): Record<string, unknown> | null {
+  if (!Array.isArray(payload.messages)) {
+    return null;
+  }
+  const bindingSystemMessage = payload.messages.find(
+    (message) =>
+      isRecord(message) &&
+      message.role === "system" &&
+      typeof message.content === "string" &&
+      message.content.startsWith(
+        `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: `
+      )
+  );
+  if (!(bindingSystemMessage && isRecord(bindingSystemMessage))) {
+    return null;
+  }
+  const systemContent = bindingSystemMessage.content;
+  let surface: "new_space" | "new_task" | null = null;
+  if (
+    typeof systemContent === "string" &&
+    systemContent.startsWith(
+      `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_task`
+    )
+  ) {
+    surface = "new_task";
+  } else if (
+    typeof systemContent === "string" &&
+    systemContent.startsWith(
+      `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_space`
+    )
+  ) {
+    surface = "new_space";
+  }
+  if (!surface) {
+    throw new Error("Remote Agent work-surface binding marker is invalid.");
+  }
+  const currentUserIndex = payload.messages.findLastIndex(
+    (message) => isRecord(message) && message.role === "user"
+  );
+  if (currentUserIndex < 0) {
+    throw new Error(
+      "Remote Agent work-surface binding requires a current user message."
+    );
+  }
+  const currentTurnMessages = payload.messages.slice(currentUserIndex);
+  const currentUserMessage = currentTurnMessages[0];
+  if (
+    !isRecord(currentUserMessage) ||
+    currentUserMessage.role !== "user" ||
+    typeof currentUserMessage.content !== "string"
+  ) {
+    throw new Error(
+      "Remote Agent work-surface binding requires a text-only current user message."
+    );
+  }
+  const compactCurrentTurnMessages = [
+    {
+      ...currentUserMessage,
+      content: compactRemoteAgentWorkSurfaceCurrentUserMessage(
+        currentUserMessage.content
+      ),
+    },
+    ...currentTurnMessages.slice(1),
+  ];
+  const toolAlreadyRan = compactCurrentTurnMessages.some(
+    (message) => isRecord(message) && message.role === "tool"
+  );
+  const toolName =
+    surface === "new_task"
+      ? REMOTE_AGENT_CREATE_TASK_TOOL_NAME
+      : REMOTE_AGENT_CREATE_SPACE_TOOL_NAME;
+  const tool = Array.isArray(payload.tools)
+    ? payload.tools.find((candidate) =>
+        isRemoteAgentProviderToolNamed(candidate, toolName)
+      )
+    : undefined;
+  if (!(tool || toolAlreadyRan)) {
+    throw new Error(`Remote Agent work-surface binding requires ${toolName}.`);
+  }
+  const {
+    parallel_tool_calls: _parallelToolCalls,
+    tool_choice: _toolChoice,
+    ...basePayload
+  } = payload;
+  return {
+    ...basePayload,
+    max_tokens: toolAlreadyRan ? 160 : 2048,
+    messages: [bindingSystemMessage, ...compactCurrentTurnMessages],
+    parallel_tool_calls: false,
+    reasoning: { enabled: false },
+    ...(toolAlreadyRan
+      ? { tools: [] }
+      : {
+          tool_choice: { function: { name: toolName }, type: "function" },
+          tools: [tool],
+        }),
+  };
+}
+
 async function enforceRemoteAgentWorkSurface(input: {
   classifyWorkSurface?: (request: string) => Promise<RemoteAgentWorkSurface>;
   payload: Record<string, unknown>;
@@ -820,6 +959,11 @@ async function enforceRemoteAgentWorkSurface(input: {
   return {
     ...input.payload,
     parallel_tool_calls: false,
+    // The classifier has already resolved the only remaining decision and the
+    // provider must call exactly one tool. Long-form reasoning here adds tail
+    // latency without improving routing; the created Task or Space keeps the
+    // Organization's normal reasoning level for its actual work.
+    reasoning: { enabled: false },
     tool_choice: { function: { name: toolName }, type: "function" },
     tools: [tool],
   };

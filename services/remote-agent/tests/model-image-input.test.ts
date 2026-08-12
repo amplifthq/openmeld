@@ -1,6 +1,7 @@
 import { stream as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions";
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
 import { describe, expect, it, vi } from "vitest";
+import { REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER } from "../agent-core/work-surface-routing";
 import {
   declareRemoteAgentModelImageInput,
   declareRemoteAgentModelReasoning,
@@ -243,6 +244,7 @@ describe("Remote Agent model reasoning", () => {
             role: "user",
           },
         ],
+        reasoning: { effort: "high" },
         tools,
       },
       TEXT_ONLY_MODEL
@@ -253,12 +255,138 @@ describe("Remote Agent model reasoning", () => {
     );
     expect(payload).toMatchObject({
       parallel_tool_calls: false,
+      reasoning: { enabled: false },
       tool_choice: {
         function: { name: "openmeld_create_task" },
         type: "function",
       },
       tools: [createTask],
     });
+  });
+
+  it("drops old conversation history for a preclassified lightweight binding", async () => {
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
+    const createTask = {
+      function: { name: "openmeld_create_task" },
+      type: "function",
+    };
+
+    const payload = await options.onPayload?.(
+      {
+        messages: [
+          {
+            content: `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_task`,
+            role: "system",
+          },
+          { content: "very large old conversation", role: "user" },
+          { content: "old reply", role: "assistant" },
+          {
+            content: [
+              "[OpenMeld conversation continuity]",
+              "This is deliberately large prior context.",
+              "[Current verified request]",
+              "Create a dedicated Task to research competitor onboarding.",
+              "",
+              "[OpenMeld turn context]",
+              "Authoritative UTC time for this turn: 2026-08-12T00:00:00.000Z",
+            ].join("\n"),
+            role: "user",
+          },
+        ],
+        reasoning: { effort: "high" },
+        tools: [
+          createTask,
+          {
+            function: { name: "openmeld_create_space" },
+            type: "function",
+          },
+        ],
+      },
+      TEXT_ONLY_MODEL
+    );
+
+    expect(JSON.stringify(payload)).not.toContain(
+      "very large old conversation"
+    );
+    expect(payload).toMatchObject({
+      max_tokens: 2048,
+      messages: [
+        {
+          content: `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_task`,
+          role: "system",
+        },
+        {
+          content:
+            "Create a dedicated Task to research competitor onboarding.\n\n[OpenMeld turn context]\nAuthoritative UTC time for this turn: 2026-08-12T00:00:00.000Z",
+          role: "user",
+        },
+      ],
+      reasoning: { enabled: false },
+      tool_choice: {
+        function: { name: "openmeld_create_task" },
+        type: "function",
+      },
+      tools: [createTask],
+    });
+    expect(JSON.stringify(payload)).not.toContain(
+      "deliberately large prior context"
+    );
+  });
+
+  it("disables every tool after the lightweight binding tool returns", async () => {
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
+    const payload = await options.onPayload?.(
+      {
+        messages: [
+          {
+            content: `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_task`,
+            role: "system",
+          },
+          { content: "old request", role: "user" },
+          { content: "old response", role: "assistant" },
+          {
+            content:
+              "Create a dedicated Task to research competitor onboarding.",
+            role: "user",
+          },
+          {
+            role: "assistant",
+            tool_calls: [
+              {
+                function: {
+                  arguments:
+                    '{"goal":"Research competitor onboarding.","operationId":"op_1","title":"Competitor onboarding research"}',
+                  name: "openmeld_create_task",
+                },
+                id: "call_1",
+                type: "function",
+              },
+            ],
+          },
+          {
+            content: '{"task":{"id":"task_1"}}',
+            role: "tool",
+            tool_call_id: "call_1",
+          },
+        ],
+        tools: [
+          {
+            function: { name: "openmeld_create_task" },
+            type: "function",
+          },
+        ],
+      },
+      TEXT_ONLY_MODEL
+    );
+
+    expect(JSON.stringify(payload)).not.toContain("old request");
+    expect(payload).toMatchObject({
+      max_tokens: 160,
+      parallel_tool_calls: false,
+      reasoning: { enabled: false },
+      tools: [],
+    });
+    expect(payload).not.toHaveProperty("tool_choice");
   });
 
   it("forces an explicitly requested Space through the same provider boundary", async () => {
@@ -282,6 +410,7 @@ describe("Remote Agent model reasoning", () => {
             role: "user",
           },
         ],
+        reasoning: { effort: "high" },
         tools: [
           {
             function: { name: "openmeld_create_task" },
@@ -294,6 +423,7 @@ describe("Remote Agent model reasoning", () => {
     );
 
     expect(payload).toMatchObject({
+      reasoning: { enabled: false },
       tool_choice: {
         function: { name: "openmeld_create_space" },
         type: "function",
@@ -353,6 +483,7 @@ describe("Remote Agent model reasoning", () => {
           { content: "Create a Space.", role: "user" },
           { content: "created", role: "tool", tool_call_id: "call_1" },
         ],
+        reasoning: { effort: "high" },
         tools: [
           {
             function: { name: "openmeld_create_space" },
@@ -365,6 +496,7 @@ describe("Remote Agent model reasoning", () => {
 
     expect(classifyWorkSurface).not.toHaveBeenCalled();
     expect(payload).not.toHaveProperty("tool_choice");
+    expect(payload).toMatchObject({ reasoning: { effort: "high" } });
   });
 
   it("keeps the main Agent available when work-surface classification fails", async () => {

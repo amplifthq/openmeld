@@ -1,9 +1,11 @@
 import { resolveAgentWakeAvailability } from "@openmeld/agent-runtime";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
+	CurrentDeviceTargetResponse,
 	CurrentLocalRuntimeReplyReadinessResponse,
 	GetAgentExecutionReadinessResponse,
 	LocalCliComponentUpdateProjection,
+	LocalRuntimesResponse,
 	LocalServiceComponentUpdateProjection,
 	PrepareSessionSnapshot,
 	PrepareSetupBootstrapResult,
@@ -987,18 +989,7 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 			)
 		);
 
-		render(
-			<TestQueryClientProvider>
-				<StartFlowStateProvider>
-					<ComputerSetupFlow
-						autoReturnOnCompletion={false}
-						orgSlug="acme"
-						preferExistingConnection
-						presentation="embedded"
-					/>
-				</StartFlowStateProvider>
-			</TestQueryClientProvider>
-		);
+		render(createEmbeddedOnboardingComputerSetupElement());
 
 		expect(
 			await screen.findByText("OpenMeld Service is connected")
@@ -1006,6 +997,204 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		expect(screen.getByText("This computer")).toBeTruthy();
 		expect(createPrepareSessionMock).not.toHaveBeenCalled();
 		expect(screen.queryByText(SETUP_COMMAND_COPY)).toBeNull();
+	});
+
+	it("waits for computer inventory before deciding whether onboarding needs Terminal setup", async () => {
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{
+					kind: "account_computer_setup",
+					resetThisComputer: false,
+				},
+				{
+					currentDeviceTargetQuery: {
+						data: undefined,
+						isError: false,
+						isFetching: true,
+						isPending: true,
+						isSuccess: false,
+					},
+					currentLocalRuntimeReplyReadinessQuery: {
+						data: undefined,
+						isError: false,
+						isFetching: false,
+						isPending: true,
+						refetch: vi.fn().mockResolvedValue(undefined),
+					},
+					deviceId: null,
+					localRuntimesQuery: {
+						data: undefined,
+						isError: false,
+						isFetching: true,
+						isPending: true,
+						isSuccess: false,
+					},
+					runtimeLane: null,
+				}
+			)
+		);
+
+		const view = render(createEmbeddedOnboardingComputerSetupElement());
+
+		expect(await screen.findByText("Checking this computer…")).toBeTruthy();
+		expect(createPrepareSessionMock).not.toHaveBeenCalled();
+
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{
+					kind: "account_computer_setup",
+					resetThisComputer: false,
+				},
+				{
+					currentLocalRuntimeReplyReadinessQuery: {
+						data: buildDisconnectedCurrentLocalRuntimeReplyReadinessResponse(),
+						isError: false,
+						isFetching: false,
+						isPending: false,
+						refetch: vi.fn().mockResolvedValue(undefined),
+					},
+					localRuntimesQuery: {
+						data: undefined,
+						isError: false,
+						isFetching: true,
+						isPending: true,
+						isSuccess: false,
+					},
+				}
+			)
+		);
+		view.rerender(createEmbeddedOnboardingComputerSetupElement());
+
+		expect(screen.getByText("Checking this computer…")).toBeTruthy();
+		expect(createPrepareSessionMock).not.toHaveBeenCalled();
+
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{
+					kind: "account_computer_setup",
+					resetThisComputer: false,
+				},
+				{
+					currentLocalRuntimeReplyReadinessQuery: {
+						data: undefined,
+						isError: false,
+						isFetching: false,
+						isPending: true,
+						refetch: vi.fn().mockResolvedValue(undefined),
+					},
+				}
+			)
+		);
+		view.rerender(createEmbeddedOnboardingComputerSetupElement());
+
+		expect(screen.getByText("Checking this computer…")).toBeTruthy();
+		expect(createPrepareSessionMock).not.toHaveBeenCalled();
+
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{
+					kind: "account_computer_setup",
+					resetThisComputer: false,
+				},
+				{
+					currentLocalRuntimeReplyReadinessQuery: {
+						data: buildCurrentLocalRuntimeReplyReadinessResponse(),
+						isError: false,
+						isFetching: false,
+						isPending: false,
+						refetch: vi.fn().mockResolvedValue(undefined),
+					},
+				}
+			)
+		);
+		view.rerender(createEmbeddedOnboardingComputerSetupElement());
+
+		expect(
+			await screen.findByText("OpenMeld Service is connected")
+		).toBeTruthy();
+		expect(createPrepareSessionMock).not.toHaveBeenCalled();
+	});
+
+	it("fails closed when computer inventory cannot be checked", async () => {
+		const refreshAll = vi.fn().mockResolvedValue(undefined);
+		const readinessRefetch = vi.fn().mockResolvedValue(undefined);
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{
+					kind: "account_computer_setup",
+					resetThisComputer: false,
+				},
+				{
+					currentDeviceTargetQuery: {
+						data: undefined,
+						isError: true,
+						isFetching: false,
+						isPending: false,
+						isSuccess: false,
+					},
+					currentLocalRuntimeReplyReadinessQuery: {
+						data: undefined,
+						isError: false,
+						isFetching: false,
+						isPending: true,
+						refetch: readinessRefetch,
+					},
+					deviceId: null,
+					refreshAll,
+					runtimeLane: null,
+				}
+			)
+		);
+
+		render(createEmbeddedOnboardingComputerSetupElement());
+
+		expect(
+			await screen.findByText("OpenMeld could not check this computer")
+		).toBeTruthy();
+		expect(createPrepareSessionMock).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() => expect(refreshAll).toHaveBeenCalledTimes(1));
+		expect(readinessRefetch).not.toHaveBeenCalled();
+		expect(createPrepareSessionMock).not.toHaveBeenCalled();
+	});
+
+	it("shows Terminal setup when embedded onboarding has no existing computer to check", async () => {
+		createPrepareSessionMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_active",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot: {
+				...createTerminalDisconnectedSnapshot(),
+				deviceId: null,
+				targetSpaceId: null,
+			},
+		});
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext(
+				{
+					kind: "account_computer_setup",
+					resetThisComputer: false,
+				},
+				{
+					currentLocalRuntimeReplyReadinessQuery: {
+						data: undefined,
+						isError: false,
+						isFetching: false,
+						isPending: true,
+						refetch: vi.fn().mockResolvedValue(undefined),
+					},
+					deviceId: null,
+					runtimeLane: null,
+				}
+			)
+		);
+
+		render(createEmbeddedOnboardingComputerSetupElement());
+
+		expect(
+			await screen.findByRole("button", { name: "Copy setup command" })
+		).toBeTruthy();
+		expect(screen.queryByText("Checking this computer…")).toBeNull();
+		expect(createPrepareSessionMock).toHaveBeenCalledOnce();
 	});
 
 	it("hands a replayed automatic setup action back to the explicit Continue gate", async () => {
@@ -2165,6 +2354,21 @@ function createPreparePageElement(
 	);
 }
 
+function createEmbeddedOnboardingComputerSetupElement() {
+	return (
+		<TestQueryClientProvider>
+			<StartFlowStateProvider>
+				<ComputerSetupFlow
+					autoReturnOnCompletion={false}
+					orgSlug="acme"
+					preferExistingConnection
+					presentation="embedded"
+				/>
+			</StartFlowStateProvider>
+		</TestQueryClientProvider>
+	);
+}
+
 function createSetupContext(
 	routeIntent: ConnectRouteIntent,
 	overrides: Partial<{
@@ -2176,19 +2380,57 @@ function createSetupContext(
 		agentExecutionReadinessPendingProfileIds: Set<string>;
 		agentProfiles: ReturnType<typeof buildAgentProfile>[];
 		agentProfilesQuery: { isPending: boolean };
+		currentDeviceTargetQuery: {
+			data: CurrentDeviceTargetResponse | undefined;
+			isError?: boolean;
+			isFetching?: boolean;
+			isPending?: boolean;
+			isSuccess?: boolean;
+		};
 		currentLocalRuntimeReplyReadinessQuery: {
 			data: CurrentLocalRuntimeReplyReadinessResponse | undefined;
 			isError?: boolean;
+			isFetching?: boolean;
 			isPending?: boolean;
 			refetch: ReturnType<typeof vi.fn>;
 		};
 		deviceId: string | null;
+		localRuntimesQuery: {
+			data: LocalRuntimesResponse | undefined;
+			isError?: boolean;
+			isFetching?: boolean;
+			isPending?: boolean;
+			isSuccess?: boolean;
+		};
 		refreshAll: ReturnType<typeof vi.fn>;
 		runtimeLane: string | null;
 		sessionExpiredState: SessionExpiredState | null;
 	}> = {}
 ) {
 	const targetSpaceId = resolveSetupContextTargetSpaceId(routeIntent);
+	const deviceId =
+		overrides.deviceId === undefined ? "device-current" : overrides.deviceId;
+	const runtimeLane =
+		overrides.runtimeLane === undefined ? "dev-local" : overrides.runtimeLane;
+	const inventoryRuntimeLane =
+		runtimeLane === "prod" ||
+		runtimeLane === "dev-local" ||
+		runtimeLane === "canary"
+			? runtimeLane
+			: null;
+	const defaultCurrentDeviceTarget: CurrentDeviceTargetResponse =
+		deviceId === null || inventoryRuntimeLane === null
+			? { availability: "missing" }
+			: {
+					availability: "resolved",
+					deviceId,
+					runtimeLane: inventoryRuntimeLane,
+				};
+	const defaultLocalRuntimes = {
+		currentDeviceId: deviceId,
+		currentRuntimeLane: inventoryRuntimeLane,
+		localRuntimes: [],
+	} satisfies LocalRuntimesResponse;
 	return {
 		agentExecutionReadinessByProfileId:
 			overrides.agentExecutionReadinessByProfileId ?? new Map(),
@@ -2199,23 +2441,43 @@ function createSetupContext(
 		agentProfiles: overrides.agentProfiles ?? [],
 		agentProfilesQuery: overrides.agentProfilesQuery ?? { isPending: false },
 		blockingErrorMessage: null,
+		currentDeviceTargetQuery: {
+			data:
+				overrides.currentDeviceTargetQuery === undefined
+					? defaultCurrentDeviceTarget
+					: overrides.currentDeviceTargetQuery.data,
+			isError: overrides.currentDeviceTargetQuery?.isError ?? false,
+			isFetching: overrides.currentDeviceTargetQuery?.isFetching ?? false,
+			isPending: overrides.currentDeviceTargetQuery?.isPending ?? false,
+			isSuccess: overrides.currentDeviceTargetQuery?.isSuccess ?? true,
+		},
 		currentLocalRuntimeReplyReadinessQuery: {
 			data: overrides.currentLocalRuntimeReplyReadinessQuery?.data,
 			isError:
 				overrides.currentLocalRuntimeReplyReadinessQuery?.isError ?? false,
+			isFetching:
+				overrides.currentLocalRuntimeReplyReadinessQuery?.isFetching ?? false,
 			isPending:
 				overrides.currentLocalRuntimeReplyReadinessQuery?.isPending ?? false,
 			refetch:
 				overrides.currentLocalRuntimeReplyReadinessQuery?.refetch ??
 				vi.fn().mockResolvedValue(undefined),
 		},
-		deviceId:
-			overrides.deviceId === undefined ? "device-current" : overrides.deviceId,
+		deviceId,
 		loadGatewayUrl: vi.fn().mockResolvedValue("http://localhost:8080"),
+		localRuntimesQuery: {
+			data:
+				overrides.localRuntimesQuery === undefined
+					? defaultLocalRuntimes
+					: overrides.localRuntimesQuery.data,
+			isError: overrides.localRuntimesQuery?.isError ?? false,
+			isFetching: overrides.localRuntimesQuery?.isFetching ?? false,
+			isPending: overrides.localRuntimesQuery?.isPending ?? false,
+			isSuccess: overrides.localRuntimesQuery?.isSuccess ?? true,
+		},
 		refreshAll: overrides.refreshAll ?? vi.fn().mockResolvedValue(undefined),
 		routeIntent,
-		runtimeLane:
-			overrides.runtimeLane === undefined ? "dev-local" : overrides.runtimeLane,
+		runtimeLane,
 		selectedHumanProfileId: "11111111-1111-4111-8111-111111111111",
 		selectedTargetDevice: {
 			deviceDisplayName: "This computer",
@@ -2303,6 +2565,27 @@ function buildCurrentLocalRuntimeReplyReadinessResponse(input?: {
 			sessionLane: "dev-local",
 		},
 		status: "ready",
+	};
+}
+
+function buildDisconnectedCurrentLocalRuntimeReplyReadinessResponse(): CurrentLocalRuntimeReplyReadinessResponse {
+	const connected = buildCurrentLocalRuntimeReplyReadinessResponse();
+	return {
+		...connected,
+		canReplyFromThisComputer: false,
+		message:
+			"OpenMeld Service is not connected for this account on this computer.",
+		nextAction: "reconnect_service",
+		primaryBlocker: "service_not_connected",
+		service: {
+			...connected.service,
+			connected: false,
+			matchingCurrentRuntime: false,
+			reasonCodes: ["service.current_runtime_session_missing"],
+			sessionDeviceId: null,
+			sessionLane: null,
+		},
+		status: "blocked",
 	};
 }
 

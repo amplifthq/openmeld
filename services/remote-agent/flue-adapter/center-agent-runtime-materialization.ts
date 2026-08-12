@@ -4,6 +4,7 @@ import {
   resolveCenterAgentContextScopePlan,
 } from "@openmeld/agent-runtime";
 import type { RemoteAgentTurnEnvelope } from "@openmeld/schemas/types";
+import type { RemoteAgentWorkSurfaceBinding } from "../agent-core/work-surface-routing";
 
 export type CenterAgentMaterializationStage =
   | "documents"
@@ -59,6 +60,12 @@ export type CenterAgentRuntimeContextPlan = {
   materializeOrganizationSkills: boolean;
 };
 
+export type CenterAgentRuntimeMaterializationPlan =
+  CenterAgentRuntimeContextPlan & {
+    allowedToolNames: readonly string[] | null;
+    materializeComputer: boolean;
+  };
+
 export function resolveCenterAgentRuntimeContextPlan(
   turnEnvelope: RemoteAgentTurnEnvelope
 ): CenterAgentRuntimeContextPlan {
@@ -68,6 +75,29 @@ export function resolveCenterAgentRuntimeContextPlan(
       canMaterializeCenterAgentOrganizationDocuments(contextScopePlan),
     materializeOrganizationSkills:
       canMaterializeCenterAgentOrganizationSkills(contextScopePlan),
+  };
+}
+
+export function resolveCenterAgentRuntimeMaterializationPlan(input: {
+  turnEnvelope: RemoteAgentTurnEnvelope;
+  workSurfaceBinding?: RemoteAgentWorkSurfaceBinding | null;
+}): CenterAgentRuntimeMaterializationPlan {
+  if (input.workSurfaceBinding) {
+    return {
+      allowedToolNames: [
+        input.workSurfaceBinding.surface === "new_task"
+          ? "openmeld_create_task"
+          : "openmeld_create_space",
+      ],
+      materializeComputer: false,
+      materializeOrganizationDocuments: false,
+      materializeOrganizationSkills: false,
+    };
+  }
+  return {
+    ...resolveCenterAgentRuntimeContextPlan(input.turnEnvelope),
+    allowedToolNames: null,
+    materializeComputer: true,
   };
 }
 

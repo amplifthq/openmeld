@@ -126,28 +126,55 @@ export function decideNpmPublishStage(input) {
 }
 
 export function decideReleaseTagStage(input) {
-  if (input.probeError) {
+  if (input.localProbeError) {
     return probeFailureDecision(
-      "Release tag completion probe",
-      input.probeError
+      "Local release tag completion probe",
+      input.localProbeError
     );
   }
-  if (!input.tagSha) {
+  if (input.localTagSha && input.localTagSha !== input.headSha) {
     return {
-      action: "RUN",
-      reason: `${input.tagName} does not exist`,
+      action: "FAIL",
+      reason: `local ${input.tagName} already points to ${input.localTagSha}, not ${input.headSha}; refusing to overwrite an immutable release tag`,
     };
   }
-  if (input.tagSha === input.headSha) {
+  if (input.remoteProbeError) {
+    return probeFailureDecision(
+      "Origin release tag completion probe",
+      input.remoteProbeError
+    );
+  }
+  if (input.remoteTagSha && input.remoteTagSha !== input.headSha) {
+    return {
+      action: "FAIL",
+      reason: `origin ${input.tagName} already points to ${input.remoteTagSha}, not ${input.headSha}; refusing to overwrite an immutable release tag`,
+    };
+  }
+  if (
+    input.localTagSha === input.headSha &&
+    input.remoteTagSha === input.headSha
+  ) {
     return {
       action: "SKIP",
-      criterion: "tag-target-match",
-      reason: `${input.tagName} already points to ${input.headSha}`,
+      criterion: "local-and-origin-tag-target-match",
+      reason: `${input.tagName} already points to ${input.headSha} locally and on origin`,
+    };
+  }
+  if (!(input.localTagSha || input.remoteTagSha)) {
+    return {
+      action: "RUN",
+      reason: `${input.tagName} does not exist locally or on origin`,
+    };
+  }
+  if (!input.localTagSha) {
+    return {
+      action: "RUN",
+      reason: `${input.tagName} does not exist locally`,
     };
   }
   return {
-    action: "FAIL",
-    reason: `${input.tagName} already points to ${input.tagSha}, not ${input.headSha}; refusing to overwrite an immutable release tag`,
+    action: "RUN",
+    reason: `${input.tagName} is not published to origin`,
   };
 }
 

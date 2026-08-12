@@ -483,6 +483,32 @@ describe("local service lifecycle", () => {
     );
   });
 
+  it("preserves the control-plane error code when safe drain cannot start", async () => {
+    requestLocalDaemonShutdownMock.mockRejectedValue(
+      new LocalDaemonControlPlaneClientError(
+        "daemon.control.endpoint_missing",
+        "daemon control endpoint is missing"
+      )
+    );
+
+    const result = await runDaemonServiceLifecycle({
+      expectedVersion: EXPECTED_VERSION,
+      operation: "reinstall",
+      installSource: "daemon.command.install",
+      desiredState: "stopped",
+      shouldStartAfterLifecycle: false,
+      forceReinstall: true,
+    });
+
+    expect(result).toMatchObject({
+      errorCode: "daemon.control.endpoint_missing",
+      failureStage: "stop_or_drain",
+      recoveryStatus: "failed_before_safe_state",
+      status: "failed",
+    });
+    expect(serviceManager.stop).not.toHaveBeenCalled();
+  });
+
   it("keeps the running service untouched when the replacement bundle cannot be prepared", async () => {
     prepareDaemonServiceBundleMock.mockRejectedValue(
       new Error("replacement bundle validation failed")

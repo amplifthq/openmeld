@@ -322,10 +322,12 @@ receiver-first stage for this mixed-direction contract.
 or coordinated rollout, but an obvious single-component release may run
 `deploy` directly. Every dispatch requires the exact 40-character `main`
 commit approved for the release. The workflow validates that immutable
-`release_sha` against `main` history and uses it for every selected component;
-later commits merged into `main` belong to a later release. `--ref main`
-selects the trusted workflow definition, while `release_sha` selects the code
-being released. Deploy mode is restricted to `main`.
+`release_sha` against the first-parent history of `main` and uses it for every
+selected component. A merged pull request's side-branch head is an ancestor of
+`main`, but it is not an approved `main` release source and is rejected. Later
+commits merged into `main` belong to a later release. `--ref main` selects the
+trusted workflow definition, while `release_sha` selects the code being
+released. Deploy mode is restricted to `main`.
 
 For example, capture the approved commit once and use that exact value for a
 Web release even if `main` advances afterward:
@@ -342,9 +344,9 @@ gh workflow run release-on-main.yml \
 When `release:status` reports that the captured commit is ready, confirm its
 `Fast PR` or equivalent scoped validation evidence and dispatch the selected
 release with that exact SHA. One small source-validation job verifies the SHA
-shape and its membership in `main` history before any selected production job
-can enter its Environment. A non-`main` deploy runs one rejection job and never
-enters the production component jobs or Environment.
+shape and its membership in the first-parent history of `main` before any
+selected production job can enter its Environment. A non-`main` deploy runs one
+rejection job and never enters the production component jobs or Environment.
 
 Each component workflow checks out the captured release SHA, installs through
 the cached pnpm setup, runs only the cheap deployment preflight, deploys once,
@@ -495,12 +497,14 @@ because they are safe, even though they create another Worker version.
 | Production D1 migration application | `wrangler d1 migrations list --remote` reports no pending migrations | Remote pending-list truth |
 | CLI binary, signing, notarization, and R2 | The production manifest has the target version; the platform record has a valid sha256 and positive size; `HEAD` confirms the artifact is downloadable with that size | Published-record evidence; no local rebuild/hash comparison |
 | npm | `npm view` reports the target immutable version | Registry version existence |
-| Release tag | The target tag already resolves to the current release commit | Git object identity |
+| Release tag | The target tag resolves to the current release commit both locally and on `origin` | Local and remote Git object identity |
 | Core projection | The active 100% production Worker version carries the stable tag derived from the release commit and `release/local-components.json` | Active Worker version identity |
 | Final channel alignment | R2, npm, and the active Core projection all satisfy their target criteria | Three-way published state |
 
-A release tag that exists at another commit fails immediately and is never
-moved. A final channel-alignment failure includes the exact next release
+A release tag that exists at another commit locally or on `origin` fails
+immediately and is never moved. The resumable executor owns both local tag
+creation and exact-ref publication to `origin`; callers must not add a second
+tag-push path. A final channel-alignment failure includes the exact next release
 command. The normal recovery command is therefore the original command, not a
 manually shortened sequence:
 

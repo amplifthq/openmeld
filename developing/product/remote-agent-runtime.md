@@ -450,7 +450,10 @@ from bounded conversation continuity and the authoritative turn-time block.
 At the shared provider boundary, the Remote Agent classifies only that current
 request when it names the canonical Task or Space surfaces. An explicit request
 for a new or dedicated Task or Space pins the first model step to the matching
-create tool before large tool catalogs are compacted into Code Mode. The rule
+create tool before large tool catalogs are compacted into Code Mode. That
+already-resolved create step disables extended model reasoning so provider tail
+latency cannot delay a deterministic surface binding; the created Task or Space
+keeps the Organization's normal reasoning policy for its actual work. The rule
 does not infer a new work surface from task complexity, does not inspect earlier
 conversation history as current intent, and does not run again after the create
 tool returns. Classification failure preserves the ordinary Center Agent turn
@@ -888,6 +891,32 @@ a second tool policy. A large catalog without exactly one valid `codemode` tool
 fails fast instead of silently dropping tools. The source tool list is never
 mutated, so retries and diagnostics retain the admitted capability evidence.
 
+An explicit, verified request for a new Task or Space has one bounded
+lightweight binding path. Before Flue execution, an auxiliary classifier reads
+only the current request and may select that path only when the request is
+self-contained and requires exactly one canonical creation action. Earlier
+conversation, attachments, participant lookup or membership changes, multiple
+actions, an unverified speaker, and an existing Task conversation all require
+the complete runtime path.
+
+The lightweight path persists only the typed surface decision in the existing
+durable callback context. It does not store request text or create another
+conversation state. It skips Organization Documents, Organization Skills, and
+Computer materialization; exposes only the matching canonical create tool;
+and sends the auxiliary provider only the current request plus authoritative
+turn time. The same worker-owned auxiliary model that classifies this bounded
+request fills the one forced create-tool call and the short result
+acknowledgement. It is not the member's selected primary model and is not an
+automatic fallback after a primary-model failure. The created Task or Space
+uses the frozen selected primary model for its substantive work. This keeps the
+mechanical binding step bounded without changing the Organization's model
+choice. The tool keeps its existing schema, execution wrapper, Core
+authorization, idempotency, audit, result, callback, and publication paths.
+After the create result, the provider receives no tools, which prevents a
+second mutation. Classifier failure, timeout, insufficient context, or any
+unsupported request falls back to the complete runtime path. Keyword rules do
+not grant this binding.
+
 ### Conversation compaction and runtime rollover
 
 Flue remains the sole owner of the message history, summary, and compaction
@@ -931,9 +960,23 @@ runtime route, materializes a bounded and source-attributed continuity context
 from currently authorized product facts, persists the exact replacement
 request, and retries once. The continuity context is admitted only into an
 empty new generation and never turns Core into a second transcript owner.
+For a Space turn, the Space owner resolves the exact dispatch's frozen main or
+thread placement and returns only bounded text Signals before that dispatch's
+source Signal; the generic main-timeline reader is not a continuity source for
+a thread. For a Center Agent Task turn, the Task owner returns the bounded typed
+event projection before the trigger event and owns the canonical actor mapping;
+Remote Agent must not query the private Task event table or reinterpret Task
+actors itself.
 Concurrent callers converge on the same active generation. Runtime generations
 are invisible implementation details: the member remains in the same DM,
 Space, provider conversation, or Task and is never asked to start a new one.
+
+Dispatch diagnostics resolve the exact runtime conversation from the native
+delivery's frozen worker request. They never address a Durable Object from the
+logical Space id after rollover and never copy Core's active-generation pointer
+into the Remote Agent. If the frozen worker and recovery requests disagree or
+the exact identity is unavailable, diagnostics fail closed instead of reading
+another generation.
 
 At 12 MiB every protocol version fails closed before replay or model work with
 `remote_agent.conversation_history_limit_exceeded`. Version-1 through
@@ -1929,9 +1972,11 @@ consistent with the repo's other `ops:` tools. It reads and writes the Core
 runtime policy variables (`OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED` and
 `OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS`) in Wrangler config, and it
 reads worker-owned usage diagnostics through `readUsageDiagnostics` via a
-temporary service-binding Worker. It does not read or mutate retired Core
-breaker tables. This is internal operator tooling, not a user surface and not
-availability truth.
+temporary service-binding Worker. The operator must provide the exact runtime
+conversation id from a frozen dispatch request; `--space` remains only the
+logical usage-record filter and cannot select a runtime generation. It does
+not read or mutate retired Core breaker tables. This is internal operator
+tooling, not a user surface and not availability truth.
 
 ### Role prompt (staged)
 

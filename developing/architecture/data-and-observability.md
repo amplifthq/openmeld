@@ -1192,6 +1192,14 @@ projection, but no path may use one owner's database accessor as a shortcut for
 another owner's data. This separation is required before any future
 observability-only physical split.
 
+Runtime-generation rollover follows the same boundary. The Task owner exposes a
+bounded typed continuity projection before one exact trigger event, including
+the canonical actor-to-author meaning. Remote Agent consumes that projection;
+it does not read `center_agent_task_events` directly. Space rollover continuity
+likewise comes from the Space Durable Object, which verifies the exact dispatch
+identity and its frozen main-or-thread placement before returning bounded
+Signals. A generic Space timeline query cannot substitute for that projection.
+
 The Task owner writes `center_agent_task_authorized_readers` as the current
 read-authorization projection. Inbox source targets carry only the canonical
 Task id. Inbox list, count, read, mutation, and email queries join the owner
@@ -2309,6 +2317,18 @@ CLI trace, operator trace shortcuts, dispatch trace reads, Web Wake waterfall,
 Diagnostic Reports, and claim execution diagnostics all read or derive from the
 same Wake correlation model. They must not invent separate selector rules,
 separate field priority rules, or separate observability schemas.
+
+For Remote Agent dispatches, runtime diagnostics use the exact runtime
+conversation identity frozen in that dispatch's native-delivery request. The
+logical Space id is correlation context, not a Durable Object selector after a
+conversation rollover. A missing or inconsistent frozen identity fails closed;
+diagnostics must not guess the active generation or maintain a second generation
+pointer outside Core.
+
+Detailed CLI trace is the supported handoff to local agents and operators. A
+caller supplies the normal Space and dispatch selectors; Core resolves the
+frozen runtime conversation identity and returns the bounded runtime diagnostic
+projection. Callers must not query D1 or supply a runtime generation identity.
 
 When a controller exposes official context telemetry, task-result and local
 runtime observation may retain only bounded numeric token counters, the reported

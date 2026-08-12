@@ -192,28 +192,42 @@ test("runs npm publication when the target version does not exist", () => {
   );
 });
 
-test("skips a matching release tag and fails a conflicting tag", () => {
+test("skips only when matching local and origin release tags are both present", () => {
   assert.deepEqual(
     decideReleaseTagStage({
       headSha: TARGET_SHA,
+      localTagSha: TARGET_SHA,
+      remoteTagSha: TARGET_SHA,
       tagName: `v${TARGET_VERSION}`,
-      tagSha: TARGET_SHA,
     }),
     {
       action: "SKIP",
-      criterion: "tag-target-match",
-      reason: `v${TARGET_VERSION} already points to ${TARGET_SHA}`,
+      criterion: "local-and-origin-tag-target-match",
+      reason: `v${TARGET_VERSION} already points to ${TARGET_SHA} locally and on origin`,
     }
   );
   assert.deepEqual(
     decideReleaseTagStage({
       headSha: TARGET_SHA,
+      localTagSha: TARGET_SHA,
+      remoteTagSha: null,
       tagName: `v${TARGET_VERSION}`,
-      tagSha: "c".repeat(40),
+    }),
+    {
+      action: "RUN",
+      reason: `v${TARGET_VERSION} is not published to origin`,
+    }
+  );
+  assert.deepEqual(
+    decideReleaseTagStage({
+      headSha: TARGET_SHA,
+      localTagSha: TARGET_SHA,
+      remoteTagSha: "c".repeat(40),
+      tagName: `v${TARGET_VERSION}`,
     }),
     {
       action: "FAIL",
-      reason: `v${TARGET_VERSION} already points to ${"c".repeat(40)}, not ${TARGET_SHA}; refusing to overwrite an immutable release tag`,
+      reason: `origin v${TARGET_VERSION} already points to ${"c".repeat(40)}, not ${TARGET_SHA}; refusing to overwrite an immutable release tag`,
     }
   );
 });
@@ -222,13 +236,14 @@ test("runs the release tag stage with diagnostic context when its probe fails", 
   assert.deepEqual(
     decideReleaseTagStage({
       headSha: TARGET_SHA,
-      probeError: "git show-ref timed out",
+      remoteProbeError: "git ls-remote timed out",
       tagName: `v${TARGET_VERSION}`,
     }),
     {
       action: "RUN",
       probeFailure: true,
-      reason: "Release tag completion probe failed: git show-ref timed out",
+      reason:
+        "Origin release tag completion probe failed: git ls-remote timed out",
     }
   );
 });

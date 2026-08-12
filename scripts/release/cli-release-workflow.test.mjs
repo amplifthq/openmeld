@@ -69,7 +69,7 @@ test("keeps the signed and notarized CLI publisher fail closed", () => {
   assert.ok(cliJobSource.includes("actions/upload-artifact@v4"));
   assert.ok(cliJobSource.includes("Verify Core deployment is visible"));
   assert.ok(cliJobSource.includes('NPM_CONFIG_PROVENANCE: "false"'));
-  assert.ok(cliJobSource.includes(RELEASE_TAG_PUSH));
+  assert.ok(!cliJobSource.includes(RELEASE_TAG_PUSH));
   for (const secretName of APPLE_SECRET_NAMES) {
     assert.ok(
       cliJobSource.includes(

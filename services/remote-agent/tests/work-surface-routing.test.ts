@@ -1,11 +1,89 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildRemoteAgentWorkSurfaceBindingSystemPrompt,
   classifyRemoteAgentWorkSurface,
+  classifyRemoteAgentWorkSurfaceDecision,
+  compactRemoteAgentWorkSurfaceCurrentUserMessage,
   extractRemoteAgentCurrentUserRequest,
+  resolveRemoteAgentWorkSurfaceModelId,
   shouldClassifyRemoteAgentWorkSurface,
 } from "../agent-core/work-surface-routing";
 
+describe("Remote Agent lightweight work-surface binding", () => {
+  it("keeps only the current request and authoritative turn time", () => {
+    expect(
+      compactRemoteAgentWorkSurfaceCurrentUserMessage(
+        "[OpenMeld conversation continuity]\nold context\n[Current verified request]\nCreate a Task for the launch.\n\n[OpenMeld turn context]\nAuthoritative UTC time for this turn: 2026-08-12T00:00:00.000Z"
+      )
+    ).toBe(
+      "Create a Task for the launch.\n\n[OpenMeld turn context]\nAuthoritative UTC time for this turn: 2026-08-12T00:00:00.000Z"
+    );
+  });
+
+  it("pins the Task operation id to the durable submission", () => {
+    expect(
+      buildRemoteAgentWorkSurfaceBindingSystemPrompt(
+        { surface: "new_task", v: 1 },
+        { operationId: "remote-agent-submission:submission_1" }
+      )
+    ).toContain('Use operationId "remote-agent-submission:submission_1".');
+  });
+});
+
+const WORK_SURFACE_ENV = {
+  CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+};
+
 describe("Remote Agent work-surface routing", () => {
+  it("uses one validated auxiliary model policy for classification and binding", () => {
+    expect(resolveRemoteAgentWorkSurfaceModelId({})).toBe(
+      "openai/gpt-5.4-mini"
+    );
+    expect(
+      resolveRemoteAgentWorkSurfaceModelId({
+        OPENMELD_REMOTE_AGENT_WORK_SURFACE_MODEL_ID: " openai/gpt-5.4-mini ",
+      })
+    ).toBe("openai/gpt-5.4-mini");
+    expect(() =>
+      resolveRemoteAgentWorkSurfaceModelId({
+        OPENMELD_REMOTE_AGENT_WORK_SURFACE_MODEL_ID: "invalid-model",
+      })
+    ).toThrow("must be an OpenRouter model id");
+  });
+
+  it("marks a self-contained explicit Task request as safe for lightweight binding", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    context: "self_contained",
+                    surface: "new_task",
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        )
+    );
+
+    await expect(
+      classifyRemoteAgentWorkSurfaceDecision({
+        env: WORK_SURFACE_ENV,
+        fetchImpl: fetchImpl as typeof fetch,
+        organizationId: "org_123",
+        request: "Create a dedicated Task to research competitor onboarding.",
+      })
+    ).resolves.toEqual({
+      context: "self_contained",
+      surface: "new_task",
+    });
+  });
+
   it("extracts only the current request from continuity and time context", () => {
     const content = [
       "[Runtime conversation continuity]",
@@ -46,7 +124,13 @@ describe("Remote Agent work-surface routing", () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          choices: [{ message: { content: '{"surface":"new_space"}' } }],
+          choices: [
+            {
+              message: {
+                content: '{"context":"self_contained","surface":"new_space"}',
+              },
+            },
+          ],
         }),
         { status: 200 }
       )
@@ -65,7 +149,7 @@ describe("Remote Agent work-surface routing", () => {
     const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect(body).toMatchObject({
-      max_tokens: 80,
+      max_tokens: 100,
       model: "openai/gpt-5.4-mini",
       response_format: {
         json_schema: { name: "remote_agent_work_surface", strict: true },
@@ -82,7 +166,13 @@ describe("Remote Agent work-surface routing", () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          choices: [{ message: { content: '{"surface":"project"}' } }],
+          choices: [
+            {
+              message: {
+                content: '{"context":"self_contained","surface":"project"}',
+              },
+            },
+          ],
         }),
         { status: 200 }
       )
@@ -103,7 +193,13 @@ describe("Remote Agent work-surface routing", () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          choices: [{ message: { content: '{"surface":"new_task"}' } }],
+          choices: [
+            {
+              message: {
+                content: '{"context":"self_contained","surface":"new_task"}',
+              },
+            },
+          ],
         }),
         { status: 200 }
       )

@@ -385,11 +385,11 @@ describe("runtime prepare readiness service", () => {
     expect(Object.keys(result).sort()).toEqual([
       "agentControllerReportsRead",
       "nonRunnableCapabilities",
+      "openMeldServiceRuntimeId",
       "projection",
       "runnableCapabilities",
       "status",
       "summary",
-      "openMeldServiceRuntimeId",
     ]);
     expect(Object.hasOwn(result.projection, "nextSteps")).toBe(false);
   });

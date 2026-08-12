@@ -4721,7 +4721,7 @@ describe("organization Core RPC", () => {
       throw new Error("direct Center Agent Wake must be accepted");
     }
     expect(legacyCompatibleWake.signal.data.meta?.clientMessageId).toBe(
-      "ca-wake:dhxkuifrodsf"
+      "ca-wake:4sm6ik41xte2"
     );
 
     const alternateReferenceWake = await rpcCenterAgentWakeAgentProfilesInSpace(

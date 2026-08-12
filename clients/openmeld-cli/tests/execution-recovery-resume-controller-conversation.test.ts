@@ -280,7 +280,7 @@ describe("exact controller conversation recovery", () => {
     );
   });
 
-  it("keeps exact-conversation recovery inside an active Computer boundary", async () => {
+  it("rejects active Computer boundaries that the adapter cannot verify", async () => {
     const root = mkdtempSync(join(tmpdir(), "openmeld-recovery-boundary-"));
     const workingDirectory = join(root, "project");
     mkdirSync(workingDirectory);
@@ -322,13 +322,91 @@ describe("exact controller conversation recovery", () => {
       },
     });
 
+    expect(result).toMatchObject({
+      reasonCode: "execution_recovery.computer_file_access_unverified",
+      status: "rejected",
+    });
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("verifies the active Computer boundary against the recovery launch contract", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openmeld-recovery-boundary-"));
+    const workingDirectory = join(root, "project");
+    mkdirSync(workingDirectory);
+    const computerFileAccessStorePath = join(root, "file-access.json");
+    await updateComputerFileAccessPolicy({
+      expectedRevision: 1,
+      idempotencyKey: "verified-recovery-boundary",
+      nowMs: 100,
+      policy: {
+        folders: [workingDirectory],
+        mode: "only_selected_folders",
+      },
+      storePath: computerFileAccessStorePath,
+    });
+    const verifyComputerFileAccessBoundary = vi
+      .fn<NonNullable<RuntimeAdapter["verifyComputerFileAccessBoundary"]>>()
+      .mockResolvedValue({ supported: true });
+    const dispatch = vi.fn<RuntimeAdapter["dispatch"]>().mockResolvedValue({
+      contextDelta: {
+        agentControllerConversationId: "conversation-1",
+      },
+      output: "Already completed result",
+      status: "success",
+    });
+
+    const result = await resumeExactControllerConversation({
+      computerFileAccessStorePath,
+      localAdapterContainer: createLocalAdapterContainer([
+        {
+          adapter: {
+            adapterId: "codex",
+            dispatch,
+            interrupt: vi.fn(),
+            verifyComputerFileAccessBoundary,
+          },
+          adapterId: "codex",
+          transportModes: ["local-cli"],
+        },
+      ]),
+      request: {
+        ...request,
+        providerRuntimeWorkingDirectory: workingDirectory,
+      },
+      routeConfig: {
+        agentControllerPermissionMode: "codex:askForApproval",
+        agentControllerRef: "builtin:codex",
+        launchContract: {
+          commandPath: process.execPath,
+          kind: "executable",
+        },
+        profileId: request.identity.targetProfileId,
+        transportMode: "local-cli",
+      },
+    });
+
     expect(result.status).toBe("completed");
+    expect(verifyComputerFileAccessBoundary).toHaveBeenCalledWith({
+      agentControllerPermissionMode: "codex:askForApproval",
+      boundary: expect.objectContaining({
+        folders: [realpathSync(workingDirectory)],
+        mode: "only_selected_folders",
+      }),
+      executionMode: "repair",
+      launchContract: {
+        commandPath: process.execPath,
+        kind: "executable",
+      },
+      transportMode: "local-cli",
+      workingDirectory,
+    });
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({
         computerFileAccessBoundary: expect.objectContaining({
           folders: [realpathSync(workingDirectory)],
           mode: "only_selected_folders",
         }),
+        executionMode: "repair",
         prompt: expect.stringContaining(
           "Stay within the file access available to this OpenMeld run."
         ),

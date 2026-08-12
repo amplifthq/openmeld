@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DaemonServiceRunError } from "../src/local-service/core/types";
 import { buildFailedTaskResultPayload } from "../src/local-service/dispatch/send-dispatch-result";
 import { toTaskExecutionError } from "../src/local-service/execution/task-execution-error";
+import { ComputerFileAccessStoreError } from "../src/local-service/file-access/computer-file-access-store";
 
 describe("Default Project failure trace", () => {
   it("preserves Project identity without exposing a local path", () => {
@@ -32,5 +33,27 @@ describe("Default Project failure trace", () => {
       projectId: "project-1",
     });
     expect(JSON.stringify(result)).not.toContain("/private/");
+  });
+
+  it("preserves a safe Computer file access error without publishing diagnostics", () => {
+    const storePath = "/private/openmeld/computer-file-access-v1.json";
+    const typedError = toTaskExecutionError(
+      new ComputerFileAccessStoreError(
+        "computer.file_access.invalid_response",
+        "Computer file access store is incompatible. Repair or update OpenMeld Service before trying again.",
+        {
+          localDiagnosticContext: {
+            reason: "malformed_json",
+            storePath,
+          },
+        }
+      )
+    );
+
+    expect(typedError).toMatchObject({
+      errorCode: "computer.file_access.invalid_response",
+      errorType: "config",
+    });
+    expect(JSON.stringify(typedError)).not.toContain(storePath);
   });
 });

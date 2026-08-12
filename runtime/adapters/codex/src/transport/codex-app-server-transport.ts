@@ -1,4 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { tmpdir } from "node:os";
 import type {
   AdapterComputerFileAccessBoundary,
   AdapterDispatchExecutionMode,
@@ -18,12 +19,16 @@ import type {
   SpawnedAgentControllerProcess,
 } from "@openmeld/adapter-core";
 import {
-  buildCliLaunchInvocation,
   classifyRuntimePermissionDenialMessage,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
 import { classifyCodexProviderAccountFailure } from "../output/codex-provider-failure.js";
 import { extractCodexToolActivityEvent } from "../output/codex-tool-activity.js";
+import {
+  type CodexAppServerControlOperation,
+  resolveCodexAppServerControlRequestTimeoutMs,
+} from "./codex-app-server-admission.js";
+import { buildCodexAppServerLaunch } from "./codex-app-server-launch.js";
 import { buildCodexFileAccessBoundaryGlobalArgs } from "./codex-file-access-boundary.js";
 
 export type CodexAppServerTransportResult = {
@@ -67,6 +72,13 @@ type JsonRpcMessage = {
 type PendingJsonRpcRequest = {
   reject: (error: unknown) => void;
   resolve: (value: unknown) => void;
+  timeout: NodeJS.Timeout | null;
+};
+
+type JsonRpcRequestTimeout = {
+  code: string;
+  operation: CodexAppServerControlOperation;
+  timeoutMs: number;
 };
 
 type CodexAppServerInteractionFailure = {
@@ -169,6 +181,7 @@ type CodexAgentControllerPermissionMode = Extract<
 >;
 
 const APP_SERVER_PROCESS_KILL_GRACE_MS = 1000;
+const DEFAULT_APP_SERVER_STARTUP_TIMEOUT_MS = 15_000;
 
 export class CodexAppServerTransportError extends Error {
   readonly code: string;
@@ -190,6 +203,7 @@ export async function invokeCodexAppServerTransport(input: {
   launchContract: RuntimeAgentControllerLaunchContract;
   codexTimeoutMs: number | null;
   codexWorkdir: string;
+  controlRequestTimeoutMs?: number;
   env?: Record<string, string | undefined>;
   executionMode?: AdapterDispatchExecutionMode;
   onPreview?: AdapterPreviewCallback;
@@ -200,6 +214,7 @@ export async function invokeCodexAppServerTransport(input: {
   instructionPrompt?: AdapterInstructionPrompt;
   prompt: string;
   streamingMode?: AdapterStreamingMode;
+  startupTimeoutMs?: number;
   taskId: string;
   threadId: string | null;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
@@ -227,6 +242,7 @@ export async function invokeCodexAppServerTransport(input: {
     {
       codexTimeoutMs: input.codexTimeoutMs,
       codexWorkdir: input.codexWorkdir,
+      controlRequestTimeoutMs: input.controlRequestTimeoutMs,
       computerFileAccessBoundary: input.computerFileAccessBoundary,
       env: input.env,
       executionMode: input.executionMode,
@@ -235,6 +251,7 @@ export async function invokeCodexAppServerTransport(input: {
       onInteractionRequest: input.onInteractionRequest,
       onProcessControlEvent: input.onProcessControlEvent,
       onRuntimeEvent: input.onRuntimeEvent,
+      startupTimeoutMs: input.startupTimeoutMs,
     },
     async (session) => {
       const threadContext = await resolveDispatchThreadContext({
@@ -259,20 +276,27 @@ export async function invokeCodexAppServerTransport(input: {
         threadSource: threadContext.threadSource,
       });
       session.emitProviderConversationObserved(threadId);
-      const turnResponse = await session.request("turn/start", {
-        ...permissionModeParams.turn,
-        ...(collaborationMode ? { collaborationMode } : {}),
-        cwd: input.codexWorkdir,
-        ...conversationPolicyParams,
-        input: [
-          {
-            text: turnPrompt,
-            text_elements: [],
-            type: "text",
-          },
-        ],
-        threadId,
-      });
+      const turnResponse = await session.requestControl(
+        "turn/start",
+        {
+          ...permissionModeParams.turn,
+          ...(collaborationMode ? { collaborationMode } : {}),
+          cwd: input.codexWorkdir,
+          ...conversationPolicyParams,
+          input: [
+            {
+              text: turnPrompt,
+              text_elements: [],
+              type: "text",
+            },
+          ],
+          threadId,
+        },
+        {
+          code: "runtime.turn_start_timeout",
+          operation: "turn/start",
+        }
+      );
       const turn = readTurnStartResponse(turnResponse);
       const turnId = readRequiredText(turn.id, "turn/start response turn.id");
       const unregisterActiveTurn = session.registerActiveTurn({
@@ -391,11 +415,19 @@ export async function verifyCodexAppServerThread(input: {
       launchContract: input.launchContract,
     },
     async (session) => {
-      const response = await session.request("thread/resume", {
-        approvalPolicy: "untrusted" satisfies CodexAppServerApprovalPolicy,
-        cwd: input.codexWorkdir,
-        threadId,
-      });
+      const response = await session.requestControl(
+        "thread/resume",
+        {
+          approvalPolicy: "untrusted" satisfies CodexAppServerApprovalPolicy,
+          cwd: input.codexWorkdir,
+          excludeTurns: true,
+          threadId,
+        },
+        {
+          code: "context.resume_timeout",
+          operation: "thread/resume",
+        }
+      );
       return {
         threadId: readThreadIdFromResponse(response),
       };
@@ -413,32 +445,48 @@ async function resolveDispatchThreadContext(input: {
 }): Promise<CodexAppServerThreadContext> {
   const existingThreadId = normalizeOptionalText(input.threadId);
   if (existingThreadId) {
-    const response = await input.session.request("thread/resume", {
+    const response = await input.session.requestControl(
+      "thread/resume",
+      {
+        ...(input.conversationPolicyParams.model
+          ? { model: input.conversationPolicyParams.model }
+          : {}),
+        ...input.permissionModeParams,
+        cwd: input.codexWorkdir,
+        excludeTurns: true,
+        threadId: existingThreadId,
+      },
+      {
+        code: "context.resume_timeout",
+        operation: "thread/resume",
+      }
+    );
+    return readThreadContextFromResponse(response);
+  }
+
+  const response = await input.session.requestControl(
+    "thread/start",
+    {
       ...(input.conversationPolicyParams.model
         ? { model: input.conversationPolicyParams.model }
         : {}),
       ...input.permissionModeParams,
       cwd: input.codexWorkdir,
-      threadId: existingThreadId,
-    });
-    return readThreadContextFromResponse(response);
-  }
-
-  const response = await input.session.request("thread/start", {
-    ...(input.conversationPolicyParams.model
-      ? { model: input.conversationPolicyParams.model }
-      : {}),
-    ...input.permissionModeParams,
-    cwd: input.codexWorkdir,
-    ...(input.instructionPrompt
-      ? {
-          developerInstructions: input.instructionPrompt.developerInstructions,
-          threadSource: buildOpenMeldCodexThreadSource(
-            input.instructionPrompt.instructionEpoch
-          ),
-        }
-      : { threadSource: "user" }),
-  });
+      ...(input.instructionPrompt
+        ? {
+            developerInstructions:
+              input.instructionPrompt.developerInstructions,
+            threadSource: buildOpenMeldCodexThreadSource(
+              input.instructionPrompt.instructionEpoch
+            ),
+          }
+        : { threadSource: "user" }),
+    },
+    {
+      code: "runtime.thread_start_timeout",
+      operation: "thread/start",
+    }
+  );
   return readThreadContextFromResponse(response);
 }
 
@@ -481,7 +529,14 @@ async function resolveCodexAppServerCollaborationMode(input: {
     });
   }
   const response = toRecord(
-    await input.session.request("collaborationMode/list", {})
+    await input.session.requestControl(
+      "collaborationMode/list",
+      {},
+      {
+        code: "runtime.control_timeout",
+        operation: "collaborationMode/list",
+      }
+    )
   );
   const presets = Array.isArray(response?.data) ? response.data : [];
   const preset = presets
@@ -638,6 +693,7 @@ async function withCodexAppServerSession<T>(
   input: {
     codexTimeoutMs: number | null;
     codexWorkdir: string;
+    controlRequestTimeoutMs?: number;
     computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
     env?: Record<string, string | undefined>;
     executionMode?: AdapterDispatchExecutionMode;
@@ -646,6 +702,7 @@ async function withCodexAppServerSession<T>(
     onInteractionRequest?: AdapterInteractionCallback;
     onProcessControlEvent?: AdapterRuntimeProcessCallback;
     onRuntimeEvent?: AdapterRuntimeEventCallback;
+    startupTimeoutMs?: number;
   },
   callback: (session: CodexAppServerSession) => Promise<T>
 ): Promise<T> {
@@ -663,6 +720,7 @@ async function withCodexAppServerSession<T>(
 class CodexAppServerSession {
   readonly #codexTimeoutMs: number | null;
   readonly #codexWorkdir: string;
+  readonly #controlRequestTimeoutMs?: number;
   readonly #computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
   readonly #env?: Record<string, string | undefined>;
   readonly #launchContract: RuntimeAgentControllerLaunchContract;
@@ -684,6 +742,8 @@ class CodexAppServerSession {
   #latestTokenUsage: AdapterDispatchTelemetry["tokenUsage"] | null = null;
   #nextRequestId = 1;
   #processTimeout: NodeJS.Timeout | null = null;
+  readonly #startupTimeoutMs: number;
+  #startupTimeout: NodeJS.Timeout | null = null;
   #settledFailure: unknown = null;
   readonly #waiters = new Set<{
     predicate: (message: JsonRpcMessage) => boolean;
@@ -705,6 +765,7 @@ class CodexAppServerSession {
   constructor(input: {
     codexTimeoutMs: number | null;
     codexWorkdir: string;
+    controlRequestTimeoutMs?: number;
     computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
     env?: Record<string, string | undefined>;
     executionMode?: AdapterDispatchExecutionMode;
@@ -713,9 +774,11 @@ class CodexAppServerSession {
     onInteractionRequest?: AdapterInteractionCallback;
     onProcessControlEvent?: AdapterRuntimeProcessCallback;
     onRuntimeEvent?: AdapterRuntimeEventCallback;
+    startupTimeoutMs?: number;
   }) {
     this.#codexTimeoutMs = input.codexTimeoutMs;
     this.#codexWorkdir = input.codexWorkdir;
+    this.#controlRequestTimeoutMs = input.controlRequestTimeoutMs;
     this.#computerFileAccessBoundary = input.computerFileAccessBoundary;
     this.#env = input.env;
     this.#executionMode = input.executionMode;
@@ -724,6 +787,8 @@ class CodexAppServerSession {
     this.#onProcessControlEvent = input.onProcessControlEvent;
     this.#onRuntimeEvent = input.onRuntimeEvent;
     this.#permissionMode = input.permissionMode;
+    this.#startupTimeoutMs =
+      input.startupTimeoutMs ?? DEFAULT_APP_SERVER_STARTUP_TIMEOUT_MS;
   }
 
   async start(): Promise<void> {
@@ -734,19 +799,24 @@ class CodexAppServerSession {
           permissionMode: this.#permissionMode,
         })
       : [];
-    const invocation = buildCliLaunchInvocation({
+    const launch = buildCodexAppServerLaunch({
       args: [...computerFileAccessArgs, "app-server", "--listen", "stdio://"],
-      launchContract: this.#launchContract,
-    });
-    const runtimeProcess = spawnAgentControllerProcess({
-      args: invocation.args,
-      bin: invocation.bin,
-      cwd: this.#codexWorkdir,
       env: {
         ...process.env,
         ...(this.#env ?? {}),
       },
-      shell: invocation.shell ?? false,
+      launchContract: this.#launchContract,
+    });
+    const runtimeProcess = spawnAgentControllerProcess({
+      args: launch.args,
+      bin: launch.bin,
+      // App-server is a multi-thread controller, not the task process. Keep its
+      // host cwd outside user workspaces so startup never depends on resolving a
+      // macOS privacy-protected project path. Every thread/turn request below
+      // still carries the exact dispatch workspace as the authoritative cwd.
+      cwd: tmpdir(),
+      env: launch.env,
+      shell: launch.shell ?? false,
     });
     const { child, processId, signalTarget } = runtimeProcess;
     this.#child = child;
@@ -756,7 +826,9 @@ class CodexAppServerSession {
     this.#lifecycle.processSpawnedAtMs = processSpawnedAtMs;
     this.#emitRuntimeEvent({
       phase: "process_spawned",
+      processLaunchKind: launch.processLaunchKind,
       processId,
+      processWorkingDirectoryKind: "runtime_host",
       signalTarget,
       tsMs: processSpawnedAtMs,
     });
@@ -862,15 +934,40 @@ class CodexAppServerSession {
             this.#requestProcessTermination();
           }, this.#codexTimeoutMs);
 
-    await this.request("initialize", {
-      capabilities: {
-        experimentalApi: true,
-      },
-      clientInfo: {
-        name: "openmeld",
-        version: "0.0.0",
-      },
-    });
+    this.#startupTimeout = setTimeout(() => {
+      const timeoutTriggeredAtMs = Date.now();
+      this.#lifecycle.timeoutTriggeredAtMs = timeoutTriggeredAtMs;
+      this.#emitRuntimeEvent({
+        phase: "timeout_triggered",
+        processId,
+        tsMs: timeoutTriggeredAtMs,
+      });
+      this.#failAll(
+        new CodexAppServerTransportError({
+          code: "runtime.startup_timeout",
+          errorType: "timeout",
+          message: `runtime.startup_timeout: codex app-server did not initialize within ${this.#startupTimeoutMs}ms`,
+        })
+      );
+      this.#requestProcessTermination();
+    }, this.#startupTimeoutMs);
+
+    try {
+      await this.request("initialize", {
+        capabilities: {
+          experimentalApi: true,
+        },
+        clientInfo: {
+          name: "openmeld",
+          version: "0.0.0",
+        },
+      });
+    } finally {
+      if (this.#startupTimeout !== null) {
+        clearTimeout(this.#startupTimeout);
+        this.#startupTimeout = null;
+      }
+    }
     this.notify("initialized", {});
   }
 
@@ -906,7 +1003,11 @@ class CodexAppServerSession {
     });
   }
 
-  async request(method: string, params: unknown): Promise<unknown> {
+  async request(
+    method: string,
+    params: unknown,
+    timeout?: JsonRpcRequestTimeout
+  ): Promise<unknown> {
     if (this.#settledFailure) {
       throw this.#settledFailure;
     }
@@ -916,8 +1017,34 @@ class CodexAppServerSession {
       this.#pending.set(id, {
         reject,
         resolve,
+        timeout: null,
       });
     });
+    if (timeout) {
+      const pending = this.#pending.get(id);
+      if (pending) {
+        pending.timeout = setTimeout(() => {
+          if (!this.#pending.has(id)) {
+            return;
+          }
+          const timeoutTriggeredAtMs = Date.now();
+          this.#lifecycle.timeoutTriggeredAtMs = timeoutTriggeredAtMs;
+          this.#emitRuntimeEvent({
+            phase: "timeout_triggered",
+            processId: this.#lifecycle.processId,
+            tsMs: timeoutTriggeredAtMs,
+          });
+          const error = new CodexAppServerTransportError({
+            code: timeout.code,
+            errorType: "timeout",
+            message: `${timeout.code}: codex app-server did not acknowledge ${timeout.operation} within ${timeout.timeoutMs}ms`,
+          });
+          this.#failAll(error);
+          this.#requestProcessTermination();
+        }, timeout.timeoutMs);
+        pending.timeout.unref?.();
+      }
+    }
     this.#write({
       id,
       jsonrpc: "2.0",
@@ -925,6 +1052,22 @@ class CodexAppServerSession {
       params,
     });
     return await requestPromise;
+  }
+
+  async requestControl(
+    method: string,
+    params: unknown,
+    timeout: Omit<JsonRpcRequestTimeout, "timeoutMs">
+  ): Promise<unknown> {
+    return await this.request(method, params, {
+      ...timeout,
+      timeoutMs: resolveCodexAppServerControlRequestTimeoutMs({
+        operation: timeout.operation,
+        ...(this.#controlRequestTimeoutMs === undefined
+          ? {}
+          : { overrideMs: this.#controlRequestTimeoutMs }),
+      }),
+    });
   }
 
   notify(method: string, params?: unknown): void {
@@ -1105,6 +1248,9 @@ class CodexAppServerSession {
       return;
     }
     this.#pending.delete(id);
+    if (pending.timeout !== null) {
+      clearTimeout(pending.timeout);
+    }
     if (message.error) {
       pending.reject(toJsonRpcTransportError(message.error));
       return;
@@ -1283,6 +1429,9 @@ class CodexAppServerSession {
       this.#settledFailure = error;
     }
     for (const pending of this.#pending.values()) {
+      if (pending.timeout !== null) {
+        clearTimeout(pending.timeout);
+      }
       pending.reject(error);
     }
     this.#pending.clear();
@@ -1312,6 +1461,10 @@ class CodexAppServerSession {
     if (this.#forceKillTimeout !== null) {
       clearTimeout(this.#forceKillTimeout);
       this.#forceKillTimeout = null;
+    }
+    if (this.#startupTimeout !== null) {
+      clearTimeout(this.#startupTimeout);
+      this.#startupTimeout = null;
     }
   }
 

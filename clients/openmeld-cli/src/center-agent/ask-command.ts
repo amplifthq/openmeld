@@ -1,3 +1,7 @@
+import {
+  type StructuredApiClientFailure,
+  toStructuredApiClientFailure,
+} from "@openmeld/api-client";
 import type {
   CenterAgentInteractionSource,
   CenterAgentTaskReference,
@@ -108,20 +112,44 @@ export async function runCenterAgentAsk(input: {
       organizationId: context.organizationScope.target.id,
     });
     const clientMessageId = crypto.randomUUID();
-    const signal = await spaceApi.postNormalMessage({
-      messageEnvelope: {
-        activationTargets: [directMessage.centerAgentProfileId],
-        referenceTargets: [],
+    const submitSignal = async () =>
+      await spaceApi.postNormalMessage({
+        messageEnvelope: {
+          activationTargets: [directMessage.centerAgentProfileId],
+          referenceTargets: [],
+          text,
+        },
+        meta: {
+          centerAgentInteractionSource: source,
+          clientMessageId,
+        },
+        requestContext,
+        spaceId: directMessage.spaceId,
         text,
-      },
-      meta: {
-        centerAgentInteractionSource: source,
-        clientMessageId,
-      },
-      requestContext,
-      spaceId: directMessage.spaceId,
-      text,
-    });
+      });
+    const submission = await submitCenterAgentAskSignal(submitSignal);
+    if (submission.kind === "unknown") {
+      emitCenterAgentAskSuccess({
+        answer: null,
+        interaction: {
+          centerAgentProfileId: directMessage.centerAgentProfileId,
+          clientMessageId,
+          createdConversation: directMessage.created,
+          phase: "submission_unknown",
+          source,
+          spaceId: directMessage.spaceId,
+          submissionAttemptCount: submission.attemptCount,
+          submissionFailure: buildBoundedApiFailure(submission.failure),
+        },
+        organizationScope: context.organizationScope,
+        presenter: context.presenter,
+        result: null,
+        runtime: context.runtime,
+        status: "submission_unknown",
+      });
+      return;
+    }
+    const signal = submission.signal;
     const interaction = {
       centerAgentProfileId: directMessage.centerAgentProfileId,
       clientMessageId,
@@ -145,16 +173,28 @@ export async function runCenterAgentAsk(input: {
     }
 
     const deadlineAtMs = Date.now() + timeoutSeconds * 1000;
-    const waitOutcome = await waitForCenterAgentAsk({
-      clientMessageId,
-      deadlineAtMs,
-      pollIntervalMs:
-        input.pollIntervalMs ?? DEFAULT_CENTER_AGENT_ASK_POLL_INTERVAL_MS,
-      requestContext,
-      spaceApi,
-      spaceId: directMessage.spaceId,
-      targetProfileId: directMessage.centerAgentProfileId,
-    });
+    let waitOutcome: Awaited<ReturnType<typeof waitForCenterAgentAsk>>;
+    try {
+      waitOutcome = await waitForCenterAgentAsk({
+        clientMessageId,
+        deadlineAtMs,
+        pollIntervalMs:
+          input.pollIntervalMs ?? DEFAULT_CENTER_AGENT_ASK_POLL_INTERVAL_MS,
+        requestContext,
+        spaceApi,
+        spaceId: directMessage.spaceId,
+        targetProfileId: directMessage.centerAgentProfileId,
+      });
+    } catch (error) {
+      emitAcceptedCenterAgentAskPending({
+        error,
+        interaction,
+        organizationScope: context.organizationScope,
+        presenter: context.presenter,
+        runtime: context.runtime,
+      });
+      return;
+    }
     if (waitOutcome.kind === "needs_input") {
       emitCenterAgentAskSuccess({
         organizationScope: context.organizationScope,
@@ -212,16 +252,34 @@ export async function runCenterAgentAsk(input: {
       return;
     }
 
-    const visibleReply = await waitForCenterAgentVisibleReply({
-      deadlineAtMs,
-      pollIntervalMs:
-        input.pollIntervalMs ?? DEFAULT_CENTER_AGENT_ASK_POLL_INTERVAL_MS,
-      requestContext,
-      sourceSignalId: signal.id,
-      spaceApi,
-      spaceId: directMessage.spaceId,
-      targetProfileId: directMessage.centerAgentProfileId,
-    });
+    let visibleReply: Awaited<
+      ReturnType<typeof waitForCenterAgentVisibleReply>
+    >;
+    try {
+      visibleReply = await waitForCenterAgentVisibleReply({
+        deadlineAtMs,
+        pollIntervalMs:
+          input.pollIntervalMs ?? DEFAULT_CENTER_AGENT_ASK_POLL_INTERVAL_MS,
+        requestContext,
+        sourceSignalId: signal.id,
+        spaceApi,
+        spaceId: directMessage.spaceId,
+        targetProfileId: directMessage.centerAgentProfileId,
+      });
+    } catch (error) {
+      emitAcceptedCenterAgentAskPending({
+        error,
+        interaction: {
+          ...interaction,
+          dispatchId: waitOutcome.progress.dispatchId,
+          phase: waitOutcome.progress.phase,
+        },
+        organizationScope: context.organizationScope,
+        presenter: context.presenter,
+        runtime: context.runtime,
+      });
+      return;
+    }
     if (!visibleReply) {
       emitCenterAgentAskSuccess({
         organizationScope: context.organizationScope,
@@ -267,6 +325,31 @@ export async function runCenterAgentAsk(input: {
   }
 }
 
+function emitAcceptedCenterAgentAskPending(input: {
+  error: unknown;
+  interaction: Record<string, unknown> & {
+    source: CenterAgentInteractionSource;
+  };
+  organizationScope: CenterAgentOrganizationScope;
+  presenter: Presenter;
+  runtime: RuntimeContext;
+}): void {
+  const failure = toStructuredApiClientFailure(input.error);
+  emitCenterAgentAskSuccess({
+    answer: null,
+    interaction: {
+      ...input.interaction,
+      phase: input.interaction.phase ?? "request_sent",
+      waitFailure: buildBoundedApiFailure(failure),
+    },
+    organizationScope: input.organizationScope,
+    presenter: input.presenter,
+    result: null,
+    runtime: input.runtime,
+    status: "pending",
+  });
+}
+
 function emitCenterAgentAskSuccess(input: {
   answer: string | null;
   interaction: Record<string, unknown> & {
@@ -276,7 +359,12 @@ function emitCenterAgentAskSuccess(input: {
   organizationScope: CenterAgentOrganizationScope;
   result: DispatchResult | null;
   runtime: RuntimeContext;
-  status: "completed" | "needs_input" | "pending" | "submitted";
+  status:
+    | "completed"
+    | "needs_input"
+    | "pending"
+    | "submission_unknown"
+    | "submitted";
   taskReferences?: readonly CenterAgentTaskLink[];
 }): void {
   const taskReferences = input.taskReferences ?? [];
@@ -329,7 +417,7 @@ function emitCenterAgentAskSuccess(input: {
             {
               label: "Result",
               value:
-                "The request is still running in Center Agent Chat. Leaving this CLI wait did not cancel it.",
+                "The request was accepted, but OpenMeld did not see a final reply before this CLI stopped waiting. Leaving did not cancel it.",
             },
           ]
         : []),
@@ -339,6 +427,15 @@ function emitCenterAgentAskSuccess(input: {
               label: "Result",
               value:
                 "The request was added to the existing Center Agent Chat without waiting for its reply.",
+            },
+          ]
+        : []),
+      ...(input.status === "submission_unknown"
+        ? [
+            {
+              label: "Result",
+              value:
+                "The request may have reached Center Agent, but OpenMeld could not confirm delivery. Do not submit it again. Open Center Agent Chat and check the request by its client message ID.",
             },
           ]
         : []),
@@ -379,7 +476,12 @@ function resolveCenterAgentAskTimeoutSeconds(
 }
 
 function formatCenterAgentAskStatus(
-  status: "completed" | "needs_input" | "pending" | "submitted"
+  status:
+    | "completed"
+    | "needs_input"
+    | "pending"
+    | "submission_unknown"
+    | "submitted"
 ): string {
   if (status === "needs_input") {
     return "Needs your input";
@@ -390,5 +492,58 @@ function formatCenterAgentAskStatus(
   if (status === "submitted") {
     return "Submitted";
   }
+  if (status === "submission_unknown") {
+    return "Delivery not confirmed";
+  }
   return "Completed";
+}
+
+async function submitCenterAgentAskSignal<T>(submit: () => Promise<T>): Promise<
+  | { kind: "accepted"; signal: T }
+  | {
+      attemptCount: 2;
+      failure: StructuredApiClientFailure;
+      kind: "unknown";
+    }
+> {
+  try {
+    return { kind: "accepted", signal: await submit() };
+  } catch (error) {
+    if (!isAmbiguousSignalSubmissionFailure(error)) {
+      throw error;
+    }
+  }
+
+  try {
+    return { kind: "accepted", signal: await submit() };
+  } catch (error) {
+    const failure = toStructuredApiClientFailure(error);
+    if (!isAmbiguousSignalSubmissionFailure(failure)) {
+      throw error;
+    }
+    return { attemptCount: 2, failure, kind: "unknown" };
+  }
+}
+
+function isAmbiguousSignalSubmissionFailure(error: unknown): boolean {
+  const failure = toStructuredApiClientFailure(error);
+  return (
+    failure.code === "gateway.invalid_response" ||
+    failure.code === "network.request_failed" ||
+    failure.code === "network.timeout"
+  );
+}
+
+function buildBoundedApiFailure(failure: StructuredApiClientFailure): {
+  code: StructuredApiClientFailure["code"];
+  requestId: string | null;
+  status: number | null;
+  upstreamCode: string | null;
+} {
+  return {
+    code: failure.code,
+    requestId: failure.requestId,
+    status: failure.status,
+    upstreamCode: failure.upstreamCode,
+  };
 }

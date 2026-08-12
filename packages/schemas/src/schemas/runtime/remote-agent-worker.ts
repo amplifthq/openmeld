@@ -532,10 +532,16 @@ export const remoteAgentWorkerCancellationResponseSchema = z.union([
 export const remoteAgentWorkerReadUsageDiagnosticsRequestSchema =
   z.strictObject({
     organizationId: optionalNonEmptyStringSchema,
+    runtimeConversationId: nonEmptyStringSchema.max(
+      REMOTE_AGENT_RUNTIME_CONVERSATION_ID_MAX_CHARS
+    ),
     spaceId: nonEmptyStringSchema,
   });
 
 export const remoteAgentWorkerRuntimeDiagnosticsRequestSchema = z.strictObject({
+  runtimeConversationId: nonEmptyStringSchema.max(
+    REMOTE_AGENT_RUNTIME_CONVERSATION_ID_MAX_CHARS
+  ),
   spaceId: nonEmptyStringSchema,
 });
 

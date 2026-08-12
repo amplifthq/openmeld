@@ -298,7 +298,7 @@ describe("Flue Cloudflare entrypoints", () => {
     }
   });
 
-  it("reads normal and Routine usage from the one Space conversation Durable Object", async () => {
+  it("reads normal and Routine usage from the exact runtime conversation Durable Object", async () => {
     const readUsageDiagnostics = vi.fn().mockResolvedValueOnce({
       records: [
         { recordedAt: "2026-07-12T12:00:01.000Z", source: "routine" },
@@ -317,7 +317,11 @@ describe("Flue Cloudflare entrypoints", () => {
     await expect(
       readUsageDiagnosticsFromCenterAgent({
         namespace,
-        request: { organizationId: "org_123", spaceId: "space_123" },
+        request: {
+          organizationId: "org_123",
+          runtimeConversationId: "runtime_conversation_2",
+          spaceId: "space_123",
+        },
       })
     ).resolves.toEqual({
       records: [
@@ -327,7 +331,11 @@ describe("Flue Cloudflare entrypoints", () => {
       spaceId: "space_123",
     });
     expect(namespace.idFromName).toHaveBeenCalledOnce();
-    expect(namespace.idFromName).toHaveBeenCalledWith("space_123");
+    expect(namespace.idFromName).toHaveBeenCalledWith("runtime_conversation_2");
+    expect(readUsageDiagnostics).toHaveBeenCalledWith({
+      organizationId: "org_123",
+      spaceId: "space_123",
+    });
   });
 
   it("rejects invalid usage diagnostics RPC input before selecting a Durable Object", async () => {
@@ -343,7 +351,7 @@ describe("Flue Cloudflare entrypoints", () => {
     expect(namespace.get).not.toHaveBeenCalled();
   });
 
-  it("reads runtime diagnostics from the one Space conversation Durable Object", async () => {
+  it("reads runtime diagnostics from the exact runtime conversation Durable Object", async () => {
     const response = {
       activeRuns: [],
       attemptMarkers: [],
@@ -368,10 +376,13 @@ describe("Flue Cloudflare entrypoints", () => {
     await expect(
       readRuntimeDiagnosticsFromCenterAgent({
         namespace,
-        request: { spaceId: "space_123" },
+        request: {
+          runtimeConversationId: "runtime_conversation_2",
+          spaceId: "space_123",
+        },
       })
     ).resolves.toEqual(response);
-    expect(namespace.idFromName).toHaveBeenCalledWith("space_123");
+    expect(namespace.idFromName).toHaveBeenCalledWith("runtime_conversation_2");
     expect(readRuntimeDiagnostics).toHaveBeenCalledWith({
       spaceId: "space_123",
     });

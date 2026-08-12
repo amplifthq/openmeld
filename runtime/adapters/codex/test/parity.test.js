@@ -21,6 +21,10 @@ const CODEX_EXECUTION_DENIED_RE = /execution denied/i;
 const QUOTA_RE = /insufficient_quota/;
 const RATE_LIMIT_RE = /rate limit/i;
 const USAGE_LIMIT_RE = /usage limit/i;
+const STARTUP_RETRY_OUTPUT_RE = /start safely after one transient bootstrap/;
+const STARTUP_RETRY_FAILURE_RE = /one automatic retry/;
+const LONG_TURN_OUTPUT_RE = /allow a healthy long-running turn/;
+const NATIVE_RUNTIME_OUTPUT_RE = /launch the official packaged native runtime/;
 const RUNTIME_PERMISSION_DENIAL_COPY =
   "The requested action was blocked by the Agent Profile’s permission settings. Review its permissions and choose a less restrictive mode only if you trust the access it grants, then wake the agent again.";
 const createRuntimeContext = (
@@ -34,13 +38,38 @@ const createNodeScriptLaunchContract = (scriptPath) => ({
   scriptPath,
 });
 
+const CODEX_PLATFORM_LAYOUTS = {
+  "darwin-arm64": {
+    packageName: "@openai/codex-darwin-arm64",
+    targetTriple: "aarch64-apple-darwin",
+  },
+  "darwin-x64": {
+    packageName: "@openai/codex-darwin-x64",
+    targetTriple: "x86_64-apple-darwin",
+  },
+  "linux-arm64": {
+    packageName: "@openai/codex-linux-arm64",
+    targetTriple: "aarch64-unknown-linux-musl",
+  },
+  "linux-x64": {
+    packageName: "@openai/codex-linux-x64",
+    targetTriple: "x86_64-unknown-linux-musl",
+  },
+};
+
 const writeFakeCodexAppServerFixture = async (fixturePath) => {
   await writeFile(
     fixturePath,
     [
       "#!/usr/bin/env node",
-      "import { appendFileSync } from 'node:fs';",
+      "import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';",
       "const logPath = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_LOG;",
+      "const startupAttemptPath = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH;",
+      "let startupAttempt = 1;",
+      "if (startupAttemptPath) {",
+      "  try { startupAttempt = Number(readFileSync(startupAttemptPath, 'utf8')) + 1; } catch {}",
+      "  writeFileSync(startupAttemptPath, String(startupAttempt), 'utf8');",
+      "}",
       "let buffer = '';",
       "let activeTurn = null;",
       "let completionTimer = null;",
@@ -52,6 +81,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "  appendFileSync(logPath, JSON.stringify({",
       "    argv: process.argv.slice(2),",
       "    cwd: process.cwd(),",
+      "    managedPackageRoot: process.env.CODEX_MANAGED_PACKAGE_ROOT ?? null,",
       "    method: message.method,",
       "    params: message.params ?? null,",
       "    result: message.result ?? null,",
@@ -91,6 +121,8 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    return;",
       "  }",
       "  if (message.method === 'initialize') {",
+      "    const hangingStartupAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_STARTUP_ATTEMPTS ?? '0');",
+      "    if (startupAttempt <= hangingStartupAttempts) return;",
       "    write({ jsonrpc: '2.0', id: message.id, result: { userAgent: 'fake-codex-app-server', codexHome: '/tmp/fake-codex-home', platformFamily: 'unix', platformOs: 'macos' } });",
       "    return;",
       "  }",
@@ -103,17 +135,23 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    return;",
       "  }",
       "  if (message.method === 'thread/resume') {",
+      "    const hangingResumeAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_RESUME_ATTEMPTS ?? '0');",
+      "    if (startupAttempt <= hangingResumeAttempts) return;",
       "    const model = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_OMIT_THREAD_MODEL === '1' ? {} : { model: 'gpt-5' };",
       "    const threadSource = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE ?? 'user';",
       "    write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread(message.params.threadId, threadSource), ...model, modelProvider: 'openai', serviceTier: null, cwd: message.params.cwd, instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'client', sandbox: { mode: 'read-only' }, reasoningEffort: null } });",
       "    return;",
       "  }",
       "  if (message.method === 'thread/start') {",
+      "    const hangingThreadStartAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_THREAD_START_ATTEMPTS ?? '0');",
+      "    if (startupAttempt <= hangingThreadStartAttempts) return;",
       "    const model = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_OMIT_THREAD_MODEL === '1' ? {} : { model: 'gpt-5' };",
       "    write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread('thread-new-1', message.params.threadSource), ...model, modelProvider: 'openai', serviceTier: null, cwd: message.params.cwd, instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'client', sandbox: { mode: 'read-only' }, reasoningEffort: null } });",
       "    return;",
       "  }",
       "  if (message.method === 'turn/start') {",
+      "    const hangingTurnStartAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_TURN_START_ATTEMPTS ?? '0');",
+      "    if (startupAttempt <= hangingTurnStartAttempts) return;",
       "    const prompt = message.params.input[0].text;",
       "    const cwd = message.params.cwd;",
       "    write({ jsonrpc: '2.0', id: message.id, result: { turn: { id: 'turn-1', items: [], itemsView: 'complete', status: 'inProgress', error: null, startedAt: 1, completedAt: null, durationMs: null } } });",
@@ -591,7 +629,7 @@ console.log(JSON.stringify({ type: "response.completed", response: { output_text
   }
 });
 
-test("invokeCodexAppServerTransport dispatches through app-server thread and turn methods", async () => {
+test("invokeCodexAppServerTransport keeps the controller process out of the workspace while dispatching there", async () => {
   const { invokeCodexAppServerTransport } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-server-"));
   const dispatchDir = await mkdtemp(join(tmpdir(), "codex-app-dispatch-"));
@@ -638,14 +676,14 @@ test("invokeCodexAppServerTransport dispatches through app-server thread and tur
       taskId: "task-app-server-dispatch",
       threadId: "thread-existing-1",
     });
-    const expectedDispatchDir = await realpath(dispatchDir);
+    const expectedControllerDir = await realpath(tmpdir());
     const methods = await readFakeAppServerMethods(logPath);
     const messages = await readFakeAppServerMessages(logPath);
 
     assert.equal(result.threadId, "thread-existing-1");
     assert.equal(
       result.output,
-      `app-server:${expectedDispatchDir}:${dispatchDir}:hello from app-server`
+      `app-server:${expectedControllerDir}:${dispatchDir}:hello from app-server`
     );
     assert.deepEqual(methods, [
       "initialize",
@@ -653,15 +691,37 @@ test("invokeCodexAppServerTransport dispatches through app-server thread and tur
       "thread/resume",
       "turn/start",
     ]);
+    const processSpawnedEvent = runtimeEvents.find(
+      (event) => event.phase === "process_spawned"
+    );
+    assert.ok(processSpawnedEvent);
+    assert.equal(processSpawnedEvent.processLaunchKind, "package_entrypoint");
+    assert.equal(
+      processSpawnedEvent.processWorkingDirectoryKind,
+      "runtime_host"
+    );
     assert.equal(
       messages.find((message) => message.method === "thread/resume").params
         .approvalPolicy,
       "on-request"
     );
     assert.equal(
+      messages.find((message) => message.method === "thread/resume").params.cwd,
+      dispatchDir
+    );
+    assert.equal(
+      messages.find((message) => message.method === "thread/resume").params
+        .excludeTurns,
+      true
+    );
+    assert.equal(
       messages.find((message) => message.method === "turn/start").params
         .approvalPolicy,
       "on-request"
+    );
+    assert.equal(
+      messages.find((message) => message.method === "turn/start").params.cwd,
+      dispatchDir
     );
     assert.deepEqual(
       runtimeEvents
@@ -699,6 +759,112 @@ test("invokeCodexAppServerTransport dispatches through app-server thread and tur
     await rm(dispatchDir, { force: true, recursive: true });
   }
 });
+
+test(
+  "codex app-server launches the official packaged native runtime without the Node wrapper",
+  {
+    skip:
+      process.platform === "win32" ||
+      !CODEX_PLATFORM_LAYOUTS[`${process.platform}-${process.arch}`],
+  },
+  async () => {
+    const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+    const { buildCodexAppServerLaunch } = await import(
+      "../dist/transport/codex-app-server-launch.js"
+    );
+    const fixtureDir = await mkdtemp(join(tmpdir(), "codex-native-runtime-"));
+    const dispatchDir = await mkdtemp(
+      join(tmpdir(), "codex-native-runtime-dispatch-")
+    );
+    const packageRoot = join(fixtureDir, "codex");
+    const scriptPath = join(packageRoot, "bin", "codex.js");
+    const layout =
+      CODEX_PLATFORM_LAYOUTS[`${process.platform}-${process.arch}`];
+    const platformPackageRoot = join(
+      packageRoot,
+      "node_modules",
+      ...layout.packageName.split("/")
+    );
+    const nativePath = join(
+      platformPackageRoot,
+      "vendor",
+      layout.targetTriple,
+      "bin",
+      "codex"
+    );
+    const logPath = join(fixtureDir, "rpc-log.jsonl");
+
+    await mkdir(join(packageRoot, "bin"), { recursive: true });
+    await mkdir(join(nativePath, ".."), { recursive: true });
+    await writeFile(
+      join(packageRoot, "package.json"),
+      JSON.stringify({
+        bin: { codex: "bin/codex.js" },
+        name: "@openai/codex",
+      }),
+      "utf8"
+    );
+    await writeFile(
+      join(platformPackageRoot, "package.json"),
+      JSON.stringify({ name: "@openai/codex" }),
+      "utf8"
+    );
+    await writeFile(
+      scriptPath,
+      "#!/usr/bin/env node\nsetInterval(() => {}, 1000);\n",
+      "utf8"
+    );
+    await writeFakeCodexAppServerFixture(nativePath);
+    await chmod(scriptPath, 0o755);
+    await chmod(nativePath, 0o755);
+
+    try {
+      const expectedNativePath = await realpath(nativePath);
+      const expectedPackageRoot = await realpath(packageRoot);
+      const launch = buildCodexAppServerLaunch({
+        args: ["app-server", "--listen", "stdio://"],
+        env: {},
+        launchContract: {
+          ...createNodeScriptLaunchContract(scriptPath),
+          argsPrefix: ["--official-prefix"],
+        },
+      });
+      assert.equal(launch.bin, expectedNativePath);
+      assert.equal(launch.processLaunchKind, "native_binary");
+      assert.deepEqual(launch.args, [
+        "--official-prefix",
+        "app-server",
+        "--listen",
+        "stdio://",
+      ]);
+      assert.equal(launch.env.CODEX_MANAGED_PACKAGE_ROOT, expectedPackageRoot);
+      assert.equal(launch.env.CODEX_MANAGED_BY_NPM, "1");
+      assert.equal(launch.env.CODEX_MANAGED_BY_BUN, undefined);
+      assert.equal(launch.env.CODEX_MANAGED_BY_PNPM, undefined);
+      const result = await invokeCodexAppServerTransport({
+        launchContract: createNodeScriptLaunchContract(scriptPath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        },
+        prompt: "launch the official packaged native runtime",
+        // This is a real child-process startup under the full parallel suite.
+        // Keep the assertion bounded without making scheduler contention the test.
+        startupTimeoutMs: 3000,
+        taskId: "task-native-runtime",
+        threadId: null,
+      });
+      const messages = await readFakeAppServerMessages(logPath);
+
+      assert.match(result.output, NATIVE_RUNTIME_OUTPUT_RE);
+      assert.equal(messages[0].managedPackageRoot, expectedPackageRoot);
+    } finally {
+      await rm(fixtureDir, { force: true, recursive: true });
+      await rm(dispatchDir, { force: true, recursive: true });
+    }
+  }
+);
 
 test("codex app-server creates new OpenMeld threads with native developer instructions", async () => {
   const { invokeCodexAppServerTransport } = await import("../dist/index.js");
@@ -1613,6 +1779,283 @@ test("invokeCodexAppServerTransport preserves thread id when app-server turn com
   }
 });
 
+test("invokeCodexAppServer retries one startup timeout before beginning a turn", async () => {
+  const { invokeCodexAppServer } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-startup-retry-"));
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-app-startup-retry-dispatch-")
+  );
+  const attemptPath = join(fixtureDir, "startup-attempt.txt");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const processEvents = [];
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const result = await invokeCodexAppServer({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      codexTimeoutMs: null,
+      codexWorkdir: dispatchDir,
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_HANG_STARTUP_ATTEMPTS: "1",
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: attemptPath,
+      },
+      onProcessControlEvent: (event) => processEvents.push(event),
+      prompt: "start safely after one transient bootstrap failure",
+      startupTimeoutMs: 500,
+      taskId: "task-app-server-startup-retry",
+      threadId: null,
+    });
+
+    assert.match(result.output, STARTUP_RETRY_OUTPUT_RE);
+    const methods = await readFakeAppServerMethods(logPath);
+    assert.equal(methods.filter((method) => method === "initialize").length, 2);
+    assert.equal(methods.filter((method) => method === "turn/start").length, 1);
+    assert.equal(
+      processEvents.filter((event) => event.phase === "process_spawned").length,
+      2
+    );
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("invokeCodexAppServer stops after one automatic startup retry", async () => {
+  const { invokeCodexAppServer } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-startup-fail-"));
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-app-startup-fail-dispatch-")
+  );
+  const attemptPath = join(fixtureDir, "startup-attempt.txt");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const processEvents = [];
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    await assert.rejects(
+      invokeCodexAppServer({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: null,
+        codexWorkdir: dispatchDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_HANG_STARTUP_ATTEMPTS: "2",
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: attemptPath,
+        },
+        onProcessControlEvent: (event) => processEvents.push(event),
+        prompt: "do not retry indefinitely",
+        startupTimeoutMs: 500,
+        taskId: "task-app-server-startup-fail",
+        threadId: null,
+      }),
+      (error) =>
+        error.code === "runtime.startup_timeout" &&
+        error.errorType === "timeout" &&
+        STARTUP_RETRY_FAILURE_RE.test(error.message)
+    );
+    const methods = await readFakeAppServerMethods(logPath);
+    assert.deepEqual(methods, ["initialize", "initialize"]);
+    assert.equal(
+      processEvents.filter((event) => event.phase === "process_spawned").length,
+      2
+    );
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("codex app-server admission budgets keep rollover fast without rejecting a cold fresh start", async () => {
+  const { resolveCodexAppServerControlRequestTimeoutMs } = await import(
+    "../dist/transport/codex-app-server-admission.js"
+  );
+
+  assert.equal(
+    resolveCodexAppServerControlRequestTimeoutMs({
+      operation: "thread/resume",
+    }),
+    15_000
+  );
+  assert.equal(
+    resolveCodexAppServerControlRequestTimeoutMs({
+      operation: "collaborationMode/list",
+    }),
+    15_000
+  );
+  assert.equal(
+    resolveCodexAppServerControlRequestTimeoutMs({
+      operation: "thread/start",
+    }),
+    90_000
+  );
+  assert.equal(
+    resolveCodexAppServerControlRequestTimeoutMs({
+      operation: "turn/start",
+    }),
+    90_000
+  );
+  assert.equal(
+    resolveCodexAppServerControlRequestTimeoutMs({
+      operation: "thread/start",
+      overrideMs: 50,
+    }),
+    50
+  );
+});
+
+test("invokeCodexAppServer rolls forward after stalled resume and transient fresh-thread admission", async () => {
+  const { invokeCodexAppServer } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-resume-heal-"));
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-app-resume-heal-dispatch-")
+  );
+  const attemptPath = join(fixtureDir, "resume-attempt.txt");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const processEvents = [];
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const result = await invokeCodexAppServer({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      codexTimeoutMs: null,
+      codexWorkdir: dispatchDir,
+      controlRequestTimeoutMs: 50,
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_HANG_RESUME_ATTEMPTS: "1",
+        OPENMELD_FAKE_CODEX_APP_SERVER_HANG_THREAD_START_ATTEMPTS: "2",
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: attemptPath,
+      },
+      onProcessControlEvent: (event) => processEvents.push(event),
+      prompt: "continue the current Wake after automatic rollover",
+      startupTimeoutMs: 200,
+      taskId: "task-app-server-resume-heal",
+      threadId: "thread-stalled-1",
+    });
+
+    const messages = await readFakeAppServerMessages(logPath);
+    assert.equal(result.threadId, "thread-new-1");
+    assert.equal(result.contextHealed, true);
+    assert.equal(result.telemetry.contextHealed, true);
+    assert.equal(result.telemetry.resumedContext, true);
+    assert.deepEqual(
+      messages
+        .filter((message) =>
+          ["thread/resume", "thread/start", "turn/start"].includes(
+            message.method
+          )
+        )
+        .map((message) => message.method),
+      ["thread/resume", "thread/start", "thread/start", "turn/start"]
+    );
+    assert.equal(
+      processEvents.filter((event) => event.phase === "process_spawned").length,
+      3
+    );
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("invokeCodexAppServer does not resubmit an ambiguously acknowledged turn", async () => {
+  const { invokeCodexAppServer } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-turn-admission-"));
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-app-turn-admission-dispatch-")
+  );
+  const attemptPath = join(fixtureDir, "turn-attempt.txt");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const processEvents = [];
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    await assert.rejects(
+      invokeCodexAppServer({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: null,
+        codexWorkdir: dispatchDir,
+        controlRequestTimeoutMs: 50,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_HANG_TURN_START_ATTEMPTS: "1",
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: attemptPath,
+        },
+        onProcessControlEvent: (event) => processEvents.push(event),
+        prompt: "never duplicate a turn after an uncertain acknowledgement",
+        startupTimeoutMs: 200,
+        taskId: "task-app-server-turn-admission",
+        threadId: null,
+      }),
+      (error) =>
+        error.code === "runtime.turn_start_timeout" &&
+        error.errorType === "timeout"
+    );
+    const messages = await readFakeAppServerMessages(logPath);
+    assert.deepEqual(
+      messages
+        .filter((message) =>
+          ["thread/start", "turn/start"].includes(message.method)
+        )
+        .map((message) => message.method),
+      ["thread/start", "turn/start"]
+    );
+    assert.equal(
+      processEvents.filter((event) => event.phase === "process_spawned").length,
+      1
+    );
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("app-server startup timeout does not become a total turn timeout", async () => {
+  const { invokeCodexAppServer } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-long-turn-"));
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-app-long-turn-dispatch-")
+  );
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const result = await invokeCodexAppServer({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      codexTimeoutMs: null,
+      codexWorkdir: dispatchDir,
+      controlRequestTimeoutMs: 500,
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS: "1200",
+      },
+      prompt: "allow a healthy long-running turn",
+      startupTimeoutMs: 1000,
+      taskId: "task-app-server-long-turn",
+      threadId: null,
+    });
+
+    assert.match(result.output, LONG_TURN_OUTPUT_RE);
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
 test("invokeCodexAppServerTransport preserves spaces from agent message delta fallback", async () => {
   const { invokeCodexAppServerTransport } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-server-delta-"));
@@ -2066,10 +2509,16 @@ test("verifyCodexAppServerThread proves thread control without starting a turn",
       },
       threadId: "thread-proof-1",
     });
-    const methods = await readFakeAppServerMethods(logPath);
+    const messages = await readFakeAppServerMessages(logPath);
+    const methods = messages.map((message) => message.method);
 
     assert.equal(result.threadId, "thread-proof-1");
     assert.deepEqual(methods, ["initialize", "initialized", "thread/resume"]);
+    assert.equal(
+      messages.find((message) => message.method === "thread/resume").params
+        .excludeTurns,
+      true
+    );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });

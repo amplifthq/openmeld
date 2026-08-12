@@ -181,14 +181,17 @@ function ExistingComputerConnectionGate(input: {
 	const [setupRequested, setSetupRequested] = useState(false);
 	const readinessQuery =
 		input.bringAgentsSetup.currentLocalRuntimeReplyReadinessQuery;
-	const checking =
-		readinessQuery.isPending ||
-		("isFetching" in readinessQuery && readinessQuery.isFetching === true);
+	const connectionState = resolveExistingComputerConnectionState(
+		input.bringAgentsSetup
+	);
 
 	if (setupRequested) {
 		return <ComputerSetupSessionFlow {...input.input} />;
 	}
-	if (checking) {
+	if (
+		connectionState.kind === "checking_inventory" ||
+		connectionState.kind === "checking_readiness"
+	) {
 		return (
 			<Card
 				aria-busy="true"
@@ -207,7 +210,14 @@ function ExistingComputerConnectionGate(input: {
 			</Card>
 		);
 	}
-	if (readinessQuery.isError) {
+	if (
+		connectionState.kind === "inventory_error" ||
+		connectionState.kind === "readiness_error"
+	) {
+		const retry =
+			connectionState.kind === "inventory_error"
+				? input.bringAgentsSetup.refreshAll
+				: readinessQuery.refetch;
 		return (
 			<Card className="gap-4 rounded-md p-4">
 				<div>
@@ -221,7 +231,7 @@ function ExistingComputerConnectionGate(input: {
 				<div className="flex flex-wrap gap-2">
 					<Button
 						onClick={() => {
-							readinessQuery.refetch().catch((error: unknown) => {
+							retry().catch((error: unknown) => {
 								console.error(
 									"OpenMeld could not retry the current computer check.",
 									{ error }
@@ -246,7 +256,7 @@ function ExistingComputerConnectionGate(input: {
 			</Card>
 		);
 	}
-	if (readinessQuery.data?.service.connected === true) {
+	if (connectionState.kind === "connected") {
 		return (
 			<Card className="flex-row items-start gap-3 rounded-md p-4">
 				<CheckCircleIcon
@@ -257,7 +267,8 @@ function ExistingComputerConnectionGate(input: {
 				<div className="min-w-0 flex-1">
 					<p className="font-medium text-sm">OpenMeld Service is connected</p>
 					<p className="mt-1 truncate text-muted-foreground text-xs">
-						{readinessQuery.data.runtime.deviceDisplayName ?? "This computer"}
+						{connectionState.readiness.runtime.deviceDisplayName ??
+							"This computer"}
 					</p>
 					<p className="mt-2 text-muted-foreground text-xs leading-5">
 						OpenMeld can already use the local agents enabled on this computer.
@@ -275,6 +286,59 @@ function ExistingComputerConnectionGate(input: {
 		);
 	}
 	return <ComputerSetupSessionFlow {...input.input} />;
+}
+
+type ExistingComputerConnectionState =
+	| {
+			kind:
+				| "checking_inventory"
+				| "checking_readiness"
+				| "inventory_error"
+				| "readiness_error"
+				| "setup_required";
+	  }
+	| {
+			kind: "connected";
+			readiness: CurrentLocalRuntimeReplyReadinessResponse;
+	  };
+
+function resolveExistingComputerConnectionState(
+	setup: ReturnType<typeof useBringAgentsSetupContext>
+): ExistingComputerConnectionState {
+	const currentDeviceTargetQuery = setup.currentDeviceTargetQuery;
+	const localRuntimesQuery = setup.localRuntimesQuery;
+	const readinessQuery = setup.currentLocalRuntimeReplyReadinessQuery;
+	const hasComputer =
+		currentDeviceTargetQuery.data?.availability === "resolved" ||
+		(localRuntimesQuery.data?.localRuntimes.length ?? 0) > 0;
+	const inventoryResolved =
+		currentDeviceTargetQuery.isSuccess &&
+		!currentDeviceTargetQuery.isFetching &&
+		localRuntimesQuery.isSuccess &&
+		!localRuntimesQuery.isFetching;
+
+	if (currentDeviceTargetQuery.isError || localRuntimesQuery.isError) {
+		return { kind: "inventory_error" };
+	}
+	if (!inventoryResolved) {
+		return { kind: "checking_inventory" };
+	}
+	if (!hasComputer) {
+		return { kind: "setup_required" };
+	}
+
+	if (readinessQuery.isError) {
+		return { kind: "readiness_error" };
+	}
+	// Inventory proves this query is enabled, so pending now means its first
+	// readiness result is genuinely unresolved rather than disabled and idle.
+	if (readinessQuery.isPending || readinessQuery.isFetching) {
+		return { kind: "checking_readiness" };
+	}
+	if (readinessQuery.data?.service.connected === true) {
+		return { kind: "connected", readiness: readinessQuery.data };
+	}
+	return { kind: "setup_required" };
 }
 
 function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {

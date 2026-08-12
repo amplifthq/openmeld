@@ -93,5 +93,15 @@ describe("protocol urls", () => {
     ).toBe(
       "https://gateway.example.com/v1/spaces/ops%20room/dispatches/dispatch%2F42/trace"
     );
+    expect(
+      toSpaceDispatchTraceUrl(
+        "https://gateway.example.com",
+        "ops room",
+        "dispatch/42",
+        { includeRemoteAgentRuntimeDiagnostics: true }
+      )
+    ).toBe(
+      "https://gateway.example.com/v1/spaces/ops%20room/dispatches/dispatch%2F42/trace?includeRemoteAgentRuntimeDiagnostics=true"
+    );
   });
 });

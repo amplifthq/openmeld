@@ -7,6 +7,7 @@ import type {
   AdapterInstructionPrompt,
   AdapterInteractionCallback,
   AdapterInteractionRequest,
+  AdapterRuntimeEvent,
   AdapterToolActivityEvent,
 } from "@openmeld/adapter-core";
 import type { RuntimeTaskResult } from "@openmeld/local-execution";
@@ -1416,22 +1417,11 @@ export async function handleDispatchDeliverFrame(input: {
           ) {
             emitDispatchLocalPhaseJournalEvent({
               deliverRequest: input.deliverRequest,
-              metadata: {
+              metadata: buildProviderProcessJournalMetadata({
                 agentControllerRef: parsedTask.agentControllerRef,
-                ...(event.phase === "process_exit"
-                  ? {
-                      exitCode: event.exitCode,
-                      exitSignal: event.signal,
-                    }
-                  : {}),
-                phaseTsMs: event.tsMs,
-                processId: event.processId,
-                signalTarget: event.signalTarget,
-                sinceRuntimeStartedMs: Math.max(
-                  0,
-                  event.tsMs - runtimeStartedAtMs
-                ),
-              },
+                event,
+                runtimeStartedAtMs,
+              }),
               parsedTask,
               phase: event.phase,
               result: event.phase === "process_exit" ? "exited" : "spawned",
@@ -1772,6 +1762,46 @@ export async function handleDispatchDeliverFrame(input: {
     taskId: parsedTask.taskId,
   });
   return resultSummary;
+}
+
+type ProviderProcessLifecycleEvent = Extract<
+  AdapterRuntimeEvent,
+  { phase: "process_exit" | "process_spawned" }
+>;
+
+function buildProviderProcessJournalMetadata(input: {
+  agentControllerRef: string;
+  event: ProviderProcessLifecycleEvent;
+  runtimeStartedAtMs: number;
+}): Record<string, unknown> {
+  const lifecycleMetadata =
+    input.event.phase === "process_exit"
+      ? {
+          exitCode: input.event.exitCode,
+          exitSignal: input.event.signal,
+        }
+      : {
+          ...(input.event.processLaunchKind
+            ? { processLaunchKind: input.event.processLaunchKind }
+            : {}),
+          ...(input.event.processWorkingDirectoryKind
+            ? {
+                processWorkingDirectoryKind:
+                  input.event.processWorkingDirectoryKind,
+              }
+            : {}),
+        };
+  return {
+    agentControllerRef: input.agentControllerRef,
+    ...lifecycleMetadata,
+    phaseTsMs: input.event.tsMs,
+    processId: input.event.processId,
+    signalTarget: input.event.signalTarget,
+    sinceRuntimeStartedMs: Math.max(
+      0,
+      input.event.tsMs - input.runtimeStartedAtMs
+    ),
+  };
 }
 
 function emitSendTargetReferenceLoadFailureIfNeeded(input: {

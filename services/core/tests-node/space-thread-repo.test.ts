@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   listSpaceThreadPreviewEntries,
   listSpaceThreadSignalPlacementsAfter,
+  listSpaceThreadSignalPlacementsBefore,
 } from "../src/space/infrastructure/sql/space-thread-repo";
 
 const JOIN_SPACE_SIGNALS_SQL_REGEX = /JOIN\s+space_signals/i;
@@ -86,18 +87,81 @@ describe("space-thread-repo", () => {
       harness.close();
     }
   });
+
+  it("reads only the bounded same-thread history before the source signal", () => {
+    const harness = createSqlStorageHarness();
+    try {
+      harness.insertPlacement("same-1", "thread-1", 1);
+      harness.insertPlacement("other", "thread-2", 2);
+      harness.insertPlacement("same-2", "thread-1", 3);
+      harness.insertPlacement("source", "thread-1", 4);
+      harness.insertPlacement("later", "thread-1", 5);
+
+      const placements = listSpaceThreadSignalPlacementsBefore(harness.sql, {
+        beforeSignalId: "source",
+        limit: 2,
+        signalTypes: ["signal.text"],
+        threadId: "thread-1",
+      });
+
+      expect(placements?.map((placement) => placement.signalId)).toEqual([
+        "same-1",
+        "same-2",
+      ]);
+      expect(
+        listSpaceThreadSignalPlacementsBefore(harness.sql, {
+          beforeSignalId: "other",
+          limit: 2,
+          signalTypes: ["signal.text"],
+          threadId: "thread-1",
+        })
+      ).toBeNull();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("applies signal type filters before bounding thread history", () => {
+    const harness = createSqlStorageHarness();
+    try {
+      harness.insertPlacement("text-1", "thread-1", 1);
+      harness.insertPlacement("status", "thread-1", 2, "signal.status");
+      harness.insertPlacement("text-2", "thread-1", 3);
+      harness.insertPlacement("source", "thread-1", 4);
+
+      const placements = listSpaceThreadSignalPlacementsBefore(harness.sql, {
+        beforeSignalId: "source",
+        limit: 2,
+        signalTypes: ["signal.text"],
+        threadId: "thread-1",
+      });
+
+      expect(placements?.map((placement) => placement.signalId)).toEqual([
+        "text-1",
+        "text-2",
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
 });
 
 function createSqlStorageHarness(): {
   close(): void;
-  insertPlacement(signalId: string, threadId: string, ts: number): void;
+  insertPlacement(
+    signalId: string,
+    threadId: string,
+    ts: number,
+    signalType?: string
+  ): void;
   sql: SqlStorage;
 } {
   const database = new DatabaseSync(":memory:");
   database.exec(`
     CREATE TABLE space_signals (
       id TEXT PRIMARY KEY,
-      ts INTEGER NOT NULL
+      ts INTEGER NOT NULL,
+      type TEXT NOT NULL
     );
     CREATE TABLE space_thread_signal_placements (
       signal_id TEXT PRIMARY KEY,
@@ -108,10 +172,10 @@ function createSqlStorageHarness(): {
   `);
   return {
     close: () => database.close(),
-    insertPlacement: (signalId, threadId, ts) => {
+    insertPlacement: (signalId, threadId, ts, signalType = "signal.text") => {
       database
-        .prepare("INSERT INTO space_signals (id, ts) VALUES (?, ?)")
-        .run(signalId, ts);
+        .prepare("INSERT INTO space_signals (id, ts, type) VALUES (?, ?, ?)")
+        .run(signalId, ts, signalType);
       database
         .prepare(
           `INSERT INTO space_thread_signal_placements (
