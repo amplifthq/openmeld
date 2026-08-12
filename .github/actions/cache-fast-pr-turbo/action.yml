@@ -20,7 +20,7 @@ runs:
         fi
 
     - name: Restore and save Turbo cache
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: .turbo/cache
         key: fast-pr-turbo-${{ runner.os }}-node24-pr-${{ github.event.pull_request.number }}-${{ hashFiles('pnpm-lock.yaml', 'turbo.json') }}-${{ inputs.cache-suffix }}-${{ github.sha }}
