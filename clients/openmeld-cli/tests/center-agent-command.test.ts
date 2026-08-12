@@ -513,6 +513,188 @@ describe("center-agent commands", () => {
     ).toBe(false);
   });
 
+  it("keeps an accepted Center Agent request pending when a later status read fails", async () => {
+    const wakeProgressError = new Error(
+      "space.wake_progress request timed out after 10000ms"
+    ) as Error & { code?: string };
+    wakeProgressError.code = "network.timeout";
+    const calls = mockCenterAgentFetch({ wakeProgressError });
+
+    await withTempHome(async () => {
+      await writeSignedInSession();
+
+      const result = await runCommandAndCapture(() =>
+        runCenterAgentAsk({
+          text: "Create a dedicated Task for the launch review.",
+          via: "codex",
+          view: "agent",
+        })
+      );
+
+      expect(result.exitCode, result.stdout).toBeUndefined();
+      const payload = parseJsonLine(result.stdout, "center_agent.ask")?.payload;
+      const postCall = calls.find(
+        (call) =>
+          call.pathname === `/v1/spaces/${CENTER_AGENT_DM_SPACE_ID}/signals` &&
+          call.method === "POST"
+      );
+      const postedClientMessageId = (
+        postCall?.body as { meta?: { clientMessageId?: unknown } }
+      )?.meta?.clientMessageId;
+
+      expect(postedClientMessageId).toEqual(expect.any(String));
+      expect(payload).toMatchObject({
+        answer: null,
+        interaction: {
+          centerAgentProfileId: CENTER_AGENT_PROFILE_ID,
+          clientMessageId: postedClientMessageId,
+          phase: "request_sent",
+          signalId: "signal-center-agent-ask-1",
+          spaceId: CENTER_AGENT_DM_SPACE_ID,
+          waitFailure: {
+            code: "network.timeout",
+          },
+        },
+        status: "pending",
+      });
+    });
+  });
+
+  it("keeps the accepted dispatch pending when the visible reply read fails", async () => {
+    const signalReadError = new Error(
+      "space.signals.read request timed out after 10000ms"
+    ) as Error & { code?: string };
+    signalReadError.code = "network.timeout";
+    const calls = mockCenterAgentFetch({ signalReadError });
+
+    await withTempHome(async () => {
+      await writeSignedInSession();
+
+      const result = await runCommandAndCapture(() =>
+        runCenterAgentAsk({
+          text: "Create a dedicated Task for the launch review.",
+          via: "codex",
+          view: "agent",
+        })
+      );
+
+      expect(result.exitCode, result.stdout).toBeUndefined();
+      const payload = parseJsonLine(result.stdout, "center_agent.ask")?.payload;
+      const postCall = calls.find(
+        (call) =>
+          call.pathname === `/v1/spaces/${CENTER_AGENT_DM_SPACE_ID}/signals` &&
+          call.method === "POST"
+      );
+      const postedClientMessageId = (
+        postCall?.body as { meta?: { clientMessageId?: unknown } }
+      )?.meta?.clientMessageId;
+
+      expect(payload).toMatchObject({
+        answer: null,
+        interaction: {
+          clientMessageId: postedClientMessageId,
+          dispatchId: "dispatch-center-agent-ask-1",
+          phase: "replied",
+          signalId: "signal-center-agent-ask-1",
+          waitFailure: {
+            code: "network.timeout",
+          },
+        },
+        status: "pending",
+      });
+    });
+  });
+
+  it("replays an ambiguous Center Agent Signal submission with the same client message id", async () => {
+    const signalPostTimeout = new Error(
+      "space.send request timed out after 10000ms"
+    ) as Error & { code?: string };
+    signalPostTimeout.code = "network.timeout";
+    const calls = mockCenterAgentFetch({
+      signalPostErrors: [signalPostTimeout],
+    });
+
+    await withTempHome(async () => {
+      await writeSignedInSession();
+
+      const result = await runCommandAndCapture(() =>
+        runCenterAgentAsk({
+          text: "Create a dedicated Task for the launch review.",
+          via: "codex",
+          view: "agent",
+        })
+      );
+
+      expect(result.exitCode, result.stdout).toBeUndefined();
+      expect(
+        parseJsonLine(result.stdout, "center_agent.ask")?.payload
+      ).toMatchObject({
+        interaction: {
+          signalId: "signal-center-agent-ask-1",
+        },
+        status: "completed",
+      });
+    });
+
+    const signalPosts = calls.filter(
+      (call) =>
+        call.pathname === `/v1/spaces/${CENTER_AGENT_DM_SPACE_ID}/signals` &&
+        call.method === "POST"
+    );
+    expect(signalPosts).toHaveLength(2);
+    expect(signalPosts[1]?.body).toEqual(signalPosts[0]?.body);
+  });
+
+  it("preserves the client message id without inviting a duplicate when Signal submission stays ambiguous", async () => {
+    const signalPostTimeouts = Array.from({ length: 2 }, () => {
+      const error = new Error(
+        "space.send request timed out after 10000ms"
+      ) as Error & { code?: string };
+      error.code = "network.timeout";
+      return error;
+    });
+    const calls = mockCenterAgentFetch({
+      signalPostErrors: signalPostTimeouts,
+    });
+
+    await withTempHome(async () => {
+      await writeSignedInSession();
+
+      const result = await runCommandAndCapture(() =>
+        runCenterAgentAsk({
+          text: "Create a dedicated Task for the launch review.",
+          via: "codex",
+          view: "agent",
+        })
+      );
+
+      expect(result.exitCode, result.stdout).toBeUndefined();
+      const payload = parseJsonLine(result.stdout, "center_agent.ask")?.payload;
+      expect(payload).toMatchObject({
+        answer: null,
+        interaction: {
+          centerAgentProfileId: CENTER_AGENT_PROFILE_ID,
+          clientMessageId: expect.any(String),
+          phase: "submission_unknown",
+          spaceId: CENTER_AGENT_DM_SPACE_ID,
+          submissionAttemptCount: 2,
+          submissionFailure: {
+            code: "network.timeout",
+          },
+        },
+        status: "submission_unknown",
+      });
+    });
+
+    const signalPosts = calls.filter(
+      (call) =>
+        call.pathname === `/v1/spaces/${CENTER_AGENT_DM_SPACE_ID}/signals` &&
+        call.method === "POST"
+    );
+    expect(signalPosts).toHaveLength(2);
+    expect(signalPosts[1]?.body).toEqual(signalPosts[0]?.body);
+  });
+
   it("shows a clear next step when no Center Agent is designated", async () => {
     mockCenterAgentFetch({
       designationResponse: jsonResponse({
@@ -1032,9 +1214,13 @@ function mockCenterAgentFetch(input?: {
   operatingStateResponse?: Response;
   serverActiveOrganizationId?: string | null;
   serverSelectedOrganizationId?: string | null;
+  signalReadError?: Error;
   updateOperatingStateResponse?: Response;
+  signalPostErrors?: Error[];
+  wakeProgressError?: Error;
 }): FetchCall[] {
   const calls: FetchCall[] = [];
+  const signalPostErrors = [...(input?.signalPostErrors ?? [])];
   vi.stubGlobal(
     "fetch",
     vi.fn((request: string | URL | Request, init?: RequestInit) => {
@@ -1240,6 +1426,9 @@ function mockCenterAgentFetch(input?: {
         pathname === `/v1/spaces/${CENTER_AGENT_DM_SPACE_ID}/signals` &&
         method === "GET"
       ) {
+        if (input?.signalReadError) {
+          throw input.signalReadError;
+        }
         return jsonResponse({
           nextCursor: null,
           signals: [
@@ -1278,6 +1467,10 @@ function mockCenterAgentFetch(input?: {
         pathname === `/v1/spaces/${CENTER_AGENT_DM_SPACE_ID}/signals` &&
         method === "POST"
       ) {
+        const signalPostError = signalPostErrors.shift();
+        if (signalPostError) {
+          throw signalPostError;
+        }
         const body =
           typeof init?.body === "string"
             ? (JSON.parse(init.body) as {
@@ -1308,6 +1501,9 @@ function mockCenterAgentFetch(input?: {
         pathname === `/v1/spaces/${CENTER_AGENT_DM_SPACE_ID}/wake-progress` &&
         method === "GET"
       ) {
+        if (input?.wakeProgressError) {
+          throw input.wakeProgressError;
+        }
         const clientMessageId = parsedUrl.searchParams.get("clientMessageId");
         return jsonResponse({
           items: [
