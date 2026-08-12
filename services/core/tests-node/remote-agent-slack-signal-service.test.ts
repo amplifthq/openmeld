@@ -1487,16 +1487,20 @@ describe("Remote Agent Slack signal service", () => {
         status: "accepted",
         publishedSignalId: "1710000001.000200",
       });
-      const publicReplies = readSlackPostBodies(fetchMock);
-      expect(publicReplies).toHaveLength(1);
+      const publicReplies = readSlackPostBodies(fetchMock) as {
+        channel?: string;
+      }[];
+      expect(publicReplies).toHaveLength(2);
+      expect(publicReplies[0]).toMatchObject({ channel: "C123" });
       expect(JSON.stringify(publicReplies[0])).not.toContain(
         "openmeld_navigation_action_embed"
       );
       expect(JSON.stringify(publicReplies[0])).not.toContain(
         connectedComputerId
       );
-      expect(readSlackEphemeralBodies(fetchMock)).toEqual([
+      expect(publicReplies[1]).toEqual(
         expect.objectContaining({
+          channel: "U123",
           blocks: [
             {
               text: expect.stringContaining("Reconnect this computer"),
@@ -1517,9 +1521,9 @@ describe("Remote Agent Slack signal service", () => {
               type: "actions",
             },
           ],
-          user: "U123",
-        }),
-      ]);
+        })
+      );
+      expect(readSlackEphemeralBodies(fetchMock)).toEqual([]);
     } finally {
       harness.close();
     }
@@ -2754,21 +2758,26 @@ describe("Remote Agent Slack signal service", () => {
         });
       }
 
-      expect(readSlackPostBodies(fetchMock)).toEqual([
+      const postBodies = readSlackPostBodies(fetchMock) as {
+        blocks?: {
+          elements?: { url?: string }[];
+        }[];
+        channel?: string;
+        text?: string;
+        thread_ts?: string;
+      }[];
+      expect(postBodies).toEqual([
         expect.objectContaining({
           channel: "C123",
           text: "Link Slack before I perform that identity-owned action.",
           thread_ts: "1710000000.000100",
         }),
+        expect.objectContaining({
+          channel: "U123",
+        }),
       ]);
-      const bodies = readSlackEphemeralBodies(fetchMock) as {
-        blocks?: {
-          elements?: { url?: string }[];
-        }[];
-        user?: string;
-      }[];
-      expect(bodies[0]?.user).toBe("U123");
-      const linkUrl = bodies[0]?.blocks?.[1]?.elements?.[0]?.url;
+      expect(readSlackEphemeralBodies(fetchMock)).toEqual([]);
+      const linkUrl = postBodies[1]?.blocks?.[1]?.elements?.[0]?.url;
       expect(linkUrl).toMatch(SLACK_IDENTITY_LINK_URL_PATTERN);
       const token = new URL(linkUrl ?? "").searchParams.get("token");
       expect(token).not.toBeNull();
@@ -2787,7 +2796,7 @@ describe("Remote Agent Slack signal service", () => {
           source_delivery_id: string;
         }>();
       expect(tokenRow).toEqual({
-        delivery_scope: "slack_ephemeral",
+        delivery_scope: "slack_direct_message",
         organization_id: "org_1",
         source_delivery_id: sourceDelivery.deliveryId,
       });
@@ -2983,10 +2992,13 @@ describe("Remote Agent Slack signal service", () => {
         text: "Link Slack before I perform that identity-owned action.",
         triggerMessageId: "1710000000.000100",
       });
-      const ephemeral = readSlackEphemeralBodies(fetchMock) as {
+      const privateMessages = readSlackPostBodies(fetchMock) as {
         blocks?: { elements?: { url?: string }[] }[];
+        channel?: string;
       }[];
-      const linkUrl = ephemeral[0]?.blocks?.[1]?.elements?.[0]?.url;
+      const linkUrl = privateMessages.find(
+        (message) => message.channel === "U123"
+      )?.blocks?.[1]?.elements?.[0]?.url;
       const token = new URL(linkUrl ?? "").searchParams.get("token");
       if (!token) {
         throw new Error("expected a private Slack identity-link token");

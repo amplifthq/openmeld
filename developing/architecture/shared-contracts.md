@@ -2448,9 +2448,8 @@ republishing the confirmed result; explicitly requested non-continuing guidance
 is best effort and never changes a successful task into a failure. Lark and
 Feishu retries reuse a
 deterministic provider publication UUID. Slack uses the active source-bound
-token as its at-most-once ephemeral-publication fence because
-`chat.postEphemeral` has no idempotency key: a known provider rejection expires
-the token and may retry, while an ambiguous outcome remains fenced and logged
+token as its at-most-once private-message publication fence: a known provider
+rejection expires the token and may retry, while an ambiguous outcome remains fenced and logged
 instead of risking a duplicate private action. Migration `0087` adds the nullable
 `organization_id` rollout column to existing token rows, and migration `0088`
 adds the nullable internal `consume_nonce` used to join one successful token
@@ -2459,8 +2458,9 @@ OpenMeld user and source native-delivery id used for same-user replay and
 deterministic continuation. Migration `0090` adds the nullable claim owner and
 time, non-null continuation retry generation, and nullable private delivery
 scope. New issuances always write the Organization, source delivery, and
-`slack_ephemeral` scope. Pre-migration tokens with no Organization or private
-delivery scope fail closed, while private tokens without a source delivery may
+`slack_direct_message` scope. The legacy `slack_ephemeral` scope remains readable
+for unexpired private actions during rollout. Pre-migration tokens with no
+Organization or private delivery scope fail closed, while private tokens without a source delivery may
 link but cannot claim automatic continuation. Core atomically claims one
 private token for the signed-in OpenMeld user before Auth may add Organization
 membership. Core then rechecks the current workspace Binding and signed-in

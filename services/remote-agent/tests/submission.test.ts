@@ -1538,7 +1538,10 @@ describe("remote agent submission", () => {
       "Do not claim a tool is unavailable merely because this member has not linked an OpenMeld identity"
     );
     expect(prompt).toContain(
-      "That action authenticates the person, connects or sets up their account, verifies permissions, and continues this same request automatically in Slack, Lark, or Feishu"
+      "In Slack, tell the person to open their direct message from OpenMeld"
+    );
+    expect(prompt).toContain(
+      "That action authenticates the person, connects or sets up their account, verifies permissions, and continues this same request automatically"
     );
     expect(prompt).toContain(
       "Do not tell them to contact an admin, find an invite link, mention the Center Agent again, or repeat the request"

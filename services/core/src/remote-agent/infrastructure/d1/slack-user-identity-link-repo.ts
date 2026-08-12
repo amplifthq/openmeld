@@ -1,5 +1,9 @@
 export type SlackUserIdentityLinkSource = "explicit" | "email_auto";
 
+export type SlackIdentityLinkDeliveryScope =
+  | "slack_direct_message"
+  | "slack_ephemeral";
+
 export type SlackUserIdentityLinkRecord = {
   createdAtMs: number;
   organizationId: string;
@@ -15,7 +19,7 @@ export type SlackIdentityLinkTokenRecord = {
   continuationAttempt: number;
   consumedByUserId: string | null;
   consumedAtMs: number | null;
-  deliveryScope: "slack_ephemeral";
+  deliveryScope: SlackIdentityLinkDeliveryScope;
   expiresAtMs: number;
   issuedAtMs: number;
   membershipRequirement: "allow_enrollment" | "current_member";
@@ -314,7 +318,7 @@ export function prepareReconcileSlackUserIdentityLinksForWorkspaceMoveStatements
 export async function insertSlackIdentityLinkToken(input: {
   claimedByUserId?: string;
   db: D1Database;
-  deliveryScope: "slack_ephemeral";
+  deliveryScope: SlackIdentityLinkDeliveryScope;
   expiresAtMs: number;
   issuedAtMs: number;
   organizationId: string;
@@ -521,7 +525,7 @@ export async function readActiveSlackIdentityLinkToken(input: {
         FROM slack_user_identity_link_tokens
         WHERE token_hash = ?
           AND organization_id IS NOT NULL
-          AND delivery_scope = 'slack_ephemeral'
+          AND delivery_scope IN ('slack_direct_message', 'slack_ephemeral')
           AND consumed_at_ms IS NULL
           AND expires_at_ms > ?
         LIMIT 1
@@ -561,7 +565,7 @@ export async function readSlackIdentityLinkTokenForUser(input: {
         FROM slack_user_identity_link_tokens
         WHERE token_hash = ?
           AND organization_id IS NOT NULL
-          AND delivery_scope = 'slack_ephemeral'
+          AND delivery_scope IN ('slack_direct_message', 'slack_ephemeral')
           AND expires_at_ms > ?
           AND (
             claimed_by_user_id IS NULL
@@ -605,7 +609,7 @@ export async function claimSlackIdentityLinkTokenForUser(input: {
           AND organization_id = ?
           AND slack_team_id = ?
           AND slack_user_id = ?
-          AND delivery_scope = 'slack_ephemeral'
+          AND delivery_scope IN ('slack_direct_message', 'slack_ephemeral')
           AND claimed_by_user_id IS NULL
           AND consumed_at_ms IS NULL
           AND expires_at_ms > ?
@@ -917,7 +921,10 @@ function mapSlackUserIdentityLinkRow(
 function mapSlackIdentityLinkTokenRow(
   row: SlackIdentityLinkTokenRow
 ): SlackIdentityLinkTokenRecord {
-  if (row.delivery_scope !== "slack_ephemeral") {
+  if (
+    row.delivery_scope !== "slack_direct_message" &&
+    row.delivery_scope !== "slack_ephemeral"
+  ) {
     throw new Error("Slack identity link token has an unsupported delivery");
   }
   return {

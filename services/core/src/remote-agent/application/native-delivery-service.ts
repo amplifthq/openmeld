@@ -262,7 +262,7 @@ import {
 } from "./remote-agent-worker-admission";
 import { resolveSlackBotToken } from "./slack-bot-token";
 import {
-  postSlackEphemeralMessage,
+  postSlackDirectMessage,
   postSlackThreadMessage,
   SlackApiError,
   SlackMessagePublicationError,
@@ -10839,9 +10839,9 @@ export async function publishRemoteAgentFailureNotice(input: {
 
 async function publishRemoteAgentSlackCallbackText(input: {
   delivery: NativeDeliveryPublishRecord;
-  ephemeralUserId?: string;
   env: CoreBindings;
   navigationAction?: NavigationAction;
+  privateRecipientUserId?: string;
   signal?: AbortSignal;
   text: string;
 }): Promise<{ id?: string | null } | null> {
@@ -10849,7 +10849,7 @@ async function publishRemoteAgentSlackCallbackText(input: {
   const slackTeamId = normalizeOptionalText(input.delivery.slackTeamId);
   const threadTs = normalizeOptionalText(input.delivery.slackThreadTs);
   const db = localStateDb(input.env);
-  if (!(channelId && db && slackTeamId && threadTs)) {
+  if (!(db && slackTeamId)) {
     throw new Error("Slack callback target is incomplete");
   }
   const botToken = await resolveSlackBotToken({
@@ -10862,15 +10862,16 @@ async function publishRemoteAgentSlackCallbackText(input: {
     input.text,
     input.navigationAction
   );
-  if (input.ephemeralUserId) {
-    return await postSlackEphemeralMessage({
+  if (input.privateRecipientUserId) {
+    return await postSlackDirectMessage({
       ...presentation,
       botToken,
-      channelId,
+      recipientUserId: input.privateRecipientUserId,
       signal: input.signal,
-      threadTs,
-      userId: input.ephemeralUserId,
     });
+  }
+  if (!(channelId && threadTs)) {
+    throw new Error("Slack callback thread target is incomplete");
   }
   return await postSlackThreadMessage({
     ...presentation,
@@ -11213,9 +11214,9 @@ async function publishRemoteAgentSlackIdentityGuidanceAfterResult(input: {
     providerAttempted = true;
     await publishRemoteAgentSlackCallbackText({
       delivery: input.delivery,
-      ephemeralUserId: issued.recipientId,
       env: input.env,
       navigationAction: issued.navigationAction,
+      privateRecipientUserId: issued.recipientId,
       signal: AbortSignal.timeout(
         REMOTE_AGENT_SLACK_FINAL_PUBLICATION_TIMEOUT_MS
       ),
@@ -11337,9 +11338,9 @@ async function publishRemoteAgentSlackPrivateNavigationAfterResult(input: {
   try {
     await publishRemoteAgentSlackCallbackText({
       delivery: input.delivery,
-      ephemeralUserId: identity.providerUserId,
       env: input.env,
       navigationAction: action,
+      privateRecipientUserId: identity.providerUserId,
       signal: AbortSignal.timeout(
         REMOTE_AGENT_SLACK_FINAL_PUBLICATION_TIMEOUT_MS
       ),
@@ -11492,7 +11493,7 @@ async function issueRemoteAgentSlackIdentityNavigationAction(input: {
   const insertion = await insertSlackIdentityLinkToken({
     ...(connectToUserId ? { claimedByUserId: connectToUserId } : {}),
     db,
-    deliveryScope: "slack_ephemeral",
+    deliveryScope: "slack_direct_message",
     expiresAtMs: input.issuedAtMs + SLACK_IDENTITY_LINK_TOKEN_TTL_MS,
     issuedAtMs: input.issuedAtMs,
     organizationId: input.delivery.organizationId,

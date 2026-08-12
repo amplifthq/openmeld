@@ -990,8 +990,10 @@ Organization, Slack workspace, Slack user, display-name snapshot, issue time,
 expiry, consumption time, consuming OpenMeld user, source native-delivery id,
 an internal per-consume nonce, private delivery scope, claim owner and time, and
 continuation retry generation. Active-token reads require a non-null
-Organization scope and the exact `slack_ephemeral` delivery scope. This makes
-tokens previously exposed in a public Slack thread unusable. Core atomically
+Organization scope and a supported private delivery scope. New tokens use
+`slack_direct_message`; the legacy `slack_ephemeral` scope remains readable
+only so an unexpired private action survives a mixed-version rollout. Tokens
+previously exposed in a public Slack thread remain unusable. Core atomically
 claims an active token for one signed-in OpenMeld user before Auth may write
 Organization membership. A competing account therefore fails before
 enrollment. A claimed or consumed token is readable only by that same OpenMeld
@@ -1007,15 +1009,15 @@ membership in the same D1
 transaction that consumes the claimed token and writes the explicit identity
 link. If the workspace moves or membership disappears during that operation,
 neither the token nor the identity link changes. Token plaintext appears only
-in the ephemeral Web action delivered to the exact Slack user and must not
+in the private direct-message action delivered to the exact Slack user and must not
 enter public messages, logs, or diagnostics.
 
 For post-result Slack guidance, an active source-bound token is also the durable
 at-most-once publication fence. A callback replay never creates a second
-ephemeral action while that token remains active. A known Slack API rejection
+direct-message action while that token remains active. A known Slack API rejection
 expires the just-issued token so required guidance may retry with a fresh one.
 An ambiguous network outcome keeps the token active and emits bounded
-diagnostics; Slack offers no idempotency key for `chat.postEphemeral`, so Core
+diagnostics; Core does not republish an ambiguously delivered direct message, so it
 does not risk showing the member duplicate private actions. This fence governs
 guidance publication only and never changes the already confirmed task result.
 

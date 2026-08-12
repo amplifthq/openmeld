@@ -1086,7 +1086,7 @@ the exact Message Channel delivery. Core confirms the task result first, then
 publishes the private setup action. If required setup guidance must be retried,
 Core reuses the confirmed result and never publishes that result a second time.
 Lark and Feishu deduplicate the private card by provider publication UUID.
-Slack retries only a known API rejection; an ambiguous ephemeral-publication
+Slack retries only a known API rejection; an ambiguous private-message publication
 outcome is logged and fenced rather than risking a duplicate action.
 
 After a successful result that did not need linked identity, the Center Agent
@@ -1168,7 +1168,7 @@ OpenMeld Service** action. A normal task that does not query personal Computer
 readiness never receives this setup guidance.
 
 The token is frozen to the Organization, Slack workspace, Slack user, and
-source native delivery. Core sends the action as an ephemeral Slack reply
+source native delivery. Core sends the action as a durable direct message
 visible only to that exact Slack user; the public thread never contains the
 bearer token. A fresh private action supersedes earlier unconsumed actions for
 the same Slack identity, so an abandoned setup attempt cannot leave the person

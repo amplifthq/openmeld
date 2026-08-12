@@ -323,7 +323,7 @@ describe("remote agent system prompt", () => {
       "for supported Center Agent workflows, inline after your final reply"
     );
     expect(prompt).toContain(
-      "Slack renders identity setup as a recipient-only native button with a fallback link"
+      "Slack sends identity setup as a private direct message from OpenMeld with a native button and fallback link"
     );
     expect(prompt).toContain(
       "Lark and Feishu send the same setup as a recipient-only interactive card"
