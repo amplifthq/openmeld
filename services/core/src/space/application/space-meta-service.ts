@@ -170,18 +170,32 @@ export function buildNextSpaceMetaRecord(input: {
     ...(purpose ? { purpose } : {}),
     ...(creator ? { creator } : {}),
     ...(guide ? { guide } : {}),
-    accessMode:
-      input.existing?.accessMode ??
-      (input.metaUpdate.hasAccessMode
-        ? input.metaUpdate.accessMode
-        : undefined) ??
-      "public",
+    accessMode: resolveSpaceMetaAccessMode(input, visibility),
     ...(input.existing?.passwordProof
       ? { passwordProof: input.existing.passwordProof }
       : {}),
     createdAt: input.existing?.createdAt ?? input.now,
     updatedAt: input.now,
   };
+}
+
+function resolveSpaceMetaAccessMode(
+  input: {
+    existing: SpaceMetaRecord | null;
+    metaUpdate: SpaceMetaUpdatePatch;
+  },
+  visibility: SpaceMetaRecord["visibility"]
+): SpaceMetaRecord["accessMode"] {
+  if (input.existing) {
+    return input.existing.accessMode;
+  }
+  if (input.metaUpdate.hasAccessMode) {
+    if (!input.metaUpdate.accessMode) {
+      throw new Error("space_meta.access_mode required");
+    }
+    return input.metaUpdate.accessMode;
+  }
+  return visibility === "private" ? "members_only" : "public";
 }
 
 function resolveSpaceMetaOrganizationId(input: {

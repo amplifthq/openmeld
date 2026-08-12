@@ -93,16 +93,20 @@ export async function resolveTargetedCenterAgentCommandContext(input?: {
       emitOrganizationLookupError({ context, error });
       return null;
     }
-    const currentOrganization =
-      findOrganizationById(
-        organizations,
-        selectedOrganizationIds.lastSelectedOrganizationId
-      ) ??
-      findOrganizationById(
-        organizations,
+    const currentOrganization = findOrganizationById(
+      organizations,
+      selectedOrganizationIds.lastSelectedOrganizationId ??
         selectedOrganizationIds.activeOrganizationId
-      );
+    );
     if (!currentOrganization) {
+      if (selectedOrganizationIds.lastSelectedOrganizationId !== null) {
+        emitOrganizationSelectionUnavailableError({
+          context,
+          selectedOrganizationId:
+            selectedOrganizationIds.lastSelectedOrganizationId,
+        });
+        return null;
+      }
       emitOrganizationRequiredError(context);
       return null;
     }
@@ -233,6 +237,25 @@ function emitOrganizationRequiredError(
       "Choose an active OpenMeld organization before managing the Center Agent.",
     nextStep: "Run `openmeld org list`, then `openmeld org switch <slug>`.",
     presenter: context.presenter,
+  });
+}
+
+function emitOrganizationSelectionUnavailableError(input: {
+  context: AuthenticatedCenterAgentCommandContext;
+  selectedOrganizationId: string;
+}): void {
+  emitCenterAgentContextError({
+    activeOrganization: null,
+    cliJsonOutput: input.context.cliJsonOutput,
+    code: "center_agent.organization_selection_unavailable",
+    title: "Selected Organization Not Available",
+    message:
+      "The Organization selected for this account is no longer available to you.",
+    nextStep: "Run `openmeld org list`, then `openmeld org switch <slug>`.",
+    payload: {
+      selectedOrganizationId: input.selectedOrganizationId,
+    },
+    presenter: input.context.presenter,
   });
 }
 

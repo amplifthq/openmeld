@@ -305,6 +305,44 @@ describe("center-agent commands", () => {
     ).toEqual([SECOND_ORGANIZATION.id, SECOND_ORGANIZATION.id]);
   });
 
+  it("fails closed when the account-selected Organization is no longer available", async () => {
+    const calls = mockCenterAgentFetch({
+      serverActiveOrganizationId: ACTIVE_ORGANIZATION.id,
+      serverSelectedOrganizationId: "org-removed",
+    });
+
+    await withTempHome(async () => {
+      await writeSignedInSession(ACTIVE_ORGANIZATION);
+
+      const result = await runCommandAndCapture(() =>
+        runCenterAgentAsk({
+          text: "Do not reroute this request to another Organization.",
+          view: "agent",
+          wait: false,
+        })
+      );
+
+      expect(result.exitCode).toBe(1);
+      expect(
+        parseJsonLine(
+          result.stdout,
+          "center_agent.organization_selection_unavailable"
+        )?.payload
+      ).toMatchObject({
+        error: {
+          code: "center_agent.organization_selection_unavailable",
+        },
+        status: "error",
+      });
+    });
+
+    expect(
+      calls.some((call) =>
+        call.pathname.startsWith("/v1/organizations/current")
+      )
+    ).toBe(false);
+  });
+
   it("does not fall back to a stale local Organization when the server has no active selection", async () => {
     const calls = mockCenterAgentFetch({
       serverActiveOrganizationId: null,
