@@ -2986,6 +2986,7 @@ describe("Remote Agent Routine native delivery", () => {
       status: "skipped",
     });
     expect(workerReconcile).toHaveBeenCalledWith({
+      conversationId: fixture.spaceId,
       idempotencyKey: fixture.runId,
       organizationId: fixture.organizationId,
       spaceId: fixture.spaceId,

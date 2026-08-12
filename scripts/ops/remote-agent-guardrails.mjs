@@ -31,6 +31,7 @@ const VALUE_OPTIONS = new Map([
   ["config", "configPath"],
   ["env", "env"],
   ["org", "organizationId"],
+  ["runtime-conversation", "runtimeConversationId"],
   ["service", "serviceName"],
   ["space", "spaceId"],
   ["timeout-ms", "timeoutMs"],
@@ -177,6 +178,15 @@ function validateRemoteAgentOpsArgs(parsed) {
       throw new UsageError("usage requires --space matching [A-Za-z0-9_-]+.");
     }
     if (
+      typeof parsed.runtimeConversationId !== "string" ||
+      parsed.runtimeConversationId.trim().length === 0 ||
+      parsed.runtimeConversationId.length > 2048
+    ) {
+      throw new UsageError(
+        "usage requires --runtime-conversation with the exact persisted runtime conversation id."
+      );
+    }
+    if (
       parsed.timeoutMs !== undefined &&
       (!Number.isInteger(Number(parsed.timeoutMs)) ||
         Number(parsed.timeoutMs) <= 0)
@@ -275,9 +285,13 @@ export default {
       return new Response("not found", { status: 404 });
     }
     const spaceId = url.searchParams.get("spaceId");
+    const runtimeConversationId = url.searchParams.get("runtimeConversationId");
     const organizationId = url.searchParams.get("organizationId") || undefined;
-    if (!spaceId) {
-      return Response.json({ error: "spaceId is required" }, { status: 400 });
+    if (!spaceId || !runtimeConversationId) {
+      return Response.json(
+        { error: "spaceId and runtimeConversationId are required" },
+        { status: 400 }
+      );
     }
     const worker = env.${REMOTE_AGENT_WORKER_BINDING};
     if (typeof worker?.readUsageDiagnostics !== "function") {
@@ -286,7 +300,11 @@ export default {
         { status: 502 }
       );
     }
-    const result = await worker.readUsageDiagnostics({ spaceId, organizationId });
+    const result = await worker.readUsageDiagnostics({
+      organizationId,
+      runtimeConversationId,
+      spaceId,
+    });
     return Response.json(result);
   },
 };
@@ -314,6 +332,7 @@ export function buildUsageDiagnosticsWranglerConfig(serviceName) {
 export function buildUsageDiagnosticsUrl(input) {
   const url = new URL(`http://127.0.0.1:${input.port}/usage`);
   url.searchParams.set("spaceId", input.spaceId);
+  url.searchParams.set("runtimeConversationId", input.runtimeConversationId);
   if (input.organizationId) {
     url.searchParams.set("organizationId", input.organizationId);
   }
@@ -353,6 +372,7 @@ export async function readRemoteAgentUsageDiagnostics(parsed) {
   const url = buildUsageDiagnosticsUrl({
     organizationId: parsed.organizationId,
     port,
+    runtimeConversationId: parsed.runtimeConversationId,
     spaceId: parsed.spaceId,
   });
   const invocation = buildUsageDiagnosticsDevInvocation({
@@ -715,7 +735,7 @@ function printHelp() {
   pnpm ops:remote-agent policy [--env prod|local] [--config <path>] [--json]
   pnpm ops:remote-agent policy --enable-runtime|--disable-runtime [--dry-run]
   pnpm ops:remote-agent policy --block-org <id>|--unblock-org <id> [--dry-run]
-  pnpm ops:remote-agent usage --space <id> [--org <id>] [--env prod|local] [--service <worker>] [--local] [--dry-run]
+  pnpm ops:remote-agent usage --space <id> --runtime-conversation <id> [--org <id>] [--env prod|local] [--service <worker>] [--local] [--dry-run]
 
 Policy options:
   --enable-runtime       Set OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED=true.
@@ -726,7 +746,9 @@ Policy options:
   --config <path>        Core wrangler config path. Default services/core/wrangler.jsonc.
 
 Usage options:
-  --space <id>           Required. Reads the Remote Agent DO addressed by space id.
+  --space <id>           Required logical Space filter for returned usage records.
+  --runtime-conversation <id>
+                         Required exact runtime conversation id from the frozen dispatch request.
   --org <id>             Optional organization filter passed to readUsageDiagnostics.
   --service <worker>     Override the Remote Agent Worker service binding target.
   --local                Run the temporary diagnostics Worker locally instead of --remote.
@@ -735,5 +757,6 @@ Usage options:
 Notes:
   - Policy writes update wrangler.jsonc; deploy Core to apply them.
   - Usage diagnostics call readUsageDiagnostics through a temporary service-binding Worker.
+  - Runtime generations are never inferred from a Space id; use the exact frozen dispatch identity.
   - This script does not read or mutate retired Core breaker tables.`);
 }

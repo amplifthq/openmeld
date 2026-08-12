@@ -100,13 +100,16 @@ export async function readUsageDiagnosticsFromCenterAgent(input: {
   const request = remoteAgentWorkerReadUsageDiagnosticsRequestSchema.parse(
     input.request
   );
-  const stub = input.namespace.get(input.namespace.idFromName(request.spaceId));
+  const { runtimeConversationId, ...diagnosticsInput } = request;
+  const stub = input.namespace.get(
+    input.namespace.idFromName(runtimeConversationId)
+  );
   if (typeof stub.readUsageDiagnostics !== "function") {
     throw new Error(
       "Flue Center Agent Durable Object does not expose readUsageDiagnostics."
     );
   }
-  return await stub.readUsageDiagnostics(request);
+  return await stub.readUsageDiagnostics(diagnosticsInput);
 }
 
 export async function readRuntimeDiagnosticsFromCenterAgent(input: {
@@ -116,14 +119,17 @@ export async function readRuntimeDiagnosticsFromCenterAgent(input: {
   const request = remoteAgentWorkerRuntimeDiagnosticsRequestSchema.parse(
     input.request
   );
-  const stub = input.namespace.get(input.namespace.idFromName(request.spaceId));
+  const { runtimeConversationId, ...diagnosticsInput } = request;
+  const stub = input.namespace.get(
+    input.namespace.idFromName(runtimeConversationId)
+  );
   if (typeof stub.readRuntimeDiagnostics !== "function") {
     throw new Error(
       "Flue Center Agent Durable Object does not expose readRuntimeDiagnostics."
     );
   }
   return remoteAgentWorkerRuntimeDiagnosticsResponseSchema.parse(
-    await stub.readRuntimeDiagnostics(request)
+    await stub.readRuntimeDiagnostics(diagnosticsInput)
   );
 }
 

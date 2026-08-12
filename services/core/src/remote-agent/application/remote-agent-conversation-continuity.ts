@@ -47,6 +47,35 @@ export function resolveRemoteAgentRuntimeConversationId(
     : request.conversationId;
 }
 
+function resolvePersistedRemoteAgentRuntimeConversationId(
+  request: RemoteAgentWorkerSubmitTurnRequest | null
+): string | undefined {
+  if (!request) {
+    return undefined;
+  }
+  return resolveRemoteAgentRuntimeConversationId(request) ?? request.spaceId;
+}
+
+export function resolveRemoteAgentNativeDeliveryRuntimeConversationId(input: {
+  executionRecoverySubmitRequest: RemoteAgentWorkerSubmitTurnRequest | null;
+  workerSubmitRequest: RemoteAgentWorkerSubmitTurnRequest | null;
+}): string | undefined {
+  const workerRuntimeConversationId =
+    resolvePersistedRemoteAgentRuntimeConversationId(input.workerSubmitRequest);
+  const recoveryRuntimeConversationId =
+    resolvePersistedRemoteAgentRuntimeConversationId(
+      input.executionRecoverySubmitRequest
+    );
+  if (
+    workerRuntimeConversationId &&
+    recoveryRuntimeConversationId &&
+    workerRuntimeConversationId !== recoveryRuntimeConversationId
+  ) {
+    throw new Error("remote_agent.runtime_conversation_identity_mismatch");
+  }
+  return workerRuntimeConversationId ?? recoveryRuntimeConversationId;
+}
+
 export function buildRemoteAgentWorkerSubmitTurnRequestV4(input: {
   continuityContext?: RemoteAgentConversationContinuityContext;
   generation: number;

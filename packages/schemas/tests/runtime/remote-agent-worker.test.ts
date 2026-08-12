@@ -284,9 +284,16 @@ describe("Remote Agent worker contracts", () => {
     expect(
       remoteAgentWorkerReadUsageDiagnosticsRequestSchema.parse({
         organizationId: "org_123",
+        runtimeConversationId:
+          "remote-agent-runtime-generation.v1|7:org_123|9:space_123|2",
         spaceId: "space_123",
       })
-    ).toEqual({ organizationId: "org_123", spaceId: "space_123" });
+    ).toEqual({
+      organizationId: "org_123",
+      runtimeConversationId:
+        "remote-agent-runtime-generation.v1|7:org_123|9:space_123|2",
+      spaceId: "space_123",
+    });
     expect(
       remoteAgentWorkerReadUsageDiagnosticsRequestSchema.safeParse(null).success
     ).toBe(false);
@@ -295,9 +302,15 @@ describe("Remote Agent worker contracts", () => {
   it("keeps runtime diagnostics bounded and free of persisted payload bodies", () => {
     expect(
       remoteAgentWorkerRuntimeDiagnosticsRequestSchema.parse({
+        runtimeConversationId:
+          "remote-agent-runtime-generation.v1|7:org_123|9:space_123|2",
         spaceId: "space_123",
       })
-    ).toEqual({ spaceId: "space_123" });
+    ).toEqual({
+      runtimeConversationId:
+        "remote-agent-runtime-generation.v1|7:org_123|9:space_123|2",
+      spaceId: "space_123",
+    });
     expect(
       remoteAgentWorkerRuntimeDiagnosticsResponseSchema.parse({
         activeRuns: [],

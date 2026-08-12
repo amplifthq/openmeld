@@ -103,6 +103,7 @@ export default {
 
   async readUsageDiagnostics(input: {
     organizationId?: string;
+    runtimeConversationId: string;
     spaceId: string;
   }) {
     const namespace = env.FLUE_CENTER_AGENT_AGENT as CenterAgentNamespace;

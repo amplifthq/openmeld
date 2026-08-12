@@ -12,12 +12,16 @@ export async function fetchSpaceDispatchTrace(input: {
   baseUrl: string;
   space: string;
   dispatchId: string;
+  includeRemoteAgentRuntimeDiagnostics?: boolean;
   password?: string;
 }): Promise<SpaceDispatchTraceResponse> {
   const endpoint = toSpaceDispatchTraceUrl(
     input.baseUrl,
     input.space,
-    input.dispatchId
+    input.dispatchId,
+    input.includeRemoteAgentRuntimeDiagnostics === true
+      ? { includeRemoteAgentRuntimeDiagnostics: true }
+      : {}
   );
   const response = await fetchSpaceRequestWithTimeout({
     url: endpoint,
