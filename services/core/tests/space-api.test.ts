@@ -640,6 +640,9 @@ async function createSpace(
   requestOptions?: OpenMeldRequestOptions
 ): Promise<string> {
   const requestBody = {
+    ...(body?.accessMode === undefined && body?.password === undefined
+      ? { accessMode: "public" }
+      : {}),
     visibility: "private",
     ...(body ?? {}),
   };
@@ -809,7 +812,17 @@ async function openPendingSpaceSocket(
 
 describe("OpenMeld Core", () => {
   it("creates a new space", async () => {
-    await createSpace();
+    const spaceId = await createSpace({ accessMode: undefined });
+
+    const metaResponse = await fetchWithOpenMeldAuth(
+      `${BASE_URL}/v1/spaces/${spaceId}/meta`
+    );
+
+    expect(metaResponse.status).toBe(200);
+    await expect(metaResponse.json()).resolves.toMatchObject({
+      accessMode: "members_only",
+      visibility: "private",
+    });
   });
 
   it("rejects unauthenticated HTTP requests with 401", async () => {
