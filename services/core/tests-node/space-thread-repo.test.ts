@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   listSpaceThreadPreviewEntries,
   listSpaceThreadSignalPlacementsAfter,
+  listSpaceThreadSignalPlacementsBefore,
 } from "../src/space/infrastructure/sql/space-thread-repo";
 
 const JOIN_SPACE_SIGNALS_SQL_REGEX = /JOIN\s+space_signals/i;
@@ -78,6 +79,37 @@ describe("space-thread-repo", () => {
       expect(
         listSpaceThreadSignalPlacementsAfter(harness.sql, {
           afterSignalId: "other",
+          limit: 2,
+          threadId: "thread-1",
+        })
+      ).toBeNull();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("reads only the bounded same-thread history before the source signal", () => {
+    const harness = createSqlStorageHarness();
+    try {
+      harness.insertPlacement("same-1", "thread-1", 1);
+      harness.insertPlacement("other", "thread-2", 2);
+      harness.insertPlacement("same-2", "thread-1", 3);
+      harness.insertPlacement("source", "thread-1", 4);
+      harness.insertPlacement("later", "thread-1", 5);
+
+      const placements = listSpaceThreadSignalPlacementsBefore(harness.sql, {
+        beforeSignalId: "source",
+        limit: 2,
+        threadId: "thread-1",
+      });
+
+      expect(placements?.map((placement) => placement.signalId)).toEqual([
+        "same-1",
+        "same-2",
+      ]);
+      expect(
+        listSpaceThreadSignalPlacementsBefore(harness.sql, {
+          beforeSignalId: "other",
           limit: 2,
           threadId: "thread-1",
         })

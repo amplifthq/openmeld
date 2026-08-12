@@ -931,6 +931,13 @@ runtime route, materializes a bounded and source-attributed continuity context
 from currently authorized product facts, persists the exact replacement
 request, and retries once. The continuity context is admitted only into an
 empty new generation and never turns Core into a second transcript owner.
+For a Space turn, the Space owner resolves the exact dispatch's frozen main or
+thread placement and returns only bounded text Signals before that dispatch's
+source Signal; the generic main-timeline reader is not a continuity source for
+a thread. For a Center Agent Task turn, the Task owner returns the bounded typed
+event projection before the trigger event and owns the canonical actor mapping;
+Remote Agent must not query the private Task event table or reinterpret Task
+actors itself.
 Concurrent callers converge on the same active generation. Runtime generations
 are invisible implementation details: the member remains in the same DM,
 Space, provider conversation, or Task and is never asked to start a new one.

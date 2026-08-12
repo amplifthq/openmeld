@@ -12,11 +12,12 @@ import type {
   RemoteAgentConversationContinuityEntry,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkerSubmitTurnRequestV4,
-  SignalEnvelope,
 } from "@openmeld/schemas/types";
 import { createDispatchContinuationSpaceAccessContext } from "@openmeld/space";
 import { buildCenterAgentContextMessageProjection } from "../../center-agent/application/center-agent-context-manifest-service";
+import { readCenterAgentTaskConversationContinuity } from "../../center-agent-tasks/application/center-agent-task-conversation-continuity";
 import type { CoreBindings } from "../../lib/bindings";
+import type { ListSignalsInput, ListSignalsResult } from "../../rpc/methods";
 import { resolveSpaceStub } from "../../rpc/space-ref";
 
 const CONTINUITY_CONTEXT_TOKEN_BUDGET = 8000;
@@ -32,6 +33,16 @@ type ContinuityEntryDraft = Omit<
     truncated: boolean;
   };
 };
+
+class RemoteAgentConversationContinuitySourceError extends Error {
+  readonly code: string;
+
+  constructor(input: { code: string; message: string }) {
+    super(`${input.code}: ${input.message}`);
+    this.code = input.code;
+    this.name = "RemoteAgentConversationContinuitySourceError";
+  }
+}
 
 export function resolveRemoteAgentLogicalConversationId(
   request: RemoteAgentWorkerSubmitTurnRequest
@@ -182,62 +193,32 @@ async function readTaskContinuityEntryDrafts(input: {
   request: Exclude<RemoteAgentWorkerSubmitTurnRequest, { v: 1 }>;
   taskId: string;
 }): Promise<{ entries: ContinuityEntryDraft[]; truncated: boolean }> {
-  const result = await input.db
-    .prepare(
-      `
-        SELECT id, actor, text, occurred_at_ms
-        FROM center_agent_task_events
-        WHERE organization_id = ?
-          AND task_id = ?
-          AND id <> ?
-        ORDER BY occurred_at_ms DESC, observed_at_ms DESC, id DESC
-        LIMIT ?
-      `
-    )
-    .bind(
-      input.request.organizationId,
-      input.taskId,
-      input.request.triggerMessageId,
-      REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES + 1
-    )
-    .all<{
-      actor: "center_agent" | "requester" | "system";
-      id: string;
-      occurred_at_ms: number;
-      text: string;
-    }>();
-  const rows = result.results ?? [];
+  const projection = await readCenterAgentTaskConversationContinuity({
+    db: input.db,
+    limit: REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES,
+    organizationId: input.request.organizationId,
+    taskId: input.taskId,
+    triggerEventId: input.request.triggerMessageId,
+  });
   return {
-    entries: rows
-      .slice(0, REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES)
-      .toReversed()
-      .map((row) => ({
-        author: {
-          kind: resolveTaskEventAuthorKind(row.actor),
-        },
-        content: {
-          originalCharacterCount: Array.from(row.text).length,
-          text: row.text,
-          truncated: false,
-        },
-        occurredAt: new Date(row.occurred_at_ms).toISOString(),
-        source: {
-          eventId: row.id,
-          kind: "center_agent_task_event" as const,
-          taskId: input.taskId,
-        },
-      })),
-    truncated: rows.length > REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES,
+    entries: projection.entries.map((entry) => ({
+      author: {
+        kind: entry.authorKind,
+      },
+      content: {
+        originalCharacterCount: Array.from(entry.text).length,
+        text: entry.text,
+        truncated: false,
+      },
+      occurredAt: entry.occurredAt,
+      source: {
+        eventId: entry.eventId,
+        kind: "center_agent_task_event" as const,
+        taskId: entry.taskId,
+      },
+    })),
+    truncated: projection.truncated,
   };
-}
-
-function resolveTaskEventAuthorKind(
-  actor: "center_agent" | "requester" | "system"
-): "agent" | "human" | "system" {
-  if (actor === "requester") {
-    return "human";
-  }
-  return actor === "center_agent" ? "agent" : "system";
 }
 
 async function readSpaceContinuityEntryDrafts(input: {
@@ -248,25 +229,21 @@ async function readSpaceContinuityEntryDrafts(input: {
     input.env.OPENMELD_SPACES,
     input.request.spaceId
   ) as {
-    rpcListSignalsResult(request: {
-      afterCount: number;
-      aroundSignalId: string;
-      beforeCount: number;
-      signalTypes: readonly ["signal.text"];
-      spaceAccess: ReturnType<
-        typeof createDispatchContinuationSpaceAccessContext
-      >;
-      spaceId: string;
-    }): Promise<
-      { ok: true; value: { signals: SignalEnvelope[] } } | { ok: false }
+    rpcListDispatchConversationContinuitySignalsResult(
+      request: ListSignalsInput
+    ): Promise<
+      | { ok: true; value: ListSignalsResult }
+      | { code?: string; message: string; ok: false; status: number }
     >;
   } | null;
   if (!stub) {
-    return { entries: [], truncated: true };
+    throw new RemoteAgentConversationContinuitySourceError({
+      code: "space.continuity.owner_unavailable",
+      message: "The Space owner is unavailable for rollover continuity.",
+    });
   }
   const requestContext = buildContinuityRequestContext(input.request);
-  const result = await stub.rpcListSignalsResult({
-    afterCount: 0,
+  const result = await stub.rpcListDispatchConversationContinuitySignalsResult({
     aroundSignalId: input.request.triggerMessageId,
     beforeCount: REMOTE_AGENT_CONVERSATION_CONTINUITY_MAX_ENTRIES + 1,
     signalTypes: ["signal.text"],
@@ -280,7 +257,10 @@ async function readSpaceContinuityEntryDrafts(input: {
     spaceId: input.request.spaceId,
   });
   if (!result.ok) {
-    return { entries: [], truncated: true };
+    throw new RemoteAgentConversationContinuitySourceError({
+      code: result.code ?? "space.continuity.read_failed",
+      message: result.message,
+    });
   }
   const candidateSignals = result.value.signals.filter(
     (signal) => signal.id !== input.request.triggerMessageId
