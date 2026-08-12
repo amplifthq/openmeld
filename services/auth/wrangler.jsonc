@@ -157,8 +157,8 @@
         "OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED": "false",
         "AUTH_BRAND_NAME": "OpenMeld",
         "AUTH_FROM_EMAIL": "OpenMeld <noreply@openmeld.ai>",
-        "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID": "Ov23liep0dDgdCIsncTe",
-        "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_ID": "1013651302197-kdf7ffmegpkpjpn2ln6efuh9d3eseq7e.apps.googleusercontent.com",
+        "GITHUB_OPENMELD_AUTH_OAUTH_CLIENT_ID": "Ov23linQIGHXoXdtYZYC",
+        "GOOGLE_OPENMELD_AUTH_OAUTH_CLIENT_ID": "658840510621-hfkvpi151d1tgqlg2qsr5nh7p7cgrr9m.apps.googleusercontent.com",
         "AUTH_COOKIE_DOMAIN": "openmeld.ai",
         "PASSKEY_RP_ID": "openmeld.ai",
         "AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS": "300"
