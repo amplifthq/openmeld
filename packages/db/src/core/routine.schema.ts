@@ -35,6 +35,7 @@ export const routines = sqliteTable(
     slackThreadTs: text("slack_thread_ts"),
     slackConversationId: text("slack_conversation_id"),
     slackThreadLabel: text("slack_thread_label"),
+    creationAttributionJson: text("creation_attribution_json"),
     status: text("status").default("enabled").notNull(),
     nextDueAt: integer("next_due_at"),
     createdByUserId: text("created_by_user_id").notNull(),

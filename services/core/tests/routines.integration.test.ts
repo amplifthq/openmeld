@@ -468,6 +468,118 @@ describe("Core Center Agent Routines", () => {
       (candidate) => candidate.resource?.id === created.routine.id
     );
     expect(entry?.interactionSource).toBeUndefined();
+    await expect(
+      rpcListRoutines(env as CoreBindings, {
+        context: fixture.contextFor("member"),
+        contract: "management-v2",
+      })
+    ).resolves.toMatchObject({
+      routines: [
+        {
+          creationAttribution: {
+            displayName: "member user",
+          },
+          id: created.routine.id,
+        },
+      ],
+    });
+    const management = await rpcListRoutines(env as CoreBindings, {
+      context: fixture.contextFor("member"),
+      contract: "management-v2",
+    });
+    expect(management.routines[0]).not.toHaveProperty(
+      "creationAttribution.interactionSource"
+    );
+  });
+
+  it("freezes direct creator identity instead of following later profile changes", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
+    const fixture = await seedRoutineFixture();
+    const created = await rpcCreateRoutine(env as CoreBindings, {
+      context: fixture.contextFor("member"),
+      ...cronSpaceRoutineInput(fixture.targetSpaceId, "0 9 * * *", "UTC"),
+      instructions: "Review the member's current work queue.",
+      name: "Member queue review",
+    });
+
+    await env.OPENMELD_DB.prepare(
+      "UPDATE openmeld_profiles SET profile_name = 'Renamed member' WHERE profile_id = ?"
+    )
+      .bind(fixture.users.member.humanProfileId)
+      .run();
+
+    await expect(
+      rpcListRoutines(env as CoreBindings, {
+        context: fixture.contextFor("owner"),
+        contract: "management-v2",
+      })
+    ).resolves.toMatchObject({
+      routines: [
+        {
+          createdByUserId: fixture.users.member.userId,
+          creationAttribution: { displayName: "member user" },
+          id: created.routine.id,
+        },
+      ],
+    });
+  });
+
+  it("keeps Routine creation source after the Center Agent and audit evidence are removed", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(FIXED_NOW_MS);
+    const fixture = await seedRoutineFixture();
+    const context = fixture.centerAgentContext();
+    await seedAcceptedLocalAgentDelivery({
+      client: "codex",
+      context,
+      fixture,
+      role: "member",
+    });
+    const created = await rpcCenterAgentCreateRoutine(env as CoreBindings, {
+      context,
+      ...cronSpaceRoutineInput(fixture.targetSpaceId, "0 9 * * *", "UTC"),
+      instructions: "Review the member's current work queue.",
+      name: "Member queue review",
+      speakerMember: fixture.speakerFor("member"),
+    });
+
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM openmeld_profiles WHERE profile_id = ?"
+    )
+      .bind(fixture.centerAgentProfileId)
+      .run();
+    await expect(
+      env.OPENMELD_DB.prepare(
+        `
+          SELECT COUNT(*) AS count
+          FROM center_agent_audit_journal
+          WHERE organization_id = ?
+            AND resource_type = 'routine'
+            AND resource_id = ?
+        `
+      )
+        .bind(fixture.organizationId, created.routine.id)
+        .first<{ count: number }>()
+    ).resolves.toEqual({ count: 0 });
+
+    await expect(
+      rpcListRoutines(env as CoreBindings, {
+        context: fixture.contextFor("member"),
+        contract: "management-v2",
+      })
+    ).resolves.toMatchObject({
+      routines: [
+        {
+          creationAttribution: {
+            displayName: "member user",
+            interactionSource: {
+              client: "codex",
+              kind: "local_agent",
+            },
+          },
+          id: created.routine.id,
+        },
+      ],
+    });
   });
 
   it("lets the designated Center Agent read only the verified speaker's Organization activity snapshot", async () => {

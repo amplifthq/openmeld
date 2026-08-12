@@ -1,5 +1,6 @@
 import type {
 	CenterAgentRoutine,
+	CenterAgentRoutineManagement,
 	CenterAgentRoutineRunStatus,
 } from "@openmeld/schemas/types";
 import {
@@ -48,7 +49,7 @@ vi.mock("@tanstack/react-start", async () => {
 
 const ORGANIZATION_ID = "org-1";
 const ROUTINES_PATH = "/v1/organizations/current/routines";
-const ROUTINES_MANAGEMENT_CONTRACT = "management-v1";
+const ROUTINES_MANAGEMENT_CONTRACT = "management-v2";
 const ROUTINES_PRACTICAL_CONTRACT = "practical-v2";
 const ROUTINE_TARGET_SPACES_PATH =
 	"/v1/organizations/current/routine-target-spaces";
@@ -210,6 +211,51 @@ describe("CenterAgentRoutinesPanel", () => {
 		).toHaveLength(6);
 	});
 
+	it("shows who created each Routine and the Local Agent that carried the request", async () => {
+		stubRoutineResponse([
+			buildRoutine({
+				creationAttribution: {
+					displayName: "Current User",
+					interactionSource: { client: "codex", kind: "local_agent" },
+				},
+				id: "routine-current-user",
+			}),
+			buildRoutine({
+				createdByUserId: "user-2",
+				creationAttribution: {
+					displayName: "Mira Chen",
+					interactionSource: {
+						client: "claude-code",
+						kind: "local_agent",
+					},
+				},
+				id: "routine-mira",
+				name: "Mira's customer follow-up",
+			}),
+			buildRoutine({
+				createdByUserId: "removed-user",
+				creationAttribution: { displayName: null },
+				id: "routine-former-member",
+				name: "Legacy weekly review",
+			}),
+		]);
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentRoutinesPanel
+					organizationId={ORGANIZATION_ID}
+					orgSlug="acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		expect(await screen.findByText("Created by you via Codex")).toBeTruthy();
+		expect(
+			screen.getByText("Created by Mira Chen via Claude Code")
+		).toBeTruthy();
+		expect(screen.getByText("Created by an organization member")).toBeTruthy();
+	});
+
 	it("creates a routine with explicit timezone, shared schedule preview, and a current-organization Space", async () => {
 		const createdRoutine = buildRoutine({ id: "routine-created" });
 		vi.stubGlobal(
@@ -245,7 +291,11 @@ describe("CenterAgentRoutinesPanel", () => {
 					],
 					[
 						`POST ${window.location.origin}${ROUTINES_PATH}`,
-						() => jsonResponse({ routine: createdRoutine }, 201),
+						() =>
+							jsonResponse(
+								{ routine: projectPracticalRoutine(createdRoutine) },
+								201
+							),
 					],
 				])
 			)
@@ -374,14 +424,21 @@ describe("CenterAgentRoutinesPanel", () => {
 						`PATCH ${window.location.origin}${detailPath}`,
 						() =>
 							jsonResponse({
-								routine: { ...routine, name: "Weekday feedback review" },
+								routine: projectPracticalRoutine({
+									...routine,
+									name: "Weekday feedback review",
+								}),
 							}),
 					],
 					[
 						`POST ${window.location.origin}${detailPath}/pause`,
 						() =>
 							jsonResponse({
-								routine: { ...routine, nextDueAt: null, status: "paused" },
+								routine: projectPracticalRoutine({
+									...routine,
+									nextDueAt: null,
+									status: "paused",
+								}),
 							}),
 					],
 					[
@@ -831,7 +888,11 @@ describe("CenterAgentRoutinesPanel", () => {
 						`POST ${window.location.origin}${ROUTINES_PATH}/routine-paused/resume`,
 						() =>
 							jsonResponse({
-								routine: { ...routine, status: "enabled", nextDueAt: 1 },
+								routine: projectPracticalRoutine({
+									...routine,
+									nextDueAt: 1,
+									status: "enabled",
+								}),
 							}),
 					],
 				])
@@ -1182,7 +1243,7 @@ function resolveHistoryRunFailureDetail(
 	return null;
 }
 
-function stubRoutineResponse(routines: CenterAgentRoutine[]): void {
+function stubRoutineResponse(routines: CenterAgentRoutineManagement[]): void {
 	vi.stubGlobal(
 		"fetch",
 		createRouteFetch(
@@ -1202,12 +1263,20 @@ function stubRoutineResponse(routines: CenterAgentRoutine[]): void {
 }
 
 function buildRoutine(
-	input: Partial<CenterAgentRoutine> & Pick<CenterAgentRoutine, "id">
-): CenterAgentRoutine {
+	input: Partial<CenterAgentRoutineManagement> &
+		Pick<CenterAgentRoutineManagement, "id">
+): CenterAgentRoutineManagement {
 	return {
 		canManage: true,
+		capabilityState: {
+			approvedKnowledge: false,
+			canRepair: true,
+			externalActionPolicy: "standard",
+			slackChannelReport: false,
+		},
 		createdAtMs: 1_752_200_000_000,
 		createdByUserId: "user-1",
+		creationAttribution: { displayName: "Current User" },
 		cronExpression: "0 9 * * *",
 		destinationKind: "space",
 		instructions: "Review new Feedback Inbox issues and summarize the work.",
@@ -1229,6 +1298,17 @@ function buildRoutine(
 		updatedByUserId: "user-1",
 		...input,
 	};
+}
+
+function projectPracticalRoutine(
+	routine: CenterAgentRoutineManagement
+): CenterAgentRoutine {
+	const {
+		capabilityState: _capabilityState,
+		creationAttribution: _creationAttribution,
+		...practicalRoutine
+	} = routine;
+	return practicalRoutine;
 }
 
 function buildTargetSpace() {
@@ -1274,7 +1354,7 @@ async function projectRoutineManagementListResponse(
 	const body = (await response.json()) as {
 		currentUserId: string;
 		organizationId: string;
-		routines: CenterAgentRoutine[];
+		routines: CenterAgentRoutineManagement[];
 	};
 	return jsonResponse(
 		{

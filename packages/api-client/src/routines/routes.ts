@@ -4,7 +4,7 @@ const ROUTINE_TARGET_SPACES_PATH =
 
 type RoutineContractQuery = { contract?: "practical-v2" };
 type RoutineListContractQuery = {
-  contract?: "management-v1" | "practical-v2";
+  contract?: "management-v1" | "management-v2" | "practical-v2";
 };
 
 export function buildRoutinesPath(

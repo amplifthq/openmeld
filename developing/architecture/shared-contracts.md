@@ -2235,14 +2235,23 @@ with a strict `capabilityState` read projection: approved-knowledge availability
 Slack channel-report availability, the stored external-action policy, and
 whether the represented member can repair that combination. Core derives those
 fields from the canonical stored Routine and the same grant policy used by
-updates. It does not expose the raw grant list or create another capability
-writer. Practical mutations and Run history remain on `practical-v2`;
-management clients omit capability fields on ordinary updates and send them
-only for explicit capability changes.
-This additive opt-in rolls out producer first: Core, then Gateway, then the Web
-consumer. Existing CLI and Web builds continue using `practical-v2` throughout
-the mixed-version window; new Web must not request `management-v1` before both
-cloud producers accept and return it.
+updates. It remains frozen. The list-only `management-v2` contract adds required
+`creationAttribution` from the canonical Routine definition: the verified
+represented-human display-name snapshot, which may be explicitly unknown for a
+legacy row, and an optional bounded Local Agent client carrier. The strict
+carrier contains no session or conversation locator. Core does not expose the
+raw grant list or create another capability writer. Practical mutations and Run
+history remain on `practical-v2`; management clients omit management-only fields
+on ordinary updates and send capability fields only for explicit changes.
+
+`management-v2` rolls out through an additive D1 migration first, then the Core
+receiver and frozen `management-v1` compatibility reader, Gateway, and Web.
+Existing Web builds can keep requesting `management-v1`, and CLI remains on
+`practical-v2`, throughout the mixed-version window. New Web must not request
+`management-v2` before both cloud receivers accept and return it. Rollback
+removes callers in reverse order and retains the additive nullable column; an
+older Core ignores that column, while current Core projects an explicit unknown
+snapshot for rows created before the migration.
 
 `packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts` owns the
 Routine turn variant. `sender.kind = "routine"` and

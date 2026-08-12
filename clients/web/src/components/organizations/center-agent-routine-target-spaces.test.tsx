@@ -48,7 +48,7 @@ vi.mock("./center-agent-self-evolution-card", () => ({
 
 const ORGANIZATION_ID = "org-1";
 const ROUTINES_PATH = "/v1/organizations/current/routines";
-const ROUTINES_MANAGEMENT_CONTRACT = "management-v1";
+const ROUTINES_MANAGEMENT_CONTRACT = "management-v2";
 const ROUTINES_PRACTICAL_CONTRACT = "practical-v2";
 const ROUTINE_TARGET_SPACES_PATH =
 	"/v1/organizations/current/routine-target-spaces";
@@ -1046,6 +1046,7 @@ async function projectRoutineManagementListResponse(
 					externalActionPolicy: "standard",
 					slackChannelReport: false,
 				},
+				creationAttribution: { displayName: "Current User" },
 			})),
 		},
 		response.status

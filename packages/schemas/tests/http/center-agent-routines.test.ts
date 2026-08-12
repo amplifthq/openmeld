@@ -9,6 +9,7 @@ import {
   centerAgentResumeRoutineToolRpcInputSchema,
   centerAgentRoutineLastRunSummarySchema,
   centerAgentRoutineManagementSchema,
+  centerAgentRoutineManagementV1Schema,
   centerAgentRoutineRunSchema,
   centerAgentRoutineSchema,
   centerAgentRoutineTargetSpaceSchema,
@@ -63,13 +64,18 @@ const VALID_ROUTINE_TOOL_SPEAKER = {
   userId: "user-1",
 };
 describe("Center Agent Routine HTTP contracts", () => {
-  it("accepts the management list contract without widening practical-v2", () => {
+  it("versions Routine management provenance without widening older contracts", () => {
     expect(
       listCenterAgentRoutinesRpcInputSchema.safeParse({
         contract: "management-v1",
       })
     ).toMatchObject({ success: true });
-    const managementRoutine = {
+    expect(
+      listCenterAgentRoutinesRpcInputSchema.safeParse({
+        contract: "management-v2",
+      })
+    ).toMatchObject({ success: true });
+    const managementV1Routine = {
       canManage: true,
       capabilityState: {
         approvedKnowledge: true,
@@ -101,13 +107,42 @@ describe("Center Agent Routine HTTP contracts", () => {
       updatedByUserId: "user-1",
     };
     expect(
-      centerAgentRoutineManagementSchema.safeParse(managementRoutine)
+      centerAgentRoutineManagementV1Schema.safeParse(managementV1Routine)
     ).toMatchObject({ success: true });
-    expect(centerAgentRoutineSchema.safeParse(managementRoutine)).toMatchObject(
-      {
-        success: false,
-      }
-    );
+    expect(
+      centerAgentRoutineManagementSchema.safeParse({
+        ...managementV1Routine,
+        creationAttribution: {
+          displayName: "Mira Chen",
+          interactionSource: { client: "codex", kind: "local_agent" },
+        },
+      })
+    ).toMatchObject({ success: true });
+    expect(
+      centerAgentRoutineManagementSchema.safeParse({
+        ...managementV1Routine,
+        creationAttribution: {
+          displayName: "Mira Chen",
+          interactionSource: {
+            client: "codex",
+            kind: "local_agent",
+            sessionId: "private-session-locator",
+          },
+        },
+      })
+    ).toMatchObject({ success: false });
+    expect(
+      centerAgentRoutineManagementV1Schema.safeParse({
+        ...managementV1Routine,
+        creationAttribution: { displayName: "Mira Chen" },
+      })
+    ).toMatchObject({ success: false });
+    expect(
+      centerAgentRoutineManagementSchema.safeParse(managementV1Routine)
+    ).toMatchObject({ success: false });
+    expect(
+      centerAgentRoutineSchema.safeParse(managementV1Routine)
+    ).toMatchObject({ success: false });
   });
 
   it("keeps the external action policy optional and accepts an explicit read-only policy", () => {

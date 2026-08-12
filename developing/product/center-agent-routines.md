@@ -327,6 +327,23 @@ D1 is the only product truth for Routine definitions and Run history:
   eligible-target projections must not become a second Routine registry or Run
   ledger.
 
+The Routine definition also owns one immutable `creationAttribution` snapshot.
+It freezes the verified represented human's display name at creation and, only
+when an exact Local Agent native delivery carried that authorized create,
+optionally freezes its bounded `{ kind: "local_agent", client }` carrier. Core
+resolves and writes the snapshot in the same insert as the Routine. A later
+profile rename, membership removal, or audit-retention change does not rewrite
+it. The snapshot contains no session or conversation locator and is descriptive
+only; it never grants authority or replaces current membership checks. Legacy
+rows without the snapshot project an explicit unknown display name instead of
+guessing from current profile state.
+
+Creation attribution answers only who caused the definition to exist and which
+Local Agent client carried that request. Later definition changes remain
+separate attributed audit events, Run history remains execution evidence, and
+future instruction-source or definition-revision evidence must use their own
+explicit contracts rather than widening this snapshot.
+
 `nextDueAt` is a rebuildable projection from the stored schedule and reference
 time. Core writes it on create, schedule update, resume, and atomic
 claim/advance. For a recurring Routine, pausing sets it to `null` and resuming
@@ -338,10 +355,12 @@ Published clients that predate practical Routines use a frozen legacy read
 projection. It shows only recurring Space Routines and refuses to mutate a
 one-time or Slack-thread Routine. Current Web, CLI, and API-client consumers
 explicitly opt into a versioned contract. CLI uses `practical-v2`; Web Routine
-management uses the list-only `management-v1` projection so it can present
-stored capability state without reading Core storage or reconstructing grants
-from instruction text. These projections are wire contracts only; they are not
-a second Routine registry or alternate Core state.
+management uses the list-only `management-v2` projection so it can present
+stored capability state and immutable creation attribution without reading Core
+storage or reconstructing facts from audit history. The capability-only
+`management-v1` projection remains frozen for mixed-version compatibility.
+These projections are wire contracts only; they are not a second Routine
+registry or alternate Core state.
 
 Core receives one Workers Cron Trigger each minute. On a Routine tick it:
 
@@ -786,9 +805,11 @@ records the current human profile as `actorProfileId` with `onBehalfOf = null`.
 A Center Agent tool path records the designated Center Agent profile as
 `actorProfileId` and the verified represented human in `onBehalfOf`. When that
 tool call belongs to an exact Local Agent delivery, the row also records the
-delivery correlation so the public projection can show which Local Agent
-carried the request. A rejected or unapplied mutation writes neither mutation
-nor audit.
+delivery correlation so the Audit Log can show which Local Agent carried the
+request. For create only, the Routine definition independently freezes the
+bounded creation snapshot described above; the audit row remains the event
+evidence for that mutation. A rejected or unapplied mutation writes neither
+mutation nor audit.
 
 The Center Agent **Audit Log** under
 **Center Agent → Center Agent settings** is readable by every current workspace

@@ -1,5 +1,6 @@
 import {
   CENTER_AGENT_ROUTINE_MANAGEMENT_CONTRACT,
+  CENTER_AGENT_ROUTINE_MANAGEMENT_V1_CONTRACT,
   centerAgentRoutineMutationLegacyV1ResponseSchema,
   createCenterAgentRoutineResponseSchema,
   createCenterAgentRoutineRpcInputSchema,
@@ -10,6 +11,7 @@ import {
   listCenterAgentRoutineRunsRpcInputSchema,
   listCenterAgentRoutinesLegacyV1ResponseSchema,
   listCenterAgentRoutinesManagementResponseSchema,
+  listCenterAgentRoutinesManagementV1ResponseSchema,
   listCenterAgentRoutinesResponseSchema,
   listCenterAgentRoutinesRpcInputSchema,
   listCenterAgentRoutineTargetSpacesResponseSchema,
@@ -69,6 +71,12 @@ export async function rpcListRoutines(
     return parseRoutineResponse(
       listCenterAgentRoutinesManagementResponseSchema,
       await service.listManagement(actor)
+    );
+  }
+  if (request.contract === CENTER_AGENT_ROUTINE_MANAGEMENT_V1_CONTRACT) {
+    return parseRoutineResponse(
+      listCenterAgentRoutinesManagementV1ResponseSchema,
+      await service.listManagementV1(actor)
     );
   }
   const response = await service.list(actor);

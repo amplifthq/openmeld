@@ -4247,6 +4247,7 @@ async function seedRoutineDeliveryFixture() {
     authorizedActions: [],
     createdAtMs: nowMs - 1000,
     createdByUserId: creatorUserId,
+    creationAttribution: null,
     cronExpression: "0 12 * * *",
     destinationKind: "space" as const,
     externalActionPolicy: "read_only" as const,

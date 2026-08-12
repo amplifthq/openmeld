@@ -1,5 +1,7 @@
 import { z } from "zod/v4";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { CENTER_AGENT_INTERACTION_CLIENT_MAX_CHARS } from "../protocol/center-agent-interaction-source";
+import { MAX_PROFILE_NAME_LENGTH } from "../protocol/constants";
 import { centerAgentVerifiedMemberToolSpeakerSchema } from "./center-agent-speaker";
 import { spaceNameSchema } from "./space-name";
 
@@ -61,8 +63,10 @@ export const CENTER_AGENT_ROUTINE_EXTERNAL_ACTION_POLICIES = [
   "read_only",
 ] as const;
 export const CENTER_AGENT_ROUTINE_PRACTICAL_CONTRACT = "practical-v2" as const;
-export const CENTER_AGENT_ROUTINE_MANAGEMENT_CONTRACT =
+export const CENTER_AGENT_ROUTINE_MANAGEMENT_V1_CONTRACT =
   "management-v1" as const;
+export const CENTER_AGENT_ROUTINE_MANAGEMENT_CONTRACT =
+  "management-v2" as const;
 
 const trimmedIdentifierSchema = z.string().trim().min(1).max(256);
 const timestampMsSchema = z.number().int().nonnegative();
@@ -100,6 +104,7 @@ export const centerAgentRoutineContractSchema = z.literal(
 );
 export const centerAgentRoutineListContractSchema = z.enum([
   CENTER_AGENT_ROUTINE_PRACTICAL_CONTRACT,
+  CENTER_AGENT_ROUTINE_MANAGEMENT_V1_CONTRACT,
   CENTER_AGENT_ROUTINE_MANAGEMENT_CONTRACT,
 ]);
 export const centerAgentRoutineTargetSpaceKindSchema = z.enum(
@@ -178,10 +183,34 @@ export const centerAgentRoutineCapabilityStateSchema = z.strictObject({
   slackChannelReport: z.boolean(),
 });
 
-export const centerAgentRoutineManagementSchema = z
+export const centerAgentRoutineCreationInteractionSourceSchema = z.strictObject(
+  {
+    client: z
+      .string()
+      .trim()
+      .min(1)
+      .max(CENTER_AGENT_INTERACTION_CLIENT_MAX_CHARS),
+    kind: z.literal("local_agent"),
+  }
+);
+
+export const centerAgentRoutineCreationAttributionSchema = z.strictObject({
+  displayName: z.string().trim().min(1).max(MAX_PROFILE_NAME_LENGTH).nullable(),
+  interactionSource:
+    centerAgentRoutineCreationInteractionSourceSchema.optional(),
+});
+
+export const centerAgentRoutineManagementV1Schema = z
   .strictObject({
     ...centerAgentRoutineSchema.shape,
     capabilityState: centerAgentRoutineCapabilityStateSchema,
+  })
+  .superRefine(validateRoutineScheduleAndDestination);
+
+export const centerAgentRoutineManagementSchema = z
+  .strictObject({
+    ...centerAgentRoutineManagementV1Schema.shape,
+    creationAttribution: centerAgentRoutineCreationAttributionSchema,
   })
   .superRefine(validateRoutineScheduleAndDestination);
 
@@ -278,6 +307,16 @@ export const listCenterAgentRoutinesManagementResponseSchema = z.strictObject({
     .array(centerAgentRoutineManagementSchema)
     .max(CENTER_AGENT_ROUTINE_LIMIT),
 });
+
+export const listCenterAgentRoutinesManagementV1ResponseSchema = z.strictObject(
+  {
+    currentUserId: trimmedIdentifierSchema,
+    organizationId: trimmedIdentifierSchema,
+    routines: z
+      .array(centerAgentRoutineManagementV1Schema)
+      .max(CENTER_AGENT_ROUTINE_LIMIT),
+  }
+);
 
 export const listCenterAgentRoutinesLegacyV1ResponseSchema = z.strictObject({
   currentUserId: trimmedIdentifierSchema,

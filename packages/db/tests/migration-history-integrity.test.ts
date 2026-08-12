@@ -1736,6 +1736,7 @@ describe("shared drizzle migration history integrity", () => {
         "updated_by_user_id",
         "created_at_ms",
         "updated_at_ms",
+        "creation_attribution_json",
       ]);
       expect(listTableIndexes(database, "routines")).toEqual(
         expect.arrayContaining([
@@ -1829,8 +1830,16 @@ describe("shared drizzle migration history integrity", () => {
           'claimed',
           2001
         );
-        DELETE FROM routines WHERE id = 'routine-1';
       `);
+
+      expect(
+        database
+          .prepare(
+            "SELECT creation_attribution_json AS creationAttributionJson FROM routines WHERE id = 'routine-1'"
+          )
+          .get()
+      ).toEqual({ creationAttributionJson: null });
+      database.exec("DELETE FROM routines WHERE id = 'routine-1'");
 
       expect(
         database.prepare("SELECT COUNT(*) AS count FROM routine_runs").get()

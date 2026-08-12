@@ -42,7 +42,7 @@ export async function prepareHumanRoutineRequest(
     throw memberActorRequiredError();
   }
   const stores = requireRoutineStores(env);
-  await requireHumanProfileAuthority({
+  const humanProfile = await requireHumanProfileAuthority({
     db: stores.db,
     profileId: context.actorContext.openMeldProfileId,
     userId: membership.userId,
@@ -58,6 +58,7 @@ export async function prepareHumanRoutineRequest(
         role: membership.role,
         userId: membership.userId,
       },
+      creationDisplayName: humanProfile.profileName,
       sourceNativeDeliveryId: null,
     },
     representedHuman: {
@@ -102,6 +103,7 @@ export async function prepareCenterAgentRoutineRequest(
         role: representedHuman.role,
         userId: representedHuman.userId,
       },
+      creationDisplayName: representedHuman.displayName,
       sourceNativeDeliveryId,
     },
     representedHuman: {
@@ -116,11 +118,11 @@ async function requireHumanProfileAuthority(input: {
   db: D1Database;
   profileId: string;
   userId: string;
-}): Promise<void> {
+}): Promise<{ profileName: string }> {
   const profile = await input.db
     .prepare(
       `
-        SELECT 1 AS present
+        SELECT profile_name
         FROM openmeld_profiles
         WHERE profile_id = ?
           AND owner_user_id = ?
@@ -130,10 +132,12 @@ async function requireHumanProfileAuthority(input: {
       `
     )
     .bind(input.profileId, input.userId)
-    .first<{ present: number }>();
-  if (profile?.present !== 1) {
+    .first<{ profile_name: string }>();
+  const profileName = profile?.profile_name.trim();
+  if (!profileName) {
     throw memberActorRequiredError();
   }
+  return { profileName };
 }
 
 function requireRoutineStores(env: CoreBindings) {
