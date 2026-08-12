@@ -104,8 +104,9 @@ const CONTROL_PREFIXES = new Set([
 const ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const COMMIT_ALL_SHORT_RE = /^-[A-Za-z]*a[A-Za-z]*$/;
 const PUBLISHED_HOME_RE =
-  /^(?:~|\$HOME|\$\{HOME\}|\/Users\/[^/]+)\/+\.openmeld(?:\/|$)/;
-const HOME_FIRST_SEGMENT_RE = /^(?:~|\$HOME|\$\{HOME\}|\/Users\/[^/]+)\/+(.*)/;
+  /^(?:~|\$HOME|\$\{HOME\}|\/(?:Users|home)\/[^/]+|\/root)\/+\.openmeld(?:\/|$)/;
+const HOME_FIRST_SEGMENT_RE =
+  /^(?:~|\$HOME|\$\{HOME\}|\/(?:Users|home)\/[^/]+|\/root)\/+(.*)/;
 const SHELL_COMMAND_OPTION_RE = /^-[^-]*c[^-]*$/;
 const WHITESPACE_RE = /\s/;
 const LEADING_TABS_RE = /^\t+/;
