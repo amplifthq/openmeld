@@ -128,7 +128,7 @@ describe("SetupOnboardingStep", () => {
 	beforeEach(() => {
 		api.readMemory.mockResolvedValue({
 			organizationId: "org-acme",
-			organizationMemoryOptIn: false,
+			organizationMemoryOptIn: true,
 			provider: "zep_cloud",
 			updatedByUserId: null,
 		});
@@ -159,13 +159,7 @@ describe("SetupOnboardingStep", () => {
 		vi.clearAllMocks();
 	});
 
-	it("enables untouched memory and local-agent access optimistically", async () => {
-		const memoryWrite = deferred<{
-			organizationId: string;
-			organizationMemoryOptIn: boolean;
-			provider: "zep_cloud";
-			updatedByUserId: string;
-		}>();
+	it("renders the Core-owned memory default without manufacturing a user choice", async () => {
 		const wakeAccessWrite = deferred<{
 			preference: {
 				autoAuthorizeAgentProfileBindings: boolean;
@@ -174,7 +168,6 @@ describe("SetupOnboardingStep", () => {
 				userId: string;
 			};
 		}>();
-		api.setMemory.mockReturnValue(memoryWrite.promise);
 		api.saveWakeAccess.mockReturnValue(wakeAccessWrite.promise);
 
 		render(
@@ -184,15 +177,12 @@ describe("SetupOnboardingStep", () => {
 		);
 
 		await waitFor(() => {
-			expect(api.setMemory).toHaveBeenCalledWith({
-				organizationId: "org-acme",
-				organizationMemoryOptIn: true,
-			});
 			expect(api.saveWakeAccess).toHaveBeenCalledWith({
 				enableWakeAccess: true,
 				organizationId: "org-acme",
 			});
 		});
+		expect(api.setMemory).not.toHaveBeenCalled();
 		expect(
 			screen
 				.getByRole("switch", { name: "Organization memory" })
@@ -213,12 +203,6 @@ describe("SetupOnboardingStep", () => {
 		).toBeTruthy();
 
 		await act(async () => {
-			memoryWrite.resolve({
-				organizationId: "org-acme",
-				organizationMemoryOptIn: true,
-				provider: "zep_cloud",
-				updatedByUserId: "user-1",
-			});
 			wakeAccessWrite.resolve({
 				preference: {
 					autoAuthorizeAgentProfileBindings: true,
@@ -227,7 +211,7 @@ describe("SetupOnboardingStep", () => {
 					userId: "user-1",
 				},
 			});
-			await Promise.all([memoryWrite.promise, wakeAccessWrite.promise]);
+			await wakeAccessWrite.promise;
 		});
 	});
 
@@ -262,6 +246,38 @@ describe("SetupOnboardingStep", () => {
 				name: INFORMATION_PROTECTION_BUTTON_NAME,
 			})
 		).toBeNull();
+	});
+
+	it("preserves an owner's explicit memory-off choice", async () => {
+		api.readMemory.mockResolvedValue({
+			organizationId: "org-acme",
+			organizationMemoryOptIn: false,
+			provider: "zep_cloud",
+			updatedByUserId: "user-1",
+		});
+		api.saveWakeAccess.mockResolvedValue({
+			preference: {
+				autoAuthorizeAgentProfileBindings: true,
+				organizationId: "org-acme",
+				updatedAt: "2026-07-29T00:00:00.000Z",
+				userId: "user-1",
+			},
+		});
+
+		render(
+			<TestQueryClientProvider>
+				<SetupOnboardingStep onContinue={vi.fn()} />
+			</TestQueryClientProvider>
+		);
+
+		await waitFor(() => {
+			expect(
+				screen
+					.getByRole("switch", { name: "Organization memory" })
+					.getAttribute("aria-checked")
+			).toBe("false");
+		});
+		expect(api.setMemory).not.toHaveBeenCalled();
 	});
 });
 

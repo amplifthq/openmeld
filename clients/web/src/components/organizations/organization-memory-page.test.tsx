@@ -268,6 +268,7 @@ describe("OrganizationMemoryPage", () => {
 	});
 
 	it("renders the real memory policy for a personal workspace", async () => {
+		organizationMemoryOptIn = true;
 		currentOrganization = {
 			id: "org-personal",
 			isPersonal: true,
@@ -280,14 +281,20 @@ describe("OrganizationMemoryPage", () => {
 		expect(await screen.findByRole("heading", { name: "Memory" })).toBeTruthy();
 		expect(screen.getByText("Personal workspace")).toBeTruthy();
 		expect(
-			await screen.findByRole("switch", {
-				name: "Use Center Agent workspace memory",
-			})
-		).toBeTruthy();
+			(
+				await screen.findByRole("switch", {
+					name: "Use Workspace memory",
+				})
+			).getAttribute("aria-checked")
+		).toBe("true");
+		expect(await screen.findByText("Workspace memory is on.")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Manage the memory your Center Agent can use across this personal workspace, including what it remembers about you."
+				"Control the two kinds of memory your Center Agent uses in this personal workspace."
 			)
+		).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { name: "Your Center Agent memory" })
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Erase memory" })).toBeTruthy();
 		expect(

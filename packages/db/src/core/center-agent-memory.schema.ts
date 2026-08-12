@@ -18,7 +18,7 @@ export const centerAgentMemoryPolicies = sqliteTable(
     organizationMemoryOptIn: integer("organization_memory_opt_in", {
       mode: "boolean",
     })
-      .default(false)
+      .default(true)
       .notNull(),
     updatedByUserId: text("updated_by_user_id").references(() => users.id, {
       onDelete: "set null",

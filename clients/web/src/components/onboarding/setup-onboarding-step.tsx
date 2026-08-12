@@ -63,7 +63,6 @@ export function SetupOnboardingStep(input: { onContinue: () => void }) {
 	const [protectionExpanded, setProtectionExpanded] = useState(false);
 	const [briefDraft, setBriefDraft] = useState("");
 	const [protectionDraft, setProtectionDraft] = useState("");
-	const memoryDefaultStartedRef = useRef(false);
 	const wakeAccessDefaultStartedRef = useRef(false);
 	const roleQuery = useQuery(
 		organizationMemberRoleQueryOptions({
@@ -398,22 +397,6 @@ export function SetupOnboardingStep(input: { onContinue: () => void }) {
 			);
 		}
 	}, [informationProtectionQuery.data]);
-	useEffect(() => {
-		if (
-			memoryDefaultStartedRef.current ||
-			!canManageMemory ||
-			memoryPolicyQuery.data?.updatedByUserId !== null ||
-			memoryMutation.isPending
-		) {
-			return;
-		}
-		memoryDefaultStartedRef.current = true;
-		memoryMutation.mutate(true);
-	}, [
-		canManageMemory,
-		memoryMutation,
-		memoryPolicyQuery.data?.updatedByUserId,
-	]);
 	useEffect(() => {
 		if (
 			wakeAccessDefaultStartedRef.current ||

@@ -1,6 +1,7 @@
 import {
   buildCenterAgentMemberMemoryRef,
   buildCenterAgentOrganizationMemoryRef,
+  CENTER_AGENT_ORGANIZATION_MEMORY_DEFAULT_ENABLED,
   type CenterAgentMemoryPolicy,
   type CenterAgentMemoryRepository,
 } from "./contract";
@@ -152,7 +153,9 @@ export function createD1CenterAgentMemoryRepository(
         .bind(organizationId)
         .first<MemoryPolicyRow>();
       return {
-        organizationMemoryOptIn: Boolean(row?.organization_memory_opt_in),
+        organizationMemoryOptIn: row
+          ? Boolean(row.organization_memory_opt_in)
+          : CENTER_AGENT_ORGANIZATION_MEMORY_DEFAULT_ENABLED,
         updatedByUserId: row?.updated_by_user_id ?? null,
       } satisfies CenterAgentMemoryPolicy;
     },

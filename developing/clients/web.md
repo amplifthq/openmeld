@@ -734,8 +734,8 @@ invite, and ready. Detailed product semantics live in
 - mutations update the owning cache first and restore the exact prior value on
   failure; server-generated invite-link tokens remain pending until Auth returns
   the real URL;
-- the result screen is assembled from confirmed Channel, App, local-runtime,
-  local-agent, and invitation projections.
+- the result screen is assembled from confirmed memory-policy, Channel, App,
+  local-runtime, local-agent, and invitation projections.
 
 The former blocking `OrganizationEntryOnboardingDialog`, its two steps, local
 hook, and tests are removed. Wake access and Organization memory are no longer a
@@ -1150,19 +1150,21 @@ organization-memory policy management. **Settings → Personal → Privacy &
 Safety** links to this canonical page instead of owning a second mutation
 surface.
 
-The first-entry Organization
-dialog may offer the same Core-owned policy as a one-time owner/admin opt-in,
-but it does not become a second management surface and never offers policy
-reversal. An owner or admin may turn shared organization memory on or off in
-the Center Agent Memory page; other members see the policy read-only. Web submits intent through
+Setup Studio presents the Core-owned default as enabled without writing a
+synthetic user choice. It does not become a second management surface. An owner
+or admin may turn Organization memory on or off on the **Center Agent → Memory**
+page; other members see the policy read-only. Web submits intent through
 the shared HTTP contracts and then refetches Core-owned policy; a browser toggle
 or cached value is never memory policy truth.
 
 Copy must keep the two scopes explicit. Wiping member memory does not delete
-messages, Spaces, or organization memory. Organization memory is off by default,
-and its control must explain that shared Space and Slack conversations may be
-used while private Center Agent DMs are not automatically written into shared
-organization memory.
+messages, Spaces, or Organization memory. Organization memory is on by default,
+and its control must explain that shared Space and connected Channel
+conversations may be used while private Center Agent DMs are not automatically
+written into Organization memory. Personal Workspaces keep the page because
+Workspace memory remains useful across Spaces and connected Channels, and the
+person still needs transparent controls to turn it off or erase their separate
+member memory.
 
 ### Documents
 

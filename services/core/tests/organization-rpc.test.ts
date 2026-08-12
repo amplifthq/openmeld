@@ -572,7 +572,7 @@ describe("organization Core RPC", () => {
     ]);
   });
 
-  it("lets members read and owners idempotently update Center Agent organization memory opt-in", async () => {
+  it("defaults untouched Center Agent organization memory on", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [],
       members: [
@@ -591,9 +591,41 @@ describe("organization Core RPC", () => {
       })
     ).resolves.toMatchObject({
       organizationId: "org-a",
-      organizationMemoryOptIn: false,
+      organizationMemoryOptIn: true,
       provider: "zep_cloud",
       updatedByUserId: null,
+    });
+  });
+
+  it("preserves an explicit off choice and lets owners idempotently update it", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [],
+      centerAgentMemoryPolicies: [
+        {
+          organizationId: "org-a",
+          organizationMemoryOptIn: false,
+          updatedByUserId: "user-a",
+        },
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "owner"),
+        memberRow("member-b", "org-a", "user-b", "member"),
+      ],
+    });
+    const env = buildEnv({ db });
+
+    await expect(
+      rpcReadCenterAgentOrganizationMemoryPolicy(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          userId: "user-b",
+        }),
+      })
+    ).resolves.toMatchObject({
+      organizationId: "org-a",
+      organizationMemoryOptIn: false,
+      provider: "zep_cloud",
+      updatedByUserId: "user-a",
     });
 
     const ownerContext = buildContext({
@@ -634,7 +666,7 @@ describe("organization Core RPC", () => {
     ]);
   });
 
-  it("rejects Center Agent organization memory opt-in writes from non-admin members", async () => {
+  it("rejects Center Agent organization memory policy writes from non-admin members", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [],
       members: [memberRow("member-a", "org-a", "user-a", "member")],

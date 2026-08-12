@@ -8,7 +8,10 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import { localRuntimesQueryOptions } from "#/query/connect/local-runtimes";
 import { organizationAppConnectionCatalogQueryOptions } from "#/query/organizations/app-connections";
-import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
+import {
+	centerAgentDesignationQueryOptions,
+	centerAgentMemoryPolicyQueryOptions,
+} from "#/query/organizations/center-agent";
 import { messageChannelListQueryOptions } from "#/query/organizations/message-channels";
 import {
 	organizationMemberRoleQueryOptions,
@@ -22,6 +25,7 @@ export type CompleteOnboardingState = {
 	invitationCount: number;
 	isPersonal: boolean;
 	localAgentNames: string[];
+	memoryEnabled: boolean | null;
 	organizationId: string;
 	organizationName: string;
 };
@@ -63,6 +67,12 @@ export function useCompleteOnboardingState(input: {
 		}),
 		enabled: input.enabled,
 	});
+	const memoryPolicyQuery = useQuery(
+		centerAgentMemoryPolicyQueryOptions({
+			enabled: input.enabled,
+			organizationId: currentOrganization.id,
+		})
+	);
 	const localRuntimesQuery = useQuery(
 		localRuntimesQueryOptions({
 			enabled: input.enabled,
@@ -127,6 +137,7 @@ export function useCompleteOnboardingState(input: {
 		).length,
 		isPersonal,
 		localAgentNames,
+		memoryEnabled: memoryPolicyQuery.data?.organizationMemoryOptIn ?? null,
 		organizationId: currentOrganization.id,
 		organizationName: currentOrganization.name,
 	};

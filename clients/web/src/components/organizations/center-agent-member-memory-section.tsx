@@ -47,14 +47,17 @@ export function CenterAgentMemberMemorySection() {
 			<div className="border-border/70 border-b px-5 py-4">
 				<h2 className="flex items-center gap-2 font-medium text-foreground text-sm">
 					<BrainIcon aria-hidden="true" className="size-4" />
-					Center Agent Memory
+					Your Center Agent memory
 				</h2>
 			</div>
 			<div className="space-y-3 px-5 py-4">
 				<p className="text-muted-foreground text-sm">
-					Erase what the Center Agent remembers about you in this{" "}
+					Private chats can help your Center Agent remember useful details about
+					you in this{" "}
 					{isPersonalWorkspace ? "personal workspace" : "organization"}. This
-					does not delete messages, Spaces, or{" "}
+					memory is separate from{" "}
+					{isPersonalWorkspace ? "Workspace" : "Organization"} memory. Erasing
+					it does not delete messages, Spaces, or{" "}
 					{isPersonalWorkspace ? "workspace" : "shared organization"} memory.
 					This action cannot be undone.
 				</p>

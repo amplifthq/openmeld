@@ -3,6 +3,7 @@
 import { Button } from "@openmeld/ui/components/button";
 import {
 	ArrowRightIcon,
+	BrainIcon,
 	CheckCircleIcon,
 	CodeIcon,
 	PlugIcon,
@@ -24,6 +25,7 @@ export function CompleteOnboardingStep(input: {
 		invitationCount: input.state.invitationCount,
 		isPersonal: input.state.isPersonal,
 		localAgentNames: input.state.localAgentNames,
+		memoryEnabled: input.state.memoryEnabled,
 		organizationName: input.state.organizationName,
 	});
 
@@ -92,9 +94,21 @@ function buildOnboardingOutcomes(input: {
 	invitationCount: number;
 	isPersonal: boolean;
 	localAgentNames: string[];
+	memoryEnabled: boolean | null;
 	organizationName: string;
 }): Outcome[] {
 	const outcomes: Outcome[] = [];
+	if (input.memoryEnabled) {
+		outcomes.push({
+			description: input.isPersonal
+				? "Your Center Agent can remember useful context from Spaces and connected channels."
+				: "Your Center Agent can use shared context from Spaces and connected channels.",
+			icon: <BrainIcon weight="duotone" />,
+			title: input.isPersonal
+				? "Workspace memory is on"
+				: "Organization memory is on",
+		});
+	}
 	if (input.channelNames.length > 0) {
 		outcomes.push({
 			description: `Center Agent is connected to ${formatNames(input.channelNames)}.`,

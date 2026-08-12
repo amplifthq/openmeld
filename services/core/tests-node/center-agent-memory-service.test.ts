@@ -71,7 +71,7 @@ describe("Center Agent memory service", () => {
     );
   });
 
-  it("recalls only opted-in organization memory for an unattended Routine", async () => {
+  it("recalls only enabled Organization memory for an unattended Routine", async () => {
     const adapter = createAdapter();
     const repository = createRepository({ organizationMemoryOptIn: true });
     const service = createCenterAgentMemoryService({

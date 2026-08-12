@@ -2063,7 +2063,7 @@ owning Durable Object state.
 
 ## Center Agent Memory Data Boundary
 
-Core owns the OpenMeld memory model. D1 stores organization opt-in policy,
+Core owns the OpenMeld memory model. D1 stores the Organization enabled policy,
 member/organization subject identity, provider references, deletion lifecycle,
 and deletion errors. Zep Cloud stores the semantic episodes and search index
 behind Core's `CenterAgentMemoryAdapter`; no client, worker, or tool may use Zep

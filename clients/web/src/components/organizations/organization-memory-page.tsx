@@ -44,7 +44,7 @@ function OrganizationMemoryContent(input: {
 			<AppPageHeader
 				description={
 					input.isPersonalWorkspace
-						? "Manage the memory your Center Agent can use across this personal workspace, including what it remembers about you."
+						? "Control the two kinds of memory your Center Agent uses in this personal workspace."
 						: `Manage shared memory for ${input.organizationName} and the personal information this Center Agent remembers about you.`
 				}
 				eyebrow={
