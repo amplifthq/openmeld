@@ -133,7 +133,7 @@ forking its command, PrepareSession, or live-status behavior.
    value on failure. When a server-generated secret is unknowable in advance
    (for example a new invite-link token), show an immediate pending outcome
    while retaining the last confirmed value; never invent a token or success.
-7. **Defaults are visible, not interrogative.** Untouched Organization memory
+7. **Defaults are visible, not interrogative.** Untouched Workspace memory
    and automatic Wake access default on. Setup Studio tells the user they are
    enabled and allows an authorized user to turn them off. It does not ask
    again when a prior explicit choice already exists.
@@ -396,17 +396,18 @@ sibling mutation.
      the failed row. A server-generated join-link token is never fabricated.
    - Members see concise read-only guidance and continue without friction.
 7. **Ready**
-   - Build a concise outcome list only from current connected facts: Channels,
-     active Apps, this computer and enabled detected local agents, and pending
-     invitations.
+   - Build a concise outcome list only from current confirmed facts: enabled
+     Workspace memory, Channels, active Apps, this computer and enabled detected
+     local agents, and pending invitations.
    - If nothing optional was connected, say setup is saved and name the next
      capabilities the user can add later. Never paint skipped work as
      connected.
    - Organization selection follows Workspace → Channels → Apps → This
      computer → Defaults → Invite → Ready.
-   - Personal Workspace follows Workspace → Apps → This computer → Ready. The
-     progress indicator uses only those steps and never mounts team Channels,
-     Organization policy, or invitation requests.
+   - Personal Workspace follows Workspace → Apps → This computer → Ready. Ready
+     makes the default-on Workspace memory fact visible without adding another
+     question. The progress indicator uses only those steps and never mounts
+     team Channels, Organization policy, or invitation requests.
    - Organization and Personal copy remain distinct; neither path uses
      unexplained phrases such as `One shared loop`.
 

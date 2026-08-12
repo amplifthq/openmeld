@@ -1550,11 +1550,11 @@ than by the model provider:
 - **Member memory** is scoped to one member inside one organization. Completed
   Center Agent DM turns may build that member memory, and the member can wipe it
   without deleting messages, Spaces, or shared organization memory.
-- **Organization memory** is off by default. An organization owner or admin may
-  opt in so completed Center Agent turns in shared Spaces and Slack can be used
-  as shared organization memory. Private Center Agent DMs never write to
-  organization memory automatically. The Center Agent may save an explicit
-  organization fact only while the same opt-in is enabled.
+- **Organization memory** is on by default. Completed Center Agent turns in
+  shared Spaces and connected Channels can be used as Organization memory until
+  an organization owner or admin turns it off. Private Center Agent DMs never
+  write to Organization memory automatically. The Center Agent may save an
+  explicit Organization fact only while Organization memory is enabled.
 - Recalled memory keeps the source surface and occurrence time of the episode
   that produced it. Entering through a different DM, Space, Slack, Lark, or
   Feishu conversation must not relabel the memory as if it came from the
@@ -1564,8 +1564,8 @@ than by the model provider:
   carrier. The current environment changes disclosure behavior, not who the
   requester is. Shared replies may use private recall to stay helpful but must
   not expose the private fact or its source. A connected unlinked member may
-  recall only opted-in Organization memory; an external participant receives no
-  Center Agent memory.
+  recall Organization memory only while it is enabled; an external participant
+  receives no Center Agent memory.
 - The same verified member and designated Center Agent identities remain stable
   when the carrier changes. Current `interactionEnvironment`, authorized
   source-attributed context, and recalled memory may influence the answer, but
@@ -1576,16 +1576,15 @@ than by the model provider:
   the verified conversation surface as its source. The save mechanism must not
   replace a DM, Space, Slack, Lark, or Feishu origin with `explicit_tool`.
 
-Core owns scope, authorization, opt-in, subject identity, and deletion
+Core owns scope, authorization, enabled state, subject identity, and deletion
 lifecycle. `developing/architecture/data-and-observability.md` owns storage and
 provider boundaries; `developing/product/remote-agent-runtime.md` owns recall
 and turn-envelope behavior. **Center Agent → Memory** owns both the current
-member-memory wipe entry and ongoing organization-policy management as clearly
+member-memory wipe entry and ongoing Organization policy management as clearly
 separated sections. **Settings → Personal → Privacy** links there instead of
-owning a second mutation surface. The first-entry Organization dialog may offer
-the same Core-owned policy as a one-time owner/admin opt-in, as defined in
-`developing/clients/web.md`; it does not own another policy or ongoing
-management surface.
+owning a second mutation surface. Setup Studio presents the Core-owned default
+as enabled without manufacturing a user choice. It does not own another policy
+or ongoing management surface.
 
 ### Organization Documents
 
@@ -1790,7 +1789,7 @@ In scope:
 | Block          | Contents                                                                                                                                                                                                                                                                                                                                                                                                      |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Org tenancy    | Vercel-style mechanics; auto personal org; Better Auth organization plugin as-is; email-bound invitations + verification; `owner`/`admin`/`member`; org directory (members + Agent Profiles with existing presence); Spaces carry `organizationId` with `public`/`private` org visibility; `/o/{orgSlug}/...` routing                                                                                         |
-| Center Agent   | System-managed `managedRole = "center_agent"` Agent Profile per org; designation table (multi-Center-Agent-shaped, MVP-constrained); derived `isCenterAgent`; hosted Remote Agent R1; concierge tool set plus verified member-attributed Task and Routine management; server-enforced CA-DM Space; isolated first-class Task conversations; member-scoped and opt-in organization memory; audit + attribution |
+| Center Agent   | System-managed `managedRole = "center_agent"` Agent Profile per org; designation table (multi-Center-Agent-shaped, MVP-constrained); derived `isCenterAgent`; hosted Remote Agent R1; concierge tool set plus verified member-attributed Task and Routine management; server-enforced CA-DM Space; isolated first-class Task conversations; member-scoped memory and default-on Organization memory; audit + attribution |
 | Agent Activity | First-class Projects; explicit per-repository local opt-in; privacy-safe coding-session metadata; Organization-wide member visibility; Web, CLI, and read-only Center Agent awareness surfaces, as owned by `developing/product/agent-activity.md`                                                                                                                                                            |
 | Carry-over     | Existing wake pipeline, Space DO, daemon/CLI, web shell — all re-scoped to carry `organizationId`                                                                                                                                                                                                                                                                                                             |
 
@@ -1832,7 +1831,7 @@ Generic shareable invite links were removed from this out-of-scope list by the
    ledger semantics, and operator boundaries are owned by
    `developing/product/remote-agent-runtime.md`.
 4. **Center Agent memory** — shipped on main with member-scoped Center Agent DM
-   memory, owner/admin opt-in organization memory for shared Space and Slack
+   memory, default-on Organization memory for shared Space and Channel
    conversations, explicit organization remember, and member/organization
    deletion paths.
 5. **Center Agent Routines** — implemented as organization-owned definitions

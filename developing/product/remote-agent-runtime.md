@@ -2093,14 +2093,14 @@ contract in Core, with Zep Cloud behind a provider adapter:
   turn. When organization memory is enabled, it may also recall the shared
   organization subject.
 - Completed Center Agent DM turns write only member memory. Completed shared
-  Space and Slack turns write organization memory only when an owner/admin has
-  opted the organization in. Private Center Agent DMs never automatically write
-  organization memory.
+  Space and connected Channel turns write Organization memory while it is
+  enabled. Private Center Agent DMs never automatically write Organization
+  memory.
 - The explicit `centerAgentRememberForOrganization` tool is designation-gated
   and fails closed while organization memory is off.
 - Core projects bounded memory items into the shared turn envelope before
   worker submission. The worker and Flue session must not query Zep, infer the
-  opt-in, or create a parallel memory policy.
+  enabled state, or create a parallel memory policy.
 - Core prioritizes the current request inside the bounded semantic-search
   query, fills only the remaining budget with the newest useful channel
   context, and enforces the same bound again at the provider boundary. The
@@ -2199,7 +2199,7 @@ Remaining expansion still requires its own design and ticket pass:
 The current platform provides the Binding-kind routing
 seam, per-conversation agent sessions, the single-result-surface reply rule,
 ledger observability, usage diagnostics, Space reply streaming, member and
-opt-in organization memory, the designation-attached privilege model, and the
+default-on Organization memory, the designation-attached privilege model, and the
 Core-owned Routine path. Expansion adds capability on top of these; it must not
 create parallel authorities or rework workstation RuntimeCoordinator semantics.
 

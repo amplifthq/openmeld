@@ -247,16 +247,12 @@ This amends the baseline's "Wake authorization stays opt-in per Binding":
 opt-in now includes explicitly approved bulk/automatic policies. Records
 remain per-binding and revocable; fail-closed enforcement is untouched.
 
-Organization creators and invited members get the same one-time prompt for
-their own agents. The two-step dialog appears on the first authorized Web entry
-after creation or membership acceptance, so creation, email invitations,
-Organization join links, and refresh recovery share one path. Step 1 confirms
-Wake access and Organization memory. Wake access is checked by default for
-every member. Organization memory is also proposed as checked for an owner or
-admin when the Core policy is off; other members see the real policy read-only
-and can never invoke its mutation. Saving memory, when needed, happens before
-the required Wake choice so a memory failure cannot accidentally dismiss the
-entry gate.
+Account Setup Studio presents the Core-owned Workspace memory default as on
+without manufacturing a user choice. Organization owners and admins may change
+the policy in the Defaults step; other members see the real policy read-only
+and can never invoke its mutation. Personal Workspace onboarding keeps its
+shorter path and makes the confirmed default visible on Ready instead of adding
+another question. Wake access remains a separate member-scoped choice.
 
 After Wake access is saved, the same dialog remains open for an optional Slack
 Channel and GitHub App step. Slack is writable only for an owner or admin.

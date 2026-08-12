@@ -5,6 +5,7 @@ import type {
 } from "@openmeld/schemas/types";
 
 export const CENTER_AGENT_MEMORY_PROVIDER = "zep_cloud" as const;
+export const CENTER_AGENT_ORGANIZATION_MEMORY_DEFAULT_ENABLED = true;
 export const CENTER_AGENT_MEMORY_RECALL_TIMEOUT_MS = 3000;
 export const CENTER_AGENT_MEMORY_WRITE_TIMEOUT_MS = 5000;
 export const CENTER_AGENT_MEMORY_SEARCH_QUERY_MAX_CHARS = 400;

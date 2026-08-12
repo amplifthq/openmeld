@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CompleteOnboardingStep } from "./complete-onboarding-step";
 
 const state = {
@@ -9,11 +9,25 @@ const state = {
 	invitationCount: 0,
 	isPersonal: true,
 	localAgentNames: [],
+	memoryEnabled: true,
 	organizationId: "organization-123",
 	organizationName: "Personal Workspace",
 };
 
 describe("CompleteOnboardingStep", () => {
+	afterEach(cleanup);
+
+	it("makes the enabled personal Workspace memory default visible", () => {
+		render(<CompleteOnboardingStep onContinue={vi.fn()} state={state} />);
+
+		expect(screen.getByText("Workspace memory is on")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Your Center Agent can remember useful context from Spaces and connected channels."
+			)
+		).toBeTruthy();
+	});
+
 	it("waits for workspace initialization before allowing another continue", () => {
 		const onContinue = vi.fn(() => new Promise<void>(() => undefined));
 		render(<CompleteOnboardingStep onContinue={onContinue} state={state} />);

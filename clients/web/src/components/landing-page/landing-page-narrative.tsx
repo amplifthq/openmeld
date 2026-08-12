@@ -90,7 +90,7 @@ const CONTEXT_FOUNDATIONS = [
 	{
 		name: "Memory, with boundaries",
 		description:
-			"The Center Agent remembers each member separately. Shared organization memory is opt-in, and private DMs are never added to it automatically.",
+			"The Center Agent remembers each member separately. Organization memory is on by default, and private DMs are never added to it automatically.",
 	},
 ] as const;
 
@@ -151,7 +151,7 @@ const FAQ_ITEMS = [
 	{
 		question: "What can the Center Agent remember?",
 		answer:
-			"It can build member-specific memory from completed private conversations. Shared organization memory is off by default and must be enabled by an owner or admin. Private Center Agent DMs are never added to shared organization memory automatically.",
+			"It can build member-specific memory from completed private conversations. Organization memory is on by default for shared Spaces and connected Channels, and an owner or admin can turn it off. Private Center Agent DMs are never added to Organization memory automatically.",
 	},
 	{
 		question: "Can OpenMeld run work on a schedule?",

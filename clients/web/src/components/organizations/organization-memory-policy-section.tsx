@@ -52,12 +52,12 @@ export function OrganizationMemoryPolicySection(input: {
 				<div className="min-w-0">
 					<p className="font-medium text-foreground text-sm">
 						{input.isPersonalWorkspace
-							? "Use memory across this personal workspace"
+							? "Remember context across this workspace"
 							: "Use shared memory for this organization"}
 					</p>
 					<p className="mt-1 text-muted-foreground text-xs leading-5">
 						{input.isPersonalWorkspace
-							? "When this is on, conversations with the Center Agent outside private DMs are summarized into workspace memory, stored in Zep, a third-party memory service, and used in future Center Agent replies. Private Center Agent DMs are never saved automatically. When it is off, OpenMeld stops writing and retrieving workspace memory."
+							? "When this is on, completed Center Agent conversations in Spaces and connected channels become workspace memory for future replies. Private chats use your Center Agent memory instead and are never added here automatically. OpenMeld stores workspace memory in Zep, a third-party memory service. You can turn this off at any time."
 							: "When this is on, conversations with the Center Agent in shared Spaces and Slack are summarized into organization memory, stored in Zep, a third-party memory service, and used in future Center Agent replies. Private Center Agent DMs are never saved to organization memory automatically. Owners and admins can turn this off at any time; when it is off, OpenMeld stops writing and retrieving organization memory."}
 					</p>
 					<p className="mt-2 text-muted-foreground text-xs">
@@ -100,7 +100,7 @@ export function OrganizationMemoryPolicySection(input: {
 				<Switch
 					aria-label={
 						input.isPersonalWorkspace
-							? "Use Center Agent workspace memory"
+							? "Use Workspace memory"
 							: "Use shared Center Agent organization memory"
 					}
 					checked={checked}

@@ -15,6 +15,7 @@ describe("CompleteOnboardingDemo", () => {
 					invitationCount: 0,
 					isPersonal: false,
 					localAgentNames: [],
+					memoryEnabled: true,
 					organizationId: "org_acme",
 					organizationName: "Acme",
 				}}
@@ -40,6 +41,7 @@ describe("CompleteOnboardingDemo", () => {
 					invitationCount: 2,
 					isPersonal: false,
 					localAgentNames: ["Codex"],
+					memoryEnabled: true,
 					organizationId: "org_acme",
 					organizationName: "Acme",
 				}}
@@ -66,6 +68,7 @@ describe("CompleteOnboardingDemo", () => {
 					invitationCount: 0,
 					isPersonal: true,
 					localAgentNames: ["Codex"],
+					memoryEnabled: true,
 					organizationId: "org_personal",
 					organizationName: "Felix's Workspace",
 				}}
@@ -88,6 +91,7 @@ describe("CompleteOnboardingDemo", () => {
 					invitationCount: 0,
 					isPersonal: true,
 					localAgentNames: [],
+					memoryEnabled: true,
 					organizationId: "org_personal",
 					organizationName: "Felix's Workspace",
 				}}
