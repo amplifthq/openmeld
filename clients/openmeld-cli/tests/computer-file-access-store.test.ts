@@ -47,6 +47,55 @@ describe("Computer file access store", () => {
     });
   });
 
+  it("keeps a store read failure local while returning a stable error", async () => {
+    const root = await makeTempDir();
+
+    const error = await readComputerFileAccessPolicy(root).catch(
+      (cause: unknown) => cause
+    );
+
+    expect(error).toMatchObject({
+      code: "computer.file_access.internal_error",
+      localDiagnosticContext: {
+        errorCode: "EISDIR",
+        operation: "read_store",
+        path: root,
+        reason: "io_error",
+      },
+    });
+    expect((error as Error).message).not.toContain(root);
+    expect(JSON.stringify(error)).not.toContain(root);
+  });
+
+  it("keeps a folder canonicalization failure local while returning a stable error", async () => {
+    const root = await makeTempDir();
+    const loop = join(root, "loop");
+    await symlink(loop, loop);
+
+    const error = await updateComputerFileAccessPolicy({
+      expectedRevision: 1,
+      idempotencyKey: "symlink-loop",
+      nowMs: 100,
+      policy: {
+        folders: [loop],
+        mode: "only_selected_folders",
+      },
+      storePath: join(root, "policy.json"),
+    }).catch((cause: unknown) => cause);
+
+    expect(error).toMatchObject({
+      code: "computer.file_access.internal_error",
+      localDiagnosticContext: {
+        errorCode: "ELOOP",
+        operation: "canonicalize_folder",
+        path: loop,
+        reason: "io_error",
+      },
+    });
+    expect((error as Error).message).not.toContain(loop);
+    expect(JSON.stringify(error)).not.toContain(loop);
+  });
+
   it("canonicalizes, deduplicates, and persists selected folders atomically", async () => {
     const root = await makeTempDir();
     const parent = join(root, "work");

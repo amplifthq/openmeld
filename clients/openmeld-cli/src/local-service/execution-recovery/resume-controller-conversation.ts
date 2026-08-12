@@ -8,10 +8,20 @@ import type {
   RuntimeTransportResumeControllerConversationFramePayload,
   RuntimeTransportResumeControllerConversationResult,
 } from "@openmeld/schemas/types";
+import type { DaemonProfileRouteConfig } from "../core/types";
 import { assertComputerFileAccessWorkingDirectoryAllowed } from "../file-access/computer-file-access-admission";
 import { COMPUTER_FILE_ACCESS_AWARENESS } from "../file-access/computer-file-access-prompt";
 import { readComputerFileAccessPolicy } from "../file-access/computer-file-access-store";
 import { resolveLocalRuntimeControllerSupport } from "../routing/resolve-controller-support";
+
+type RecoveryRouteConfig = Pick<
+  DaemonProfileRouteConfig,
+  | "agentControllerPermissionMode"
+  | "agentControllerRef"
+  | "launchContract"
+  | "profileId"
+  | "transportMode"
+>;
 
 const RECOVERY_PROMPT = [
   "OpenMeld execution recovery.",
@@ -25,6 +35,7 @@ export async function resumeExactControllerConversation(input: {
   computerFileAccessStorePath: string;
   localAdapterContainer: LocalDaemonAdapterContainer;
   request: RuntimeTransportResumeControllerConversationFramePayload;
+  routeConfig?: RecoveryRouteConfig | null;
 }): Promise<RuntimeTransportResumeControllerConversationResult> {
   const identity = input.request.identity;
   const controllerRef = identity.agentControllerRef;
@@ -65,6 +76,7 @@ export async function resumeExactControllerConversation(input: {
   const fileAccess = await resolveRecoveryComputerFileAccess({
     computerFileAccessStorePath: input.computerFileAccessStorePath,
     request: input.request,
+    routeConfig: input.routeConfig ?? null,
     support,
   });
   if (fileAccess.status === "rejected") {
@@ -140,6 +152,7 @@ export async function resumeExactControllerConversation(input: {
 async function resolveRecoveryComputerFileAccess(input: {
   computerFileAccessStorePath: string;
   request: RuntimeTransportResumeControllerConversationFramePayload;
+  routeConfig: RecoveryRouteConfig | null;
   support: Extract<
     ReturnType<typeof resolveLocalRuntimeControllerSupport>,
     { supported: true }
@@ -190,7 +203,51 @@ async function resolveRecoveryComputerFileAccess(input: {
       status: "rejected",
     };
   }
+
+  const routeConfig = input.routeConfig;
+  const verifyBoundary =
+    input.support.localAdapterEntry.adapter.verifyComputerFileAccessBoundary;
+  if (
+    !(verifyBoundary && routeConfig) ||
+    routeConfig.profileId !== input.request.identity.targetProfileId ||
+    routeConfig.agentControllerRef !==
+      input.request.identity.agentControllerRef ||
+    routeConfig.transportMode !== input.request.transportMode
+  ) {
+    return unverifiedComputerFileAccess(input.request);
+  }
+  try {
+    const verification = await verifyBoundary({
+      agentControllerPermissionMode: routeConfig.agentControllerPermissionMode,
+      boundary: policy,
+      executionMode: "repair",
+      launchContract: routeConfig.launchContract ?? null,
+      transportMode: input.request.transportMode,
+      workingDirectory: input.request.providerRuntimeWorkingDirectory,
+    });
+    if (!verification.supported) {
+      return unverifiedComputerFileAccess(input.request);
+    }
+  } catch {
+    return unverifiedComputerFileAccess(input.request);
+  }
   return { boundary: policy, status: "ready" };
+}
+
+function unverifiedComputerFileAccess(
+  request: RuntimeTransportResumeControllerConversationFramePayload
+): {
+  result: RuntimeTransportResumeControllerConversationResult;
+  status: "rejected";
+} {
+  return {
+    result: rejected(
+      request,
+      "execution_recovery.computer_file_access_unverified",
+      "OpenMeld could not verify this Computer’s file access boundary for execution recovery."
+    ),
+    status: "rejected",
+  };
 }
 
 function rejected(
