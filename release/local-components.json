@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-13T11:24:14.019Z",
+  "updatedAt": "2026-08-13T13:10:42.361Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.53",
+      "packageVersion": "0.3.54",
       "updatePolicy": "available",
-      "reason": "Show accurate Space access and beginner-friendly exposure warnings."
+      "reason": "Add Grok Build support and improve user-facing failure guidance."
     },
     "service": {
-      "bundleHash": "65c2ef1636096dad1d24766891bf193bd0f0ffccbdbdf9283eada29a750c892c",
-      "bundleVersion": "0.3.53",
+      "bundleHash": "9edf79f3b03fb921a57078bb19e949d8b4bea698112068b0748466df3259f66d",
+      "bundleVersion": "0.3.54",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Show accurate Space access and beginner-friendly exposure warnings."
+      "reason": "Add Grok Build support and improve user-facing failure guidance."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Show accurate Space access and beginner-friendly exposure warnings."
+      "reason": "Add Grok Build support and improve user-facing failure guidance."
     }
   }
 }
