@@ -169,7 +169,7 @@ describe("LandingPage", () => {
 		const logo = within(hero).getByRole("img", { name: "OpenMeld logo" });
 		const heading = within(hero).getByRole("heading", {
 			level: 1,
-			name: "OpenMeld is the open-source operating system for agent-native teams of people and machines.",
+			name: "Open-source operating system for agent-native teams of people and machines.",
 		});
 		const tagline = within(hero).getByTestId("landing-hero-tagline");
 		const summary = within(hero).getByTestId("landing-hero-summary");

@@ -140,7 +140,7 @@ function LandingPageHero({ appEntryPath }: { appEntryPath: string }) {
 						lightAppearance={LANDING_LOGO_LIGHT_APPEARANCE}
 						size={LANDING_LOGO_FONT_SIZE}
 					/>
-					<h1 className="landing-display-tight mt-8 max-w-3xl text-balance font-geist-pixel-square font-medium text-[clamp(2.625rem,4vw,4.25rem)] text-foreground leading-[0.96]">
+					<h1 className="landing-display-tight mt-8 max-w-3xl text-balance font-geist-pixel-square font-medium text-[clamp(2.5rem,3.75vw,4rem)] text-foreground leading-[0.96]">
 						{LANDING_PAGE_HERO_HEADING}
 					</h1>
 					<p
