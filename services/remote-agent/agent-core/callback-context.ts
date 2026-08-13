@@ -137,6 +137,8 @@ const CENTER_AGENT_IDENTITY_REQUIREMENT_RE =
   /\b(?:requires?|needs?)\s+(?:an?\s+)?verified (?:openmeld )?member identity\b/iu;
 const CENTER_AGENT_AFFIRMATIVE_ACTION_OUTCOME_RE =
   /\bi\b[^.!?\n]{0,160}\b(?:added|completed|created|finished|posted|sent|updated)\b|\b(?:request|space|task)\b[^.!?\n]{0,80}\b(?:has been|is|was)\s+(?:successfully\s+)?(?:completed|created|finished|updated)\b/iu;
+const CENTER_AGENT_NEGATED_ACTION_OUTCOME_RE =
+  /\b(?:did not|didn['’]t|has not|hasn['’]t|have not|haven['’]t|was not|wasn['’]t|were not|weren['’]t)\b[^.!?\n]{0,80}\b(?:added|completed|created|finished|posted|sent|updated)\b/iu;
 const CENTER_AGENT_FAILURE_OUTCOME_RE =
   /\b(?:cannot|can't|could not|couldn't|did not|didn't|does not|doesn't|error|failed|failure|missing|unavailable|unable)\b/iu;
 
@@ -878,9 +880,12 @@ export function sanitizeCenterAgentCompletedTextForPublication(
 ): string {
   const includesInternalFailureDetail =
     CENTER_AGENT_INTERNAL_FAILURE_DETAIL_RE.test(text);
+  const reportsAffirmativeActionOutcome =
+    CENTER_AGENT_AFFIRMATIVE_ACTION_OUTCOME_RE.test(text) &&
+    !CENTER_AGENT_NEGATED_ACTION_OUTCOME_RE.test(text);
   const reportsUnresolvedIdentityRequirement =
     CENTER_AGENT_IDENTITY_REQUIREMENT_RE.test(text) &&
-    !CENTER_AGENT_AFFIRMATIVE_ACTION_OUTCOME_RE.test(text);
+    !reportsAffirmativeActionOutcome;
   const reportsFailure =
     CENTER_AGENT_FAILURE_OUTCOME_RE.test(text) ||
     CENTER_AGENT_STANDALONE_IDENTITY_FAILURE_RE.test(text) ||
