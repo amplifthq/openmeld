@@ -125,9 +125,12 @@ import { resolveCurrentReplyReadinessSnapshot } from "../system/current-reply-re
 import { ensureFormalAgentBindingForReadyLocalProfile } from "../system/formal-agent-binding-backstop";
 import { runLocalParticipationOrchestrator } from "../system/local-participation-orchestrator";
 import { resolveServiceParticipationReadiness } from "../system/service-participation-readiness";
-import { buildUnifiedCardFrame } from "../ui/card-frame";
 import { createDelayedSpinner } from "../ui/delayed-spinner";
 import { renderInfoCard } from "../ui/info-card";
+import {
+  buildPublicSpacePasswordPromptConfig,
+  type PublicSpacePasswordPromptConfig,
+} from "../ui/public-space-warning";
 import { promptSearchMultiselect } from "../ui/search-select";
 import { promptTextEntry } from "../ui/text-entry";
 import {
@@ -2082,16 +2085,17 @@ async function promptInteractiveSpaceCreatePassword(): Promise<
   | { status: "cancelled" }
 > {
   for (;;) {
+    const promptConfig = buildCreateSpacePasswordPromptConfig();
     const action = await select({
-      message: buildCreateSpacePasswordPromptMessage(),
+      message: promptConfig.message,
       options: [
         {
           value: "set",
-          label: "Set password now",
+          label: promptConfig.setPasswordLabel,
         },
         {
           value: "skip",
-          label: "No password for now",
+          label: promptConfig.skipPasswordLabel,
         },
         {
           value: "back",
@@ -2180,7 +2184,7 @@ function emitSpaceCreatePasswordOptionalHint(input: {
   input.presenter.line({
     code: "space.create.password.optional_hint",
     text:
-      "Password is optional. Skip it to allow direct join by Space ID. To enable protection now, use --password <value>. Rule: " +
+      "Password is optional. Without one, anyone with the Space link can read what is shared here and join. To require a password to open and join, use --password <value>. Password rule: " +
       buildSpacePasswordRequirementsText(),
     data: {
       optional: true,
@@ -2200,38 +2204,13 @@ function emitSpaceCreatePasswordOptionalHint(input: {
 }
 
 export function buildCreateSpacePasswordPromptMessage(): string {
-  return [
-    buildPromptCard({
-      title: "🔐 Password Protection (Optional)",
-      lines: [
-        "⚠️ If you choose No, this space stays public.",
-        "⚠️ Anyone with this Space ID can join and chat with its agents.",
-        "⚠️ This may cause data leakage and other security risks.",
-        `📏 Password Rule: at least ${SPACE_PASSWORD_MIN_LENGTH} characters; numbers, letters, and symbols are allowed.`,
-      ],
-      minContentWidth: 76,
-    }),
-    "Set password protection now?",
-  ].join("\n");
+  return buildCreateSpacePasswordPromptConfig().message;
 }
 
-function buildPromptCard(input: {
-  title: string;
-  lines: string[];
-  minContentWidth?: number;
-}): string {
-  const frame = buildUnifiedCardFrame({
-    title: input.title,
-    rowTextList: input.lines,
-    minContentWidth: input.minContentWidth ?? 56,
+export function buildCreateSpacePasswordPromptConfig(): PublicSpacePasswordPromptConfig {
+  return buildPublicSpacePasswordPromptConfig({
+    minimumLength: SPACE_PASSWORD_MIN_LENGTH,
   });
-  return [
-    frame.top,
-    frame.empty,
-    ...frame.rows,
-    frame.empty,
-    frame.bottom,
-  ].join("\n");
 }
 
 type SpacePasswordPromptResult =

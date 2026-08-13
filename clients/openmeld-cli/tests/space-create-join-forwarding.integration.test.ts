@@ -442,7 +442,7 @@ describe("space create to join forwarding", () => {
       if (message === "Organization visibility") {
         return "private";
       }
-      if (message.includes("Set password protection now?")) {
+      if (message.includes("Require a password to open and join?")) {
         return "skip";
       }
       throw new Error(`Unexpected select prompt: ${message}`);
