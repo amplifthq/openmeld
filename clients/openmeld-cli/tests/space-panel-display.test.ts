@@ -219,7 +219,11 @@ function createPanelViewState(
               value: "hum_felix",
               span: "column",
             },
-            { label: "Security", value: "public", span: "column" },
+            {
+              label: "Access",
+              value: "anyone with the link",
+              span: "column",
+            },
             {
               label: "Gateway URL",
               value: "http://localhost:8080",

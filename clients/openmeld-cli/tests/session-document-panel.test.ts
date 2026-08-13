@@ -52,7 +52,7 @@ describe("SessionDocumentPanel", () => {
         summaryFacts: {
           spaceId,
           spaceName: "pi-tui-ref",
-          securityLabel: "Public",
+          accessLabel: "anyone with the link",
           membersCount: 5,
           liveHumanCount: 2,
           liveAgentCount: 3,
@@ -86,7 +86,9 @@ describe("SessionDocumentPanel", () => {
       rawRenderedLines.some((line) => line.includes(pc.dim("Current Space › ")))
     ).toBe(true);
     expect(
-      rawRenderedLines.some((line) => line.includes(pc.yellow("⚠️ Public")))
+      rawRenderedLines.some((line) =>
+        line.includes(pc.yellow("⚠️ Anyone with the link"))
+      )
     ).toBe(true);
     expect(
       rawRenderedLines.some((line) =>
@@ -97,18 +99,10 @@ describe("SessionDocumentPanel", () => {
     expect(renderedLines.join("\n")).toContain(
       "👥 5 · 2 live humans · type /members to check"
     );
-    expect(renderedLines.join("\n")).toContain("⚠️ Public");
+    expect(renderedLines.join("\n")).toContain("⚠️ Anyone with the link");
     expect(renderedLines.join("\n")).toContain(
       "Untrusted space. Anyone with this Space ID can join."
     );
-    expect(
-      renderedLines.some(
-        (line) =>
-          line.includes("👥 5 · 2 live humans · type /members to check") &&
-          line.includes("⚠️ Public") &&
-          line.includes("Untrusted space. Anyone with this Space ID can join.")
-      )
-    ).toBe(true);
     expect(renderedLines.join("\n")).toContain(
       `v ${getCliVersionInfo().version}`
     );
@@ -128,7 +122,7 @@ describe("SessionDocumentPanel", () => {
         summaryFacts: {
           spaceId: "space-1",
           spaceName: "Ops Room",
-          securityLabel: "Public",
+          accessLabel: "anyone with the link",
           membersCount: 13,
           liveHumanCount: 1,
           liveAgentCount: 0,
@@ -163,7 +157,7 @@ describe("SessionDocumentPanel", () => {
     expect(renderedLines[firstTranscriptIndex - 2]).toBe("");
   });
 
-  it("uses the live-now green accent for secure status labels", () => {
+  it("uses the live-now green accent for members-only access", () => {
     const panel = new SessionDocumentPanel();
 
     panel.setBlocks([
@@ -177,7 +171,7 @@ describe("SessionDocumentPanel", () => {
         summaryFacts: {
           spaceId: "space-1",
           spaceName: "Secure Room",
-          securityLabel: "Secure",
+          accessLabel: "members only",
           membersCount: 2,
           liveHumanCount: 1,
           liveAgentCount: 0,
@@ -195,18 +189,12 @@ describe("SessionDocumentPanel", () => {
 
     expect(
       rawRenderedLines.some((line) =>
-        line.includes(renderPositiveAccentText("🔒 Secure"))
+        line.includes(renderPositiveAccentText("🔒 Members only"))
       )
     ).toBe(true);
-    expect(
-      renderedLines.some(
-        (line) =>
-          line.includes("🔒 Secure") &&
-          line.includes("Password protected. Space ID and password required.")
-      )
-    ).toBe(true);
+    expect(renderedLines.join("\n")).toContain("🔒 Members only");
     expect(renderedLines.join("\n")).toContain(
-      "Password protected. Space ID and password required."
+      "Only current members can open this Space."
     );
   });
 });

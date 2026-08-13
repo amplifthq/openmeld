@@ -1,3 +1,4 @@
+import type { SpaceMeta } from "@openmeld/protocol";
 import { buildUnifiedCardFrame } from "./card-frame";
 
 const PUBLIC_SPACE_WARNING_TITLE = "⚠️ Public Space Warning";
@@ -17,22 +18,53 @@ type PublicSpaceConfirmPromptConfig = {
   vertical: boolean;
 };
 
-export function isPublicSpace(passwordProtected?: boolean): boolean {
-  return passwordProtected === false;
+export type SpaceAccessPresentationInput = Pick<
+  SpaceMeta,
+  "accessMode" | "passwordProtected"
+> &
+  Partial<Pick<SpaceMeta, "visibility">>;
+
+export function isPublicSpace(input: SpaceAccessPresentationInput): boolean {
+  if (input.accessMode) {
+    return input.accessMode === "public";
+  }
+  if (input.visibility) {
+    return input.visibility === "public" && input.passwordProtected === false;
+  }
+  return input.passwordProtected === false;
 }
 
 export function buildPublicSpaceWarningLines(): string[] {
   return [...PUBLIC_SPACE_WARNING_LINES];
 }
 
-export function resolveSpaceSecurityLabel(passwordProtected?: boolean): string {
-  if (passwordProtected === true) {
-    return "protected by password";
+export function resolveSpaceAccessLabel(
+  input: SpaceAccessPresentationInput
+): string {
+  switch (input.accessMode) {
+    case "members_only":
+      return "members only";
+    case "public":
+      return "anyone with the link";
+    case "public_view_join_password":
+      return "anyone can view; password required to join";
+    case "protected":
+      return "password required to view and join";
+    default:
+      if (input.passwordProtected === true) {
+        return "password required";
+      }
+      if (
+        input.visibility === "public" ||
+        (input.visibility === undefined && input.passwordProtected === false)
+      ) {
+        return "anyone with the link";
+      }
+      if (input.visibility === "private") {
+        return "private";
+      }
+      return "unknown";
   }
-  if (passwordProtected === false) {
-    return "public";
-  }
-  return "unknown";
 }
 
 export function buildPublicSpaceJoinConfirmPromptConfig(): PublicSpaceConfirmPromptConfig {

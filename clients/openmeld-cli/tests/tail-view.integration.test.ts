@@ -74,6 +74,7 @@ function createSpaceMetaResponse(): Response {
       spaceId: "demo",
       organizationId: "org-1",
       visibility: "private",
+      accessMode: "members_only",
       name: "Demo",
       creator: {
         profileId: HUMAN_PROFILE_ID,
@@ -309,9 +310,12 @@ describe("tail view mode", () => {
         profileKind: "agent",
         ownerUserId: OWNER_USER_ID,
         ownerName: OWNER_NAME,
-        security: "Public",
+        access: "members only",
+        accessMode: "members_only",
+        security: "members only",
         spaceId: "demo",
         spaceName: "Demo",
+        visibility: "private",
       });
       expect(lines[1]).toMatchObject({
         type: "signal.text",

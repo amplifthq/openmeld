@@ -52,7 +52,7 @@ export async function resolveSpaceJoinAccessBootstrap(input: {
     };
   }
 
-  const publicSpace = isPublicSpace(accessState.spaceMeta.passwordProtected);
+  const publicSpace = isPublicSpace(accessState.spaceMeta);
   const confirmedPublicSpace = await confirmPublicSpaceJoinAccess({
     publicSpace,
     resolvedView: input.resolvedView,

@@ -674,7 +674,8 @@ describe("space join pre-join flow", () => {
               JSON.stringify({
                 spaceId: SPACE_ID,
                 organizationId: "org-1",
-                visibility: "private",
+                accessMode: "public",
+                visibility: "public",
                 passwordProtected: false,
               }),
               {
@@ -1236,6 +1237,7 @@ describe("space join pre-join flow", () => {
               JSON.stringify({
                 spaceId: SPACE_ID,
                 organizationId: "org-1",
+                accessMode: "protected",
                 visibility: "private",
                 passwordProtected: true,
               }),

@@ -109,7 +109,11 @@ describe("space panel content", () => {
           value: "2026-03-13T00:00:00.000Z",
           span: "column",
         },
-        { label: "Security", value: "public", span: "column" },
+        {
+          label: "Access",
+          value: "anyone with the link",
+          span: "column",
+        },
         {
           label: "Gateway URL",
           value: "http://localhost:8080",
