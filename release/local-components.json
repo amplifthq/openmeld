@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-13T15:41:27.341Z",
+  "updatedAt": "2026-08-13T17:47:45.505Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.55",
+      "packageVersion": "0.3.56",
       "updatePolicy": "available",
       "reason": "Recognize supported foreground Service runtimes without blocking existing Wake work."
     },
     "service": {
-      "bundleHash": "e5ba60182168be436742d8bb1193c256bfe71e8da6cde6b85ae2e04da2a3d12f",
-      "bundleVersion": "0.3.55",
+      "bundleHash": "2b15c1f32e094413535a8119c8e006f3e4e87b17b23a13af86b3636b34d0c518",
+      "bundleVersion": "0.3.56",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
