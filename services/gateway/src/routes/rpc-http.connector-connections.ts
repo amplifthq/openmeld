@@ -19,7 +19,10 @@ import type {
 } from "@openmeld/schemas/types";
 import type { Context, Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
-import { OpenConnectorClient } from "../lib/openconnector-client";
+import {
+  OpenConnectorClient,
+  type OpenConnectorConnection,
+} from "../lib/openconnector-client";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
@@ -42,6 +45,20 @@ const CREDENTIAL_ROUTE =
 const SHARED_CREDENTIAL_ROUTE =
   "/v1/organizations/current/connectors/:service/shared-credential";
 const GITHUB_APP_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/u;
+const GITHUB_APP_SETUP_UNAVAILABLE_CODE =
+  "connector.github_app_setup_unavailable";
+
+class ConnectorConnectionRouteError extends Error {
+  readonly code: string;
+  readonly status: number;
+
+  constructor(input: { code: string; message: string; status: number }) {
+    super(input.message);
+    this.name = "ConnectorConnectionRouteError";
+    this.code = input.code;
+    this.status = input.status;
+  }
+}
 
 type OpenConnectorBindings = {
   OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN?: string;
@@ -422,61 +439,11 @@ async function reconcileConnectorConnections(
   const openConnector = createOpenConnectorClient(c.env);
   let connections = await openConnector.listConnections();
   if (input.service === "github") {
-    const pending = await c.var.coreRpc.readPendingGitHubAppInstallation({
-      context: buildCoreRpcContext(c),
+    connections = await reconcileGitHubAppInstallation(c, {
+      connections,
       expectedOrganizationId: input.expectedOrganizationId,
+      openConnector,
     });
-    if (pending) {
-      const targetConfigured = connections.some(
-        (connection) =>
-          connection.configured &&
-          connection.service === "github" &&
-          connection.connectionName === pending.targetConnectionName
-      );
-      const verifierConfigured = connections.some(
-        (connection) =>
-          connection.configured &&
-          connection.service === "github" &&
-          connection.connectionName === pending.verificationConnectionName
-      );
-      if (targetConfigured && verifierConfigured) {
-        await openConnector.disconnect({
-          connectionName: pending.verificationConnectionName,
-          service: "github",
-        });
-        connections = await openConnector.listConnections();
-      }
-      if (!targetConfigured && verifierConfigured) {
-        await openConnector.completeGitHubAppInstallation({
-          installationId: pending.installationId,
-          targetConnectionName: pending.targetConnectionName,
-          verificationConnectionName: pending.verificationConnectionName,
-        });
-        connections = await openConnector.listConnections();
-      }
-      if (
-        targetConfigured ||
-        connections.some(
-          (connection) =>
-            connection.configured &&
-            connection.service === "github" &&
-            connection.connectionName === pending.targetConnectionName
-        )
-      ) {
-        const completed = await c.var.coreRpc.completeGitHubAppInstallation({
-          context: buildCoreRpcContext(c),
-          expectedOrganizationId: input.expectedOrganizationId,
-          installationId: pending.installationId,
-          targetConnectionName: pending.targetConnectionName,
-          verificationConnectionName: pending.verificationConnectionName,
-        });
-        if (!completed) {
-          throw new Error(
-            "Core rejected completion of the pending GitHub App installation."
-          );
-        }
-      }
-    }
   }
   return await c.var.coreRpc.reconcileCurrentOrganizationConnectorConnections({
     availableConnectionNames: connections
@@ -489,6 +456,118 @@ async function reconcileConnectorConnections(
     expectedOrganizationId: input.expectedOrganizationId,
     service: input.service,
   });
+}
+
+async function reconcileGitHubAppInstallation(
+  c: Context<HonoBindings>,
+  input: {
+    connections: OpenConnectorConnection[];
+    expectedOrganizationId: string;
+    openConnector: OpenConnectorClient;
+  }
+): Promise<OpenConnectorConnection[]> {
+  const pending = await c.var.coreRpc.readPendingGitHubAppInstallation({
+    context: buildCoreRpcContext(c),
+    expectedOrganizationId: input.expectedOrganizationId,
+  });
+  if (!pending) {
+    return input.connections;
+  }
+
+  const targetConfigured = hasConfiguredGitHubConnection(
+    input.connections,
+    pending.targetConnectionName
+  );
+  const verifierConfigured = hasConfiguredGitHubConnection(
+    input.connections,
+    pending.verificationConnectionName
+  );
+  let connections = input.connections;
+  if (targetConfigured && verifierConfigured) {
+    await input.openConnector.disconnect({
+      connectionName: pending.verificationConnectionName,
+      service: "github",
+    });
+    connections = await input.openConnector.listConnections();
+  } else if (verifierConfigured) {
+    await completeGitHubAppInstallation(c, {
+      openConnector: input.openConnector,
+      pending,
+    });
+    connections = await input.openConnector.listConnections();
+  }
+
+  if (
+    !(
+      targetConfigured ||
+      hasConfiguredGitHubConnection(connections, pending.targetConnectionName)
+    )
+  ) {
+    return connections;
+  }
+
+  const completed = await c.var.coreRpc.completeGitHubAppInstallation({
+    context: buildCoreRpcContext(c),
+    expectedOrganizationId: input.expectedOrganizationId,
+    installationId: pending.installationId,
+    targetConnectionName: pending.targetConnectionName,
+    verificationConnectionName: pending.verificationConnectionName,
+  });
+  if (!completed) {
+    throw new Error(
+      "Core rejected completion of the pending GitHub App installation."
+    );
+  }
+  return connections;
+}
+
+async function completeGitHubAppInstallation(
+  c: Context<HonoBindings>,
+  input: {
+    openConnector: OpenConnectorClient;
+    pending: {
+      installationId: string;
+      organizationId: string;
+      targetConnectionName: string;
+      verificationConnectionName: string;
+    };
+  }
+): Promise<void> {
+  try {
+    await input.openConnector.completeGitHubAppInstallation({
+      installationId: input.pending.installationId,
+      targetConnectionName: input.pending.targetConnectionName,
+      verificationConnectionName: input.pending.verificationConnectionName,
+    });
+  } catch (error) {
+    console.warn("[gateway.github_app.installation_completion_failed]", {
+      error: toSafeErrorMessage(error),
+      installationId: input.pending.installationId,
+      organizationId: input.pending.organizationId,
+      requestId: c.var.ingressOpenMeldContext.requestId,
+    });
+    throw new ConnectorConnectionRouteError({
+      code: GITHUB_APP_SETUP_UNAVAILABLE_CODE,
+      message: "OpenMeld could not finish GitHub setup. Try again.",
+      status: 502,
+    });
+  }
+}
+
+function hasConfiguredGitHubConnection(
+  connections: OpenConnectorConnection[],
+  connectionName: string
+): boolean {
+  return connections.some(
+    (connection) =>
+      connection.configured &&
+      connection.service === "github" &&
+      connection.connectionName === connectionName
+  );
+}
+
+function toSafeErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 500) : "Unknown error";
 }
 
 async function reconcileCatalogConnections(

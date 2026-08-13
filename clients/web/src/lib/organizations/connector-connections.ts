@@ -227,6 +227,9 @@ export function resolveConnectorConnectionErrorMessage(
 	) {
 		return `Your active Organization changed in another tab. Refresh this page before updating ${appName}.`;
 	}
+	if (failure.status !== null && failure.status >= 500) {
+		return `OpenMeld could not finish ${appName} setup. Try again.`;
+	}
 	return (
 		failure.message || `OpenMeld could not update the ${appName} connection.`
 	);

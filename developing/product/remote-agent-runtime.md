@@ -1444,6 +1444,14 @@ surface. Recheck upstream `docs/runtime-api.md`, `docs/configuration.md`, and th
 current server route table before attributing a missing endpoint to deployment
 lag or synchronizing and redeploying OpenConnector.
 
+Organization GitHub access uses the single OpenMeld GitHub App identity owned
+by the OpenConnector deployment. The guarded production deploy maps the
+canonical `OPEN_CONNECTOR_OPENMELD_GITHUB_APP_ID` and
+`OPEN_CONNECTOR_OPENMELD_GITHUB_APP_PRIVATE_KEY` secrets to the upstream
+Worker's runtime names. An Organization installation produces an encrypted,
+Organization-scoped connection; the App private key never becomes connection
+data and is never returned to Core, Gateway, Web, or a model-visible tool.
+
 The OpenMeld OpenConnector deployment policy permits every implemented action
 for its policy-supported services: GitHub, Gmail, Google Calendar, Google Drive,
 Notion, Linear, Figma, PostHog, Cloudflare Browser Rendering, Cloudflare DNS,

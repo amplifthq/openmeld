@@ -532,6 +532,47 @@ describe("Gateway connector connection routes", () => {
     );
   });
 
+  it("keeps OpenConnector details out of a failed GitHub App installation response", async () => {
+    const readPendingGitHubAppInstallation = vi.fn(async () => ({
+      installationId: "987654",
+      organizationId: "org-1",
+      status: "verifying" as const,
+      targetConnectionName: SHARED_CONNECTION_NAME,
+      userId: "user-1",
+      verificationConnectionName: "github_verify_aaaaaaaaaaaaaaaaaaaaaaaa",
+    }));
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json([
+          {
+            configured: true,
+            connectionName: "github_verify_aaaaaaaaaaaaaaaaaaaaaaaa",
+            service: "github",
+          },
+        ])
+      )
+      .mockResolvedValueOnce(new Response("Not Found", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/connectors/github/connections?expectedOrganizationId=org-1"
+      ),
+      makeEnv({ readPendingGitHubAppInstallation }),
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "upstream_error",
+        message: "OpenMeld could not finish GitHub setup. Try again.",
+        upstreamCode: "connector.github_app_setup_unavailable",
+      },
+    });
+  });
+
   it("reconciles the real connection-list shape while keeping legacy default out of Core output", async () => {
     const reconcileCurrentOrganizationConnectorConnections = vi.fn(
       async () => ({

@@ -191,7 +191,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 			authorizationPopupRef.current?.close();
 			authorizationPopupRef.current = null;
 			setWaitingAuthorization(null);
-			setLocalError(resolveConnectorConnectionErrorMessage(error));
+			setLocalError(resolveConnectorConnectionErrorMessage(error, "GitHub"));
 			input.onAuthorizationStateChange?.(false);
 		},
 		onMutate: () => {
@@ -276,7 +276,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 				serviceConnectionsQueryKey,
 				context?.previousConnections
 			);
-			setLocalError(resolveConnectorConnectionErrorMessage(error));
+			setLocalError(resolveConnectorConnectionErrorMessage(error, "GitHub"));
 		},
 		onMutate: async (request) => {
 			setLocalError(null);
@@ -533,7 +533,10 @@ function resolveGitHubConnectionCardError(input: {
 	}
 	return {
 		isOnboardingUnavailable: false,
-		message: resolveConnectorConnectionErrorMessage(input.connectionError),
+		message: resolveConnectorConnectionErrorMessage(
+			input.connectionError,
+			"GitHub"
+		),
 	};
 }
 
