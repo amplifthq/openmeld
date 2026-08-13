@@ -101,6 +101,7 @@ import {
   pauseCenterAgentRoutineResponseSchema,
   REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
   resumeCenterAgentRoutineResponseSchema,
+  SPACE_PASSWORD_MIN_LENGTH,
   slackChannelHistoryResponseSchema,
   slackChannelListResponseSchema,
   slackChannelMembersResponseSchema,
@@ -197,6 +198,43 @@ import type { RemoteAgentToolDefinition } from "./tool-definition";
 const nonEmptyStringSchema = pipe(string(), minLength(1));
 const optionalNonEmptyStringSchema = optional(nonEmptyStringSchema);
 const trimmedNonEmptyStringSchema = pipe(string(), trim(), minLength(1));
+const createSpaceCommonInputEntries = {
+  guide: optionalNonEmptyStringSchema,
+  name: optionalNonEmptyStringSchema,
+  purpose: optionalNonEmptyStringSchema,
+} as const;
+const createSpacePasswordInputSchema = pipe(
+  string(),
+  trim(),
+  minLength(SPACE_PASSWORD_MIN_LENGTH),
+  description(
+    "The exact Space password supplied by the requester. Never generate or guess one."
+  )
+);
+const createSpaceAccessInputSchema = union([
+  strictObject({
+    accessMode: optional(literal("members_only")),
+    visibility: optional(literal("private")),
+  }),
+  strictObject({
+    accessMode: literal("public"),
+    visibility: literal("public"),
+  }),
+  strictObject({
+    accessMode: literal("public_view_join_password"),
+    password: createSpacePasswordInputSchema,
+    visibility: literal("public"),
+  }),
+  strictObject({
+    accessMode: literal("protected"),
+    password: createSpacePasswordInputSchema,
+    visibility: optional(picklist(["public", "private"])),
+  }),
+]);
+const createSpaceToolInputSchema = strictObject({
+  ...createSpaceCommonInputEntries,
+  access: optional(createSpaceAccessInputSchema),
+});
 const referenceProfileIdsInputSchema = pipe(
   array(nonEmptyStringSchema),
   maxLength(25),
@@ -2867,27 +2905,17 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_create_space",
       description:
-        "Create an OpenMeld Space in the current Organization with optional name, purpose, guide, visibility, and access settings. When a verified requester explicitly asks for a new or dedicated Space as the work surface, call this before adding participants or starting work; never substitute the current Space, a Task, or a plain message. Private, members-only access is the default. Expose a Space publicly only when the requester explicitly asks; set both visibility and accessMode to public. Treat the returned meta as canonical: never claim the Space is private or public unless meta confirms its visibility and accessMode.",
-      input: object({
-        accessMode: optional(
-          picklist([
-            "public",
-            "members_only",
-            "public_view_join_password",
-            "protected",
-          ])
-        ),
-        guide: optionalNonEmptyStringSchema,
-        name: optionalNonEmptyStringSchema,
-        password: optionalNonEmptyStringSchema,
-        purpose: optionalNonEmptyStringSchema,
-        visibility: optional(picklist(["public", "private"])),
-      }),
+        "Create an OpenMeld Space in the current Organization with optional name, purpose, guide, and access settings. When a verified requester explicitly asks for a new or dedicated Space as the work surface, call this before adding participants or starting work; never substitute the current Space, a Task, or a plain message. Private, members-only access is the default, so omit access unless the requester explicitly asks for a different access policy. Expose a Space publicly only when the requester explicitly asks; set both access.accessMode and access.visibility to public. Never invent or generate a Space password. Use password-gated access only when the requester supplied the exact password; otherwise ask for it. Treat the returned meta as canonical: never claim the Space is private or public unless meta confirms its visibility and accessMode.",
+      input: createSpaceToolInputSchema,
       execute: async (payload) => {
-        const { onBehalfOfProfileId: _ignored, ...spaceInput } =
+        const { onBehalfOfProfileId: _ignored, ...untrustedSpaceInput } =
           payload as typeof payload & {
             onBehalfOfProfileId?: unknown;
           };
+        const spaceInput = parseValibot(
+          createSpaceToolInputSchema,
+          untrustedSpaceInput
+        );
         const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
@@ -2897,15 +2925,20 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           input.coreWorker.centerAgentCreateSpace,
           "centerAgentCreateSpace"
         );
-        const accessMode =
-          spaceInput.accessMode ??
-          (spaceInput.password === undefined ? "members_only" : "protected");
+        const accessMode = spaceInput.access?.accessMode ?? "members_only";
+        const password =
+          spaceInput.access && "password" in spaceInput.access
+            ? spaceInput.access.password
+            : undefined;
+        const visibility = spaceInput.access?.visibility ?? "private";
+        const { access: _access, ...spaceDetails } = spaceInput;
         return centerAgentCreateSpaceResponseSchema.parse(
           await rpc({
-            ...spaceInput,
+            ...spaceDetails,
             ...toolContext,
             accessMode,
-            visibility: spaceInput.visibility ?? "private",
+            ...(password === undefined ? {} : { password }),
+            visibility,
           })
         );
       },
