@@ -163,6 +163,7 @@ describe("Remote Agent generic App tools", () => {
               {
                 authenticated: true,
                 description: action.description,
+                effect: "read",
                 id: action.id,
                 inputSchema: action.inputSchema,
                 name: action.name,
