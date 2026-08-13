@@ -2928,7 +2928,7 @@ Agent Controller Interface (ACI) evidence is a shared runtime contract because i
 crosses local OpenMeld Service, CLI, Core, Web, Desktop, and future client boundaries.
 
 `packages/schemas` owns the ACI snapshot shape. Local controller adapters may
-probe Codex, Claude Code, OpenCode, Cursor, or future controllers, but once that
+probe Codex, Claude Code, OpenCode, Cursor, Grok Build, or future controllers, but once that
 evidence crosses process or service boundaries it must use the shared ACI
 schema. Do not create Web-only, Desktop-only, or CLI-only ACI payloads for the
 same facts.
@@ -2999,7 +2999,7 @@ owns the CLI-side static controller definition used by ACI and local launch
 resolution: adapter id, launch resolver, native interface, static native
 capabilities, and version-maintenance metadata. Tests must keep the supported
 runtime registry entries, built-in controller definitions, and local adapter
-installers aligned so adding Cursor, OpenCode, or another controller cannot
+installers aligned so adding Cursor, Grok Build, OpenCode, or another controller cannot
 create parallel sources of truth.
 
 Clients should render ACI details from these shared read models. They must not
@@ -3795,6 +3795,9 @@ its product permission modes and CLI/config mapping: `codex:askForApproval`,
 `codex:approveForMe`, `codex:fullAccess`, and `codex:customConfig`. Cursor
 values mirror its ACP mode and launch controls: `cursor:default`,
 `cursor:plan`, `cursor:ask`, `cursor:autoReview`, and `cursor:force`.
+Grok Build values mirror its native permission mode: `grok-build:default`,
+`grok-build:acceptEdits`, `grok-build:plan`, `grok-build:auto`,
+`grok-build:dontAsk`, and `grok-build:bypassPermissions`.
 Codex transport adapters preserve the product intent through their native
 interfaces instead of sharing one literal approval-policy value:
 `codex:askForApproval` uses CLI `untrusted` for CLI execution and App Server
@@ -3858,11 +3861,19 @@ require an exact match before delivery to a capable Service and return
 omits the new fields before sending the strict frame. These fields do not carry
 the editable settings, grant a lease, or replace RuntimeCoordinator authority.
 
-Cursor's runtime transport is ACP-only. The shared runtime transport and native
-interface schemas use `acp`; OpenMeld launches `cursor-agent acp` and exchanges
-newline-delimited JSON-RPC. Cursor session identity comes from `session/new` or
-`session/load` and is bridged through the existing
-`agentControllerConversationId` contract. It is not an IDE chat ID, Space
+Cursor and Grok Build runtime transports are ACP-only. The shared runtime
+transport and native interface schemas use `acp`; each adapter exchanges
+newline-delimited JSON-RPC through the shared adapter-core ACP session/process
+mechanics. Cursor launches `cursor-agent acp`; Grok Build launches the verified
+`grok` contract with `--no-auto-update --permission-mode <native-mode> agent
+--no-leader stdio`. Provider-specific launch, authentication, model, mode,
+extension-request, update, and error behavior stays inside the selected
+adapter.
+
+Cursor session identity comes from `session/new` or `session/load`. Grok Build
+session identity comes from `session/new` or `session/resume`; `session/load`
+is not used to pretend replay is resume. Both bridge through the existing
+`agentControllerConversationId` contract. Neither is an IDE chat ID, Space
 thread ID, Binding identity, or execution authority.
 
 `packages/schemas` owns the cross-controller Agent Interaction contract.
@@ -3892,7 +3903,10 @@ provider-specific approval truth:
 - Claude Agent SDK maps `canUseTool`, `AskUserQuestion`, `ExitPlanMode`, and MCP
   elicitation;
 - Cursor ACP maps `session/request_permission`, `cursor/ask_question`, and
-  `cursor/create_plan`; and
+  `cursor/create_plan`;
+- Grok Build ACP maps `session/request_permission`, the observed and pinned
+  `_x.ai/ask_user_question` / `x.ai/ask_user_question` methods, and
+  `_x.ai/exit_plan_mode` / `x.ai/exit_plan_mode`; and
 - OpenCode maps its permission and question event/reply APIs.
 
 Native permission modes still decide whether a provider asks and which choices
@@ -3916,7 +3930,9 @@ because existing Wake work remains safe on an old Service. Product surfaces
 still advertise the newer Service through the existing local-component update
 projection without blocking unrelated Wake work.
 
-`session/cancel` remains Cursor's structured runtime cancellation.
+`session/cancel` remains the structured ACP runtime cancellation for Cursor and
+Grok Build. Grok Build Stop additionally requires `session/close` plus
+supervised process-tree cleanup before the execution is reported stopped.
 
 Clients may render controller-native labels, but they must not duplicate the
 permission matrix or invent a separate local enum. Unsupported controllers must
@@ -3942,6 +3958,13 @@ session's offered values before calling `session/set_model`. Cursor ACP does not
 expose reasoning strength as a separate session option; reasoning-bearing
 parameters remain part of the exact model ID and Cursor catalog entries expose
 no independent reasoning levels.
+
+Grok Build model and reasoning choices are also account-scoped live ACP facts.
+The repo catalog defines selectable intent, but the adapter requires a complete,
+consistent initialize/session inventory for the authenticated account and
+rejects a requested catalog model or effort that is missing there before
+`session/prompt`. It must not rely on Grok's permissive input handling as
+validation, select another live model silently, or replay through Headless JSON.
 
 OpenCode permissions are a separate OpenCode-only Binding field, not an
 `agentControllerPermissionMode` value. The shared schema stores the official

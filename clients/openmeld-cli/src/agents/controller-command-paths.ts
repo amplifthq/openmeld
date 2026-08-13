@@ -61,3 +61,11 @@ export function isCursorNativeCommandPath(commandPath: string): boolean {
       normalized.endsWith("/cursor-agent"))
   );
 }
+
+export function isGrokBuildNativeCommandPath(commandPath: string): boolean {
+  const normalized = normalizeControllerCommandPath(commandPath);
+  return (
+    normalized.endsWith("/.grok/bin/grok") ||
+    normalized.endsWith("/.grok/bin/grok.exe")
+  );
+}

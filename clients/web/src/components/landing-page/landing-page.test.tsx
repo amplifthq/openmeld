@@ -215,6 +215,9 @@ describe("LandingPage", () => {
 		).toBeTruthy();
 		expect(within(hero).getByTestId("local-agent-logo-codex")).toBeTruthy();
 		expect(within(hero).getByTestId("local-agent-logo-cursor")).toBeTruthy();
+		expect(
+			within(hero).getByTestId("local-agent-logo-grok-build")
+		).toBeTruthy();
 		expect(within(hero).getByTestId("local-agent-logo-opencode")).toBeTruthy();
 		expect(
 			within(hero).queryByText(
@@ -323,6 +326,11 @@ describe("LandingPage", () => {
 		expect(
 			within(localExecutionSection as HTMLElement).getByTestId(
 				"local-agent-logo-cursor"
+			)
+		).toBeTruthy();
+		expect(
+			within(localExecutionSection as HTMLElement).getByTestId(
+				"local-agent-logo-grok-build"
 			)
 		).toBeTruthy();
 		expect(
@@ -459,7 +467,7 @@ describe("LandingPage", () => {
 		fireEvent.click(localQuestion);
 		expect(
 			screen.getByText(
-				"The Center Agent is OpenMeld’s hosted organization coordinator, so it can answer even when your laptop is closed. Codex, Claude Code, Cursor, and OpenCode keep running on your team’s own computers through OpenMeld Service."
+				"The Center Agent is OpenMeld’s hosted organization coordinator, so it can answer even when your laptop is closed. Codex, Claude Code, Cursor, Grok Build, and OpenCode keep running on your team’s own computers through OpenMeld Service."
 			)
 		).toBeTruthy();
 

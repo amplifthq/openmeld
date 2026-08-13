@@ -15,7 +15,7 @@ export function LandingPageHeroSubtitle(input: { className?: string }) {
 			<span className="block" data-testid="landing-hero-summary-sentence">
 				It connects the right local agents <InlineLocalAgentLogos />
 				<span className="sr-only">
-					Claude Code, Codex, Cursor, and OpenCode
+					Claude Code, Codex, Cursor, Grok Build, and OpenCode
 				</span>{" "}
 				from your team and puts them to work.
 			</span>
@@ -45,6 +45,11 @@ export function InlineLocalAgentLogos() {
 			/>
 			<LocalAgentLogo
 				agentId="builtin:cursor"
+				className="h-[1em] w-[1em]"
+				size="sm"
+			/>
+			<LocalAgentLogo
+				agentId="builtin:grok-build"
 				className="h-[1em] w-[1em]"
 				size="sm"
 			/>

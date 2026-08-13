@@ -67,6 +67,16 @@ describe("Agent Controller Permission Mode", () => {
       label: "Auto-review (Smart Auto)",
       tone: "neutral",
     });
+
+    expect(
+      getAgentControllerPermissionModeDisplayMetadata("grok-build:default", {
+        agentControllerRef: "builtin:grok-build",
+      })
+    ).toMatchObject({
+      fieldLabel: "Grok Build permissions mode",
+      label: "Ask permissions",
+      tone: "neutral",
+    });
   });
 
   it("marks bypass as a warning option that requires explicit confirmation", () => {
@@ -92,6 +102,11 @@ describe("Agent Controller Permission Mode", () => {
     expect(
       agentControllerPermissionModeRequiresExplicitConfirmation("cursor:force")
     ).toBe(true);
+    expect(
+      agentControllerPermissionModeRequiresExplicitConfirmation(
+        "grok-build:bypassPermissions"
+      )
+    ).toBe(true);
   });
 
   it("lists controller-native options without changing machine values", () => {
@@ -116,6 +131,19 @@ describe("Agent Controller Permission Mode", () => {
       ["cursor:ask", "Ask"],
       ["cursor:autoReview", "Auto-review (Smart Auto)"],
       ["cursor:force", "Run Everything"],
+    ]);
+
+    expect(
+      listAgentControllerPermissionModeOptions({
+        agentControllerRef: "builtin:grok-build",
+      }).map((option) => [option.value, option.label])
+    ).toEqual([
+      ["grok-build:default", "Ask permissions"],
+      ["grok-build:acceptEdits", "Accept edits"],
+      ["grok-build:plan", "Plan mode"],
+      ["grok-build:auto", "Auto mode"],
+      ["grok-build:dontAsk", "Don't ask"],
+      ["grok-build:bypassPermissions", "Bypass permissions"],
     ]);
   });
 

@@ -153,6 +153,10 @@ export function formatAgentControllerPermissionModeHelp(): string {
       agentControllerRef: "builtin:cursor",
       label: "Cursor",
     },
+    {
+      agentControllerRef: "builtin:grok-build",
+      label: "Grok Build",
+    },
   ] as const;
   return `Agent Controller Permission Mode. ${controllerGroups
     .map(
@@ -205,6 +209,12 @@ const AGENT_CONTROLLER_PERMISSION_MODE_CLI_VALUE_BY_MODE = {
   "cursor:ask": "ask",
   "cursor:autoReview": "auto-review",
   "cursor:force": "run-everything",
+  "grok-build:default": "default",
+  "grok-build:acceptEdits": "accept-edits",
+  "grok-build:plan": "plan",
+  "grok-build:auto": "auto",
+  "grok-build:dontAsk": "dont-ask",
+  "grok-build:bypassPermissions": "bypass-permissions",
 } as const satisfies Record<AgentControllerPermissionMode, string>;
 
 const AGENT_CONTROLLER_PERMISSION_MODE_BY_CLI_VALUE: Record<

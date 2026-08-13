@@ -414,6 +414,56 @@
       "defaultStreamingMode": "final"
     },
     {
+      "id": "grok-build",
+      "displayName": "Grok Build",
+      "category": "builtin",
+      "skillsDir": ".agents/skills",
+      "globalSkillsDir": "${HOME}/.agents/skills",
+      "detection": {
+        "mode": "any",
+        "checks": [
+          {
+            "kind": "commandExists",
+            "value": "grok"
+          },
+          {
+            "kind": "fileExists",
+            "value": "${HOME}/.grok/bin/grok"
+          }
+        ]
+      },
+      "service": {
+        "skillsInstallable": true
+      },
+      "runtime": {
+        "supported": true,
+        "adapters": [
+          {
+            "adapterId": "grok-build",
+            "controllerRefMatcher": {
+              "kind": "contains",
+              "values": ["grok", "grok-build"]
+            },
+            "transportModes": ["acp"],
+            "capabilityDeclaration": {
+              "streamingCapability": "preview_capable",
+              "imageInputCapability": "local_file_path",
+              "runtimeWorkingDirectoryMode": "spawn_cwd",
+              "preparationRequirement": "none",
+              "continuationCapability": "standard",
+              "workspaceResumeBehavior": "validate_only"
+            }
+          }
+        ]
+      },
+      "lifecycle": {
+        "status": "active"
+      },
+      "transportModes": ["acp"],
+      "defaultTransportMode": "acp",
+      "defaultStreamingMode": "final"
+    },
+    {
       "id": "droid",
       "displayName": "Droid",
       "category": "builtin",

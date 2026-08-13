@@ -3,14 +3,19 @@ import test from "node:test";
 
 import { createLocalAdapterEntries } from "../dist/index.js";
 
-test("local adapter factory installs Cursor with ACP only", () => {
+test("local adapter factory installs ACP controllers with ACP only", () => {
   const entries = createLocalAdapterEntries({
     runtimeWorkdir: process.cwd(),
   });
   const cursorEntry = entries.find((entry) => entry.adapterId === "cursor");
+  const grokBuildEntry = entries.find(
+    (entry) => entry.adapterId === "grok-build"
+  );
 
   assert.ok(cursorEntry, "expected Cursor local adapter entry");
   assert.deepEqual(cursorEntry.transportModes, ["acp"]);
+  assert.ok(grokBuildEntry, "expected Grok Build local adapter entry");
+  assert.deepEqual(grokBuildEntry.transportModes, ["acp"]);
 });
 
 test("local OpenCode adapter forwards Stop Wake interrupt signals", async () => {

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-01T17:26:00.000Z",
+  "updatedAt": "2026-08-13T00:00:00.000Z",
   "agentControllers": {
     "codex": {
       "defaultModelId": "gpt-5.5",
@@ -114,6 +114,25 @@
           "unavailable": false,
           "supportedReasoningLevels": [],
           "minCliVersion": null
+        }
+      ]
+    },
+    "grok-build": {
+      "defaultModelId": "grok-4.6",
+      "models": [
+        {
+          "id": "grok-4.6",
+          "displayName": "Grok 4.6",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
+          "minCliVersion": "1.0.3"
+        },
+        {
+          "id": "grok-4.5",
+          "displayName": "Grok 4.5",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": "1.0.3"
         }
       ]
     },

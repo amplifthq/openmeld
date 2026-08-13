@@ -30,6 +30,7 @@ const BUILTIN_CONTROLLER_DISPLAY_NAME_BY_ID = {
   "claude-code": "Claude Code",
   codex: "Codex",
   cursor: "Cursor",
+  "grok-build": "Grok Build",
   opencode: "OpenCode",
   openclaw: "OpenClaw",
 } as const satisfies Record<string, string>;

@@ -1,5 +1,6 @@
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type {
+  AcpClientRequestResponse,
+  AcpJsonRpcError,
   AdapterDispatchDiagnostics,
   AdapterDispatchTelemetry,
   AdapterErrorType,
@@ -13,51 +14,13 @@ import type {
   AgentControllerPermissionMode,
   ConversationPolicy,
   RuntimeAgentControllerLaunchContract,
-  SpawnedAgentControllerProcess,
 } from "@openmeld/adapter-core";
-import {
-  buildCliLaunchInvocation,
-  spawnAgentControllerProcess,
-} from "@openmeld/adapter-core";
+import { AcpProcessSession } from "@openmeld/adapter-core";
 import { createCursorAcpToolActivityTracker } from "../output/cursor-tool-activity.js";
 import {
   readCursorPermissionOptions,
   resolveCursorAcpInteraction,
 } from "./cursor-acp-interactions.js";
-
-type JsonRpcId = number | string;
-
-type JsonRpcError = {
-  code?: number;
-  data?: unknown;
-  message?: string;
-};
-
-type JsonRpcMessage = {
-  error?: JsonRpcError;
-  id?: JsonRpcId | null;
-  jsonrpc?: string;
-  method?: string;
-  params?: unknown;
-  result?: unknown;
-};
-
-type PendingJsonRpcRequest = {
-  reject: (error: unknown) => void;
-  resolve: (value: unknown) => void;
-};
-
-type RuntimeLifecycle = {
-  exitCode: number | null;
-  exitObservedAtMs: number | null;
-  exitSignal: NodeJS.Signals | null;
-  firstStderrAtMs: number | null;
-  firstStdoutAtMs: number | null;
-  processId: number | null;
-  processSpawnedAtMs: number | null;
-  stdinClosedAtMs: number | null;
-  timeoutTriggeredAtMs: number | null;
-};
 
 type CursorAcpModeId = "agent" | "ask" | "plan";
 
@@ -97,10 +60,8 @@ export type CursorAcpTransportResult = {
 };
 
 const ACP_PROTOCOL_VERSION = 1;
-const ACP_PROCESS_KILL_GRACE_MS = 1000;
 const MAX_MODEL_DIAGNOSTIC_IDS = 100;
 const MAX_MODEL_DIAGNOSTIC_ID_CHARS = 512;
-const MAX_STDERR_CHARS = 16_000;
 const CURSOR_PLAN_UPGRADE_REQUIRED_RE =
   /^upgrade your plan to continue[.!]?$/iu;
 
@@ -422,41 +383,18 @@ async function withCursorAcpSession<T>(
 
 class CursorAcpSession {
   readonly #agentControllerPermissionMode?: AgentControllerPermissionMode;
-  readonly #cursorTimeoutMs: number | null;
   readonly #cursorWorkdir: string;
-  readonly #env?: Record<string, string | undefined>;
-  readonly #launchContract: RuntimeAgentControllerLaunchContract;
   readonly #onInteractionRequest?: AdapterInteractionCallback;
   readonly #onPreview?: AdapterPreviewCallback;
-  readonly #onProcessControlEvent?: AdapterRuntimeProcessCallback;
   readonly #onRuntimeEvent?: AdapterRuntimeEventCallback;
-  readonly #pending = new Map<JsonRpcId, PendingJsonRpcRequest>();
+  readonly #process: AcpProcessSession;
   readonly #streamingMode: AdapterStreamingMode;
   readonly #toolActivityTracker = createCursorAcpToolActivityTracker();
-  #child: ChildProcessWithoutNullStreams | null = null;
-  #runtimeProcess: SpawnedAgentControllerProcess | null = null;
   #dispatchDiagnostics: AdapterDispatchDiagnostics | null = null;
-  #forceKillTimeout: NodeJS.Timeout | null = null;
   #firstOutputAtMs: number | null = null;
   #interactionFailure: CursorAcpInteractionFailure | null = null;
-  #lineBuffer = "";
-  #nextRequestId = 1;
   #output = "";
-  #processTimeout: NodeJS.Timeout | null = null;
-  #settledFailure: unknown = null;
-  #stderr = "";
   #turnActive = false;
-  readonly #lifecycle: RuntimeLifecycle = {
-    exitCode: null,
-    exitObservedAtMs: null,
-    exitSignal: null,
-    firstStderrAtMs: null,
-    firstStdoutAtMs: null,
-    processId: null,
-    processSpawnedAtMs: null,
-    stdinClosedAtMs: null,
-    timeoutTriggeredAtMs: null,
-  };
 
   constructor(input: {
     agentControllerPermissionMode?: AgentControllerPermissionMode;
@@ -471,139 +409,31 @@ class CursorAcpSession {
     streamingMode?: AdapterStreamingMode;
   }) {
     this.#agentControllerPermissionMode = input.agentControllerPermissionMode;
-    this.#cursorTimeoutMs = input.cursorTimeoutMs;
     this.#cursorWorkdir = input.cursorWorkdir;
-    this.#env = input.env;
-    this.#launchContract = input.launchContract;
     this.#onInteractionRequest = input.onInteractionRequest;
     this.#onPreview = input.onPreview;
-    this.#onProcessControlEvent = input.onProcessControlEvent;
     this.#onRuntimeEvent = input.onRuntimeEvent;
     this.#streamingMode = input.streamingMode ?? "final";
+    this.#process = new AcpProcessSession({
+      args: buildCursorAcpArgs(input.agentControllerPermissionMode),
+      createError: (error) => new CursorAcpTransportError(error),
+      cwd: input.cursorWorkdir,
+      ...(input.env ? { env: input.env } : {}),
+      launchContract: input.launchContract,
+      mapJsonRpcError: toJsonRpcTransportError,
+      onClientRequest: (request) => this.#handleClientRequest(request),
+      onLifecycleEvent: (event) => this.#emitRuntimeEvent(event),
+      onNotification: (notification) => this.#handleNotification(notification),
+      ...(input.onProcessControlEvent
+        ? { onProcessControlEvent: input.onProcessControlEvent }
+        : {}),
+      processLabel: "cursor-agent",
+      timeoutMs: input.cursorTimeoutMs,
+    });
   }
 
   start(): void {
-    const invocation = buildCliLaunchInvocation({
-      args: buildCursorAcpArgs(this.#agentControllerPermissionMode),
-      launchContract: this.#launchContract,
-    });
-    const runtimeProcess = spawnAgentControllerProcess({
-      args: invocation.args,
-      bin: invocation.bin,
-      cwd: this.#cursorWorkdir,
-      env: {
-        ...process.env,
-        ...(this.#env ?? {}),
-      },
-      shell: invocation.shell ?? false,
-    });
-    const { child, processId, signalTarget } = runtimeProcess;
-    this.#child = child;
-    this.#runtimeProcess = runtimeProcess;
-    const processSpawnedAtMs = Date.now();
-    this.#lifecycle.processId = processId;
-    this.#lifecycle.processSpawnedAtMs = processSpawnedAtMs;
-    this.#emitRuntimeEvent({
-      phase: "process_spawned",
-      processId,
-      signalTarget,
-      tsMs: processSpawnedAtMs,
-    });
-    this.#onProcessControlEvent?.({
-      phase: "process_spawned",
-      processId,
-      signalTarget,
-    });
-
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      if (this.#lifecycle.firstStdoutAtMs === null) {
-        const firstStdoutAtMs = Date.now();
-        this.#lifecycle.firstStdoutAtMs = firstStdoutAtMs;
-        this.#emitRuntimeEvent({
-          phase: "first_stdout",
-          processId,
-          tsMs: firstStdoutAtMs,
-        });
-      }
-      this.#consumeStdoutText(String(chunk));
-    });
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk) => {
-      if (this.#lifecycle.firstStderrAtMs === null) {
-        const firstStderrAtMs = Date.now();
-        this.#lifecycle.firstStderrAtMs = firstStderrAtMs;
-        this.#emitRuntimeEvent({
-          phase: "first_stderr",
-          processId,
-          tsMs: firstStderrAtMs,
-        });
-      }
-      this.#stderr = `${this.#stderr}${String(chunk)}`.slice(-MAX_STDERR_CHARS);
-    });
-    child.stdin.on("error", (error) => {
-      this.#failAll(this.#buildStdinWriteError(error));
-    });
-    child.on("error", (error) => {
-      this.#failAll(
-        new CursorAcpTransportError({
-          code: "upstream_unreachable",
-          errorType: "adapter",
-          message: `upstream_unreachable: failed to spawn cursor-agent acp (${error.message})`,
-        })
-      );
-    });
-    child.on("close", (exitCode, signal) => {
-      runtimeProcess.terminateRemainingDescendants();
-      this.#clearTimers();
-      this.#lifecycle.exitCode = exitCode;
-      this.#lifecycle.exitObservedAtMs = Date.now();
-      this.#lifecycle.exitSignal = signal;
-      this.#emitRuntimeEvent({
-        exitCode,
-        phase: "process_exit",
-        processId,
-        signal,
-        signalTarget,
-        tsMs: this.#lifecycle.exitObservedAtMs,
-      });
-      this.#onProcessControlEvent?.({
-        phase: "process_exit",
-        processId,
-        signalTarget,
-      });
-      if (this.#pending.size > 0) {
-        this.#failAll(
-          new CursorAcpTransportError({
-            code: "upstream_unreachable",
-            errorType: "adapter",
-            message: `upstream_unreachable: cursor-agent acp exited before completing the request${formatStderrSuffix(
-              this.#stderr
-            )}`,
-          })
-        );
-      }
-    });
-    this.#processTimeout =
-      this.#cursorTimeoutMs === null
-        ? null
-        : setTimeout(() => {
-            const timeoutTriggeredAtMs = Date.now();
-            this.#lifecycle.timeoutTriggeredAtMs = timeoutTriggeredAtMs;
-            this.#emitRuntimeEvent({
-              phase: "timeout_triggered",
-              processId,
-              tsMs: timeoutTriggeredAtMs,
-            });
-            this.#failAll(
-              new CursorAcpTransportError({
-                code: "process.timeout",
-                errorType: "timeout",
-                message: `process.timeout: cursor-agent acp did not complete within ${this.#cursorTimeoutMs}ms`,
-              })
-            );
-            this.#requestProcessTermination();
-          }, this.#cursorTimeoutMs);
+    this.#process.start();
   }
 
   async initialize(): Promise<void> {
@@ -695,59 +525,15 @@ class CursorAcpSession {
   }
 
   async close(): Promise<void> {
-    this.#clearTimers();
-    const child = this.#child;
-    if (!child) {
-      return;
-    }
-    if (this.#lifecycle.stdinClosedAtMs === null) {
-      this.#lifecycle.stdinClosedAtMs = Date.now();
-      this.#emitRuntimeEvent({
-        phase: "stdin_closed",
-        processId: this.#lifecycle.processId,
-        tsMs: this.#lifecycle.stdinClosedAtMs,
-      });
-    }
-    if (!(child.stdin.destroyed || child.stdin.writableEnded)) {
-      child.stdin.end();
-    }
-    if (this.#lifecycle.exitObservedAtMs !== null) {
-      return;
-    }
-    this.#requestProcessTermination();
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(resolve, ACP_PROCESS_KILL_GRACE_MS);
-      child.once("close", () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-    });
+    await this.#process.close();
   }
 
   async request(method: string, params: unknown): Promise<unknown> {
-    if (this.#settledFailure) {
-      throw this.#settledFailure;
-    }
-    const id = this.#nextRequestId;
-    this.#nextRequestId += 1;
-    const result = new Promise<unknown>((resolve, reject) => {
-      this.#pending.set(id, { reject, resolve });
-    });
-    this.#write({
-      id,
-      jsonrpc: "2.0",
-      method,
-      params,
-    });
-    return await result;
+    return await this.#process.request(method, params);
   }
 
   notify(method: string, params?: unknown): void {
-    this.#write({
-      jsonrpc: "2.0",
-      method,
-      ...(params === undefined ? {} : { params }),
-    });
+    this.#process.notify(method, params);
   }
 
   beginTurn(): void {
@@ -773,7 +559,7 @@ class CursorAcpSession {
   }
 
   readStderr(): string {
-    return this.#stderr;
+    return this.#process.readStderr();
   }
 
   recordDispatchDiagnostics(diagnostics: AdapterDispatchDiagnostics): void {
@@ -786,43 +572,10 @@ class CursorAcpSession {
     resumedContext: boolean;
     streamingMode: AdapterStreamingMode;
   }): AdapterDispatchTelemetry {
-    return {
-      completedAtMs: Date.now(),
-      ...(this.#lifecycle.exitCode === null
-        ? {}
-        : { exitCode: this.#lifecycle.exitCode }),
-      ...(this.#lifecycle.exitObservedAtMs === null
-        ? {}
-        : { exitObservedAtMs: this.#lifecycle.exitObservedAtMs }),
-      ...(this.#lifecycle.exitSignal === null
-        ? {}
-        : { exitSignal: this.#lifecycle.exitSignal }),
-      ...(this.#firstOutputAtMs === null
-        ? {}
-        : { firstOutputAtMs: this.#firstOutputAtMs }),
-      ...(this.#lifecycle.firstStderrAtMs === null
-        ? {}
-        : { firstStderrAtMs: this.#lifecycle.firstStderrAtMs }),
-      ...(this.#lifecycle.firstStdoutAtMs === null
-        ? {}
-        : { firstStdoutAtMs: this.#lifecycle.firstStdoutAtMs }),
-      invokedAtMs: input.invokedAtMs,
-      previewEmitted: input.previewEmitted,
-      ...(this.#lifecycle.processId === null
-        ? {}
-        : { processId: this.#lifecycle.processId }),
-      ...(this.#lifecycle.processSpawnedAtMs === null
-        ? {}
-        : { processSpawnedAtMs: this.#lifecycle.processSpawnedAtMs }),
-      resumedContext: input.resumedContext,
-      ...(this.#lifecycle.stdinClosedAtMs === null
-        ? {}
-        : { stdinClosedAtMs: this.#lifecycle.stdinClosedAtMs }),
-      streamingMode: input.streamingMode,
-      ...(this.#lifecycle.timeoutTriggeredAtMs === null
-        ? {}
-        : { timeoutTriggeredAtMs: this.#lifecycle.timeoutTriggeredAtMs }),
-    };
+    return this.#process.buildTelemetry({
+      ...input,
+      firstOutputAtMs: this.#firstOutputAtMs,
+    });
   }
 
   emitProviderConversationObserved(sessionId: string): void {
@@ -833,70 +586,7 @@ class CursorAcpSession {
     });
   }
 
-  #consumeStdoutText(text: string): void {
-    this.#lineBuffer += text;
-    while (true) {
-      const newlineIndex = this.#lineBuffer.indexOf("\n");
-      if (newlineIndex < 0) {
-        return;
-      }
-      const line = this.#lineBuffer.slice(0, newlineIndex).trim();
-      this.#lineBuffer = this.#lineBuffer.slice(newlineIndex + 1);
-      if (line) {
-        this.#handleStdoutLine(line);
-      }
-    }
-  }
-
-  #handleStdoutLine(line: string): void {
-    let message: JsonRpcMessage;
-    try {
-      message = JSON.parse(line) as JsonRpcMessage;
-    } catch (error) {
-      this.#failAll(
-        new CursorAcpTransportError({
-          code: "protocol.invalid",
-          errorType: "adapter",
-          message: `protocol.invalid: cursor-agent acp emitted non-JSON output (${toErrorMessage(
-            error
-          )})`,
-        })
-      );
-      return;
-    }
-    if (message.id !== undefined && message.method) {
-      this.#handleAgentRequest(message).catch((error: unknown) => {
-        this.#failAll(error);
-      });
-      return;
-    }
-    if (message.id !== undefined) {
-      this.#handleResponse(message);
-      return;
-    }
-    if (message.method) {
-      this.#handleNotification(message);
-    }
-  }
-
-  #handleResponse(message: JsonRpcMessage): void {
-    const id = message.id;
-    if (!(typeof id === "number" || typeof id === "string")) {
-      return;
-    }
-    const pending = this.#pending.get(id);
-    if (!pending) {
-      return;
-    }
-    this.#pending.delete(id);
-    if (message.error) {
-      pending.reject(toJsonRpcTransportError(message.error));
-      return;
-    }
-    pending.resolve(message.result);
-  }
-
-  #handleNotification(message: JsonRpcMessage): void {
+  #handleNotification(message: { method: string; params: unknown }): void {
     if (!this.#turnActive) {
       return;
     }
@@ -907,18 +597,16 @@ class CursorAcpSession {
     }
   }
 
-  async #handleAgentRequest(message: JsonRpcMessage): Promise<void> {
-    const id = message.id;
-    if (!(typeof id === "number" || typeof id === "string")) {
-      return;
-    }
+  async #handleClientRequest(message: {
+    method: string;
+    params: unknown;
+  }): Promise<AcpClientRequestResponse> {
     if (
       message.method === "session/request_permission" &&
       resolveCursorPermissionMode(this.#agentControllerPermissionMode) ===
         "cursor:force"
     ) {
-      this.#handlePermissionRequest(id, message.params);
-      return;
+      return this.#resolvePermissionRequest(message.params);
     }
     if (this.#onInteractionRequest && message.method) {
       const interaction = await resolveCursorAcpInteraction({
@@ -927,17 +615,11 @@ class CursorAcpSession {
         params: message.params,
       });
       if (interaction.handled) {
-        this.#write({
-          id,
-          jsonrpc: "2.0",
-          result: interaction.result,
-        });
-        return;
+        return { result: interaction.result };
       }
     }
     if (message.method === "session/request_permission") {
-      this.#handlePermissionRequest(id, message.params);
-      return;
+      return this.#resolvePermissionRequest(message.params);
     }
     if (message.method === "cursor/ask_question") {
       this.#interactionFailure ??= {
@@ -945,9 +627,7 @@ class CursorAcpSession {
         message:
           "interaction.question_required: Cursor requested user input, which OpenMeld phase 1 does not support",
       };
-      this.#write({
-        id,
-        jsonrpc: "2.0",
+      return {
         result: {
           outcome: {
             outcome: "skipped",
@@ -955,8 +635,7 @@ class CursorAcpSession {
               "OpenMeld does not support interactive Cursor questions yet.",
           },
         },
-      });
-      return;
+      };
     }
     if (message.method === "cursor/create_plan") {
       this.#interactionFailure ??= {
@@ -964,9 +643,7 @@ class CursorAcpSession {
         message:
           "interaction.plan_required: Cursor requested plan approval, which OpenMeld phase 1 does not support",
       };
-      this.#write({
-        id,
-        jsonrpc: "2.0",
+      return {
         result: {
           outcome: {
             outcome: "rejected",
@@ -974,24 +651,21 @@ class CursorAcpSession {
               "OpenMeld does not support interactive Cursor plan approval yet.",
           },
         },
-      });
-      return;
+      };
     }
     this.#interactionFailure ??= {
       code: "interaction.unsupported",
       message: `interaction.unsupported: Cursor ACP requested unsupported client method '${message.method}'`,
     };
-    this.#write({
+    return {
       error: {
         code: -32_601,
         message: `OpenMeld does not support Cursor ACP client method '${message.method}'.`,
       },
-      id,
-      jsonrpc: "2.0",
-    });
+    };
   }
 
-  #handlePermissionRequest(id: JsonRpcId, params: unknown): void {
+  #resolvePermissionRequest(params: unknown): AcpClientRequestResponse {
     const options = readCursorPermissionOptions(params);
     const forceMode =
       resolveCursorPermissionMode(this.#agentControllerPermissionMode) ===
@@ -1006,9 +680,7 @@ class CursorAcpSession {
           "interaction.permission_required: Cursor requested permission that the selected OpenMeld mode did not grant",
       };
     }
-    this.#write({
-      id,
-      jsonrpc: "2.0",
+    return {
       result: selectedOption
         ? {
             outcome: {
@@ -1021,10 +693,13 @@ class CursorAcpSession {
               outcome: "cancelled",
             },
           },
-    });
+    };
   }
 
-  #collectAgentMessageChunk(message: JsonRpcMessage): void {
+  #collectAgentMessageChunk(message: {
+    method: string;
+    params: unknown;
+  }): void {
     if (message.method !== "session/update") {
       return;
     }
@@ -1046,83 +721,9 @@ class CursorAcpSession {
     if (this.#streamingMode === "stream" && this.#onPreview) {
       Promise.resolve(this.#onPreview({ text: this.#output })).catch(
         (error) => {
-          this.#failAll(error);
+          this.#process.fail(error);
         }
       );
-    }
-  }
-
-  #write(message: JsonRpcMessage): void {
-    const child = this.#child;
-    if (this.#settledFailure) {
-      throw this.#settledFailure;
-    }
-    if (
-      !child ||
-      this.#lifecycle.exitObservedAtMs !== null ||
-      child.stdin.destroyed ||
-      child.stdin.writableEnded ||
-      !child.stdin.writable
-    ) {
-      const error = this.#buildStdinWriteError();
-      this.#failAll(error);
-      throw error;
-    }
-    try {
-      child.stdin.write(`${JSON.stringify(message)}\n`, (error) => {
-        if (error) {
-          this.#failAll(this.#buildStdinWriteError(error));
-        }
-      });
-    } catch (error) {
-      const writeError = this.#buildStdinWriteError(error);
-      this.#failAll(writeError);
-      throw writeError;
-    }
-  }
-
-  #buildStdinWriteError(cause?: unknown): CursorAcpTransportError {
-    const detail =
-      cause instanceof Error && cause.message.trim()
-        ? ` (${cause.message.trim()})`
-        : "";
-    return new CursorAcpTransportError({
-      code: "upstream_unreachable",
-      errorType: "adapter",
-      message: `upstream_unreachable: cursor-agent acp is not accepting responses${detail}`,
-    });
-  }
-
-  #failAll(error: unknown): void {
-    if (!this.#settledFailure) {
-      this.#settledFailure = error;
-    }
-    for (const pending of this.#pending.values()) {
-      pending.reject(error);
-    }
-    this.#pending.clear();
-  }
-
-  #requestProcessTermination(): void {
-    const runtimeProcess = this.#runtimeProcess;
-    if (!runtimeProcess || this.#lifecycle.exitObservedAtMs !== null) {
-      return;
-    }
-    runtimeProcess.terminate("SIGTERM");
-    this.#forceKillTimeout = setTimeout(() => {
-      runtimeProcess.terminate("SIGKILL");
-    }, ACP_PROCESS_KILL_GRACE_MS);
-    this.#forceKillTimeout.unref?.();
-  }
-
-  #clearTimers(): void {
-    if (this.#processTimeout !== null) {
-      clearTimeout(this.#processTimeout);
-      this.#processTimeout = null;
-    }
-    if (this.#forceKillTimeout !== null) {
-      clearTimeout(this.#forceKillTimeout);
-      this.#forceKillTimeout = null;
     }
   }
 
@@ -1458,7 +1059,9 @@ async function emitFinalPreviewIfRequested(input: {
   await input.onPreview({ text: input.output });
 }
 
-function toJsonRpcTransportError(error: JsonRpcError): CursorAcpTransportError {
+function toJsonRpcTransportError(
+  error: AcpJsonRpcError
+): CursorAcpTransportError {
   const message = normalizeOptionalText(error.message) ?? "Cursor ACP error";
   if (error.code === -32_601) {
     return new CursorAcpTransportError({
@@ -1557,11 +1160,6 @@ function classifyCursorFailure(message: string): CursorAcpTransportError {
     errorType: "adapter",
     message: normalized,
   });
-}
-
-function formatStderrSuffix(stderr: string): string {
-  const normalized = normalizeOptionalText(stderr);
-  return normalized ? ` (${normalized})` : "";
 }
 
 function normalizeOutputText(value: unknown): string | null {

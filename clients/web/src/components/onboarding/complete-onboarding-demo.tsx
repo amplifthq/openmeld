@@ -261,6 +261,9 @@ function resolveLocalAgentId(name: string): string | null {
 	if (normalized === "cursor") {
 		return "builtin:cursor";
 	}
+	if (normalized === "grok" || normalized === "grok build") {
+		return "builtin:grok-build";
+	}
 	if (normalized === "opencode" || normalized === "open code") {
 		return "builtin:opencode";
 	}

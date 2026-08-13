@@ -50,6 +50,12 @@ export const BUILTIN_AGENT_CONTROLLER_CONVERSATION_CAPABILITY_BY_CONTROLLER_ID: 
     resume: "by_ref_id",
     turnOverride: "unsupported",
   },
+  "grok-build": {
+    discover: "unsupported",
+    externalImport: "by_ref_id",
+    resume: "by_ref_id",
+    turnOverride: "unsupported",
+  },
   opencode: {
     discover: "unsupported",
     externalImport: "unsupported",

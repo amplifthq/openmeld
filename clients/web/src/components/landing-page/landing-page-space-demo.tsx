@@ -116,7 +116,7 @@ const SPACE_FEATURES = [
 	{
 		name: "One brief, many agents.",
 		description:
-			"Codex, Claude Code, Cursor, and OpenCode can share the same goal, decisions, and handoffs while still running locally.",
+			"Codex, Claude Code, Cursor, Grok Build, and OpenCode can share the same goal, decisions, and handoffs while still running locally.",
 	},
 	{
 		name: "Progress people can join.",

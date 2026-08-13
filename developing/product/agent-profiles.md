@@ -39,7 +39,7 @@ the Runtime, provider, or Agent Controller behind it. When an assistant creates
 an Agent Profile and the user did not supply a name, it should infer a short,
 plain name from the user's current goal and Space context, usually two to four
 words such as `Release Reviewer`, `API Debugger`, or `Docs Editor`. Bare
-infrastructure names such as `Codex`, `Claude`, `Claude Code`, `Cursor`, or `OpenCode`,
+infrastructure names such as `Codex`, `Claude`, `Claude Code`, `Cursor`, `Grok Build`, or `OpenCode`,
 and vague names such as `Assistant`, `Agent`, or `Helper`, are not meaningful
 teammate identities. Preserve an explicit user-provided name. If the available
 context does not support a meaningful role, ask for a name before creating the
@@ -53,7 +53,7 @@ local execution infrastructure, not the teammate identity users collaborate
 with.
 
 Ordinary Agent Profile avatars intentionally use the bound Agent Controller's
-brand mark, such as Codex, Claude Code, Cursor, or OpenCode, because the mark helps users
+brand mark, such as Codex, Claude Code, Cursor, Grok Build, or OpenCode, because the mark helps users
 recognize how that profile runs. Rebinding an ordinary Agent Profile updates
 that mark. An unbound or unknown controller uses the generic agent fallback;
 it must not invent Controller branding.
@@ -153,8 +153,10 @@ Code uses its `--permission-mode` values (`default`, `acceptEdits`, `plan`,
 (`Ask for approval`, `Approve for me`, `Full access`, and
 `Custom (config.toml)`) backed by sandbox, approval, and config settings. The
 labels and execution flags must stay controller-native, because Claude Code,
-Codex, and future controllers use different permission names and enforcement
-models.
+Codex, Grok Build, and future controllers use different permission names and
+enforcement models. Grok Build uses its native `default`, `acceptEdits`, `plan`,
+`auto`, `dontAsk`, and `bypassPermissions` modes. Plan remains a controller
+execution mode, not proof of a filesystem boundary.
 
 Owners may edit Binding-level runtime settings while a Wake is running. Saving
 must never mutate or invalidate an execution that RuntimeCoordinator already
@@ -198,7 +200,7 @@ Cursor uses five controller-native presets over its ACP interface:
 - **Run Everything** launches `cursor-agent --force acp`, requires explicit
   confirmation, and still respects explicit Cursor deny rules.
 
-When a running Codex, Claude Code, Cursor, or OpenCode turn asks for permission,
+When a running Codex, Claude Code, Cursor, Grok Build, or OpenCode turn asks for permission,
 asks a structured question, or finishes a plan that needs review, OpenMeld
 pauses that same Wake and presents the request in its Space. The Binding owner
 can answer there without opening the controller's terminal. OpenMeld returns
@@ -233,6 +235,12 @@ Profile UI must not copy the Computer policy or offer a profile-level override;
 the current Computer detail is its one management home. Direct user-launched
 controller sessions remain governed by the controller's own settings.
 
+Grok Build's current controller sandbox is too coarse to prove
+`only_selected_folders` or `block_selected_folders`. Its adapter therefore
+reports the Computer file access boundary as unsupported and uses the existing
+owner-only run-once-or-cancel interaction. Product surfaces must not describe
+Grok Plan, Grok hooks, or a successful ACP launch as enforcement evidence.
+
 Codex Collaboration Mode is likewise not permission, readiness, or execution
 truth. It selects how Codex conducts the turn; it must never be inferred from,
 or silently rewrite, Agent Controller Permission Mode.
@@ -246,7 +254,7 @@ shell commands, URL fetches, web search, and outside-project-folder access, plus
 advanced JSON for OpenCode pattern rules. Unsupported controllers must not
 receive or display OpenCode permissions.
 
-When Codex, Claude Code, Cursor, OpenCode, or another controller blocks an action under
+When Codex, Claude Code, Cursor, Grok Build, OpenCode, or another controller blocks an action under
 its configured permissions, product surfaces must name the Agent Profile's
 permission settings as the cause instead of presenting a generic command
 failure. Recovery links to that Agent in the first-level Agents home and warns

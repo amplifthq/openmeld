@@ -4,6 +4,7 @@ export const BUILTIN_AGENT_CONTROLLER_BRAND_IDS = [
   "codex",
   "claude-code",
   "cursor",
+  "grok-build",
   "opencode",
   "openclaw",
 ] as const;
@@ -36,6 +37,12 @@ export const BUILTIN_AGENT_CONTROLLER_BRANDS = {
     accentRgb: [0, 0, 0],
     controllerId: "cursor",
     selectionMixPercent: 24,
+  },
+  "grok-build": {
+    accentHex: "#1d9bf0",
+    accentRgb: [29, 155, 240],
+    controllerId: "grok-build",
+    selectionMixPercent: 30,
   },
   opencode: {
     accentHex: "#000000",

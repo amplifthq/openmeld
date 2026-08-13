@@ -12,10 +12,23 @@ describe("model catalog schema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.schemaVersion).toBe(MODEL_CATALOG_SCHEMA_VERSION);
-      expect(result.data.updatedAt).toBe("2026-08-01T17:26:00.000Z");
+      expect(result.data.updatedAt).toBe("2026-08-13T00:00:00.000Z");
       expect(result.data.agentControllers.codex?.defaultModelId).toBe(
         "gpt-5.5"
       );
+      expect(result.data.agentControllers["grok-build"]).toMatchObject({
+        defaultModelId: "grok-4.6",
+        models: [
+          {
+            id: "grok-4.6",
+            supportedReasoningLevels: ["low", "medium", "high", "xhigh"],
+          },
+          {
+            id: "grok-4.5",
+            supportedReasoningLevels: ["low", "medium", "high"],
+          },
+        ],
+      });
 
       for (const [id, displayName, supportedReasoningLevels] of [
         [

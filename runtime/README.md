@@ -33,6 +33,7 @@ Current builtin local agents on this path:
 1. `codex`
 2. `claude-code`
 3. `openclaw`
+4. `grok-build`
 
 ### Golden Path Rules
 
@@ -86,8 +87,10 @@ Use:
 1. `node_script` for CLIs installed as `#!/usr/bin/env node`
 2. `executable` for real standalone binaries
 
-Today, the builtin golden path for `codex`, `claude-code`, and `openclaw`
-uses `node_script`.
+Today, the builtin golden path for `codex`, `claude-code`, and `openclaw` uses
+`node_script`. The official Grok Build install is a native binary and uses
+`executable`; install discovery still handles an official launcher safely when
+the vendor changes packaging.
 
 ### Builtin Launch Lifecycle
 
@@ -167,7 +170,14 @@ Provider-specific:
 
 ## Current Status
 
-Codex, Claude Code, and OpenClaw run on the universal CLI driver path.
+Codex, Claude Code, and OpenClaw run on the universal CLI driver path. Cursor
+and Grok Build use ACP transports while preserving the same `RuntimeAdapter`,
+launch-contract, cancellation, telemetry, and supervised-process boundaries.
+
+Cursor and Grok Build share `AcpProcessSession` for JSON-RPC/session/process
+mechanics. Vendor launch arguments, authentication, models, modes, extensions,
+and errors stay inside their adapter packages; adding another ACP controller
+must not add vendor switches to Local Service or RuntimeCoordinator.
 
 What this means:
 

@@ -18,7 +18,7 @@ export function LocalAgentsOnboardingStep(input: { onContinue: () => void }) {
 	);
 	return (
 		<div className="flex flex-1 flex-col">
-			<div className="mb-5 grid grid-cols-4 gap-2">
+			<div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-5">
 				<LocalAgentLogo
 					icon={
 						<LocalAgentBrandLogo
@@ -48,6 +48,16 @@ export function LocalAgentsOnboardingStep(input: { onContinue: () => void }) {
 						/>
 					}
 					label="Cursor"
+				/>
+				<LocalAgentLogo
+					icon={
+						<LocalAgentBrandLogo
+							agentId="builtin:grok-build"
+							className="size-8"
+							size="md"
+						/>
+					}
+					label="Grok Build"
 				/>
 				<LocalAgentLogo
 					icon={

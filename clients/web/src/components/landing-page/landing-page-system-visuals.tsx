@@ -218,6 +218,7 @@ export function LandingConnectedWorkVisual({ className }: LandingVisualProps) {
 						<LocalAgentLogo agentId="builtin:claude-code" size="sm" />
 						<LocalAgentLogo agentId="builtin:codex" size="sm" />
 						<LocalAgentLogo agentId="builtin:cursor" size="sm" />
+						<LocalAgentLogo agentId="builtin:grok-build" size="sm" />
 						<LocalAgentLogo agentId="builtin:opencode" size="sm" />
 					</span>
 					<span>Local agents</span>

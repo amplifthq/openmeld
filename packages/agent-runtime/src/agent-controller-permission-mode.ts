@@ -25,6 +25,8 @@ export const CODEX_DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE =
   "codex:askForApproval" satisfies AgentControllerPermissionMode;
 export const CURSOR_DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE =
   "cursor:default" satisfies AgentControllerPermissionMode;
+export const GROK_BUILD_DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE =
+  "grok-build:default" satisfies AgentControllerPermissionMode;
 export const DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE =
   CLAUDE_CODE_DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE;
 
@@ -156,10 +158,62 @@ const CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
   },
 ] as const satisfies readonly AgentControllerPermissionModeOption[];
 
+const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
+  {
+    description:
+      "Use Grok Build’s standard permissions. If Grok needs approval, OpenMeld asks you in the Space.",
+    label: "Ask permissions",
+    requiresExplicitConfirmation: false,
+    tone: "neutral",
+    value: "grok-build:default",
+  },
+  {
+    description:
+      "Accept file edits automatically. Grok may still ask before running commands or using other tools.",
+    label: "Accept edits",
+    requiresExplicitConfirmation: false,
+    tone: "neutral",
+    value: "grok-build:acceptEdits",
+  },
+  {
+    description:
+      "Use Grok Build’s plan permission mode. Reads, commands, and MCP tools still follow Grok’s permission rules.",
+    label: "Plan mode",
+    requiresExplicitConfirmation: false,
+    tone: "neutral",
+    value: "grok-build:plan",
+  },
+  {
+    description:
+      "Let Grok Build automatically run actions it classifies as safe. Grok may still ask for approval.",
+    label: "Auto mode",
+    requiresExplicitConfirmation: false,
+    tone: "neutral",
+    value: "grok-build:auto",
+  },
+  {
+    description:
+      "Automatically reject actions that are not already allowed instead of waiting for approval.",
+    label: "Don't ask",
+    requiresExplicitConfirmation: false,
+    tone: "neutral",
+    value: "grok-build:dontAsk",
+  },
+  {
+    description:
+      "Bypass Grok Build permission prompts. Explicit deny rules and safety hooks may still block an action.",
+    label: "Bypass permissions",
+    requiresExplicitConfirmation: true,
+    tone: "warning",
+    value: "grok-build:bypassPermissions",
+  },
+] as const satisfies readonly AgentControllerPermissionModeOption[];
+
 const AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS_BY_CONTROLLER_ID = {
   "claude-code": CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
   codex: CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
   cursor: CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
+  "grok-build": GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
 } as const satisfies Record<
   string,
   readonly AgentControllerPermissionModeOption[]
@@ -169,6 +223,7 @@ const AGENT_CONTROLLER_PERMISSION_MODE_FIELD_LABEL_BY_CONTROLLER_ID = {
   "claude-code": "Claude Code permissions mode",
   codex: "Codex permissions mode",
   cursor: "Cursor permissions mode",
+  "grok-build": "Grok Build permissions mode",
 } as const satisfies Record<AgentControllerPermissionModeControllerId, string>;
 
 type AgentControllerPermissionModeControllerId =
@@ -270,6 +325,7 @@ export function listAgentControllerPermissionModeOptions(input?: {
     ...CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
     ...CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
     ...CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
+    ...GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS,
   ].map((option) => ({ ...option }));
 }
 

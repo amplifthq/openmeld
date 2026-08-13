@@ -1,6 +1,7 @@
 import { installClaudeCodeAdapter } from "./install-claude-code.js";
 import { installCodexAdapter } from "./install-codex.js";
 import { installCursorAdapter } from "./install-cursor.js";
+import { installGrokBuildAdapter } from "./install-grok-build.js";
 import { installOpenClawAdapter } from "./install-openclaw.js";
 import { installOpenCodeAdapter } from "./install-opencode.js";
 import type { LocalAdapterInstaller } from "./types.js";
@@ -10,6 +11,7 @@ export function listLocalAdapterInstallers(): LocalAdapterInstaller[] {
     installClaudeCodeAdapter,
     installCodexAdapter,
     installCursorAdapter,
+    installGrokBuildAdapter,
     installOpenClawAdapter,
     installOpenCodeAdapter,
   ];

@@ -322,6 +322,9 @@ describe("space add-me command", () => {
     expect(stdout).toContain(
       "Cursor: default|plan|ask|auto-review|run-everything."
     );
+    expect(stdout).toContain(
+      "Grok Build: default|accept-edits|plan|auto|dont-ask|bypass-permissions."
+    );
     expect(stdout).not.toContain("(default: [])");
   });
 

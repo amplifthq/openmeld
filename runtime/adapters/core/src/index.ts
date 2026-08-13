@@ -27,6 +27,28 @@ import type {
 } from "@openmeld/schemas/types";
 import type { AgentControllerProcessSignalTarget } from "./agent-controller-process.js";
 import type { AdapterConversationBridgeSpec } from "./conversation-bridge.js";
+
+export {
+  type AcpClientRequestHandler,
+  type AcpClientRequestResponse,
+  type AcpJsonRpcError,
+  type AcpJsonRpcId,
+  type AcpJsonRpcMessage,
+  type AcpNotificationHandler,
+  type AcpProcessControlEvent,
+  type AcpProcessErrorFactory,
+  type AcpProcessErrorInput,
+  type AcpProcessErrorType,
+  type AcpProcessLifecycle,
+  type AcpProcessLifecycleEvent,
+  AcpProcessSession,
+  type AcpProcessTelemetry,
+} from "./acp-process-session.js";
+export {
+  type AcpToolActivityTracker,
+  createAcpToolActivityTracker,
+} from "./acp-tool-activity.js";
+
 import {
   bridgeAgentControllerConversationRef,
   buildAdapterAgentControllerConversationRef,
@@ -285,7 +307,7 @@ export type AdapterModelNegotiationDiagnostics = {
   requestedModelId: string | null;
   requestedPresentInConfigOptions: boolean;
   requestedPresentInLegacyModels: boolean;
-  sessionOperation: "load" | "new";
+  sessionOperation: "load" | "new" | "resume";
   sourceState:
     | "config_options_only"
     | "conflicting"
@@ -932,7 +954,9 @@ function parseModelNegotiationDiagnostics(
     requestedModelId === undefined ||
     typeof record.requestedPresentInConfigOptions !== "boolean" ||
     typeof record.requestedPresentInLegacyModels !== "boolean" ||
-    (record.sessionOperation !== "load" && record.sessionOperation !== "new") ||
+    (record.sessionOperation !== "load" &&
+      record.sessionOperation !== "new" &&
+      record.sessionOperation !== "resume") ||
     !isModelSourceState(record.sourceState)
   ) {
     return null;

@@ -285,6 +285,7 @@ export function terminateRemainingAgentControllerProcesses(input: {
     input.trackedDescendantProcessIds ?? new Set<number>();
 
   const attemptCleanup = (attempt: number): void => {
+    let cleanupFailed = false;
     let discoveryFailed = false;
     try {
       sent =
@@ -305,6 +306,7 @@ export function terminateRemainingAgentControllerProcesses(input: {
           trackedDescendantProcessIds,
         }) || sent;
     } catch (error) {
+      cleanupFailed = true;
       reportAgentControllerProcessCleanupFailure({
         failure: {
           error,
@@ -316,8 +318,9 @@ export function terminateRemainingAgentControllerProcesses(input: {
     }
 
     if (
-      !discoveryFailed ||
-      attempt >= PROCESS_SUPERVISION_DISCOVERY_MAX_ATTEMPTS
+      cleanupFailed ||
+      attempt >= PROCESS_SUPERVISION_DISCOVERY_MAX_ATTEMPTS ||
+      (!discoveryFailed && sent)
     ) {
       return;
     }

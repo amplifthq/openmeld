@@ -12,7 +12,7 @@ import {
 
 export const LOCAL_AGENTS_GUIDE_PATH = "/guides/local-agents";
 export const LOCAL_AGENTS_GUIDE_AGENT_NAMES =
-  "Codex, Claude Code, Cursor, or OpenCode";
+  "Codex, Claude Code, Cursor, Grok Build, or OpenCode";
 
 export type LocalAgentsGuideConfirmationDecision = "continue" | "cancelled";
 

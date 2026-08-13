@@ -28,6 +28,7 @@ export const BUILTIN_AGENT_CONTROLLER_CONVERSATION_KIND_BY_CONTROLLER_ID: Readon
   codex: "thread",
   "claude-code": "session",
   cursor: "session",
+  "grok-build": "session",
   openclaw: "session",
   opencode: "session",
 } as const;

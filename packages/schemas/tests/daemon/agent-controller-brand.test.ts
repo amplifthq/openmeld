@@ -18,6 +18,9 @@ describe("builtin agent controller brand registry", () => {
     expect(resolveBuiltinAgentControllerBrand("builtin:cursor")).toEqual(
       BUILTIN_AGENT_CONTROLLER_BRANDS.cursor
     );
+    expect(resolveBuiltinAgentControllerBrand("builtin:grok-build")).toEqual(
+      BUILTIN_AGENT_CONTROLLER_BRANDS["grok-build"]
+    );
     expect(resolveBuiltinAgentControllerBrand("builtin:openclaw")).toEqual(
       BUILTIN_AGENT_CONTROLLER_BRANDS.openclaw
     );
@@ -32,6 +35,9 @@ describe("builtin agent controller brand registry", () => {
     );
     expect(resolveBuiltinAgentControllerBrand("opencode")).toEqual(
       BUILTIN_AGENT_CONTROLLER_BRANDS.opencode
+    );
+    expect(resolveBuiltinAgentControllerBrand("grok-build")).toEqual(
+      BUILTIN_AGENT_CONTROLLER_BRANDS["grok-build"]
     );
   });
 

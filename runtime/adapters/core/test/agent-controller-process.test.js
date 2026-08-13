@@ -217,3 +217,33 @@ test("retries supervised discovery when the leader exits during an inspection fa
     },
   ]);
 });
+
+test("retries with a fresh scan when the exited leader had no visible descendants", () => {
+  const killCalls = [];
+  let discoveryAttempts = 0;
+
+  terminateRemainingAgentControllerProcesses({
+    killProcess: (processId, signal) => {
+      killCalls.push({ processId, signal });
+      if (processId === -4242) {
+        throw Object.assign(new Error("kill ESRCH"), { code: "ESRCH" });
+      }
+      return true;
+    },
+    listSupervisedProcessIds: () => {
+      discoveryAttempts += 1;
+      return discoveryAttempts === 1 ? [] : [4343];
+    },
+    processId: 4242,
+    scheduleDiscoveryRetry: (retry) => retry(),
+    signalTarget: "process_group",
+    supervisionId: "supervision-4242",
+  });
+
+  assert.equal(discoveryAttempts, 2);
+  assert.deepEqual(killCalls, [
+    { processId: -4242, signal: "SIGKILL" },
+    { processId: -4242, signal: "SIGKILL" },
+    { processId: 4343, signal: "SIGKILL" },
+  ]);
+});

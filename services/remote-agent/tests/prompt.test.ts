@@ -368,7 +368,7 @@ describe("remote agent system prompt", () => {
       "When the user has not supplied a name, choose a short, practical name from the user's current goal and Space context"
     );
     expect(prompt).toContain(
-      "Do not use a bare controller or provider name such as Codex, Claude, Claude Code, Cursor, or OpenCode"
+      "Do not use a bare controller or provider name such as Codex, Claude, Claude Code, Cursor, Grok Build, or OpenCode"
     );
     expect(prompt).toContain(
       "If the user supplied a name, preserve it. If there is not enough context to infer a meaningful role, ask for a name only in an interactive turn; during a Routine, report that the required role context is missing."

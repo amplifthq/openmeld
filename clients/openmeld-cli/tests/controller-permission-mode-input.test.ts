@@ -43,11 +43,18 @@ describe("Agent Controller Permission Mode CLI input", () => {
     expect(formatAgentControllerPermissionModeForCli("cursor:force")).toBe(
       "run-everything"
     );
+    expect(
+      normalizeAgentControllerPermissionModeCliInput({
+        agentControllerRef: "builtin:grok-build",
+        flagName: "--agent-controller-permission-mode",
+        value: "bypass-permissions",
+      })
+    ).toBe("grok-build:bypassPermissions");
   });
 
   it("keeps command help aligned with every supported controller-native value", () => {
     expect(formatAgentControllerPermissionModeHelp()).toBe(
-      "Agent Controller Permission Mode. Claude Code: ask-permissions|accept-edits|plan|auto|dont-ask|bypass-permissions. Codex: ask-for-approval|approve-for-me|full-access|custom-config. Cursor: default|plan|ask|auto-review|run-everything."
+      "Agent Controller Permission Mode. Claude Code: ask-permissions|accept-edits|plan|auto|dont-ask|bypass-permissions. Codex: ask-for-approval|approve-for-me|full-access|custom-config. Cursor: default|plan|ask|auto-review|run-everything. Grok Build: default|accept-edits|plan|auto|dont-ask|bypass-permissions."
     );
   });
 

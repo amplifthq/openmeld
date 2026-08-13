@@ -42,7 +42,7 @@ describe("OpenMeld public Skill", () => {
 			"describe them as choices to add to a Space"
 		);
 		expect(AGENT_INTERFACE_GUIDE_MARKDOWN).toContain(
-			"OpenMeld found Codex, Claude Code, Cursor, and OpenCode on this computer"
+			"OpenMeld found Codex, Claude Code, Cursor, Grok Build, and OpenCode on this computer"
 		);
 		expect(AGENT_INTERFACE_GUIDE_MARKDOWN).toContain(
 			"turning the current local agent session into a wakeable teammate"

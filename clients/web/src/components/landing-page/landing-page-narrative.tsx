@@ -137,7 +137,7 @@ const FAQ_ITEMS = [
 	{
 		question: "Which agents run locally, and which run in OpenMeld?",
 		answer:
-			"The Center Agent is OpenMeld’s hosted organization coordinator, so it can answer even when your laptop is closed. Codex, Claude Code, Cursor, and OpenCode keep running on your team’s own computers through OpenMeld Service.",
+			"The Center Agent is OpenMeld’s hosted organization coordinator, so it can answer even when your laptop is closed. Codex, Claude Code, Cursor, Grok Build, and OpenCode keep running on your team’s own computers through OpenMeld Service.",
 	},
 	{
 		question: "What leaves my computer?",
@@ -240,14 +240,16 @@ function LocalExecutionSection() {
 
 				<div className="lg:col-span-4 lg:col-start-9 lg:pt-16">
 					<p className="text-base text-muted-foreground leading-7">
-						Codex, Claude Code, Cursor, and OpenCode keep working on your team’s
-						computers. OpenMeld Projects map the same codebase to each person’s
-						local clone or worktree, so every Wake starts in the right place.
+						Codex, Claude Code, Cursor, Grok Build, and OpenCode keep working on
+						your team’s computers. OpenMeld Projects map the same codebase to
+						each person’s local clone or worktree, so every Wake starts in the
+						right place.
 					</p>
 					<div className="mt-8 flex flex-wrap gap-6">
 						<AgentLabel agentId="builtin:codex" label="Codex" />
 						<AgentLabel agentId="builtin:claude-code" label="Claude Code" />
 						<AgentLabel agentId="builtin:cursor" label="Cursor" />
+						<AgentLabel agentId="builtin:grok-build" label="Grok Build" />
 						<AgentLabel agentId="builtin:opencode" label="OpenCode" />
 					</div>
 					<CommandBlock

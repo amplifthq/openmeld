@@ -5,6 +5,10 @@ import {
   materializeCliLaunchCommand,
   type RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
+import {
+  GrokBuildAcpTransportError,
+  probeGrokBuildAcpInterface,
+} from "@openmeld/adapter-grok-build";
 import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceAuthSnapshot,
@@ -125,6 +129,7 @@ const CONTROLLER_INTERFACE_SNAPSHOT_RESOLVERS: Record<
   "claude-code": resolveClaudeCodeInterfaceSnapshot,
   codex: resolveCodexInterfaceSnapshot,
   cursor: resolveCursorInterfaceSnapshot,
+  "grok-build": resolveGrokBuildInterfaceSnapshot,
   openclaw: resolveOpenClawInterfaceSnapshot,
   opencode: resolveOpenCodeInterfaceSnapshot,
 };
@@ -773,6 +778,74 @@ async function resolveCursorInterfaceSnapshot(input: {
       auth,
       message,
       status,
+      version,
+      versionAdvisory: await resolveControllerVersionAdvisory({
+        checkedAt: input.baseSnapshot.checkedAt,
+        controllerId: input.baseSnapshot.controllerId,
+        currentVersion: version,
+        launchContract: input.launchContract,
+      }),
+    },
+  };
+}
+
+async function resolveGrokBuildInterfaceSnapshot(input: {
+  baseSnapshot: AgentControllerInterfaceSnapshot;
+  launchContract: RuntimeAgentControllerLaunchContract;
+}): Promise<AgentControllerInterfaceProbeOutcome> {
+  const [versionProbe, interfaceProbe] = await Promise.all([
+    runLaunchContractCommand({
+      args: ["--no-auto-update", "version"],
+      launchContract: input.launchContract,
+    }),
+    probeGrokBuildAcpInterface({
+      grokBuildTimeoutMs: PROBE_TIMEOUT_MS,
+      grokBuildWorkdir: process.cwd(),
+      launchContract: input.launchContract,
+    }).then(
+      (result) => ({ ok: true as const, result }),
+      (error: unknown) => ({ error, ok: false as const })
+    ),
+  ]);
+  const version = versionProbe.ok ? parseCliVersion(versionProbe.stdout) : null;
+  if (interfaceProbe.ok) {
+    return {
+      probeCompleted: true,
+      snapshot: {
+        ...input.baseSnapshot,
+        auth: {
+          label: "Grok account connected",
+          status: "authenticated",
+          type: interfaceProbe.result.authMethodId,
+        },
+        message: null,
+        models: interfaceProbe.result.models,
+        status: "ready",
+        version,
+        versionAdvisory: await resolveControllerVersionAdvisory({
+          checkedAt: input.baseSnapshot.checkedAt,
+          controllerId: input.baseSnapshot.controllerId,
+          currentVersion: version,
+          launchContract: input.launchContract,
+        }),
+      },
+    };
+  }
+
+  const unauthenticated =
+    interfaceProbe.error instanceof GrokBuildAcpTransportError &&
+    interfaceProbe.error.code === "auth.required";
+  return {
+    probeCompleted: unauthenticated,
+    snapshot: {
+      ...input.baseSnapshot,
+      auth: { status: unauthenticated ? "unauthenticated" : "unknown" },
+      message: unauthenticated
+        ? requireControllerSignInInterfaceDescription("grok-build")
+        : `OpenMeld could not read Grok Build's ACP status: ${toErrorMessage(
+            interfaceProbe.error
+          )}`,
+      status: unauthenticated ? "error" : "warning",
       version,
       versionAdvisory: await resolveControllerVersionAdvisory({
         checkedAt: input.baseSnapshot.checkedAt,

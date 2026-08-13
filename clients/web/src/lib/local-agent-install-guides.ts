@@ -4,6 +4,7 @@ export type LocalAgentInstallGuideId =
 	| "claude-code"
 	| "codex"
 	| "cursor"
+	| "grok-build"
 	| "opencode";
 
 export type LocalAgentInstallGuide = {
@@ -65,6 +66,22 @@ export const LOCAL_AGENT_INSTALL_GUIDES = {
 			"Cursor’s command-line coding agent, connected through its structured Agent Client Protocol interface.",
 		verifyCommand: "cursor-agent status",
 	},
+	"grok-build": {
+		agentId: "grok-build",
+		displayName: "Grok Build",
+		installSteps: [
+			"Install Grok Build with the official installer: curl -fsSL https://x.ai/cli/install.sh | bash",
+			"Open a project folder in Terminal and run grok login.",
+			"Complete Grok sign-in, then run grok once to confirm your account can start a session.",
+		],
+		officialDocsUrl: "https://docs.x.ai/build/overview",
+		officialInstallUrl: "https://docs.x.ai/build/overview",
+		postInstallNote:
+			"OpenMeld verifies Grok Build by finding a launchable grok executable and checking its version. OpenMeld uses your existing cached Grok sign-in and never opens a login browser from the background service.",
+		summary:
+			"xAI's terminal coding agent, connected through its Agent Client Protocol interface.",
+		verifyCommand: "grok --version",
+	},
 	opencode: {
 		agentId: "opencode",
 		displayName: "OpenCode",
@@ -87,6 +104,7 @@ export const LOCAL_AGENT_INSTALL_GUIDE_IDS = [
 	"codex",
 	"claude-code",
 	"cursor",
+	"grok-build",
 	"opencode",
 ] as const satisfies readonly LocalAgentInstallGuideId[];
 

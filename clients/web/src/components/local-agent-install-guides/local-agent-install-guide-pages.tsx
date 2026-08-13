@@ -35,9 +35,9 @@ export function LocalAgentInstallGuideIndexPage() {
 						</h1>
 						<p className="mt-5 max-w-2xl text-base text-muted-foreground leading-7">
 							OpenMeld connects agents that run on your computer. OpenMeld does
-							not install Codex, Claude Code, Cursor CLI, or OpenCode for you.
-							Install one agent CLI, complete its setup, then OpenMeld can
-							detect it and connect it to your Spaces.
+							not install Codex, Claude Code, Cursor CLI, Grok Build, or
+							OpenCode for you. Install one agent CLI, complete its setup, then
+							OpenMeld can detect it and connect it to your Spaces.
 						</p>
 
 						<div className="mt-8 flex flex-wrap gap-3">
@@ -67,7 +67,7 @@ export function LocalAgentInstallGuideIndexPage() {
 					</div>
 
 					<div
-						className="grid gap-4 text-sm sm:grid-cols-2 xl:grid-cols-4"
+						className="grid gap-4 text-sm sm:grid-cols-2 xl:grid-cols-5"
 						data-testid="local-agent-guide-grid"
 					>
 						{guides.map((guide) => (

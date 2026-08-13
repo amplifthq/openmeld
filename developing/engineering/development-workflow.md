@@ -746,6 +746,39 @@ Prepare Session, dispatch-owned Space Action, diagnostic, or D1 schemas.
   terminal outcome; rollback must not strand a provider waiter or rewrite
   RuntimeCoordinator state.
 
+### Grok Build Harness Contract Impact Audit
+
+Grok Build support adds one runtime registry controller, model-catalog entry,
+controller-native permission values, ACP conversation capability, CLI ACI
+definition, Service installer, and adapter package. It reuses the existing
+RuntimeAdapter, Agent Interaction, Binding, Runtime Transport, Space Action,
+diagnostic, and finalization envelopes. No existing daemon frame shape, Prepare
+Session shape, Runtime Transport contract epoch, Service contract version, CLI
+command contract version, or D1 schema changes.
+
+- Old cloud -> new local remains safe for existing controllers. The new Service
+  may detect and report Grok as an additional generic controller capability, but
+  old cloud cannot create a Grok Binding or permission intent it does not know.
+  Grok execution therefore stays unavailable rather than being misrouted.
+- New cloud -> old local remains safe. An old Service does not advertise or
+  install the Grok adapter, so Core readiness fails closed for a Grok-bound
+  profile while all previously supported controllers retain their existing
+  setup, Wake, status, trace, and Space Action behavior.
+- Deploy shared-schema consumers and the Core-served model catalog before
+  exposing Grok selection in Web/Gateway, then publish the CLI/Service producer.
+  The local release is advisory `available`, not `required`: users can continue
+  existing work without Grok, while a Grok-bound profile accurately remains
+  unavailable on an old Service.
+- No contract constant bump is required because the new strict permission enum
+  values are emitted only after their cloud receivers deploy, the controller
+  registration is additive, and all execution/result envelopes are unchanged.
+  The feature branch must use deferred release verification; version bump and
+  local-component manifest stamping happen only in the clean release worktree.
+- Rollback removes or disables the Grok local producer before rolling back the
+  shared cloud receivers/catalog. Any active Grok Wake must first reach one
+  explicit reply, stopped outcome, or failure; rollback must not reinterpret a
+  Grok ACP session as another controller or retry it through Headless JSON.
+
 ### Center Agent Local Agent Bridge Contract Impact Audit
 
 The Center Agent Local Agent bridge adds the `openmeld center-agent ask`
