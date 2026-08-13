@@ -8328,7 +8328,7 @@ describe("Remote Agent native delivery callback service", () => {
           meta: expect.objectContaining({
             errorCode: "remote_agent.execution_identity_mismatch",
           }),
-          text: "Center Agent couldn't safely continue this request. Try again or open diagnostics.",
+          text: "OpenMeld stopped this request because it could not confirm that the reply came from your Center Agent. Send the request again. If it keeps happening, open diagnostics in OpenMeld.",
         })
       );
     } finally {
@@ -8386,7 +8386,7 @@ describe("Remote Agent native delivery callback service", () => {
         failureCode: "remote_agent.callback_failure_publish_failed",
         finalPublicationPayload: {
           failureCode: "remote_agent.execution_identity_mismatch",
-          text: "Center Agent couldn't safely continue this request. Try again or open diagnostics.",
+          text: "OpenMeld stopped this request because it could not confirm that the reply came from your Center Agent. Send the request again. If it keeps happening, open diagnostics in OpenMeld.",
         },
         finalPublicationState: null,
         publishedSignalId: null,
@@ -8482,7 +8482,7 @@ describe("Remote Agent native delivery callback service", () => {
             errorCode: "remote_agent.callback_publish_failed",
             purpose: REMOTE_AGENT_FAILURE_PURPOSE,
           }),
-          text: "Center Agent finished the reply, but OpenMeld could not publish it here. Please try again or open diagnostics.",
+          text: "Center Agent finished your request, but OpenMeld could not show the reply here. Try again. If it keeps happening, open diagnostics in OpenMeld.",
         })
       );
       await expect(

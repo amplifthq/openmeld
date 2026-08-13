@@ -1,5 +1,6 @@
 import {
   buildOpenMeldNavigationAction,
+  CENTER_AGENT_ACCOUNT_CONNECTION_REQUIRED_PUBLIC_COPY,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
@@ -2769,7 +2770,7 @@ describe("Remote Agent Slack signal service", () => {
       expect(postBodies).toEqual([
         expect.objectContaining({
           channel: "C123",
-          text: "Link Slack before I perform that identity-owned action.",
+          text: CENTER_AGENT_ACCOUNT_CONNECTION_REQUIRED_PUBLIC_COPY,
           thread_ts: "1710000000.000100",
         }),
         expect.objectContaining({

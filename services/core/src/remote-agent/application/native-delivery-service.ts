@@ -7,6 +7,8 @@ import {
   buildOpenMeldOrganizationWebUrl,
   buildRemoteAgentCenterAgentTaskConversationId,
   buildSlackIdentityLinkNavigationAction,
+  CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
+  CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY,
   CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
   CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
@@ -465,8 +467,6 @@ const REMOTE_AGENT_EXECUTION_CANCELLED_FAILURE_CODE =
   "remote_agent.execution_cancelled";
 const REMOTE_AGENT_EXECUTION_IDENTITY_MISMATCH_FAILURE_CODE =
   "remote_agent.execution_identity_mismatch";
-const REMOTE_AGENT_EXECUTION_IDENTITY_MISMATCH_FAILURE_TEXT =
-  "Center Agent couldn't safely continue this request. Try again or open diagnostics.";
 export const REMOTE_AGENT_EXECUTION_RECONCILIATION_DELAY_MS = 5 * 60_000;
 export const REMOTE_AGENT_ROUTINE_SUBMISSION_RECOVERY_MIN_AGE_MS = 60_000;
 
@@ -523,8 +523,6 @@ const REMOTE_AGENT_CALLBACK_PUBLISH_FAILED_FAILURE_CODE =
   "remote_agent.callback_publish_failed";
 const REMOTE_AGENT_CALLBACK_FAILURE_PUBLISH_FAILED_FAILURE_CODE =
   "remote_agent.callback_failure_publish_failed";
-const REMOTE_AGENT_CALLBACK_PUBLISH_EXHAUSTED_FAILURE_TEXT =
-  "Center Agent finished the reply, but OpenMeld could not publish it here. Please try again or open diagnostics.";
 const REMOTE_AGENT_CALLBACK_PUBLICATION_IN_PROGRESS_REASON_CODE =
   "remote_agent.callback_publication_in_progress";
 const REMOTE_AGENT_CALLBACK_PUBLICATION_OUTCOME_UNKNOWN_REASON_CODE =
@@ -7468,6 +7466,11 @@ export async function completeRemoteAgentNativeDelivery(
 ): Promise<RemoteAgentCoreCallbackResponse> {
   const parsed = remoteAgentCoreCallbackBodySchema.safeParse(input);
   if (!parsed.success) {
+    console.warn("[core.remote_agent.native_delivery.callback_invalid]", {
+      event: CORE_LOG_EVENTS.coreInternalError,
+      issues: parsed.error.issues,
+      submissionId: input.submissionId,
+    });
     return remoteAgentCoreCallbackResponseSchema.parse({
       status: "rejected",
       reasonCode: "remote_agent.callback_invalid",
@@ -9405,7 +9408,7 @@ export async function processRemoteAgentNativeDeliveryDeadlineProbe(input: {
     delivery,
     env: input.env,
     failureCode: REMOTE_AGENT_CALLBACK_PUBLISH_FAILED_FAILURE_CODE,
-    failureMessage: REMOTE_AGENT_CALLBACK_PUBLISH_EXHAUSTED_FAILURE_TEXT,
+    failureMessage: CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY,
     logEventName:
       "[core.remote_agent.native_delivery.callback_publish_failure_notice_failed]",
     nowMs: input.nowMs,
@@ -9664,14 +9667,14 @@ async function publishExecutionIdentityMismatchFailure(input: {
   reasonCode: string;
   status: "expired" | "skipped";
 }> {
-  await completeRemoteAgentNativeDelivery(
+  const callbackResult = await completeRemoteAgentNativeDelivery(
     input.env,
     {
       agentProfileId: input.delivery.profileId,
       bindingId: input.delivery.bindingId,
       dispatchId: input.delivery.dispatchId,
       failureCode: REMOTE_AGENT_EXECUTION_IDENTITY_MISMATCH_FAILURE_CODE,
-      failureMessage: REMOTE_AGENT_EXECUTION_IDENTITY_MISMATCH_FAILURE_TEXT,
+      failureMessage: CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
       idempotencyKey: input.delivery.idempotencyKey,
       organizationId: input.delivery.organizationId,
       spaceId: input.delivery.spaceId,
@@ -9684,6 +9687,19 @@ async function publishExecutionIdentityMismatchFailure(input: {
       messageChannelProviderRegistry: input.messageChannelProviderRegistry,
     }
   );
+  if (callbackResult.status !== "accepted") {
+    console.warn(
+      "[core.remote_agent.native_delivery.execution_identity_mismatch_publication_deferred]",
+      {
+        callbackStatus: callbackResult.status,
+        dispatchId: input.delivery.dispatchId,
+        event: CORE_LOG_EVENTS.coreInternalError,
+        reasonCode: callbackResult.reasonCode ?? null,
+        submissionId: input.probe.submissionId,
+        targetProfileId: input.delivery.profileId,
+      }
+    );
+  }
   const current = await readRemoteAgentNativeDeliveryBySubmissionId({
     db: input.db,
     submissionId: input.probe.submissionId,

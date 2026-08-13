@@ -34,6 +34,10 @@ export const CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY =
   "This conversation has grown too long for Center Agent to continue in one request. Try again; OpenMeld will shorten older messages before continuing.";
 export const CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY =
   "This request was stopped.";
+export const CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY =
+  "OpenMeld stopped this request because it could not confirm that the reply came from your Center Agent. Send the request again. If it keeps happening, open diagnostics in OpenMeld.";
+export const CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY =
+  "Center Agent finished your request, but OpenMeld could not show the reply here. Try again. If it keeps happening, open diagnostics in OpenMeld.";
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE =
   "remote_agent.tool_result_too_large";
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY =
@@ -78,6 +82,10 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
       return CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY;
     case "remote_agent.turn.context_window_exceeded":
       return CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY;
+    case "remote_agent.execution_identity_mismatch":
+      return CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY;
+    case "remote_agent.callback_publish_failed":
+      return CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY;
     case REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE:
       return REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
