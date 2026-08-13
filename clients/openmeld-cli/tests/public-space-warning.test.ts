@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPublicSpaceBringAgentsConfirmPromptConfig,
   buildPublicSpaceJoinConfirmPromptConfig,
+  buildPublicSpacePasswordPromptConfig,
   resolvePublicSpaceExposure,
   resolveSpaceAccessLabel,
 } from "../src/ui/public-space-warning";
@@ -134,5 +135,23 @@ describe("public space warning prompt config", () => {
       ),
       vertical: true,
     });
+  });
+
+  it("explains the public create choice without internal security jargon", () => {
+    const config = buildPublicSpacePasswordPromptConfig({ minimumLength: 6 });
+
+    expect(config).toMatchObject({
+      setPasswordLabel: "Yes, require a password",
+      skipPasswordLabel: "No, anyone with the link can join",
+    });
+    expect(config.message).toContain("⚠️ Check Before You Continue");
+    expect(config.message).toContain(
+      "Without a password, anyone with this Space link can read what is shared here and join."
+    );
+    expect(config.message).toContain(
+      "With a password, anyone with the link can still read the Space, but only people with the password can join."
+    );
+    expect(config.message).not.toContain("data leakage");
+    expect(config.message).not.toContain("Space ID");
   });
 });

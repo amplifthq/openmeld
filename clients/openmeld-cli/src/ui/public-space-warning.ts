@@ -10,6 +10,12 @@ type PublicSpaceConfirmPromptConfig = {
   vertical: boolean;
 };
 
+export type PublicSpacePasswordPromptConfig = {
+  message: string;
+  setPasswordLabel: string;
+  skipPasswordLabel: string;
+};
+
 export type SpaceAccessPresentationInput = Pick<
   SpaceMeta,
   "accessMode" | "passwordProtected"
@@ -39,7 +45,7 @@ export function resolvePublicSpaceExposure(
 
 export function buildPublicSpaceWarningLines(
   exposure: PublicSpaceExposure
-): string[] {
+): [string, string] {
   const firstLine =
     exposure === "anyone_can_join"
       ? "Anyone with this Space link can read what is shared here and join."
@@ -107,13 +113,40 @@ export function buildPublicSpaceBringAgentsConfirmPromptConfig(input: {
   };
 }
 
+export function buildPublicSpacePasswordPromptConfig(input: {
+  minimumLength: number;
+}): PublicSpacePasswordPromptConfig {
+  return {
+    message: buildPublicSpacePromptCardMessage({
+      lines: [
+        "Without a password, anyone with this Space link can read what is shared here and join.",
+        "With a password, anyone with the link can still read the Space, but only people with the password can join.",
+        `Passwords must be at least ${input.minimumLength} characters.`,
+      ],
+      question: "Require a password to join?",
+    }),
+    setPasswordLabel: "Yes, require a password",
+    skipPasswordLabel: "No, anyone with the link can join",
+  };
+}
+
 function buildPublicSpacePromptMessage(
   question: string,
   exposure: PublicSpaceExposure
 ): string {
+  return buildPublicSpacePromptCardMessage({
+    lines: buildPublicSpaceWarningLines(exposure),
+    question,
+  });
+}
+
+function buildPublicSpacePromptCardMessage(input: {
+  lines: string[];
+  question: string;
+}): string {
   const frame = buildUnifiedCardFrame({
     title: PUBLIC_SPACE_WARNING_TITLE,
-    rowTextList: buildPublicSpaceWarningLines(exposure),
+    rowTextList: input.lines,
     minContentWidth: 76,
   });
   return [
@@ -122,6 +155,6 @@ function buildPublicSpacePromptMessage(
     ...frame.rows,
     frame.empty,
     frame.bottom,
-    question,
+    input.question,
   ].join("\n");
 }

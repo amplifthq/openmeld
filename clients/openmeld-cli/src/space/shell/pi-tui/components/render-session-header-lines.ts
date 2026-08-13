@@ -4,6 +4,7 @@ import stringWidth from "string-width";
 import wrapAnsi from "wrap-ansi";
 import { renderOpenMeldBrandAccent } from "../../../../ui/brand";
 import { renderPositiveAccentText } from "../../../../ui/positive-accent";
+import { buildPublicSpaceWarningLines } from "../../../../ui/public-space-warning";
 import type {
   SessionHeaderDocumentBlockViewState,
   SpaceSummaryFactsViewState,
@@ -16,8 +17,7 @@ const SUMMARY_ROW_GAP = 2;
 const SEPARATOR_CHAR = "─";
 const DEFAULT_SPACE_NAME = "Untitled Space";
 const CURRENT_SPACE_PREFIX = "Current Space › ";
-const PUBLIC_SPACE_HINT =
-  "Untrusted space. Anyone with this Space ID can join.";
+const PUBLIC_SPACE_HINT = buildPublicSpaceWarningLines("anyone_can_join")[0];
 const MEMBERS_ONLY_SPACE_HINT = "Only current members can open this Space.";
 const PASSWORD_SPACE_HINT = "A password is required for access.";
 

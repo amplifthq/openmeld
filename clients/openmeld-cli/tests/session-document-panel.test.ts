@@ -101,7 +101,7 @@ describe("SessionDocumentPanel", () => {
     );
     expect(renderedLines.join("\n")).toContain("⚠️ Anyone with the link");
     expect(renderedLines.join("\n")).toContain(
-      "Untrusted space. Anyone with this Space ID can join."
+      "Anyone with this Space link can read what is shared here and join."
     );
     expect(renderedLines.join("\n")).toContain(
       `v ${getCliVersionInfo().version}`

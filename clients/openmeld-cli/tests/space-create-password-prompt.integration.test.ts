@@ -260,24 +260,35 @@ describe("space create password prompt", () => {
 
       expect(selectMock).toHaveBeenCalledTimes(1);
       const selectInput = selectMock.mock.calls[0]?.[0] as
-        | { message?: string }
+        | {
+            message?: string;
+            options?: Array<{ label?: string; value?: string }>;
+          }
         | undefined;
+      expect(selectInput?.message).toContain("⚠️ Check Before You Continue");
       expect(selectInput?.message).toContain(
-        "🔐 Password Protection (Optional)"
+        "Without a password, anyone with this Space link can read what is shared here and join."
       );
       expect(selectInput?.message).toContain(
-        "If you choose No, this space stays public."
+        "With a password, anyone with the link can still read the Space, but only people with the password can join."
       );
       expect(selectInput?.message).toContain(
-        "Anyone with this Space ID can join and chat with its agents."
+        "Passwords must be at least 6 characters."
       );
-      expect(selectInput?.message).toContain(
-        "This may cause data leakage and other security risks."
-      );
-      expect(selectInput?.message).toContain("Set password protection now?");
-      expect(selectInput?.message).toContain("Password Rule:");
-      expect(selectInput?.message).toContain(
-        "at least 6 characters; numbers, letters, and symbols are allowed."
+      expect(selectInput?.message).toContain("Require a password to join?");
+      expect(selectInput?.message).not.toContain("data leakage");
+      expect(selectInput?.message).not.toContain("Space ID");
+      expect(selectInput?.options).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            label: "Yes, require a password",
+            value: "set",
+          }),
+          expect.objectContaining({
+            label: "No, anyone with the link can join",
+            value: "skip",
+          }),
+        ])
       );
       expect(selectInput?.message).toContain("┐");
       expect(selectInput?.message).toContain("┘");
@@ -676,6 +687,10 @@ describe("space create password prompt", () => {
         )
         .find((line) => line.code === "space.create.password.optional_hint");
       expect(hintEnvelope?.text).toContain("Password is optional");
+      expect(hintEnvelope?.text).toContain(
+        "anyone with the Space link can read what is shared here and join"
+      );
+      expect(hintEnvelope?.text).not.toContain("Space ID");
       expect(hintEnvelope?.text).toContain("at least 6 characters");
       expect(hintEnvelope?.text).toContain("--password <value>");
       expect(hintEnvelope?.data?.command).toBe(
@@ -871,7 +886,7 @@ describe("space create password prompt", () => {
       expect(selectMock).toHaveBeenNthCalledWith(
         3,
         expect.objectContaining({
-          message: expect.stringContaining("🔐 Password Protection (Optional)"),
+          message: expect.stringContaining("⚠️ Check Before You Continue"),
         })
       );
     });
