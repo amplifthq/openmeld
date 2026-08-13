@@ -799,8 +799,8 @@ describe("PiTuiInteractiveSpaceShell", () => {
     expect(output).toContain(spaceId);
     expect(output).toContain("👥 2 · 1 live human · type /members to check");
     expect(output).toContain("⚠️ Anyone with the link");
-    expect(output).toContain(
-      "Untrusted space. Anyone with this Space ID can join."
+    expect(output.replace(/\s+/g, " ")).toContain(
+      "Anyone with this Space link can read what is shared here and join."
     );
     expect(output).not.toContain("- Felix (human):");
     shell.stop();
@@ -929,8 +929,8 @@ describe("PiTuiInteractiveSpaceShell", () => {
     );
     expect(output).toContain("👥 2 · 1 live human · type /members to check");
     expect(output).toContain("⚠️ Anyone with the link");
-    expect(output).toContain(
-      "Untrusted space. Anyone with this Space ID can join."
+    expect(output.replace(/\s+/g, " ")).toContain(
+      "Anyone with this Space link can read what is shared here and join."
     );
     expect(output).not.toContain("🛰️ Space Info");
     expect(output).not.toContain("👥 Space Members");
@@ -1037,9 +1037,7 @@ describe("PiTuiInteractiveSpaceShell", () => {
     const plainOutput = stripVTControlCharacters(output).replaceAll("\r", "");
     const firstTranscriptIndex = plainOutput.indexOf("20260314 15:40:00");
     expect(
-      plainOutput.indexOf(
-        "Untrusted space. Anyone with this Space ID can join."
-      )
+      plainOutput.indexOf("Anyone with this Space link can read")
     ).toBeLessThan(firstTranscriptIndex);
     expect(plainOutput).not.toContain("📣 System");
     expect(plainOutput).not.toContain("15:42 · 👤 Mengyao Li · left");
@@ -1130,8 +1128,8 @@ describe("PiTuiInteractiveSpaceShell", () => {
       "👥 2 · 1 live human · type /members to check"
     );
     expect(withStatusOutput).toContain("⚠️ Anyone with the link");
-    expect(withStatusOutput).toContain(
-      "Untrusted space. Anyone with this Space ID can join."
+    expect(withStatusOutput.replace(/\s+/g, " ")).toContain(
+      "Anyone with this Space link can read what is shared here and join."
     );
     expect(withStatusOutput).toContain(COMPOSER_HELPER_TEXT);
     shell.stop();

@@ -62,9 +62,11 @@ vi.mock("../src/config/auth-session", async () => {
 
 vi.mock("../src/space/command", () => {
   return {
-    buildCreateSpacePasswordPromptMessage: vi.fn(
-      () => "Set password protection now?"
-    ),
+    buildCreateSpacePasswordPromptConfig: vi.fn(() => ({
+      message: "Require a password to open and join?",
+      setPasswordLabel: "Yes, require a password to open and join",
+      skipPasswordLabel: "No, anyone with the link can join",
+    })),
     promptAndConfirmSpacePassword: (...args: unknown[]) =>
       promptAndConfirmSpacePasswordMock(...args),
     runSpaceJoin: (...args: unknown[]) => runSpaceJoinMock(...args),

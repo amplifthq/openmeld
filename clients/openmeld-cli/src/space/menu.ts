@@ -12,7 +12,7 @@ import { createPresenter } from "../runtime/presenter";
 import { promptTextEntry } from "../ui/text-entry";
 import { emitSpaceAgentOverview } from "./agent-overview";
 import {
-  buildCreateSpacePasswordPromptMessage,
+  buildCreateSpacePasswordPromptConfig,
   promptAndConfirmSpacePassword,
   runSpaceAddMembers,
   runSpaceCreate,
@@ -353,16 +353,17 @@ async function promptSpaceMenuCreatePassword(): Promise<
   | { status: "cancelled" }
 > {
   for (;;) {
+    const promptConfig = buildCreateSpacePasswordPromptConfig();
     const action = await select({
-      message: buildCreateSpacePasswordPromptMessage(),
+      message: promptConfig.message,
       options: [
         {
           value: "set",
-          label: "Set password now",
+          label: promptConfig.setPasswordLabel,
         },
         {
           value: "skip",
-          label: "No password for now",
+          label: promptConfig.skipPasswordLabel,
         },
         {
           value: "back",
