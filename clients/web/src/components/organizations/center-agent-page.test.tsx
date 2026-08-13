@@ -228,7 +228,7 @@ describe("CenterAgentPage", () => {
 		expect(screen.getByText("Connect a Center Agent")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Choose a Remote Agent in Center Agent settings before starting this conversation."
+				"Connect your Center Agent in Center Agent settings before starting this conversation."
 			)
 		).toBeTruthy();
 		expect(

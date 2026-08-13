@@ -1,8 +1,7 @@
 import { isHostedCenterAgentControllerRef } from "@openmeld/schemas";
 
 const OPENMELD_REMOTE_AGENT_CONTROLLER_DISPLAY = "Remote Agent";
-const OPENMELD_REMOTE_AGENT_CONTROL_LABEL =
-	"Controlled by OpenMeld Remote Agent";
+const OPENMELD_REMOTE_AGENT_CONTROL_LABEL = "Hosted by OpenMeld";
 
 export function formatSpaceAgentControlLabel(input: {
 	agentControllerRef: string | null;

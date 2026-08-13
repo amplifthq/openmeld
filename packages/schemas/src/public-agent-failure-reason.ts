@@ -30,6 +30,10 @@ export const CENTER_AGENT_TEMPORARILY_UNAVAILABLE_PUBLIC_COPY =
   "Center Agent isn't available right now. Try again in a moment.";
 export const CENTER_AGENT_ORGANIZATION_UNAVAILABLE_PUBLIC_COPY =
   "Center Agent is unavailable for this Organization. Ask an Organization owner or admin for help.";
+export const CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY =
+  "This conversation has grown too long for Center Agent to continue in one request. Try again; OpenMeld will shorten older messages before continuing.";
+export const CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY =
+  "This request was stopped.";
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE =
   "remote_agent.tool_result_too_large";
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY =
@@ -38,7 +42,6 @@ export const REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE =
   "remote_agent.conversation_history_limit_exceeded";
 export const REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY =
   "Center Agent could not continue this conversation automatically. Try again or open diagnostics.";
-const REMOTE_AGENT_INTERNAL_PRODUCT_NAME_RE = /\bRemote Agent\b/i;
 const EXACT_PATTERN_PREFIX = "=";
 const RUNTIME_PERMISSION_DENIAL_PUBLIC_COPY =
   "The requested action was blocked by the Agent Profile’s permission settings. Review its permissions and choose a less restrictive mode only if you trust the access it grants, then wake the agent again.";
@@ -68,17 +71,22 @@ export function resolveCenterAgentCallbackFailureMessage(input: {
   failureCode: string;
   failureMessage: string;
 }): string {
-  if (input.failureCode === "remote_agent.empty_assistant_response") {
-    return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
+  switch (input.failureCode) {
+    case "remote_agent.empty_assistant_response":
+      return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
+    case "remote_agent.execution_cancelled":
+      return CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY;
+    case "remote_agent.turn.context_window_exceeded":
+      return CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY;
+    case REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE:
+      return REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY;
+    case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
+      return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
+    case "remote_agent.turn_not_completed":
+      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
+    default:
+      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
   }
-  if (input.failureCode === "remote_agent.turn_not_completed") {
-    return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
-  }
-  const message = input.failureMessage.trim();
-  if (!message || REMOTE_AGENT_INTERNAL_PRODUCT_NAME_RE.test(message)) {
-    return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
-  }
-  return message;
 }
 
 const DISPATCH_ERROR_REDACTION_REPLACEMENTS: readonly [RegExp, string][] = [
@@ -367,21 +375,21 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     },
     {
       availabilityBadgeLabel: "Available",
-      availabilitySummary: "Remote Agent can answer now.",
-      availabilityTooltip: "Remote Agent available",
+      availabilitySummary: "Center Agent can answer now.",
+      availabilityTooltip: "Center Agent available",
       patterns: ["=remote_agent.available"],
     },
     {
       availabilityBadgeLabel: "Resting",
       availabilitySummary:
-        "Remote Agent is resting until the next budget window.",
-      availabilityTooltip: "Remote Agent resting",
+        "Center Agent is resting until the next budget window.",
+      availabilityTooltip: "Center Agent resting",
       patterns: ["=remote_agent.budget_resting"],
     },
     {
       availabilityBadgeLabel: "Unavailable",
-      availabilitySummary: "Remote Agent cannot answer right now.",
-      availabilityTooltip: "Remote Agent unavailable",
+      availabilitySummary: "Center Agent cannot answer right now.",
+      availabilityTooltip: "Center Agent unavailable",
       patterns: ["remote_agent."],
     },
     {

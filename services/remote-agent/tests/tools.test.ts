@@ -780,11 +780,9 @@ describe("remote agent OpenMeld tool catalog", () => {
         boundary: "identity_owned",
         requestedAction: "Create an OpenMeld Space",
       })
-    ).resolves.toEqual({
-      boundary: "identity_owned",
-      identityRequired: true,
-      requestedAction: "Create an OpenMeld Space",
-    });
+    ).rejects.toThrow(
+      "Message Channel identity linking is not available until Core supports this action."
+    );
     await expect(
       readRemoteAgentCallbackContext(storage, ACK.submissionId)
     ).resolves.toMatchObject({

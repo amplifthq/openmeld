@@ -58,6 +58,10 @@ export {
   isLegacyAgentActivityWorkCompatible,
   resolveCommandAgentWorkActivity,
 } from "./agent-work-activity";
+export {
+  CENTER_AGENT_ACCOUNT_CONNECTION_REQUIRED_PUBLIC_COPY,
+  resolveCenterAgentCompletedCallbackMessage,
+} from "./center-agent-publication-copy";
 export { toLegacySpaceAddressingWireValue } from "./compatibility/legacy-space-addressing-wire";
 export {
   buildOpenMeldNavigationAction,
@@ -74,10 +78,12 @@ export {
   openMeldWebUrlSchema,
 } from "./navigation-action";
 export {
+  CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
   CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
   CENTER_AGENT_ORGANIZATION_UNAVAILABLE_PUBLIC_COPY,
   CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
   CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
+  CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY,
   CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY,
   CENTER_AGENT_TEMPORARILY_UNAVAILABLE_PUBLIC_COPY,
   CODEX_UPGRADE_REQUIRED_REASON,

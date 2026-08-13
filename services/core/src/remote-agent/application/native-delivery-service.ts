@@ -27,6 +27,7 @@ import {
   type remoteAgentWorkerSubmitMessagesResultSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   resolveCenterAgentCallbackFailureMessage,
+  resolveCenterAgentCompletedCallbackMessage,
   routineWorkflowContinuationEventPayloadSchema,
   spaceMessageAttachmentsSchema,
 } from "@openmeld/schemas";
@@ -7444,6 +7445,22 @@ async function reconcileRetiredDeadlineFailureForCallback(input: {
   return reopened;
 }
 
+function canonicalizeRemoteAgentCallbackBody(
+  body: RemoteAgentCoreCallbackBody
+): RemoteAgentCoreCallbackBody {
+  if (isRemoteAgentFailedCallback(body)) {
+    return {
+      ...body,
+      failureDetail: body.failureDetail ?? body.failureMessage,
+      failureMessage: resolveCenterAgentCallbackFailureMessage(body),
+    };
+  }
+  return {
+    ...body,
+    text: resolveCenterAgentCompletedCallbackMessage(body),
+  };
+}
+
 export async function completeRemoteAgentNativeDelivery(
   env: CoreBindings,
   input: RemoteAgentCoreCallbackBody,
@@ -7456,6 +7473,7 @@ export async function completeRemoteAgentNativeDelivery(
       reasonCode: "remote_agent.callback_invalid",
     });
   }
+  const body = canonicalizeRemoteAgentCallbackBody(parsed.data);
   const db = wakeEvidenceDb(env);
   if (!db) {
     return remoteAgentCoreCallbackResponseSchema.parse({
@@ -7465,7 +7483,7 @@ export async function completeRemoteAgentNativeDelivery(
   }
   const nowMs = options.messageChannelNowMs?.() ?? Date.now();
   let delivery = await resolveRemoteAgentCallbackDelivery({
-    body: parsed.data,
+    body,
     db,
     nowMs,
   });
@@ -7489,12 +7507,12 @@ export async function completeRemoteAgentNativeDelivery(
     await markRemoteAgentCallbackRejected({
       db,
       failureCode: REMOTE_AGENT_ROUTINE_TARGET_RECOVERY_BLOCKED_CODE,
-      idempotencyKey: parsed.data.idempotencyKey,
+      idempotencyKey: body.idempotencyKey,
       nowMs,
-      submissionId: parsed.data.submissionId,
+      submissionId: body.submissionId,
     });
     await projectRemoteAgentCallbackRejectedTask({
-      body: parsed.data,
+      body,
       db,
       env,
       nowMs,
@@ -7504,17 +7522,17 @@ export async function completeRemoteAgentNativeDelivery(
       status: "rejected",
     });
   }
-  const mismatchReason = resolveCallbackMismatchReason(delivery, parsed.data);
+  const mismatchReason = resolveCallbackMismatchReason(delivery, body);
   if (mismatchReason) {
     await markRemoteAgentCallbackRejected({
       db,
       nowMs,
-      submissionId: parsed.data.submissionId,
-      idempotencyKey: parsed.data.idempotencyKey,
+      submissionId: body.submissionId,
+      idempotencyKey: body.idempotencyKey,
       failureCode: mismatchReason,
     });
     await projectRemoteAgentCallbackRejectedTask({
-      body: parsed.data,
+      body,
       db,
       env,
       nowMs,
@@ -7525,13 +7543,13 @@ export async function completeRemoteAgentNativeDelivery(
     });
   }
   delivery = await reconcileRetiredDeadlineFailureForCallback({
-    body: parsed.data,
+    body,
     db,
     delivery,
     nowMs,
   });
   const taskStopSettlement = await trySettleCenterAgentTaskStopCallback({
-    body: parsed.data,
+    body,
     db,
     delivery,
     env,
@@ -7545,14 +7563,14 @@ export async function completeRemoteAgentNativeDelivery(
     delivery.finalPublicationState === "outcome_unknown"
   ) {
     return await resolveRemoteAgentFinalPublicationClaimConflict({
-      body: parsed.data,
+      body,
       db,
       env,
       nowMs,
     });
   }
   const settledCallbackReplay = await resolveRemoteAgentSettledCallbackReplay({
-    body: parsed.data,
+    body,
     db,
     delivery,
     env,
@@ -7566,8 +7584,8 @@ export async function completeRemoteAgentNativeDelivery(
     await markRemoteAgentCallbackRejected({
       db,
       nowMs,
-      submissionId: parsed.data.submissionId,
-      idempotencyKey: parsed.data.idempotencyKey,
+      submissionId: body.submissionId,
+      idempotencyKey: body.idempotencyKey,
       failureCode: "remote_agent.callback_submission_not_incomplete",
     });
     return remoteAgentCoreCallbackResponseSchema.parse({
@@ -7578,7 +7596,7 @@ export async function completeRemoteAgentNativeDelivery(
 
   const messageChannelResult =
     await tryCompleteRemoteAgentMessageChannelCallback({
-      body: parsed.data,
+      body,
       db,
       delivery,
       env,
@@ -7589,7 +7607,7 @@ export async function completeRemoteAgentNativeDelivery(
   }
 
   const workflowRoutingResult = await routeRoutineWorkflowCallback({
-    body: parsed.data,
+    body,
     bypass: options.bypassRoutineWorkflowRouting ?? false,
     db,
     delivery,
@@ -7602,7 +7620,7 @@ export async function completeRemoteAgentNativeDelivery(
 
   const routineIntermediateResult =
     await tryCompleteRemoteAgentRoutineIntermediateCallback({
-      body: parsed.data,
+      body,
       db,
       delivery,
       env,
@@ -7623,7 +7641,7 @@ export async function completeRemoteAgentNativeDelivery(
     })
   ) {
     return await completeRemoteAgentMemberResearchCallback({
-      body: parsed.data,
+      body,
       db,
       delivery,
       nowMs,
@@ -7638,7 +7656,7 @@ export async function completeRemoteAgentNativeDelivery(
     })
   ) {
     return await settleRemoteAgentStoppedCallback({
-      body: parsed.data,
+      body,
       db,
       delivery,
       env,
@@ -7646,9 +7664,9 @@ export async function completeRemoteAgentNativeDelivery(
     });
   }
 
-  if (isRemoteAgentFailedCallback(parsed.data)) {
+  if (isRemoteAgentFailedCallback(body)) {
     return await completeRemoteAgentFailedCallback({
-      body: parsed.data,
+      body,
       db,
       delivery,
       env,
@@ -7657,7 +7675,7 @@ export async function completeRemoteAgentNativeDelivery(
   }
 
   return await completeRemoteAgentCompletedCallback({
-    body: parsed.data,
+    body,
     db,
     delivery,
     env,
@@ -8724,7 +8742,7 @@ function buildRemoteAgentFinalPublicationPayload(input: {
     text:
       input.body.status === "failed"
         ? resolveCenterAgentCallbackFailureMessage(input.body)
-        : input.body.text,
+        : resolveCenterAgentCompletedCallbackMessage(input.body),
   };
 }
 

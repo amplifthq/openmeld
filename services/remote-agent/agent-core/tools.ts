@@ -760,7 +760,9 @@ async function executeMessageChannelIdentityNavigationAction(input: {
     speakerMember.messageChannelIdentity.provider === "slack" &&
     authorization.slackIdentityLinkSupported;
   if (!(providerNeutralSupport || legacySlackSupport)) {
-    return null;
+    throw new Error(
+      "Message Channel identity linking is not available until Core supports this action."
+    );
   }
   if (authorization.messageChannelAccountTargetSupported) {
     await authorizeAnonymousMemberToolAtCore({
@@ -1050,7 +1052,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           toolContext,
         });
         return {
-          ...(navigation ?? {}),
+          ...navigation,
           boundary: request.boundary,
           identityRequired: true,
           requestedAction: request.requestedAction,
@@ -1084,11 +1086,6 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
               submissionId: input.submissionId,
               toolContext,
             });
-          if (!navigation) {
-            throw new Error(
-              "Message Channel identity linking is not available until Core supports this action."
-            );
-          }
           return navigation;
         }
         const organizationWebUrl = turnEnvelope?.organization.webUrl;

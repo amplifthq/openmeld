@@ -117,7 +117,7 @@ describe("CenterAgentAuditJournalPanel", () => {
 		expect(screen.getAllByText("Center Agent · Project")).toHaveLength(6);
 	});
 
-	it("labels a member Service-status read without exposing device details", async () => {
+	it("labels a member computer-status check without exposing device details", async () => {
 		listCurrentCenterAgentAuditJournalMock.mockResolvedValue({
 			entries: [
 				{
@@ -144,7 +144,9 @@ describe("CenterAgentAuditJournalPanel", () => {
 			</QueryClientProvider>
 		);
 
-		expect(await screen.findByText("Read member Service status")).toBeTruthy();
+		expect(
+			await screen.findByText("Checked member computer status")
+		).toBeTruthy();
 		expect(screen.queryByText("Felix's MacBook")).toBeNull();
 	});
 

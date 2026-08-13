@@ -344,7 +344,7 @@ describe("CenterAgentSettingsContent", () => {
 		renderSettings({ canManage: true });
 
 		fireEvent.click(
-			await screen.findByRole("button", { name: "Connect Remote Agent" })
+			await screen.findByRole("button", { name: "Connect Center Agent" })
 		);
 
 		await waitFor(() => {

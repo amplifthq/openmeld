@@ -3973,7 +3973,7 @@ describe("space-members-service", () => {
       label: "Available for Wake",
       reasonCode: "remote_agent.available",
       status: "available_for_wake",
-      summary: "Remote Agent can answer now.",
+      summary: "Center Agent can answer now.",
     });
     expect(
       JSON.stringify(hostedCenterAgent?.agentWakeAvailability)

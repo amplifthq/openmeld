@@ -1085,7 +1085,10 @@ action when Core advertises provider-neutral handoff support. Directory lookup
 and the read-only navigation tool may refine that action only when one existing
 member is clearly the same person; they are not required to make the generic
 handoff exist. The public reply names only the blocked user action and points to
-the private message. It never mentions tools, catalogs, sessions, routes, or
+the private message. Core, rather than the model, owns this fixed public reply.
+If the receiver does not yet support the private action, the caller fails with
+an observable capability gap instead of claiming that a nonexistent message
+was sent. It never mentions tools, catalogs, sessions, routes, or
 permission infrastructure. Core issues the one-time link only while publishing
 the exact Message Channel delivery. Core confirms the task result first, then
 publishes the private setup action. If required setup guidance must be retried,

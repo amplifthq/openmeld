@@ -1070,7 +1070,7 @@ describe("Remote Agent Routine native delivery", () => {
         meta: expect.objectContaining({
           errorCode: "remote_agent.daily_quota_exceeded",
         }),
-        text: "Routine “Daily feedback review” could not run because the Organization has reached its daily Remote Agent request limit. The limit resets at 00:00 UTC.",
+        text: "Routine “Daily feedback review” could not run because the Organization has reached its daily Center Agent request limit. The limit resets at 00:00 UTC.",
       })
     );
     const failedRun = await readRoutineRunRecord({

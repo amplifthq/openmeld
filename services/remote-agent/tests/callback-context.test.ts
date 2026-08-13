@@ -288,10 +288,12 @@ describe("remote agent callback context", () => {
       },
     });
 
-    expect(callback.failureMessage).toBe(
-      "Center Agent didn't return a reply. Try again. If it keeps happening, open diagnostics in OpenMeld."
-    );
-    expect(callback.failureMessage).not.toContain("Remote Agent");
+    expect(callback).toMatchObject({
+      failureMessage:
+        "Center Agent didn't return a reply. Try again. If it keeps happening, open diagnostics in OpenMeld.",
+      status: "failed",
+    });
+    expect(JSON.stringify(callback)).not.toContain("Remote Agent");
   });
 
   it("extracts only successful assistant text for Core completion callbacks", () => {
@@ -724,7 +726,7 @@ describe("remote agent callback context", () => {
         failureCode: "remote_agent.turn.context_window_exceeded",
         failureDetail: providerError,
         failureMessage:
-          "This conversation became too large for the selected model. Wake the agent again; OpenMeld will compact the conversation before retrying.",
+          "This conversation has grown too long for Center Agent to continue in one request. Try again; OpenMeld will shorten older messages before continuing.",
         status: "failed",
         submissionId: ACK.submissionId,
       })

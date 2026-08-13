@@ -1760,8 +1760,10 @@ but not trigger.
    blocks, and worker submission failures must surface on that conversation's
    result surface as a visible failure. A member-authored trigger must never
    silently disappear. Core owns all failure and system copy; the worker
-   produces successful answers only. Failure copy names Center Agent, the
-   user's request, and one next action; it never exposes the hosted runtime's
+   produces successful answers only. Core maps only known failure codes to
+   approved public copy; an unknown code always uses the generic request-failed
+   copy, while the worker detail remains diagnostic-only. Failure copy names
+   Center Agent, the user's request, and one next action; it never exposes the hosted runtime's
    internal product name or asks the user to understand tools, catalogs,
    sessions, routes, provider configuration, or permission infrastructure.
    `outcome_unknown` is the fail-closed
@@ -1770,7 +1772,11 @@ but not trigger.
    deduplication window ends. Core preserves it for diagnostics and does not
    risk creating a second provider reply automatically.
    Completed and failed callbacks both use the applicable pre-publication fence
-   before recording a terminal delivery. Routine branches additionally use the
+   before recording a terminal delivery. For an identity-required Message
+   Channel result, Core also replaces the worker's completed text with one fixed
+   account-connection explanation before publication, task projection, or
+   memory. Model-written infrastructure explanations are never the public
+   fallback. Routine branches additionally use the
    Run id as the Space publication idempotency key.
    An accepted native delivery has no fixed total execution deadline. The
    admission watchdog applies only before a real worker ACK; accepted/running

@@ -55,7 +55,18 @@ describe("public agent failure reason mapping", () => {
         failureCode: "provider.rate_limited",
         failureMessage: "The model provider is busy. Try again in a moment.",
       })
-    ).toBe("The model provider is busy. Try again in a moment.");
+    ).toBe(
+      "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "provider.some_new_failure",
+        failureMessage:
+          "This turn's active tool catalog does not include Space management tools.",
+      })
+    ).toBe(
+      "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+    );
   });
 
   it("reduces raw vendor response bodies to a bounded diagnostic summary", () => {
@@ -990,12 +1001,12 @@ describe("public agent failure reason mapping", () => {
       "center_agent.designation_required",
       "Connect the Center Agent before waking it from this Space.",
     ],
-    ["remote_agent.available", "Remote Agent can answer now."],
+    ["remote_agent.available", "Center Agent can answer now."],
     [
       "remote_agent.budget_resting",
-      "Remote Agent is resting until the next budget window.",
+      "Center Agent is resting until the next budget window.",
     ],
-    ["remote_agent.unavailable", "Remote Agent cannot answer right now."],
+    ["remote_agent.unavailable", "Center Agent cannot answer right now."],
     ["agent_execution.ready", "Can reply from this computer in Spaces."],
     [
       "agent_execution.check_status",

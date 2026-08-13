@@ -2,6 +2,7 @@ import {
   buildOpenMeldNavigationAction,
   type NavigationAction,
   resolveCenterAgentCallbackFailureMessage,
+  resolveCenterAgentCompletedCallbackMessage,
 } from "@openmeld/schemas";
 import type {
   RemoteAgentCoreCallbackBody,
@@ -1002,7 +1003,7 @@ function buildFinalPublicationPayload(input: {
     text:
       input.body.status === "failed"
         ? resolveCenterAgentCallbackFailureMessage(input.body)
-        : input.body.text,
+        : resolveCenterAgentCompletedCallbackMessage(input.body),
   });
   if (content.attachments.length > 0) {
     throw new Error(

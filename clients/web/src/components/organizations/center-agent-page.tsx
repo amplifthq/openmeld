@@ -276,8 +276,8 @@ function CenterAgentConnectRequiredPage(input: { organizationSlug: string }) {
 						Connect a Center Agent
 					</p>
 					<p className="text-muted-foreground text-sm">
-						Choose a Remote Agent in Center Agent settings before starting this
-						conversation.
+						Connect your Center Agent in Center Agent settings before starting
+						this conversation.
 					</p>
 				</div>
 				<Link

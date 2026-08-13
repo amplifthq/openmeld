@@ -299,7 +299,7 @@ describe("agent wake availability", () => {
       phase: "available",
       reasonCode: "remote_agent.available",
       status: "available_for_wake",
-      summary: "Remote Agent can answer now.",
+      summary: "Center Agent can answer now.",
     });
     expect(JSON.stringify(availability)).not.toContain("OpenMeld Service");
     expect(JSON.stringify(availability)).not.toContain("Update");
