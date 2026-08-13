@@ -331,6 +331,7 @@ describe("remote agent callback context", () => {
       "The openmeld_create_space tool is unavailable in this session.",
       "I couldn't create the Space because the tools are not enabled for this session.",
       "I couldn't create the Space because the action requires a verified OpenMeld member identity.",
+      "This action requires a verified OpenMeld member identity.",
     ]) {
       expect(sanitizeCenterAgentCompletedTextForPublication(unsafeReply)).toBe(
         "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
