@@ -140,6 +140,12 @@ export function buildAgentSessionMetaPayload(input: {
   visibility?: SpaceMeta["visibility"];
 }): Record<string, unknown> {
   const access = resolveSpaceAccessLabel(input);
+  let security: "Secure" | "Public" | "Unknown" = "Unknown";
+  if (input.passwordProtected === true) {
+    security = "Secure";
+  } else if (input.passwordProtected === false) {
+    security = "Public";
+  }
 
   const payload: Record<string, unknown> = {
     type: "system.session.meta",
@@ -148,7 +154,7 @@ export function buildAgentSessionMetaPayload(input: {
     profileId: input.profileId,
     profileName: input.profileName,
     access,
-    security: access === "unknown" ? "Unknown" : access,
+    security,
     spaceId: input.spaceId,
   };
 

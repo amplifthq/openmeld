@@ -3079,7 +3079,7 @@ describe("connect experience enhancements", () => {
           : ""
       ).toContain("v ");
       expect(summaryFacts?.spaceId).toBe("ops-room");
-      expect(summaryFacts?.accessLabel).toBe("private");
+      expect(summaryFacts?.accessLabel).toBe("anyone with the link");
     } finally {
       if (stdoutTtyDescriptor) {
         Object.defineProperty(process.stdout, "isTTY", stdoutTtyDescriptor);

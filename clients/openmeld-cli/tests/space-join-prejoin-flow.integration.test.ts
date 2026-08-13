@@ -809,11 +809,9 @@ describe("space join pre-join flow", () => {
     ).toEqual(["no", "yes"]);
     expect(confirmMock).toHaveBeenCalledTimes(1);
     expect(confirmMock.mock.calls[0]?.[0]).toMatchObject({
-      active: "Yes and join (I know this is public and may be unsafe.)",
-      inactive: "No and cancel (I don't want to join.)",
-      message: expect.stringContaining(
-        "Do you still want to join this public space?"
-      ),
+      active: "Yes, join this Space",
+      inactive: "No, go back",
+      message: expect.stringContaining("Do you want to join this Space?"),
       initialValue: true,
       vertical: true,
     });
@@ -1185,20 +1183,20 @@ describe("space join pre-join flow", () => {
     expect(runConnectMock).toHaveBeenCalledTimes(1);
     expect(confirmInputs).toHaveLength(2);
     expect(confirmInputs[0]?.message).toContain(
-      "Do you still want to join this public space?"
+      "Do you want to join this Space?"
     );
     expect(confirmInputs[0]).toMatchObject({
-      active: "Yes and join (I know this is public and may be unsafe.)",
-      inactive: "No and cancel (I don't want to join.)",
+      active: "Yes, join this Space",
+      inactive: "No, go back",
       initialValue: true,
       vertical: true,
     });
     expect(confirmInputs[1]?.message).toContain(
-      "Do you want to bring this agent profile into this public space?"
+      "Bring this agent into a Space that anyone with the link can read?"
     );
     expect(confirmInputs[1]).toMatchObject({
-      active: "Yes and bring it (I know this is public and may be unsafe.)",
-      inactive: "No and join without it (I don't want to bring it.)",
+      active: "Yes, bring this agent",
+      inactive: "No, join without this agent",
       initialValue: true,
       vertical: true,
     });

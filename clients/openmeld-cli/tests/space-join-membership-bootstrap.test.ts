@@ -245,7 +245,7 @@ describe("space join membership bootstrap", () => {
         baseUrl: "http://localhost:8080",
         space:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        publicSpace: true,
+        publicExposure: "anyone_can_join",
         canPromptPreJoinActions: true,
         skipBringProfilesPrompt: true,
         allowBackToTargetSelection: true,
@@ -269,7 +269,7 @@ describe("space join membership bootstrap", () => {
         baseUrl: "http://localhost:8080",
         space:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        publicSpace: true,
+        publicExposure: "anyone_can_join",
         canPromptPreJoinActions: false,
         skipBringProfilesPrompt: false,
         allowBackToTargetSelection: true,
@@ -297,7 +297,7 @@ describe("space join membership bootstrap", () => {
         baseUrl: "http://localhost:8080",
         space:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        publicSpace: true,
+        publicExposure: "anyone_can_join",
         canPromptPreJoinActions: true,
         skipBringProfilesPrompt: false,
         allowBackToTargetSelection: true,
@@ -321,7 +321,7 @@ describe("space join membership bootstrap", () => {
         baseUrl: "http://localhost:8080",
         space:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        publicSpace: true,
+        publicExposure: "anyone_can_join",
         canPromptPreJoinActions: true,
         skipBringProfilesPrompt: false,
         allowBackToTargetSelection: true,
@@ -358,7 +358,7 @@ describe("space join membership bootstrap", () => {
         baseUrl: "http://localhost:8080",
         space:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        publicSpace: true,
+        publicExposure: "anyone_can_join",
         canPromptPreJoinActions: true,
         skipBringProfilesPrompt: false,
         allowBackToTargetSelection: false,
@@ -466,7 +466,7 @@ describe("space join membership bootstrap", () => {
         baseUrl: "http://localhost:8080",
         space:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        publicSpace: false,
+        publicExposure: null,
         canPromptPreJoinActions: true,
         skipBringProfilesPrompt: false,
         allowBackToTargetSelection: false,
@@ -560,7 +560,7 @@ describe("space join membership bootstrap", () => {
         baseUrl: "http://localhost:8080",
         space:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        publicSpace: false,
+        publicExposure: null,
         canPromptPreJoinActions: true,
         skipBringProfilesPrompt: false,
         allowBackToTargetSelection: false,
@@ -617,7 +617,7 @@ describe("space join membership bootstrap", () => {
         baseUrl: "http://localhost:8080",
         space:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        publicSpace: false,
+        publicExposure: null,
         canPromptPreJoinActions: true,
         skipBringProfilesPrompt: false,
         allowBackToTargetSelection: false,
@@ -664,7 +664,7 @@ describe("space join membership bootstrap", () => {
         baseUrl: "http://localhost:8080",
         space:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-        publicSpace: false,
+        publicExposure: null,
         canPromptPreJoinActions: true,
         skipBringProfilesPrompt: false,
         allowBackToTargetSelection: false,
@@ -679,7 +679,7 @@ describe("space join membership bootstrap", () => {
     expect(cancelMock).toHaveBeenCalledWith("Cancelled.");
   });
 
-  it("filters only agent candidates when public-space agent confirmation is declined", async () => {
+  it("filters only agent candidates when anyone can read and confirmation is declined", async () => {
     const presenter = createPresenter();
     const dependencies = createDependencies();
     dependencies.applySpaceAddMembers.mockResolvedValueOnce({
@@ -703,7 +703,7 @@ describe("space join membership bootstrap", () => {
         space:
           "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         password: "space-secret",
-        publicSpace: true,
+        publicExposure: "anyone_can_view",
         canPromptPreJoinActions: true,
         skipBringProfilesPrompt: false,
         allowBackToTargetSelection: false,
@@ -729,6 +729,13 @@ describe("space join membership bootstrap", () => {
     expect(presenter.line).toHaveBeenCalledWith(
       expect.objectContaining({
         code: "space.add_members.public_agent_skipped",
+      })
+    );
+    expect(confirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining(
+          "Anyone with this Space link can read what is shared here. A password is required to join."
+        ),
       })
     );
   });
@@ -761,7 +768,7 @@ describe("space join membership bootstrap", () => {
           baseUrl: "http://localhost:8080",
           space:
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-          publicSpace: false,
+          publicExposure: null,
           canPromptPreJoinActions: true,
           skipBringProfilesPrompt: false,
           allowBackToTargetSelection: false,

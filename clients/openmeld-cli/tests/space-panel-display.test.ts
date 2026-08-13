@@ -26,12 +26,12 @@ describe("space panel display", () => {
     expect(lines.some((line) => line.includes("    Space Creator"))).toBe(true);
     expect(
       lines.indexOf(
-        "⚠ Public space: anyone with this Space ID can join. Only bring trusted agents."
+        "Anyone with this Space link can read what is shared here and join."
       )
     ).toBeLessThan(lines.indexOf("Join command"));
     expect(lines).toContain("Join command");
     expect(lines).toContain(
-      "⚠ Public space: anyone with this Space ID can join. Only bring trusted agents."
+      "Anyone with this Space link can read what is shared here and join."
     );
   });
 
@@ -194,7 +194,7 @@ function createPanelViewState(
           kind: "lines",
           lines: [
             pc.yellow(
-              "⚠ Public space: anyone with this Space ID can join. Only bring trusted agents."
+              "Anyone with this Space link can read what is shared here and join."
             ),
           ],
         },

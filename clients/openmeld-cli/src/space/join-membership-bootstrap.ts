@@ -17,7 +17,10 @@ import type { createPresenter } from "../runtime/presenter/index";
 import { resolveCurrentReplyReadinessSnapshot } from "../system/current-reply-readiness-snapshot";
 import { buildReplyReadinessGuidance } from "../system/reply-readiness-guidance";
 import { renderInfoCard } from "../ui/info-card";
-import { buildPublicSpaceBringAgentsConfirmPromptConfig } from "../ui/public-space-warning";
+import {
+  buildPublicSpaceBringAgentsConfirmPromptConfig,
+  type PublicSpaceExposure,
+} from "../ui/public-space-warning";
 import {
   promptSearchMultiselectWorkbench,
   type SearchPromptFooterAction,
@@ -193,7 +196,7 @@ export async function resolveSpaceJoinMembershipBootstrap(
     baseUrl: string;
     space: string;
     password?: string;
-    publicSpace: boolean;
+    publicExposure: PublicSpaceExposure | null;
     canPromptPreJoinActions: boolean;
     skipBringProfilesPrompt: boolean;
     allowBackToTargetSelection: boolean;
@@ -233,7 +236,7 @@ export async function resolveSpaceJoinMembershipBootstrap(
         baseUrl: input.baseUrl,
         space: input.space,
         password: input.password,
-        publicSpace: input.publicSpace,
+        publicExposure: input.publicExposure,
         resolvedView: input.resolvedView,
         presenter: input.presenter,
         workbenchState,
@@ -257,7 +260,7 @@ async function runJoinAddMembersFlowBeforeConnect(
     baseUrl: string;
     space: string;
     password?: string;
-    publicSpace: boolean;
+    publicExposure: PublicSpaceExposure | null;
     resolvedView: "human" | "agent";
     presenter: JoinMembershipBootstrapPresenter;
     workbenchState: SpaceJoinProfileWorkbenchState;
@@ -365,7 +368,7 @@ async function runJoinAddMembersFlowBeforeConnect(
         space: input.space,
         ownerUserId: input.openMeldProfile.ownerUserId,
         password: input.password,
-        publicSpace: input.publicSpace,
+        publicExposure: input.publicExposure,
         resolvedView: input.resolvedView,
         presenter: input.presenter,
         workbenchState,
@@ -567,7 +570,7 @@ async function runJoinWorkbenchSelectionBeforeConnect(
     space: string;
     ownerUserId?: string;
     password?: string;
-    publicSpace: boolean;
+    publicExposure: PublicSpaceExposure | null;
     resolvedView: "human" | "agent";
     presenter: JoinMembershipBootstrapPresenter;
     workbenchState: SpaceJoinProfileWorkbenchState;
@@ -629,7 +632,7 @@ async function runJoinWorkbenchSelectionBeforeConnect(
       baseUrl: input.baseUrl,
       space: input.space,
       password: input.password,
-      publicSpace: input.publicSpace,
+      publicExposure: input.publicExposure,
       resolvedView: input.resolvedView,
       presenter: input.presenter,
       selectedCandidates,
@@ -1084,7 +1087,7 @@ async function applySelectedSpaceAddMembersBeforeJoin(
     baseUrl: string;
     space: string;
     password?: string;
-    publicSpace: boolean;
+    publicExposure: PublicSpaceExposure | null;
     resolvedView: "human" | "agent";
     presenter: JoinMembershipBootstrapPresenter;
     selectedCandidates: SpaceJoinMembershipCandidate[];
@@ -1095,7 +1098,7 @@ async function applySelectedSpaceAddMembersBeforeJoin(
   const confirmedCandidates =
     await filterAgentCandidatesForPublicSpaceBeforeJoin({
       candidates: input.selectedCandidates,
-      publicSpace: input.publicSpace,
+      publicExposure: input.publicExposure,
     });
   if (confirmedCandidates.status === "cancelled") {
     return input.cancelResult;
@@ -1105,7 +1108,7 @@ async function applySelectedSpaceAddMembersBeforeJoin(
       confirmedCandidates.skippedAgentCount === 1 ? "profile" : "profiles";
     input.presenter.line({
       code: "space.add_members.public_agent_skipped",
-      text: `Skipped ${String(confirmedCandidates.skippedAgentCount)} agent ${profileLabel} for this public space.`,
+      text: `Skipped ${String(confirmedCandidates.skippedAgentCount)} agent ${profileLabel} because anyone with the link can read this Space.`,
       data: {
         spaceId: input.space,
         skippedAgentCount: confirmedCandidates.skippedAgentCount,
@@ -1161,7 +1164,7 @@ async function applySelectedSpaceAddMembersBeforeJoin(
 
 async function filterAgentCandidatesForPublicSpaceBeforeJoin(input: {
   candidates: SpaceJoinMembershipCandidate[];
-  publicSpace: boolean;
+  publicExposure: PublicSpaceExposure | null;
 }): Promise<
   | {
       status: "ready";
@@ -1170,7 +1173,7 @@ async function filterAgentCandidatesForPublicSpaceBeforeJoin(input: {
     }
   | { status: "cancelled" }
 > {
-  if (!input.publicSpace) {
+  if (!input.publicExposure) {
     return {
       status: "ready",
       candidates: input.candidates,
@@ -1192,6 +1195,7 @@ async function filterAgentCandidatesForPublicSpaceBeforeJoin(input: {
   const confirmed = await confirm({
     ...buildPublicSpaceBringAgentsConfirmPromptConfig({
       agentCount: agentCandidates.length,
+      exposure: input.publicExposure,
     }),
     initialValue: true,
   });

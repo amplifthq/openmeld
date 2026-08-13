@@ -1,15 +1,7 @@
 import type { SpaceMeta } from "@openmeld/protocol";
 import { buildUnifiedCardFrame } from "./card-frame";
 
-const PUBLIC_SPACE_WARNING_TITLE = "⚠️ Public Space Warning";
-const PUBLIC_SPACE_WARNING_LINES = [
-  "⚠️ Public space: anyone with this Space ID can join. Treat it as untrusted.",
-  "⚠️ Be careful, and only bring your own agents here in a trusted environment.",
-] as const;
-const PUBLIC_SPACE_JOIN_CONFIRM_LABELS = {
-  active: "Yes and join (I know this is public and may be unsafe.)",
-  inactive: "No and cancel (I don't want to join.)",
-} as const;
+const PUBLIC_SPACE_WARNING_TITLE = "⚠️ Check Before You Continue";
 
 type PublicSpaceConfirmPromptConfig = {
   active: string;
@@ -24,18 +16,38 @@ export type SpaceAccessPresentationInput = Pick<
 > &
   Partial<Pick<SpaceMeta, "visibility">>;
 
-export function isPublicSpace(input: SpaceAccessPresentationInput): boolean {
-  if (input.accessMode) {
-    return input.accessMode === "public";
+export type PublicSpaceExposure = "anyone_can_join" | "anyone_can_view";
+
+export function resolvePublicSpaceExposure(
+  input: SpaceAccessPresentationInput
+): PublicSpaceExposure | null {
+  switch (input.accessMode) {
+    case "public":
+      return "anyone_can_join";
+    case "public_view_join_password":
+      return "anyone_can_view";
+    case "members_only":
+    case "protected":
+      return null;
+    default:
+      // Older Space metadata did not include accessMode. Organization
+      // visibility is independent of link access, so the legacy password fact
+      // is the only safe compatibility signal here.
+      return input.passwordProtected === false ? "anyone_can_join" : null;
   }
-  if (input.visibility) {
-    return input.visibility === "public" && input.passwordProtected === false;
-  }
-  return input.passwordProtected === false;
 }
 
-export function buildPublicSpaceWarningLines(): string[] {
-  return [...PUBLIC_SPACE_WARNING_LINES];
+export function buildPublicSpaceWarningLines(
+  exposure: PublicSpaceExposure
+): string[] {
+  const firstLine =
+    exposure === "anyone_can_join"
+      ? "Anyone with this Space link can read what is shared here and join."
+      : "Anyone with this Space link can read what is shared here. A password is required to join.";
+  return [
+    firstLine,
+    "Only bring an agent if you're comfortable sharing anything it posts with people who have the link.",
+  ];
 }
 
 export function resolveSpaceAccessLabel(
@@ -54,25 +66,22 @@ export function resolveSpaceAccessLabel(
       if (input.passwordProtected === true) {
         return "password required";
       }
-      if (
-        input.visibility === "public" ||
-        (input.visibility === undefined && input.passwordProtected === false)
-      ) {
+      if (input.passwordProtected === false) {
         return "anyone with the link";
-      }
-      if (input.visibility === "private") {
-        return "private";
       }
       return "unknown";
   }
 }
 
-export function buildPublicSpaceJoinConfirmPromptConfig(): PublicSpaceConfirmPromptConfig {
+export function buildPublicSpaceJoinConfirmPromptConfig(input: {
+  exposure: PublicSpaceExposure;
+}): PublicSpaceConfirmPromptConfig {
   return {
-    active: PUBLIC_SPACE_JOIN_CONFIRM_LABELS.active,
-    inactive: PUBLIC_SPACE_JOIN_CONFIRM_LABELS.inactive,
+    active: "Yes, join this Space",
+    inactive: "No, go back",
     message: buildPublicSpacePromptMessage(
-      "Do you still want to join this public space?"
+      "Do you want to join this Space?",
+      input.exposure
     ),
     vertical: true,
   };
@@ -80,28 +89,31 @@ export function buildPublicSpaceJoinConfirmPromptConfig(): PublicSpaceConfirmPro
 
 export function buildPublicSpaceBringAgentsConfirmPromptConfig(input: {
   agentCount: number;
+  exposure: PublicSpaceExposure;
 }): PublicSpaceConfirmPromptConfig {
   const singular = input.agentCount === 1;
   return {
-    active: singular
-      ? "Yes and bring it (I know this is public and may be unsafe.)"
-      : "Yes and bring them (I know this is public and may be unsafe.)",
+    active: singular ? "Yes, bring this agent" : "Yes, bring these agents",
     inactive: singular
-      ? "No and join without it (I don't want to bring it.)"
-      : "No and join without them (I don't want to bring them.)",
+      ? "No, join without this agent"
+      : "No, join without these agents",
     message: buildPublicSpacePromptMessage(
       singular
-        ? "Do you want to bring this agent profile into this public space?"
-        : "Do you want to bring these agent profiles into this public space?"
+        ? "Bring this agent into a Space that anyone with the link can read?"
+        : "Bring these agents into a Space that anyone with the link can read?",
+      input.exposure
     ),
     vertical: true,
   };
 }
 
-function buildPublicSpacePromptMessage(question: string): string {
+function buildPublicSpacePromptMessage(
+  question: string,
+  exposure: PublicSpaceExposure
+): string {
   const frame = buildUnifiedCardFrame({
     title: PUBLIC_SPACE_WARNING_TITLE,
-    rowTextList: [...PUBLIC_SPACE_WARNING_LINES],
+    rowTextList: buildPublicSpaceWarningLines(exposure),
     minContentWidth: 76,
   });
   return [

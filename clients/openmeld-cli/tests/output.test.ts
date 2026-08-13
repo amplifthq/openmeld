@@ -2190,14 +2190,14 @@ describe("output", () => {
     expect(
       plainLines.some((line) =>
         line.includes(
-          "Public space: anyone with this Space ID can join. Treat it as untrusted."
+          "Anyone with this Space link can read what is shared here and join."
         )
       )
     ).toBe(true);
     expect(
       plainLines.some((line) =>
         line.includes(
-          "Be careful, and only bring your own agents here in a trusted environment."
+          "Only bring an agent if you're comfortable sharing anything it posts with people who have the link."
         )
       )
     ).toBe(true);
@@ -2218,7 +2218,7 @@ describe("output", () => {
     expect(
       plainLines.some((line) =>
         line.includes(
-          "Public space: anyone with this Space ID can join. Treat it as untrusted."
+          "Anyone with this Space link can read what is shared here and join."
         )
       )
     ).toBe(false);

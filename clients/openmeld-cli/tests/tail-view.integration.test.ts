@@ -312,7 +312,7 @@ describe("tail view mode", () => {
         ownerName: OWNER_NAME,
         access: "members only",
         accessMode: "members_only",
-        security: "members only",
+        security: "Public",
         spaceId: "demo",
         spaceName: "Demo",
         visibility: "private",

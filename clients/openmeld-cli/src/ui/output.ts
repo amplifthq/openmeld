@@ -56,7 +56,7 @@ import {
 } from "./profile-label-color";
 import {
   buildPublicSpaceWarningLines,
-  isPublicSpace,
+  resolvePublicSpaceExposure,
   resolveSpaceAccessLabel,
 } from "./public-space-warning";
 import {
@@ -342,6 +342,7 @@ export function buildSpaceInfoData(input: SpaceInfoCardInput): SpaceInfoData {
     passwordProtected: input.passwordProtected,
     visibility: input.visibility,
   };
+  const publicExposure = resolvePublicSpaceExposure(accessFacts);
   const gatewayUrl = sanitizeTrimmedSingleLineText(input.gatewayUrl);
   const metadataFacts = buildSpaceMetadataFields({
     projection,
@@ -395,8 +396,8 @@ export function buildSpaceInfoData(input: SpaceInfoCardInput): SpaceInfoData {
     joinCommand: formatOpenMeldCliCommand(
       `openmeld space join ${input.spaceId}`
     ),
-    publicWarningLines: isPublicSpace(accessFacts)
-      ? buildPublicSpaceWarningLines()
+    publicWarningLines: publicExposure
+      ? buildPublicSpaceWarningLines(publicExposure)
       : [],
   };
 }
