@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJson from "../package.json";
-import { resolveCliBinaryUpdatePlan } from "../src/runtime/cli-binary-update-artifact";
+import {
+  resolveCliBinaryUpdatePlan,
+  verifyCliBinaryCodeSignature,
+} from "../src/runtime/cli-binary-update-artifact";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 import { seedVersionState } from "./helpers/version";
 
@@ -249,6 +252,8 @@ describe("openmeld upgrade in binary distribution", () => {
   });
 
   it("uses a small exact-base delta and verifies the reconstructed signed binary", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("darwin");
+
     await withTempHome(async (home) => {
       await seedVersionState(home);
       const baseBytes = Buffer.from(
@@ -348,6 +353,35 @@ describe("openmeld upgrade in binary distribution", () => {
         "--json",
       ]);
     });
+  });
+
+  it("refuses to bypass signed binary verification outside macOS", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    const artifactBytes = Buffer.from("signed OpenMeld binary\n", "utf8");
+    const manifest = buildBinaryManifest(artifactBytes, {
+      codeIdentifier: "sh.openmeld.cli",
+      teamIdentifier: "38FFHDPA3B",
+    });
+    const platform = currentPlatformToken();
+    const platformRelease = manifest.channels.stable.platforms[platform];
+    if (!platformRelease) {
+      throw new Error("expected current platform release");
+    }
+    const runCommand = vi.fn();
+
+    await expect(
+      verifyCliBinaryCodeSignature({
+        artifactPath: "/tmp/openmeld",
+        release: {
+          ...platformRelease,
+          minRequiredCliVersion: manifest.channels.stable.minRequiredCliVersion,
+          platform,
+          version: manifest.channels.stable.version,
+        },
+        runCommand,
+      })
+    ).rejects.toThrow("signed OpenMeld CLI verification requires macOS");
+    expect(runCommand).not.toHaveBeenCalled();
   });
 
   it("reports an unreadable base before falling back to the full archive", async () => {
