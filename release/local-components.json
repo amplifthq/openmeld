@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-13T07:01:54.020Z",
+  "updatedAt": "2026-08-13T10:43:11.790Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.51",
+      "packageVersion": "0.3.52",
       "updatePolicy": "available",
-      "reason": "Ship trusted Center Agent attribution and user-friendly failure recovery as an advisory update."
+      "reason": "Ship Grok 4.6 as the Center Agent default with catalog-driven model badges."
     },
     "service": {
-      "bundleHash": "f421086ad1ad78657ae3297b8ee6210e9f71ad338622cae84530642fe350ce87",
-      "bundleVersion": "0.3.51",
+      "bundleHash": "f4367e945e4ef1859acea331c69757b1035170b46c21d2ec2f40f4ba1f472276",
+      "bundleVersion": "0.3.52",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Ship trusted Center Agent attribution and user-friendly failure recovery as an advisory update."
+      "reason": "Ship Grok 4.6 as the Center Agent default with catalog-driven model badges."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Ship trusted Center Agent attribution and user-friendly failure recovery as an advisory update."
+      "reason": "Ship Grok 4.6 as the Center Agent default with catalog-driven model badges."
     }
   }
 }
