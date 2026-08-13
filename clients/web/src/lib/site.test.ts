@@ -12,13 +12,27 @@ describe("site metadata", () => {
 	it("uses specific homepage metadata instead of repeating the brand", () => {
 		const head = buildPublicPageHead();
 		const title = readTitle(head);
+		const description =
+			"Open-source operating system for agent-native teams of people and machines. Connect local agents, shared context, and team workflows in one place.";
 
-		expect(title).toBe("OpenMeld | Cloud Agentic Loop Workspace");
+		expect(title).toBe("OpenMeld | Operating System for Agent-Native Teams");
 		expect(title).not.toBe("OpenMeld - OpenMeld");
+		expect(readMetaName(head, "description")).toBe(description);
 		expect(readCanonical(head)).toBe(siteConfig.url);
 		expect(readMetaName(head, "robots")).toBe(siteConfig.robots);
 		expect(readMetaProperty(head, "og:url")).toBe(siteConfig.url);
+		expect(readMetaProperty(head, "og:description")).toBe(description);
+		expect(readMetaProperty(head, "og:image")).toBe(
+			"https://openmeld.ai/brand/openmeld-letter-o-glow-black-1024.jpg"
+		);
+		expect(readMetaProperty(head, "og:image:alt")).toBe("OpenMeld");
+		expect(readMetaName(head, "twitter:card")).toBe("summary");
 		expect(readMetaName(head, "twitter:title")).toBe(title);
+		expect(readMetaName(head, "twitter:description")).toBe(description);
+		expect(readMetaName(head, "twitter:image")).toBe(
+			"https://openmeld.ai/brand/openmeld-letter-o-glow-black-1024.jpg"
+		);
+		expect(readMetaName(head, "twitter:image:alt")).toBe("OpenMeld");
 	});
 
 	it("formats route-specific public page metadata consistently", () => {

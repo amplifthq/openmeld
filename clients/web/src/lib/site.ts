@@ -7,6 +7,7 @@ const LEADING_SLASH_REGEX = /^\/+/;
 type PublicPageHeadOptions = {
 	description?: string;
 	image?: string;
+	imageAlt?: string;
 	includeCanonical?: boolean;
 	includeRobots?: boolean;
 	path?: string;
@@ -36,16 +37,17 @@ const siteUrl = normalizeSiteUrl(import.meta.env.VITE_SITE_URL);
 
 export const siteConfig = {
 	name: "OpenMeld",
-	title: "OpenMeld | Cloud Agentic Loop Workspace",
+	title: "OpenMeld | Operating System for Agent-Native Teams",
 	description:
-		"Coordinate humans, Spaces, and connected AI agents through one cloud workspace, then bring each reply or failure back into your team's collaboration loop.",
+		"Open-source operating system for agent-native teams of people and machines. Connect local agents, shared context, and team workflows in one place.",
 	keywords:
-		"OpenMeld, AI agents, agentic workspace, cloud workspace, Codex, Claude Code, Cursor, OpenCode, team collaboration",
+		"OpenMeld, open-source operating system, agent-native teams, AI agents, local agents, Center Agent, agent collaboration, Slack",
 	robots:
 		"index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1",
 	url: siteUrl,
-	ogImage: "/opengraph-image",
-	twitterImage: "/twitter-image",
+	ogImage: "/brand/openmeld-letter-o-glow-black-1024.jpg",
+	socialImageAlt: "OpenMeld",
+	twitterImage: "/brand/openmeld-letter-o-glow-black-1024.jpg",
 } as const;
 
 function normalizePath(path: string | undefined): string {
@@ -80,6 +82,7 @@ export function buildPublicPageHead(options: PublicPageHeadOptions = {}) {
 	const description = options.description?.trim() || siteConfig.description;
 	const canonicalUrl = resolveSiteUrl(options.path);
 	const ogImageUrl = resolveSiteUrl(options.image ?? siteConfig.ogImage);
+	const imageAlt = options.imageAlt?.trim() || siteConfig.socialImageAlt;
 	const robots = options.robots?.trim() || siteConfig.robots;
 	const twitterImageUrl = resolveSiteUrl(
 		options.twitterImage ?? options.image ?? siteConfig.twitterImage
@@ -123,8 +126,12 @@ export function buildPublicPageHead(options: PublicPageHeadOptions = {}) {
 				content: ogImageUrl,
 			},
 			{
+				property: "og:image:alt",
+				content: imageAlt,
+			},
+			{
 				name: "twitter:card",
-				content: "summary_large_image",
+				content: "summary",
 			},
 			{
 				name: "twitter:title",
@@ -137,6 +144,10 @@ export function buildPublicPageHead(options: PublicPageHeadOptions = {}) {
 			{
 				name: "twitter:image",
 				content: twitterImageUrl,
+			},
+			{
+				name: "twitter:image:alt",
+				content: imageAlt,
 			},
 		],
 		links:
