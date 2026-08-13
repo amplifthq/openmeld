@@ -16,6 +16,19 @@ describe("model catalog schema", () => {
       expect(result.data.agentControllers.codex?.defaultModelId).toBe(
         "gpt-5.5"
       );
+      expect(result.data.agentControllers["grok-build"]).toMatchObject({
+        defaultModelId: "grok-4.6",
+        models: [
+          {
+            id: "grok-4.6",
+            supportedReasoningLevels: ["low", "medium", "high", "xhigh"],
+          },
+          {
+            id: "grok-4.5",
+            supportedReasoningLevels: ["low", "medium", "high"],
+          },
+        ],
+      });
 
       for (const [id, displayName, supportedReasoningLevels] of [
         [

@@ -229,7 +229,7 @@ The destinations resolve in that group order:
    relationship in plain language such as **Uses Codex on Felix's MacBook Pro**.
    The managed Center Agent remains in the separate Center Agent product home.
 7. **Computers** — the first-level home for computers connected to OpenMeld and
-   the Codex, Claude Code, Cursor, OpenCode, or other supported local tools
+   the Codex, Claude Code, Grok Build, Cursor, OpenCode, or other supported local tools
    available on each one. Its canonical routes are `/o/{orgSlug}/computers`
    and `/o/{orgSlug}/computers/{deviceId}`. In a personal workspace it shows
    the signed-in member's computer inventory. In an Organization workspace it
@@ -1942,7 +1942,7 @@ Agent. It derives the artwork from
 `openmeld-dither-profile-avatar:v1:{profileKind}:{profileId}`. Human Profiles
 add initials and keep an uploaded image authoritative; the Center Agent adds the
 generic agent glyph and always shows the generated artwork. Ordinary Agent
-Profiles keep the bound Codex, Claude Code, Cursor, or OpenCode logo, with the generic
+Profiles keep the bound Codex, Claude Code, Grok Build, Cursor, or OpenCode logo, with the generic
 agent fallback when the controller is unknown or unbound. An unresolved
 placeholder must stay a placeholder instead of inventing a generated Profile
 seed. Authenticated Space surfaces resolve the Center Agent from the current
@@ -2115,7 +2115,7 @@ inner failure, and their lifecycle or error never appear. A final collapsed
 summary names one failed admitted step directly, or shows a failure count with
 a details cue when several steps failed. Runtime permission denials remain
 explicit Wake outcomes with the shared Agent Profile permission recovery across
-Codex, Claude Code, Cursor, OpenCode, and future controllers. A work row must
+Codex, Claude Code, Grok Build, Cursor, OpenCode, and future controllers. A work row must
 not infer permission guidance from a generic command-tool error, and Web never
 changes permissions automatically. Because every message in a one-to-one Center
 Agent Direct Message implicitly wakes the Center Agent, its source message omits

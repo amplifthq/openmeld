@@ -1,5 +1,6 @@
 import { isAbsolute } from "node:path";
 import { buildAgentControllerRef } from "@openmeld/agent-runtime";
+import { compareAgentControllerRefsForDisplay } from "@openmeld/schemas";
 import type { RuntimeAgentControllerLaunchContract } from "@openmeld/schemas/types";
 import {
   createDefaultRuntimeAgentControllerSettings,
@@ -153,7 +154,9 @@ export async function loadAgentCatalog(): Promise<AgentCatalog> {
       }
       return resolveTargetSelectability(entry).selectable;
     })
-    .sort((left, right) => left.agentId.localeCompare(right.agentId));
+    .sort((left, right) =>
+      compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
+    );
 
   return {
     detectedBuiltins,
@@ -388,7 +391,7 @@ export async function listAgentTargetStates(): Promise<AgentTargetState[]> {
   }
 
   return [...stateById.values()].sort((left, right) =>
-    left.agentId.localeCompare(right.agentId)
+    compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
   );
 }
 
@@ -458,7 +461,9 @@ export async function reconcileNewRunnableBuiltinAgentsForSetup(
   const states = input.states ?? (await listAgentTargetStates());
   const runnableBuiltins = states
     .filter(isRunnableBuiltinForAutomaticSetup)
-    .sort((left, right) => left.agentId.localeCompare(right.agentId));
+    .sort((left, right) =>
+      compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
+    );
   const result: SetupLocalAgentRegistrationReconciliation = {
     registeredAgentIds: [],
     preservedDisabledAgentIds: [],

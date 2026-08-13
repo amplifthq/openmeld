@@ -14,10 +14,8 @@ import {
   CardHeader,
   CardTitle,
 } from "#components/card";
-import {
-  hasLocalAgentLogo,
-  LocalAgentLogo,
-} from "#components/local-agent-logo";
+import { LocalAgentLogo } from "#components/local-agent-logo";
+import { hasLocalAgentLogo } from "#components/local-agent-logo-utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "#components/tooltip";
 import {
   Accordion,

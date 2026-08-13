@@ -74,9 +74,9 @@ const STEP_COPY: Record<
 	},
 	"local-agents": {
 		description:
-			"Connect this computer if you want OpenMeld to send work to Codex, Claude Code, Cursor, or OpenCode.",
+			"Connect this computer if you want OpenMeld to send work to Codex, Claude Code, Grok Build, Cursor, or OpenCode.",
 		eyebrow: "This computer",
-		title: "Use Codex or Claude Code with OpenMeld",
+		title: "Use your local agents with OpenMeld",
 	},
 	organization: {
 		description:

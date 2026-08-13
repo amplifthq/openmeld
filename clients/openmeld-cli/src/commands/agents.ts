@@ -4,6 +4,7 @@ import {
   buildAgentControllerRef,
   createAgentControllerInterfaceDisplayRows,
 } from "@openmeld/agent-runtime";
+import { compareAgentControllerRefsForDisplay } from "@openmeld/schemas";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
 import pc from "picocolors";
 import { emitAgentsAgentOverview } from "../agents/agent-overview";
@@ -749,7 +750,9 @@ async function resolveAgentsChoiceState(): Promise<{
     .flatMap((candidate) =>
       candidate.registration ? [candidate.registration] : []
     )
-    .sort((left, right) => left.agentId.localeCompare(right.agentId));
+    .sort((left, right) =>
+      compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
+    );
   return {
     registrations,
     enableCandidates,
@@ -2062,7 +2065,9 @@ export async function runAgentsList(input: AgentsBaseInput): Promise<void> {
   const registrations = states
     .filter(hasAgentRegistration)
     .map((state) => buildAgentRegistrationAgentView(state))
-    .sort((left, right) => left.agentId.localeCompare(right.agentId));
+    .sort((left, right) =>
+      compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
+    );
   const payload = {
     registrations,
     count: registrations.length,

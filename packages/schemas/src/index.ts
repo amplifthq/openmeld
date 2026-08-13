@@ -14,6 +14,8 @@ export type {
 export {
   BUILTIN_AGENT_CONTROLLER_BRAND_IDS,
   BUILTIN_AGENT_CONTROLLER_BRANDS,
+  BUILTIN_AGENT_CONTROLLER_DISPLAY_ORDER,
+  compareAgentControllerRefsForDisplay,
   isBuiltinAgentControllerBrandId,
   resolveBuiltinAgentControllerBrand,
 } from "./agent-controller-brand";

@@ -132,6 +132,11 @@ providers are Codex App/CLI, Claude Code CLI, Cursor, and OpenCode clients.
 - OpenCode uses its official plugin event surface. When trusted provenance
   cannot distinguish CLI, TUI, Desktop, and Web, the product displays
   `OpenCode` with `clientKind = unknown`.
+- Grok Build is not an Agent Activity provider in this phase. OpenMeld does not
+  install Grok hooks or observe user-started Grok sessions. Runtime lifecycle
+  and tool events from an OpenMeld-started Grok Wake remain execution progress
+  and diagnostics; they must not be relabeled as durable Agent Activity without
+  adding the complete privacy, schema, ingestion, and read-model contract.
 - Managed hook and plugin installation uses compare-and-swap ownership,
   coexists with user configuration, and is reversible without deleting user
   entries.

@@ -369,8 +369,8 @@ sibling mutation.
      Connect and Disconnect show an explicit checking state and remain disabled
      until the current read succeeds. A failed refresh keeps the last visible
      fact, shows a retry action, and never enables a stale mutation.
-4. **This computer — "Use Codex or Claude Code with OpenMeld"**
-   - Show Codex, Claude Code, Cursor, and OpenCode by name and logo.
+4. **This computer — "Use your local agents with OpenMeld"**
+   - Show Codex, Claude Code, Grok Build, Cursor, and OpenCode by name and logo.
    - Their compact cards use the shared sharp-corner Card primitive. Logos are
      visually primary and do not sit inside another bordered or padded frame.
    - Embed the production setup/Prepare surface: one-time command, expiry,
@@ -593,7 +593,7 @@ Required for the first public release:
 - real Slack and Lark/Feishu connection status and actions;
 - live OpenConnector catalog, OpenMeld-ready connections, and durable App
   requests with requester identity;
-- embedded optional computer setup for Codex/Claude Code/Cursor/OpenCode;
+- embedded optional computer setup for Codex/Claude Code/Grok Build/Cursor/OpenCode;
 - visible defaults, optional Organization brief, admin-only Information
   Protection;
 - multi-email invitations, reusable join link, and a real fact-derived result;
@@ -822,7 +822,7 @@ manual verification):
    connect through their existing owner; other providers and free-form names
    create one durable requester-attributed request and remain requested after
    refresh.
-6. This-computer setup shows Codex, Claude Code, Cursor, and OpenCode, emits a
+6. This-computer setup shows Codex, Claude Code, Grok Build, Cursor, and OpenCode, emits a
    real one-time CLI command when setup is needed, follows Prepare progress, and
    may be skipped or left running without blocking Continue. Re-entry with an
    already connected Service shows the connected computer without issuing a new

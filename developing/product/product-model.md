@@ -106,7 +106,7 @@ An Agent Profile is not the local process that runs work. It is not OpenMeld Ser
 a controller binary, a runtime, or a computer.
 
 An Agent Controller is the local agent tool that performs the work an Agent
-Profile is asked to do, such as Claude Code, Codex, Cursor, or OpenCode. It is execution
+Profile is asked to do, such as Codex, Claude Code, Grok Build, Cursor, or OpenCode. It is execution
 infrastructure, not identity: an Agent Profile can be bound to an Agent
 Controller for execution, while the profile's name, instructions, and
 continuity stay independent of which controller runs it.

@@ -54,8 +54,8 @@ becomes a first-class, user-selectable property of an Agent Profile.
 | In scope (Phase 1) | Out of scope (Phase 1) |
 |---|---|
 | Per-Agent-Profile model selection, editable anytime from Web and CLI | OpenClaw model management (OpenClaw stays a usable controller; its model is left to the user's own OpenClaw global config) |
-| Four controllers: **Claude Code**, **Codex**, **OpenCode**, and **Cursor** | Enforcing per-model CLI version floors (schema field reserved, not enforced) |
-| Reasoning-effort selection where the vendor exposes a separate per-call control (Claude Code, Codex, and OpenCode; Cursor ACP does not) | Any "is this model the latest" indicator or UI |
+| Five controllers: **Codex**, **Claude Code**, **Grok Build**, **Cursor**, and **OpenCode** | Enforcing per-model CLI version floors (schema field reserved, not enforced) |
+| Reasoning-effort selection where the vendor exposes a separate per-call control (Claude Code, Codex, OpenCode, and Grok Build; Cursor ACP does not) | Any "is this model the latest" indicator or UI |
 | Exact provider model IDs, including an explicitly cataloged provider-managed selector when that is the provider's stable ID | Per-device model-support tracking/display |
 | One maintainable **default model per agent controller** (doubles as the runtime fallback) | A deploy-free DB override layer for the catalog |
 | A core-served vendor-model catalog (repo-authored, core-deployed) | Adding fields to `registry.json` or to the dispatch queue wire schema |
@@ -89,7 +89,10 @@ becomes a first-class, user-selectable property of an Agent Profile.
    official values exactly (verified at catalog-authoring time). Cursor ACP
    exposes reasoning inside exact model IDs, not as an independent session
    option, so Cursor models have an empty `supportedReasoningLevels` list and
-   the Cursor adapter rejects an independent `reasoningLevel`.
+   the Cursor adapter rejects an independent `reasoningLevel`. Grok Build ACP
+   exposes reasoning effort independently for each live model, so the adapter
+   validates both values against the current authenticated account before it
+   sends a prompt.
 8. **Catalog delivery** = repo-authored manifest, embedded into the core build,
    served read-only by core; the CLI keeps an embedded snapshot as offline
    fallback only. Changing the catalog is a core deploy, not a CLI publish and
@@ -476,6 +479,7 @@ previous behavior during rollout.
 | **Codex** ([CLI transport](../../runtime/adapters/codex/src/transport/codex-cli-transport.ts), [App Server transport](../../runtime/adapters/codex/src/transport/codex-app-server-transport.ts)) | CLI: `-m <pinned id>` (also on `exec resume`); App Server: `turn/start.model` on every turn | CLI: `-c model_reasoning_effort=<level>`; App Server: `turn/start.effort` on every turn | resolve `unavailable` → default before dispatch | Already classifies bad model → `config.invalid` |
 | **OpenCode** ([buildOpenCodeArgs](../../runtime/adapters/opencode/src/transport/opencode-cli-transport.ts)) | `--model <provider/model>` | `--variant <level>` where the level comes from OpenCode model variants | resolve `unavailable` → default before dispatch | Use OpenCode provider error classification; provider/model errors must stay visible |
 | **Cursor** ([Cursor ACP transport](../../runtime/adapters/cursor/src/transport/cursor-acp-transport.ts)) | `session/set_config_option` with `configId: "model"`, `type: "id"`, and the exact model ID returned in the session's model config option; fall back to legacy `session/set_model` only when ACP explicitly reports that the standard method is unavailable | Not exposed independently by Cursor ACP; reasoning-bearing variants remain part of the exact model ID | Catalog defaults to Cursor's `default[]` (**Auto**); the adapter validates the requested ID against one complete session inventory | Reject a complete inventory that excludes the requested ID as `model.unavailable`; classify a still-missing or conflicting inventory as `model.inventory_unavailable`; reject independent reasoning as `model.reasoning_unsupported` |
+| **Grok Build** ([Grok ACP transport](../../runtime/adapters/grok-build/src/transport/grok-build-acp-transport.ts)) | ACP session model selection using the exact model ID advertised by the authenticated account | ACP effort selection using an effort advertised for that exact live model | No adapter-side substitute after live negotiation; an unavailable explicit model or effort fails before `session/prompt` | Reject incomplete or conflicting live inventory as `model.inventory_unavailable`, a missing requested model as `model.unavailable`, and an unsupported effort as `model.reasoning_unsupported` |
 
 Cursor model discovery is a pre-prompt contract, not a best-effort hint. When
 the first `session/new` or `session/load` result omits the inventory or exposes
@@ -490,6 +494,15 @@ version difference must not be misreported as a missing model inventory. It
 must never merge
 conflicting inventories, silently choose another model, or retry the Wake after
 prompt execution begins.
+
+Grok Build uses the same pre-prompt principle with a different vendor contract.
+The reviewed catalog defines OpenMeld's selectable intent, while ACP
+`initialize` plus the opened session define what the current authenticated
+account can actually use. The adapter requires those live inventories to be
+complete and consistent, intersects them with the catalog selection, and fails
+closed before `session/prompt` when the requested model or effort is absent. It
+does not ask Grok to guess, silently choose another live model, or replay the
+Wake through Headless JSON.
 
 Also add a `{model}` token to the `originLaunch.commandTemplate` allow-list and
 templates in `registry.json` (currently `claude --resume {id}` /
@@ -651,6 +664,10 @@ a reason.
 6. Cursor catalog entries must be copied from the exact account-scoped ACP
    `session/new` model options. Legacy `cursor-agent models` identifiers and
    synthesized reasoning variants are not interchangeable with ACP model IDs.
+7. Grok Build catalog entries and effort strings must be verified against the
+   complete authenticated ACP inventory. The initial verified Grok Build 1.0.3
+   catalog contains `grok-4.6` with `low|medium|high|xhigh` and `grok-4.5` with
+   `low|medium|high`; account inventory remains the final pre-prompt gate.
 
 ---
 

@@ -742,8 +742,16 @@ Runtime results use the Space action contract:
   the fallback authoring path, not a second delivery path.
 - A current local runtime attaches the newest relevant Space signal it observed
   to `post_message.observedThroughSignalId`. This is provider-neutral: Codex,
-  Claude Code, Cursor, OpenCode, and future controllers use the same Space
+  Claude Code, Cursor, Grok Build, OpenCode, and future controllers use the same Space
   action boundary rather than provider-specific coordination prompts.
+
+ACP is an adapter transport, not a second execution lane. Cursor and Grok Build
+may share JSON-RPC/session/process mechanics inside adapter core, but each
+adapter owns its vendor launch, authentication, model, interaction, and error
+contract. RuntimeCoordinator still sees one provider-neutral Wake lifecycle.
+For Grok Build, a Stop must run native session cancellation and close followed
+by supervised process-tree cleanup before the Service reports the explicit
+stopped outcome.
 
 For a multi-target Wake, the per-turn Dispatch Brief may state the exact number
 and profile IDs of activated Agent Profiles and point the Agent to the

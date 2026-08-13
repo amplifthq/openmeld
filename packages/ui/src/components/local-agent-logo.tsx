@@ -7,6 +7,11 @@ import {
   AVATAR_BACKGROUND as CURSOR_AVATAR_BACKGROUND,
   AVATAR_COLOR as CURSOR_AVATAR_COLOR,
 } from "@lobehub/icons/es/Cursor/style.js";
+import GrokMono from "@lobehub/icons/es/Grok/components/Mono.js";
+import {
+  AVATAR_BACKGROUND as GROK_AVATAR_BACKGROUND,
+  AVATAR_COLOR as GROK_AVATAR_COLOR,
+} from "@lobehub/icons/es/Grok/style.js";
 import OpenClawColor from "@lobehub/icons/es/OpenClaw/components/Color.js";
 import OpenCodeMono from "@lobehub/icons/es/OpenCode/components/Mono.js";
 import {
@@ -28,6 +33,7 @@ const LOCAL_AGENT_LOGO_COMPONENTS = {
   "claude-code": ClaudeCodeColor,
   codex: CodexColor,
   cursor: CursorLogo,
+  "grok-build": GrokLogo,
   opencode: OpenCodeLogo,
   openclaw: OpenClawColor,
 } as const satisfies Record<
@@ -83,6 +89,30 @@ function CursorLogo({
   );
 }
 
+function GrokLogo({
+  className,
+  variant = "default",
+}: {
+  className?: string;
+  variant?: LocalAgentLogoVariant;
+}) {
+  if (variant === "plain") {
+    return <GrokMono className={className} />;
+  }
+
+  return (
+    <span
+      className={cn("inline-grid place-items-center", className)}
+      style={{
+        backgroundColor: GROK_AVATAR_BACKGROUND,
+        color: GROK_AVATAR_COLOR,
+      }}
+    >
+      <GrokMono className="h-3/4 w-3/4" />
+    </span>
+  );
+}
+
 const LOCAL_AGENT_LOGO_SIZE_CLASS_NAMES = {
   md: "h-5 w-5",
   sm: "h-4 w-4",
@@ -116,6 +146,8 @@ export function LocalAgentLogo({
     logo = <OpenCodeLogo className="h-full w-full" variant={variant} />;
   } else if (controllerId === "cursor") {
     logo = <CursorLogo className="h-full w-full" variant={variant} />;
+  } else if (controllerId === "grok-build") {
+    logo = <GrokLogo className="h-full w-full" variant={variant} />;
   }
 
   return (
@@ -131,10 +163,6 @@ export function LocalAgentLogo({
       {logo}
     </span>
   );
-}
-
-export function hasLocalAgentLogo(agentId: string): boolean {
-  return resolveLocalAgentLogo(agentId) !== undefined;
 }
 
 function resolveLocalAgentLogo(agentId: string):

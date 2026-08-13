@@ -52,6 +52,121 @@ afterEach(() => {
 });
 
 describe("agent controller interface inventory", () => {
+  it("reports Grok Build ACP authentication and live models", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-grok-build-"));
+    try {
+      const binPath = join(home, ".grok", "bin", "grok");
+      await mkdir(join(home, ".grok", "bin"), { recursive: true });
+      await writeGrokBuildBin(binPath, { authenticated: true });
+
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:grok-build",
+        state: createBuiltinAgentTargetState(
+          "grok-build",
+          "Grok Build",
+          binPath
+        ),
+      });
+
+      expect(snapshot).toMatchObject({
+        auth: {
+          label: "Grok account connected",
+          status: "authenticated",
+          type: "cached_token",
+        },
+        capabilities: {
+          approvals: true,
+          cancel: true,
+          interrupt: true,
+          modelSelection: true,
+          nativeEventStream: true,
+          permissionModes: true,
+          structuredUserInput: true,
+        },
+        models: [
+          { displayName: "Grok 4.6", id: "grok-4.6" },
+          { displayName: "Grok 4.5", id: "grok-4.5" },
+        ],
+        nativeInterface: "acp",
+        status: "ready",
+        version: "1.0.3",
+        versionAdvisory: {
+          currentVersion: "1.0.3",
+          latestVersion: null,
+          status: "unknown",
+          updateCommand: "grok update",
+        },
+      });
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
+  it("reports Grok Build as unauthenticated when ACP only offers browser login", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-grok-no-auth-"));
+    try {
+      const binPath = join(home, ".grok", "bin", "grok");
+      await mkdir(join(home, ".grok", "bin"), { recursive: true });
+      await writeGrokBuildBin(binPath, { authenticated: false });
+
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:grok-build",
+        state: createBuiltinAgentTargetState(
+          "grok-build",
+          "Grok Build",
+          binPath
+        ),
+      });
+
+      expect(snapshot).toMatchObject({
+        auth: { status: "unauthenticated" },
+        check: { status: "succeeded" },
+        message:
+          "Grok Build is installed, but this computer is not signed in to Grok.",
+        models: [],
+        status: "error",
+        version: "1.0.3",
+      });
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
+  it("reports Grok Build as signed out when its cached authentication fails", async () => {
+    const home = await mkdtemp(
+      join(tmpdir(), "openmeld-aci-grok-expired-auth-")
+    );
+    try {
+      const binPath = join(home, ".grok", "bin", "grok");
+      await mkdir(join(home, ".grok", "bin"), { recursive: true });
+      await writeGrokBuildBin(binPath, {
+        authenticated: true,
+        authFailure: "The cached token is expired. Sign in again.",
+      });
+
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:grok-build",
+        state: createBuiltinAgentTargetState(
+          "grok-build",
+          "Grok Build",
+          binPath
+        ),
+      });
+
+      expect(snapshot).toMatchObject({
+        auth: { status: "unauthenticated" },
+        check: { status: "succeeded" },
+        message:
+          "Grok Build is installed, but this computer is not signed in to Grok.",
+        models: [],
+        status: "error",
+        version: "1.0.3",
+      });
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
   it("reports Cursor CLI ACP capabilities and authentication", async () => {
     vi.stubGlobal(
       "fetch",
@@ -882,7 +997,13 @@ async function writeOpenClawBin(
 }
 
 function createBuiltinAgentTargetState(
-  agentId: "claude-code" | "codex" | "cursor" | "openclaw" | "opencode",
+  agentId:
+    | "claude-code"
+    | "codex"
+    | "cursor"
+    | "grok-build"
+    | "openclaw"
+    | "opencode",
   displayName: string,
   binPath: string
 ): AgentTargetState & { targetKind: "builtin" } {
@@ -915,6 +1036,81 @@ function createBuiltinAgentTargetState(
       },
     ],
   };
+}
+
+async function writeGrokBuildBin(
+  binPath: string,
+  input: { authenticated: boolean; authFailure?: string }
+): Promise<void> {
+  const modelState = {
+    availableModels: [
+      {
+        _meta: {
+          reasoningEffort: "high",
+          reasoningEfforts: [
+            { id: "xhigh", value: "xhigh" },
+            { id: "high", value: "high" },
+            { id: "medium", value: "medium" },
+            { id: "low", value: "low" },
+          ],
+        },
+        modelId: "grok-4.6",
+        name: "Grok 4.6",
+      },
+      {
+        _meta: {
+          reasoningEffort: "high",
+          reasoningEfforts: [
+            { id: "high", value: "high" },
+            { id: "medium", value: "medium" },
+            { id: "low", value: "low" },
+          ],
+        },
+        modelId: "grok-4.5",
+        name: "Grok 4.5",
+      },
+    ],
+    currentModelId: "grok-4.6",
+  };
+  const authMethods = input.authenticated
+    ? [
+        { id: "cached_token", name: "cached_token" },
+        { id: "grok.com", name: "Grok" },
+      ]
+    : [{ id: "grok.com", name: "Grok" }];
+  await writeFile(
+    binPath,
+    [
+      "#!/usr/bin/env node",
+      'import readline from "node:readline";',
+      "const args = process.argv.slice(2);",
+      'if (JSON.stringify(args) === JSON.stringify(["--no-auto-update", "version"])) { console.log("1.0.3"); process.exit(0); }',
+      "const lines = readline.createInterface({ input: process.stdin });",
+      `const modelState = ${JSON.stringify(modelState)};`,
+      `const authMethods = ${JSON.stringify(authMethods)};`,
+      'const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\\n");',
+      'lines.on("line", (line) => {',
+      "  const message = JSON.parse(line);",
+      '  if (message.method === "initialize") {',
+      "    send({ id: message.id, result: {",
+      `      _meta: { defaultAuthMethodId: ${JSON.stringify(input.authenticated ? "cached_token" : "grok.com")}, modelState },`,
+      "      agentCapabilities: { sessionCapabilities: { close: {}, resume: {} } },",
+      "      authMethods,",
+      "      protocolVersion: 1",
+      "    } });",
+      '  } else if (message.method === "authenticate") {',
+      ...(input.authFailure
+        ? [
+            `    send({ id: message.id, error: { code: -32000, message: ${JSON.stringify(input.authFailure)} } });`,
+          ]
+        : ["    send({ id: message.id, result: {} });"]),
+      "  }",
+      "});",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await chmod(binPath, 0o755);
 }
 
 function createOpenCodeAgentTargetState(

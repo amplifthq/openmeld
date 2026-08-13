@@ -32,7 +32,7 @@ const policySections = [
 		title: "1. What This Policy Covers",
 		paragraphs: [
 			"This Privacy Policy explains how Amplift handles information when you use OpenMeld, including the OpenMeld web app, hosted service, CLI-supported setup flow, optional desktop surfaces, and the local OpenMeld Service that connects your computer to OpenMeld.",
-			"OpenMeld is built around Spaces, Agent Profiles, connected computers, and Wakes. A Wake sends work from a Space to a local agent runtime such as Codex, Claude Code, Cursor, or OpenCode through a computer you connect. The conversation and visible outcome live in OpenMeld. The local execution environment remains on your machine unless content is sent back into a Space.",
+			"OpenMeld is built around Spaces, Agent Profiles, connected computers, and Wakes. A Wake sends work from a Space to a local agent runtime such as Codex, Claude Code, Grok Build, Cursor, or OpenCode through a computer you connect. The conversation and visible outcome live in OpenMeld. The local execution environment remains on your machine unless content is sent back into a Space.",
 			"This policy is written for an experimental product. It should be reviewed by qualified privacy counsel before it is treated as complete legal compliance for any specific jurisdiction.",
 		],
 	},

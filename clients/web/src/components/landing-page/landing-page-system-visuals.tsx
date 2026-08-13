@@ -3,6 +3,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { CalendarDotsIcon, GithubLogoIcon } from "@phosphor-icons/react";
 import { m, useInView, useReducedMotion } from "motion/react";
 import { useRef } from "react";
+import { listLocalAgentInstallGuides } from "#/lib/local-agent-install-guides";
 import { SlackMarkIcon } from "./landing-page-hero-copy";
 import {
 	LANDING_MOTION_CYCLE_SECONDS,
@@ -36,6 +37,7 @@ const OUTCOMES = [
 	{ label: "Handoff", x: 450 },
 	{ label: "Failure", x: 735 },
 ] as const;
+const LOCAL_AGENT_GUIDES = listLocalAgentInstallGuides();
 
 type LandingVisualProps = {
 	className?: string;
@@ -215,10 +217,13 @@ export function LandingConnectedWorkVisual({ className }: LandingVisualProps) {
 				</ConnectedWorkNode>
 				<ConnectedWorkNode className="bottom-[1%] left-1/2 -translate-x-1/2">
 					<span className="flex items-center gap-1.5">
-						<LocalAgentLogo agentId="builtin:claude-code" size="sm" />
-						<LocalAgentLogo agentId="builtin:codex" size="sm" />
-						<LocalAgentLogo agentId="builtin:cursor" size="sm" />
-						<LocalAgentLogo agentId="builtin:opencode" size="sm" />
+						{LOCAL_AGENT_GUIDES.map((guide) => (
+							<LocalAgentLogo
+								agentId={`builtin:${guide.agentId}`}
+								key={guide.agentId}
+								size="sm"
+							/>
+						))}
 					</span>
 					<span>Local agents</span>
 				</ConnectedWorkNode>

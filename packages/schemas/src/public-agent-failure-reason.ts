@@ -326,6 +326,14 @@ const CONTROLLER_SIGN_IN_AVAILABILITY_COPY_BY_ID: Readonly<
     tooltip:
       "Cursor CLI is not signed in. Run cursor-agent login in a terminal on this computer.",
   },
+  "grok-build": {
+    controllerInterfaceDescription:
+      "Grok Build is installed, but this computer is not signed in to Grok.",
+    summary:
+      "Run grok login in a terminal on this computer to sign in to Grok.",
+    tooltip:
+      "Grok Build is not signed in. Run grok login in a terminal on this computer.",
+  },
   openclaw: {
     summary: "Check the model provider sign-in in OpenClaw on this computer.",
     tooltip:

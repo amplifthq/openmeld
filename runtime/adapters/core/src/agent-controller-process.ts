@@ -99,9 +99,18 @@ export type ReportAgentControllerProcessCleanupFailure = (
   failure: AgentControllerProcessCleanupFailure
 ) => void;
 
-export type ScheduleAgentControllerProcessDiscoveryRetry = (
-  retry: () => void
-) => void;
+export type AgentControllerProcessCleanupResult =
+  | {
+      ok: true;
+      signalSent: boolean;
+    }
+  | {
+      error: unknown;
+      ok: false;
+      signalSent: boolean;
+    };
+
+export type WaitForAgentControllerProcessDiscoveryRetry = () => Promise<void>;
 
 export type SpawnedAgentControllerProcess = {
   child: ChildProcessWithoutNullStreams;
@@ -109,7 +118,7 @@ export type SpawnedAgentControllerProcess = {
   signalTarget: AgentControllerProcessSignalTarget;
   supervisionId: string;
   terminate: (signal: NodeJS.Signals) => boolean;
-  terminateRemainingDescendants: () => boolean;
+  terminateRemainingDescendants: () => Promise<AgentControllerProcessCleanupResult>;
 };
 
 export function spawnAgentControllerProcess(input: {
@@ -275,17 +284,36 @@ export function terminateRemainingAgentControllerProcesses(input: {
   processId: number | null;
   reportCleanupFailure?: ReportAgentControllerProcessCleanupFailure;
   reportDiscoveryFailure?: ReportAgentControllerProcessDiscoveryFailure;
-  scheduleDiscoveryRetry?: ScheduleAgentControllerProcessDiscoveryRetry;
   signalTarget: AgentControllerProcessSignalTarget;
   supervisionId: string;
   trackedDescendantProcessIds?: Set<number>;
-}): boolean {
+  waitForDiscoveryRetry?: WaitForAgentControllerProcessDiscoveryRetry;
+}): Promise<AgentControllerProcessCleanupResult> {
+  return runRemainingAgentControllerProcessCleanup(input);
+}
+
+async function runRemainingAgentControllerProcessCleanup(input: {
+  killProcess?: typeof process.kill;
+  listSupervisedProcessIds?: ListAgentControllerSupervisedProcessIds;
+  processId: number | null;
+  reportCleanupFailure?: ReportAgentControllerProcessCleanupFailure;
+  reportDiscoveryFailure?: ReportAgentControllerProcessDiscoveryFailure;
+  signalTarget: AgentControllerProcessSignalTarget;
+  supervisionId: string;
+  trackedDescendantProcessIds?: Set<number>;
+  waitForDiscoveryRetry?: WaitForAgentControllerProcessDiscoveryRetry;
+}): Promise<AgentControllerProcessCleanupResult> {
   let sent = false;
   const trackedDescendantProcessIds =
     input.trackedDescendantProcessIds ?? new Set<number>();
 
-  const attemptCleanup = (attempt: number): void => {
-    let discoveryFailed = false;
+  for (
+    let attempt = 1;
+    attempt <= PROCESS_SUPERVISION_DISCOVERY_MAX_ATTEMPTS;
+    attempt += 1
+  ) {
+    let cleanupError: unknown = null;
+    let discoveryError: unknown = null;
     try {
       sent =
         signalAgentControllerProcessTree({
@@ -293,7 +321,7 @@ export function terminateRemainingAgentControllerProcesses(input: {
           listSupervisedProcessIds: input.listSupervisedProcessIds,
           processId: input.processId,
           reportDiscoveryFailure: (failure) => {
-            discoveryFailed = true;
+            discoveryError = failure.error;
             reportAgentControllerProcessDiscoveryFailure({
               failure,
               reporter: input.reportDiscoveryFailure,
@@ -305,6 +333,7 @@ export function terminateRemainingAgentControllerProcesses(input: {
           trackedDescendantProcessIds,
         }) || sent;
     } catch (error) {
+      cleanupError = error;
       reportAgentControllerProcessCleanupFailure({
         failure: {
           error,
@@ -315,24 +344,28 @@ export function terminateRemainingAgentControllerProcesses(input: {
       });
     }
 
-    if (
-      !discoveryFailed ||
-      attempt >= PROCESS_SUPERVISION_DISCOVERY_MAX_ATTEMPTS
-    ) {
-      return;
+    const terminalError = cleanupError ?? discoveryError;
+    const reachedFinalAttempt =
+      attempt >= PROCESS_SUPERVISION_DISCOVERY_MAX_ATTEMPTS;
+    const cleanupSettled =
+      discoveryError === null && (cleanupError !== null || sent);
+    if (reachedFinalAttempt || cleanupSettled) {
+      return terminalError === null
+        ? { ok: true, signalSent: sent }
+        : { error: terminalError, ok: false, signalSent: sent };
     }
-    const scheduleDiscoveryRetry =
-      input.scheduleDiscoveryRetry ??
-      scheduleAgentControllerProcessDiscoveryRetry;
-    scheduleDiscoveryRetry(() => attemptCleanup(attempt + 1));
-  };
+    await (
+      input.waitForDiscoveryRetry ?? waitForAgentControllerProcessDiscoveryRetry
+    )();
+  }
 
-  attemptCleanup(1);
-  return sent;
+  return { ok: true, signalSent: sent };
 }
 
-function scheduleAgentControllerProcessDiscoveryRetry(retry: () => void): void {
-  setTimeout(retry, PROCESS_SUPERVISION_DISCOVERY_RETRY_DELAY_MS);
+function waitForAgentControllerProcessDiscoveryRetry(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, PROCESS_SUPERVISION_DISCOVERY_RETRY_DELAY_MS);
+  });
 }
 
 export const listAgentControllerDescendantProcessIds: ListAgentControllerDescendantProcessIds =

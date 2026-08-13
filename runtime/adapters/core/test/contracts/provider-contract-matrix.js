@@ -18,6 +18,12 @@ export const sharedProviderContractMatrix = Object.freeze([
     agentControllerConversationKind: "session",
   }),
   Object.freeze({
+    adapterId: "grok-build",
+    bridgeMode: "legacy_context_bridge",
+    agentControllerRef: "builtin:grok-build",
+    agentControllerConversationKind: "session",
+  }),
+  Object.freeze({
     adapterId: "openclaw",
     bridgeMode: "session_ref_separate",
     agentControllerRef: "builtin:openclaw",

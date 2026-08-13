@@ -114,6 +114,12 @@ describe("agent profile binding http schemas", () => {
       "cursor:ask",
       "cursor:autoReview",
       "cursor:force",
+      "grok-build:default",
+      "grok-build:acceptEdits",
+      "grok-build:plan",
+      "grok-build:auto",
+      "grok-build:dontAsk",
+      "grok-build:bypassPermissions",
     ]);
 
     expect(

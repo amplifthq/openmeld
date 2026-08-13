@@ -86,7 +86,7 @@ Versioning notes:
 - `registry.schema.json`: JSON Schema for validation.
 - `registry.json` is source; other files in this folder should be treated as documentation.
 
-## How To Add A New Model (Quick Routing)
+## How To Add A New Controller Or Model (Quick Routing)
 
 If you are adding a new provider/model support, use this reading order:
 
@@ -97,8 +97,19 @@ If you are adding a new provider/model support, use this reading order:
 
 Important:
 
-1. `registry.json` is still the single business source of truth.
-2. Adapter runtime logic must stay in `runtime/adapters/<provider>`.
-3. Daemon local wiring must go through installer modules:
-   `clients/openmeld-cli/src/daemon/adapters/installers/`.
-4. Do not put provider private transport logic into daemon modules.
+1. `registry.json` remains the product/runtime support catalog. Vendor model
+   choices belong in `release/vendor-models.json`; device install facts remain
+   local ACI evidence. Do not merge those owners into one file.
+2. Adapter runtime logic must stay in `runtime/adapters/<provider>`. Reuse
+   adapter-core protocol/process mechanics when the contract is genuinely
+   shared, but keep vendor authentication, model, mode, event, and error
+   semantics in the provider package.
+3. Local Service wiring goes through
+   `runtime/local-service/src/adapters/installers/`; CLI detection and ACI use
+   `clients/openmeld-cli/src/agents/builtin-agent-controller-definitions.ts`.
+4. A runtime-supported built-in must have a one-to-one registry entry, built-in
+   definition, installer, adapter package, and provider-contract test coverage.
+   The exhaustive parity tests are the guardrail; do not add a fallback switch
+   in Local Service or RuntimeCoordinator.
+5. Do not put provider-private transport logic into daemon, Service routing,
+   Core readiness, or Space publication modules.

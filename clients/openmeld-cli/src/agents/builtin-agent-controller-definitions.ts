@@ -16,6 +16,10 @@ import {
   verifyCursorLaunchContract,
 } from "@openmeld/adapter-cursor";
 import {
+  resolveInstalledGrokBuildLaunchCandidates,
+  verifyGrokBuildLaunchContract,
+} from "@openmeld/adapter-grok-build";
+import {
   resolveInstalledOpenClawLaunchCandidates,
   verifyOpenClawLaunchContract,
 } from "@openmeld/adapter-openclaw";
@@ -31,6 +35,7 @@ import type {
 import {
   isClaudeNativeCommandPath,
   isCursorNativeCommandPath,
+  isGrokBuildNativeCommandPath,
 } from "./controller-command-paths";
 
 export type BuiltinControllerInstallResolver = {
@@ -161,6 +166,29 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       homebrewPackage: { kind: "cask", name: "cursor-cli" },
       officialUpdateCommand: "cursor-agent update",
       officialUpdatePath: isCursorNativeCommandPath,
+    },
+  },
+  {
+    adapterId: "grok-build",
+    agentId: "grok-build",
+    capabilities: {
+      approvals: true,
+      cancel: true,
+      interrupt: true,
+      modelSelection: true,
+      nativeEventStream: true,
+      permissionModes: true,
+      structuredUserInput: true,
+    },
+    installResolver: {
+      resolveInstalledLaunchCandidates:
+        resolveInstalledGrokBuildLaunchCandidates,
+      verifyLaunchContract: verifyGrokBuildLaunchContract,
+    },
+    nativeInterface: "acp",
+    versionMaintenance: {
+      officialUpdateCommand: "grok update",
+      officialUpdatePath: isGrokBuildNativeCommandPath,
     },
   },
   {

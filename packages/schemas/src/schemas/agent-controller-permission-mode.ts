@@ -16,4 +16,10 @@ export const agentControllerPermissionModeSchema = z.enum([
   "cursor:ask",
   "cursor:autoReview",
   "cursor:force",
+  "grok-build:default",
+  "grok-build:acceptEdits",
+  "grok-build:plan",
+  "grok-build:auto",
+  "grok-build:dontAsk",
+  "grok-build:bypassPermissions",
 ]);

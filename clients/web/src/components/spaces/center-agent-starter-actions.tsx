@@ -38,7 +38,7 @@ const CENTER_AGENT_STARTER_ACTIONS = [
 	},
 	{
 		description:
-			"Bring Claude Code, Codex, Cursor, OpenCode, or another local agent into OpenMeld.",
+			"Bring Codex, Claude Code, Grok Build, Cursor, OpenCode, or another local agent into OpenMeld.",
 		icon: DesktopTowerIcon as StarterActionIcon,
 		id: "connect_my_computer",
 		kind: "computer_setup",

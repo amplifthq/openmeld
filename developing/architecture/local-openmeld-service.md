@@ -161,7 +161,7 @@ understanding and controlling a user's installed Agent Controllers.
 ACI is not a T3-style provider-instance product model. OpenMeld does not create a
 parallel virtual provider layer for users to manage. OpenMeld enhances the user's
 existing local controllers. The local controller remains the user's installed
-Codex, Claude Code, OpenCode, Cursor, or future controller; ACI is the adapter
+Codex, Claude Code, Grok Build, Cursor, OpenCode, or future controller; ACI is the adapter
 surface OpenMeld uses to detect it, launch it, inspect it, and drive its native
 control capabilities.
 
@@ -212,9 +212,9 @@ can prove. Codex App Server installs stable instructions on a new thread and
 marks the thread with the exact instruction epoch. Claude Agent SDK appends them
 through its system-prompt preset. OpenCode Server supplies them through the
 turn's `system` field. OpenClaw Gateway supplies them through
-`extraSystemPrompt`. Cursor ACP and every CLI fallback keep the complete prompt
-because those surfaces do not expose an equivalent supported instruction
-channel.
+`extraSystemPrompt`. Cursor ACP, Grok Build ACP, and every CLI fallback keep the
+complete prompt because those surfaces do not expose an equivalent supported
+instruction channel.
 
 Codex resume may use the smaller per-turn input only when the `thread/resume`
 response proves that `thread.threadSource` matches the exact current
@@ -321,7 +321,7 @@ bounded error code, error type, provider-account evidence, model diagnostics,
 and process telemetry remain available for debugging. Runs without a Computer
 boundary retain their ordinary controller error detail.
 
-The first ACI phase strengthens Codex, Claude Code, Cursor, and OpenCode without
+The first ACI phase strengthens Codex, Claude Code, Grok Build, Cursor, and OpenCode without
 changing Binding semantics. Codex may use the existing Codex App Server
 transport for richer native status, account, model, skill, and event evidence.
 Claude Code dispatch uses the Claude Agent SDK while preserving OpenMeld
@@ -343,6 +343,28 @@ Interaction contract and returns the user's response on the same ACP session.
 Cursor Run Everything keeps its native one-time automatic allow behavior; it
 must not create a synthetic approval prompt or persist an `allow_always`
 decision.
+
+Grok Build dispatch uses the official ACP stdio surface in one supervised
+process per Wake. The selected launch contract runs `grok --no-auto-update
+--permission-mode <native-mode> agent --no-leader stdio`; unattended
+authentication accepts only a cached token or an `xai.api_key` method and never
+opens a login browser. ACI reports only the models returned by the authenticated
+ACP inventory. The runtime resumes the profile's private Grok session when one
+exists, validates the exact model and reasoning effort before prompting, and
+keeps Headless JSON as diagnostics only rather than an execution fallback.
+The process cwd and ACP session cwd use the same canonical directory and fail
+before launch when it is missing or not a directory. Unknown blocking Grok ACP
+client requests fail closed. ACP image/audio input remains unsupported when the
+live capability says so; the separate local-file-path attachment capability
+does not turn into native ACP image support.
+
+Cursor and Grok Build share adapter-core ACP process mechanics: newline JSON-RPC
+framing, pending-request ownership, lifecycle telemetry, bounded admission,
+session cancellation, and process-tree supervision. Their adapters retain
+vendor-specific launch, authentication, model, mode, extension-request, and
+error semantics. Stop is terminal only after the adapter cancels the live ACP
+session, closes it when supported, and the supervised controller process and
+descendants are reaped; a successful protocol cancellation alone is not final.
 
 Codex App Server maps current and legacy command/file approvals,
 `requestUserInput`, additional-permission approval, and MCP form or URL

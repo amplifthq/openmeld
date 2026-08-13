@@ -476,7 +476,7 @@ export function SetupOnboardingStep(input: { onContinue: () => void }) {
 							wakeAccessPreferenceQuery.data
 								?.autoAuthorizeAgentProfileBindings ?? false
 						}
-						description="Your connected Codex or Claude Code can receive work from this organization."
+						description="Your connected local agents can receive work from this organization."
 						disabled={
 							wakeAccessPreferenceQuery.isPending ||
 							wakeAccessPreferenceQuery.isError ||

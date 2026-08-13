@@ -39,10 +39,8 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
-import {
-	hasLocalAgentLogo,
-	LocalAgentLogo,
-} from "@openmeld/ui/components/local-agent-logo";
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { Switch } from "@openmeld/ui/components/switch";

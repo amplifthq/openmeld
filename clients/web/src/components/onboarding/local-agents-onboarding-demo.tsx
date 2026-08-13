@@ -7,11 +7,13 @@ import {
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
+import { listLocalAgentInstallGuides } from "#/lib/local-agent-install-guides";
 import { OnboardingDemoLayout } from "./onboarding-demo-layout";
 
 const AGENT_PROFILE_PATH = "M112 60 C 200 60, 252 112, 348 112";
 const DIRECT_MESSAGE_PATH = "M430 185 C 420 252, 258 272, 161 360";
 const SPACE_PATH = "M490 185 C 510 258, 474 300, 439 360";
+const LOCAL_AGENT_GUIDES = listLocalAgentInstallGuides();
 
 export function LocalAgentsOnboardingDemo() {
 	return (
@@ -68,52 +70,25 @@ export function LocalAgentsOnboardingDemo() {
 				)}
 			</svg>
 
-			<div className="absolute top-7 left-7 z-10 grid w-44 grid-cols-2 gap-2">
-				<AgentTile
-					icon={
-						<LocalAgentLogo
-							agentId="builtin:codex"
-							className="size-[22px]"
-							size="md"
-							variant="plain"
-						/>
-					}
-					label="Codex"
-					selected
-				/>
-				<AgentTile
-					icon={
-						<LocalAgentLogo
-							agentId="builtin:claude-code"
-							className="size-[22px]"
-							size="md"
-							variant="plain"
-						/>
-					}
-					label="Claude Code"
-				/>
-				<AgentTile
-					icon={
-						<LocalAgentLogo
-							agentId="builtin:cursor"
-							className="size-[22px]"
-							size="md"
-							variant="plain"
-						/>
-					}
-					label="Cursor"
-				/>
-				<AgentTile
-					icon={
-						<LocalAgentLogo
-							agentId="builtin:opencode"
-							className="size-[22px]"
-							size="md"
-							variant="plain"
-						/>
-					}
-					label="OpenCode"
-				/>
+			<div
+				className="absolute top-7 left-7 z-10 grid w-60 grid-cols-3 gap-2"
+				data-testid="onboarding-local-agent-grid"
+			>
+				{LOCAL_AGENT_GUIDES.map((guide) => (
+					<AgentTile
+						icon={
+							<LocalAgentLogo
+								agentId={`builtin:${guide.agentId}`}
+								className="size-[22px]"
+								size="md"
+								variant="plain"
+							/>
+						}
+						key={guide.agentId}
+						label={guide.displayName}
+						selected={guide.agentId === "codex"}
+					/>
+				))}
 			</div>
 
 			<div className="absolute top-16 right-7 z-10 w-56 rounded-md border border-white/12 bg-[#111318]/95 p-4 shadow-[0_22px_60px_rgba(0,0,0,0.45)]">

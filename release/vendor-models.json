@@ -117,6 +117,25 @@
         }
       ]
     },
+    "grok-build": {
+      "defaultModelId": "grok-4.6",
+      "models": [
+        {
+          "id": "grok-4.6",
+          "displayName": "Grok 4.6",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high", "xhigh"],
+          "minCliVersion": "1.0.3"
+        },
+        {
+          "id": "grok-4.5",
+          "displayName": "Grok 4.5",
+          "unavailable": false,
+          "supportedReasoningLevels": ["low", "medium", "high"],
+          "minCliVersion": "1.0.3"
+        }
+      ]
+    },
     "cursor": {
       "defaultModelId": "default[]",
       "models": [

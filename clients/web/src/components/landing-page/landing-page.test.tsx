@@ -215,7 +215,25 @@ describe("LandingPage", () => {
 		).toBeTruthy();
 		expect(within(hero).getByTestId("local-agent-logo-codex")).toBeTruthy();
 		expect(within(hero).getByTestId("local-agent-logo-cursor")).toBeTruthy();
+		expect(
+			within(hero).getByTestId("local-agent-logo-grok-build")
+		).toBeTruthy();
 		expect(within(hero).getByTestId("local-agent-logo-opencode")).toBeTruthy();
+		const heroLocalAgentLogos = [
+			"codex",
+			"claude-code",
+			"grok-build",
+			"cursor",
+			"opencode",
+		].map((agentId) => within(hero).getByTestId(`local-agent-logo-${agentId}`));
+		for (const [index, logoElement] of heroLocalAgentLogos.entries()) {
+			const nextLogoElement = heroLocalAgentLogos[index + 1];
+			if (nextLogoElement) {
+				expect(logoElement.compareDocumentPosition(nextLogoElement)).toBe(
+					Node.DOCUMENT_POSITION_FOLLOWING
+				);
+			}
+		}
 		expect(
 			within(hero).queryByText(
 				"I found this request in Slack #release: can someone prep a release-risk pass before we ship?"
@@ -280,9 +298,17 @@ describe("LandingPage", () => {
 		).toBeTruthy();
 		expect(
 			within(spacesSection as HTMLElement).getByText(
-				"Human request to four agents"
+				"Human request to five agents"
 			)
 		).toBeTruthy();
+		expect(
+			within(spacesSection as HTMLElement).getAllByText("Grok Build").length
+		).toBeGreaterThan(0);
+		expect(
+			within(spacesSection as HTMLElement).getAllByTestId(
+				"local-agent-logo-grok-build"
+			).length
+		).toBeGreaterThan(0);
 		expect(
 			within(spacesSection as HTMLElement).getByText(
 				"Can we ship the billing meter rewrite today? I need a release call, risk check, and validation plan."
@@ -325,6 +351,30 @@ describe("LandingPage", () => {
 				"local-agent-logo-cursor"
 			)
 		).toBeTruthy();
+		expect(
+			within(localExecutionSection as HTMLElement).getByTestId(
+				"local-agent-logo-grok-build"
+			)
+		).toBeTruthy();
+		const localExecutionLogos = [
+			"codex",
+			"claude-code",
+			"grok-build",
+			"cursor",
+			"opencode",
+		].map((agentId) =>
+			within(localExecutionSection as HTMLElement).getByTestId(
+				`local-agent-logo-${agentId}`
+			)
+		);
+		for (const [index, logoElement] of localExecutionLogos.entries()) {
+			const nextLogoElement = localExecutionLogos[index + 1];
+			if (nextLogoElement) {
+				expect(logoElement.compareDocumentPosition(nextLogoElement)).toBe(
+					Node.DOCUMENT_POSITION_FOLLOWING
+				);
+			}
+		}
 		expect(
 			within(localExecutionSection as HTMLElement).getByTestId(
 				"landing-local-workspace-visual"
@@ -459,7 +509,7 @@ describe("LandingPage", () => {
 		fireEvent.click(localQuestion);
 		expect(
 			screen.getByText(
-				"The Center Agent is OpenMeld’s hosted organization coordinator, so it can answer even when your laptop is closed. Codex, Claude Code, Cursor, and OpenCode keep running on your team’s own computers through OpenMeld Service."
+				"The Center Agent is OpenMeld’s hosted organization coordinator, so it can answer even when your laptop is closed. Codex, Claude Code, Grok Build, Cursor, and OpenCode keep running on your team’s own computers through OpenMeld Service."
 			)
 		).toBeTruthy();
 

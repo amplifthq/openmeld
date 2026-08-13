@@ -319,7 +319,7 @@ same Prepare Session:
 
 ```text
 openmeld setup --start-session <opaque-token> --local-agents all --view agent
-openmeld setup --start-session <opaque-token> --local-agent codex claude-code cursor opencode --view agent
+openmeld setup --start-session <opaque-token> --local-agent codex claude-code grok-build cursor opencode --view agent
 ```
 
 `--local-agents all` means all selectable local agents reported by the local
@@ -363,7 +363,8 @@ openmeld profiles update <agent-profile-id> --agent-controller-permission-mode f
 Code supports `ask-permissions`, `accept-edits`, `plan`, `auto`, `dont-ask`,
 and `bypass-permissions`. Codex supports `ask-for-approval`, `approve-for-me`,
 `full-access`, and `custom-config`. Cursor supports `default`, `plan`, `ask`,
-`auto-review`, and `run-everything`. Dangerous modes require
+`auto-review`, and `run-everything`. Grok Build supports `default`,
+`accept-edits`, `plan`, `auto`, `dont-ask`, and `bypass-permissions`. Dangerous modes require
 `--confirm-dangerous-agent-controller-permission-mode` in non-interactive use.
 These commands write Binding metadata only; they do not create Space
 membership, prove Wake readiness, or bypass OpenMeld Space action rules.
@@ -381,6 +382,15 @@ Cursor model selection uses the exact account-scoped model ID returned by
 `cursor-agent acp`. Reasoning-bearing Cursor variants remain part of that exact
 model ID, so CLI must not accept or synthesize an independent
 `--reasoning-effort` value for a Cursor Binding.
+
+Grok Build setup resolves the official `grok` install, including the default
+`~/.grok/bin/grok` location, and verifies it without dispatch-time PATH
+guessing. ACI authentication uses only an existing cached token or API-key
+method; when neither is available the CLI tells the user to run `grok login`
+in a terminal and does not open a browser from the Service. Model and reasoning
+selection must exist in both the reviewed catalog and the complete live ACP
+inventory for the current Grok account. A missing live choice fails before the
+prompt instead of selecting another model or using Headless JSON.
 
 `openmeld agents show <agent-id>` may display Agent Controller Interface (ACI)
 evidence for the selected local controller: selected install, version,
@@ -622,7 +632,10 @@ readable directory to its canonical path, rejects a path already bound to any
 other Organization or Project, stores only local mode-0600 binding state, and
 uploads at most the Project id plus an optional safe repository fingerprint.
 The same successful `bind` action installs OpenMeld-owned Codex and Claude Code
-hooks, Cursor hooks, and the OpenCode plugin. If compare-and-swap protection rejects a
+hooks, Cursor hooks, and the OpenCode plugin. Grok Build does not add a managed
+hook or become an Agent Activity provider in this phase; its Wake lifecycle
+events remain execution telemetry, and direct user-started Grok sessions are
+not observed. If compare-and-swap protection rejects a
 configuration edit, the binding remains valid and the command reports
 `integrationSetup.status = needs_attention`; `openmeld activity install` is the
 explicit repair command. `unbind` stops new observation and removes unsent

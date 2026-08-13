@@ -1,7 +1,5 @@
-import {
-	hasLocalAgentLogo,
-	LocalAgentLogo,
-} from "@openmeld/ui/components/local-agent-logo";
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";

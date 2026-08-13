@@ -804,7 +804,9 @@ describe("setup command", () => {
     const lineOutput = presenter.line.mock.calls
       .map(([line]) => (line as { text: string }).text)
       .join("\n");
-    expect(lineOutput).toContain("Codex, Claude Code, Cursor, or OpenCode");
+    expect(lineOutput).toContain(
+      "Codex, Claude Code, Grok Build, Cursor, or OpenCode"
+    );
     expect(lineOutput).toContain(
       "https://gateway.openmeld.test/guides/local-agents"
     );

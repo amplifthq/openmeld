@@ -62,6 +62,14 @@ describe("space profile accent presentation", () => {
     ).toBe("Cursor");
     expect(
       resolveSpaceProfileAccent({
+        agentControllerRef: "builtin:grok-build",
+        profileId: "agt_55555555-5555-4555-8555-555555555555",
+        profileKind: "agent",
+        profileName: "Grok Worker",
+      }).controllerDisplayName
+    ).toBe("Grok Build");
+    expect(
+      resolveSpaceProfileAccent({
         agentControllerRef: "builtin:opencode",
         profileId: "agt_33333333-3333-4333-8333-333333333333",
         profileKind: "agent",

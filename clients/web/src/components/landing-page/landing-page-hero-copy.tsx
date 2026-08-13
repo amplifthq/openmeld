@@ -1,4 +1,7 @@
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { listLocalAgentInstallGuides } from "#/lib/local-agent-install-guides";
+
+const LOCAL_AGENT_GUIDES = listLocalAgentInstallGuides();
 
 export const LANDING_PAGE_HERO_HEADING =
 	"Open-source operating system for agent-native teams of people and machines.";
@@ -15,7 +18,7 @@ export function LandingPageHeroSubtitle(input: { className?: string }) {
 			<span className="block" data-testid="landing-hero-summary-sentence">
 				It connects the right local agents <InlineLocalAgentLogos />
 				<span className="sr-only">
-					Claude Code, Codex, Cursor, and OpenCode
+					Codex, Claude Code, Grok Build, Cursor, and OpenCode
 				</span>{" "}
 				from your team and puts them to work.
 			</span>
@@ -33,26 +36,14 @@ export function InlineLocalAgentLogos() {
 			aria-hidden="true"
 			className="inline-flex translate-y-[0.1em] items-center gap-2 px-1"
 		>
-			<LocalAgentLogo
-				agentId="builtin:claude-code"
-				className="h-[1em] w-[1em]"
-				size="sm"
-			/>
-			<LocalAgentLogo
-				agentId="builtin:codex"
-				className="h-[1em] w-[1em]"
-				size="sm"
-			/>
-			<LocalAgentLogo
-				agentId="builtin:cursor"
-				className="h-[1em] w-[1em]"
-				size="sm"
-			/>
-			<LocalAgentLogo
-				agentId="builtin:opencode"
-				className="h-[1em] w-[1em]"
-				size="sm"
-			/>
+			{LOCAL_AGENT_GUIDES.map((guide) => (
+				<LocalAgentLogo
+					agentId={`builtin:${guide.agentId}`}
+					className="h-[1em] w-[1em]"
+					key={guide.agentId}
+					size="sm"
+				/>
+			))}
 		</span>
 	);
 }
