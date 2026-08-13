@@ -82,7 +82,7 @@ describe("remote agent execution reconciliation", () => {
       expect.objectContaining({
         failureCode: "remote_agent.turn_not_completed",
         failureMessage:
-          "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.",
+          "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try the request again. If it still doesn't work, open diagnostics in OpenMeld or ask the person who manages your OpenMeld workspace for help.",
         status: "failed",
         submissionId,
       })
