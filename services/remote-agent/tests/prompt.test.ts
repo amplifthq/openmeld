@@ -242,6 +242,12 @@ describe("remote agent system prompt", () => {
     expect(prompt).toContain(
       "end the current interactive turn so the user can answer"
     );
+    expect(prompt).toContain(
+      "Connected App discovery is not completion when the user asked you to read or change provider data."
+    );
+    expect(prompt).toContain(
+      "call openmeld_execute_app_action in the same turn"
+    );
   });
 
   it("uses one low-friction authorization policy across tools", () => {

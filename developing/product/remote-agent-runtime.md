@@ -894,13 +894,17 @@ memory without improving the resulting prompt or capability set.
 The complete authorized direct-tool catalog remains the single source for both
 direct execution and Code Mode. For a bounded catalog of at most 64 direct
 tool schemas, the provider receives those direct tools plus `codemode`. Above
-that threshold, the provider receives only the `codemode` schema; its generated
-catalog still contains every active direct tool and every inner call re-enters
-the same cancellation, authorization, confirmation, audit, usage, and result-
-bounding paths. This is provider-payload compaction, not capability removal or
-a second tool policy. A large catalog without exactly one valid `codemode` tool
-fails fast instead of silently dropping tools. The source tool list is never
-mutated, so retries and diagnostics retain the admitted capability evidence.
+that threshold, the provider receives `codemode` plus the three generic
+Connected App discovery and execution tools. Keeping that bounded App sequence
+direct prevents catalog discovery from being mistaken for the requested
+provider outcome; it does not add a second action surface. The generated Code
+Mode catalog still contains every active direct tool, including those three,
+and every direct or inner call re-enters the same cancellation, authorization,
+confirmation, audit, usage, and result-bounding paths. This is provider-payload
+compaction, not capability removal or a second tool policy. A large catalog
+without exactly one valid `codemode` tool fails fast instead of silently
+dropping tools. The source tool list is never mutated, so retries and
+diagnostics retain the admitted capability evidence.
 
 An explicit, verified request for a new Task or Space has one bounded
 lightweight binding path. Before Flue execution, an auxiliary classifier reads
