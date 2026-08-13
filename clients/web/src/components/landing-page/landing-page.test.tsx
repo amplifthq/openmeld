@@ -18,6 +18,8 @@ import {
 } from "vitest";
 import { LandingPage } from "./landing-page";
 
+const GOOGLE_WORKSPACE_APP_USE_TEXT_PATTERN =
+	/When you connect Gmail, Google Calendar, or Google Drive, OpenMeld uses the access you approve only to carry out the requests you give your Center Agent/i;
 const useNavigateMock = vi.hoisted(() => vi.fn());
 const openMeldLogoStrongMock = vi.hoisted(() =>
 	vi.fn(
@@ -394,6 +396,11 @@ describe("LandingPage", () => {
 			within(connectedWorkSection).getByRole("heading", {
 				name: "12 Apps",
 			})
+		).toBeTruthy();
+		expect(
+			within(connectedWorkSection).getByText(
+				GOOGLE_WORKSPACE_APP_USE_TEXT_PATTERN
+			)
 		).toBeTruthy();
 		const availableChannels = within(connectedWorkSection).getByRole("list", {
 			name: "Available Channels",

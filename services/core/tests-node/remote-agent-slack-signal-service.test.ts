@@ -1418,6 +1418,7 @@ describe("Remote Agent Slack signal service", () => {
                 providerUserId: "U123",
               },
               ownerUserId: "user_member",
+              profileId: "22222222-2222-4222-8222-222222222222",
               verified: true,
             }),
           }),
