@@ -450,6 +450,139 @@ describe("Remote Agent model reasoning", () => {
     });
   });
 
+  it("allows one requested Space message after the bound Space is created", async () => {
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
+    const createSpace = {
+      function: { name: "openmeld_create_space" },
+      type: "function",
+    };
+    const postSpaceMessage = {
+      function: { name: "openmeld_post_space_message" },
+      type: "function",
+    };
+
+    const payload = await options.onPayload?.(
+      {
+        messages: [
+          {
+            content: `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_space`,
+            role: "system",
+          },
+          {
+            content:
+              "Create a private Space named Launch Room and add a three-item launch checklist.",
+            role: "user",
+          },
+          {
+            role: "assistant",
+            tool_calls: [
+              {
+                function: {
+                  arguments: '{"name":"Launch Room"}',
+                  name: "openmeld_create_space",
+                },
+                id: "call_create",
+                type: "function",
+              },
+            ],
+          },
+          {
+            content: '{"space":{"id":"space_1"}}',
+            role: "tool",
+            tool_call_id: "call_create",
+          },
+        ],
+        reasoning: { effort: "high" },
+        tools: [createSpace, postSpaceMessage],
+      },
+      TEXT_ONLY_MODEL
+    );
+
+    expect(payload).toMatchObject({
+      max_tokens: 2048,
+      parallel_tool_calls: false,
+      reasoning: { effort: "high" },
+      tools: [postSpaceMessage],
+    });
+    expect(payload).not.toHaveProperty("tool_choice");
+  });
+
+  it("closes the lightweight Space tool surface after the initial message", async () => {
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
+    const payload = await options.onPayload?.(
+      {
+        messages: [
+          {
+            content: `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_space`,
+            role: "system",
+          },
+          {
+            content:
+              "Create a private Space named Launch Room and add a three-item launch checklist.",
+            role: "user",
+          },
+          {
+            role: "assistant",
+            tool_calls: [
+              {
+                function: {
+                  arguments: '{"name":"Launch Room"}',
+                  name: "openmeld_create_space",
+                },
+                id: "call_create",
+                type: "function",
+              },
+            ],
+          },
+          {
+            content: '{"space":{"id":"space_1"}}',
+            role: "tool",
+            tool_call_id: "call_create",
+          },
+          {
+            role: "assistant",
+            tool_calls: [
+              {
+                function: {
+                  arguments:
+                    '{"content":"- Confirm Web\n- Confirm CLI\n- Confirm Center Agent","referenceProfileIds":[],"spaceId":"space_1"}',
+                  name: "openmeld_post_space_message",
+                },
+                id: "call_post",
+                type: "function",
+              },
+            ],
+          },
+          {
+            content: '{"message":{"id":"message_1"}}',
+            role: "tool",
+            tool_call_id: "call_post",
+          },
+        ],
+        reasoning: { effort: "high" },
+        tools: [
+          {
+            function: { name: "openmeld_create_space" },
+            type: "function",
+          },
+          {
+            function: { name: "openmeld_post_space_message" },
+            type: "function",
+          },
+        ],
+      },
+      TEXT_ONLY_MODEL
+    );
+
+    expect(payload).toMatchObject({
+      max_tokens: 160,
+      parallel_tool_calls: false,
+      reasoning: { effort: "high" },
+      tools: [],
+    });
+    expect(payload).not.toHaveProperty("tool_choice");
+  });
+
   it("routes an unlinked Slack member's Space request to account connection", async () => {
     const classifyWorkSurface = vi.fn().mockResolvedValue("new_space");
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(

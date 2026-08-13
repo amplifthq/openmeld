@@ -84,6 +84,12 @@ describe the room's purpose, stable working rules, safety boundaries, handoff
 expectations, or links to canonical decisions. It is not the current task, live
 execution state, a private scratchpad, or a place for secrets.
 
+When the Center Agent creates a Space, one-time checklists, tasks, status
+updates, notes, and other conversation content belong in a Space message, not
+the guide. The completion reply must describe the content's actual destination
+so opening the Space never makes the requester think that completed work is
+missing.
+
 The Space Entry Brief is the compact shared prompt projection for a newly
 Woken Agent Profile. It identifies what the Space is, who the Agent Profile is
 in that Space, the current Space identity and guide when present, and the

@@ -28,6 +28,21 @@ describe("Remote Agent lightweight work-surface binding", () => {
       )
     ).toContain('Use operationId "remote-agent-submission:submission_1".');
   });
+
+  it("keeps one explicitly requested initial Space message out of the guide", () => {
+    const prompt = buildRemoteAgentWorkSurfaceBindingSystemPrompt(
+      { surface: "new_space", v: 1 },
+      { operationId: "remote-agent-submission:submission_1" }
+    );
+
+    expect(prompt).toContain(
+      "Never put a one-time checklist, task, update, note, or message in the Space guide."
+    );
+    expect(prompt).toContain(
+      "call openmeld_post_space_message once with the returned Space ID"
+    );
+    expect(prompt).toContain("Do not perform any other follow-up work");
+  });
 });
 
 const WORK_SURFACE_ENV = {

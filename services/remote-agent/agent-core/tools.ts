@@ -2601,7 +2601,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_post_space_message",
       description:
-        "Post a plain Center Agent-authored message to a Space in the current Organization without waking other agents. Always pass referenceProfileIds: include every exact Human or Agent Profile ID that is context only, or [] when there are none. Reference does not assign work or require a reply.",
+        "Post a plain Center Agent-authored message to a Space in the current Organization without waking other agents. Use this for one-time checklists, tasks, updates, notes, and other conversation content, including content requested immediately after creating a Space. Always pass referenceProfileIds: include every exact Human or Agent Profile ID that is context only, or [] when there are none. Reference does not assign work or require a reply.",
       input: postSpaceMessageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(postSpaceMessageToolInputSchema, payload);
@@ -2905,7 +2905,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_create_space",
       description:
-        "Create an OpenMeld Space in the current Organization with optional name, purpose, guide, and access settings. When a verified requester explicitly asks for a new or dedicated Space as the work surface, call this before adding participants or starting work; never substitute the current Space, a Task, or a plain message. Private, members-only access is the default, so omit access unless the requester explicitly asks for a different access policy. Expose a Space publicly only when the requester explicitly asks; set both access.accessMode and access.visibility to public. Never invent or generate a Space password. Use password-gated access only when the requester supplied the exact password; otherwise ask for it. Treat the returned meta as canonical: never claim the Space is private or public unless meta confirms its visibility and accessMode.",
+        "Create an OpenMeld Space in the current Organization with optional name, purpose, guide, and access settings. The guide is only for durable room context and stable working rules that future collaborators should keep following. Do not put one-time checklists, tasks, status updates, or messages in the guide; after creation, use openmeld_post_space_message for that conversation content. When a verified requester explicitly asks for a new or dedicated Space as the work surface, call this before adding participants or starting work; never substitute the current Space, a Task, or a plain message. Private, members-only access is the default, so omit access unless the requester explicitly asks for a different access policy. Expose a Space publicly only when the requester explicitly asks; set both access.accessMode and access.visibility to public. Never invent or generate a Space password. Use password-gated access only when the requester supplied the exact password; otherwise ask for it. Treat the returned meta as canonical: never claim the Space is private or public unless meta confirms its visibility and accessMode.",
       input: createSpaceToolInputSchema,
       execute: async (payload) => {
         const { onBehalfOfProfileId: _ignored, ...untrustedSpaceInput } =

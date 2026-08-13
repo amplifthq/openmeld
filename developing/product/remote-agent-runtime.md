@@ -457,9 +457,15 @@ is deterministic. The created Task or Space keeps the Organization's normal
 reasoning policy for its actual work. The rule
 does not infer a new work surface from task complexity, does not inspect earlier
 conversation history as current intent, and does not run again after the create
-tool returns. Classification failure preserves the ordinary Center Agent turn
-and emits structured diagnostics; the main Center Agent instruction remains a
-second, independent behavioral guardrail.
+tool returns. A self-contained Space request may also include one immediately
+requested checklist, note, update, or other message. That bounded path
+materializes only Space creation and plain Space-message publication: it creates
+the Space first, keeps one-time content out of the durable guide, may publish
+the one requested message to the returned Space, and then closes the tool
+surface. Participant lookup, membership changes, and any other follow-up keep
+the ordinary full execution path. Classification failure preserves the
+ordinary Center Agent turn and emits structured diagnostics; the main Center
+Agent instruction remains a second, independent behavioral guardrail.
 
 The Local Agent bridge has a separate progressive read contract. It may request
 a bounded Context Manifest containing recent user-visible text Signals from the

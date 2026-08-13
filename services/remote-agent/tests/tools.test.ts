@@ -996,6 +996,26 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
   });
 
+  it("keeps one-time Space content out of the durable Space guide", () => {
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      storage: new InMemoryDurableObjectStorage(),
+    });
+    const createSpaceTool = tools.find(
+      (tool) => tool.name === "openmeld_create_space"
+    );
+    const postSpaceMessageTool = tools.find(
+      (tool) => tool.name === "openmeld_post_space_message"
+    );
+
+    expect(createSpaceTool?.description).toContain(
+      "Do not put one-time checklists, tasks, status updates, or messages in the guide"
+    );
+    expect(postSpaceMessageTool?.description).toContain(
+      "Use this for one-time checklists, tasks, updates, notes, and other conversation content"
+    );
+  });
+
   it("derives Space attribution from the verified turn instead of model input", async () => {
     const request = createSubmitTurnRequest();
     if (

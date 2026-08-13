@@ -39,6 +39,25 @@ describe("Center Agent runtime materialization", () => {
     });
   });
 
+  it("keeps the narrow initial-message path available after creating a Space", () => {
+    const envelope = createSubmitTurnRequest().turnEnvelope;
+
+    expect(
+      resolveCenterAgentRuntimeMaterializationPlan({
+        turnEnvelope: envelope,
+        workSurfaceBinding: { surface: "new_space", v: 1 },
+      })
+    ).toEqual({
+      allowedToolNames: [
+        "openmeld_create_space",
+        "openmeld_post_space_message",
+      ],
+      materializeComputer: false,
+      materializeOrganizationDocuments: false,
+      materializeOrganizationSkills: false,
+    });
+  });
+
   it("does not materialize Organization Documents or Skills for an external participant", () => {
     const envelope = createSubmitTurnRequest().turnEnvelope;
 
