@@ -15,7 +15,7 @@ import {
 } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
-import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import { SettingsComputerSummaryCardContent } from "@openmeld/ui/components/settings-computers";
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { cn } from "@openmeld/ui/lib/utils";

@@ -165,10 +165,6 @@ export function LocalAgentLogo({
   );
 }
 
-export function hasLocalAgentLogo(agentId: string): boolean {
-  return resolveLocalAgentLogo(agentId) !== undefined;
-}
-
 function resolveLocalAgentLogo(agentId: string):
   | {
       controllerId: BuiltinAgentControllerBrandId;
