@@ -2729,8 +2729,9 @@ would exceed that limit.
 
 `packages/schemas/src/schemas/runtime/openconnector-runtime.ts` is OpenMeld's
 pinned runtime validator for OpenConnector action metadata. It mirrors the
-OpenConnector `/v1/actions?service=` serializer, including required schemas,
-provider permissions, the executor-owned `execution` projection, and optional
+OpenConnector `/v1/actions?service=` serializer and the bounded
+`/v1/actions/search` projection, including required schemas, provider
+permissions, the executor-owned `execution` projection, and optional
 first-class `effect = read | write | destructive` metadata. Remote Agent must
 fail closed on a malformed entry and may expose only
 `execution.locallyExecutable = true` actions to the model. Catalog-only entries

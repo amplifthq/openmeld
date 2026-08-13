@@ -48,12 +48,17 @@ describe("OpenConnector runtime action contract", () => {
       openConnectorRuntimeActionSearchResultSchema.parse({
         authenticated: true,
         description: "List Gmail messages.",
+        effect: "read",
         id: "gmail.fetch_emails",
         inputSchema: { type: "object" },
         name: "fetch_emails",
         outputSchema: { type: "object" },
         service: "gmail",
       })
-    ).toMatchObject({ id: "gmail.fetch_emails", service: "gmail" });
+    ).toMatchObject({
+      effect: "read",
+      id: "gmail.fetch_emails",
+      service: "gmail",
+    });
   });
 });

@@ -72,6 +72,7 @@ export const openConnectorRuntimeActionListSchema = z.array(
 export const openConnectorRuntimeActionSearchResultSchema = z.strictObject({
   authenticated: z.boolean(),
   description: nonEmptyStringSchema,
+  effect: openConnectorRuntimeActionEffectSchema.optional(),
   id: nonEmptyStringSchema,
   inputSchema: jsonSchemaObjectSchema,
   name: nonEmptyStringSchema,
