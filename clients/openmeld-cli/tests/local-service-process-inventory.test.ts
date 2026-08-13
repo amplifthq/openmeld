@@ -29,10 +29,59 @@ describe("local service process inventory", () => {
             command:
               "node /Users/felix/.nvm/versions/node/v25.1.0/bin/openmeld-dev service status",
           },
+          {
+            pid: 104,
+            parentPid: 1,
+            command: `node ${openMeldRootDir()}/clients/openmeld-cli/dist/openmeld-dev.js service start --mode background`,
+          },
         ],
       });
 
       expect(processes).toEqual([]);
+    });
+  });
+
+  it("keeps a repo-local foreground service start process in the owned-process inventory", async () => {
+    await withDaemonEnvPreset("dev-local", async () => {
+      const processes = await listDaemonOwnedProcesses({
+        listProcesses: async () => [
+          {
+            pid: 105,
+            parentPid: 1,
+            command: `node ${openMeldRootDir()}/clients/openmeld-cli/dist/openmeld-dev.js service start --mode foreground --json`,
+          },
+        ],
+      });
+
+      expect(processes).toEqual([
+        expect.objectContaining({
+          pid: 105,
+          ownership: "cli_direct",
+          mode: "foreground",
+        }),
+      ]);
+    });
+  });
+
+  it("projects equals-style foreground mode for a repo-local service start process", async () => {
+    await withDaemonEnvPreset("dev-local", async () => {
+      const processes = await listDaemonOwnedProcesses({
+        listProcesses: async () => [
+          {
+            pid: 106,
+            parentPid: 1,
+            command: `node ${openMeldRootDir()}/clients/openmeld-cli/dist/openmeld-dev.js service start --mode=foreground --json`,
+          },
+        ],
+      });
+
+      expect(processes).toEqual([
+        expect.objectContaining({
+          pid: 106,
+          ownership: "cli_direct",
+          mode: "foreground",
+        }),
+      ]);
     });
   });
 

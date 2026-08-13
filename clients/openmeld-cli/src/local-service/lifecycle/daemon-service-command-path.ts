@@ -9,6 +9,13 @@ import { isOpenMeldManagedBinaryPath } from "./daemon-managed-binary-path";
 const COMMAND_TOKEN_PATTERN = /"([^"]*)"|'([^']*)'|(\S+)/g;
 const COMMAND_ARGUMENT_BOUNDARY_PATTERN = /\s/u;
 
+export type DaemonServiceProcessMode = "foreground" | "background" | null;
+
+export type DaemonServiceProcessCommand = {
+  action: "run" | "start";
+  mode: DaemonServiceProcessMode;
+};
+
 export function tokenizeDaemonCommand(command: string): string[] {
   const tokens: string[] = [];
   for (const match of command.matchAll(COMMAND_TOKEN_PATTERN)) {
@@ -66,9 +73,7 @@ export function extractDaemonCommandEntryPath(
   if (tokens.length === 0) {
     return null;
   }
-  const serviceRunIndex = tokens.findIndex(
-    (token, index) => token === "service" && tokens[index + 1] === "run"
-  );
+  const serviceRunIndex = findDaemonServiceCommandIndex(tokens);
   const candidateTokens =
     serviceRunIndex > 0 ? tokens.slice(0, serviceRunIndex) : tokens;
 
@@ -81,6 +86,38 @@ export function extractDaemonCommandEntryPath(
   }
 
   return null;
+}
+
+export function isDaemonRuntimeProcessCommand(command: string): boolean {
+  const serviceCommand = parseDaemonServiceProcessCommand(command);
+  return (
+    serviceCommand?.action === "run" ||
+    (serviceCommand?.action === "start" && serviceCommand.mode === "foreground")
+  );
+}
+
+export function parseDaemonServiceProcessCommand(
+  command: string
+): DaemonServiceProcessCommand | null {
+  const tokens = tokenizeDaemonCommand(command).map((token) =>
+    token.toLowerCase()
+  );
+  const serviceCommandIndex = findDaemonServiceCommandIndex(tokens);
+  if (serviceCommandIndex < 0) {
+    return null;
+  }
+
+  const action = tokens[serviceCommandIndex + 1];
+  if (action !== "run" && action !== "start") {
+    return null;
+  }
+
+  return {
+    action,
+    mode: resolveDaemonServiceProcessMode(
+      tokens.slice(serviceCommandIndex + 2)
+    ),
+  };
 }
 
 export function resolveDaemonBundleIdFromEntryPath(
@@ -112,6 +149,33 @@ function looksLikeDaemonEntryPath(
     isRecognizedDaemonServiceExecutableWrapperPath(token, pathInput) ||
     isOpenMeldManagedBinaryPath(token, pathInput)
   );
+}
+
+function findDaemonServiceCommandIndex(tokens: readonly string[]): number {
+  return tokens.findIndex(
+    (token, index) =>
+      token === "service" &&
+      (tokens[index + 1] === "run" || tokens[index + 1] === "start")
+  );
+}
+
+function resolveDaemonServiceProcessMode(
+  serviceArguments: readonly string[]
+): DaemonServiceProcessMode {
+  let mode: DaemonServiceProcessMode = null;
+  for (let index = 0; index < serviceArguments.length; index += 1) {
+    const argument = serviceArguments[index];
+    let modeValue: string | undefined;
+    if (argument === "--mode") {
+      modeValue = serviceArguments[index + 1];
+    } else if (argument?.startsWith("--mode=")) {
+      modeValue = argument.slice("--mode=".length);
+    }
+    if (modeValue === "foreground" || modeValue === "background") {
+      mode = modeValue;
+    }
+  }
+  return mode;
 }
 
 function isRecognizedDaemonServiceExecutableWrapperPath(

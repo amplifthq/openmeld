@@ -14,14 +14,19 @@ import {
   daemonServiceExecutableWrapperPaths,
   daemonServiceLauncherPath,
 } from "./daemon-service-bundle";
-import { daemonCommandContainsExactPath } from "./daemon-service-command-path";
+import {
+  type DaemonServiceProcessMode,
+  daemonCommandContainsExactPath,
+  isDaemonRuntimeProcessCommand,
+  parseDaemonServiceProcessCommand,
+} from "./daemon-service-command-path";
 import { resolveDaemonServiceIdentity } from "./daemon-service-identity";
 
 export type DaemonOwnedProcess = {
   pid: number;
   parentPid: number | null;
   command: string;
-  mode: "foreground" | "background" | null;
+  mode: DaemonServiceProcessMode;
   ownership: "stable_launcher" | "legacy_detached" | "cli_direct" | "unknown";
 };
 
@@ -123,7 +128,8 @@ function classifyDaemonOwnedProcess(
     wrapperPaths,
     pathInput
   );
-  const mode = resolveDaemonProcessMode(normalizedCommand);
+  const mode =
+    parseDaemonServiceProcessCommand(normalizedCommand)?.mode ?? null;
   return {
     pid: processInfo.pid,
     parentPid: processInfo.parentPid,
@@ -167,12 +173,13 @@ function resolveDaemonProcessOwnership(
   wrapperPaths: readonly string[],
   pathInput: OpenMeldPathResolutionInput
 ): DaemonOwnedProcess["ownership"] {
+  const isRuntimeProcess = isDaemonRuntimeProcessCommand(normalizedCommand);
   if (
     normalizedCommand.includes(launcherPath) ||
     wrapperPaths.some((wrapperPath) =>
       daemonCommandContainsExactPath(normalizedCommand, wrapperPath)
     ) ||
-    (normalizedCommand.includes("service run") &&
+    (isRuntimeProcess &&
       containsOpenMeldManagedBinaryPath(normalizedCommand, pathInput))
   ) {
     return "stable_launcher";
@@ -180,22 +187,10 @@ function resolveDaemonProcessOwnership(
   if (normalizedCommand.includes("legacy-detached")) {
     return "legacy_detached";
   }
-  if (normalizedCommand.includes("service run")) {
+  if (isRuntimeProcess) {
     return "cli_direct";
   }
   return "unknown";
-}
-
-function resolveDaemonProcessMode(
-  normalizedCommand: string
-): DaemonOwnedProcess["mode"] {
-  if (normalizedCommand.includes("--mode foreground")) {
-    return "foreground";
-  }
-  if (normalizedCommand.includes("--mode background")) {
-    return "background";
-  }
-  return null;
 }
 
 function looksLikeCurrentLaneDaemonCandidate(input: {
@@ -204,7 +199,7 @@ function looksLikeCurrentLaneDaemonCandidate(input: {
   wrapperPaths: readonly string[];
 }): boolean {
   return (
-    input.normalizedCommand.includes("service run") ||
+    isDaemonRuntimeProcessCommand(input.normalizedCommand) ||
     input.normalizedCommand.includes(input.launcherPath) ||
     input.wrapperPaths.some((wrapperPath) =>
       daemonCommandContainsExactPath(input.normalizedCommand, wrapperPath)
@@ -270,7 +265,7 @@ function resolveDaemonCliCommandLane(
   normalizedCommand: string,
   pathInput: OpenMeldPathResolutionInput
 ): OpenMeldEnvPreset | null {
-  if (!normalizedCommand.includes("service run")) {
+  if (!isDaemonRuntimeProcessCommand(normalizedCommand)) {
     return null;
   }
   if (matchesDaemonCliLane(normalizedCommand, "dev-local", pathInput)) {
