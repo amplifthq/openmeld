@@ -1,8 +1,5 @@
 import { env } from "cloudflare:test";
-import {
-  createAuthorityOpenMeldServiceRuntimeId,
-  createRuntimeLookupInput,
-} from "@openmeld/agent-runtime";
+import { createRuntimeLookupInput } from "@openmeld/agent-runtime";
 import {
   centerAgentCreateConfiguredAgentProfileBodySchema,
   centerAgentCreateConfiguredAgentProfileResponseSchema,
@@ -24,16 +21,15 @@ import { InMemoryDurableObjectStorage } from "../../remote-agent/tests/storage";
 import { projectCenterAgentLocalAgentConnectionCandidates } from "../src/center-agent/application/product-operations";
 import type { CoreBindings } from "../src/lib/bindings";
 import { rpcCenterAgentCreateConfiguredAgentProfile } from "../src/rpc/methods";
-// biome-ignore lint/performance/noNamespaceImport: Needed for the runtime report test seam.
-import * as runtimeAgentControllerReportRepo from "../src/runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
-// biome-ignore lint/performance/noNamespaceImport: Needed for the runtime registry test seam.
-import * as runtimeRegistryRepo from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
+import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
+import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
 // biome-ignore lint/performance/noNamespaceImport: Needed for the local runtime inventory test seam.
 import * as currentDeviceTargetService from "../src/start/application/current-device-target-service";
 import { readAvailableModelIds } from "./test-support/model-catalog.test-support";
 
 const CENTER_AGENT_PROFILE_ID = "agt_10000000-0000-4000-8000-000000000001";
 const CREATED_AGENT_PROFILE_ID = "agt_10000000-0000-4000-8000-000000000002";
+const HUMAN_PROFILE_ID = "22222222-2222-4222-8222-222222222222";
 const ORGANIZATION_ID = "org-configured-model-validation";
 const OWNER_USER_ID = "user-configured-model-validation";
 const SPACE_ID = "a".repeat(64);
@@ -101,37 +97,49 @@ describe("Center Agent configured Agent Profile model validation", () => {
         lane: "dev-local",
         owner: { id: OWNER_USER_ID, kind: "owner_account" },
       });
-      const openMeldServiceRuntimeId = createAuthorityOpenMeldServiceRuntimeId({
-        lookupInput: runtimeLookupInput,
-        source: "runtime_registry_authority",
-        openMeldServiceRuntimeId: "runtime-configured-model-validation",
-      });
       const listLocalRuntimes = vi
         .spyOn(currentDeviceTargetService, "listLocalRuntimesUseCase")
         .mockResolvedValue(localRuntimesResponse);
-      const readRuntimeRegistryRecord = vi
-        .spyOn(runtimeRegistryRepo, "readRuntimeRegistryRecord")
-        .mockResolvedValue({ status: "found", openMeldServiceRuntimeId });
-      const readRuntimeAgentControllerReport = vi
-        .spyOn(
-          runtimeAgentControllerReportRepo,
-          "readCurrentRuntimeAgentControllerReport"
-        )
-        .mockResolvedValue({
-          agentControllerInterface,
-          agentControllerRef: "builtin:codex",
-          expiresAtMs: Date.now() + 60 * 60_000,
-          observedAtMs: Date.now(),
-          reasonCodes: [],
-          status: "ready",
-          openMeldServiceRuntimeId,
-        });
+      await seedRuntimeEvidence({
+        agentControllerInterface,
+        localRuntimes: localRuntimesResponse,
+        runtimeLookupInput,
+      });
 
       const request = createSubmitTurnRequest({
         agentProfileId: CENTER_AGENT_PROFILE_ID,
         agentProfileOwnerUserId: OWNER_USER_ID,
+        author: {
+          displayName: "Configured Model Validation Owner",
+          profileId: HUMAN_PROFILE_ID,
+          profileKind: "human",
+        },
         organizationId: ORGANIZATION_ID,
         spaceId: SPACE_ID,
+        turnEnvelope: {
+          ...createSubmitTurnRequest().turnEnvelope,
+          organization: {
+            id: ORGANIZATION_ID,
+            memberCount: 1,
+            name: "Configured Model Validation",
+            personal: true,
+          },
+          sender: {
+            displayName: "Configured Model Validation Owner",
+            id: "member-configured-model-validation",
+            kind: "member",
+            ownerUserId: OWNER_USER_ID,
+            profileId: HUMAN_PROFILE_ID,
+            role: "owner",
+            verified: true,
+          },
+          space: {
+            id: SPACE_ID,
+            isCenterAgentDm: true,
+            kind: "dm",
+            name: "Configured Model Validation DM",
+          },
+        },
       });
       const storage = new InMemoryDurableObjectStorage();
       await putRemoteAgentCallbackContext(
@@ -177,8 +185,6 @@ describe("Center Agent configured Agent Profile model validation", () => {
         spaceId: SPACE_ID,
       });
       expect(listLocalRuntimes).toHaveBeenCalled();
-      expect(readRuntimeRegistryRecord).toHaveBeenCalled();
-      expect(readRuntimeAgentControllerReport).toHaveBeenCalled();
 
       const result =
         centerAgentCreateConfiguredAgentProfileResponseSchema.parse(toolResult);
@@ -299,6 +305,39 @@ async function seedConfiguredProfileFixture(): Promise<void> {
     ),
     env.OPENMELD_DB.prepare(
       `
+        INSERT INTO openmeld_profiles (
+          profile_id,
+          profile_name,
+          profile_handle,
+          profile_kind,
+          is_default,
+          status,
+          organization_id,
+          owner_user_id,
+          created_by_user_id,
+          source,
+          managed_role,
+          created_at,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `
+    ).bind(
+      HUMAN_PROFILE_ID,
+      "Configured Model Validation Owner",
+      "configured-model-validation-owner",
+      "human",
+      1,
+      "active",
+      null,
+      OWNER_USER_ID,
+      OWNER_USER_ID,
+      "cli_create",
+      null,
+      TEST_NOW_MS,
+      TEST_NOW_MS
+    ),
+    env.OPENMELD_DB.prepare(
+      `
         INSERT INTO center_agent_designations (
           organization_id,
           agent_profile_id,
@@ -357,6 +396,53 @@ async function insertCreatedAgentProfile(): Promise<void> {
     .run();
 }
 
+async function seedRuntimeEvidence(input: {
+  agentControllerInterface: NonNullable<
+    LocalRuntimesResponse["localRuntimes"][number]["executionTargets"][number]["capabilities"][number]["agentControllerInterface"]
+  >;
+  localRuntimes: LocalRuntimesResponse;
+  runtimeLookupInput: ReturnType<typeof createRuntimeLookupInput>;
+}): Promise<void> {
+  const nowMs = Date.now();
+  const openMeldServiceRuntimeId =
+    input.localRuntimes.localRuntimes[0]?.executionTargets[0]
+      ?.openMeldServiceRuntimeId;
+  if (!openMeldServiceRuntimeId) {
+    throw new Error("Expected the runtime fixture to include a Runtime id.");
+  }
+  const registration = await registerRuntimeRegistryRecord({
+    db: env.OPENMELD_DB,
+    record: {
+      nowMs,
+      openMeldServiceRuntimeId,
+      runtimeLookupInput: input.runtimeLookupInput,
+    },
+  });
+  if (registration.status !== "created") {
+    throw new Error(
+      `Expected to create the runtime registry record, received ${registration.status}.`
+    );
+  }
+  const report = await acceptRuntimeAgentControllerReportRecord({
+    db: env.OPENMELD_DB,
+    nowMs,
+    report: {
+      agentControllerInterface: input.agentControllerInterface,
+      agentControllerRef: "builtin:codex",
+      expiresAtMs: nowMs + 60 * 60_000,
+      observedAtMs: nowMs,
+      reasonCodes: [],
+      status: "ready",
+      openMeldServiceRuntimeId,
+    },
+  });
+  if (report.status !== "accepted") {
+    throw new Error(
+      `Expected to accept the Runtime Agent Controller report, received ${report.status}.`
+    );
+  }
+}
+
 async function cleanupConfiguredProfileFixture(): Promise<void> {
   await env.OPENMELD_DB.batch([
     env.OPENMELD_DB.prepare(
@@ -375,8 +461,20 @@ async function cleanupConfiguredProfileFixture(): Promise<void> {
       `
     ).bind(OWNER_USER_ID, CENTER_AGENT_PROFILE_ID, CREATED_AGENT_PROFILE_ID),
     env.OPENMELD_DB.prepare(
-      "DELETE FROM openmeld_profiles WHERE profile_id IN (?, ?)"
-    ).bind(CENTER_AGENT_PROFILE_ID, CREATED_AGENT_PROFILE_ID),
+      `
+        DELETE FROM openMeldDaemon_runtime_agent_controller_reports
+        WHERE openmeld_service_runtime_id = ?
+      `
+    ).bind("runtime-configured-model-validation"),
+    env.OPENMELD_DB.prepare(
+      `
+        DELETE FROM openMeldDaemon_runtime_registry_records
+        WHERE openmeld_service_runtime_id = ?
+      `
+    ).bind("runtime-configured-model-validation"),
+    env.OPENMELD_DB.prepare(
+      "DELETE FROM openmeld_profiles WHERE profile_id IN (?, ?, ?)"
+    ).bind(CENTER_AGENT_PROFILE_ID, CREATED_AGENT_PROFILE_ID, HUMAN_PROFILE_ID),
     env.OPENMELD_DB.prepare(
       "DELETE FROM members WHERE organization_id = ? AND user_id = ?"
     ).bind(ORGANIZATION_ID, OWNER_USER_ID),
