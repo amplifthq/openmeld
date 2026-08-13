@@ -7,8 +7,9 @@ export function resolveCenterAgentCompletedCallbackMessage(input: {
   navigationTarget?: OpenMeldNavigationTarget;
   text: string;
 }): string {
-  return input.navigationTarget?.kind === "message_channel_identity_link" ||
-    input.navigationTarget?.kind === "slack_identity_link"
+  return input.navigationTarget?.kind === "slack_identity_link" ||
+    (input.navigationTarget?.kind === "message_channel_identity_link" &&
+      input.navigationTarget.purpose === "continue_request")
     ? CENTER_AGENT_ACCOUNT_CONNECTION_REQUIRED_PUBLIC_COPY
     : input.text;
 }

@@ -30,7 +30,7 @@ describe("Remote Agent runtime policy", () => {
       ok: false,
       code: "remote_agent.organization_blocked",
       message:
-        "Center Agent is unavailable for this Organization. Ask an Organization owner or admin for help.",
+        "Center Agent is currently turned off for this Organization. Contact OpenMeld support. You can open diagnostics in OpenMeld to share more details.",
     });
   });
 

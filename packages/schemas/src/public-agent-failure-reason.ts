@@ -29,7 +29,7 @@ export const CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY =
 export const CENTER_AGENT_TEMPORARILY_UNAVAILABLE_PUBLIC_COPY =
   "Center Agent isn't available right now. Try again in a moment.";
 export const CENTER_AGENT_ORGANIZATION_UNAVAILABLE_PUBLIC_COPY =
-  "Center Agent is unavailable for this Organization. Ask an Organization owner or admin for help.";
+  "Center Agent is currently turned off for this Organization. Contact OpenMeld support. You can open diagnostics in OpenMeld to share more details.";
 export const CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY =
   "This conversation has grown too long for Center Agent to continue in one request. Try again; OpenMeld will shorten older messages before continuing.";
 export const CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY =
