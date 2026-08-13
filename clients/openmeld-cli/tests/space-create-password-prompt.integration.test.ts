@@ -692,6 +692,9 @@ describe("space create password prompt", () => {
       expect(hintEnvelope?.text).toContain(
         "anyone with the Space link can read what is shared here and join"
       );
+      expect(hintEnvelope?.text).toContain(
+        "require a password to open and join"
+      );
       expect(hintEnvelope?.text).not.toContain("Space ID");
       expect(hintEnvelope?.text).toContain("at least 6 characters");
       expect(hintEnvelope?.text).toContain("--password <value>");

@@ -2184,7 +2184,7 @@ function emitSpaceCreatePasswordOptionalHint(input: {
   input.presenter.line({
     code: "space.create.password.optional_hint",
     text:
-      "Password is optional. Without one, anyone with the Space link can read what is shared here and join. To require a password to join, use --password <value>. Password rule: " +
+      "Password is optional. Without one, anyone with the Space link can read what is shared here and join. To require a password to open and join, use --password <value>. Password rule: " +
       buildSpacePasswordRequirementsText(),
     data: {
       optional: true,
