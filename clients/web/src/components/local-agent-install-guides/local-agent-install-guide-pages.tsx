@@ -67,12 +67,12 @@ export function LocalAgentInstallGuideIndexPage() {
 					</div>
 
 					<div
-						className="grid gap-4 text-sm sm:grid-cols-2 xl:grid-cols-5"
+						className="grid auto-rows-fr gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3"
 						data-testid="local-agent-guide-grid"
 					>
 						{guides.map((guide) => (
 							<Link
-								className="group rounded-md border border-border bg-card p-5 transition-colors hover:border-foreground/25 hover:bg-muted/40"
+								className="group flex h-full flex-col rounded-md border border-border bg-card p-5 transition-colors hover:border-foreground/25 hover:bg-muted/40"
 								key={guide.agentId}
 								params={{ agentId: guide.agentId }}
 								to="/guides/local-agents/$agentId"
@@ -92,7 +92,7 @@ export function LocalAgentInstallGuideIndexPage() {
 										</span>
 									</span>
 								</span>
-								<span className="mt-4 block font-medium text-foreground/80 text-xs uppercase tracking-[0.16em] group-hover:text-foreground">
+								<span className="mt-auto block pt-4 font-medium text-foreground/80 text-xs uppercase tracking-[0.16em] group-hover:text-foreground">
 									View install steps
 								</span>
 							</Link>
