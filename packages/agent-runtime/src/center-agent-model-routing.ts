@@ -27,6 +27,7 @@ export type CenterAgentModelRouteResult =
     };
 
 export type CenterAgentModelChoice = {
+  badgeLabel: string | null;
   displayName: string;
   effectiveModelDisplayName: string;
   preference: CenterAgentModelPreference;
@@ -132,6 +133,7 @@ export function listCenterAgentModelChoices(
 
   return [
     {
+      badgeLabel: defaultModel.badgeLabel ?? null,
       displayName: "OpenMeld default",
       effectiveModelDisplayName: defaultModel.displayName,
       preference: { kind: "system_default" },
@@ -139,6 +141,7 @@ export function listCenterAgentModelChoices(
         defaultModel.hostedRuntime.inputModalities.includes("image"),
     },
     ...controller.models.filter(isAvailableHostedModel).map((model) => ({
+      badgeLabel: model.badgeLabel ?? null,
       displayName: model.displayName,
       effectiveModelDisplayName: model.displayName,
       preference: {

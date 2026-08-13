@@ -1009,6 +1009,16 @@ describe("remote agent OpenMeld tool catalog", () => {
       coreWorker: { centerAgentCreateSpace },
       storage: await createStorageWithPendingContext(request),
     });
+    const createSpaceTool = tools.find(
+      (tool) => tool.name === "openmeld_create_space"
+    );
+    const parsedInput = safeParse(createSpaceTool?.input as never, {
+      name: "Trusted attribution",
+      onBehalfOfProfileId: "slack-user-or-model-invented-value",
+    });
+
+    expect(parsedInput.success).toBe(true);
+    expect(parsedInput.output).toEqual({ name: "Trusted attribution" });
 
     await executeTool(tools, "openmeld_create_space", {
       name: "Trusted attribution",
@@ -1034,19 +1044,64 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     expect(
       safeParse(createSpaceTool?.input as never, {
-        accessMode: "members_only",
+        access: { accessMode: "members_only" },
         name: "Private investigation",
       }).success
     ).toBe(true);
 
     await executeTool(tools, "openmeld_create_space", {
-      accessMode: "members_only",
+      access: { accessMode: "members_only" },
       name: "Private investigation",
     });
 
     expect(centerAgentCreateSpace).toHaveBeenCalledWith(
       expect.objectContaining({ accessMode: "members_only" })
     );
+  });
+
+  it("rejects passwords unless the requested Space access mode uses one", () => {
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      storage: new InMemoryDurableObjectStorage(),
+    });
+    const createSpaceTool = tools.find(
+      (tool) => tool.name === "openmeld_create_space"
+    );
+
+    expect(
+      safeParse(createSpaceTool?.input as never, {
+        access: {
+          accessMode: "members_only",
+          password: "model-invented-password",
+        },
+        name: "Private investigation",
+      }).success
+    ).toBe(false);
+    expect(
+      safeParse(createSpaceTool?.input as never, {
+        access: {
+          accessMode: "public",
+          password: "model-invented-password",
+          visibility: "public",
+        },
+        name: "Public launch room",
+      }).success
+    ).toBe(false);
+    expect(
+      safeParse(createSpaceTool?.input as never, {
+        access: { accessMode: "protected" },
+        name: "Protected investigation",
+      }).success
+    ).toBe(false);
+    expect(
+      safeParse(createSpaceTool?.input as never, {
+        access: {
+          accessMode: "protected",
+          password: "requester-provided-password",
+        },
+        name: "Protected investigation",
+      }).success
+    ).toBe(true);
   });
 
   it("lets the Center Agent restore a Space to members-only access", async () => {
@@ -1099,10 +1154,13 @@ describe("remote agent OpenMeld tool catalog", () => {
       "Private, members-only access is the default"
     );
     expect(createSpaceTool?.description).toContain(
-      "set both visibility and accessMode to public"
+      "set both access.accessMode and access.visibility to public"
     );
     expect(createSpaceTool?.description).toContain(
       "Treat the returned meta as canonical"
+    );
+    expect(createSpaceTool?.description).toContain(
+      "Never invent or generate a Space password"
     );
   });
 
@@ -3608,10 +3666,12 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         visibility: "private",
       },
       input: {
-        accessMode: "protected",
+        access: {
+          accessMode: "protected",
+          password: "secret-passphrase",
+        },
         guide: "Keep release decisions explicit.",
         name: "Launch Room",
-        password: "secret-passphrase",
         purpose: "Coordinate launch work",
       },
       response: createSpaceResponse(),

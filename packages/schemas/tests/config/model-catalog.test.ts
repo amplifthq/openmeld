@@ -12,7 +12,7 @@ describe("model catalog schema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.schemaVersion).toBe(MODEL_CATALOG_SCHEMA_VERSION);
-      expect(result.data.updatedAt).toBe("2026-08-13T00:00:00.000Z");
+      expect(result.data.updatedAt).toBe("2026-08-13T09:49:25.000Z");
       expect(result.data.agentControllers.codex?.defaultModelId).toBe(
         "gpt-5.5"
       );
@@ -107,12 +107,24 @@ describe("model catalog schema", () => {
       });
 
       expect(result.data.agentControllers["center-agent"]).toMatchObject({
-        defaultModelId: "x-ai/grok-4.5",
+        defaultModelId: "x-ai/grok-4.6",
         hostedRuntimePolicy: {
           automaticModelFallback: false,
-          imageUnderstandingModelId: "x-ai/grok-4.5",
+          imageUnderstandingModelId: "x-ai/grok-4.6",
         },
         models: [
+          {
+            id: "x-ai/grok-4.6",
+            displayName: "Grok 4.6",
+            badgeLabel: "New",
+            hostedRuntime: {
+              contextWindow: 500_000,
+              inputModalities: ["text", "image"],
+              maxOutputTokens: 16_384,
+              provider: "openrouter",
+              reasoningLevel: "high",
+            },
+          },
           {
             id: "x-ai/grok-4.5",
             displayName: "Grok 4.5",
@@ -193,6 +205,21 @@ describe("model catalog schema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("rejects badge labels that are too long for compact selectors", () => {
+    const result = modelCatalogSchema.safeParse({
+      schemaVersion: 1,
+      updatedAt: "2026-08-13T00:00:00.000Z",
+      agentControllers: {
+        codex: {
+          defaultModelId: "gpt-5.5",
+          models: [createModel({ id: "gpt-5.5", badgeLabel: "x".repeat(33) })],
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("rejects a hosted image model without image input support", () => {
     const result = modelCatalogSchema.safeParse({
       schemaVersion: 1,
@@ -255,6 +282,7 @@ describe("model catalog schema", () => {
 });
 
 function createModel(input: {
+  badgeLabel?: string;
   id: string;
   supportedReasoningLevels?: string[];
   unavailable?: boolean;
@@ -269,6 +297,7 @@ function createModel(input: {
   return {
     id: input.id,
     displayName: input.id,
+    ...(input.badgeLabel ? { badgeLabel: input.badgeLabel } : {}),
     ...(input.hostedRuntime ? { hostedRuntime: input.hostedRuntime } : {}),
     unavailable: input.unavailable ?? false,
     supportedReasoningLevels: input.supportedReasoningLevels ?? ["high"],

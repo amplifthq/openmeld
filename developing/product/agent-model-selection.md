@@ -242,14 +242,22 @@ The same manifest now includes the code-owned `center-agent` controller. This
 is a hosted-runtime policy catalog, not a local Agent Profile controller:
 
 - `defaultModelId` is the system default resolved for each new Center Agent
-  turn. The initial default is `x-ai/grok-4.5`.
-- The first selectable models are `x-ai/grok-4.5` and
-  `deepseek/deepseek-v4-flash`, presented as **Grok 4.5** and
-  **DeepSeek V4 Flash**.
+  turn. The current default is `x-ai/grok-4.6`.
+- The selectable models are `x-ai/grok-4.6`, `x-ai/grok-4.5`, and
+  `deepseek/deepseek-v4-flash`, presented as **Grok 4.6**, **Grok 4.5**,
+  and **DeepSeek V4 Flash**.
+- A hosted model may declare one optional `badgeLabel` as catalog-owned
+  selector presentation metadata. Core projects the same label onto the
+  explicit model choice and the OpenMeld-default choice when that model is the
+  current default; clients render it without inferring freshness from model ids
+  or version names.
 - Each hosted model declares its OpenRouter model id, input modalities, context
   window, output budget, and reasoning level. Admission freezes these values
   into the turn request; the worker does not rebuild them from mutable catalog
   state.
+- Hosted reasoning remains catalog-owned and fixed to `high`. The worker reads
+  that frozen value dynamically for each admitted route. It is not a separate
+  Organization preference or Web setting in the current product.
 - `hostedRuntimePolicy.imageUnderstandingModelId` names the image-capable
   auxiliary model used when the selected primary model is text-only.
 - A worker-owned work-surface auxiliary model may classify and complete only a

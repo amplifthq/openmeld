@@ -812,7 +812,7 @@ Implementation and recovery changes must prove the target invariant end to
 end; a stored Run snapshot alone is not proof that every native-delivery branch
 uses it.
 
-### Model (settled 2026-07-09, revised 2026-07-31)
+### Model (settled 2026-07-09, revised 2026-08-13)
 
 Center Agent model traffic remains **Cloudflare AI Gateway → OpenRouter**. The
 OpenRouter provider key stays in Cloudflare AI Gateway Provider Keys under
@@ -821,11 +821,11 @@ token plus `cf-aig-byok-alias: openrouter` and does not carry provider API keys
 in code or tracked config. This is OpenMeld-operated provider configuration,
 not user BYOK.
 
-The repo-owned `center-agent` catalog initially exposes Grok 4.5 and DeepSeek
-V4 Flash, with Grok 4.5 as the OpenMeld default. Core resolves a complete
+The repo-owned `center-agent` catalog exposes Grok 4.6, Grok 4.5, and DeepSeek
+V4 Flash, with Grok 4.6 as the OpenMeld default. Core resolves a complete
 immutable route for each new turn. The route contains the exact OpenRouter
-model id, friendly display name, input modalities, context window, output budget,
-reasoning level, catalog timestamp, preference kind, auxiliary
+model id, friendly display name, input modalities, context window, output
+budget, reasoning level, catalog timestamp, preference kind, auxiliary
 image-understanding model, and `automaticModelFallback: false`. The Remote
 Agent executes that route; it does not consult a mutable Organization setting
 or silently substitute another primary model.
@@ -835,10 +835,10 @@ model-backed helper sends one exact configured model id. None sends a
 model-fallback list. Each request also sends
 `provider.allow_fallbacks = true`, so OpenRouter may reroute that exact model
 across healthy providers when one provider is unavailable or rate-limited.
-Provider rerouting never authorizes switching Grok 4.5 to DeepSeek V4 Flash,
-DeepSeek V4 Flash to Grok 4.5, or any other primary-model substitution. If all
-providers for the exact model fail, the turn still ends in one visible failure.
-Public-web research uses the same exact-model provider-rerouting rule.
+Provider rerouting never authorizes switching between Grok 4.6, Grok 4.5,
+DeepSeek V4 Flash, or any other primary models. If all providers for the exact
+model fail, the turn still ends in one visible failure. Public-web research
+uses the same exact-model provider-rerouting rule.
 
 Provider registration is scoped by Organization and frozen route identity.
 Flue/pi-ai capability metadata, AI Gateway headers, usage attribution, and
@@ -846,27 +846,31 @@ reasoning behavior must be read through that scoped provider id rather than a
 process-global `openrouter` registration that a concurrent Organization can
 overwrite.
 
-Grok 4.5 receives image input directly. When the selected primary is text-only,
-the worker uses the frozen image-understanding route, initially Grok 4.5, only
-to describe the image. Instructions visible inside the image are explicitly
-untrusted content, the original image is not sent to the text-only primary, and
-the bounded HTML-escaped description enters the turn under an untrusted-data
-delimiter that image content cannot close. The worker removes the generic
-attachment marker before sending this text-only turn and states that the
-original image is not attached. If the auxiliary call fails, the turn fails; it
-does not remove the image, pretend the image was understood, or change the
-selected primary model.
+Grok 4.6 and Grok 4.5 receive image input directly. When the selected primary
+is text-only, the worker uses the frozen image-understanding route, currently
+Grok 4.6, only to describe the image. Instructions visible inside the image are
+explicitly untrusted content, the original image is not sent to the text-only
+primary, and the bounded HTML-escaped description enters the turn under an
+untrusted-data delimiter that image content cannot close. The worker removes
+the generic attachment marker before sending this text-only turn and states
+that the original image is not attached. If the auxiliary call fails, the turn
+fails; it does not remove the image, pretend the image was understood, or
+change the selected primary model.
 
 Model capacity and reasoning metadata are checked in with the catalog so
 admission needs no provider metadata lookup. Compaction derives its policy from
-the frozen route. Usage remains recorded by the Remote Agent worker through
-OpenMeld-owned usage records and Analytics Engine and attributes the effective
-primary model.
+the frozen route. Hosted reasoning is currently fixed to `high`; the Harness
+reads that frozen route value dynamically rather than reading a user setting or
+hard-coding one global effort. Usage remains recorded by the Remote Agent
+worker through OpenMeld-owned usage records and Analytics Engine and attributes
+the effective primary model.
 
 The worker accepts legacy version-1 submissions during the mixed-deployment and
-recovery window. Those requests preserve the historical Grok route because
+recovery window. Those requests preserve the historical Grok 4.5 route because
 they contain no model route, including the historical image-input capability;
-this is wire compatibility for already-durable work, not automatic fallback.
+the worker's environment fallback therefore remains Grok 4.5 even after the
+new-turn product default becomes Grok 4.6. This is wire compatibility for
+already-durable work, not automatic fallback.
 An exact continuation or recovery derived from a durable version-1 request
 remains version 1. Core must not synthesize a current version-2 catalog route
 for that work, because doing so would change its frozen model semantics.
@@ -1986,8 +1990,10 @@ Core-owned hosted readiness has exactly two product states in MVP:
   it never includes prompts, message text, provider response text, or tokens.
   This operational evidence does not decide admission, retry, timeout, native
   delivery, or final result-surface truth.
-- Default model: Cloudflare AI Gateway → OpenRouter BYOK `x-ai/grok-4.5`
-  with BYOK alias `openrouter` (settled; see Implementation Base).
+- New-turn default route: Cloudflare AI Gateway → OpenRouter BYOK
+  `x-ai/grok-4.6` with BYOK alias `openrouter`. The legacy version-1
+  environment fallback remains `x-ai/grok-4.5` for durable recovery
+  compatibility (settled; see Implementation Base).
 
 Failure copy examples belong to Core, not the worker. Runtime policy blocks
 must explain whether the Remote Agent is disabled globally or blocked for the

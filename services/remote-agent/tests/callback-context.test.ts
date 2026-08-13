@@ -334,6 +334,7 @@ describe("remote agent callback context", () => {
       "This action requires a verified OpenMeld member identity.",
       "The action requires a verified OpenMeld member identity before I can create the Space.",
       "This action requires a verified OpenMeld member identity, so I haven't created the Space.",
+      "I couldn't create the Space because the request was rejected with invalid_payload: password cannot be set for this access.",
     ]) {
       expect(sanitizeCenterAgentCompletedTextForPublication(unsafeReply)).toBe(
         "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."

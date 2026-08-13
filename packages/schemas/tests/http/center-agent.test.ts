@@ -62,6 +62,15 @@ describe("Center Agent HTTP schemas", () => {
       centerAgentModelConfigurationResponseSchema.parse(configuration)
     ).toEqual(configuration);
     expect(
+      centerAgentModelConfigurationResponseSchema.parse({
+        ...configuration,
+        choices: [
+          { ...configuration.choices[0], badgeLabel: "New" },
+          configuration.choices[1],
+        ],
+      }).choices[0]?.badgeLabel
+    ).toBe("New");
+    expect(
       updateCenterAgentModelBodySchema.parse({
         expectedConfigurationRevision: 4,
         preference: {

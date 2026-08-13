@@ -61,7 +61,7 @@ type SelectTriggerProps = Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,
   "children"
 > & {
-  displayValue?: string;
+  displayValue?: ReactNode;
   error?: string;
   icon?: FluidSelectIcon;
   placeholder?: string;
@@ -734,6 +734,7 @@ function resolveSelectContentTransformOrigin(side: SelectContentSide) {
 const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
   (
     {
+      "aria-label": ariaLabel,
       children,
       className,
       disabled = false,
@@ -777,7 +778,9 @@ const SelectItem = forwardRef<HTMLDivElement, SelectItemProps>(
     return (
       <div
         {...props}
-        aria-label={typeof children === "string" ? children : undefined}
+        aria-label={
+          ariaLabel ?? (typeof children === "string" ? children : undefined)
+        }
         aria-selected={isChecked}
         className={cn(
           "relative z-10 flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-2 text-xs outline-none transition-colors",
