@@ -14,10 +14,10 @@ export const TEST_CENTER_AGENT_MODEL_ROUTE = {
   displayName: "DeepSeek V4 Flash",
   imageUnderstandingModel: {
     contextWindow: 500_000,
-    displayName: "Grok 4.5",
+    displayName: "Grok 4.6",
     inputModalities: ["text", "image"],
     maxOutputTokens: 16_384,
-    modelId: "x-ai/grok-4.5",
+    modelId: "x-ai/grok-4.6",
     provider: "openrouter",
     reasoningLevel: "high",
   },

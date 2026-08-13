@@ -596,12 +596,15 @@ guessed Local Agent label. It is not Agent Activity and must never be labeled
 
 The **Model** section is readable by every active Organization member. It shows
 the effective friendly primary-model name and never exposes a raw OpenRouter
-model id. Owners and admins may choose **OpenMeld default**, **Grok 4.5**, or
-**DeepSeek V4 Flash** and save through the Binding-revision compare-and-set contract;
-members see the same effective configuration without enabled mutation
-controls. The OpenMeld-default option includes the current effective model so a
-future system-default change is understandable without duplicating it into
-browser state.
+model id. Owners and admins may choose **OpenMeld default**, **Grok 4.6**,
+**Grok 4.5**, or **DeepSeek V4 Flash** and save through the Binding-revision
+compare-and-set contract; members see the same effective configuration without
+enabled mutation controls. The OpenMeld-default option includes the current
+effective model so a future system-default change is understandable without
+duplicating it into browser state. A model choice's optional catalog-owned badge
+appears in both the closed selector and its matching options; Web does not infer
+badges from model names or the current default. Reasoning is catalog-owned at
+`high` and is not a separate Web control in this release.
 
 Model behavior details use a compact info Tooltip instead of permanently
 expanded copy. It says whether images are handled directly or through a vision

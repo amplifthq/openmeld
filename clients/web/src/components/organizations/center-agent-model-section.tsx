@@ -210,7 +210,7 @@ function ModelConfigurationContent(input: {
 								className="w-full sm:max-w-sm"
 								displayValue={
 									input.selectedChoice
-										? modelChoiceLabel(input.selectedChoice)
+										? modelChoicePresentation(input.selectedChoice)
 										: input.configuration.effectiveModel.displayName
 								}
 								id="center-agent-primary-model"
@@ -218,11 +218,12 @@ function ModelConfigurationContent(input: {
 							<SelectContent>
 								{input.configuration.choices.map((choice, index) => (
 									<SelectItem
+										aria-label={modelChoiceAccessibleLabel(choice)}
 										index={index}
 										key={modelPreferenceValue(choice.preference)}
 										value={modelPreferenceValue(choice.preference)}
 									>
-										{modelChoiceLabel(choice)}
+										{modelChoicePresentation(choice)}
 									</SelectItem>
 								))}
 							</SelectContent>
@@ -249,6 +250,9 @@ function ModelConfigurationContent(input: {
 						</p>
 						{input.configuration.preference.kind === "system_default" ? (
 							<Badge variant="outline">OpenMeld default</Badge>
+						) : null}
+						{input.selectedChoice?.badgeLabel ? (
+							<ModelBadge label={input.selectedChoice.badgeLabel} />
 						) : null}
 					</div>
 					<p className="mt-2 text-muted-foreground text-xs">
@@ -283,6 +287,32 @@ function modelChoiceLabel(choice: CenterAgentModelChoice): string {
 	return choice.preference.kind === "system_default"
 		? `${choice.displayName} (${choice.effectiveModelDisplayName})`
 		: choice.displayName;
+}
+
+function modelChoiceAccessibleLabel(choice: CenterAgentModelChoice): string {
+	return [modelChoiceLabel(choice), choice.badgeLabel]
+		.filter((part): part is string => Boolean(part))
+		.join(" ");
+}
+
+function modelChoicePresentation(choice: CenterAgentModelChoice) {
+	return (
+		<span className="flex min-w-0 items-center gap-2">
+			<span className="min-w-0 truncate">{modelChoiceLabel(choice)}</span>
+			{choice.badgeLabel ? <ModelBadge label={choice.badgeLabel} /> : null}
+		</span>
+	);
+}
+
+function ModelBadge({ label }: { label: string }) {
+	return (
+		<Badge
+			className="h-4 px-1.5 py-0 text-[10px] leading-none"
+			variant="secondary"
+		>
+			{label}
+		</Badge>
+	);
 }
 
 function modelPreferenceValue(preference: CenterAgentModelPreference): string {

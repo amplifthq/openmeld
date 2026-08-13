@@ -7,15 +7,30 @@ import {
 
 const CATALOG = {
   schemaVersion: 1,
-  updatedAt: "2026-07-31T00:00:00.000Z",
+  updatedAt: "2026-08-13T00:00:00.000Z",
   agentControllers: {
     "center-agent": {
-      defaultModelId: "x-ai/grok-4.5",
+      defaultModelId: "x-ai/grok-4.6",
       hostedRuntimePolicy: {
         automaticModelFallback: false,
-        imageUnderstandingModelId: "x-ai/grok-4.5",
+        imageUnderstandingModelId: "x-ai/grok-4.6",
       },
       models: [
+        {
+          id: "x-ai/grok-4.6",
+          displayName: "Grok 4.6",
+          badgeLabel: "New",
+          unavailable: false,
+          supportedReasoningLevels: ["high"],
+          minCliVersion: null,
+          hostedRuntime: {
+            provider: "openrouter",
+            inputModalities: ["text", "image"],
+            contextWindow: 500_000,
+            maxOutputTokens: 16_384,
+            reasoningLevel: "high",
+          },
+        },
         {
           id: "x-ai/grok-4.5",
           displayName: "Grok 4.5",
@@ -74,21 +89,21 @@ describe("resolveCenterAgentModelRoute", () => {
       status: "accepted",
       route: {
         automaticModelFallback: false,
-        catalogUpdatedAt: "2026-07-31T00:00:00.000Z",
+        catalogUpdatedAt: "2026-08-13T00:00:00.000Z",
         contextWindow: 500_000,
-        displayName: "Grok 4.5",
+        displayName: "Grok 4.6",
         imageUnderstandingModel: {
           contextWindow: 500_000,
-          displayName: "Grok 4.5",
+          displayName: "Grok 4.6",
           inputModalities: ["text", "image"],
           maxOutputTokens: 16_384,
-          modelId: "x-ai/grok-4.5",
+          modelId: "x-ai/grok-4.6",
           provider: "openrouter",
           reasoningLevel: "high",
         },
         inputModalities: ["text", "image"],
         maxOutputTokens: 16_384,
-        modelId: "x-ai/grok-4.5",
+        modelId: "x-ai/grok-4.6",
         preference: { kind: "system_default" },
         provider: "openrouter",
         reasoningLevel: "high",
@@ -109,15 +124,15 @@ describe("resolveCenterAgentModelRoute", () => {
       status: "accepted",
       route: {
         automaticModelFallback: false,
-        catalogUpdatedAt: "2026-07-31T00:00:00.000Z",
+        catalogUpdatedAt: "2026-08-13T00:00:00.000Z",
         contextWindow: 1_000_000,
         displayName: "DeepSeek V4 Flash",
         imageUnderstandingModel: {
           contextWindow: 500_000,
-          displayName: "Grok 4.5",
+          displayName: "Grok 4.6",
           inputModalities: ["text", "image"],
           maxOutputTokens: 16_384,
-          modelId: "x-ai/grok-4.5",
+          modelId: "x-ai/grok-4.6",
           provider: "openrouter",
           reasoningLevel: "high",
         },
@@ -163,12 +178,24 @@ describe("resolveCenterAgentModelRoute", () => {
   it("lists the system default separately from explicit choices", () => {
     expect(listCenterAgentModelChoices(CATALOG)).toEqual([
       {
+        badgeLabel: "New",
         displayName: "OpenMeld default",
-        effectiveModelDisplayName: "Grok 4.5",
+        effectiveModelDisplayName: "Grok 4.6",
         preference: { kind: "system_default" },
         supportsImageInput: true,
       },
       {
+        badgeLabel: "New",
+        displayName: "Grok 4.6",
+        effectiveModelDisplayName: "Grok 4.6",
+        preference: {
+          kind: "selected_model",
+          modelId: "x-ai/grok-4.6",
+        },
+        supportsImageInput: true,
+      },
+      {
+        badgeLabel: null,
         displayName: "Grok 4.5",
         effectiveModelDisplayName: "Grok 4.5",
         preference: {
@@ -178,6 +205,7 @@ describe("resolveCenterAgentModelRoute", () => {
         supportsImageInput: true,
       },
       {
+        badgeLabel: null,
         displayName: "DeepSeek V4 Flash",
         effectiveModelDisplayName: "DeepSeek V4 Flash",
         preference: {

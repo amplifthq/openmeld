@@ -9,8 +9,8 @@ import {
 } from "../flue-adapter/model";
 
 const TEXT_ONLY_MODEL = {
-  id: "x-ai/grok-4.5",
-  name: "xAI: Grok 4.5",
+  id: "x-ai/grok-4.6",
+  name: "SpaceXAI: Grok 4.6",
   api: "openai-completions" as const,
   provider: "openrouter",
   baseUrl: "https://openrouter.ai/api/v1",
@@ -45,7 +45,7 @@ describe("Remote Agent model image input", () => {
 
     const imageProjection = transformMessages(
       messages,
-      declareRemoteAgentModelImageInput(TEXT_ONLY_MODEL, "x-ai/grok-4.5")
+      declareRemoteAgentModelImageInput(TEXT_ONLY_MODEL, "x-ai/grok-4.6")
     );
     expect(JSON.stringify(imageProjection)).toContain('"type":"image"');
     expect(JSON.stringify(imageProjection)).not.toContain(
@@ -56,7 +56,7 @@ describe("Remote Agent model image input", () => {
   it("does not change a different provider model", () => {
     const otherModel = { ...TEXT_ONLY_MODEL, provider: "other" };
 
-    expect(declareRemoteAgentModelImageInput(otherModel, "x-ai/grok-4.5")).toBe(
+    expect(declareRemoteAgentModelImageInput(otherModel, "x-ai/grok-4.6")).toBe(
       otherModel
     );
   });
@@ -67,7 +67,7 @@ describe("Remote Agent model reasoning", () => {
     let capturedPayload: unknown;
     const model = declareRemoteAgentModelReasoning(
       { ...TEXT_ONLY_MODEL, reasoning: false },
-      "x-ai/grok-4.5"
+      "x-ai/grok-4.6"
     );
 
     const stream = streamOpenAICompletions(
@@ -87,6 +87,23 @@ describe("Remote Agent model reasoning", () => {
 
     expect(capturedPayload).toMatchObject({
       reasoning: { effort: "high" },
+    });
+  });
+
+  it("exposes the official xhigh reasoning effort for Grok 4.6", () => {
+    expect(
+      declareRemoteAgentModelReasoning(
+        { ...TEXT_ONLY_MODEL, reasoning: false },
+        "x-ai/grok-4.6"
+      )
+    ).toMatchObject({
+      reasoning: true,
+      thinkingLevelMap: {
+        high: "high",
+        low: "low",
+        medium: "medium",
+        xhigh: "xhigh",
+      },
     });
   });
 

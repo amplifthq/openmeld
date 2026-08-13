@@ -590,6 +590,15 @@ const GROK_45_THINKING_LEVEL_MAP = {
   xhigh: null,
 } as const;
 
+const GROK_46_THINKING_LEVEL_MAP = {
+  off: null,
+  minimal: null,
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh",
+} as const;
+
 export function declareRemoteAgentModelImageInput<T extends ImageInputModel>(
   model: T,
   modelId: string
@@ -608,17 +617,25 @@ export function declareRemoteAgentModelReasoning<T extends ReasoningModel>(
   model: T,
   modelId: string
 ): T {
-  if (
-    modelId !== REMOTE_AGENT_OPENROUTER_MODEL_ID ||
-    model.provider !== "openrouter" ||
-    model.id !== modelId
-  ) {
+  if (model.provider !== "openrouter" || model.id !== modelId) {
+    return model;
+  }
+  let thinkingLevelMap:
+    | typeof GROK_45_THINKING_LEVEL_MAP
+    | typeof GROK_46_THINKING_LEVEL_MAP
+    | null = null;
+  if (modelId === "x-ai/grok-4.6") {
+    thinkingLevelMap = GROK_46_THINKING_LEVEL_MAP;
+  } else if (modelId === "x-ai/grok-4.5") {
+    thinkingLevelMap = GROK_45_THINKING_LEVEL_MAP;
+  }
+  if (!thinkingLevelMap) {
     return model;
   }
   return {
     ...model,
     reasoning: true,
-    thinkingLevelMap: GROK_45_THINKING_LEVEL_MAP,
+    thinkingLevelMap,
   };
 }
 

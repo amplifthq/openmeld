@@ -819,10 +819,11 @@ has two meanings:
   `center-agent.defaultModelId` when a new turn is admitted;
 - present means the Organization selected that exact available catalog model.
 
-The initial OpenMeld default is **Grok 4.5**. The first explicit choices are
-**Grok 4.5** and **DeepSeek V4 Flash**. Changing the system default is intentionally
-scheme A: existing Organizations on OpenMeld default use the new default for
-their next admitted turn, without a migration or per-Organization rollout row.
+The current OpenMeld default is **Grok 4.6**. The explicit choices are
+**Grok 4.6**, **Grok 4.5**, and **DeepSeek V4 Flash**. Changing the system
+default is intentionally scheme A: existing Organizations on OpenMeld default
+use the new default for their next admitted turn, without a migration or
+per-Organization rollout row.
 
 Core resolves and freezes the complete model route exactly once at new-turn
 admission. The accepted native-delivery request, its recovery request, and any
@@ -832,11 +833,17 @@ system default. A later independent human or Routine turn resolves the current
 preference. This preserves in-progress work without making model selection
 another execution authority.
 
-Grok 4.5 accepts text and images directly. DeepSeek V4 Flash is text-only, so the
-frozen route also names Grok 4.5 as an auxiliary image-understanding model.
-That model describes an image under an untrusted-content boundary and DeepSeek
-receives the description, not the image. An auxiliary or primary model failure
-fails the turn; OpenMeld never switches the primary model automatically.
+Grok 4.6 and Grok 4.5 accept text and images directly. DeepSeek V4 Flash is
+text-only, so the frozen route names Grok 4.6 as an auxiliary
+image-understanding model. That model describes an image under an
+untrusted-content boundary and DeepSeek receives the description, not the
+image. An auxiliary or primary model failure fails the turn; OpenMeld never
+switches the primary model automatically.
+
+Reasoning is part of the same frozen route, not a second mutable preference.
+The current catalog fixes hosted reasoning to `high`, and the Remote Agent
+Harness consumes that value dynamically. Web does not expose a separate
+reasoning control in this release.
 
 The Center Agent system prompt receives the friendly effective model name so
 it answers a member's question with that exact full name, without shortening or
