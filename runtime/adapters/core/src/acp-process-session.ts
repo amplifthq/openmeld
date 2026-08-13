@@ -2,6 +2,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { RuntimeAgentControllerLaunchContract } from "@openmeld/schemas/types";
 import type { AgentControllerProcessSignalTarget } from "./agent-controller-process.js";
 import {
+  type AgentControllerProcessCleanupResult,
   type SpawnedAgentControllerProcess,
   spawnAgentControllerProcess,
 } from "./agent-controller-process.js";
@@ -140,6 +141,7 @@ export class AcpProcessSession {
   readonly #processLabel: string;
   readonly #timeoutMs: number | null;
   #child: ChildProcessWithoutNullStreams | null = null;
+  #cleanupPromise: Promise<AgentControllerProcessCleanupResult> | null = null;
   #forceKillTimeout: NodeJS.Timeout | null = null;
   readonly #lifecycle: AcpProcessLifecycle = {
     exitCode: null,
@@ -267,7 +269,7 @@ export class AcpProcessSession {
       );
     });
     child.on("close", (exitCode, signal) => {
-      runtimeProcess.terminateRemainingDescendants();
+      this.#ensureRemainingDescendantsCleanup();
       this.#clearTimers();
       this.#lifecycle.exitCode = exitCode;
       this.#lifecycle.exitObservedAtMs = Date.now();
@@ -419,21 +421,23 @@ export class AcpProcessSession {
       child.stdin.end();
     }
     if (this.#lifecycle.exitObservedAtMs !== null) {
-      this.#runtimeProcess?.terminateRemainingDescendants();
+      await this.#finishRemainingDescendantsCleanup();
       return;
     }
 
     const gracefulExitMs = input?.gracefulExitMs ?? 0;
     if (gracefulExitMs > 0 && (await this.#waitForClose(gracefulExitMs))) {
+      await this.#finishRemainingDescendantsCleanup();
       return;
     }
     this.#requestProcessTermination("SIGTERM");
     if (await this.#waitForClose(ACP_PROCESS_KILL_GRACE_MS)) {
+      await this.#finishRemainingDescendantsCleanup();
       return;
     }
     this.#requestProcessTermination("SIGKILL");
     await this.#waitForClose(ACP_PROCESS_KILL_GRACE_MS);
-    this.#runtimeProcess?.terminateRemainingDescendants();
+    await this.#finishRemainingDescendantsCleanup();
   }
 
   formatStderrSuffix(): string {
@@ -619,6 +623,26 @@ export class AcpProcessSession {
       }, ACP_PROCESS_KILL_GRACE_MS);
       this.#forceKillTimeout.unref?.();
     }
+  }
+
+  #ensureRemainingDescendantsCleanup(): Promise<AgentControllerProcessCleanupResult> {
+    this.#cleanupPromise ??=
+      this.#runtimeProcess?.terminateRemainingDescendants() ??
+      Promise.resolve({ ok: true, signalSent: false });
+    return this.#cleanupPromise;
+  }
+
+  async #finishRemainingDescendantsCleanup(): Promise<void> {
+    const result = await this.#ensureRemainingDescendantsCleanup();
+    if (result.ok) {
+      return;
+    }
+    throw this.#error({
+      cause: result.error,
+      code: "process.cleanup_failed",
+      errorType: "adapter",
+      message: `process.cleanup_failed: OpenMeld could not stop every ${this.#processLabel} process`,
+    });
   }
 
   async #waitForClose(timeoutMs: number): Promise<boolean> {

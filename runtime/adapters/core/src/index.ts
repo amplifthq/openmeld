@@ -64,6 +64,7 @@ export type {
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/schemas/types";
 export {
+  type AgentControllerProcessCleanupResult,
   type AgentControllerProcessDiscoveryFailure,
   type AgentControllerProcessSignalTarget,
   type ListAgentControllerDescendantProcessIds,
@@ -75,11 +76,11 @@ export {
   resolveAgentControllerProcessSignalId,
   resolveAgentControllerProcessSignalTarget,
   resolveAgentControllerSupervisedProcessIds,
-  type ScheduleAgentControllerProcessDiscoveryRetry,
   type SpawnedAgentControllerProcess,
   signalAgentControllerProcessTree,
   spawnAgentControllerProcess,
   terminateRemainingAgentControllerProcesses,
+  type WaitForAgentControllerProcessDiscoveryRetry,
 } from "./agent-controller-process.js";
 export {
   type AdapterConversationBridgeSpec,

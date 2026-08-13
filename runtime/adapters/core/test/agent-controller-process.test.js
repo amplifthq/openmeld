@@ -140,13 +140,13 @@ test("preserves signaling failures for task control callers", () => {
   );
 });
 
-test("reports post-exit cleanup failures without trapping the caller", () => {
+test("reports post-exit cleanup failures as an incomplete cleanup", async () => {
   const cleanupError = Object.assign(new Error("kill EINVAL"), {
     code: "EINVAL",
   });
   const cleanupFailures = [];
 
-  const sent = terminateRemainingAgentControllerProcesses({
+  const result = await terminateRemainingAgentControllerProcesses({
     killProcess: () => {
       throw cleanupError;
     },
@@ -159,7 +159,11 @@ test("reports post-exit cleanup failures without trapping the caller", () => {
     supervisionId: "supervision-4242",
   });
 
-  assert.equal(sent, false);
+  assert.deepEqual(result, {
+    error: cleanupError,
+    ok: false,
+    signalSent: false,
+  });
   assert.deepEqual(cleanupFailures, [
     {
       error: cleanupError,
@@ -169,7 +173,7 @@ test("reports post-exit cleanup failures without trapping the caller", () => {
   ]);
 });
 
-test("retries discovery when inspection and leader cleanup fail together", () => {
+test("retries discovery when inspection and leader cleanup fail together", async () => {
   const discoveryError = Object.assign(new Error("spawnSync ps ETIMEDOUT"), {
     code: "ETIMEDOUT",
   });
@@ -179,7 +183,7 @@ test("retries discovery when inspection and leader cleanup fail together", () =>
   const killCalls = [];
   let discoveryAttempts = 0;
 
-  terminateRemainingAgentControllerProcesses({
+  const result = await terminateRemainingAgentControllerProcesses({
     killProcess: (processId, signal) => {
       killCalls.push({ processId, signal });
       if (processId === -4242) {
@@ -195,12 +199,17 @@ test("retries discovery when inspection and leader cleanup fail together", () =>
       return [4343];
     },
     processId: 4242,
-    scheduleDiscoveryRetry: (retry) => retry(),
+    waitForDiscoveryRetry: async () => undefined,
     signalTarget: "process_group",
     supervisionId: "supervision-4242",
   });
 
   assert.equal(discoveryAttempts, 2);
+  assert.deepEqual(result, {
+    error: cleanupError,
+    ok: false,
+    signalSent: false,
+  });
   assert.deepEqual(killCalls, [
     { processId: -4242, signal: "SIGKILL" },
     { processId: -4242, signal: "SIGKILL" },
@@ -208,7 +217,7 @@ test("retries discovery when inspection and leader cleanup fail together", () =>
   ]);
 });
 
-test("retries supervised discovery when the leader exits during an inspection failure", () => {
+test("retries supervised discovery when the leader exits during an inspection failure", async () => {
   const timeoutError = Object.assign(new Error("spawnSync ps ETIMEDOUT"), {
     code: "ETIMEDOUT",
   });
@@ -216,7 +225,7 @@ test("retries supervised discovery when the leader exits during an inspection fa
   const discoveryFailures = [];
   let discoveryAttempts = 0;
 
-  terminateRemainingAgentControllerProcesses({
+  const result = await terminateRemainingAgentControllerProcesses({
     killProcess: (processId, signal) => {
       killCalls.push({ processId, signal });
       if (processId === -4242) {
@@ -236,12 +245,13 @@ test("retries supervised discovery when the leader exits during an inspection fa
     reportDiscoveryFailure: (failure) => {
       discoveryFailures.push(failure);
     },
-    scheduleDiscoveryRetry: (retry) => retry(),
+    waitForDiscoveryRetry: async () => undefined,
     signalTarget: "process_group",
     supervisionId: "supervision-4242",
   });
 
   assert.equal(discoveryAttempts, 2);
+  assert.deepEqual(result, { ok: true, signalSent: true });
   assert.deepEqual(killCalls, [
     { processId: -4242, signal: "SIGKILL" },
     { processId: -4242, signal: "SIGKILL" },
@@ -257,11 +267,11 @@ test("retries supervised discovery when the leader exits during an inspection fa
   ]);
 });
 
-test("retries with a fresh scan when the exited leader had no visible descendants", () => {
+test("retries with a fresh scan when the exited leader had no visible descendants", async () => {
   const killCalls = [];
   let discoveryAttempts = 0;
 
-  terminateRemainingAgentControllerProcesses({
+  const result = await terminateRemainingAgentControllerProcesses({
     killProcess: (processId, signal) => {
       killCalls.push({ processId, signal });
       if (processId === -4242) {
@@ -274,15 +284,50 @@ test("retries with a fresh scan when the exited leader had no visible descendant
       return discoveryAttempts === 1 ? [] : [4343];
     },
     processId: 4242,
-    scheduleDiscoveryRetry: (retry) => retry(),
+    waitForDiscoveryRetry: async () => undefined,
     signalTarget: "process_group",
     supervisionId: "supervision-4242",
   });
 
   assert.equal(discoveryAttempts, 2);
+  assert.deepEqual(result, { ok: true, signalSent: true });
   assert.deepEqual(killCalls, [
     { processId: -4242, signal: "SIGKILL" },
     { processId: -4242, signal: "SIGKILL" },
     { processId: 4343, signal: "SIGKILL" },
   ]);
+});
+
+test("waits for the supervised discovery retry before completing cleanup", async () => {
+  let releaseRetry;
+  let discoveryAttempts = 0;
+  let settled = false;
+  const cleanup = terminateRemainingAgentControllerProcesses({
+    killProcess: () => false,
+    listSupervisedProcessIds: () => {
+      discoveryAttempts += 1;
+      if (discoveryAttempts === 1) {
+        throw new Error("process table temporarily unavailable");
+      }
+      return [];
+    },
+    processId: 4242,
+    signalTarget: "process_group",
+    supervisionId: "supervision-4242",
+    waitForDiscoveryRetry: () =>
+      new Promise((resolve) => {
+        releaseRetry = resolve;
+      }),
+  }).then((result) => {
+    settled = true;
+    return result;
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(discoveryAttempts, 1);
+  assert.equal(settled, false);
+
+  releaseRetry();
+  assert.deepEqual(await cleanup, { ok: true, signalSent: true });
+  assert.equal(discoveryAttempts, 2);
 });

@@ -132,6 +132,41 @@ describe("agent controller interface inventory", () => {
     }
   });
 
+  it("reports Grok Build as signed out when its cached authentication fails", async () => {
+    const home = await mkdtemp(
+      join(tmpdir(), "openmeld-aci-grok-expired-auth-")
+    );
+    try {
+      const binPath = join(home, ".grok", "bin", "grok");
+      await mkdir(join(home, ".grok", "bin"), { recursive: true });
+      await writeGrokBuildBin(binPath, {
+        authenticated: true,
+        authFailure: "The cached token is expired. Sign in again.",
+      });
+
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:grok-build",
+        state: createBuiltinAgentTargetState(
+          "grok-build",
+          "Grok Build",
+          binPath
+        ),
+      });
+
+      expect(snapshot).toMatchObject({
+        auth: { status: "unauthenticated" },
+        check: { status: "succeeded" },
+        message:
+          "Grok Build is installed, but this computer is not signed in to Grok.",
+        models: [],
+        status: "error",
+        version: "1.0.3",
+      });
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
   it("reports Cursor CLI ACP capabilities and authentication", async () => {
     vi.stubGlobal(
       "fetch",
@@ -1005,7 +1040,7 @@ function createBuiltinAgentTargetState(
 
 async function writeGrokBuildBin(
   binPath: string,
-  input: { authenticated: boolean }
+  input: { authenticated: boolean; authFailure?: string }
 ): Promise<void> {
   const modelState = {
     availableModels: [
@@ -1064,7 +1099,11 @@ async function writeGrokBuildBin(
       "      protocolVersion: 1",
       "    } });",
       '  } else if (message.method === "authenticate") {',
-      "    send({ id: message.id, result: {} });",
+      ...(input.authFailure
+        ? [
+            `    send({ id: message.id, error: { code: -32000, message: ${JSON.stringify(input.authFailure)} } });`,
+          ]
+        : ["    send({ id: message.id, result: {} });"]),
       "  }",
       "});",
       "",

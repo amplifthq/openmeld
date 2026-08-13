@@ -260,11 +260,7 @@ export async function runCliDriver(
     });
 
     child.on("close", (exitCode, signal) => {
-      try {
-        runtimeProcess.terminateRemainingDescendants();
-      } catch (error) {
-        reportPostExitCleanupFailure({ error, processId });
-      }
+      runtimeProcess.terminateRemainingDescendants();
       clearTimers();
       const exitObservedAtMs = Date.now();
       lifecycle.exitCode = exitCode;
@@ -311,24 +307,6 @@ export async function runCliDriver(
     child.stdin.end((input.inputText ?? "").toString(), () => {
       markStdinClosed();
     });
-  });
-}
-
-function reportPostExitCleanupFailure(input: {
-  error: unknown;
-  processId: number | null;
-}): void {
-  const error =
-    input.error instanceof Error
-      ? input.error
-      : new Error(String(input.error ?? "Unknown cleanup failure"));
-  console.warn("[openmeld.agent_controller.process_cleanup_failed]", {
-    errorCode:
-      "code" in error && typeof error.code === "string" ? error.code : null,
-    errorMessage: error.message,
-    errorName: error.name,
-    processId: input.processId,
-    source: "post_exit_descendant_cleanup",
   });
 }
 

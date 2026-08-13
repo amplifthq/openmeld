@@ -834,7 +834,8 @@ async function resolveGrokBuildInterfaceSnapshot(input: {
 
   const unauthenticated =
     interfaceProbe.error instanceof GrokBuildAcpTransportError &&
-    interfaceProbe.error.code === "auth.required";
+    (interfaceProbe.error.code === "auth.required" ||
+      interfaceProbe.error.code === "auth.failed");
   return {
     probeCompleted: unauthenticated,
     snapshot: {
