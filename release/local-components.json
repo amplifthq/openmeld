@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-13T04:12:32.236Z",
+  "updatedAt": "2026-08-12T11:18:17.064Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.50",
+      "packageVersion": "0.3.49",
       "updatePolicy": "available",
-      "reason": "Ship user-friendly Center Agent recovery and production OAuth readiness as one advisory release."
+      "reason": "Ship the completed OpenMeld integration and migration as one advisory release."
     },
     "service": {
-      "bundleHash": "67cc01b1e9f3174baa819588c18ddd44c481f2beba7c9917a26a696d759d5514",
-      "bundleVersion": "0.3.50",
+      "bundleHash": "0df1a4430a85581e81bcceeab9de32667bd2bb45e1416043ba6059371c5b7ad3",
+      "bundleVersion": "0.3.49",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Ship user-friendly Center Agent recovery and production OAuth readiness as one advisory release."
+      "reason": "Ship the completed OpenMeld integration and migration as one advisory release."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Ship user-friendly Center Agent recovery and production OAuth readiness as one advisory release."
+      "reason": "Ship the completed OpenMeld integration and migration as one advisory release."
     }
   }
 }
