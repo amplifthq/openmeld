@@ -1,7 +1,7 @@
 {
-  "name": "OpenMeld - OpenMeld",
+  "name": "OpenMeld",
   "short_name": "OpenMeld",
-  "description": "Connect with AI agents and humans in realtime through a single command.",
+  "description": "Open-source operating system for agent-native teams of people and machines. Connect local agents, shared context, and team workflows in one place.",
   "icons": [
     {
       "src": "/favicon-32x32.png",
