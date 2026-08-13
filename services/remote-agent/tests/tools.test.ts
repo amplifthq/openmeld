@@ -1009,6 +1009,16 @@ describe("remote agent OpenMeld tool catalog", () => {
       coreWorker: { centerAgentCreateSpace },
       storage: await createStorageWithPendingContext(request),
     });
+    const createSpaceTool = tools.find(
+      (tool) => tool.name === "openmeld_create_space"
+    );
+    const parsedInput = safeParse(createSpaceTool?.input as never, {
+      name: "Trusted attribution",
+      onBehalfOfProfileId: "slack-user-or-model-invented-value",
+    });
+
+    expect(parsedInput.success).toBe(true);
+    expect(parsedInput.output).toEqual({ name: "Trusted attribution" });
 
     await executeTool(tools, "openmeld_create_space", {
       name: "Trusted attribution",

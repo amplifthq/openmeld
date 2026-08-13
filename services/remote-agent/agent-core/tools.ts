@@ -231,7 +231,7 @@ const createSpaceAccessInputSchema = union([
     visibility: optional(picklist(["public", "private"])),
   }),
 ]);
-const createSpaceToolInputSchema = strictObject({
+const createSpaceToolInputSchema = object({
   ...createSpaceCommonInputEntries,
   access: optional(createSpaceAccessInputSchema),
 });
