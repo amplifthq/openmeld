@@ -434,6 +434,14 @@ function ConnectedWorkSection() {
 						Connect the accounts your Center Agent can use. Every action keeps
 						its identity, access, and audit trail explicit.
 					</p>
+					<p className="mt-4 max-w-2xl text-muted-foreground text-sm leading-6">
+						When you connect Gmail, Google Calendar, or Google Drive, OpenMeld
+						uses the access you approve only to carry out the requests you give
+						your Center Agent—such as finding an email, drafting or sending a
+						message, reading or changing an event, or working with a Drive file.
+						It does not use Google Workspace data for advertising. You can
+						disconnect at any time.
+					</p>
 					<ul
 						aria-label="Available Apps"
 						className="mt-8 grid gap-x-8 sm:grid-cols-2"

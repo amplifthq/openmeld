@@ -5,7 +5,7 @@ import {
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 } from "#/components/app/shell-layout";
 
-const LAST_UPDATED = "July 5, 2026";
+const LAST_UPDATED = "August 13, 2026";
 const PRIVACY_EMAIL = "felix@amplift.ai";
 
 const summaryItems = [
@@ -70,7 +70,15 @@ const policySections = [
 		],
 	},
 	{
-		title: "6. How We Share Information",
+		title: "6. Connected Apps and Google Workspace Data",
+		paragraphs: [
+			"When you connect Gmail, Google Calendar, or Google Drive, OpenMeld accesses only the Google Workspace data covered by the permissions you approve. Depending on the App and the request you make, this can include email messages, drafts, labels, and settings; calendars, events, and sharing information; or Drive files and file metadata.",
+			"OpenMeld uses that data only to provide or improve the user-facing features you ask for. For example, your Center Agent may find an email, draft or send a message, read or change an event, or find, read, create, update, or delete a Drive file when your request and approved permissions allow that action. You can disconnect a Google account from OpenMeld at any time.",
+			"OpenMeld's use and transfer of information received from Google APIs follows the Google API Services User Data Policy, including the Limited Use requirements. We do not sell Google user data, use it for advertising, or allow people to read it unless you affirmatively ask us to review specific data, it is necessary for security or abuse investigation, it is required by law, or the data has been aggregated for lawful internal operations.",
+		],
+	},
+	{
+		title: "7. How We Share Information",
 		paragraphs: [
 			"We share information with infrastructure and service providers that help us host, authenticate, deliver email, secure, observe, and operate OpenMeld. They may process information only as needed to provide those services to us.",
 			"We share information inside Spaces and Organizations according to the collaboration choices you make. If you invite people or agents into a Space, they can see the content and context available in that Space.",
@@ -79,21 +87,21 @@ const policySections = [
 		],
 	},
 	{
-		title: "7. Cookies and Authentication",
+		title: "8. Cookies and Authentication",
 		paragraphs: [
 			"OpenMeld uses essential cookies and similar technologies for login, session security, protected Space access, request routing, and fraud prevention.",
 			"If OpenMeld adds non-essential analytics, advertising, or marketing tracking, we will update this policy and provide consent or opt-out controls where required by law.",
 		],
 	},
 	{
-		title: "8. Retention",
+		title: "9. Retention",
 		paragraphs: [
 			"We keep account, Space, organization, Wake, setup, diagnostic, and security records for as long as needed to operate OpenMeld, preserve collaboration history, debug failures, protect the service, comply with legal obligations, and support reasonable backup and audit needs.",
 			"Because OpenMeld is experimental, retention periods and deletion flows may change. Where applicable law gives you deletion or correction rights, contact us and we will handle the request according to the law that applies.",
 		],
 	},
 	{
-		title: "9. Your Choices and Rights",
+		title: "10. Your Choices and Rights",
 		paragraphs: [
 			"Depending on where you live, you may have rights to access, correct, delete, export, restrict, or object to certain processing of your personal information. You may also have the right to complain to a data protection authority.",
 			`To make a privacy request, email us at ${PRIVACY_EMAIL}. We may need to verify your identity before acting on the request.`,
@@ -101,41 +109,41 @@ const policySections = [
 		],
 	},
 	{
-		title: "10. Security",
+		title: "11. Security",
 		paragraphs: [
 			"We use technical and organizational safeguards such as authentication, access controls, encrypted transport, operational logging, and diagnostic review to protect OpenMeld.",
 			"No internet service, local daemon, browser session, CLI, or AI-agent workflow is perfectly secure. OpenMeld is experimental and should not be used as the only control for mission-critical, safety-critical, financial, medical, legal, or other high-risk decisions.",
 		],
 	},
 	{
-		title: "11. International Processing",
+		title: "12. International Processing",
 		paragraphs: [
 			"OpenMeld is intended primarily for North American users, but information may be processed in the United States and other countries where our service providers operate.",
 			"If international transfer rules apply to your use, additional terms, safeguards, or agreements may be required before OpenMeld is appropriate for that use.",
 		],
 	},
 	{
-		title: "12. Open Source, MIT License, and Service Limits",
+		title: "13. Open Source, MIT License, and Service Limits",
 		paragraphs: [
 			"OpenMeld's source code is available under the MIT License. That license lets people inspect, copy, modify, and distribute the software under its terms, but it does not create warranties, service-level commitments, privacy guarantees, or legal advice.",
 			"Public GitHub issues, pull requests, discussions, and contributions are public by design. Do not post secrets, private Space content, personal data, or confidential customer information in public open-source channels.",
 		],
 	},
 	{
-		title: "13. Children's Privacy",
+		title: "14. Children's Privacy",
 		paragraphs: [
 			"OpenMeld is not directed to children under 13, and we do not knowingly collect personal information from children under 13. If you believe a child has provided personal information, contact us so we can review and delete it where appropriate.",
 		],
 	},
 	{
-		title: "14. Changes to This Policy",
+		title: "15. Changes to This Policy",
 		paragraphs: [
 			"We may update this policy as OpenMeld changes. When changes are material, we will provide notice through the product, website, email, repository, or another reasonable channel.",
 			"Your continued use of OpenMeld after an updated policy becomes effective means the updated policy applies to later use.",
 		],
 	},
 	{
-		title: "15. Contact",
+		title: "16. Contact",
 		paragraphs: [
 			`For privacy questions, rights requests, or concerns about this policy, contact Amplift at ${PRIVACY_EMAIL}.`,
 			"If you need legal advice about whether OpenMeld is appropriate for your organization, data, jurisdiction, or compliance obligations, speak with qualified counsel.",
