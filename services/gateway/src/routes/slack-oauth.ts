@@ -8,6 +8,7 @@ import type {
 import type { Context, Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import { exchangeSlackOAuthCode } from "../lib/slack-oauth-client";
+import { resolveGatewayStructuredRpcErrorResponse } from "./rpc-http.helpers";
 
 const SLACK_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize";
 export const SLACK_BOT_SCOPES = [
@@ -75,12 +76,17 @@ export function registerSlackOAuthRoutes(app: Hono<HonoBindings>): void {
         ...(moveFromOrganizationId ? { moveFromOrganizationId } : {}),
       });
     } catch (error) {
+      const requestId = c.var.ingressOpenMeldContext.requestId;
       console.warn("[gateway.slack.oauth_state_creation_failed]", {
         error: toSafeOAuthErrorMessage(error),
-        requestId: c.var.ingressOpenMeldContext.requestId,
+        requestId,
       });
       return redirectToSlackOAuthResult(c, {
-        error: "state_creation_failed",
+        error: resolveSlackOAuthCoreError({
+          error,
+          fallback: "state_creation_failed",
+          requestId,
+        }),
       });
     }
     const authorizeUrl = new URL(SLACK_AUTHORIZE_URL);
@@ -255,12 +261,17 @@ async function finishSlackOAuthInstallation(
       connected: true,
     });
   } catch (error) {
+    const requestId = c.var.ingressOpenMeldContext.requestId;
     console.warn("[gateway.slack.oauth_installation_failed]", {
       error: toSafeOAuthErrorMessage(error),
-      requestId: c.var.ingressOpenMeldContext.requestId,
+      requestId,
     });
     return redirectToManagement(c, input.state.returnPath, {
-      error: "installation_failed",
+      error: resolveSlackOAuthCoreError({
+        error,
+        fallback: "installation_failed",
+        requestId,
+      }),
     });
   }
 }
@@ -387,4 +398,18 @@ function normalizeHttpUrl(value: unknown): string | null {
 function toSafeOAuthErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.slice(0, 300);
+}
+
+function resolveSlackOAuthCoreError(input: {
+  error: unknown;
+  fallback: SlackOAuthErrorCode;
+  requestId: string;
+}): SlackOAuthErrorCode {
+  const structured = resolveGatewayStructuredRpcErrorResponse({
+    err: input.error,
+    requestId: input.requestId,
+  });
+  return structured?.code === "message_channel.organization_required"
+    ? "organization_required"
+    : input.fallback;
 }

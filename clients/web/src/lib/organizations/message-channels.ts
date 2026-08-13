@@ -127,6 +127,8 @@ export function resolveMessageChannelErrorMessage(
 ): string {
 	const failure = toStructuredApiClientFailure(error);
 	switch (failure.code) {
+		case "message_channel.organization_required":
+			return "Create an organization before connecting Slack, Lark, or Feishu.";
 		case "message_channel.actor_required":
 			return "Use a Human Profile to manage organization channels.";
 		case "message_channel.already_connected":

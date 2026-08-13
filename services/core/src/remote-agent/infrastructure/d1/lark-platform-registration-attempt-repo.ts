@@ -688,6 +688,70 @@ export async function failRemoteAgentLarkPlatformRegistrationAttempt(input: {
     : { attempt, status: "claim_lost" };
 }
 
+export async function rejectRemoteAgentLarkPlatformRegistrationAttempt(input: {
+  attemptId: string;
+  db: D1Database;
+  failureReasonCode: string;
+  nowMs: number;
+}): Promise<RemoteAgentLarkPlatformRegistrationAttemptRecord | null> {
+  const rejectAttempt = input.db
+    .prepare(
+      `
+        UPDATE openMeldRemoteAgent_lark_platform_registration_attempts
+        SET
+          status = 'repair_required',
+          failure_reason_code = ?,
+          consumed_at_ms = ?,
+          poll_claim_id = NULL,
+          poll_claim_expires_at_ms = NULL,
+          updated_at_ms = ?
+        WHERE attempt_id = ?
+          AND consumed_at_ms IS NULL
+          AND status IN ('pending_registration', 'credentials_received', 'configuring')
+      `
+    )
+    .bind(input.failureReasonCode, input.nowMs, input.nowMs, input.attemptId);
+  const requireConnectionRepair = input.db
+    .prepare(
+      `
+        UPDATE openMeldRemoteAgent_lark_platform_channel_connections
+        SET
+          status = 'repair_required',
+          failure_reason_code = ?,
+          updated_at_ms = ?
+        WHERE status = 'configuring'
+          AND EXISTS (
+            SELECT 1
+            FROM openMeldRemoteAgent_lark_platform_registration_attempts attempt
+            WHERE attempt.attempt_id = ?
+              AND attempt.connection_id =
+                openMeldRemoteAgent_lark_platform_channel_connections.connection_id
+              AND attempt.organization_id =
+                openMeldRemoteAgent_lark_platform_channel_connections.organization_id
+              AND attempt.provider =
+                openMeldRemoteAgent_lark_platform_channel_connections.provider
+              AND attempt.permission_bundle_version =
+                openMeldRemoteAgent_lark_platform_channel_connections.permission_bundle_version
+              AND attempt.status = 'repair_required'
+              AND attempt.consumed_at_ms = ?
+              AND attempt.failure_reason_code = ?
+          )
+      `
+    )
+    .bind(
+      input.failureReasonCode,
+      input.nowMs,
+      input.attemptId,
+      input.nowMs,
+      input.failureReasonCode
+    );
+  await input.db.batch([rejectAttempt, requireConnectionRepair]);
+  return await readRemoteAgentLarkPlatformRegistrationAttempt({
+    attemptId: input.attemptId,
+    db: input.db,
+  });
+}
+
 export async function expireRemoteAgentLarkPlatformRegistrationAttempt(input: {
   attemptId: string;
   db: D1Database;

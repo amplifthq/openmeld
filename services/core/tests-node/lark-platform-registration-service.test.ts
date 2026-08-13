@@ -53,6 +53,8 @@ const ENV = {
   OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS: "org_1",
   LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY: CRYPTO_KEY,
 } as const;
+const classifyOrganizationWorkspace = async () =>
+  ({ ok: true, personal: false }) as const;
 describe("Lark-platform registration service", () => {
   it("projects active setup without decrypting its setup URL", async () => {
     const harness = createRegistrationHarness();
@@ -122,6 +124,7 @@ describe("Lark-platform registration service", () => {
       });
 
       await runLarkPlatformRegistrationTick({
+        classifyOrganization: classifyOrganizationWorkspace,
         createId: () => "claim_provider",
         db: harness.db,
         env: ENV,
@@ -130,6 +133,7 @@ describe("Lark-platform registration service", () => {
       });
 
       const summary = await runLarkPlatformRegistrationTick({
+        classifyOrganization: classifyOrganizationWorkspace,
         createId: vi
           .fn<() => string>()
           .mockReturnValueOnce("claim_background")
@@ -176,6 +180,95 @@ describe("Lark-platform registration service", () => {
     }
   });
 
+  it("stops a due Personal Workspace registration before calling the provider", async () => {
+    const harness = createRegistrationHarness();
+    try {
+      await beginRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        createId: () => "attempt_personal_background",
+        db: harness.db,
+        env: ENV,
+        fetchImpl: jsonFetch(capturedBegin),
+        nowMs: 1000,
+        provider: "lark",
+      });
+      const fetchImpl = vi.fn<typeof fetch>();
+
+      await expect(
+        runLarkPlatformRegistrationTick({
+          classifyOrganization: async () => ({ ok: true, personal: true }),
+          db: harness.db,
+          env: ENV,
+          fetchImpl,
+          nowMs: 1100,
+        })
+      ).resolves.toEqual({ errors: 0, processed: 1, scanned: 1 });
+      await expect(
+        readRemoteAgentLarkPlatformRegistrationAttempt({
+          attemptId: "attempt_personal_background",
+          db: harness.db,
+        })
+      ).resolves.toMatchObject({
+        consumedAtMs: 1100,
+        failureReasonCode: "lark.organization_required",
+        status: "repair_required",
+      });
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("quarantines a due registration when its Organization cannot be classified", async () => {
+    const harness = createRegistrationHarness();
+    try {
+      await beginRemoteAgentLarkPlatformRegistration({
+        actor: ACTOR,
+        createId: () => "attempt_unclassified_background",
+        db: harness.db,
+        env: ENV,
+        fetchImpl: jsonFetch(capturedBegin),
+        nowMs: 1000,
+        provider: "lark",
+      });
+      const classifyOrganization = vi.fn(async () => ({ ok: false }) as const);
+      const fetchImpl = vi.fn<typeof fetch>();
+
+      await expect(
+        runLarkPlatformRegistrationTick({
+          classifyOrganization,
+          db: harness.db,
+          env: ENV,
+          fetchImpl,
+          nowMs: 1100,
+        })
+      ).resolves.toEqual({ errors: 0, processed: 1, scanned: 1 });
+      await expect(
+        readRemoteAgentLarkPlatformRegistrationAttempt({
+          attemptId: "attempt_unclassified_background",
+          db: harness.db,
+        })
+      ).resolves.toMatchObject({
+        consumedAtMs: 1100,
+        failureReasonCode: "organization.context_unavailable",
+        status: "repair_required",
+      });
+      await expect(
+        runLarkPlatformRegistrationTick({
+          classifyOrganization,
+          db: harness.db,
+          env: ENV,
+          fetchImpl,
+          nowMs: 1200,
+        })
+      ).resolves.toEqual({ errors: 0, processed: 0, scanned: 0 });
+      expect(classifyOrganization).toHaveBeenCalledTimes(1);
+      expect(fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("expires a durable attempt without another Web request", async () => {
     const harness = createRegistrationHarness();
     try {
@@ -192,6 +285,7 @@ describe("Lark-platform registration service", () => {
 
       await expect(
         runLarkPlatformRegistrationTick({
+          classifyOrganization: classifyOrganizationWorkspace,
           db: harness.db,
           env: ENV,
           fetchImpl,
@@ -236,6 +330,7 @@ describe("Lark-platform registration service", () => {
 
       await expect(
         runLarkPlatformRegistrationTick({
+          classifyOrganization: classifyOrganizationWorkspace,
           db: harness.db,
           env: ENV,
           fetchImpl,
@@ -1211,6 +1306,7 @@ describe("Lark-platform registration service", () => {
 
       await expect(
         runLarkPlatformRegistrationTick({
+          classifyOrganization: classifyOrganizationWorkspace,
           clock,
           createId: () => "claim_slow_scheduler",
           db: harness.db,

@@ -5,6 +5,19 @@ import {
 } from "./center-agent";
 
 describe("resolveCenterAgentErrorMessage", () => {
+	it("guides a Personal Workspace to create an organization for Channels", () => {
+		expect(
+			resolveCenterAgentErrorMessage(
+				{
+					code: "message_channel.organization_required",
+					message: "Personal Workspaces cannot connect Message Channels.",
+					status: 409,
+				},
+				"slack_connect"
+			)
+		).toBe("Create an organization before connecting Slack, Lark, or Feishu.");
+	});
+
 	it("shows Center Agent DM open classification with the upstream code", () => {
 		expect(
 			resolveCenterAgentErrorMessage(

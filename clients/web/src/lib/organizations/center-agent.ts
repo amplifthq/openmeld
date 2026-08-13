@@ -326,6 +326,8 @@ function resolveCenterAgentErrorMessageWithoutDiagnostics(
 	const code = failure.upstreamCode ?? failure.code;
 
 	switch (code) {
+		case "message_channel.organization_required":
+			return "Create an organization before connecting Slack, Lark, or Feishu.";
 		case "slack.workspace_already_bound":
 			return "That Slack workspace is already connected to another OpenMeld organization.";
 		case "slack.organization_already_bound":

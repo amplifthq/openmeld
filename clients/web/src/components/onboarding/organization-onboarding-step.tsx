@@ -341,7 +341,7 @@ export function OrganizationOnboardingStep(input: {
 					<ChoiceGroupLabel>Personal</ChoiceGroupLabel>
 					<OrganizationChoice
 						current={personalWorkspace.id === input.currentOrganization.id}
-						description="Private to you"
+						description="For you only. Create an organization to connect Slack or invite teammates."
 						icon={
 							<UserIcon
 								aria-hidden="true"

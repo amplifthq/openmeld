@@ -1,5 +1,12 @@
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { messageChannelQueryKeys } from "#/query/organizations/message-channels";
@@ -23,8 +30,36 @@ let currentOrganization: OrganizationSummary = {
 	slug: "acme",
 };
 let appsSelectedService: string | null = null;
+const CONNECT_ACTION_NAME = /Connect/;
+const REPAIR_ACTION_NAME = /Repair/;
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
+
+vi.mock("@tanstack/react-router", () => ({
+	Link: ({
+		children,
+		search,
+		to,
+		...props
+	}: {
+		children: ReactNode;
+		search?: Record<string, string | undefined>;
+		to: string;
+	} & AnchorHTMLAttributes<HTMLAnchorElement>) => {
+		const params = new URLSearchParams();
+		for (const [key, value] of Object.entries(search ?? {})) {
+			if (value) {
+				params.set(key, value);
+			}
+		}
+		const query = params.toString();
+		return (
+			<a href={query ? `${to}?${query}` : to} {...props}>
+				{children}
+			</a>
+		);
+	},
+}));
 
 vi.mock("#/lib/organizations/auth-organizations", () => ({
 	getActiveOrganizationMemberRole: getActiveOrganizationMemberRoleMock,
@@ -282,7 +317,75 @@ describe("organization access management pages", () => {
 		expect(getActiveOrganizationMemberRoleMock).not.toHaveBeenCalled();
 	});
 
-	it("renders Channels for a personal workspace", async () => {
+	it("keeps Channels visible in a personal workspace and guides setup through a new organization", async () => {
+		currentOrganization = {
+			id: "personal-felix",
+			isPersonal: true,
+			name: "Felix",
+			slug: "felix",
+		};
+		readCurrentCenterAgentDesignationMock.mockResolvedValue({
+			designation: null,
+			organizationId: "personal-felix",
+			remoteRuntimeAvailability: { selectable: true },
+			slackConnection: {
+				connected: false,
+				slackTeamId: null,
+				workspaceName: null,
+			},
+		});
+		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
+			availableLarkPlatformProviders: ["lark"],
+			connections: [],
+			organizationId: "personal-felix",
+		});
+		render(
+			<TestQueryClientProvider>
+				<OrganizationMessageChannelsPage />
+			</TestQueryClientProvider>
+		);
+
+		await screen.findByRole("heading", { level: 2, name: "Slack" });
+		expect(
+			screen.getByRole("heading", { level: 2, name: "Lark" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("heading", { level: 2, name: "Feishu" })
+		).toBeTruthy();
+		expect(screen.queryByText("Loading channels.")).toBeNull();
+		expect(getActiveOrganizationMemberRoleMock).not.toHaveBeenCalled();
+		expect(
+			listCurrentOrganizationLarkPlatformRegistrationsMock
+		).not.toHaveBeenCalled();
+		expect(screen.getByText("Personal workspace")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Your Personal Workspace is only for you. Create an organization to connect Slack, Lark, or Feishu for your teammates."
+			)
+		).toBeTruthy();
+		expect(
+			screen.getByRole("heading", {
+				level: 2,
+				name: "Create an organization to connect Channels",
+			})
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("link", { name: "Create organization" })
+				.getAttribute("href")
+		).toBe("/o/felix/new-organization?intent=slack-install");
+		expect(screen.getAllByText("Organization required").length).toBeGreaterThan(
+			0
+		);
+		expect(
+			screen.queryByRole("button", { name: CONNECT_ACTION_NAME })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: REPAIR_ACTION_NAME })
+		).toBeNull();
+	});
+
+	it("explains how to move an existing personal Slack connection", async () => {
 		currentOrganization = {
 			id: "personal-felix",
 			isPersonal: true,
@@ -295,15 +398,84 @@ describe("organization access management pages", () => {
 			</TestQueryClientProvider>
 		);
 
-		await screen.findByRole("button", { name: "Connect Lark" });
-		expect(screen.queryByText("Loading channels.")).toBeNull();
-		expect(getActiveOrganizationMemberRoleMock).not.toHaveBeenCalled();
-		expect(screen.getByText("Personal workspace")).toBeTruthy();
 		expect(
-			screen.getByText(
-				"Connect Slack, Lark, or Feishu so you can message your Center Agent and receive replies in the same conversation."
+			await screen.findByText(
+				"Slack is connected to this Personal Workspace from an earlier setup. Create an organization, then connect the same Slack workspace there to move it."
 			)
 		).toBeTruthy();
+		expect(screen.getByText("Move required")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Manage Slack" })).toBeNull();
+	});
+
+	it("uses the Channels projection as the only Slack move truth", async () => {
+		currentOrganization = {
+			id: "personal-felix",
+			isPersonal: true,
+			name: "Felix",
+			slug: "felix",
+		};
+		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
+			availableLarkPlatformProviders: ["lark"],
+			connections: [],
+			organizationId: "personal-felix",
+		});
+		render(
+			<TestQueryClientProvider>
+				<OrganizationMessageChannelsPage />
+			</TestQueryClientProvider>
+		);
+
+		await screen.findByRole("heading", { level: 2, name: "Slack" });
+		expect(screen.queryByText("Move required")).toBeNull();
+		expect(screen.getAllByText("Organization required").length).toBeGreaterThan(
+			0
+		);
+		expect(readCurrentCenterAgentDesignationMock).not.toHaveBeenCalled();
+	});
+
+	it("offers disconnect cleanup for a historical Personal Workspace Lark connection", async () => {
+		currentOrganization = {
+			id: "personal-felix",
+			isPersonal: true,
+			name: "Felix",
+			slug: "felix",
+		};
+		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
+			availableLarkPlatformProviders: ["lark"],
+			connections: [
+				{
+					externalAccountId: "tenant_lark_1",
+					externalAccountName: "Legacy Lark",
+					grantedCapabilityGroups: ["conversation.text"],
+					id: "connection_lark_1",
+					lastVerifiedAt: "2026-07-18T00:00:00.000Z",
+					permissionBundleVersion: "channel-only-2026-07-18",
+					provider: "lark",
+					reasonCode: null,
+					status: "connected",
+					transport: "webhook",
+				},
+			],
+			organizationId: "personal-felix",
+		});
+		render(
+			<TestQueryClientProvider>
+				<OrganizationMessageChannelsPage />
+			</TestQueryClientProvider>
+		);
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Disconnect Lark" })
+		);
+		expect(
+			screen.getByRole("heading", { name: "Disconnect Lark" })
+		).toBeTruthy();
+		expect(
+			screen.getByText(
+				"This connection belongs to your Personal Workspace. Disconnect it before connecting Lark to an organization."
+			)
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Repair Lark" })).toBeNull();
 	});
 
 	it("refreshes formal connections when durable setup leaves the active list", async () => {

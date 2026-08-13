@@ -329,7 +329,8 @@ sibling mutation.
 
 1. **Workspace — "Choose your workspace"**
    - Always show `Personal Workspace` first as an explicit real choice with
-     `Private to you`; `Skip setup` is never a substitute for choosing it.
+     `For you only. Create an organization to connect Slack or invite
+     teammates.`; `Skip setup` is never a substitute for choosing it.
    - Show existing non-personal Organizations under a separate
      `Organizations` label.
    - Show pending email invitations from Better Auth and let the user join in
@@ -340,8 +341,9 @@ sibling mutation.
    - The demonstration uses up to three real Directory first names for an
      Organization and only the current user's real first name for Personal
      Workspace. It never invents people or renders unexplained initials.
-   - Personal Workspace shows `Private to you`; an Organization shows
-     `Shared with your team`.
+   - Personal Workspace explains that it is for the current user only and that
+     Slack or teammate collaboration requires an Organization; an Organization
+     shows `Shared with your team`.
 2. **Channels — "Bring OpenMeld into the conversation" (Organization only)**
    - Show Slack and Lark/Feishu with their real connected state.
    - A connected Channel keeps its check and `Connected` label together beside
@@ -408,6 +410,11 @@ sibling mutation.
      makes the default-on Workspace memory fact visible without adding another
      question. The progress indicator uses only those steps and never mounts
      team Channels, Organization policy, or invitation requests.
+   - The Personal Workspace still exposes **Center Agent → Channels** after
+     onboarding as a discoverable destination with one `Create organization`
+     action. Providers stay read-only unless a pre-launch Lark/Feishu
+     connection needs the bounded Disconnect cleanup. Setup Studio does not
+     duplicate that guide.
    - Organization and Personal copy remain distinct; neither path uses
      unexplained phrases such as `One shared loop`.
 

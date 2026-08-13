@@ -105,7 +105,8 @@ describe("Slack OAuth installation", () => {
       sql: `
         CREATE TABLE organizations (
           id TEXT PRIMARY KEY,
-          slug TEXT NOT NULL UNIQUE
+          slug TEXT NOT NULL UNIQUE,
+          metadata TEXT
         )
       `,
     });
@@ -223,6 +224,27 @@ describe("Slack OAuth installation", () => {
       status: "delivered",
       welcome_version: 1,
     });
+  });
+
+  it("rejects an OAuth installation for a Personal Workspace before writing Slack state", async () => {
+    insertOrganizationOwner(harness, { personal: true });
+
+    await expect(
+      rpcInstallSlackWorkspaceFromOAuth(
+        createRpcEnv(harness),
+        RPC_INSTALLATION_INPUT
+      )
+    ).rejects.toMatchObject({
+      code: "message_channel.organization_required",
+      status: 409,
+    });
+
+    expect(
+      await readRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        slackTeamId: RPC_INSTALLATION_INPUT.slackTeamId,
+      })
+    ).toBeNull();
   });
 
   it("does not send the welcome DM when an existing binding is reauthorized", async () => {
@@ -1013,6 +1035,7 @@ function insertOrganizationOwner(
   input: {
     organizationId?: string;
     organizationSlug?: string;
+    personal?: boolean;
     userId?: string;
   } = {}
 ): void {
@@ -1020,10 +1043,14 @@ function insertOrganizationOwner(
   const organizationSlug = input.organizationSlug ?? "acme";
   const userId = input.userId ?? "openmeld-user-1";
   harness.run({
-    params: [organizationId, organizationSlug],
+    params: [
+      organizationId,
+      organizationSlug,
+      input.personal ? JSON.stringify({ personal: true }) : null,
+    ],
     sql: `
-      INSERT OR IGNORE INTO organizations (id, slug)
-      VALUES (?, ?)
+      INSERT OR IGNORE INTO organizations (id, slug, metadata)
+      VALUES (?, ?, ?)
     `,
   });
   harness.run({

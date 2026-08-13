@@ -36,4 +36,18 @@ describe("Slack OAuth result copy", () => {
 		expect(message.description).toContain("Connect Slack");
 		expect(message.description).not.toContain("Connect channels");
 	});
+
+	it("guides a Personal Workspace refusal to Organization creation", () => {
+		expect(
+			resolveSlackOAuthResultMessage({
+				error: "organization_required",
+				status: "error",
+			})
+		).toEqual({
+			description:
+				"Your Personal Workspace is for you only and cannot connect Slack. Create or choose an organization, then connect Slack there.",
+			title: "Create an organization to connect Slack",
+			tone: "error",
+		});
+	});
 });

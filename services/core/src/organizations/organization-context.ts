@@ -1,4 +1,5 @@
 import { memberRoleHasOrganizationPermission } from "@openmeld/auth";
+import { isPersonalOrganization } from "@openmeld/auth/server";
 import { authRpcResolveOrganizationAccountIdentityResultSchema } from "@openmeld/schemas";
 import type {
   AuthRpcResolveOrganizationAccountIdentityInput,
@@ -165,6 +166,56 @@ export async function readOrganizationRouteSlug(input: {
       requestId: input.requestId ?? null,
     });
     return null;
+  }
+}
+
+export async function readOrganizationPersonalClassification(input: {
+  env: Pick<CoreBindings, "OPENMELD_DB">;
+  organizationId: string;
+  requestId?: string | null;
+}): Promise<{ ok: true; personal: boolean } | { ok: false }> {
+  const db = identityDb(input.env);
+  if (!db) {
+    return { ok: false };
+  }
+  try {
+    const organization = await db
+      .prepare(
+        `
+          SELECT slug, metadata
+          FROM organizations
+          WHERE id = ?
+          LIMIT 1
+        `
+      )
+      .bind(input.organizationId)
+      .first<{ metadata: string | null; slug: string }>();
+    if (!organization) {
+      return { ok: false };
+    }
+    const classification = isPersonalOrganization(organization);
+    if (!classification.ok) {
+      console.warn(
+        "[core.organization_context.personal_classification_invalid]",
+        {
+          organizationId: input.organizationId,
+          reason: classification.reason,
+          requestId: input.requestId ?? null,
+        }
+      );
+      return { ok: false };
+    }
+    return classification;
+  } catch (error) {
+    console.warn(
+      "[core.organization_context.personal_classification_lookup_failed]",
+      {
+        error: error instanceof Error ? error.message : String(error),
+        organizationId: input.organizationId,
+        requestId: input.requestId ?? null,
+      }
+    );
+    return { ok: false };
   }
 }
 

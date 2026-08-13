@@ -68,7 +68,11 @@ describe("OrganizationOnboardingDemo", () => {
 
 		expect(screen.getByText("Felix")).toBeTruthy();
 		expect(screen.queryByText("Alice")).toBeNull();
-		expect(screen.getByText("Private to you")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"For you only. Create an organization to connect Slack or invite teammates."
+			)
+		).toBeTruthy();
 		expect(screen.queryByText("People · context · agents")).toBeNull();
 	});
 

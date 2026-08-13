@@ -23,6 +23,7 @@ export const MESSAGE_CHANNEL_ERROR_CODES = [
   "message_channel.identity_link_account_required",
   "message_channel.identity_link_membership_required",
   "message_channel.identity_link_token_invalid",
+  "message_channel.organization_required",
   "message_channel.provider_disabled",
   "message_channel.provider_unavailable",
   "message_channel.repair_unavailable",

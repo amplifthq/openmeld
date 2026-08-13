@@ -36,6 +36,11 @@ Local Agents or Computers, and other actions whose owner contract requires a
 specific OpenMeld human. It is not a prerequisite for receiving Organization
 value in the collaboration tool where work already happens.
 
+Workspace-level Message Channels belong only to a non-personal Organization.
+A Personal Workspace keeps **Center Agent → Channels** visible so a first-time
+user can discover Slack, Lark, and Feishu, but it stays read-only and guides the
+user to create an Organization. It never accepts a new Channel connection.
+
 For every Message Channel request, authority follows the exact person who made
 that request. It does not follow the Channel, thread, person who added the bot,
 or most privileged participant nearby. Center Agent may compare an unlinked

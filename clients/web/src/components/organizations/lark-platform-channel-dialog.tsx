@@ -30,6 +30,7 @@ import { useState } from "react";
 
 export function LarkPlatformChannelDialog(input: {
 	canManage: boolean;
+	cleanupOnly?: boolean;
 	connection: MessageChannelConnectionProjection | null;
 	disconnectPending: boolean;
 	errorMessage: string | null;
@@ -52,16 +53,20 @@ export function LarkPlatformChannelDialog(input: {
 	const needsRepair =
 		connection?.status === "repair_required" ||
 		connection?.status === "revoked";
-	const dialogTitle = resolveDialogTitle({
-		connected,
-		needsRepair,
-		providerLabel,
-	});
-	const dialogDescription = resolveDialogDescription({
-		connected,
-		needsRepair,
-		providerLabel,
-	});
+	const dialogTitle = input.cleanupOnly
+		? `Disconnect ${providerLabel}`
+		: resolveDialogTitle({
+				connected,
+				needsRepair,
+				providerLabel,
+			});
+	const dialogDescription = input.cleanupOnly
+		? `This connection belongs to your Personal Workspace. Disconnect it before connecting ${providerLabel} to an organization.`
+		: resolveDialogDescription({
+				connected,
+				needsRepair,
+				providerLabel,
+			});
 	const canDisconnect =
 		connection !== null && connection.status !== "disconnected";
 	const registrationInProgress =
@@ -99,7 +104,7 @@ export function LarkPlatformChannelDialog(input: {
 					/>
 				) : (
 					<ConnectionSummary
-						canManage={input.canManage}
+						canManage={input.canManage && !input.cleanupOnly}
 						connection={connection}
 						errorMessage={input.errorMessage}
 						onRepair={input.onRepair}

@@ -176,7 +176,7 @@ export function OrganizationOnboardingDemo(input: {
 				</p>
 				<p className="mt-1.5 text-[10px] text-white/48">
 					{input.organization.isPersonal
-						? "Private to you"
+						? "For you only. Create an organization to connect Slack or invite teammates."
 						: "Shared with your team"}
 				</p>
 			</div>

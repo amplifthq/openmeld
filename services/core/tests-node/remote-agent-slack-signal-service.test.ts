@@ -284,6 +284,56 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
+  it("continues routing an existing historical Personal Workspace Slack binding", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    harness.run({
+      params: [JSON.stringify({ personal: true }), "org_1"],
+      sql: "UPDATE organizations SET metadata = ? WHERE id = ?",
+    });
+    const workerSubmit = vi.fn(async () => ({
+      accepted: true,
+      createdAt: 1_710_000_001,
+      requestId: "req_personal_slack_1",
+      status: "pending" as const,
+      submissionId: "sub_personal_slack_1",
+    }));
+    stubSlackFetch({ email: "ari@example.test" });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload()
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      expect(workerSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: "org_1",
+          turnEnvelope: expect.objectContaining({
+            organization: expect.objectContaining({ id: "org_1" }),
+            trigger: expect.objectContaining({
+              source: "slack",
+              teamId: "T123",
+            }),
+          }),
+        })
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
   it("replies once when the selected Center Agent model is unavailable", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);

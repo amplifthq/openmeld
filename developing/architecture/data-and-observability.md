@@ -1836,6 +1836,20 @@ faster feedback, but the lease keeps the scheduler and Web on one write path.
 unknown response fail closed. Web owns no in-memory poll process, and closing
 or reloading it cannot stop a durable attempt.
 
+Before each scheduled continuation, Core reads the canonical Organization
+Personal classification. An unavailable or malformed classification fails
+closed before any provider operation and quarantines the attempt as consumed
+`repair_required` with `organization.context_unavailable`. This releases the
+bounded scheduler batch instead of letting permanently unreadable rows starve
+later registrations; after Organization classification is repaired, the user
+starts or repairs registration through the ordinary guarded path. A Personal
+Workspace classification consumes the attempt with the bounded reason
+`<provider>.organization_required`; if that attempt had already created a
+`configuring` connection, the same D1 batch marks that connection
+`repair_required`. This prevents a registration started before enforcement
+from completing through the minute tick while preserving a visible connection
+projection that the owner can disconnect.
+
 Core derives the active-registration read projection directly from these owner
 rows. It filters to the active Organization and currently enabled providers,
 returns at most one safe non-terminal summary per provider, and does not decrypt

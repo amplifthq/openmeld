@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   readOrganizationAccountIdentityProjection,
   readOrganizationCreatorUserId,
+  readOrganizationPersonalClassification,
   readOrganizationRouteSlug,
   resolveOrganizationOwnerOrAdminMembership,
 } from "../src/organizations/organization-context";
@@ -17,7 +18,8 @@ describe("organization context owner contracts", () => {
         CREATE TABLE organizations (
           id TEXT PRIMARY KEY,
           slug TEXT NOT NULL,
-          created_by_user_id TEXT
+          created_by_user_id TEXT,
+          metadata TEXT
         )
       `,
     });
@@ -45,6 +47,33 @@ describe("organization context owner contracts", () => {
         organizationId: "org-1",
       })
     ).resolves.toBe("acme");
+  });
+
+  it("classifies a Personal Workspace from Auth-owned organization metadata", async () => {
+    harness.run({
+      params: [JSON.stringify({ personal: true })],
+      sql: "UPDATE organizations SET metadata = ? WHERE id = 'org-1'",
+    });
+
+    await expect(
+      readOrganizationPersonalClassification({
+        env: { OPENMELD_DB: harness.db },
+        organizationId: "org-1",
+      })
+    ).resolves.toEqual({ ok: true, personal: true });
+  });
+
+  it("fails closed when Personal Workspace classification is malformed", async () => {
+    harness.run({
+      sql: "UPDATE organizations SET metadata = '{not-json' WHERE id = 'org-1'",
+    });
+
+    await expect(
+      readOrganizationPersonalClassification({
+        env: { OPENMELD_DB: harness.db },
+        organizationId: "org-1",
+      })
+    ).resolves.toEqual({ ok: false });
   });
 
   it("resolves the immutable organization creator through the identity owner", async () => {

@@ -201,6 +201,7 @@ describe("Core scheduled task dispatcher", () => {
       nowMs: 1000,
     });
     expect(runLarkPlatformRegistrationTick).toHaveBeenCalledWith({
+      classifyOrganization: expect.any(Function),
       clock: Date.now,
       db: localStateDatabase,
       env: expect.anything(),

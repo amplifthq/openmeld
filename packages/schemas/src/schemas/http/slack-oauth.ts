@@ -95,6 +95,7 @@ export const slackOAuthErrorCodeSchema = z.enum([
   "missing_code",
   "oauth_exchange_failed",
   "organization_already_bound",
+  "organization_required",
   "state_creation_failed",
   "state_validation_failed",
   "workspace_already_bound",

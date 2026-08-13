@@ -248,7 +248,7 @@ describe("OrganizationEntryPage", () => {
 		});
 	});
 
-	it("keeps every organization selectable and preserves intent on the create link in Slack install mode", async () => {
+	it("excludes Personal Workspaces and preserves intent on the create link in Slack install mode", async () => {
 		organizations = [
 			currentOrganization,
 			{
@@ -266,10 +266,8 @@ describe("OrganizationEntryPage", () => {
 			)
 		).toBeTruthy();
 		expect(
-			screen
-				.getByRole("link", { name: "Open Solo organization" })
-				.getAttribute("href")
-		).toBe("/o/solo/center-agent/channels");
+			screen.queryByRole("link", { name: "Open Solo organization" })
+		).toBeNull();
 		const acmeLink = screen.getByRole("link", {
 			name: "Open Acme Labs organization",
 		});
@@ -322,16 +320,13 @@ describe("OrganizationEntryPage", () => {
 		});
 	});
 
-	it("returns to the intent picker from Slack install organization creation", () => {
+	it("returns first-time Slack installers to Spaces instead of an ineligible Personal Workspace picker", () => {
 		renderSlackInstallNewOrganizationPage();
 
-		fireEvent.click(
-			screen.getByRole("button", { name: "Back to Organizations" })
-		);
+		fireEvent.click(screen.getByRole("button", { name: "Back to Spaces" }));
 
 		expect(navigateMock).toHaveBeenCalledWith({
-			search: { intent: "slack-install" },
-			to: "/o/solo/organizations",
+			to: "/o/solo/spaces",
 		});
 	});
 

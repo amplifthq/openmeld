@@ -80,6 +80,13 @@ export function resolveSlackOAuthResultMessage(
 				title: "This organization already has a Slack workspace",
 				tone: "error",
 			};
+		case "organization_required":
+			return {
+				description:
+					"Your Personal Workspace is for you only and cannot connect Slack. Create or choose an organization, then connect Slack there.",
+				title: "Create an organization to connect Slack",
+				tone: "error",
+			};
 		case "workspace_already_bound":
 			return {
 				description:
