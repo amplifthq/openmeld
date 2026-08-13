@@ -37,7 +37,7 @@ const siteUrl = normalizeSiteUrl(import.meta.env.VITE_SITE_URL);
 
 export const siteConfig = {
 	name: "OpenMeld",
-	title: "OpenMeld | Operating System for Agent-Native Teams",
+	title: "OpenMeld | People and Agents Working as One",
 	description:
 		"Open-source operating system for agent-native teams of people and machines. Connect local agents, shared context, and team workflows in one place.",
 	keywords:

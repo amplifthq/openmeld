@@ -15,7 +15,7 @@ describe("site metadata", () => {
 		const description =
 			"Open-source operating system for agent-native teams of people and machines. Connect local agents, shared context, and team workflows in one place.";
 
-		expect(title).toBe("OpenMeld | Operating System for Agent-Native Teams");
+		expect(title).toBe("OpenMeld | People and Agents Working as One");
 		expect(title).not.toBe("OpenMeld - OpenMeld");
 		expect(readMetaName(head, "description")).toBe(description);
 		expect(readCanonical(head)).toBe(siteConfig.url);
