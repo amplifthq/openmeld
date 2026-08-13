@@ -6,6 +6,8 @@ const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 const boundedDisplayNameSchema = z.string().trim().min(1).max(256);
 const nullableBoundedIdentifierSchema = boundedIdentifierSchema.nullable();
 
+export const modelCatalogBadgeLabelSchema = z.string().trim().min(1).max(32);
+
 export const hostedModelInputModalitySchema = z.enum(["text", "image"]);
 export const hostedModelReasoningLevelSchema = z.enum([
   "off",
@@ -27,6 +29,7 @@ export const modelCatalogHostedRuntimeSchema = z.strictObject({
 export const modelCatalogModelSchema = z.strictObject({
   id: boundedIdentifierSchema,
   displayName: boundedDisplayNameSchema,
+  badgeLabel: modelCatalogBadgeLabelSchema.optional(),
   hostedRuntime: modelCatalogHostedRuntimeSchema.optional(),
   unavailable: z.boolean(),
   supportedReasoningLevels: z.array(boundedIdentifierSchema),

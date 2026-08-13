@@ -5,6 +5,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
@@ -170,6 +171,7 @@ describe("CenterAgentSettingsContent", () => {
 			)
 		).toBeNull();
 		expect(await screen.findByText("Grok 4.6")).toBeTruthy();
+		expect(screen.getByText("New").getAttribute("data-slot")).toBe("badge");
 		expect(screen.getByText("OpenMeld default")).toBeTruthy();
 		const modelBehaviorTrigger = screen.getByRole("button", {
 			name: "About Center Agent model behavior",
@@ -218,6 +220,34 @@ describe("CenterAgentSettingsContent", () => {
 		await waitFor(() => {
 			expect(listCurrentCenterAgentAuditJournalMock).toHaveBeenCalledTimes(1);
 		});
+	});
+
+	it("shows catalog-owned model badges in the trigger and matching choices", async () => {
+		renderSettings({ canManage: true });
+
+		const trigger = await screen.findByRole("combobox", {
+			name: "Primary model",
+		});
+		expect(within(trigger).getByText("New").getAttribute("data-slot")).toBe(
+			"badge"
+		);
+
+		fireEvent.click(trigger);
+		const defaultChoice = await screen.findByRole("option", {
+			name: "OpenMeld default (Grok 4.6) New",
+		});
+		const grok46Choice = screen.getByRole("option", {
+			name: "Grok 4.6 New",
+		});
+		expect(
+			within(defaultChoice).getByText("New").getAttribute("data-slot")
+		).toBe("badge");
+		expect(
+			within(grok46Choice).getByText("New").getAttribute("data-slot")
+		).toBe("badge");
+		expect(
+			screen.getByRole("option", { name: "Grok 4.5" }).textContent
+		).not.toContain("New");
 	});
 
 	it("lets an owner choose DeepSeek for new work without hiding image routing", async () => {
@@ -492,12 +522,14 @@ function buildModelConfiguration(
 		canManage: true,
 		choices: [
 			{
+				badgeLabel: "New",
 				displayName: "OpenMeld default",
 				effectiveModelDisplayName: "Grok 4.6",
 				preference: { kind: "system_default" as const },
 				supportsImageInput: true,
 			},
 			{
+				badgeLabel: "New",
 				displayName: "Grok 4.6",
 				effectiveModelDisplayName: "Grok 4.6",
 				preference: {
@@ -507,6 +539,7 @@ function buildModelConfiguration(
 				supportsImageInput: true,
 			},
 			{
+				badgeLabel: null,
 				displayName: "Grok 4.5",
 				effectiveModelDisplayName: "Grok 4.5",
 				preference: {
@@ -516,6 +549,7 @@ function buildModelConfiguration(
 				supportsImageInput: true,
 			},
 			{
+				badgeLabel: null,
 				displayName: "DeepSeek V4 Flash",
 				effectiveModelDisplayName: "DeepSeek V4 Flash",
 				preference: {

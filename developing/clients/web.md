@@ -601,8 +601,10 @@ model id. Owners and admins may choose **OpenMeld default**, **Grok 4.6**,
 compare-and-set contract; members see the same effective configuration without
 enabled mutation controls. The OpenMeld-default option includes the current
 effective model so a future system-default change is understandable without
-duplicating it into browser state. Reasoning is catalog-owned at `high` and is
-not a separate Web control in this release.
+duplicating it into browser state. A model choice's optional catalog-owned badge
+appears in both the closed selector and its matching options; Web does not infer
+badges from model names or the current default. Reasoning is catalog-owned at
+`high` and is not a separate Web control in this release.
 
 Model behavior details use a compact info Tooltip instead of permanently
 expanded copy. It says whether images are handled directly or through a vision

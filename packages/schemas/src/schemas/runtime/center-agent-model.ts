@@ -1,5 +1,8 @@
 import { z } from "zod/v4";
-import { hostedModelReasoningLevelSchema } from "../config/model-catalog";
+import {
+  hostedModelReasoningLevelSchema,
+  modelCatalogBadgeLabelSchema,
+} from "../config/model-catalog";
 
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 
@@ -21,6 +24,7 @@ export const centerAgentModelSummarySchema = z.strictObject({
 });
 
 export const centerAgentModelChoiceSchema = z.strictObject({
+  badgeLabel: modelCatalogBadgeLabelSchema.nullable().optional(),
   displayName: boundedIdentifierSchema,
   effectiveModelDisplayName: boundedIdentifierSchema,
   preference: centerAgentModelPreferenceSchema,

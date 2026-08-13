@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-13T08:59:53.000Z",
+  "updatedAt": "2026-08-13T09:49:25.000Z",
   "agentControllers": {
     "codex": {
       "defaultModelId": "gpt-5.5",
@@ -494,6 +494,7 @@
         {
           "id": "x-ai/grok-4.6",
           "displayName": "Grok 4.6",
+          "badgeLabel": "New",
           "hostedRuntime": {
             "provider": "openrouter",
             "inputModalities": ["text", "image"],

@@ -19,6 +19,7 @@ const CATALOG = {
         {
           id: "x-ai/grok-4.6",
           displayName: "Grok 4.6",
+          badgeLabel: "New",
           hostedRuntime: {
             provider: "openrouter",
             inputModalities: ["text", "image"],
@@ -77,6 +78,21 @@ describe("Center Agent model service", () => {
       })
     ).toMatchObject({
       canManage: false,
+      choices: [
+        {
+          badgeLabel: "New",
+          preference: { kind: "system_default" },
+        },
+        {
+          badgeLabel: "New",
+          preference: {
+            kind: "selected_model",
+            modelId: "x-ai/grok-4.6",
+          },
+        },
+        { badgeLabel: null },
+        { badgeLabel: null },
+      ],
       configurationRevision: 7,
       effectiveModel: {
         availability: "available",

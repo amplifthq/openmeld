@@ -49,6 +49,11 @@ Client-local UI files are allowed when the primitive is genuinely client-bound
 or not yet shared. They must not duplicate an existing package export with a
 different API or visual meaning.
 
+`FluidSelect` accepts a composed React display value so a product-owned choice
+may pair its text with an existing shared primitive such as `Badge`. The Select
+continues to own listbox behavior, focus, keyboard navigation, and layout; the
+client owns the choice metadata and copy.
+
 ## Change Rule
 
 Add or change shared primitives in the smallest place that preserves reuse:

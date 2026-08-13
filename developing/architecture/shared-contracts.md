@@ -830,10 +830,11 @@ configuration and admission owner.
 
 The public configuration projection contains the Organization, current
 preference, effective friendly model, available choices, management capability,
-and Binding `configurationRevision`. The update request carries the complete
-preference plus `expectedConfigurationRevision`; Core rechecks current
-owner/admin permission and performs a compare-and-set Binding update. Members
-receive the same readable projection with `canManage: false`.
+and Binding `configurationRevision`. Each choice may include the catalog-owned
+`badgeLabel`; a missing field means there is no badge. The update request carries
+the complete preference plus `expectedConfigurationRevision`; Core rechecks
+current owner/admin permission and performs a compare-and-set Binding update.
+Members receive the same readable projection with `canManage: false`.
 
 `remoteAgentWorkerSubmitTurnRequestV2Schema` requires the full
 `centerAgentModelRouteSchema`. Core writes that exact request into native
@@ -860,21 +861,28 @@ same invalid configuration.
 
 Contract Impact Audit:
 
-- Deploy Remote Agent first so it accepts both v1 and v2. Then deploy Core,
-  Gateway, and Web in that order.
+- Deploy Remote Agent first so it accepts both v1 and v2. Deploy the Gateway and
+  Web badge receivers before Core adds `badgeLabel` to the strict configuration
+  response. The new receivers accept old responses because the field is
+  optional; old receivers reject the new field, so Core must not lead this
+  additive projection rollout.
 - Old Core remains compatible with the new worker through v1. New Core is not
   compatible with an old strict worker because v2 is a new request variant;
   therefore Core must not lead the rollout.
-- Old Web remains compatible with the new cloud stack because it does not call
-  the additive model route. New Web against an old Gateway/Core pair fails the
-  model read visibly and must not claim a saved selection.
-- Rollback removes Web and Gateway callers first, then Core's v2 producer, and
-  only then the worker's v2 consumer. Keep v1 acceptance while any old durable
-  delivery or recovery request can exist.
+- The badge changes presentation metadata only. It does not change the selected
+  model, frozen route, image routing, reasoning level, Binding preference, or
+  configuration revision behavior.
+- Badge rollback removes Core's additive field first, then the Web and Gateway
+  receivers. Frozen-route v2 rollback removes its Web and Gateway callers first,
+  then Core's v2 producer, and only then the worker's v2 consumer. Keep v1
+  acceptance while any old durable delivery or recovery request can exist.
 - CLI, OpenMeld Service, daemon, Prepare, RuntimeTransport, workstation Wake,
   Space action, diagnostics, and local component contract versions are
   unchanged. No D1 migration is required because the existing hosted Binding
   model field and configuration revision remain the single preference store.
+  The shared-schema source mechanically changes the packaged Service bundle
+  hash, so this feature branch defers the manifest update; the next clean release
+  worktree may restamp it as advisory `available` without forcing an update.
 
 ### Space Live Invalidation Frames
 

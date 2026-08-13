@@ -19,6 +19,7 @@ const CATALOG = {
         {
           id: "x-ai/grok-4.6",
           displayName: "Grok 4.6",
+          badgeLabel: "New",
           unavailable: false,
           supportedReasoningLevels: ["high"],
           minCliVersion: null,
@@ -177,12 +178,14 @@ describe("resolveCenterAgentModelRoute", () => {
   it("lists the system default separately from explicit choices", () => {
     expect(listCenterAgentModelChoices(CATALOG)).toEqual([
       {
+        badgeLabel: "New",
         displayName: "OpenMeld default",
         effectiveModelDisplayName: "Grok 4.6",
         preference: { kind: "system_default" },
         supportsImageInput: true,
       },
       {
+        badgeLabel: "New",
         displayName: "Grok 4.6",
         effectiveModelDisplayName: "Grok 4.6",
         preference: {
@@ -192,6 +195,7 @@ describe("resolveCenterAgentModelRoute", () => {
         supportsImageInput: true,
       },
       {
+        badgeLabel: null,
         displayName: "Grok 4.5",
         effectiveModelDisplayName: "Grok 4.5",
         preference: {
@@ -201,6 +205,7 @@ describe("resolveCenterAgentModelRoute", () => {
         supportsImageInput: true,
       },
       {
+        badgeLabel: null,
         displayName: "DeepSeek V4 Flash",
         effectiveModelDisplayName: "DeepSeek V4 Flash",
         preference: {
