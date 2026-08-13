@@ -21,7 +21,7 @@ const RUNTIME_ENABLED_VAR = "OPENMELD_REMOTE_AGENT_RUNTIME_ENABLED";
 const BLOCKED_ORGS_VAR = "OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS";
 const REMOTE_AGENT_WORKER_BINDING = "OPENMELD_REMOTE_AGENT_WORKER";
 const ORG_ID_RE = /^[A-Za-z0-9_-]+$/u;
-const SPACE_ID_RE = /^[A-Za-z0-9_-]+$/u;
+const SPACE_ID_RE = /^[A-Za-z0-9_.:-]+$/u;
 const INLINE_OPTION_RE = /=(.*)/su;
 const USAGE_DEV_TIMEOUT_MS = 20_000;
 
@@ -174,8 +174,16 @@ function validateRemoteAgentOpsArgs(parsed) {
     }
   }
   if (parsed.action === "usage") {
-    if (!(parsed.spaceId && SPACE_ID_RE.test(parsed.spaceId))) {
-      throw new UsageError("usage requires --space matching [A-Za-z0-9_-]+.");
+    if (
+      !(
+        parsed.spaceId &&
+        parsed.spaceId.length <= 1024 &&
+        SPACE_ID_RE.test(parsed.spaceId)
+      )
+    ) {
+      throw new UsageError(
+        "usage requires --space with an exact OpenMeld Space or Message Channel conversation id."
+      );
     }
     if (
       typeof parsed.runtimeConversationId !== "string" ||

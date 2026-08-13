@@ -128,6 +128,7 @@ export async function resolveRemoteAgentRoutineTurnEnvelope(input: {
   delegatedMember: {
     displayName: string;
     memberId: string;
+    profileId: string;
     userId: string;
   };
   externalActionPolicy: CenterAgentRoutineExternalActionPolicy;
@@ -220,6 +221,7 @@ export async function resolveRemoteAgentRoutineTurnEnvelope(input: {
         displayName: input.delegatedMember.displayName,
         id: input.delegatedMember.memberId,
         ownerUserId: input.delegatedMember.userId,
+        profileId: input.delegatedMember.profileId,
         verified: true,
       },
     },
@@ -431,6 +433,7 @@ export async function resolveRemoteAgentRoutineTaskContinuationTurnEnvelope(inpu
         displayName: requester.profile_name,
         id: requester.member_id,
         ownerUserId: requester.owner_user_id,
+        profileId: requester.profile_id,
         ...(requester.role ? { role: requester.role } : {}),
         verified: true,
       },

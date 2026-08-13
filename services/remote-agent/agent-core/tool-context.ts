@@ -88,6 +88,25 @@ export function resolveVerifiedTurnEnvelopeSpeaker(
   };
 }
 
+export function resolveVerifiedTurnEnvelopeProfileId(
+  envelope: RemoteAgentCallbackContext["turnEnvelope"]
+): string | undefined {
+  if (
+    envelope?.sender.kind === "routine" &&
+    envelope.sender.delegatedBy.verified
+  ) {
+    return envelope.sender.delegatedBy.profileId;
+  }
+  if (
+    envelope?.sender.kind !== "member" ||
+    !envelope.sender.verified ||
+    !envelope.sender.ownerUserId
+  ) {
+    return undefined;
+  }
+  return envelope.sender.profileId;
+}
+
 export function resolveOrganizationMemberTurnEnvelopeSpeaker(
   envelope: RemoteAgentCallbackContext["turnEnvelope"]
 ): CenterAgentToolSpeaker | undefined {

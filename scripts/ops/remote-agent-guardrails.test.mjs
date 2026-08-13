@@ -153,6 +153,15 @@ test("usage command requires a safe space id", () => {
     () => parseRemoteAgentOpsArgs(["usage", "--space", "space_123"]),
     RUNTIME_CONVERSATION_REQUIRED_RE
   );
+  assert.doesNotThrow(() =>
+    parseRemoteAgentOpsArgs([
+      "usage",
+      "--space",
+      "slack:T098U4EM971:C0BPRRGHGMS:1786601979.220769",
+      "--runtime-conversation",
+      "remote-agent-runtime-generation.v1|3:org|52:slack:T098U4EM971:C0BPRRGHGMS:1786601979.220769|1",
+    ])
+  );
 });
 
 test("usage diagnostics uses the remote-agent service binding target", () => {

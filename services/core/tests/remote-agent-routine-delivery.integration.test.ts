@@ -4432,6 +4432,7 @@ async function buildRoutineWorkerSubmitRequest(
     delegatedMember: {
       displayName: "Routine Creator",
       memberId: fixture.creatorMemberId,
+      profileId: fixture.creatorProfileId,
       userId: fixture.creatorUserId,
     },
     destination: { kind: "space", spaceId: fixture.spaceId },

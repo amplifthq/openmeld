@@ -996,6 +996,32 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
   });
 
+  it("derives Space attribution from the verified turn instead of model input", async () => {
+    const request = createSubmitTurnRequest();
+    if (
+      request.turnEnvelope.sender.kind !== "member" ||
+      !request.turnEnvelope.sender.profileId
+    ) {
+      throw new Error("Expected a verified member profile in the fixture");
+    }
+    const centerAgentCreateSpace = vi.fn(async () => createSpaceResponse());
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateSpace },
+      storage: await createStorageWithPendingContext(request),
+    });
+
+    await executeTool(tools, "openmeld_create_space", {
+      name: "Trusted attribution",
+      onBehalfOfProfileId: "slack-user-or-model-invented-value",
+    });
+
+    expect(centerAgentCreateSpace).toHaveBeenCalledWith(
+      expect.objectContaining({
+        onBehalfOf: { profileId: request.turnEnvelope.sender.profileId },
+      })
+    );
+  });
+
   it("lets the Center Agent explicitly create a members-only Space", async () => {
     const centerAgentCreateSpace = vi.fn(async () => createSpaceResponse());
     const tools = getRemoteAgentOpenMeldToolDefinitions({
@@ -1225,9 +1251,9 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(descriptions.get("openmeld_add_members_to_space")).toContain(
       "active members of the current Organization"
     );
-    expect(descriptions.get("openmeld_wake_agent_profiles_in_space")).toContain(
-      "must be the human member the Center Agent is helping, never the Center Agent profile"
-    );
+    expect(
+      descriptions.get("openmeld_wake_agent_profiles_in_space")
+    ).not.toContain("onBehalfOfProfileId");
     expect(descriptions.get("openmeld_wake_agent_profiles_in_space")).toContain(
       "referenceProfileIds"
     );
@@ -3510,7 +3536,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         text: "Launch notes are ready.",
       },
       input: {
-        onBehalfOfProfileId,
         referenceProfileIds: [HUMAN_PROFILE_ID],
         spaceId: SPACE_ID,
         text: "Launch notes are ready.",
@@ -3564,7 +3589,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       input: {
         agentProfileIds: [AGENT_PROFILE_ID],
         completionMode: "child_reports_directly",
-        onBehalfOfProfileId,
         referenceProfileIds: [HUMAN_PROFILE_ID],
         spaceId: SPACE_ID,
         text: "Please review the launch checklist.",
@@ -3587,7 +3611,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         accessMode: "protected",
         guide: "Keep release decisions explicit.",
         name: "Launch Room",
-        onBehalfOfProfileId,
         password: "secret-passphrase",
         purpose: "Coordinate launch work",
       },
@@ -3601,7 +3624,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         profileName: "Release Agent",
       },
       input: {
-        onBehalfOfProfileId,
         profileName: "Release Agent",
       },
       response: createAgentProfileResponse(),
@@ -3615,7 +3637,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       },
       input: {
         agentProfileId: AGENT_PROFILE_ID,
-        onBehalfOfProfileId,
       },
       response: enableAgentProfileResponse(),
       rpcName: "centerAgentEnableAgentProfile",
@@ -3647,7 +3668,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       input: {
         agentProfileId: AGENT_PROFILE_ID,
         candidateId,
-        onBehalfOfProfileId,
         ...runtimeSettings,
       },
       response: connectAgentProfileResponse(),
@@ -3662,7 +3682,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       },
       input: {
         agentProfileId: AGENT_PROFILE_ID,
-        onBehalfOfProfileId,
         ...runtimeSettings,
       },
       response: updateRuntimeSettingsResponse(),
@@ -3690,7 +3709,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       },
       input: {
         candidateId,
-        onBehalfOfProfileId,
         profileName: "Codex Agent",
         spaceId: SPACE_ID,
         ...runtimeSettings,
@@ -3708,7 +3726,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       },
       input: {
         agentProfileIds: [AGENT_PROFILE_ID],
-        onBehalfOfProfileId,
         password: "space-password",
         spaceId: SPACE_ID,
       },
@@ -3724,7 +3741,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       },
       input: {
         agentProfileIds: [AGENT_PROFILE_ID],
-        onBehalfOfProfileId,
         spaceId: SPACE_ID,
       },
       response: removeAgentProfilesFromSpaceResponse(),
@@ -3743,7 +3759,6 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       input: {
         accessMode: "protected",
         guide: "Keep decisions explicit.",
-        onBehalfOfProfileId,
         password: "secret-passphrase",
         purpose: "Coordinate launch work",
         spaceId: SPACE_ID,
