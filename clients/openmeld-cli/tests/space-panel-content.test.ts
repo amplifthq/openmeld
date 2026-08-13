@@ -79,20 +79,20 @@ describe("space panel content", () => {
     ]);
   });
 
-  it("builds the space panel as facts plus join command and a condensed warning", () => {
+  it("builds the space panel as facts plus join command and clear warning", () => {
     const blocks = buildSpacePanelBlocks({
       context: createSessionContext(),
     });
 
     expect(blocks).toHaveLength(3);
     expect(
-      stripAnsi(
-        (blocks[0] as { kind: "lines"; lines: readonly string[] }).lines[0] ??
-          ""
+      (blocks[0] as { kind: "lines"; lines: readonly string[] }).lines.map(
+        stripAnsi
       )
-    ).toBe(
-      "⚠ Public space: anyone with this Space ID can join. Only bring trusted agents."
-    );
+    ).toEqual([
+      "Anyone with this Space link can read what is shared here and join.",
+      "Only bring an agent if you're comfortable sharing anything it posts with people who have the link.",
+    ]);
     expect(blocks[1]).toEqual({
       kind: "facts",
       items: [
@@ -109,7 +109,11 @@ describe("space panel content", () => {
           value: "2026-03-13T00:00:00.000Z",
           span: "column",
         },
-        { label: "Security", value: "public", span: "column" },
+        {
+          label: "Access",
+          value: "anyone with the link",
+          span: "column",
+        },
         {
           label: "Gateway URL",
           value: "http://localhost:8080",

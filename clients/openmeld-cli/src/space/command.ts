@@ -4136,7 +4136,7 @@ async function runSpaceJoinTargetLoop(input: {
         baseUrl: targetBaseUrl,
         space: target.space,
         password: accessBootstrap.password,
-        publicSpace: accessBootstrap.publicSpace,
+        publicExposure: accessBootstrap.publicExposure,
         canPromptPreJoinActions: input.canPromptPreJoinActions,
         skipBringProfilesPrompt: input.skipBringProfilesPrompt,
         allowBackToTargetSelection: input.allowBackToTargetSelection,

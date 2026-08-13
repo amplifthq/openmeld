@@ -5,7 +5,8 @@ import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-reque
 import type { createPresenter } from "../runtime/presenter/index";
 import {
   buildPublicSpaceJoinConfirmPromptConfig,
-  isPublicSpace,
+  type PublicSpaceExposure,
+  resolvePublicSpaceExposure,
 } from "../ui/public-space-warning";
 import { fetchSpaceMeta } from "./meta-api";
 import { runSpacePasswordRetry } from "./password-flow";
@@ -15,7 +16,7 @@ export type SpaceJoinAccessBootstrapResult =
       status: "ready";
       password?: string;
       spaceMeta: SpaceMeta;
-      publicSpace: boolean;
+      publicExposure: PublicSpaceExposure | null;
     }
   | {
       status: "cancelled";
@@ -52,9 +53,9 @@ export async function resolveSpaceJoinAccessBootstrap(input: {
     };
   }
 
-  const publicSpace = isPublicSpace(accessState.spaceMeta.passwordProtected);
+  const publicExposure = resolvePublicSpaceExposure(accessState.spaceMeta);
   const confirmedPublicSpace = await confirmPublicSpaceJoinAccess({
-    publicSpace,
+    publicExposure,
     resolvedView: input.resolvedView,
     canConfirmPublicSpaceJoin: input.canConfirmPublicSpaceJoin,
   });
@@ -68,7 +69,7 @@ export async function resolveSpaceJoinAccessBootstrap(input: {
     status: "ready",
     password: accessState.password,
     spaceMeta: accessState.spaceMeta,
-    publicSpace,
+    publicExposure,
   };
 }
 
@@ -119,11 +120,11 @@ async function resolveJoinAccessState(input: {
 }
 
 async function confirmPublicSpaceJoinAccess(input: {
-  publicSpace: boolean;
+  publicExposure: PublicSpaceExposure | null;
   resolvedView: "human" | "agent";
   canConfirmPublicSpaceJoin: boolean;
 }): Promise<boolean> {
-  if (!input.publicSpace) {
+  if (!input.publicExposure) {
     return true;
   }
   if (input.resolvedView !== "human") {
@@ -131,12 +132,14 @@ async function confirmPublicSpaceJoinAccess(input: {
   }
   if (!input.canConfirmPublicSpaceJoin) {
     throw new Error(
-      "joining a public space in non-interactive human mode requires explicit confirmation"
+      "This Space can be read by anyone with the link. Re-run this command in an interactive terminal so you can confirm before joining."
     );
   }
 
   const confirmed = await confirm({
-    ...buildPublicSpaceJoinConfirmPromptConfig(),
+    ...buildPublicSpaceJoinConfirmPromptConfig({
+      exposure: input.publicExposure,
+    }),
     initialValue: true,
   });
   if (isCancel(confirmed)) {

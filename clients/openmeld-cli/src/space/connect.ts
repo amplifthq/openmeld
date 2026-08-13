@@ -1203,6 +1203,7 @@ export async function runConnect(input: {
     }
 
     emitSessionMeta({
+      accessMode: sessionMeta.accessMode,
       output,
       spaceId: sessionMeta.spaceId,
       spaceName: sessionMeta.spaceName,
@@ -1225,6 +1226,7 @@ export async function runConnect(input: {
       spaceMembersSnapshot: readModelSeed.getMembersSnapshot() ?? undefined,
       gatewayUrl: baseUrl,
       stdio: input.stdio,
+      visibility: sessionMeta.visibility,
     });
     if (output === "ndjson" && initialMembersSnapshot) {
       emitSpaceMembers(
@@ -1764,6 +1766,7 @@ async function runInteractiveHumanTextSession(input: {
     baseUrl: input.baseUrl,
     connectionMode: input.connectionMode,
     session: {
+      accessMode: input.sessionMeta.accessMode ?? null,
       spaceCreatedAt: input.sessionMeta.spaceCreatedAt ?? null,
       spaceCreatorId: input.sessionMeta.spaceCreatorId ?? null,
       spaceCreatorName: input.sessionMeta.spaceCreatorName ?? null,
@@ -1773,6 +1776,7 @@ async function runInteractiveHumanTextSession(input: {
       storageSoftLimitBytes: input.sessionMeta.storageSoftLimitBytes ?? null,
       storageUsagePercent: input.sessionMeta.storageUsagePercent ?? null,
       storageUsedBytes: input.sessionMeta.storageUsedBytes ?? null,
+      visibility: input.sessionMeta.visibility ?? null,
     },
   });
   const preferredShellKind = resolveInteractiveHumanShellKind();
@@ -2662,6 +2666,7 @@ async function runInteractiveHumanTextSession(input: {
   }
   const emitInteractiveSessionMeta = (): void => {
     emitSessionMeta({
+      accessMode: input.sessionMeta.accessMode,
       output: "text",
       spaceId: input.sessionMeta.spaceId,
       spaceName: input.sessionMeta.spaceName,
@@ -2684,6 +2689,7 @@ async function runInteractiveHumanTextSession(input: {
       spaceMembersSnapshot: store.getState().members.snapshot ?? undefined,
       gatewayUrl: input.baseUrl,
       stdio: true,
+      visibility: input.sessionMeta.visibility,
     });
     interactiveIntroEmitted = true;
   };
@@ -3574,6 +3580,7 @@ async function applyFetchedSpaceMeta(input: {
 }
 
 type SessionMetaOutputInput = {
+  accessMode?: SpaceMeta["accessMode"];
   output: OutputMode;
   spaceId: string;
   spaceName?: string;
@@ -3592,6 +3599,7 @@ type SessionMetaOutputInput = {
   spaceMembersSnapshot?: SpaceMembersSnapshot;
   gatewayUrl: string;
   stdio: boolean;
+  visibility?: SpaceMeta["visibility"];
 };
 
 function emitSessionMeta(input: SessionMetaOutputInput): void {
@@ -3609,6 +3617,7 @@ function emitSessionMeta(input: SessionMetaOutputInput): void {
 
 function emitSessionMetaText(input: SessionMetaOutputInput): void {
   for (const line of formatConnectIntro({
+    accessMode: input.accessMode,
     spaceId: input.spaceId,
     spaceName: input.spaceName,
     spaceCreatedAt: input.spaceCreatedAt,
@@ -3626,6 +3635,7 @@ function emitSessionMetaText(input: SessionMetaOutputInput): void {
     spaceMembersSnapshot: input.spaceMembersSnapshot,
     gatewayUrl: input.gatewayUrl,
     stdio: input.stdio,
+    visibility: input.visibility,
   })) {
     errLine(line);
   }
@@ -3635,6 +3645,7 @@ function buildSessionMetaEventPayload(
   input: SessionMetaOutputInput
 ): Record<string, unknown> {
   return buildAgentSessionMetaPayload({
+    accessMode: input.accessMode,
     gatewayUrl: input.gatewayUrl,
     mode: input.stdio ? "interactive chat" : "watch-only stream",
     passwordProtected: input.passwordProtected,
@@ -3651,6 +3662,7 @@ function buildSessionMetaEventPayload(
     spaceCreatorName: input.spaceCreatorName,
     spaceId: input.spaceId,
     spaceName: input.spaceName,
+    visibility: input.visibility,
   });
 }
 

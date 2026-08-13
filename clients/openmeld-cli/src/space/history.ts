@@ -227,6 +227,7 @@ export async function runTail(input: {
   if (agentRawContract && spaceMeta) {
     outJsonLine(
       buildAgentSessionMetaPayload({
+        accessMode: spaceMeta.accessMode,
         gatewayUrl: baseUrl,
         mode: "history viewer",
         passwordProtected: spaceMeta.passwordProtected,
@@ -242,6 +243,7 @@ export async function runTail(input: {
         spaceCreatorName: spaceMeta.creator?.profileName,
         spaceId: space,
         spaceName: spaceMeta.name,
+        visibility: spaceMeta.visibility,
       })
     );
   }
@@ -658,6 +660,7 @@ function buildHumanHistorySessionContext(input: {
     baseUrl: input.baseUrl,
     connectionMode: "history",
     session: {
+      accessMode: input.spaceMeta?.accessMode ?? null,
       passwordProtected: input.spaceMeta?.passwordProtected ?? null,
       spaceCreatedAt: input.spaceMeta?.createdAt ?? null,
       spaceCreatorId: input.spaceMeta?.creator?.profileId ?? null,
@@ -668,6 +671,7 @@ function buildHumanHistorySessionContext(input: {
         input.spaceMeta?.storageUsage?.softLimitBytes ?? null,
       storageUsagePercent: input.spaceMeta?.storageUsage?.usagePercent ?? null,
       storageUsedBytes: input.spaceMeta?.storageUsage?.usedBytes ?? null,
+      visibility: input.spaceMeta?.visibility ?? null,
     },
   });
 }

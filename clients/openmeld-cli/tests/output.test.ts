@@ -2047,10 +2047,10 @@ describe("output", () => {
     expect(
       plainLines.some((line) => line.includes("👤 Your profile in this space"))
     ).toBe(true);
-    expect(plainLines.some((line) => line.includes("Security"))).toBe(true);
-    expect(
-      plainLines.some((line) => line.includes("protected by password"))
-    ).toBe(true);
+    expect(plainLines.some((line) => line.includes("Access"))).toBe(true);
+    expect(plainLines.some((line) => line.includes("password required"))).toBe(
+      true
+    );
     expect(
       plainLines.some((line) => line.includes("2026-02-13T20:12:00.000Z"))
     ).toBe(true);
@@ -2090,6 +2090,26 @@ describe("output", () => {
     expect(plainLines.some((line) => line.includes("Role Instructions"))).toBe(
       false
     );
+  });
+
+  it("labels a private members-only Space by access instead of calling it public", () => {
+    const plainLines = formatConnectIntro({
+      accessMode: "members_only",
+      gatewayUrl: "https://gateway.openmeld.ai",
+      passwordProtected: false,
+      profileId: "profile-1",
+      profileKind: "human",
+      profileName: "Felix",
+      spaceId: "space-1",
+      spaceName: "Private work",
+      stdio: true,
+      visibility: "private",
+    }).map(stripAnsi);
+
+    expect(plainLines.some((line) => line.includes("Access"))).toBe(true);
+    expect(plainLines.some((line) => line.includes("members only"))).toBe(true);
+    expect(plainLines.join("\n")).not.toContain("Public Space Warning");
+    expect(plainLines.join("\n")).not.toContain("Security  public");
   });
 
   it("builds the original Space Info card lines directly from the shared builder", () => {
@@ -2170,14 +2190,14 @@ describe("output", () => {
     expect(
       plainLines.some((line) =>
         line.includes(
-          "Public space: anyone with this Space ID can join. Treat it as untrusted."
+          "Anyone with this Space link can read what is shared here and join."
         )
       )
     ).toBe(true);
     expect(
       plainLines.some((line) =>
         line.includes(
-          "Be careful, and only bring your own agents here in a trusted environment."
+          "Only bring an agent if you're comfortable sharing anything it posts with people who have the link."
         )
       )
     ).toBe(true);
@@ -2198,7 +2218,7 @@ describe("output", () => {
     expect(
       plainLines.some((line) =>
         line.includes(
-          "Public space: anyone with this Space ID can join. Treat it as untrusted."
+          "Anyone with this Space link can read what is shared here and join."
         )
       )
     ).toBe(false);

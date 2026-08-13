@@ -1,4 +1,5 @@
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
+import { resolveSpaceAccessLabel } from "../../ui/public-space-warning";
 import type {
   SpaceSessionContext,
   SpaceSummaryFactsViewState,
@@ -35,9 +36,7 @@ export function buildSpaceSummaryFactsViewState(input: {
   return {
     spaceId: context.session.spaceId.trim(),
     spaceName: normalizeNullableText(context.session.spaceName),
-    securityLabel: resolveSpaceSummarySecurityLabel(
-      context.session.passwordProtected
-    ),
+    accessLabel: resolveSpaceSummaryAccessLabel(context.session),
     membersCount: membersSnapshot
       ? membersSnapshot.humans.length + membersSnapshot.agents.length
       : null,
@@ -73,16 +72,15 @@ export function selectSpaceSummarySegments(input: {
   return segments;
 }
 
-function resolveSpaceSummarySecurityLabel(
-  passwordProtected: boolean | null
-): "Secure" | "Public" | null {
-  if (passwordProtected === true) {
-    return "Secure";
-  }
-  if (passwordProtected === false) {
-    return "Public";
-  }
-  return null;
+function resolveSpaceSummaryAccessLabel(
+  session: SpaceSessionContext["session"]
+): string | null {
+  const label = resolveSpaceAccessLabel({
+    accessMode: session.accessMode ?? undefined,
+    passwordProtected: session.passwordProtected ?? undefined,
+    visibility: session.visibility ?? undefined,
+  });
+  return label === "unknown" ? null : label;
 }
 
 function normalizeNullableText(
@@ -105,7 +103,7 @@ function resolveSpaceSummarySegmentOrder(
     case "composer-footer":
       return [
         "spaceName",
-        "securityLabel",
+        "accessLabel",
         "membersCount",
         "liveHumanCount",
         "liveAgentCount",
@@ -114,7 +112,7 @@ function resolveSpaceSummarySegmentOrder(
     case "session-summary":
       return [
         "spaceName",
-        "securityLabel",
+        "accessLabel",
         "membersCount",
         "liveHumanCount",
         "liveAgentCount",
@@ -131,8 +129,8 @@ function resolveSegmentText(
   switch (key) {
     case "spaceName":
       return facts.spaceName ?? "";
-    case "securityLabel":
-      return facts.securityLabel ?? "";
+    case "accessLabel":
+      return facts.accessLabel ?? "";
     case "membersCount":
       return renderCountText(facts.membersCount, (count) =>
         formatCountLabel(count, "member", "members")

@@ -2,6 +2,7 @@ import type {
   HelloAck,
   SignalEnvelope,
   SignalTextReplyTo,
+  SpaceMeta,
 } from "@openmeld/protocol";
 import {
   AGENT_REPLY_PREVIEW_END_PURPOSE,
@@ -55,8 +56,8 @@ import {
 } from "./profile-label-color";
 import {
   buildPublicSpaceWarningLines,
-  isPublicSpace,
-  resolveSpaceSecurityLabel,
+  resolvePublicSpaceExposure,
+  resolveSpaceAccessLabel,
 } from "./public-space-warning";
 import {
   highlightSpaceMentions,
@@ -184,6 +185,7 @@ export function formatTextEvent(
 }
 
 type ConnectIntroInput = {
+  accessMode?: SpaceMeta["accessMode"];
   spaceId: string;
   spaceName?: string;
   spaceCreatedAt?: string;
@@ -203,6 +205,7 @@ type ConnectIntroInput = {
   spaceMembersSnapshot?: SpaceMembersSnapshot;
   gatewayUrl: string;
   stdio: boolean;
+  visibility?: SpaceMeta["visibility"];
 };
 
 export function formatConnectIntro(input: ConnectIntroInput): string[] {
@@ -211,6 +214,7 @@ export function formatConnectIntro(input: ConnectIntroInput): string[] {
     ...buildSpaceInfoCardLines({
       gatewayUrl: input.gatewayUrl,
       modeLabel: input.stdio ? "interactive chat" : "watch-only stream",
+      accessMode: input.accessMode,
       passwordProtected: input.passwordProtected,
       spaceCreatedAt: input.spaceCreatedAt,
       spaceCreatorId: input.spaceCreatorId,
@@ -218,6 +222,7 @@ export function formatConnectIntro(input: ConnectIntroInput): string[] {
       spaceId: input.spaceId,
       spaceName: input.spaceName,
       spaceMembersSnapshot: input.spaceMembersSnapshot,
+      visibility: input.visibility,
     }),
     ...(input.spaceMembersSnapshot
       ? ["", ...buildSpaceMembersCardLines(input.spaceMembersSnapshot)]
@@ -251,6 +256,7 @@ export type SpaceInfoFact = {
 };
 
 export type SpaceInfoCardInput = {
+  accessMode?: SpaceMeta["accessMode"];
   gatewayUrl: string;
   modeLabel: string;
   passwordProtected?: boolean;
@@ -260,6 +266,7 @@ export type SpaceInfoCardInput = {
   spaceId: string;
   spaceName?: string;
   spaceMembersSnapshot?: SpaceMembersSnapshot | null;
+  visibility?: SpaceMeta["visibility"];
 };
 
 export type SpaceInfoData = {
@@ -330,6 +337,12 @@ export function buildSpaceInfoData(input: SpaceInfoCardInput): SpaceInfoData {
     spaceCreatedAt: input.spaceCreatedAt,
     passwordProtected: input.passwordProtected,
   });
+  const accessFacts = {
+    accessMode: input.accessMode,
+    passwordProtected: input.passwordProtected,
+    visibility: input.visibility,
+  };
+  const publicExposure = resolvePublicSpaceExposure(accessFacts);
   const gatewayUrl = sanitizeTrimmedSingleLineText(input.gatewayUrl);
   const metadataFacts = buildSpaceMetadataFields({
     projection,
@@ -368,8 +381,8 @@ export function buildSpaceInfoData(input: SpaceInfoCardInput): SpaceInfoData {
       },
       ...metadataFacts,
       {
-        label: "Security",
-        value: resolveSpaceSecurityLabel(input.passwordProtected),
+        label: "Access",
+        value: resolveSpaceAccessLabel(accessFacts),
       },
       {
         label: "Gateway URL",
@@ -383,8 +396,8 @@ export function buildSpaceInfoData(input: SpaceInfoCardInput): SpaceInfoData {
     joinCommand: formatOpenMeldCliCommand(
       `openmeld space join ${input.spaceId}`
     ),
-    publicWarningLines: isPublicSpace(input.passwordProtected)
-      ? buildPublicSpaceWarningLines()
+    publicWarningLines: publicExposure
+      ? buildPublicSpaceWarningLines(publicExposure)
       : [],
   };
 }
