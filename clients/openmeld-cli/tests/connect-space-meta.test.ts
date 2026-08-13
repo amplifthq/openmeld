@@ -61,6 +61,7 @@ describe("connect space meta handling", () => {
     ).toEqual({
       spaceId: "room-1",
       spaceName: "starship-01",
+      visibility: "private",
     });
   });
 
@@ -76,6 +77,24 @@ describe("connect space meta handling", () => {
     ).toEqual({
       spaceId: "room-1",
       spaceName: "nebula",
+      visibility: "private",
+    });
+  });
+
+  it("preserves canonical Space access facts for session presentation", () => {
+    expect(
+      resolveSessionMeta(
+        "room-1",
+        createRemoteSpaceMeta({
+          accessMode: "members_only",
+          passwordProtected: false,
+        })
+      )
+    ).toEqual({
+      accessMode: "members_only",
+      passwordProtected: false,
+      spaceId: "room-1",
+      visibility: "private",
     });
   });
 
@@ -93,6 +112,7 @@ describe("connect space meta handling", () => {
       spaceId: "room-1",
       spaceName: "nebula",
       spaceCreatedAt: "2026-02-13T20:12:00.000Z",
+      visibility: "private",
     });
 
     expect(
@@ -106,6 +126,7 @@ describe("connect space meta handling", () => {
       spaceId: "room-1",
       spaceName: "nebula",
       spaceCreatedAt: "2026-02-12T10:00:00.000Z",
+      visibility: "private",
     });
   });
 
@@ -124,6 +145,7 @@ describe("connect space meta handling", () => {
       spaceId: "room-1",
       spaceCreatorName: "Felix",
       spaceCreatorId: "hum_creator_01",
+      visibility: "private",
     });
   });
 
@@ -144,6 +166,7 @@ describe("connect space meta handling", () => {
       storageUsedBytes: 2_100_000,
       storageSoftLimitBytes: 9_000_000,
       storageUsagePercent: 23.6,
+      visibility: "private",
     });
   });
 

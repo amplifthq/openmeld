@@ -92,7 +92,7 @@ describe("space join password retry composition", () => {
     expect(accessResult).toMatchObject({
       status: "ready",
       password: "initial-join-password",
-      publicSpace: false,
+      publicExposure: null,
     });
     expect(accessResult.status).toBe("ready");
     if (accessResult.status !== "ready") {

@@ -18,8 +18,6 @@ import type {
 } from "../view/space-session-view-state";
 import { formatStorageUsageDetailText } from "../view/space-storage-usage-text";
 
-const SPACE_INFO_WARNING_LINE =
-  "⚠ Public space: anyone with this Space ID can join. Only bring trusted agents.";
 const SPACE_INFO_FULL_WIDTH_LABELS = new Set(["Space Name", "Space ID"]);
 const MEMBERS_SEARCH_LABEL = "Type to search";
 const MEMBERS_SEARCH_PLACEHOLDER =
@@ -44,6 +42,7 @@ export function buildSpacePanelBlocks(input: {
   membersSnapshot?: SpaceMembersSnapshot | null;
 }): readonly PanelBodyBlockViewState[] {
   const spaceInfo = buildSpaceInfoData({
+    accessMode: input.context.session.accessMode ?? undefined,
     gatewayUrl: input.context.gatewayUrl,
     modeLabel: resolveConnectionModeLabel(input.context.connectionMode),
     passwordProtected: input.context.session.passwordProtected ?? undefined,
@@ -53,6 +52,7 @@ export function buildSpacePanelBlocks(input: {
     spaceId: input.context.session.spaceId,
     spaceName: input.context.session.spaceName ?? undefined,
     spaceMembersSnapshot: input.membersSnapshot,
+    visibility: input.context.session.visibility ?? undefined,
   });
   const factsWithStorage = buildSpaceInfoFactsFromData(
     spaceInfo,
@@ -61,7 +61,9 @@ export function buildSpacePanelBlocks(input: {
 
   return buildPanelBodyBlocks([
     spaceInfo.publicWarningLines.length > 0
-      ? buildPanelLinesSection([pc.yellow(SPACE_INFO_WARNING_LINE)])
+      ? buildPanelLinesSection(
+          spaceInfo.publicWarningLines.map((line) => pc.yellow(line))
+        )
       : null,
     buildPanelFactsSection(factsWithStorage),
     buildPanelLinesSection([
@@ -241,6 +243,7 @@ export function buildSpaceInfoPanelFacts(input: {
 }): readonly PanelFactItemViewState[] {
   return buildSpaceInfoFactsFromData(
     buildSpaceInfoData({
+      accessMode: input.context.session.accessMode ?? undefined,
       gatewayUrl: input.context.gatewayUrl,
       modeLabel: resolveConnectionModeLabel(input.context.connectionMode),
       passwordProtected: input.context.session.passwordProtected ?? undefined,
@@ -250,6 +253,7 @@ export function buildSpaceInfoPanelFacts(input: {
       spaceId: input.context.session.spaceId,
       spaceName: input.context.session.spaceName ?? undefined,
       spaceMembersSnapshot: input.membersSnapshot,
+      visibility: input.context.session.visibility ?? undefined,
     }),
     input.context
   );

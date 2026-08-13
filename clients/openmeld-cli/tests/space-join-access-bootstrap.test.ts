@@ -81,7 +81,7 @@ describe("space join access bootstrap", () => {
     expect(result).toMatchObject({
       status: "ready",
       password: "join-secret",
-      publicSpace: false,
+      publicExposure: null,
       spaceMeta: {
         spaceId: SPACE_ID,
         passwordProtected: true,
@@ -134,7 +134,7 @@ describe("space join access bootstrap", () => {
     expect(result).toMatchObject({
       status: "ready",
       password: "correct-password",
-      publicSpace: false,
+      publicExposure: null,
     });
     expect(promptSpacePasswordMock).toHaveBeenCalledTimes(2);
     expect(fetchSpaceMetaMock).toHaveBeenCalledTimes(3);
@@ -188,7 +188,33 @@ describe("space join access bootstrap", () => {
 
     expect(result).toMatchObject({
       status: "ready",
-      publicSpace: false,
+      publicExposure: null,
+    });
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it("does not warn that a private members-only Space is public", async () => {
+    fetchSpaceMetaMock.mockResolvedValueOnce({
+      accessMode: "members_only",
+      organizationId: "org-1",
+      passwordProtected: false,
+      spaceId: SPACE_ID,
+      visibility: "private",
+    });
+
+    const result = await resolveSpaceJoinAccessBootstrap({
+      openMeldProfile: OPENMELD_PROFILE,
+      baseUrl: "http://localhost:8080",
+      space: SPACE_ID,
+      resolvedView: "human",
+      presenter: { line: vi.fn() },
+      canPromptJoinPassword: true,
+      canConfirmPublicSpaceJoin: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      publicExposure: null,
     });
     expect(confirmMock).not.toHaveBeenCalled();
   });
@@ -196,8 +222,11 @@ describe("space join access bootstrap", () => {
   it("cancels before membership flow when public-space confirmation is declined", async () => {
     confirmMock.mockResolvedValueOnce(false);
     fetchSpaceMetaMock.mockResolvedValueOnce({
+      accessMode: "public",
+      organizationId: "org-1",
       spaceId: SPACE_ID,
       passwordProtected: false,
+      visibility: "public",
     });
 
     const result = await resolveSpaceJoinAccessBootstrap({
@@ -218,8 +247,11 @@ describe("space join access bootstrap", () => {
   it("continues after public-space confirmation is accepted", async () => {
     confirmMock.mockResolvedValueOnce(true);
     fetchSpaceMetaMock.mockResolvedValueOnce({
+      accessMode: "public",
+      organizationId: "org-1",
       spaceId: SPACE_ID,
       passwordProtected: false,
+      visibility: "public",
     });
 
     const result = await resolveSpaceJoinAccessBootstrap({
@@ -234,7 +266,7 @@ describe("space join access bootstrap", () => {
 
     expect(result).toMatchObject({
       status: "ready",
-      publicSpace: true,
+      publicExposure: "anyone_can_join",
       spaceMeta: {
         spaceId: SPACE_ID,
         passwordProtected: false,
@@ -244,10 +276,46 @@ describe("space join access bootstrap", () => {
     expect(promptSpacePasswordMock).not.toHaveBeenCalled();
   });
 
+  it("warns when anyone with the link can read but joining needs a password", async () => {
+    fetchSpaceMetaMock.mockResolvedValueOnce({
+      accessMode: "public_view_join_password",
+      organizationId: "org-1",
+      spaceId: SPACE_ID,
+      passwordProtected: true,
+      visibility: "private",
+    });
+
+    const result = await resolveSpaceJoinAccessBootstrap({
+      openMeldProfile: OPENMELD_PROFILE,
+      baseUrl: "http://localhost:8080",
+      space: SPACE_ID,
+      initialPassword: "join-secret",
+      resolvedView: "human",
+      presenter: { line: vi.fn() },
+      canPromptJoinPassword: false,
+      canConfirmPublicSpaceJoin: true,
+    });
+
+    expect(result).toMatchObject({
+      status: "ready",
+      publicExposure: "anyone_can_view",
+    });
+    expect(confirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining(
+          "Anyone with this Space link can read what is shared here. A password is required to join."
+        ),
+      })
+    );
+  });
+
   it("fails fast for human noninteractive public-space joins without explicit confirmation capability", async () => {
     fetchSpaceMetaMock.mockResolvedValueOnce({
+      accessMode: "public",
+      organizationId: "org-1",
       spaceId: SPACE_ID,
       passwordProtected: false,
+      visibility: "public",
     });
 
     await expect(
@@ -261,7 +329,7 @@ describe("space join access bootstrap", () => {
         canConfirmPublicSpaceJoin: false,
       })
     ).rejects.toThrow(
-      "joining a public space in non-interactive human mode requires explicit confirmation"
+      "This Space can be read by anyone with the link. Re-run this command in an interactive terminal so you can confirm before joining."
     );
 
     expect(confirmMock).not.toHaveBeenCalled();

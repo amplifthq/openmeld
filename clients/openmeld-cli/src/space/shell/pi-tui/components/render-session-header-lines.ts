@@ -18,7 +18,8 @@ const DEFAULT_SPACE_NAME = "Untitled Space";
 const CURRENT_SPACE_PREFIX = "Current Space › ";
 const PUBLIC_SPACE_HINT =
   "Untrusted space. Anyone with this Space ID can join.";
-const SECURE_SPACE_HINT = "Password protected. Space ID and password required.";
+const MEMBERS_ONLY_SPACE_HINT = "Only current members can open this Space.";
+const PASSWORD_SPACE_HINT = "A password is required for access.";
 
 export function renderSessionHeaderLines(input: {
   block: SessionHeaderDocumentBlockViewState;
@@ -157,7 +158,7 @@ function renderSummaryHeaderLines(input: {
   summaryHintText: string | null;
   width: number;
 }): string[] {
-  const securitySummary = buildSecuritySummary(input.facts);
+  const accessSummary = buildAccessSummary(input.facts);
   const lines = [
     ...renderSplitLine({
       leftText: resolveSpaceNameText(input.facts),
@@ -170,7 +171,7 @@ function renderSummaryHeaderLines(input: {
 
   const detailLines = renderSummaryDetailLines({
     leftText: buildPresenceSummaryText(input.facts, input.summaryHintText),
-    rightText: buildSecuritySummaryInlineText(securitySummary),
+    rightText: buildAccessSummaryInlineText(accessSummary),
     width: input.width,
   });
 
@@ -245,30 +246,46 @@ function resolveSpaceNameText(facts: SpaceSummaryFactsViewState): string {
   return `${pc.dim(CURRENT_SPACE_PREFIX)}${facts.spaceName ?? DEFAULT_SPACE_NAME}`;
 }
 
-function buildSecuritySummary(facts: SpaceSummaryFactsViewState): {
+function buildAccessSummary(facts: SpaceSummaryFactsViewState): {
   labelText: string;
   detailText: string;
 } {
-  switch (facts.securityLabel) {
-    case "Secure":
+  switch (facts.accessLabel) {
+    case "members only":
       return {
-        labelText: renderPositiveAccentText("🔒 Secure"),
-        detailText: SECURE_SPACE_HINT,
+        labelText: renderPositiveAccentText("🔒 Members only"),
+        detailText: MEMBERS_ONLY_SPACE_HINT,
       };
-    case "Public":
+    case "anyone with the link":
       return {
-        labelText: pc.yellow("⚠️ Public"),
+        labelText: pc.yellow("⚠️ Anyone with the link"),
         detailText: PUBLIC_SPACE_HINT,
+      };
+    case "password required":
+    case "password required to view and join":
+      return {
+        labelText: renderPositiveAccentText("🔒 Password required"),
+        detailText: PASSWORD_SPACE_HINT,
+      };
+    case "anyone can view; password required to join":
+      return {
+        labelText: pc.yellow("⚠️ Anyone can view"),
+        detailText: "A password is required to join.",
+      };
+    case "private":
+      return {
+        labelText: renderPositiveAccentText("🔒 Private"),
+        detailText: "Only invited people can find this Space.",
       };
     default:
       return {
-        labelText: pc.dim("Security unavailable"),
+        labelText: pc.dim("Access unavailable"),
         detailText: "",
       };
   }
 }
 
-function buildSecuritySummaryInlineText(input: {
+function buildAccessSummaryInlineText(input: {
   labelText: string;
   detailText: string;
 }): string {

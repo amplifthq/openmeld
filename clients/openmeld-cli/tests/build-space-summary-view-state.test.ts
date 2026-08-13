@@ -23,7 +23,7 @@ describe("buildSpaceSummaryViewState", () => {
       spaceId:
         "ab1c3286d92926cc07e70b4023d24a359387d250f670619af138c3a767f92efd",
       spaceName: "Ops Room",
-      securityLabel: "Public",
+      accessLabel: "anyone with the link",
       membersCount: 3,
       liveHumanCount: 1,
       liveAgentCount: 1,
@@ -37,8 +37,10 @@ describe("buildSpaceSummaryViewState", () => {
     const facts = buildSpaceSummaryFactsViewState({
       context: createSessionContext({
         session: {
+          accessMode: null,
           passwordProtected: null,
           spaceName: null,
+          visibility: null,
         },
       }),
       membersSnapshot: null,
@@ -48,7 +50,7 @@ describe("buildSpaceSummaryViewState", () => {
       spaceId:
         "ab1c3286d92926cc07e70b4023d24a359387d250f670619af138c3a767f92efd",
       spaceName: null,
-      securityLabel: null,
+      accessLabel: null,
       membersCount: null,
       liveHumanCount: null,
       liveAgentCount: null,
@@ -64,7 +66,7 @@ describe("buildSpaceSummaryViewState", () => {
         spaceId:
           "ab1c3286d92926cc07e70b4023d24a359387d250f670619af138c3a767f92efd",
         spaceName: "Ops Room",
-        securityLabel: "Secure",
+        accessLabel: "password required",
         membersCount: 2,
         liveHumanCount: 0,
         liveAgentCount: 2,
@@ -81,8 +83,8 @@ describe("buildSpaceSummaryViewState", () => {
         text: "Ops Room",
       },
       {
-        key: "securityLabel",
-        text: "Secure",
+        key: "accessLabel",
+        text: "password required",
       },
       {
         key: "membersCount",
@@ -109,7 +111,7 @@ describe("buildSpaceSummaryViewState", () => {
 
     expect(viewState.composerFooterSegments).toEqual([
       { key: "spaceName", text: "Ops Room" },
-      { key: "securityLabel", text: "Public" },
+      { key: "accessLabel", text: "anyone with the link" },
       { key: "membersCount", text: "3 members" },
       { key: "liveHumanCount", text: "1 live human" },
       { key: "liveAgentCount", text: "1 live agent" },
@@ -117,7 +119,7 @@ describe("buildSpaceSummaryViewState", () => {
     ]);
     expect(viewState.sessionSummarySegments).toEqual([
       { key: "spaceName", text: "Ops Room" },
-      { key: "securityLabel", text: "Public" },
+      { key: "accessLabel", text: "anyone with the link" },
       { key: "membersCount", text: "3 members" },
       { key: "liveHumanCount", text: "1 live human" },
       { key: "liveAgentCount", text: "1 live agent" },
@@ -130,7 +132,7 @@ describe("buildSpaceSummaryViewState", () => {
         spaceId:
           "ab1c3286d92926cc07e70b4023d24a359387d250f670619af138c3a767f92efd",
         spaceName: "Ops Room",
-        securityLabel: "Public",
+        accessLabel: "anyone with the link",
         membersCount: 0,
         liveHumanCount: 0,
         liveAgentCount: 0,
@@ -143,7 +145,7 @@ describe("buildSpaceSummaryViewState", () => {
 
     expect(segments).toEqual([
       { key: "spaceName", text: "Ops Room" },
-      { key: "securityLabel", text: "Public" },
+      { key: "accessLabel", text: "anyone with the link" },
       { key: "storageUsage", text: "0 KB ( 0% used )" },
     ]);
   });
@@ -156,12 +158,14 @@ function createSessionContext(
 ): SpaceSessionContext {
   const { session: sessionOverrides, ...contextOverrides } = overrides ?? {};
   const baseSession: SpaceSessionContext["session"] = {
+    accessMode: "public",
     passwordProtected: false,
     spaceCreatedAt: "2026-03-13T00:00:00.000Z",
     spaceCreatorId: "11111111-1111-4111-8111-111111111111",
     spaceCreatorName: "Felix",
     spaceId: "ab1c3286d92926cc07e70b4023d24a359387d250f670619af138c3a767f92efd",
     spaceName: "Ops Room",
+    visibility: "public",
   };
 
   return {

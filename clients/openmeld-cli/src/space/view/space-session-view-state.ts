@@ -1,4 +1,8 @@
-import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
+import type {
+  SpaceAccessMode,
+  SpaceMembersSnapshot,
+  SpaceOrganizationVisibility,
+} from "@openmeld/schemas/types";
 import type {
   PanelInstruction,
   SpacePanelContentAlign,
@@ -20,6 +24,7 @@ export type SpaceSessionContext = {
   connectionMode: "join" | "watch" | "history";
   gatewayUrl: string;
   session: {
+    accessMode?: SpaceAccessMode | null;
     spaceCreatedAt?: string | null;
     spaceCreatorId?: string | null;
     spaceCreatorName?: string | null;
@@ -29,6 +34,7 @@ export type SpaceSessionContext = {
     storageSoftLimitBytes?: number | null;
     storageUsagePercent?: number | null;
     storageUsedBytes?: number | null;
+    visibility?: SpaceOrganizationVisibility | null;
   };
   profile: {
     profileId: string;
@@ -52,7 +58,7 @@ export type SpaceInfoCardDocumentBlockViewState = {
 
 export type SpaceSummarySegmentKey =
   | "spaceName"
-  | "securityLabel"
+  | "accessLabel"
   | "membersCount"
   | "liveHumanCount"
   | "liveAgentCount"
@@ -66,7 +72,7 @@ export type SpaceSummarySegmentViewState = {
 export type SpaceSummaryFactsViewState = {
   spaceId: string;
   spaceName: string | null;
-  securityLabel: "Secure" | "Public" | null;
+  accessLabel: string | null;
   membersCount: number | null;
   liveHumanCount: number | null;
   liveAgentCount: number | null;

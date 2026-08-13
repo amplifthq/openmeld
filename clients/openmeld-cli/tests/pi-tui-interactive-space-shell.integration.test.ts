@@ -798,7 +798,7 @@ describe("PiTuiInteractiveSpaceShell", () => {
     expect(output).toContain("pi-tui-ref");
     expect(output).toContain(spaceId);
     expect(output).toContain("👥 2 · 1 live human · type /members to check");
-    expect(output).toContain("⚠️ Public");
+    expect(output).toContain("⚠️ Anyone with the link");
     expect(output).toContain(
       "Untrusted space. Anyone with this Space ID can join."
     );
@@ -928,7 +928,7 @@ describe("PiTuiInteractiveSpaceShell", () => {
       "ab1c3286d92926cc07e70b4023d24a359387d250f670619af138c3a767f92efd"
     );
     expect(output).toContain("👥 2 · 1 live human · type /members to check");
-    expect(output).toContain("⚠️ Public");
+    expect(output).toContain("⚠️ Anyone with the link");
     expect(output).toContain(
       "Untrusted space. Anyone with this Space ID can join."
     );
@@ -1129,7 +1129,7 @@ describe("PiTuiInteractiveSpaceShell", () => {
     expect(withStatusOutput).toContain(
       "👥 2 · 1 live human · type /members to check"
     );
-    expect(withStatusOutput).toContain("⚠️ Public");
+    expect(withStatusOutput).toContain("⚠️ Anyone with the link");
     expect(withStatusOutput).toContain(
       "Untrusted space. Anyone with this Space ID can join."
     );
@@ -1817,11 +1817,11 @@ describe("PiTuiInteractiveSpaceShell", () => {
       fakeTerminal.getOutput()
     ).replaceAll("\r", "");
     expect(plainOutput).toContain(
-      "Ops Room · Public · 2 members · 1 live human · 1 live agent"
+      "Ops Room · anyone with the link · 2 members · 1 live human · 1 live agent"
     );
     expect(plainOutput.indexOf(COMPOSER_HELPER_TEXT)).toBeLessThan(
       plainOutput.lastIndexOf(
-        "Ops Room · Public · 2 members · 1 live human · 1 live agent"
+        "Ops Room · anyone with the link · 2 members · 1 live human · 1 live agent"
       )
     );
     shell.stop();
@@ -1866,7 +1866,7 @@ describe("PiTuiInteractiveSpaceShell", () => {
     const helperIndex = plainOutput.indexOf(COMPOSER_HELPER_TEXT);
     const storageIndex = plainOutput.indexOf("2.1 MB ( 24% used )");
     const summaryWithStorage =
-      "Ops Room · Public · 2 members · 1 live human · 1 live agent · 2.1 MB ( 24% used )";
+      "Ops Room · anyone with the link · 2 members · 1 live human · 1 live agent · 2.1 MB ( 24% used )";
 
     expect(storageIndex).toBeGreaterThan(helperIndex);
     expect(plainOutput.indexOf(summaryWithStorage)).toBe(

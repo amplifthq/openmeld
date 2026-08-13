@@ -98,12 +98,14 @@ export function resolveSessionMeta(
   fallbackName?: string,
   fallbackSpaceCreatedAt?: string
 ): {
+  accessMode?: SpaceMeta["accessMode"];
   spaceId: string;
   spaceName?: string;
   spaceCreatedAt?: string;
   spaceCreatorName?: string;
   spaceCreatorId?: string;
   passwordProtected?: boolean;
+  visibility?: SpaceMeta["visibility"];
   storageUsedBytes?: number;
   storageSoftLimitBytes?: number;
   storageUsagePercent?: number;
@@ -120,6 +122,8 @@ export function resolveSessionMeta(
     typeof spaceMeta?.passwordProtected === "boolean"
       ? spaceMeta.passwordProtected
       : undefined;
+  const accessMode = spaceMeta?.accessMode;
+  const visibility = spaceMeta?.visibility;
   const storageUsedBytes = resolveOptionalNumber(
     spaceMeta?.storageUsage?.usedBytes
   );
@@ -131,12 +135,14 @@ export function resolveSessionMeta(
   );
 
   return {
+    ...(accessMode ? { accessMode } : {}),
     spaceId,
     ...(spaceName ? { spaceName } : {}),
     ...(spaceCreatedAt ? { spaceCreatedAt } : {}),
     ...(spaceCreatorName ? { spaceCreatorName } : {}),
     ...(spaceCreatorId ? { spaceCreatorId } : {}),
     ...(typeof passwordProtected === "boolean" ? { passwordProtected } : {}),
+    ...(visibility ? { visibility } : {}),
     ...(typeof storageUsedBytes === "number" ? { storageUsedBytes } : {}),
     ...(typeof storageSoftLimitBytes === "number"
       ? { storageSoftLimitBytes }

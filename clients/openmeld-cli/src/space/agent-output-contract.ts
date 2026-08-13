@@ -1,9 +1,10 @@
-import type { HelloAck, SignalEnvelope } from "@openmeld/protocol";
+import type { HelloAck, SignalEnvelope, SpaceMeta } from "@openmeld/protocol";
 import { canonicalizeBuiltinAgentControllerRef } from "@openmeld/schemas";
 import type {
   AgentProfileBindingModelSelection,
   SpaceMembersSnapshot,
 } from "@openmeld/schemas/types";
+import { resolveSpaceAccessLabel } from "../ui/public-space-warning";
 
 function normalizeOptionalText(value: unknown): string | null {
   if (typeof value !== "string") {
@@ -119,6 +120,7 @@ export function normalizeAgentOutputMembersSnapshot(
 }
 
 export function buildAgentSessionMetaPayload(input: {
+  accessMode?: SpaceMeta["accessMode"];
   gatewayUrl: string;
   mode: "interactive chat" | "watch-only stream" | "history viewer";
   passwordProtected?: boolean;
@@ -135,7 +137,9 @@ export function buildAgentSessionMetaPayload(input: {
   spaceCreatorName?: string;
   spaceId: string;
   spaceName?: string;
+  visibility?: SpaceMeta["visibility"];
 }): Record<string, unknown> {
+  const access = resolveSpaceAccessLabel(input);
   let security: "Secure" | "Public" | "Unknown" = "Unknown";
   if (input.passwordProtected === true) {
     security = "Secure";
@@ -149,6 +153,7 @@ export function buildAgentSessionMetaPayload(input: {
     mode: input.mode,
     profileId: input.profileId,
     profileName: input.profileName,
+    access,
     security,
     spaceId: input.spaceId,
   };
@@ -166,6 +171,8 @@ export function buildAgentSessionMetaPayload(input: {
     "passwordProtected",
     input.passwordProtected
   );
+  appendOptionalStringField(payload, "accessMode", input.accessMode);
+  appendOptionalStringField(payload, "visibility", input.visibility);
   appendOptionalStringField(payload, "profileKind", input.profileKind);
   appendOptionalStringField(payload, "ownerUserId", input.ownerUserId);
   appendOptionalStringField(payload, "ownerName", input.ownerName);

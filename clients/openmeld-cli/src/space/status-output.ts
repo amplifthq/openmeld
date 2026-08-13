@@ -2,6 +2,7 @@ import type { GetSpaceStatusResponse } from "@openmeld/schemas/types";
 import pc from "picocolors";
 import type { Presenter } from "../runtime/presenter";
 import { type InfoCardRow, renderInfoCard } from "../ui/info-card";
+import { resolveSpaceAccessLabel } from "../ui/public-space-warning";
 import { sanitizeTerminalDisplayText } from "../ui/terminal-safe-text";
 import { formatPublicationModeForDisplay } from "./contract-set-options";
 
@@ -49,6 +50,7 @@ export function emitSpaceStatusAgentOutput(input: {
     data: {
       spaceId: input.status.spaceId,
       spaceName: input.status.name ?? null,
+      accessMode: input.status.accessMode,
       members: {
         totalCount: input.status.members.totalCount,
         humanCount: input.status.members.humanCount,
@@ -89,10 +91,13 @@ function buildSpaceStatusOverviewRows(
         ]
       : []),
     {
-      label: pc.dim("Security"),
-      value: status.passwordProtected
-        ? pc.bold(pc.yellow("protected"))
-        : pc.bold(pc.green("open")),
+      label: pc.dim("Access"),
+      value: pc.bold(
+        resolveSpaceAccessLabel({
+          accessMode: status.accessMode,
+          passwordProtected: status.passwordProtected,
+        })
+      ),
     },
     {
       label: pc.dim("Dispatch mode"),

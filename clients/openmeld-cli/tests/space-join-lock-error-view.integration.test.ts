@@ -86,7 +86,7 @@ vi.mock("../src/space/join-access-bootstrap", () => {
   return {
     resolveSpaceJoinAccessBootstrap: vi.fn(async () => ({
       status: "ready" as const,
-      publicSpace: true,
+      publicExposure: "anyone_can_join",
     })),
   };
 });
