@@ -15,7 +15,7 @@ import {
 	BuildingsIcon,
 	PlusIcon,
 } from "@phosphor-icons/react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, Navigate, useNavigate } from "@tanstack/react-router";
 import {
 	type FormEvent,
@@ -45,6 +45,7 @@ import {
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
+import { prepareOrganizationDestination } from "#/lib/organizations/prepare-organization-destination";
 
 type OrganizationSetupStep = "creating_organization" | "opening_organization";
 
@@ -68,6 +69,7 @@ function OrganizationEntryPageContent(input: {
 	const { currentOrganization, organizations } = useAppOrganization();
 	const computerAttentionTone = useSettingsAttentionTone();
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const [organizationName, setOrganizationName] = useState("");
 	const [organizationSlug, setOrganizationSlug] = useState("");
 	const slugEditedRef = useRef(false);
@@ -89,6 +91,10 @@ function OrganizationEntryPageContent(input: {
 	const openCreatedOrganizationMutation = useMutation({
 		mutationFn: async (organization: OrganizationSummary) => {
 			setSetupStep("opening_organization");
+			await prepareOrganizationDestination({
+				organizationId: organization.id,
+				queryClient,
+			});
 			await openOrganization(organization);
 		},
 	});
@@ -141,19 +147,22 @@ function OrganizationEntryPageContent(input: {
 			createOrganizationMutation.reset();
 		}
 		openCreatedOrganizationMutation.reset();
+		let organization = createdOrganization;
 		try {
-			const organization =
-				createdOrganization ??
-				(await createOrganizationMutation.mutateAsync({
+			if (!organization) {
+				organization = await createOrganizationMutation.mutateAsync({
 					name: normalizedName,
 					slug: normalizedSlug,
-				}));
-			if (!createdOrganization) {
+				});
 				setCreatedOrganization(organization);
 			}
 			await openCreatedOrganizationMutation.mutateAsync(organization);
-		} catch {
+		} catch (error) {
 			// The mutation owns visible error state.
+			console.error("Organization setup did not finish.", {
+				cause: error,
+				organizationId: organization?.id ?? null,
+			});
 		}
 	}
 	const handleBack = () => {
@@ -174,7 +183,8 @@ function OrganizationEntryPageContent(input: {
 	} else if (openCreatedOrganizationMutation.isError) {
 		setupErrorTitle =
 			"OpenMeld created this organization but could not open it.";
-		setupErrorMessage = openCreatedOrganizationMutation.error.message;
+		setupErrorMessage =
+			"Try again. OpenMeld will continue from the organization it already created.";
 	}
 	const createForm = (
 		<OrganizationCreateForm

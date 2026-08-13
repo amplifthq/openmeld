@@ -5,7 +5,7 @@ import {
 } from "#/query/organizations/center-agent";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 
-export async function prepareOnboardingDestination(input: {
+export async function prepareOrganizationDestination(input: {
 	organizationId: string;
 	queryClient: QueryClient;
 }): Promise<void> {

@@ -3,18 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { openCurrentCenterAgentDirectMessageSpace } from "#/lib/organizations/center-agent";
 import { centerAgentQueryKeys } from "#/query/organizations/center-agent";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
-import { prepareOnboardingDestination } from "./complete-onboarding";
+import { prepareOrganizationDestination } from "./prepare-organization-destination";
 
 vi.mock("#/lib/organizations/center-agent", () => ({
 	openCurrentCenterAgentDirectMessageSpace: vi.fn(),
 }));
 
-describe("prepareOnboardingDestination", () => {
+describe("prepareOrganizationDestination", () => {
 	beforeEach(() => {
 		vi.mocked(openCurrentCenterAgentDirectMessageSpace).mockReset();
 	});
 
-	it("initializes the Center Agent and invalidates cached identity before Home", async () => {
+	it("initializes the Center Agent and invalidates cached identity before entering the Organization", async () => {
 		const queryClient = new QueryClient({
 			defaultOptions: { queries: { retry: false } },
 		});
@@ -34,7 +34,7 @@ describe("prepareOnboardingDestination", () => {
 			spaceId: "space-123",
 		});
 
-		await prepareOnboardingDestination({
+		await prepareOrganizationDestination({
 			organizationId: "organization-123",
 			queryClient,
 		});
