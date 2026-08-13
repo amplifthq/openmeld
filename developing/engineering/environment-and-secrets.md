@@ -196,9 +196,11 @@ move the files aside yourself before opting into Doppler.
 OpenConnector is an upstream runtime boundary. Doppler owns its credentials
 under the canonical `OPEN_CONNECTOR_OPENMELD_*` names, while the unmodified
 upstream Worker reads `OOMOL_CONNECT_*`. The guarded production deploy maps
-the admin token, runtime token, and encryption key in memory at the child
-process boundary. For a new Worker, the deploy sends Wrangler an in-memory JSON
-payload through `/dev/stdin`; it never writes a secret file. Do not duplicate
+the admin token, runtime token, encryption key, GitHub App id, and GitHub App
+private key in memory at the child process boundary. For a new Worker, the
+deploy sends Wrangler an in-memory JSON payload through `/dev/stdin`; it never
+writes a secret file. The GitHub App private key is deployment-wide App
+identity, not a member or Organization connection credential. Do not duplicate
 the same values under both names in Doppler, and do not weaken or fork the
 upstream runtime contract merely to match OpenMeld's credential catalog.
 

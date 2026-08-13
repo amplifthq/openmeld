@@ -12,6 +12,7 @@ import {
 	createCurrentOrganizationConnectorAppRequest,
 	listCurrentOrganizationConnectorAppCatalog,
 	listCurrentOrganizationConnectorAppRequests,
+	resolveConnectorConnectionErrorMessage,
 	startCurrentMemberGitHubAuthorization,
 	startCurrentOrganizationSharedGitHubAuthorization,
 } from "./connector-connections";
@@ -35,6 +36,19 @@ describe("connector connection Web API helpers", () => {
 			},
 			expiresAtMs: 601_000,
 		});
+	});
+
+	it("keeps OpenConnector internals out of a failed GitHub setup", () => {
+		expect(
+			resolveConnectorConnectionErrorMessage(
+				{
+					code: "upstream_unreachable",
+					message: "OpenConnector request failed with status 404.",
+					status: 502,
+				},
+				"GitHub"
+			)
+		).toBe("OpenMeld could not finish GitHub setup. Try again.");
 	});
 
 	it("opts shared GitHub setup into the server-owned installation expiry", async () => {

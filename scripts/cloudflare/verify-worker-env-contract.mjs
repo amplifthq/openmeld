@@ -410,6 +410,8 @@ ensure(
     JSON.stringify([
       "OOMOL_CONNECT_ADMIN_TOKEN",
       "OOMOL_CONNECT_ENCRYPTION_KEY",
+      "OOMOL_CONNECT_GITHUB_APP_ID",
+      "OOMOL_CONNECT_GITHUB_APP_PRIVATE_KEY",
       "OOMOL_CONNECT_RUNTIME_TOKEN",
     ]),
   "OpenConnector production must declare the exact upstream runtime secret contract."
