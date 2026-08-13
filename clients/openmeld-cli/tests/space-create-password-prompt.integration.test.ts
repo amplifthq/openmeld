@@ -270,18 +270,20 @@ describe("space create password prompt", () => {
         "Without a password, anyone with this Space link can read what is shared here and join."
       );
       expect(selectInput?.message).toContain(
-        "With a password, anyone with the link can still read the Space, but only people with the password can join."
+        "With a password, only people who have it can open and join the Space."
       );
       expect(selectInput?.message).toContain(
         "Passwords must be at least 6 characters."
       );
-      expect(selectInput?.message).toContain("Require a password to join?");
+      expect(selectInput?.message).toContain(
+        "Require a password to open and join?"
+      );
       expect(selectInput?.message).not.toContain("data leakage");
       expect(selectInput?.message).not.toContain("Space ID");
       expect(selectInput?.options).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            label: "Yes, require a password",
+            label: "Yes, require a password to open and join",
             value: "set",
           }),
           expect.objectContaining({

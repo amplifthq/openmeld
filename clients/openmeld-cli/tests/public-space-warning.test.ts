@@ -141,7 +141,7 @@ describe("public space warning prompt config", () => {
     const config = buildPublicSpacePasswordPromptConfig({ minimumLength: 6 });
 
     expect(config).toMatchObject({
-      setPasswordLabel: "Yes, require a password",
+      setPasswordLabel: "Yes, require a password to open and join",
       skipPasswordLabel: "No, anyone with the link can join",
     });
     expect(config.message).toContain("⚠️ Check Before You Continue");
@@ -149,8 +149,9 @@ describe("public space warning prompt config", () => {
       "Without a password, anyone with this Space link can read what is shared here and join."
     );
     expect(config.message).toContain(
-      "With a password, anyone with the link can still read the Space, but only people with the password can join."
+      "With a password, only people who have it can open and join the Space."
     );
+    expect(config.message).toContain("Require a password to open and join?");
     expect(config.message).not.toContain("data leakage");
     expect(config.message).not.toContain("Space ID");
   });

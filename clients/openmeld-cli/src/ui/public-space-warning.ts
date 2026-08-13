@@ -120,12 +120,12 @@ export function buildPublicSpacePasswordPromptConfig(input: {
     message: buildPublicSpacePromptCardMessage({
       lines: [
         "Without a password, anyone with this Space link can read what is shared here and join.",
-        "With a password, anyone with the link can still read the Space, but only people with the password can join.",
+        "With a password, only people who have it can open and join the Space.",
         `Passwords must be at least ${input.minimumLength} characters.`,
       ],
-      question: "Require a password to join?",
+      question: "Require a password to open and join?",
     }),
-    setPasswordLabel: "Yes, require a password",
+    setPasswordLabel: "Yes, require a password to open and join",
     skipPasswordLabel: "No, anyone with the link can join",
   };
 }
