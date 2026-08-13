@@ -36,6 +36,7 @@ import {
 import {
 	buildSpaceTimelineItems,
 	isSpaceOutcomeNoticeItem,
+	resolveRecordedSpaceMessageDetailsItem,
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
 import type { WakeFailureTargetContext } from "#/lib/spaces/wake-failure-display";
@@ -1070,6 +1071,12 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 		wakeProgressState.hasProblem ||
 		input.wakeProblemSourceSignalIds.has(input.item.id) ||
 		input.item.systemNoticeType === "terminal_failure";
+	const messageDetailsItem = input.readOnly
+		? null
+		: resolveRecordedSpaceMessageDetailsItem({
+				item: input.item,
+				timelineItems: input.allItems,
+			});
 	const agentControlLabel = formatSpaceAgentControlLabel({
 		agentControllerRef: input.item.actorAgentControllerRef,
 		controllerDisplay: input.item.actorControllerDisplay,
@@ -1104,7 +1111,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 				data-message-row-id={input.item.id}
 				data-space-self-message={String(isSelfMessage)}
 			>
-				{input.readOnly || input.item.deliveryState === "pending" ? null : (
+				{messageDetailsItem ? (
 					<div
 						className={cn(
 							"pointer-events-none absolute top-2 z-20",
@@ -1117,11 +1124,11 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 							<MessageDetailsActionButton
 								buttonClassName={resolveSpaceMessageActionButtonClassName({})}
 								hasWakeProblem={hasWakeProblem}
-								onClick={() => input.onOpenMessageDetails(input.item)}
+								onClick={() => input.onOpenMessageDetails(messageDetailsItem)}
 							/>
 						</MessageHoverActionSlot>
 					</div>
-				)}
+				) : null}
 				<MessageContent
 					className={cn(
 						"w-full min-w-0 gap-0",
@@ -1206,9 +1213,9 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 								<SpaceAgentToolActivity
 									item={input.item}
 									onOpenDetails={
-										input.readOnly || input.item.deliveryState === "pending"
-											? undefined
-											: () => input.onOpenMessageDetails(input.item)
+										messageDetailsItem
+											? () => input.onOpenMessageDetails(messageDetailsItem)
+											: undefined
 									}
 									placement="message"
 								/>
@@ -1239,9 +1246,9 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 						entries={wakeThinkingEntries}
 						item={input.item}
 						onOpenMessageDetails={
-							input.readOnly || input.item.deliveryState === "pending"
-								? undefined
-								: () => input.onOpenMessageDetails(input.item)
+							messageDetailsItem
+								? () => input.onOpenMessageDetails(messageDetailsItem)
+								: undefined
 						}
 					/>
 				</MessageContent>

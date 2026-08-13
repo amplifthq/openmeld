@@ -2915,11 +2915,29 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 	});
 
-	it("shows the Center Agent streaming status while reply text is empty", () => {
+	it("opens the durable source message details from live Agent work", () => {
+		useQueryMock.mockImplementation(
+			(options: { queryKey: readonly unknown[] }) =>
+				options.queryKey[3] === "sig-source"
+					? {
+							data: createMinimalMessageDetailsResponse(),
+							isError: false,
+							isPending: false,
+						}
+					: {
+							data: undefined,
+							isError: true,
+							isPending: false,
+						}
+		);
 		renderSpaceConversationPanel({
 			readOnly: false,
 			spaceId: "space-1",
 			timelineItems: [
+				createTimelineItem({
+					id: "sig-source",
+					text: "Please investigate this.",
+				}),
 				createTimelineItem({
 					agentStreamState: {
 						reasonCode: null,
@@ -2942,6 +2960,7 @@ describe("SpaceConversationPanel", () => {
 					actorProfileName: "Center Agent",
 					id: "stream:submission-1",
 					isAgentFinalReply: true,
+					replyToSignalId: "sig-source",
 					text: " \n ",
 				}),
 			],
@@ -2954,6 +2973,7 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.getByRole("dialog", { name: "Message details" })
 		).toBeTruthy();
+		expect(screen.queryByText("Couldn't load message details.")).toBeNull();
 	});
 
 	it.each([

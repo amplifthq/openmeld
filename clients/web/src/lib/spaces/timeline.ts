@@ -106,6 +106,32 @@ export type SpaceTimelineAttachment = SpaceMessageAttachment & {
 	localPreviewUrl: string | null;
 };
 
+export function resolveRecordedSpaceMessageDetailsItem(input: {
+	item: SpaceTimelineItem;
+	timelineItems: readonly SpaceTimelineItem[];
+}): SpaceTimelineItem | null {
+	const recordedItemId = input.item.agentStreamState
+		? input.item.replyToSignalId
+		: (input.item.optimisticAgentReplySourceItemId ?? input.item.id);
+	if (!recordedItemId) {
+		return null;
+	}
+	const recordedItem =
+		recordedItemId === input.item.id
+			? input.item
+			: input.timelineItems.find(
+					(candidate) => candidate.id === recordedItemId
+				);
+	if (
+		recordedItem?.deliveryState !== "sent" ||
+		recordedItem.agentStreamState !== undefined ||
+		recordedItem.optimisticAgentReplyState !== undefined
+	) {
+		return null;
+	}
+	return recordedItem;
+}
+
 export type SpaceLandingMember = {
 	profileId: string;
 	profileName: string;

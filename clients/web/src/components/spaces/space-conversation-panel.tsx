@@ -70,6 +70,7 @@ import {
 import {
 	buildSpaceTimelineItems,
 	isSpaceOutcomeNoticeItem,
+	resolveRecordedSpaceMessageDetailsItem,
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
 import type { WakeFailureTargetContext } from "#/lib/spaces/wake-failure-display";
@@ -2141,9 +2142,10 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 					item,
 					readOnly: input.readOnly,
 				});
-				const canOpenMessageDetails = canOpenTimelineItemDetails({
+				const messageDetailsItem = resolveConversationMessageDetailsItem({
 					item,
 					readOnly: input.readOnly,
+					timelineItems: input.timelineItems,
 				});
 				const isCenterAgentOptimisticReplySource =
 					hasCenterAgentOptimisticReplyForSource({
@@ -2166,12 +2168,12 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 					});
 				const messageProgressStatus = renderConversationMessageProgressStatus({
 					align: messageAlign,
-					canOpenMessageDetails,
 					control: wakeStopControl,
 					entries: wakeThinkingEntries,
 					hideForCenterAgentOptimisticReplySource:
 						isCenterAgentOptimisticReplySource,
 					item,
+					messageDetailsItem,
 					onOpenMessageDetails: input.onOpenMessageDetails,
 				});
 				const answerProgressStatus = renderSpaceMessageProgressAt({
@@ -2424,11 +2426,15 @@ function canUseTimelineItemActions(input: {
 	);
 }
 
-function canOpenTimelineItemDetails(input: {
+function resolveConversationMessageDetailsItem(input: {
 	item: SpaceTimelineItem;
 	readOnly: boolean;
-}) {
-	return !input.readOnly && input.item.deliveryState === "sent";
+	timelineItems: readonly SpaceTimelineItem[];
+}): SpaceTimelineItem | null {
+	if (input.readOnly) {
+		return null;
+	}
+	return resolveRecordedSpaceMessageDetailsItem(input);
 }
 
 function getTimelineItemDeliveryClass(item: SpaceTimelineItem) {
@@ -2487,7 +2493,6 @@ function resolveSpaceMessageWakeThinkingEntries(input: {
 
 function renderConversationMessageProgressStatus(input: {
 	align: "start" | "end";
-	canOpenMessageDetails: boolean;
 	containerClassName?: string;
 	control: ReactNode;
 	entries: ReturnType<
@@ -2495,6 +2500,7 @@ function renderConversationMessageProgressStatus(input: {
 	>["thinkingEntries"];
 	hideForCenterAgentOptimisticReplySource: boolean;
 	item: SpaceTimelineItem;
+	messageDetailsItem: SpaceTimelineItem | null;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 }): ReactNode {
 	if (input.hideForCenterAgentOptimisticReplySource) {
@@ -2508,8 +2514,8 @@ function renderConversationMessageProgressStatus(input: {
 			entries={input.entries}
 			item={input.item}
 			onOpenMessageDetails={getOpenMessageDetailsHandler({
-				enabled: input.canOpenMessageDetails,
-				item: input.item,
+				enabled: input.messageDetailsItem !== null,
+				item: input.messageDetailsItem ?? input.item,
 				onOpenMessageDetails: input.onOpenMessageDetails,
 			})}
 		/>
