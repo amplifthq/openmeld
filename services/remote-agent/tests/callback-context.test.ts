@@ -261,7 +261,7 @@ describe("remote agent callback context", () => {
       failureCode: "remote_agent.turn_not_completed",
       failureDetail: "provider 504",
       failureMessage:
-        "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.",
+        "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
       idempotencyKey: request.idempotencyKey,
       organizationId: request.organizationId,
       spaceId: request.spaceId,
@@ -337,7 +337,7 @@ describe("remote agent callback context", () => {
       "I couldn't create the Space because the request was rejected with invalid_payload: password cannot be set for this access.",
     ]) {
       expect(sanitizeCenterAgentCompletedTextForPublication(unsafeReply)).toBe(
-        "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+        "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
       );
     }
 
@@ -465,11 +465,11 @@ describe("remote agent callback context", () => {
       expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
         expect.objectContaining({
           submissionId: ACK.submissionId,
-          text: "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.",
+          text: "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
         })
       );
       expect(updated?.completedText).toBe(
-        "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+        "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
       );
       expect(updated?.completedText).not.toContain("tool catalog");
       expect(warning).toHaveBeenCalledWith(
@@ -681,7 +681,7 @@ describe("remote agent callback context", () => {
       expect.objectContaining({
         failureCode: "remote_agent.turn_not_completed",
         failureMessage:
-          "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.",
+          "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
         idempotencyKey: request.idempotencyKey,
         status: "failed",
         submissionId: ACK.submissionId,

@@ -19,7 +19,7 @@ export type ProjectLocalConnectionFailureReasonCode =
 export const CODEX_UPGRADE_REQUIRED_REASON =
   "Codex on this device is too old for the current model. Upgrade Codex on this device, then try again.";
 export const CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY =
-  "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.";
+  "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.";
 export const CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY =
   "Center Agent didn't return a reply. Try again. If it keeps happening, open diagnostics in OpenMeld.";
 export const CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY =
