@@ -814,48 +814,32 @@ const REMOTE_AGENT_DIRECT_TOOL_SCHEMA_LIMIT = 64;
 const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
 const REMOTE_AGENT_CREATE_TASK_TOOL_NAME = "openmeld_create_task";
 const REMOTE_AGENT_CREATE_SPACE_TOOL_NAME = "openmeld_create_space";
+const REMOTE_AGENT_POST_SPACE_MESSAGE_TOOL_NAME = "openmeld_post_space_message";
 const REMOTE_AGENT_REQUIRE_IDENTITY_TOOL_NAME =
   "openmeld_require_identity_for_action";
+
+type PreclassifiedRemoteAgentWorkSurface = {
+  bindingSystemMessage: Record<string, unknown>;
+  surface: "new_space" | "new_task";
+};
+
+type RemoteAgentWorkSurfaceToolPhase = {
+  maxTokens: number;
+  toolPayload: {
+    tool_choice?: { function: { name: string }; type: "function" };
+    tools: unknown[];
+  };
+};
 
 function enforcePreclassifiedRemoteAgentWorkSurface(
   payload: Record<string, unknown>
 ): Record<string, unknown> | null {
-  if (!Array.isArray(payload.messages)) {
+  const binding = readPreclassifiedRemoteAgentWorkSurface(payload.messages);
+  if (!binding) {
     return null;
   }
-  const bindingSystemMessage = payload.messages.find(
-    (message) =>
-      isRecord(message) &&
-      message.role === "system" &&
-      typeof message.content === "string" &&
-      message.content.startsWith(
-        `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: `
-      )
-  );
-  if (!(bindingSystemMessage && isRecord(bindingSystemMessage))) {
-    return null;
-  }
-  const systemContent = bindingSystemMessage.content;
-  let surface: "new_space" | "new_task" | null = null;
-  if (
-    typeof systemContent === "string" &&
-    systemContent.startsWith(
-      `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_task`
-    )
-  ) {
-    surface = "new_task";
-  } else if (
-    typeof systemContent === "string" &&
-    systemContent.startsWith(
-      `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_space`
-    )
-  ) {
-    surface = "new_space";
-  }
-  if (!surface) {
-    throw new Error("Remote Agent work-surface binding marker is invalid.");
-  }
-  const currentUserIndex = payload.messages.findLastIndex(
+  const messages = payload.messages as unknown[];
+  const currentUserIndex = messages.findLastIndex(
     (message) => isRecord(message) && message.role === "user"
   );
   if (currentUserIndex < 0) {
@@ -863,7 +847,7 @@ function enforcePreclassifiedRemoteAgentWorkSurface(
       "Remote Agent work-surface binding requires a current user message."
     );
   }
-  const currentTurnMessages = payload.messages.slice(currentUserIndex);
+  const currentTurnMessages = messages.slice(currentUserIndex);
   const currentUserMessage = currentTurnMessages[0];
   if (
     !isRecord(currentUserMessage) ||
@@ -883,21 +867,11 @@ function enforcePreclassifiedRemoteAgentWorkSurface(
     },
     ...currentTurnMessages.slice(1),
   ];
-  const toolAlreadyRan = compactCurrentTurnMessages.some(
-    (message) => isRecord(message) && message.role === "tool"
-  );
-  const toolName =
-    surface === "new_task"
-      ? REMOTE_AGENT_CREATE_TASK_TOOL_NAME
-      : REMOTE_AGENT_CREATE_SPACE_TOOL_NAME;
-  const tool = Array.isArray(payload.tools)
-    ? payload.tools.find((candidate) =>
-        isRemoteAgentProviderToolNamed(candidate, toolName)
-      )
-    : undefined;
-  if (!(tool || toolAlreadyRan)) {
-    throw new Error(`Remote Agent work-surface binding requires ${toolName}.`);
-  }
+  const phase = resolveRemoteAgentWorkSurfaceToolPhase({
+    messages: compactCurrentTurnMessages,
+    surface: binding.surface,
+    tools: payload.tools,
+  });
   const {
     parallel_tool_calls: _parallelToolCalls,
     tool_choice: _toolChoice,
@@ -905,16 +879,133 @@ function enforcePreclassifiedRemoteAgentWorkSurface(
   } = payload;
   return {
     ...basePayload,
-    max_tokens: toolAlreadyRan ? 160 : 2048,
-    messages: [bindingSystemMessage, ...compactCurrentTurnMessages],
+    max_tokens: phase.maxTokens,
+    messages: [binding.bindingSystemMessage, ...compactCurrentTurnMessages],
     parallel_tool_calls: false,
-    ...(toolAlreadyRan
-      ? { tools: [] }
-      : {
-          tool_choice: { function: { name: toolName }, type: "function" },
-          tools: [tool],
-        }),
+    ...phase.toolPayload,
   };
+}
+
+function readPreclassifiedRemoteAgentWorkSurface(
+  messages: unknown
+): PreclassifiedRemoteAgentWorkSurface | null {
+  if (!Array.isArray(messages)) {
+    return null;
+  }
+  const bindingSystemMessage = messages.find(
+    (message) =>
+      isRecord(message) &&
+      message.role === "system" &&
+      typeof message.content === "string" &&
+      message.content.startsWith(
+        `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: `
+      )
+  );
+  if (!(bindingSystemMessage && isRecord(bindingSystemMessage))) {
+    return null;
+  }
+  const systemContent = bindingSystemMessage.content;
+  if (
+    typeof systemContent === "string" &&
+    systemContent.startsWith(
+      `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_task`
+    )
+  ) {
+    return { bindingSystemMessage, surface: "new_task" };
+  }
+  if (
+    typeof systemContent === "string" &&
+    systemContent.startsWith(
+      `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_space`
+    )
+  ) {
+    return { bindingSystemMessage, surface: "new_space" };
+  }
+  throw new Error("Remote Agent work-surface binding marker is invalid.");
+}
+
+function resolveRemoteAgentWorkSurfaceToolPhase(input: {
+  messages: readonly unknown[];
+  surface: "new_space" | "new_task";
+  tools: unknown;
+}): RemoteAgentWorkSurfaceToolPhase {
+  const toolResultExists = input.messages.some(
+    (message) => isRecord(message) && message.role === "tool"
+  );
+  const bindingToolName =
+    input.surface === "new_task"
+      ? REMOTE_AGENT_CREATE_TASK_TOOL_NAME
+      : REMOTE_AGENT_CREATE_SPACE_TOOL_NAME;
+  const toolCallNames = readRemoteAgentToolCallNames(input.messages);
+  const bindingToolRan = toolCallNames.has(bindingToolName);
+  if (toolResultExists && !bindingToolRan) {
+    throw new Error(
+      `Remote Agent work-surface binding received a tool result before ${bindingToolName}.`
+    );
+  }
+  const tools = Array.isArray(input.tools) ? input.tools : [];
+  const bindingTool = tools.find((candidate) =>
+    isRemoteAgentProviderToolNamed(candidate, bindingToolName)
+  );
+  if (!(bindingTool || bindingToolRan)) {
+    throw new Error(
+      `Remote Agent work-surface binding requires ${bindingToolName}.`
+    );
+  }
+  if (!bindingToolRan) {
+    return {
+      maxTokens: 2048,
+      toolPayload: {
+        tool_choice: {
+          function: { name: bindingToolName },
+          type: "function",
+        },
+        tools: [bindingTool],
+      },
+    };
+  }
+  const initialSpaceMessageRan = toolCallNames.has(
+    REMOTE_AGENT_POST_SPACE_MESSAGE_TOOL_NAME
+  );
+  if (input.surface !== "new_space" || initialSpaceMessageRan) {
+    return { maxTokens: 160, toolPayload: { tools: [] } };
+  }
+  const initialSpaceMessageTool = tools.find((candidate) =>
+    isRemoteAgentProviderToolNamed(
+      candidate,
+      REMOTE_AGENT_POST_SPACE_MESSAGE_TOOL_NAME
+    )
+  );
+  if (!initialSpaceMessageTool) {
+    throw new Error(
+      `Remote Agent work-surface binding requires ${REMOTE_AGENT_POST_SPACE_MESSAGE_TOOL_NAME} after Space creation.`
+    );
+  }
+  return {
+    maxTokens: 2048,
+    toolPayload: { tools: [initialSpaceMessageTool] },
+  };
+}
+
+function readRemoteAgentToolCallNames(
+  messages: readonly unknown[]
+): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const message of messages) {
+    if (!(isRecord(message) && Array.isArray(message.tool_calls))) {
+      continue;
+    }
+    for (const toolCall of message.tool_calls) {
+      if (
+        isRecord(toolCall) &&
+        isRecord(toolCall.function) &&
+        typeof toolCall.function.name === "string"
+      ) {
+        names.add(toolCall.function.name);
+      }
+    }
+  }
+  return names;
 }
 
 async function enforceRemoteAgentWorkSurface(input: {

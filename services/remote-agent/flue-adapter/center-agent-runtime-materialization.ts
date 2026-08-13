@@ -84,11 +84,10 @@ export function resolveCenterAgentRuntimeMaterializationPlan(input: {
 }): CenterAgentRuntimeMaterializationPlan {
   if (input.workSurfaceBinding) {
     return {
-      allowedToolNames: [
+      allowedToolNames:
         input.workSurfaceBinding.surface === "new_task"
-          ? "openmeld_create_task"
-          : "openmeld_create_space",
-      ],
+          ? ["openmeld_create_task"]
+          : ["openmeld_create_space", "openmeld_post_space_message"],
       materializeComputer: false,
       materializeOrganizationDocuments: false,
       materializeOrganizationSkills: false,
