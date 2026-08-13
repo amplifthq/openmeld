@@ -332,6 +332,7 @@ describe("remote agent callback context", () => {
       "I couldn't create the Space because the tools are not enabled for this session.",
       "I couldn't create the Space because the action requires a verified OpenMeld member identity.",
       "This action requires a verified OpenMeld member identity.",
+      "The action requires a verified OpenMeld member identity before I can create the Space.",
     ]) {
       expect(sanitizeCenterAgentCompletedTextForPublication(unsafeReply)).toBe(
         "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
@@ -352,6 +353,14 @@ describe("remote agent callback context", () => {
       )
     ).toBe(
       "I used your verified OpenMeld member identity and created the Space."
+    );
+
+    expect(
+      sanitizeCenterAgentCompletedTextForPublication(
+        "This action requires a verified OpenMeld member identity. I used yours and created the Space successfully."
+      )
+    ).toBe(
+      "This action requires a verified OpenMeld member identity. I used yours and created the Space successfully."
     );
   });
 
