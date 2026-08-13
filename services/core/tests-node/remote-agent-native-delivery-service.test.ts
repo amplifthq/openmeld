@@ -8011,7 +8011,7 @@ describe("Remote Agent native delivery callback service", () => {
               "Cloudflare AI binding request failed with 502 Bad Gateway.",
             purpose: REMOTE_AGENT_FAILURE_PURPOSE,
           }),
-          text: "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try the request again. If it still doesn't work, open diagnostics in OpenMeld or ask the person who manages your OpenMeld workspace for help.",
+          text: "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
           threadContext: THREAD_CONTEXT,
         })
       );
@@ -8022,7 +8022,7 @@ describe("Remote Agent native delivery callback service", () => {
           kind: "failed",
           reasonCode: "remote_agent.turn_not_completed",
           noticeText:
-            "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try the request again. If it still doesn't work, open diagnostics in OpenMeld or ask the person who manages your OpenMeld workspace for help.",
+            "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
         },
       });
       await expect(

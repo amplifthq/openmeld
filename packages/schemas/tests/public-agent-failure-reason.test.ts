@@ -40,7 +40,7 @@ describe("public agent failure reason mapping", () => {
           "Remote Agent could not finish this request. Please try again or open diagnostics.",
       })
     ).toBe(
-      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try the request again. If it still doesn't work, open diagnostics in OpenMeld or ask the person who manages your OpenMeld workspace for help."
+      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
     );
     expect(
       resolveCenterAgentCallbackFailureMessage({
@@ -64,7 +64,7 @@ describe("public agent failure reason mapping", () => {
         failureMessage: "Remote Agent runtime failed unexpectedly.",
       })
     ).toBe(
-      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try the request again. If it still doesn't work, open diagnostics in OpenMeld or ask the person who manages your OpenMeld workspace for help."
+      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
     );
     expect(
       resolveCenterAgentCallbackFailureMessage({
@@ -72,7 +72,7 @@ describe("public agent failure reason mapping", () => {
         failureMessage: "The model provider is busy. Try again in a moment.",
       })
     ).toBe(
-      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try the request again. If it still doesn't work, open diagnostics in OpenMeld or ask the person who manages your OpenMeld workspace for help."
+      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
     );
     expect(
       resolveCenterAgentCallbackFailureMessage({
@@ -81,7 +81,7 @@ describe("public agent failure reason mapping", () => {
           "This turn's active tool catalog does not include Space management tools.",
       })
     ).toBe(
-      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try the request again. If it still doesn't work, open diagnostics in OpenMeld or ask the person who manages your OpenMeld workspace for help."
+      "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
     );
   });
 
