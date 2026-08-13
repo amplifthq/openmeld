@@ -12,7 +12,7 @@ describe("model catalog schema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.schemaVersion).toBe(MODEL_CATALOG_SCHEMA_VERSION);
-      expect(result.data.updatedAt).toBe("2026-08-01T17:26:00.000Z");
+      expect(result.data.updatedAt).toBe("2026-08-13T08:59:53.000Z");
       expect(result.data.agentControllers.codex?.defaultModelId).toBe(
         "gpt-5.5"
       );
@@ -94,12 +94,23 @@ describe("model catalog schema", () => {
       });
 
       expect(result.data.agentControllers["center-agent"]).toMatchObject({
-        defaultModelId: "x-ai/grok-4.5",
+        defaultModelId: "x-ai/grok-4.6",
         hostedRuntimePolicy: {
           automaticModelFallback: false,
-          imageUnderstandingModelId: "x-ai/grok-4.5",
+          imageUnderstandingModelId: "x-ai/grok-4.6",
         },
         models: [
+          {
+            id: "x-ai/grok-4.6",
+            displayName: "Grok 4.6",
+            hostedRuntime: {
+              contextWindow: 500_000,
+              inputModalities: ["text", "image"],
+              maxOutputTokens: 16_384,
+              provider: "openrouter",
+              reasoningLevel: "high",
+            },
+          },
           {
             id: "x-ai/grok-4.5",
             displayName: "Grok 4.5",

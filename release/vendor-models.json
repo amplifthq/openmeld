@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-01T17:26:00.000Z",
+  "updatedAt": "2026-08-13T08:59:53.000Z",
   "agentControllers": {
     "codex": {
       "defaultModelId": "gpt-5.5",
@@ -485,12 +485,26 @@
       ]
     },
     "center-agent": {
-      "defaultModelId": "x-ai/grok-4.5",
+      "defaultModelId": "x-ai/grok-4.6",
       "hostedRuntimePolicy": {
         "automaticModelFallback": false,
-        "imageUnderstandingModelId": "x-ai/grok-4.5"
+        "imageUnderstandingModelId": "x-ai/grok-4.6"
       },
       "models": [
+        {
+          "id": "x-ai/grok-4.6",
+          "displayName": "Grok 4.6",
+          "hostedRuntime": {
+            "provider": "openrouter",
+            "inputModalities": ["text", "image"],
+            "contextWindow": 500000,
+            "maxOutputTokens": 16384,
+            "reasoningLevel": "high"
+          },
+          "unavailable": false,
+          "supportedReasoningLevels": ["high"],
+          "minCliVersion": null
+        },
         {
           "id": "x-ai/grok-4.5",
           "displayName": "Grok 4.5",

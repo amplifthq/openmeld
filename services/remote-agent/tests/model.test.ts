@@ -29,6 +29,7 @@ import {
 import { TEST_CENTER_AGENT_MODEL_ROUTE } from "./fixtures";
 import openAiGpt54MiniModel from "./fixtures/openrouter-model-openai-gpt-5.4-mini.json";
 import xAiGrok45Model from "./fixtures/openrouter-model-x-ai-grok-4.5.json";
+import xAiGrok46Model from "./fixtures/openrouter-model-x-ai-grok-4.6.json";
 
 describe("remote agent model routing", () => {
   it("registers the bounded work-surface model from static metadata", async () => {
@@ -240,12 +241,12 @@ describe("remote agent model routing", () => {
       const grokRoute = {
         ...TEST_CENTER_AGENT_MODEL_ROUTE,
         contextWindow: 500_000,
-        displayName: "Grok 4.5",
+        displayName: "Grok 4.6",
         inputModalities: ["text" as const, "image" as const],
-        modelId: "x-ai/grok-4.5",
+        modelId: "x-ai/grok-4.6",
         preference: {
           kind: "selected_model" as const,
-          modelId: "x-ai/grok-4.5",
+          modelId: "x-ai/grok-4.6",
         },
       };
       const runtime = await registerRemoteAgentCloudflareProvider({
@@ -450,7 +451,7 @@ describe("remote agent model routing", () => {
     );
   });
 
-  it("pins the production OpenRouter model and AI Gateway route", () => {
+  it("pins the legacy v1 OpenRouter fallback and AI Gateway route", () => {
     expect(REMOTE_AGENT_OPENROUTER_MODEL_ID).toBe("x-ai/grok-4.5");
     expect(REMOTE_AGENT_MAX_OUTPUT_TOKENS).toBe(8192);
     expect(DEFAULT_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID).toBe(
@@ -644,6 +645,32 @@ describe("remote agent model routing", () => {
     });
     expect(fetchModelMetadata).toHaveBeenCalledWith(
       "https://openrouter.ai/api/v1/model/x-ai/grok-4.5",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
+
+  it("accepts the captured OpenRouter metadata contract for Grok 4.6", async () => {
+    const fetchModelMetadata = vi.fn(async () => Response.json(xAiGrok46Model));
+
+    await expect(
+      resolveRemoteAgentModelRuntimeConfig({
+        env: {
+          OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID: "x-ai/grok-4.6",
+        },
+        fetchModelMetadata,
+      })
+    ).resolves.toEqual({
+      compaction: {
+        keepRecentTokens: 8000,
+        reserveTokens: 340_000,
+      },
+      contextWindow: 500_000,
+      maxTokens: 8192,
+      modelId: "x-ai/grok-4.6",
+      modelSpecifier: "openrouter/x-ai/grok-4.6",
+    });
+    expect(fetchModelMetadata).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/model/x-ai/grok-4.6",
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     );
   });

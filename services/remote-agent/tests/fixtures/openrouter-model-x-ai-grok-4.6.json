@@ -1,0 +1,77 @@
+{
+  "data": {
+    "id": "x-ai/grok-4.6",
+    "canonical_slug": "x-ai/grok-4.6-20260810",
+    "hugging_face_id": null,
+    "name": "SpaceXAI: Grok 4.6",
+    "created": 1786548957,
+    "description": "Grok 4.6 is SpaceXAI's smartest model with frontier performance on coding, knowledge work, and STEM.",
+    "context_length": 500000,
+    "architecture": {
+      "modality": "text+image+file->text",
+      "input_modalities": ["text", "image", "file"],
+      "output_modalities": ["text"],
+      "tokenizer": "Grok",
+      "instruct_type": null
+    },
+    "pricing": {
+      "prompt": "0.000002",
+      "completion": "0.000006",
+      "web_search": "0.005",
+      "input_cache_read": "0.0000005",
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "prompt": "0.000004",
+          "completion": "0.000012",
+          "input_cache_read": "0.000001"
+        }
+      ]
+    },
+    "top_provider": {
+      "context_length": 500000,
+      "max_completion_tokens": null,
+      "is_moderated": false
+    },
+    "per_request_limits": null,
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p"
+    ],
+    "default_parameters": {},
+    "supported_voices": null,
+    "knowledge_cutoff": null,
+    "expiration_date": null,
+    "links": {
+      "details": "/api/v1/models/x-ai/grok-4.6-20260810/endpoints"
+    },
+    "benchmarks": {
+      "design_arena": [],
+      "artificial_analysis": {
+        "intelligence_index": 60.9,
+        "coding_index": 76.8,
+        "agentic_index": 58.7
+      }
+    },
+    "reasoning": {
+      "mandatory": true,
+      "default_enabled": true,
+      "supported_efforts": ["xhigh", "high", "medium", "low"],
+      "default_effort": "high"
+    }
+  }
+}

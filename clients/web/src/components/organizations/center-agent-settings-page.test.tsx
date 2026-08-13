@@ -169,7 +169,7 @@ describe("CenterAgentSettingsContent", () => {
 				"See which primary model the Center Agent uses for new work."
 			)
 		).toBeNull();
-		expect(await screen.findByText("Grok 4.5")).toBeTruthy();
+		expect(await screen.findByText("Grok 4.6")).toBeTruthy();
 		expect(screen.getByText("OpenMeld default")).toBeTruthy();
 		const modelBehaviorTrigger = screen.getByRole("button", {
 			name: "About Center Agent model behavior",
@@ -493,8 +493,17 @@ function buildModelConfiguration(
 		choices: [
 			{
 				displayName: "OpenMeld default",
-				effectiveModelDisplayName: "Grok 4.5",
+				effectiveModelDisplayName: "Grok 4.6",
 				preference: { kind: "system_default" as const },
+				supportsImageInput: true,
+			},
+			{
+				displayName: "Grok 4.6",
+				effectiveModelDisplayName: "Grok 4.6",
+				preference: {
+					kind: "selected_model" as const,
+					modelId: "x-ai/grok-4.6",
+				},
 				supportsImageInput: true,
 			},
 			{
@@ -519,8 +528,8 @@ function buildModelConfiguration(
 		configurationRevision: overrides.configurationRevision ?? 7,
 		effectiveModel: overrides.effectiveModel ?? {
 			availability: "available" as const,
-			displayName: "Grok 4.5",
-			modelId: "x-ai/grok-4.5",
+			displayName: "Grok 4.6",
+			modelId: "x-ai/grok-4.6",
 			supportsImageInput: true,
 		},
 		organizationId: ORGANIZATION_ID,

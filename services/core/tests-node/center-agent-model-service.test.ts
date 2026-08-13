@@ -7,15 +7,29 @@ import {
 
 const CATALOG = {
   schemaVersion: 1,
-  updatedAt: "2026-07-31T00:00:00.000Z",
+  updatedAt: "2026-08-13T00:00:00.000Z",
   agentControllers: {
     "center-agent": {
-      defaultModelId: "x-ai/grok-4.5",
+      defaultModelId: "x-ai/grok-4.6",
       hostedRuntimePolicy: {
         automaticModelFallback: false,
-        imageUnderstandingModelId: "x-ai/grok-4.5",
+        imageUnderstandingModelId: "x-ai/grok-4.6",
       },
       models: [
+        {
+          id: "x-ai/grok-4.6",
+          displayName: "Grok 4.6",
+          hostedRuntime: {
+            provider: "openrouter",
+            inputModalities: ["text", "image"],
+            contextWindow: 500_000,
+            maxOutputTokens: 16_384,
+            reasoningLevel: "high",
+          },
+          unavailable: false,
+          supportedReasoningLevels: ["high"],
+          minCliVersion: null,
+        },
         {
           id: "x-ai/grok-4.5",
           displayName: "Grok 4.5",
@@ -66,8 +80,8 @@ describe("Center Agent model service", () => {
       configurationRevision: 7,
       effectiveModel: {
         availability: "available",
-        displayName: "Grok 4.5",
-        modelId: "x-ai/grok-4.5",
+        displayName: "Grok 4.6",
+        modelId: "x-ai/grok-4.6",
         supportsImageInput: true,
       },
       preference: { kind: "system_default" },
@@ -87,7 +101,7 @@ describe("Center Agent model service", () => {
       automaticModelFallback: false,
       displayName: "DeepSeek V4 Flash",
       imageUnderstandingModel: {
-        modelId: "x-ai/grok-4.5",
+        modelId: "x-ai/grok-4.6",
       },
       modelId: "deepseek/deepseek-v4-flash",
       preference: {
