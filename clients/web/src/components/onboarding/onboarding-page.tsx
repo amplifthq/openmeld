@@ -7,7 +7,6 @@ import { AppsOnboardingDemo } from "#/components/onboarding/apps-onboarding-demo
 import { AppsOnboardingStep } from "#/components/onboarding/apps-onboarding-step";
 import { ChannelsOnboardingDemo } from "#/components/onboarding/channels-onboarding-demo";
 import { ChannelsOnboardingStep } from "#/components/onboarding/channels-onboarding-step";
-import { prepareOnboardingDestination } from "#/components/onboarding/complete-onboarding";
 import { CompleteOnboardingDemo } from "#/components/onboarding/complete-onboarding-demo";
 import { useCompleteOnboardingState } from "#/components/onboarding/complete-onboarding-state";
 import { CompleteOnboardingStep } from "#/components/onboarding/complete-onboarding-step";
@@ -43,6 +42,7 @@ import {
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationOnboardingPath } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
+import { prepareOrganizationDestination } from "#/lib/organizations/prepare-organization-destination";
 import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 
 const STEP_COPY: Record<
@@ -327,7 +327,7 @@ export function OnboardingPage() {
 	};
 	const finishAndEnterOpenMeld = async () => {
 		const organizationId = completeState.organizationId;
-		await prepareOnboardingDestination({ organizationId, queryClient });
+		await prepareOrganizationDestination({ organizationId, queryClient });
 		const completed = completeOnboardingProgress({ current: progress });
 		persistProgress(completed);
 		await navigate({

@@ -17,6 +17,7 @@ import {
 
 const saveOrganizationWakeAccessChoiceMock = vi.hoisted(() => vi.fn());
 const createOrganizationMock = vi.hoisted(() => vi.fn());
+const prepareOrganizationDestinationMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const CREATE_AN_ORGANIZATION_LABEL = /Create an organization/;
 const WAKE_ACCESS_LABEL = /Wake access for my Agent Profiles/;
@@ -28,6 +29,7 @@ let currentOrganization: OrganizationSummary = {
 	slug: "solo",
 };
 let organizations: OrganizationSummary[] = [currentOrganization];
+let consoleErrorMock: ReturnType<typeof vi.spyOn>;
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -93,12 +95,19 @@ vi.mock("#/lib/organizations/auth-organizations", () => ({
 	createOrganization: createOrganizationMock,
 }));
 
+vi.mock("#/lib/organizations/prepare-organization-destination", () => ({
+	prepareOrganizationDestination: prepareOrganizationDestinationMock,
+}));
+
 vi.mock("#/lib/profiles/organization-binding-authorizations", () => ({
 	saveOrganizationWakeAccessChoice: saveOrganizationWakeAccessChoiceMock,
 }));
 
 describe("OrganizationEntryPage", () => {
 	beforeEach(() => {
+		consoleErrorMock = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
 		saveOrganizationWakeAccessChoiceMock.mockReset().mockResolvedValue({
 			alreadyAuthorizedCount: 0,
 			authorizedCount: 1,
@@ -116,6 +125,7 @@ describe("OrganizationEntryPage", () => {
 			name: "Acme Labs",
 			slug: "acme-labs",
 		});
+		prepareOrganizationDestinationMock.mockReset().mockResolvedValue(undefined);
 		navigateMock.mockReset().mockResolvedValue(undefined);
 		currentOrganization = {
 			id: "org-solo",
@@ -126,7 +136,10 @@ describe("OrganizationEntryPage", () => {
 		organizations = [currentOrganization];
 	});
 
-	afterEach(cleanup);
+	afterEach(() => {
+		cleanup();
+		consoleErrorMock.mockRestore();
+	});
 
 	it("redirects the empty organization picker to the new organization page", () => {
 		renderPage();
@@ -365,10 +378,17 @@ describe("OrganizationEntryPage", () => {
 				name: "Acme Labs",
 				slug: "acme-labs",
 			});
+			expect(prepareOrganizationDestinationMock).toHaveBeenCalledWith({
+				organizationId: "org-acme",
+				queryClient: expect.any(Object),
+			});
 			expect(navigateMock).toHaveBeenCalledWith({
 				to: "/o/acme-labs",
 			});
 		});
+		expect(
+			prepareOrganizationDestinationMock.mock.invocationCallOrder[0]
+		).toBeLessThan(navigateMock.mock.invocationCallOrder[0] ?? 0);
 		expect(saveOrganizationWakeAccessChoiceMock).not.toHaveBeenCalled();
 	});
 
@@ -454,7 +474,11 @@ describe("OrganizationEntryPage", () => {
 				"OpenMeld created this organization but could not open it."
 			)
 		).toBeTruthy();
-		expect(screen.getByText("Organization navigation failed.")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Try again. OpenMeld will continue from the organization it already created."
+			)
+		).toBeTruthy();
 		expect(saveOrganizationWakeAccessChoiceMock).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "Retry opening" }));
@@ -467,6 +491,42 @@ describe("OrganizationEntryPage", () => {
 			});
 		});
 		expect(saveOrganizationWakeAccessChoiceMock).not.toHaveBeenCalled();
+	});
+
+	it("retries Center Agent initialization without creating a duplicate organization", async () => {
+		prepareOrganizationDestinationMock
+			.mockRejectedValueOnce(new Error("Internal initialization detail."))
+			.mockResolvedValueOnce(undefined);
+		renderNewOrganizationPage();
+
+		fireEvent.change(screen.getByLabelText("Organization name"), {
+			target: { value: "Acme Labs" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Create organization",
+			})
+		);
+
+		expect(
+			await screen.findByText(
+				"OpenMeld created this organization but could not open it."
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Internal initialization detail.")).toBeNull();
+		expect(navigateMock).not.toHaveBeenCalled();
+		expect(consoleErrorMock).toHaveBeenCalledWith(
+			"Organization setup did not finish.",
+			expect.objectContaining({ organizationId: "org-acme" })
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Retry opening" }));
+
+		await waitFor(() => {
+			expect(createOrganizationMock).toHaveBeenCalledTimes(1);
+			expect(prepareOrganizationDestinationMock).toHaveBeenCalledTimes(2);
+			expect(navigateMock).toHaveBeenCalledTimes(1);
+		});
 	});
 
 	it("keeps the organization limit refusal visible without leaving the page", async () => {
