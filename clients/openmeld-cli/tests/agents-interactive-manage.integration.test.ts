@@ -300,12 +300,13 @@ describe("openmeld agents interactive manage flow", () => {
           }
         | undefined;
       expect(pickerCall?.allowBack).toBe(true);
-      expect(pickerCall?.items?.[0]?.label).toBe("claude-code");
-      expect(pickerCall?.items?.[0]?.detail).toContain("Claude Code");
-      expect(pickerCall?.items?.[0]?.detail).toContain("Turned on");
-      expect(pickerCall?.items?.[0]?.detail).toContain(
-        "Live for Space @mentions"
+      const claudeCodeItem = pickerCall?.items?.find(
+        (item) => item.value === "claude-code"
       );
+      expect(claudeCodeItem?.label).toBe("claude-code");
+      expect(claudeCodeItem?.detail).toContain("Claude Code");
+      expect(claudeCodeItem?.detail).toContain("Turned on");
+      expect(claudeCodeItem?.detail).toContain("Live for Space @mentions");
     });
   });
 

@@ -1055,19 +1055,16 @@ probe without imposing a total execution deadline.
 
 ### Space reply streaming (shipped 2026-07-10)
 
-Space conversations may show live model thinking and accumulated assistant text
-before the final reply is published. Streaming is a bounded, best-effort
-presentation projection; it is not a second message writer, native-delivery
-status, or final-outcome authority.
+Space conversations may show accumulated assistant text and privacy-bounded tool
+progress before the final reply is published. Private model reasoning is never
+published to clients. Streaming is a bounded, best-effort presentation
+projection; it is not a second message writer, native-delivery status, or
+final-outcome authority.
 
-- The worker emits one sequenced stream of transient thinking snapshots,
-  accumulated text snapshots, and privacy-bounded tool lifecycle parts only for
-  active `space` deliveries. Thinking and text share one callback budget of at
-  most one automatic flush per 100 milliseconds; switching kinds cannot bypass
-  that budget. Thinking buffers and snapshots stay in worker memory and are
-  discarded at terminal completion. Exhausting the transient thinking snapshot
-  budget stops only thinking projection; accumulated text and privacy-bounded
-  tool progress continue under their own existing limits. A text snapshot that
+- The worker uses provider reasoning deltas only as private execution-progress
+  evidence. It never sends their content to Core, Space, Web, or a Message
+  Channel. For active `space` deliveries, it emits one sequenced stream of
+  accumulated text snapshots and privacy-bounded tool lifecycle parts. A text snapshot that
   exceeds its shared callback contract may stop the best-effort preview, but it
   cannot alter or suppress the authoritative final outcome.
   A user-visible part must carry one shared admitted semantic work key and may
@@ -1084,16 +1081,13 @@ status, or final-outcome authority.
 - Core validates every stream callback against the active native-delivery
   record before Space accepts it. Space owns the short-lived stream cursor,
   text projection, and companion text snapshot read model used for reconnect
-  recovery. Space advances the cursor for thinking but broadcasts the thinking
-  snapshot without writing it to SQL, bootstrap, conversation snapshots, or the
-  final Signal. Space retains only the privacy-bounded tool lifecycle summary
+  recovery. Space retains only the privacy-bounded tool lifecycle summary
   for a successfully published final reply, keyed by that Signal ID for 14 days
   and readable only through Message details. The retained projection includes
   only admitted semantic work; wrapper and legacy parts without it are not
   exposed.
-  Failed or stopped streams discard the draft and all thinking; no arguments,
-  results, raw errors, commands, paths, thinking, or private Agent text are
-  retained.
+  Failed or stopped streams discard the draft; no arguments, results, raw
+  errors, commands, paths, model reasoning, or private Agent text are retained.
 - The persisted Space message or Space system notice remains the visible
   outcome. Finalization closes the projection, a successful terminal points to
   the published Space signal, and late deltas are rejected. Web must replace the
@@ -1101,9 +1095,10 @@ status, or final-outcome authority.
 
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed
-text/thinking callback. Text WebSocket frames keep their legacy shape; older Web
-clients ignore the new thinking frame and continue rendering text. Rollback
-removes the Remote Agent producer before Core or Web consumers.
+typed stream callback. Text WebSocket frames keep their legacy shape. Web also
+ignores any legacy thinking frame so a stale producer cannot expose private
+reasoning. Rollback removes the Remote Agent producer before Core or Web
+consumers.
 
 Workstation Local Agents may use the same downstream Space tool-part and
 working-details contracts through RuntimeCoordinator-authorized daemon frames.

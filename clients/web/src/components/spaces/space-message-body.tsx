@@ -27,7 +27,6 @@ import {
 	type CenterAgentComputerSetupContext,
 	type ComputerSetupTarget,
 } from "./center-agent-computer-setup-card";
-import { SpaceAgentThinking } from "./space-agent-thinking";
 import { SpaceMessageCenterAgentTaskReferences } from "./space-message-center-agent-task-references";
 import {
 	createSpaceMessageReferenceRemarkPlugin,
@@ -117,8 +116,6 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		computerSetupContext: input.computerSetupContext,
 		computerSetupSourceSignalId: input.computerSetupSourceSignalId,
 	});
-	const thinking = input.item.agentStreamState?.thinking ?? "";
-	const hasThinking = isStreaming && thinking.trim().length > 0;
 	const attachments = input.item.attachments ?? [];
 	const centerAgentTaskReferences = input.item.centerAgentTaskReferences ?? [];
 	const body = renderSpaceMessageTextContent({
@@ -131,7 +128,6 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		shouldRenderMarkdown,
 	});
 	const hasVisibleContent =
-		hasThinking ||
 		body !== null ||
 		Boolean(navigationActionContent) ||
 		centerAgentTaskReferences.length > 0 ||
@@ -147,7 +143,6 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 			data-slot="space-message-body"
 			style={{ overflowWrap: "anywhere" }}
 		>
-			{hasThinking ? <SpaceAgentThinking thinking={thinking} /> : null}
 			{body}
 			{navigationActionContent}
 			{centerAgentTaskReferences.length > 0 ? (
