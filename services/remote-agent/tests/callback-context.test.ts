@@ -15,6 +15,7 @@ import {
   recordCallbackDeliveryFailure,
   recordRemoteAgentCenterAgentTaskReference,
   redeliverDueRemoteAgentCallbacks,
+  sanitizeCenterAgentCompletedTextForPublication,
 } from "../agent-core/callback-context";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
@@ -323,6 +324,27 @@ describe("remote agent callback context", () => {
     ).toBeNull();
   });
 
+  it("keeps internal implementation failures out of completed user replies", () => {
+    for (const unsafeReply of [
+      "This turn's active tool catalog does not include Space management tools. Re-run this request in a session where those tools are enabled.",
+      "I couldn't create the Space because the OpenMeld runtime profile ID was invalid.",
+      "The openmeld_create_space tool is unavailable in this session.",
+      "I couldn't create the Space because the tools are not enabled for this session.",
+    ]) {
+      expect(sanitizeCenterAgentCompletedTextForPublication(unsafeReply)).toBe(
+        "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+      );
+    }
+
+    expect(
+      sanitizeCenterAgentCompletedTextForPublication(
+        "I couldn't create the Space because you don't have permission. Ask an Organization owner to create it for you."
+      )
+    ).toBe(
+      "I couldn't create the Space because you don't have permission. Ask an Organization owner to create it for you."
+    );
+  });
+
   it("records accepted Core callbacks as completed", async () => {
     const request = createSubmitTurnRequest();
     const context = createRemoteAgentCallbackContext({
@@ -379,6 +401,62 @@ describe("remote agent callback context", () => {
       );
     } finally {
       info.mockRestore();
+    }
+  });
+
+  it("publishes plain recovery copy instead of a completed internal failure", async () => {
+    const request = createSubmitTurnRequest();
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(storage, context);
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_reply_123",
+      status: "accepted",
+    }));
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    try {
+      const updated = await handleRemoteAgentChatResponse({
+        coreWorker: { completeRemoteAgentSubmission },
+        nowMs: () => TEST_NOW_MS + 1000,
+        result: {
+          continuation: false,
+          message: {
+            parts: [
+              {
+                text: "This turn's active tool catalog does not include Space management tools. Re-run this request in a session where those tools are enabled.",
+                type: "text",
+              },
+            ],
+          },
+          requestId: ACK.submissionId,
+          status: "completed",
+        },
+        storage,
+      });
+
+      expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+        expect.objectContaining({
+          submissionId: ACK.submissionId,
+          text: "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.",
+        })
+      );
+      expect(updated?.completedText).toBe(
+        "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+      );
+      expect(updated?.completedText).not.toContain("tool catalog");
+      expect(warning).toHaveBeenCalledWith(
+        "[remote_agent.publication.internal_detail_suppressed]",
+        { submissionId: ACK.submissionId }
+      );
+    } finally {
+      warning.mockRestore();
     }
   });
 

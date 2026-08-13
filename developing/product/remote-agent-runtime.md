@@ -1911,6 +1911,13 @@ Routine rollout has three different strict windows:
   worker consumer. Current Core always emits the destination. The worker accepts
   an absent destination only for the short old-Core window and fails visibly
   rather than guessing when a tool needs `current_conversation`.
+- **W2a, Core to Remote Agent:** the verified represented Human Profile id in
+  `delegatedBy` is rollout-optional in the shared envelope and current Core
+  always emits it. Deploy the Remote Agent consumer before the Core producer.
+  The worker derives represented-member tool attribution from this trusted
+  envelope field and never exposes an `onBehalfOf` identity choice to the model.
+  During the short old-Core window, a Routine mutation that needs represented-
+  member attribution fails closed instead of accepting a model-authored id.
 - **W3, Core to Remote Agent:** the worker that accepts and safely renders the
   optional provider-neutral `channelContext` must deploy before a Core channel
   adapter emits it. Rollback stops the Core producer before removing the worker

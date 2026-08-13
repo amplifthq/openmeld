@@ -418,7 +418,10 @@ describe("remote agent system prompt", () => {
       "When a tool or operation fails, first state the outcome and the single best next step in plain language."
     );
     expect(prompt).toContain(
-      "Then preserve the original technical error as a clearly labeled diagnostic note."
+      "Never repeat a raw technical error or expose tool names, tool catalogs, sessions, runtime internals, profile IDs, or implementation details."
+    );
+    expect(prompt).not.toContain(
+      "preserve the original technical error as a clearly labeled diagnostic note"
     );
     expect(prompt).toContain(
       'Never include internal reasoning, guesswork, or phrases about what the context "seems to be" in a user-facing reply.'

@@ -189,6 +189,7 @@ import {
 import {
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
+  resolveVerifiedTurnEnvelopeProfileId,
   resolveVerifiedTurnEnvelopeSpeaker,
 } from "./tool-context";
 import type { RemoteAgentToolDefinition } from "./tool-definition";
@@ -196,7 +197,6 @@ import type { RemoteAgentToolDefinition } from "./tool-definition";
 const nonEmptyStringSchema = pipe(string(), minLength(1));
 const optionalNonEmptyStringSchema = optional(nonEmptyStringSchema);
 const trimmedNonEmptyStringSchema = pipe(string(), trim(), minLength(1));
-const onBehalfOfProfileIdSchema = optionalNonEmptyStringSchema;
 const referenceProfileIdsInputSchema = pipe(
   array(nonEmptyStringSchema),
   maxLength(25),
@@ -205,7 +205,6 @@ const referenceProfileIdsInputSchema = pipe(
   )
 );
 const postSpaceMessageToolInputSchema = object({
-  onBehalfOfProfileId: onBehalfOfProfileIdSchema,
   referenceProfileIds: referenceProfileIdsInputSchema,
   spaceId: nonEmptyStringSchema,
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
@@ -229,7 +228,6 @@ const wakeAgentProfilesInSpaceToolInputSchema = object({
     )
   ),
   fallbackAgentProfileId: optional(nonEmptyStringSchema),
-  onBehalfOfProfileId: onBehalfOfProfileIdSchema,
   spaceId: nonEmptyStringSchema,
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
 });
@@ -2569,7 +2567,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
       input: postSpaceMessageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(postSpaceMessageToolInputSchema, payload);
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_post_space_message",
@@ -2578,17 +2576,15 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           input.coreWorker.centerAgentPostSpaceMessage,
           "centerAgentPostSpaceMessage"
         );
-        await verifySpaceAuthoringContract(context);
-        const { onBehalfOfProfileId, ...spaceMessageInput } = request;
+        await verifySpaceAuthoringContract(toolContext.context);
         const response = centerAgentPostSpaceMessageResponseSchema.parse(
           await rpc({
-            ...spaceMessageInput,
-            ...onBehalfOfInput(onBehalfOfProfileId),
-            context,
+            ...request,
+            ...toolContext,
           })
         );
         assertPublishedReferenceTargets({
-          referenceProfileIds: spaceMessageInput.referenceProfileIds,
+          referenceProfileIds: request.referenceProfileIds,
           response,
         });
         return response;
@@ -2597,7 +2593,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_wake_agent_profiles_in_space",
       description:
-        "Wake one or more OpenMeld Agent Profiles in a Space by posting a Center Agent-authored Space message with activation targets. The text must be a self-contained delegation brief for nontrivial work: goal; verified facts and source references; current product and execution environment; authority and safety constraints; unresolved questions; exact completion criteria; and every available evidence selector such as a trace ID, URL, path, version, or timestamp. Clearly separate facts from hypotheses, omit secrets and unrelated private transcript, and never assume the child can see this conversation. First decide that another Agent adds meaningful evidence or capability; never wake one merely to demonstrate delegation. Always pass referenceProfileIds: include every exact Human or Agent Profile ID that is context only, or [] when there are none. Reference never creates child work. A profile cannot be both a Wake or fallback target and a Reference target. Always choose completionMode explicitly from the user's requested result ownership and continuation barrier. Use child_reports_directly when children publish their own final result and the Center Agent should not continue. Use resume_parent_when_all_terminal to synthesize every result, resume_parent_when_first_success to continue after the first success, resume_parent_on_failure to continue after the first authoritative failure, or resume_parent_on_each_terminal for one continuation per child completion. During a Routine, resume_parent_when_all_terminal is the only supported resume mode and may resume the Center Agent only once. Set fallbackAgentProfileId only when exactly one primary Agent should be tried first; the fallback is not woken unless that primary authoritatively fails. When Computer files are necessary, pass computerFilePaths to copy up to three bounded text files into this Wake as an explicit one-time snapshot; the Local Agent never receives Computer access or live sync. A pending publicationStatus means Core durably queued the same Wake for event-driven retry; do not call this tool again or report failure. If onBehalfOfProfileId is provided, it must be the human member the Center Agent is helping, never the Center Agent profile.",
+        "Wake one or more OpenMeld Agent Profiles in a Space by posting a Center Agent-authored Space message with activation targets. The text must be a self-contained delegation brief for nontrivial work: goal; verified facts and source references; current product and execution environment; authority and safety constraints; unresolved questions; exact completion criteria; and every available evidence selector such as a trace ID, URL, path, version, or timestamp. Clearly separate facts from hypotheses, omit secrets and unrelated private transcript, and never assume the child can see this conversation. First decide that another Agent adds meaningful evidence or capability; never wake one merely to demonstrate delegation. Always pass referenceProfileIds: include every exact Human or Agent Profile ID that is context only, or [] when there are none. Reference never creates child work. A profile cannot be both a Wake or fallback target and a Reference target. Always choose completionMode explicitly from the user's requested result ownership and continuation barrier. Use child_reports_directly when children publish their own final result and the Center Agent should not continue. Use resume_parent_when_all_terminal to synthesize every result, resume_parent_when_first_success to continue after the first success, resume_parent_on_failure to continue after the first authoritative failure, or resume_parent_on_each_terminal for one continuation per child completion. During a Routine, resume_parent_when_all_terminal is the only supported resume mode and may resume the Center Agent only once. Set fallbackAgentProfileId only when exactly one primary Agent should be tried first; the fallback is not woken unless that primary authoritatively fails. When Computer files are necessary, pass computerFilePaths to copy up to three bounded text files into this Wake as an explicit one-time snapshot; the Local Agent never receives filesystem access or live sync. A pending publicationStatus means Core durably queued the same Wake for event-driven retry; do not call this tool again or report failure.",
       endsTurnAfter: (result, toolInput) => {
         const parsedResult =
           centerAgentWakeAgentProfilesInSpaceResponseSchema.safeParse(result);
@@ -2618,7 +2614,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           wakeAgentProfilesInSpaceToolInputSchema,
           payload
         );
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_wake_agent_profiles_in_space",
@@ -2627,9 +2623,8 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           input.coreWorker.centerAgentWakeAgentProfilesInSpace,
           "centerAgentWakeAgentProfilesInSpace"
         );
-        await verifySpaceAuthoringContract(context);
-        const { computerFilePaths, onBehalfOfProfileId, ...spaceWakeInput } =
-          request;
+        await verifySpaceAuthoringContract(toolContext.context);
+        const { computerFilePaths, ...spaceWakeInput } = request;
         const text = computerFilePaths
           ? await buildComputerFileWakeText({
               computerFileHandoff: input.computerFileHandoff,
@@ -2654,8 +2649,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
               ...spaceWakeInput,
               completionMode,
               text,
-              ...onBehalfOfInput(onBehalfOfProfileId),
-              context,
+              ...toolContext,
             })
           );
         assertPublishedReferenceTargets({
@@ -2885,13 +2879,16 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         ),
         guide: optionalNonEmptyStringSchema,
         name: optionalNonEmptyStringSchema,
-        onBehalfOfProfileId: onBehalfOfProfileIdSchema,
         password: optionalNonEmptyStringSchema,
         purpose: optionalNonEmptyStringSchema,
         visibility: optional(picklist(["public", "private"])),
       }),
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const { onBehalfOfProfileId: _ignored, ...spaceInput } =
+          payload as typeof payload & {
+            onBehalfOfProfileId?: unknown;
+          };
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_create_space",
@@ -2900,16 +2897,14 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           input.coreWorker.centerAgentCreateSpace,
           "centerAgentCreateSpace"
         );
-        const { onBehalfOfProfileId, ...spaceInput } = payload;
         const accessMode =
           spaceInput.accessMode ??
           (spaceInput.password === undefined ? "members_only" : "protected");
         return centerAgentCreateSpaceResponseSchema.parse(
           await rpc({
             ...spaceInput,
-            ...onBehalfOfInput(onBehalfOfProfileId),
+            ...toolContext,
             accessMode,
-            context,
             visibility: spaceInput.visibility ?? "private",
           })
         );
@@ -2920,11 +2915,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
       description:
         "Create an OpenMeld Agent Profile record in the current Organization without connecting it to a local agent or adding it to a Space. Advanced path only: for a new working Agent Profile, prefer openmeld_create_configured_agent_profile.",
       input: object({
-        onBehalfOfProfileId: onBehalfOfProfileIdSchema,
         profileName: nonEmptyStringSchema,
       }),
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_create_agent_profile",
@@ -2936,8 +2930,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         return centerAgentCreateAgentProfileResponseSchema.parse(
           await rpc({
             profileName: payload.profileName,
-            ...onBehalfOfInput(payload.onBehalfOfProfileId),
-            context,
+            ...toolContext,
           })
         );
       },
@@ -2948,10 +2941,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         "Enable an existing OpenMeld Agent Profile in the current Organization. Advanced path only: when creating a new working Agent Profile, prefer openmeld_create_configured_agent_profile.",
       input: object({
         agentProfileId: nonEmptyStringSchema,
-        onBehalfOfProfileId: onBehalfOfProfileIdSchema,
       }),
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_enable_agent_profile",
@@ -2963,8 +2955,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         return centerAgentEnableAgentProfileResponseSchema.parse(
           await rpc({
             agentProfileId: payload.agentProfileId,
-            ...onBehalfOfInput(payload.onBehalfOfProfileId),
-            context,
+            ...toolContext,
           })
         );
       },
@@ -3021,12 +3012,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         agentProfileId: nonEmptyStringSchema,
         candidateId: nonEmptyStringSchema,
         modelId: optionalNonEmptyStringSchema,
-        onBehalfOfProfileId: onBehalfOfProfileIdSchema,
         openCodePermission: openCodePermissionSchema,
         reasoningLevel: optionalNonEmptyStringSchema,
       }),
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_connect_agent_profile_to_local_agent",
@@ -3035,12 +3025,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           input.coreWorker.centerAgentConnectAgentProfileToLocalAgent,
           "centerAgentConnectAgentProfileToLocalAgent"
         );
-        const { onBehalfOfProfileId, ...connectionInput } = payload;
         return centerAgentConnectAgentProfileToLocalAgentResponseSchema.parse(
           await rpc({
-            ...connectionInput,
-            ...onBehalfOfInput(onBehalfOfProfileId),
-            context,
+            ...payload,
+            ...toolContext,
           })
         );
       },
@@ -3054,14 +3042,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         agentControllerPermissionMode: permissionModeSchema,
         agentProfileId: nonEmptyStringSchema,
         modelId: optionalNonEmptyStringSchema,
-        onBehalfOfProfileId: onBehalfOfProfileIdSchema,
         openCodePermission: openCodePermissionSchema,
         reasoningLevel: optionalNonEmptyStringSchema,
         workspaceMode: workspaceModeSchema,
         workspacePath: optionalNonEmptyStringSchema,
       }),
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_update_agent_profile_runtime_settings",
@@ -3070,12 +3057,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           input.coreWorker.centerAgentUpdateAgentProfileRuntimeSettings,
           "centerAgentUpdateAgentProfileRuntimeSettings"
         );
-        const { onBehalfOfProfileId, ...settingsInput } = payload;
         return centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema.parse(
           await rpc({
-            ...settingsInput,
-            ...onBehalfOfInput(onBehalfOfProfileId),
-            context,
+            ...payload,
+            ...toolContext,
           })
         );
       },
@@ -3109,7 +3094,6 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         agentControllerPermissionMode: permissionModeSchema,
         candidateId: nonEmptyStringSchema,
         modelId: optionalNonEmptyStringSchema,
-        onBehalfOfProfileId: onBehalfOfProfileIdSchema,
         openCodePermission: openCodePermissionSchema,
         profileName: nonEmptyStringSchema,
         reasoningLevel: optionalNonEmptyStringSchema,
@@ -3118,7 +3102,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         workspacePath: optionalNonEmptyStringSchema,
       }),
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_create_configured_agent_profile",
@@ -3127,12 +3111,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           input.coreWorker.centerAgentCreateConfiguredAgentProfile,
           "centerAgentCreateConfiguredAgentProfile"
         );
-        const { onBehalfOfProfileId, ...configuredInput } = payload;
         return centerAgentCreateConfiguredAgentProfileResponseSchema.parse(
           await rpc({
-            ...configuredInput,
-            ...onBehalfOfInput(onBehalfOfProfileId),
-            context,
+            ...payload,
+            ...toolContext,
           })
         );
       },
@@ -3182,12 +3164,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           minLength(1),
           maxLength(100)
         ),
-        onBehalfOfProfileId: onBehalfOfProfileIdSchema,
         password: optionalNonEmptyStringSchema,
         spaceId: nonEmptyStringSchema,
       }),
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_add_agent_profiles_to_space",
@@ -3196,12 +3177,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           input.coreWorker.centerAgentAddAgentProfilesToSpace,
           "centerAgentAddAgentProfilesToSpace"
         );
-        const { onBehalfOfProfileId, ...spaceMemberInput } = payload;
         return centerAgentAddAgentProfilesToSpaceResponseSchema.parse(
           await rpc({
-            ...spaceMemberInput,
-            ...onBehalfOfInput(onBehalfOfProfileId),
-            context,
+            ...payload,
+            ...toolContext,
           })
         );
       },
@@ -3216,11 +3195,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           minLength(1),
           maxLength(100)
         ),
-        onBehalfOfProfileId: onBehalfOfProfileIdSchema,
         spaceId: nonEmptyStringSchema,
       }),
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_remove_agent_profiles_from_space",
@@ -3229,12 +3207,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           input.coreWorker.centerAgentRemoveAgentProfilesFromSpace,
           "centerAgentRemoveAgentProfilesFromSpace"
         );
-        const { onBehalfOfProfileId, ...spaceMemberInput } = payload;
         return centerAgentRemoveAgentProfilesFromSpaceResponseSchema.parse(
           await rpc({
-            ...spaceMemberInput,
-            ...onBehalfOfInput(onBehalfOfProfileId),
-            context,
+            ...payload,
+            ...toolContext,
           })
         );
       },
@@ -3253,13 +3229,12 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           ])
         ),
         guide: optional(string()),
-        onBehalfOfProfileId: onBehalfOfProfileIdSchema,
         password: optional(pipe(string(), minLength(6))),
         purpose: optional(string()),
         spaceId: nonEmptyStringSchema,
       }),
       execute: async (payload) => {
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_update_space_settings",
@@ -3268,12 +3243,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           input.coreWorker.centerAgentUpdateSpaceSettings,
           "centerAgentUpdateSpaceSettings"
         );
-        const { onBehalfOfProfileId, ...spaceSettingsInput } = payload;
         return centerAgentUpdateSpaceSettingsResponseSchema.parse(
           await rpc({
-            ...spaceSettingsInput,
-            ...onBehalfOfInput(onBehalfOfProfileId),
-            context,
+            ...payload,
+            ...toolContext,
           })
         );
       },
@@ -3938,6 +3911,29 @@ async function buildVerifiedMemberToolContext(input: {
   return { context: toolContext.context, speakerMember };
 }
 
+async function buildRepresentedMemberAttributionToolContext(input: {
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+  toolName: RemoteAgentOpenMeldToolName;
+}): Promise<{
+  context: OpenMeldRequestContext;
+  onBehalfOf: { profileId: string };
+}> {
+  const toolContext = await buildOpenMeldToolContext(input);
+  const profileId = resolveVerifiedTurnEnvelopeProfileId(
+    toolContext.turnEnvelope
+  );
+  if (!profileId) {
+    throw new Error(
+      "This action requires a verified OpenMeld member identity."
+    );
+  }
+  return {
+    context: toolContext.context,
+    onBehalfOf: { profileId },
+  };
+}
+
 async function buildOrganizationMemberToolContext(input: {
   missingSpeakerMessage?: string;
   storage: RemoteAgentReadableStorage;
@@ -4305,12 +4301,4 @@ async function buildSlackChannelMessageText(input: {
     );
   }
   return message;
-}
-
-function onBehalfOfInput(value: unknown): {
-  onBehalfOf?: { profileId: string };
-} {
-  return typeof value === "string" && value.trim().length > 0
-    ? { onBehalfOf: { profileId: value } }
-    : {};
 }

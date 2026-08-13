@@ -129,6 +129,10 @@ const CONVERSATION_COMPACTION_WRITE_MAX_ATTEMPTS = 8;
 export const REMOTE_AGENT_CALLBACK_CONTEXT_WAIT_MS = 5000;
 const REMOTE_AGENT_COMPLETED_TEXT_TRUNCATION_NOTICE =
   "\n\n_Response shortened because it exceeded OpenMeld's 100,000-character response limit._";
+const CENTER_AGENT_INTERNAL_FAILURE_DETAIL_RE =
+  /\b(?:active tool catalog|tool catalog|tools? (?:are |is )?(?:enabled|missing|unavailable)|space management tools|session|runtime|profile id|uuid|rpc|schema|worker|endpoint|stack trace|implementation detail|onbehalfofprofileid|openmeld_[a-z0-9_]+)\b/iu;
+const CENTER_AGENT_FAILURE_OUTCOME_RE =
+  /\b(?:cannot|can't|could not|couldn't|did not|didn't|does not|doesn't|error|failed|failure|missing|unavailable|unable)\b/iu;
 
 export function computeCallbackRetryDelayMs(attempts: number): number {
   const exponent = Math.max(0, attempts - 1);
@@ -863,6 +867,15 @@ export function extractCompletedAssistantText(
   return text.length > 0 ? text : null;
 }
 
+export function sanitizeCenterAgentCompletedTextForPublication(
+  text: string
+): string {
+  return CENTER_AGENT_FAILURE_OUTCOME_RE.test(text) &&
+    CENTER_AGENT_INTERNAL_FAILURE_DETAIL_RE.test(text)
+    ? CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY
+    : text;
+}
+
 export function buildRemoteAgentCoreCallbackBody(input: {
   context: RemoteAgentCallbackContext;
   text: string;
@@ -1296,7 +1309,15 @@ export async function handleRemoteAgentChatResponse(input: {
   }
 
   const nowMs = input.nowMs?.() ?? Date.now();
-  const completedText = extractCompletedAssistantText(input.result);
+  const extractedCompletedText = extractCompletedAssistantText(input.result);
+  const completedText = extractedCompletedText
+    ? sanitizeCenterAgentCompletedTextForPublication(extractedCompletedText)
+    : null;
+  if (completedText && completedText !== extractedCompletedText) {
+    console.warn("[remote_agent.publication.internal_detail_suppressed]", {
+      submissionId: context.submissionId,
+    });
+  }
   if (!completedText) {
     const updated = await updateRemoteAgentCallbackContext({
       storage: input.storage,

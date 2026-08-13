@@ -94,6 +94,7 @@ export const remoteAgentTurnEnvelopeSenderSchema = z.discriminatedUnion(
         id: nonEmptyStringSchema,
         displayName: nonEmptyStringSchema,
         ownerUserId: nonEmptyStringSchema,
+        profileId: nonEmptyStringSchema.optional(),
         role: nonEmptyStringSchema.optional(),
         verified: z.literal(true),
       }),

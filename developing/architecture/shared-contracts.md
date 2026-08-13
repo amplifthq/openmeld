@@ -2257,8 +2257,13 @@ snapshot for rows created before the migration.
 Routine turn variant. `sender.kind = "routine"` and
 `trigger.source = "routine"` appear together, name the same Routine, and carry
 the Run identity, scheduled timestamp, and required Core-authored `delegatedBy`
-member snapshot. The snapshot's `ownerUserId` must equal the Routine sender's
-`createdByUserId`; a mismatch fails schema admission. The Routine trigger also
+member snapshot. Current Core also includes the represented Human Profile id in
+that snapshot. Remote Agent uses that Core-authored id for tool attribution; it
+must never ask the model to select or repeat an `onBehalfOf` identity. The
+profile id remains rollout-optional only so the new Remote Agent consumer can
+deploy before the Core producer. The snapshot's `ownerUserId` must equal the
+Routine sender's `createdByUserId`; a mismatch fails schema admission. The
+Routine trigger also
 carries the frozen Space or Slack-thread destination used by
 `current_conversation`. The field is rollout-optional only so the new worker can
 deploy before Core; current Core always emits it, and the worker fails visibly
