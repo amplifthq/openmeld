@@ -318,9 +318,8 @@ export function terminateRemainingAgentControllerProcesses(input: {
     }
 
     if (
-      cleanupFailed ||
       attempt >= PROCESS_SUPERVISION_DISCOVERY_MAX_ATTEMPTS ||
-      (!discoveryFailed && sent)
+      (!discoveryFailed && (cleanupFailed || sent))
     ) {
       return;
     }

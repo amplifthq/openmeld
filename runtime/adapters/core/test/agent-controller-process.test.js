@@ -169,6 +169,45 @@ test("reports post-exit cleanup failures without trapping the caller", () => {
   ]);
 });
 
+test("retries discovery when inspection and leader cleanup fail together", () => {
+  const discoveryError = Object.assign(new Error("spawnSync ps ETIMEDOUT"), {
+    code: "ETIMEDOUT",
+  });
+  const cleanupError = Object.assign(new Error("kill EINVAL"), {
+    code: "EINVAL",
+  });
+  const killCalls = [];
+  let discoveryAttempts = 0;
+
+  terminateRemainingAgentControllerProcesses({
+    killProcess: (processId, signal) => {
+      killCalls.push({ processId, signal });
+      if (processId === -4242) {
+        throw cleanupError;
+      }
+      return true;
+    },
+    listSupervisedProcessIds: () => {
+      discoveryAttempts += 1;
+      if (discoveryAttempts === 1) {
+        throw discoveryError;
+      }
+      return [4343];
+    },
+    processId: 4242,
+    scheduleDiscoveryRetry: (retry) => retry(),
+    signalTarget: "process_group",
+    supervisionId: "supervision-4242",
+  });
+
+  assert.equal(discoveryAttempts, 2);
+  assert.deepEqual(killCalls, [
+    { processId: -4242, signal: "SIGKILL" },
+    { processId: -4242, signal: "SIGKILL" },
+    { processId: 4343, signal: "SIGKILL" },
+  ]);
+});
+
 test("retries supervised discovery when the leader exits during an inspection failure", () => {
   const timeoutError = Object.assign(new Error("spawnSync ps ETIMEDOUT"), {
     code: "ETIMEDOUT",

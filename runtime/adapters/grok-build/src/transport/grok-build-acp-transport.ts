@@ -545,11 +545,12 @@ class GrokBuildAcpSession {
     const requestSessionId = normalizeOptionalText(
       toRecord(request.params)?.sessionId
     );
-    if (
-      requestSessionId &&
-      this.#sessionId &&
-      requestSessionId !== this.#sessionId
-    ) {
+    const requestMatchesActiveTurn =
+      this.#turnActive &&
+      requestSessionId !== null &&
+      this.#sessionId !== null &&
+      requestSessionId === this.#sessionId;
+    if (!requestMatchesActiveTurn) {
       this.#recordInteractionFailure(
         "interaction.session_mismatch",
         "interaction.session_mismatch: Grok Build requested input for a different session"
@@ -944,6 +945,25 @@ function toGrokBuildTransportError(
   stderr: string,
   diagnostics: AdapterDispatchDiagnostics | null
 ): GrokBuildAcpTransportError {
+  const combined = [toErrorMessage(error), normalizeOptionalText(stderr)]
+    .filter((value): value is string => value !== null)
+    .join("\n");
+  const providerFailure =
+    !(error instanceof GrokBuildAcpTransportError) ||
+    error.code.startsWith("protocol.")
+      ? classifyGrokBuildProviderFailure(combined)
+      : null;
+  if (providerFailure) {
+    return diagnostics
+      ? new GrokBuildAcpTransportError({
+          cause: error,
+          code: providerFailure.code,
+          diagnostics,
+          errorType: providerFailure.errorType,
+          message: providerFailure.message,
+        })
+      : providerFailure;
+  }
   if (error instanceof GrokBuildAcpTransportError) {
     return error.diagnostics || !diagnostics
       ? error
@@ -955,10 +975,11 @@ function toGrokBuildTransportError(
           message: error.message,
         });
   }
-  const combined = [toErrorMessage(error), normalizeOptionalText(stderr)]
-    .filter((value): value is string => value !== null)
-    .join("\n");
-  const classified = classifyGrokBuildFailure(combined);
+  const classified = new GrokBuildAcpTransportError({
+    code: "upstream_unreachable",
+    errorType: "adapter",
+    message: `upstream_unreachable: ${normalizeOptionalText(combined) ?? "Grok Build ACP error"}`,
+  });
   return diagnostics
     ? new GrokBuildAcpTransportError({
         cause: error,
@@ -970,7 +991,9 @@ function toGrokBuildTransportError(
     : classified;
 }
 
-function classifyGrokBuildFailure(message: string): GrokBuildAcpTransportError {
+function classifyGrokBuildProviderFailure(
+  message: string
+): GrokBuildAcpTransportError | null {
   const normalized = normalizeOptionalText(message) ?? "Grok Build ACP error";
   if (AUTH_FAILURE_RE.test(normalized)) {
     return new GrokBuildAcpTransportError({
@@ -986,18 +1009,13 @@ function classifyGrokBuildFailure(message: string): GrokBuildAcpTransportError {
       message: `grok-build.quota_or_entitlement: ${normalized}`,
     });
   }
-  return new GrokBuildAcpTransportError({
-    code: "upstream_unreachable",
-    errorType: "adapter",
-    message: `upstream_unreachable: ${normalized}`,
-  });
+  return null;
 }
 
 function isContextNotFoundError(error: unknown): boolean {
   return (
     error instanceof GrokBuildAcpTransportError &&
-    (error.code === "protocol.invalid_params" ||
-      CONTEXT_NOT_FOUND_RE.test(error.message))
+    CONTEXT_NOT_FOUND_RE.test(error.message)
   );
 }
 

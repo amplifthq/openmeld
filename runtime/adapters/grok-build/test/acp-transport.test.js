@@ -68,6 +68,7 @@ async function createFixture() {
       const sessionId = ${JSON.stringify(SESSION_ID)};
       const modelState = ${JSON.stringify(modelState())};
       let reverseRequestId = 700;
+      let pendingCloseId = null;
       let pendingPromptId = null;
       const lines = readline.createInterface({ input: process.stdin });
       appendFileSync(transcriptPath, JSON.stringify({ args: process.argv.slice(2) }) + "\\n");
@@ -134,6 +135,10 @@ async function createFixture() {
           return;
         }
         if (message.method === "authenticate") {
+          if (scenario === "auth_expired") {
+            send({ id: message.id, error: { code: -32603, message: "Authentication token expired" } });
+            return;
+          }
           send({ id: message.id, result: {} });
           return;
         }
@@ -149,6 +154,10 @@ async function createFixture() {
             send({ id: message.id, error: { code: -32603, message: "Path not found" } });
             return;
           }
+          if (scenario === "invalid_resume_params") {
+            send({ id: message.id, error: { code: -32602, message: "Unsupported resume option" } });
+            return;
+          }
           send({ id: message.id, result: { sessionId, models: modelState } });
           return;
         }
@@ -158,6 +167,11 @@ async function createFixture() {
         }
         if (message.method === "session/prompt") {
           pendingPromptId = message.id;
+          if (scenario === "quota_exhausted") {
+            send({ id: message.id, error: { code: -32603, message: "Usage limit reached" } });
+            pendingPromptId = null;
+            return;
+          }
           if (scenario === "permission") {
             send({
               id: reverseRequestId,
@@ -168,6 +182,17 @@ async function createFixture() {
                   { kind: "reject_once", name: "Reject", optionId: "reject" }
                 ],
                 sessionId,
+                toolCall: { kind: "execute", rawInput: { command: "pwd" }, title: "Run pwd" }
+              }
+            });
+            return;
+          }
+          if (scenario === "permission_missing_session") {
+            send({
+              id: reverseRequestId,
+              method: "session/request_permission",
+              params: {
+                options: [{ kind: "allow_once", name: "Allow once", optionId: "allow" }],
                 toolCall: { kind: "execute", rawInput: { command: "pwd" }, title: "Run pwd" }
               }
             });
@@ -218,7 +243,14 @@ async function createFixture() {
         }
         if (message.id === reverseRequestId) {
           appendFileSync(transcriptPath, JSON.stringify({ reverseResponse: message }) + "\\n");
-          finishPrompt();
+          if (pendingCloseId !== null) {
+            send({ id: pendingCloseId, result: {} });
+            pendingCloseId = null;
+            return;
+          }
+          if (pendingPromptId !== null) {
+            finishPrompt();
+          }
           return;
         }
         if (message.method === "session/cancel") {
@@ -229,6 +261,19 @@ async function createFixture() {
           return;
         }
         if (message.method === "session/close") {
+          if (scenario === "permission_after_turn") {
+            pendingCloseId = message.id;
+            send({
+              id: reverseRequestId,
+              method: "session/request_permission",
+              params: {
+                options: [{ kind: "allow_once", name: "Allow once", optionId: "allow" }],
+                sessionId,
+                toolCall: { kind: "execute", rawInput: { command: "pwd" }, title: "Run pwd" }
+              }
+            });
+            return;
+          }
           send({ id: message.id, result: {} });
         }
       });
@@ -351,6 +396,47 @@ test("Grok Build ACP resumes without replay and maps missing sessions to context
     );
   } finally {
     await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("Grok Build ACP preserves unrelated invalid resume parameters instead of healing context", async () => {
+  const fixture = await createFixture();
+  try {
+    await assert.rejects(
+      invokeFixture(fixture, {
+        scenario: "invalid_resume_params",
+        sessionId: SESSION_ID,
+      }),
+      (error) =>
+        error instanceof GrokBuildAcpTransportError &&
+        error.code === "protocol.invalid_params"
+    );
+    const methods = (await readTranscript(fixture.transcriptPath))
+      .filter((message) => message.method)
+      .map((message) => message.method);
+    assert.equal(methods.includes("session/new"), false);
+    assert.equal(methods.includes("session/prompt"), false);
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("Grok Build ACP classifies wrapped authentication and quota failures", async () => {
+  for (const [scenario, expectedCode] of [
+    ["auth_expired", "auth.failed"],
+    ["quota_exhausted", "grok-build.quota_or_entitlement"],
+  ]) {
+    const fixture = await createFixture();
+    try {
+      await assert.rejects(
+        invokeFixture(fixture, { scenario }),
+        (error) =>
+          error instanceof GrokBuildAcpTransportError &&
+          error.code === expectedCode
+      );
+    } finally {
+      await rm(fixture.fixtureDir, { force: true, recursive: true });
+    }
   }
 });
 
@@ -483,6 +569,54 @@ test("Grok Build ACP carries permission, question, and plan decisions over the r
         rm(fixture.fixtureDir, { force: true, recursive: true })
       )
     );
+  }
+});
+
+test("Grok Build ACP rejects reverse requests without the active turn session", async () => {
+  const fixture = await createFixture();
+  let interactionCount = 0;
+  try {
+    await assert.rejects(
+      invokeFixture(fixture, {
+        onInteractionRequest: () => {
+          interactionCount += 1;
+          return { kind: "permission", optionId: "allow" };
+        },
+        scenario: "permission_missing_session",
+      }),
+      (error) =>
+        error instanceof GrokBuildAcpTransportError &&
+        error.code === "interaction.session_mismatch"
+    );
+    assert.equal(interactionCount, 0);
+    const reverseResponse = (await readTranscript(fixture.transcriptPath)).find(
+      (message) => message.reverseResponse
+    )?.reverseResponse;
+    assert.equal(reverseResponse.error.code, -32_602);
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
+  }
+});
+
+test("Grok Build ACP rejects reverse requests after the active turn ends", async () => {
+  const fixture = await createFixture();
+  let interactionCount = 0;
+  try {
+    const result = await invokeFixture(fixture, {
+      onInteractionRequest: () => {
+        interactionCount += 1;
+        return { kind: "permission", optionId: "allow" };
+      },
+      scenario: "permission_after_turn",
+    });
+    assert.equal(result.output, "Hello from Grok");
+    assert.equal(interactionCount, 0);
+    const reverseResponse = (await readTranscript(fixture.transcriptPath)).find(
+      (message) => message.reverseResponse
+    )?.reverseResponse;
+    assert.equal(reverseResponse.error.code, -32_602);
+  } finally {
+    await rm(fixture.fixtureDir, { force: true, recursive: true });
   }
 });
 
