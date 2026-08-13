@@ -17,7 +17,8 @@ const api = vi.hoisted(() => ({
 	listUserInvitations: vi.fn(),
 }));
 const AMPLIFT_CURRENT_CHOICE_LABEL = /Amplift.*Current/;
-const PERSONAL_WORKSPACE_CHOICE_LABEL = /Personal Workspace.*Private to you/;
+const PERSONAL_WORKSPACE_CHOICE_LABEL =
+	/Personal Workspace.*For you only.*Create an organization to connect Slack or invite teammates/;
 const OPENMELD_OFFICIAL_CHOICE_LABEL = /OpenMeld Official/;
 
 vi.mock("#/lib/organizations/auth-organizations", () => ({

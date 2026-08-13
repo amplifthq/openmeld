@@ -203,6 +203,20 @@ export function useLarkPlatformChannelManagement(input: {
 		}
 		beginMutation.mutate({ mode: "resume", provider });
 	};
+	const openExistingConnection = (provider: LarkPlatformProvider) => {
+		const providerConnection = input.connections.find(
+			(candidate) =>
+				candidate.provider === provider && candidate.status !== "disconnected"
+		);
+		if (!providerConnection) {
+			return;
+		}
+		beginMutation.reset();
+		disconnectMutation.reset();
+		setSelectedProvider(provider);
+		setActiveRegistration(null);
+		setDialogOpen(true);
+	};
 	const setOpen = (open: boolean) => {
 		setDialogOpen(open);
 		if (open) {
@@ -242,6 +256,7 @@ export function useLarkPlatformChannelManagement(input: {
 			: null,
 		manage,
 		open: dialogOpen,
+		openExistingConnection,
 		pollPending: registrationQuery.isFetching,
 		provider: selectedProvider,
 		repair: () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import type { LarkPlatformProvider } from "@openmeld/schemas/types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AppPageHeader } from "#/components/app/app-page-header";
@@ -11,6 +12,7 @@ import {
 import { resolveMessageChannelErrorMessage } from "#/lib/organizations/message-channels";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
+import { buildOrganizationNewOrganizationPath } from "#/lib/organizations/organization-routes";
 import { resolveVisibleChannelsSlackOAuthResult } from "#/lib/organizations/slack-oauth-result";
 import {
 	centerAgentDesignationQueryOptions,
@@ -25,24 +27,122 @@ import { organizationMemberRoleQueryOptions } from "#/query/organizations/organi
 import { CenterAgentMessageChannelsSection } from "./center-agent-message-channels-section";
 import { useCenterAgentRouteState } from "./center-agent-route-state";
 import { LarkPlatformChannelDialog } from "./lark-platform-channel-dialog";
+import { PersonalWorkspaceChannelsGuidance } from "./personal-workspace-channels-guidance";
 import { SlackOAuthResultSurface } from "./slack-oauth-result-surface";
 import { useLarkPlatformChannelManagement } from "./use-lark-platform-channel-management";
 
+const ignoreSlackConnect = (_input: { slackTeamId: string }) => undefined;
+const ignoreSlackDisconnect = () => undefined;
+const PERSONAL_WORKSPACE_CHANNEL_PROVIDERS = [
+	"lark",
+	"feishu",
+] as const satisfies readonly LarkPlatformProvider[];
+
 export function OrganizationMessageChannelsPage() {
 	const { currentOrganization, currentUserId } = useAppOrganization();
+	if (currentOrganization.isPersonal === true) {
+		return (
+			<PersonalWorkspaceMessageChannelsContent
+				organizationId={currentOrganization.id}
+				organizationName={currentOrganization.name}
+				organizationSlug={currentOrganization.slug}
+			/>
+		);
+	}
 	return (
 		<OrganizationMessageChannelsContent
 			currentUserId={currentUserId}
-			isPersonalWorkspace={currentOrganization.isPersonal === true}
 			organizationId={currentOrganization.id}
 			organizationName={currentOrganization.name}
 		/>
 	);
 }
 
+function PersonalWorkspaceMessageChannelsContent(input: {
+	organizationId: string;
+	organizationName: string;
+	organizationSlug: string;
+}) {
+	const { channelsSlackOAuthResult } = useCenterAgentRouteState();
+	const channelsQuery = useQuery(
+		messageChannelListQueryOptions({ organizationId: input.organizationId })
+	);
+	const larkPlatform = useLarkPlatformChannelManagement({
+		connections: channelsQuery.data?.connections ?? [],
+		organizationId: input.organizationId,
+	});
+	const hasExistingSlackConnection = resolveHasExistingSlackConnection(
+		channelsQuery.data?.connections
+	);
+	const slackOAuthResult = resolveVisibleChannelsSlackOAuthResult({
+		result: channelsSlackOAuthResult,
+		slackConnected: hasExistingSlackConnection,
+	});
+	return (
+		<>
+			<AppPageHeader
+				description="Your Personal Workspace is only for you. Create an organization to connect Slack, Lark, or Feishu for your teammates."
+				descriptionWidth="full"
+				eyebrow="Personal workspace"
+				title="Channels"
+			/>
+			<SlackOAuthResultSurface
+				canManage={false}
+				organizationName={input.organizationName}
+				result={slackOAuthResult}
+			/>
+			<PersonalWorkspaceChannelsGuidance
+				createOrganizationPath={buildOrganizationNewOrganizationPath(
+					input.organizationSlug
+				)}
+				hasExistingSlackConnection={hasExistingSlackConnection}
+			/>
+			{channelsQuery.isPending ? (
+				<p className="text-muted-foreground text-sm">Loading channels.</p>
+			) : null}
+			<ChannelsLoadError
+				channelsError={channelsQuery.error}
+				designationError={undefined}
+				fallback="OpenMeld could not load your Personal Workspace channels."
+			/>
+			{channelsQuery.data ? (
+				<CenterAgentMessageChannelsSection
+					availableProviders={PERSONAL_WORKSPACE_CHANNEL_PROVIDERS}
+					canManage={false}
+					connections={channelsQuery.data.connections}
+					disableSlackConnect
+					disableSlackDisconnect
+					managementMode="cleanup"
+					onConnectSlackWorkspace={ignoreSlackConnect}
+					onDisconnectSlackWorkspace={ignoreSlackDisconnect}
+					onManageLarkPlatform={larkPlatform.openExistingConnection}
+					organizationRequired
+				/>
+			) : null}
+			<LarkPlatformChannelDialog
+				canManage
+				cleanupOnly
+				connection={larkPlatform.connection}
+				disconnectPending={larkPlatform.disconnectPending}
+				errorMessage={larkPlatform.errorMessage}
+				onDisconnect={larkPlatform.disconnect}
+				onOpenChange={larkPlatform.setOpen}
+				onRepair={larkPlatform.repair}
+				onRetryPoll={larkPlatform.retryPoll}
+				onStartOver={larkPlatform.startOver}
+				open={larkPlatform.open}
+				pollPending={larkPlatform.pollPending}
+				provider={larkPlatform.provider}
+				registration={larkPlatform.registration}
+				repairPending={larkPlatform.repairPending}
+				startOverPending={larkPlatform.startOverPending}
+			/>
+		</>
+	);
+}
+
 function OrganizationMessageChannelsContent(input: {
 	currentUserId: string;
-	isPersonalWorkspace: boolean;
 	organizationId: string;
 	organizationName: string;
 }) {
@@ -50,7 +150,7 @@ function OrganizationMessageChannelsContent(input: {
 	const { channelsSlackOAuthResult } = useCenterAgentRouteState();
 	const roleQuery = useQuery(
 		organizationMemberRoleQueryOptions({
-			enabled: !input.isPersonalWorkspace,
+			enabled: true,
 			organizationId: input.organizationId,
 			userId: input.currentUserId,
 		})
@@ -62,9 +162,7 @@ function OrganizationMessageChannelsContent(input: {
 		})
 	);
 	const channelsQuery = useQuery(
-		messageChannelListQueryOptions({
-			organizationId: input.organizationId,
-		})
+		messageChannelListQueryOptions({ organizationId: input.organizationId })
 	);
 	const activeRegistrationsQuery = useQuery(
 		activeLarkPlatformRegistrationListQueryOptions({
@@ -76,11 +174,9 @@ function OrganizationMessageChannelsContent(input: {
 		connections: channelsQuery.data?.connections ?? [],
 		organizationId: input.organizationId,
 	});
-	const canManage =
-		input.isPersonalWorkspace ||
-		canManageOrganizationArea(roleQuery.data, {
-			channel: ["connect"],
-		});
+	const canManage = canManageOrganizationArea(roleQuery.data, {
+		channel: ["connect"],
+	});
 	const invalidateChannels = async () => {
 		await Promise.all([
 			queryClient.invalidateQueries({
@@ -123,24 +219,14 @@ function OrganizationMessageChannelsContent(input: {
 		result: channelsSlackOAuthResult,
 		slackConnected: designationQuery.data?.slackConnection?.connected === true,
 	});
-	const channelsLoading = resolveChannelsLoading({
-		channelsPending: channelsQuery.isPending,
-		designationPending: designationQuery.isPending,
-		isPersonalWorkspace: input.isPersonalWorkspace,
-		rolePending: roleQuery.isPending,
-	});
 	const messageChannelError =
 		channelsQuery.error ?? activeRegistrationsQuery.error;
-	const pageIntroduction = resolveChannelsPageIntroduction({
-		isPersonalWorkspace: input.isPersonalWorkspace,
-		organizationName: input.organizationName,
-	});
 	return (
 		<>
 			<AppPageHeader
-				description={pageIntroduction.description}
+				description={`Connect Slack, Lark, or Feishu so people in ${input.organizationName} can message the same Center Agent and receive replies in the same conversation.`}
 				descriptionWidth="full"
-				eyebrow={pageIntroduction.eyebrow}
+				eyebrow="Organization"
 				title="Channels"
 			/>
 			<SlackOAuthResultSurface
@@ -148,27 +234,16 @@ function OrganizationMessageChannelsContent(input: {
 				organizationName={input.organizationName}
 				result={slackOAuthResult}
 			/>
-			{channelsLoading ? (
+			{roleQuery.isPending ||
+			designationQuery.isPending ||
+			channelsQuery.isPending ? (
 				<p className="text-muted-foreground text-sm">Loading channels.</p>
 			) : null}
-			{designationQuery.isError ||
-			channelsQuery.isError ||
-			activeRegistrationsQuery.isError ? (
-				<p
-					className="rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-destructive text-sm"
-					role="alert"
-				>
-					{messageChannelError
-						? resolveMessageChannelErrorMessage(
-								messageChannelError,
-								"OpenMeld could not load this organization’s channels."
-							)
-						: resolveCenterAgentErrorMessage(
-								designationQuery.error,
-								"designation_read"
-							)}
-				</p>
-			) : null}
+			<ChannelsLoadError
+				channelsError={messageChannelError}
+				designationError={designationQuery.error}
+				fallback="OpenMeld could not load this organization’s channels."
+			/>
 			{designationQuery.data && channelsQuery.data ? (
 				<CenterAgentMessageChannelsSection
 					activeRegistrations={
@@ -191,7 +266,7 @@ function OrganizationMessageChannelsContent(input: {
 					slackConnection={designationQuery.data.slackConnection}
 				/>
 			) : null}
-			{!input.isPersonalWorkspace && roleQuery.isError ? (
+			{roleQuery.isError ? (
 				<p
 					className="rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-destructive text-sm"
 					role="alert"
@@ -231,33 +306,36 @@ function OrganizationMessageChannelsContent(input: {
 	);
 }
 
-function resolveChannelsPageIntroduction(input: {
-	isPersonalWorkspace: boolean;
-	organizationName: string;
-}): { description: string; eyebrow: string } {
-	if (input.isPersonalWorkspace) {
-		return {
-			description:
-				"Connect Slack, Lark, or Feishu so you can message your Center Agent and receive replies in the same conversation.",
-			eyebrow: "Personal workspace",
-		};
+function ChannelsLoadError(input: {
+	channelsError: unknown;
+	designationError: unknown;
+	fallback: string;
+}) {
+	if (!(input.channelsError || input.designationError)) {
+		return null;
 	}
-
-	return {
-		description: `Connect Slack, Lark, or Feishu so people in ${input.organizationName} can message the same Center Agent and receive replies in the same conversation.`,
-		eyebrow: "Organization",
-	};
+	return (
+		<p
+			className="rounded-md border border-destructive bg-destructive/10 px-4 py-3 text-destructive text-sm"
+			role="alert"
+		>
+			{input.channelsError
+				? resolveMessageChannelErrorMessage(input.channelsError, input.fallback)
+				: resolveCenterAgentErrorMessage(
+						input.designationError,
+						"designation_read"
+					)}
+		</p>
+	);
 }
 
-function resolveChannelsLoading(input: {
-	channelsPending: boolean;
-	designationPending: boolean;
-	isPersonalWorkspace: boolean;
-	rolePending: boolean;
-}): boolean {
-	return [
-		input.channelsPending,
-		input.designationPending,
-		!input.isPersonalWorkspace && input.rolePending,
-	].some(Boolean);
+function resolveHasExistingSlackConnection(
+	connections?: readonly { provider: string; status: string }[]
+): boolean {
+	return (
+		connections?.some(
+			(connection) =>
+				connection.provider === "slack" && connection.status === "connected"
+		) === true
+	);
 }

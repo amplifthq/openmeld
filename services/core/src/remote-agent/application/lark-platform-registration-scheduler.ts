@@ -1,4 +1,7 @@
-import { listDueRemoteAgentLarkPlatformRegistrationAttempts } from "../infrastructure/d1/lark-platform-registration-attempt-repo";
+import {
+  listDueRemoteAgentLarkPlatformRegistrationAttempts,
+  rejectRemoteAgentLarkPlatformRegistrationAttempt,
+} from "../infrastructure/d1/lark-platform-registration-attempt-repo";
 import {
   continueRemoteAgentLarkPlatformRegistration,
   type RegistrationEnvironment,
@@ -13,6 +16,9 @@ export type LarkPlatformRegistrationTickSummary = {
 };
 
 export async function runLarkPlatformRegistrationTick(input: {
+  classifyOrganization: (input: {
+    organizationId: string;
+  }) => Promise<{ ok: true; personal: boolean } | { ok: false }>;
   clock?: () => number;
   createId?: () => string;
   createSecret?: () => string;
@@ -37,6 +43,49 @@ export async function runLarkPlatformRegistrationTick(input: {
   for (const attempt of attempts) {
     try {
       const continuationNowMs = input.clock?.() ?? input.nowMs;
+      const classification = await input.classifyOrganization({
+        organizationId: attempt.organizationId,
+      });
+      if (!classification.ok) {
+        const failureReasonCode = "organization.context_unavailable";
+        await rejectRemoteAgentLarkPlatformRegistrationAttempt({
+          attemptId: attempt.attemptId,
+          db: input.db,
+          failureReasonCode,
+          nowMs: continuationNowMs,
+        });
+        summary.processed += 1;
+        console.warn(
+          "[core.remote_agent.lark_registration.organization_classification_unavailable]",
+          {
+            attemptId: attempt.attemptId,
+            organizationId: attempt.organizationId,
+            provider: attempt.provider,
+            reasonCode: failureReasonCode,
+          }
+        );
+        continue;
+      }
+      if (classification.personal) {
+        const failureReasonCode = `${attempt.provider}.organization_required`;
+        await rejectRemoteAgentLarkPlatformRegistrationAttempt({
+          attemptId: attempt.attemptId,
+          db: input.db,
+          failureReasonCode,
+          nowMs: continuationNowMs,
+        });
+        summary.processed += 1;
+        console.warn(
+          "[core.remote_agent.lark_registration.personal_workspace_rejected]",
+          {
+            attemptId: attempt.attemptId,
+            organizationId: attempt.organizationId,
+            provider: attempt.provider,
+            reasonCode: failureReasonCode,
+          }
+        );
+        continue;
+      }
       await continueRemoteAgentLarkPlatformRegistration({
         attemptId: attempt.attemptId,
         clock: input.clock,

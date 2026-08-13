@@ -500,7 +500,7 @@ concept. Its surviving destinations are placed directly in the product sidebar:
 | Former tab | Target home                                          | Placement rule                                                                                     |
 | ---------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | Overview   | **Center Agent → About**                             | Read-only identity and runtime summary beside the chat home.                                       |
-| Channels   | **Center Agent → Channels**                          | The single Channel management surface in every workspace.                                          |
+| Channels   | **Center Agent → Channels**                          | The single Channel destination in every workspace; Organizations manage connections, while Personal Workspaces show read-only discovery and an Organization-creation guide. |
 | Apps       | **Center Agent → Apps**                              | The single member and shared App catalog in every workspace.                                       |
 | Memory     | **Center Agent → Memory**                            | Organization policy and the current member's erase action share one clearly separated memory home. |
 | Routines   | **Center Agent → Routines**                          | Routine use and creation remain daily product work inside the product that executes them.          |
@@ -1011,6 +1011,24 @@ same designated Center Agent Profile and hosted Binding; they do not create
 provider-specific Center Agents. Connecting, repairing, moving, or
 disconnecting one provider does not mutate another provider's connection.
 
+A Personal Workspace cannot connect a workspace-level Message Channel. Its
+Channels destination remains visible and shows the provider catalog in a
+discovery state with one primary action: **Create organization**. Slack OAuth
+state creation and installation, manual Slack connection, and Lark/Feishu
+begin, resume, restart, repair, or poll operations fail closed in Core with
+`message_channel.organization_required`. The durable Lark/Feishu scheduler
+applies the same Personal Workspace classification before every continuation;
+it consumes a historical attempt with `<provider>.organization_required`
+without calling the provider. If Organization classification is unavailable,
+the scheduler likewise consumes the attempt with
+`organization.context_unavailable` so it cannot block later registrations;
+the user can start or repair registration after classification is restored.
+Disconnect remains the only allowed cleanup operation for a pre-launch
+historical Lark/Feishu connection. An informed Slack move may use a Personal
+Workspace as the previous source while the destination must be a non-personal
+Organization. Creating that Organization does not move Spaces, Apps, Agent
+Profiles, memory, or any other Personal Workspace data.
+
 Every accepted Message Channel turn freezes one typed originating-conversation
 locator in Core before worker admission. Progress, final replies, and explicit
 visible failures return only through that locator. Provider callbacks, model
@@ -1422,8 +1440,10 @@ execution authority.
 
 Management location follows the owner instead of repeating mutation controls:
 
-- In every workspace, **Center Agent → Channels** owns Channel management and
-  **Center Agent → Apps** is the single catalog and
+- In every workspace, **Center Agent → Channels** is the single Channel
+  destination. It owns Channel management in an Organization and shows only
+  Organization-creation guidance in a Personal Workspace. **Center Agent →
+  Apps** is the single catalog and
   management surface for both the current member's connections and
   Organization-shared connections.
 - The first-entry Organization dialog may offer one-time, role-appropriate

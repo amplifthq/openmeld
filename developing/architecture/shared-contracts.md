@@ -1570,6 +1570,33 @@ can disagree. The projection contains bounded capability groups and failure
 reason codes, never credentials, raw scopes, raw provider errors, or provider
 payloads.
 
+`MESSAGE_CHANNEL_ERROR_CODES` includes the stable
+`message_channel.organization_required` refusal for every attempt to create,
+install, resume, restart, repair, or poll a workspace-level Channel in a
+Personal Workspace. This is an additive cloud error enum change. It does not
+change a request or success-response shape, setup, Wake, Space Action, status,
+trace, or diagnostic contract, and local components neither emit nor consume
+the new code. Old and new CLI, OpenMeld Service, Skills, Core, Gateway, and Web
+therefore remain interoperable across those paths. Because
+`@openmeld/schemas` is bundled into packaged local components, release-ready
+verification still rebuilds them and may report a changed Service bundle hash;
+the normal main release must stamp the resulting local-component facts instead
+of hand-editing the manifest on a feature branch.
+
+The scheduled Lark/Feishu continuation path has no HTTP error envelope, but it
+applies the same canonical classification before provider work. A Personal
+attempt becomes `repair_required` with the bounded projection reason
+`<provider>.organization_required`. An unavailable classification is
+quarantined as consumed `repair_required` with
+`organization.context_unavailable`, so it performs no provider operation and
+cannot repeatedly occupy the bounded scheduler batch.
+
+Deploy Web and Gateway before Core so the human-readable guide and bounded
+Gateway code are present before Core can emit the refusal. New Gateway remains
+compatible with old Core. New Core behind an old Gateway still fails closed but
+degrades to the generic upstream error envelope, so that mixed-version window
+must stay short.
+
 Active Lark-platform registration is an additive, separate HTTP/RPC read
 contract rather than an optional field on the strict connection-list response.
 It contains at most one safe summary per enabled Lark-platform provider:
@@ -1705,6 +1732,12 @@ Gateway and Core for Slack OAuth state creation/consumption and workspace
 installation. Types derive from these schemas. Gateway must not hand-build a
 second state or installation contract, and Web result copy consumes the shared
 closed error-code set.
+
+When Core refuses Slack OAuth state creation or installation with
+`message_channel.organization_required`, Gateway preserves that diagnostic as
+the bounded Slack OAuth result `organization_required`. Web tells the user to
+create or choose an Organization instead of presenting the generic state or
+installation retry guidance.
 
 A workspace-ownership conflict returns the existing organization identifier to
 Gateway, never the organization name. Auth owns the membership-and-name lookup:

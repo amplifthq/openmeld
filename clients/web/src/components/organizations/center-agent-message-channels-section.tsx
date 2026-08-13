@@ -20,7 +20,7 @@ import {
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
-import { LinkIcon } from "@phosphor-icons/react";
+import { LinkIcon, SignOutIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import {
@@ -46,7 +46,8 @@ export function CenterAgentMessageChannelsSection(input: {
 	disableSlackDisconnect: boolean;
 	larkPlatformPendingProvider?: LarkPlatformProvider | null;
 	managementPath?: string;
-	managementMode?: "inline" | "read-only";
+	managementMode?: "cleanup" | "inline" | "read-only";
+	organizationRequired?: boolean;
 	onConnectSlackWorkspace: (input: { slackTeamId: string }) => void;
 	onDisconnectSlackWorkspace: () => void;
 	onManageLarkPlatform?: (provider: LarkPlatformProvider) => void;
@@ -62,6 +63,10 @@ export function CenterAgentMessageChannelsSection(input: {
 	const availableProviders = new Set(
 		input.availableProviders ?? (["lark", "feishu"] as const)
 	);
+	const slackStatusLabel = resolveOrganizationRequiredStatusLabel({
+		connected: slackConnected,
+		organizationRequired: input.organizationRequired === true,
+	});
 	let slackManagementControl: ReactNode = null;
 	if (managementMode === "inline" && input.managementPath) {
 		slackManagementControl = (
@@ -100,10 +105,16 @@ export function CenterAgentMessageChannelsSection(input: {
 				role="list"
 			>
 				<ChannelCard
-					connected={slackConnected}
+					connected={input.organizationRequired ? false : slackConnected}
+					description={resolveChannelDescription({
+						connected: slackConnected,
+						name: "Slack",
+						organizationRequired: input.organizationRequired === true,
+					})}
 					logo={SLACK_CHANNEL_IDENTITY}
 					managementControl={slackManagementControl}
 					name="Slack"
+					statusLabel={slackStatusLabel}
 				/>
 				{(["lark", "feishu"] as const).map((provider) => {
 					const connection = input.connections?.find(
@@ -129,6 +140,7 @@ export function CenterAgentMessageChannelsSection(input: {
 							key={provider}
 							managementMode={managementMode}
 							onManage={input.onManageLarkPlatform}
+							organizationRequired={input.organizationRequired === true}
 							provider={provider}
 						/>
 					) : null;
@@ -145,8 +157,9 @@ function LarkPlatformCard(input: {
 	canManage: boolean;
 	connection?: MessageChannelConnectionProjection;
 	disabled: boolean;
-	managementMode: "inline" | "read-only";
+	managementMode: "cleanup" | "inline" | "read-only";
 	onManage?: (provider: LarkPlatformProvider) => void;
+	organizationRequired: boolean;
 	provider: LarkPlatformProvider;
 }) {
 	const providerLabel = input.provider === "feishu" ? "Feishu" : "Lark";
@@ -158,6 +171,9 @@ function LarkPlatformCard(input: {
 		input.connection === undefined;
 	const status = input.connection?.status ?? input.activeRegistration?.status;
 	const connected = status === "connected";
+	const hasExistingConnection =
+		input.connection !== undefined &&
+		input.connection.status !== "disconnected";
 	const setupInProgress =
 		status === "pending_registration" ||
 		status === "credentials_received" ||
@@ -176,7 +192,7 @@ function LarkPlatformCard(input: {
 		providerLabel,
 		setupInProgress,
 	});
-	const operationalSummary = resolveLarkPlatformOperationalSummary({
+	const defaultOperationalSummary = resolveLarkPlatformOperationalSummary({
 		activeRegistrationUnavailable,
 		canManage: input.canManage,
 		canResume,
@@ -185,13 +201,47 @@ function LarkPlatformCard(input: {
 		providerLabel,
 		status,
 	});
-	const control =
+	const operationalSummary =
+		input.organizationRequired && hasExistingConnection
+			? {
+					...defaultOperationalSummary,
+					guidance: `Disconnect this Personal Workspace connection. Then connect ${providerLabel} from the organization you create.`,
+				}
+			: defaultOperationalSummary;
+	const statusLabel = resolveLarkPlatformStatusLabel({
+		checkingSetup,
+		connected,
+		hasExistingConnection,
+		organizationRequired: input.organizationRequired,
+		status,
+	});
+	let control: ReactNode = null;
+	if (
+		input.managementMode === "cleanup" &&
+		hasExistingConnection &&
+		input.onManage
+	) {
+		control = (
+			<Button
+				disabled={input.disabled}
+				onClick={() => input.onManage?.(input.provider)}
+				size="sm"
+				type="button"
+				variant="outline"
+			>
+				<SignOutIcon aria-hidden="true" data-icon="inline-start" />
+				Disconnect {providerLabel}
+			</Button>
+		);
+	} else if (
 		input.managementMode === "inline" &&
 		input.canManage &&
 		input.onManage &&
 		!checkingSetup &&
 		!activeRegistrationUnavailable &&
-		canResume ? (
+		canResume
+	) {
+		control = (
 			<Button
 				disabled={input.disabled}
 				onClick={() => input.onManage?.(input.provider)}
@@ -202,19 +252,24 @@ function LarkPlatformCard(input: {
 				<LinkIcon aria-hidden="true" data-icon="inline-start" />
 				{actionLabel}
 			</Button>
-		) : null;
+		);
+	}
 	return (
 		<ChannelCard
 			accountName={accountName}
-			connected={connected}
+			connected={input.organizationRequired ? false : connected}
+			description={resolveChannelDescription({
+				connected: hasExistingConnection,
+				connectedAction: "disconnect",
+				name: providerLabel,
+				organizationRequired: input.organizationRequired,
+			})}
 			details={operationalSummary.details}
 			guidance={operationalSummary.guidance}
 			logo={logo}
 			managementControl={control}
 			name={providerLabel}
-			statusLabel={
-				checkingSetup ? "Checking" : resolveConnectionStatusLabel(status)
-			}
+			statusLabel={statusLabel}
 		/>
 	);
 }
@@ -222,6 +277,7 @@ function LarkPlatformCard(input: {
 function ChannelCard(input: {
 	accountName?: string;
 	connected: boolean;
+	description?: string;
 	details?: string;
 	guidance?: string;
 	logo: {
@@ -270,8 +326,12 @@ function ChannelCard(input: {
 				</CardHeader>
 				<CardContent className="flex flex-1 flex-col justify-center gap-4 py-3">
 					<CardDescription className="max-w-lg text-foreground/80 text-sm/6">
-						People can message your Center Agent from {input.name} and receive
-						replies in the same conversation.
+						{input.description ?? (
+							<>
+								People can message your Center Agent from {input.name} and
+								receive replies in the same conversation.
+							</>
+						)}
 					</CardDescription>
 					{hasSupportingContent ? (
 						<div className="flex flex-col gap-1">
@@ -299,6 +359,57 @@ function ChannelCard(input: {
 			</Card>
 		</FluidCardItem>
 	);
+}
+
+function resolveChannelDescription(input: {
+	connected: boolean;
+	connectedAction?: "disconnect" | "move";
+	name: string;
+	organizationRequired: boolean;
+}): string | undefined {
+	if (!input.organizationRequired) {
+		return undefined;
+	}
+	if (!input.connected) {
+		return `Create an organization to connect ${input.name} for your teammates.`;
+	}
+	if (input.connectedAction === "disconnect") {
+		return `Disconnect this ${input.name} connection from your Personal Workspace before connecting it to an organization.`;
+	}
+	return `Move this ${input.name} connection to an organization before teammates use it.`;
+}
+
+function resolveOrganizationRequiredStatusLabel(input: {
+	connected: boolean;
+	organizationRequired: boolean;
+}): string | undefined {
+	if (!input.organizationRequired) {
+		return undefined;
+	}
+	return input.connected ? "Move required" : "Organization required";
+}
+
+function resolveLarkPlatformStatusLabel(input: {
+	checkingSetup: boolean;
+	connected: boolean;
+	hasExistingConnection: boolean;
+	organizationRequired: boolean;
+	status?: MessageChannelConnectionProjection["status"];
+}): string {
+	if (input.organizationRequired) {
+		return input.hasExistingConnection
+			? "Disconnect required"
+			: "Organization required";
+	}
+	const organizationRequiredLabel =
+		resolveOrganizationRequiredStatusLabel(input);
+	if (organizationRequiredLabel) {
+		return organizationRequiredLabel;
+	}
+	if (input.checkingSetup) {
+		return "Checking";
+	}
+	return resolveConnectionStatusLabel(input.status);
 }
 
 type LarkPlatformOperationalInput = {

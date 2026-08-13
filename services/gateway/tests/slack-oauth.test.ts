@@ -183,6 +183,22 @@ describe("Slack OAuth routes", () => {
     );
   });
 
+  it("preserves the Organization requirement when Core refuses OAuth state creation", async () => {
+    const { env } = makeEnv({
+      stateCreationError: coreRpcError("message_channel.organization_required"),
+    });
+
+    const response = await app.fetch(
+      new Request("https://gateway.test/slack/oauth/start"),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(requireLocation(response)).toBe(
+      "https://openmeld.test/slack/oauth/result?slack_oauth=error&slack_oauth_error=organization_required"
+    );
+  });
+
   it("exchanges an official Slack response shape and installs the workspace", async () => {
     const slackFetch = vi.fn(async () =>
       Response.json({
@@ -296,6 +312,40 @@ describe("Slack OAuth routes", () => {
 
     expect(requireLocation(response)).toBe(
       "https://openmeld.test/o/acme/center-agent/channels?slack_oauth=move_required&slack_oauth_from_organization_id=org-other&slack_oauth_from_organization_name=Previous+Org"
+    );
+  });
+
+  it("preserves the Organization requirement when Core refuses OAuth installation", async () => {
+    const { env } = makeEnv({
+      installationError: coreRpcError("message_channel.organization_required"),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          access_token: "xoxb-installed-token",
+          app_id: "A1234567890",
+          authed_user: { id: "U1234" },
+          bot_user_id: "U0KRQLJ9H",
+          enterprise: null,
+          ok: true,
+          scope: "chat:write",
+          team: { id: "T9TK3CUKW", name: "Acme Workspace" },
+          token_type: "bot",
+        })
+      )
+    );
+
+    const response = await app.fetch(
+      new Request(
+        `https://gateway.test/slack/oauth/callback?code=temporary-code&state=${OAUTH_STATE}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(requireLocation(response)).toBe(
+      "https://openmeld.test/o/acme/center-agent/channels?slack_oauth=error&slack_oauth_error=organization_required"
     );
   });
 
@@ -452,6 +502,7 @@ function readManifestBotScopes(): string[] {
 
 function makeEnv(input?: {
   authenticated?: boolean;
+  installationError?: Error;
   installationResult?: unknown;
   previousOrganizationMembership?: unknown;
   stateCreationError?: Error;
@@ -485,11 +536,16 @@ function makeEnv(input?: {
         state: OAUTH_STATE,
       });
     }),
-    installSlackWorkspaceFromOAuth: vi.fn(async () =>
-      input?.installationResult
-        ? input.installationResult
-        : { status: "created" }
-    ),
+    installSlackWorkspaceFromOAuth: vi.fn(() => {
+      if (input?.installationError) {
+        return Promise.reject(input.installationError);
+      }
+      return Promise.resolve(
+        input?.installationResult
+          ? input.installationResult
+          : { status: "created" }
+      );
+    }),
   };
   const authResult = {
     claims: {
@@ -540,6 +596,25 @@ function makeEnv(input?: {
       WEB_APP_URL: "https://openmeld.test",
     } as unknown as CloudflareBindings,
   };
+}
+
+function coreRpcError(code: string): Error {
+  const structured = {
+    code,
+    message: "Create an organization before connecting Slack.",
+    status: 409,
+  };
+  const error = new Error(
+    `HTTP 409: ${JSON.stringify({ error: structured, ok: false })}`
+  ) as Error & {
+    cause?: typeof structured;
+    code?: string;
+    status?: number;
+  };
+  error.cause = structured;
+  error.code = code;
+  error.status = 409;
+  return error;
 }
 
 function requireLocation(response: Response): string {

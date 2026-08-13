@@ -65,6 +65,43 @@ describe("CenterAgentMessageChannelsSection", () => {
 		expect(screen.queryByRole("button", { name: "Manage Slack" })).toBeNull();
 	});
 
+	it("offers only disconnect cleanup for a legacy Personal Workspace Lark connection", () => {
+		const onManageLarkPlatform = vi.fn();
+		render(
+			<CenterAgentMessageChannelsSection
+				availableProviders={["lark", "feishu"]}
+				canManage={false}
+				connections={[
+					{
+						externalAccountId: "tenant_lark_1",
+						externalAccountName: "Legacy Lark",
+						grantedCapabilityGroups: ["conversation.text"],
+						id: "connection_lark_1",
+						lastVerifiedAt: "2026-07-18T00:00:00.000Z",
+						permissionBundleVersion: "channel-only-2026-07-18",
+						provider: "lark",
+						reasonCode: null,
+						status: "connected",
+						transport: "webhook",
+					},
+				]}
+				disableSlackConnect
+				disableSlackDisconnect
+				managementMode="cleanup"
+				onConnectSlackWorkspace={vi.fn()}
+				onDisconnectSlackWorkspace={vi.fn()}
+				onManageLarkPlatform={onManageLarkPlatform}
+				organizationRequired
+			/>
+		);
+
+		expect(screen.getByText("Disconnect required")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Disconnect Lark" }));
+		expect(onManageLarkPlatform).toHaveBeenCalledWith("lark");
+		expect(screen.queryByRole("button", { name: "Repair Lark" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Connect Lark" })).toBeNull();
+	});
+
 	it("keeps the existing Slack connection dialog for workspace managers", () => {
 		render(
 			<CenterAgentMessageChannelsSection

@@ -739,6 +739,7 @@ import { resolveLocalComponentUpdateProjection } from "../local-components/updat
 import {
   readOrganizationAccountIdentityProjection,
   readOrganizationCreatorUserId,
+  readOrganizationPersonalClassification,
   readOrganizationRouteSlug,
   resolveActiveOrganizationMembership,
   resolveOrganizationMembershipById,
@@ -5811,7 +5812,9 @@ export async function rpcDisconnectLarkPlatformRegistration(
   env: CoreBindings,
   input: DisconnectLarkPlatformRegistrationInput
 ): Promise<MessageChannelConnectionListResponse> {
-  const request = await requireLarkPlatformRegistrationRequest(env, input);
+  const request = await requireLarkPlatformRegistrationRequest(env, input, {
+    allowPersonalWorkspace: true,
+  });
   try {
     await disconnectRemoteAgentLarkPlatformRegistration(request);
   } catch (error) {
@@ -6921,6 +6924,11 @@ export async function rpcConnectCenterAgentSlackWorkspace(
     env,
     permissions: { channel: ["connect"] },
   });
+  await requireOrganizationForMessageChannels({
+    env,
+    organizationId: activeOrganization.organizationId,
+    requestId: context.actorContext.requestId,
+  });
   const db = requireCenterAgentDb(env);
   const result = await createRemoteAgentSlackWorkspaceBinding({
     db,
@@ -6982,6 +6990,11 @@ export async function rpcCreateSlackOAuthState(
     context,
     env,
     permissions: { channel: ["connect"] },
+  });
+  await requireOrganizationForMessageChannels({
+    env,
+    organizationId: activeOrganization.organizationId,
+    requestId: context.actorContext.requestId,
   });
   const actorProfileId = normalizeOptionalText(
     context.actorContext.openMeldProfileId
@@ -7131,6 +7144,11 @@ export async function rpcInstallSlackWorkspaceFromOAuth(
       status: authorization.status,
     });
   }
+  await requireOrganizationForMessageChannels({
+    env,
+    organizationId: parsed.data.organizationId,
+    requestId: null,
+  });
   const cryptoKey = normalizeOptionalText(env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY);
   if (!cryptoKey) {
     throw createCoreRpcHttpError({
@@ -15798,7 +15816,8 @@ function createMessageChannelIdentityLinkTokenInvalidError(): Error {
 
 async function requireLarkPlatformRegistrationRequest(
   env: CoreBindings,
-  input: BeginLarkPlatformRegistrationInput
+  input: BeginLarkPlatformRegistrationInput,
+  options: { allowPersonalWorkspace?: boolean } = {}
 ): Promise<{
   actor: {
     organizationId: string;
@@ -15824,6 +15843,13 @@ async function requireLarkPlatformRegistrationRequest(
     env,
     permissions: { channel: ["connect"] },
   });
+  if (!options.allowPersonalWorkspace) {
+    await requireOrganizationForMessageChannels({
+      env,
+      organizationId: activeOrganization.organizationId,
+      requestId: context.actorContext.requestId,
+    });
+  }
   const profileId = normalizeOptionalText(
     context.actorContext.openMeldProfileId
   );
@@ -15851,6 +15877,29 @@ async function requireLarkPlatformRegistrationRequest(
     db,
     provider: provider.data,
   };
+}
+
+async function requireOrganizationForMessageChannels(input: {
+  env: CoreBindings;
+  organizationId: string;
+  requestId?: string | null;
+}): Promise<void> {
+  const classification = await readOrganizationPersonalClassification(input);
+  if (!classification.ok) {
+    throw createCoreRpcHttpError({
+      code: "organization.context_unavailable",
+      reason: "OpenMeld could not verify this Organization.",
+      status: 503,
+    });
+  }
+  if (classification.personal) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.organization_required",
+      reason:
+        "Create an organization before connecting a Message Channel. Personal Workspaces cannot connect Slack, Lark, or Feishu.",
+      status: 409,
+    });
+  }
 }
 
 function throwLarkPlatformRegistrationRpcError(

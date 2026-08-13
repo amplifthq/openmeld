@@ -112,15 +112,15 @@ revalidates its authoritative scope and fails closed when access is missing.
 `/add-to-slack` is the stable public entry for the Slack acquisition funnel.
 Anonymous visitors return to that same route after authentication; authenticated
 visitors continue to the last-selected Organization's Organization picker
-with the `slack-install` intent. The picker keeps every Organization selectable,
-including the personal Organization, and lets the user create a new
-Organization. The intent changes only the post-selection or post-creation
-destination to **Center Agent → Channels**. The public funnel and picker do not
-inspect Slack connection state or start OAuth. An incomplete account enters
-Setup Studio, where the Channels step may offer the existing Slack OAuth flow.
-A completed account continues to Center Agent → Channels, which owns connection
-status and keeps **Add to Slack** as the user's explicit installation
-confirmation.
+with the `slack-install` intent. The picker lists only non-personal
+Organizations and lets the user create a new Organization; when no eligible
+Organization exists, the funnel goes directly to new-Organization creation.
+The intent changes only the post-selection or post-creation destination to
+**Center Agent → Channels**. The public funnel and picker do not inspect Slack
+connection state or start OAuth. An incomplete account enters Setup Studio,
+where the Channels step may offer the existing Slack OAuth flow. A completed
+account continues to Center Agent → Channels, which owns connection status and
+keeps **Add to Slack** as the user's explicit installation confirmation.
 
 ### Workspace switcher
 
@@ -853,6 +853,41 @@ reconnect, or disconnect actions. One card never infers another card's status,
 and connecting one provider never replaces the Organization's designated
 Center Agent or another provider connection.
 
+The destination also remains visible in a Personal Workspace so a new user can
+discover Channels without first understanding OpenMeld tenancy. In that
+context, Web shows Slack, Lark, and Feishu as discovery cards with
+`Organization required`, explains that the Personal Workspace is for one
+person only, and provides one primary **Create organization** action. That
+action opens the existing new-Organization form with Slack-install intent so
+successful creation lands directly on the new Organization's Channels page.
+
+Web never renders Add to Slack, manual Slack connection, Lark/Feishu connect,
+resume, restart, repair, poll, or management actions in a Personal Workspace.
+The only Lark/Feishu mutation available there is **Disconnect** for an existing
+historical connection; its cleanup-only confirmation cannot start, resume, or
+repair registration. A disconnected provider returns to the ordinary
+`Organization required` discovery state.
+The Add to Slack Organization picker excludes Personal Workspaces; an account
+with no eligible Organization goes directly to new-Organization creation. Core
+enforces the same boundary for every write entry point, including OAuth state
+creation and callback installation. This is a tenancy invariant, not a route
+visibility shortcut.
+
+If the read projection exposes the one known pre-launch Personal Slack binding,
+Web labels it `Move required` and explains the supported recovery: create an
+Organization, connect the same Slack workspace there, and confirm the existing
+informed move. Web does not migrate Personal Spaces, Apps, Agent Profiles, or
+memory. There is no generalized historical-data migration because the product
+has no external production users; the known internal binding must be moved
+before the enforcing release is deployed.
+
+If the read projection exposes a historical Personal Lark or Feishu
+connection, Web labels that provider `Disconnect required`. The user confirms
+**Disconnect**, then creates or opens an Organization and connects the provider
+there as a new Organization-owned setup. Lark and Feishu do not have Slack's
+informed move protocol, so Web never promises an automatic move or preserves a
+live Personal connection without a cleanup path.
+
 The page introduction uses the current workspace context as its eyebrow
 (`Personal workspace` or `Organization`), one **Channels** heading, and one
 plain-language description explaining that Slack, Lark, and Feishu are places
@@ -965,12 +1000,13 @@ production apps and credentials never share a connection.
 ### Slack workspace connection
 
 **Center Agent → Channels** presents Slack
-as a two-way conversation surface in every workspace. The Center Agent page
+as a two-way conversation surface in each Organization and as a discoverable,
+read-only provider in a Personal Workspace. The Center Agent page
 does not repeat Channel management or provide a personal-only inline variant.
 Its header may show `Connect Slack` or `Slack connected` as a read-only status
 shortcut. That shortcut may open a compact dialog that deep-links to the
 canonical Channels page, but it must not install, move, or disconnect Slack.
-`Connect Slack` presents `Add to Slack` as the primary path; after connection
+In an Organization, `Connect Slack` presents `Add to Slack` as the primary path; after connection
 the action becomes `Manage Slack`. The browser
 uses the same-origin `/slack/oauth/start` route so its OpenMeld session reaches
 Gateway through the existing allowlisted proxy; Slack then owns workspace

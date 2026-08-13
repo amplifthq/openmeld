@@ -29,6 +29,7 @@ import {
   wakeEvidenceDb,
 } from "../lib/bindings";
 import { reconcileOrganizationDocumentDraftInbox } from "../organization-documents/organization-document-inbox-reconciler";
+import { readOrganizationPersonalClassification } from "../organizations/organization-context";
 import { resolveOrganizationDirectoryMembers } from "../organizations/organization-directory";
 import { runLarkPlatformRegistrationTick } from "../remote-agent/application/lark-platform-registration-scheduler";
 import {
@@ -534,6 +535,11 @@ async function runLarkPlatformRegistrationContinuation(input: {
     const result = await (
       input.runLarkPlatformRegistrationTick ?? runLarkPlatformRegistrationTick
     )({
+      classifyOrganization: async ({ organizationId }) =>
+        await readOrganizationPersonalClassification({
+          env: input.env,
+          organizationId,
+        }),
       clock: Date.now,
       db,
       env: input.env,

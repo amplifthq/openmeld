@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  gatewayErrorCodeSchema,
   larkPlatformActiveRegistrationListResponseSchema,
   larkPlatformRegistrationBeginModeSchema,
   larkPlatformRegistrationResponseSchema,
   MESSAGE_CHANNEL_CONNECTION_STATUSES,
+  MESSAGE_CHANNEL_ERROR_CODES,
   messageChannelConnectionListResponseSchema,
   messageChannelConnectionProjectionSchema,
 } from "../../src/index";
@@ -21,6 +23,16 @@ describe("Message Channel HTTP contracts", () => {
     lastVerifiedAt: "2026-07-18T08:00:00.000Z",
     reasonCode: null,
   } as const;
+
+  it("keeps the Organization-required refusal stable across Core and Gateway", () => {
+    expect(MESSAGE_CHANNEL_ERROR_CODES).toContain(
+      "message_channel.organization_required"
+    );
+    expect(
+      gatewayErrorCodeSchema.safeParse("message_channel.organization_required")
+        .success
+    ).toBe(true);
+  });
 
   it("keeps one canonical public lifecycle status", () => {
     expect(MESSAGE_CHANNEL_CONNECTION_STATUSES).toEqual([

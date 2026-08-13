@@ -109,9 +109,7 @@ function OrganizationEntryPageContent(input: {
 	const joinableOrganizations = organizations.filter(
 		(organization) => organization.isPersonal !== true
 	);
-	const selectableOrganizations = isSlackInstallIntent
-		? organizations
-		: joinableOrganizations;
+	const selectableOrganizations = joinableOrganizations;
 	const canCreateOrganization =
 		normalizedName.length > 0 &&
 		normalizedSlug.length > 0 &&
