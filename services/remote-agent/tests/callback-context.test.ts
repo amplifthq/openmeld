@@ -345,6 +345,14 @@ describe("remote agent callback context", () => {
     ).toBe(
       "I couldn't create the Space because you don't have permission. Ask an Organization owner to create it for you."
     );
+
+    expect(
+      sanitizeCenterAgentCompletedTextForPublication(
+        "I used your verified OpenMeld member identity and created the Space."
+      )
+    ).toBe(
+      "I used your verified OpenMeld member identity and created the Space."
+    );
   });
 
   it("records accepted Core callbacks as completed", async () => {
