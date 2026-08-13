@@ -16,6 +16,7 @@ import {
 } from "./space-message-body";
 
 const SHOW_FULL_MESSAGE_PATTERN = /show full message/i;
+const INTERNAL_ACTION_CATALOG_PATTERN = /action catalog/i;
 const REFERENCED_SPACE_ID = "a".repeat(64);
 
 vi.mock("@tanstack/react-router", () => ({
@@ -58,6 +59,28 @@ describe("SpaceMessageBody", () => {
 		);
 
 		expect(view.container.childElementCount).toBe(0);
+	});
+
+	it("never renders private model reasoning as message content", () => {
+		const view = render(
+			<SpaceMessageBody
+				item={{
+					agentStreamState: {
+						reasonCode: null,
+						sequence: 1,
+						status: "streaming",
+						streamId: "stream-private-reasoning",
+						thinking:
+							'The action catalog returned no match for "unread inbox count".',
+					},
+					isAgentFinalReply: true,
+					text: "",
+				}}
+			/>
+		);
+
+		expect(view.container.childElementCount).toBe(0);
+		expect(screen.queryByText(INTERNAL_ACTION_CATALOG_PATTERN)).toBeNull();
 	});
 
 	it("keeps human-authored Markdown syntax as plain text", () => {

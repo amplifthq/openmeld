@@ -93,6 +93,8 @@ export {
   openConnectorRuntimeActionListSchema,
   openConnectorRuntimeActionOperationMetaSchema,
   openConnectorRuntimeActionSchema,
+  openConnectorRuntimeActionSearchResultListSchema,
+  openConnectorRuntimeActionSearchResultSchema,
 } from "./openconnector-runtime";
 export {
   aiGatewayLogEntrySchema,

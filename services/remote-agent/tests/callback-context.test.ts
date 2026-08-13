@@ -331,6 +331,7 @@ describe("remote agent callback context", () => {
       "The openmeld_create_space tool is unavailable in this session.",
       "I couldn't create the Space because the tools are not enabled for this session.",
       "I couldn't create the Space because the action requires a verified OpenMeld member identity.",
+      'The action catalog returned no match for "unread inbox count", even though 46 actions are available.',
       "This action requires a verified OpenMeld member identity.",
       "The action requires a verified OpenMeld member identity before I can create the Space.",
       "This action requires a verified OpenMeld member identity, so I haven't created the Space.",
