@@ -80,7 +80,7 @@ following canonical terms and hard constraints:
 | Concept | UI copy | Reserved for diagnostics/schemas |
 | --- | --- | --- |
 | The local service daemon | **OpenMeld Service** | `ServiceRuntime` (internal durable record) |
-| The agent program on a machine (Claude Code / Codex / Cursor / OpenCode / OpenClaw) | **local agent** (+ its product name) | `Agent Controller` (execution of one Agent Profile) |
+| The agent program on a machine (Codex / Claude Code / Grok Build / Cursor / OpenCode / OpenClaw) | **local agent** (+ its product name) | `Agent Controller` (execution of one Agent Profile) |
 | An account-level agent identity (name/model/reasoning) | **Agent** | `Agent Profile` |
 | "Which machine runs which agent" | "**Agent X runs on Computer Y**" / "Use this agent on this machine" | `Binding` (`Agent Profile → openMeldServiceRuntimeId + agentControllerRef`) |
 | Service liveness | **Connected** / **OpenMeld Service is running** | heartbeat-fresh `ServiceRuntime` |
@@ -151,7 +151,7 @@ mental verbs:
    CLI tokens. (= today's `account.tsx`, moved under Settings, largely unchanged.)
 2. **Computers** — "my machines": a first-level product home in Web. Each Computer is the entity; the **OpenMeld Service**
    (version / health / status / update / autostart) and its **local agents**
-   (Claude Code / Codex / Cursor / OpenCode / OpenClaw, shown by product name)
+   (Codex / Claude Code / Grok Build / Cursor / OpenCode / OpenClaw, shown by product name)
    are folded IN as
    properties of that machine — not peer cards. (This is where today's
    `agents-page.tsx` Computer-tab state machine belongs.)

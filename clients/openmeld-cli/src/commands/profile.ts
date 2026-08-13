@@ -7,6 +7,7 @@ import {
   resolveAgentProfileEditCapabilities,
   resolveNativeAgentControllerPermissionModeForController,
 } from "@openmeld/agent-runtime";
+import { compareAgentControllerRefsForDisplay } from "@openmeld/schemas";
 import type {
   AgentControllerPermissionMode,
   ModelCatalogModel,
@@ -3203,7 +3204,9 @@ function resolveBindableBuiltinControllerCandidates(
 ): Array<AgentTargetState & { targetKind: "builtin" }> {
   return states
     .filter(isBindableBuiltinControllerCandidate)
-    .sort((left, right) => left.agentId.localeCompare(right.agentId));
+    .sort((left, right) =>
+      compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
+    );
 }
 
 function isBindableBuiltinControllerCandidate(

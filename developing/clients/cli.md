@@ -319,7 +319,7 @@ same Prepare Session:
 
 ```text
 openmeld setup --start-session <opaque-token> --local-agents all --view agent
-openmeld setup --start-session <opaque-token> --local-agent codex claude-code cursor opencode --view agent
+openmeld setup --start-session <opaque-token> --local-agent codex claude-code grok-build cursor opencode --view agent
 ```
 
 `--local-agents all` means all selectable local agents reported by the local

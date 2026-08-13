@@ -269,7 +269,7 @@ function resolveComputersSectionDescription(input: {
 		if (input.isOrganizationContext) {
 			return `See the computers used by Agents in ${input.organizationName}. You can manage only the computers connected to your account.`;
 		}
-		return "Connect a computer to let OpenMeld run Agents through local tools such as Codex and Claude Code.";
+		return "Connect a computer to let OpenMeld run Agents through local tools such as Codex, Claude Code, and Grok Build.";
 	}
 	if (input.selectedComputer) {
 		return formatComputerTabPlatform(input.selectedComputer);

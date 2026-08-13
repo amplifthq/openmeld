@@ -54,7 +54,7 @@ becomes a first-class, user-selectable property of an Agent Profile.
 | In scope (Phase 1) | Out of scope (Phase 1) |
 |---|---|
 | Per-Agent-Profile model selection, editable anytime from Web and CLI | OpenClaw model management (OpenClaw stays a usable controller; its model is left to the user's own OpenClaw global config) |
-| Five controllers: **Claude Code**, **Codex**, **OpenCode**, **Cursor**, and **Grok Build** | Enforcing per-model CLI version floors (schema field reserved, not enforced) |
+| Five controllers: **Codex**, **Claude Code**, **Grok Build**, **Cursor**, and **OpenCode** | Enforcing per-model CLI version floors (schema field reserved, not enforced) |
 | Reasoning-effort selection where the vendor exposes a separate per-call control (Claude Code, Codex, OpenCode, and Grok Build; Cursor ACP does not) | Any "is this model the latest" indicator or UI |
 | Exact provider model IDs, including an explicitly cataloged provider-managed selector when that is the provider's stable ID | Per-device model-support tracking/display |
 | One maintainable **default model per agent controller** (doubles as the runtime fallback) | A deploy-free DB override layer for the catalog |

@@ -8,8 +8,11 @@ import type { ReactNode } from "react";
 import { BringAgentsSetupProvider } from "#/components/connect/bring-agents-setup-context";
 import { ComputerSetupFlow } from "#/components/connect/start-bring-agents-setup-page";
 import { DEFAULT_CONNECT_ROUTE_INTENT } from "#/lib/connect/connect-route";
+import { listLocalAgentInstallGuides } from "#/lib/local-agent-install-guides";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationOnboardingPath } from "#/lib/organizations/organization-routes";
+
+const LOCAL_AGENT_GUIDES = listLocalAgentInstallGuides();
 
 export function LocalAgentsOnboardingStep(input: { onContinue: () => void }) {
 	const { currentOrganization } = useAppOrganization();
@@ -19,56 +22,19 @@ export function LocalAgentsOnboardingStep(input: { onContinue: () => void }) {
 	return (
 		<div className="flex flex-1 flex-col">
 			<div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-5">
-				<LocalAgentLogo
-					icon={
-						<LocalAgentBrandLogo
-							agentId="builtin:codex"
-							className="size-8"
-							size="md"
-						/>
-					}
-					label="Codex"
-				/>
-				<LocalAgentLogo
-					icon={
-						<LocalAgentBrandLogo
-							agentId="builtin:claude-code"
-							className="size-8"
-							size="md"
-						/>
-					}
-					label="Claude Code"
-				/>
-				<LocalAgentLogo
-					icon={
-						<LocalAgentBrandLogo
-							agentId="builtin:cursor"
-							className="size-8"
-							size="md"
-						/>
-					}
-					label="Cursor"
-				/>
-				<LocalAgentLogo
-					icon={
-						<LocalAgentBrandLogo
-							agentId="builtin:grok-build"
-							className="size-8"
-							size="md"
-						/>
-					}
-					label="Grok Build"
-				/>
-				<LocalAgentLogo
-					icon={
-						<LocalAgentBrandLogo
-							agentId="builtin:opencode"
-							className="size-8"
-							size="md"
-						/>
-					}
-					label="OpenCode"
-				/>
+				{LOCAL_AGENT_GUIDES.map((guide) => (
+					<LocalAgentLogo
+						icon={
+							<LocalAgentBrandLogo
+								agentId={`builtin:${guide.agentId}`}
+								className="size-8"
+								size="md"
+							/>
+						}
+						key={guide.agentId}
+						label={guide.displayName}
+					/>
+				))}
 			</div>
 			<p className="mb-5 text-muted-foreground text-sm leading-6">
 				Run one command. OpenMeld connects this computer and finds the agents

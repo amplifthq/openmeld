@@ -161,7 +161,7 @@ understanding and controlling a user's installed Agent Controllers.
 ACI is not a T3-style provider-instance product model. OpenMeld does not create a
 parallel virtual provider layer for users to manage. OpenMeld enhances the user's
 existing local controllers. The local controller remains the user's installed
-Codex, Claude Code, OpenCode, Cursor, Grok Build, or future controller; ACI is the adapter
+Codex, Claude Code, Grok Build, Cursor, OpenCode, or future controller; ACI is the adapter
 surface OpenMeld uses to detect it, launch it, inspect it, and drive its native
 control capabilities.
 
@@ -321,7 +321,7 @@ bounded error code, error type, provider-account evidence, model diagnostics,
 and process telemetry remain available for debugging. Runs without a Computer
 boundary retain their ordinary controller error detail.
 
-The first ACI phase strengthens Codex, Claude Code, Cursor, Grok Build, and OpenCode without
+The first ACI phase strengthens Codex, Claude Code, Grok Build, Cursor, and OpenCode without
 changing Binding semantics. Codex may use the existing Codex App Server
 transport for richer native status, account, model, skill, and event evidence.
 Claude Code dispatch uses the Claude Agent SDK while preserving OpenMeld

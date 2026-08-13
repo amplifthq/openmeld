@@ -53,7 +53,7 @@ local execution infrastructure, not the teammate identity users collaborate
 with.
 
 Ordinary Agent Profile avatars intentionally use the bound Agent Controller's
-brand mark, such as Codex, Claude Code, Cursor, Grok Build, or OpenCode, because the mark helps users
+brand mark, such as Codex, Claude Code, Grok Build, Cursor, or OpenCode, because the mark helps users
 recognize how that profile runs. Rebinding an ordinary Agent Profile updates
 that mark. An unbound or unknown controller uses the generic agent fallback;
 it must not invent Controller branding.
@@ -200,7 +200,7 @@ Cursor uses five controller-native presets over its ACP interface:
 - **Run Everything** launches `cursor-agent --force acp`, requires explicit
   confirmation, and still respects explicit Cursor deny rules.
 
-When a running Codex, Claude Code, Cursor, Grok Build, or OpenCode turn asks for permission,
+When a running Codex, Claude Code, Grok Build, Cursor, or OpenCode turn asks for permission,
 asks a structured question, or finishes a plan that needs review, OpenMeld
 pauses that same Wake and presents the request in its Space. The Binding owner
 can answer there without opening the controller's terminal. OpenMeld returns
@@ -254,7 +254,7 @@ shell commands, URL fetches, web search, and outside-project-folder access, plus
 advanced JSON for OpenCode pattern rules. Unsupported controllers must not
 receive or display OpenCode permissions.
 
-When Codex, Claude Code, Cursor, Grok Build, OpenCode, or another controller blocks an action under
+When Codex, Claude Code, Grok Build, Cursor, OpenCode, or another controller blocks an action under
 its configured permissions, product surfaces must name the Agent Profile's
 permission settings as the cause instead of presenting a generic command
 failure. Recovery links to that Agent in the first-level Agents home and warns

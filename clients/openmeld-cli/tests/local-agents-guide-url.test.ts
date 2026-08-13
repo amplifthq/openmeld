@@ -66,7 +66,7 @@ describe("local agents guide URL", () => {
         { guideUrl: "https://openmeld.ai/guides/local-agents" },
         "active"
       ).join("\n")
-    ).toContain("Codex, Claude Code, Cursor, Grok Build, or OpenCode");
+    ).toContain("Codex, Claude Code, Grok Build, Cursor, or OpenCode");
     expect(
       renderLocalAgentsGuidePromptLines(
         { guideUrl: "https://openmeld.ai/guides/local-agents" },

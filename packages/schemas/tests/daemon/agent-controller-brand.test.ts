@@ -1,10 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
   BUILTIN_AGENT_CONTROLLER_BRANDS,
+  BUILTIN_AGENT_CONTROLLER_DISPLAY_ORDER,
+  compareAgentControllerRefsForDisplay,
   resolveBuiltinAgentControllerBrand,
 } from "../../src/index";
 
 describe("builtin agent controller brand registry", () => {
+  it("keeps the shared product display priority in one place", () => {
+    expect(BUILTIN_AGENT_CONTROLLER_DISPLAY_ORDER).toEqual([
+      "codex",
+      "claude-code",
+      "grok-build",
+      "cursor",
+      "opencode",
+      "openclaw",
+    ]);
+    expect(
+      ["custom-z", "cursor", "grok-build", "codex", "claude-code"].sort(
+        compareAgentControllerRefsForDisplay
+      )
+    ).toEqual(["codex", "claude-code", "grok-build", "cursor", "custom-z"]);
+  });
+
   it("resolves builtin controllers to their official brand colors", () => {
     expect(resolveBuiltinAgentControllerBrand("builtin:codex")).toEqual(
       BUILTIN_AGENT_CONTROLLER_BRANDS.codex

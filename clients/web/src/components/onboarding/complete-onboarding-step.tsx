@@ -146,8 +146,8 @@ function buildOnboardingOutcomes(input: {
 	if (outcomes.length === 0) {
 		outcomes.push({
 			description: input.isPersonal
-				? "Add GitHub, Codex, or Claude Code whenever you’re ready."
-				: "Add Slack, GitHub, Codex, or Claude Code whenever your team is ready.",
+				? "Add GitHub or connect a local agent whenever you’re ready."
+				: "Add Slack, GitHub, or local agents whenever your team is ready.",
 			icon: <CheckCircleIcon weight="duotone" />,
 			title: "Your setup is saved",
 		});

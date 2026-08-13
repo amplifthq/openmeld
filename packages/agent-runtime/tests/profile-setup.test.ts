@@ -38,8 +38,28 @@ describe("profile setup candidate selection", () => {
     ]);
 
     expect(candidates.map((item) => item.agentId)).toEqual([
-      "claude-code",
       "codex",
+      "claude-code",
+    ]);
+  });
+
+  it("uses the shared product display priority for profile choices", () => {
+    const candidates = resolveSelectableCandidates([
+      candidate({ agentId: "cursor", displayName: "Cursor" }),
+      candidate({ agentId: "custom-z", displayName: "Custom Z" }),
+      candidate({ agentId: "grok-build", displayName: "Grok Build" }),
+      candidate({ agentId: "claude-code", displayName: "Claude Code" }),
+      candidate({ agentId: "codex", displayName: "Codex" }),
+      candidate({ agentId: "opencode", displayName: "OpenCode" }),
+    ]);
+
+    expect(candidates.map((item) => item.agentId)).toEqual([
+      "codex",
+      "claude-code",
+      "grok-build",
+      "cursor",
+      "opencode",
+      "custom-z",
     ]);
   });
 

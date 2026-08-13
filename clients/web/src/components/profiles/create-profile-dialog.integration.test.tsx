@@ -586,6 +586,11 @@ describe("CreateProfileDialog", () => {
 		renderCreateProfileDialog({
 			recovery: buildFakeRecovery([
 				buildCatalogEntry({
+					agentId: "cursor",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+				buildCatalogEntry({
 					agentId: "codex",
 					launchStatus: "ready",
 					selectable: true,
@@ -595,6 +600,11 @@ describe("CreateProfileDialog", () => {
 					detected: true,
 					enabled: true,
 					launchStatus: "needs_choice",
+					selectable: true,
+				}),
+				buildCatalogEntry({
+					agentId: "grok-build",
+					launchStatus: "ready",
 					selectable: true,
 				}),
 				buildCatalogEntry({
@@ -613,6 +623,20 @@ describe("CreateProfileDialog", () => {
 			expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
 		});
 		expect(screen.getAllByText("Claude Code").length).toBeGreaterThan(0);
+		const codexChoice = screen.getByRole("radio", { name: "Codex" });
+		const claudeChoice = screen.getByRole("radio", { name: "Claude Code" });
+		const grokChoice = screen.getByRole("radio", { name: "Grok Build" });
+		const cursorChoice = screen.getByRole("radio", { name: "Cursor" });
+		expect(codexChoice.compareDocumentPosition(claudeChoice)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		expect(claudeChoice.compareDocumentPosition(grokChoice)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		expect(grokChoice.compareDocumentPosition(cursorChoice)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		);
+		expect(screen.getByTestId("local-agent-logo-grok-build")).toBeTruthy();
 		expect(screen.queryByText("Adel")).toBeNull();
 	});
 

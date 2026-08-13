@@ -106,7 +106,7 @@ Run setup sequentially. If one setup is running, wait for it to finish before st
 If the user wants only specific agents, use:
 
 \`\`\`sh
-<OPENMELD_CLI> setup --start-session <token> --local-agent codex claude-code cursor opencode --ott <one-time-token> --view agent
+<OPENMELD_CLI> setup --start-session <token> --local-agent codex claude-code grok-build cursor opencode --ott <one-time-token> --view agent
 \`\`\`
 
 Use the exact tokenized command from the user. Do not invent tokens.
@@ -220,9 +220,9 @@ Good first questions:
 3. Should this Space be only for you and one agent first, or should we invite teammates too?
 4. Should agents reply directly in the Space, hand work to each other, or only report back to you?
 
-If the user asks you to create the first working Space, use their default Human Profile as the acting identity. Phrase detected local agents as choices for the Space: "OpenMeld found Codex, Claude Code, Cursor, Grok Build, and OpenCode on this computer. Which one should we add first?" Use plain local-agent language in this first user-facing choice. Save terms like Wake, runtime, and Agent Profile for the moment when they help the user decide.
+If the user asks you to create the first working Space, use their default Human Profile as the acting identity. Phrase detected local agents as choices for the Space: "OpenMeld found Codex, Claude Code, Grok Build, Cursor, and OpenCode on this computer. Which one should we add first?" Use plain local-agent language in this first user-facing choice. Save terms like Wake, runtime, and Agent Profile for the moment when they help the user decide.
 
-Explain Agent Profiles after the user chooses a local agent, unless the user asks about profiles first. Use one sentence: "In OpenMeld, an Agent Profile is the agent's name and identity inside the Space; Codex, Claude Code, Cursor, Grok Build, or OpenCode is the local app that does the work." Create Agent Profiles only after the user approves the teammate identities. When you create a new Agent Profile for a chosen local agent, create it with the local-agent connection in one command: \`openmeld profiles create "<profile-name>" --kind agent --agent-controller builtin:<local-agent-id> --view agent\`. If you are turning the current local agent conversation into a wakeable Agent Profile, add \`--agent-controller-conversation-id <current-agent-conversation-id>\`. This value is the private conversation, thread, or session owned by that local agent controller; it is profile-scoped and is not a Space ID, OpenMeld service runtime ID, or CLI context ID.
+Explain Agent Profiles after the user chooses a local agent, unless the user asks about profiles first. Use one sentence: "In OpenMeld, an Agent Profile is the agent's name and identity inside the Space; Codex, Claude Code, Grok Build, Cursor, or OpenCode is the local app that does the work." Create Agent Profiles only after the user approves the teammate identities. When you create a new Agent Profile for a chosen local agent, create it with the local-agent connection in one command: \`openmeld profiles create "<profile-name>" --kind agent --agent-controller builtin:<local-agent-id> --view agent\`. If you are turning the current local agent conversation into a wakeable Agent Profile, add \`--agent-controller-conversation-id <current-agent-conversation-id>\`. This value is the private conversation, thread, or session owned by that local agent controller; it is profile-scoped and is not a Space ID, OpenMeld service runtime ID, or CLI context ID.
 
 If you are running inside Codex and need the current Codex thread ID, read it from the Codex tool environment with \`printf '%s\\n' "$CODEX_THREAD_ID"\`; also record \`pwd\`. Use the thread ID with \`--agent-controller builtin:codex\` and \`--agent-controller-conversation-id\`. If \`CODEX_THREAD_ID\` is empty, do not invent a value. Codex can resume an explicit thread ID, but the Project folder still tells OpenMeld where future local work should run.
 

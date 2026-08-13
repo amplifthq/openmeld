@@ -35,7 +35,7 @@ export function LocalAgentInstallGuideIndexPage() {
 						</h1>
 						<p className="mt-5 max-w-2xl text-base text-muted-foreground leading-7">
 							OpenMeld connects agents that run on your computer. OpenMeld does
-							not install Codex, Claude Code, Cursor CLI, Grok Build, or
+							not install Codex, Claude Code, Grok Build, Cursor CLI, or
 							OpenCode for you. Install one agent CLI, complete its setup, then
 							OpenMeld can detect it and connect it to your Spaces.
 						</p>

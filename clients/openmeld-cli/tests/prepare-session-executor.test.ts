@@ -764,7 +764,7 @@ describe("prepare session executor", () => {
       .mock.calls.map(([line]) => (line as { text: string }).text)
       .join("\n");
     expect(output).toContain(
-      "Codex, Claude Code, Cursor, Grok Build, or OpenCode"
+      "Codex, Claude Code, Grok Build, Cursor, or OpenCode"
     );
     expect(output).toContain("http://localhost:3000/guides/local-agents");
   });

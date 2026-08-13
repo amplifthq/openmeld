@@ -15,7 +15,10 @@ import {
 	SLACK_CHANNEL_IDENTITY,
 } from "#/components/organizations/app-catalog";
 import { AppLogo } from "#/components/organizations/app-logo";
-import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
+import {
+	LOCAL_AGENTS_GUIDE_PATH,
+	listLocalAgentInstallGuides,
+} from "#/lib/local-agent-install-guides";
 import { LandingAgentActivityField } from "./landing-page-activity-field";
 import { LandingBarWave } from "./landing-page-bar-wave";
 import { LandingCenterAgentVisual } from "./landing-page-center-agent-visual";
@@ -34,6 +37,7 @@ import {
 const LANDING_CONTENT_CLASS_NAME =
 	"mx-auto w-full max-w-[82rem] px-6 sm:px-10 lg:px-16";
 const OPENMELD_NPM_PACKAGE_URL = "https://www.npmjs.com/package/openmeld";
+const LOCAL_AGENT_GUIDES = listLocalAgentInstallGuides();
 const AVAILABLE_APPS = APPS.filter((app) => app.availability === "available");
 const AVAILABLE_CHANNELS = [
 	{ ...SLACK_CHANNEL_IDENTITY, name: "Slack" },
@@ -137,7 +141,7 @@ const FAQ_ITEMS = [
 	{
 		question: "Which agents run locally, and which run in OpenMeld?",
 		answer:
-			"The Center Agent is OpenMeld’s hosted organization coordinator, so it can answer even when your laptop is closed. Codex, Claude Code, Cursor, Grok Build, and OpenCode keep running on your team’s own computers through OpenMeld Service.",
+			"The Center Agent is OpenMeld’s hosted organization coordinator, so it can answer even when your laptop is closed. Codex, Claude Code, Grok Build, Cursor, and OpenCode keep running on your team’s own computers through OpenMeld Service.",
 	},
 	{
 		question: "What leaves my computer?",
@@ -240,17 +244,19 @@ function LocalExecutionSection() {
 
 				<div className="lg:col-span-4 lg:col-start-9 lg:pt-16">
 					<p className="text-base text-muted-foreground leading-7">
-						Codex, Claude Code, Cursor, Grok Build, and OpenCode keep working on
+						Codex, Claude Code, Grok Build, Cursor, and OpenCode keep working on
 						your team’s computers. OpenMeld Projects map the same codebase to
 						each person’s local clone or worktree, so every Wake starts in the
 						right place.
 					</p>
 					<div className="mt-8 flex flex-wrap gap-6">
-						<AgentLabel agentId="builtin:codex" label="Codex" />
-						<AgentLabel agentId="builtin:claude-code" label="Claude Code" />
-						<AgentLabel agentId="builtin:cursor" label="Cursor" />
-						<AgentLabel agentId="builtin:grok-build" label="Grok Build" />
-						<AgentLabel agentId="builtin:opencode" label="OpenCode" />
+						{LOCAL_AGENT_GUIDES.map((guide) => (
+							<AgentLabel
+								agentId={`builtin:${guide.agentId}`}
+								key={guide.agentId}
+								label={guide.displayName}
+							/>
+						))}
 					</div>
 					<CommandBlock
 						className="mt-10"

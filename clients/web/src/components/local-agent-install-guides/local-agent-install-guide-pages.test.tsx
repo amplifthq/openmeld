@@ -41,7 +41,18 @@ describe("LocalAgentInstallGuideIndexPage", () => {
 		expect(screen.queryByText("OpenClaw")).toBeNull();
 		const guideGrid = screen.getByTestId("local-agent-guide-grid");
 		expect(guideGrid.className).toContain("xl:grid-cols-5");
-		expect(guideGrid.querySelectorAll("a.rounded-md")).toHaveLength(5);
+		const guideCards = [...guideGrid.querySelectorAll("a.rounded-md")];
+		expect(guideCards).toHaveLength(5);
+		expect(guideCards.map((card) => card.textContent)).toEqual([
+			expect.stringContaining("Codex CLI"),
+			expect.stringContaining("Claude Code"),
+			expect.stringContaining("Grok Build"),
+			expect.stringContaining("Cursor CLI"),
+			expect.stringContaining("OpenCode"),
+		]);
+		expect(
+			guideGrid.querySelector('[data-testid="local-agent-logo-grok-build"]')
+		).toBeTruthy();
 	});
 
 	it("links users back to the setup surface", () => {

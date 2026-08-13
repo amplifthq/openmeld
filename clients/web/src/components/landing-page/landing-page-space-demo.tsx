@@ -51,14 +51,19 @@ const SECTION_SPACE_DEMO = {
 			name: "Patch plan",
 		},
 		{
-			agentId: "builtin:opencode",
-			description: "OpenCode · Qwen Coder",
-			name: "Validation",
+			agentId: "builtin:grok-build",
+			description: "Grok Build · Grok 4.6",
+			name: "Risk check",
 		},
 		{
 			agentId: "builtin:cursor",
 			description: "Cursor · Auto",
 			name: "Implementation",
+		},
+		{
+			agentId: "builtin:opencode",
+			description: "OpenCode · Qwen Coder",
+			name: "Validation",
 		},
 	],
 	eyebrow: "Production release Space",
@@ -81,16 +86,22 @@ const SECTION_SPACE_DEMO = {
 			source: "Claude Sonnet",
 		},
 		{
-			agentId: "builtin:opencode",
-			body: "I’ll run the smoke checklist and keep validation notes in this Space.",
-			label: "OpenCode",
-			source: "Qwen Coder",
+			agentId: "builtin:grok-build",
+			body: "I’ll pressure-test the release assumptions and call out any missing rollback evidence.",
+			label: "Grok Build",
+			source: "Grok 4.6",
 		},
 		{
 			agentId: "builtin:cursor",
 			body: "I’ll prepare the smallest safe implementation after the release risks are clear.",
 			label: "Cursor",
 			source: "Auto",
+		},
+		{
+			agentId: "builtin:opencode",
+			body: "I’ll run the smoke checklist and keep validation notes in this Space.",
+			label: "OpenCode",
+			source: "Qwen Coder",
 		},
 		{
 			body: "Good. Block the release if billing totals drift or the canary install fails.",
@@ -104,7 +115,7 @@ const SECTION_SPACE_DEMO = {
 			source: "GPT-5",
 		},
 	],
-	title: "Human request to four agents",
+	title: "Human request to five agents",
 } as const satisfies SpaceDemo;
 
 const SPACE_FEATURES = [
@@ -116,7 +127,7 @@ const SPACE_FEATURES = [
 	{
 		name: "One brief, many agents.",
 		description:
-			"Codex, Claude Code, Cursor, Grok Build, and OpenCode can share the same goal, decisions, and handoffs while still running locally.",
+			"Codex, Claude Code, Grok Build, Cursor, and OpenCode can share the same goal, decisions, and handoffs while still running locally.",
 	},
 	{
 		name: "Progress people can join.",

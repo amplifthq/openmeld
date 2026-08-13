@@ -1,3 +1,5 @@
+import { compareAgentControllerRefsForDisplay } from "@openmeld/schemas";
+
 export type LocalAgentCandidateTargetKind = "builtin" | "custom";
 
 export type LocalAgentCandidate = {
@@ -25,7 +27,9 @@ export function resolveSelectableCandidates<
 ): SelectableLocalAgentCandidate<TCandidate>[] {
   return candidates
     .filter(isSelectableLocalAgentCandidate)
-    .sort((left, right) => left.agentId.localeCompare(right.agentId));
+    .sort((left, right) =>
+      compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
+    );
 }
 
 function isSelectableLocalAgentCandidate<

@@ -1,3 +1,5 @@
+import { BUILTIN_AGENT_CONTROLLER_DISPLAY_ORDER } from "@openmeld/schemas";
+
 export const LOCAL_AGENTS_GUIDE_PATH = "/guides/local-agents";
 
 export type LocalAgentInstallGuideId =
@@ -100,13 +102,9 @@ export const LOCAL_AGENT_INSTALL_GUIDES = {
 	},
 } as const satisfies Record<LocalAgentInstallGuideId, LocalAgentInstallGuide>;
 
-export const LOCAL_AGENT_INSTALL_GUIDE_IDS = [
-	"codex",
-	"claude-code",
-	"cursor",
-	"grok-build",
-	"opencode",
-] as const satisfies readonly LocalAgentInstallGuideId[];
+export const LOCAL_AGENT_INSTALL_GUIDE_IDS = Object.freeze(
+	BUILTIN_AGENT_CONTROLLER_DISPLAY_ORDER.filter(isLocalAgentInstallGuideId)
+);
 
 export function listLocalAgentInstallGuides(): readonly LocalAgentInstallGuide[] {
 	return LOCAL_AGENT_INSTALL_GUIDE_IDS.map(
