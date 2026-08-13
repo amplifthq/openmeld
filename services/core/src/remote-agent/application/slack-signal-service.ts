@@ -1040,6 +1040,9 @@ function buildSlackTurnEnvelope(input: {
               providerUserId: input.slackUserId,
             },
             ownerUserId: input.participant.member.userId,
+            ...(input.participant.member.humanProfileId
+              ? { profileId: input.participant.member.humanProfileId }
+              : {}),
             ...(input.participant.member.role
               ? { role: input.participant.member.role }
               : {}),

@@ -130,7 +130,9 @@ export const REMOTE_AGENT_CALLBACK_CONTEXT_WAIT_MS = 5000;
 const REMOTE_AGENT_COMPLETED_TEXT_TRUNCATION_NOTICE =
   "\n\n_Response shortened because it exceeded OpenMeld's 100,000-character response limit._";
 const CENTER_AGENT_INTERNAL_FAILURE_DETAIL_RE =
-  /\b(?:active tool catalog|tool catalog|tools? (?:are |is )?(?:enabled|missing|unavailable)|space management tools|session|runtime|profile id|uuid|rpc|schema|worker|endpoint|stack trace|implementation detail|onbehalfofprofileid|openmeld_[a-z0-9_]+)\b/iu;
+  /\b(?:active tool catalog|tool catalog|tools? (?:are |is )?(?:enabled|missing|unavailable)|space management tools|session|runtime|profile id|verified (?:openmeld )?member identity|uuid|rpc|schema|worker|endpoint|stack trace|implementation detail|onbehalfofprofileid|openmeld_[a-z0-9_]+)\b/iu;
+const CENTER_AGENT_INHERENT_FAILURE_DETAIL_RE =
+  /\bverified (?:openmeld )?member identity\b/iu;
 const CENTER_AGENT_FAILURE_OUTCOME_RE =
   /\b(?:cannot|can't|could not|couldn't|did not|didn't|does not|doesn't|error|failed|failure|missing|unavailable|unable)\b/iu;
 
@@ -870,8 +872,13 @@ export function extractCompletedAssistantText(
 export function sanitizeCenterAgentCompletedTextForPublication(
   text: string
 ): string {
-  return CENTER_AGENT_FAILURE_OUTCOME_RE.test(text) &&
-    CENTER_AGENT_INTERNAL_FAILURE_DETAIL_RE.test(text)
+  const includesInternalFailureDetail =
+    CENTER_AGENT_INTERNAL_FAILURE_DETAIL_RE.test(text);
+  const reportsFailure =
+    CENTER_AGENT_FAILURE_OUTCOME_RE.test(text) ||
+    CENTER_AGENT_INHERENT_FAILURE_DETAIL_RE.test(text);
+
+  return reportsFailure && includesInternalFailureDetail
     ? CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY
     : text;
 }
