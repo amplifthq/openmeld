@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-13T13:10:42.361Z",
+  "updatedAt": "2026-08-13T15:41:27.341Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.54",
+      "packageVersion": "0.3.55",
       "updatePolicy": "available",
-      "reason": "Add Grok Build support and improve user-facing failure guidance."
+      "reason": "Recognize supported foreground Service runtimes without blocking existing Wake work."
     },
     "service": {
-      "bundleHash": "9edf79f3b03fb921a57078bb19e949d8b4bea698112068b0748466df3259f66d",
-      "bundleVersion": "0.3.54",
+      "bundleHash": "e5ba60182168be436742d8bb1193c256bfe71e8da6cde6b85ae2e04da2a3d12f",
+      "bundleVersion": "0.3.55",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Add Grok Build support and improve user-facing failure guidance."
+      "reason": "Recognize supported foreground Service runtimes without blocking existing Wake work."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Add Grok Build support and improve user-facing failure guidance."
+      "reason": "Recognize supported foreground Service runtimes without blocking existing Wake work."
     }
   }
 }
