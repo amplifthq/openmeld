@@ -1,7 +1,7 @@
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 
 export const LANDING_PAGE_HERO_HEADING =
-	"The open-source operating system for agent-native teams of people and machines.";
+	"OpenMeld is the open-source operating system for agent-native teams of people and machines.";
 export const LANDING_PAGE_HERO_TAGLINE =
 	"People and agents, working as one—learning and evolving together.";
 

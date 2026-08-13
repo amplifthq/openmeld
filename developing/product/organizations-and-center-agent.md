@@ -1079,9 +1079,17 @@ submission actually reaches one of those identity-gated capabilities. The
 dedicated `openmeld_require_identity_for_action` tool records the explicit
 requested action's identity-owned, personal, role-restricted, destructive, or
 human-attributed boundary only after Core authorizes the exact native delivery.
-Safe work never records a blocking boundary. Remote Agent records a structured
-provider-aware navigation target without a token only when Core advertises
-support for the handoff. Core issues the one-time link only while publishing
+Safe work never records a blocking boundary. The identity-boundary tool itself
+immediately records one generic private **Connect my account and continue**
+action when Core advertises provider-neutral handoff support. Directory lookup
+and the read-only navigation tool may refine that action only when one existing
+member is clearly the same person; they are not required to make the generic
+handoff exist. The public reply names only the blocked user action and points to
+the private message. Core, rather than the model, owns this fixed public reply.
+If the receiver does not yet support the private action, the caller fails with
+an observable capability gap instead of claiming that a nonexistent message
+was sent. It never mentions tools, catalogs, sessions, routes, or
+permission infrastructure. Core issues the one-time link only while publishing
 the exact Message Channel delivery. Core confirms the task result first, then
 publishes the private setup action. If required setup guidance must be retried,
 Core reuses the confirmed result and never publishes that result a second time.

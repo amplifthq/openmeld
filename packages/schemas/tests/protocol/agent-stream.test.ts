@@ -254,7 +254,7 @@ describe("Space Agent stream frames", () => {
       kind: "completed_but_publish_failed",
       reasonCode: "remote_agent.callback_publish_failed",
       noticeText:
-        "Center Agent finished the reply, but OpenMeld could not publish it here. Please try again or open diagnostics.",
+        "Center Agent finished your request, but OpenMeld could not show the reply here. Try again. If it keeps happening, open diagnostics in OpenMeld.",
     },
   ])("accepts the $kind terminal stream frame", (terminal) => {
     const frame = {

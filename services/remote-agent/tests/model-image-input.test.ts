@@ -433,6 +433,63 @@ describe("Remote Agent model reasoning", () => {
     });
   });
 
+  it("routes an unlinked Slack member's Space request to account connection", async () => {
+    const classifyWorkSurface = vi.fn().mockResolvedValue("new_space");
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
+      {},
+      undefined,
+      classifyWorkSurface
+    );
+    const requireIdentity = {
+      function: { name: "openmeld_require_identity_for_action" },
+      type: "function",
+    };
+
+    const payload = await options.onPayload?.(
+      {
+        messages: [
+          {
+            content: [
+              "[Connected Message Channel member boundary]",
+              "This person belongs to the connected Slack workspace but has not linked an OpenMeld account.",
+              "",
+              "[Current connected Message Channel member request]",
+              "Create a Space for the production smoke test.",
+            ].join("\n"),
+            role: "user",
+          },
+        ],
+        reasoning: { effort: "high" },
+        tools: [
+          requireIdentity,
+          {
+            function: { name: "openmeld_get_navigation_action" },
+            type: "function",
+          },
+          {
+            function: { name: "openmeld_read_organization_directory" },
+            type: "function",
+          },
+        ],
+      },
+      TEXT_ONLY_MODEL
+    );
+
+    expect(classifyWorkSurface).toHaveBeenCalledWith(
+      "Create a Space for the production smoke test."
+    );
+    expect(payload).toMatchObject({
+      parallel_tool_calls: false,
+      reasoning: { effort: "high" },
+      tool_choice: {
+        function: { name: "openmeld_require_identity_for_action" },
+        type: "function",
+      },
+      tools: [requireIdentity],
+    });
+    expect(JSON.stringify(payload)).not.toContain("tool catalog");
+  });
+
   it("does not treat a Task mention in conversation continuity as current intent", async () => {
     const classifyWorkSurface = vi.fn().mockResolvedValue("new_task");
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(

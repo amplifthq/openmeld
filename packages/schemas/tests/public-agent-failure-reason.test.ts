@@ -4,6 +4,7 @@ import {
   isAgentExecutionReadinessImpactReasonCode,
   isProjectLocalConnectionFailureReasonCode,
   projectLocalConnectionFailureReasonCodeSchema,
+  resolveCenterAgentCallbackFailureMessage,
   resolveDetailedPublicAgentFailureReason,
   resolveMappedPublicAgentFailureReason,
   resolvePublicAgentAvailabilityCopy,
@@ -31,6 +32,59 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
+  it("canonicalizes mixed-version Center Agent callback failures before publication", () => {
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "remote_agent.turn_not_completed",
+        failureMessage:
+          "Remote Agent could not finish this request. Please try again or open diagnostics.",
+      })
+    ).toBe(
+      "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "remote_agent.execution_identity_mismatch",
+        failureMessage: "Internal execution identity detail",
+      })
+    ).toBe(
+      "OpenMeld stopped this request because it could not confirm that the reply came from your Center Agent. Send the request again. If it keeps happening, open diagnostics in OpenMeld."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "remote_agent.callback_publish_failed",
+        failureMessage: "Internal publication detail",
+      })
+    ).toBe(
+      "Center Agent finished your request, but OpenMeld could not show the reply here. Try again. If it keeps happening, open diagnostics in OpenMeld."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "provider.some_new_failure",
+        failureMessage: "Remote Agent runtime failed unexpectedly.",
+      })
+    ).toBe(
+      "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "provider.rate_limited",
+        failureMessage: "The model provider is busy. Try again in a moment.",
+      })
+    ).toBe(
+      "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "provider.some_new_failure",
+        failureMessage:
+          "This turn's active tool catalog does not include Space management tools.",
+      })
+    ).toBe(
+      "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+    );
+  });
+
   it("reduces raw vendor response bodies to a bounded diagnostic summary", () => {
     const rawVendorBody = JSON.stringify({
       error: {
@@ -963,12 +1017,12 @@ describe("public agent failure reason mapping", () => {
       "center_agent.designation_required",
       "Connect the Center Agent before waking it from this Space.",
     ],
-    ["remote_agent.available", "Remote Agent can answer now."],
+    ["remote_agent.available", "Center Agent can answer now."],
     [
       "remote_agent.budget_resting",
-      "Remote Agent is resting until the next budget window.",
+      "Center Agent is resting until the next budget window.",
     ],
-    ["remote_agent.unavailable", "Remote Agent cannot answer right now."],
+    ["remote_agent.unavailable", "Center Agent cannot answer right now."],
     ["agent_execution.ready", "Can reply from this computer in Spaces."],
     [
       "agent_execution.check_status",

@@ -260,7 +260,7 @@ describe("remote agent callback context", () => {
       failureCode: "remote_agent.turn_not_completed",
       failureDetail: "provider 504",
       failureMessage:
-        "Remote Agent could not finish this request. Please try again or open diagnostics.",
+        "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.",
       idempotencyKey: request.idempotencyKey,
       organizationId: request.organizationId,
       spaceId: request.spaceId,
@@ -268,6 +268,32 @@ describe("remote agent callback context", () => {
       submissionId: ACK.submissionId,
       triggerMessageId: request.triggerMessageId,
     });
+  });
+
+  it("keeps internal runtime names out of user-visible failure copy", () => {
+    const request = createSubmitTurnRequest();
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+
+    const callback = buildRemoteAgentCoreFailureCallbackBody({
+      context,
+      failure: {
+        code: "remote_agent.empty_assistant_response",
+        detail: "The provider returned no assistant text.",
+        occurredAt: "2026-07-06T12:00:01.000Z",
+        retryable: false,
+      },
+    });
+
+    expect(callback).toMatchObject({
+      failureMessage:
+        "Center Agent didn't return a reply. Try again. If it keeps happening, open diagnostics in OpenMeld.",
+      status: "failed",
+    });
+    expect(JSON.stringify(callback)).not.toContain("Remote Agent");
   });
 
   it("extracts only successful assistant text for Core completion callbacks", () => {
@@ -556,7 +582,7 @@ describe("remote agent callback context", () => {
       expect.objectContaining({
         failureCode: "remote_agent.turn_not_completed",
         failureMessage:
-          "Remote Agent could not finish this request. Please try again or open diagnostics.",
+          "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.",
         idempotencyKey: request.idempotencyKey,
         status: "failed",
         submissionId: ACK.submissionId,
@@ -700,7 +726,7 @@ describe("remote agent callback context", () => {
         failureCode: "remote_agent.turn.context_window_exceeded",
         failureDetail: providerError,
         failureMessage:
-          "This conversation became too large for the selected model. Wake the agent again; OpenMeld will compact the conversation before retrying.",
+          "This conversation has grown too long for Center Agent to continue in one request. Try again; OpenMeld will shorten older messages before continuing.",
         status: "failed",
         submissionId: ACK.submissionId,
       })

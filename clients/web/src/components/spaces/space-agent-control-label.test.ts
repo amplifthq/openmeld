@@ -10,7 +10,7 @@ describe("formatSpaceAgentControlLabel", () => {
 				profileKind: "agent",
 				runtimeDeviceDisplayName: "hosted:center-agent",
 			})
-		).toBe("Controlled by OpenMeld Remote Agent");
+		).toBe("Hosted by OpenMeld");
 		expect(
 			formatSpaceAgentControlLabel({
 				agentControllerRef: "hosted:center-agent",
@@ -18,7 +18,7 @@ describe("formatSpaceAgentControlLabel", () => {
 				profileKind: "agent",
 				runtimeDeviceDisplayName: null,
 			})
-		).toBe("Controlled by OpenMeld Remote Agent");
+		).toBe("Hosted by OpenMeld");
 	});
 
 	it("keeps workstation controller and device labels visible", () => {

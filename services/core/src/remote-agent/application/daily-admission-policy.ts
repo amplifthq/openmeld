@@ -4,10 +4,10 @@ export const REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_REASON_CODE =
   "remote_agent.daily_quota_exceeded";
 
 export const REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_MESSAGE =
-  "This Organization has reached its daily Remote Agent request limit. The limit resets at 00:00 UTC.";
+  "This Organization has reached its daily Center Agent request limit. The limit resets at 00:00 UTC.";
 
 export const REMOTE_AGENT_DAILY_QUOTA_EXCEEDED_ROUTINE_REASON =
-  "the Organization has reached its daily Remote Agent request limit. The limit resets at 00:00 UTC.";
+  "the Organization has reached its daily Center Agent request limit. The limit resets at 00:00 UTC.";
 
 const POSITIVE_INTEGER_PATTERN = /^\d+$/;
 

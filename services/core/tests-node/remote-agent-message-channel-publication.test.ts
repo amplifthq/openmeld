@@ -223,6 +223,50 @@ describe("Remote Agent Message Channel publication", () => {
     }
   });
 
+  it("replaces an internal identity-boundary explanation with novice-safe copy", async () => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelPublicationMigrations(harness);
+    seedConnection(harness, "connected");
+    const publishReply = vi.fn(async () => ({
+      resultId: "message_identity_boundary_lark_1",
+      status: "published" as const,
+    }));
+    const adapter = createAdapter("lark", { publishReply });
+    try {
+      await createAcceptedMessageChannelDelivery(harness.db);
+
+      await expect(
+        completeRemoteAgentNativeDelivery(
+          buildEnv(harness.db),
+          {
+            ...createCompletedCallback(),
+            navigationTarget: {
+              kind: "message_channel_identity_link",
+              purpose: "continue_request",
+            },
+            text: "This turn's active tool catalog does not include Space management tools.",
+          },
+          {
+            messageChannelNowMs: () => 2000,
+            messageChannelProviderRegistry:
+              createMessageChannelProviderRegistry([adapter]),
+          }
+        )
+      ).resolves.toMatchObject({
+        reasonCode: "message_channel.identity_link_context_unavailable",
+        status: "retryable",
+      });
+
+      expect(publishReply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: "I need your OpenMeld account before I can continue. OpenMeld will send you a private message with a “Connect my account and continue” button. After you connect, I’ll continue this request automatically.",
+        })
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
   it("publishes an explicit notice instead of retrying an unsupported generated image forever", async () => {
     const harness = createSqliteD1Harness();
     applyMessageChannelPublicationMigrations(harness);
@@ -962,7 +1006,12 @@ describe("Remote Agent Message Channel publication", () => {
       await expect(
         completeRemoteAgentNativeDelivery(
           buildEnv(harness.db),
-          createFailedCallback(),
+          {
+            ...createFailedCallback(),
+            failureCode: "provider.some_new_failure",
+            failureMessage:
+              "This turn's active tool catalog does not include Space management tools.",
+          },
           {
             messageChannelNowMs: () => 2000,
             messageChannelProviderRegistry:
@@ -976,9 +1025,9 @@ describe("Remote Agent Message Channel publication", () => {
 
       expect(adapter.publishFailure).toHaveBeenCalledWith(
         expect.objectContaining({
-          failureCode: "remote_agent.turn_not_completed",
+          failureCode: "provider.some_new_failure",
           locator: createLocator(),
-          text: "Center Agent could not finish this request.",
+          text: "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.",
         })
       );
       await expect(
@@ -987,7 +1036,7 @@ describe("Remote Agent Message Channel publication", () => {
           idempotencyKey: IDEMPOTENCY_KEY,
         })
       ).resolves.toMatchObject({
-        failureCode: "remote_agent.turn_not_completed",
+        failureCode: "provider.some_new_failure",
         finalPublicationState: "published",
         providerPublicationResultId: "message_failure_lark_1",
         status: "failed",
@@ -999,7 +1048,7 @@ describe("Remote Agent Message Channel publication", () => {
         })
       ).resolves.toMatchObject({
         outcome: {
-          errorCode: "remote_agent.turn_not_completed",
+          errorCode: "provider.some_new_failure",
           publishedSignalId: "message_failure_lark_1",
           status: "failed",
         },
@@ -2163,7 +2212,10 @@ function createImageAttachment() {
   };
 }
 
-function createFailedCallback(): RemoteAgentCoreCallbackBody {
+function createFailedCallback(): Extract<
+  RemoteAgentCoreCallbackBody,
+  { status: "failed" }
+> {
   return {
     agentProfileId: AGENT_PROFILE_ID,
     bindingId: "binding_1",

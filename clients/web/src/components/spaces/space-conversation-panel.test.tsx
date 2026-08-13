@@ -3946,7 +3946,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeNull();
 	});
 
-	it("renders hosted Remote Agent metadata as OpenMeld Remote Agent", () => {
+	it("describes the hosted Center Agent without exposing its runtime", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -3963,9 +3963,7 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(
-			screen.getByText("Controlled by OpenMeld Remote Agent")
-		).toBeTruthy();
+		expect(screen.getByText("Hosted by OpenMeld")).toBeTruthy();
 		expect(
 			screen.queryByText("Controlled by Remote Agent hosted:center-agent")
 		).toBeNull();

@@ -361,11 +361,11 @@ function resolveCenterAgentErrorMessageWithoutDiagnostics(
 		case "center_agent.model_invalid":
 			return "That Center Agent model cannot be used. Refresh this setting and choose another model.";
 		case "remote_agent.runtime_disabled":
-			return "Remote Agent is currently turned off. Try again later.";
+			return "Center Agent is currently turned off. Try again later.";
 		case "remote_agent.organization_blocked":
-			return "Remote Agent is not available for this organization.";
+			return "Center Agent is not available for this Organization.";
 		case "center_agent.local_runtime_hidden":
-			return "Connect the hosted Remote Agent runtime instead.";
+			return "This Center Agent runs in OpenMeld and does not need a local computer.";
 		default:
 			break;
 	}

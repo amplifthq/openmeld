@@ -76,11 +76,11 @@ const CENTER_AGENT_ACTION_PRESENTATION = {
 	},
 	authorize_remote_center_agent_binding: {
 		icon: LinkIcon,
-		label: "Authorized Remote Agent binding",
+		label: "Authorized hosted Center Agent",
 	},
 	carry_over_binding_authorization: {
 		icon: LinkIcon,
-		label: "Carried over Binding authorization",
+		label: "Kept Center Agent access after the profile changed",
 	},
 	create_agent_profile: { icon: RobotIcon, label: "Created Agent Profile" },
 	create_project: { icon: FolderOpenIcon, label: "Created Project" },
@@ -100,7 +100,7 @@ const CENTER_AGENT_ACTION_PRESENTATION = {
 	},
 	designate_remote_center_agent: {
 		icon: RobotIcon,
-		label: "Connected Remote Agent",
+		label: "Connected Center Agent",
 	},
 	enable_agent_profile: { icon: CheckIcon, label: "Enabled Agent Profile" },
 	invite_member: { icon: UserCheckIcon, label: "Invited Member" },
@@ -114,7 +114,7 @@ const CENTER_AGENT_ACTION_PRESENTATION = {
 	},
 	read_dispatch_history: {
 		icon: BookOpenTextIcon,
-		label: "Read dispatch history",
+		label: "Checked agent request history",
 	},
 	read_org_directory: {
 		icon: BookOpenTextIcon,
@@ -122,7 +122,7 @@ const CENTER_AGENT_ACTION_PRESENTATION = {
 	},
 	read_member_openmeld_service_status: {
 		icon: BookOpenTextIcon,
-		label: "Read member Service status",
+		label: "Checked member computer status",
 	},
 	read_slack_workspace_directory: {
 		icon: BookOpenTextIcon,

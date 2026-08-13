@@ -23,6 +23,7 @@ import {
   compactRemoteAgentWorkSurfaceCurrentUserMessage,
   DEFAULT_REMOTE_AGENT_WORK_SURFACE_MODEL_ID,
   extractRemoteAgentCurrentUserRequest,
+  isRemoteAgentConnectedMessageChannelMemberRequest,
   REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER,
   type RemoteAgentWorkSurface,
   resolveRemoteAgentWorkSurfaceModelId,
@@ -796,6 +797,8 @@ const REMOTE_AGENT_DIRECT_TOOL_SCHEMA_LIMIT = 64;
 const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
 const REMOTE_AGENT_CREATE_TASK_TOOL_NAME = "openmeld_create_task";
 const REMOTE_AGENT_CREATE_SPACE_TOOL_NAME = "openmeld_create_space";
+const REMOTE_AGENT_REQUIRE_IDENTITY_TOOL_NAME =
+  "openmeld_require_identity_for_action";
 
 function enforcePreclassifiedRemoteAgentWorkSurface(
   payload: Record<string, unknown>
@@ -938,12 +941,13 @@ async function enforceRemoteAgentWorkSurface(input: {
   if (!toolName) {
     return input.payload;
   }
-  const tool = Array.isArray(input.payload.tools)
-    ? input.payload.tools.find((candidate) =>
-        isRemoteAgentProviderToolNamed(candidate, toolName)
-      )
-    : undefined;
-  if (!tool) {
+  const binding = resolveRemoteAgentWorkSurfaceBinding({
+    currentUserContent,
+    payload: input.payload,
+    surface,
+    toolName,
+  });
+  if (!binding) {
     console.warn("[remote_agent.work_surface.required_tool_unavailable]", {
       submissionId: input.submissionId,
       surface,
@@ -951,6 +955,7 @@ async function enforceRemoteAgentWorkSurface(input: {
     });
     return input.payload;
   }
+  toolName = binding.toolName;
   console.info("[remote_agent.work_surface.enforced]", {
     submissionId: input.submissionId,
     surface,
@@ -958,12 +963,77 @@ async function enforceRemoteAgentWorkSurface(input: {
   });
   return {
     ...input.payload,
+    ...(binding.accountBoundaryMessage
+      ? {
+          messages: [
+            binding.accountBoundaryMessage,
+            ...(Array.isArray(input.payload.messages)
+              ? input.payload.messages
+              : []),
+          ],
+        }
+      : {}),
     parallel_tool_calls: false,
     // Keep the frozen model route's reasoning contract. Some hosted models
     // require reasoning and reject an explicit disable even when the remaining
     // action is one forced tool call.
     tool_choice: { function: { name: toolName }, type: "function" },
-    tools: [tool],
+    tools: [binding.tool],
+  };
+}
+
+function resolveRemoteAgentWorkSurfaceBinding(input: {
+  currentUserContent: string;
+  payload: Record<string, unknown>;
+  surface: RemoteAgentWorkSurface;
+  toolName: string;
+}): {
+  accountBoundaryMessage: Record<string, unknown> | null;
+  tool: unknown;
+  toolName: string;
+} | null {
+  const tools = Array.isArray(input.payload.tools) ? input.payload.tools : [];
+  const directTool = tools.find((candidate) =>
+    isRemoteAgentProviderToolNamed(candidate, input.toolName)
+  );
+  if (directTool) {
+    return {
+      accountBoundaryMessage: null,
+      tool: directTool,
+      toolName: input.toolName,
+    };
+  }
+  if (
+    !isRemoteAgentConnectedMessageChannelMemberRequest(input.currentUserContent)
+  ) {
+    return null;
+  }
+  const identityTool = tools.find((candidate) =>
+    isRemoteAgentProviderToolNamed(
+      candidate,
+      REMOTE_AGENT_REQUIRE_IDENTITY_TOOL_NAME
+    )
+  );
+  if (!identityTool) {
+    return null;
+  }
+  const requestedAction =
+    input.surface === "new_task"
+      ? "Create an OpenMeld Task"
+      : "Create an OpenMeld Space";
+  return {
+    accountBoundaryMessage: {
+      content: [
+        "[OpenMeld account boundary]",
+        `The connected Message Channel member explicitly requested this identity-owned action: ${requestedAction}.`,
+        `Call ${REMOTE_AGENT_REQUIRE_IDENTITY_TOOL_NAME} exactly once with boundary "identity_owned" and requestedAction ${JSON.stringify(requestedAction)}.`,
+        "This does not create the Task or Space. OpenMeld will privately help the person connect or create an account and then continue this same request automatically.",
+        "After the tool succeeds, explain in one calm sentence that account connection is required and tell the person to open the private message from OpenMeld. Never mention tools, catalogs, sessions, routing, permissions infrastructure, or internal configuration.",
+      ].join("\n"),
+      role: "system",
+    },
+    tool: identityTool,
+    toolName: REMOTE_AGENT_REQUIRE_IDENTITY_TOOL_NAME,
   };
 }
 

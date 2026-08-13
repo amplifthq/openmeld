@@ -37,6 +37,8 @@ const CURRENT_REQUEST_MARKERS = [
   "[Current connected Message Channel member request]\n",
   "[Current unverified participant request]\n",
 ] as const;
+const CONNECTED_MESSAGE_CHANNEL_MEMBER_REQUEST_MARKER =
+  "[Current connected Message Channel member request]\n";
 const TURN_TIME_CONTEXT_MARKER = "\n\n[OpenMeld turn context]\n";
 const CANONICAL_WORK_SURFACE_NOUN = /(?:\bTask\b|\bSpace\b|任务|空间)/iu;
 const CANONICAL_WORK_SURFACE_NOUN_GLOBAL =
@@ -121,6 +123,12 @@ export function shouldClassifyRemoteAgentWorkSurface(content: string): boolean {
   return CANONICAL_WORK_SURFACE_NOUN.test(
     extractRemoteAgentCurrentUserRequest(content)
   );
+}
+
+export function isRemoteAgentConnectedMessageChannelMemberRequest(
+  content: string
+): boolean {
+  return content.includes(CONNECTED_MESSAGE_CHANNEL_MEMBER_REQUEST_MARKER);
 }
 
 export async function classifyRemoteAgentWorkSurface(input: {

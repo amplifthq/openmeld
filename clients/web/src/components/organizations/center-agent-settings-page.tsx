@@ -542,11 +542,11 @@ function CenterAgentDisconnectedSection(input: {
 						<RobotIcon aria-hidden="true" data-icon="inline-start" />
 						{input.connectState.isPending
 							? "Connecting..."
-							: "Connect Remote Agent"}
+							: "Connect Center Agent"}
 					</Button>
 				) : (
 					<p className="rounded-md border border-border/70 bg-background/30 px-4 py-3 text-muted-foreground text-sm">
-						Remote Agent is not available for this workspace right now.
+						Center Agent is not available in this Workspace right now.
 					</p>
 				)}
 				<p className="text-muted-foreground text-xs">
@@ -569,7 +569,7 @@ function resolveRemoteConnectionDescription(input: {
 	isRolePending: boolean;
 }): string {
 	if (input.isMutationPending) {
-		return "Connecting the managed Center Agent to OpenMeld's hosted Remote Agent.";
+		return "Connecting your Center Agent to OpenMeld’s hosted service.";
 	}
 	if (input.isRolePending) {
 		return "OpenMeld is checking whether you can manage the Center Agent.";

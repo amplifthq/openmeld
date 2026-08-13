@@ -18,6 +18,26 @@ export type ProjectLocalConnectionFailureReasonCode =
 
 export const CODEX_UPGRADE_REQUIRED_REASON =
   "Codex on this device is too old for the current model. Upgrade Codex on this device, then try again.";
+export const CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY =
+  "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.";
+export const CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY =
+  "Center Agent didn't return a reply. Try again. If it keeps happening, open diagnostics in OpenMeld.";
+export const CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY =
+  "Center Agent couldn't start this request. Try again. If it keeps happening, open diagnostics in OpenMeld.";
+export const CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY =
+  "OpenMeld couldn't find the message that started this request, so Center Agent did not run. Send the request again.";
+export const CENTER_AGENT_TEMPORARILY_UNAVAILABLE_PUBLIC_COPY =
+  "Center Agent isn't available right now. Try again in a moment.";
+export const CENTER_AGENT_ORGANIZATION_UNAVAILABLE_PUBLIC_COPY =
+  "Center Agent is currently turned off for this Organization. Contact OpenMeld support. You can open diagnostics in OpenMeld to share more details.";
+export const CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY =
+  "This conversation has grown too long for Center Agent to continue in one request. Try again; OpenMeld will shorten older messages before continuing.";
+export const CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY =
+  "This request was stopped.";
+export const CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY =
+  "OpenMeld stopped this request because it could not confirm that the reply came from your Center Agent. Send the request again. If it keeps happening, open diagnostics in OpenMeld.";
+export const CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY =
+  "Center Agent finished your request, but OpenMeld could not show the reply here. Try again. If it keeps happening, open diagnostics in OpenMeld.";
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE =
   "remote_agent.tool_result_too_large";
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY =
@@ -50,6 +70,32 @@ const LEADING_ERROR_CODE_PREFIX_RE = /^[a-z][\w.]*:\s+/i;
 const HTML_ERROR_BODY_RE = /^\s*</;
 
 export const DISPATCH_ERROR_SUMMARY_MAX_LENGTH = 512;
+
+export function resolveCenterAgentCallbackFailureMessage(input: {
+  failureCode: string;
+  failureMessage: string;
+}): string {
+  switch (input.failureCode) {
+    case "remote_agent.empty_assistant_response":
+      return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
+    case "remote_agent.execution_cancelled":
+      return CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY;
+    case "remote_agent.turn.context_window_exceeded":
+      return CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY;
+    case "remote_agent.execution_identity_mismatch":
+      return CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY;
+    case "remote_agent.callback_publish_failed":
+      return CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY;
+    case REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE:
+      return REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY;
+    case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
+      return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
+    case "remote_agent.turn_not_completed":
+      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
+    default:
+      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
+  }
+}
 
 const DISPATCH_ERROR_REDACTION_REPLACEMENTS: readonly [RegExp, string][] = [
   [/\b(authorization\s*:\s*(?:bearer|basic)\s+)[^\s,;]+/gi, "$1[redacted]"],
@@ -337,21 +383,21 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     },
     {
       availabilityBadgeLabel: "Available",
-      availabilitySummary: "Remote Agent can answer now.",
-      availabilityTooltip: "Remote Agent available",
+      availabilitySummary: "Center Agent can answer now.",
+      availabilityTooltip: "Center Agent available",
       patterns: ["=remote_agent.available"],
     },
     {
       availabilityBadgeLabel: "Resting",
       availabilitySummary:
-        "Remote Agent is resting until the next budget window.",
-      availabilityTooltip: "Remote Agent resting",
+        "Center Agent is resting until the next budget window.",
+      availabilityTooltip: "Center Agent resting",
       patterns: ["=remote_agent.budget_resting"],
     },
     {
       availabilityBadgeLabel: "Unavailable",
-      availabilitySummary: "Remote Agent cannot answer right now.",
-      availabilityTooltip: "Remote Agent unavailable",
+      availabilitySummary: "Center Agent cannot answer right now.",
+      availabilityTooltip: "Center Agent unavailable",
       patterns: ["remote_agent."],
     },
     {

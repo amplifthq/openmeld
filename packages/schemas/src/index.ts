@@ -58,6 +58,10 @@ export {
   isLegacyAgentActivityWorkCompatible,
   resolveCommandAgentWorkActivity,
 } from "./agent-work-activity";
+export {
+  CENTER_AGENT_ACCOUNT_CONNECTION_REQUIRED_PUBLIC_COPY,
+  resolveCenterAgentCompletedCallbackMessage,
+} from "./center-agent-publication-copy";
 export { toLegacySpaceAddressingWireValue } from "./compatibility/legacy-space-addressing-wire";
 export {
   buildOpenMeldNavigationAction,
@@ -74,6 +78,16 @@ export {
   openMeldWebUrlSchema,
 } from "./navigation-action";
 export {
+  CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
+  CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
+  CENTER_AGENT_EXECUTION_IDENTITY_MISMATCH_PUBLIC_COPY,
+  CENTER_AGENT_ORGANIZATION_UNAVAILABLE_PUBLIC_COPY,
+  CENTER_AGENT_REPLY_PUBLICATION_FAILED_PUBLIC_COPY,
+  CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
+  CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
+  CENTER_AGENT_REQUEST_STOPPED_PUBLIC_COPY,
+  CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY,
+  CENTER_AGENT_TEMPORARILY_UNAVAILABLE_PUBLIC_COPY,
   CODEX_UPGRADE_REQUIRED_REASON,
   DISPATCH_ERROR_SUMMARY_MAX_LENGTH,
   isProjectLocalConnectionFailureReasonCode,
@@ -89,6 +103,7 @@ export {
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
+  resolveCenterAgentCallbackFailureMessage,
   resolveDetailedPublicAgentFailureReason,
   resolveMappedPublicAgentFailureReason,
   resolvePublicAgentAvailabilityCopy,

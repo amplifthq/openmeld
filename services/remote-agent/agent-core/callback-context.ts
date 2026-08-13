@@ -1,4 +1,7 @@
 import {
+  CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
+  CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
+  CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
   CENTER_AGENT_TASK_REFERENCE_MAX_COUNT,
   type CenterAgentModelRoute,
   centerAgentModelRouteSchema,
@@ -1397,17 +1400,17 @@ function resolveRemoteAgentResultFailureCode(
 function resolveRemoteAgentFailureMessage(code: string): string {
   switch (code) {
     case "remote_agent.turn.context_window_exceeded":
-      return "This conversation became too large for the selected model. Wake the agent again; OpenMeld will compact the conversation before retrying.";
+      return CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY;
     case "remote_agent.empty_assistant_response":
-      return "Remote Agent could not produce a reply. Please try again or open diagnostics.";
+      return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
       return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
     case "remote_agent.turn_not_completed":
-      return "Remote Agent could not finish this request. Please try again or open diagnostics.";
+      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
     case "remote_agent.execution_cancelled":
       return "This request was stopped.";
     default:
-      return "Remote Agent could not finish this request. Please try again or open diagnostics.";
+      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
   }
 }
 
