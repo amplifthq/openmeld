@@ -130,7 +130,7 @@ export const REMOTE_AGENT_CALLBACK_CONTEXT_WAIT_MS = 5000;
 const REMOTE_AGENT_COMPLETED_TEXT_TRUNCATION_NOTICE =
   "\n\n_Response shortened because it exceeded OpenMeld's 100,000-character response limit._";
 const CENTER_AGENT_INTERNAL_FAILURE_DETAIL_RE =
-  /\b(?:active tool catalog|tool catalog|tools? (?:are |is )?(?:enabled|missing|unavailable)|space management tools|session|runtime|profile id|uuid|rpc|schema|worker|endpoint|stack trace|implementation detail|onbehalfofprofileid|openmeld_[a-z0-9_]+)\b/iu;
+  /\b(?:active tool catalog|tool catalog|tools? (?:are |is )?(?:enabled|missing|unavailable)|space management tools|session|runtime|profile id|verified (?:openmeld )?member identity|uuid|rpc|schema|worker|endpoint|stack trace|implementation detail|onbehalfofprofileid|openmeld_[a-z0-9_]+)\b/iu;
 const CENTER_AGENT_FAILURE_OUTCOME_RE =
   /\b(?:cannot|can't|could not|couldn't|did not|didn't|does not|doesn't|error|failed|failure|missing|unavailable|unable)\b/iu;
 
