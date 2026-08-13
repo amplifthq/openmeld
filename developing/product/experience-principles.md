@@ -129,9 +129,13 @@ sentence.
 - Applied: retired commands answer with what replaced them; carrier
   false-failure copy was rewritten to state the true startup window instead of
   crying wolf.
+- Applied: when a Slack participant must connect an OpenMeld account before
+  creating a Space, the reply points to one private **Connect my account and
+  continue** action. It never asks the participant to find a session with the
+  right tool catalog or enable internal tools.
 - Violation looks like: `agent_profile_binding.primary_conflict` as the
-  headline of a user-facing failure, or copy that hedges because the developer
-  was unsure.
+  headline of a user-facing failure, telling a beginner that a tool catalog is
+  unavailable, or copy that hedges because the developer was unsure.
 
 ## 9. Intent is authority; confirmation is the exception
 

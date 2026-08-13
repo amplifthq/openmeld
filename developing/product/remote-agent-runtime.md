@@ -918,6 +918,16 @@ second mutation. Classifier failure, timeout, insufficient context, or any
 unsupported request falls back to the complete runtime path. Keyword rules do
 not grant this binding.
 
+When the same self-contained Task or Space request comes from an unlinked
+connected Message Channel member, the classifier may identify the requested
+surface but must not expose the unavailable create tool or let the model explain
+the missing catalog. The worker instead forces the existing identity-boundary
+tool, preserves the selected model's valid reasoning contract, and records the
+private account connection action. The visible reply says that account
+connection is needed and points to the private message in ordinary user
+language. Internal tool, catalog, session, route, and permission vocabulary is
+never a user-facing recovery instruction.
+
 ### Conversation compaction and runtime rollover
 
 Flue remains the sole owner of the message history, summary, and compaction
@@ -1750,7 +1760,11 @@ but not trigger.
    blocks, and worker submission failures must surface on that conversation's
    result surface as a visible failure. A member-authored trigger must never
    silently disappear. Core owns all failure and system copy; the worker
-   produces successful answers only. `outcome_unknown` is the fail-closed
+   produces successful answers only. Failure copy names Center Agent, the
+   user's request, and one next action; it never exposes the hosted runtime's
+   internal product name or asks the user to understand tools, catalogs,
+   sessions, routes, provider configuration, or permission infrastructure.
+   `outcome_unknown` is the fail-closed
    exception for an ambiguous Slack provider outcome, or for a Lark/Feishu
    ambiguity that remains unresolved when its official 60-minute UUID
    deduplication window ends. Core preserves it for diagnostics and does not

@@ -803,6 +803,30 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
     messageChannelIdentityLinkSupported = true;
     await expect(
+      executeTool(tools, "openmeld_require_identity_for_action", {
+        boundary: "identity_owned",
+        requestedAction: "Create an OpenMeld Space",
+      })
+    ).resolves.toEqual({
+      actionWillBeAttached: true,
+      boundary: "identity_owned",
+      identityRequired: true,
+      label: "Connect my account and continue",
+      requestedAction: "Create an OpenMeld Space",
+      target: {
+        kind: "message_channel_identity_link",
+        purpose: "continue_request",
+      },
+    });
+    await expect(
+      readRemoteAgentCallbackContext(storage, ACK.submissionId)
+    ).resolves.toMatchObject({
+      navigationTarget: {
+        kind: "message_channel_identity_link",
+        purpose: "continue_request",
+      },
+    });
+    await expect(
       executeTool(tools, "openmeld_get_navigation_action", {
         connectToUserId: "user_mina",
         kind: "message_channel_identity_link",

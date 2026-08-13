@@ -12,7 +12,7 @@ describe("Remote Agent runtime policy", () => {
     ).toEqual({
       ok: false,
       code: "remote_agent.runtime_disabled",
-      message: "Remote Agent is not enabled.",
+      message: "Center Agent isn't available right now. Try again in a moment.",
     });
   });
 
@@ -29,7 +29,8 @@ describe("Remote Agent runtime policy", () => {
     ).toEqual({
       ok: false,
       code: "remote_agent.organization_blocked",
-      message: "Remote Agent is blocked for this organization.",
+      message:
+        "Center Agent is unavailable for this Organization. Ask an Organization owner or admin for help.",
     });
   });
 

@@ -18,6 +18,18 @@ export type ProjectLocalConnectionFailureReasonCode =
 
 export const CODEX_UPGRADE_REQUIRED_REASON =
   "Codex on this device is too old for the current model. Upgrade Codex on this device, then try again.";
+export const CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY =
+  "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.";
+export const CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY =
+  "Center Agent didn't return a reply. Try again. If it keeps happening, open diagnostics in OpenMeld.";
+export const CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY =
+  "Center Agent couldn't start this request. Try again. If it keeps happening, open diagnostics in OpenMeld.";
+export const CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY =
+  "OpenMeld couldn't find the message that started this request, so Center Agent did not run. Send the request again.";
+export const CENTER_AGENT_TEMPORARILY_UNAVAILABLE_PUBLIC_COPY =
+  "Center Agent isn't available right now. Try again in a moment.";
+export const CENTER_AGENT_ORGANIZATION_UNAVAILABLE_PUBLIC_COPY =
+  "Center Agent is unavailable for this Organization. Ask an Organization owner or admin for help.";
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE =
   "remote_agent.tool_result_too_large";
 export const REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY =
@@ -26,6 +38,7 @@ export const REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE =
   "remote_agent.conversation_history_limit_exceeded";
 export const REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_PUBLIC_COPY =
   "Center Agent could not continue this conversation automatically. Try again or open diagnostics.";
+const REMOTE_AGENT_INTERNAL_PRODUCT_NAME_RE = /\bRemote Agent\b/i;
 const EXACT_PATTERN_PREFIX = "=";
 const RUNTIME_PERMISSION_DENIAL_PUBLIC_COPY =
   "The requested action was blocked by the Agent Profile’s permission settings. Review its permissions and choose a less restrictive mode only if you trust the access it grants, then wake the agent again.";
@@ -50,6 +63,23 @@ const LEADING_ERROR_CODE_PREFIX_RE = /^[a-z][\w.]*:\s+/i;
 const HTML_ERROR_BODY_RE = /^\s*</;
 
 export const DISPATCH_ERROR_SUMMARY_MAX_LENGTH = 512;
+
+export function resolveCenterAgentCallbackFailureMessage(input: {
+  failureCode: string;
+  failureMessage: string;
+}): string {
+  if (input.failureCode === "remote_agent.empty_assistant_response") {
+    return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
+  }
+  if (input.failureCode === "remote_agent.turn_not_completed") {
+    return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
+  }
+  const message = input.failureMessage.trim();
+  if (!message || REMOTE_AGENT_INTERNAL_PRODUCT_NAME_RE.test(message)) {
+    return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
+  }
+  return message;
+}
 
 const DISPATCH_ERROR_REDACTION_REPLACEMENTS: readonly [RegExp, string][] = [
   [/\b(authorization\s*:\s*(?:bearer|basic)\s+)[^\s,;]+/gi, "$1[redacted]"],

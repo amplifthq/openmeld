@@ -1,3 +1,7 @@
+import {
+  CENTER_AGENT_ORGANIZATION_UNAVAILABLE_PUBLIC_COPY,
+  CENTER_AGENT_TEMPORARILY_UNAVAILABLE_PUBLIC_COPY,
+} from "@openmeld/schemas";
 import type { CoreBindings } from "../../lib/bindings";
 
 export type RemoteAgentRuntimeAvailability =
@@ -20,7 +24,7 @@ export function resolveRemoteAgentRuntimeAvailability(input: {
     return {
       ok: false,
       code: "remote_agent.runtime_disabled",
-      message: "Remote Agent is not enabled.",
+      message: CENTER_AGENT_TEMPORARILY_UNAVAILABLE_PUBLIC_COPY,
     };
   }
 
@@ -31,7 +35,7 @@ export function resolveRemoteAgentRuntimeAvailability(input: {
     return {
       ok: false,
       code: "remote_agent.organization_blocked",
-      message: "Remote Agent is blocked for this organization.",
+      message: CENTER_AGENT_ORGANIZATION_UNAVAILABLE_PUBLIC_COPY,
     };
   }
 

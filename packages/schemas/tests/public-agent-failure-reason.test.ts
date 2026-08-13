@@ -4,6 +4,7 @@ import {
   isAgentExecutionReadinessImpactReasonCode,
   isProjectLocalConnectionFailureReasonCode,
   projectLocalConnectionFailureReasonCodeSchema,
+  resolveCenterAgentCallbackFailureMessage,
   resolveDetailedPublicAgentFailureReason,
   resolveMappedPublicAgentFailureReason,
   resolvePublicAgentAvailabilityCopy,
@@ -31,6 +32,32 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
+  it("canonicalizes mixed-version Center Agent callback failures before publication", () => {
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "remote_agent.turn_not_completed",
+        failureMessage:
+          "Remote Agent could not finish this request. Please try again or open diagnostics.",
+      })
+    ).toBe(
+      "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "provider.some_new_failure",
+        failureMessage: "Remote Agent runtime failed unexpectedly.",
+      })
+    ).toBe(
+      "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld."
+    );
+    expect(
+      resolveCenterAgentCallbackFailureMessage({
+        failureCode: "provider.rate_limited",
+        failureMessage: "The model provider is busy. Try again in a moment.",
+      })
+    ).toBe("The model provider is busy. Try again in a moment.");
+  });
+
   it("reduces raw vendor response bodies to a bounded diagnostic summary", () => {
     const rawVendorBody = JSON.stringify({
       error: {

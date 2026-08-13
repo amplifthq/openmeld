@@ -7,6 +7,8 @@ import {
   buildOpenMeldOrganizationWebUrl,
   buildRemoteAgentCenterAgentTaskConversationId,
   buildSlackIdentityLinkNavigationAction,
+  CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
+  CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
   deriveCenterAgentDirectMessageSpaceProjection,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
@@ -24,6 +26,7 @@ import {
   remoteAgentWorkerExecutionQueryResponseSchema,
   type remoteAgentWorkerSubmitMessagesResultSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
+  resolveCenterAgentCallbackFailureMessage,
   routineWorkflowContinuationEventPayloadSchema,
   spaceMessageAttachmentsSchema,
 } from "@openmeld/schemas";
@@ -430,6 +433,18 @@ const REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_CODE =
   "remote_agent.admission_timeout";
 const REMOTE_AGENT_ADMISSION_TIMEOUT_FAILURE_TEXT =
   "Center Agent did not accept this request in time. Please try again.";
+const CENTER_AGENT_ROUTINE_PREPARATION_FAILED_PUBLIC_COPY =
+  "Center Agent couldn't prepare this Routine. Run it again. If it keeps happening, open diagnostics in OpenMeld.";
+const CENTER_AGENT_ROUTINE_UNAVAILABLE_PUBLIC_COPY =
+  "Center Agent isn't available right now. Run this Routine again in a moment.";
+const CENTER_AGENT_ROUTINE_START_UNCONFIRMED_PUBLIC_COPY =
+  "OpenMeld couldn't confirm whether Center Agent started this Routine, so it did not retry automatically. Run the Routine again.";
+const CENTER_AGENT_ROUTINE_START_TIMEOUT_PUBLIC_COPY =
+  "This Routine did not start in time. Run it again. If it keeps happening, open diagnostics in OpenMeld.";
+const CENTER_AGENT_ROUTINE_START_FAILED_PUBLIC_COPY =
+  "This Routine couldn't start. Run it again. If it keeps happening, open diagnostics in OpenMeld.";
+const CENTER_AGENT_ROUTINE_FAILED_PUBLIC_COPY =
+  "This Routine couldn't finish. Run it again. If it keeps happening, open diagnostics in OpenMeld.";
 const REMOTE_AGENT_TASK_CONTINUATION_FAILURE_TEXT =
   "Center Agent could not continue this task. Please try again or open diagnostics.";
 const CENTER_AGENT_MODEL_RESOLUTION_FAILURE_CODES = new Set([
@@ -1372,7 +1387,7 @@ export async function submitRemoteAgentNativeDelivery(input: {
       ...input,
       failureCode: "remote_agent.worker_unavailable",
       ledgerStatus: "worker_unavailable",
-      text: "Remote Agent could not start this request. Please try again or open diagnostics.",
+      text: CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
     });
     return { shouldAck: true, status: "failed" };
   }
@@ -1382,7 +1397,7 @@ export async function submitRemoteAgentNativeDelivery(input: {
       ...input,
       failureCode: "remote_agent.source_message_missing",
       ledgerStatus: "failed",
-      text: "Remote Agent could not start this request because the trigger message was unavailable.",
+      text: CENTER_AGENT_SOURCE_MESSAGE_MISSING_PUBLIC_COPY,
     });
     return { shouldAck: true, status: "failed" };
   }
@@ -1997,7 +2012,7 @@ export async function submitRemoteAgentSlackNativeDelivery(input: {
       ledgerStatus: "worker_unavailable",
       nowMs: input.nowMs,
       request: input.request,
-      text: "Remote Agent could not start this request. Please try again or open diagnostics.",
+      text: CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
     });
     return { shouldAck: true, status: "failed" };
   }
@@ -2105,7 +2120,7 @@ export async function submitRemoteAgentSlackNativeDelivery(input: {
       ledgerStatus: "worker_unavailable",
       nowMs: input.nowMs,
       request: input.request,
-      text: "Remote Agent could not start this request. Please try again or open diagnostics.",
+      text: CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
     });
     return { shouldAck: true, status: "failed" };
   }
@@ -4707,8 +4722,7 @@ async function resolveRoutineAdmissionAuthority(input: {
     });
     return {
       failureCode: "remote_agent.routine_admission_unavailable",
-      failureReason:
-        "Remote Agent admission was unavailable. Try again later or open diagnostics.",
+      failureReason: CENTER_AGENT_ROUTINE_PREPARATION_FAILED_PUBLIC_COPY,
       routine: executionRoutine,
       status: "failed",
       target: null,
@@ -4742,8 +4756,7 @@ async function resolveRoutineAdmissionAuthority(input: {
   if (!worker) {
     return {
       failureCode: "remote_agent.worker_unavailable",
-      failureReason:
-        "Remote Agent is unavailable. Try again later or open diagnostics.",
+      failureReason: CENTER_AGENT_ROUTINE_UNAVAILABLE_PUBLIC_COPY,
       routine: executionRoutine,
       status: "failed",
       target: targetResolution.target,
@@ -5006,8 +5019,7 @@ export async function submitRemoteAgentRoutineDelivery(
         db: input.db,
         env: input.env,
         failureCode: "remote_agent.worker_unavailable",
-        failureReason:
-          "Remote Agent is unavailable. Try again later or open diagnostics.",
+        failureReason: CENTER_AGENT_ROUTINE_UNAVAILABLE_PUBLIC_COPY,
         nowMs: input.nowMs,
         routine: currentRoutine,
         run: currentRun,
@@ -5502,8 +5514,7 @@ async function recoverUnacknowledgedRemoteAgentRoutineSubmission(input: {
     await terminalizeRemoteAgentRoutineSubmissionRecoveryFailure({
       ...input,
       failureCode: "remote_agent.worker_unavailable",
-      failureReason:
-        "Remote Agent is unavailable. Try again later or open diagnostics.",
+      failureReason: CENTER_AGENT_ROUTINE_UNAVAILABLE_PUBLIC_COPY,
       invariantMessage:
         "Routine delivery receiver-method failure was not terminalized",
     });
@@ -5828,7 +5839,7 @@ function resolveRemoteAgentWorkerSubmitFailure(): {
   return {
     failureCode: "remote_agent.worker_submit_failed",
     ledgerStatus: "worker_unavailable",
-    text: "Remote Agent could not start this request. Please try again or open diagnostics.",
+    text: CENTER_AGENT_REQUEST_START_FAILED_PUBLIC_COPY,
   };
 }
 
@@ -5910,8 +5921,7 @@ async function maybeFailExpiredRoutineSubmissionRecovery(input: {
   return await failRemoteAgentRoutineSubmissionRecovery({
     ...input,
     failureCode: "remote_agent.worker_ack_recovery_expired",
-    failureReason:
-      "Remote Agent could not confirm that the unattended execution started.",
+    failureReason: CENTER_AGENT_ROUTINE_START_UNCONFIRMED_PUBLIC_COPY,
   });
 }
 
@@ -6747,10 +6757,10 @@ function resolveRoutineFailurePublicationReason(input: {
   failureDetail: string | null;
 }): string {
   if (input.failureCode === "routine.claim_timeout") {
-    return "Remote Agent delivery did not start before the claim watchdog expired. Open diagnostics for details.";
+    return CENTER_AGENT_ROUTINE_START_TIMEOUT_PUBLIC_COPY;
   }
   if (input.failureCode === "routine.native_delivery_submission_failed") {
-    return "Remote Agent delivery could not start. Try again later or open diagnostics.";
+    return CENTER_AGENT_ROUTINE_START_FAILED_PUBLIC_COPY;
   }
   const failureDetail = normalizeOptionalText(input.failureDetail);
   return failureDetail
@@ -6758,7 +6768,7 @@ function resolveRoutineFailurePublicationReason(input: {
         failureCode: input.failureCode,
         failureDetail,
       })
-    : "Remote Agent could not complete this Routine. Try again or open diagnostics.";
+    : CENTER_AGENT_ROUTINE_FAILED_PUBLIC_COPY;
 }
 
 function resolveRoutineFailureLedgerStatus(
@@ -8713,7 +8723,7 @@ function buildRemoteAgentFinalPublicationPayload(input: {
     storageVersion: 2,
     text:
       input.body.status === "failed"
-        ? input.body.failureMessage
+        ? resolveCenterAgentCallbackFailureMessage(input.body)
         : input.body.text,
   };
 }
@@ -10533,7 +10543,7 @@ async function closeRemoteAgentFailedCallbackStream(input: {
     terminal: {
       kind: "failed",
       reasonCode: input.body.failureCode,
-      noticeText: input.body.failureMessage,
+      noticeText: resolveCenterAgentCallbackFailureMessage(input.body),
     },
   });
 }
@@ -10897,7 +10907,7 @@ async function publishRemoteAgentCallbackFailureText(input: {
     return await publishRemoteAgentSlackCallbackText({
       delivery: input.delivery,
       env: input.env,
-      text: input.body.failureMessage,
+      text: resolveCenterAgentCallbackFailureMessage(input.body),
     });
   }
 
@@ -10923,7 +10933,7 @@ async function publishRemoteAgentCallbackFailureText(input: {
       purpose: REMOTE_AGENT_FAILURE_PURPOSE,
       text: buildRoutineFailureText({
         failureCode: input.body.failureCode,
-        failureReason: input.body.failureMessage,
+        failureReason: resolveCenterAgentCallbackFailureMessage(input.body),
         routineName:
           normalizeOptionalText(input.delivery.routineNameSnapshot) ??
           "Scheduled Routine",
@@ -10954,14 +10964,14 @@ async function publishRemoteAgentCallbackFailureText(input: {
     env: input.env,
     spaceId: input.delivery.spaceId,
     profile,
-    text: input.body.failureMessage,
+    text: resolveCenterAgentCallbackFailureMessage(input.body),
     authoringPolicy: "system_emitted",
     finalOutcomeAuthority: "remote_agent_native_delivery",
     messageEnvelope: {
       activationTargets: [],
       referenceTargets: [],
       replyToSignalId: input.delivery.triggerMessageId,
-      text: input.body.failureMessage,
+      text: resolveCenterAgentCallbackFailureMessage(input.body),
     },
     meta: {
       clientMessageId: input.body.submissionId,

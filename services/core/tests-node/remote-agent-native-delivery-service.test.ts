@@ -8011,7 +8011,7 @@ describe("Remote Agent native delivery callback service", () => {
               "Cloudflare AI binding request failed with 502 Bad Gateway.",
             purpose: REMOTE_AGENT_FAILURE_PURPOSE,
           }),
-          text: "Remote Agent could not finish this request. Please try again or open diagnostics.",
+          text: "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.",
           threadContext: THREAD_CONTEXT,
         })
       );
@@ -8022,7 +8022,7 @@ describe("Remote Agent native delivery callback service", () => {
           kind: "failed",
           reasonCode: "remote_agent.turn_not_completed",
           noticeText:
-            "Remote Agent could not finish this request. Please try again or open diagnostics.",
+            "Center Agent couldn't finish this request. Try again. If it keeps happening, open diagnostics in OpenMeld.",
         },
       });
       await expect(
@@ -8942,11 +8942,15 @@ describe("Remote Agent native delivery callback service", () => {
         name: "worker unavailable",
         envOptions: {},
         expectedFailureCode: "remote_agent.worker_unavailable",
+        expectedText:
+          "Center Agent couldn't start this request. Try again. If it keeps happening, open diagnostics in OpenMeld.",
       },
       {
         name: "runtime flag rejected",
         envOptions: { remoteAgentRuntimeEnabled: "false" },
         expectedFailureCode: "remote_agent.runtime_disabled",
+        expectedText:
+          "Center Agent isn't available right now. Try again in a moment.",
       },
       {
         name: "source missing",
@@ -8968,12 +8972,15 @@ describe("Remote Agent native delivery callback service", () => {
           },
         }),
         expectedFailureCode: "remote_agent.source_message_missing",
+        expectedText:
+          "OpenMeld couldn't find the message that started this request, so Center Agent did not run. Send the request again.",
       },
     ] satisfies Array<{
       expectedFailureCode: string;
       envOptions?: BuildEnvOptions;
       message?: OpenMeldDaemonDispatchQueueMessage;
       name: string;
+      expectedText: string;
     }>;
 
     for (const testCase of cases) {
@@ -9008,7 +9015,7 @@ describe("Remote Agent native delivery callback service", () => {
               failureStage: "execution",
               noticeType: "terminal_failure",
               reasonCode: testCase.expectedFailureCode,
-              text: expect.any(String),
+              text: testCase.expectedText,
             }),
             finalOutcomeAuthority: "remote_agent_native_delivery",
             profile: expect.objectContaining({

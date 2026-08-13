@@ -760,9 +760,7 @@ async function executeMessageChannelIdentityNavigationAction(input: {
     speakerMember.messageChannelIdentity.provider === "slack" &&
     authorization.slackIdentityLinkSupported;
   if (!(providerNeutralSupport || legacySlackSupport)) {
-    throw new Error(
-      "Message Channel identity linking is not available until Core supports this action."
-    );
+    return null;
   }
   if (authorization.messageChannelAccountTargetSupported) {
     await authorizeAnonymousMemberToolAtCore({
@@ -1015,18 +1013,19 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_require_identity_for_action",
       description:
-        "Record that one explicit action requested by the current connected Message Channel member cannot proceed without their personal OpenMeld access. Use this only for a personal or member-owned capability, a role-restricted action, a destructive or human-attributed action, or an action whose owner reports that a verified OpenMeld member is required. Never use it for public research, Organization information, shared-App reads, or ordinary safe shared-App writes. Complete every independent part first. This does not execute the blocked action. After it succeeds, compare the current provider account with openmeld_read_organization_directory, then call openmeld_get_navigation_action with kind message_channel_identity_link and purpose continue_request so OpenMeld can attach one private connection action and continue this request.",
+        "Record that one explicit action requested by the current connected Message Channel member cannot proceed without their personal OpenMeld access. Use this only for a personal or member-owned capability, a role-restricted action, a destructive or human-attributed action, or an action whose owner reports that a verified OpenMeld member is required. Never use it for public research, Organization information, shared-App reads, or ordinary safe shared-App writes. Complete every independent part first. This does not execute the blocked action. OpenMeld immediately records one private Connect my account and continue action for the current request. You may then compare the current provider account with openmeld_read_organization_directory and refine the action through openmeld_get_navigation_action when exactly one member is clearly the same person; otherwise the generic private action is already ready. Never expose tools, catalogs, sessions, routing, or permission infrastructure to the user.",
       input: identityRequiredActionToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
           identityRequiredActionToolInputSchema,
           payload
         );
-        const { turnEnvelope } = await buildRemoteAgentToolContext({
+        const toolContext = await buildRemoteAgentToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_require_identity_for_action",
         });
+        const { turnEnvelope } = toolContext;
         const speakerMember =
           resolveOrganizationMemberTurnEnvelopeSpeaker(turnEnvelope);
         if (!(speakerMember && "kind" in speakerMember)) {
@@ -1040,7 +1039,18 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           submissionId: input.submissionId,
           toolName: "openmeld_require_identity_for_action",
         });
+        const navigation = await executeMessageChannelIdentityNavigationAction({
+          coreWorker: input.coreWorker,
+          parsedTarget: {
+            kind: "message_channel_identity_link",
+            purpose: "continue_request",
+          },
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolContext,
+        });
         return {
+          ...(navigation ?? {}),
           boundary: request.boundary,
           identityRequired: true,
           requestedAction: request.requestedAction,
@@ -1066,13 +1076,20 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           parsedTarget.kind === "slack_identity_link" ||
           parsedTarget.kind === "message_channel_identity_link"
         ) {
-          return await executeMessageChannelIdentityNavigationAction({
-            coreWorker: input.coreWorker,
-            parsedTarget,
-            storage: input.storage,
-            submissionId: input.submissionId,
-            toolContext,
-          });
+          const navigation =
+            await executeMessageChannelIdentityNavigationAction({
+              coreWorker: input.coreWorker,
+              parsedTarget,
+              storage: input.storage,
+              submissionId: input.submissionId,
+              toolContext,
+            });
+          if (!navigation) {
+            throw new Error(
+              "Message Channel identity linking is not available until Core supports this action."
+            );
+          }
+          return navigation;
         }
         const organizationWebUrl = turnEnvelope?.organization.webUrl;
         if (!organizationWebUrl) {
