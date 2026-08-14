@@ -104,6 +104,38 @@ describe("createNewStartProfile Default Project setup", () => {
 		});
 		expect(updateDefaultProjectMock).not.toHaveBeenCalled();
 	});
+
+	it("prepares a managed workspace for an unbound Agent created on the current computer", async () => {
+		await createNewStartProfile({
+			boundAgentId: "",
+			deviceId: "device-1",
+			profileKind: "agent",
+			profileName: "Future Grok Agent",
+			runtimeLane: "dev-local",
+			selectedHumanProfileId: "profile-human",
+		});
+
+		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
+		expect(updateWorkspaceMock).toHaveBeenCalledWith({
+			actorProfileId: "profile-human",
+			profileId: "profile-agent",
+			workspaceMode: "openmeld_managed",
+		});
+	});
+
+	it("keeps offline unbound Agent creation independent from local workspace setup", async () => {
+		await createNewStartProfile({
+			boundAgentId: "",
+			deviceId: null,
+			profileKind: "agent",
+			profileName: "Manual Teammate",
+			runtimeLane: null,
+			selectedHumanProfileId: "profile-human",
+		});
+
+		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
+	});
 });
 
 function profileFixture(overrides: { defaultProjectId?: string | null } = {}) {

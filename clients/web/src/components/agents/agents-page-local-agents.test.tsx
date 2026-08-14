@@ -432,6 +432,9 @@ describe("LocalAgentsCard", () => {
 		await waitFor(() => {
 			expect(refreshLocalAgentCatalog).toHaveBeenCalledTimes(1);
 		});
+		expect(toastMock.success).toHaveBeenCalledWith(
+			"Local agent check complete."
+		);
 	});
 
 	it("keeps checking canonical status after the control request times out", async () => {

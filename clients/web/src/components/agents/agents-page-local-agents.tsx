@@ -120,6 +120,7 @@ export function LocalAgentsCard(input: {
 		setIsCheckingAgents(true);
 		try {
 			await input.recovery.refreshLocalAgentCatalog();
+			toast.success("Local agent check complete.");
 		} catch (error) {
 			if (isLocalAgentCheckStillRunningError(error)) {
 				// The probe outran the request budget but keeps running on the OpenMeld

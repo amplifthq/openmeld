@@ -7,6 +7,7 @@ import {
 	resolveAgentProfileAutoRefreshDelayMs,
 	resolveAgentProfileAvailabilityFilterState,
 	resolveAgentProfileBulkReconnectCandidates,
+	resolveAgentProfileRepairActions,
 	resolveAgentProfileRowWakeAvailability,
 	resolveAgentProfileSetupAction,
 	resolveAutoRefreshingAgentProfileIds,
@@ -190,6 +191,28 @@ describe("Agent Profile availability presentation", () => {
 			summary: "Not connected to a computer.",
 			tooltip: "Not connected to a computer",
 		});
+	});
+
+	it("uses the shared product priority for local agent connection choices", () => {
+		const actions = resolveAgentProfileRepairActions({
+			isCurrentComputer: true,
+			localAgentCatalogEntries: [
+				createLocalAgentCatalogEntry("claude-code", "Claude Code"),
+				createLocalAgentCatalogEntry("codex", "Codex CLI"),
+				createLocalAgentCatalogEntry("cursor", "Cursor CLI"),
+				createLocalAgentCatalogEntry("grok-build", "Grok Build"),
+				createLocalAgentCatalogEntry("opencode", "OpenCode"),
+			],
+			readiness: null,
+		});
+
+		expect(actions.map((action) => action.agentControllerRef)).toEqual([
+			"builtin:codex",
+			"builtin:claude-code",
+			"builtin:grok-build",
+			"builtin:cursor",
+			"builtin:opencode",
+		]);
 	});
 
 	it("offers one explicit bulk reconnect only for manageable profiles with a matching local agent", () => {

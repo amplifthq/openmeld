@@ -24,7 +24,7 @@ import { updateAgentProfileWorkspace } from "./update-profile-workspace";
 // (2) optionally bind an agent profile to a local agent (gateway), and
 // (3) configure its local workspace and optional Default Project. Space joining
 // remains in join-profile-to-space.ts. This module
-// owns steps (1) and (2).
+// owns those three local setup steps.
 
 export type NewProfileKind = "human" | "agent";
 
@@ -79,7 +79,7 @@ export async function createNewStartProfile(
 		});
 	}
 
-	return await createBoundStartAgentProfile({
+	return await createStartAgentProfileWithLocalSetup({
 		...(input.agentControllerPermissionMode
 			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
 			: {}),
@@ -116,7 +116,7 @@ function requireNewProfileKind(
 	return profileKind;
 }
 
-async function createBoundStartAgentProfile(input: {
+async function createStartAgentProfileWithLocalSetup(input: {
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	boundAgentId: string;
 	deviceId: string | null;
@@ -142,6 +142,13 @@ async function createBoundStartAgentProfile(input: {
 		},
 	});
 	if (!agentControllerRef) {
+		if (input.deviceId !== null && input.runtimeLane !== null) {
+			await configureNewAgentProfileWorkspace({
+				agentProfileId: profile.openMeldProfileId,
+				projectFolderPath: input.projectFolderPath,
+				selectedHumanProfileId: input.selectedHumanProfileId,
+			});
+		}
 		return profile;
 	}
 
@@ -227,7 +234,7 @@ async function configureNewAgentProfileWorkspace(input: {
 		throw new NewProfileLocalSetupError({
 			message:
 				failure.message ||
-				"OpenMeld created the Agent Profile, but couldn't save that Project folder on this computer.",
+				"OpenMeld created the Agent, but couldn't prepare its working folder on this computer.",
 			setupRefreshActionLabel: "Reconnect computer",
 			setupRefreshAvailable: false,
 		});

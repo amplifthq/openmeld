@@ -5,6 +5,7 @@ import {
 	buildAgentControllerRef,
 	DUPLICATE_REPLY_CONVERSATION_CONTEXT,
 	resolveAgentWakeAvailabilityDisplayCategory,
+	resolveSelectableCandidates,
 } from "@openmeld/agent-runtime";
 import {
 	canonicalizeAgentControllerRef,
@@ -810,7 +811,12 @@ export function resolveAgentProfileBulkReconnectCandidates(input: {
 function createAgentProfileConnectActionsFromLocalAgents(
 	entries: readonly DeviceAgentCatalogEntry[]
 ): readonly AgentProfileRepairAction[] {
-	return entries
+	return resolveSelectableCandidates(
+		entries.map((entry) => ({
+			...entry,
+			registered: entry.detected,
+		}))
+	)
 		.filter(isRunnableLocalAgentEntry)
 		.map((entry) =>
 			createAgentProfileRepairActionFromLocalAgent({
