@@ -508,6 +508,8 @@ function CenterAgentAppConnectionCardState(
 	const statusChecking =
 		!connectionsQuery.isPending &&
 		(connectionsQuery.isFetching || connectionsQuery.isPaused);
+	const connectionErrorVisible =
+		connectionsQuery.isError && waitingScope === null;
 
 	return (
 		<AppConnectionCardContent
@@ -521,7 +523,7 @@ function CenterAgentAppConnectionCardState(
 			disconnectPendingRequest={disconnectPendingRequest}
 			errorMessage={
 				localError ??
-				(connectionsQuery.isError
+				(connectionErrorVisible
 					? resolveConnectorConnectionErrorMessage(
 							connectionsQuery.error,
 							input.app.name
@@ -555,7 +557,7 @@ function CenterAgentAppConnectionCardState(
 			onRetry={() => connectionsQuery.refetch()}
 			otherMemberConnections={otherMemberConnections}
 			sharedConnection={sharedConnection}
-			showConnectionRetry={localError === null && connectionsQuery.isError}
+			showConnectionRetry={localError === null && connectionErrorVisible}
 			statusAvailable={statusAvailable}
 			statusChecking={statusChecking}
 		/>

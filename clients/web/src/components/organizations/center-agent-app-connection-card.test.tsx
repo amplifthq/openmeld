@@ -703,6 +703,7 @@ describe("CenterAgentAppConnectionCard", () => {
 				expect.objectContaining({ error: confirmationError })
 			)
 		);
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 		connectionLookupFails = false;
 
 		expect(
