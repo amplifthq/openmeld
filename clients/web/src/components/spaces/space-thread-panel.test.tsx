@@ -164,6 +164,60 @@ describe("SpaceThreadPanel", () => {
 		).toBeTruthy();
 	});
 
+	it("opens the durable source message details from live Agent work in a Thread", () => {
+		useQueryMock.mockImplementation(
+			(options: { queryKey: readonly unknown[] }) =>
+				options.queryKey[3] === "sig-thread-1"
+					? {
+							data: createMinimalMessageDetailsResponse(),
+							isError: false,
+							isPending: false,
+						}
+					: {
+							data: undefined,
+							isError: true,
+							isPending: false,
+						}
+		);
+		renderThreadPanel({
+			agentStreams: [
+				{
+					createdAtMs: Date.UTC(2026, 4, 27, 10, 0, 8),
+					dispatchId: "dispatch-thread-1",
+					observedRevision: 1,
+					profileId: "agt_runner",
+					reasonCode: null,
+					sequence: 1,
+					spaceId: "space-123",
+					status: "streaming",
+					streamId: "stream-thread-1",
+					text: "",
+					textSequence: 0,
+					toolParts: [
+						{
+							state: "input-available",
+							toolCallId: "tool-call-1",
+							toolName: "agent_read_files",
+							type: "tool",
+							work: { key: "source.read", v: 1 },
+						},
+					],
+					triggerMessageId: "sig-thread-1",
+					updatedAtMs: Date.UTC(2026, 4, 27, 10, 0, 9),
+				},
+			],
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open message details" })
+		);
+
+		expect(
+			screen.getByRole("dialog", { name: "Message details" })
+		).toBeTruthy();
+		expect(screen.queryByText("Couldn't load message details.")).toBeNull();
+	});
+
 	it("uses the shared visible action slot for thread message details on hover", () => {
 		renderThreadPanel();
 
