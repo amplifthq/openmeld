@@ -1,4 +1,7 @@
-import { centerAgentConnectorConnectionSelectionSchema } from "@openmeld/schemas";
+import {
+  centerAgentConnectorConnectionSelectionSchema,
+  openConnectorRuntimeActionSuccessEnvelopeSchema,
+} from "@openmeld/schemas";
 import { safeParse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -31,6 +34,10 @@ const ACK = {
   submissionId: "flue_submission_123",
 } as const;
 const PROVIDER_IDEMPOTENCY_KEY_PATTERN = /^openmeld:[0-9a-f]{64}$/;
+const TEST_GITHUB_ACTION_OUTPUT_SCHEMA = {
+  additionalProperties: true,
+  type: "object",
+} as const;
 
 function getRemoteAgentGitHubToolDefinitions(
   input: Omit<
@@ -41,9 +48,7 @@ function getRemoteAgentGitHubToolDefinitions(
   const coreWorker = withTestConnectorOperationLedger(input.coreWorker);
   return buildRemoteAgentGitHubToolDefinitions({
     ...input,
-    connectorExecution: withTestOpenConnectorOperationMetadata(
-      input.connectorExecution
-    ),
+    connectorExecution: input.connectorExecution,
     coreWorker: {
       centerAgentRecordConnectorActionAudit: vi.fn(async () => ({
         attribution: null,
@@ -248,16 +253,15 @@ describe("Remote Agent GitHub tools", () => {
     const sender = requireMemberSender(request.turnEnvelope.sender);
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({
+      testOpenConnectorSuccessResponse({
+        actionId: "github.get_file_contents",
         data: {
           decoded_content: "# OpenMeld\n",
           path: "README.md",
           sha: "abc123",
           type: "file",
         },
-        message: "OK",
-        meta: { actionId: "github.get_file_contents" },
-        success: true,
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
@@ -320,7 +324,8 @@ describe("Remote Agent GitHub tools", () => {
     const storage = await createStorage(request);
     const decodedContent = "0123456789".repeat(12_000);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({
+      testOpenConnectorSuccessResponse({
+        actionId: "github.get_file_contents",
         data: {
           content: "A".repeat(160_000),
           content_base64: "A".repeat(160_000),
@@ -330,9 +335,7 @@ describe("Remote Agent GitHub tools", () => {
           sha: "large123",
           type: "file",
         },
-        message: "OK",
-        meta: { actionId: "github.get_file_contents" },
-        success: true,
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
@@ -450,14 +453,15 @@ describe("Remote Agent GitHub tools", () => {
       connectorExecution: {
         baseUrl: "https://connectors.example.test",
         fetch: vi.fn<typeof fetch>(async () =>
-          Response.json({
+          testOpenConnectorSuccessResponse({
+            actionId: "github.get_file_contents",
             data: {
               decoded_content: decodedContent,
               path: "src/localized-content.ts",
               sha: "multibyte123",
               type: "file",
             },
-            success: true,
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
           })
         ),
         runtimeToken: "test-runtime-token",
@@ -521,7 +525,8 @@ describe("Remote Agent GitHub tools", () => {
       connectorExecution: {
         baseUrl: "https://connectors.example.test",
         fetch: vi.fn<typeof fetch>(async () =>
-          Response.json({
+          testOpenConnectorSuccessResponse({
+            actionId: "github.get_file_contents",
             data: {
               content: "A".repeat(200_000),
               content_base64: "A".repeat(200_000),
@@ -529,7 +534,7 @@ describe("Remote Agent GitHub tools", () => {
               sha: "binary123",
               type: "file",
             },
-            success: true,
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
           })
         ),
         runtimeToken: "test-runtime-token",
@@ -562,14 +567,15 @@ describe("Remote Agent GitHub tools", () => {
     const sender = requireMemberSender(request.turnEnvelope.sender);
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({
+      testOpenConnectorSuccessResponse({
+        actionId: "github.get_file_contents",
         data: {
           decoded_content: "0123456789".repeat(6000),
           path: "src/moving-file.ts",
           sha: "new-sha",
           type: "file",
         },
-        success: true,
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
@@ -611,14 +617,15 @@ describe("Remote Agent GitHub tools", () => {
       connectorExecution: {
         baseUrl: "https://connectors.example.test",
         fetch: vi.fn<typeof fetch>(async () =>
-          Response.json({
+          testOpenConnectorSuccessResponse({
+            actionId: "github.get_file_contents",
             data: {
               decoded_content: "0123456789".repeat(6000),
               path: "src/large-file.ts",
               sha: "large123",
               type: "file",
             },
-            success: true,
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
           })
         ),
         runtimeToken: "test-runtime-token",
@@ -654,14 +661,15 @@ describe("Remote Agent GitHub tools", () => {
       connectorExecution: {
         baseUrl: "https://connectors.example.test",
         fetch: vi.fn<typeof fetch>(async () =>
-          Response.json({
+          testOpenConnectorSuccessResponse({
+            actionId: "github.get_file_contents",
             data: {
               decoded_content: "😀X",
               path: "src/unicode.ts",
               sha: "unicode123",
               type: "file",
             },
-            success: true,
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
           })
         ),
         runtimeToken: "test-runtime-token",
@@ -795,14 +803,11 @@ describe("Remote Agent GitHub tools", () => {
       })
     );
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({
+      testOpenConnectorSuccessResponse({
+        actionId: "github.list_pull_requests",
         data: { pull_requests: [{ number: 42, title: "Ship connector" }] },
-        message: "OK",
-        meta: {
-          actionId: "github.list_pull_requests",
-          executionId: "run-1",
-        },
-        success: true,
+        executionId: "run-1",
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
     );
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
@@ -911,7 +916,11 @@ describe("Remote Agent GitHub tools", () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({ data: { ok: true }, success: true })
+      testOpenConnectorSuccessResponse({
+        actionId,
+        data: { ok: true },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution: {
@@ -955,7 +964,8 @@ describe("Remote Agent GitHub tools", () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({
+      testOpenConnectorSuccessResponse({
+        actionId: "github.search_commits",
         data: {
           incomplete_results: false,
           items: [
@@ -1007,7 +1017,7 @@ describe("Remote Agent GitHub tools", () => {
           ],
           total_count: 25,
         },
-        success: true,
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
@@ -1074,7 +1084,8 @@ describe("Remote Agent GitHub tools", () => {
     const storage = await createStorage(request);
     const headlinePrefix = "a".repeat(496);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({
+      testOpenConnectorSuccessResponse({
+        actionId: "github.search_commits",
         data: {
           incomplete_results: false,
           items: [
@@ -1091,7 +1102,7 @@ describe("Remote Agent GitHub tools", () => {
           ],
           total_count: 1,
         },
-        success: true,
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
@@ -1130,7 +1141,8 @@ describe("Remote Agent GitHub tools", () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({
+      testOpenConnectorSuccessResponse({
+        actionId: "github.search_issues_and_pull_requests",
         data: {
           incomplete_results: false,
           items: [
@@ -1180,7 +1192,7 @@ describe("Remote Agent GitHub tools", () => {
           ],
           total_count: 1,
         },
-        success: true,
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
@@ -1254,7 +1266,8 @@ describe("Remote Agent GitHub tools", () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({
+      testOpenConnectorSuccessResponse({
+        actionId: "github.search_commits",
         data: {
           incomplete_results: false,
           items: Array.from({ length: 400 }, (_, index) => ({
@@ -1272,7 +1285,7 @@ describe("Remote Agent GitHub tools", () => {
           })),
           total_count: 500,
         },
-        success: true,
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
@@ -1338,7 +1351,11 @@ describe("Remote Agent GitHub tools", () => {
       },
     }));
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({ data: { ok: true }, success: true })
+      testOpenConnectorSuccessResponse({
+        actionId: "github.get_current_user",
+        data: { ok: true },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
     );
     const connectorExecution = {
       runtimeToken: "test-runtime-token",
@@ -1489,11 +1506,10 @@ describe("Remote Agent GitHub tools", () => {
       })
     );
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({
+      testOpenConnectorSuccessResponse({
+        actionId: "github.get_current_user",
         data: { login: "felix" },
-        message: "OK",
-        meta: { actionId: "github.get_current_user" },
-        success: true,
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
@@ -1607,8 +1623,16 @@ describe("Remote Agent GitHub tools", () => {
     const fetchMock = vi.fn<typeof fetch>((url) =>
       Promise.resolve(
         String(url).endsWith("github.search_issues_and_pull_requests")
-          ? Response.json({ data: { items: [] }, success: true })
-          : Response.json({ data: { number: 1 }, success: true })
+          ? testOpenConnectorSuccessResponse({
+              actionId: "github.search_issues_and_pull_requests",
+              data: { items: [] },
+              outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+            })
+          : testOpenConnectorSuccessResponse({
+              actionId: "github.create_issue",
+              data: { number: 1 },
+              outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+            })
       )
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
@@ -1652,8 +1676,16 @@ describe("Remote Agent GitHub tools", () => {
     const fetchMock = vi.fn<typeof fetch>((url) =>
       Promise.resolve(
         String(url).endsWith("github.search_issues_and_pull_requests")
-          ? Response.json({ data: { items: [] }, success: true })
-          : Response.json({ data: { number: 1 }, success: true })
+          ? testOpenConnectorSuccessResponse({
+              actionId: "github.search_issues_and_pull_requests",
+              data: { items: [] },
+              outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+            })
+          : testOpenConnectorSuccessResponse({
+              actionId: "github.create_issue",
+              data: { number: 1 },
+              outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+            })
       )
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
@@ -1697,7 +1729,11 @@ describe("Remote Agent GitHub tools", () => {
     const fetchMock = vi.fn<typeof fetch>((url) => {
       if (String(url).endsWith("github.search_issues_and_pull_requests")) {
         return Promise.resolve(
-          Response.json({ data: { items: [] }, success: true })
+          testOpenConnectorSuccessResponse({
+            actionId: "github.search_issues_and_pull_requests",
+            data: { items: [] },
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+          })
         );
       }
       return Promise.resolve(
@@ -1788,7 +1824,11 @@ describe("Remote Agent GitHub tools", () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({ data: { id: 99 }, success: true })
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_issue_comment",
+        data: { id: 99 },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution: {
@@ -1845,7 +1885,11 @@ describe("Remote Agent GitHub tools", () => {
     });
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({ data: { number: 7 }, success: true })
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_issue",
+        data: { number: 7 },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution: {
@@ -1935,7 +1979,11 @@ describe("Remote Agent GitHub tools", () => {
     });
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({ data: { commit: { sha: "def456" } }, success: true })
+      testOpenConnectorSuccessResponse({
+        actionId: "github.delete_file",
+        data: { commit: { sha: "def456" } },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution: {
@@ -2026,11 +2074,10 @@ describe("Remote Agent GitHub tools", () => {
       connectionSelection({ ownerDisplayName: "Mira", userId: "user_mira" })
     );
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_issue",
         data: { number: 7, title: "Track connector bug" },
-        message: "OK",
-        meta: {},
-        success: true,
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
       })
     );
     const connectorExecution = {
@@ -2283,7 +2330,11 @@ describe("Remote Agent GitHub tools", () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({ data: { ok: true }, success: true })
+      testOpenConnectorSuccessResponse({
+        actionId,
+        data: { ok: true },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
     );
     const connectorExecution = {
       runtimeToken: "test-runtime-token",
@@ -2361,7 +2412,11 @@ describe("Remote Agent GitHub tools", () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({ data: { ok: true }, success: true })
+      testOpenConnectorSuccessResponse({
+        actionId: "github.delete_file",
+        data: { ok: true },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution: {
@@ -2673,7 +2728,11 @@ describe("Remote Agent GitHub tools", () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({ data: { ok: true }, success: true })
+      testOpenConnectorSuccessResponse({
+        actionId: "github.delete_file",
+        data: { ok: true },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
     );
     const connectorExecution = {
       baseUrl: "https://connectors.example.test",
@@ -2796,14 +2855,11 @@ describe("Remote Agent GitHub tools", () => {
         : undefined;
       if (replay) {
         return Promise.resolve(
-          Response.json({
+          testOpenConnectorSuccessResponse({
+            actionId: "github.create_issue",
             data: replay.data,
-            meta: {
-              actionId: "github.create_issue",
-              auditPersisted: true,
-              executionId: replay.executionId,
-            },
-            success: true,
+            executionId: replay.executionId,
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
           })
         );
       }
@@ -2820,14 +2876,11 @@ describe("Remote Agent GitHub tools", () => {
         throw new Error("response lost after provider mutation");
       }
       return Promise.resolve(
-        Response.json({
+        testOpenConnectorSuccessResponse({
+          actionId: "github.create_issue",
           data: execution.data,
-          meta: {
-            actionId: "github.create_issue",
-            auditPersisted: true,
-            executionId: execution.executionId,
-          },
-          success: true,
+          executionId: execution.executionId,
+          outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
         })
       );
     });
@@ -2908,14 +2961,11 @@ describe("Remote Agent GitHub tools", () => {
         new URL(request.toString()).pathname.split("/").at(-1) ?? ""
       );
       return Promise.resolve(
-        Response.json({
+        testOpenConnectorSuccessResponse({
+          actionId,
           data: { number: providerIdempotencyKeys.length },
-          meta: {
-            actionId,
-            auditPersisted: true,
-            executionId: `provider_execution_${providerIdempotencyKeys.length}`,
-          },
-          success: true,
+          executionId: `provider_execution_${providerIdempotencyKeys.length}`,
+          outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
         })
       );
     });
@@ -3001,7 +3051,11 @@ describe("Remote Agent GitHub tools", () => {
   it("returns shared connection attribution after an authorized GitHub write", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const fetchMock = vi.fn<typeof fetch>(async () =>
-      Response.json({ data: { number: 42 }, success: true })
+      testOpenConnectorSuccessResponse({
+        actionId: "github.create_pull_request",
+        data: { number: 42 },
+        outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+      })
     );
     const tools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution: {
@@ -3080,14 +3134,19 @@ describe("Remote Agent GitHub tools", () => {
       const action = String(url);
       if (action.endsWith("github.search_issues_and_pull_requests")) {
         return Promise.resolve(
-          Response.json({ data: { items: [] }, success: true })
+          testOpenConnectorSuccessResponse({
+            actionId: "github.search_issues_and_pull_requests",
+            data: { items: [] },
+            outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
+          })
         );
       }
       createdIssueCount += 1;
       return Promise.resolve(
-        Response.json({
+        testOpenConnectorSuccessResponse({
+          actionId: "github.create_issue",
           data: { html_url: `https://github.test/issues/${createdIssueCount}` },
-          success: true,
+          outputSchema: TEST_GITHUB_ACTION_OUTPUT_SCHEMA,
         })
       );
     });
@@ -3197,9 +3256,7 @@ async function createNextTurnGitHubTools(input: {
     })
   );
   return buildRemoteAgentGitHubToolDefinitions({
-    connectorExecution: withTestOpenConnectorOperationMetadata(
-      input.connectorExecution
-    ),
+    connectorExecution: input.connectorExecution,
     coreWorker: withTestConnectorOperationLedger(input.coreWorker),
     storage: input.storage,
     submissionId,
@@ -3283,66 +3340,25 @@ const testConnectorOperationLedgers = new WeakMap<
   Map<string, TestConnectorOperation>
 >();
 
-function withTestOpenConnectorOperationMetadata(
-  connectorExecution:
-    | Parameters<
-        typeof buildRemoteAgentGitHubToolDefinitions
-      >[0]["connectorExecution"]
-    | undefined
-) {
-  if (!connectorExecution?.fetch) {
-    return connectorExecution;
-  }
-  const runtimeFetch = connectorExecution.fetch;
-  return {
-    ...connectorExecution,
-    fetch: async (request: RequestInfo | URL, init?: RequestInit) => {
-      const response = await runtimeFetch(request, init);
-      const idempotencyKey = new Headers(init?.headers).get("idempotency-key");
-      if (!idempotencyKey) {
-        return response;
-      }
-      const payload = (await response.clone().json()) as Record<
-        string,
-        unknown
-      >;
-      const operationMeta =
-        payload.meta &&
-        typeof payload.meta === "object" &&
-        !Array.isArray(payload.meta)
-          ? (payload.meta as Record<string, unknown>)
-          : null;
-      if (!(response.ok && payload.success === true)) {
-        return response;
-      }
-      if (
-        typeof operationMeta?.actionId === "string" &&
-        typeof operationMeta.auditPersisted === "boolean" &&
-        typeof operationMeta.executionId === "string"
-      ) {
-        return response;
-      }
-      const pathname = new URL(
-        typeof request === "string" ? request : request.toString()
-      ).pathname;
-      const actionId = decodeURIComponent(pathname.split("/").at(-1) ?? "");
-      return Response.json(
-        {
-          ...payload,
-          meta: {
-            actionId,
-            auditPersisted: true,
-            executionId: `test-provider:${idempotencyKey}`,
-          },
-        },
-        {
-          headers: response.headers,
-          status: response.status,
-          statusText: response.statusText,
-        }
-      );
-    },
-  };
+function testOpenConnectorSuccessResponse(input: {
+  actionId: string;
+  data: unknown;
+  executionId?: string;
+  outputSchema: Record<string, unknown>;
+}) {
+  return Response.json(
+    openConnectorRuntimeActionSuccessEnvelopeSchema.parse({
+      data: input.data,
+      message: "OK",
+      meta: {
+        actionId: input.actionId,
+        auditPersisted: true,
+        executionId: input.executionId ?? `test-provider:${input.actionId}`,
+      },
+      outputSchema: input.outputSchema,
+      success: true,
+    })
+  );
 }
 
 function withTestConnectorOperationLedger(

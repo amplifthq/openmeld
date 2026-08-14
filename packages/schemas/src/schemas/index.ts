@@ -2311,6 +2311,7 @@ export {
   openConnectorRuntimeActionSchema,
   openConnectorRuntimeActionSearchResultListSchema,
   openConnectorRuntimeActionSearchResultSchema,
+  openConnectorRuntimeActionSuccessEnvelopeSchema,
   REMOTE_AGENT_ADMISSION_STAGE_OPERATIONS,
   REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS,

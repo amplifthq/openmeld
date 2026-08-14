@@ -1517,10 +1517,12 @@ source of truth for whether the request is a replay. If provider
 execution succeeds but Core finalization is interrupted, the next exact retry
 reads the Core operation metadata first, rebuilds and verifies the same
 signature with its frozen connection, replays OpenConnector's stored result,
-and finishes the same operation instead of creating a second provider mutation.
-Current membership, connection availability, and provider catalog state gate
-only a new claim; they cannot erase or redefine a provider execution that Core
-already claimed.
+including the output schema that describes that result, and finishes the same
+operation instead of creating a second provider mutation. The Remote Agent
+interprets the returned data through this execution-owned schema rather than
+reconstructing it from a possibly newer catalog. Current membership, connection
+availability, and provider catalog state gate only a new claim; they cannot
+erase or redefine a provider execution that Core already claimed.
 
 The path does not add confirmation to ordinary writes. A verified user's
 explicit request or an explicit Routine instruction is authorization. The

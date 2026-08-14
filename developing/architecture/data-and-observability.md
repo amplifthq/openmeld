@@ -324,12 +324,14 @@ requests. It does not reinterpret an existing operation as
 provider-attributed.
 
 OpenConnector receives that operation ID as its idempotency key and owns the
-provider execution ID plus durable result replay. Core stores only the provider
+provider execution ID plus durable result replay. Every successful provider
+response carries the exact output schema that describes its data, and
+OpenConnector persists and replays both together. Core stores only the provider
 execution ID and `pending`, `completed`, `failed`, or `outcome_unknown` status;
-it does not copy provider output, credentials, or action input. A later
-provider replay may reconcile `outcome_unknown` to `completed` or `failed`.
-Audit history may therefore show the earlier uncertainty and later confirmed
-outcome while the operation row remains the current read truth.
+it does not copy provider output, its output schema, credentials, or action
+input. A later provider replay may reconcile `outcome_unknown` to `completed`
+or `failed`. Audit history may therefore show the earlier uncertainty and later
+confirmed outcome while the operation row remains the current read truth.
 
 Organization membership and connection-owner display remain Auth-owned inputs.
 Connector code must consume them through the centralized Organization

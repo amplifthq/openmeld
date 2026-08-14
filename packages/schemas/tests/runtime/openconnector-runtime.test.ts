@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   openConnectorRuntimeActionSchema,
   openConnectorRuntimeActionSearchResultSchema,
+  openConnectorRuntimeActionSuccessEnvelopeSchema,
 } from "../../src/index";
 
 const ACTION = {
@@ -60,5 +61,32 @@ describe("OpenConnector runtime action contract", () => {
       id: "gmail.fetch_emails",
       service: "gmail",
     });
+  });
+
+  it("requires the execution-owned output schema on successful results", () => {
+    const envelope = {
+      data: { messages: [], resultSizeEstimate: 201 },
+      message: "OK",
+      meta: {
+        actionId: "gmail.fetch_emails",
+        auditPersisted: true,
+        executionId: "provider-execution-1",
+      },
+      outputSchema: {
+        properties: { resultSizeEstimate: { type: "integer" } },
+        type: "object",
+      },
+      success: true,
+    } as const;
+
+    expect(
+      openConnectorRuntimeActionSuccessEnvelopeSchema.parse(envelope)
+    ).toEqual(envelope);
+    expect(
+      openConnectorRuntimeActionSuccessEnvelopeSchema.safeParse({
+        ...envelope,
+        outputSchema: undefined,
+      }).success
+    ).toBe(false);
   });
 });

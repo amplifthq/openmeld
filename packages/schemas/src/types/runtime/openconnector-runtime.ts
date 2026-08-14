@@ -10,6 +10,8 @@ type OpenConnectorRuntimeActionOperationMetaSchema =
   typeof import("../../schemas/runtime/openconnector-runtime")["openConnectorRuntimeActionOperationMetaSchema"];
 type OpenConnectorRuntimeActionSearchResultSchema =
   typeof import("../../schemas/runtime/openconnector-runtime")["openConnectorRuntimeActionSearchResultSchema"];
+type OpenConnectorRuntimeActionSuccessEnvelopeSchema =
+  typeof import("../../schemas/runtime/openconnector-runtime")["openConnectorRuntimeActionSuccessEnvelopeSchema"];
 
 export type OpenConnectorRuntimeActionExecution =
   z.infer<OpenConnectorRuntimeActionExecutionSchema>;
@@ -21,3 +23,5 @@ export type OpenConnectorRuntimeActionOperationMeta =
   z.infer<OpenConnectorRuntimeActionOperationMetaSchema>;
 export type OpenConnectorRuntimeActionSearchResult =
   z.infer<OpenConnectorRuntimeActionSearchResultSchema>;
+export type OpenConnectorRuntimeActionSuccessEnvelope =
+  z.infer<OpenConnectorRuntimeActionSuccessEnvelopeSchema>;

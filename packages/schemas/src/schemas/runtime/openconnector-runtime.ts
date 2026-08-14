@@ -89,3 +89,11 @@ export const openConnectorRuntimeActionOperationMetaSchema = z.strictObject({
   auditPersisted: z.boolean(),
   executionId: nonEmptyStringSchema,
 });
+
+export const openConnectorRuntimeActionSuccessEnvelopeSchema = z.strictObject({
+  data: z.unknown(),
+  message: z.literal("OK"),
+  meta: openConnectorRuntimeActionOperationMetaSchema,
+  outputSchema: jsonSchemaObjectSchema,
+  success: z.literal(true),
+});

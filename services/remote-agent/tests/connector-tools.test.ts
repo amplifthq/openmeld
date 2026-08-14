@@ -248,6 +248,114 @@ describe("Remote Agent generic App tools", () => {
     );
   });
 
+  it("returns the action output contract with paginated provider data", async () => {
+    const request = createSubmitTurnRequest();
+    const action = {
+      ...capturedExecutableOpenConnectorAction,
+      description:
+        "List or count Gmail messages with Gmail search filters, including unread inbox messages.",
+      id: "gmail.fetch_emails",
+      name: "fetch_emails",
+      outputSchema: {
+        properties: {
+          messages: { type: "array" },
+          resultSizeEstimate: {
+            description: "Approximate result count.",
+            type: "integer",
+          },
+        },
+        type: "object",
+      },
+      service: "gmail",
+    };
+    const operationId = "gmail-unread-count";
+    const providerExecutionId = "provider-gmail-unread-count";
+    const providerData = {
+      messages: Array.from({ length: 6 }, (_, index) => ({
+        id: `message-${index + 1}`,
+      })),
+      resultSizeEstimate: 201,
+    };
+    const fetchMock = vi.fn<typeof fetch>((url) => {
+      if (String(url).endsWith("/v1/actions?service=gmail")) {
+        return Promise.resolve(
+          Response.json({
+            data: [action],
+            message: "OK",
+            meta: {},
+            success: true,
+          })
+        );
+      }
+      if (String(url).endsWith(`/v1/actions/${action.id}`)) {
+        return Promise.resolve(
+          Response.json({
+            data: providerData,
+            message: "OK",
+            meta: {
+              actionId: action.id,
+              auditPersisted: true,
+              executionId: providerExecutionId,
+            },
+            outputSchema: action.outputSchema,
+            success: true,
+          })
+        );
+      }
+      throw new Error(`Unexpected connector URL: ${String(url)}`);
+    });
+    const centerAgentReadConnectorActionOperation = vi.fn(async () => ({
+      operation: null,
+    }));
+    const centerAgentRecordConnectorActionOperation = vi.fn(
+      async (entry: { outcome: string }) => ({
+        attribution: CONNECTOR_OPERATION_ATTRIBUTION,
+        operationId,
+        providerExecutionId:
+          entry.outcome === "attempted" ? null : providerExecutionId,
+        recorded: true,
+        replayed: false,
+        status: entry.outcome === "attempted" ? "pending" : "completed",
+      })
+    );
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        centerAgentReadConnectorActionOperation:
+          centerAgentReadConnectorActionOperation as never,
+        centerAgentRecordConnectorActionOperation:
+          centerAgentRecordConnectorActionOperation as never,
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({
+            ownerDisplayName: "Felix",
+            service: "gmail",
+            userId: "user_1",
+          })
+        ),
+      },
+      storage: await createStorage(request),
+      submissionId: ACK.submissionId,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_execute_app_action", {
+        actionId: action.id,
+        input: { q: "is:unread in:inbox" },
+        operationId,
+        service: "gmail",
+      })
+    ).resolves.toMatchObject({
+      actionId: action.id,
+      data: providerData,
+      outputSchema: action.outputSchema,
+      replayed: false,
+    });
+  });
+
   it("fails closed when OpenConnector omits required action metadata", async () => {
     const request = createSubmitTurnRequest();
     const response = structuredClone(openConnectorRuntimeActions);
@@ -400,6 +508,7 @@ describe("Remote Agent generic App tools", () => {
             auditPersisted: true,
             executionId: providerExecutionId,
           },
+          outputSchema: action.outputSchema,
           success: true,
         })
       );
@@ -616,6 +725,7 @@ describe("Remote Agent generic App tools", () => {
               auditPersisted: true,
               executionId: providerExecutionId,
             },
+            outputSchema: action.outputSchema,
             success: true,
           })
         );
@@ -694,6 +804,7 @@ describe("Remote Agent generic App tools", () => {
       },
       data: [{ id: 1, name: "OpenMeld" }],
       operationId,
+      outputSchema: action.outputSchema,
       providerExecutionId,
       replayed: true,
     });
@@ -924,6 +1035,7 @@ describe("Remote Agent generic App tools", () => {
               auditPersisted: true,
               executionId: providerExecutionId,
             },
+            outputSchema: action.outputSchema,
             success: true,
           })
         );
@@ -1021,6 +1133,7 @@ describe("Remote Agent generic App tools", () => {
               auditPersisted: true,
               executionId: providerExecutionId,
             },
+            outputSchema: action.outputSchema,
             success: true,
           })
         );
@@ -1124,6 +1237,7 @@ describe("Remote Agent generic App tools", () => {
             auditPersisted: true,
             executionId: providerExecutionId,
           },
+          outputSchema: action.outputSchema,
           success: true,
         })
       )
@@ -1136,6 +1250,7 @@ describe("Remote Agent generic App tools", () => {
             auditPersisted: true,
             executionId: providerExecutionId,
           },
+          outputSchema: action.outputSchema,
           success: true,
         })
       );

@@ -95,6 +95,7 @@ export {
   openConnectorRuntimeActionSchema,
   openConnectorRuntimeActionSearchResultListSchema,
   openConnectorRuntimeActionSearchResultSchema,
+  openConnectorRuntimeActionSuccessEnvelopeSchema,
 } from "./openconnector-runtime";
 export {
   aiGatewayLogEntrySchema,

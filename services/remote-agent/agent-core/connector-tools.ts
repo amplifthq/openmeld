@@ -7,6 +7,7 @@ import {
   openConnectorRuntimeActionListSchema,
   openConnectorRuntimeActionOperationMetaSchema,
   openConnectorRuntimeActionSearchResultListSchema,
+  openConnectorRuntimeActionSuccessEnvelopeSchema,
 } from "@openmeld/schemas";
 import type {
   ConnectorService,
@@ -218,7 +219,7 @@ export function getRemoteAgentConnectorToolDefinitions(
     {
       name: "openmeld_execute_app_action",
       description:
-        "Execute one exact action previously discovered with openmeld_list_app_actions. This can read or change provider data, so use the action description, effect, and input schema literally. A linked user's explicit request, a connected Message Channel member's explicit request through Organization access, or an explicit Routine instruction authorizes ordinary non-destructive writes without a second confirmation. An interactive destructive action requires linked OpenMeld identity and one separate confirmation. Routines do not currently support destructive actions and receive routine_destructive_action_unsupported with zero side effects. Choose a stable operationId and reuse it when retrying this exact action. OpenMeld attributes and durably records every execution. GitHub uses its dedicated github_* tools instead.",
+        "Execute one exact action previously discovered with openmeld_list_app_actions. This can read or change provider data, so use the action description, effect, and input schema literally. A successful execution returns both data and its outputSchema; interpret the data through that schema, and use a declared aggregate or estimate field instead of counting one returned page. A linked user's explicit request, a connected Message Channel member's explicit request through Organization access, or an explicit Routine instruction authorizes ordinary non-destructive writes without a second confirmation. An interactive destructive action requires linked OpenMeld identity and one separate confirmation. Routines do not currently support destructive actions and receive routine_destructive_action_unsupported with zero side effects. Choose a stable operationId and reuse it when retrying this exact action. OpenMeld attributes and durably records every execution. GitHub uses its dedicated github_* tools instead.",
       endsTurnAfter: (result) =>
         isRemoteAgentDestructiveConfirmationResult(result),
       input: executeAppActionInputSchema,
@@ -287,6 +288,7 @@ async function executeAppAction(input: {
           service: input.request.service,
         })))
       : undefined;
+  let executionAction = routineAction ?? policyAction;
   if (routineAction && isDestructiveConnectorAction(routineAction)) {
     const block = resolveRemoteAgentRoutineDestructiveActionBlock(toolContext);
     if (!block) {
@@ -303,14 +305,14 @@ async function executeAppAction(input: {
     | Awaited<ReturnType<typeof requireAvailableConnectorConnection>>
     | undefined;
   if (!existingOperation) {
-    const action =
+    executionAction =
       routineAction ??
       (await requireOpenConnectorAction({
         actionId: input.request.actionId,
         connectorExecution: input.dependencies.connectorExecution,
         service: input.request.service,
       }));
-    if (isDestructiveConnectorAction(action)) {
+    if (isDestructiveConnectorAction(executionAction)) {
       const requester = resolveConnectorTurnRequester(toolContext.turnEnvelope);
       confirmedSelection = await requireAvailableConnectorConnection({
         connectionPreference: requester.connectionPreference,
@@ -320,10 +322,10 @@ async function executeAppAction(input: {
         toolContext,
       });
       const authorization = await resolveRemoteAgentDestructiveAuthorization({
-        actionDescription: `${action.name}: ${action.description}, using ${action.id} with input ${JSON.stringify(
+        actionDescription: `${executionAction.name}: ${executionAction.description}, using ${executionAction.id} with input ${JSON.stringify(
           input.request.input
         )}`,
-        actionId: action.id,
+        actionId: executionAction.id,
         actionInput: {
           input: input.request.input,
           service: input.request.service,
@@ -340,7 +342,7 @@ async function executeAppAction(input: {
       });
       if (!authorization.authorized) {
         return {
-          actionId: action.id,
+          actionId: executionAction.id,
           ...authorization.result,
         };
       }
@@ -395,6 +397,7 @@ async function executeAppAction(input: {
     attribution,
     data: run.data,
     operationId: input.request.operationId,
+    outputSchema: run.outputSchema,
     providerExecutionId: run.providerExecutionId,
     replayed: operation.coreOperationReplayed,
   };
@@ -763,19 +766,14 @@ async function runOpenConnectorAction(input: {
       providerExecutionId: operationMeta?.executionId ?? null,
     });
   }
-  const operationMeta = readActionOperationMeta({
+  const successEnvelope = readSuccessfulActionEnvelope({
     actionId: input.actionId,
-    meta: envelope.meta,
-    requireCompletedMetadata: true,
+    envelope,
   });
-  if (!operationMeta?.executionId) {
-    throw new Error(
-      `OpenConnector action ${input.actionId} returned incomplete operation metadata.`
-    );
-  }
   return {
-    data: envelope.data,
-    providerExecutionId: operationMeta.executionId,
+    data: successEnvelope.data,
+    outputSchema: successEnvelope.outputSchema,
+    providerExecutionId: successEnvelope.meta.executionId,
   };
 }
 
@@ -1001,6 +999,7 @@ async function readRuntimeEnvelope(response: Response): Promise<{
   errorCode?: string;
   message?: string;
   meta?: unknown;
+  outputSchema?: unknown;
   success?: boolean;
 }> {
   let payload: unknown;
@@ -1022,6 +1021,7 @@ async function readRuntimeEnvelope(response: Response): Promise<{
     message:
       typeof recordValue.message === "string" ? recordValue.message : undefined,
     meta: recordValue.meta,
+    outputSchema: recordValue.outputSchema,
     success:
       typeof recordValue.success === "boolean"
         ? recordValue.success
@@ -1031,8 +1031,33 @@ async function readRuntimeEnvelope(response: Response): Promise<{
 
 type OpenConnectorActionRun = {
   data: unknown;
+  outputSchema: OpenConnectorRuntimeAction["outputSchema"];
   providerExecutionId: string;
 };
+
+function readSuccessfulActionEnvelope(input: {
+  actionId: string;
+  envelope: Awaited<ReturnType<typeof readRuntimeEnvelope>>;
+}) {
+  const parsed = openConnectorRuntimeActionSuccessEnvelopeSchema.safeParse({
+    data: input.envelope.data,
+    message: input.envelope.message,
+    meta: input.envelope.meta,
+    outputSchema: input.envelope.outputSchema,
+    success: input.envelope.success,
+  });
+  if (!parsed.success) {
+    throw new Error(
+      `OpenConnector action ${input.actionId} returned an invalid successful execution response.`
+    );
+  }
+  if (parsed.data.meta.actionId !== input.actionId) {
+    throw new Error(
+      `OpenConnector action ${input.actionId} returned metadata for ${parsed.data.meta.actionId}.`
+    );
+  }
+  return parsed.data;
+}
 
 function readActionOperationMeta(input: {
   actionId: string;

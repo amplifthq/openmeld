@@ -2738,6 +2738,10 @@ fail closed on a malformed entry and may expose only
 are provider documentation, not executable Center Agent capability. The same
 module validates OpenConnector action-operation metadata so Remote Agent does
 not hand-interpret provider execution IDs, idempotency keys, or replay flags.
+It also validates the successful action envelope and requires the exact
+execution-owned output schema beside the returned data. Missing or malformed
+execution schemas fail closed instead of falling back to a possibly newer
+catalog contract.
 Remote Agent recognizes destructive legacy action IDs or names as well as
 `effect = destructive`; conflicting read/write metadata cannot downgrade a
 legacy destructive action. This vocabulary classifies the action's effect only
