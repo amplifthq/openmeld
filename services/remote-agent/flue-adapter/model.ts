@@ -28,8 +28,10 @@ import {
   isRemoteAgentConnectedMessageChannelMemberRequest,
   REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER,
   type RemoteAgentWorkSurface,
+  type RemoteAgentWorkSurfaceDecision,
   resolveRemoteAgentWorkSurfaceModelId,
   shouldClassifyRemoteAgentWorkSurface,
+  toRemoteAgentWorkSurfaceBinding,
 } from "../agent-core/work-surface-routing";
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
 import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
@@ -124,7 +126,9 @@ type FetchModelMetadata = (
 
 const modelRuntimeConfigCache = new Map<string, CachedModelRuntimeConfig>();
 type RegisteredRemoteAgentModelCapabilities = {
-  classifyWorkSurface: (request: string) => Promise<RemoteAgentWorkSurface>;
+  classifyWorkSurface: (
+    request: string
+  ) => Promise<RemoteAgentWorkSurfaceDecision>;
   compat: OpenAICompletionsCompat;
   cost?: Model<"openai-completions">["cost"];
   inputModalities: readonly ("image" | "text")[];
@@ -705,7 +709,9 @@ function registerRemoteAgentModelCapabilitiesApi(): void {
 export function withRemoteAgentProviderObservabilityAndSessionAffinity(
   options: StreamOptions | undefined,
   reportStage?: (observation: RemoteAgentProviderStageObservation) => void,
-  classifyWorkSurface?: (request: string) => Promise<RemoteAgentWorkSurface>
+  classifyWorkSurface?: (
+    request: string
+  ) => Promise<RemoteAgentWorkSurfaceDecision>
 ): StreamOptions {
   const sessionId = options?.sessionId;
   if (sessionId && sessionId.length > 256) {
@@ -1015,7 +1021,9 @@ function readRemoteAgentToolCallNames(
 }
 
 async function enforceRemoteAgentWorkSurface(input: {
-  classifyWorkSurface?: (request: string) => Promise<RemoteAgentWorkSurface>;
+  classifyWorkSurface?: (
+    request: string
+  ) => Promise<RemoteAgentWorkSurfaceDecision>;
   payload: Record<string, unknown>;
   submissionId: string | null;
 }): Promise<Record<string, unknown>> {
@@ -1032,9 +1040,9 @@ async function enforceRemoteAgentWorkSurface(input: {
     return input.payload;
   }
   const request = extractRemoteAgentCurrentUserRequest(currentUserContent);
-  let surface: RemoteAgentWorkSurface;
+  let decision: RemoteAgentWorkSurfaceDecision;
   try {
-    surface = await input.classifyWorkSurface(request);
+    decision = await input.classifyWorkSurface(request);
   } catch (error) {
     console.warn("[remote_agent.work_surface.classification_failed]", {
       error: error instanceof Error ? error.message : String(error),
@@ -1043,9 +1051,15 @@ async function enforceRemoteAgentWorkSurface(input: {
     return input.payload;
   }
   console.info("[remote_agent.work_surface.classified]", {
+    context: decision.context,
     submissionId: input.submissionId,
-    surface,
+    surface: decision.surface,
   });
+  const workSurfaceBinding = toRemoteAgentWorkSurfaceBinding(decision);
+  if (!workSurfaceBinding) {
+    return input.payload;
+  }
+  const surface: RemoteAgentWorkSurface = workSurfaceBinding.surface;
   let toolName: string | null = null;
   if (surface === "new_task") {
     toolName = REMOTE_AGENT_CREATE_TASK_TOOL_NAME;

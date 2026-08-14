@@ -277,7 +277,10 @@ describe("Remote Agent model reasoning", () => {
   });
 
   it("forces an explicitly requested Task before compacting the tool surface", async () => {
-    const classifyWorkSurface = vi.fn().mockResolvedValue("new_task");
+    const classifyWorkSurface = vi.fn().mockResolvedValue({
+      context: "self_contained",
+      surface: "new_task",
+    });
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
       undefined,
@@ -461,7 +464,10 @@ describe("Remote Agent model reasoning", () => {
   });
 
   it("forces an explicitly requested Space through the same provider boundary", async () => {
-    const classifyWorkSurface = vi.fn().mockResolvedValue("new_space");
+    const classifyWorkSurface = vi.fn().mockResolvedValue({
+      context: "self_contained",
+      surface: "new_space",
+    });
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
       undefined,
@@ -560,6 +566,54 @@ describe("Remote Agent model reasoning", () => {
     expect(payload).not.toHaveProperty("tool_choice");
   });
 
+  it("keeps a Space-context request with other work on the full execution path", async () => {
+    const classifyWorkSurface = vi.fn().mockResolvedValue({
+      context: "conversation_required",
+      surface: "new_space",
+    });
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
+      {},
+      undefined,
+      classifyWorkSurface
+    );
+    const tools = [
+      {
+        function: { name: "openmeld_create_space" },
+        type: "function",
+      },
+      {
+        function: { name: "openmeld_github_read_repository" },
+        type: "function",
+      },
+    ];
+
+    const payload = await options.onPayload?.(
+      {
+        messages: [
+          {
+            content: [
+              "[Current verified request]",
+              "Space production smoke after deploy. Use the Organization GitHub App to read amplifthq/openmeld. Reply exactly SPACE_FINAL_SMOKE_OK main.",
+            ].join("\n"),
+            role: "user",
+          },
+        ],
+        reasoning: { effort: "high" },
+        tools,
+      },
+      TEXT_ONLY_MODEL
+    );
+
+    expect(classifyWorkSurface).toHaveBeenCalledWith(
+      "Space production smoke after deploy. Use the Organization GitHub App to read amplifthq/openmeld. Reply exactly SPACE_FINAL_SMOKE_OK main."
+    );
+    expect(payload).toMatchObject({
+      reasoning: { effort: "high" },
+      tools,
+    });
+    expect(payload).not.toHaveProperty("tool_choice");
+  });
+
   it("closes the lightweight Space tool surface after the initial message", async () => {
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
     const payload = await options.onPayload?.(
@@ -637,7 +691,10 @@ describe("Remote Agent model reasoning", () => {
   });
 
   it("routes an unlinked Slack member's Space request to account connection", async () => {
-    const classifyWorkSurface = vi.fn().mockResolvedValue("new_space");
+    const classifyWorkSurface = vi.fn().mockResolvedValue({
+      context: "self_contained",
+      surface: "new_space",
+    });
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
       undefined,
@@ -694,7 +751,10 @@ describe("Remote Agent model reasoning", () => {
   });
 
   it("does not treat a Task mention in conversation continuity as current intent", async () => {
-    const classifyWorkSurface = vi.fn().mockResolvedValue("new_task");
+    const classifyWorkSurface = vi.fn().mockResolvedValue({
+      context: "self_contained",
+      surface: "new_task",
+    });
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
       undefined,
@@ -731,7 +791,10 @@ describe("Remote Agent model reasoning", () => {
   });
 
   it("does not reclassify a tool continuation", async () => {
-    const classifyWorkSurface = vi.fn().mockResolvedValue("new_space");
+    const classifyWorkSurface = vi.fn().mockResolvedValue({
+      context: "self_contained",
+      surface: "new_space",
+    });
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
       undefined,

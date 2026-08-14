@@ -146,15 +146,6 @@ export async function classifyRemoteAgentWorkSurface(input: {
   fetchImpl?: typeof globalThis.fetch;
   organizationId?: string | null;
   request: string;
-}): Promise<RemoteAgentWorkSurface> {
-  return (await classifyRemoteAgentWorkSurfaceDecision(input)).surface;
-}
-
-export async function classifyRemoteAgentWorkSurfaceDecision(input: {
-  env: WorkSurfaceEnv;
-  fetchImpl?: typeof globalThis.fetch;
-  organizationId?: string | null;
-  request: string;
   timeoutMs?: number;
 }): Promise<RemoteAgentWorkSurfaceDecision> {
   const request = input.request.trim();

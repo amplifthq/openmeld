@@ -36,7 +36,7 @@ import {
 import { buildRemoteAgentCoreContext } from "../../agent-core/tool-context";
 import {
   buildRemoteAgentWorkSurfaceBindingSystemPrompt,
-  classifyRemoteAgentWorkSurfaceDecision,
+  classifyRemoteAgentWorkSurface,
 } from "../../agent-core/work-surface-routing";
 import {
   abortFlueCenterAgentSubmission,
@@ -415,7 +415,7 @@ export const cloudflare = extend({
               agentName: this.name,
               attachmentBucket: env.OPENMELD_SPACE_ATTACHMENTS,
               classifyWorkSurface: async (currentRequest) =>
-                await classifyRemoteAgentWorkSurfaceDecision({
+                await classifyRemoteAgentWorkSurface({
                   env,
                   organizationId: request.organizationId,
                   request: currentRequest,

@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildRemoteAgentWorkSurfaceBindingSystemPrompt,
   classifyRemoteAgentWorkSurface,
-  classifyRemoteAgentWorkSurfaceDecision,
   compactRemoteAgentWorkSurfaceCurrentUserMessage,
   extractRemoteAgentCurrentUserRequest,
   resolveRemoteAgentWorkSurfaceModelId,
@@ -87,7 +86,7 @@ describe("Remote Agent work-surface routing", () => {
     );
 
     await expect(
-      classifyRemoteAgentWorkSurfaceDecision({
+      classifyRemoteAgentWorkSurface({
         env: WORK_SURFACE_ENV,
         fetchImpl: fetchImpl as typeof fetch,
         organizationId: "org_123",
@@ -135,7 +134,7 @@ describe("Remote Agent work-surface routing", () => {
     expect(shouldClassifyRemoteAgentWorkSurface("Tell me a joke.")).toBe(false);
   });
 
-  it("uses strict structured output and returns the classified surface", async () => {
+  it("uses strict structured output and preserves the complete routing decision", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -159,7 +158,10 @@ describe("Remote Agent work-surface routing", () => {
       request: "Please create a dedicated Space for this work.",
     });
 
-    expect(result).toBe("new_space");
+    expect(result).toEqual({
+      context: "self_contained",
+      surface: "new_space",
+    });
     expect(fetchImpl).toHaveBeenCalledOnce();
     const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
