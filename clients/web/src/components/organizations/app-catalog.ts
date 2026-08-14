@@ -255,25 +255,30 @@ export const APPS = [
 		category: "Developer tools",
 		connection: {
 			auth: {
-				authType: "api_key",
-				fields: [
-					{
-						description:
-							"A Cloudflare API token with Browser Rendering permissions.",
-						key: "apiKey",
-						label: "API token",
-						placeholder: "Cloudflare API token",
-						secret: true,
-					},
-					{
-						description: "The Cloudflare account that owns Browser Rendering.",
-						key: "accountId",
-						label: "Account ID",
-						placeholder: "Cloudflare account ID",
-						secret: false,
-					},
-				],
-				kind: "credential",
+				credentialFallback: {
+					authType: "api_key",
+					fields: [
+						{
+							description:
+								"A Cloudflare API token with Browser Rendering permissions.",
+							key: "apiKey",
+							label: "API token",
+							placeholder: "Cloudflare API token",
+							secret: true,
+						},
+						{
+							description:
+								"The Cloudflare account that owns Browser Rendering.",
+							key: "accountId",
+							label: "Account ID",
+							placeholder: "Cloudflare account ID",
+							secret: false,
+						},
+					],
+					kind: "credential",
+					switchLabel: "Use an API token instead",
+				},
+				kind: "oauth",
 			},
 		},
 		description:
