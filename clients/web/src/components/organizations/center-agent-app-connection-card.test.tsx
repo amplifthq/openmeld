@@ -914,7 +914,7 @@ describe("CenterAgentAppConnectionCard", () => {
 		act(() => authorizationTimeout?.());
 
 		expect(
-			screen.getByText(
+			await screen.findByText(
 				"Linear authorization timed out. Start again when you are ready."
 			)
 		).toBeTruthy();
@@ -931,6 +931,96 @@ describe("CenterAgentAppConnectionCard", () => {
 		await waitFor(() =>
 			expect(connectButton.hasAttribute("disabled")).toBe(false)
 		);
+		expect(
+			screen.queryByText(
+				"Linear authorization timed out. Start again when you are ready."
+			)
+		).toBeNull();
+	});
+
+	it("reconciles an in-flight status request before settling an authorization timeout", async () => {
+		let resolveLateConnectionLookup:
+			| ((value: {
+					connections: ReturnType<typeof createLinearConnection>[];
+					currentUserId: string;
+					organizationId: string;
+			  }) => void)
+			| undefined;
+		const lateConnectionLookup = new Promise<{
+			connections: ReturnType<typeof createLinearConnection>[];
+			currentUserId: string;
+			organizationId: string;
+		}>((resolve) => {
+			resolveLateConnectionLookup = resolve;
+		});
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		let authorizationTimeout: (() => void) | undefined;
+		const nativeSetTimeout = window.setTimeout.bind(window);
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+		vi.spyOn(window, "setTimeout").mockImplementation(
+			(
+				handler: TimerHandler,
+				timeout?: number,
+				...args: unknown[]
+			): ReturnType<typeof window.setTimeout> => {
+				if (timeout === 120_000 && typeof handler === "function") {
+					authorizationTimeout = () => {
+						Reflect.apply(handler, window, args);
+					};
+					return 1 as unknown as ReturnType<typeof window.setTimeout>;
+				}
+				return nativeSetTimeout(
+					handler,
+					timeout,
+					...args
+				) as unknown as ReturnType<typeof window.setTimeout>;
+			}
+		);
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockReturnValue(lateConnectionLookup);
+		await waitFor(
+			() => expect(listConnectionsMock.mock.calls.length).toBeGreaterThan(1),
+			{ timeout: 3000 }
+		);
+		expect(authorizationTimeout).toBeTypeOf("function");
+		act(() => authorizationTimeout?.());
+
+		await act(async () => {
+			resolveLateConnectionLookup?.({
+				connections: [createLinearConnection()],
+				currentUserId: "user-1",
+				organizationId: "org-acme",
+			});
+			await lateConnectionLookup;
+		});
+
+		expect(await screen.findByText("Connected")).toBeTruthy();
 		expect(
 			screen.queryByText(
 				"Linear authorization timed out. Start again when you are ready."
@@ -1014,7 +1104,7 @@ describe("CenterAgentAppConnectionCard", () => {
 		expect(authorizationTimeout).toBeTypeOf("function");
 		act(() => authorizationTimeout?.());
 
-		const retryButton = screen.getByRole("button", { name: "Retry" });
+		const retryButton = await screen.findByRole("button", { name: "Retry" });
 		listConnectionsMock.mockRejectedValue(terminalError);
 		fireEvent.click(retryButton);
 

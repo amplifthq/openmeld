@@ -181,6 +181,7 @@ function CenterAgentAppConnectionCardState(
 	const [credentialResetKey, setCredentialResetKey] = useState(0);
 	const authorizationPopupRef = useRef<Window | null>(null);
 	const authorizationFailureSettledRef = useRef(false);
+	const authorizationTimeoutReconcilingRef = useRef(false);
 	const connectionsQuery = useQuery(
 		organizationAppServiceConnectionsQueryOptions({
 			organizationId: input.organizationId,
@@ -305,6 +306,9 @@ function CenterAgentAppConnectionCardState(
 			nextConfirmationAtMs = Date.now() + AUTHORIZATION_POLL_INTERVAL_MS;
 		};
 		const popupCheck = window.setInterval(() => {
+			if (authorizationTimeoutReconcilingRef.current) {
+				return;
+			}
 			if (!hasObservedClosedPopup) {
 				const popup = authorizationPopupRef.current;
 				if (!popup?.closed) {
@@ -362,17 +366,80 @@ function CenterAgentAppConnectionCardState(
 		if (!waitingScope) {
 			return;
 		}
-		const timeout = window.setTimeout(() => {
-			authorizationPopupRef.current?.close();
-			authorizationPopupRef.current = null;
+		let isCurrentAttempt = true;
+		const settleTimeout = () => {
+			if (!isCurrentAttempt) {
+				return;
+			}
 			setWaitingScope(null);
 			setLocalError({
 				message: `${input.app.name} authorization timed out. Start again when you are ready.`,
 				retryConnectionStatus: true,
 			});
-		}, AUTHORIZATION_TIMEOUT_MS);
-		return () => window.clearTimeout(timeout);
-	}, [input.app.name, waitingScope]);
+		};
+		const settleReconciliationError = (error: unknown) => {
+			if (!isCurrentAttempt) {
+				return;
+			}
+			if (!isConnectorConnectionConfirmationRetryable(error)) {
+				settleAuthorizationFailure(error, waitingScope);
+				return;
+			}
+			settleTimeout();
+		};
+		const reconcileTimeout = async () => {
+			authorizationTimeoutReconcilingRef.current = true;
+			authorizationPopupRef.current?.close();
+			authorizationPopupRef.current = null;
+			try {
+				await queryClient.cancelQueries({
+					exact: true,
+					queryKey: organizationAppConnectionQueryKeys.service(
+						input.organizationId,
+						input.app.service
+					),
+				});
+				if (!isCurrentAttempt) {
+					return;
+				}
+				const result = await refetchConnections();
+				if (!isCurrentAttempt) {
+					return;
+				}
+				if (result.error) {
+					settleReconciliationError(result.error);
+					return;
+				}
+				if (
+					isAuthorizationScopeConnected({
+						response: result.data,
+						scope: waitingScope,
+					})
+				) {
+					return;
+				}
+				settleTimeout();
+			} catch (error) {
+				settleReconciliationError(error);
+			}
+		};
+		const timeout = window.setTimeout(
+			reconcileTimeout,
+			AUTHORIZATION_TIMEOUT_MS
+		);
+		return () => {
+			isCurrentAttempt = false;
+			window.clearTimeout(timeout);
+		};
+	}, [
+		input.app.name,
+		input.app.service,
+		input.organizationId,
+		queryClient,
+		refetchConnections,
+		settleAuthorizationFailure,
+		waitingScope,
+	]);
 
 	const authorizationMutation = useMutation({
 		mutationFn: async (scope: AuthorizationScope) =>
@@ -395,6 +462,7 @@ function CenterAgentAppConnectionCardState(
 		},
 		onMutate: () => {
 			authorizationFailureSettledRef.current = false;
+			authorizationTimeoutReconcilingRef.current = false;
 			setLocalError(null);
 		},
 		onSuccess: (authorization, scope) => {
