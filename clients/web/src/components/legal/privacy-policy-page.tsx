@@ -1,9 +1,4 @@
-import { Link } from "@tanstack/react-router";
-import { PublicPageHeader } from "#/components/app/public-page-header";
-import {
-	APP_PAGE_FRAME_CLASS_NAME,
-	APP_PAGE_FRAME_PADDING_CLASS_NAME,
-} from "#/components/app/shell-layout";
+import { LegalPolicyPage } from "./legal-policy-page";
 
 const LAST_UPDATED = "August 13, 2026";
 const PRIVACY_EMAIL = "felix@amplift.ai";
@@ -72,8 +67,8 @@ const policySections = [
 	{
 		title: "6. Connected Apps and Google Workspace Data",
 		paragraphs: [
-			"When you connect Gmail, Google Calendar, or Google Drive, OpenMeld accesses only the Google Workspace data covered by the permissions you approve. Depending on the App and the request you make, this can include email messages, drafts, labels, and settings; calendars, events, and sharing information; or Drive files and file metadata.",
-			"OpenMeld uses that data only to provide or improve the user-facing features you ask for. For example, your Center Agent may find an email, draft or send a message, read or change an event, or find, read, create, update, or delete a Drive file when your request and approved permissions allow that action. You can disconnect a Google account from OpenMeld at any time.",
+			"When you connect Gmail, Google Calendar, or Google Drive, OpenMeld accesses only the Google Workspace data covered by the permissions you approve.",
+			"OpenMeld's current production baseline requests read-only access to Gmail, Google Calendar, and Google Drive. This lets your Center Agent find and read email, calendar, and Drive information when you ask. It does not authorize OpenMeld to send email, change calendar events, edit sharing rules, or create, update, or delete Drive files. You can disconnect a Google account from OpenMeld at any time.",
 			"OpenMeld's use and transfer of information received from Google APIs follows the Google API Services User Data Policy, including the Limited Use requirements. We do not sell Google user data, use it for advertising, or allow people to read it unless you affirmatively ask us to review specific data, it is necessary for security or abuse investigation, it is required by law, or the data has been aggregated for lawful internal operations.",
 		],
 	},
@@ -153,74 +148,12 @@ const policySections = [
 
 export function PrivacyPolicyPage() {
 	return (
-		<main className="min-h-svh bg-background">
-			<PublicPageHeader />
-
-			<section
-				className={`mx-auto w-full ${APP_PAGE_FRAME_PADDING_CLASS_NAME} ${APP_PAGE_FRAME_CLASS_NAME}`}
-			>
-				<div className="relative px-6 py-14 sm:px-10 sm:py-16 lg:px-14">
-					<div
-						aria-hidden
-						className="absolute inset-y-0 left-0 w-px bg-foreground/10"
-					/>
-					<div
-						aria-hidden
-						className="absolute inset-y-0 right-0 w-px bg-foreground/10"
-					/>
-
-					<div className="max-w-3xl">
-						<p className="font-geist-pixel-line text-muted-foreground text-xs uppercase tracking-normal">
-							Last updated {LAST_UPDATED}
-						</p>
-						<h1 className="mt-4 text-balance font-semibold text-4xl tracking-normal sm:text-5xl">
-							Privacy Policy
-						</h1>
-						<p className="mt-5 max-w-2xl text-base text-muted-foreground leading-7">
-							OpenMeld is an experimental collaboration loop for humans, Spaces,
-							and local AI agents. This policy explains what we collect, why we
-							collect it, how local execution fits in, and what limits you
-							should understand before using the service.
-						</p>
-
-						<div className="mt-10 grid gap-4 border-foreground/10 border-y py-6 sm:grid-cols-2">
-							{summaryItems.map((item) => (
-								<section className="space-y-2" key={item.label}>
-									<h2 className="font-medium text-sm">{item.label}</h2>
-									<p className="text-muted-foreground text-sm leading-6">
-										{item.text}
-									</p>
-								</section>
-							))}
-						</div>
-
-						<div className="mt-10 space-y-10">
-							{policySections.map((section) => (
-								<section className="space-y-4" key={section.title}>
-									<h2 className="font-semibold text-xl">{section.title}</h2>
-									{section.paragraphs.map((paragraph) => (
-										<p
-											className="text-muted-foreground text-sm leading-7"
-											key={paragraph}
-										>
-											{paragraph}
-										</p>
-									))}
-								</section>
-							))}
-						</div>
-
-						<div className="mt-12 border-foreground/10 border-t pt-6">
-							<Link
-								className="text-muted-foreground text-sm transition-colors hover:text-foreground"
-								to="/login"
-							>
-								Back to login
-							</Link>
-						</div>
-					</div>
-				</div>
-			</section>
-		</main>
+		<LegalPolicyPage
+			intro="OpenMeld is an experimental collaboration loop for humans, Spaces, and local AI agents. This policy explains what we collect, why we collect it, how local execution fits in, and what limits you should understand before using the service."
+			lastUpdated={LAST_UPDATED}
+			sections={policySections}
+			summaryItems={summaryItems}
+			title="Privacy Policy"
+		/>
 	);
 }

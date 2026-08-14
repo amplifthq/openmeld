@@ -7,6 +7,25 @@ export const OPENCONNECTOR_PRODUCTION_SECRET_MAPPINGS = Object.freeze({
   OOMOL_CONNECT_RUNTIME_TOKEN: "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN",
 });
 
+export function assertRequiredOpenConnectorRuntimeSecrets(secretMetadata) {
+  const deployedSecretNames = new Set(
+    Array.isArray(secretMetadata)
+      ? secretMetadata
+          .map((secret) => secret?.name)
+          .filter((name) => typeof name === "string")
+      : []
+  );
+  const missingRuntimeKeys = Object.keys(
+    OPENCONNECTOR_PRODUCTION_SECRET_MAPPINGS
+  ).filter((runtimeKey) => !deployedSecretNames.has(runtimeKey));
+
+  if (missingRuntimeKeys.length > 0) {
+    throw new Error(
+      `The deployed OpenConnector Worker is missing required secrets: ${missingRuntimeKeys.join(", ")}.`
+    );
+  }
+}
+
 export function resolveOpenConnectorProductionSecrets(env = process.env) {
   const missingCanonicalKeys = [];
   const runtimeSecrets = {};
@@ -29,6 +48,22 @@ export function resolveOpenConnectorProductionSecrets(env = process.env) {
   }
 
   return runtimeSecrets;
+}
+
+export function resolveOpenConnectorProductionSecretsIfAvailable(
+  env = process.env
+) {
+  const hasEveryCanonicalSecret = Object.values(
+    OPENCONNECTOR_PRODUCTION_SECRET_MAPPINGS
+  ).every(
+    (canonicalKey) =>
+      typeof env[canonicalKey] === "string" &&
+      env[canonicalKey].trim().length > 0
+  );
+
+  return hasEveryCanonicalSecret
+    ? resolveOpenConnectorProductionSecrets(env)
+    : undefined;
 }
 
 export function resolveOpenConnectorProductionEnvironment(env = process.env) {

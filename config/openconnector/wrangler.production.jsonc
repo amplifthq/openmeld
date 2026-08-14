@@ -54,7 +54,7 @@
   ],
   "vars": {
     "OOMOL_CONNECT_ORIGIN": "https://connectors.openmeld.ai",
-    "OOMOL_CONNECT_ALLOWED_ACTIONS": "github.*,gmail.*,googlecalendar.*,googledrive.*,notion.*,linear.*,figma.*,posthog.*,cloudflare_browser_rendering.*,cloudflare_dns.*,cloudflare_r2.*,cloudflare_worker.*",
+    "OOMOL_CONNECT_ALLOWED_ACTIONS": "github.*,gmail.search_threads,gmail.list_threads,gmail.fetch_emails,gmail.get_message,gmail.fetch_message_by_message_id,gmail.fetch_message_by_thread_id,gmail.get_profile,gmail.list_history,googlecalendar.list_calendars,googlecalendar.get_calendar_list_entry,googlecalendar.get_calendar,googlecalendar.list_events,googlecalendar.list_events_all_calendars,googlecalendar.get_event,googlecalendar.list_event_instances,googlecalendar.sync_events,googlecalendar.free_busy_query,googlecalendar.find_free_slots,googlecalendar.get_colors,googlecalendar.find_event,googledrive.about.get,googledrive.apps.get,googledrive.changes.getStartPageToken,googledrive.changes.list,googledrive.comments.get,googledrive.comments.list,googledrive.drives.get,googledrive.drives.list,googledrive.files.export,googledrive.files.get,googledrive.files.list,googledrive.files.listLabels,googledrive.permissions.get,googledrive.permissions.list,googledrive.replies.get,googledrive.replies.list,googledrive.revisions.get,googledrive.revisions.list,googledrive.accessproposals.list,googledrive.approvals.list,notion.*,linear.*,figma.*,posthog.*,cloudflare_browser_rendering.*,cloudflare_dns.*,cloudflare_r2.*,cloudflare_worker.*",
     "OOMOL_CONNECT_BLOCKED_ACTIONS": "github.delete_repository,github.create_release",
     "OOMOL_CONNECT_BLOCKED_PROXIES": "*"
   },

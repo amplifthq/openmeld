@@ -219,6 +219,11 @@ function LandingPageFooter() {
 									Privacy
 								</Link>
 							</li>
+							<li>
+								<Link className="hover:text-foreground" to="/terms">
+									Terms
+								</Link>
+							</li>
 						</ul>
 					</nav>
 				</div>

@@ -552,10 +552,16 @@ production redeploy.
 
 The command regenerates the provider catalog, builds and copies the Web assets,
 applies pending remote D1 migrations, and deploys the Worker with the tracked
-policy while preserving Cloudflare secrets. After deployment, prove the admin
-and runtime token surfaces independently and prove that each token receives
-`401` from the other surface. These internal checks are deployment evidence;
-one user-visible Center Agent result is still required as the real-user smoke.
+policy while preserving Cloudflare secrets. When every canonical secret is
+available in the release environment, the command sends the complete set to
+Wrangler over stdin. Otherwise it fails closed unless the existing production
+Worker already exposes every required secret name, then deploys without
+replacing those secret values. Never rotate the credential-encryption key or a
+provider credential merely to perform an ordinary source release. After
+deployment, prove the admin and runtime token surfaces independently and prove
+that each token receives `401` from the other surface. These internal checks
+are deployment evidence; one user-visible Center Agent result is still required
+as the real-user smoke.
 
 ## Health Checks And Product Smoke
 

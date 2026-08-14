@@ -93,7 +93,8 @@ export const APPS = [
 		connection: {
 			auth: { kind: "oauth" },
 		},
-		description: "Find files and work with shared documents.",
+		description:
+			"Find and read Drive files and metadata without changing them.",
 		homepage: "https://workspace.google.com/products/drive/",
 		logoPath: "/app-logos/google-drive.svg",
 		name: "Google Drive",
@@ -105,7 +106,7 @@ export const APPS = [
 		connection: {
 			auth: { kind: "oauth" },
 		},
-		description: "Read calendars and help coordinate scheduled work.",
+		description: "Find and read calendars and events without changing them.",
 		homepage: "https://workspace.google.com/products/calendar/",
 		logoPath: "/app-logos/google-calendar.svg",
 		name: "Google Calendar",
@@ -117,8 +118,7 @@ export const APPS = [
 		connection: {
 			auth: { kind: "oauth" },
 		},
-		description:
-			"Read and send email with explicit identity and access controls.",
+		description: "Find and read email without sending or changing messages.",
 		homepage: "https://workspace.google.com/products/gmail/",
 		logoPath: "/app-logos/gmail.svg",
 		name: "Gmail",

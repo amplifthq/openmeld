@@ -12,7 +12,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 describe("AuthPageShell", () => {
-	it("keeps the Privacy Policy available before login", () => {
+	it("keeps the public legal pages available before login", () => {
 		render(
 			<AuthPageShell>
 				<div>Login card</div>
@@ -23,5 +23,10 @@ describe("AuthPageShell", () => {
 		expect(
 			screen.getByRole("link", { name: "Privacy Policy" }).getAttribute("href")
 		).toBe("/privacy");
+		expect(
+			screen
+				.getByRole("link", { name: "Terms of Service" })
+				.getAttribute("href")
+		).toBe("/terms");
 	});
 });
