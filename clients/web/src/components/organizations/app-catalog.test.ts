@@ -38,6 +38,24 @@ describe("App catalog connection paths", () => {
 		});
 	});
 
+	it("connects Cloudflare Browser Rendering through OAuth by default", () => {
+		const browserRendering = findAppDefinition("cloudflare_browser_rendering");
+
+		expect(browserRendering).toMatchObject({
+			availability: "available",
+			connection: {
+				auth: {
+					credentialFallback: {
+						authType: "api_key",
+						kind: "credential",
+						switchLabel: "Use an API token instead",
+					},
+					kind: "oauth",
+				},
+			},
+		});
+	});
+
 	it("connects Notion with an officially configured internal connection", () => {
 		const notion = findAppDefinition("notion");
 
