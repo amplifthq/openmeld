@@ -6,6 +6,7 @@ import { getRequiredServerEnv } from "#/env";
 import { fetchSessionFromGateway } from "#/lib/auth-session.server";
 import { fetchAuthOrganizations } from "./auth-organizations.server";
 import {
+	buildOrganizationAppsPath,
 	buildOrganizationDefaultPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationSpacePath,
@@ -38,6 +39,14 @@ type OrganizationSessionLike = {
 		name?: string;
 	};
 };
+
+const ORGANIZATION_APP_DETAIL_PATH_PATTERN =
+	/^\/o\/([^/]+)\/center-agent\/apps\/[^/]+$/u;
+
+export function resolvePublicLoginRedirectTarget(routeFamily: string): string {
+	const match = ORGANIZATION_APP_DETAIL_PATH_PATTERN.exec(routeFamily);
+	return match?.[1] ? buildOrganizationAppsPath(match[1]) : routeFamily;
+}
 
 function readRequiredUserId(session: { user: { id?: string } }): string {
 	const userId = session.user.id?.trim();
@@ -189,7 +198,9 @@ export const resolveOrganizationScope = createServerFn({ method: "GET" })
 			if (!session) {
 				failureStage = "auth_session";
 				throw redirect({
-					search: { redirect: data.routeFamily },
+					search: {
+						redirect: resolvePublicLoginRedirectTarget(data.routeFamily),
+					},
 					to: "/login",
 				});
 			}

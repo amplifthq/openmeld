@@ -14,6 +14,8 @@ import { SPACE_PASSWORD_RATE_LIMIT } from "../../services/gateway/src/lib/space-
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const DEV_VAR_KEY_PATTERN = /^([A-Z0-9_]+)=/u;
 const CONFIG_ENV_LABEL_PREFIX_PATTERN = /^env\./u;
+const OPENCONNECTOR_GOOGLE_ACTION_PATTERN =
+  /^(?:gmail|googlecalendar|googledrive)\./u;
 const OBSERVABILITY_ANALYTICS_BINDING = "OPENMELD_OBSERVABILITY";
 const OBSERVABILITY_ANALYTICS_DATASET = "openmeld_runtime_evidence";
 const OBSERVABILITY_ANALYTICS_PROD_DATASET = "openmeld_runtime_evidence_prod";
@@ -393,6 +395,58 @@ function readDefinedEnvKeys(relativePath) {
 const openConnectorWrangler = parseJsoncObject(
   "config/openconnector/wrangler.production.jsonc"
 );
+const expectedOpenConnectorGoogleReadActions = [
+  "gmail.search_threads",
+  "gmail.list_threads",
+  "gmail.fetch_emails",
+  "gmail.get_message",
+  "gmail.fetch_message_by_message_id",
+  "gmail.fetch_message_by_thread_id",
+  "gmail.get_profile",
+  "gmail.list_history",
+  "googlecalendar.list_calendars",
+  "googlecalendar.get_calendar_list_entry",
+  "googlecalendar.get_calendar",
+  "googlecalendar.list_events",
+  "googlecalendar.list_events_all_calendars",
+  "googlecalendar.get_event",
+  "googlecalendar.list_event_instances",
+  "googlecalendar.sync_events",
+  "googlecalendar.free_busy_query",
+  "googlecalendar.find_free_slots",
+  "googlecalendar.get_colors",
+  "googlecalendar.find_event",
+  "googledrive.about.get",
+  "googledrive.apps.get",
+  "googledrive.changes.getStartPageToken",
+  "googledrive.changes.list",
+  "googledrive.comments.get",
+  "googledrive.comments.list",
+  "googledrive.drives.get",
+  "googledrive.drives.list",
+  "googledrive.files.export",
+  "googledrive.files.get",
+  "googledrive.files.list",
+  "googledrive.files.listLabels",
+  "googledrive.permissions.get",
+  "googledrive.permissions.list",
+  "googledrive.replies.get",
+  "googledrive.replies.list",
+  "googledrive.revisions.get",
+  "googledrive.revisions.list",
+  "googledrive.accessproposals.list",
+  "googledrive.approvals.list",
+];
+const configuredOpenConnectorGoogleActions = String(
+  openConnectorWrangler.vars?.OOMOL_CONNECT_ALLOWED_ACTIONS ?? ""
+)
+  .split(",")
+  .filter((action) => OPENCONNECTOR_GOOGLE_ACTION_PATTERN.test(action));
+ensure(
+  JSON.stringify(configuredOpenConnectorGoogleActions) ===
+    JSON.stringify(expectedOpenConnectorGoogleReadActions),
+  "OpenConnector production must expose only the reviewed read-only Google action baseline."
+);
 ensure(
   openConnectorWrangler.workers_dev === false &&
     openConnectorWrangler.preview_urls === false,
@@ -418,15 +472,15 @@ ensure(
 );
 ensure(
   readText("scripts/cloudflare/deploy-openconnector-production.mjs").includes(
-    '"--secrets-file",\n      "/dev/stdin"'
+    '"--secrets-file", "/dev/stdin"'
   ),
   "OpenConnector production deploy must deliver new-Worker secrets through stdin without writing them to disk."
 );
 ensure(
   readText("scripts/cloudflare/deploy-openconnector-production.mjs").includes(
-    "resolveOpenConnectorProductionEnvironment"
+    '"secret", "list", "--config", temporaryConfigName'
   ),
-  "OpenConnector production deploy must map canonical Doppler credentials to the upstream runtime contract."
+  "OpenConnector production deploy must verify the deployed secret contract before preserving existing Cloudflare secrets."
 );
 
 for (const workerPackage of workerPackages) {

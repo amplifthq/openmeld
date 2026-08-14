@@ -1458,20 +1458,30 @@ Worker's runtime names. An Organization installation produces an encrypted,
 Organization-scoped connection; the App private key never becomes connection
 data and is never returned to Core, Gateway, Web, or a model-visible tool.
 
-The OpenMeld OpenConnector deployment policy permits every implemented action
-for its policy-supported services: GitHub, Gmail, Google Calendar, Google Drive,
-Notion, Linear, Figma, PostHog, Cloudflare Browser Rendering, Cloudflare DNS,
-Cloudflare R2, and Cloudflare Workers. Presence in this policy does not by itself
-make an App available. The availability gate is a review of the credential UX,
-provider authentication behavior, required capabilities, scopes, and known
-limitations, OpenConnector execution contract, and model-visible service
-contract against current official provider documentation and reviewed source.
-A live smoke is post-enable validation unless a separate provider decision
-explicitly requires it. The deployment explicitly blocks
-`github.delete_repository` and `github.create_release`, and blocks raw provider
-proxies. Provider-wide service patterns prevent the deployment policy from
-silently lagging behind the catalog-driven action inventory; the Remote Agent
-tool registry still decides which services the model can discover and call. An
+The OpenMeld OpenConnector deployment policy supports GitHub, Gmail, Google
+Calendar, Google Drive, Notion, Linear, Figma, PostHog, Cloudflare Browser
+Rendering, Cloudflare DNS, Cloudflare R2, and Cloudflare Workers. Presence in
+this policy does not by itself make an App available. The availability gate is a
+review of the credential UX, provider authentication behavior, required
+capabilities, scopes, and known limitations, OpenConnector execution contract,
+and model-visible service contract against current official provider
+documentation and reviewed source. A live smoke is post-enable validation
+unless a separate provider decision explicitly requires it.
+
+Google Apps use a production read-only baseline. The tracked policy enumerates
+the reviewed Gmail, Google Calendar, and Google Drive read actions instead of
+using provider-wide patterns, and the OAuth clients request only the matching
+read-only scopes. OpenConnector runtime discovery applies the same deployment
+policy before returning services or actions, so a Center Agent cannot discover
+a Google write action that execution would later reject. Adding a Google write
+scope or action requires a new product review, matching OAuth verification, an
+updated tracked policy contract, and production smoke before release.
+
+Other policy-supported services retain provider-wide patterns so the deployment
+policy does not silently lag behind the catalog-driven action inventory. The
+deployment explicitly blocks `github.delete_repository` and
+`github.create_release`, and blocks raw provider proxies. The Remote Agent tool
+registry still decides which services the model can discover and call. An
 `action_not_allowed` result for a model-visible tool is an OpenMeld deployment
 policy failure, not proof that the member disconnected GitHub. An
 `action_blocked` result names an intentionally unavailable action. Reconnecting

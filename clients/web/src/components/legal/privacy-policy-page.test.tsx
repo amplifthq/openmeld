@@ -12,6 +12,8 @@ const GOOGLE_WORKSPACE_TEXT_PATTERN =
 	/Gmail, Google Calendar, or Google Drive/i;
 const GOOGLE_LIMITED_USE_TEXT_PATTERN =
 	/Google API Services User Data Policy, including the Limited Use requirements/i;
+const GOOGLE_READ_ONLY_TEXT_PATTERN =
+	/read-only access to Gmail, Google Calendar, and Google Drive/i;
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, to, ...props }: { children: ReactNode; to: string }) => (
@@ -41,5 +43,6 @@ describe("PrivacyPolicyPage", () => {
 		).toBeGreaterThan(0);
 		expect(screen.getByText(GOOGLE_WORKSPACE_TEXT_PATTERN)).toBeTruthy();
 		expect(screen.getByText(GOOGLE_LIMITED_USE_TEXT_PATTERN)).toBeTruthy();
+		expect(screen.getByText(GOOGLE_READ_ONLY_TEXT_PATTERN)).toBeTruthy();
 	});
 });

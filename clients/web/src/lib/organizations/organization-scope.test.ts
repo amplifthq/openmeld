@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	resolveDefaultOrganizationForSession,
 	resolveOrganizationScopeForSession,
+	resolvePublicLoginRedirectTarget,
 } from "./organization-scope";
 import type { OrganizationSummary } from "./organization-types";
 
@@ -29,6 +30,21 @@ function createSession(
 }
 
 describe("organization scope resolution", () => {
+	it("keeps provider names out of the public login URL for App detail routes", () => {
+		expect(
+			resolvePublicLoginRedirectTarget("/o/acme/center-agent/apps/gmail")
+		).toBe("/o/acme/center-agent/apps");
+		expect(
+			resolvePublicLoginRedirectTarget("/o/acme/center-agent/apps/googledrive")
+		).toBe("/o/acme/center-agent/apps");
+	});
+
+	it("preserves non-App organization deep links during login", () => {
+		expect(resolvePublicLoginRedirectTarget("/o/acme/spaces/space-123")).toBe(
+			"/o/acme/spaces/space-123"
+		);
+	});
+
 	it("uses the account's last selected Organization for a later entry", () => {
 		expect(
 			resolveDefaultOrganizationForSession({

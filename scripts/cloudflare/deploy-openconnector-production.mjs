@@ -3,8 +3,8 @@ import { copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 
 import {
-  resolveOpenConnectorProductionEnvironment,
-  resolveOpenConnectorProductionSecrets,
+  assertRequiredOpenConnectorRuntimeSecrets,
+  resolveOpenConnectorProductionSecretsIfAvailable,
 } from "./openconnector-production-secrets.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
@@ -46,8 +46,10 @@ if (sourceSha !== options.sourceSha) {
   );
 }
 
-const deploymentEnvironment = resolveOpenConnectorProductionEnvironment();
-const deploymentSecrets = resolveOpenConnectorProductionSecrets();
+const deploymentSecrets = resolveOpenConnectorProductionSecretsIfAvailable();
+const deploymentEnvironment = deploymentSecrets
+  ? { ...process.env, ...deploymentSecrets }
+  : { ...process.env };
 
 if (existsSync(temporaryConfigPath)) {
   throw new Error(
@@ -59,6 +61,19 @@ console.log(`Deploying OpenConnector source ${sourceSha}.`);
 copyFileSync(deploymentConfigPath, temporaryConfigPath);
 
 try {
+  if (!deploymentSecrets) {
+    const secretMetadata = JSON.parse(
+      run(
+        path.join(sourceDirectory, "node_modules/.bin/wrangler"),
+        ["secret", "list", "--config", temporaryConfigName],
+        sourceDirectory
+      )
+    );
+    assertRequiredOpenConnectorRuntimeSecrets(secretMetadata);
+    console.log(
+      "Verified the deployed OpenConnector secret contract; preserving existing Cloudflare secrets."
+    );
+  }
   runStreaming(
     "npm",
     ["run", "generate:catalog"],
@@ -91,20 +106,24 @@ try {
     sourceDirectory,
     deploymentEnvironment
   );
-  runStreamingWithInput(
-    path.join(sourceDirectory, "node_modules/.bin/wrangler"),
-    [
-      "deploy",
-      "--config",
-      temporaryConfigName,
-      "--minify",
-      "--secrets-file",
-      "/dev/stdin",
-    ],
-    sourceDirectory,
-    deploymentEnvironment,
-    JSON.stringify(deploymentSecrets)
-  );
+  const wranglerPath = path.join(sourceDirectory, "node_modules/.bin/wrangler");
+  const deployArgs = ["deploy", "--config", temporaryConfigName, "--minify"];
+  if (deploymentSecrets) {
+    runStreamingWithInput(
+      wranglerPath,
+      [...deployArgs, "--secrets-file", "/dev/stdin"],
+      sourceDirectory,
+      deploymentEnvironment,
+      JSON.stringify(deploymentSecrets)
+    );
+  } else {
+    runStreaming(
+      wranglerPath,
+      deployArgs,
+      sourceDirectory,
+      deploymentEnvironment
+    );
+  }
 } finally {
   rmSync(temporaryConfigPath, { force: true });
 }

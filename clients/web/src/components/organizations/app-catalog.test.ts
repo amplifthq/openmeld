@@ -15,6 +15,18 @@ describe("Message channel identities", () => {
 });
 
 describe("App catalog connection paths", () => {
+	it("describes every Google App as read-only", () => {
+		expect(findAppDefinition("gmail")?.description).toBe(
+			"Find and read email without sending or changing messages."
+		);
+		expect(findAppDefinition("googlecalendar")?.description).toBe(
+			"Find and read calendars and events without changing them."
+		);
+		expect(findAppDefinition("googledrive")?.description).toBe(
+			"Find and read Drive files and metadata without changing them."
+		);
+	});
+
 	it("connects Figma through OpenMeld's public OAuth app", () => {
 		const figma = findAppDefinition("figma");
 

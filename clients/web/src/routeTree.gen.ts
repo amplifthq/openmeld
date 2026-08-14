@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VerifyEmailRouteImport } from './routes/verify-email'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
@@ -113,6 +114,11 @@ import { Route as OOrgSlugCenterAgentCenterAgentAppsServiceRouteImport } from '.
 const VerifyEmailRoute = VerifyEmailRouteImport.update({
   id: '/verify-email',
   path: '/verify-email',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignUpRoute = SignUpRouteImport.update({
@@ -665,6 +671,7 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/setup': typeof SetupRoute
   '/sign-up': typeof SignUpRoute
+  '/terms': typeof TermsRoute
   '/verify-email': typeof VerifyEmailRoute
   '/agent-interface/guide.md': typeof AgentInterfaceGuideDotmdRoute
   '/api/waitlist': typeof ApiWaitlistRoute
@@ -766,6 +773,7 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/setup': typeof SetupRoute
   '/sign-up': typeof SignUpRoute
+  '/terms': typeof TermsRoute
   '/verify-email': typeof VerifyEmailRoute
   '/agent-interface/guide.md': typeof AgentInterfaceGuideDotmdRoute
   '/api/waitlist': typeof ApiWaitlistRoute
@@ -858,6 +866,7 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/setup': typeof SetupRoute
   '/sign-up': typeof SignUpRoute
+  '/terms': typeof TermsRoute
   '/verify-email': typeof VerifyEmailRoute
   '/agent-interface/guide.md': typeof AgentInterfaceGuideDotmdRoute
   '/api/waitlist': typeof ApiWaitlistRoute
@@ -962,6 +971,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/setup'
     | '/sign-up'
+    | '/terms'
     | '/verify-email'
     | '/agent-interface/guide.md'
     | '/api/waitlist'
@@ -1063,6 +1073,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/setup'
     | '/sign-up'
+    | '/terms'
     | '/verify-email'
     | '/agent-interface/guide.md'
     | '/api/waitlist'
@@ -1154,6 +1165,7 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/setup'
     | '/sign-up'
+    | '/terms'
     | '/verify-email'
     | '/agent-interface/guide.md'
     | '/api/waitlist'
@@ -1257,6 +1269,7 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   SetupRoute: typeof SetupRoute
   SignUpRoute: typeof SignUpRoute
+  TermsRoute: typeof TermsRoute
   VerifyEmailRoute: typeof VerifyEmailRoute
   ApiWaitlistRoute: typeof ApiWaitlistRoute
   CliManifestDotjsonRoute: typeof CliManifestDotjsonRoute
@@ -1281,6 +1294,13 @@ declare module '@tanstack/react-router' {
       path: '/verify-email'
       fullPath: '/verify-email'
       preLoaderRoute: typeof VerifyEmailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-up': {
@@ -2327,6 +2347,7 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   SetupRoute: SetupRoute,
   SignUpRoute: SignUpRoute,
+  TermsRoute: TermsRoute,
   VerifyEmailRoute: VerifyEmailRoute,
   ApiWaitlistRoute: ApiWaitlistRoute,
   CliManifestDotjsonRoute: CliManifestDotjsonRoute,
