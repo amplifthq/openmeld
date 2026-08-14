@@ -432,6 +432,9 @@ describe("LocalAgentsCard", () => {
 		await waitFor(() => {
 			expect(refreshLocalAgentCatalog).toHaveBeenCalledTimes(1);
 		});
+		expect(toastMock.success).toHaveBeenCalledWith(
+			"Local agent check complete."
+		);
 	});
 
 	it("keeps checking canonical status after the control request times out", async () => {
@@ -471,6 +474,42 @@ describe("LocalAgentsCard", () => {
 		expect(toastMock.error).toHaveBeenCalledWith(
 			"OpenMeld is still checking local agents. Check again in a moment."
 		);
+	});
+
+	it("reports success when a slow local agent check updates canonical status", async () => {
+		const refreshLocalAgentCatalog = vi.fn().mockRejectedValue({
+			code: "local_agent_control.timeout",
+			message: "The current local OpenMeld Service did not respond in time.",
+			status: 504,
+		});
+		const refreshAll = vi.fn().mockResolvedValue(undefined);
+		const { executionTarget } = renderLocalAgentsCard({
+			includeAgentControllerInterface: true,
+			refreshAll,
+			refreshCatalogSupported: true,
+			refreshLocalAgentCatalog,
+			setEnabledSupported: true,
+		});
+		refreshAll.mockImplementation(() => {
+			const controller =
+				executionTarget.capabilities[0]?.agentControllerInterface;
+			if (controller) {
+				controller.checkedAt = "2026-06-28T12:00:01.000Z";
+			}
+			return Promise.resolve();
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Local agents options" })
+		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Check agents" }));
+
+		await waitFor(() => {
+			expect(toastMock.success).toHaveBeenCalledWith(
+				"Local agent check complete."
+			);
+		});
+		expect(toastMock.error).not.toHaveBeenCalled();
 	});
 
 	it("reports a definitive check failure with a toast", async () => {
@@ -896,6 +935,8 @@ function renderLocalAgentsCard(input: {
 			replyReadiness={input.replyReadiness ?? READY_REPLY_READINESS}
 		/>
 	);
+
+	return { executionTarget };
 }
 
 function buildComputer(

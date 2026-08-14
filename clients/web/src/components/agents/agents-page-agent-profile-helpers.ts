@@ -8,6 +8,7 @@ import {
 } from "@openmeld/agent-runtime";
 import {
 	canonicalizeAgentControllerRef,
+	compareAgentControllerRefsForDisplay,
 	formatLocalSetupActionLabel,
 } from "@openmeld/schemas";
 import type {
@@ -818,7 +819,13 @@ function createAgentProfileConnectActionsFromLocalAgents(
 				localAgent: entry,
 			})
 		)
-		.filter((action): action is AgentProfileRepairAction => action !== null);
+		.filter((action): action is AgentProfileRepairAction => action !== null)
+		.sort((left, right) =>
+			compareAgentControllerRefsForDisplay(
+				left.agentControllerRef,
+				right.agentControllerRef
+			)
+		);
 }
 
 export function resolveAgentProfileSetupAction(input: {

@@ -226,9 +226,14 @@ type DialogRecovery = ComponentProps<typeof CreateProfileDialog>["recovery"];
 
 function buildFakeRecovery(
 	catalogEntries: readonly unknown[] = [],
-	input: { fetchStatus?: "fetching" | "idle" | "paused" } = {}
+	input: {
+		fetchStatus?: "fetching" | "idle" | "paused";
+		setProfileWorkspaceSupported?: boolean;
+	} = {}
 ): DialogRecovery {
 	const fetchStatus = input.fetchStatus ?? "idle";
+	const setProfileWorkspaceSupported =
+		input.setProfileWorkspaceSupported ?? true;
 	return {
 		deviceId: "device-123",
 		runtimeLane: "dev-local",
@@ -254,8 +259,15 @@ function buildFakeRecovery(
 									isCurrent: false,
 									executionTargets: [
 										{
+											deviceId: "device-123",
 											isCurrent: false,
+											localAgentControl: {
+												refreshCatalog: true,
+												setEnabled: true,
+												setProfileWorkspace: setProfileWorkspaceSupported,
+											},
 											localAgentCatalog: { entries: catalogEntries },
+											runtimeLane: "dev-local",
 										},
 									],
 								},
@@ -638,6 +650,58 @@ describe("CreateProfileDialog", () => {
 		);
 		expect(screen.getByTestId("local-agent-logo-grok-build")).toBeTruthy();
 		expect(screen.queryByText("Adel")).toBeNull();
+	});
+
+	it("prepares a managed workspace for an unbound Agent when the current Service supports it", async () => {
+		renderCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "grok-build",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+
+		await fillProfileForm({
+			kind: AGENT_PROFILE_CARD_PATTERN,
+			name: "Future Grok Agent",
+		});
+
+		await waitFor(() => {
+			expect(setCurrentAgentProfileWorkspaceMock).toHaveBeenCalledWith({
+				agentProfileId: NEW_AGENT_ID,
+				workspaceMode: "openmeld_managed",
+			});
+		});
+		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
+	});
+
+	it("creates an unbound Agent without contacting a historical Service for workspace setup", async () => {
+		const { onOpenChange } = renderCreateProfileDialog({
+			recovery: buildFakeRecovery(
+				[
+					buildCatalogEntry({
+						agentId: "grok-build",
+						launchStatus: "ready",
+						selectable: true,
+					}),
+				],
+				{ setProfileWorkspaceSupported: false }
+			),
+		});
+
+		await fillProfileForm({
+			kind: AGENT_PROFILE_CARD_PATTERN,
+			name: "Manual Teammate",
+		});
+
+		await waitFor(() => {
+			expect(createStartAgentProfileMock).toHaveBeenCalled();
+			expect(onOpenChange).toHaveBeenCalledWith(false);
+		});
+		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
+		expect(setCurrentAgentProfileWorkspaceMock).not.toHaveBeenCalled();
 	});
 
 	it("shows local agent loading state before treating the catalog as empty", async () => {

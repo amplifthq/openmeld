@@ -319,6 +319,7 @@ vi.mock("#/components/agents/use-local-agent-recovery-controller", () => ({
 			isSuccess: false,
 		},
 		refreshAll: vi.fn().mockResolvedValue(undefined),
+		deviceId: null,
 		runtimeLane: null,
 		selectedExecutionTarget: null,
 		selectedHumanProfileId: null,
