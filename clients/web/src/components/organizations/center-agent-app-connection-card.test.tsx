@@ -592,10 +592,56 @@ describe("CenterAgentAppConnectionCard", () => {
 
 		expect(
 			await screen.findByText(
-				"Linear authorization was canceled. Connect again when you are ready."
+				"Linear wasn’t connected. Try again when you’re ready."
 			)
 		).toBeTruthy();
 		expect(screen.queryByText("Waiting for authorization…")).toBeNull();
+	});
+
+	it("confirms connection truth before treating a closed authorization window as incomplete", async () => {
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockResolvedValueOnce({
+			connections: [createLinearConnection()],
+			currentUserId: "user-1",
+			organizationId: "org-acme",
+		});
+		popup.closed = true;
+
+		expect(await screen.findByText("Connected")).toBeTruthy();
+		expect(
+			screen.queryByText(
+				"Linear wasn’t connected. Try again when you’re ready."
+			)
+		).toBeNull();
+		expect(listConnectionsMock).toHaveBeenCalledTimes(2);
 	});
 
 	it("does not carry an authorization attempt into another App", async () => {

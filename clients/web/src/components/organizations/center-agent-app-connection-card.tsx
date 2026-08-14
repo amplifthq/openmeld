@@ -110,6 +110,21 @@ function resolveActiveConnectionGroups(input: {
 	};
 }
 
+function isAuthorizationScopeConnected(input: {
+	response?: ConnectorConnectionListResponse;
+	scope: AuthorizationScope;
+}): boolean {
+	return Boolean(
+		input.response?.connections.some(
+			(connection) =>
+				connection.status === "active" &&
+				connection.scope === input.scope &&
+				(input.scope === "shared" ||
+					connection.userId === input.response?.currentUserId)
+		)
+	);
+}
+
 type CenterAgentAppConnectionCardProps = {
 	app: Extract<AppDefinition, { availability: "available" }>;
 	canManage: boolean;
@@ -149,6 +164,7 @@ function CenterAgentAppConnectionCardState(
 			service: input.app.service,
 		})
 	);
+	const refetchConnections = connectionsQuery.refetch;
 	const { currentUserConnection, otherMemberConnections, sharedConnection } =
 		resolveActiveConnectionGroups({
 			canManage: input.canManage,
@@ -197,19 +213,56 @@ function CenterAgentAppConnectionCardState(
 		if (!waitingScope) {
 			return;
 		}
+		let isCurrentAttempt = true;
+		let isConfirmingClosedPopup = false;
 		const popupCheck = window.setInterval(() => {
 			const popup = authorizationPopupRef.current;
-			if (!popup?.closed) {
+			if (!popup?.closed || isConfirmingClosedPopup) {
 				return;
 			}
+			isConfirmingClosedPopup = true;
 			authorizationPopupRef.current = null;
-			setWaitingScope(null);
-			setLocalError(
-				`${input.app.name} authorization was canceled. Connect again when you are ready.`
-			);
+			refetchConnections()
+				.then((result) => {
+					if (!isCurrentAttempt || result.error) {
+						return;
+					}
+					if (
+						isAuthorizationScopeConnected({
+							response: result.data,
+							scope: waitingScope,
+						})
+					) {
+						return;
+					}
+					setWaitingScope(null);
+					setLocalError(
+						`${input.app.name} wasn’t connected. Try again when you’re ready.`
+					);
+				})
+				.catch((error: unknown) => {
+					console.error(
+						"[openmeld.web.connector_authorization_confirmation_failed]",
+						{
+							error,
+							organizationId: input.organizationId,
+							scope: waitingScope,
+							service: input.app.service,
+						}
+					);
+				});
 		}, AUTHORIZATION_POPUP_CHECK_INTERVAL_MS);
-		return () => window.clearInterval(popupCheck);
-	}, [input.app.name, waitingScope]);
+		return () => {
+			isCurrentAttempt = false;
+			window.clearInterval(popupCheck);
+		};
+	}, [
+		input.app.name,
+		input.app.service,
+		input.organizationId,
+		refetchConnections,
+		waitingScope,
+	]);
 
 	useEffect(() => {
 		if (!waitingScope) {
@@ -225,14 +278,6 @@ function CenterAgentAppConnectionCardState(
 		}, AUTHORIZATION_TIMEOUT_MS);
 		return () => window.clearTimeout(timeout);
 	}, [input.app.name, waitingScope]);
-
-	useEffect(
-		() => () => {
-			authorizationPopupRef.current?.close();
-			authorizationPopupRef.current = null;
-		},
-		[]
-	);
 
 	const authorizationMutation = useMutation({
 		mutationFn: async (scope: AuthorizationScope) =>
