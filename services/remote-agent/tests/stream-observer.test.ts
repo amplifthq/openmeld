@@ -227,7 +227,7 @@ describe("Center Agent stream observation", () => {
     expect(submitRemoteAgentStreamPart).not.toHaveBeenCalled();
   });
 
-  it("forwards Flue thinking deltas with their explicit stream kind", async () => {
+  it("keeps private model reasoning out of the user-visible stream", async () => {
     const storage = new InMemoryDurableObjectStorage();
     await putRemoteAgentCallbackContext(
       storage,
@@ -262,15 +262,7 @@ describe("Center Agent stream observation", () => {
       streamPublisher: createRemoteAgentStreamPublisher(),
     });
 
-    expect(submitRemoteAgentStreamDelta).toHaveBeenCalledWith(
-      expect.objectContaining({
-        delta: thinking,
-        kind: "thinking",
-        snapshot: thinking,
-        source: "flue.thinking_delta",
-        v: 2,
-      })
-    );
+    expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
   });
 
   it("uses the immutable Flue execution identity when a live delta omits submissionId", async () => {

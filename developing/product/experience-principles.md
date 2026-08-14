@@ -173,6 +173,12 @@ the user to form a product strategy, invent a prompt, or understand the
 architecture first. Demonstrate the concrete outcome, supply safe defaults, and
 keep the explanation shorter than the decision.
 
+Private model reasoning is not product copy and must never be shown to users.
+Show accumulated answer text and admitted, human-readable work progress instead.
+Internal tool names, catalogs, routing, permission guesses, and debugging detail
+belong in protected diagnostics, never in a conversation or transient loading
+state.
+
 - Applied: Account Setup Studio says Slack, GitHub, Codex, and Claude Code,
   shows what each connection enables, defaults untouched safe settings on, and
   lets the user continue without composing a message to Center Agent.

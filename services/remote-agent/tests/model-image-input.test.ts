@@ -172,7 +172,51 @@ describe("Remote Agent model reasoning", () => {
     );
   });
 
-  it("keeps every capability through one Code Mode schema for a large tool surface", async () => {
+  it("keeps connected App actions direct alongside Code Mode for a large tool surface", async () => {
+    const reportStage = vi.fn();
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
+      {},
+      reportStage
+    );
+    const connectedAppTools = [
+      "openmeld_list_connected_apps",
+      "openmeld_list_app_actions",
+      "openmeld_execute_app_action",
+    ].map((name) => ({ function: { name }, type: "function" }));
+    const directTools = [
+      ...Array.from({ length: 62 }, (_, index) => ({
+        function: { name: `tool_${String(index)}` },
+        type: "function",
+      })),
+      ...connectedAppTools,
+    ];
+    const codemode = {
+      function: {
+        description: "All 65 tools remain available through typed JavaScript.",
+        name: "codemode",
+      },
+      type: "function",
+    };
+    const tools = [...directTools, codemode];
+
+    const payload = await options.onPayload?.(
+      { messages: [{ content: "hello", role: "user" }], tools },
+      TEXT_ONLY_MODEL
+    );
+
+    expect(payload).toMatchObject({
+      tools: [...connectedAppTools, codemode],
+    });
+    expect(tools).toHaveLength(66);
+    expect(reportStage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageCount: 1,
+        toolCount: 4,
+      })
+    );
+  });
+
+  it("keeps only Code Mode direct when a large tool surface has no required direct tools", async () => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
@@ -192,7 +236,7 @@ describe("Remote Agent model reasoning", () => {
     const tools = [...directTools, codemode];
 
     const payload = await options.onPayload?.(
-      { messages: [{ content: "hello", role: "user" }], tools },
+      { messages: [{ content: "do the work", role: "user" }], tools },
       TEXT_ONLY_MODEL
     );
 

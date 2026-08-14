@@ -6,6 +6,7 @@ import {
   centerAgentRecordConnectorActionOperationResponseSchema,
   openConnectorRuntimeActionListSchema,
   openConnectorRuntimeActionOperationMetaSchema,
+  openConnectorRuntimeActionSearchResultListSchema,
 } from "@openmeld/schemas";
 import type {
   ConnectorService,
@@ -68,6 +69,7 @@ const DESTRUCTIVE_ACTION_PATTERN = new RegExp(
   "iu"
 );
 const LEGACY_READ_ACTION_ID_PATTERN = /\.(?:get|list)_[a-z0-9_]+$/iu;
+const OPENCONNECTOR_ACTION_SEARCH_LIMIT = 50;
 export const REMOTE_AGENT_CONNECTOR_TOOL_NAMES = [
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
@@ -157,7 +159,7 @@ export function getRemoteAgentConnectorToolDefinitions(
     {
       name: "openmeld_list_app_actions",
       description:
-        "Discover the OpenConnector actions OpenMeld can run for one connected App. The result includes each action's exact id, description, required scopes, and input schema. Call this before executing an unfamiliar action.",
+        "Discover the OpenConnector actions OpenMeld can run for one connected App. The result includes each action's exact id, description, effect, required scopes, input schema, and output schema. This tool does not read or change provider data. Call it before executing an unfamiliar action. When the user asked for a provider outcome and one returned action matches with clear required input, continue in the same turn with openmeld_execute_app_action; do not report discovery as the requested outcome.",
       input: listAppActionsInputSchema,
       execute: async (payload) => {
         const request = payload as {
@@ -185,13 +187,14 @@ export function getRemoteAgentConnectorToolDefinitions(
           connectorExecution: input.connectorExecution,
           service: request.service,
         });
-        const query = request.query?.trim().toLowerCase();
+        const query = request.query?.trim();
         const matchingActions = query
-          ? actions.filter((action) =>
-              `${action.id} ${action.name} ${action.description}`
-                .toLowerCase()
-                .includes(query)
-            )
+          ? await searchOpenConnectorActions({
+              actions,
+              connectorExecution: input.connectorExecution,
+              query,
+              service: request.service,
+            })
           : actions;
         const offset = request.offset ?? 0;
         const visibleActions =
@@ -619,6 +622,54 @@ async function listOpenConnectorActions(input: {
   });
 }
 
+async function searchOpenConnectorActions(input: {
+  actions: OpenConnectorRuntimeAction[];
+  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  query: string;
+  service: CenterAgentAppConnectorService;
+}): Promise<OpenConnectorRuntimeAction[]> {
+  const runtime = requireConnectorRuntime(input.connectorExecution);
+  const searchUrl = new URL(`${runtime.baseUrl}/v1/actions/search`);
+  searchUrl.searchParams.set("q", input.query);
+  searchUrl.searchParams.set("service", input.service);
+  searchUrl.searchParams.set(
+    "limit",
+    String(OPENCONNECTOR_ACTION_SEARCH_LIMIT)
+  );
+  const response = await runtime.fetch(searchUrl.toString(), {
+    headers: { authorization: `Bearer ${runtime.runtimeToken}` },
+    method: "GET",
+  });
+  const envelope = await readRuntimeEnvelope(response);
+  if (
+    !(response.ok && envelope.success === true && Array.isArray(envelope.data))
+  ) {
+    throw new Error(
+      `OpenConnector could not search ${input.service} actions: ${envelope.message ?? `HTTP ${response.status}`}`
+    );
+  }
+  const parsedResults =
+    openConnectorRuntimeActionSearchResultListSchema.safeParse(envelope.data);
+  if (!parsedResults.success) {
+    throw new Error(
+      `OpenConnector returned invalid action search results: ${parsedResults.error.issues[0]?.message ?? "unknown contract error"}`
+    );
+  }
+
+  const actionsById = new Map(
+    input.actions.map((action) => [action.id, action])
+  );
+  return parsedResults.data.flatMap((result) => {
+    if (result.service !== input.service) {
+      throw new Error(
+        `OpenConnector returned action ${result.id} for an unexpected service.`
+      );
+    }
+    const action = actionsById.get(result.id);
+    return action ? [action] : [];
+  });
+}
+
 async function requireOpenConnectorAction(input: {
   actionId: string;
   connectorExecution?: RemoteAgentConnectorExecutionConfig;
@@ -754,6 +805,7 @@ function toModelVisibleAction(action: OpenConnectorRuntimeAction) {
     id: action.id,
     inputSchema: action.inputSchema,
     name: action.name,
+    outputSchema: action.outputSchema,
     requiredScopes: action.requiredScopes,
   };
 }

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { openConnectorRuntimeActionSchema } from "../../src/index";
+import {
+  openConnectorRuntimeActionSchema,
+  openConnectorRuntimeActionSearchResultSchema,
+} from "../../src/index";
 
 const ACTION = {
   asyncLifecycle: null,
@@ -38,5 +41,24 @@ describe("OpenConnector runtime action contract", () => {
         effect: "dangerous",
       }).success
     ).toBe(false);
+  });
+
+  it("accepts the bounded runtime search result contract", () => {
+    expect(
+      openConnectorRuntimeActionSearchResultSchema.parse({
+        authenticated: true,
+        description: "List Gmail messages.",
+        effect: "read",
+        id: "gmail.fetch_emails",
+        inputSchema: { type: "object" },
+        name: "fetch_emails",
+        outputSchema: { type: "object" },
+        service: "gmail",
+      })
+    ).toMatchObject({
+      effect: "read",
+      id: "gmail.fetch_emails",
+      service: "gmail",
+    });
   });
 });

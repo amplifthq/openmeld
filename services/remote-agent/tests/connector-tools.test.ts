@@ -126,6 +126,7 @@ describe("Remote Agent generic App tools", () => {
           id: "posthog.list_projects",
           inputSchema: { properties: {}, type: "object" },
           name: "List projects",
+          outputSchema: { type: "array" },
           requiredScopes: ["project:read"],
         },
       ],
@@ -138,6 +139,109 @@ describe("Remote Agent generic App tools", () => {
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://connectors.example.test/v1/actions?service=posthog",
+      expect.objectContaining({
+        headers: { authorization: "Bearer test-runtime-token" },
+      })
+    );
+  });
+
+  it("uses OpenConnector search ranking for natural-language action discovery", async () => {
+    const request = createSubmitTurnRequest();
+    const action = {
+      ...capturedExecutableOpenConnectorAction,
+      description:
+        "List or count Gmail messages with Gmail search filters, including unread inbox messages.",
+      id: "gmail.fetch_emails",
+      name: "fetch_emails",
+      outputSchema: {
+        properties: {
+          messages: { type: "array" },
+          resultSizeEstimate: {
+            description: "Approximate result count.",
+            type: "integer",
+          },
+        },
+        type: "object",
+      },
+      service: "gmail",
+    };
+    const fetchMock = vi.fn<typeof fetch>((requestInfo) => {
+      const url = String(requestInfo);
+      if (url.includes("/v1/actions/search?")) {
+        return Promise.resolve(
+          Response.json({
+            data: [
+              {
+                authenticated: true,
+                description: action.description,
+                effect: "read",
+                id: action.id,
+                inputSchema: action.inputSchema,
+                name: action.name,
+                outputSchema: action.outputSchema,
+                service: action.service,
+              },
+            ],
+            message: "OK",
+            meta: {},
+            success: true,
+          })
+        );
+      }
+      return Promise.resolve(
+        Response.json({
+          data: [action],
+          message: "OK",
+          meta: {},
+          success: true,
+        })
+      );
+    });
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {
+        centerAgentResolveConnectorConnection: vi.fn(async () =>
+          connectionSelection({
+            ownerDisplayName: "Ashley",
+            service: "gmail",
+            userId: "user_ashley",
+          })
+        ),
+      },
+      storage: await createStorage(request),
+      submissionId: ACK.submissionId,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_list_app_actions", {
+        query: "unread inbox count",
+        service: "gmail",
+      })
+    ).resolves.toMatchObject({
+      actions: [
+        expect.objectContaining({
+          id: "gmail.fetch_emails",
+          outputSchema: {
+            properties: {
+              messages: { type: "array" },
+              resultSizeEstimate: {
+                description: "Approximate result count.",
+                type: "integer",
+              },
+            },
+            type: "object",
+          },
+        }),
+      ],
+      availableCount: 1,
+      matchingCount: 1,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://connectors.example.test/v1/actions/search?q=unread+inbox+count&service=gmail&limit=50",
       expect.objectContaining({
         headers: { authorization: "Bearer test-runtime-token" },
       })
@@ -1320,7 +1424,7 @@ function requireDestructiveConfirmationToken(result: unknown): string {
 function connectionSelection(input: {
   ownerDisplayName: string;
   scope?: "member" | "shared";
-  service: "posthog";
+  service: "gmail" | "posthog";
   userId: string;
 }) {
   return {
@@ -1328,8 +1432,8 @@ function connectionSelection(input: {
       canDisconnect: false,
       connectionName:
         input.scope === "shared"
-          ? "org_aaaaaaaaaaaaaaaaaa__shared__posthog"
-          : "org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__posthog",
+          ? `org_aaaaaaaaaaaaaaaaaa__shared__${input.service}`
+          : `org_aaaaaaaaaaaaaaaaaa__user_bbbbbbbbbbbbbbbbbb__${input.service}`,
       createdAtMs: TEST_NOW_MS,
       disconnectedAtMs: null,
       organizationId: "org_123",
