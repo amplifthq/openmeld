@@ -108,6 +108,7 @@ describe("createNewStartProfile Default Project setup", () => {
 	it("prepares a managed workspace for an unbound Agent created on the current computer", async () => {
 		await createNewStartProfile({
 			boundAgentId: "",
+			currentServiceCanSetProfileWorkspace: true,
 			deviceId: "device-1",
 			profileKind: "agent",
 			profileName: "Future Grok Agent",
@@ -123,13 +124,13 @@ describe("createNewStartProfile Default Project setup", () => {
 		});
 	});
 
-	it("keeps offline unbound Agent creation independent from local workspace setup", async () => {
+	it("keeps an unbound Agent independent from a historical computer without current workspace control", async () => {
 		await createNewStartProfile({
 			boundAgentId: "",
-			deviceId: null,
+			deviceId: "historical-device",
 			profileKind: "agent",
 			profileName: "Manual Teammate",
-			runtimeLane: null,
+			runtimeLane: "prod",
 			selectedHumanProfileId: "profile-human",
 		});
 

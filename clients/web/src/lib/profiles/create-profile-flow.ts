@@ -49,6 +49,7 @@ export class NewProfileLocalSetupError extends Error {
 export type NewStartProfileInput = {
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	boundAgentId: string;
+	currentServiceCanSetProfileWorkspace?: boolean;
 	deviceId: string | null;
 	defaultProjectId?: string | null;
 	modelId?: string | null;
@@ -84,6 +85,8 @@ export async function createNewStartProfile(
 			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
 			: {}),
 		boundAgentId: input.boundAgentId,
+		currentServiceCanSetProfileWorkspace:
+			input.currentServiceCanSetProfileWorkspace === true,
 		deviceId: input.deviceId,
 		defaultProjectId: input.defaultProjectId ?? null,
 		modelId: input.modelId ?? null,
@@ -119,6 +122,7 @@ function requireNewProfileKind(
 async function createStartAgentProfileWithLocalSetup(input: {
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	boundAgentId: string;
+	currentServiceCanSetProfileWorkspace: boolean;
 	deviceId: string | null;
 	defaultProjectId: string | null;
 	modelId: string | null;
@@ -142,7 +146,7 @@ async function createStartAgentProfileWithLocalSetup(input: {
 		},
 	});
 	if (!agentControllerRef) {
-		if (input.deviceId !== null && input.runtimeLane !== null) {
+		if (input.currentServiceCanSetProfileWorkspace) {
 			await configureNewAgentProfileWorkspace({
 				agentProfileId: profile.openMeldProfileId,
 				projectFolderPath: input.projectFolderPath,

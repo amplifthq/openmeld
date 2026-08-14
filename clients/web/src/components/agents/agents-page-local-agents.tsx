@@ -83,6 +83,7 @@ type LocalAgentCatalogRowSummaryStatus = NonNullable<
 type LocalAgentEnabledOverrides = Record<string, boolean>;
 const SLOW_LOCAL_AGENT_CHECK_RECONCILE_INTERVAL_MS = 750;
 const SLOW_LOCAL_AGENT_CHECK_RECONCILE_TIMEOUT_MS = 12_000;
+const LOCAL_AGENT_CHECK_COMPLETE_MESSAGE = "Local agent check complete.";
 
 export function LocalAgentsCard(input: {
 	computer: LocalRuntimeComputer;
@@ -120,7 +121,7 @@ export function LocalAgentsCard(input: {
 		setIsCheckingAgents(true);
 		try {
 			await input.recovery.refreshLocalAgentCatalog();
-			toast.success("Local agent check complete.");
+			toast.success(LOCAL_AGENT_CHECK_COMPLETE_MESSAGE);
 		} catch (error) {
 			if (isLocalAgentCheckStillRunningError(error)) {
 				// The probe outran the request budget but keeps running on the OpenMeld
@@ -132,7 +133,9 @@ export function LocalAgentsCard(input: {
 						getRecovery: () => recoveryRef.current,
 						previousCheckedAtMs,
 					});
-					if (reconciliation === "timed_out") {
+					if (reconciliation === "updated") {
+						toast.success(LOCAL_AGENT_CHECK_COMPLETE_MESSAGE);
+					} else {
 						toast.error(
 							"OpenMeld is still checking local agents. Check again in a moment."
 						);

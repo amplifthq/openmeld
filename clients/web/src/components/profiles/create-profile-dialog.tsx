@@ -218,6 +218,8 @@ export function CreateProfileDialog(input: {
 					? { agentControllerPermissionMode }
 					: {}),
 				boundAgentId,
+				currentServiceCanSetProfileWorkspace:
+					bindingTarget?.localAgentControl.setProfileWorkspace === true,
 				deviceId: bindingTarget?.deviceId ?? recovery.deviceId,
 				modelId: boundAgentId ? boundModelId : null,
 				defaultProjectId: resolveSelectedDefaultProjectId({
@@ -589,6 +591,7 @@ function resolveSelectedDefaultProjectId(input: {
 async function createProfileAndMaybeJoinSpace(input: {
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	boundAgentId: string;
+	currentServiceCanSetProfileWorkspace: boolean;
 	defaultProjectId: string | null;
 	deviceId: string | null;
 	modelId: string | null;
@@ -621,6 +624,8 @@ async function createProfileAndMaybeJoinSpace(input: {
 			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
 			: {}),
 		boundAgentId: input.boundAgentId,
+		currentServiceCanSetProfileWorkspace:
+			input.currentServiceCanSetProfileWorkspace,
 		defaultProjectId: input.defaultProjectId,
 		deviceId: input.deviceId,
 		modelId: input.modelId,
