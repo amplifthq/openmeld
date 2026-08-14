@@ -5,10 +5,10 @@ import {
 	buildAgentControllerRef,
 	DUPLICATE_REPLY_CONVERSATION_CONTEXT,
 	resolveAgentWakeAvailabilityDisplayCategory,
-	resolveSelectableCandidates,
 } from "@openmeld/agent-runtime";
 import {
 	canonicalizeAgentControllerRef,
+	compareAgentControllerRefsForDisplay,
 	formatLocalSetupActionLabel,
 } from "@openmeld/schemas";
 import type {
@@ -811,12 +811,7 @@ export function resolveAgentProfileBulkReconnectCandidates(input: {
 function createAgentProfileConnectActionsFromLocalAgents(
 	entries: readonly DeviceAgentCatalogEntry[]
 ): readonly AgentProfileRepairAction[] {
-	return resolveSelectableCandidates(
-		entries.map((entry) => ({
-			...entry,
-			registered: entry.detected,
-		}))
-	)
+	return entries
 		.filter(isRunnableLocalAgentEntry)
 		.map((entry) =>
 			createAgentProfileRepairActionFromLocalAgent({
@@ -824,7 +819,13 @@ function createAgentProfileConnectActionsFromLocalAgents(
 				localAgent: entry,
 			})
 		)
-		.filter((action): action is AgentProfileRepairAction => action !== null);
+		.filter((action): action is AgentProfileRepairAction => action !== null)
+		.sort((left, right) =>
+			compareAgentControllerRefsForDisplay(
+				left.agentControllerRef,
+				right.agentControllerRef
+			)
+		);
 }
 
 export function resolveAgentProfileSetupAction(input: {

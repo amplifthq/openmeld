@@ -198,6 +198,7 @@ describe("Agent Profile availability presentation", () => {
 			isCurrentComputer: true,
 			localAgentCatalogEntries: [
 				createLocalAgentCatalogEntry("claude-code", "Claude Code"),
+				createLocalAgentCatalogEntry("custom-acp", "Custom ACP", "custom"),
 				createLocalAgentCatalogEntry("codex", "Codex CLI"),
 				createLocalAgentCatalogEntry("cursor", "Cursor CLI"),
 				createLocalAgentCatalogEntry("grok-build", "Grok Build"),
@@ -212,6 +213,7 @@ describe("Agent Profile availability presentation", () => {
 			"builtin:grok-build",
 			"builtin:cursor",
 			"builtin:opencode",
+			"custom:custom-acp",
 		]);
 	});
 
@@ -568,7 +570,11 @@ function createExpiredWakeRouteProfile(
 	};
 }
 
-function createLocalAgentCatalogEntry(agentId: string, displayName: string) {
+function createLocalAgentCatalogEntry(
+	agentId: string,
+	displayName: string,
+	targetKind: "builtin" | "custom" = "builtin"
+) {
 	return {
 		agentId,
 		detected: true,
@@ -578,7 +584,7 @@ function createLocalAgentCatalogEntry(agentId: string, displayName: string) {
 		launchStatus: "ready" as const,
 		selectable: true,
 		selectableReason: null,
-		targetKind: "builtin" as const,
+		targetKind,
 	};
 }
 
