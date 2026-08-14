@@ -159,7 +159,7 @@ export function getRemoteAgentConnectorToolDefinitions(
     {
       name: "openmeld_list_app_actions",
       description:
-        "Discover the OpenConnector actions OpenMeld can run for one connected App. The result includes each action's exact id, description, effect, required scopes, and input schema. This tool does not read or change provider data. Call it before executing an unfamiliar action. When the user asked for a provider outcome and one returned action matches with clear required input, continue in the same turn with openmeld_execute_app_action; do not report discovery as the requested outcome.",
+        "Discover the OpenConnector actions OpenMeld can run for one connected App. The result includes each action's exact id, description, effect, required scopes, input schema, and output schema. This tool does not read or change provider data. Call it before executing an unfamiliar action. When the user asked for a provider outcome and one returned action matches with clear required input, continue in the same turn with openmeld_execute_app_action; do not report discovery as the requested outcome.",
       input: listAppActionsInputSchema,
       execute: async (payload) => {
         const request = payload as {
@@ -805,6 +805,7 @@ function toModelVisibleAction(action: OpenConnectorRuntimeAction) {
     id: action.id,
     inputSchema: action.inputSchema,
     name: action.name,
+    outputSchema: action.outputSchema,
     requiredScopes: action.requiredScopes,
   };
 }
