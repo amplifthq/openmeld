@@ -528,7 +528,6 @@ function CenterAgentAppConnectionCardState(
 						)
 					: null)
 			}
-			isConnectionError={connectionsQuery.isError}
 			isPersonalWorkspace={input.isPersonalWorkspace === true}
 			loading={connectionsQuery.isPending}
 			mode={input.mode}
@@ -556,6 +555,7 @@ function CenterAgentAppConnectionCardState(
 			onRetry={() => connectionsQuery.refetch()}
 			otherMemberConnections={otherMemberConnections}
 			sharedConnection={sharedConnection}
+			showConnectionRetry={localError === null && connectionsQuery.isError}
 			statusAvailable={statusAvailable}
 			statusChecking={statusChecking}
 		/>
@@ -571,7 +571,6 @@ function AppConnectionCardContent(input: {
 	currentUserId?: string;
 	currentUserConnection?: ConnectorConnection;
 	errorMessage: string | null;
-	isConnectionError: boolean;
 	isPersonalWorkspace: boolean;
 	loading: boolean;
 	mode: "all" | "member";
@@ -588,6 +587,7 @@ function AppConnectionCardContent(input: {
 	onRetry: () => void;
 	otherMemberConnections: ConnectorConnection[];
 	sharedConnection?: ConnectorConnection;
+	showConnectionRetry: boolean;
 	statusAvailable: boolean;
 	statusChecking: boolean;
 }) {
@@ -697,7 +697,7 @@ function AppConnectionCardContent(input: {
 					role="alert"
 				>
 					<p className="text-destructive text-xs">{input.errorMessage}</p>
-					{input.isConnectionError ? (
+					{input.showConnectionRetry ? (
 						<Button
 							onClick={input.onRetry}
 							size="xs"

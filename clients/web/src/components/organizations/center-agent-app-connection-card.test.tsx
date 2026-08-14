@@ -32,12 +32,15 @@ vi.mock("#/lib/organizations/connector-connections", () => ({
 	disconnectOrganizationConnectorConnection:
 		disconnectOrganizationConnectorConnectionMock,
 	disconnectSharedOrganizationConnectorConnection: vi.fn(),
-	isConnectorConnectionConfirmationRetryable: (error: unknown) =>
-		(error as { status?: number }).status !== 401,
+	isConnectorConnectionConfirmationRetryable: (error: unknown) => {
+		const status = (error as { status?: number | null }).status;
+		return status == null || status >= 500;
+	},
 	listCurrentOrganizationConnectorConnections: listConnectionsMock,
 	resolveConnectorConnectionErrorMessage: (error: unknown, appName = "App") =>
-		(error as { status?: number }).status === 401
-			? `Sign in again before connecting ${appName}.`
+		(error as { upstreamCode?: string }).upstreamCode ===
+		"connector.organization_context_changed"
+			? `Your active Organization changed in another tab. Refresh this page before updating ${appName}.`
 			: String(error),
 	startCurrentMemberConnectorAuthorization: startMemberAuthorizationMock,
 	startCurrentOrganizationSharedConnectorAuthorization: vi.fn(),
@@ -714,9 +717,10 @@ describe("CenterAgentAppConnectionCard", () => {
 
 	it("surfaces a terminal confirmation failure without leaving authorization pending", async () => {
 		const confirmationError = {
-			code: "auth.session_expired",
-			message: "Your session expired.",
-			status: 401,
+			code: "gateway.http_error",
+			message: "Your active Organization changed.",
+			status: 409,
+			upstreamCode: "connector.organization_context_changed",
 		};
 		const errorSpy = vi
 			.spyOn(console, "error")
@@ -754,9 +758,12 @@ describe("CenterAgentAppConnectionCard", () => {
 		popup.closed = true;
 
 		expect(
-			await screen.findByText("Sign in again before connecting Linear.")
+			await screen.findByText(
+				"Your active Organization changed in another tab. Refresh this page before updating Linear."
+			)
 		).toBeTruthy();
 		expect(screen.queryByText("Waiting for authorization…")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 		expect(errorSpy).toHaveBeenCalledWith(
 			"[openmeld.web.connector_authorization_confirmation_failed]",
 			expect.objectContaining({ error: confirmationError })
