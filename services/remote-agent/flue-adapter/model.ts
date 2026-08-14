@@ -9,6 +9,7 @@ import { registerApiProvider, registerProvider } from "@flue/runtime";
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
 import { z } from "zod/v4";
 import { REMOTE_AGENT_CONNECTOR_TOOL_NAMES } from "../agent-core/connector-tools";
+import { REMOTE_AGENT_GITHUB_TOOL_NAMES } from "../agent-core/github-tools";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -813,9 +814,10 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
 
 const REMOTE_AGENT_DIRECT_TOOL_SCHEMA_LIMIT = 64;
 const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
-const REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET = new Set<string>(
-  REMOTE_AGENT_CONNECTOR_TOOL_NAMES
-);
+const REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET = new Set<string>([
+  ...REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
+  ...REMOTE_AGENT_GITHUB_TOOL_NAMES,
+]);
 const REMOTE_AGENT_CREATE_TASK_TOOL_NAME = "openmeld_create_task";
 const REMOTE_AGENT_CREATE_SPACE_TOOL_NAME = "openmeld_create_space";
 const REMOTE_AGENT_POST_SPACE_MESSAGE_TOOL_NAME = "openmeld_post_space_message";
@@ -1204,6 +1206,11 @@ function compactRemoteAgentProviderTools(tools: unknown): unknown {
       typeof tool.function.name === "string" &&
       REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET.has(tool.function.name)
   );
+  if (alwaysDirectTools.length > REMOTE_AGENT_DIRECT_TOOL_SCHEMA_LIMIT) {
+    throw new Error(
+      "The required direct Remote Agent tool surface exceeds the provider schema limit."
+    );
+  }
   return [...alwaysDirectTools, ...codeModeTools];
 }
 

@@ -248,6 +248,12 @@ describe("remote agent system prompt", () => {
     expect(prompt).toContain(
       "call openmeld_execute_app_action in the same turn"
     );
+    expect(prompt).toContain(
+      "GitHub is not included in openmeld_list_connected_apps"
+    );
+    expect(prompt).toContain(
+      "call the matching direct github_* tool before concluding that GitHub is unavailable"
+    );
   });
 
   it("uses one low-friction authorization policy across tools", () => {

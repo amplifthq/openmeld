@@ -1,6 +1,7 @@
 import { stream as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions";
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
 import { describe, expect, it, vi } from "vitest";
+import { REMOTE_AGENT_GITHUB_TOOL_NAMES } from "../agent-core/github-tools";
 import { REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER } from "../agent-core/work-surface-routing";
 import {
   declareRemoteAgentModelImageInput,
@@ -172,7 +173,7 @@ describe("Remote Agent model reasoning", () => {
     );
   });
 
-  it("keeps connected App actions direct alongside Code Mode for a large tool surface", async () => {
+  it("keeps connected App and GitHub actions direct alongside Code Mode for a large tool surface", async () => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
@@ -183,12 +184,20 @@ describe("Remote Agent model reasoning", () => {
       "openmeld_list_app_actions",
       "openmeld_execute_app_action",
     ].map((name) => ({ function: { name }, type: "function" }));
+    const githubTools = REMOTE_AGENT_GITHUB_TOOL_NAMES.map((name) => ({
+      function: { name },
+      type: "function",
+    }));
+    expect(connectedAppTools.length + githubTools.length).toBeLessThanOrEqual(
+      64
+    );
     const directTools = [
       ...Array.from({ length: 62 }, (_, index) => ({
         function: { name: `tool_${String(index)}` },
         type: "function",
       })),
       ...connectedAppTools,
+      ...githubTools,
     ];
     const codemode = {
       function: {
@@ -205,13 +214,13 @@ describe("Remote Agent model reasoning", () => {
     );
 
     expect(payload).toMatchObject({
-      tools: [...connectedAppTools, codemode],
+      tools: [...connectedAppTools, ...githubTools, codemode],
     });
-    expect(tools).toHaveLength(66);
+    expect(tools).toHaveLength(66 + githubTools.length);
     expect(reportStage).toHaveBeenCalledWith(
       expect.objectContaining({
         messageCount: 1,
-        toolCount: 4,
+        toolCount: 4 + githubTools.length,
       })
     );
   });
