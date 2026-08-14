@@ -46,6 +46,7 @@ import {
   type RemoteAgentStreamPublisher,
   resolveRemoteAgentStreamContext,
 } from "./streaming";
+import { preserveToolWorkThroughCompletion } from "./tool-work-lifecycle";
 import { emitRemoteAgentUsageRecord } from "./usage-observability";
 
 type RemoteAgentObservationDependencies = {
@@ -149,29 +150,30 @@ async function handleCenterAgentToolPart(input: {
   if (!isRemoteAgentStreamEligible(context)) {
     return;
   }
-  const visibleParts = input.toolPart.part.work ? [input.toolPart.part] : [];
-  if (visibleParts.length === 0) {
-    return;
-  }
   try {
-    for (const part of visibleParts) {
-      const result = await input.streamPublisher.pushPart({
-        context,
-        coreWorker,
-        observedAtMs: input.toolPart.observedAtMs,
-        part,
-        storage,
-      });
-      logRemoteAgentStreamResult({
-        context,
-        env,
-        eventIndex: input.eventIndex,
-        observedAtMs: input.toolPart.observedAtMs,
-        phase: "part",
-        result,
-        submissionId: input.toolPart.submissionId,
-      });
+    const part = await preserveToolWorkThroughCompletion({
+      storage,
+      toolPart: input.toolPart,
+    });
+    if (!part.work) {
+      return;
     }
+    const result = await input.streamPublisher.pushPart({
+      context,
+      coreWorker,
+      observedAtMs: input.toolPart.observedAtMs,
+      part,
+      storage,
+    });
+    logRemoteAgentStreamResult({
+      context,
+      env,
+      eventIndex: input.eventIndex,
+      observedAtMs: input.toolPart.observedAtMs,
+      phase: "part",
+      result,
+      submissionId: input.toolPart.submissionId,
+    });
   } catch (error) {
     logRemoteAgentStreamFailure({
       error,

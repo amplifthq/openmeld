@@ -89,6 +89,130 @@ describe("Center Agent stream observation", () => {
     });
   });
 
+  it("keeps the GitHub repository label when the tool completion omits arguments", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: "remote-agent:dispatch_123",
+          requestId: SUBMISSION_ID,
+          status: "pending",
+          submissionId: SUBMISSION_ID,
+        },
+        nowMs: TEST_NOW_MS,
+        request: createSubmitTurnRequest(),
+      })
+    );
+    const submitRemoteAgentStreamPart = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const resolveDependencies = () => ({
+      coreWorker: { submitRemoteAgentStreamPart },
+      env: {} as CloudflareBindings,
+      storage,
+    });
+
+    await handleCenterAgentObservation({
+      event: toolStartObservation("github_get_repository", {
+        owner: "amplifthq",
+        repo: "openmeld",
+      }),
+      resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    });
+    await handleCenterAgentObservation({
+      event: toolCompletionObservation("github_get_repository"),
+      resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    });
+
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledTimes(2);
+    expect(submitRemoteAgentStreamPart.mock.calls[1]?.[0]).toMatchObject({
+      part: {
+        state: "output-available",
+        toolCallId: "tool_call_1",
+        toolName: "github_get_repository",
+        type: "tool",
+        work: {
+          key: "github.repository.read",
+          subject: {
+            kind: "repository",
+            label: "amplifthq/openmeld",
+          },
+          v: 1,
+        },
+      },
+    });
+  });
+
+  it("publishes connected app completion with the safe label from its start", async () => {
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(
+      storage,
+      createRemoteAgentCallbackContext({
+        ack: {
+          accepted: true,
+          createdAt: TEST_NOW_MS,
+          idempotencyKey: "remote-agent:dispatch_123",
+          requestId: SUBMISSION_ID,
+          status: "pending",
+          submissionId: SUBMISSION_ID,
+        },
+        nowMs: TEST_NOW_MS,
+        request: createSubmitTurnRequest(),
+      })
+    );
+    const submitRemoteAgentStreamPart = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const resolveDependencies = () => ({
+      coreWorker: { submitRemoteAgentStreamPart },
+      env: {} as CloudflareBindings,
+      storage,
+    });
+
+    await handleCenterAgentObservation({
+      event: toolStartObservation("openmeld_execute_app_action", {
+        actionId: "gmail.fetch_emails",
+        service: "gmail",
+      }),
+      resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    });
+    await handleCenterAgentObservation({
+      event: toolCompletionObservation("openmeld_execute_app_action"),
+      resolveDependencies,
+      streamPublisher: createRemoteAgentStreamPublisher(),
+    });
+
+    expect(submitRemoteAgentStreamPart).toHaveBeenCalledTimes(2);
+    expect(submitRemoteAgentStreamPart.mock.calls[1]?.[0]).toMatchObject({
+      part: {
+        state: "output-available",
+        toolCallId: "tool_call_1",
+        toolName: "openmeld_execute_app_action",
+        type: "tool",
+        work: {
+          key: "connected_app.action.execute",
+          subject: {
+            kind: "connected_app",
+            label: "Gmail: fetch emails",
+          },
+          v: 1,
+        },
+      },
+    });
+  });
+
   it("keeps the Code Mode wrapper out of user-visible work", async () => {
     const storage = new InMemoryDurableObjectStorage();
     await putRemoteAgentCallbackContext(
