@@ -7,6 +7,6 @@
   "grant_types": ["authorization_code"],
   "response_types": ["code"],
   "com.posthog": {
-    "verification_token": "phvt_qW5Go28WWgFKZeZ3B99JwPogbJqb5jQdvKXBtbGe4RsSDone"
+    "verification_token": "phvt_tQj75hWPQJg3J6CGoksKgUKQJRWqhHjumaurF7ZyFCYB"
   }
 }
