@@ -77,6 +77,13 @@ describe("connector connection Web API helpers", () => {
 			isConnectorConnectionConfirmationRetryable({
 				code: "network.request_failed",
 				message: "The response body could not be read.",
+				status: 200,
+			})
+		).toBe(true);
+		expect(
+			isConnectorConnectionConfirmationRetryable({
+				code: "network.request_failed",
+				message: "The response body could not be read.",
 				status: 403,
 			})
 		).toBe(false);

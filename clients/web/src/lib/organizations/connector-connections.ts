@@ -246,7 +246,7 @@ export function isConnectorConnectionConfirmationRetryable(
 	if (failureCode === CONNECTOR_ORGANIZATION_CONTEXT_CHANGED_CODE) {
 		return false;
 	}
-	if (failure.status !== null) {
+	if (failure.status !== null && failure.status >= 400) {
 		return (
 			failure.status === 408 || failure.status === 429 || failure.status >= 500
 		);
