@@ -235,6 +235,28 @@ export function resolveConnectorConnectionErrorMessage(
 	);
 }
 
+export function isConnectorConnectionConfirmationRetryable(
+	error: unknown
+): boolean {
+	const failure = toStructuredApiClientFailure(error);
+	const failureCode = failure.upstreamCode ?? failure.code;
+	if (failureCode === "connector.organization_context_changed") {
+		return false;
+	}
+	if (
+		failure.code === "network.timeout" ||
+		failure.code === "network.request_failed"
+	) {
+		return true;
+	}
+	if (failure.status === null) {
+		return true;
+	}
+	return (
+		failure.status === 408 || failure.status === 429 || failure.status >= 500
+	);
+}
+
 export function listCurrentOrganizationGitHubConnections(input: {
 	organizationId: string;
 	signal?: AbortSignal;

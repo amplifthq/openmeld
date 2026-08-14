@@ -10,6 +10,7 @@ vi.mock("#/lib/openmeld-api/client", () => ({
 
 import {
 	createCurrentOrganizationConnectorAppRequest,
+	isConnectorConnectionConfirmationRetryable,
 	listCurrentOrganizationConnectorAppCatalog,
 	listCurrentOrganizationConnectorAppRequests,
 	resolveConnectorConnectionErrorMessage,
@@ -49,6 +50,36 @@ describe("connector connection Web API helpers", () => {
 				"GitHub"
 			)
 		).toBe("OpenMeld could not finish GitHub setup. Try again.");
+	});
+
+	it("retries only transient App connection confirmation failures", () => {
+		expect(
+			isConnectorConnectionConfirmationRetryable({
+				code: "network.request_failed",
+				message: "The request could not be completed.",
+				status: null,
+			})
+		).toBe(true);
+		expect(
+			isConnectorConnectionConfirmationRetryable({
+				message: "OpenMeld is temporarily unavailable.",
+				status: 503,
+			})
+		).toBe(true);
+		expect(
+			isConnectorConnectionConfirmationRetryable({
+				message: "Your session expired.",
+				status: 401,
+			})
+		).toBe(false);
+		expect(
+			isConnectorConnectionConfirmationRetryable({
+				code: "gateway.http_error",
+				message: "Your active Organization changed.",
+				status: 409,
+				upstreamCode: "connector.organization_context_changed",
+			})
+		).toBe(false);
 	});
 
 	it("opts shared GitHub setup into the server-owned installation expiry", async () => {

@@ -34,6 +34,7 @@ import {
 	connectCurrentOrganizationSharedConnectorCredential,
 	disconnectOrganizationConnectorConnection,
 	disconnectSharedOrganizationConnectorConnection,
+	isConnectorConnectionConfirmationRetryable,
 	resolveConnectorConnectionErrorMessage,
 	startCurrentMemberConnectorAuthorization,
 	startCurrentOrganizationSharedConnectorAuthorization,
@@ -218,7 +219,7 @@ function CenterAgentAppConnectionCardState(
 		let hasObservedClosedPopup = false;
 		let hasLoggedConfirmationFailure = false;
 		let nextConfirmationAtMs = 0;
-		const preserveConfirmationFailure = (error: unknown) => {
+		const handleConfirmationFailure = (error: unknown) => {
 			if (!hasLoggedConfirmationFailure) {
 				console.error(
 					"[openmeld.web.connector_authorization_confirmation_failed]",
@@ -230,6 +231,13 @@ function CenterAgentAppConnectionCardState(
 					}
 				);
 				hasLoggedConfirmationFailure = true;
+			}
+			if (!isConnectorConnectionConfirmationRetryable(error)) {
+				setWaitingScope(null);
+				setLocalError(
+					resolveConnectorConnectionErrorMessage(error, input.app.name)
+				);
+				return;
 			}
 			isConfirmingClosedPopup = false;
 			nextConfirmationAtMs = Date.now() + AUTHORIZATION_POLL_INTERVAL_MS;
@@ -253,7 +261,7 @@ function CenterAgentAppConnectionCardState(
 						return;
 					}
 					if (result.error) {
-						preserveConfirmationFailure(result.error);
+						handleConfirmationFailure(result.error);
 						return;
 					}
 					if (
@@ -271,7 +279,7 @@ function CenterAgentAppConnectionCardState(
 				})
 				.catch((error: unknown) => {
 					if (isCurrentAttempt) {
-						preserveConfirmationFailure(error);
+						handleConfirmationFailure(error);
 					}
 				});
 		}, AUTHORIZATION_POPUP_CHECK_INTERVAL_MS);

@@ -32,8 +32,13 @@ vi.mock("#/lib/organizations/connector-connections", () => ({
 	disconnectOrganizationConnectorConnection:
 		disconnectOrganizationConnectorConnectionMock,
 	disconnectSharedOrganizationConnectorConnection: vi.fn(),
+	isConnectorConnectionConfirmationRetryable: (error: unknown) =>
+		(error as { status?: number }).status !== 401,
 	listCurrentOrganizationConnectorConnections: listConnectionsMock,
-	resolveConnectorConnectionErrorMessage: (error: unknown) => String(error),
+	resolveConnectorConnectionErrorMessage: (error: unknown, appName = "App") =>
+		(error as { status?: number }).status === 401
+			? `Sign in again before connecting ${appName}.`
+			: String(error),
 	startCurrentMemberConnectorAuthorization: startMemberAuthorizationMock,
 	startCurrentOrganizationSharedConnectorAuthorization: vi.fn(),
 }));
@@ -705,6 +710,57 @@ describe("CenterAgentAppConnectionCard", () => {
 			)
 		).toBeTruthy();
 		expect(listConnectionsMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+	});
+
+	it("surfaces a terminal confirmation failure without leaving authorization pending", async () => {
+		const confirmationError = {
+			code: "auth.session_expired",
+			message: "Your session expired.",
+			status: 401,
+		};
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockRejectedValue(confirmationError);
+		popup.closed = true;
+
+		expect(
+			await screen.findByText("Sign in again before connecting Linear.")
+		).toBeTruthy();
+		expect(screen.queryByText("Waiting for authorization…")).toBeNull();
+		expect(errorSpy).toHaveBeenCalledWith(
+			"[openmeld.web.connector_authorization_confirmation_failed]",
+			expect.objectContaining({ error: confirmationError })
+		);
 	});
 
 	it("does not carry an authorization attempt into another App", async () => {
