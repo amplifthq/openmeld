@@ -71,6 +71,8 @@ const DESTRUCTIVE_ACTION_PATTERN = new RegExp(
 );
 const LEGACY_READ_ACTION_ID_PATTERN = /\.(?:get|list)_[a-z0-9_]+$/iu;
 const OPENCONNECTOR_ACTION_SEARCH_LIMIT = 50;
+const GITHUB_DEDICATED_ACTION_INSTRUCTION =
+  "This Apps list never reports GitHub access. For a GitHub request, call the matching github_* tool; it will verify the requested Organization or member GitHub connection.";
 export const REMOTE_AGENT_CONNECTOR_TOOL_NAMES = [
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
@@ -154,7 +156,13 @@ export function getRemoteAgentConnectorToolDefinitions(
             };
           })
         );
-        return { apps };
+        return {
+          apps,
+          github: {
+            connectionStatus: "not_checked" as const,
+            instruction: GITHUB_DEDICATED_ACTION_INSTRUCTION,
+          },
+        };
       },
     },
     {

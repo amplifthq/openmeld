@@ -899,8 +899,12 @@ App discovery and execution tools, and the dedicated GitHub tools. Keeping
 those bounded direct sequences available prevents generic App discovery from
 being mistaken for a requested provider outcome and lets an explicit GitHub
 request verify its own connection through the matching GitHub action; it does
-not add a second action surface. The required direct subset must itself remain
-within the same 64-schema limit and fails fast if it exceeds that boundary.
+not add a second action surface. The generic connected-Apps result explicitly
+reports GitHub as `not_checked` and directs the model to the matching dedicated
+GitHub action. It must never let the absence of GitHub from the ordinary Apps
+list be interpreted as missing GitHub access. The required direct subset must
+itself remain within the same 64-schema limit and fails fast if it exceeds that
+boundary.
 The generated Code Mode catalog still contains every active direct tool,
 including that subset, and every direct or inner call re-enters the same
 cancellation, authorization, confirmation, audit, usage, and result-bounding
