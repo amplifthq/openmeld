@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-13T17:47:45.505Z",
+  "updatedAt": "2026-08-14T08:49:27.918Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.56",
+      "packageVersion": "0.3.57",
       "updatePolicy": "available",
-      "reason": "Recognize supported foreground Service runtimes without blocking existing Wake work."
+      "reason": "Ship clearer connected App action results and Agent work details without blocking existing Wake work."
     },
     "service": {
-      "bundleHash": "2b15c1f32e094413535a8119c8e006f3e4e87b17b23a13af86b3636b34d0c518",
-      "bundleVersion": "0.3.56",
+      "bundleHash": "bf210cf05979c4dc336012e97158505525274308e4d746fb29e3f90d449f27d5",
+      "bundleVersion": "0.3.57",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Recognize supported foreground Service runtimes without blocking existing Wake work."
+      "reason": "Ship clearer connected App action results and Agent work details without blocking existing Wake work."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Recognize supported foreground Service runtimes without blocking existing Wake work."
+      "reason": "Ship clearer connected App action results and Agent work details without blocking existing Wake work."
     }
   }
 }
