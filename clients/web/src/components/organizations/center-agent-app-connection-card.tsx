@@ -80,11 +80,13 @@ type LocalConnectionError = {
 };
 
 function canRetryConnectionStatus(input: {
+	connectionError: unknown;
 	connectionErrorVisible: boolean;
 	localError: LocalConnectionError | null;
 }): boolean {
 	return (
 		input.connectionErrorVisible &&
+		isConnectorConnectionConfirmationRetryable(input.connectionError) &&
 		(input.localError === null ||
 			input.localError.retryConnectionStatus === true)
 	);
@@ -626,6 +628,7 @@ function CenterAgentAppConnectionCardState(
 			otherMemberConnections={otherMemberConnections}
 			sharedConnection={sharedConnection}
 			showConnectionRetry={canRetryConnectionStatus({
+				connectionError: connectionsQuery.error,
 				connectionErrorVisible,
 				localError,
 			})}
