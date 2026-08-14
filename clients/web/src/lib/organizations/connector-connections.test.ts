@@ -13,6 +13,7 @@ import {
 	isConnectorConnectionConfirmationRetryable,
 	listCurrentOrganizationConnectorAppCatalog,
 	listCurrentOrganizationConnectorAppRequests,
+	listCurrentOrganizationConnectorConnections,
 	resolveConnectorConnectionErrorMessage,
 	startCurrentMemberGitHubAuthorization,
 	startCurrentOrganizationSharedGitHubAuthorization,
@@ -80,6 +81,32 @@ describe("connector connection Web API helpers", () => {
 				upstreamCode: "connector.organization_context_changed",
 			})
 		).toBe(false);
+		expect(
+			isConnectorConnectionConfirmationRetryable(
+				new Error("App response Organization mismatch.")
+			)
+		).toBe(false);
+	});
+
+	it("preserves a mismatched App response as an actionable Organization error", async () => {
+		requestJsonMock.mockResolvedValueOnce({
+			connections: [],
+			currentUserId: "user-1",
+			organizationId: "org-other",
+		});
+
+		const error = await listCurrentOrganizationConnectorConnections({
+			organizationId: "org-acme",
+			service: "linear",
+		}).catch((failure: unknown) => failure);
+
+		expect(error).toMatchObject({
+			status: null,
+			upstreamCode: "connector.organization_context_changed",
+		});
+		expect(resolveConnectorConnectionErrorMessage(error, "Linear")).toBe(
+			"Your active Organization changed in another tab. Refresh this page before updating Linear."
+		);
 	});
 
 	it("opts shared GitHub setup into the server-owned installation expiry", async () => {
