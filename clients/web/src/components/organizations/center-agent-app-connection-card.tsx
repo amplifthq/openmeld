@@ -27,7 +27,13 @@ import {
 	LinkBreakIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import {
+	type FormEvent,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import {
 	connectCurrentMemberConnectorCredential,
@@ -155,6 +161,7 @@ function CenterAgentAppConnectionCardState(
 	const [localError, setLocalError] = useState<string | null>(null);
 	const [credentialResetKey, setCredentialResetKey] = useState(0);
 	const authorizationPopupRef = useRef<Window | null>(null);
+	const authorizationFailureSettledRef = useRef(false);
 	const connectionsQuery = useQuery(
 		organizationAppServiceConnectionsQueryOptions({
 			organizationId: input.organizationId,
@@ -182,6 +189,30 @@ function CenterAgentAppConnectionCardState(
 	const serviceConnectionsQueryKey = organizationAppConnectionQueryKeys.service(
 		input.organizationId,
 		input.app.service
+	);
+	const settleAuthorizationFailure = useCallback(
+		(error: unknown, scope: AuthorizationScope) => {
+			if (authorizationFailureSettledRef.current) {
+				return;
+			}
+			authorizationFailureSettledRef.current = true;
+			console.error(
+				"[openmeld.web.connector_authorization_confirmation_failed]",
+				{
+					error,
+					organizationId: input.organizationId,
+					scope,
+					service: input.app.service,
+				}
+			);
+			authorizationPopupRef.current?.close();
+			authorizationPopupRef.current = null;
+			setWaitingScope(null);
+			setLocalError(
+				resolveConnectorConnectionErrorMessage(error, input.app.name)
+			);
+		},
+		[input.app.name, input.app.service, input.organizationId]
 	);
 
 	useEffect(
@@ -211,6 +242,21 @@ function CenterAgentAppConnectionCardState(
 	}, [authorizationCompleted, input.app.name, sharedScopeName, waitingScope]);
 
 	useEffect(() => {
+		if (
+			!(waitingScope && connectionsQuery.isError) ||
+			isConnectorConnectionConfirmationRetryable(connectionsQuery.error)
+		) {
+			return;
+		}
+		settleAuthorizationFailure(connectionsQuery.error, waitingScope);
+	}, [
+		connectionsQuery.error,
+		connectionsQuery.isError,
+		settleAuthorizationFailure,
+		waitingScope,
+	]);
+
+	useEffect(() => {
 		if (!waitingScope) {
 			return;
 		}
@@ -220,6 +266,10 @@ function CenterAgentAppConnectionCardState(
 		let hasLoggedConfirmationFailure = false;
 		let nextConfirmationAtMs = 0;
 		const handleConfirmationFailure = (error: unknown) => {
+			if (!isConnectorConnectionConfirmationRetryable(error)) {
+				settleAuthorizationFailure(error, waitingScope);
+				return;
+			}
 			if (!hasLoggedConfirmationFailure) {
 				console.error(
 					"[openmeld.web.connector_authorization_confirmation_failed]",
@@ -231,13 +281,6 @@ function CenterAgentAppConnectionCardState(
 					}
 				);
 				hasLoggedConfirmationFailure = true;
-			}
-			if (!isConnectorConnectionConfirmationRetryable(error)) {
-				setWaitingScope(null);
-				setLocalError(
-					resolveConnectorConnectionErrorMessage(error, input.app.name)
-				);
-				return;
 			}
 			isConfirmingClosedPopup = false;
 			nextConfirmationAtMs = Date.now() + AUTHORIZATION_POLL_INTERVAL_MS;
@@ -292,6 +335,7 @@ function CenterAgentAppConnectionCardState(
 		input.app.service,
 		input.organizationId,
 		refetchConnections,
+		settleAuthorizationFailure,
 		waitingScope,
 	]);
 
@@ -329,7 +373,10 @@ function CenterAgentAppConnectionCardState(
 				resolveConnectorConnectionErrorMessage(error, input.app.name)
 			);
 		},
-		onMutate: () => setLocalError(null),
+		onMutate: () => {
+			authorizationFailureSettledRef.current = false;
+			setLocalError(null);
+		},
 		onSuccess: (authorization, scope) => {
 			const popup = authorizationPopupRef.current;
 			if (!popup || popup.closed) {

@@ -771,6 +771,63 @@ describe("CenterAgentAppConnectionCard", () => {
 		);
 	});
 
+	it("surfaces a terminal polling failure while the authorization window is open", async () => {
+		const confirmationError = {
+			code: "gateway.http_error",
+			message: "Your active Organization changed.",
+			status: 409,
+			upstreamCode: "connector.organization_context_changed",
+		};
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockRejectedValue(confirmationError);
+
+		expect(
+			await screen.findByText(
+				"Your active Organization changed in another tab. Refresh this page before updating Linear.",
+				undefined,
+				{ timeout: 3000 }
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Waiting for authorization…")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+		expect(popup.close).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith(
+			"[openmeld.web.connector_authorization_confirmation_failed]",
+			expect.objectContaining({ error: confirmationError })
+		);
+	});
+
 	it("does not carry an authorization attempt into another App", async () => {
 		const popup = {
 			closed: false,
