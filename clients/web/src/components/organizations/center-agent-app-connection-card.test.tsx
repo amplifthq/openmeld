@@ -828,6 +828,101 @@ describe("CenterAgentAppConnectionCard", () => {
 		);
 	});
 
+	it("offers a connection status retry after transient failures time out", async () => {
+		const queryClient = createTestQueryClient();
+		const transientError = {
+			code: "gateway.http_error",
+			message: "OpenConnector is temporarily unavailable.",
+			status: 503,
+		};
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		let authorizationTimeout: (() => void) | undefined;
+		const nativeSetTimeout = window.setTimeout.bind(window);
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+		vi.spyOn(window, "setTimeout").mockImplementation(
+			(
+				handler: TimerHandler,
+				timeout?: number,
+				...args: unknown[]
+			): ReturnType<typeof window.setTimeout> => {
+				if (timeout === 120_000 && typeof handler === "function") {
+					authorizationTimeout = () => {
+						Reflect.apply(handler, window, args);
+					};
+					return 1 as unknown as ReturnType<typeof window.setTimeout>;
+				}
+				return nativeSetTimeout(
+					handler,
+					timeout,
+					...args
+				) as unknown as ReturnType<typeof window.setTimeout>;
+			}
+		);
+
+		render(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockRejectedValue(transientError);
+		await act(async () => {
+			await queryClient.invalidateQueries({
+				exact: true,
+				queryKey: organizationAppConnectionQueryKeys.service(
+					"org-acme",
+					"linear"
+				),
+			});
+		});
+		expect(authorizationTimeout).toBeTypeOf("function");
+		act(() => authorizationTimeout?.());
+
+		expect(
+			screen.getByText(
+				"Linear authorization timed out. Start again when you are ready."
+			)
+		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+		expect(connectButton.hasAttribute("disabled")).toBe(true);
+
+		listConnectionsMock.mockResolvedValue({
+			connections: [],
+			currentUserId: "user-1",
+			organizationId: "org-acme",
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		expect(
+			screen.queryByText(
+				"Linear authorization timed out. Start again when you are ready."
+			)
+		).toBeNull();
+	});
+
 	it("does not carry an authorization attempt into another App", async () => {
 		const popup = {
 			closed: false,

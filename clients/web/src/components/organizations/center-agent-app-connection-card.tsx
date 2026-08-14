@@ -74,6 +74,21 @@ type DisconnectRequest = {
 	scope: AuthorizationScope;
 	userId?: string;
 };
+type LocalConnectionError = {
+	message: string;
+	retryConnectionStatus?: boolean;
+};
+
+function canRetryConnectionStatus(input: {
+	connectionErrorVisible: boolean;
+	localError: LocalConnectionError | null;
+}): boolean {
+	return (
+		input.connectionErrorVisible &&
+		(input.localError === null ||
+			input.localError.retryConnectionStatus === true)
+	);
+}
 
 function resolveConnectPending(input: {
 	authorizationScope: AuthorizationScope | null;
@@ -158,7 +173,9 @@ function CenterAgentAppConnectionCardState(
 	const [waitingScope, setWaitingScope] = useState<AuthorizationScope | null>(
 		null
 	);
-	const [localError, setLocalError] = useState<string | null>(null);
+	const [localError, setLocalError] = useState<LocalConnectionError | null>(
+		null
+	);
 	const [credentialResetKey, setCredentialResetKey] = useState(0);
 	const authorizationPopupRef = useRef<Window | null>(null);
 	const authorizationFailureSettledRef = useRef(false);
@@ -208,9 +225,9 @@ function CenterAgentAppConnectionCardState(
 			authorizationPopupRef.current?.close();
 			authorizationPopupRef.current = null;
 			setWaitingScope(null);
-			setLocalError(
-				resolveConnectorConnectionErrorMessage(error, input.app.name)
-			);
+			setLocalError({
+				message: resolveConnectorConnectionErrorMessage(error, input.app.name),
+			});
 		},
 		[input.app.name, input.app.service, input.organizationId]
 	);
@@ -316,9 +333,9 @@ function CenterAgentAppConnectionCardState(
 						return;
 					}
 					setWaitingScope(null);
-					setLocalError(
-						`${input.app.name} wasn’t connected. Try again when you’re ready.`
-					);
+					setLocalError({
+						message: `${input.app.name} wasn’t connected. Try again when you’re ready.`,
+					});
 				})
 				.catch((error: unknown) => {
 					if (isCurrentAttempt) {
@@ -347,9 +364,10 @@ function CenterAgentAppConnectionCardState(
 			authorizationPopupRef.current?.close();
 			authorizationPopupRef.current = null;
 			setWaitingScope(null);
-			setLocalError(
-				`${input.app.name} authorization timed out. Start again when you are ready.`
-			);
+			setLocalError({
+				message: `${input.app.name} authorization timed out. Start again when you are ready.`,
+				retryConnectionStatus: true,
+			});
 		}, AUTHORIZATION_TIMEOUT_MS);
 		return () => window.clearTimeout(timeout);
 	}, [input.app.name, waitingScope]);
@@ -369,9 +387,9 @@ function CenterAgentAppConnectionCardState(
 			authorizationPopupRef.current?.close();
 			authorizationPopupRef.current = null;
 			setWaitingScope(null);
-			setLocalError(
-				resolveConnectorConnectionErrorMessage(error, input.app.name)
-			);
+			setLocalError({
+				message: resolveConnectorConnectionErrorMessage(error, input.app.name),
+			});
 		},
 		onMutate: () => {
 			authorizationFailureSettledRef.current = false;
@@ -380,9 +398,9 @@ function CenterAgentAppConnectionCardState(
 		onSuccess: (authorization, scope) => {
 			const popup = authorizationPopupRef.current;
 			if (!popup || popup.closed) {
-				setLocalError(
-					`The ${input.app.name} window closed before authorization started. Try again.`
-				);
+				setLocalError({
+					message: `The ${input.app.name} window closed before authorization started. Try again.`,
+				});
 				return;
 			}
 			popup.location.href = authorization.authorizationUrl;
@@ -420,9 +438,9 @@ function CenterAgentAppConnectionCardState(
 				serviceConnectionsQueryKey,
 				context?.previousConnections
 			);
-			setLocalError(
-				resolveConnectorConnectionErrorMessage(error, input.app.name)
-			);
+			setLocalError({
+				message: resolveConnectorConnectionErrorMessage(error, input.app.name),
+			});
 		},
 		onMutate: async (request) => {
 			setLocalError(null);
@@ -494,9 +512,9 @@ function CenterAgentAppConnectionCardState(
 				serviceConnectionsQueryKey,
 				context?.previousConnections
 			);
-			setLocalError(
-				resolveConnectorConnectionErrorMessage(error, input.app.name)
-			);
+			setLocalError({
+				message: resolveConnectorConnectionErrorMessage(error, input.app.name),
+			});
 		},
 		onMutate: async (request) => {
 			setLocalError(null);
@@ -569,7 +587,7 @@ function CenterAgentAppConnectionCardState(
 			currentUserId={connectionsQuery.data?.currentUserId}
 			disconnectPendingRequest={disconnectPendingRequest}
 			errorMessage={
-				localError ??
+				localError?.message ??
 				(connectionErrorVisible
 					? resolveConnectorConnectionErrorMessage(
 							connectionsQuery.error,
@@ -593,7 +611,7 @@ function CenterAgentAppConnectionCardState(
 						startAuthorization({
 							appName: input.app.name,
 							mutation: authorizationMutation.mutate,
-							onBlocked: setLocalError,
+							onBlocked: (message) => setLocalError({ message }),
 							popupRef: authorizationPopupRef,
 							scope,
 						}),
@@ -601,10 +619,16 @@ function CenterAgentAppConnectionCardState(
 				})
 			}
 			onDisconnect={(request) => disconnectMutation.mutate(request)}
-			onRetry={() => connectionsQuery.refetch()}
+			onRetry={() => {
+				setLocalError(null);
+				connectionsQuery.refetch();
+			}}
 			otherMemberConnections={otherMemberConnections}
 			sharedConnection={sharedConnection}
-			showConnectionRetry={localError === null && connectionErrorVisible}
+			showConnectionRetry={canRetryConnectionStatus({
+				connectionErrorVisible,
+				localError,
+			})}
 			statusAvailable={statusAvailable}
 			statusChecking={statusChecking}
 		/>
