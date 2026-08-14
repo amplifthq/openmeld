@@ -588,7 +588,10 @@ import {
   readRegisteredAgentControllerTask,
 } from "../agent-task-coordination/infrastructure/d1/agent-controller-task-lifecycle-repo";
 import { readAgentDelegationByChildTask } from "../agent-task-coordination/infrastructure/d1/agent-delegation-repo";
-import { prepareCenterAgentOrganizationMemberRequest } from "../center-agent/application/anonymous-member-request";
+import {
+  type CenterAgentOrganizationMember,
+  prepareCenterAgentOrganizationMemberRequest,
+} from "../center-agent/application/anonymous-member-request";
 import {
   areCenterAgentContextLoadSelectionsEqual,
   CenterAgentContextLoadReceiptError,
@@ -664,6 +667,7 @@ import {
 } from "../center-agent/center-agent-repository";
 import {
   buildCenterAgentConnectorActionOperationScope,
+  type CenterAgentConnectorActionRequester,
   readCenterAgentConnectorActionOperationForRecovery,
   readCenterAgentConnectorActionOperationForRequest,
   recordCenterAgentConnectorActionOperation,
@@ -10396,6 +10400,7 @@ export async function rpcCenterAgentReadConnectorActionOperation(
     requireRpcContext(input.context),
     parsed.data.speakerMember
   );
+  const requester = resolveCenterAgentConnectorActionRequester(prepared.member);
   const existing = await readCenterAgentConnectorActionOperationForRecovery({
     actionId: parsed.data.actionId,
     db: prepared.authorization.db,
@@ -10403,8 +10408,7 @@ export async function rpcCenterAgentReadConnectorActionOperation(
       actorProfileId: prepared.authorization.actorProfileId,
       operationId: parsed.data.operationId,
       organizationId: prepared.authorization.activeOrganization.organizationId,
-      representedUserId: prepared.member.userId,
-      sourceNativeDeliveryId: prepared.member.sourceNativeDeliveryId,
+      requester,
     }),
     service: parsed.data.service,
   });
@@ -10452,12 +10456,12 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     parsed.data.speakerMember
   );
   const { authorization, member } = prepared;
+  const requester = resolveCenterAgentConnectorActionRequester(member);
   const scope = buildCenterAgentConnectorActionOperationScope({
     actorProfileId: authorization.actorProfileId,
     operationId: parsed.data.operationId,
     organizationId: authorization.activeOrganization.organizationId,
-    representedUserId: member.userId,
-    sourceNativeDeliveryId: member.sourceNativeDeliveryId,
+    requester,
   });
   const existing = await readCenterAgentConnectorActionOperationForRequest({
     actionId: parsed.data.actionId,
@@ -10528,10 +10532,9 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     organizationId: authorization.activeOrganization.organizationId,
     outcome: parsed.data.outcome,
     providerExecutionId: parsed.data.providerExecutionId,
-    representedUserId: member.userId,
+    requester,
     requestSignature: parsed.data.requestSignature,
     service: parsed.data.service,
-    sourceNativeDeliveryId: member.sourceNativeDeliveryId,
   });
   return centerAgentRecordConnectorActionOperationResponseSchema.parse({
     attribution: result.attribution,
@@ -10542,6 +10545,26 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     replayed: result.replayed,
     status: result.operation.status,
   });
+}
+
+function resolveCenterAgentConnectorActionRequester(
+  member: CenterAgentOrganizationMember
+): CenterAgentConnectorActionRequester {
+  if (member.userId) {
+    return {
+      kind: "represented_member",
+      representedUserId: member.userId,
+    };
+  }
+  if (member.sourceNativeDeliveryId) {
+    return {
+      kind: "connected_message_channel_member",
+      sourceNativeDeliveryId: member.sourceNativeDeliveryId,
+    };
+  }
+  throw new Error(
+    "A Center Agent connector action requester was not authorized."
+  );
 }
 
 async function resolveConnectorConnectionOwnerDisplayName(input: {

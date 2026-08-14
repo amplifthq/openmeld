@@ -13,6 +13,16 @@ export type CenterAgentConnectorActionOperationScope = {
   organizationId: string;
 } & CenterAgentConnectorActionRequesterAttribution;
 
+export type CenterAgentConnectorActionRequester =
+  | {
+      kind: "represented_member";
+      representedUserId: string;
+    }
+  | {
+      kind: "connected_message_channel_member";
+      sourceNativeDeliveryId: string;
+    };
+
 type CenterAgentConnectorActionRequesterAttribution =
   | {
       representedUserId: string;
@@ -72,17 +82,13 @@ export function buildCenterAgentConnectorActionOperationScope(input: {
   actorProfileId: string;
   operationId: string;
   organizationId: string;
-  representedUserId: string | null;
-  sourceNativeDeliveryId: string | null;
+  requester: CenterAgentConnectorActionRequester;
 }): CenterAgentConnectorActionOperationScope {
   return {
     actorProfileId: input.actorProfileId,
     operationId: input.operationId,
     organizationId: input.organizationId,
-    ...resolveRequesterAttribution({
-      representedUserId: input.representedUserId,
-      sourceNativeDeliveryId: input.sourceNativeDeliveryId,
-    }),
+    ...resolveRequesterAttribution(input.requester),
   };
 }
 
@@ -149,22 +155,19 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   organizationId: string;
   outcome: "attempted" | "completed" | "failed" | "outcome_unknown";
   providerExecutionId: string | null;
-  representedUserId: string | null;
+  requester: CenterAgentConnectorActionRequester;
   requestSignature: string;
   service: string;
-  sourceNativeDeliveryId?: string | null;
 }): Promise<{
   attribution: CenterAgentAttribution;
   operation: CenterAgentConnectorActionOperationRecord;
   replayed: boolean;
 }> {
-  const sourceNativeDeliveryId = input.sourceNativeDeliveryId ?? null;
   const scope = buildCenterAgentConnectorActionOperationScope({
     actorProfileId: input.actorProfileId,
     operationId: input.operationId,
     organizationId: input.organizationId,
-    representedUserId: input.representedUserId,
-    sourceNativeDeliveryId,
+    requester: input.requester,
   });
   const recordId = await buildOperationRecordId(scope);
   const existing = await readOperation({ db: input.db, scope });
@@ -185,8 +188,10 @@ export async function recordCenterAgentConnectorActionOperation(input: {
       };
     }
     const attribution = requireNewOperationAttribution({
-      ...input,
-      sourceNativeDeliveryId,
+      actorProfileId: input.actorProfileId,
+      attribution: input.attribution,
+      representedUserId: scope.representedUserId,
+      sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
     });
     const executionConnection = requireNewOperationExecutionConnection(input);
     const auditAction = resolveAuditAction(input.outcome);
@@ -197,7 +202,8 @@ export async function recordCenterAgentConnectorActionOperation(input: {
         executionConnection,
         id: recordId,
         requesterAttributionKey: scope.requesterAttributionKey,
-        sourceNativeDeliveryId,
+        representedUserId: scope.representedUserId,
+        sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
         status: "pending",
       }),
       prepareCenterAgentAuditJournalEntryIfMissingStatement({
@@ -209,7 +215,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
         nowMs: input.nowMs,
         organizationId: input.organizationId,
         resource: operationAuditResource(input),
-        sourceNativeDeliveryId,
+        sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
       }),
     ]);
     const operation = await requireOperation({ db: input.db, scope });
@@ -601,7 +607,7 @@ async function requireOperationAttribution(input: {
 function mapOperation(
   row: CenterAgentConnectorActionOperationRow
 ): CenterAgentConnectorActionOperationRecord {
-  const requesterAttribution = resolveRequesterAttribution({
+  const requesterAttribution = resolveStoredRequesterAttribution({
     representedUserId: row.represented_user_id,
     sourceNativeDeliveryId: row.source_native_delivery_id,
   });
@@ -709,18 +715,20 @@ async function buildOperationRecordId(
   return `center_agent_connector_action_operation_${hash}`;
 }
 
-function resolveRequesterAttribution(input: {
-  representedUserId: string | null;
-  sourceNativeDeliveryId: string | null;
-}): CenterAgentConnectorActionRequesterAttribution {
-  if (input.representedUserId && !input.sourceNativeDeliveryId) {
+function resolveRequesterAttribution(
+  input: CenterAgentConnectorActionRequester
+): CenterAgentConnectorActionRequesterAttribution {
+  if (input.kind === "represented_member" && input.representedUserId) {
     return {
       representedUserId: input.representedUserId,
       requesterAttributionKey: `user:${input.representedUserId}`,
       sourceNativeDeliveryId: null,
     };
   }
-  if (input.sourceNativeDeliveryId && !input.representedUserId) {
+  if (
+    input.kind === "connected_message_channel_member" &&
+    input.sourceNativeDeliveryId
+  ) {
     return {
       representedUserId: null,
       requesterAttributionKey: `delivery:${input.sourceNativeDeliveryId}`,
@@ -728,7 +736,28 @@ function resolveRequesterAttribution(input: {
     };
   }
   throw new Error(
-    "A connector action operation requires exactly one requester attribution source."
+    "A connector action operation requires one valid requester attribution source."
+  );
+}
+
+function resolveStoredRequesterAttribution(input: {
+  representedUserId: string | null;
+  sourceNativeDeliveryId: string | null;
+}): CenterAgentConnectorActionRequesterAttribution {
+  if (input.representedUserId && !input.sourceNativeDeliveryId) {
+    return resolveRequesterAttribution({
+      kind: "represented_member",
+      representedUserId: input.representedUserId,
+    });
+  }
+  if (input.sourceNativeDeliveryId && !input.representedUserId) {
+    return resolveRequesterAttribution({
+      kind: "connected_message_channel_member",
+      sourceNativeDeliveryId: input.sourceNativeDeliveryId,
+    });
+  }
+  throw new Error(
+    "Center Agent connector action requester attribution is inconsistent."
   );
 }
 
