@@ -215,16 +215,45 @@ function CenterAgentAppConnectionCardState(
 		}
 		let isCurrentAttempt = true;
 		let isConfirmingClosedPopup = false;
+		let hasObservedClosedPopup = false;
+		let hasLoggedConfirmationFailure = false;
+		let nextConfirmationAtMs = 0;
+		const preserveConfirmationFailure = (error: unknown) => {
+			if (!hasLoggedConfirmationFailure) {
+				console.error(
+					"[openmeld.web.connector_authorization_confirmation_failed]",
+					{
+						error,
+						organizationId: input.organizationId,
+						scope: waitingScope,
+						service: input.app.service,
+					}
+				);
+				hasLoggedConfirmationFailure = true;
+			}
+			isConfirmingClosedPopup = false;
+			nextConfirmationAtMs = Date.now() + AUTHORIZATION_POLL_INTERVAL_MS;
+		};
 		const popupCheck = window.setInterval(() => {
-			const popup = authorizationPopupRef.current;
-			if (!popup?.closed || isConfirmingClosedPopup) {
+			if (!hasObservedClosedPopup) {
+				const popup = authorizationPopupRef.current;
+				if (!popup?.closed) {
+					return;
+				}
+				hasObservedClosedPopup = true;
+				authorizationPopupRef.current = null;
+			}
+			if (isConfirmingClosedPopup || Date.now() < nextConfirmationAtMs) {
 				return;
 			}
 			isConfirmingClosedPopup = true;
-			authorizationPopupRef.current = null;
 			refetchConnections()
 				.then((result) => {
-					if (!isCurrentAttempt || result.error) {
+					if (!isCurrentAttempt) {
+						return;
+					}
+					if (result.error) {
+						preserveConfirmationFailure(result.error);
 						return;
 					}
 					if (
@@ -241,15 +270,9 @@ function CenterAgentAppConnectionCardState(
 					);
 				})
 				.catch((error: unknown) => {
-					console.error(
-						"[openmeld.web.connector_authorization_confirmation_failed]",
-						{
-							error,
-							organizationId: input.organizationId,
-							scope: waitingScope,
-							service: input.app.service,
-						}
-					);
+					if (isCurrentAttempt) {
+						preserveConfirmationFailure(error);
+					}
 				});
 		}, AUTHORIZATION_POPUP_CHECK_INTERVAL_MS);
 		return () => {

@@ -644,6 +644,69 @@ describe("CenterAgentAppConnectionCard", () => {
 		expect(listConnectionsMock).toHaveBeenCalledTimes(2);
 	});
 
+	it("settles a closed authorization window after a transient confirmation failure", async () => {
+		const confirmationError = new Error("connection lookup failed");
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		let connectionLookupFails = true;
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockImplementation(() =>
+			connectionLookupFails
+				? Promise.reject(confirmationError)
+				: Promise.resolve({
+						connections: [],
+						currentUserId: "user-1",
+						organizationId: "org-acme",
+					})
+		);
+		popup.closed = true;
+		await waitFor(() =>
+			expect(errorSpy).toHaveBeenCalledWith(
+				"[openmeld.web.connector_authorization_confirmation_failed]",
+				expect.objectContaining({ error: confirmationError })
+			)
+		);
+		connectionLookupFails = false;
+
+		expect(
+			await screen.findByText(
+				"Linear wasn’t connected. Try again when you’re ready.",
+				undefined,
+				{ timeout: 3000 }
+			)
+		).toBeTruthy();
+		expect(listConnectionsMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+	});
+
 	it("does not carry an authorization attempt into another App", async () => {
 		const popup = {
 			closed: false,
