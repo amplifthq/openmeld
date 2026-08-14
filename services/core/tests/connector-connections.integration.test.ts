@@ -9,6 +9,10 @@ import {
 } from "../src/connectors/connector-connection-repository";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
+  markRemoteAgentNativeDeliveryAck,
+  upsertRemoteAgentNativeDeliveryRecord,
+} from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import {
   rpcAuthorizeConnectorDisconnect,
   rpcBeginCurrentMemberConnectorAuthorization,
   rpcBeginCurrentOrganizationGitHubAppInstallation,
@@ -56,7 +60,10 @@ describe("Core connector connection ownership", () => {
       operationId: `connector-operation-${crypto.randomUUID()}`,
       organizationId: fixture.organizationA,
       providerExecutionId: null,
-      representedUserId: fixture.ownerA,
+      requester: {
+        kind: "represented_member",
+        representedUserId: fixture.ownerA,
+      },
       requestSignature: "a".repeat(64),
       service: "github",
     } as const;
@@ -184,6 +191,66 @@ describe("Core connector connection ownership", () => {
     expect(["complete_connector_action", "fail_connector_action"]).toContain(
       raceAuditRows.results[1]?.action
     );
+  });
+
+  it("uses the native delivery as the only requester for a connected Message Channel member", async () => {
+    const fixture = await seedConnectorFixture();
+    const sharedConnection = await seedSharedConnectorConnection(
+      fixture,
+      "gmail"
+    );
+    const sourceNativeDeliveryId = `delivery-${crypto.randomUUID()}`;
+    const operationId = `connector-channel-member-${crypto.randomUUID()}`;
+
+    const result = await recordCenterAgentConnectorActionOperation({
+      actionId: "gmail.fetch_emails",
+      actorProfileId: fixture.ownerProfileId,
+      attribution: {
+        actorProfileId: fixture.ownerProfileId,
+        onBehalfOf: null,
+      },
+      connectionName: sharedConnection,
+      db: env.OPENMELD_DB,
+      executionConnection: {
+        connectionName: sharedConnection,
+        ownerDisplayName: fixture.ownerA,
+        ownerUserId: fixture.ownerA,
+        scope: "shared",
+        service: "gmail",
+      },
+      nowMs: Date.now(),
+      operationId,
+      organizationId: fixture.organizationA,
+      outcome: "attempted",
+      providerExecutionId: null,
+      requester: {
+        kind: "connected_message_channel_member",
+        sourceNativeDeliveryId,
+      },
+      requestSignature: "e".repeat(64),
+      service: "gmail",
+    });
+
+    expect(result.operation).toMatchObject({
+      representedUserId: null,
+      requesterAttributionKey: `delivery:${sourceNativeDeliveryId}`,
+      sourceNativeDeliveryId,
+      status: "pending",
+    });
+    await expect(
+      env.OPENMELD_DB.prepare(
+        `
+          SELECT on_behalf_of_user_id, source_native_delivery_id
+          FROM center_agent_audit_journal
+          WHERE resource_id = ?
+        `
+      )
+        .bind(`gmail:gmail.fetch_emails:${operationId}`)
+        .first()
+    ).resolves.toEqual({
+      on_behalf_of_user_id: null,
+      source_native_delivery_id: sourceNativeDeliveryId,
+    });
   });
 
   it("authorizes the represented member and selected connection before recording an operation", async () => {
@@ -457,6 +524,131 @@ describe("Core connector connection ownership", () => {
     ).resolves.toEqual({
       provider_execution_id: null,
       status: "pending",
+    });
+  });
+
+  it("uses the represented user as the only requester for a linked native-delivery action", async () => {
+    const fixture = await seedConnectorFixture();
+    const centerAgent = await seedDesignatedCenterAgent(fixture);
+    const representedProfileId = crypto.randomUUID();
+    const submissionId = `submission-${crypto.randomUUID()}`;
+    const idempotencyKey = `delivery-${crypto.randomUUID()}`;
+    const deliveryId = crypto.randomUUID();
+    const operationId = `connector-linked-delivery-${crypto.randomUUID()}`;
+    const nowMs = Date.now();
+    const gmailConnection = await createConnectorConnectionName({
+      organizationId: fixture.organizationA,
+      service: "gmail",
+      userId: fixture.memberA,
+    });
+    await env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO openmeld_profiles (
+          profile_id, profile_name, profile_handle, profile_kind, is_default,
+          status, organization_id, owner_user_id, created_by_user_id, source,
+          created_at, updated_at
+        ) VALUES (?, 'Represented member', ?, 'human', 1, 'active', NULL, ?, ?, 'auth_bootstrap', ?, ?)
+      `
+    )
+      .bind(
+        representedProfileId,
+        `represented-${crypto.randomUUID()}`,
+        fixture.memberA,
+        fixture.memberA,
+        nowMs,
+        nowMs
+      )
+      .run();
+    await env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO connector_connections (
+          connection_name, organization_id, user_id, service, status,
+          created_at_ms, updated_at_ms, disconnected_at_ms
+        ) VALUES (?, ?, ?, 'gmail', 'active', ?, ?, NULL)
+      `
+    )
+      .bind(
+        gmailConnection,
+        fixture.organizationA,
+        fixture.memberA,
+        nowMs,
+        nowMs
+      )
+      .run();
+    await upsertRemoteAgentNativeDeliveryRecord({
+      attemptId: null,
+      bindingId: `binding-${crypto.randomUUID()}`,
+      db: env.OPENMELD_DB,
+      deliveryId,
+      dispatchId: `dispatch-${crypto.randomUUID()}`,
+      idempotencyKey,
+      nowMs,
+      onBehalfOfDisplayName: "Represented member",
+      onBehalfOfProfileId: representedProfileId,
+      onBehalfOfUserId: fixture.memberA,
+      organizationId: fixture.organizationA,
+      profileId: centerAgent.profileId,
+      spaceId: `dm-${crypto.randomUUID()}`,
+      status: "submitted",
+      triggerMessageId: `message-${crypto.randomUUID()}`,
+    });
+    await markRemoteAgentNativeDeliveryAck({
+      accepted: true,
+      db: env.OPENMELD_DB,
+      idempotencyKey,
+      nowMs: nowMs + 1,
+      submissionId,
+    });
+
+    const input = {
+      actionId: "gmail.fetch_emails",
+      connectionName: gmailConnection,
+      context: {
+        ...centerAgent.context,
+        agentControllerConversationId: submissionId,
+      },
+      operationId,
+      outcome: "attempted" as const,
+      providerExecutionId: null,
+      requestSignature: "d".repeat(64),
+      service: "gmail" as const,
+      speakerMember: {
+        memberId: fixture.memberAId,
+        userId: fixture.memberA,
+      },
+    };
+
+    await expect(
+      rpcCenterAgentRecordConnectorActionOperation(connectorCoreEnv(), input)
+    ).resolves.toMatchObject({
+      attribution: {
+        onBehalfOf: {
+          profileId: representedProfileId,
+          userId: fixture.memberA,
+        },
+      },
+      operationId,
+      status: "pending",
+    });
+    await expect(
+      env.OPENMELD_DB.prepare(
+        `
+          SELECT requester_attribution_key, represented_user_id, source_native_delivery_id
+          FROM center_agent_connector_action_operations
+          WHERE operation_id = ?
+        `
+      )
+        .bind(operationId)
+        .first()
+    ).resolves.toEqual({
+      represented_user_id: fixture.memberA,
+      requester_attribution_key: `user:${fixture.memberA}`,
+      source_native_delivery_id: null,
+    });
+    await expect(
+      rpcCenterAgentReadConnectorActionOperation(connectorCoreEnv(), input)
+    ).resolves.toMatchObject({
+      operation: { operationId, status: "pending" },
     });
   });
 
@@ -1135,24 +1327,28 @@ async function seedConnectorFixture() {
 }
 
 async function seedSharedConnectorConnection(
-  fixture: Awaited<ReturnType<typeof seedConnectorFixture>>
+  fixture: Awaited<ReturnType<typeof seedConnectorFixture>>,
+  service: Parameters<
+    typeof createSharedConnectorConnectionName
+  >[0]["service"] = "github"
 ) {
   const connectionName = await createSharedConnectorConnectionName({
     organizationId: fixture.organizationA,
-    service: "github",
+    service,
   });
   await env.OPENMELD_DB.prepare(
     `
       INSERT INTO connector_connections (
         connection_name, organization_id, user_id, scope, service, status,
         created_at_ms, updated_at_ms, disconnected_at_ms
-      ) VALUES (?, ?, ?, 'shared', 'github', 'active', ?, ?, NULL)
+      ) VALUES (?, ?, ?, 'shared', ?, 'active', ?, ?, NULL)
     `
   )
     .bind(
       connectionName,
       fixture.organizationA,
       fixture.ownerA,
+      service,
       Date.now(),
       Date.now()
     )
@@ -1203,6 +1399,7 @@ async function seedDesignatedCenterAgent(
         openMeldProfileId: profileId,
       },
     },
+    profileId,
   };
 }
 
