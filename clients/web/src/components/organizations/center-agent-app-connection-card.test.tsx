@@ -26,17 +26,32 @@ const CONNECT_BUTTON_NAME = /Connect/i;
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 
-vi.mock("#/lib/organizations/connector-connections", () => ({
-	connectCurrentMemberConnectorCredential: connectMemberCredentialMock,
-	connectCurrentOrganizationSharedConnectorCredential: vi.fn(),
-	disconnectOrganizationConnectorConnection:
-		disconnectOrganizationConnectorConnectionMock,
-	disconnectSharedOrganizationConnectorConnection: vi.fn(),
-	listCurrentOrganizationConnectorConnections: listConnectionsMock,
-	resolveConnectorConnectionErrorMessage: (error: unknown) => String(error),
-	startCurrentMemberConnectorAuthorization: startMemberAuthorizationMock,
-	startCurrentOrganizationSharedConnectorAuthorization: vi.fn(),
-}));
+vi.mock("#/lib/organizations/connector-connections", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("#/lib/organizations/connector-connections")
+		>();
+	return {
+		connectCurrentMemberConnectorCredential: connectMemberCredentialMock,
+		connectCurrentOrganizationSharedConnectorCredential: vi.fn(),
+		disconnectOrganizationConnectorConnection:
+			disconnectOrganizationConnectorConnectionMock,
+		disconnectSharedOrganizationConnectorConnection: vi.fn(),
+		isConnectorConnectionConfirmationRetryable:
+			actual.isConnectorConnectionConfirmationRetryable,
+		listCurrentOrganizationConnectorConnections: listConnectionsMock,
+		resolveConnectorConnectionErrorMessage: (
+			error: unknown,
+			appName = "App"
+		) =>
+			(error as { upstreamCode?: string }).upstreamCode ===
+			"connector.organization_context_changed"
+				? `Your active Organization changed in another tab. Refresh this page before updating ${appName}.`
+				: String(error),
+		startCurrentMemberConnectorAuthorization: startMemberAuthorizationMock,
+		startCurrentOrganizationSharedConnectorAuthorization: vi.fn(),
+	};
+});
 
 const linearApp = {
 	availability: "available",
@@ -385,7 +400,11 @@ describe("CenterAgentAppConnectionCard", () => {
 			},
 			{ updatedAt: 1 }
 		);
-		listConnectionsMock.mockRejectedValue(new Error("status refresh failed"));
+		listConnectionsMock.mockRejectedValue({
+			code: "network.request_failed",
+			message: "status refresh failed",
+			status: null,
+		});
 
 		render(
 			<TestQueryClientProvider queryClient={queryClient}>
@@ -592,10 +611,509 @@ describe("CenterAgentAppConnectionCard", () => {
 
 		expect(
 			await screen.findByText(
-				"Linear authorization was canceled. Connect again when you are ready."
+				"Linear wasn’t connected. Try again when you’re ready."
 			)
 		).toBeTruthy();
 		expect(screen.queryByText("Waiting for authorization…")).toBeNull();
+	});
+
+	it("confirms connection truth before treating a closed authorization window as incomplete", async () => {
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockResolvedValueOnce({
+			connections: [createLinearConnection()],
+			currentUserId: "user-1",
+			organizationId: "org-acme",
+		});
+		popup.closed = true;
+
+		expect(await screen.findByText("Connected")).toBeTruthy();
+		expect(
+			screen.queryByText(
+				"Linear wasn’t connected. Try again when you’re ready."
+			)
+		).toBeNull();
+		expect(listConnectionsMock).toHaveBeenCalledTimes(2);
+	});
+
+	it("settles a closed authorization window after a transient confirmation failure", async () => {
+		const confirmationError = {
+			code: "network.request_failed",
+			message: "Connection lookup failed.",
+			status: null,
+		};
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		let connectionLookupFails = true;
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockImplementation(() =>
+			connectionLookupFails
+				? Promise.reject(confirmationError)
+				: Promise.resolve({
+						connections: [],
+						currentUserId: "user-1",
+						organizationId: "org-acme",
+					})
+		);
+		popup.closed = true;
+		await waitFor(() =>
+			expect(errorSpy).toHaveBeenCalledWith(
+				"[openmeld.web.connector_authorization_confirmation_failed]",
+				expect.objectContaining({ error: confirmationError })
+			)
+		);
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+		connectionLookupFails = false;
+
+		expect(
+			await screen.findByText(
+				"Linear wasn’t connected. Try again when you’re ready.",
+				undefined,
+				{ timeout: 3000 }
+			)
+		).toBeTruthy();
+		expect(listConnectionsMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+	});
+
+	it("surfaces a terminal confirmation failure without leaving authorization pending", async () => {
+		const confirmationError = {
+			code: "gateway.http_error",
+			message: "Your active Organization changed.",
+			status: 409,
+			upstreamCode: "connector.organization_context_changed",
+		};
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockRejectedValue(confirmationError);
+		popup.closed = true;
+
+		expect(
+			await screen.findByText(
+				"Your active Organization changed in another tab. Refresh this page before updating Linear."
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Waiting for authorization…")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+		expect(errorSpy).toHaveBeenCalledWith(
+			"[openmeld.web.connector_authorization_confirmation_failed]",
+			expect.objectContaining({ error: confirmationError })
+		);
+	});
+
+	it("surfaces a terminal polling failure while the authorization window is open", async () => {
+		const confirmationError = {
+			code: "gateway.http_error",
+			message: "Your active Organization changed.",
+			status: 409,
+			upstreamCode: "connector.organization_context_changed",
+		};
+		const errorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockRejectedValue(confirmationError);
+
+		expect(
+			await screen.findByText(
+				"Your active Organization changed in another tab. Refresh this page before updating Linear.",
+				undefined,
+				{ timeout: 3000 }
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Waiting for authorization…")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+		expect(popup.close).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith(
+			"[openmeld.web.connector_authorization_confirmation_failed]",
+			expect.objectContaining({ error: confirmationError })
+		);
+	});
+
+	it("offers a connection status retry after transient failures time out", async () => {
+		const queryClient = createTestQueryClient();
+		const transientError = {
+			code: "gateway.http_error",
+			message: "OpenConnector is temporarily unavailable.",
+			status: 503,
+		};
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		let authorizationTimeout: (() => void) | undefined;
+		const nativeSetTimeout = window.setTimeout.bind(window);
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+		vi.spyOn(window, "setTimeout").mockImplementation(
+			(
+				handler: TimerHandler,
+				timeout?: number,
+				...args: unknown[]
+			): ReturnType<typeof window.setTimeout> => {
+				if (timeout === 120_000 && typeof handler === "function") {
+					authorizationTimeout = () => {
+						Reflect.apply(handler, window, args);
+					};
+					return 1 as unknown as ReturnType<typeof window.setTimeout>;
+				}
+				return nativeSetTimeout(
+					handler,
+					timeout,
+					...args
+				) as unknown as ReturnType<typeof window.setTimeout>;
+			}
+		);
+
+		render(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockRejectedValue(transientError);
+		await act(async () => {
+			await queryClient.invalidateQueries({
+				exact: true,
+				queryKey: organizationAppConnectionQueryKeys.service(
+					"org-acme",
+					"linear"
+				),
+			});
+		});
+		expect(authorizationTimeout).toBeTypeOf("function");
+		act(() => authorizationTimeout?.());
+
+		expect(
+			await screen.findByText(
+				"Linear authorization timed out. Start again when you are ready."
+			)
+		).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+		expect(connectButton.hasAttribute("disabled")).toBe(true);
+
+		listConnectionsMock.mockResolvedValue({
+			connections: [],
+			currentUserId: "user-1",
+			organizationId: "org-acme",
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		expect(
+			screen.queryByText(
+				"Linear authorization timed out. Start again when you are ready."
+			)
+		).toBeNull();
+	});
+
+	it("reconciles an in-flight status request before settling an authorization timeout", async () => {
+		let resolveLateConnectionLookup:
+			| ((value: {
+					connections: ReturnType<typeof createLinearConnection>[];
+					currentUserId: string;
+					organizationId: string;
+			  }) => void)
+			| undefined;
+		const lateConnectionLookup = new Promise<{
+			connections: ReturnType<typeof createLinearConnection>[];
+			currentUserId: string;
+			organizationId: string;
+		}>((resolve) => {
+			resolveLateConnectionLookup = resolve;
+		});
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		let authorizationTimeout: (() => void) | undefined;
+		const nativeSetTimeout = window.setTimeout.bind(window);
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+		vi.spyOn(window, "setTimeout").mockImplementation(
+			(
+				handler: TimerHandler,
+				timeout?: number,
+				...args: unknown[]
+			): ReturnType<typeof window.setTimeout> => {
+				if (timeout === 120_000 && typeof handler === "function") {
+					authorizationTimeout = () => {
+						Reflect.apply(handler, window, args);
+					};
+					return 1 as unknown as ReturnType<typeof window.setTimeout>;
+				}
+				return nativeSetTimeout(
+					handler,
+					timeout,
+					...args
+				) as unknown as ReturnType<typeof window.setTimeout>;
+			}
+		);
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockReturnValue(lateConnectionLookup);
+		await waitFor(
+			() => expect(listConnectionsMock.mock.calls.length).toBeGreaterThan(1),
+			{ timeout: 3000 }
+		);
+		expect(authorizationTimeout).toBeTypeOf("function");
+		act(() => authorizationTimeout?.());
+
+		await act(async () => {
+			resolveLateConnectionLookup?.({
+				connections: [createLinearConnection()],
+				currentUserId: "user-1",
+				organizationId: "org-acme",
+			});
+			await lateConnectionLookup;
+		});
+
+		expect(await screen.findByText("Connected")).toBeTruthy();
+		expect(
+			screen.queryByText(
+				"Linear authorization timed out. Start again when you are ready."
+			)
+		).toBeNull();
+	});
+
+	it("does not offer another retry when a timeout retry returns a terminal error", async () => {
+		const queryClient = createTestQueryClient();
+		const transientError = {
+			code: "gateway.http_error",
+			message: "OpenConnector is temporarily unavailable.",
+			status: 503,
+		};
+		const terminalError = {
+			code: "gateway.http_error",
+			message: "Your active Organization changed.",
+			status: 409,
+			upstreamCode: "connector.organization_context_changed",
+		};
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		};
+		let authorizationTimeout: (() => void) | undefined;
+		const nativeSetTimeout = window.setTimeout.bind(window);
+		vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+		vi.spyOn(window, "setTimeout").mockImplementation(
+			(
+				handler: TimerHandler,
+				timeout?: number,
+				...args: unknown[]
+			): ReturnType<typeof window.setTimeout> => {
+				if (timeout === 120_000 && typeof handler === "function") {
+					authorizationTimeout = () => {
+						Reflect.apply(handler, window, args);
+					};
+					return 1 as unknown as ReturnType<typeof window.setTimeout>;
+				}
+				return nativeSetTimeout(
+					handler,
+					timeout,
+					...args
+				) as unknown as ReturnType<typeof window.setTimeout>;
+			}
+		);
+
+		render(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<CenterAgentAppConnectionCard
+					app={linearApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Linear",
+		});
+		await waitFor(() =>
+			expect(connectButton.hasAttribute("disabled")).toBe(false)
+		);
+		fireEvent.click(connectButton);
+		await screen.findByText("Waiting for authorization…");
+
+		listConnectionsMock.mockRejectedValue(transientError);
+		await act(async () => {
+			await queryClient.invalidateQueries({
+				exact: true,
+				queryKey: organizationAppConnectionQueryKeys.service(
+					"org-acme",
+					"linear"
+				),
+			});
+		});
+		expect(authorizationTimeout).toBeTypeOf("function");
+		act(() => authorizationTimeout?.());
+
+		const retryButton = await screen.findByRole("button", { name: "Retry" });
+		listConnectionsMock.mockRejectedValue(terminalError);
+		fireEvent.click(retryButton);
+
+		expect(
+			await screen.findByText(
+				"Your active Organization changed in another tab. Refresh this page before updating Linear."
+			)
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 	});
 
 	it("does not carry an authorization attempt into another App", async () => {

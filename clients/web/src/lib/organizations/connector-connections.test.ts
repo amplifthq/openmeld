@@ -10,8 +10,10 @@ vi.mock("#/lib/openmeld-api/client", () => ({
 
 import {
 	createCurrentOrganizationConnectorAppRequest,
+	isConnectorConnectionConfirmationRetryable,
 	listCurrentOrganizationConnectorAppCatalog,
 	listCurrentOrganizationConnectorAppRequests,
+	listCurrentOrganizationConnectorConnections,
 	resolveConnectorConnectionErrorMessage,
 	startCurrentMemberGitHubAuthorization,
 	startCurrentOrganizationSharedGitHubAuthorization,
@@ -49,6 +51,76 @@ describe("connector connection Web API helpers", () => {
 				"GitHub"
 			)
 		).toBe("OpenMeld could not finish GitHub setup. Try again.");
+	});
+
+	it("retries only transient App connection confirmation failures", () => {
+		expect(
+			isConnectorConnectionConfirmationRetryable({
+				code: "network.request_failed",
+				message: "The request could not be completed.",
+				status: null,
+			})
+		).toBe(true);
+		expect(
+			isConnectorConnectionConfirmationRetryable({
+				message: "OpenMeld is temporarily unavailable.",
+				status: 503,
+			})
+		).toBe(true);
+		expect(
+			isConnectorConnectionConfirmationRetryable({
+				message: "Your session expired.",
+				status: 401,
+			})
+		).toBe(false);
+		expect(
+			isConnectorConnectionConfirmationRetryable({
+				code: "network.request_failed",
+				message: "The response body could not be read.",
+				status: 200,
+			})
+		).toBe(true);
+		expect(
+			isConnectorConnectionConfirmationRetryable({
+				code: "network.request_failed",
+				message: "The response body could not be read.",
+				status: 403,
+			})
+		).toBe(false);
+		expect(
+			isConnectorConnectionConfirmationRetryable({
+				code: "gateway.http_error",
+				message: "Your active Organization changed.",
+				status: 409,
+				upstreamCode: "connector.organization_context_changed",
+			})
+		).toBe(false);
+		expect(
+			isConnectorConnectionConfirmationRetryable(
+				new Error("App response Organization mismatch.")
+			)
+		).toBe(false);
+	});
+
+	it("preserves a mismatched App response as an actionable Organization error", async () => {
+		requestJsonMock.mockResolvedValueOnce({
+			connections: [],
+			currentUserId: "user-1",
+			organizationId: "org-other",
+		});
+
+		const error = await listCurrentOrganizationConnectorConnections({
+			organizationId: "org-acme",
+			service: "linear",
+		}).catch((failure: unknown) => failure);
+
+		expect(error).toMatchObject({
+			status: null,
+			upstreamCode: "connector.organization_context_changed",
+		});
+		expect(resolveConnectorConnectionErrorMessage(error, "Linear")).toBe(
+			"Your active Organization changed in another tab. Refresh this page before updating Linear."
+		);
 	});
 
 	it("opts shared GitHub setup into the server-owned installation expiry", async () => {

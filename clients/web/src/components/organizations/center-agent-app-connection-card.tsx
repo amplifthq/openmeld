@@ -27,13 +27,20 @@ import {
 	LinkBreakIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import {
+	type FormEvent,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import {
 	connectCurrentMemberConnectorCredential,
 	connectCurrentOrganizationSharedConnectorCredential,
 	disconnectOrganizationConnectorConnection,
 	disconnectSharedOrganizationConnectorConnection,
+	isConnectorConnectionConfirmationRetryable,
 	resolveConnectorConnectionErrorMessage,
 	startCurrentMemberConnectorAuthorization,
 	startCurrentOrganizationSharedConnectorAuthorization,
@@ -67,6 +74,23 @@ type DisconnectRequest = {
 	scope: AuthorizationScope;
 	userId?: string;
 };
+type LocalConnectionError = {
+	message: string;
+	retryConnectionStatus?: boolean;
+};
+
+function canRetryConnectionStatus(input: {
+	connectionError: unknown;
+	connectionErrorVisible: boolean;
+	localError: LocalConnectionError | null;
+}): boolean {
+	return (
+		input.connectionErrorVisible &&
+		isConnectorConnectionConfirmationRetryable(input.connectionError) &&
+		(input.localError === null ||
+			input.localError.retryConnectionStatus === true)
+	);
+}
 
 function resolveConnectPending(input: {
 	authorizationScope: AuthorizationScope | null;
@@ -110,6 +134,21 @@ function resolveActiveConnectionGroups(input: {
 	};
 }
 
+function isAuthorizationScopeConnected(input: {
+	response?: ConnectorConnectionListResponse;
+	scope: AuthorizationScope;
+}): boolean {
+	return Boolean(
+		input.response?.connections.some(
+			(connection) =>
+				connection.status === "active" &&
+				connection.scope === input.scope &&
+				(input.scope === "shared" ||
+					connection.userId === input.response?.currentUserId)
+		)
+	);
+}
+
 type CenterAgentAppConnectionCardProps = {
 	app: Extract<AppDefinition, { availability: "available" }>;
 	canManage: boolean;
@@ -136,9 +175,13 @@ function CenterAgentAppConnectionCardState(
 	const [waitingScope, setWaitingScope] = useState<AuthorizationScope | null>(
 		null
 	);
-	const [localError, setLocalError] = useState<string | null>(null);
+	const [localError, setLocalError] = useState<LocalConnectionError | null>(
+		null
+	);
 	const [credentialResetKey, setCredentialResetKey] = useState(0);
 	const authorizationPopupRef = useRef<Window | null>(null);
+	const authorizationFailureSettledRef = useRef(false);
+	const authorizationTimeoutReconcilingRef = useRef(false);
 	const connectionsQuery = useQuery(
 		organizationAppServiceConnectionsQueryOptions({
 			organizationId: input.organizationId,
@@ -149,6 +192,7 @@ function CenterAgentAppConnectionCardState(
 			service: input.app.service,
 		})
 	);
+	const refetchConnections = connectionsQuery.refetch;
 	const { currentUserConnection, otherMemberConnections, sharedConnection } =
 		resolveActiveConnectionGroups({
 			canManage: input.canManage,
@@ -165,6 +209,30 @@ function CenterAgentAppConnectionCardState(
 	const serviceConnectionsQueryKey = organizationAppConnectionQueryKeys.service(
 		input.organizationId,
 		input.app.service
+	);
+	const settleAuthorizationFailure = useCallback(
+		(error: unknown, scope: AuthorizationScope) => {
+			if (authorizationFailureSettledRef.current) {
+				return;
+			}
+			authorizationFailureSettledRef.current = true;
+			console.error(
+				"[openmeld.web.connector_authorization_confirmation_failed]",
+				{
+					error,
+					organizationId: input.organizationId,
+					scope,
+					service: input.app.service,
+				}
+			);
+			authorizationPopupRef.current?.close();
+			authorizationPopupRef.current = null;
+			setWaitingScope(null);
+			setLocalError({
+				message: resolveConnectorConnectionErrorMessage(error, input.app.name),
+			});
+		},
+		[input.app.name, input.app.service, input.organizationId]
 	);
 
 	useEffect(
@@ -194,45 +262,184 @@ function CenterAgentAppConnectionCardState(
 	}, [authorizationCompleted, input.app.name, sharedScopeName, waitingScope]);
 
 	useEffect(() => {
-		if (!waitingScope) {
+		if (
+			!(waitingScope && connectionsQuery.isError) ||
+			isConnectorConnectionConfirmationRetryable(connectionsQuery.error)
+		) {
 			return;
 		}
-		const popupCheck = window.setInterval(() => {
-			const popup = authorizationPopupRef.current;
-			if (!popup?.closed) {
-				return;
-			}
-			authorizationPopupRef.current = null;
-			setWaitingScope(null);
-			setLocalError(
-				`${input.app.name} authorization was canceled. Connect again when you are ready.`
-			);
-		}, AUTHORIZATION_POPUP_CHECK_INTERVAL_MS);
-		return () => window.clearInterval(popupCheck);
-	}, [input.app.name, waitingScope]);
+		settleAuthorizationFailure(connectionsQuery.error, waitingScope);
+	}, [
+		connectionsQuery.error,
+		connectionsQuery.isError,
+		settleAuthorizationFailure,
+		waitingScope,
+	]);
 
 	useEffect(() => {
 		if (!waitingScope) {
 			return;
 		}
-		const timeout = window.setTimeout(() => {
-			authorizationPopupRef.current?.close();
-			authorizationPopupRef.current = null;
-			setWaitingScope(null);
-			setLocalError(
-				`${input.app.name} authorization timed out. Start again when you are ready.`
-			);
-		}, AUTHORIZATION_TIMEOUT_MS);
-		return () => window.clearTimeout(timeout);
-	}, [input.app.name, waitingScope]);
+		let isCurrentAttempt = true;
+		let isConfirmingClosedPopup = false;
+		let hasObservedClosedPopup = false;
+		let hasLoggedConfirmationFailure = false;
+		let nextConfirmationAtMs = 0;
+		const handleConfirmationFailure = (error: unknown) => {
+			if (!isConnectorConnectionConfirmationRetryable(error)) {
+				settleAuthorizationFailure(error, waitingScope);
+				return;
+			}
+			if (!hasLoggedConfirmationFailure) {
+				console.error(
+					"[openmeld.web.connector_authorization_confirmation_failed]",
+					{
+						error,
+						organizationId: input.organizationId,
+						scope: waitingScope,
+						service: input.app.service,
+					}
+				);
+				hasLoggedConfirmationFailure = true;
+			}
+			isConfirmingClosedPopup = false;
+			nextConfirmationAtMs = Date.now() + AUTHORIZATION_POLL_INTERVAL_MS;
+		};
+		const popupCheck = window.setInterval(() => {
+			if (authorizationTimeoutReconcilingRef.current) {
+				return;
+			}
+			if (!hasObservedClosedPopup) {
+				const popup = authorizationPopupRef.current;
+				if (!popup?.closed) {
+					return;
+				}
+				hasObservedClosedPopup = true;
+				authorizationPopupRef.current = null;
+			}
+			if (isConfirmingClosedPopup || Date.now() < nextConfirmationAtMs) {
+				return;
+			}
+			isConfirmingClosedPopup = true;
+			refetchConnections()
+				.then((result) => {
+					if (!isCurrentAttempt) {
+						return;
+					}
+					if (result.error) {
+						handleConfirmationFailure(result.error);
+						return;
+					}
+					if (
+						isAuthorizationScopeConnected({
+							response: result.data,
+							scope: waitingScope,
+						})
+					) {
+						return;
+					}
+					setWaitingScope(null);
+					setLocalError({
+						message: `${input.app.name} wasn’t connected. Try again when you’re ready.`,
+					});
+				})
+				.catch((error: unknown) => {
+					if (isCurrentAttempt) {
+						handleConfirmationFailure(error);
+					}
+				});
+		}, AUTHORIZATION_POPUP_CHECK_INTERVAL_MS);
+		return () => {
+			isCurrentAttempt = false;
+			window.clearInterval(popupCheck);
+		};
+	}, [
+		input.app.name,
+		input.app.service,
+		input.organizationId,
+		refetchConnections,
+		settleAuthorizationFailure,
+		waitingScope,
+	]);
 
-	useEffect(
-		() => () => {
+	useEffect(() => {
+		if (!waitingScope) {
+			return;
+		}
+		let isCurrentAttempt = true;
+		const settleTimeout = () => {
+			if (!isCurrentAttempt) {
+				return;
+			}
+			setWaitingScope(null);
+			setLocalError({
+				message: `${input.app.name} authorization timed out. Start again when you are ready.`,
+				retryConnectionStatus: true,
+			});
+		};
+		const settleReconciliationError = (error: unknown) => {
+			if (!isCurrentAttempt) {
+				return;
+			}
+			if (!isConnectorConnectionConfirmationRetryable(error)) {
+				settleAuthorizationFailure(error, waitingScope);
+				return;
+			}
+			settleTimeout();
+		};
+		const reconcileTimeout = async () => {
+			authorizationTimeoutReconcilingRef.current = true;
 			authorizationPopupRef.current?.close();
 			authorizationPopupRef.current = null;
-		},
-		[]
-	);
+			try {
+				await queryClient.cancelQueries({
+					exact: true,
+					queryKey: organizationAppConnectionQueryKeys.service(
+						input.organizationId,
+						input.app.service
+					),
+				});
+				if (!isCurrentAttempt) {
+					return;
+				}
+				const result = await refetchConnections();
+				if (!isCurrentAttempt) {
+					return;
+				}
+				if (result.error) {
+					settleReconciliationError(result.error);
+					return;
+				}
+				if (
+					isAuthorizationScopeConnected({
+						response: result.data,
+						scope: waitingScope,
+					})
+				) {
+					return;
+				}
+				settleTimeout();
+			} catch (error) {
+				settleReconciliationError(error);
+			}
+		};
+		const timeout = window.setTimeout(
+			reconcileTimeout,
+			AUTHORIZATION_TIMEOUT_MS
+		);
+		return () => {
+			isCurrentAttempt = false;
+			window.clearTimeout(timeout);
+		};
+	}, [
+		input.app.name,
+		input.app.service,
+		input.organizationId,
+		queryClient,
+		refetchConnections,
+		settleAuthorizationFailure,
+		waitingScope,
+	]);
 
 	const authorizationMutation = useMutation({
 		mutationFn: async (scope: AuthorizationScope) =>
@@ -249,17 +456,21 @@ function CenterAgentAppConnectionCardState(
 			authorizationPopupRef.current?.close();
 			authorizationPopupRef.current = null;
 			setWaitingScope(null);
-			setLocalError(
-				resolveConnectorConnectionErrorMessage(error, input.app.name)
-			);
+			setLocalError({
+				message: resolveConnectorConnectionErrorMessage(error, input.app.name),
+			});
 		},
-		onMutate: () => setLocalError(null),
+		onMutate: () => {
+			authorizationFailureSettledRef.current = false;
+			authorizationTimeoutReconcilingRef.current = false;
+			setLocalError(null);
+		},
 		onSuccess: (authorization, scope) => {
 			const popup = authorizationPopupRef.current;
 			if (!popup || popup.closed) {
-				setLocalError(
-					`The ${input.app.name} window closed before authorization started. Try again.`
-				);
+				setLocalError({
+					message: `The ${input.app.name} window closed before authorization started. Try again.`,
+				});
 				return;
 			}
 			popup.location.href = authorization.authorizationUrl;
@@ -297,9 +508,9 @@ function CenterAgentAppConnectionCardState(
 				serviceConnectionsQueryKey,
 				context?.previousConnections
 			);
-			setLocalError(
-				resolveConnectorConnectionErrorMessage(error, input.app.name)
-			);
+			setLocalError({
+				message: resolveConnectorConnectionErrorMessage(error, input.app.name),
+			});
 		},
 		onMutate: async (request) => {
 			setLocalError(null);
@@ -371,9 +582,9 @@ function CenterAgentAppConnectionCardState(
 				serviceConnectionsQueryKey,
 				context?.previousConnections
 			);
-			setLocalError(
-				resolveConnectorConnectionErrorMessage(error, input.app.name)
-			);
+			setLocalError({
+				message: resolveConnectorConnectionErrorMessage(error, input.app.name),
+			});
 		},
 		onMutate: async (request) => {
 			setLocalError(null);
@@ -432,6 +643,8 @@ function CenterAgentAppConnectionCardState(
 	const statusChecking =
 		!connectionsQuery.isPending &&
 		(connectionsQuery.isFetching || connectionsQuery.isPaused);
+	const connectionErrorVisible =
+		connectionsQuery.isError && waitingScope === null;
 
 	return (
 		<AppConnectionCardContent
@@ -444,15 +657,14 @@ function CenterAgentAppConnectionCardState(
 			currentUserId={connectionsQuery.data?.currentUserId}
 			disconnectPendingRequest={disconnectPendingRequest}
 			errorMessage={
-				localError ??
-				(connectionsQuery.isError
+				localError?.message ??
+				(connectionErrorVisible
 					? resolveConnectorConnectionErrorMessage(
 							connectionsQuery.error,
 							input.app.name
 						)
 					: null)
 			}
-			isConnectionError={connectionsQuery.isError}
 			isPersonalWorkspace={input.isPersonalWorkspace === true}
 			loading={connectionsQuery.isPending}
 			mode={input.mode}
@@ -469,7 +681,7 @@ function CenterAgentAppConnectionCardState(
 						startAuthorization({
 							appName: input.app.name,
 							mutation: authorizationMutation.mutate,
-							onBlocked: setLocalError,
+							onBlocked: (message) => setLocalError({ message }),
 							popupRef: authorizationPopupRef,
 							scope,
 						}),
@@ -477,9 +689,17 @@ function CenterAgentAppConnectionCardState(
 				})
 			}
 			onDisconnect={(request) => disconnectMutation.mutate(request)}
-			onRetry={() => connectionsQuery.refetch()}
+			onRetry={() => {
+				setLocalError(null);
+				connectionsQuery.refetch();
+			}}
 			otherMemberConnections={otherMemberConnections}
 			sharedConnection={sharedConnection}
+			showConnectionRetry={canRetryConnectionStatus({
+				connectionError: connectionsQuery.error,
+				connectionErrorVisible,
+				localError,
+			})}
 			statusAvailable={statusAvailable}
 			statusChecking={statusChecking}
 		/>
@@ -495,7 +715,6 @@ function AppConnectionCardContent(input: {
 	currentUserId?: string;
 	currentUserConnection?: ConnectorConnection;
 	errorMessage: string | null;
-	isConnectionError: boolean;
 	isPersonalWorkspace: boolean;
 	loading: boolean;
 	mode: "all" | "member";
@@ -512,6 +731,7 @@ function AppConnectionCardContent(input: {
 	onRetry: () => void;
 	otherMemberConnections: ConnectorConnection[];
 	sharedConnection?: ConnectorConnection;
+	showConnectionRetry: boolean;
 	statusAvailable: boolean;
 	statusChecking: boolean;
 }) {
@@ -621,7 +841,7 @@ function AppConnectionCardContent(input: {
 					role="alert"
 				>
 					<p className="text-destructive text-xs">{input.errorMessage}</p>
-					{input.isConnectionError ? (
+					{input.showConnectionRetry ? (
 						<Button
 							onClick={input.onRetry}
 							size="xs"

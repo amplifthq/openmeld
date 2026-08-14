@@ -25,6 +25,9 @@ import type {
 } from "@openmeld/schemas/types";
 import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
+const CONNECTOR_ORGANIZATION_CONTEXT_CHANGED_CODE =
+	"connector.organization_context_changed";
+
 export async function listCurrentOrganizationConnectorConnections(input: {
 	organizationId: string;
 	service: ConnectorService;
@@ -223,7 +226,7 @@ export function resolveConnectorConnectionErrorMessage(
 	}
 	if (
 		(failure.upstreamCode ?? failure.code) ===
-		"connector.organization_context_changed"
+		CONNECTOR_ORGANIZATION_CONTEXT_CHANGED_CODE
 	) {
 		return `Your active Organization changed in another tab. Refresh this page before updating ${appName}.`;
 	}
@@ -233,6 +236,28 @@ export function resolveConnectorConnectionErrorMessage(
 	return (
 		failure.message || `OpenMeld could not update the ${appName} connection.`
 	);
+}
+
+export function isConnectorConnectionConfirmationRetryable(
+	error: unknown
+): boolean {
+	const failure = toStructuredApiClientFailure(error);
+	const failureCode = failure.upstreamCode ?? failure.code;
+	if (failureCode === CONNECTOR_ORGANIZATION_CONTEXT_CHANGED_CODE) {
+		return false;
+	}
+	if (failure.status !== null && failure.status >= 400) {
+		return (
+			failure.status === 408 || failure.status === 429 || failure.status >= 500
+		);
+	}
+	if (
+		failure.code === "network.timeout" ||
+		failure.code === "network.request_failed"
+	) {
+		return true;
+	}
+	return false;
 }
 
 export function listCurrentOrganizationGitHubConnections(input: {
@@ -406,7 +431,9 @@ function requireMatchingOrganization(
 	expectedOrganizationId: string
 ): void {
 	if (actualOrganizationId !== expectedOrganizationId) {
-		throw new Error("App response Organization mismatch.");
+		throw Object.assign(new Error("App response Organization mismatch."), {
+			upstreamCode: CONNECTOR_ORGANIZATION_CONTEXT_CHANGED_CODE,
+		});
 	}
 }
 
