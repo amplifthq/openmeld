@@ -26,25 +26,32 @@ const CONNECT_BUTTON_NAME = /Connect/i;
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
 
-vi.mock("#/lib/organizations/connector-connections", () => ({
-	connectCurrentMemberConnectorCredential: connectMemberCredentialMock,
-	connectCurrentOrganizationSharedConnectorCredential: vi.fn(),
-	disconnectOrganizationConnectorConnection:
-		disconnectOrganizationConnectorConnectionMock,
-	disconnectSharedOrganizationConnectorConnection: vi.fn(),
-	isConnectorConnectionConfirmationRetryable: (error: unknown) => {
-		const status = (error as { status?: number | null }).status;
-		return status == null || status >= 500;
-	},
-	listCurrentOrganizationConnectorConnections: listConnectionsMock,
-	resolveConnectorConnectionErrorMessage: (error: unknown, appName = "App") =>
-		(error as { upstreamCode?: string }).upstreamCode ===
-		"connector.organization_context_changed"
-			? `Your active Organization changed in another tab. Refresh this page before updating ${appName}.`
-			: String(error),
-	startCurrentMemberConnectorAuthorization: startMemberAuthorizationMock,
-	startCurrentOrganizationSharedConnectorAuthorization: vi.fn(),
-}));
+vi.mock("#/lib/organizations/connector-connections", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("#/lib/organizations/connector-connections")
+		>();
+	return {
+		connectCurrentMemberConnectorCredential: connectMemberCredentialMock,
+		connectCurrentOrganizationSharedConnectorCredential: vi.fn(),
+		disconnectOrganizationConnectorConnection:
+			disconnectOrganizationConnectorConnectionMock,
+		disconnectSharedOrganizationConnectorConnection: vi.fn(),
+		isConnectorConnectionConfirmationRetryable:
+			actual.isConnectorConnectionConfirmationRetryable,
+		listCurrentOrganizationConnectorConnections: listConnectionsMock,
+		resolveConnectorConnectionErrorMessage: (
+			error: unknown,
+			appName = "App"
+		) =>
+			(error as { upstreamCode?: string }).upstreamCode ===
+			"connector.organization_context_changed"
+				? `Your active Organization changed in another tab. Refresh this page before updating ${appName}.`
+				: String(error),
+		startCurrentMemberConnectorAuthorization: startMemberAuthorizationMock,
+		startCurrentOrganizationSharedConnectorAuthorization: vi.fn(),
+	};
+});
 
 const linearApp = {
 	availability: "available",
@@ -653,7 +660,11 @@ describe("CenterAgentAppConnectionCard", () => {
 	});
 
 	it("settles a closed authorization window after a transient confirmation failure", async () => {
-		const confirmationError = new Error("connection lookup failed");
+		const confirmationError = {
+			code: "network.request_failed",
+			message: "Connection lookup failed.",
+			status: null,
+		};
 		const errorSpy = vi
 			.spyOn(console, "error")
 			.mockImplementation(() => undefined);
