@@ -126,6 +126,7 @@ describe("Remote Agent generic App tools", () => {
           id: "posthog.list_projects",
           inputSchema: { properties: {}, type: "object" },
           name: "List projects",
+          outputSchema: { type: "array" },
           requiredScopes: ["project:read"],
         },
       ],
@@ -152,6 +153,16 @@ describe("Remote Agent generic App tools", () => {
         "List or count Gmail messages with Gmail search filters, including unread inbox messages.",
       id: "gmail.fetch_emails",
       name: "fetch_emails",
+      outputSchema: {
+        properties: {
+          messages: { type: "array" },
+          resultSizeEstimate: {
+            description: "Approximate result count.",
+            type: "integer",
+          },
+        },
+        type: "object",
+      },
       service: "gmail",
     };
     const fetchMock = vi.fn<typeof fetch>((requestInfo) => {
@@ -211,7 +222,21 @@ describe("Remote Agent generic App tools", () => {
         service: "gmail",
       })
     ).resolves.toMatchObject({
-      actions: [expect.objectContaining({ id: "gmail.fetch_emails" })],
+      actions: [
+        expect.objectContaining({
+          id: "gmail.fetch_emails",
+          outputSchema: {
+            properties: {
+              messages: { type: "array" },
+              resultSizeEstimate: {
+                description: "Approximate result count.",
+                type: "integer",
+              },
+            },
+            type: "object",
+          },
+        }),
+      ],
       availableCount: 1,
       matchingCount: 1,
     });
