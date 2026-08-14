@@ -246,18 +246,18 @@ export function isConnectorConnectionConfirmationRetryable(
 	if (failureCode === CONNECTOR_ORGANIZATION_CONTEXT_CHANGED_CODE) {
 		return false;
 	}
+	if (failure.status !== null) {
+		return (
+			failure.status === 408 || failure.status === 429 || failure.status >= 500
+		);
+	}
 	if (
 		failure.code === "network.timeout" ||
 		failure.code === "network.request_failed"
 	) {
 		return true;
 	}
-	if (failure.status === null) {
-		return false;
-	}
-	return (
-		failure.status === 408 || failure.status === 429 || failure.status >= 500
-	);
+	return false;
 }
 
 export function listCurrentOrganizationGitHubConnections(input: {

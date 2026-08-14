@@ -75,6 +75,13 @@ describe("connector connection Web API helpers", () => {
 		).toBe(false);
 		expect(
 			isConnectorConnectionConfirmationRetryable({
+				code: "network.request_failed",
+				message: "The response body could not be read.",
+				status: 403,
+			})
+		).toBe(false);
+		expect(
+			isConnectorConnectionConfirmationRetryable({
 				code: "gateway.http_error",
 				message: "Your active Organization changed.",
 				status: 409,
