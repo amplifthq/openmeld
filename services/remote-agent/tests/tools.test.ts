@@ -259,6 +259,28 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it("returns guided Slack connection help as a normal tool result", async () => {
+    const request = createSubmitTurnRequest();
+    const unavailable = {
+      message: "Slack isn't connected to this Organization yet.",
+      nextAction: "Open Center Agent → Channels and choose Connect Slack.",
+      organizationId: "org_123",
+      reasonCode: "slack_not_connected" as const,
+      status: "unavailable" as const,
+    };
+    const centerAgentReadSlackWorkspaceDirectory = vi.fn(
+      async () => unavailable
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentReadSlackWorkspaceDirectory },
+      storage: await createStorageWithPendingContext(request),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_read_slack_workspace_directory", {})
+    ).resolves.toEqual(unavailable);
+  });
+
   it("allows a verified Lark-created Task to request attention in its canonical Task conversation", async () => {
     const baseRequest = createSubmitTurnRequest();
     const request = createSubmitTurnRequest({
@@ -2532,6 +2554,60 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentDraftOrganizationDocument).not.toHaveBeenCalled();
   });
 
+  it("starts a fresh Profile Report learning run for the verified requester", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const centerAgentStartSelfMemberResearch = vi.fn(async () => ({
+      batch: {
+        completedCount: 0,
+        createdAt: ISO_NOW,
+        failedCount: 0,
+        id: "research-batch-1",
+        organizationId: request.organizationId,
+        scope: "member" as const,
+        status: "queued" as const,
+        tasks: [
+          {
+            failureCode: null,
+            finishedAt: null,
+            id: "research-task-1",
+            position: 1,
+            startedAt: null,
+            status: "queued" as const,
+            subjectDisplayName: "Felix Test",
+            subjectUserId: "user_1",
+          },
+        ],
+        totalCount: 1,
+        updatedAt: ISO_NOW,
+      },
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentStartSelfMemberResearch },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_learn_about_me", {})
+    ).resolves.toMatchObject({
+      batch: {
+        scope: "member",
+        status: "queued",
+        tasks: [{ subjectUserId: "user_1" }],
+      },
+    });
+    expect(centerAgentStartSelfMemberResearch).toHaveBeenCalledWith({
+      context: expectedHostedCenterAgentContext(
+        request,
+        "openmeld_learn_about_me"
+      ),
+      speakerMember: {
+        memberId: "member_123",
+        userId: "user_1",
+      },
+    });
+  });
+
   it("writes member research output through the structured evidence report", async () => {
     const baseRequest = createSubmitTurnRequest();
     if (baseRequest.turnEnvelope.sender.kind !== "member") {
@@ -2559,21 +2635,59 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
     const storage = await createStorageWithPendingContext(request);
     const centerAgentDraftOrganizationDocument = vi.fn(
-      async (_input: Record<string, unknown>) =>
-        organizationDocumentDraftResponse()
+      async (_input: Record<string, unknown>) => ({
+        document: {
+          ...organizationDocumentDraftResponse().document,
+          id: "profile-report-morgan",
+          kind: "member_profile" as const,
+          profileReportDate: "2026-07-06",
+          profileReportType: "work_profile" as const,
+          subjectUserId: "user-morgan",
+          title: "Morgan Lee Profile",
+        },
+        draftReplaced: false,
+        memberResearchDraft: {
+          content: "# Morgan Lee\n\n## What I know so far\n\nStill learning.",
+          documentId: "profile-report-morgan",
+          profileReportFolderName: "Morgan Lee (2)",
+          subjectUserId: "user-morgan",
+          title: "Morgan Lee Profile",
+        },
+      })
     );
+    const writeProfileReport = vi.fn(async () => ({
+      path: "/computer/home/documents/Profile Reports/Morgan Lee (2)/2026-07-06 — Work Profile.md",
+    }));
+    const recordCenterAgentMemberResearchComputerFile = vi.fn(async () => ({
+      documentId: "profile-report-morgan",
+      path: "/computer/home/documents/Profile Reports/Morgan Lee (2)/2026-07-06 — Work Profile.md",
+      recorded: true as const,
+      taskId: "member-research-task-1",
+    }));
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentDraftOrganizationDocument },
+      coreWorker: {
+        centerAgentDraftOrganizationDocument,
+        recordCenterAgentMemberResearchComputerFile,
+      },
+      memberProfileReportFiles: { write: writeProfileReport },
       storage,
       turnEnvelope: request.turnEnvelope,
     });
 
-    await executeTool(tools, "openmeld_draft_org_document", {
-      draftContent: "",
-      kind: "member_profile",
-      memberResearchReport: insufficientMemberResearchReport(),
-      subjectUserId: "user-morgan",
-      title: "Morgan Lee Profile",
+    await expect(
+      executeTool(tools, "openmeld_draft_org_document", {
+        draftContent: "",
+        kind: "member_profile",
+        memberResearchReport: insufficientMemberResearchReport(),
+        subjectUserId: "user-morgan",
+        title: "Morgan Lee Profile",
+      })
+    ).resolves.toEqual({
+      document: expect.objectContaining({ id: "profile-report-morgan" }),
+      draftReplaced: false,
+      profileReportFile: {
+        path: "/computer/home/documents/Profile Reports/Morgan Lee (2)/2026-07-06 — Work Profile.md",
+      },
     });
 
     expect(centerAgentDraftOrganizationDocument).toHaveBeenCalledWith(
@@ -2594,6 +2708,25 @@ describe("remote agent OpenMeld tool catalog", () => {
         memberResearchTaskId: "member-research-task-1",
       })
     );
+    expect(writeProfileReport).toHaveBeenCalledWith({
+      content: "# Morgan Lee\n\n## What I know so far\n\nStill learning.",
+      documentId: "profile-report-morgan",
+      documentTitle: "Morgan Lee Profile",
+      profileReportFolderName: "Morgan Lee (2)",
+      profileReportType: "work_profile",
+      reportDate: "2026-07-06",
+      subjectUserId: "user-morgan",
+    });
+    expect(recordCenterAgentMemberResearchComputerFile).toHaveBeenCalledWith({
+      context: expectedHostedCenterAgentContext(
+        request,
+        "openmeld_draft_org_document"
+      ),
+      documentId: "profile-report-morgan",
+      path: "/computer/home/documents/Profile Reports/Morgan Lee (2)/2026-07-06 — Work Profile.md",
+      subjectUserId: "user-morgan",
+      taskId: "member-research-task-1",
+    });
   });
 
   it("rejects a member research draft for a different member", async () => {
@@ -2638,7 +2771,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         title: "Wrong Profile",
       })
     ).rejects.toThrow(
-      "Member research can only create the assigned member profile draft."
+      "Member research can only create a new dated Profile Report for the assigned member."
     );
     expect(centerAgentDraftOrganizationDocument).not.toHaveBeenCalled();
   });

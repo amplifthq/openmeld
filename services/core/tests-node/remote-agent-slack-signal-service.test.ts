@@ -11,6 +11,7 @@ import type {
   AuthRpcResolveOrganizationAccountIdentityResult,
   RemoteAgentCoreCallbackBody,
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
+  RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
 import type { UsersInfoResponse } from "@slack/web-api";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -31,7 +32,10 @@ import {
 import { buildRemoteAgentSlackConversationId } from "../src/remote-agent/application/slack-conversation-id";
 import { digestSlackIdentityLinkToken } from "../src/remote-agent/application/slack-identity-link-token";
 import { decryptSlackSearchAuthorization } from "../src/remote-agent/application/slack-search-authorization";
-import { processRemoteAgentSlackEvent } from "../src/remote-agent/application/slack-signal-service";
+import {
+  processRemoteAgentSlackEvent,
+  submitRemoteAgentSlackChannelIntroduction,
+} from "../src/remote-agent/application/slack-signal-service";
 import {
   markRemoteAgentNativeDeliveryAck,
   readRemoteAgentNativeDeliveryByDeliveryId,
@@ -78,6 +82,110 @@ afterEach(() => {
 });
 
 describe("Remote Agent Slack signal service", () => {
+  it("turns selected public channels into one contextual Center Agent introduction run", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(async () => ({
+      accepted: true,
+      createdAt: 1_710_000_001,
+      requestId: "req_channel_intro",
+      status: "pending" as const,
+      submissionId: "sub_channel_intro",
+    }));
+    const fetchMock = stubSlackFetch({
+      conversationsListResponse: {
+        channels: [
+          {
+            id: "C_PRODUCT",
+            is_member: false,
+            is_private: false,
+            name: "product",
+          },
+          {
+            id: "C_DESIGN",
+            is_member: true,
+            is_private: false,
+            name: "design",
+          },
+        ],
+        ok: true,
+        response_metadata: { next_cursor: "" },
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await expect(
+        submitRemoteAgentSlackChannelIntroduction({
+          env: buildEnv(harness.db, { workerSubmit }),
+          interactionId: "V_CHANNELS",
+          organizationInviteUrl: "https://openmeld.ai/join/openmeld-test",
+          slackTeamId: "T123",
+          slackUserId: "U123",
+          targetSlackChannelIds: ["C_PRODUCT", "C_DESIGN"],
+        })
+      ).resolves.toBeUndefined();
+
+      expect(workerSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          idempotencyKey: "slack-channel-introduction:T123:V_CHANNELS",
+          messages: [
+            expect.objectContaining({
+              content: expect.stringContaining("#product and #design"),
+              role: "user",
+            }),
+          ],
+          onBehalfOf: expect.objectContaining({
+            displayName: "Ari Human",
+          }),
+          turnEnvelope: expect.objectContaining({
+            interactionEnvironment: "requester_private",
+            sender: expect.objectContaining({
+              id: "member_1",
+              verified: true,
+            }),
+            space: expect.objectContaining({
+              isCenterAgentDm: true,
+              kind: "dm",
+            }),
+          }),
+        })
+      );
+      expect(workerSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [
+            expect.objectContaining({
+              content: expect.stringContaining(
+                "https://openmeld.ai/join/openmeld-test"
+              ),
+              role: "user",
+            }),
+          ],
+        })
+      );
+      expect(
+        fetchMock.mock.calls.filter(([request]) =>
+          String(request).includes("/conversations.join")
+        )
+      ).toHaveLength(1);
+      expect(readSlackPostBodies(fetchMock)).toContainEqual(
+        expect.objectContaining({
+          channel: "D_OPENMELD",
+          text: expect.stringContaining("#product and #design work"),
+        })
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
   it("keeps each Slack thread context cursor monotonic", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
@@ -284,6 +392,174 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
+  it("accepts a human Slack app DM as a private Center Agent conversation", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: "req_slack_dm_1",
+        status: "pending" as const,
+        submissionId: "sub_slack_dm_1",
+      })
+    );
+    const fetchMock = stubSlackFetch({
+      conversationsInfoResponse: {
+        channel: { id: "D123", is_im: true },
+        ok: true,
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createDirectMessagePayload()
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      expect(workerSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [
+            { role: "user", content: "What do you know about my work?" },
+          ],
+          turnEnvelope: expect.objectContaining({
+            interactionEnvironment: "requester_private",
+            space: {
+              id: expect.any(String),
+              isCenterAgentDm: true,
+              kind: "dm",
+              name: "Slack direct message",
+            },
+          }),
+        })
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("conversations.history"),
+        expect.objectContaining({ method: "GET" })
+      );
+      expect(readSlackThreadStatusBodies(fetchMock)).toHaveLength(0);
+      const submittedRequest = workerSubmit.mock.calls[0]?.[0];
+      if (!submittedRequest) {
+        throw new Error("expected the Slack DM worker request");
+      }
+      expect(submittedRequest.turnEnvelope.trigger).toMatchObject({
+        replyPlacement: "conversation",
+        source: "slack",
+      });
+      await expect(
+        completeRemoteAgentNativeDelivery(
+          buildEnv(harness.db),
+          createCompletedCallbackForSubmittedRequest({
+            request: submittedRequest,
+            submissionId: "sub_slack_dm_1",
+          })
+        )
+      ).resolves.toEqual({
+        status: "accepted",
+        publishedSignalId: "1710000001.000200",
+      });
+      expect(readSlackPostBodies(fetchMock)).toEqual([
+        expect.objectContaining({
+          channel: "D123",
+          metadata: expect.any(Object),
+          text: expect.stringContaining("Done from Slack"),
+        }),
+      ]);
+      expect(readSlackPostBodies(fetchMock)[0]).not.toHaveProperty("thread_ts");
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps a Slack app DM reply inside the thread the user continued", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (_request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: "req_slack_dm_thread_1",
+        status: "pending" as const,
+        submissionId: "sub_slack_dm_thread_1",
+      })
+    );
+    const fetchMock = stubSlackFetch({
+      conversationsInfoResponse: {
+        channel: { id: "D123", is_im: true },
+        ok: true,
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createDirectMessagePayload({
+            eventId: "EvDmThread123",
+            threadTs: "1710000000.000100",
+            ts: "1710000000.000200",
+          })
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      const submittedRequest = workerSubmit.mock.calls[0]?.[0];
+      if (!submittedRequest) {
+        throw new Error("expected the threaded Slack DM worker request");
+      }
+      expect(submittedRequest.turnEnvelope.trigger).toMatchObject({
+        replyPlacement: "thread",
+        source: "slack",
+        threadTs: "1710000000.000100",
+      });
+      expect(readSlackThreadStatusBodies(fetchMock)).toEqual([
+        {
+          channel_id: "D123",
+          status: "is working on your request…",
+          thread_ts: "1710000000.000100",
+        },
+      ]);
+      await expect(
+        completeRemoteAgentNativeDelivery(
+          buildEnv(harness.db),
+          createCompletedCallbackForSubmittedRequest({
+            request: submittedRequest,
+            submissionId: "sub_slack_dm_thread_1",
+          })
+        )
+      ).resolves.toEqual({
+        status: "accepted",
+        publishedSignalId: "1710000001.000200",
+      });
+      expect(readSlackPostBodies(fetchMock)).toEqual([
+        expect.objectContaining({
+          channel: "D123",
+          thread_ts: "1710000000.000100",
+        }),
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("continues routing an existing historical Personal Workspace Slack binding", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
@@ -370,6 +646,48 @@ describe("Remote Agent Slack signal service", () => {
           channel: "C123",
           text: "Center Agent couldn't start because its selected model is unavailable. Ask an organization owner or admin to choose an available model in OpenMeld.",
           thread_ts: "1710000000.000100",
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps a top-level Slack DM failure in the main conversation", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    harness.run({
+      params: ["retired/provider-model", "binding_1"],
+      sql: `
+        UPDATE openMeldDaemon_agent_profile_bindings
+        SET model_id = ?
+        WHERE binding_id = ?
+      `,
+    });
+    const workerSubmit = vi.fn();
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createDirectMessagePayload()
+        )
+      ).resolves.toEqual({ status: "replied" });
+
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(readSlackThreadStatusBodies(fetchMock)).toHaveLength(0);
+      expect(readSlackPostBodies(fetchMock)).toEqual([
+        {
+          channel: "D123",
+          text: "Center Agent couldn't start because its selected model is unavailable. Ask an organization owner or admin to choose an available model in OpenMeld.",
         },
       ]);
     } finally {
@@ -4512,6 +4830,7 @@ function stubSlackFetch(input: {
     | Record<string, unknown>
     | Response
     | ((url: URL) => Record<string, unknown> | Response);
+  conversationsListResponse?: Record<string, unknown>;
   conversationsInfoNeverResolves?: boolean;
   conversationsInfoResponse?: Record<string, unknown>;
   conversationsRepliesResponse?:
@@ -4572,6 +4891,21 @@ function stubSlackFetch(input: {
             ok: true,
           }
         );
+      }
+      if (url.includes("/conversations.list")) {
+        return Response.json(
+          input.conversationsListResponse ?? {
+            channels: [],
+            ok: true,
+            response_metadata: { next_cursor: "" },
+          }
+        );
+      }
+      if (url.includes("/conversations.open")) {
+        return Response.json({ channel: { id: "D_OPENMELD" }, ok: true });
+      }
+      if (url.includes("/conversations.join")) {
+        return Response.json({ ok: true });
       }
       if (url.includes("/conversations.replies")) {
         const configured =
@@ -4735,6 +5069,51 @@ function createAppMentionPayload(
       ...(overrides.actionToken ? { action_token: overrides.actionToken } : {}),
       ...(overrides.threadTs ? { thread_ts: overrides.threadTs } : {}),
     },
+  };
+}
+
+function createDirectMessagePayload(
+  overrides: {
+    eventId?: string;
+    text?: string;
+    threadTs?: string;
+    ts?: string;
+  } = {}
+) {
+  const ts = overrides.ts ?? "1710000000.000100";
+  return {
+    type: "event_callback",
+    team_id: "T123",
+    event_id: overrides.eventId ?? "EvDm123",
+    event_time: 1_710_000_000,
+    event: {
+      type: "message",
+      channel_type: "im",
+      user: "U123",
+      text: overrides.text ?? "What do you know about my work?",
+      ts,
+      channel: "D123",
+      event_ts: ts,
+      ...(overrides.threadTs ? { thread_ts: overrides.threadTs } : {}),
+    },
+  };
+}
+
+function createCompletedCallbackForSubmittedRequest(input: {
+  request: RemoteAgentWorkerSubmitTurnRequest;
+  submissionId: string;
+}): Extract<RemoteAgentCoreCallbackBody, { text: string }> {
+  return {
+    agentProfileId: input.request.agentProfileId,
+    bindingId: input.request.bindingId,
+    dispatchId: input.request.dispatchId,
+    idempotencyKey: input.request.idempotencyKey,
+    organizationId: input.request.organizationId,
+    spaceId: input.request.spaceId,
+    status: "completed",
+    submissionId: input.submissionId,
+    text: COMPLETED_SLACK_MARKDOWN,
+    triggerMessageId: input.request.triggerMessageId,
   };
 }
 

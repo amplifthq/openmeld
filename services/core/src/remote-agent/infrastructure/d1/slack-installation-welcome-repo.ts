@@ -1,4 +1,4 @@
-export const SLACK_INSTALLATION_WELCOME_VERSION = 1;
+export const SLACK_INSTALLATION_WELCOME_VERSION = 2;
 
 export type SlackInstallationWelcomeMessageKind = "connected" | "moved";
 
@@ -187,6 +187,34 @@ export async function completeSlackInstallationWelcomeDelivery(input: {
       "Slack installation welcome claim was no longer pending during completion"
     );
   }
+}
+
+export async function readSlackInstallationWelcomeDeliveryStatus(input: {
+  db: D1Database;
+  key: SlackInstallationWelcomeDeliveryKey;
+}): Promise<SlackInstallationWelcomeDeliveryStatus | null> {
+  const row = await input.db
+    .prepare(
+      `
+        SELECT status
+        FROM slack_installation_welcome_deliveries
+        WHERE slack_team_id = ?
+          AND organization_id = ?
+          AND recipient_slack_user_id = ?
+          AND connection_created_at_ms = ?
+          AND welcome_version = ?
+        LIMIT 1
+      `
+    )
+    .bind(
+      input.key.slackTeamId,
+      input.key.organizationId,
+      input.key.recipientSlackUserId,
+      input.key.connectionCreatedAtMs,
+      input.key.welcomeVersion
+    )
+    .first<{ status: SlackInstallationWelcomeDeliveryStatus }>();
+  return row?.status ?? null;
 }
 
 async function markStaleSlackInstallationWelcomePendingOutcomeUnknown(input: {

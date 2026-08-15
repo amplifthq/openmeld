@@ -2,7 +2,21 @@ import type {
 	OrganizationDocumentFolder,
 	OrganizationDocumentSummary,
 } from "@openmeld/schemas/types";
-import type { FolderMoveTarget } from "./organization-document-browser-cards";
+import type { DragEvent } from "react";
+
+export const DOCUMENT_DRAG_TYPE = "application/x-openmeld-document-id";
+export const FOLDER_DRAG_TYPE = "application/x-openmeld-folder-id";
+
+export type FolderMoveTarget = {
+	id: string | null;
+	label: string;
+};
+
+type BrowserItemDropHandlers = {
+	onDropDocument?: (documentId: string) => void;
+	onDropFolder?: (folderId: string) => void;
+	setDropActive: (active: boolean) => void;
+};
 
 export function resolveDirectItemCount(input: {
 	documents: OrganizationDocumentSummary[];
@@ -68,6 +82,55 @@ export function parentFolderId(
 	return folder.parentFolderId ?? null;
 }
 
+export function browserItemDropProps(input: BrowserItemDropHandlers) {
+	const accepts = (event: DragEvent<HTMLElement>) =>
+		(Boolean(input.onDropDocument) &&
+			event.dataTransfer.types.includes(DOCUMENT_DRAG_TYPE)) ||
+		(Boolean(input.onDropFolder) &&
+			event.dataTransfer.types.includes(FOLDER_DRAG_TYPE));
+	return {
+		onDragLeave: (event: DragEvent<HTMLElement>) => {
+			if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+				input.setDropActive(false);
+			}
+		},
+		onDragOver: (event: DragEvent<HTMLElement>) => {
+			if (accepts(event)) {
+				event.preventDefault();
+				event.dataTransfer.dropEffect = "move";
+				input.setDropActive(true);
+			}
+		},
+		onDrop: (event: DragEvent<HTMLElement>) => {
+			input.setDropActive(false);
+			const documentId = event.dataTransfer.getData(DOCUMENT_DRAG_TYPE);
+			if (documentId && input.onDropDocument) {
+				event.preventDefault();
+				input.onDropDocument(documentId);
+				return;
+			}
+			const folderId = event.dataTransfer.getData(FOLDER_DRAG_TYPE);
+			if (folderId && input.onDropFolder) {
+				event.preventDefault();
+				input.onDropFolder(folderId);
+			}
+		},
+	};
+}
+
+export function documentKindLabel(
+	kind: OrganizationDocumentSummary["kind"]
+): string {
+	switch (kind) {
+		case "brief":
+			return "Center Agent context";
+		case "member_profile":
+			return "Profile Report";
+		default:
+			return "Knowledge";
+	}
+}
+
 function allFolderTargets(
 	folders: OrganizationDocumentFolder[]
 ): FolderMoveTarget[] {
@@ -97,13 +160,16 @@ function resolveDescendantIds(
 	let frontier = [folderId];
 	while (frontier.length > 0) {
 		const parentIds = new Set(frontier);
-		frontier = folders
-			.filter(
-				(folder) =>
-					!descendants.has(folder.id) &&
-					parentIds.has(parentFolderId(folder) ?? "")
-			)
-			.map((folder) => folder.id);
+		const nextFrontier: string[] = [];
+		for (const folder of folders) {
+			if (
+				!descendants.has(folder.id) &&
+				parentIds.has(parentFolderId(folder) ?? "")
+			) {
+				nextFrontier.push(folder.id);
+			}
+		}
+		frontier = nextFrontier;
 		for (const descendantId of frontier) {
 			descendants.add(descendantId);
 		}

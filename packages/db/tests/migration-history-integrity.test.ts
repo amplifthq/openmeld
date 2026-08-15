@@ -1972,6 +1972,134 @@ describe("shared drizzle migration history integrity", () => {
     }
   });
 
+  it("stores invited-member onboarding state on the invitation delivery", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      applyMigrationFiles(database, listSqlMigrationFiles());
+
+      expect(
+        listTableColumns(database, "slack_teammate_invitation_deliveries")
+      ).toEqual(
+        expect.arrayContaining([
+          "onboarding_status",
+          "joined_user_id",
+          "joined_profile_id",
+          "research_task_id",
+          "welcome_message_ts",
+          "onboarding_failure_code",
+        ])
+      );
+      expect(
+        listTableColumns(database, "openMeldRemoteAgent_native_delivery_ledger")
+      ).not.toEqual(
+        expect.arrayContaining([
+          "onboarding_status",
+          "joined_user_id",
+          "joined_profile_id",
+          "research_task_id",
+          "welcome_message_ts",
+          "onboarding_failure_code",
+        ])
+      );
+    } finally {
+      database.close();
+    }
+  });
+
+  it("preserves existing documents and folders while adding Profile Report metadata", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const migrationFileName = listSqlMigrationFiles().find((fileName) =>
+        fileName.startsWith("0115_")
+      );
+      expect(migrationFileName).toBeDefined();
+      if (!migrationFileName) {
+        return;
+      }
+
+      applyMigrationFiles(
+        database,
+        listSqlMigrationFiles().filter(
+          (fileName) => fileName.localeCompare(migrationFileName) < 0
+        )
+      );
+      database.exec(`
+        INSERT INTO users (id, name, email)
+        VALUES ('profile-report-user', 'Profile Report User', 'profile-report@example.com');
+        INSERT INTO organizations (id, name, slug, created_at)
+        VALUES ('profile-report-org', 'Profile Report Org', 'profile-report-org', 1000);
+        INSERT INTO organization_document_folders (
+          id,
+          organization_id,
+          name,
+          created_at,
+          updated_at
+        ) VALUES (
+          'profile-report-folder',
+          'profile-report-org',
+          'People',
+          1000,
+          1000
+        );
+        INSERT INTO organization_documents (
+          id,
+          organization_id,
+          kind,
+          subject_user_id,
+          folder_id,
+          title,
+          content,
+          created_at,
+          updated_at
+        ) VALUES (
+          'profile-report-document',
+          'profile-report-org',
+          'member_profile',
+          'profile-report-user',
+          'profile-report-folder',
+          'Existing work profile',
+          'Existing profile content',
+          1000,
+          1000
+        );
+      `);
+
+      applyMigrationFiles(database, [migrationFileName]);
+
+      expect(
+        database
+          .prepare(
+            `SELECT id, title, content, profile_report_date, profile_report_type
+             FROM organization_documents
+             WHERE id = 'profile-report-document'`
+          )
+          .get()
+      ).toEqual({
+        content: "Existing profile content",
+        id: "profile-report-document",
+        profile_report_date: null,
+        profile_report_type: null,
+        title: "Existing work profile",
+      });
+      expect(
+        database
+          .prepare(
+            `SELECT id, name, system_kind, subject_user_id
+             FROM organization_document_folders
+             WHERE id = 'profile-report-folder'`
+          )
+          .get()
+      ).toEqual({
+        id: "profile-report-folder",
+        name: "People",
+        subject_user_id: null,
+        system_kind: null,
+      });
+    } finally {
+      database.close();
+    }
+  });
+
   it("backfills existing non-skipped Routine Runs to the legacy engine", () => {
     const database = new DatabaseSync(":memory:");
     try {

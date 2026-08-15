@@ -44,6 +44,7 @@ import type {
   CenterAgentListProjectsToolResponse,
   CenterAgentListProjectsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
+  CenterAgentListSlackChannelsResponse,
   CenterAgentManageOrganizationDocumentsResponse,
   CenterAgentManageOrganizationDocumentsRpcInput,
   CenterAgentModelConfigurationResponse,
@@ -62,6 +63,9 @@ import type {
   CenterAgentReadOrganizationDocumentsRpcInput,
   CenterAgentReadOrganizationSkillsResponse,
   CenterAgentReadOrganizationSkillsRpcInput,
+  CenterAgentReadSlackChannelHistoryResponse,
+  CenterAgentReadSlackChannelMembersResponse,
+  CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceContextResponse,
   CenterAgentRecordConnectorActionAuditResponse,
   CenterAgentRecordConnectorActionOperationResponse,
@@ -78,6 +82,7 @@ import type {
   CenterAgentSlackWorkspaceConnectionResponse,
   CenterAgentSlackWorkspaceDisconnectResponse,
   CenterAgentSpaceAuthoringContractResponse,
+  CenterAgentStartSelfMemberResearchToolRpcInput,
   CenterAgentTaskDetailRpcResponse,
   CenterAgentUpdateAgentProfileRuntimeSettingsResponse,
   CenterAgentUpdateProfileResponse,
@@ -229,6 +234,8 @@ import type {
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
   ReconcileDeletedAgentProfileRequest,
   ReconcileDeletedAgentProfileResponse,
+  RecordCenterAgentMemberResearchComputerFileResponse,
+  RecordCenterAgentMemberResearchComputerFileRpcInput,
   RecordOrganizationSkillActivationResponse,
   RecordOrganizationSkillActivationRpcInput,
   RefreshCurrentLocalAgentCatalogResponse,
@@ -250,15 +257,13 @@ import type {
   SetOrganizationSkillEnabledRpcInput,
   SetOrganizationSkillMaintainersResponse,
   SetOrganizationSkillMaintainersRpcInput,
-  SlackChannelHistoryResponse,
-  SlackChannelListResponse,
-  SlackChannelMembersResponse,
   SlackIdentityLinkConsumeResponse,
   SlackIdentityLinkPreviewResponse,
   SlackOAuthInstallationResult,
   SlackOAuthStateConsumeResponse,
   SlackOAuthStateCreateResponse,
-  SlackWorkspaceDirectoryResponse,
+  SlackWelcomeInteractionRpcInput,
+  SlackWelcomeInteractionRpcResponse,
   SpaceAttachmentDescriptor,
   SpaceBoardResponse,
   SpaceBootstrapResponse,
@@ -351,6 +356,7 @@ import {
   rpcGetOrganizationDocument,
   rpcListOrganizationDocuments,
   rpcReadOrganizationDocumentPromptContext,
+  rpcRecordCenterAgentMemberResearchComputerFile,
   rpcUpdateOrganizationDocument,
   rpcUpdateOrganizationDocumentFolder,
 } from "./organization-documents/organization-document-rpc";
@@ -405,6 +411,7 @@ import { verifyLarkPlatformWebhook } from "./remote-agent/application/lark-platf
 import { createConfiguredMessageChannelProviderRegistry } from "./remote-agent/application/message-channel-provider-runtime";
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
 import { processRemoteAgentSlackEvent } from "./remote-agent/application/slack-signal-service";
+import { handleSlackWelcomeInteraction } from "./remote-agent/application/slack-welcome-interaction-service";
 import { submitRemoteAgentStreamDelta } from "./remote-agent/application/stream-delta-service";
 import { submitRemoteAgentStreamPart } from "./remote-agent/application/stream-part-service";
 import {
@@ -630,6 +637,7 @@ import {
   rpcCenterAgentRemoveAgentProfilesFromSpace,
   rpcCenterAgentResolveConnectorConnection,
   rpcCenterAgentSearchSlackMessages,
+  rpcCenterAgentStartSelfMemberResearch,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
   rpcCenterAgentUpdateSpaceSettings,
   rpcCenterAgentWakeAgentProfilesInSpace,
@@ -789,6 +797,7 @@ import {
   rpcUpsertSpacePassword,
   rpcWipeCurrentMemberCenterAgentMemory,
   rpcWriteCurrentDeviceObservedMetadata,
+  runSlackInstallationWelcomePreparationTick,
   type SaveOrganizationWakeAccessChoiceInput,
   type SelectLocalFoldersInput,
   type SetCenterAgentOrganizationMemoryPolicyInput,
@@ -2308,6 +2317,11 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
       reconcileMemberResearch: async () => {
         if (db) {
           await runCenterAgentMemberResearchTick({ db, env: this.env });
+          await runSlackInstallationWelcomePreparationTick({
+            db,
+            env: this.env,
+            nowMs: Date.now(),
+          });
         }
       },
       waitUntil: (promise) => this.ctx.waitUntil(promise),
@@ -2429,25 +2443,25 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   centerAgentReadSlackWorkspaceDirectory(
     input: CenterAgentReadSlackWorkspaceDirectoryInput
-  ): Promise<SlackWorkspaceDirectoryResponse> {
+  ): Promise<CenterAgentReadSlackWorkspaceDirectoryResponse> {
     return rpcCenterAgentReadSlackWorkspaceDirectory(this.env, input);
   }
 
   centerAgentListSlackChannels(
     input: CenterAgentListSlackChannelsInput
-  ): Promise<SlackChannelListResponse> {
+  ): Promise<CenterAgentListSlackChannelsResponse> {
     return rpcCenterAgentListSlackChannels(this.env, input);
   }
 
   centerAgentReadSlackChannelMembers(
     input: CenterAgentReadSlackChannelMembersInput
-  ): Promise<SlackChannelMembersResponse> {
+  ): Promise<CenterAgentReadSlackChannelMembersResponse> {
     return rpcCenterAgentReadSlackChannelMembers(this.env, input);
   }
 
   centerAgentReadSlackChannelHistory(
     input: CenterAgentReadSlackChannelHistoryInput
-  ): Promise<SlackChannelHistoryResponse> {
+  ): Promise<CenterAgentReadSlackChannelHistoryResponse> {
     return rpcCenterAgentReadSlackChannelHistory(this.env, input);
   }
 
@@ -2641,6 +2655,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 // Gateway-specific RPC entrypoint. Kept as a dedicated subclass to preserve an
 // extension point for future gateway-aware overrides.
 export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
+  handleSlackWelcomeInteraction(
+    input: SlackWelcomeInteractionRpcInput
+  ): Promise<SlackWelcomeInteractionRpcResponse> {
+    return handleSlackWelcomeInteraction(this.env, input);
+  }
+
   async runLocalRoutineSchedulerTick(): Promise<{
     ok: true;
     ranAtMs: number;
@@ -3821,25 +3841,25 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   centerAgentReadSlackWorkspaceDirectory(
     input: CenterAgentReadSlackWorkspaceDirectoryInput
-  ): Promise<SlackWorkspaceDirectoryResponse> {
+  ): Promise<CenterAgentReadSlackWorkspaceDirectoryResponse> {
     return super.centerAgentReadSlackWorkspaceDirectory(input);
   }
 
   centerAgentListSlackChannels(
     input: CenterAgentListSlackChannelsInput
-  ): Promise<SlackChannelListResponse> {
+  ): Promise<CenterAgentListSlackChannelsResponse> {
     return super.centerAgentListSlackChannels(input);
   }
 
   centerAgentReadSlackChannelMembers(
     input: CenterAgentReadSlackChannelMembersInput
-  ): Promise<SlackChannelMembersResponse> {
+  ): Promise<CenterAgentReadSlackChannelMembersResponse> {
     return super.centerAgentReadSlackChannelMembers(input);
   }
 
   centerAgentReadSlackChannelHistory(
     input: CenterAgentReadSlackChannelHistoryInput
-  ): Promise<SlackChannelHistoryResponse> {
+  ): Promise<CenterAgentReadSlackChannelHistoryResponse> {
     return super.centerAgentReadSlackChannelHistory(input);
   }
 
@@ -4089,6 +4109,28 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentDraftOrganizationDocumentRpcInput
   ): Promise<CenterAgentDraftOrganizationDocumentResponse> {
     return rpcCenterAgentDraftOrganizationDocument(this.env, input);
+  }
+
+  async centerAgentStartSelfMemberResearch(
+    input: CenterAgentStartSelfMemberResearchToolRpcInput
+  ): Promise<StartCenterAgentMemberResearchResponse> {
+    const response = await rpcCenterAgentStartSelfMemberResearch(
+      this.env,
+      input
+    );
+    const db = localStateDb(this.env);
+    if (db) {
+      this.ctx.waitUntil(
+        runCenterAgentMemberResearchTick({ db, env: this.env })
+      );
+    }
+    return response;
+  }
+
+  recordCenterAgentMemberResearchComputerFile(
+    input: RecordCenterAgentMemberResearchComputerFileRpcInput
+  ): Promise<RecordCenterAgentMemberResearchComputerFileResponse> {
+    return rpcRecordCenterAgentMemberResearchComputerFile(this.env, input);
   }
 
   centerAgentManageOrganizationDocuments(

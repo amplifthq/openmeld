@@ -29,6 +29,7 @@ import { resolveCenterAgentErrorMessage } from "#/lib/organizations/center-agent
 import { resolveMessageChannelErrorMessage } from "#/lib/organizations/message-channels";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
+import { buildSlackOAuthStartPath } from "#/lib/slack-oauth-start";
 import {
 	centerAgentDesignationQueryOptions,
 	centerAgentQueryKeys,
@@ -149,7 +150,9 @@ export function ChannelsOnboardingStep(input: { onContinue: () => void }) {
 		}
 		setSlackAuthorizationError(null);
 		const popup = window.open(
-			"/slack/oauth/start",
+			buildSlackOAuthStartPath({
+				organizationSlug: currentOrganization.slug,
+			}),
 			"openmeld-slack-authorization",
 			"popup,width=720,height=760"
 		);

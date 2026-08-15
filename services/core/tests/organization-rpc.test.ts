@@ -1973,8 +1973,8 @@ describe("organization Core RPC", () => {
       canManage: false,
       configurationRevision: 4,
       effectiveModel: {
-        displayName: "Grok 4.5",
-        modelId: "x-ai/grok-4.5",
+        displayName: "Grok 4.6",
+        modelId: "x-ai/grok-4.6",
       },
       preference: { kind: "system_default" },
     });
@@ -3608,6 +3608,39 @@ describe("organization Core RPC", () => {
           new URL(String(slackRequest)).pathname === "/api/chat.postMessage"
       )
     ).toHaveLength(1);
+  });
+
+  it("returns a clear next step when Slack is not connected", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+
+    await expect(
+      rpcCenterAgentReadSlackWorkspaceDirectory(buildEnv({ db }), {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+      })
+    ).resolves.toEqual({
+      message: "Slack isn't connected to this Organization yet.",
+      nextAction: "Open Center Agent → Channels and choose Connect Slack.",
+      organizationId: "org-a",
+      reasonCode: "slack_not_connected",
+      status: "unavailable",
+    });
+    expect(db.centerAgentAuditRows).toEqual([]);
   });
 
   it("classifies Slack workspace membership by identity link before email", async () => {

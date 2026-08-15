@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
 
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 const isoDateTimeSchema = z.iso.datetime({ offset: true });
@@ -303,6 +304,12 @@ export const startCenterAgentMemberResearchRpcInputSchema =
   startCenterAgentMemberResearchBodySchema.and(
     z.strictObject({ context: openMeldRequestContextSchema })
   );
+
+export const centerAgentStartSelfMemberResearchToolRpcInputSchema =
+  z.strictObject({
+    context: openMeldRequestContextSchema,
+    speakerMember: centerAgentToolSpeakerSchema,
+  });
 
 export const getCenterAgentMemberResearchStatusResponseSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,

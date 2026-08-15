@@ -51,6 +51,10 @@ import {
 } from "platejs/react";
 import * as React from "react";
 import {
+	getDocumentTableInitialColumnWidth,
+	resolveDocumentTableColumnSizes,
+} from "#/components/editor/table-layout";
+import {
 	Popover,
 	PopoverAnchor,
 	PopoverContent,
@@ -89,7 +93,6 @@ type TableResizeContextValue = {
 	) => void;
 };
 
-const TABLE_DEFAULT_COLUMN_WIDTH = 120;
 const TABLE_DEFERRED_COLUMN_RESIZE_CELL_COUNT = 1200;
 
 const TableResizeContext = React.createContext<TableResizeContextValue | null>(
@@ -112,6 +115,7 @@ function useTableResizeController({
 	hoverIndicatorRef,
 	marginLeft,
 	controlColumnWidth,
+	initialColumnWidth,
 	tablePath,
 	tableRef,
 	wrapperRef,
@@ -121,6 +125,7 @@ function useTableResizeController({
 	hoverIndicatorRef: React.RefObject<HTMLDivElement | null>;
 	marginLeft: number;
 	controlColumnWidth: number;
+	initialColumnWidth: number;
 	tablePath: number[];
 	tableRef: React.RefObject<HTMLTableElement | null>;
 	wrapperRef: React.RefObject<HTMLDivElement | null>;
@@ -131,8 +136,8 @@ function useTableResizeController({
 		disableOverrides: true,
 	});
 	const effectiveColSizes = React.useMemo(
-		() => colSizes.map((colSize) => colSize || TABLE_DEFAULT_COLUMN_WIDTH),
-		[colSizes]
+		() => colSizes.map((colSize) => colSize || initialColumnWidth),
+		[colSizes, initialColumnWidth]
 	);
 	const effectiveColSizesRef = React.useRef(effectiveColSizes);
 	const activeHandleKeyRef = React.useRef<string | null>(null);
@@ -485,8 +490,7 @@ function useTableResizeController({
 				initialSize:
 					direction === "bottom"
 						? rowHeight
-						: (effectiveColSizesRef.current[colIndex] ??
-							TABLE_DEFAULT_COLUMN_WIDTH),
+						: (effectiveColSizesRef.current[colIndex] ?? initialColumnWidth),
 				marginLeft: marginLeftRef.current,
 				rowIndex,
 			};
@@ -540,8 +544,7 @@ function useTableResizeController({
 						? controlColumnWidth
 						: getColumnBoundaryOffset(
 								colIndex,
-								effectiveColSizesRef.current[colIndex] ??
-									TABLE_DEFAULT_COLUMN_WIDTH
+								effectiveColSizesRef.current[colIndex] ?? initialColumnWidth
 							)
 				);
 			} else {
@@ -562,6 +565,7 @@ function useTableResizeController({
 			tableRef,
 			applyResize,
 			freezeRowHeights,
+			initialColumnWidth,
 		]
 	);
 
@@ -576,15 +580,17 @@ function useTableResizeController({
 	);
 }
 
-export const TableElement = withHOC(
+const TableElementWithProvider = withHOC(
 	TableProvider,
-	function TableElement({
+	function TableElementContent({
 		children,
 		...props
 	}: PlateElementProps<TTableElement>) {
 		const readOnly = useReadOnly();
 		const { marginLeft, props: tableProps } = useTableElement();
 		const colSizes = useTableColSizes();
+		const columnCount = getTableColumnCount(props.element);
+		const initialColumnWidth = getDocumentTableInitialColumnWidth(columnCount);
 		const controlColumnWidth = 0;
 		const dragIndicatorRef = React.useRef<HTMLDivElement>(null);
 		const hoverIndicatorRef = React.useRef<HTMLDivElement>(null);
@@ -602,21 +608,16 @@ export const TableElement = withHOC(
 			deferColumnResize,
 			dragIndicatorRef,
 			hoverIndicatorRef,
+			initialColumnWidth,
 			marginLeft,
 			tablePath,
 			tableRef,
 			wrapperRef,
 		});
-		const resolvedColSizes = React.useMemo(() => {
-			if (colSizes.length > 0) {
-				return colSizes.map((colSize) => colSize || TABLE_DEFAULT_COLUMN_WIDTH);
-			}
-
-			return Array.from(
-				{ length: getTableColumnCount(props.element) },
-				() => TABLE_DEFAULT_COLUMN_WIDTH
-			);
-		}, [colSizes, props.element]);
+		const resolvedColSizes = React.useMemo(
+			() => resolveDocumentTableColumnSizes(columnCount, colSizes),
+			[colSizes, columnCount]
+		);
 		const tableVariableStyle = React.useMemo(() => {
 			if (resolvedColSizes.length === 0) {
 				return;
@@ -705,6 +706,10 @@ export const TableElement = withHOC(
 		return <TableFloatingToolbar>{content}</TableFloatingToolbar>;
 	}
 );
+
+export function TableElement(props: PlateElementProps<TTableElement>) {
+	return <TableElementWithProvider {...props} />;
+}
 
 function TableFloatingToolbar({
 	children,

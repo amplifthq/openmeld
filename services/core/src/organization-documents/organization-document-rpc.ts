@@ -1,6 +1,7 @@
 import {
   approveOrganizationDocumentDraftResponseSchema,
   approveOrganizationDocumentDraftRpcInputSchema,
+  CENTER_AGENT_PROFILE_REPORT_COMPUTER_ROOT,
   centerAgentDraftOrganizationDocumentResponseSchema,
   centerAgentDraftOrganizationDocumentRpcInputSchema,
   centerAgentOrganizationDocumentsComputerSnapshotResponseSchema,
@@ -23,6 +24,8 @@ import {
   listOrganizationDocumentsRpcInputSchema,
   organizationDocumentPromptContextResponseSchema,
   organizationDocumentPromptContextRpcInputSchema,
+  recordCenterAgentMemberResearchComputerFileResponseSchema,
+  recordCenterAgentMemberResearchComputerFileRpcInputSchema,
   updateOrganizationDocumentFolderResponseSchema,
   updateOrganizationDocumentFolderRpcInputSchema,
   updateOrganizationDocumentResponseSchema,
@@ -54,6 +57,8 @@ import type {
   OpenMeldRequestContext,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
+  RecordCenterAgentMemberResearchComputerFileResponse,
+  RecordCenterAgentMemberResearchComputerFileRpcInput,
   UpdateOrganizationDocumentFolderResponse,
   UpdateOrganizationDocumentFolderRpcInput,
   UpdateOrganizationDocumentResponse,
@@ -63,7 +68,10 @@ import { prepareCenterAgentOrganizationMemberRequest } from "../center-agent/app
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import { writeCenterAgentAuditEntry } from "../center-agent/center-agent-audit";
 import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
-import { requireCenterAgentMemberResearchDraftTarget } from "../center-agent-member-research/member-research-repository";
+import {
+  recordCenterAgentMemberResearchComputerFile,
+  requireCenterAgentMemberResearchDraftTarget,
+} from "../center-agent-member-research/member-research-repository";
 import { type CoreBindings, organizationDocumentsDb } from "../lib/bindings";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { resolveOrganizationDirectoryMembers } from "../organizations/organization-directory";
@@ -129,15 +137,15 @@ export async function rpcUpdateOrganizationDocumentFolder(
     request.expectedOrganizationId
   );
   const folder =
-    request.name !== undefined
-      ? await service.renameFolder(actor, request.folderId, {
-          name: request.name,
-        })
-      : await service.moveFolder(
+    request.name === undefined
+      ? await service.moveFolder(
           actor,
           request.folderId,
           request.parentFolderId ?? null
-        );
+        )
+      : await service.renameFolder(actor, request.folderId, {
+          name: request.name,
+        });
   return parseResponse(updateOrganizationDocumentFolderResponseSchema, {
     folder,
   });
@@ -451,9 +459,122 @@ export async function rpcCenterAgentDraftOrganizationDocument(
     resource: { id: response.document.id, type: "organization_document" },
     sourceNativeDeliveryId,
   });
+  let memberResearchDraft:
+    | {
+        content: string;
+        documentId: string;
+        profileReportFolderName: string;
+        subjectUserId: string;
+        title: string;
+      }
+    | undefined;
+  if (memberResearch) {
+    const subjectUserId = response.document.subjectUserId;
+    if (!subjectUserId) {
+      throw new Error(
+        "Member research created a Profile Report without its subject user."
+      );
+    }
+    memberResearchDraft = {
+      content: draft.draftContent,
+      documentId: response.document.id,
+      profileReportFolderName:
+        await requireMemberResearchProfileReportFolderName({
+          db,
+          documentId: response.document.id,
+          organizationId,
+          subjectUserId,
+        }),
+      subjectUserId,
+      title: response.document.title,
+    };
+  }
+  return parseResponse(centerAgentDraftOrganizationDocumentResponseSchema, {
+    ...response,
+    ...(memberResearchDraft ? { memberResearchDraft } : {}),
+  });
+}
+
+async function requireMemberResearchProfileReportFolderName(input: {
+  db: D1Database;
+  documentId: string;
+  organizationId: string;
+  subjectUserId: string;
+}): Promise<string> {
+  const folder = await input.db
+    .prepare(
+      `
+        SELECT person.name
+        FROM organization_documents document
+        INNER JOIN organization_document_folders person
+          ON person.id = document.folder_id
+         AND person.organization_id = document.organization_id
+        INNER JOIN organization_document_folders root
+          ON root.id = person.parent_folder_id
+         AND root.organization_id = document.organization_id
+        WHERE document.id = ?
+          AND document.organization_id = ?
+          AND document.kind = 'member_profile'
+          AND document.subject_user_id = ?
+          AND person.system_kind = 'profile_reports_person'
+          AND person.subject_user_id = document.subject_user_id
+          AND root.system_kind = 'profile_reports_root'
+        LIMIT 1
+      `
+    )
+    .bind(input.documentId, input.organizationId, input.subjectUserId)
+    .first<{ name: string }>();
+  if (!folder) {
+    throw new Error(
+      "Member research created a Profile Report without its managed person folder."
+    );
+  }
+  return folder.name;
+}
+
+export async function rpcRecordCenterAgentMemberResearchComputerFile(
+  env: CoreBindings,
+  input: RecordCenterAgentMemberResearchComputerFileRpcInput
+): Promise<RecordCenterAgentMemberResearchComputerFileResponse> {
+  const request = parseRequest(
+    recordCenterAgentMemberResearchComputerFileRpcInputSchema,
+    input
+  );
+  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+    context: request.context,
+    env,
+  });
+  const submissionId = request.context.agentControllerConversationId;
+  if (!submissionId) {
+    throw createCoreRpcHttpError({
+      code: "center_agent_member_research.submission_required",
+      reason: "Profile Report files require a Remote Agent submission.",
+      status: 409,
+    });
+  }
+  if (
+    !request.path.startsWith(`${CENTER_AGENT_PROFILE_REPORT_COMPUTER_ROOT}/`)
+  ) {
+    throw createCoreRpcHttpError({
+      code: "center_agent_member_research.computer_file_path_invalid",
+      reason:
+        "Profile Report files must stay in the Center Agent's private profile-report folder.",
+      status: 422,
+    });
+  }
+  const recorded = await recordCenterAgentMemberResearchComputerFile({
+    db: requireStore(env),
+    documentId: request.documentId,
+    nowMs: Date.now(),
+    organizationId: authorization.activeOrganization.organizationId,
+    path: request.path,
+    subjectUserId: request.subjectUserId,
+    submissionId,
+    taskId: request.taskId,
+  });
   return parseResponse(
-    centerAgentDraftOrganizationDocumentResponseSchema,
-    response
+    recordCenterAgentMemberResearchComputerFileResponseSchema,
+    { ...recorded, recorded: true }
   );
 }
 

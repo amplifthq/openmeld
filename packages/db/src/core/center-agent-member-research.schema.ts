@@ -102,3 +102,27 @@ export const centerAgentMemberResearchTasks = sqliteTable(
     ),
   ]
 );
+
+export const centerAgentMemberResearchComputerFiles = sqliteTable(
+  "center_agent_member_research_computer_files",
+  {
+    taskId: text("task_id")
+      .primaryKey()
+      .references(() => centerAgentMemberResearchTasks.id, {
+        onDelete: "cascade",
+      }),
+    documentId: text("document_id").notNull(),
+    subjectUserId: text("subject_user_id").notNull(),
+    path: text("path").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+  },
+  (table) => [
+    uniqueIndex(
+      "center_agent_member_research_computer_files_document_unique"
+    ).on(table.documentId),
+    check(
+      "center_agent_member_research_computer_files_path_check",
+      sql`length(trim("path")) > 0`
+    ),
+  ]
+);

@@ -40,6 +40,7 @@ import {
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
   centerAgentListProjectsToolResponseSchema,
   centerAgentListSlackChannelsBodySchema,
+  centerAgentListSlackChannelsResponseSchema,
   centerAgentManageOrganizationDocumentsResponseSchema,
   centerAgentManageOrganizationDocumentsRpcInputSchema,
   centerAgentMemberResearchReportSchema,
@@ -53,8 +54,11 @@ import {
   centerAgentReadOrganizationSkillsResponseSchema,
   centerAgentReadOrganizationSkillsRpcInputSchema,
   centerAgentReadSlackChannelHistoryBodySchema,
+  centerAgentReadSlackChannelHistoryResponseSchema,
   centerAgentReadSlackChannelMembersBodySchema,
+  centerAgentReadSlackChannelMembersResponseSchema,
   centerAgentReadSlackWorkspaceDirectoryBodySchema,
+  centerAgentReadSlackWorkspaceDirectoryResponseSchema,
   centerAgentReadSpaceContextResponseSchema,
   centerAgentRememberForOrganizationResponseSchema,
   centerAgentRemoveAgentProfilesFromSpaceResponseSchema,
@@ -100,12 +104,10 @@ import {
   PROJECT_NAME_MAX_CHARS,
   pauseCenterAgentRoutineResponseSchema,
   REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
+  recordCenterAgentMemberResearchComputerFileResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
   SPACE_PASSWORD_MIN_LENGTH,
-  slackChannelHistoryResponseSchema,
-  slackChannelListResponseSchema,
-  slackChannelMembersResponseSchema,
-  slackWorkspaceDirectoryResponseSchema,
+  startCenterAgentMemberResearchResponseSchema,
   submitFeedbackIssueRequestSchema,
   updateCenterAgentRoutineResponseSchema,
   updateFeedbackIssueStatusForOrganizationRequestSchema,
@@ -117,6 +119,7 @@ import type {
   CenterAgentToolSpeaker,
   CenterAgentWakeAgentProfilesInSpaceResponse,
   OpenMeldRequestContext,
+  ProfileReportType,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
 import {
@@ -735,6 +738,7 @@ const requestMemberAttentionToolInputSchema = strictObject({
   prompt: pipe(string(), trim(), minLength(1), maxLength(500)),
   title: pipe(string(), trim(), minLength(1), maxLength(160)),
 });
+const learnAboutMeToolInputSchema = strictObject({});
 
 async function executeMessageChannelIdentityNavigationAction(input: {
   coreWorker: RemoteAgentCoreWorkerBinding;
@@ -848,6 +852,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_read_slack_channel_members",
   "openmeld_read_slack_channel_history",
   "openmeld_read_org_documents",
+  "openmeld_learn_about_me",
   "openmeld_draft_org_document",
   "openmeld_manage_org_documents",
   "openmeld_read_organization_skills",
@@ -915,6 +920,7 @@ export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_install_organization_skill",
   "openmeld_remember_for_organization",
   "openmeld_request_member_attention",
+  "openmeld_learn_about_me",
   "openmeld_create_task",
   "openmeld_list_agent_tasks",
   "openmeld_watch_agent_task",
@@ -950,6 +956,18 @@ export type RemoteAgentComputerFileHandoff = {
   readTextFiles(
     paths: string[]
   ): Promise<Array<{ content: string; path: string }>>;
+};
+
+export type RemoteAgentMemberProfileReportComputerFiles = {
+  write(input: {
+    content: string;
+    documentId: string;
+    documentTitle: string;
+    profileReportFolderName: string;
+    profileReportType: ProfileReportType;
+    reportDate: string;
+    subjectUserId: string;
+  }): Promise<{ path: string }>;
 };
 
 export type { RemoteAgentFeedbackSubmissionConfig } from "./feedback-tools";
@@ -988,6 +1006,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
   env?: RemoteAgentExternalToolEnv;
   feedbackSubmission?: RemoteAgentFeedbackSubmissionConfig;
   fetch?: typeof globalThis.fetch;
+  memberProfileReportFiles?: RemoteAgentMemberProfileReportComputerFiles;
   storage: RemoteAgentStorage;
   submissionId: string;
   turnEnvelope?: RemoteAgentTurnEnvelope | null;
@@ -1198,21 +1217,27 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           submissionId: input.submissionId,
           toolName: "openmeld_read_slack_workspace_directory",
         });
-        const response = slackWorkspaceDirectoryResponseSchema.parse(
-          await callCoreRpc(
-            input.coreWorker,
-            "centerAgentReadSlackWorkspaceDirectory",
-            {
-              ...(request.cursor === undefined
-                ? {}
-                : { cursor: request.cursor }),
-              ...(request.limit === undefined ? {} : { limit: request.limit }),
-              context,
-            },
-            (binding, rpcInput) =>
-              binding.centerAgentReadSlackWorkspaceDirectory?.(rpcInput)
-          )
-        );
+        const response =
+          centerAgentReadSlackWorkspaceDirectoryResponseSchema.parse(
+            await callCoreRpc(
+              input.coreWorker,
+              "centerAgentReadSlackWorkspaceDirectory",
+              {
+                ...(request.cursor === undefined
+                  ? {}
+                  : { cursor: request.cursor }),
+                ...(request.limit === undefined
+                  ? {}
+                  : { limit: request.limit }),
+                context,
+              },
+              (binding, rpcInput) =>
+                binding.centerAgentReadSlackWorkspaceDirectory?.(rpcInput)
+            )
+          );
+        if ("status" in response) {
+          return response;
+        }
         await rememberSlackMentionDirectory({
           members: response.members,
           storage: input.storage,
@@ -1235,7 +1260,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           submissionId: input.submissionId,
           toolName: "openmeld_list_slack_channels",
         });
-        return slackChannelListResponseSchema.parse(
+        return centerAgentListSlackChannelsResponseSchema.parse(
           await callCoreRpc(
             input.coreWorker,
             "centerAgentListSlackChannels",
@@ -1266,7 +1291,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           submissionId: input.submissionId,
           toolName: "openmeld_read_slack_channel_members",
         });
-        return slackChannelMembersResponseSchema.parse(
+        return centerAgentReadSlackChannelMembersResponseSchema.parse(
           await callCoreRpc(
             input.coreWorker,
             "centerAgentReadSlackChannelMembers",
@@ -1298,7 +1323,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           submissionId: input.submissionId,
           toolName: "openmeld_read_slack_channel_history",
         });
-        return slackChannelHistoryResponseSchema.parse(
+        return centerAgentReadSlackChannelHistoryResponseSchema.parse(
           await callCoreRpc(
             input.coreWorker,
             "centerAgentReadSlackChannelHistory",
@@ -1418,9 +1443,43 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
       },
     }),
     toolDefinition({
+      name: "openmeld_learn_about_me",
+      description:
+        "Start one fresh learning run about the current verified member when they explicitly ask the Center Agent to learn about them, refresh what it knows about them, or create a new Profile Report. The run works in the background and creates a new dated Profile Report; it never replaces an older report. After this succeeds, say plainly that the learning run has started and give one low-effort next step while it works. Do not claim the report is finished yet. Never use this for another person.",
+      input: learnAboutMeToolInputSchema,
+      execute: async (payload) => {
+        parseValibot(learnAboutMeToolInputSchema, payload);
+        const toolContext = await buildOpenMeldToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_learn_about_me",
+        });
+        const speakerMember = resolveVerifiedTurnEnvelopeSpeaker(
+          toolContext.turnEnvelope
+        );
+        if (!speakerMember) {
+          throw new Error(
+            "Starting a Profile Report learning run requires a verified human member speaker."
+          );
+        }
+        return startCenterAgentMemberResearchResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentStartSelfMemberResearch",
+            {
+              context: toolContext.context,
+              speakerMember,
+            },
+            (binding, rpcInput) =>
+              binding.centerAgentStartSelfMemberResearch?.(rpcInput)
+          )
+        );
+      },
+    }),
+    toolDefinition({
       name: "openmeld_draft_org_document",
       description:
-        "Submit reviewable Markdown draft content for an existing Organization document, or create a new document draft by kind. Member research must instead provide memberResearchReport so Core can validate the evidence and render the Markdown. This never changes approved content; a human owner or admin must approve the draft in Documents.",
+        "Submit Markdown draft content for an existing Organization document, or create a new document draft by kind. Ordinary document drafts wait for an owner or admin to approve them. Only a member_research turn may provide memberResearchReport so Core can validate the evidence, create a new dated Profile Report, and make it directly editable by that person. In an ordinary conversation, use openmeld_learn_about_me to start a new Profile Report learning run instead of drafting one directly.",
       input: draftOrganizationDocumentToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -1459,36 +1518,85 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           openMeldToolContext.turnEnvelope?.trigger.source === "member_research"
             ? openMeldToolContext.turnEnvelope.trigger
             : null;
+        if (memberResearchReport && !researchTrigger) {
+          throw new Error(
+            "Start a Profile Report learning run with openmeld_learn_about_me. Profile Report evidence can only be submitted by the separate member research turn."
+          );
+        }
         if (researchTrigger) {
-          await requireMemberResearchDraftTarget({
-            coreWorker: input.coreWorker,
+          requireMemberResearchDraftTarget({
             request,
             researchTrigger,
-            toolContext,
           });
         }
-        const response = await callCoreRpc(
-          input.coreWorker,
-          "centerAgentDraftOrganizationDocument",
-          {
-            ...draftRequest,
-            ...(researchTrigger
-              ? { memberResearchTaskId: researchTrigger.taskId }
-              : {}),
-            ...(memberResearchReport === undefined
-              ? {}
-              : { memberResearchReport }),
-            ...toolContext,
-          },
-          (binding, rpcInput) =>
-            binding.centerAgentDraftOrganizationDocument?.(rpcInput)
-        );
-        return parseCoreToolResponse(
+        const response = parseCoreToolResponse(
           centerAgentDraftOrganizationDocumentResponseSchema,
-          response,
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentDraftOrganizationDocument",
+            {
+              ...draftRequest,
+              ...(researchTrigger
+                ? { memberResearchTaskId: researchTrigger.taskId }
+                : {}),
+              ...(memberResearchReport === undefined
+                ? {}
+                : { memberResearchReport }),
+              ...toolContext,
+            },
+            (binding, rpcInput) =>
+              binding.centerAgentDraftOrganizationDocument?.(rpcInput)
+          ),
           "centerAgentDraftOrganizationDocument",
           "Organization document draft response"
         );
+        if (!researchTrigger) {
+          return response;
+        }
+        const report = response.memberResearchDraft;
+        if (
+          !(
+            report &&
+            response.document.profileReportDate &&
+            input.memberProfileReportFiles
+          )
+        ) {
+          throw new Error(
+            "Member research requires a dated Center Agent Computer Profile Report store."
+          );
+        }
+        const computerFile = await input.memberProfileReportFiles.write({
+          content: report.content,
+          documentId: report.documentId,
+          documentTitle: response.document.title,
+          profileReportFolderName: report.profileReportFolderName,
+          profileReportType: "work_profile",
+          reportDate: response.document.profileReportDate,
+          subjectUserId: report.subjectUserId,
+        });
+        const recordedFile = parseCoreToolResponse(
+          recordCenterAgentMemberResearchComputerFileResponseSchema,
+          await callCoreRpc(
+            input.coreWorker,
+            "recordCenterAgentMemberResearchComputerFile",
+            {
+              context: openMeldToolContext.context,
+              documentId: report.documentId,
+              path: computerFile.path,
+              subjectUserId: report.subjectUserId,
+              taskId: researchTrigger.taskId,
+            },
+            (binding, rpcInput) =>
+              binding.recordCenterAgentMemberResearchComputerFile?.(rpcInput)
+          ),
+          "recordCenterAgentMemberResearchComputerFile",
+          "Profile Report computer file response"
+        );
+        return {
+          document: response.document,
+          draftReplaced: response.draftReplaced,
+          profileReportFile: { path: recordedFile.path },
+        };
       },
     }),
     toolDefinition({
@@ -3875,49 +3983,20 @@ function validateOrganizationDocumentDraftTargetShape(
   }
 }
 
-async function requireMemberResearchDraftTarget(input: {
-  coreWorker: RemoteAgentCoreWorkerBinding;
+function requireMemberResearchDraftTarget(input: {
   request: OrganizationDocumentDraftTarget;
   researchTrigger: Extract<
     RemoteAgentTurnEnvelope["trigger"],
     { source: "member_research" }
   >;
-  toolContext: {
-    context: OpenMeldRequestContext;
-    speakerMember: { memberId: string; userId: string };
-  };
-}): Promise<void> {
-  if (!input.request.documentId) {
-    if (
-      input.request.kind !== "member_profile" ||
-      input.request.subjectUserId !== input.researchTrigger.subjectUserId
-    ) {
-      throw new TypeError(
-        "Member research can only create the assigned member profile draft."
-      );
-    }
-    return;
-  }
-  const readResponse = centerAgentReadOrganizationDocumentsResponseSchema.parse(
-    await callCoreRpc(
-      input.coreWorker,
-      "centerAgentReadOrganizationDocuments",
-      {
-        action: "get" as const,
-        documentId: input.request.documentId,
-        ...input.toolContext,
-      },
-      (binding, rpcInput) =>
-        binding.centerAgentReadOrganizationDocuments?.(rpcInput)
-    )
-  );
+}): void {
   if (
-    readResponse.action !== "get" ||
-    readResponse.document.kind !== "member_profile" ||
-    readResponse.document.subjectUserId !== input.researchTrigger.subjectUserId
+    input.request.documentId ||
+    input.request.kind !== "member_profile" ||
+    input.request.subjectUserId !== input.researchTrigger.subjectUserId
   ) {
     throw new TypeError(
-      "Member research can only update the assigned member profile."
+      "Member research can only create a new dated Profile Report for the assigned member."
     );
   }
 }

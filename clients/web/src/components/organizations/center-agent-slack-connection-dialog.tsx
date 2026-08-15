@@ -31,8 +31,10 @@ import {
 	useId,
 	useState,
 } from "react";
+import { buildSlackOAuthStartPath } from "#/lib/slack-oauth-start";
 
 type CenterAgentSlackConnectionDialogBaseInput = {
+	organizationSlug: string;
 	slackConnection?: CenterAgentSlackWorkspaceConnection;
 	trigger: ReactElement;
 };
@@ -122,6 +124,7 @@ export function CenterAgentSlackConnectionDialog(
 				inputId={inputId}
 				onSlackTeamIdChange={setSlackTeamId}
 				onSubmit={handleSubmit}
+				organizationSlug={input.organizationSlug}
 				slackTeamId={slackTeamId}
 			/>
 		);
@@ -345,6 +348,7 @@ function DisconnectedSlackDialogContent(input: {
 	inputId: string;
 	onSlackTeamIdChange: (value: string) => void;
 	onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+	organizationSlug: string;
 	slackTeamId: string;
 }) {
 	return (
@@ -364,7 +368,9 @@ function DisconnectedSlackDialogContent(input: {
 						</div>
 						<a
 							className={buttonVariants({ size: "default" })}
-							href="/slack/oauth/start"
+							href={buildSlackOAuthStartPath({
+								organizationSlug: input.organizationSlug,
+							})}
 						>
 							<LinkIcon aria-hidden="true" data-icon="inline-start" />
 							Add to Slack

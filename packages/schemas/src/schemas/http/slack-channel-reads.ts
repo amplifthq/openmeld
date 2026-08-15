@@ -1,5 +1,8 @@
 import { z } from "zod/v4";
-import { slackWorkspaceDirectoryMemberSchema } from "./slack-workspace-directory";
+import {
+  slackReadUnavailableResponseSchema,
+  slackWorkspaceDirectoryMemberSchema,
+} from "./slack-workspace-directory";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
@@ -64,3 +67,18 @@ export const slackChannelHistoryResponseSchema = z.strictObject({
   nextCursor: nullableTrimmedStringSchema,
   organizationId: trimmedNonEmptyStringSchema,
 });
+
+export const centerAgentListSlackChannelsResponseSchema = z.union([
+  slackChannelListResponseSchema,
+  slackReadUnavailableResponseSchema,
+]);
+
+export const centerAgentReadSlackChannelMembersResponseSchema = z.union([
+  slackChannelMembersResponseSchema,
+  slackReadUnavailableResponseSchema,
+]);
+
+export const centerAgentReadSlackChannelHistoryResponseSchema = z.union([
+  slackChannelHistoryResponseSchema,
+  slackReadUnavailableResponseSchema,
+]);

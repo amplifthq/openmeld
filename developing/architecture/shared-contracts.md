@@ -1766,6 +1766,26 @@ shared boundary so Core can be deployed before Gateway without breaking
 installations during a rolling deployment; the current Gateway always supplies
 it after a successful exchange.
 
+`packages/schemas` also owns the closed Gateway-to-Core Slack welcome
+interaction contract. Gateway verifies Slack's request signature, parses the
+native button or modal submission, and forwards only the discriminated action,
+workspace/user identity, trigger or interaction id, and bounded selected Slack
+user ids. Core re-resolves the workspace Binding and exact linked OpenMeld
+member before opening a modal, ensuring an Organization join link, or sending
+an invitation. Gateway never receives the bot token or decides Organization
+authority.
+
+Slack direct-message ingress uses the same event callback and durable queue
+contract as `app_mention`, with the strict human `message.im` subtype. Bot
+messages and messages with a Slack subtype fail parsing, preventing the Center
+Agent from replying to itself or treating edits and other message variants as
+new human turns. Core writes the Slack trigger's optional `replyPlacement` into
+the strict Remote Agent turn envelope: a top-level App Home direct message uses
+`conversation`, an existing direct-message thread and every channel mention use
+`thread`. The stored worker request preserves that decision across final
+publication and recovery. Older stored requests without the optional field
+continue to use the legacy thread placement.
+
 ### Slack Event Ingress Contracts
 
 `packages/schemas/src/schemas/runtime/remote-agent-slack.ts` owns the strict
@@ -1789,6 +1809,13 @@ Slack workspace directory tool. The request contains only a bounded page size
 and opaque Slack cursor. The response contains one live page of normalized
 active human Slack profiles, an opaque next cursor, and Core's current
 OpenMeld-membership classification.
+
+The response is a strict union between a successful page and an expected
+unavailable result. An unavailable result carries a stable reason code, plain
+message, and one lowest-cost next action. A missing Organization Slack
+connection therefore remains an ordinary model-visible tool result instead of
+becoming an uncaught Worker RPC exception. Remote Agent may explain that result
+but must not reinterpret it as an empty Slack directory.
 
 Core owns the comparison, not Slack or the Remote Agent. Core fetches
 `users.list` with the Organization-bound Slack bot credential, filters deleted
@@ -1817,6 +1844,14 @@ and channel history request and response contracts. Requests are bounded and
 cursor-paginated. Model-visible responses expose channel names and provider
 metadata but not internal Slack channel ids; Core retains ids only for provider
 calls and audit correlation.
+
+Each response is a strict union between its successful payload and the same
+expected-unavailable shape. Core uses that result for a missing Slack
+connection, temporarily unavailable connection state, or a channel the App has
+not joined. The result names the cheapest recovery action, such as connecting
+Slack or inviting OpenMeld to the channel; these expected product states do not
+cross Worker RPC as thrown errors and are never represented as successful empty
+history.
 
 Channel listing reports whether the App is already a member and has no mutation
 side effect. Channel member and history reads require that membership evidence
@@ -2204,6 +2239,31 @@ task id to worker dispatch, trigger, idempotency, and requesting-profile
 identity. Remote Agent adds the internal task id to the draft RPC from the
 trusted envelope rather than model input; Core binds that id and the worker
 submission to the assigned `member_profile` target.
+
+The same schema module owns the private
+`centerAgentStartSelfMemberResearch` service-binding request used by the
+model-visible `openmeld_learn_about_me` action. Its payload contains only the
+trusted Center Agent context and the current verified speaker. Core derives the
+single subject from that speaker and starts the existing research contract; the
+model cannot name another subject. The same rollout adds the
+`organization.member_research.start` Agent Work key so Web can describe the
+background start without claiming that the Profile Report is already complete.
+
+This contract has two strict directions and rolls out consumer-first:
+
+1. apply D1 migration `0115_tense_cannonball`;
+2. deploy Web so it accepts the new Agent Work key before any worker emits it;
+3. deploy Remote Agent so it accepts the `member_research` turn variant and
+   exposes the self-only tool;
+4. deploy Core with the new tool RPC receiver and the producer that schedules
+   `member_research` turns.
+
+During the Remote-Agent-first window, the new tool fails explicitly against an
+older Core RPC receiver and does not create a document through another path.
+An older Remote Agent never calls the new Core method, but new Core must not
+lead the Remote Agent rollout because the old worker does not accept the new
+strict turn variant. Rollback therefore removes the Core producer first, then
+Remote Agent, then Web; the additive D1 migration may remain.
 
 Core persists that trusted task id with the Organization Document draft write so
 completion can be verified even if a human immediately approves or discards the

@@ -19,6 +19,7 @@ import {
   AGENT_COMPUTER_SHELL_BACKEND_ID,
   ensureAgentComputerLayout,
 } from "./computer-workspace";
+import { createMemberProfileReportComputerFileStore } from "./member-profile-report-computer-files";
 import {
   clearOrganizationDocumentsComputerProjection,
   materializeOrganizationDocumentsComputerProjection,
@@ -71,6 +72,9 @@ export async function createRemoteAgentComputerCapability(input: {
 }): Promise<{
   definitions: RemoteAgentToolDefinition[];
   fileHandoff: ReturnType<typeof createAgentComputerFileHandoff>;
+  memberProfileReportFiles: ReturnType<
+    typeof createMemberProfileReportComputerFileStore
+  >;
   sandbox: SandboxFactory;
 }> {
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
@@ -134,6 +138,9 @@ export async function createRemoteAgentComputerCapability(input: {
     ],
     fileHandoff: createAgentComputerFileHandoff({
       workingDirectory,
+      workspace,
+    }),
+    memberProfileReportFiles: createMemberProfileReportComputerFileStore({
       workspace,
     }),
     sandbox: {

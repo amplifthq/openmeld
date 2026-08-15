@@ -2,7 +2,7 @@
 
 import { FilesIcon, FileTextIcon, FolderOpenIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { documentKindLabel } from "#/components/organization-documents/organization-document-browser-cards";
+import { documentKindLabel } from "#/components/organization-documents/organization-document-browser-model";
 import { StaleDataNotice } from "#/components/stale-data-notice";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {

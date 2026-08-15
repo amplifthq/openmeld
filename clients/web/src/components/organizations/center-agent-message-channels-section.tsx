@@ -47,6 +47,7 @@ export function CenterAgentMessageChannelsSection(input: {
 	larkPlatformPendingProvider?: LarkPlatformProvider | null;
 	managementPath?: string;
 	managementMode?: "cleanup" | "inline" | "read-only";
+	organizationSlug: string;
 	organizationRequired?: boolean;
 	onConnectSlackWorkspace: (input: { slackTeamId: string }) => void;
 	onDisconnectSlackWorkspace: () => void;
@@ -87,6 +88,7 @@ export function CenterAgentMessageChannelsSection(input: {
 				disconnectPending={input.disableSlackDisconnect}
 				onConnectSlackWorkspace={input.onConnectSlackWorkspace}
 				onDisconnectSlackWorkspace={input.onDisconnectSlackWorkspace}
+				organizationSlug={input.organizationSlug}
 				slackConnection={input.slackConnection}
 				trigger={
 					<Button size="sm" type="button" variant="outline">

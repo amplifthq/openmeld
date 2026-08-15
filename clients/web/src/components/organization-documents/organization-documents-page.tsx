@@ -62,11 +62,11 @@ import {
 	organizationDocumentsQueryOptions,
 } from "#/query/organizations/organization-documents";
 import {
-	browserItemDropProps,
 	OrganizationDocumentFileCard,
 	OrganizationDocumentFolderCard,
 } from "./organization-document-browser-cards";
 import {
+	browserItemDropProps,
 	parentFolderId,
 	resolveDirectItemCount,
 	resolveDocumentMoveTargets,
@@ -79,6 +79,10 @@ type FolderDialogState =
 	| { kind: "create" }
 	| { folder: OrganizationDocumentFolder; kind: "delete" }
 	| { folder: OrganizationDocumentFolder; kind: "rename" };
+
+function reportDocumentMutationError(error: unknown): void {
+	toast.error(resolveOrganizationDocumentErrorMessage(error));
+}
 
 export function OrganizationDocumentsPage(input: { folderId?: string }) {
 	const { currentOrganization } = useAppOrganization();
@@ -104,6 +108,7 @@ export function OrganizationDocumentsPage(input: { folderId?: string }) {
 	const activeFolder = input.folderId
 		? folders.find((folder) => folder.id === input.folderId)
 		: undefined;
+	const canManageCurrentFolder = canManage && activeFolder?.isManaged !== true;
 	const currentFolderId = activeFolder?.id ?? null;
 	const missingFolderId =
 		documentsQuery.isSuccess && input.folderId && !activeFolder
@@ -152,7 +157,7 @@ export function OrganizationDocumentsPage(input: { folderId?: string }) {
 		<div className="grid gap-5">
 			<DocumentsPageHeader
 				breadcrumb={breadcrumb}
-				canManage={canManage}
+				canManage={canManageCurrentFolder}
 				isPersonal={currentOrganization.isPersonal === true}
 				newDocumentPath={newDocumentPath}
 				onMoveDocument={moveDocument}
@@ -182,7 +187,7 @@ export function OrganizationDocumentsPage(input: { folderId?: string }) {
 
 			<DocumentsPageContent
 				activeFolder={activeFolder}
-				canManage={canManage}
+				canManage={canManageCurrentFolder}
 				documents={documents}
 				folders={folders}
 				memberNames={memberNames}
@@ -381,6 +386,7 @@ function DocumentsPageContent(input: {
 						<FluidCardItem itemId={`document:${document.id}`}>
 							<OrganizationDocumentFileCard
 								canManage={input.canManage}
+								canMove={input.canManage && document.kind !== "member_profile"}
 								document={document}
 								memberName={
 									document.subjectUserId
@@ -453,16 +459,13 @@ function useDocumentsPageMutations(options: {
 			queryKey: organizationDocumentQueryKeys.list(currentOrganization.id),
 		});
 	};
-	const onMutationError = (error: unknown) => {
-		toast.error(resolveOrganizationDocumentErrorMessage(error));
-	};
 	const moveDocumentMutation = useMutation({
 		mutationFn: async (move: { documentId: string; folderId: string | null }) =>
 			await moveCurrentOrganizationDocument({
 				...move,
 				expectedOrganizationId: currentOrganization.id,
 			}),
-		onError: onMutationError,
+		onError: reportDocumentMutationError,
 		onSuccess: refreshList,
 	});
 	const moveFolderMutation = useMutation({
@@ -474,7 +477,7 @@ function useDocumentsPageMutations(options: {
 				...move,
 				expectedOrganizationId: currentOrganization.id,
 			}),
-		onError: onMutationError,
+		onError: reportDocumentMutationError,
 		onSuccess: refreshList,
 	});
 	const deleteFolderMutation = useMutation({
@@ -483,7 +486,7 @@ function useDocumentsPageMutations(options: {
 				expectedOrganizationId: currentOrganization.id,
 				folderId,
 			}),
-		onError: onMutationError,
+		onError: reportDocumentMutationError,
 		onSuccess: async (_response, folderId) => {
 			options.onFolderDeleted();
 			await refreshList();
@@ -502,7 +505,7 @@ function useDocumentsPageMutations(options: {
 				documentId,
 				expectedOrganizationId: currentOrganization.id,
 			}),
-		onError: onMutationError,
+		onError: reportDocumentMutationError,
 		onSuccess: async () => {
 			options.onDocumentDeleted();
 			await refreshList();
@@ -604,7 +607,7 @@ function FolderBreadcrumb(input: {
 								</span>
 							) : (
 								<BreadcrumbLink
-									canManage={input.canManage}
+									canManage={input.canManage && !folder.isManaged}
 									label={folder.name}
 									onDropDocument={(documentId) =>
 										input.onMoveDocument(documentId, folder.id)

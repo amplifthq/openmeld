@@ -54,6 +54,7 @@ export function OrganizationMessageChannelsPage() {
 			currentUserId={currentUserId}
 			organizationId={currentOrganization.id}
 			organizationName={currentOrganization.name}
+			organizationSlug={currentOrganization.slug}
 		/>
 	);
 }
@@ -89,6 +90,7 @@ function PersonalWorkspaceMessageChannelsContent(input: {
 			<SlackOAuthResultSurface
 				canManage={false}
 				organizationName={input.organizationName}
+				organizationSlug={input.organizationSlug}
 				result={slackOAuthResult}
 			/>
 			<PersonalWorkspaceChannelsGuidance
@@ -117,6 +119,7 @@ function PersonalWorkspaceMessageChannelsContent(input: {
 					onDisconnectSlackWorkspace={ignoreSlackDisconnect}
 					onManageLarkPlatform={larkPlatform.openExistingConnection}
 					organizationRequired
+					organizationSlug={input.organizationSlug}
 				/>
 			) : null}
 			<LarkPlatformChannelDialog
@@ -145,6 +148,7 @@ function OrganizationMessageChannelsContent(input: {
 	currentUserId: string;
 	organizationId: string;
 	organizationName: string;
+	organizationSlug: string;
 }) {
 	const queryClient = useQueryClient();
 	const { channelsSlackOAuthResult } = useCenterAgentRouteState();
@@ -232,6 +236,7 @@ function OrganizationMessageChannelsContent(input: {
 			<SlackOAuthResultSurface
 				canManage={canManage}
 				organizationName={input.organizationName}
+				organizationSlug={input.organizationSlug}
 				result={slackOAuthResult}
 			/>
 			{roleQuery.isPending ||
@@ -263,6 +268,7 @@ function OrganizationMessageChannelsContent(input: {
 					}
 					onDisconnectSlackWorkspace={() => disconnectSlackMutation.mutate()}
 					onManageLarkPlatform={larkPlatform.manage}
+					organizationSlug={input.organizationSlug}
 					slackConnection={designationQuery.data.slackConnection}
 				/>
 			) : null}

@@ -9,6 +9,7 @@ describe("CenterAgentSlackConnectionDialog", () => {
 		render(
 			<CenterAgentSlackConnectionDialog
 				canManage={true}
+				organizationSlug="acme"
 				trigger={<button type="button">Connect Slack</button>}
 			/>
 		);
@@ -26,6 +27,7 @@ describe("CenterAgentSlackConnectionDialog", () => {
 		render(
 			<CenterAgentSlackConnectionDialog
 				canManage
+				organizationSlug="acme"
 				slackConnection={{
 					connected: true,
 					slackTeamId: "T123",

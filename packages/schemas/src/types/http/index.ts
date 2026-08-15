@@ -275,6 +275,7 @@ export type {
   CenterAgentMemberResearchScope,
   CenterAgentMemberResearchTask,
   CenterAgentMemberResearchTaskStatus,
+  CenterAgentStartSelfMemberResearchToolRpcInput,
   GetCenterAgentMemberResearchStatusResponse,
   GetCenterAgentMemberResearchStatusRpcInput,
   StartCenterAgentMemberResearchBody,
@@ -591,6 +592,9 @@ export type {
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
   OrganizationDocumentSummary,
+  ProfileReportType,
+  RecordCenterAgentMemberResearchComputerFileResponse,
+  RecordCenterAgentMemberResearchComputerFileRpcInput,
   UpdateOrganizationDocumentBody,
   UpdateOrganizationDocumentFolderBody,
   UpdateOrganizationDocumentFolderResponse,
@@ -782,8 +786,11 @@ export type {
 } from "./runtime-reporting";
 export type {
   CenterAgentListSlackChannelsBody,
+  CenterAgentListSlackChannelsResponse,
   CenterAgentReadSlackChannelHistoryBody,
+  CenterAgentReadSlackChannelHistoryResponse,
   CenterAgentReadSlackChannelMembersBody,
+  CenterAgentReadSlackChannelMembersResponse,
   SlackChannelHistoryMessage,
   SlackChannelHistoryResponse,
   SlackChannelListResponse,
@@ -803,6 +810,8 @@ export type {
 } from "./slack-oauth";
 export type {
   CenterAgentReadSlackWorkspaceDirectoryBody,
+  CenterAgentReadSlackWorkspaceDirectoryResponse,
+  SlackReadUnavailableResponse,
   SlackWorkspaceDirectoryMember,
   SlackWorkspaceDirectoryResponse,
   SlackWorkspaceMembership,

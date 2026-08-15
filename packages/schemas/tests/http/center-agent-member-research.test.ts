@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   centerAgentMemberResearchBatchSchema,
   centerAgentMemberResearchReportSchema,
+  centerAgentStartSelfMemberResearchToolRpcInputSchema,
 } from "../../src/schemas/http/center-agent-member-research";
 
 const CREATED_AT = "2026-07-16T00:00:00.000Z";
@@ -33,6 +34,36 @@ const GITHUB_EVIDENCE = {
 };
 
 describe("Center Agent member research contracts", () => {
+  it("accepts only a verified member speaker for conversational self research", () => {
+    const input = {
+      context: {
+        activeOrganizationId: "organization-1",
+        actorContext: {
+          callerPrincipalId: "center-agent-owner",
+          openMeldProfileId: "agt_00000000-0000-4000-8000-000000000001",
+          ownerUserId: "center-agent-owner",
+          profileKind: "agent",
+          requestId: "request-1",
+        },
+      },
+      speakerMember: {
+        memberId: "member-1",
+        userId: "user-1",
+      },
+    };
+
+    expect(
+      centerAgentStartSelfMemberResearchToolRpcInputSchema.safeParse(input)
+        .success
+    ).toBe(true);
+    expect(
+      centerAgentStartSelfMemberResearchToolRpcInputSchema.safeParse({
+        ...input,
+        subjectUserId: "user-2",
+      }).success
+    ).toBe(false);
+  });
+
   it("accepts an ordered batch whose status and counts match its tasks", () => {
     expect(
       centerAgentMemberResearchBatchSchema.safeParse({

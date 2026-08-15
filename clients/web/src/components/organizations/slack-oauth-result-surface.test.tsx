@@ -9,6 +9,7 @@ describe("SlackOAuthResultSurface", () => {
 			<SlackOAuthResultSurface
 				canManage
 				organizationName="Acme"
+				organizationSlug="acme"
 				result={{ status: "connected" }}
 			/>
 		);
@@ -22,6 +23,7 @@ describe("SlackOAuthResultSurface", () => {
 			<SlackOAuthResultSurface
 				canManage
 				organizationName="New Org"
+				organizationSlug="new-org"
 				result={{
 					fromOrganizationId: "org-existing",
 					fromOrganizationName: "Previous Org",
@@ -33,7 +35,9 @@ describe("SlackOAuthResultSurface", () => {
 		expect(screen.getByText("Move Slack workspace?")).toBeTruthy();
 		expect(
 			screen.getByRole("link", { name: "Move workspace" }).getAttribute("href")
-		).toBe("/slack/oauth/start?move_from=org-existing");
+		).toBe(
+			"/slack/oauth/start?organization_slug=new-org&move_from=org-existing"
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		expect(screen.queryByText("Move Slack workspace?")).toBeNull();
 	});

@@ -15,6 +15,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -51,6 +52,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				managementMode="read-only"
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
+				organizationSlug="acme"
 				slackConnection={{
 					connected: true,
 					slackTeamId: "T123",
@@ -92,6 +94,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={onManageLarkPlatform}
 				organizationRequired
+				organizationSlug="acme"
 			/>
 		);
 
@@ -111,6 +114,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -155,6 +159,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={onManageLarkPlatform}
+				organizationSlug="acme"
 				slackConnection={{
 					connected: true,
 					slackTeamId: "T123",
@@ -181,6 +186,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -198,6 +204,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -226,6 +233,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -263,6 +271,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -299,6 +308,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -335,6 +345,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={onManageLarkPlatform}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -366,6 +377,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -403,6 +415,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={onManageLarkPlatform}
+				organizationSlug="acme"
 			/>
 		);
 

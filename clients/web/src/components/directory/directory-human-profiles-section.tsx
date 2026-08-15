@@ -1,14 +1,8 @@
 "use client";
 
-import { buildProfileDetailsSnapshotFromHumanProfile } from "@openmeld/agent-profile";
 import type {
-	AuthProfileView,
 	CenterAgentMemberResearchBatch,
 	CenterAgentMemberResearchTask,
-	ListOrganizationDocumentsResponse,
-	OrganizationDirectoryResponse,
-	OrganizationMemberOpenMeldServiceState,
-	ProfileDetailsSnapshot,
 } from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
@@ -26,7 +20,6 @@ import {
 import {
 	resolveStatusToneCompactBadgeClassName,
 	resolveStatusToneIndicatorClassName,
-	resolveStatusToneInteractiveTextClassName,
 	resolveStatusToneTextClassName,
 } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
@@ -42,61 +35,36 @@ import {
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import type { AppShellAccount } from "#/components/app/app-shell-account";
 import {
 	DirectoryCardGrid,
 	DirectoryCardItem,
 } from "#/components/directory/directory-card-grid";
+import type {
+	DirectoryHumanProfileRow,
+	DirectoryMemberOpenMeldServiceDisplayState,
+} from "#/components/directory/directory-human-profile-model";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { HumanProfileEditDialog } from "#/components/profiles/human-profile-edit-dialog";
 import { ProfileDetailsDialog } from "#/components/profiles/profile-details-dialog";
 import { ProfileCard } from "#/components/profiles/profile-list-item";
 import { ProfilesSectionLayout } from "#/components/profiles/profiles-section-layout";
-import {
-	buildOrganizationDocumentPath,
-	buildOrganizationNewDocumentPath,
-} from "#/lib/organizations/organization-routes";
-import {
-	formatProfileDate,
-	formatProfileDateTime,
-} from "#/lib/profiles/profile-date-format";
 
 export type DirectoryMemberResearchRequest =
 	| { scope: "all" }
 	| { scope: "member"; subjectUserId: string };
 
-type DirectoryHumanProfileRole = "admin" | "member" | "owner" | "unknown";
-export type DirectoryDocumentsStatus = "failed" | "loading" | "ready";
-export type DirectoryMemberOpenMeldServiceDisplayState =
-	| OrganizationMemberOpenMeldServiceState
-	| "checking";
+export type DirectoryHumanProfilesViewState = {
+	context: "organization" | "personal";
+	directMessage: "idle" | "pending";
+	profiles: "loading" | "ready";
+	research: "idle" | "pending";
+};
 
-type DirectoryProfileReportDocument = Pick<
-	ListOrganizationDocumentsResponse["documents"][number],
-	"hasDraft" | "id" | "kind" | "subjectUserId"
->;
-
-type DirectoryProfileReportAction =
-	| { kind: "link"; path: string }
-	| { kind: "unavailable"; reason: string };
-
-export type DirectoryHumanProfileRow = {
-	avatarImageUrl: string | null;
-	canEdit: boolean;
-	details: ProfileDetailsSnapshot | null;
-	email: string;
-	footerDetail: string;
-	hasDraft: boolean;
-	id: string;
-	isDefault: boolean;
-	isCurrentUser: boolean;
-	name: string;
-	reportAction: DirectoryProfileReportAction;
-	profileHandle: string | null;
-	profileStatus: "active" | "disabled" | null;
-	role: DirectoryHumanProfileRole;
-	userId: string;
-	openMeldServiceState: DirectoryMemberOpenMeldServiceDisplayState | null;
+type DirectoryHumanProfileCardState = Omit<
+	DirectoryHumanProfilesViewState,
+	"profiles"
+> & {
+	highlight: "default" | "highlighted";
 };
 
 export function DirectoryHumanProfilesSection(input: {
@@ -105,10 +73,6 @@ export function DirectoryHumanProfilesSection(input: {
 	emptyMessage: string;
 	errorMessage: string | null;
 	focusProfileId: string | null;
-	isOrganizationContext: boolean;
-	isPending: boolean;
-	isDirectMessagePending: boolean;
-	isResearchPending: boolean;
 	latestBatch: CenterAgentMemberResearchBatch | null;
 	memberResearchError: { message: string; subjectUserId: string } | null;
 	members: readonly DirectoryHumanProfileRow[];
@@ -117,9 +81,9 @@ export function DirectoryHumanProfilesSection(input: {
 	onOpenDirectMessage: (profileId: string) => Promise<void>;
 	onResearch: (subjectUserId: string) => void;
 	onResearchAll: () => void;
-	organizationName: string;
 	pendingResearch: DirectoryMemberResearchRequest | undefined;
 	researchErrorMessage: string | null;
+	state: DirectoryHumanProfilesViewState;
 }) {
 	const rowElementsRef = useRef(new Map<string, HTMLElement>());
 	const [highlightedProfileId, setHighlightedProfileId] = useState<
@@ -129,15 +93,17 @@ export function DirectoryHumanProfilesSection(input: {
 	const processedCount = input.activeBatch
 		? input.activeBatch.completedCount + input.activeBatch.failedCount
 		: 0;
+	const profilesAreLoading = input.state.profiles === "loading";
+	const researchIsPending = input.state.research === "pending";
 	const learnAllLabel = resolveLearnAllActionLabel({
 		activeBatch: input.activeBatch,
-		isResearchPending: input.isResearchPending,
+		isResearchPending: researchIsPending,
 		pendingResearch: input.pendingResearch,
 		processedCount,
 	});
 
 	useEffect(() => {
-		if (!input.focusProfileId || input.isPending) {
+		if (!input.focusProfileId || profilesAreLoading) {
 			return;
 		}
 		const focusedProfile = input.members.find(
@@ -153,13 +119,13 @@ export function DirectoryHumanProfilesSection(input: {
 		input.onFocusConsumed?.();
 	}, [
 		input.focusProfileId,
-		input.isPending,
 		input.members,
 		input.onFocusConsumed,
+		profilesAreLoading,
 	]);
 
 	let content: ReactNode;
-	if (input.isPending) {
+	if (profilesAreLoading) {
 		content = <HumanProfileRowsSkeleton />;
 	} else if (input.errorMessage) {
 		content = <ProfilesInlineState message={input.errorMessage} />;
@@ -172,10 +138,6 @@ export function DirectoryHumanProfilesSection(input: {
 					<DirectoryCardItem itemId={member.id} key={member.id}>
 						<DirectoryHumanProfileCard
 							activeBatch={input.activeBatch}
-							isDirectMessagePending={input.isDirectMessagePending}
-							isHighlighted={highlightedProfileId === member.id}
-							isOrganizationContext={input.isOrganizationContext}
-							isResearchPending={input.isResearchPending}
 							latestTasks={latestTasks}
 							member={member}
 							memberResearchError={input.memberResearchError}
@@ -188,6 +150,15 @@ export function DirectoryHumanProfilesSection(input: {
 								} else {
 									rowElementsRef.current.delete(member.id);
 								}
+							}}
+							state={{
+								context: input.state.context,
+								directMessage: input.state.directMessage,
+								highlight:
+									highlightedProfileId === member.id
+										? "highlighted"
+										: "default",
+								research: input.state.research,
 							}}
 						/>
 					</DirectoryCardItem>
@@ -203,7 +174,7 @@ export function DirectoryHumanProfilesSection(input: {
 					<Button
 						disabled={
 							Boolean(input.activeBatch) ||
-							input.isResearchPending ||
+							researchIsPending ||
 							input.members.length === 0
 						}
 						onClick={input.onResearchAll}
@@ -221,8 +192,8 @@ export function DirectoryHumanProfilesSection(input: {
 				</div>
 			}
 			description={
-				input.isOrganizationContext
-					? "A Human Profile is the name and identity each member uses in Spaces. The Center Agent can learn about members and draft Profile Reports for review."
+				input.state.context === "organization"
+					? "A Human Profile is the name and identity each member uses in Spaces. The Center Agent can learn about members and keep their Profile Reports up to date."
 					: "Your Human Profile is the name and identity you use in Spaces."
 			}
 			headingLevel="h2"
@@ -241,10 +212,6 @@ export function DirectoryHumanProfilesSection(input: {
 
 function DirectoryHumanProfileCard(input: {
 	activeBatch: CenterAgentMemberResearchBatch | null;
-	isHighlighted: boolean;
-	isOrganizationContext: boolean;
-	isDirectMessagePending: boolean;
-	isResearchPending: boolean;
 	latestTasks: readonly CenterAgentMemberResearchTask[];
 	member: DirectoryHumanProfileRow;
 	memberResearchError: { message: string; subjectUserId: string } | null;
@@ -252,12 +219,13 @@ function DirectoryHumanProfileCard(input: {
 	onResearch: (subjectUserId: string) => void;
 	pendingResearch: DirectoryMemberResearchRequest | undefined;
 	rowRef: (node: HTMLElement | null) => void;
+	state: DirectoryHumanProfileCardState;
 }) {
 	const task = input.latestTasks.find(
 		(candidate) => candidate.subjectUserId === input.member.userId
 	);
 	const isStarting =
-		input.isResearchPending &&
+		input.state.research === "pending" &&
 		input.pendingResearch?.scope === "member" &&
 		input.pendingResearch.subjectUserId === input.member.userId;
 	const memberResearchError =
@@ -274,7 +242,7 @@ function DirectoryHumanProfileCard(input: {
 			}
 			className={cn(
 				"min-h-40",
-				input.isHighlighted
+				input.state.highlight === "highlighted"
 					? "border-ring bg-muted/30 ring-1 ring-ring/60"
 					: null
 			)}
@@ -284,8 +252,8 @@ function DirectoryHumanProfileCard(input: {
 			menu={
 				<HumanProfileCardActions
 					activeBatch={input.activeBatch}
-					directMessageIsPending={input.isDirectMessagePending}
-					isResearchPending={input.isResearchPending}
+					directMessageIsPending={input.state.directMessage === "pending"}
+					isResearchPending={input.state.research === "pending"}
 					isStarting={isStarting}
 					member={input.member}
 					memberResearchError={memberResearchError}
@@ -313,7 +281,7 @@ function DirectoryHumanProfileCard(input: {
 					: "Human Profile not connected"
 			}
 			testId={
-				input.isOrganizationContext
+				input.state.context === "organization"
 					? "organization-human-profile-row"
 					: "human-profile-row"
 			}
@@ -326,15 +294,10 @@ function HumanProfileReportContent(input: {
 	member: DirectoryHumanProfileRow;
 	memberResearchError: string | null;
 }) {
-	const reportActionLabel = input.member.hasDraft
-		? "Report waiting for review"
-		: "Report";
-	const reportActionClassName = cn(
-		buttonVariants({ size: "sm", variant: "ghost" }),
-		input.member.hasDraft
-			? resolveStatusToneInteractiveTextClassName("warning")
-			: null
-	);
+	const reportActionClassName = buttonVariants({
+		size: "sm",
+		variant: "ghost",
+	});
 
 	return (
 		<div className="space-y-2">
@@ -344,7 +307,7 @@ function HumanProfileReportContent(input: {
 					to={input.member.reportAction.path}
 				>
 					<FileTextIcon aria-hidden="true" data-icon="inline-start" />
-					{reportActionLabel}
+					Profile Report
 				</Link>
 			) : (
 				<Button
@@ -392,7 +355,7 @@ function HumanProfileCardActions(input: {
 		isStarting: input.isStarting,
 		task: input.task,
 	});
-	const learnActionDescription = `Learn about ${input.member.name} and draft Profile Report updates for review.`;
+	const learnActionDescription = `Learn about ${input.member.name} and update their Profile Report.`;
 	const canOpenDirectMessage =
 		input.member.profileStatus === "active" && !input.member.isCurrentUser;
 
@@ -526,160 +489,6 @@ function HumanProfileCardActions(input: {
 	);
 }
 
-export function buildOrganizationHumanProfileRows(input: {
-	canCreateProfiles: boolean;
-	currentUserId: string;
-	documents: readonly DirectoryProfileReportDocument[];
-	documentsStatus: DirectoryDocumentsStatus;
-	memberOpenMeldServiceFallbackState: DirectoryMemberOpenMeldServiceDisplayState;
-	memberOpenMeldServiceStatesByUserId: ReadonlyMap<
-		string,
-		OrganizationMemberOpenMeldServiceState
-	>;
-	members: OrganizationDirectoryResponse["members"];
-	orgSlug: string;
-}): DirectoryHumanProfileRow[] {
-	const reportsBySubject = indexProfileReportDocuments(input.documents);
-	return input.members.map((member) => {
-		const document = reportsBySubject.get(member.user.id);
-		const humanProfile = member.humanProfile;
-		const isCurrentUser = member.user.id === input.currentUserId;
-		return {
-			avatarImageUrl: member.user.image,
-			canEdit: isCurrentUser && humanProfile?.status === "active",
-			details:
-				humanProfile?.status === "active"
-					? buildProfileDetailsSnapshotFromHumanProfile({
-							profileHandle: humanProfile.profileHandle,
-							profileId: humanProfile.profileId,
-							profileName: humanProfile.profileName,
-							profileStatus: humanProfile.status,
-							viewerScope: isCurrentUser ? "owner_self" : "observer",
-						})
-					: null,
-			email: member.user.email,
-			footerDetail: resolveOrganizationHumanProfileLastActiveLabel(
-				humanProfile?.lastUsedAt ?? null
-			),
-			hasDraft: document?.hasDraft ?? false,
-			id: humanProfile?.profileId ?? `member:${member.memberId}`,
-			isDefault: false,
-			isCurrentUser,
-			name: humanProfile?.profileName || member.user.name || member.user.email,
-			reportAction: resolveProfileReportAction({
-				canCreate: input.canCreateProfiles,
-				document,
-				documentsStatus: input.documentsStatus,
-				orgSlug: input.orgSlug,
-				subjectUserId: member.user.id,
-			}),
-			profileHandle: humanProfile?.profileHandle ?? null,
-			profileStatus: humanProfile?.status ?? null,
-			role: resolveDirectoryHumanProfileRole(member.role),
-			userId: member.user.id,
-			openMeldServiceState:
-				input.memberOpenMeldServiceStatesByUserId.get(member.user.id) ??
-				input.memberOpenMeldServiceFallbackState,
-		};
-	});
-}
-
-function resolveOrganizationHumanProfileLastActiveLabel(
-	lastUsedAt: string | null
-): string {
-	const formatted = formatProfileDateTime(lastUsedAt);
-	return formatted ? `Last active ${formatted}` : "No recent activity";
-}
-
-export function buildPersonalHumanProfileRows(input: {
-	account: AppShellAccount;
-	canCreateHumanProfile: boolean;
-	canCreateProfiles: boolean;
-	documents: readonly DirectoryProfileReportDocument[];
-	documentsStatus: DirectoryDocumentsStatus;
-	orgSlug: string;
-	profiles: readonly AuthProfileView[];
-	subjectUserId: string;
-}): DirectoryHumanProfileRow[] {
-	const reportsBySubject = indexProfileReportDocuments(input.documents);
-	const document = reportsBySubject.get(input.subjectUserId);
-	const reportAction = resolveProfileReportAction({
-		canCreate: input.canCreateProfiles,
-		document,
-		documentsStatus: input.documentsStatus,
-		orgSlug: input.orgSlug,
-		subjectUserId: input.subjectUserId,
-	});
-	const hasDraft = document?.hasDraft ?? false;
-	const profile =
-		input.profiles.find((candidate) => candidate.isDefault) ??
-		input.profiles[0];
-	if (!profile) {
-		return [
-			{
-				avatarImageUrl: null,
-				canEdit: false,
-				details: null,
-				email: input.account.email?.trim() || "Current member",
-				footerDetail: resolveMissingPersonalHumanProfileMessage(
-					input.canCreateHumanProfile
-				),
-				hasDraft,
-				id: `member:${input.subjectUserId || input.orgSlug}`,
-				isDefault: false,
-				isCurrentUser: true,
-				name:
-					input.account.name?.trim() ||
-					input.account.email?.trim() ||
-					"Current member",
-				reportAction,
-				profileHandle: null,
-				profileStatus: null,
-				role: "owner",
-				userId: input.subjectUserId,
-				openMeldServiceState: null,
-			},
-		];
-	}
-	return [
-		{
-			avatarImageUrl: profile.avatarUrl ?? null,
-			canEdit: profile.isDefault && profile.status === "active",
-			details:
-				profile.status === "active"
-					? buildProfileDetailsSnapshotFromHumanProfile({
-							profileHandle: profile.profileHandle,
-							profileId: profile.openMeldProfileId,
-							profileName: profile.profileName,
-							profileStatus: profile.status,
-							viewerScope: "owner_self",
-						})
-					: null,
-			email: input.account.email?.trim() || "Current member",
-			footerDetail: resolvePersonalHumanProfileFooterDetail(profile),
-			hasDraft,
-			id: profile.openMeldProfileId,
-			isDefault: profile.isDefault,
-			isCurrentUser: true,
-			name: profile.profileName,
-			reportAction,
-			profileHandle: profile.profileHandle,
-			profileStatus: profile.status,
-			role: "owner",
-			userId: input.subjectUserId,
-			openMeldServiceState: null,
-		},
-	];
-}
-
-export function resolveMissingPersonalHumanProfileMessage(
-	canCreateHumanProfile: boolean
-): string {
-	return canCreateHumanProfile
-		? "You don't have a Human Profile in this workspace yet. Create one to choose the name and identity you use in Spaces."
-		: "You don't have a Human Profile in this workspace yet.";
-}
-
 function MemberOpenMeldServiceStatus(input: {
 	state: DirectoryMemberOpenMeldServiceDisplayState;
 }) {
@@ -762,90 +571,6 @@ function resolveLearnAllActionLabel(input: {
 	}
 	return "Learn about all members";
 }
-
-function resolveProfileReportAction(input: {
-	canCreate: boolean;
-	document: DirectoryProfileReportDocument | undefined;
-	documentsStatus: DirectoryDocumentsStatus;
-	orgSlug: string;
-	subjectUserId: string;
-}): DirectoryProfileReportAction {
-	if (input.documentsStatus === "loading") {
-		return {
-			kind: "unavailable",
-			reason: "Report access is loading.",
-		};
-	}
-	if (input.documentsStatus === "failed") {
-		return {
-			kind: "unavailable",
-			reason: "Report unavailable because Documents could not be loaded.",
-		};
-	}
-	if (input.document) {
-		return {
-			kind: "link",
-			path: buildOrganizationDocumentPath({
-				documentId: input.document.id,
-				orgSlug: input.orgSlug,
-			}),
-		};
-	}
-	if (input.canCreate) {
-		return {
-			kind: "link",
-			path: buildOrganizationNewDocumentPath({
-				kind: "member_profile",
-				orgSlug: input.orgSlug,
-				subjectUserId: input.subjectUserId,
-			}),
-		};
-	}
-	return {
-		kind: "unavailable",
-		reason: "Only organization owners and admins can create this report.",
-	};
-}
-
-function indexProfileReportDocuments(
-	documents: readonly DirectoryProfileReportDocument[]
-): ReadonlyMap<string, DirectoryProfileReportDocument> {
-	const documentsBySubject = new Map<string, DirectoryProfileReportDocument>();
-	for (const document of documents) {
-		if (document.kind === "member_profile" && document.subjectUserId) {
-			documentsBySubject.set(document.subjectUserId, document);
-		}
-	}
-	return documentsBySubject;
-}
-
-function resolveDirectoryHumanProfileRole(
-	role: string
-): DirectoryHumanProfileRole {
-	switch (role) {
-		case "admin":
-		case "member":
-		case "owner":
-			return role;
-		default:
-			return "unknown";
-	}
-}
-
-function resolvePersonalHumanProfileFooterDetail(
-	profile: AuthProfileView
-): string {
-	const primary = profile.isDefault
-		? "Default Human Profile for this account"
-		: "Human teammate identity for Spaces";
-	const lastUsed = formatProfileDate(profile.lastUsedAt);
-	if (lastUsed) {
-		return `${primary} / Last used ${lastUsed}`;
-	}
-	const created = formatProfileDate(profile.createdAt);
-	return created ? `${primary} / Created ${created}` : primary;
-}
-
 function HumanProfileMemberBadges(input: { member: DirectoryHumanProfileRow }) {
 	return (
 		<span className="flex flex-wrap items-center justify-end gap-2">
@@ -872,7 +597,7 @@ function HumanProfileMemberBadges(input: { member: DirectoryHumanProfileRow }) {
 }
 
 function resolveDirectoryHumanProfileRoleLabel(
-	role: DirectoryHumanProfileRole
+	role: DirectoryHumanProfileRow["role"]
 ): string {
 	switch (role) {
 		case "admin":

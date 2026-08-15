@@ -39,6 +39,7 @@ import {
 } from "./center-agent.schema.ts";
 import {
   centerAgentMemberResearchBatches,
+  centerAgentMemberResearchComputerFiles,
   centerAgentMemberResearchTasks,
 } from "./center-agent-member-research.schema.ts";
 import {
@@ -827,6 +828,188 @@ export const slackInstallationWelcomeDeliveries = sqliteTable(
   ]
 );
 
+export const slackInstallationWelcomePreparations = sqliteTable(
+  "slack_installation_welcome_preparations",
+  {
+    slackTeamId: text("slack_team_id").notNull(),
+    organizationId: text("organization_id").notNull(),
+    recipientSlackUserId: text("recipient_slack_user_id").notNull(),
+    connectionCreatedAtMs: integer("connection_created_at_ms").notNull(),
+    welcomeVersion: integer("welcome_version").notNull(),
+    messageKind: text("message_kind", {
+      enum: ["connected", "moved"],
+    }).notNull(),
+    installedByUserId: text("installed_by_user_id").notNull(),
+    installedByProfileId: text("installed_by_profile_id").notNull(),
+    status: text("status", {
+      enum: ["queued", "researching", "ready", "completed", "failed"],
+    }).notNull(),
+    claimId: text("claim_id"),
+    researchTaskId: text("research_task_id"),
+    failureCode: text("failure_code"),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.slackTeamId,
+        table.organizationId,
+        table.recipientSlackUserId,
+        table.connectionCreatedAtMs,
+        table.welcomeVersion,
+      ],
+    }),
+    uniqueIndex("slack_installation_welcome_preparation_task_unique")
+      .on(table.researchTaskId)
+      .where(sql`"research_task_id" IS NOT NULL`),
+    index("idx_slack_installation_welcome_preparation_status_updated").on(
+      table.status,
+      table.updatedAtMs
+    ),
+    check(
+      "slack_installation_welcome_preparation_identity_check",
+      sql`length(trim("slack_team_id")) > 0
+        AND length(trim("organization_id")) > 0
+        AND length(trim("recipient_slack_user_id")) > 0
+        AND length(trim("installed_by_user_id")) > 0
+        AND length(trim("installed_by_profile_id")) > 0`
+    ),
+    check(
+      "slack_installation_welcome_preparation_status_check",
+      sql`"status" in ('queued', 'researching', 'ready', 'completed', 'failed')`
+    ),
+    check(
+      "slack_installation_welcome_preparation_shape_check",
+      sql`(
+        ("status" = 'queued' AND "claim_id" IS NULL AND "research_task_id" IS NULL AND "failure_code" IS NULL)
+        OR ("status" = 'researching' AND length(trim("claim_id")) > 0 AND "failure_code" IS NULL)
+        OR ("status" = 'ready' AND length(trim("claim_id")) > 0 AND length(trim("research_task_id")) > 0 AND "failure_code" IS NULL)
+        OR ("status" = 'completed' AND length(trim("claim_id")) > 0 AND length(trim("research_task_id")) > 0 AND "failure_code" IS NULL)
+        OR ("status" = 'failed' AND length(trim("claim_id")) > 0 AND length(trim("failure_code")) > 0)
+      )`
+    ),
+    check(
+      "slack_installation_welcome_preparation_time_check",
+      sql`"connection_created_at_ms" > 0
+        AND "welcome_version" > 0
+        AND "updated_at_ms" >= "created_at_ms"`
+    ),
+  ]
+);
+
+export const slackTeammateInvitationDeliveries = sqliteTable(
+  "slack_teammate_invitation_deliveries",
+  {
+    interactionId: text("interaction_id").notNull(),
+    slackTeamId: text("slack_team_id").notNull(),
+    organizationId: text("organization_id").notNull(),
+    actorSlackUserId: text("actor_slack_user_id").notNull(),
+    actorUserId: text("actor_user_id").notNull(),
+    targetSlackUserId: text("target_slack_user_id").notNull(),
+    targetEmail: text("target_email"),
+    targetDisplayName: text("target_display_name").notNull(),
+    status: text("status", {
+      enum: ["pending", "delivered", "failed", "outcome_unknown"],
+    }).notNull(),
+    messageTs: text("message_ts"),
+    failureCode: text("failure_code"),
+    onboardingStatus: text("onboarding_status", {
+      enum: [
+        "waiting_for_join",
+        "starting",
+        "researching",
+        "completed",
+        "failed",
+      ],
+    }),
+    joinedUserId: text("joined_user_id"),
+    joinedProfileId: text("joined_profile_id"),
+    researchTaskId: text("research_task_id"),
+    welcomeMessageTs: text("welcome_message_ts"),
+    onboardingFailureCode: text("onboarding_failure_code"),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.interactionId, table.targetSlackUserId],
+    }),
+    index("idx_slack_teammate_invitation_status_updated").on(
+      table.status,
+      table.updatedAtMs
+    ),
+    check(
+      "slack_teammate_invitation_identity_check",
+      sql`length(trim("interaction_id")) > 0
+        AND length(trim("slack_team_id")) > 0
+        AND length(trim("organization_id")) > 0
+        AND length(trim("actor_slack_user_id")) > 0
+        AND length(trim("actor_user_id")) > 0
+        AND length(trim("target_slack_user_id")) > 0
+        AND length(trim("target_display_name")) > 0`
+    ),
+    check(
+      "slack_teammate_invitation_status_check",
+      sql`"status" in ('pending', 'delivered', 'failed', 'outcome_unknown')`
+    ),
+    check(
+      "slack_teammate_invitation_shape_check",
+      sql`(
+        ("status" = 'pending' AND "message_ts" IS NULL AND "failure_code" IS NULL)
+        OR ("status" = 'delivered' AND length(trim("message_ts")) > 0 AND "failure_code" IS NULL)
+        OR ("status" IN ('failed', 'outcome_unknown') AND "message_ts" IS NULL AND length(trim("failure_code")) > 0)
+      )`
+    ),
+    check(
+      "slack_teammate_invitation_onboarding_shape_check",
+      sql`(
+        ("status" <> 'delivered'
+          AND "onboarding_status" IS NULL
+          AND "joined_user_id" IS NULL
+          AND "joined_profile_id" IS NULL
+          AND "research_task_id" IS NULL
+          AND "welcome_message_ts" IS NULL
+          AND "onboarding_failure_code" IS NULL)
+        OR ("status" = 'delivered' AND (
+          ("onboarding_status" = 'waiting_for_join'
+            AND "joined_user_id" IS NULL
+            AND "joined_profile_id" IS NULL
+            AND "research_task_id" IS NULL
+            AND "welcome_message_ts" IS NULL
+            AND "onboarding_failure_code" IS NULL)
+          OR ("onboarding_status" = 'starting'
+            AND length(trim("joined_user_id")) > 0
+            AND length(trim("joined_profile_id")) > 0
+            AND "research_task_id" IS NULL
+            AND "welcome_message_ts" IS NULL
+            AND "onboarding_failure_code" IS NULL)
+          OR ("onboarding_status" = 'researching'
+            AND length(trim("joined_user_id")) > 0
+            AND length(trim("joined_profile_id")) > 0
+            AND length(trim("research_task_id")) > 0
+            AND "welcome_message_ts" IS NULL
+            AND "onboarding_failure_code" IS NULL)
+          OR ("onboarding_status" = 'completed'
+            AND length(trim("joined_user_id")) > 0
+            AND length(trim("joined_profile_id")) > 0
+            AND length(trim("research_task_id")) > 0
+            AND length(trim("welcome_message_ts")) > 0
+            AND "onboarding_failure_code" IS NULL)
+          OR ("onboarding_status" = 'failed'
+            AND length(trim("joined_user_id")) > 0
+            AND length(trim("joined_profile_id")) > 0
+            AND length(trim("onboarding_failure_code")) > 0)
+        ))
+      )`
+    ),
+    check(
+      "slack_teammate_invitation_time_check",
+      sql`"created_at_ms" > 0 AND "updated_at_ms" >= "created_at_ms"`
+    ),
+  ]
+);
+
 export const slackOAuthStates = sqliteTable(
   "slack_oauth_states",
   {
@@ -1240,6 +1423,7 @@ export const coreSchema = {
   centerAgentMemoryPolicies,
   centerAgentMemorySubjects,
   centerAgentMemberResearchBatches,
+  centerAgentMemberResearchComputerFiles,
   centerAgentMemberResearchTasks,
   openMeldFeedbackReportingPolicies,
   openMeldFeedbackInboxes,
@@ -1266,6 +1450,8 @@ export const coreSchema = {
   openMeldRemoteAgentSlackThreadContextCursors,
   openMeldRemoteAgentSlackWorkspaceBindings,
   slackInstallationWelcomeDeliveries,
+  slackInstallationWelcomePreparations,
+  slackTeammateInvitationDeliveries,
   slackOAuthStates,
   slackWorkspaceTokens,
   slackUserIdentityLinks,

@@ -124,6 +124,7 @@ export default defineAgent(async () => {
         : {
             definitions: [],
             fileHandoff: undefined,
+            memberProfileReportFiles: undefined,
             sandbox: disabledNoNetworkSandbox(),
           },
     createTools: async (sandboxCapability) =>
@@ -142,6 +143,8 @@ export default defineAgent(async () => {
               baseUrl: env.OPENMELD_FEEDBACK_SUBMIT_BASE_URL,
               inboxKey: env.OPENMELD_OFFICIAL_FEEDBACK_INBOX_KEY,
             },
+            memberProfileReportFiles:
+              sandboxCapability.memberProfileReportFiles,
             sandboxDefinitions: sandboxCapability.definitions,
             allowedToolNames: runtimeContextPlan.allowedToolNames,
             storage,

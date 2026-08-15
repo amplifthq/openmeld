@@ -260,6 +260,8 @@ export function resolveOrganizationDocumentErrorMessage(
 			return "This Organization already has 50 document folders.";
 		case "organization_document.folder_name_invalid":
 			return "Folder names must be between 1 and 200 characters.";
+		case "organization_document.managed_placement":
+			return "OpenMeld keeps Profile Reports organized automatically. Reload Documents to see the latest folder.";
 		case "organization_document.folder_not_found":
 			return "This folder no longer exists. Reload the page to see the current folders.";
 		default:

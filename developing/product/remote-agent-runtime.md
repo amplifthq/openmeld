@@ -52,8 +52,9 @@ OpenMeld builds, maintains, and iterates — capable like a Codex or Claude Code
 but living natively inside the organization.
 
 Now state: **a user opens the organization's managed Center Agent and can
-immediately talk to it in a Space DM; Slack app mentions are the first shipped
-external signal, Lark Channel setup is available to every production
+immediately talk to it in a Space DM; Slack app mentions and human App Home
+direct messages are shipped external signals. Slack is the first supported
+external signal, while Lark Channel setup is available to every production
 Organization but still fails closed until its connection-specific transport
 checks pass, Feishu remains behind its independent provider gate and feature
 flag, and organization-owned Routines are the unattended native-delivery
@@ -160,9 +161,14 @@ the connected provider API.
    worker does not expose browser chat protocols or public channel webhooks.
    Core drives turns programmatically. Each conversation has exactly one user
    result surface, selected by `conversationKind`: `space` conversations
-   publish through the Space standard send path, and `slack` conversations
-   publish to the originating Slack thread with `chat.postMessage` and
-   `thread_ts`. New Lark/Feishu turns use
+   publish through the Space standard send path. Slack channel mentions publish
+   to the originating Slack thread with `chat.postMessage` and `thread_ts`.
+   A top-level Slack App Home direct message publishes back to the main direct
+   message conversation; when the requester continues inside an existing Slack
+   direct-message thread, the reply stays in that thread. Core freezes this
+   reply placement before execution and reuses it for success, visible failure,
+   and recovery. Legacy Slack deliveries without an explicit placement remain
+   thread replies. New Lark/Feishu turns use
    `conversationKind = "message_channel"` and publish through the provider
    adapter selected from the Core-frozen typed locator. A single conversation
    must never write more than one of these surfaces.
@@ -214,10 +220,13 @@ the connected provider API.
    reusable Organization invite or claim that it sent an administrator
    request. Connected-workspace participation is ordinary-member capability,
    not Better Auth membership or represented-member authority by itself.
-   Accepted `app_mention` events
+   Accepted `app_mention` and human `message.im` events
    reuse native delivery; the ingress and delivery ledgers,
    idempotency keys, callback retry, and watchdog all apply, and the ledger
-   records `conversationKind` plus the Slack thread locator.
+   records `conversationKind` plus the Slack conversation locator. A direct
+   message is requester-private and never requires an app mention. Bot-authored
+   messages and Slack message subtypes are rejected before admission so the
+   Center Agent cannot create a reply loop or treat edits as new requests.
    Slack admits a connected Message Channel member only after the Slack user lookup reports
    the connected workspace's exact `team_id` and does not mark the user as
    `is_stranger`, `is_restricted`, or `is_ultra_restricted`. A Slack Connect

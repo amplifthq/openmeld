@@ -37,10 +37,15 @@ type SubmitMemberResearchDelivery = (
   input: RemoteAgentMemberResearchDeliveryInput
 ) => Promise<{ failureCode?: string; status: "failed" | "submitted" }>;
 
+type StartCenterAgentMemberResearchOptions = {
+  nowMs?: number;
+};
+
 export async function startCenterAgentMemberResearch(
   env: CoreBindings,
   input: StartCenterAgentMemberResearchRpcInput,
-  directMessageSpaceId: string
+  directMessageSpaceId: string,
+  options: StartCenterAgentMemberResearchOptions = {}
 ): Promise<StartCenterAgentMemberResearchResponse> {
   const parsed = startCenterAgentMemberResearchRpcInputSchema.safeParse(input);
   if (!parsed.success) {
@@ -134,7 +139,7 @@ export async function startCenterAgentMemberResearch(
     });
   }
 
-  const nowMs = Date.now();
+  const nowMs = options.nowMs ?? Date.now();
   const batchId = crypto.randomUUID();
   const attribution = await resolveCenterAgentAttribution({
     actorProfileId: designation.agentProfileId,
@@ -389,15 +394,19 @@ async function processRunningResearchTask(
     idempotencyKey: input.task.id,
   });
   if (delivery?.status === "completed") {
-    const draftEvidence = await input.db
+    const reportEvidence = await input.db
       .prepare(
         `
           SELECT 1
-          FROM organization_documents
-          WHERE organization_id = ?
-            AND kind = 'member_profile'
-            AND subject_user_id = ?
-            AND last_member_research_task_id = ?
+          FROM organization_documents AS documents
+          INNER JOIN center_agent_member_research_computer_files AS files
+            ON files.document_id = documents.id
+           AND files.task_id = documents.last_member_research_task_id
+           AND files.subject_user_id = documents.subject_user_id
+          WHERE documents.organization_id = ?
+            AND documents.kind = 'member_profile'
+            AND documents.subject_user_id = ?
+            AND documents.last_member_research_task_id = ?
           LIMIT 1
         `
       )
@@ -409,9 +418,9 @@ async function processRunningResearchTask(
       .first<{ 1: number }>();
     await finishResearchTask({
       db: input.db,
-      failureCode: draftEvidence
+      failureCode: reportEvidence
         ? null
-        : "center_agent_member_research.draft_missing",
+        : "center_agent_member_research.profile_report_file_missing",
       nowMs: input.nowMs,
       taskId: input.task.id,
     });

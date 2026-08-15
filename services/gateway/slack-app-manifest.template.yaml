@@ -38,6 +38,10 @@ display_information:
   description: "People and agents, working as one."
 
 features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
   bot_user:
     display_name: "${BOT_USER_DISPLAY_NAME}"
     always_online: true
@@ -61,6 +65,8 @@ oauth_config:
       - groups:history
       - groups:read
       - groups:write
+      - im:history
+      - im:write
       - links:read
       - links:write
       - pins:read
@@ -78,6 +84,7 @@ settings:
     request_url: "${REQUEST_URL}"
     bot_events:
       - app_mention
+      - message.im
   interactivity:
     is_enabled: true
     request_url: "${INTERACTIVITY_REQUEST_URL}"

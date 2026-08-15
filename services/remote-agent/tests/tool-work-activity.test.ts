@@ -66,6 +66,15 @@ describe("Remote Agent user-visible work semantics", () => {
     });
   });
 
+  it("describes starting the current member's learning run precisely", () => {
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_learn_about_me", {})
+    ).toEqual({
+      v: 1,
+      key: "organization.member_research.start",
+    });
+  });
+
   it("describes canonical Center Agent Task creation without using execution-handle semantics", () => {
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_create_task", {

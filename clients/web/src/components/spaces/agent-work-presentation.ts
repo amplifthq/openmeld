@@ -354,6 +354,11 @@ const AGENT_WORK_COPY = {
 		"Reviewed an organization invitation",
 		"Couldn't review the organization invitation"
 	),
+	"organization.member_research.start": workCopy(
+		"Starting to learn about you…",
+		"Started learning about you",
+		"Couldn't start learning about you"
+	),
 	"organization.member_service_status.read": workCopy(
 		"Checking member OpenMeld Service status…",
 		"Checked member OpenMeld Service status",

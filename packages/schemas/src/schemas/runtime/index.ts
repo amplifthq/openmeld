@@ -104,6 +104,7 @@ export {
 } from "./remote-agent-metering";
 export {
   remoteAgentSlackAppMentionEventSchema,
+  remoteAgentSlackDirectMessageEventSchema,
   remoteAgentSlackEventCallbackPayloadSchema,
   remoteAgentSlackEventQueueMessageSchema,
   remoteAgentSlackEventsApiPayloadSchema,
@@ -181,3 +182,7 @@ export {
   remoteAgentWorkerTurnMessageSchema,
   routineWorkflowContinuationEventPayloadSchema,
 } from "./remote-agent-worker";
+export {
+  slackWelcomeInteractionRpcInputSchema,
+  slackWelcomeInteractionRpcResponseSchema,
+} from "./slack-welcome-interaction";

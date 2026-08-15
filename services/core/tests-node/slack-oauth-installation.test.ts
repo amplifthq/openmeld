@@ -3,6 +3,7 @@ import type { CoreBindings } from "../src/lib/bindings";
 import { resolveSlackBotToken } from "../src/remote-agent/application/slack-bot-token";
 import { deliverSlackInstallationWelcome } from "../src/remote-agent/application/slack-installation-welcome-service";
 import { installSlackWorkspaceFromOAuth } from "../src/remote-agent/application/slack-oauth-installation";
+import { readSlackUserIdentityLink } from "../src/remote-agent/infrastructure/d1/slack-user-identity-link-repo";
 import {
   createRemoteAgentSlackWorkspaceBinding,
   deleteRemoteAgentSlackWorkspaceBindingByOrganization,
@@ -149,6 +150,33 @@ describe("Slack OAuth installation", () => {
         )
       `,
     });
+    harness.run({
+      sql: `
+        CREATE TABLE slack_installation_welcome_preparations (
+          slack_team_id TEXT NOT NULL,
+          organization_id TEXT NOT NULL,
+          recipient_slack_user_id TEXT NOT NULL,
+          connection_created_at_ms INTEGER NOT NULL,
+          welcome_version INTEGER NOT NULL,
+          message_kind TEXT NOT NULL,
+          installed_by_user_id TEXT NOT NULL,
+          installed_by_profile_id TEXT NOT NULL,
+          status TEXT NOT NULL,
+          claim_id TEXT,
+          research_task_id TEXT,
+          failure_code TEXT,
+          created_at_ms INTEGER NOT NULL,
+          updated_at_ms INTEGER NOT NULL,
+          PRIMARY KEY (
+            slack_team_id,
+            organization_id,
+            recipient_slack_user_id,
+            connection_created_at_ms,
+            welcome_version
+          )
+        )
+      `,
+    });
   });
 
   afterEach(() => {
@@ -157,7 +185,7 @@ describe("Slack OAuth installation", () => {
     harness.close();
   });
 
-  it("sends the Slack installer a welcome DM after a new binding is created", async () => {
+  it("queues trust-first preparation instead of sending an immediate welcome", async () => {
     insertOrganizationOwner(harness);
     const fetchMock = vi.fn((..._args: Parameters<typeof fetch>) =>
       Promise.resolve(Response.json(SLACK_MESSAGE_SUCCESS_RESPONSE))
@@ -171,58 +199,29 @@ describe("Slack OAuth installation", () => {
       )
     ).resolves.toEqual({ status: "created" });
 
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, request] = fetchMock.mock.calls[0] ?? [];
-    expect(url).toBe("https://slack.com/api/chat.postMessage");
-    expect(request?.headers).toMatchObject({
-      authorization: "Bearer xoxb-installed-token",
-    });
-    const body = JSON.parse(String(request?.body)) as {
-      blocks: unknown[];
-      channel: string;
-      text: string;
-    };
-    expect(body.channel).toBe("U_INSTALLER");
-    expect(body.text).toContain("I'm OpenMeld, your Center Agent");
-    expect(body.text).toContain("Mention me in a channel");
-    expect(body.text).toContain("Connect GitHub");
-    expect(body.text).toContain("Center Agent → Apps → GitHub");
-    expect(body.text.toLowerCase()).not.toContain("reply");
-    expect(body.blocks).toEqual([
-      {
-        text: {
-          text: body.text,
-          type: "mrkdwn",
-        },
-        type: "section",
-      },
-      {
-        elements: [
-          {
-            accessibility_label: "Open OpenMeld GitHub settings",
-            action_id: "open_openmeld_github_settings",
-            style: "primary",
-            text: {
-              text: "Connect GitHub",
-              type: "plain_text",
-            },
-            type: "button",
-            url: "https://openmeld.test/o/acme/center-agent/apps/github",
-          },
-        ],
-        type: "actions",
-      },
-    ]);
-    expect(readWelcomeDelivery(harness)).toEqual({
-      attempt_count: 1,
-      failure_code: null,
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(readWelcomePreparation(harness)).toEqual({
+      installed_by_profile_id: "human-1",
+      installed_by_user_id: "openmeld-user-1",
       message_kind: "connected",
-      message_ts: "1503435956.000247",
+      failure_code: null,
       organization_id: "org-1",
       recipient_slack_user_id: "U_INSTALLER",
       slack_team_id: "T_WORKSPACE",
-      status: "delivered",
-      welcome_version: 1,
+      status: "queued",
+      welcome_version: 2,
+    });
+    expect(readWelcomeDelivery(harness)).toBeNull();
+    await expect(
+      readSlackUserIdentityLink({
+        db: harness.db,
+        slackTeamId: "T_WORKSPACE",
+        slackUserId: "U_INSTALLER",
+      })
+    ).resolves.toMatchObject({
+      openmeldUserId: "openmeld-user-1",
+      organizationId: "org-1",
+      source: "explicit",
     });
   });
 
@@ -276,7 +275,7 @@ describe("Slack OAuth installation", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("sends a fresh welcome DM when a workspace moves organizations", async () => {
+  it("queues fresh trust-first preparation when a workspace moves organizations", async () => {
     await installSlackWorkspaceFromOAuth({
       actorProfileId: "human-old",
       auditEntryId: "audit-old",
@@ -302,54 +301,24 @@ describe("Slack OAuth installation", () => {
       })
     ).resolves.toEqual({ status: "moved" });
 
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, request] = fetchMock.mock.calls[0] ?? [];
-    expect(url).toBe("https://slack.com/api/chat.postMessage");
-    const body = JSON.parse(String(request?.body)) as {
-      blocks: unknown[];
-      channel: string;
-      text: string;
-    };
-    expect(body.channel).toBe("U_INSTALLER");
-    expect(body.text).toContain(
-      "This Slack workspace is now connected to a different OpenMeld Organization"
-    );
-    expect(body.blocks).toEqual([
-      {
-        text: {
-          text: body.text,
-          type: "mrkdwn",
-        },
-        type: "section",
-      },
-      {
-        elements: [
-          {
-            accessibility_label: "Open OpenMeld GitHub settings",
-            action_id: "open_openmeld_github_settings",
-            style: "primary",
-            text: {
-              text: "Connect GitHub",
-              type: "plain_text",
-            },
-            type: "button",
-            url: "https://openmeld.test/o/acme/center-agent/apps/github",
-          },
-        ],
-        type: "actions",
-      },
-    ]);
-    expect(readWelcomeDelivery(harness)).toMatchObject({
-      attempt_count: 1,
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(readWelcomePreparation(harness)).toMatchObject({
       message_kind: "moved",
-      status: "delivered",
+      status: "queued",
     });
   });
 
-  it("keeps a successful installation successful when the welcome DM fails", async () => {
+  it("keeps a successful installation successful when preparation cannot be queued", async () => {
     insertOrganizationOwner(harness);
-    const fetchMock = vi.fn(() => Promise.reject(new Error("socket closed")));
-    vi.stubGlobal("fetch", fetchMock);
+    harness.run({
+      sql: `
+        CREATE TRIGGER reject_welcome_preparation
+        BEFORE INSERT ON slack_installation_welcome_preparations
+        BEGIN
+          SELECT RAISE(ABORT, 'preparation rejected');
+        END
+      `,
+    });
     const warnSpy = vi
       .spyOn(console, "warn")
       .mockImplementation(() => undefined);
@@ -361,10 +330,9 @@ describe("Slack OAuth installation", () => {
       )
     ).resolves.toEqual({ status: "created" });
 
-    expect(fetchMock).toHaveBeenCalledOnce();
     expect(warnSpy).toHaveBeenCalledOnce();
     expect(warnSpy.mock.calls[0]?.[0]).toBe(
-      "[core.slack_oauth.installation_welcome_failed]"
+      "[core.slack_oauth.installation_welcome_queue_failed]"
     );
     expect(warnSpy.mock.calls[0]?.[1]).toMatchObject({
       organizationId: "org-1",
@@ -373,11 +341,7 @@ describe("Slack OAuth installation", () => {
     expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(
       "xoxb-installed-token"
     );
-    expect(readWelcomeDelivery(harness)).toMatchObject({
-      attempt_count: 1,
-      failure_code: "slack_outcome_unknown",
-      status: "outcome_unknown",
-    });
+    expect(readWelcomePreparation(harness)).toBeNull();
   });
 
   it("preserves the Slack publication error when recording its outcome also fails", async () => {
@@ -417,52 +381,8 @@ describe("Slack OAuth installation", () => {
     ).rejects.toThrow("socket closed");
   });
 
-  it("retries a confirmed welcome non-publication when OAuth is reauthorized", async () => {
+  it("does not duplicate queued preparation when OAuth is reauthorized", async () => {
     insertOrganizationOwner(harness);
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json({ error: "channel_not_found", ok: false })
-      )
-      .mockResolvedValueOnce(Response.json(SLACK_MESSAGE_SUCCESS_RESPONSE));
-    vi.stubGlobal("fetch", fetchMock);
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
-
-    await expect(
-      rpcInstallSlackWorkspaceFromOAuth(
-        createRpcEnv(harness),
-        RPC_INSTALLATION_INPUT
-      )
-    ).resolves.toEqual({ status: "created" });
-    expect(readWelcomeDelivery(harness)).toMatchObject({
-      attempt_count: 1,
-      failure_code: "channel_not_found",
-      status: "failed",
-    });
-
-    await expect(
-      rpcInstallSlackWorkspaceFromOAuth(
-        createRpcEnv(harness),
-        RPC_INSTALLATION_INPUT
-      )
-    ).resolves.toEqual({ status: "unchanged" });
-
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(readWelcomeDelivery(harness)).toMatchObject({
-      attempt_count: 2,
-      failure_code: null,
-      message_ts: "1503435956.000247",
-      status: "delivered",
-    });
-  });
-
-  it("does not retry a welcome whose Slack outcome is unknown", async () => {
-    insertOrganizationOwner(harness);
-    const fetchMock = vi.fn<typeof fetch>(() =>
-      Promise.reject(new Error("socket closed"))
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     await expect(
       rpcInstallSlackWorkspaceFromOAuth(
@@ -477,12 +397,11 @@ describe("Slack OAuth installation", () => {
       )
     ).resolves.toEqual({ status: "unchanged" });
 
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(readWelcomeDelivery(harness)).toMatchObject({
-      attempt_count: 1,
-      failure_code: "slack_outcome_unknown",
-      status: "outcome_unknown",
-    });
+    expect(
+      harness.queryAll({
+        sql: "SELECT status FROM slack_installation_welcome_preparations",
+      })
+    ).toEqual([{ status: "queued" }]);
   });
 
   it("stores the encrypted bot token and workspace binding together", async () => {
@@ -1084,6 +1003,28 @@ function readWelcomeDelivery(
         message_ts,
         failure_code
       FROM slack_installation_welcome_deliveries
+      ORDER BY created_at_ms DESC
+      LIMIT 1
+    `,
+  });
+}
+
+function readWelcomePreparation(
+  harness: ReturnType<typeof createSqliteD1Harness>
+): Record<string, unknown> | null {
+  return harness.queryFirst({
+    sql: `
+      SELECT
+        slack_team_id,
+        organization_id,
+        recipient_slack_user_id,
+        welcome_version,
+        message_kind,
+        installed_by_user_id,
+        installed_by_profile_id,
+        status,
+        failure_code
+      FROM slack_installation_welcome_preparations
       ORDER BY created_at_ms DESC
       LIMIT 1
     `,

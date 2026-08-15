@@ -585,6 +585,29 @@ export async function readSlackChannelHistory(input: {
   };
 }
 
+export async function postSlackTopLevelMessage(input: {
+  blocks?: readonly SlackBlockKitBlock[];
+  botToken: string;
+  channelId: string;
+  fetchImpl?: FetchLike;
+  metadata?: {
+    eventPayload: Record<string, string>;
+    eventType: string;
+  };
+  signal?: AbortSignal;
+  text: string;
+}): Promise<{ id: string }> {
+  return await postSlackMessage({
+    blocks: input.blocks,
+    botToken: input.botToken,
+    channelId: input.channelId,
+    fetchImpl: input.fetchImpl,
+    metadata: input.metadata,
+    signal: input.signal,
+    text: input.text,
+  });
+}
+
 export async function postSlackDirectMessage(input: {
   blocks?: readonly SlackBlockKitBlock[];
   botToken: string;
@@ -593,7 +616,7 @@ export async function postSlackDirectMessage(input: {
   signal?: AbortSignal;
   text: string;
 }): Promise<{ id: string }> {
-  return await postSlackMessage({
+  return await postSlackTopLevelMessage({
     blocks: input.blocks,
     botToken: input.botToken,
     channelId: input.recipientUserId,
@@ -601,6 +624,57 @@ export async function postSlackDirectMessage(input: {
     signal: input.signal,
     text: input.text,
   });
+}
+
+export async function openSlackDirectMessage(input: {
+  botToken: string;
+  fetchImpl?: FetchLike;
+  recipientUserId: string;
+  signal?: AbortSignal;
+}): Promise<{ channelId: string }> {
+  const response = await (input.fetchImpl ?? fetch)(
+    `${SLACK_API_BASE_URL}/conversations.open`,
+    {
+      body: JSON.stringify({ users: [input.recipientUserId] }),
+      headers: buildSlackHeaders(input.botToken),
+      method: "POST",
+      signal: input.signal,
+    }
+  );
+  const data = await readSlackApiResponse(response);
+  assertSlackOk(response, data, "conversations.open");
+  const channelId = normalizeOptionalText(data.channel?.id);
+  if (!channelId) {
+    throw new SlackApiError({
+      errorCode: "missing_channel",
+      methodName: "conversations.open",
+      status: response.status,
+    });
+  }
+  return { channelId };
+}
+
+export async function openSlackModal(input: {
+  botToken: string;
+  fetchImpl?: FetchLike;
+  signal?: AbortSignal;
+  triggerId: string;
+  view: Record<string, unknown>;
+}): Promise<void> {
+  const response = await (input.fetchImpl ?? fetch)(
+    `${SLACK_API_BASE_URL}/views.open`,
+    {
+      body: JSON.stringify({
+        trigger_id: input.triggerId,
+        view: input.view,
+      }),
+      headers: buildSlackHeaders(input.botToken),
+      method: "POST",
+      signal: input.signal,
+    }
+  );
+  const data = await readSlackApiResponse(response);
+  assertSlackOk(response, data, "views.open");
 }
 
 export async function setSlackThreadStatus(input: {
@@ -695,7 +769,7 @@ export async function resolveSlackChannelMessageTarget(input: {
   }
   return {
     channelId: channel.id,
-    channelName,
+    channelName: channel.name,
     isMember: channel.isMember,
     isPrivate: channel.isPrivate,
   };
@@ -863,6 +937,7 @@ async function findSlackChannelByName(input: {
   id: string;
   isMember: boolean;
   isPrivate: boolean;
+  name: string;
 } | null> {
   let cursor: string | null = null;
   for (let page = 0; page < SLACK_CHANNEL_LIST_MAX_PAGES; page += 1) {
@@ -886,19 +961,26 @@ async function findSlackChannelByName(input: {
     assertSlackOk(response, data, "conversations.list");
     for (const channel of data.channels ?? []) {
       const name = normalizeOptionalText(channel.name)?.toLowerCase();
-      if (name !== input.channelName || channel.is_archived === true) {
+      const id = normalizeOptionalText(channel.id);
+      const matchesName = name === input.channelName;
+      const matchesSlackMentionId =
+        id?.toLowerCase() === input.channelName.toLowerCase();
+      if (
+        !(matchesName || matchesSlackMentionId) ||
+        channel.is_archived === true
+      ) {
         continue;
       }
-      const id = normalizeOptionalText(channel.id);
-      if (!id) {
+      if (!(id && name)) {
         throw new Error(
-          "Slack conversations.list returned a channel without an ID"
+          "Slack conversations.list returned a channel without an ID or name"
         );
       }
       return {
         id,
         isMember: channel.is_member === true,
         isPrivate: channel.is_private === true,
+        name,
       };
     }
     cursor = normalizeOptionalText(data.response_metadata?.next_cursor);
@@ -911,7 +993,7 @@ async function findSlackChannelByName(input: {
   );
 }
 
-async function joinSlackPublicChannel(input: {
+export async function joinSlackPublicChannel(input: {
   botToken: string;
   channelId: string;
   fetchImpl?: FetchLike;

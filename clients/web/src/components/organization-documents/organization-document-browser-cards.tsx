@@ -39,26 +39,19 @@ import {
 	TrashIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { type DragEvent, useState } from "react";
+import { useState } from "react";
 import {
 	buildOrganizationDocumentPath,
 	buildOrganizationDocumentsPath,
 } from "#/lib/organizations/organization-routes";
+import {
+	browserItemDropProps,
+	DOCUMENT_DRAG_TYPE,
+	documentKindLabel,
+	FOLDER_DRAG_TYPE,
+	type FolderMoveTarget,
+} from "./organization-document-browser-model";
 import { setBrowserItemDragPreview } from "./organization-document-drag-preview";
-
-export const DOCUMENT_DRAG_TYPE = "application/x-openmeld-document-id";
-export const FOLDER_DRAG_TYPE = "application/x-openmeld-folder-id";
-
-export type FolderMoveTarget = {
-	id: string | null;
-	label: string;
-};
-
-type BrowserItemDropHandlers = {
-	onDropDocument?: (documentId: string) => void;
-	onDropFolder?: (folderId: string) => void;
-	setDropActive: (active: boolean) => void;
-};
 
 export function OrganizationDocumentFolderCard(input: {
 	canManage: boolean;
@@ -73,7 +66,8 @@ export function OrganizationDocumentFolderCard(input: {
 	orgSlug: string;
 }) {
 	const [dropActive, setDropActive] = useState(false);
-	const dropProps = input.canManage
+	const canManageFolder = input.canManage && !input.folder.isManaged;
+	const dropProps = canManageFolder
 		? browserItemDropProps({
 				onDropDocument: input.onDropDocument,
 				onDropFolder: input.onDropFolder,
@@ -88,7 +82,7 @@ export function OrganizationDocumentFolderCard(input: {
 					"min-h-40 cursor-grab bg-transparent p-4 pr-12 transition-[border-color] duration-150 ease-out hover:bg-transparent active:cursor-grabbing",
 					dropActive && "border-primary/50 bg-primary/5 ring-1 ring-primary/40"
 				)}
-				draggable={input.canManage}
+				draggable={canManageFolder}
 				onDragStart={(event) => {
 					event.dataTransfer.setData(FOLDER_DRAG_TYPE, input.folder.id);
 					event.dataTransfer.effectAllowed = "move";
@@ -121,7 +115,7 @@ export function OrganizationDocumentFolderCard(input: {
 					</p>
 				</div>
 			</Link>
-			{input.canManage ? (
+			{canManageFolder ? (
 				<FolderActions
 					folderName={input.folder.name}
 					moveTargets={input.moveTargets}
@@ -133,7 +127,7 @@ export function OrganizationDocumentFolderCard(input: {
 		</article>
 	);
 
-	if (!input.canManage) {
+	if (!canManageFolder) {
 		return card;
 	}
 	return (
@@ -154,6 +148,7 @@ export function OrganizationDocumentFolderCard(input: {
 
 export function OrganizationDocumentFileCard(input: {
 	canManage: boolean;
+	canMove: boolean;
 	document: OrganizationDocumentSummary;
 	memberName?: string;
 	moveTargets: FolderMoveTarget[];
@@ -169,7 +164,7 @@ export function OrganizationDocumentFileCard(input: {
 					cardPickerCardClassName(),
 					"min-h-40 cursor-grab bg-transparent p-4 pr-12 transition-[border-color] duration-150 ease-out hover:bg-transparent active:cursor-grabbing"
 				)}
-				draggable={input.canManage}
+				draggable={input.canMove}
 				onDragStart={(event) => {
 					event.dataTransfer.setData(DOCUMENT_DRAG_TYPE, document.id);
 					event.dataTransfer.effectAllowed = "move";
@@ -193,7 +188,7 @@ export function OrganizationDocumentFileCard(input: {
 						{document.kind === "brief" ? (
 							<Badge variant="outline">Brief</Badge>
 						) : null}
-						{document.hasDraft ? (
+						{document.hasDraft && document.kind !== "member_profile" ? (
 							<Badge variant="secondary">Draft</Badge>
 						) : null}
 					</div>
@@ -206,7 +201,7 @@ export function OrganizationDocumentFileCard(input: {
 			{input.canManage ? (
 				<DocumentActions
 					documentTitle={document.title}
-					moveTargets={input.moveTargets}
+					moveTargets={input.canMove ? input.moveTargets : []}
 					onDelete={input.onDelete}
 					onMove={input.onMove}
 				/>
@@ -222,7 +217,7 @@ export function OrganizationDocumentFileCard(input: {
 			<ContextMenuTrigger render={card} />
 			<ContextMenuContent>
 				<DocumentMenuItems
-					moveTargets={input.moveTargets}
+					moveTargets={input.canMove ? input.moveTargets : []}
 					onDelete={input.onDelete}
 					onMove={input.onMove}
 					variant="context"
@@ -444,53 +439,4 @@ function DropdownMoveTarget(input: {
 			{input.target.label}
 		</DropdownMenuItem>
 	);
-}
-
-export function browserItemDropProps(input: BrowserItemDropHandlers) {
-	const accepts = (event: DragEvent<HTMLElement>) =>
-		(Boolean(input.onDropDocument) &&
-			event.dataTransfer.types.includes(DOCUMENT_DRAG_TYPE)) ||
-		(Boolean(input.onDropFolder) &&
-			event.dataTransfer.types.includes(FOLDER_DRAG_TYPE));
-	return {
-		onDragLeave: (event: DragEvent<HTMLElement>) => {
-			if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-				input.setDropActive(false);
-			}
-		},
-		onDragOver: (event: DragEvent<HTMLElement>) => {
-			if (accepts(event)) {
-				event.preventDefault();
-				event.dataTransfer.dropEffect = "move";
-				input.setDropActive(true);
-			}
-		},
-		onDrop: (event: DragEvent<HTMLElement>) => {
-			input.setDropActive(false);
-			const documentId = event.dataTransfer.getData(DOCUMENT_DRAG_TYPE);
-			if (documentId && input.onDropDocument) {
-				event.preventDefault();
-				input.onDropDocument(documentId);
-				return;
-			}
-			const folderId = event.dataTransfer.getData(FOLDER_DRAG_TYPE);
-			if (folderId && input.onDropFolder) {
-				event.preventDefault();
-				input.onDropFolder(folderId);
-			}
-		},
-	};
-}
-
-export function documentKindLabel(
-	kind: OrganizationDocumentSummary["kind"]
-): string {
-	switch (kind) {
-		case "brief":
-			return "Center Agent context";
-		case "member_profile":
-			return "Profile Report";
-		default:
-			return "Knowledge";
-	}
 }

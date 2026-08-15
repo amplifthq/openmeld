@@ -1968,6 +1968,12 @@ atomically consumes the row before Gateway exchanges the Slack code; expired,
 tampered, and replayed states fail closed. Abandoned expired rows are removed
 when a new state is created.
 
+When Slack returns an exact authenticated installer user id, the installation
+batch also upserts that provider identity as an explicit link to the state-bound
+OpenMeld installer. This link is part of the same created, unchanged, or moved
+workspace transaction as the encrypted token. A welcome action therefore never
+depends on a second identity-link setup after OAuth succeeds.
+
 Slack Web API calls resolve credentials in this order: the encrypted
 per-workspace record, then the legacy global `SLACK_OPENMELD_BOT_TOKEN` only
 when no workspace record exists. A present record that cannot be decrypted is
@@ -1984,6 +1990,32 @@ later OAuth reauthorization; provider-ambiguous publication becomes
 is classified as `outcome_unknown`, not reclaimed. The ledger stores only
 bounded outcome metadata and Slack's published message timestamp, never the
 welcome text, blocks, token, or provider response body.
+
+`slack_installation_welcome_preparations` is the separate durable work ledger
+that gates publication on completed member research. It owns the installer,
+workspace-connection generation, research-task link, and queued/researching/
+ready/completed/failed lifecycle. It stores no report body. A preparation can
+become ready only when the task's Profile Report Organization Document and the
+exact Center Agent Computer file evidence join successfully. The publication
+ledger remains the only Slack-send authority; preparation readiness never
+means that Slack received a message.
+
+`center_agent_member_research_computer_files` proves that Remote Agent wrote
+Core's exact rendered Profile Report content to the Center Agent's private
+Computer. It binds one research task, Profile Report document, subject user,
+submission, and path. The row is completion evidence, not a second document
+body or a new source of Profile Report truth. Core remains the only Markdown
+renderer and Organization Documents remains the formal reviewable document.
+
+`slack_teammate_invitation_deliveries` is the idempotency and onboarding ledger
+for native Slack teammate selection. Its publication identity is the Slack
+view interaction plus selected target user. It records only target identity
+metadata already returned by the live Slack workspace directory, bounded
+outcome state, Slack message timestamp, and later joined-member research
+linkage. A provider-ambiguous send is never retried. The joined-member flow
+advances only after exact normalized email matches a current Organization
+member with an active Human Profile; Slack display names and titles never
+establish identity.
 
 The retired Remote Agent guardrail table and breaker columns remain in the
 schema and historical migrations because old rows are durable evidence. Active
@@ -2177,9 +2209,12 @@ Core D1 owns `organization_documents`, including approved Markdown, the one
 replaceable Center Agent draft, document identity, kind, member subject, and
 timestamps. Core D1 also owns `organization_document_folders`, including each
 folder's optional parent edge. Database constraints enforce one Brief per
-organization, one Profile Report per organization and subject user, sibling
-folder-name uniqueness, the closed kind set, draft metadata coherence, and the
-20,000-character body limits. Core prevents cross-organization parent edges and
+organization, unique Profile Report titles within one organization, subject,
+report date, and report type, sibling folder-name uniqueness, the closed kind
+set, draft metadata coherence, and the 20,000-character body limits. Profile
+Report history is append-only across learning runs; Core assigns a dated base
+title and a human-readable ordinal suffix for additional same-day reports. Core
+prevents cross-organization parent edges and
 folder cycles, preserves child folders and documents when a folder is deleted,
 enforces the 50-folder and 50-document knowledge caps, and verifies that Profile
 Report subjects are current organization members. Web and Gateway consume this
@@ -2240,6 +2275,11 @@ Core D1 also owns `center_agent_member_research_batches` and
 `center_agent_member_research_tasks`. These rows are the durable serial
 orchestration record for a human-requested member-research batch: one running
 task per batch, explicit per-member failure, and continue-on-failure progress.
+The request may originate from the authenticated Web action or from the hosted
+Center Agent representing the verified speaker of an interactive conversation;
+both enter the same batch/task writer, audit path, and single-active-batch
+invariant. Conversational self-research derives the subject from the represented
+speaker instead of persisting model-selected identity.
 They do not replace the Remote Agent worker's in-flight execution truth or the
 native-delivery ledger. Core advances a running task only from that ledger's
 terminal outcome. At the Organization Document draft boundary, Core binds the

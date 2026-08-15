@@ -162,6 +162,7 @@ export const remoteAgentTurnEnvelopeTriggerSchema = z.discriminatedUnion(
       threadTs: nonEmptyStringSchema.optional(),
       conversationId: nonEmptyStringSchema.optional(),
       channelName: nonEmptyStringSchema.optional(),
+      replyPlacement: z.enum(["conversation", "thread"]).optional(),
       searchAuthorization: remoteAgentSlackSearchAuthorizationSchema.optional(),
     }),
     z.strictObject({

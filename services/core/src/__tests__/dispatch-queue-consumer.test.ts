@@ -7836,7 +7836,7 @@ describe("handleDispatchQueueBatch", () => {
             automaticModelFallback: false,
             displayName: "DeepSeek V4 Flash",
             imageUnderstandingModel: expect.objectContaining({
-              modelId: "x-ai/grok-4.5",
+              modelId: "x-ai/grok-4.6",
             }),
             modelId: "deepseek/deepseek-v4-flash",
             preference: {

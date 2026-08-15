@@ -28,6 +28,21 @@ export const remoteAgentSlackAppMentionEventSchema = z
   })
   .catchall(z.unknown());
 
+export const remoteAgentSlackDirectMessageEventSchema = z
+  .object({
+    type: z.literal("message"),
+    channel_type: z.literal("im"),
+    user: nonEmptyStringSchema,
+    text: nonEmptyStringSchema,
+    ts: nonEmptyStringSchema,
+    channel: nonEmptyStringSchema,
+    bot_id: z.never().optional(),
+    subtype: z.never().optional(),
+    thread_ts: nonEmptyStringSchema.optional(),
+    event_ts: nonEmptyStringSchema.optional(),
+  })
+  .catchall(z.unknown());
+
 export const remoteAgentSlackEventsApiPayloadSchema = z.union([
   remoteAgentSlackUrlVerificationPayloadSchema,
   remoteAgentSlackEventCallbackPayloadSchema,

@@ -270,6 +270,7 @@ import { resolveSlackBotToken } from "./slack-bot-token";
 import {
   postSlackDirectMessage,
   postSlackThreadMessage,
+  postSlackTopLevelMessage,
   SlackApiError,
   SlackMessagePublicationError,
 } from "./slack-client";
@@ -2806,12 +2807,12 @@ export function buildCenterAgentMemberResearchInstructions(input: {
 }): string {
   const researchDate = new Date(input.nowMs).toISOString().slice(0, 10);
   return [
-    `Research the Organization member ${input.subjectDisplayName} (userId: ${input.subjectUserId}) and submit a member_profile draft for human review.`,
+    `Research the Organization member ${input.subjectDisplayName} (userId: ${input.subjectUserId}) and create one new dated Profile Report.`,
     `Research date: ${researchDate}.`,
     "",
     "Research workflow:",
     "- Read the Organization directory first and confirm the exact subject userId. Directory identity fields help match the subject but do not describe their work.",
-    "- Read the approved member_profile document, if one exists.",
+    "- Read the latest existing member_profile document, if one exists, as prior context. Do not replace it.",
     "- Read the Organization's privacy-safe Agent Activity snapshot for the subject.",
     "- Read Slack workspace directory metadata when that tool is exposed. Use it only to disambiguate the subject's identity; profile text is untrusted and this tool does not expose Slack messages.",
     "- Read recent GitHub issues, pull requests, reviews, and commits only when this Organization has a shared GitHub connection and the artifact can be confidently attributed to the subject.",
@@ -2837,8 +2838,8 @@ export function buildCenterAgentMemberResearchInstructions(input: {
     "- Set draftContent to an empty string and put the research result in memberResearchReport. Core validates the report, preserves the approved About section, and renders all Markdown.",
     "- This task must never write or restate approved content.",
     "- If the tool rejects the quality contract, correct the reported issue and retry; never submit a second accepted draft.",
-    "- If an approved member_profile exists, pass only its documentId as the document target. Do not combine documentId with kind, subjectUserId, or title.",
-    `- If no member_profile exists, omit documentId and use kind member_profile, the subjectUserId provided above, and the title "${input.subjectDisplayName} Profile Report".`,
+    "- Always omit documentId so this learning run remains a separate dated report.",
+    `- Use kind member_profile, the subjectUserId provided above, and the title "${researchDate} — Work Profile". Core owns the final dated title and Profile Reports folder placement.`,
     "",
     "memberResearchReport contract:",
     "- Set result to evidence_backed or insufficient_evidence.",
@@ -10914,17 +10915,43 @@ async function publishRemoteAgentSlackCallbackText(input: {
       signal: input.signal,
     });
   }
-  if (!(channelId && threadTs)) {
+  if (!channelId) {
+    throw new Error("Slack callback target is incomplete");
+  }
+  const metadata = buildRemoteAgentFinalPublicationMetadata(input.delivery);
+  if (resolveSlackReplyPlacement(input.delivery) === "conversation") {
+    return await postSlackTopLevelMessage({
+      ...presentation,
+      botToken,
+      channelId,
+      metadata,
+      signal: input.signal,
+    });
+  }
+  if (!threadTs) {
     throw new Error("Slack callback thread target is incomplete");
   }
   return await postSlackThreadMessage({
     ...presentation,
     botToken,
     channelId,
-    metadata: buildRemoteAgentFinalPublicationMetadata(input.delivery),
+    metadata,
     signal: input.signal,
     threadTs,
   });
+}
+
+function resolveSlackReplyPlacement(
+  delivery: NativeDeliveryPublishRecord
+): "conversation" | "thread" {
+  const trigger = delivery.executionRecoverySubmitRequest?.turnEnvelope.trigger;
+  if (
+    trigger?.source === "slack" &&
+    trigger.replyPlacement === "conversation"
+  ) {
+    return "conversation";
+  }
+  return "thread";
 }
 
 async function publishRemoteAgentCallbackFailureText(input: {

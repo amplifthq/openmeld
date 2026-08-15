@@ -45,3 +45,20 @@ export const slackWorkspaceDirectoryResponseSchema = z.strictObject({
   nextCursor: nullableTrimmedStringSchema,
   organizationId: trimmedNonEmptyStringSchema,
 });
+
+export const slackReadUnavailableResponseSchema = z.strictObject({
+  message: trimmedNonEmptyStringSchema.max(500),
+  nextAction: trimmedNonEmptyStringSchema.max(500),
+  organizationId: trimmedNonEmptyStringSchema,
+  reasonCode: z.enum([
+    "channel_access_required",
+    "connection_state_unavailable",
+    "slack_not_connected",
+  ]),
+  status: z.literal("unavailable"),
+});
+
+export const centerAgentReadSlackWorkspaceDirectoryResponseSchema = z.union([
+  slackWorkspaceDirectoryResponseSchema,
+  slackReadUnavailableResponseSchema,
+]);

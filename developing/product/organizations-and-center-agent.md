@@ -1413,10 +1413,64 @@ read returned them, and constructs the mention tokens outside model-authored
 text. It rejects display-name mentions and guessed IDs.
 
 A successful first Slack connection and an informed move from another
-Organization both send the current Slack installer a fresh welcome card. A move
-starts a new Organization context with different members, Spaces, Apps, and
-agent state, so reusing the previous welcome state would be misleading. A
-same-Organization reauthorization does not repeat the welcome.
+Organization both start one trust-first onboarding sequence for the current
+Slack installer. The OAuth completion atomically links the exact authenticated
+Slack installer identity to the signed-in OpenMeld user alongside the workspace
+Binding and encrypted token, so the welcome's native actions work immediately.
+Core first asks the designated Center Agent to learn about the installer through
+the existing bounded member-research contract. Remote Agent writes Core's exact
+rendered Profile Report draft to
+`/computer/home/documents/Profile Reports/{person name}/{Core-assigned report title}.md`
+on the Center Agent's private Computer and records that file as completion
+evidence. Core assigns `{YYYY-MM-DD} — Work Profile` to the first report of the
+day and appends ` (2)`, ` (3)`, and so on for later same-day reports. The
+Organization Document title is the only file-naming truth; Remote Agent never
+invents a second collision suffix. The human-readable person folder and dated,
+typed file name leave a stable place for future Profile Reports created on
+different dates or from different learning plans. Only
+after the research task, provisional Organization Document draft, and exact
+Computer file all exist does Core send the first Slack direct message. The
+message explains OpenMeld in plain language as a place where people and agents
+work as one team, names the Organization, shows at most one evidence-backed
+observation, and invites an ordinary reply. It never makes GitHub, coding
+agents, approval work, or a feature checklist the product's opening idea. When
+evidence is insufficient, it says so instead of inventing familiarity.
+
+The welcome offers **See what I learned**, **Invite teammates**, and
+**Introduce me in channels**. It offers **Connect more context** only when the
+Organization has no active App connection. The Slack teammate action opens a
+native multi-user picker, accepts at most ten selected active human workspace
+members, and sends a private invitation to each through an idempotent delivery
+ledger. It never posts those private invitations to a channel. A channel
+introduction starts in direct message: a native picker accepts at most five
+public channels, Core joins those channels when needed, and the Center Agent
+reads one bounded recent page before posting a short introduction grounded in
+the channel's actual work. When the requester is an owner or admin, Core gives
+the Center Agent the exact current Organization join link to include. A member
+without invite-link authority can still complete the introduction without that
+link. The Center Agent does not rank people, disclose private observations, or
+mention an individual unless the requester explicitly asked it to notify that
+person.
+
+An invited Slack user receives the Organization join link and a simple account
+of what will happen after joining; OpenMeld does not claim to know that person
+before Organization membership exists. After an exact normalized Slack email
+matches a joined Organization member with an active Human Profile, Core links
+that same Slack identity, runs member research for the new member, writes the
+Profile Report to the Center Agent Computer, and sends a second private welcome
+with one evidence-backed observation or an honest insufficient-context state.
+The new member may then reply in Slack, invite more teammates, or start the
+channel-introduction flow. A move starts a new Organization context with
+different members, Spaces, Apps, and agent state, so reusing the previous
+welcome state would be misleading. A same-Organization reauthorization does
+not repeat the sequence.
+
+Lark and Feishu support the same product shape through Lark Card 2.0's
+`multi_select_person` component and `card.action.trigger` form values; they do
+not require Slack's modal API. Provider parity must reuse the same trust-first
+research, membership, invitation, and publication ledgers rather than adding a
+second onboarding authority. Until that adapter is implemented and real-smoked,
+the Slack native picker remains the only shipped native teammate selector.
 
 The shipped outbound action requires an explicit request from a verified
 current human member to publish a top-level channel message, is recorded in the
@@ -1644,8 +1698,9 @@ introduce storage syntax outside that contract. It has three document kinds:
 
 - one canonical **Organization Brief** per organization, used to tell the
   Center Agent who the organization is, how it works, and how work is assigned;
-- at most one **Profile Report** per organization member, associated with that
-  member's user identity; and
+- dated **Profile Reports** associated with an organization member's user
+  identity; each automatic learning run creates a new report instead of
+  replacing that person's report history; and
 - up to 50 ordinary **knowledge** documents.
 
 Documents may be organized into nested, organization-scoped **folders** (up to
@@ -1656,19 +1711,33 @@ meaning to the Center Agent context assembly. Deleting a folder unwraps one
 level: its documents and direct child folders move to the deleted folder's
 parent, and it never deletes document content. Folder create, rename, delete,
 moving folders, and moving documents require owner/admin authority, and every
-current member sees the same hierarchy. The Center Agent may create root or
-nested folders, rename folders, and move documents when acting for a verified
-owner/admin. Folder deletion and moving an existing folder remain human-only
-management actions.
+current member sees the same hierarchy. OpenMeld owns one managed **Profile
+Reports** root and one managed child folder per researched person. Reports are
+stored at `Profile Reports / {person name} / {YYYY-MM-DD} — {report type}`. If
+more than one report of the same type is created for a person on the same day,
+Core preserves every run and adds a human-readable ordinal suffix such as
+` (2)`. Reports carry the report date and type as structured metadata. Managed
+report folders
+cannot be renamed, moved, deleted, used for unrelated documents, or extended
+with manual child folders. The Center Agent may create other root or nested
+folders, rename those folders, and move ordinary documents when acting for a
+verified owner/admin. Deleting and moving other existing folders remain
+human-only management actions.
 
 Every current organization member may read documents. Owners and admins may
 create, rename, edit, delete, approve, and discard across the organization. A
-member may edit only the approved Markdown body of an existing Profile Report
-about them; that exception does not grant creation, title, deletion, approval,
-folder management, or other-member access.
+member may edit only the Markdown body of an existing Profile Report about
+them; that exception does not grant creation, title, deletion, approval, folder
+management, report placement, or other-member access.
 
 The Center Agent normally creates or replaces the single pending draft for a
-document so a human can review it. When a verified owner/admin explicitly asks
+document. Ordinary Organization Brief and knowledge drafts use an explicit
+human review flow. A Profile Report starts as a provisional working report, but
+Web presents the latest report as **What I've learned so far** in the normal
+editable Document surface without assigning approval, correction, or discard
+work. Saving any human edit turns that version into the current Document content
+and clears its internal provisional fields; the person can also simply tell the
+Center Agent when something feels off. When a verified owner/admin explicitly asks
 for a direct save in the current accepted turn, or explicitly grants a Routine
 the structured `organization_documents.save_approved_knowledge` action, the
 Center Agent may create or update approved ordinary knowledge content without a
@@ -1677,10 +1746,10 @@ Core binds the save to the current accepted native delivery and, for a Routine,
 to its current Run and stored action grant. Direct saves never apply to the
 Organization Brief or Profile Reports, and they fail while the target document
 has a pending draft so an unreviewed proposal cannot be erased or silently
-approved. Human edits continue to write approved content directly without
-clearing a pending draft. Approval and discard carry the draft version the
-human reviewed; if the Center Agent replaces that draft first, Core rejects the
-stale review so the human must read the latest proposal.
+approved. Human edits to ordinary documents continue to write approved content
+without clearing a pending review draft. Approval and discard carry the draft
+version the human reviewed; if the Center Agent replaces that draft first, Core
+rejects the stale review so the human must read the latest proposal.
 
 When the Center Agent performs substantial file-based editing, it checks out a
 writable Computer working copy from the approved Documents projection. The
@@ -1716,19 +1785,29 @@ missing document exposes a creation link only when the document projection says
 the current actor can manage Organization documents; otherwise the card
 explains that owners and admins must create it. A single-member learning start
 failure stays on that member's card with its retry action. **Learn about** asks
-the designated Center Agent to process one member at a time and create or
-replace that Profile Report's pending draft. The all-members operation is
+the designated Center Agent to process one member at a time and create one new
+dated Profile Report. The all-members operation is
 serial: one task reaches a terminal outcome before Core starts the next, and
 one failure is recorded without stopping the remaining members. Research never
-bypasses document review.
+writes approved document content directly.
+
+A verified member may also ask the Center Agent in an interactive conversation
+to learn about them or create a fresh Profile Report. The model-visible action
+is deliberately self-only: Core derives the subject from the verified speaker,
+starts the same durable single-member research workflow, and never accepts a
+model-selected user id. The Center Agent immediately says that the background
+learning run has started and does not claim the new report is complete until
+the research task reaches its terminal outcome. User-defined recurring learning
+plans and proactive opt-in prompts for organization-wide automatic learning are
+future extensions of this same workflow, not alternate document writers.
 
 Human Profile cards use the same top-right action model as Agent Profile cards.
 The icon row owns **Learn about {member}**, **Direct Message** for another active
 Human Profile, **Edit Human Profile** for the signed-in member's own active
 default Human Profile, and an overflow menu whose **About profile** item opens
-the shared profile-details surface. The Profile Report action and its
-**Report waiting for review** state remain in the card's content area; they are
-document workflow, not profile chrome. Self-Direct Messages are unavailable,
+the shared profile-details surface. The **Profile Report** action remains in
+the card's content area and opens the latest report without a warning-style
+review state. It is document content, not profile chrome. Self-Direct Messages are unavailable,
 and owners or admins do not receive an edit action for another member's Human
 Profile. Editing the current member's default Human Profile reuses the paired
 Account Display Name mutation rather than introducing a second identity writer.
@@ -1766,13 +1845,14 @@ exposes device details.
 collide with Agent Profile or Human Profile identity. The persisted document
 kind remains `member_profile`, and the orchestration contract remains member
 research; those internal compatibility names do not appear as the document's
-user-facing name. New reports default to `{member name} Profile Report`.
+user-facing name. New work-profile reports default to
+`{YYYY-MM-DD} — Work Profile` inside the managed folder for that person.
 
 A member-research callback settles its native delivery and research task; it
-does not publish a fabricated Center Agent Direct Message. A pending draft may
-become available for review before that settlement finishes, so clients must
-distinguish **Draft available** from a terminal research outcome. Completion
-feedback is emitted only after the research task reaches that terminal outcome.
+does not publish a fabricated Center Agent Direct Message. A provisional report
+may become available before that settlement finishes, so clients must not call
+the research complete until its task reaches a terminal outcome. Completion
+feedback is emitted only after that terminal outcome.
 
 The server-authored task may use Organization directory identity, Slack
 workspace directory identity metadata, approved Organization documents, the

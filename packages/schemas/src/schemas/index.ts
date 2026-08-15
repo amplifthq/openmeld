@@ -984,6 +984,7 @@ export {
   centerAgentMemberResearchScopeSchema,
   centerAgentMemberResearchTaskSchema,
   centerAgentMemberResearchTaskStatusSchema,
+  centerAgentStartSelfMemberResearchToolRpcInputSchema,
   getCenterAgentMemberResearchStatusResponseSchema,
   getCenterAgentMemberResearchStatusRpcInputSchema,
   startCenterAgentMemberResearchBodySchema,
@@ -1385,7 +1386,9 @@ export {
   approveOrganizationDocumentDraftBodySchema,
   approveOrganizationDocumentDraftResponseSchema,
   approveOrganizationDocumentDraftRpcInputSchema,
+  buildCenterAgentProfileReportComputerPath,
   CENTER_AGENT_ORGANIZATION_DOCUMENT_DRAFT_CREATED_BY,
+  CENTER_AGENT_PROFILE_REPORT_COMPUTER_ROOT,
   centerAgentDraftOrganizationDocumentResponseSchema,
   centerAgentDraftOrganizationDocumentRpcInputSchema,
   centerAgentManageOrganizationDocumentsResponseSchema,
@@ -1429,6 +1432,9 @@ export {
   organizationDocumentRouteParamsSchema,
   organizationDocumentSchema,
   organizationDocumentSummarySchema,
+  profileReportTypeSchema,
+  recordCenterAgentMemberResearchComputerFileResponseSchema,
+  recordCenterAgentMemberResearchComputerFileRpcInputSchema,
   updateOrganizationDocumentBodySchema,
   updateOrganizationDocumentFolderBodySchema,
   updateOrganizationDocumentFolderResponseSchema,
@@ -1671,8 +1677,11 @@ export {
 } from "./http/runtime-reporting";
 export {
   centerAgentListSlackChannelsBodySchema,
+  centerAgentListSlackChannelsResponseSchema,
   centerAgentReadSlackChannelHistoryBodySchema,
+  centerAgentReadSlackChannelHistoryResponseSchema,
   centerAgentReadSlackChannelMembersBodySchema,
+  centerAgentReadSlackChannelMembersResponseSchema,
   slackChannelHistoryMessageSchema,
   slackChannelHistoryResponseSchema,
   slackChannelListResponseSchema,
@@ -1692,6 +1701,8 @@ export {
 } from "./http/slack-oauth";
 export {
   centerAgentReadSlackWorkspaceDirectoryBodySchema,
+  centerAgentReadSlackWorkspaceDirectoryResponseSchema,
+  slackReadUnavailableResponseSchema,
   slackWorkspaceDirectoryMemberSchema,
   slackWorkspaceDirectoryResponseSchema,
   slackWorkspaceMembershipSchema,
@@ -2336,6 +2347,7 @@ export {
   remoteAgentRuntimeEvidenceOutcomeReasonCodeSchema,
   remoteAgentRuntimeEvidenceReasonCodeSchema,
   remoteAgentSlackAppMentionEventSchema,
+  remoteAgentSlackDirectMessageEventSchema,
   remoteAgentSlackEventCallbackPayloadSchema,
   remoteAgentSlackEventQueueMessageSchema,
   remoteAgentSlackEventsApiPayloadSchema,
@@ -2379,6 +2391,8 @@ export {
   remoteAgentWorkerSubmitTurnResponseSchema,
   remoteAgentWorkerTurnMessageSchema,
   routineWorkflowContinuationEventPayloadSchema,
+  slackWelcomeInteractionRpcInputSchema,
+  slackWelcomeInteractionRpcResponseSchema,
   spaceWakeAgentTaskHandleSchema,
 } from "./runtime/index";
 export { spaceAuthorityOrderSchema } from "./space-mesh/authority-order";

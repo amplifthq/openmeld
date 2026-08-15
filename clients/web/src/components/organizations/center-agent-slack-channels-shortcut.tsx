@@ -16,6 +16,7 @@ export function CenterAgentSlackChannelsShortcut(input: {
 		<CenterAgentSlackConnectionDialog
 			managementPath={buildOrganizationChannelsPath(input.organizationSlug)}
 			mode="channels-handoff"
+			organizationSlug={input.organizationSlug}
 			slackConnection={input.slackConnection}
 			trigger={
 				<Button size="sm" type="button" variant="ghost">

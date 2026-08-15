@@ -133,6 +133,9 @@ sentence.
   creating a Space, the reply points to one private **Connect my account and
   continue** action. It never asks the participant to find a session with the
   right tool catalog or enable internal tools.
+- Applied: the first Profile Report says **What I've learned so far** and shows
+  the result. It does not turn the Center Agent's work into an approval chore
+  with **review**, **correct**, or **discard** instructions.
 - Violation looks like: `agent_profile_binding.primary_conflict` as the
   headline of a user-facing failure, telling a beginner that a tool catalog is
   unavailable, or copy that hedges because the developer was unsure.
@@ -161,6 +164,9 @@ separate safeguard against slips.
   existing member account is worth offering when a personal action is blocked.
   The signed-in person still sees both accounts and explicitly connects them.
   Model confidence or a reply such as "yes" never becomes authority.
+- Applied: member research produces a provisional Profile Report and presents
+  it immediately. The person can simply tell the Center Agent when something
+  feels off; showing the result does not require a second approval ritual.
 - Violation looks like: treating a tool's ability to write as a reason to ask
   again after the user already asked for that write, making an unattended
   Routine impossible because no one is present to repeat its instruction, or
@@ -184,6 +190,9 @@ state.
   lets the user continue without composing a message to Center Agent.
 - Applied: a recommendation pairs one primary action with a programmatic demo;
   optional details expand only when the user chooses to edit them.
+- Applied: Center Agent replies to a top-level Slack direct message in the main
+  conversation like a normal chat. It uses a thread only when the person is
+  already talking in that thread; channel replies stay threaded to avoid noise.
 - Violation looks like: opening onboarding with "What do you want AI to do for
   your organization?", teaching Center Agent vocabulary before it has useful
   context, or using a paragraph where one labeled outcome and animation would

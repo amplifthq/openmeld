@@ -1,8 +1,15 @@
 // @vitest-environment jsdom
 import { MarkdownPlugin } from "@platejs/markdown";
-import { createPlateEditor } from "platejs/react";
+import { getTableColumnCount } from "@platejs/table";
+import { TablePlugin } from "@platejs/table/react";
+import { KEYS, type TTableElement } from "platejs";
+import { createPlateEditor, type PlateEditor } from "platejs/react";
 import { describe, expect, it } from "vitest";
 import { DocumentEditorKit } from "./plugins/document-editor-kit";
+import {
+	DOCUMENT_TABLE_INITIAL_WIDTH,
+	resolveDocumentTableColumnSizes,
+} from "./table-layout";
 
 /**
  * Organization documents persist as CommonMark + GFM text that the Center
@@ -11,10 +18,18 @@ import { DocumentEditorKit } from "./plugins/document-editor-kit";
  * stable (idempotent) and must not destroy GFM structure or unknown syntax.
  */
 
-function roundTrip(markdown: string): string {
+function createDocumentEditor(markdown: string): PlateEditor {
 	const editor = createPlateEditor({ plugins: DocumentEditorKit });
 	const api = editor.getApi(MarkdownPlugin);
 	editor.children = api.markdown.deserialize(markdown);
+
+	return editor;
+}
+
+function roundTrip(markdown: string): string {
+	const editor = createDocumentEditor(markdown);
+	const api = editor.getApi(MarkdownPlugin);
+
 	return api.markdown.serialize();
 }
 
@@ -82,6 +97,31 @@ describe("document editor markdown round-trip", () => {
 		const twice = roundTrip(once);
 
 		expect(twice).toBe(once);
+	});
+
+	it("initializes a Markdown table at a readable document width", () => {
+		const editor =
+			createDocumentEditor(`| Source | Coverage | Time range | Evidence |
+| --- | --- | --- | --- |
+| Organization directory | Checked | Last 6 months | Confirmed |`);
+		const [[table]] = editor.api.nodes<TTableElement>({
+			at: [],
+			match: { type: editor.getType(KEYS.table) },
+		});
+		const columnCount = getTableColumnCount(table);
+		const resolvedColSizes = resolveDocumentTableColumnSizes(
+			columnCount,
+			table.colSizes ?? []
+		);
+
+		expect(editor.getOptions(TablePlugin).initialTableWidth).toBe(
+			DOCUMENT_TABLE_INITIAL_WIDTH
+		);
+		expect(table.colSizes).toBeUndefined();
+		expect(resolvedColSizes).toEqual([180, 180, 180, 180]);
+		expect(resolvedColSizes.reduce((total, width) => total + width, 0)).toBe(
+			DOCUMENT_TABLE_INITIAL_WIDTH
+		);
 	});
 
 	it("keeps unsupported syntax as plain text instead of rewriting it", () => {

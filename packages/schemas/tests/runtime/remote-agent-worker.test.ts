@@ -773,7 +773,7 @@ describe("Remote Agent worker contracts", () => {
     ).toBe(false);
   });
 
-  it("keeps Slack channel names optional without weakening strict parsing", () => {
+  it("keeps Slack reply placement and channel names optional without weakening strict parsing", () => {
     const slackEnvelope = {
       ...createRemoteAgentTurnEnvelope(),
       trigger: {
@@ -797,9 +797,19 @@ describe("Remote Agent worker contracts", () => {
         trigger: {
           ...slackEnvelope.trigger,
           channelId: "C123",
+          replyPlacement: "conversation",
         },
       }).success
     ).toBe(true);
+    expect(
+      remoteAgentTurnEnvelopeSchema.safeParse({
+        ...slackEnvelope,
+        trigger: {
+          ...slackEnvelope.trigger,
+          replyPlacement: "sidebar",
+        },
+      }).success
+    ).toBe(false);
     expect(
       remoteAgentTurnEnvelopeSchema.safeParse({
         ...slackEnvelope,
