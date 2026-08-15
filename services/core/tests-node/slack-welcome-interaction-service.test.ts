@@ -73,6 +73,62 @@ describe("Slack welcome teammate invitations", () => {
     });
   });
 
+  it("stops reading the Slack roster once every selected teammate is resolved", async () => {
+    seedActiveJoinLink(harness);
+    slackFetch.mockImplementation((url: string, request?: RequestInit) => {
+      if (url.startsWith("https://slack.com/api/users.list")) {
+        const cursor = new URL(url).searchParams.get("cursor");
+        if (cursor === "page-2") {
+          return Response.json({
+            members: [
+              {
+                id: "U_UNRELATED",
+                profile: { display_name: "Sam", email: "sam@example.com" },
+              },
+            ],
+            ok: true,
+            response_metadata: { next_cursor: "" },
+          });
+        }
+        return Response.json({
+          members: [
+            {
+              id: "U_ACTOR",
+              profile: { display_name: "Alex", email: "alex@example.com" },
+            },
+            {
+              id: "U_TARGET",
+              profile: { display_name: "Maya", email: "maya@example.com" },
+            },
+          ],
+          ok: true,
+          response_metadata: { next_cursor: "page-2" },
+        });
+      }
+      if (url === "https://slack.com/api/chat.postMessage") {
+        const body = JSON.parse(String(request?.body)) as { channel: string };
+        return Response.json({ channel: body.channel, ok: true, ts: "1723.1" });
+      }
+      throw new Error(`Unexpected Slack request: ${url}`);
+    });
+
+    await expect(
+      handleSlackWelcomeInteraction(
+        buildEnv({
+          db: harness.db,
+          ensureOrganizationJoinLinkOnBehalfOf: vi.fn(),
+        }),
+        teammateInviteInput()
+      )
+    ).resolves.toEqual({ handled: true });
+
+    expect(
+      slackFetch.mock.calls.filter(([url]) =>
+        url.startsWith("https://slack.com/api/users.list")
+      )
+    ).toHaveLength(1);
+  });
+
   it("gives a member one clear next step when no invite link exists", async () => {
     const ensureOrganizationJoinLinkOnBehalfOf = vi.fn(async () => ({
       code: "organization.join_link.forbidden" as const,

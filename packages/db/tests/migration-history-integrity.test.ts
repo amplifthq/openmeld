@@ -2057,6 +2057,21 @@ describe("shared drizzle migration history integrity", () => {
           1000,
           1000
         );
+        INSERT INTO organization_document_folders (
+          id,
+          organization_id,
+          parent_folder_id,
+          name,
+          created_at,
+          updated_at
+        ) VALUES (
+          'profile-report-child-folder',
+          'profile-report-org',
+          'profile-report-folder',
+          'Existing profiles',
+          1000,
+          1000
+        );
         INSERT INTO organization_documents (
           id,
           organization_id,
@@ -2072,7 +2087,7 @@ describe("shared drizzle migration history integrity", () => {
           'profile-report-org',
           'member_profile',
           'profile-report-user',
-          'profile-report-folder',
+          'profile-report-child-folder',
           'Existing work profile',
           'Existing profile content',
           1000,
@@ -2085,13 +2100,14 @@ describe("shared drizzle migration history integrity", () => {
       expect(
         database
           .prepare(
-            `SELECT id, title, content, profile_report_date, profile_report_type
+            `SELECT id, title, content, folder_id, profile_report_date, profile_report_type
              FROM organization_documents
              WHERE id = 'profile-report-document'`
           )
           .get()
       ).toEqual({
         content: "Existing profile content",
+        folder_id: "profile-report-child-folder",
         id: "profile-report-document",
         profile_report_date: null,
         profile_report_type: null,
@@ -2100,14 +2116,15 @@ describe("shared drizzle migration history integrity", () => {
       expect(
         database
           .prepare(
-            `SELECT id, name, system_kind, subject_user_id
+            `SELECT id, name, parent_folder_id, system_kind, subject_user_id
              FROM organization_document_folders
-             WHERE id = 'profile-report-folder'`
+             WHERE id = 'profile-report-child-folder'`
           )
           .get()
       ).toEqual({
-        id: "profile-report-folder",
-        name: "People",
+        id: "profile-report-child-folder",
+        name: "Existing profiles",
+        parent_folder_id: "profile-report-folder",
         subject_user_id: null,
         system_kind: null,
       });

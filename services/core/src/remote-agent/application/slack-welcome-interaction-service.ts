@@ -364,12 +364,14 @@ async function sendSelectedTeammateInvitations(input: {
     });
     return;
   }
-  const members = await listAllSlackWorkspaceMembers({
+  const memberById = await listSlackWorkspaceMembersUntilTargetsResolved({
     botToken: input.botToken,
+    targetSlackUserIds: new Set(
+      input.input.targetSlackUserIds.filter(
+        (slackUserId) => slackUserId !== input.input.slackUserId
+      )
+    ),
   });
-  const memberById = new Map(
-    members.map((member) => [member.slackUserId, member] as const)
-  );
   const inviterName =
     memberById.get(input.input.slackUserId)?.displayName ?? "A teammate";
   const targets = input.input.targetSlackUserIds.flatMap((slackUserId) => {
@@ -488,20 +490,31 @@ function buildTeammateInviteModal(): Record<string, unknown> {
   };
 }
 
-async function listAllSlackWorkspaceMembers(input: {
+async function listSlackWorkspaceMembersUntilTargetsResolved(input: {
   botToken: string;
-}): Promise<SlackWorkspaceMember[]> {
-  const members: SlackWorkspaceMember[] = [];
+  targetSlackUserIds: ReadonlySet<string>;
+}): Promise<Map<string, SlackWorkspaceMember>> {
+  const memberById = new Map<string, SlackWorkspaceMember>();
+  const unresolvedTargetSlackUserIds = new Set(input.targetSlackUserIds);
+  if (unresolvedTargetSlackUserIds.size === 0) {
+    return memberById;
+  }
   let cursor: string | undefined;
   do {
     const page = await listSlackWorkspaceMembers({
       botToken: input.botToken,
       ...(cursor ? { cursor } : {}),
     });
-    members.push(...page.members);
+    for (const member of page.members) {
+      memberById.set(member.slackUserId, member);
+      unresolvedTargetSlackUserIds.delete(member.slackUserId);
+    }
+    if (unresolvedTargetSlackUserIds.size === 0) {
+      return memberById;
+    }
     cursor = page.nextCursor ?? undefined;
   } while (cursor);
-  return members;
+  return memberById;
 }
 
 export function buildPrivateTeammateInvitationMessage(input: {

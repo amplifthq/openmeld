@@ -157,7 +157,6 @@ CREATE TABLE `__new_organization_documents` (
 INSERT INTO `__new_organization_documents`("id", "organization_id", "kind", "subject_user_id", "folder_id", "title", "content", "draft_content", "draft_created_by", "draft_created_at", "last_member_research_task_id", "created_at", "updated_at") SELECT "id", "organization_id", "kind", "subject_user_id", "folder_id", "title", "content", "draft_content", "draft_created_by", "draft_created_at", "last_member_research_task_id", "created_at", "updated_at" FROM `organization_documents`;--> statement-breakpoint
 DROP TABLE `organization_documents`;--> statement-breakpoint
 ALTER TABLE `__new_organization_documents` RENAME TO `organization_documents`;--> statement-breakpoint
-PRAGMA foreign_keys=ON;--> statement-breakpoint
 CREATE UNIQUE INDEX `organization_documents_org_brief_unique` ON `organization_documents` (`organization_id`) WHERE "kind" = 'brief';--> statement-breakpoint
 CREATE INDEX `organization_documents_org_member_profile_date_idx` ON `organization_documents` (`organization_id`,`subject_user_id`,"profile_report_date" desc);--> statement-breakpoint
 CREATE UNIQUE INDEX `organization_documents_profile_report_title_unique` ON `organization_documents` (`organization_id`,`subject_user_id`,`profile_report_date`,`profile_report_type`,`title`) WHERE "kind" = 'member_profile' and "profile_report_date" is not null;--> statement-breakpoint
@@ -190,4 +189,5 @@ CREATE UNIQUE INDEX `organization_document_folders_root_name_unique` ON `organiz
 CREATE UNIQUE INDEX `organization_document_folders_sibling_name_unique` ON `organization_document_folders` (`organization_id`,`parent_folder_id`,`name_key`) WHERE "organization_document_folders"."parent_folder_id" is not null;--> statement-breakpoint
 CREATE UNIQUE INDEX `organization_document_folders_profile_reports_root_unique` ON `organization_document_folders` (`organization_id`,`system_kind`) WHERE "organization_document_folders"."system_kind" = 'profile_reports_root';--> statement-breakpoint
 CREATE UNIQUE INDEX `organization_document_folders_profile_reports_person_unique` ON `organization_document_folders` (`organization_id`,`subject_user_id`) WHERE "organization_document_folders"."system_kind" = 'profile_reports_person';--> statement-breakpoint
-CREATE INDEX `organization_document_folders_parent_name_idx` ON `organization_document_folders` (`organization_id`,`parent_folder_id`,`name`);
+CREATE INDEX `organization_document_folders_parent_name_idx` ON `organization_document_folders` (`organization_id`,`parent_folder_id`,`name`);--> statement-breakpoint
+PRAGMA foreign_keys=ON;
