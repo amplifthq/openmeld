@@ -163,6 +163,55 @@ export function createSqliteD1Harness(): {
   };
 }
 
+export function createFaultInjectingD1Database(input: {
+  db: D1Database;
+  failureCount?: number;
+  matches: (sql: string, operation: "all" | "first" | "run") => boolean;
+}): D1Database {
+  let failuresRemaining = input.failureCount ?? 1;
+  const delegateByStatement = new WeakMap<object, D1PreparedStatement>();
+  const wrap = (
+    delegate: D1PreparedStatement,
+    sql: string
+  ): D1PreparedStatement => {
+    const failIfMatched = (operation: "all" | "first" | "run"): void => {
+      if (failuresRemaining > 0 && input.matches(sql, operation)) {
+        failuresRemaining -= 1;
+        throw new Error("injected D1 operation failure");
+      }
+    };
+    const wrapped = {
+      all: async <TRow>() => {
+        failIfMatched("all");
+        return await delegate.all<TRow>();
+      },
+      bind: (...values: unknown[]) => wrap(delegate.bind(...values), sql),
+      first: async <TRow>(columnName?: string) => {
+        failIfMatched("first");
+        return columnName === undefined
+          ? await delegate.first<TRow>()
+          : await delegate.first<TRow>(columnName);
+      },
+      run: async () => {
+        failIfMatched("run");
+        return await delegate.run();
+      },
+    } as D1PreparedStatement;
+    delegateByStatement.set(wrapped, delegate);
+    return wrapped;
+  };
+
+  return {
+    batch: async (statements: D1PreparedStatement[]) =>
+      await input.db.batch(
+        statements.map(
+          (statement) => delegateByStatement.get(statement) ?? statement
+        )
+      ),
+    prepare: (sql: string) => wrap(input.db.prepare(sql), sql),
+  } as D1Database;
+}
+
 export type SplitDomain =
   | "openmeld-identity"
   | "openmeld-local-state"

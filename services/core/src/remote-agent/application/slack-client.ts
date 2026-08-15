@@ -467,19 +467,56 @@ export async function findSlackThreadMessageByMetadata(input: {
   signal?: AbortSignal;
   threadTs: string;
 }): Promise<{ id: string } | null> {
-  let cursor: string | null = null;
-  for (let page = 0; page < 10; page += 1) {
-    const params = new URLSearchParams({
+  return await findSlackMessageByMetadata({
+    ...input,
+    methodName: "conversations.replies",
+    params: new URLSearchParams({
       channel: input.channelId,
       include_all_metadata: "true",
       limit: "100",
       ts: input.threadTs,
-    });
+    }),
+  });
+}
+
+export async function findSlackTopLevelMessageByMetadata(input: {
+  botToken: string;
+  channelId: string;
+  eventPayloadKey: string;
+  eventPayloadValue: string;
+  eventType: string;
+  fetchImpl?: FetchLike;
+  signal?: AbortSignal;
+}): Promise<{ id: string } | null> {
+  return await findSlackMessageByMetadata({
+    ...input,
+    methodName: "conversations.history",
+    params: new URLSearchParams({
+      channel: input.channelId,
+      include_all_metadata: "true",
+      limit: "100",
+    }),
+  });
+}
+
+async function findSlackMessageByMetadata(input: {
+  botToken: string;
+  eventPayloadKey: string;
+  eventPayloadValue: string;
+  eventType: string;
+  fetchImpl?: FetchLike;
+  methodName: "conversations.history" | "conversations.replies";
+  params: URLSearchParams;
+  signal?: AbortSignal;
+}): Promise<{ id: string } | null> {
+  let cursor: string | null = null;
+  for (let page = 0; page < 10; page += 1) {
+    const params = new URLSearchParams(input.params);
     if (cursor) {
       params.set("cursor", cursor);
     }
     const response = await (input.fetchImpl ?? fetch)(
-      `${SLACK_API_BASE_URL}/conversations.replies?${params.toString()}`,
+      `${SLACK_API_BASE_URL}/${input.methodName}?${params.toString()}`,
       {
         headers: buildSlackHeaders(input.botToken),
         method: "GET",
@@ -487,7 +524,7 @@ export async function findSlackThreadMessageByMetadata(input: {
       }
     );
     const data = await readSlackApiResponse(response);
-    assertSlackOk(response, data, "conversations.replies");
+    assertSlackOk(response, data, input.methodName);
     const match = (data.messages ?? []).find(
       (message) =>
         message.metadata?.event_type === input.eventType &&
@@ -612,6 +649,10 @@ export async function postSlackDirectMessage(input: {
   blocks?: readonly SlackBlockKitBlock[];
   botToken: string;
   fetchImpl?: FetchLike;
+  metadata?: {
+    eventPayload: Record<string, string>;
+    eventType: string;
+  };
   recipientUserId: string;
   signal?: AbortSignal;
   text: string;
@@ -621,6 +662,7 @@ export async function postSlackDirectMessage(input: {
     botToken: input.botToken,
     channelId: input.recipientUserId,
     fetchImpl: input.fetchImpl,
+    metadata: input.metadata,
     signal: input.signal,
     text: input.text,
   });

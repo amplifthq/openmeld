@@ -1482,6 +1482,14 @@ reads one bounded recent page before posting a short introduction grounded in
 the channel's actual work. Core freezes the selected channels as one immutable
 durable manifest before the acknowledgement is published, then submits one
 idempotent native delivery per channel and checkpoints each item separately.
+The acknowledgement and each private teammate invitation carry stable Slack
+message metadata. A confirmed Slack message followed by a failed D1 checkpoint
+stays recoverable rather than becoming a false terminal failure: Core first
+retries the checkpoint, then scheduled work reconciles the exact Slack message
+before continuing onboarding or channel publication. Recovery never blindly
+duplicates a provider-ambiguous message. If the original channel acknowledgement
+cannot be confirmed, the one private retry action is also durably claimed,
+checkpointed, and reconciled instead of being sent as an untracked follow-up.
 The minute scheduler reclaims only an interrupted item; a completed channel is
 never silently repeated and a process restart cannot make a later selected
 channel disappear. Core includes an existing active Organization join

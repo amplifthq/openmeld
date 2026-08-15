@@ -750,9 +750,23 @@ export const slackChannelIntroductionRuns = sqliteTable(
     dmChannelId: text("dm_channel_id").notNull(),
     organizationInviteUrl: text("organization_invite_url"),
     status: text("status", {
-      enum: ["ack_pending", "ready", "failed", "outcome_unknown"],
+      enum: [
+        "ack_pending",
+        "ready",
+        "failed",
+        "outcome_unknown",
+        "recovery_notice_pending",
+        "recovery_notice_submitting",
+        "recovery_notice_delivered",
+        "recovery_notice_failed",
+        "recovery_notice_outcome_unknown",
+      ],
     }).notNull(),
     acknowledgementTs: text("acknowledgement_ts"),
+    recoveryNoticeTs: text("recovery_notice_ts"),
+    recoveryNoticeAttemptCount: integer("recovery_notice_attempt_count")
+      .notNull()
+      .default(0),
     failureCode: text("failure_code"),
     createdAtMs: integer("created_at_ms").notNull(),
     updatedAtMs: integer("updated_at_ms").notNull(),
@@ -774,14 +788,19 @@ export const slackChannelIntroductionRuns = sqliteTable(
     ),
     check(
       "slack_channel_introduction_runs_status_check",
-      sql`"status" in ('ack_pending', 'ready', 'failed', 'outcome_unknown')`
+      sql`"status" in ('ack_pending', 'ready', 'failed', 'outcome_unknown', 'recovery_notice_pending', 'recovery_notice_submitting', 'recovery_notice_delivered', 'recovery_notice_failed', 'recovery_notice_outcome_unknown')`
     ),
     check(
       "slack_channel_introduction_runs_outcome_shape_check",
       sql`(
-        ("status" = 'ack_pending' AND "acknowledgement_ts" IS NULL AND "failure_code" IS NULL)
-        OR ("status" = 'ready' AND length(trim("acknowledgement_ts")) > 0 AND "failure_code" IS NULL)
-        OR ("status" IN ('failed', 'outcome_unknown') AND "acknowledgement_ts" IS NULL AND length(trim("failure_code")) > 0)
+        "recovery_notice_attempt_count" >= 0
+        AND (
+          ("status" = 'ack_pending' AND "acknowledgement_ts" IS NULL AND "recovery_notice_ts" IS NULL AND "failure_code" IS NULL)
+          OR ("status" = 'ready' AND length(trim("acknowledgement_ts")) > 0 AND "recovery_notice_ts" IS NULL AND "failure_code" IS NULL)
+          OR ("status" IN ('failed', 'outcome_unknown') AND "acknowledgement_ts" IS NULL AND "recovery_notice_ts" IS NULL AND length(trim("failure_code")) > 0)
+          OR ("status" IN ('recovery_notice_pending', 'recovery_notice_submitting', 'recovery_notice_failed', 'recovery_notice_outcome_unknown') AND "acknowledgement_ts" IS NULL AND "recovery_notice_ts" IS NULL AND length(trim("failure_code")) > 0)
+          OR ("status" = 'recovery_notice_delivered' AND "acknowledgement_ts" IS NULL AND length(trim("recovery_notice_ts")) > 0 AND length(trim("failure_code")) > 0)
+        )
       )`
     ),
     check(

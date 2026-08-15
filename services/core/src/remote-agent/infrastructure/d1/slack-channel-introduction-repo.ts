@@ -12,7 +12,16 @@ export type SlackChannelIntroductionRun = {
   organizationInviteUrl: string | null;
   requesterSlackUserId: string;
   slackTeamId: string;
-  status: "ack_pending" | "failed" | "outcome_unknown" | "ready";
+  status:
+    | "ack_pending"
+    | "failed"
+    | "outcome_unknown"
+    | "ready"
+    | "recovery_notice_delivered"
+    | "recovery_notice_failed"
+    | "recovery_notice_outcome_unknown"
+    | "recovery_notice_pending"
+    | "recovery_notice_submitting";
 };
 
 export type SlackChannelIntroductionItemClaim = {
@@ -22,6 +31,21 @@ export type SlackChannelIntroductionItemClaim = {
   run: SlackChannelIntroductionRun & { acknowledgementTs: string };
   slackChannelId: string;
   slackChannelName: string;
+};
+
+export type PendingSlackChannelIntroductionAcknowledgement = {
+  dmChannelId: string;
+  interactionId: string;
+  slackTeamId: string;
+  updatedAtMs: number;
+};
+
+export type SlackChannelIntroductionRecoveryNotice = {
+  attemptCount: number;
+  dmChannelId: string;
+  interactionId: string;
+  slackTeamId: string;
+  updatedAtMs: number;
 };
 
 type SlackChannelIntroductionRunRow = {
@@ -43,6 +67,226 @@ type SlackChannelIntroductionItemRow = {
 };
 
 const STALE_CHANNEL_INTRODUCTION_CLAIM_MS = 5 * 60_000;
+
+export async function listPendingSlackChannelIntroductionAcknowledgements(input: {
+  beforeOrAtMs: number;
+  db: D1Database;
+  interactionId?: string;
+  limit?: number;
+}): Promise<PendingSlackChannelIntroductionAcknowledgement[]> {
+  const limit = Math.max(1, Math.min(input.limit ?? 16, 64));
+  const runs = await input.db
+    .prepare(
+      `
+        SELECT interaction_id, slack_team_id, dm_channel_id, updated_at_ms
+        FROM slack_channel_introduction_runs
+        WHERE status = 'ack_pending'
+          AND updated_at_ms <= ?
+          AND (? IS NULL OR interaction_id = ?)
+        ORDER BY updated_at_ms ASC, interaction_id ASC
+        LIMIT ?
+      `
+    )
+    .bind(
+      input.beforeOrAtMs,
+      input.interactionId ?? null,
+      input.interactionId ?? null,
+      limit
+    )
+    .all<{
+      dm_channel_id: string;
+      interaction_id: string;
+      slack_team_id: string;
+      updated_at_ms: number;
+    }>();
+  return runs.results.map((run) => ({
+    dmChannelId: run.dm_channel_id,
+    interactionId: run.interaction_id,
+    slackTeamId: run.slack_team_id,
+    updatedAtMs: run.updated_at_ms,
+  }));
+}
+
+export async function scheduleSlackChannelIntroductionRecoveryNotice(input: {
+  db: D1Database;
+  failureCode: string;
+  interactionId: string;
+  nowMs: number;
+}): Promise<boolean> {
+  const scheduled = await input.db
+    .prepare(
+      `
+        UPDATE slack_channel_introduction_runs
+        SET
+          status = 'recovery_notice_pending',
+          acknowledgement_ts = NULL,
+          recovery_notice_ts = NULL,
+          failure_code = ?,
+          updated_at_ms = ?
+        WHERE interaction_id = ? AND status = 'ack_pending'
+        RETURNING interaction_id
+      `
+    )
+    .bind(input.failureCode, input.nowMs, input.interactionId)
+    .first<{ interaction_id: string }>();
+  return scheduled !== null;
+}
+
+export async function claimSlackChannelIntroductionRecoveryNotice(input: {
+  db: D1Database;
+  interactionId?: string;
+  nowMs: number;
+}): Promise<SlackChannelIntroductionRecoveryNotice | null> {
+  const candidate = await input.db
+    .prepare(
+      `
+        SELECT interaction_id
+        FROM slack_channel_introduction_runs
+        WHERE status = 'recovery_notice_pending'
+          AND (? IS NULL OR interaction_id = ?)
+        ORDER BY updated_at_ms ASC, interaction_id ASC
+        LIMIT 1
+      `
+    )
+    .bind(input.interactionId ?? null, input.interactionId ?? null)
+    .first<{ interaction_id: string }>();
+  if (!candidate) {
+    return null;
+  }
+  const claimed = await input.db
+    .prepare(
+      `
+        UPDATE slack_channel_introduction_runs
+        SET
+          status = 'recovery_notice_submitting',
+          recovery_notice_attempt_count = recovery_notice_attempt_count + 1,
+          updated_at_ms = ?
+        WHERE interaction_id = ? AND status = 'recovery_notice_pending'
+        RETURNING
+          interaction_id,
+          slack_team_id,
+          dm_channel_id,
+          recovery_notice_attempt_count,
+          updated_at_ms
+      `
+    )
+    .bind(input.nowMs, candidate.interaction_id)
+    .first<{
+      dm_channel_id: string;
+      interaction_id: string;
+      recovery_notice_attempt_count: number;
+      slack_team_id: string;
+      updated_at_ms: number;
+    }>();
+  return claimed
+    ? {
+        attemptCount: claimed.recovery_notice_attempt_count,
+        dmChannelId: claimed.dm_channel_id,
+        interactionId: claimed.interaction_id,
+        slackTeamId: claimed.slack_team_id,
+        updatedAtMs: claimed.updated_at_ms,
+      }
+    : null;
+}
+
+export async function listStaleSlackChannelIntroductionRecoveryNotices(input: {
+  beforeOrAtMs: number;
+  db: D1Database;
+  interactionId?: string;
+  limit?: number;
+}): Promise<SlackChannelIntroductionRecoveryNotice[]> {
+  const limit = Math.max(1, Math.min(input.limit ?? 16, 64));
+  const result = await input.db
+    .prepare(
+      `
+        SELECT
+          interaction_id,
+          slack_team_id,
+          dm_channel_id,
+          recovery_notice_attempt_count,
+          updated_at_ms
+        FROM slack_channel_introduction_runs
+        WHERE status = 'recovery_notice_submitting'
+          AND updated_at_ms <= ?
+          AND (? IS NULL OR interaction_id = ?)
+        ORDER BY updated_at_ms ASC, interaction_id ASC
+        LIMIT ?
+      `
+    )
+    .bind(
+      input.beforeOrAtMs,
+      input.interactionId ?? null,
+      input.interactionId ?? null,
+      limit
+    )
+    .all<{
+      dm_channel_id: string;
+      interaction_id: string;
+      recovery_notice_attempt_count: number;
+      slack_team_id: string;
+      updated_at_ms: number;
+    }>();
+  return result.results.map((row) => ({
+    attemptCount: row.recovery_notice_attempt_count,
+    dmChannelId: row.dm_channel_id,
+    interactionId: row.interaction_id,
+    slackTeamId: row.slack_team_id,
+    updatedAtMs: row.updated_at_ms,
+  }));
+}
+
+export async function completeSlackChannelIntroductionRecoveryNotice(input: {
+  db: D1Database;
+  interactionId: string;
+  messageTs: string;
+  nowMs: number;
+}): Promise<void> {
+  const completed = await input.db
+    .prepare(
+      `
+        UPDATE slack_channel_introduction_runs
+        SET
+          status = 'recovery_notice_delivered',
+          recovery_notice_ts = ?,
+          updated_at_ms = ?
+        WHERE interaction_id = ? AND status = 'recovery_notice_submitting'
+        RETURNING interaction_id
+      `
+    )
+    .bind(input.messageTs, input.nowMs, input.interactionId)
+    .first<{ interaction_id: string }>();
+  if (!completed) {
+    throw new Error(
+      "Slack channel introduction recovery notice was not claimed"
+    );
+  }
+}
+
+export async function settleSlackChannelIntroductionRecoveryNoticeFailure(input: {
+  db: D1Database;
+  failureCode: string;
+  interactionId: string;
+  nowMs: number;
+  status:
+    | "recovery_notice_failed"
+    | "recovery_notice_outcome_unknown"
+    | "recovery_notice_pending";
+}): Promise<void> {
+  await input.db
+    .prepare(
+      `
+        UPDATE slack_channel_introduction_runs
+        SET
+          status = ?,
+          recovery_notice_ts = NULL,
+          failure_code = ?,
+          updated_at_ms = ?
+        WHERE interaction_id = ? AND status = 'recovery_notice_submitting'
+      `
+    )
+    .bind(input.status, input.failureCode, input.nowMs, input.interactionId)
+    .run();
+}
 
 export async function createSlackChannelIntroductionManifest(input: {
   channels: readonly SlackChannelIntroductionManifestChannel[];
@@ -216,20 +460,6 @@ export async function claimNextSlackChannelIntroductionItem(input: {
     )
     .bind(input.nowMs, input.nowMs - STALE_CHANNEL_INTRODUCTION_CLAIM_MS)
     .run();
-  await input.db
-    .prepare(
-      `
-        UPDATE slack_channel_introduction_runs
-        SET
-          status = 'outcome_unknown',
-          failure_code = 'acknowledgement_outcome_unknown',
-          updated_at_ms = ?
-        WHERE status = 'ack_pending' AND updated_at_ms <= ?
-      `
-    )
-    .bind(input.nowMs, input.nowMs - STALE_CHANNEL_INTRODUCTION_CLAIM_MS)
-    .run();
-
   const candidate = await input.db
     .prepare(
       `

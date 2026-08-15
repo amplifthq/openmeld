@@ -26,11 +26,18 @@ import { readOrganizationAccountIdentityProjection } from "../../organizations/o
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import {
   claimNextSlackChannelIntroductionItem,
+  claimSlackChannelIntroductionRecoveryNotice,
   completeSlackChannelIntroductionAcknowledgement,
   completeSlackChannelIntroductionItemClaim,
+  completeSlackChannelIntroductionRecoveryNotice,
   createSlackChannelIntroductionManifest,
   failSlackChannelIntroductionAcknowledgement,
+  listPendingSlackChannelIntroductionAcknowledgements,
+  listStaleSlackChannelIntroductionRecoveryNotices,
   type SlackChannelIntroductionItemClaim,
+  type SlackChannelIntroductionRecoveryNotice,
+  scheduleSlackChannelIntroductionRecoveryNotice,
+  settleSlackChannelIntroductionRecoveryNoticeFailure,
 } from "../infrastructure/d1/slack-channel-introduction-repo";
 import {
   claimRemoteAgentSlackEventIngress,
@@ -50,6 +57,7 @@ import {
   CENTER_AGENT_CHANNEL_UNAVAILABLE_TEXT,
 } from "./center-agent-channel-failure-copy";
 import { parseCoreOwnedRemoteAgentTurnEnvelope } from "./center-agent-context-scope";
+import { persistConfirmedPublicationCheckpoint } from "./confirmed-publication-checkpoint";
 import {
   admitRemoteAgentSlackNativeDelivery,
   attachCenterAgentMemoryToTurnEnvelope,
@@ -59,6 +67,7 @@ import {
 } from "./native-delivery-service";
 import { resolveSlackBotToken } from "./slack-bot-token";
 import {
+  findSlackTopLevelMessageByMetadata,
   isSlackFullWorkspaceMember,
   joinSlackPublicChannel,
   listSlackChannels,
@@ -73,6 +82,10 @@ import {
   setSlackThreadStatus,
 } from "./slack-client";
 import { buildRemoteAgentSlackConversationId } from "./slack-conversation-id";
+import {
+  SLACK_CHANNEL_INTRODUCTION_ACKNOWLEDGEMENT_METADATA,
+  SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_METADATA,
+} from "./slack-onboarding-publication-identity";
 import { encryptSlackSearchAuthorization } from "./slack-search-authorization";
 import {
   commitSlackThreadContextCursor,
@@ -89,6 +102,10 @@ const REMOTE_AGENT_SLACK_WORKING_STATUS = "is working on your request…";
 const SLACK_CONVERSATION_INFO_LOOKUP_TIMEOUT_MS = 500;
 const SLACK_THREAD_STATUS_TIMEOUT_MS = 500;
 const REMOTE_AGENT_SLACK_EVENT_CLAIM_LEASE_MS = 5 * 60_000;
+const STALE_CHANNEL_INTRODUCTION_ACKNOWLEDGEMENT_MS = 5 * 60_000;
+const SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_MAX_ATTEMPTS = 3;
+const SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_TEXT =
+  "I couldn’t confirm that channel introduction, so I didn’t send anything twice. Open Introduce me in channels and choose the channels again.";
 export const REMOTE_AGENT_SLACK_EVENT_MAX_QUEUE_ATTEMPTS = 4;
 const SLACK_CHANNEL_INTRODUCTION_MAX_PAGES = 100;
 
@@ -370,17 +387,20 @@ export async function submitRemoteAgentSlackChannelIntroduction(input: {
       slackTeamId: input.slackTeamId,
     });
     if (manifest.created) {
+      let acknowledgement: { id: string };
       try {
-        const acknowledgement = await postSlackDirectMessage({
+        acknowledgement = await postSlackDirectMessage({
           botToken,
+          metadata: {
+            eventPayload: {
+              [SLACK_CHANNEL_INTRODUCTION_ACKNOWLEDGEMENT_METADATA.eventPayloadKey]:
+                input.interactionId,
+            },
+            eventType:
+              SLACK_CHANNEL_INTRODUCTION_ACKNOWLEDGEMENT_METADATA.eventType,
+          },
           recipientUserId: dm.channelId,
           text: buildSlackChannelIntroductionAcknowledgement(channelNames),
-        });
-        await completeSlackChannelIntroductionAcknowledgement({
-          acknowledgementTs: acknowledgement.id,
-          db: stateDb,
-          interactionId: input.interactionId,
-          nowMs: Date.now(),
         });
       } catch (error) {
         await failSlackChannelIntroductionAcknowledgement({
@@ -393,6 +413,26 @@ export async function submitRemoteAgentSlackChannelIntroduction(input: {
             error.publicationOutcome === "unknown",
         });
         throw error;
+      }
+      const checkpoint = await persistConfirmedPublicationCheckpoint(
+        async () => {
+          await completeSlackChannelIntroductionAcknowledgement({
+            acknowledgementTs: acknowledgement.id,
+            db: stateDb,
+            interactionId: input.interactionId,
+            nowMs: Date.now(),
+          });
+        }
+      );
+      if (!checkpoint.persisted) {
+        console.warn(
+          "[core.slack_channel_introduction.acknowledgement_checkpoint_pending]",
+          {
+            error: toErrorMessage(checkpoint.error),
+            interactionId: input.interactionId,
+            slackTeamId: input.slackTeamId,
+          }
+        );
       }
     }
     await runSlackChannelIntroductionTick({
@@ -429,6 +469,9 @@ export async function runSlackChannelIntroductionTick(input: {
   limit?: number;
   nowMs: number;
 }): Promise<{ failed: number; outcomeUnknown: number; submitted: number }> {
+  await reconcilePendingSlackChannelIntroductionAcknowledgements(input);
+  await reconcileStaleSlackChannelIntroductionRecoveryNotices(input);
+  await deliverPendingSlackChannelIntroductionRecoveryNotices(input);
   const limit = Math.max(1, Math.min(input.limit ?? 16, 64));
   const result = { failed: 0, outcomeUnknown: 0, submitted: 0 };
   for (let processed = 0; processed < limit; processed += 1) {
@@ -449,6 +492,264 @@ export async function runSlackChannelIntroductionTick(input: {
     result[outcome] += 1;
   }
   return result;
+}
+
+async function reconcilePendingSlackChannelIntroductionAcknowledgements(input: {
+  db: D1Database;
+  env: CoreBindings;
+  interactionId?: string;
+  nowMs: number;
+}): Promise<void> {
+  const pending = await listPendingSlackChannelIntroductionAcknowledgements({
+    beforeOrAtMs: input.nowMs - STALE_CHANNEL_INTRODUCTION_ACKNOWLEDGEMENT_MS,
+    db: input.db,
+    interactionId: input.interactionId,
+  });
+  for (const acknowledgement of pending) {
+    try {
+      const botToken = await resolveSlackBotToken({
+        cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+        db: input.db,
+        fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
+        slackTeamId: acknowledgement.slackTeamId,
+      });
+      const existing = await findSlackTopLevelMessageByMetadata({
+        botToken,
+        channelId: acknowledgement.dmChannelId,
+        eventPayloadKey:
+          SLACK_CHANNEL_INTRODUCTION_ACKNOWLEDGEMENT_METADATA.eventPayloadKey,
+        eventPayloadValue: acknowledgement.interactionId,
+        eventType:
+          SLACK_CHANNEL_INTRODUCTION_ACKNOWLEDGEMENT_METADATA.eventType,
+      });
+      if (!existing) {
+        await scheduleSlackChannelIntroductionRecoveryNotice({
+          db: input.db,
+          failureCode:
+            "slack_channel_introduction.acknowledgement_outcome_unknown",
+          interactionId: acknowledgement.interactionId,
+          nowMs: input.nowMs,
+        });
+        continue;
+      }
+      const checkpoint = await persistConfirmedPublicationCheckpoint(
+        async () => {
+          await completeSlackChannelIntroductionAcknowledgement({
+            acknowledgementTs: existing.id,
+            db: input.db,
+            interactionId: acknowledgement.interactionId,
+            nowMs: input.nowMs,
+          });
+        }
+      );
+      if (!checkpoint.persisted) {
+        console.warn(
+          "[core.slack_channel_introduction.acknowledgement_reconcile_checkpoint_pending]",
+          {
+            error: toErrorMessage(checkpoint.error),
+            interactionId: acknowledgement.interactionId,
+            slackTeamId: acknowledgement.slackTeamId,
+          }
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "[core.slack_channel_introduction.acknowledgement_reconcile_failed]",
+        {
+          error: toErrorMessage(error),
+          interactionId: acknowledgement.interactionId,
+          slackTeamId: acknowledgement.slackTeamId,
+        }
+      );
+    }
+  }
+}
+
+async function reconcileStaleSlackChannelIntroductionRecoveryNotices(input: {
+  db: D1Database;
+  env: CoreBindings;
+  interactionId?: string;
+  nowMs: number;
+}): Promise<void> {
+  const stale = await listStaleSlackChannelIntroductionRecoveryNotices({
+    beforeOrAtMs: input.nowMs - STALE_CHANNEL_INTRODUCTION_ACKNOWLEDGEMENT_MS,
+    db: input.db,
+    interactionId: input.interactionId,
+  });
+  for (const notice of stale) {
+    try {
+      const botToken = await resolveSlackBotToken({
+        cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+        db: input.db,
+        fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
+        slackTeamId: notice.slackTeamId,
+      });
+      const existing = await findSlackTopLevelMessageByMetadata({
+        botToken,
+        channelId: notice.dmChannelId,
+        eventPayloadKey:
+          SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_METADATA.eventPayloadKey,
+        eventPayloadValue: notice.interactionId,
+        eventType:
+          SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_METADATA.eventType,
+      });
+      if (!existing) {
+        await settleSlackChannelIntroductionRecoveryNoticeFailure({
+          db: input.db,
+          failureCode:
+            "slack_channel_introduction.recovery_notice_outcome_unknown",
+          interactionId: notice.interactionId,
+          nowMs: input.nowMs,
+          status: "recovery_notice_outcome_unknown",
+        });
+        continue;
+      }
+      const checkpoint = await persistConfirmedPublicationCheckpoint(
+        async () => {
+          await completeSlackChannelIntroductionRecoveryNotice({
+            db: input.db,
+            interactionId: notice.interactionId,
+            messageTs: existing.id,
+            nowMs: input.nowMs,
+          });
+        }
+      );
+      if (!checkpoint.persisted) {
+        console.warn(
+          "[core.slack_channel_introduction.recovery_notice_reconcile_checkpoint_pending]",
+          {
+            error: toErrorMessage(checkpoint.error),
+            interactionId: notice.interactionId,
+            slackTeamId: notice.slackTeamId,
+          }
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "[core.slack_channel_introduction.recovery_notice_reconcile_failed]",
+        {
+          error: toErrorMessage(error),
+          interactionId: notice.interactionId,
+          slackTeamId: notice.slackTeamId,
+        }
+      );
+    }
+  }
+}
+
+async function deliverPendingSlackChannelIntroductionRecoveryNotices(input: {
+  db: D1Database;
+  env: CoreBindings;
+  interactionId?: string;
+  limit?: number;
+  nowMs: number;
+}): Promise<void> {
+  const limit = Math.max(1, Math.min(input.limit ?? 16, 64));
+  for (let processed = 0; processed < limit; processed += 1) {
+    const notice = await claimSlackChannelIntroductionRecoveryNotice({
+      db: input.db,
+      interactionId: input.interactionId,
+      nowMs: input.nowMs,
+    });
+    if (!notice) {
+      return;
+    }
+    try {
+      const botToken = await resolveSlackBotToken({
+        cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+        db: input.db,
+        fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
+        slackTeamId: notice.slackTeamId,
+      });
+      const publication = await postSlackDirectMessage({
+        botToken,
+        metadata: {
+          eventPayload: {
+            [SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_METADATA.eventPayloadKey]:
+              notice.interactionId,
+          },
+          eventType:
+            SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_METADATA.eventType,
+        },
+        recipientUserId: notice.dmChannelId,
+        text: SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_TEXT,
+      });
+      const checkpoint = await persistConfirmedPublicationCheckpoint(
+        async () => {
+          await completeSlackChannelIntroductionRecoveryNotice({
+            db: input.db,
+            interactionId: notice.interactionId,
+            messageTs: publication.id,
+            nowMs: input.nowMs,
+          });
+        }
+      );
+      if (!checkpoint.persisted) {
+        console.warn(
+          "[core.slack_channel_introduction.recovery_notice_checkpoint_pending]",
+          {
+            error: toErrorMessage(checkpoint.error),
+            interactionId: notice.interactionId,
+            slackTeamId: notice.slackTeamId,
+          }
+        );
+      }
+    } catch (error) {
+      await settleFailedSlackChannelIntroductionRecoveryNotice({
+        db: input.db,
+        error,
+        notice,
+        nowMs: input.nowMs,
+      });
+      return;
+    }
+  }
+}
+
+async function settleFailedSlackChannelIntroductionRecoveryNotice(input: {
+  db: D1Database;
+  error: unknown;
+  notice: SlackChannelIntroductionRecoveryNotice;
+  nowMs: number;
+}): Promise<void> {
+  const publicationOutcome =
+    input.error instanceof SlackMessagePublicationError
+      ? input.error.publicationOutcome
+      : "not_published";
+  const retryable =
+    publicationOutcome === "not_published" &&
+    input.notice.attemptCount <
+      SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_MAX_ATTEMPTS;
+  let status:
+    | "recovery_notice_failed"
+    | "recovery_notice_outcome_unknown"
+    | "recovery_notice_pending" = "recovery_notice_failed";
+  if (publicationOutcome === "unknown") {
+    status = "recovery_notice_outcome_unknown";
+  } else if (retryable) {
+    status = "recovery_notice_pending";
+  }
+  await settleSlackChannelIntroductionRecoveryNoticeFailure({
+    db: input.db,
+    failureCode:
+      publicationOutcome === "unknown"
+        ? "slack_channel_introduction.recovery_notice_outcome_unknown"
+        : "slack_channel_introduction.recovery_notice_not_published",
+    interactionId: input.notice.interactionId,
+    nowMs: input.nowMs,
+    status,
+  });
+  console.warn(
+    "[core.slack_channel_introduction.recovery_notice_publication_failed]",
+    {
+      attemptCount: input.notice.attemptCount,
+      error: toErrorMessage(input.error),
+      interactionId: input.notice.interactionId,
+      publicationOutcome,
+      retryable,
+      slackTeamId: input.notice.slackTeamId,
+    }
+  );
 }
 
 async function submitClaimedSlackChannelIntroduction(input: {

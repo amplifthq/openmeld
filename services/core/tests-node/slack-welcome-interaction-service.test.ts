@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handleSlackWelcomeInteraction } from "../src/remote-agent/application/slack-welcome-interaction-service";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import {
+  createFaultInjectingD1Database,
+  createSqliteD1Harness,
+} from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Slack welcome teammate invitations", () => {
   let harness: ReturnType<typeof createSqliteD1Harness>;
@@ -62,6 +65,10 @@ describe("Slack welcome teammate invitations", () => {
     expect(publications).toHaveLength(2);
     expect(publications[0]).toMatchObject({
       channel: "U_TARGET",
+      metadata: {
+        event_payload: { delivery_id: "V1:U_TARGET" },
+        event_type: "openmeld_teammate_invited",
+      },
       text: expect.stringContaining("Center Agent for *Ampli Lift*"),
     });
     expect(JSON.stringify(publications[0]?.blocks)).toContain(
@@ -70,6 +77,44 @@ describe("Slack welcome teammate invitations", () => {
     expect(publications[1]).toMatchObject({
       channel: "U_ACTOR",
       text: expect.stringContaining("Maya"),
+    });
+  });
+
+  it("keeps a confirmed teammate invitation delivered when its first checkpoint write fails", async () => {
+    seedActiveJoinLink(harness);
+    const db = createFaultInjectingD1Database({
+      db: harness.db,
+      matches: (sql, operation) =>
+        operation === "run" &&
+        sql.includes("UPDATE slack_teammate_invitation_deliveries") &&
+        sql.includes("SET status = ?"),
+    });
+
+    await expect(
+      handleSlackWelcomeInteraction(
+        buildEnv({
+          db,
+          ensureOrganizationJoinLinkOnBehalfOf: vi.fn(),
+        }),
+        teammateInviteInput()
+      )
+    ).resolves.toEqual({ handled: true });
+
+    expect(
+      slackFetch.mock.calls.filter(
+        ([url]) => url === "https://slack.com/api/chat.postMessage"
+      )
+    ).toHaveLength(2);
+    expect(
+      harness.queryFirst({
+        sql: `SELECT status, message_ts, failure_code, onboarding_status
+          FROM slack_teammate_invitation_deliveries`,
+      })
+    ).toEqual({
+      failure_code: null,
+      message_ts: "1723.1",
+      onboarding_status: "waiting_for_join",
+      status: "delivered",
     });
   });
 

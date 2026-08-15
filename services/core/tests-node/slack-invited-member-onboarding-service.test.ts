@@ -139,6 +139,61 @@ describe("Slack invited member onboarding", () => {
     expect(slackFetch).toHaveBeenCalledOnce();
   });
 
+  it("reconciles a confirmed private invitation before starting joined-member onboarding", async () => {
+    harness.run({
+      sql: `UPDATE slack_teammate_invitation_deliveries
+        SET status = 'pending', message_ts = NULL, failure_code = NULL,
+          onboarding_status = NULL, updated_at_ms = 1000`,
+    });
+    slackFetch.mockImplementation((url: string) => {
+      if (url === "https://slack.com/api/conversations.open") {
+        return Response.json({ channel: { id: "D_MAYA" }, ok: true });
+      }
+      if (url.startsWith("https://slack.com/api/conversations.history")) {
+        return Response.json({
+          messages: [
+            {
+              metadata: {
+                event_payload: { delivery_id: "invite-1:U_MAYA" },
+                event_type: "openmeld_teammate_invited",
+              },
+              ts: "1723.0001",
+            },
+          ],
+          ok: true,
+          response_metadata: { next_cursor: "" },
+        });
+      }
+      throw new Error(`Unexpected Slack request: ${url}`);
+    });
+    const startResearch = vi.fn(async () => ({ taskId: "research-task-1" }));
+
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 5 * 60_000 + 1001,
+      startResearch,
+    });
+
+    expect(startResearch).toHaveBeenCalledOnce();
+    expect(
+      harness.queryFirst({
+        sql: `SELECT status, message_ts, failure_code, onboarding_status
+          FROM slack_teammate_invitation_deliveries`,
+      })
+    ).toEqual({
+      failure_code: null,
+      message_ts: "1723.0001",
+      onboarding_status: "researching",
+      status: "delivered",
+    });
+    expect(
+      slackFetch.mock.calls.filter(
+        ([url]) => url === "https://slack.com/api/chat.postMessage"
+      )
+    ).toHaveLength(0);
+  });
+
   it("does not start onboarding when the Slack identity belongs to another OpenMeld user", async () => {
     harness.run({
       sql: `

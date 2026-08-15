@@ -11,12 +11,16 @@ import {
   attachSlackInvitedMemberResearchTask,
   claimJoinedSlackInvitedMembers,
   completeSlackInvitedMemberOnboarding,
+  completeSlackTeammateInvitationDelivery,
   failSlackInvitedMemberOnboarding,
   listActiveSlackInvitedMemberOnboardings,
+  listPendingSlackTeammateInvitationDeliveries,
   type SlackInvitedMemberOnboarding,
 } from "../infrastructure/d1/slack-teammate-invitation-delivery-repo";
 import { resolveSlackBotToken } from "./slack-bot-token";
 import {
+  findSlackTopLevelMessageByMetadata,
+  openSlackDirectMessage,
   postSlackDirectMessage,
   SlackMessagePublicationError,
 } from "./slack-client";
@@ -26,8 +30,13 @@ import {
   isMemberResearchBusy,
   requireWebAppUrl,
 } from "./slack-onboarding-copy";
+import {
+  buildSlackTeammateInvitationDeliveryId,
+  SLACK_TEAMMATE_INVITATION_METADATA,
+} from "./slack-onboarding-publication-identity";
 
 const WHITESPACE_PATTERN = /\s+/u;
+const STALE_TEAMMATE_INVITATION_CHECKPOINT_MS = 5 * 60_000;
 
 export async function runSlackInvitedMemberOnboardingTick(input: {
   db: D1Database;
@@ -37,6 +46,7 @@ export async function runSlackInvitedMemberOnboardingTick(input: {
     onboarding: SlackInvitedMemberOnboarding
   ) => Promise<{ taskId: string }>;
 }): Promise<void> {
+  await reconcilePendingSlackTeammateInvitationDeliveries(input);
   const waiting = await input.db
     .prepare(
       `
@@ -90,6 +100,55 @@ export async function runSlackInvitedMemberOnboardingTick(input: {
         error,
         failureCode: "member_onboarding_advance_failed",
         onboarding,
+      });
+    }
+  }
+}
+
+async function reconcilePendingSlackTeammateInvitationDeliveries(input: {
+  db: D1Database;
+  env: CoreBindings;
+  nowMs: number;
+}): Promise<void> {
+  const pending = await listPendingSlackTeammateInvitationDeliveries({
+    beforeOrAtMs: input.nowMs - STALE_TEAMMATE_INVITATION_CHECKPOINT_MS,
+    db: input.db,
+  });
+  for (const delivery of pending) {
+    try {
+      const botToken = await resolveSlackBotToken({
+        cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+        db: input.db,
+        fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
+        slackTeamId: delivery.slackTeamId,
+      });
+      const dm = await openSlackDirectMessage({
+        botToken,
+        recipientUserId: delivery.targetSlackUserId,
+      });
+      const publication = await findSlackTopLevelMessageByMetadata({
+        botToken,
+        channelId: dm.channelId,
+        eventPayloadKey: SLACK_TEAMMATE_INVITATION_METADATA.eventPayloadKey,
+        eventPayloadValue: buildSlackTeammateInvitationDeliveryId(delivery),
+        eventType: SLACK_TEAMMATE_INVITATION_METADATA.eventType,
+      });
+      await completeSlackTeammateInvitationDelivery({
+        claim: delivery,
+        db: input.db,
+        failureCode: publication
+          ? null
+          : "slack_teammate_invitation.publication_outcome_unknown",
+        messageTs: publication?.id ?? null,
+        nowMs: input.nowMs,
+        status: publication ? "delivered" : "outcome_unknown",
+      });
+    } catch (error) {
+      console.warn("[core.slack_teammate_invitation.reconcile_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        interactionId: delivery.interactionId,
+        slackTeamId: delivery.slackTeamId,
+        targetSlackUserId: delivery.targetSlackUserId,
       });
     }
   }

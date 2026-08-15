@@ -841,6 +841,13 @@
       "when": 1786785709728,
       "tag": "0119_opposite_the_anarchist",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "6",
+      "when": 1786791810280,
+      "tag": "0120_faithful_vulture",
+      "breakpoints": true
     }
   ]
 }

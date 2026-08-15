@@ -22,6 +22,7 @@ import {
 } from "../infrastructure/d1/slack-teammate-invitation-delivery-repo";
 import { readSlackUserIdentityLink } from "../infrastructure/d1/slack-user-identity-link-repo";
 import { readRemoteAgentSlackWorkspaceBinding } from "../infrastructure/d1/slack-workspace-binding-repo";
+import { persistConfirmedPublicationCheckpoint } from "./confirmed-publication-checkpoint";
 import { resolveSlackBotToken } from "./slack-bot-token";
 import {
   listSlackWorkspaceMembers,
@@ -30,6 +31,10 @@ import {
   SlackMessagePublicationError,
   type SlackWorkspaceMember,
 } from "./slack-client";
+import {
+  buildSlackTeammateInvitationDeliveryId,
+  SLACK_TEAMMATE_INVITATION_METADATA,
+} from "./slack-onboarding-publication-identity";
 import { submitRemoteAgentSlackChannelIntroduction } from "./slack-signal-service";
 
 const INVITE_MODAL_CALLBACK_ID = "openmeld_invite_teammates";
@@ -465,30 +470,32 @@ async function deliverPrivateTeammateInvitation(input: {
   if (!claim) {
     return "already_claimed";
   }
+  let publication: { id: string };
   try {
     const message = buildPrivateTeammateInvitationMessage({
       inviterName: input.inviterName,
       organizationName: input.invitation.organizationName,
       targetDisplayName: input.target.displayName,
     });
-    const publication = await postSlackDirectMessage({
+    const deliveryId = buildSlackTeammateInvitationDeliveryId({
+      interactionId: input.interactionId,
+      targetSlackUserId: input.target.slackUserId,
+    });
+    publication = await postSlackDirectMessage({
       blocks: buildPrivateTeammateInvitationBlocks({
         inviteUrl: input.invitation.url,
         message,
       }),
       botToken: input.botToken,
+      metadata: {
+        eventPayload: {
+          [SLACK_TEAMMATE_INVITATION_METADATA.eventPayloadKey]: deliveryId,
+        },
+        eventType: SLACK_TEAMMATE_INVITATION_METADATA.eventType,
+      },
       recipientUserId: input.target.slackUserId,
       text: message,
     });
-    await completeSlackTeammateInvitationDelivery({
-      claim,
-      db: input.db,
-      failureCode: null,
-      messageTs: publication.id,
-      nowMs: Date.now(),
-      status: "delivered",
-    });
-    return "delivered";
   } catch (error) {
     const outcomeUnknown =
       error instanceof SlackMessagePublicationError &&
@@ -506,6 +513,28 @@ async function deliverPrivateTeammateInvitation(input: {
     });
     return outcomeUnknown ? "outcome_unknown" : "failed";
   }
+  const checkpoint = await persistConfirmedPublicationCheckpoint(async () => {
+    await completeSlackTeammateInvitationDelivery({
+      claim,
+      db: input.db,
+      failureCode: null,
+      messageTs: publication.id,
+      nowMs: Date.now(),
+      status: "delivered",
+    });
+  });
+  if (!checkpoint.persisted) {
+    console.warn("[core.slack_teammate_invitation.checkpoint_pending]", {
+      error:
+        checkpoint.error instanceof Error
+          ? checkpoint.error.message
+          : String(checkpoint.error),
+      interactionId: input.interactionId,
+      slackTeamId: input.slackTeamId,
+      targetSlackUserId: input.target.slackUserId,
+    });
+  }
+  return "delivered";
 }
 
 function buildTeammateInviteModal(): Record<string, unknown> {

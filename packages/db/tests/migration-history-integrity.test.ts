@@ -134,6 +134,95 @@ const toSnapshotFileName = (entry: DrizzleJournalEntry): string => {
 };
 
 describe("shared drizzle migration history integrity", () => {
+  it("preserves pending Slack channel introductions when adding durable recovery notices", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const migrationFileName = listSqlMigrationFiles().find((fileName) =>
+        fileName.startsWith("0120_")
+      );
+      expect(migrationFileName).toBeDefined();
+      if (!migrationFileName) {
+        return;
+      }
+
+      applyMigrationFiles(
+        database,
+        listSqlMigrationFiles().filter(
+          (fileName) => fileName.localeCompare(migrationFileName) < 0
+        )
+      );
+      database.exec(`
+        INSERT INTO slack_channel_introduction_runs (
+          interaction_id,
+          manifest_creation_id,
+          slack_team_id,
+          organization_id,
+          requester_slack_user_id,
+          dm_channel_id,
+          organization_invite_url,
+          status,
+          acknowledgement_ts,
+          failure_code,
+          created_at_ms,
+          updated_at_ms
+        ) VALUES (
+          'interaction-upgrade',
+          'manifest-upgrade',
+          'team-upgrade',
+          'organization-upgrade',
+          'user-upgrade',
+          'dm-upgrade',
+          'https://app.openmeld.com/invite/upgrade',
+          'ack_pending',
+          NULL,
+          NULL,
+          1000,
+          2000
+        );
+      `);
+
+      applyMigrationFiles(database, [migrationFileName]);
+
+      expect(
+        database
+          .prepare(
+            `
+              SELECT
+                interaction_id,
+                manifest_creation_id,
+                organization_invite_url,
+                status,
+                acknowledgement_ts,
+                recovery_notice_ts,
+                recovery_notice_attempt_count,
+                failure_code,
+                created_at_ms,
+                updated_at_ms
+              FROM slack_channel_introduction_runs
+              WHERE interaction_id = 'interaction-upgrade'
+            `
+          )
+          .get()
+      ).toEqual({
+        acknowledgement_ts: null,
+        created_at_ms: 1000,
+        failure_code: null,
+        interaction_id: "interaction-upgrade",
+        manifest_creation_id: "manifest-upgrade",
+        organization_invite_url: "https://app.openmeld.com/invite/upgrade",
+        recovery_notice_attempt_count: 0,
+        recovery_notice_ts: null,
+        status: "ack_pending",
+        updated_at_ms: 2000,
+      });
+      expect(
+        listTableIndexes(database, "slack_channel_introduction_runs")
+      ).toContain("idx_slack_channel_introduction_runs_status_updated");
+    } finally {
+      database.close();
+    }
+  });
+
   it("preserves existing document folders while adding nested sibling rules", () => {
     const database = new DatabaseSync(":memory:");
     try {

@@ -1998,7 +1998,17 @@ Each ordered item freezes one selected public channel and owns its own claim,
 attempt count, and submitted/failed/outcome-unknown checkpoint. Remote Agent
 native-delivery idempotency includes the interaction and channel ids. A stale
 submitting claim may be reclaimed, while a submitted or provider-ambiguous item
-is never automatically replayed.
+is never automatically replayed. The private acknowledgement carries the
+interaction id as Slack message metadata. If Slack confirms publication but the
+run checkpoint cannot be written, the run remains `ack_pending`; scheduled
+recovery finds that exact message through Slack history, persists its timestamp,
+and only then releases the frozen channel items. If no exact message exists,
+recovery moves the run into a durable private-retry-notice state instead of
+risking a duplicate. That notice has its own claim, attempt count, stable Slack
+metadata, confirmed timestamp, and ambiguous-outcome checkpoint. Only one claim
+may publish it; a known non-publication is retried a bounded number of times,
+while a provider-ambiguous result is never replayed. A confirmed acknowledgement
+is never converted to a terminal failure because a later D1 write failed.
 
 `slack_installation_welcome_deliveries` is the durable publication ledger for
 the installer welcome DM. Its identity includes Slack workspace, OpenMeld
@@ -2042,7 +2052,13 @@ outcome state, Slack message timestamp, and later joined-member research
 linkage. A provider-ambiguous send is never retried. The joined-member flow
 advances only after exact normalized email matches a current Organization
 member with an active Human Profile; Slack display names and titles never
-establish identity.
+establish identity. Every invitation carries its interaction-and-recipient
+delivery identity as Slack message metadata. If Slack confirms publication but
+the `delivered` checkpoint cannot be written, Core reports the real delivery
+outcome and leaves the row pending. Scheduled invited-member onboarding
+reconciles stale pending rows against that exact metadata before claiming a
+joined member. A match restores `delivered` and `waiting_for_join`; confirmed
+absence becomes `outcome_unknown` without blindly sending a duplicate.
 
 The retired Remote Agent guardrail table and breaker columns remain in the
 schema and historical migrations because old rows are durable evidence. Active

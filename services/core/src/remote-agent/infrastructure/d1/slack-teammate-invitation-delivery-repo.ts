@@ -20,6 +20,61 @@ export type SlackInvitedMemberOnboarding = {
   targetSlackUserId: string;
 };
 
+export type PendingSlackTeammateInvitationDelivery =
+  SlackTeammateInvitationDeliveryClaim & {
+    updatedAtMs: number;
+  };
+
+export async function listPendingSlackTeammateInvitationDeliveries(input: {
+  beforeOrAtMs: number;
+  db: D1Database;
+  limit?: number;
+}): Promise<PendingSlackTeammateInvitationDelivery[]> {
+  const limit = Math.max(1, Math.min(input.limit ?? 16, 64));
+  const result = await input.db
+    .prepare(
+      `
+        SELECT
+          actor_slack_user_id,
+          actor_user_id,
+          interaction_id,
+          organization_id,
+          slack_team_id,
+          target_display_name,
+          target_email,
+          target_slack_user_id,
+          updated_at_ms
+        FROM slack_teammate_invitation_deliveries
+        WHERE status = 'pending' AND updated_at_ms <= ?
+        ORDER BY updated_at_ms ASC, interaction_id ASC, target_slack_user_id ASC
+        LIMIT ?
+      `
+    )
+    .bind(input.beforeOrAtMs, limit)
+    .all<{
+      actor_slack_user_id: string;
+      actor_user_id: string;
+      interaction_id: string;
+      organization_id: string;
+      slack_team_id: string;
+      target_display_name: string;
+      target_email: string | null;
+      target_slack_user_id: string;
+      updated_at_ms: number;
+    }>();
+  return result.results.map((row) => ({
+    actorSlackUserId: row.actor_slack_user_id,
+    actorUserId: row.actor_user_id,
+    interactionId: row.interaction_id,
+    organizationId: row.organization_id,
+    slackTeamId: row.slack_team_id,
+    targetDisplayName: row.target_display_name,
+    targetEmail: row.target_email,
+    targetSlackUserId: row.target_slack_user_id,
+    updatedAtMs: row.updated_at_ms,
+  }));
+}
+
 export async function claimSlackTeammateInvitationDelivery(input: {
   actorSlackUserId: string;
   actorUserId: string;
