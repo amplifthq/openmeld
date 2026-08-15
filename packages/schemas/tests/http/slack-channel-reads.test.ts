@@ -18,15 +18,25 @@ describe("Slack channel read schemas", () => {
     expect(
       centerAgentReadSlackChannelMembersBodySchema.parse({
         channelName: "ok8-okok",
+        includeChannelId: true,
         limit: 200,
       })
-    ).toEqual({ channelName: "ok8-okok", limit: 200 });
+    ).toEqual({
+      channelName: "ok8-okok",
+      includeChannelId: true,
+      limit: 200,
+    });
     expect(
       centerAgentReadSlackChannelHistoryBodySchema.parse({
         channelName: "ok8-okok",
+        expectedChannelId: "C_OK8",
         limit: 15,
       })
-    ).toEqual({ channelName: "ok8-okok", limit: 15 });
+    ).toEqual({
+      channelName: "ok8-okok",
+      expectedChannelId: "C_OK8",
+      limit: 15,
+    });
   });
 
   it("rejects channel history requests above the provider-safe page limit", () => {

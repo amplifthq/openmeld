@@ -834,9 +834,11 @@ import {
   readRemoteAgentNativeDeliveryBySubmissionId,
 } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
+  authorizeFailedSlackInstallationWelcomeRetry,
   enqueueSlackInstallationWelcomePreparation,
   type SlackInstallationWelcomePreparation,
 } from "../remote-agent/infrastructure/d1/slack-installation-welcome-preparation-repo";
+import { SLACK_INSTALLATION_WELCOME_VERSION } from "../remote-agent/infrastructure/d1/slack-installation-welcome-repo";
 import type { SlackInvitedMemberOnboarding } from "../remote-agent/infrastructure/d1/slack-teammate-invitation-delivery-repo";
 import {
   claimSlackIdentityLinkTokenForUser,
@@ -7122,18 +7124,29 @@ export async function rpcInstallSlackWorkspaceFromOAuth(
   });
   if ("record" in result && parsed.data.slackInstallerUserId) {
     try {
-      await enqueueSlackInstallationWelcomePreparation({
-        allowCreate: result.status === "created" || result.status === "moved",
+      const key = {
         connectionCreatedAtMs: result.record.createdAtMs,
-        db,
-        installedByProfileId: parsed.data.actorProfileId,
-        installedByUserId: parsed.data.installedByUserId,
-        messageKind: result.status === "moved" ? "moved" : "connected",
-        nowMs,
         organizationId: parsed.data.organizationId,
         recipientSlackUserId: parsed.data.slackInstallerUserId,
         slackTeamId: parsed.data.slackTeamId,
-      });
+        welcomeVersion: SLACK_INSTALLATION_WELCOME_VERSION,
+      };
+      if (result.status === "unchanged") {
+        await authorizeFailedSlackInstallationWelcomeRetry({ db, key, nowMs });
+      } else {
+        await enqueueSlackInstallationWelcomePreparation({
+          allowCreate: result.status === "created" || result.status === "moved",
+          connectionCreatedAtMs: result.record.createdAtMs,
+          db,
+          installedByProfileId: parsed.data.actorProfileId,
+          installedByUserId: parsed.data.installedByUserId,
+          messageKind: result.status === "moved" ? "moved" : "connected",
+          nowMs,
+          organizationId: parsed.data.organizationId,
+          recipientSlackUserId: parsed.data.slackInstallerUserId,
+          slackTeamId: parsed.data.slackTeamId,
+        });
+      }
     } catch (error) {
       console.warn("[core.slack_oauth.installation_welcome_queue_failed]", {
         error: error instanceof Error ? error.message : String(error),
@@ -9164,6 +9177,9 @@ export async function rpcCenterAgentReadSlackWorkspaceDirectory(
   });
   const parsed = centerAgentReadSlackWorkspaceDirectoryBodySchema.safeParse({
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+    ...(input.includeMemberUserId === undefined
+      ? {}
+      : { includeMemberUserId: input.includeMemberUserId }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
   if (!parsed.success) {
@@ -9215,6 +9231,7 @@ export async function rpcCenterAgentReadSlackWorkspaceDirectory(
   const response = {
     generatedAt: new Date().toISOString(),
     members: classifySlackWorkspaceMembers({
+      includeMemberUserId: parsed.data.includeMemberUserId === true,
       slackIdentityLinks,
       slackMembers: slackPage.members,
       openMeldDirectory,
@@ -9317,6 +9334,9 @@ export async function rpcCenterAgentReadSlackChannelMembers(
   const parsed = centerAgentReadSlackChannelMembersBodySchema.safeParse({
     channelName: input.channelName,
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+    ...(input.includeChannelId === undefined
+      ? {}
+      : { includeChannelId: input.includeChannelId }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
   if (!parsed.success) {
@@ -9382,9 +9402,11 @@ export async function rpcCenterAgentReadSlackChannelMembers(
       openMeldDirectoryPromise,
     ]);
   const validated = slackChannelMembersResponseSchema.safeParse({
+    ...(parsed.data.includeChannelId ? { channelId: target.channelId } : {}),
     channelName: target.channelName,
     generatedAt: new Date().toISOString(),
     members: classifySlackWorkspaceMembers({
+      includeMemberUserId: false,
       slackIdentityLinks,
       slackMembers,
       openMeldDirectory,
@@ -9417,6 +9439,9 @@ export async function rpcCenterAgentReadSlackChannelHistory(
   const parsed = centerAgentReadSlackChannelHistoryBodySchema.safeParse({
     channelName: input.channelName,
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+    ...(input.expectedChannelId === undefined
+      ? {}
+      : { expectedChannelId: input.expectedChannelId }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
   if (!parsed.success) {
@@ -9450,6 +9475,17 @@ export async function rpcCenterAgentReadSlackChannelHistory(
     botToken,
     channelName: parsed.data.channelName,
   });
+  if (
+    parsed.data.expectedChannelId &&
+    target.channelId !== parsed.data.expectedChannelId
+  ) {
+    throw createCoreRpcHttpError({
+      code: "slack.channel_identity_changed",
+      reason:
+        "The Slack channel identity changed after its members were checked. Read the channel members again before reading message history.",
+      status: 409,
+    });
+  }
   if (!target.isMember) {
     return buildSlackReadUnavailable({
       message: `OpenMeld hasn't been added to #${target.channelName} yet.`,
@@ -9538,6 +9574,7 @@ async function readSlackWorkspaceMembersByIds(input: {
 }
 
 function classifySlackWorkspaceMembers(input: {
+  includeMemberUserId: boolean;
   slackIdentityLinks: readonly SlackUserIdentityLinkRecord[];
   slackMembers: readonly SlackWorkspaceMember[];
   openMeldDirectory: OrganizationDirectoryResponse;
@@ -9567,12 +9604,18 @@ function classifySlackWorkspaceMembers(input: {
       openMeldMembership = {
         matchedBy: "identity_link",
         memberDisplayName: linkedOpenMeldMember.user.name,
+        ...(input.includeMemberUserId
+          ? { memberUserId: linkedOpenMeldMember.userId }
+          : {}),
         status: "member",
       };
     } else if (emailMatchedOpenMeldMember) {
       openMeldMembership = {
         matchedBy: "email",
         memberDisplayName: emailMatchedOpenMeldMember.user.name,
+        ...(input.includeMemberUserId
+          ? { memberUserId: emailMatchedOpenMeldMember.userId }
+          : {}),
         status: "member",
       };
     } else if (normalizedEmail) {

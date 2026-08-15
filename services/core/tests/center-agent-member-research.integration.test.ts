@@ -954,6 +954,18 @@ function insufficientEvidenceReport() {
         status: "unavailable" as const,
         timeRange: "Current",
       },
+      {
+        evidence: "No attributable Slack messages were available.",
+        source: "slack_channel_history" as const,
+        status: "unavailable" as const,
+        timeRange: "Previous 180 days",
+      },
+      {
+        evidence: "No attributable shared App records were available.",
+        source: "connected_apps" as const,
+        status: "unavailable" as const,
+        timeRange: "Previous 180 days",
+      },
     ],
     nextSteps: [
       "Connect an attributable work source before researching again.",

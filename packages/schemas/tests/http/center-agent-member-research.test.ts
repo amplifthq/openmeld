@@ -13,6 +13,8 @@ const COMPLETE_COVERAGE = [
   "agent_activity",
   "github",
   "slack_workspace_directory",
+  "slack_channel_history",
+  "connected_apps",
 ].map((source) => ({
   evidence: `${source} research result`,
   source,
@@ -31,6 +33,21 @@ const GITHUB_EVIDENCE = {
   sourceId: "acme/repo#42",
   sourceUrl: "https://github.com/acme/repo/pull/42",
   text: "Merged the release guard.",
+};
+const SLACK_EVIDENCE = {
+  date: "2026-07-13",
+  source: "slack",
+  sourceId: "C_PRODUCT:1720890000.000100",
+  sourceName: "#product",
+  text: "Shared the rollout plan with the product team.",
+};
+const CONNECTED_APP_EVIDENCE = {
+  date: "2026-07-14",
+  source: "connected_app",
+  sourceId: "drive:file-42",
+  sourceName: "Google Drive",
+  sourceUrl: "https://drive.google.com/open?id=file-42",
+  text: "Updated the launch brief.",
 };
 
 describe("Center Agent member research contracts", () => {
@@ -158,6 +175,12 @@ describe("Center Agent member research contracts", () => {
     expect(
       centerAgentMemberResearchReportSchema.safeParse({
         ...report,
+        coverage: COMPLETE_COVERAGE.slice(0, 5),
+      }).success
+    ).toBe(true);
+    expect(
+      centerAgentMemberResearchReportSchema.safeParse({
+        ...report,
         observedActivity: [
           ACTIVITY_EVIDENCE,
           { ...ACTIVITY_EVIDENCE, text: "The same item restated." },
@@ -170,6 +193,45 @@ describe("Center Agent member research contracts", () => {
         currentFocus: [
           { ...ACTIVITY_EVIDENCE, source: "organization_directory" },
         ],
+      }).success
+    ).toBe(false);
+    expect(
+      centerAgentMemberResearchReportSchema.safeParse({
+        collaborationGuidance: [],
+        coverage: COMPLETE_COVERAGE,
+        currentFocus: [SLACK_EVIDENCE],
+        observedActivity: [
+          SLACK_EVIDENCE,
+          { ...CONNECTED_APP_EVIDENCE, sourceUrl: "http://example.test/file" },
+        ],
+        recentContributions: [CONNECTED_APP_EVIDENCE],
+        result: "evidence_backed",
+        suggestedAboutAdditions: [],
+      }).success
+    ).toBe(false);
+  });
+
+  it("accepts attributable Slack messages and read-only connected App artifacts as work evidence", () => {
+    expect(
+      centerAgentMemberResearchReportSchema.safeParse({
+        collaborationGuidance: [],
+        coverage: COMPLETE_COVERAGE,
+        currentFocus: [SLACK_EVIDENCE],
+        observedActivity: [SLACK_EVIDENCE, CONNECTED_APP_EVIDENCE],
+        recentContributions: [CONNECTED_APP_EVIDENCE],
+        result: "evidence_backed",
+        suggestedAboutAdditions: [],
+      }).success
+    ).toBe(true);
+    expect(
+      centerAgentMemberResearchReportSchema.safeParse({
+        collaborationGuidance: [],
+        coverage: COMPLETE_COVERAGE,
+        currentFocus: [{ ...SLACK_EVIDENCE, sourceName: undefined }],
+        observedActivity: [SLACK_EVIDENCE, CONNECTED_APP_EVIDENCE],
+        recentContributions: [CONNECTED_APP_EVIDENCE],
+        result: "evidence_backed",
+        suggestedAboutAdditions: [],
       }).success
     ).toBe(false);
   });

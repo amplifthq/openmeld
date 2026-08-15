@@ -364,6 +364,7 @@ describe("Slack OAuth installation", () => {
     await expect(
       deliverSlackInstallationWelcome({
         allowCreate: true,
+        allowRetry: false,
         botToken: "xoxb-installed-token",
         buildBlocks: () => Promise.resolve(undefined),
         connectionCreatedAtMs: NOW_MS,
@@ -379,6 +380,53 @@ describe("Slack OAuth installation", () => {
         slackTeamId: "T_WORKSPACE",
       })
     ).rejects.toThrow("socket closed");
+  });
+
+  it("does not retry a confirmed Slack rejection until reauthorization explicitly allows it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ error: "channel_not_found", ok: false })
+      )
+      .mockResolvedValueOnce(Response.json(SLACK_MESSAGE_SUCCESS_RESPONSE));
+    vi.stubGlobal("fetch", fetchMock);
+    const delivery = {
+      allowCreate: true,
+      botToken: "xoxb-installed-token",
+      buildBlocks: () => Promise.resolve(undefined),
+      connectionCreatedAtMs: NOW_MS,
+      db: harness.db,
+      messages: {
+        connected: "Welcome to OpenMeld.",
+        moved: "Your workspace moved.",
+      },
+      messageKind: "connected" as const,
+      nowMs: NOW_MS,
+      organizationId: "org-1",
+      recipientSlackUserId: "U_INSTALLER",
+      slackTeamId: "T_WORKSPACE",
+    };
+
+    await expect(
+      deliverSlackInstallationWelcome({ ...delivery, allowRetry: false })
+    ).rejects.toThrow("channel_not_found");
+    await expect(
+      deliverSlackInstallationWelcome({
+        ...delivery,
+        allowRetry: false,
+        nowMs: NOW_MS + 1,
+      })
+    ).resolves.toBe("skipped");
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    await expect(
+      deliverSlackInstallationWelcome({
+        ...delivery,
+        allowRetry: true,
+        nowMs: NOW_MS + 2,
+      })
+    ).resolves.toBe("delivered");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("does not duplicate queued preparation when OAuth is reauthorized", async () => {
@@ -402,6 +450,50 @@ describe("Slack OAuth installation", () => {
         sql: "SELECT status FROM slack_installation_welcome_preparations",
       })
     ).toEqual([{ status: "queued" }]);
+  });
+
+  it("authorizes one failed welcome retry when the installer reauthorizes Slack", async () => {
+    insertOrganizationOwner(harness);
+    await rpcInstallSlackWorkspaceFromOAuth(
+      createRpcEnv(harness),
+      RPC_INSTALLATION_INPUT
+    );
+    harness.run({
+      sql: `UPDATE slack_installation_welcome_preparations
+        SET status = 'failed', claim_id = 'claim-1',
+          research_task_id = 'research-1', failure_code = 'slack_delivery_failed'`,
+    });
+    harness.run({
+      params: [NOW_MS, NOW_MS],
+      sql: `INSERT INTO slack_installation_welcome_deliveries (
+        slack_team_id, organization_id, recipient_slack_user_id,
+        connection_created_at_ms, welcome_version, message_kind, status,
+        claim_id, attempt_count, message_ts, failure_code, created_at_ms,
+        updated_at_ms
+      ) SELECT
+        slack_team_id, organization_id, recipient_slack_user_id,
+        connection_created_at_ms, welcome_version, message_kind,
+        'failed', 'delivery-claim-1', 1, NULL, 'channel_not_found', ?, ?
+      FROM slack_installation_welcome_preparations`,
+    });
+
+    await expect(
+      rpcInstallSlackWorkspaceFromOAuth(
+        createRpcEnv(harness),
+        RPC_INSTALLATION_INPUT
+      )
+    ).resolves.toEqual({ status: "unchanged" });
+
+    expect(
+      harness.queryFirst({
+        sql: `SELECT status, failure_code, research_task_id
+          FROM slack_installation_welcome_preparations`,
+      })
+    ).toEqual({
+      failure_code: "slack_delivery_retry_authorized",
+      research_task_id: "research-1",
+      status: "ready",
+    });
   });
 
   it("stores the encrypted bot token and workspace binding together", async () => {

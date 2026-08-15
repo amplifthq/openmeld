@@ -42,6 +42,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_execute_app_action", "connected_app.action.execute"],
   ["openmeld_get_navigation_action", "navigation.prepare"],
   ["openmeld_get_organization_invite_link", "organization.invite.read"],
+  ["openmeld_invite_slack_teammates", "organization.invite.create"],
   ["openmeld_inspect_execution_recovery", "execution.recovery.inspect"],
   ["openmeld_list_app_actions", "connected_app.actions.read"],
   ["openmeld_list_connected_apps", "connected_apps.read"],

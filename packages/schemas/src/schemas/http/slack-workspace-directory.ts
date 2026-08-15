@@ -9,6 +9,7 @@ const nullableTrimmedStringSchema = z.union([
 
 export const centerAgentReadSlackWorkspaceDirectoryBodySchema = z.strictObject({
   cursor: trimmedNonEmptyStringSchema.max(2048).optional(),
+  includeMemberUserId: z.literal(true).optional(),
   limit: z.number().int().min(1).max(200).optional(),
 });
 
@@ -16,6 +17,7 @@ export const slackWorkspaceMembershipSchema = z.discriminatedUnion("status", [
   z.strictObject({
     matchedBy: z.enum(["identity_link", "email"]),
     memberDisplayName: trimmedNonEmptyStringSchema,
+    memberUserId: trimmedNonEmptyStringSchema.optional(),
     status: z.literal("member"),
   }),
   z.strictObject({

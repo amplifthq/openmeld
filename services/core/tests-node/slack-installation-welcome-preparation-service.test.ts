@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildTrustFirstSlackWelcomeBlocks,
   buildTrustFirstSlackWelcomeMessage,
@@ -50,7 +50,10 @@ describe("Slack trust-first welcome preparation", () => {
     });
   });
 
-  afterEach(() => harness.close());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    harness.close();
+  });
 
   it("speaks plainly, proves that learning happened, and stays low pressure", () => {
     const message = buildTrustFirstSlackWelcomeMessage({
@@ -116,6 +119,127 @@ describe("Slack trust-first welcome preparation", () => {
         ],
       },
     ]);
+  });
+
+  it("fails before publication when the Web app URL cannot build the promised actions", () => {
+    expect(() =>
+      buildTrustFirstSlackWelcomeBlocks({
+        activeConnectedAppCount: 0,
+        documentId: "document-1",
+        message: "Prepared welcome",
+        organizationSlug: "ampli-lift",
+        webAppUrl: " ",
+      })
+    ).toThrow("WEB_APP_URL");
+    expect(() =>
+      buildTrustFirstSlackWelcomeBlocks({
+        activeConnectedAppCount: 0,
+        documentId: "document-1",
+        message: "Prepared welcome",
+        organizationSlug: "ampli-lift",
+        webAppUrl: "not a URL",
+      })
+    ).toThrow("WEB_APP_URL");
+  });
+
+  it("closes the loop with a plain next step when a prepared welcome has an invalid Web app URL", async () => {
+    for (const sql of [
+      `CREATE TABLE center_agent_member_research_tasks (
+        id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT
+      )`,
+      `CREATE TABLE center_agent_member_research_computer_files (
+        task_id TEXT PRIMARY KEY, document_id TEXT NOT NULL,
+        subject_user_id TEXT NOT NULL, path TEXT NOT NULL
+      )`,
+      `CREATE TABLE organization_documents (
+        id TEXT PRIMARY KEY, organization_id TEXT NOT NULL,
+        content TEXT NOT NULL, draft_content TEXT,
+        last_member_research_task_id TEXT
+      )`,
+      `CREATE TABLE organizations (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL
+      )`,
+      "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
+      `CREATE TABLE connector_connections (
+        organization_id TEXT NOT NULL, status TEXT NOT NULL
+      )`,
+      `CREATE TABLE slack_installation_welcome_deliveries (
+        slack_team_id TEXT NOT NULL, organization_id TEXT NOT NULL,
+        recipient_slack_user_id TEXT NOT NULL,
+        connection_created_at_ms INTEGER NOT NULL, welcome_version INTEGER NOT NULL,
+        message_kind TEXT NOT NULL, status TEXT NOT NULL, claim_id TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL, message_ts TEXT, failure_code TEXT,
+        created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL,
+        PRIMARY KEY (slack_team_id, organization_id, recipient_slack_user_id,
+          connection_created_at_ms, welcome_version)
+      )`,
+      `CREATE TABLE slack_workspace_tokens (
+        slack_team_id TEXT PRIMARY KEY, encrypted_bot_token TEXT NOT NULL,
+        bot_user_id TEXT NOT NULL, installed_by_user_id TEXT NOT NULL,
+        organization_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL
+      )`,
+    ]) {
+      harness.run({ sql });
+    }
+    harness.run({
+      sql: "INSERT INTO center_agent_member_research_tasks VALUES ('research-task-1', 'completed', NULL)",
+    });
+    harness.run({
+      sql: `INSERT INTO organization_documents VALUES (
+        'document-1', 'org-1', '## Working profile', NULL, 'research-task-1'
+      )`,
+    });
+    harness.run({
+      sql: `INSERT INTO center_agent_member_research_computer_files VALUES (
+        'research-task-1', 'document-1', 'user-installer',
+        '/computer/home/documents/Profile Reports/Alex/2026-08-15 — Work Profile.md'
+      )`,
+    });
+    harness.run({
+      sql: "INSERT INTO organizations VALUES ('org-1', 'Ampli Lift', 'ampli-lift')",
+    });
+    harness.run({
+      sql: "INSERT INTO users VALUES ('user-installer', 'Alex Kim')",
+    });
+    harness.run({
+      sql: `INSERT INTO slack_installation_welcome_preparations VALUES (
+        'T123', 'org-1', 'U_INSTALLER', 100, 2, 'connected',
+        'user-installer', 'profile-installer', 'ready', 'claim-1',
+        'research-task-1', NULL, 100, 100
+      )`,
+    });
+    const slackFetch = vi.fn(async (_url: string, _request?: RequestInit) =>
+      Response.json({ channel: "D_INSTALLER", ok: true, ts: "1723.1" })
+    );
+    vi.stubGlobal("fetch", slackFetch);
+
+    await runSlackInstallationWelcomePreparationTick({
+      db: harness.db,
+      env: {
+        SLACK_OPENMELD_BOT_TOKEN: "xoxb-test",
+        WEB_APP_URL: "not a URL",
+      } as never,
+      nowMs: 200,
+      startResearch: () => Promise.reject(new Error("should not run")),
+    });
+
+    expect(slackFetch).toHaveBeenCalledOnce();
+    const request = slackFetch.mock.calls[0]?.[1];
+    if (!request) {
+      throw new Error("Slack request was not captured.");
+    }
+    const body = JSON.parse(String(request.body)) as { text: string };
+    expect(body.text).toContain("couldn’t finish your first Profile Report");
+    expect(body.text).toContain("Reply “try again”");
+    expect(
+      harness.queryFirst({
+        sql: "SELECT status, failure_code FROM slack_installation_welcome_preparations",
+      })
+    ).toEqual({
+      failure_code: "welcome_preparation_failed",
+      status: "failed",
+    });
   });
 
   it("extracts one evidence-backed observation without leaking its source wrapper", () => {
@@ -195,6 +319,78 @@ describe("Slack trust-first welcome preparation", () => {
     });
   });
 
+  it("sends a plain next step instead of silently disappearing when first research fails", async () => {
+    for (const sql of [
+      `CREATE TABLE slack_installation_welcome_deliveries (
+        slack_team_id TEXT NOT NULL, organization_id TEXT NOT NULL,
+        recipient_slack_user_id TEXT NOT NULL,
+        connection_created_at_ms INTEGER NOT NULL, welcome_version INTEGER NOT NULL,
+        message_kind TEXT NOT NULL, status TEXT NOT NULL, claim_id TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL, message_ts TEXT, failure_code TEXT,
+        created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL,
+        PRIMARY KEY (slack_team_id, organization_id, recipient_slack_user_id,
+          connection_created_at_ms, welcome_version)
+      )`,
+      `CREATE TABLE slack_workspace_tokens (
+        slack_team_id TEXT PRIMARY KEY, encrypted_bot_token TEXT NOT NULL,
+        bot_user_id TEXT NOT NULL, installed_by_user_id TEXT NOT NULL,
+        organization_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL
+      )`,
+      "CREATE TABLE organizations (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
+      "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
+    ]) {
+      harness.run({ sql });
+    }
+    harness.run({
+      sql: "INSERT INTO organizations VALUES ('org-1', 'Ampli Lift')",
+    });
+    harness.run({
+      sql: "INSERT INTO users VALUES ('user-installer', 'Alex Kim')",
+    });
+    await enqueueSlackInstallationWelcomePreparation({
+      allowCreate: true,
+      connectionCreatedAtMs: 100,
+      db: harness.db,
+      installedByProfileId: "profile-installer",
+      installedByUserId: "user-installer",
+      messageKind: "connected",
+      nowMs: 100,
+      organizationId: "org-1",
+      recipientSlackUserId: "U_INSTALLER",
+      slackTeamId: "T123",
+    });
+    const slackFetch = vi.fn(async (_url: string, _request?: RequestInit) =>
+      Response.json({ channel: "D_INSTALLER", ok: true, ts: "1723.1" })
+    );
+    vi.stubGlobal("fetch", slackFetch);
+
+    await runSlackInstallationWelcomePreparationTick({
+      db: harness.db,
+      env: { SLACK_OPENMELD_BOT_TOKEN: "xoxb-test" } as never,
+      nowMs: 200,
+      startResearch: () =>
+        Promise.reject(new Error("Remote Agent unavailable")),
+    });
+
+    expect(slackFetch).toHaveBeenCalledOnce();
+    const request = slackFetch.mock.calls[0]?.[1];
+    if (!request) {
+      throw new Error("Slack request was not captured.");
+    }
+    const body = JSON.parse(String(request.body)) as { text: string };
+    expect(body.text).toContain("couldn’t finish your first Profile Report");
+    expect(body.text).toContain("Reply “try again”");
+    expect(
+      harness.queryFirst({
+        sql: "SELECT status, failure_code FROM slack_installation_welcome_preparations",
+      })
+    ).toEqual({
+      failure_code: "member_research_start_failed",
+      status: "failed",
+    });
+  });
+
   it("uses the published Profile Report when the draft was saved before welcome delivery", async () => {
     for (const sql of [
       `CREATE TABLE center_agent_member_research_computer_files (
@@ -240,6 +436,7 @@ describe("Slack trust-first welcome preparation", () => {
       db: harness.db,
       preparation: {
         claimId: "claim-1",
+        failureCode: null,
         installedByProfileId: "profile-installer",
         installedByUserId: "user-installer",
         key: {

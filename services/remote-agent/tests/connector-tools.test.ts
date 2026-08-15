@@ -50,6 +50,59 @@ describe("Remote Agent generic App tools", () => {
     ]);
   });
 
+  it("allows member research to execute connected App reads but rejects writes", async () => {
+    const baseRequest = createSubmitTurnRequest();
+    const request = {
+      ...baseRequest,
+      turnEnvelope: {
+        ...baseRequest.turnEnvelope,
+        trigger: {
+          source: "member_research" as const,
+          subjectDisplayName: "Morgan Lee",
+          subjectUserId: "user-morgan",
+          taskId: "member-research-task-1",
+        },
+      },
+    };
+    const action = {
+      ...capturedExecutableOpenConnectorAction,
+      effect: "write" as const,
+      id: "posthog.update_project",
+      name: "Update project",
+      service: "posthog" as const,
+    };
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        data: [action],
+        message: "OK",
+        meta: {},
+        success: true,
+      })
+    );
+    const tools = getRemoteAgentConnectorToolDefinitions({
+      connectorExecution: {
+        baseUrl: "https://connectors.example.test",
+        fetch: fetchMock,
+        runtimeToken: "test-runtime-token",
+      },
+      coreWorker: {},
+      storage: await createStorage(request),
+      submissionId: ACK.submissionId,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_execute_app_action", {
+        actionId: action.id,
+        input: {},
+        operationId: "member-research-write-1",
+        service: "posthog",
+      })
+    ).rejects.toThrow(
+      "Member research can only execute connected App actions declared read."
+    );
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it("lists member-first and shared fallback connections without exposing credentials", async () => {
     const request = createSubmitTurnRequest();
     const sender = requireMemberSender(request.turnEnvelope.sender);

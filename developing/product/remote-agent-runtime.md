@@ -694,15 +694,25 @@ limit resets at 00:00 UTC, and follows the entry point's existing visible
 failure path. This Core decision does not widen the worker RPC rejection enum.
 
 Member research receives only Organization-directory/document reads, Slack
-workspace directory metadata, bounded Agent Activity, shared-connection
-read-only GitHub tools, and `openmeld_draft_org_document`. The same reduced
-surface is rechecked when each tool executes. Slack directory data may
-disambiguate the subject's identity but is not work activity; profile text is
-untrusted and messages are not exposed. V1 excludes Space context because the
-generic Space read does not prove both public visibility and subject
-participation at execution time. It cannot use a member-owned GitHub
-connection, perform GitHub writes, publish messages, inspect Center Agent-only
-activity, or manage Routines. This dedicated member-research fence does not
+workspace directory metadata, bounded joined-channel membership/history reads,
+bounded Agent Activity, shared-connection read-only GitHub tools, read-only
+Organization-shared App actions, and `openmeld_draft_org_document`. The same
+reduced surface is rechecked when each tool executes. Slack directory data may
+disambiguate the subject's identity but is not work activity; profile text,
+messages, and App output are untrusted. Slack history is limited to one
+successfully read page in at most five joined channels whose membership
+contains the exact subject id. Remote Agent first follows the workspace
+directory cursor chain from its first page through completion and requires the
+full traversal to yield exactly one subject Slack id. It carries the immutable channel id
+from membership inspection to history retrieval; Core fails closed if the name
+no longer resolves to that same channel. A thrown or expected-unavailable read
+releases the page claim so a later retry can still obtain evidence. Expired
+research fence records are deleted in bounded batches at admission.
+Connected-App execution rejects every action whose declared effect is not
+`read`. Space context remains excluded because the generic Space read does not
+prove both public visibility and subject participation at execution time. It
+cannot use a member-owned GitHub or App connection, perform external writes,
+publish messages, inspect Center Agent-only activity, or manage Routines. This dedicated member-research fence does not
 modify the ordinary interactive/Routine catalog. The draft tool is additionally
 bound to the turn envelope's task id and subject: both Remote Agent and Core
 reject another document kind, member, document, or Remote Agent submission.
@@ -720,6 +730,22 @@ research turns to emit it and requiring it at the draft receiver. With old Core,
 the new Remote Agent continues following the old Markdown instruction and does
 not send the optional field. Rollback removes the Core producer/requirement
 before the Remote Agent consumer.
+
+The later Slack-history and connected-App evidence extension rolls out Core
+first, then Remote Agent. The new Core schema accepts either the complete
+legacy five-source coverage set or the complete current seven-source set; the
+new Remote Agent always emits the seven-source set. After Core deployment is
+complete, Remote Agent may expose the new source enum values and tools. Rollback
+therefore removes the Remote Agent producer before the Core compatibility
+reader.
+
+For a `member_research` turn, Slack evidence is not governed by prompt text
+alone. Core's workspace directory returns the exact OpenMeld member user id for
+every matched Slack identity. Remote Agent requires one unambiguous Slack id
+for the task subject, permits member inspection for at most five distinct
+channels, and permits one newest-first history page only after the inspected
+channel contains that exact Slack id. These restrictions do not narrow ordinary
+member-requested or Routine Slack reads.
 
 For an ordinary Space Wake, including a Wake in an ordinary Direct Message
 Space, or a Routine whose frozen destination is an OpenMeld Space, Core reads

@@ -1985,7 +1985,10 @@ Organization, recipient Slack user, workspace-connection generation, and
 welcome version, so moving or reconnecting a workspace creates a new welcome
 without duplicating one connection's message. A claim is persisted before the
 Slack call. Confirmed non-publication becomes `failed` and may be retried on a
-later OAuth reauthorization; provider-ambiguous publication becomes
+later OAuth reauthorization. The scheduler never reclaims that `failed` row on
+its own: reauthorization first changes the matching failed preparation to an
+explicit retry-authorized ready state, and only that state may reclaim the
+publication row. Provider-ambiguous publication becomes
 `outcome_unknown` and is never retried automatically. A stale `pending` claim
 is classified as `outcome_unknown`, not reclaimed. The ledger stores only
 bounded outcome metadata and Slack's published message timestamp, never the
@@ -1998,7 +2001,10 @@ ready/completed/failed lifecycle. It stores no report body. A preparation can
 become ready only when the task's Profile Report Organization Document and the
 exact Center Agent Computer file evidence join successfully. The publication
 ledger remains the only Slack-send authority; preparation readiness never
-means that Slack received a message.
+means that Slack received a message. A research or report-file failure uses the
+same publication ledger to send one plain failure-aware welcome with an inline
+“try again” CTA before the preparation becomes terminal; it does not add a
+second notification authority or store message copy in D1.
 
 `center_agent_member_research_computer_files` proves that Remote Agent wrote
 Core's exact rendered Profile Report content to the Center Agent's private

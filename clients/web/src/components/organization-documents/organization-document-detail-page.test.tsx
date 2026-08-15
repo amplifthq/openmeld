@@ -158,12 +158,12 @@ describe("OrganizationDocumentDetailPage", () => {
 		expect(report.disabled).toBe(false);
 		expect(
 			screen.getByRole("heading", {
-				name: "What Center Agent has learned so far",
+				name: "What your Center Agent has learned so far",
 			})
 		).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Center Agent will update this Profile Report as it learns more about your work. If anything feels off, tell Center Agent."
+				"Your Center Agent will update this Profile Report as it learns more about your work. If anything feels off, tell your Center Agent."
 			)
 		).toBeTruthy();
 		expect(screen.queryByText("Draft waiting for review")).toBeNull();

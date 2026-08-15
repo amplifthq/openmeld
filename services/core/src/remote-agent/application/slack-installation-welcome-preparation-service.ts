@@ -13,6 +13,11 @@ import { readSlackInstallationWelcomeDeliveryStatus } from "../infrastructure/d1
 import { resolveSlackBotToken } from "./slack-bot-token";
 import type { SlackBlockKitBlock } from "./slack-client";
 import { deliverSlackInstallationWelcome } from "./slack-installation-welcome-service";
+import {
+  buildSlackResearchUnavailableWelcomeMessage,
+  isMemberResearchBusy,
+  requireWebAppUrl,
+} from "./slack-onboarding-copy";
 
 const PROFILE_CURRENT_FOCUS_SECTION_PATTERN =
   /### Current focus\s+([\s\S]*?)(?:\n### |\n## |$)/u;
@@ -65,6 +70,7 @@ export async function runSlackInstallationWelcomePreparationTick(input: {
       }
       await failPreparationSafely({
         db: input.db,
+        env: input.env,
         error,
         failureCode: "member_research_start_failed",
         nowMs: input.nowMs,
@@ -83,11 +89,13 @@ export async function runSlackInstallationWelcomePreparationTick(input: {
     try {
       await advancePreparation({ ...input, preparation });
     } catch (error) {
-      console.warn("[core.slack_installation_welcome.preparation_failed]", {
-        error: error instanceof Error ? error.message : String(error),
-        organizationId: preparation.key.organizationId,
-        researchTaskId: preparation.researchTaskId,
-        slackTeamId: preparation.key.slackTeamId,
+      await failPreparationSafely({
+        db: input.db,
+        env: input.env,
+        error,
+        failureCode: "welcome_preparation_failed",
+        nowMs: input.nowMs,
+        preparation,
       });
     }
   }
@@ -118,6 +126,7 @@ async function advancePreparation(input: {
   if (!research) {
     await failPreparationSafely({
       db: input.db,
+      env: input.env,
       failureCode: "member_research_task_missing",
       nowMs: input.nowMs,
       preparation,
@@ -127,6 +136,7 @@ async function advancePreparation(input: {
   if (research.status === "failed") {
     await failPreparationSafely({
       db: input.db,
+      env: input.env,
       failureCode:
         research.failure_code ?? "member_research_completed_without_report",
       nowMs: input.nowMs,
@@ -144,6 +154,7 @@ async function advancePreparation(input: {
   if (!report) {
     await failPreparationSafely({
       db: input.db,
+      env: input.env,
       failureCode: "profile_report_missing",
       nowMs: input.nowMs,
       preparation,
@@ -166,31 +177,54 @@ async function advancePreparation(input: {
     messageKind: preparation.messageKind,
     organizationName: report.organizationName,
   });
+  const blocks = buildTrustFirstSlackWelcomeBlocks({
+    activeConnectedAppCount: report.activeConnectedAppCount,
+    documentId: report.documentId,
+    message,
+    organizationSlug: report.organizationSlug,
+    webAppUrl: input.env.WEB_APP_URL,
+  });
   const botToken = await resolveSlackBotToken({
     cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
     db: input.db,
+    fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
     slackTeamId: preparation.key.slackTeamId,
   });
-  const result = await deliverSlackInstallationWelcome({
-    allowCreate: true,
-    botToken,
-    buildBlocks: async () =>
-      buildTrustFirstSlackWelcomeBlocks({
-        activeConnectedAppCount: report.activeConnectedAppCount,
-        documentId: report.documentId,
-        message,
-        organizationSlug: report.organizationSlug,
-        webAppUrl: input.env.WEB_APP_URL,
-      }),
-    connectionCreatedAtMs: preparation.key.connectionCreatedAtMs,
-    db: input.db,
-    messageKind: preparation.messageKind,
-    messages: { connected: message, moved: message },
-    nowMs: input.nowMs,
-    organizationId: preparation.key.organizationId,
-    recipientSlackUserId: preparation.key.recipientSlackUserId,
-    slackTeamId: preparation.key.slackTeamId,
-  });
+  let result: "delivered" | "skipped";
+  try {
+    result = await deliverSlackInstallationWelcome({
+      allowCreate: true,
+      allowRetry: preparation.failureCode === "slack_delivery_retry_authorized",
+      botToken,
+      buildBlocks: async () => blocks,
+      connectionCreatedAtMs: preparation.key.connectionCreatedAtMs,
+      db: input.db,
+      messageKind: preparation.messageKind,
+      messages: { connected: message, moved: message },
+      nowMs: input.nowMs,
+      organizationId: preparation.key.organizationId,
+      recipientSlackUserId: preparation.key.recipientSlackUserId,
+      slackTeamId: preparation.key.slackTeamId,
+    });
+  } catch (error) {
+    const deliveryStatus = await readSlackInstallationWelcomeDeliveryStatus({
+      db: input.db,
+      key: preparation.key,
+    });
+    await failPreparationSafely({
+      db: input.db,
+      env: input.env,
+      error,
+      failureCode:
+        deliveryStatus === "outcome_unknown"
+          ? "slack_delivery_outcome_unknown"
+          : "slack_delivery_failed",
+      nowMs: Date.now(),
+      preparation,
+      sendResearchFailureWelcome: false,
+    });
+    return;
+  }
   const deliveryStatus =
     result === "delivered"
       ? "delivered"
@@ -209,9 +243,11 @@ async function advancePreparation(input: {
   } else if (deliveryStatus === "outcome_unknown") {
     await failPreparationSafely({
       db: input.db,
+      env: input.env,
       failureCode: "slack_delivery_outcome_unknown",
       nowMs: Date.now(),
       preparation,
+      sendResearchFailureWelcome: false,
     });
   }
 }
@@ -315,10 +351,7 @@ export function buildTrustFirstSlackWelcomeBlocks(input: {
   organizationSlug: string;
   webAppUrl?: string | null;
 }): readonly SlackBlockKitBlock[] | undefined {
-  const baseUrl = normalizeOptionalUrl(input.webAppUrl);
-  if (!baseUrl) {
-    return undefined;
-  }
+  const baseUrl = requireWebAppUrl(input.webAppUrl);
   const organizationRoot = new URL(
     `/o/${encodeURIComponent(input.organizationSlug)}/`,
     baseUrl
@@ -396,11 +429,29 @@ function slackActionButton(input: {
 
 async function failPreparationSafely(input: {
   db: D1Database;
+  env: CoreBindings;
   error?: unknown;
   failureCode: string;
   nowMs: number;
   preparation: SlackInstallationWelcomePreparation;
+  sendResearchFailureWelcome?: boolean;
 }): Promise<void> {
+  if (input.sendResearchFailureWelcome !== false) {
+    try {
+      await deliverResearchUnavailableWelcome({
+        db: input.db,
+        env: input.env,
+        nowMs: input.nowMs,
+        preparation: input.preparation,
+      });
+    } catch (notificationError) {
+      console.warn("[core.slack_installation_welcome.failure_notice_failed]", {
+        error: toOptionalErrorMessage(notificationError),
+        organizationId: input.preparation.key.organizationId,
+        slackTeamId: input.preparation.key.slackTeamId,
+      });
+    }
+  }
   await failSlackInstallationWelcomePreparation({
     claimId: input.preparation.claimId,
     db: input.db,
@@ -416,6 +467,57 @@ async function failPreparationSafely(input: {
   });
 }
 
+async function deliverResearchUnavailableWelcome(input: {
+  db: D1Database;
+  env: CoreBindings;
+  nowMs: number;
+  preparation: SlackInstallationWelcomePreparation;
+}): Promise<void> {
+  const context = await input.db
+    .prepare(
+      `
+        SELECT organizations.name AS organization_name, users.name AS display_name
+        FROM organizations
+        INNER JOIN users ON users.id = ?
+        WHERE organizations.id = ?
+        LIMIT 1
+      `
+    )
+    .bind(
+      input.preparation.installedByUserId,
+      input.preparation.key.organizationId
+    )
+    .first<{ display_name: string; organization_name: string }>();
+  if (!context) {
+    throw new Error("Slack welcome failure notice context is unavailable.");
+  }
+  const message = buildSlackResearchUnavailableWelcomeMessage({
+    displayName: context.display_name,
+    organizationName: context.organization_name,
+    workspaceMoved: input.preparation.messageKind === "moved",
+  });
+  const botToken = await resolveSlackBotToken({
+    cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+    db: input.db,
+    fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
+    slackTeamId: input.preparation.key.slackTeamId,
+  });
+  await deliverSlackInstallationWelcome({
+    allowCreate: true,
+    allowRetry: false,
+    botToken,
+    buildBlocks: async () => undefined,
+    connectionCreatedAtMs: input.preparation.key.connectionCreatedAtMs,
+    db: input.db,
+    messageKind: input.preparation.messageKind,
+    messages: { connected: message, moved: message },
+    nowMs: input.nowMs,
+    organizationId: input.preparation.key.organizationId,
+    recipientSlackUserId: input.preparation.key.recipientSlackUserId,
+    slackTeamId: input.preparation.key.slackTeamId,
+  });
+}
+
 function resolveFirstName(displayName: string): string {
   return displayName.trim().split(WHITESPACE_PATTERN)[0] || "there";
 }
@@ -425,25 +527,4 @@ function toOptionalErrorMessage(error: unknown): string | null {
     return null;
   }
   return error instanceof Error ? error.message : String(error);
-}
-
-function isMemberResearchBusy(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "center_agent_member_research.already_running"
-  );
-}
-
-function normalizeOptionalUrl(value: unknown): string | null {
-  const normalized = String(value ?? "").trim();
-  if (!normalized) {
-    return null;
-  }
-  try {
-    return new URL(normalized).toString();
-  } catch {
-    return null;
-  }
 }

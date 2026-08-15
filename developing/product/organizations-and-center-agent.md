@@ -1444,8 +1444,15 @@ The welcome offers **See what I learned**, **Invite teammates**, and
 Organization has no active App connection. The Slack teammate action opens a
 native multi-user picker, accepts at most ten selected active human workspace
 members, and sends a private invitation to each through an idempotent delivery
-ledger. Every welcome button and modal submission rechecks the linked person's
-current Auth-owned Organization membership before it exposes a join link or
+ledger. The same private-invitation action is available in ordinary Slack DM
+conversation: the Center Agent reads the live workspace directory, resolves
+only exact named people, and sends their returned Slack user ids through the
+same Core interaction and delivery contract. An ambiguous or missing name
+produces one short clarification; the model never guesses an id. The execution
+boundary also requires `requester_private`; a public-channel mention cannot
+invoke the private invitation action. Every welcome button, conversational
+invitation, and modal submission rechecks the linked person's current
+Auth-owned Organization membership before it exposes a join link or
 performs an action; a removed member cannot keep using an old Slack identity
 link. A current member may share an existing active Organization join link;
 only an owner or admin may create that link when none exists. If a member asks
@@ -1463,6 +1470,15 @@ introduction without a link. The Center Agent does not rank people, disclose
 private observations, or mention an individual unless the requester explicitly
 asked it to notify that person.
 
+Member research or report-file failure never makes the first Slack experience
+silently disappear. Core uses the existing durable welcome publication claim
+to send one brief, honest message that the first Profile Report could not be
+finished and offers the lowest-cost next action: reply “try again” in the same
+DM. Missing or invalid Web URL configuration fails before publication rather
+than stripping the promised welcome actions. Any failed welcome button or
+modal action likewise produces one private retry/reconnect next step when Core
+can still reach the Slack workspace.
+
 An invited Slack user receives the Organization join link and a simple account
 of what will happen after joining; OpenMeld does not claim to know that person
 before Organization membership exists. After an exact normalized Slack email
@@ -1476,6 +1492,9 @@ closed without starting another research task or sending another welcome.
 The second welcome has its own durable publication claim. A confirmed Slack
 rejection may retry, a confirmed delivery is recovered by its recorded message
 id, and a lost or ambiguous outcome never triggers a blind second message.
+That claim may omit a research-task id only when research could not start; the
+same ledger then owns the one honest failure-aware welcome instead of storing a
+made-up task.
 The new member may then reply in Slack, invite more teammates, or start the
 channel-introduction flow. A move starts a new Organization context with
 different members, Spaces, Apps, and agent state, so reusing the previous
@@ -1890,21 +1909,28 @@ feedback is emitted only after that terminal outcome.
 
 The server-authored task may use Organization directory identity, Slack
 workspace directory identity metadata, approved Organization documents, the
-bounded Agent Activity snapshot, and an Organization-shared GitHub connection.
-Directory identity, email, role, profile ownership, source availability, and
-the absence of activity are not evidence of a member's work. Slack directory
-profile text is untrusted and Slack messages are not exposed. GitHub work is
-included only when it can be confidently attributed to the subject. The task
-must not read local agent session content or invent missing facts. V1 does not
-expose Space message context because the existing generic read does not bind
-public visibility and subject participation at its execution boundary.
+bounded Agent Activity snapshot, Organization-shared GitHub, and read-only
+Organization-shared App actions. After exact Slack identity resolution it may
+inspect one newest-first page in at most five relevant joined channels, but
+only when channel membership contains that exact Slack user id. Directory
+identity, email, role, profile ownership, source availability, and the absence
+of activity are not evidence of a member's work. Slack directory profile text,
+channel messages, and connected-App output are untrusted data. Slack or App
+artifacts count only with exact subject attribution, a stable id, and a date;
+ambiguous attribution is omitted and reported as `not_attributable`. Connected
+App execution is structurally limited to actions declared `read`. GitHub work
+is included only when it can be confidently attributed to the subject. The
+task must not read local agent session content or invent missing facts. Space
+message context remains excluded because the generic read does not bind public
+visibility and subject participation at its execution boundary.
 
 Member research has a server-enforced quality floor. Remote Agent submits the
 shared structured member-research report contract rather than authored
 Markdown. Core validates the evidence packet, preserves the existing approved
 `## About` section, and is the only owner that renders the reviewable Profile
 Report Markdown. A useful evidence-backed report requires at least two
-distinct, dated Agent Activity or attributable GitHub work items. It separates
+distinct, dated Agent Activity or attributable GitHub, Slack, or connected-App
+work items. It separates
 supported About additions and adds a Working profile with Current focus, Recent
 contributions, and Collaboration guidance before dated, source-cited Observed
 activity. Research coverage names every checked source, its availability, the

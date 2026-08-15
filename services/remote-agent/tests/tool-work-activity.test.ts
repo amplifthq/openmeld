@@ -75,6 +75,17 @@ describe("Remote Agent user-visible work semantics", () => {
     });
   });
 
+  it("describes private Slack teammate invitations as Organization invitation work", () => {
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_invite_slack_teammates", {
+        slackUserIds: ["U_TEAMMATE"],
+      })
+    ).toEqual({
+      key: "organization.invite.create",
+      v: 1,
+    });
+  });
+
   it("describes canonical Center Agent Task creation without using execution-handle semantics", () => {
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_create_task", {

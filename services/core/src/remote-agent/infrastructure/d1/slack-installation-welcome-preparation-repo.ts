@@ -6,6 +6,7 @@ import {
 
 export type SlackInstallationWelcomePreparation = {
   claimId: string;
+  failureCode: string | null;
   installedByProfileId: string;
   installedByUserId: string;
   key: SlackInstallationWelcomeDeliveryKey;
@@ -17,6 +18,7 @@ export type SlackInstallationWelcomePreparation = {
 type PreparationRow = {
   claim_id: string;
   connection_created_at_ms: number;
+  failure_code: string | null;
   installed_by_profile_id: string;
   installed_by_user_id: string;
   message_kind: SlackInstallationWelcomeMessageKind;
@@ -79,6 +81,51 @@ export async function enqueueSlackInstallationWelcomePreparation(input: {
       input.installedByProfileId,
       input.nowMs,
       input.nowMs
+    )
+    .run();
+  return Number(result.meta.changes ?? 0) === 1;
+}
+
+export async function authorizeFailedSlackInstallationWelcomeRetry(input: {
+  db: D1Database;
+  key: SlackInstallationWelcomeDeliveryKey;
+  nowMs: number;
+}): Promise<boolean> {
+  const result = await input.db
+    .prepare(
+      `
+        UPDATE slack_installation_welcome_preparations
+        SET
+          status = 'ready',
+          failure_code = 'slack_delivery_retry_authorized',
+          updated_at_ms = ?
+        WHERE slack_team_id = ?
+          AND organization_id = ?
+          AND recipient_slack_user_id = ?
+          AND connection_created_at_ms = ?
+          AND welcome_version = ?
+          AND status = 'failed'
+          AND failure_code = 'slack_delivery_failed'
+          AND research_task_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM slack_installation_welcome_deliveries AS deliveries
+            WHERE deliveries.slack_team_id = slack_installation_welcome_preparations.slack_team_id
+              AND deliveries.organization_id = slack_installation_welcome_preparations.organization_id
+              AND deliveries.recipient_slack_user_id = slack_installation_welcome_preparations.recipient_slack_user_id
+              AND deliveries.connection_created_at_ms = slack_installation_welcome_preparations.connection_created_at_ms
+              AND deliveries.welcome_version = slack_installation_welcome_preparations.welcome_version
+              AND deliveries.status = 'failed'
+          )
+      `
+    )
+    .bind(
+      input.nowMs,
+      input.key.slackTeamId,
+      input.key.organizationId,
+      input.key.recipientSlackUserId,
+      input.key.connectionCreatedAtMs,
+      input.key.welcomeVersion
     )
     .run();
   return Number(result.meta.changes ?? 0) === 1;
@@ -318,6 +365,7 @@ function mapPreparation(
 ): SlackInstallationWelcomePreparation {
   return {
     claimId: row.claim_id,
+    failureCode: row.failure_code,
     installedByProfileId: row.installed_by_profile_id,
     installedByUserId: row.installed_by_user_id,
     key: {

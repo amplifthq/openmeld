@@ -104,7 +104,7 @@ describe("Slack welcome teammate invitations", () => {
     ]);
   });
 
-  it("rejects a stale Slack identity after the user leaves the Organization", async () => {
+  it("gives a stale Slack identity one private next step after the user leaves the Organization", async () => {
     seedActiveJoinLink(harness);
     const resolveOrganizationAccountIdentity = vi.fn(async () => ({
       account: {
@@ -133,13 +133,26 @@ describe("Slack welcome teammate invitations", () => {
         }),
         teammateInviteInput()
       )
-    ).rejects.toThrow("no longer a member");
+    ).resolves.toEqual({ handled: true });
 
     expect(resolveOrganizationAccountIdentity).toHaveBeenCalledWith({
       account: { kind: "user_id", userId: "user-actor" },
       organizationId: "org-1",
     });
-    expect(slackFetch).not.toHaveBeenCalled();
+    const publications = slackFetch.mock.calls
+      .filter(([url]) => url === "https://slack.com/api/chat.postMessage")
+      .map(
+        ([, request]) =>
+          JSON.parse(String(request?.body)) as Record<string, unknown>
+      );
+    expect(publications).toEqual([
+      expect.objectContaining({
+        channel: "U_ACTOR",
+        text: expect.stringContaining(
+          "Ask an Organization owner or admin to add you again"
+        ),
+      }),
+    ]);
   });
 });
 

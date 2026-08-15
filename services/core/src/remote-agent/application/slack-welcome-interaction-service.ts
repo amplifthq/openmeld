@@ -35,12 +35,25 @@ import { submitRemoteAgentSlackChannelIntroduction } from "./slack-signal-servic
 const INVITE_MODAL_CALLBACK_ID = "openmeld_invite_teammates";
 const CHANNEL_INTRODUCTION_MODAL_CALLBACK_ID = "openmeld_introduce_in_channels";
 const WHITESPACE_PATTERN = /\s+/u;
+const RPC_ERROR_CODE_PATTERN = /"code"\s*:\s*"([^"]+)"/u;
 
 export async function handleSlackWelcomeInteraction(
   env: CoreBindings,
   rawInput: SlackWelcomeInteractionRpcInput
 ): Promise<SlackWelcomeInteractionRpcResponse> {
   const input = slackWelcomeInteractionRpcInputSchema.parse(rawInput);
+  try {
+    await handleVerifiedSlackWelcomeInteraction(env, input);
+  } catch (error) {
+    await notifySlackWelcomeInteractionFailure({ env, error, input });
+  }
+  return slackWelcomeInteractionRpcResponseSchema.parse({ handled: true });
+}
+
+async function handleVerifiedSlackWelcomeInteraction(
+  env: CoreBindings,
+  input: SlackWelcomeInteractionRpcInput
+): Promise<void> {
   const context = await resolveVerifiedSlackActor({ env, input });
   if (input.action === "open_teammate_invite_modal") {
     await openSlackModal({
@@ -76,7 +89,99 @@ export async function handleSlackWelcomeInteraction(
       input,
     });
   }
-  return slackWelcomeInteractionRpcResponseSchema.parse({ handled: true });
+}
+
+async function notifySlackWelcomeInteractionFailure(input: {
+  env: CoreBindings;
+  error: unknown;
+  input: SlackWelcomeInteractionRpcInput;
+}): Promise<void> {
+  try {
+    const db = localStateDb(input.env);
+    if (!db) {
+      throw new Error("Slack connection state is unavailable.");
+    }
+    const botToken = await resolveSlackBotToken({
+      cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+      db,
+      fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
+      slackTeamId: input.input.slackTeamId,
+    });
+    await postSlackDirectMessage({
+      botToken,
+      recipientUserId: input.input.slackUserId,
+      text: buildSlackWelcomeInteractionFailureMessage(input.error),
+    });
+    console.warn("[core.slack_welcome_interaction.failed_with_notice]", {
+      action: input.input.action,
+      error:
+        input.error instanceof Error
+          ? input.error.message
+          : String(input.error),
+      slackTeamId: input.input.slackTeamId,
+      slackUserId: input.input.slackUserId,
+    });
+  } catch (notificationError) {
+    console.warn("[core.slack_welcome_interaction.failure_notice_failed]", {
+      action: input.input.action,
+      error:
+        input.error instanceof Error
+          ? input.error.message
+          : String(input.error),
+      notificationError:
+        notificationError instanceof Error
+          ? notificationError.message
+          : String(notificationError),
+      slackTeamId: input.input.slackTeamId,
+      slackUserId: input.input.slackUserId,
+    });
+    throw input.error;
+  }
+}
+
+function buildSlackWelcomeInteractionFailureMessage(error: unknown): string {
+  if (
+    readSlackWelcomeInteractionErrorCode(error) ===
+    "organization.membership_required"
+  ) {
+    return "Center Agent couldn’t finish that action because you’re no longer a member of this OpenMeld Organization. Ask an Organization owner or admin to add you again, then come back here.";
+  }
+  return "Center Agent couldn’t finish that action. Try once more. If it still doesn’t work, reconnect Slack in OpenMeld, then come back here.";
+}
+
+function readSlackWelcomeInteractionErrorCode(error: unknown): string | null {
+  const visited = new Set<unknown>();
+  let current = error;
+  for (let depth = 0; depth < 4 && current !== null; depth += 1) {
+    if (visited.has(current)) {
+      return null;
+    }
+    visited.add(current);
+    if (typeof current !== "object") {
+      return readSlackWelcomeInteractionErrorCodeFromMessage(current);
+    }
+    const record = current as Record<string, unknown>;
+    if (typeof record.code === "string" && record.code.trim()) {
+      return record.code.trim();
+    }
+    const messageCode = readSlackWelcomeInteractionErrorCodeFromMessage(
+      record.message
+    );
+    if (messageCode) {
+      return messageCode;
+    }
+    current = record.cause ?? null;
+  }
+  return null;
+}
+
+function readSlackWelcomeInteractionErrorCodeFromMessage(
+  value: unknown
+): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return RPC_ERROR_CODE_PATTERN.exec(value)?.[1] ?? null;
 }
 
 function buildChannelIntroductionModal(): Record<string, unknown> {

@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runSlackInvitedMemberOnboardingTick } from "../src/remote-agent/application/slack-invited-member-onboarding-service";
+import {
+  buildJoinedMemberWelcomeBlocks,
+  runSlackInvitedMemberOnboardingTick,
+} from "../src/remote-agent/application/slack-invited-member-onboarding-service";
 import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Slack invited member onboarding", () => {
@@ -134,6 +137,45 @@ describe("Slack invited member onboarding", () => {
 
     expect(startResearch).toHaveBeenCalledOnce();
     expect(slackFetch).toHaveBeenCalledOnce();
+  });
+
+  it("fails before publication when the report action cannot get a valid Web app URL", () => {
+    expect(() =>
+      buildJoinedMemberWelcomeBlocks({
+        documentId: "document-maya",
+        message: "Prepared welcome",
+        organizationSlug: "ampli-lift",
+        webAppUrl: " ",
+      })
+    ).toThrow("WEB_APP_URL");
+  });
+
+  it("gives a joined member one plain next step when first research cannot start", async () => {
+    const startResearch = vi.fn(() =>
+      Promise.reject(new Error("Remote Agent unavailable"))
+    );
+
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 2000,
+      startResearch,
+    });
+
+    expect(slackFetch).toHaveBeenCalledOnce();
+    const [, request] = slackFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(request.body)) as { text: string };
+    expect(body.text).toContain("couldn’t finish your first Profile Report");
+    expect(body.text).toContain("Reply “try again”");
+    expect(
+      harness.queryFirst({
+        sql: `SELECT onboarding_status, onboarding_failure_code
+          FROM slack_teammate_invitation_deliveries`,
+      })
+    ).toEqual({
+      onboarding_failure_code: "member_research_start_failed",
+      onboarding_status: "failed",
+    });
   });
 
   it("starts one onboarding when the same Slack member has duplicate invitations", async () => {
@@ -428,7 +470,7 @@ function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
       CREATE TABLE slack_invited_member_welcome_deliveries (
         interaction_id TEXT NOT NULL,
         target_slack_user_id TEXT NOT NULL,
-        research_task_id TEXT NOT NULL,
+        research_task_id TEXT,
         status TEXT NOT NULL,
         claim_id TEXT NOT NULL,
         attempt_count INTEGER NOT NULL,
@@ -448,6 +490,10 @@ function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
 function seedWaitingInvitation(
   harness: ReturnType<typeof createSqliteD1Harness>
 ): void {
+  harness.run({
+    sql: `INSERT INTO organizations (id, name, slug)
+      VALUES ('org-1', 'Ampli Lift', 'ampli-lift')`,
+  });
   harness.run({
     params: [
       "invite-1",
@@ -558,7 +604,7 @@ function seedCompletedResearch(
   });
   harness.run({
     sql: `
-      INSERT INTO organizations (id, name, slug)
+      INSERT OR IGNORE INTO organizations (id, name, slug)
       VALUES ('org-1', 'Ampli Lift', 'ampli-lift')
     `,
   });

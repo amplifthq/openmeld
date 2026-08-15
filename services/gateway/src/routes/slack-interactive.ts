@@ -104,7 +104,10 @@ function handleTeammateInviteSubmission(
     });
   }
   c.executionCtx.waitUntil(
-    c.env.OPENMELD_CORE_WORKER.handleSlackWelcomeInteraction(input.data)
+    observeSlackWelcomeInteraction(
+      c.env.OPENMELD_CORE_WORKER.handleSlackWelcomeInteraction(input.data),
+      input.data
+    )
   );
   return c.body(null, 200);
 }
@@ -134,9 +137,28 @@ function handleChannelIntroductionSubmission(
     });
   }
   c.executionCtx.waitUntil(
-    c.env.OPENMELD_CORE_WORKER.handleSlackWelcomeInteraction(input.data)
+    observeSlackWelcomeInteraction(
+      c.env.OPENMELD_CORE_WORKER.handleSlackWelcomeInteraction(input.data),
+      input.data
+    )
   );
   return c.body(null, 200);
+}
+
+async function observeSlackWelcomeInteraction(
+  promise: Promise<unknown>,
+  input: { action: string; slackTeamId: string; slackUserId: string }
+): Promise<void> {
+  try {
+    await promise;
+  } catch (error) {
+    console.error("[gateway.slack_interaction.core_failed]", {
+      action: input.action,
+      error: error instanceof Error ? error.message : String(error),
+      slackTeamId: input.slackTeamId,
+      slackUserId: input.slackUserId,
+    });
+  }
 }
 
 async function handleSlackBlockAction(

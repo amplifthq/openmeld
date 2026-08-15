@@ -12,7 +12,11 @@ export const CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES = [
   "agent_activity",
   "github",
   "slack_workspace_directory",
+  "slack_channel_history",
+  "connected_apps",
 ] as const;
+const LEGACY_CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES =
+  CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES.slice(0, 5);
 export const CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_STATUSES = [
   "checked",
   "unavailable",
@@ -21,6 +25,8 @@ export const CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_STATUSES = [
 export const CENTER_AGENT_MEMBER_RESEARCH_EVIDENCE_SOURCES = [
   "agent_activity",
   "github",
+  "slack",
+  "connected_app",
 ] as const;
 
 export const centerAgentMemberResearchEvidenceSourceSchema = z.enum(
@@ -31,6 +37,7 @@ export const centerAgentMemberResearchEvidenceItemSchema = z
     date: z.iso.date(),
     source: centerAgentMemberResearchEvidenceSourceSchema,
     sourceId: trimmedNonEmptyStringSchema.max(256),
+    sourceName: trimmedNonEmptyStringSchema.max(120).optional(),
     sourceUrl: z.url().max(2048).optional(),
     text: memberResearchTextSchema,
   })
@@ -51,6 +58,16 @@ export const centerAgentMemberResearchEvidenceItemSchema = z
       return;
     }
     if (
+      (item.source === "slack" || item.source === "connected_app") &&
+      !item.sourceName
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: `${item.source === "slack" ? "Slack" : "Connected App"} evidence requires a sourceName.`,
+        path: ["sourceName"],
+      });
+    }
+    if (
       item.source === "github" &&
       item.sourceUrl &&
       new URL(item.sourceUrl).protocol !== "https:"
@@ -58,6 +75,17 @@ export const centerAgentMemberResearchEvidenceItemSchema = z
       context.addIssue({
         code: "custom",
         message: "GitHub evidence requires a direct HTTPS sourceUrl.",
+        path: ["sourceUrl"],
+      });
+    }
+    if (
+      item.source === "connected_app" &&
+      item.sourceUrl &&
+      new URL(item.sourceUrl).protocol !== "https:"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Connected App evidence sourceUrl must use HTTPS.",
         path: ["sourceUrl"],
       });
     }
@@ -78,9 +106,15 @@ export const centerAgentMemberResearchCoverageSchema = z.strictObject({
 
 const centerAgentMemberResearchCoverageListSchema = z
   .array(centerAgentMemberResearchCoverageSchema)
-  .length(CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES.length)
+  .min(LEGACY_CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES.length)
+  .max(CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES.length)
   .superRefine((coverage, context) => {
-    for (const source of CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES) {
+    const expectedSources =
+      coverage.length ===
+      LEGACY_CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES.length
+        ? LEGACY_CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES
+        : CENTER_AGENT_MEMBER_RESEARCH_COVERAGE_SOURCES;
+    for (const source of expectedSources) {
       const sourceCount = coverage.filter(
         (entry) => entry.source === source
       ).length;
@@ -90,6 +124,13 @@ const centerAgentMemberResearchCoverageListSchema = z
           message: `Research coverage must include ${source} exactly once.`,
         });
       }
+    }
+    if (coverage.some((entry) => !expectedSources.includes(entry.source))) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Research coverage must use either the complete legacy source set or the complete current source set.",
+      });
     }
   });
 

@@ -12,6 +12,7 @@ import {
 
 export async function deliverSlackInstallationWelcome(input: {
   allowCreate: boolean;
+  allowRetry: boolean;
   botToken: string;
   buildBlocks: (
     message: string
@@ -27,6 +28,7 @@ export async function deliverSlackInstallationWelcome(input: {
 }): Promise<"delivered" | "skipped"> {
   const claim = await claimSlackInstallationWelcomeDelivery({
     allowCreate: input.allowCreate,
+    allowRetry: input.allowRetry,
     claimId: crypto.randomUUID(),
     db: input.db,
     key: {

@@ -1777,14 +1777,20 @@ ensuring a missing link, or sending an invitation. Any verified member may
 reuse the active Core-owned link; Auth remains the only authority that can
 create a missing link on behalf of an owner or admin. A forbidden missing-link
 result becomes a private actionable Slack outcome for the requester rather
-than an unobserved `waitUntil()` rejection. Gateway never receives the bot token
+than an unobserved `waitUntil()` rejection. Other Core-side interaction
+failures also attempt one private retry/reconnect next step; Gateway observes
+and logs a binding-level background rejection instead of dropping a bare
+`waitUntil()` promise. Gateway never receives the bot token
 or decides Organization authority. Joined-member onboarding is claimed once
 per Organization, Slack workspace, and target Slack user. A competing delivered
 invitation is moved to a terminal duplicate outcome before it can start a
 second research task or welcome publication. Invited-member welcome delivery
 uses a separate Core-owned claim ledger keyed by invitation, Slack recipient,
-and research task. `pending` fences concurrent and crash retries, `delivered`
-stores the provider message id for onboarding recovery, a confirmed
+and nullable research task. A null research-task id means research could not
+start and the same ledger owns the one failure-aware welcome; Core never
+fabricates a task id merely to satisfy publication storage. `pending` fences
+concurrent and crash retries, `delivered` stores the provider message id for
+onboarding recovery, a confirmed
 non-publication may retry from `failed`, and stale or ambiguous claims close as
 `outcome_unknown` instead of republishing blindly.
 
@@ -1855,8 +1861,27 @@ reader and older-action-set filters while that durable row remains.
 `packages/schemas` owns the Center Agent Slack channel list, channel member,
 and channel history request and response contracts. Requests are bounded and
 cursor-paginated. Model-visible responses expose channel names and provider
-metadata but not internal Slack channel ids; Core retains ids only for provider
-calls and audit correlation.
+metadata but not internal Slack channel ids. Member research opts into a
+service-binding-only `channelId` field on the member read, stores it outside
+model-visible output, and sends it back as `expectedChannelId` on the history
+read. Core resolves the name again and fails closed unless it still identifies
+that exact immutable channel before reading history.
+
+The Slack workspace-directory request can opt into `memberUserId`; Core includes
+it only when the Slack identity matches a current Organization member. Remote
+Agent requests it only for member research, stores the exact task-subject Slack
+id, and removes the OpenMeld member id before returning directory data to the
+model. It must follow the returned directory cursors from the first page to the
+end and proceeds only when the completed traversal yields exactly one subject
+Slack id. The execution boundary bounds membership inspection to five distinct
+immutable channels and allows one history page only for a channel containing
+that exact Slack id. Research state expires after one hour and is deleted in a
+bounded batch when a later submission is admitted.
+
+These opt-in request fields preserve the receiver-first rollout. Deploy Core
+first: callers that do not opt in receive the legacy strict response shapes.
+Then deploy Remote Agent, which opts into the new internal fields and fails
+closed if Core does not return them. Rollback removes Remote Agent before Core.
 
 Each response is a strict union between its successful payload and the same
 expected-unavailable shape. Core uses that result for a missing Slack
@@ -2283,6 +2308,15 @@ single subject from that speaker and starts the existing research contract; the
 model cannot name another subject. The same rollout adds the
 `organization.member_research.start` Agent Work key so Web can describe the
 background start without claiming that the Profile Report is already complete.
+
+The member-research evidence extension adds `slack_channel_history` and
+`connected_apps` coverage plus attributable `slack` and `connected_app`
+evidence. Core accepts the complete legacy five-source coverage set and the
+complete current seven-source set so an old Remote Agent remains compatible
+during a Core-first rollout. The current Remote Agent tool input requires all
+seven sources, and connected-App evidence execution is independently fenced to
+actions whose provider declaration says `read`. Deploy Core before Remote
+Agent; roll back Remote Agent before Core.
 
 This contract has two strict directions and rolls out consumer-first:
 

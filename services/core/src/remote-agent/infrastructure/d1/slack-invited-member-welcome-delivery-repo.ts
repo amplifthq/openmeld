@@ -6,7 +6,7 @@ export type SlackInvitedMemberWelcomeDeliveryStatus =
 
 export type SlackInvitedMemberWelcomeDeliveryKey = {
   interactionId: string;
-  researchTaskId: string;
+  researchTaskId: string | null;
   targetSlackUserId: string;
 };
 
@@ -28,7 +28,7 @@ type SlackInvitedMemberWelcomeDeliveryRow = {
   failure_code: string | null;
   interaction_id: string;
   message_ts: string | null;
-  research_task_id: string;
+  research_task_id: string | null;
   status: SlackInvitedMemberWelcomeDeliveryStatus;
   target_slack_user_id: string;
 };
@@ -87,7 +87,7 @@ export async function claimSlackInvitedMemberWelcomeDelivery(input: {
           updated_at_ms = ?
         WHERE interaction_id = ?
           AND target_slack_user_id = ?
-          AND research_task_id = ?
+          AND research_task_id IS ?
           AND status = 'failed'
         RETURNING *
       `
@@ -118,7 +118,7 @@ export async function completeSlackInvitedMemberWelcomeDelivery(input: {
         SET status = ?, message_ts = ?, failure_code = ?, updated_at_ms = ?
         WHERE interaction_id = ?
           AND target_slack_user_id = ?
-          AND research_task_id = ?
+          AND research_task_id IS ?
           AND claim_id = ?
           AND status = 'pending'
         RETURNING status
@@ -157,7 +157,7 @@ export async function readSlackInvitedMemberWelcomeDelivery(input: {
     .first<{
       failure_code: string | null;
       message_ts: string | null;
-      research_task_id: string;
+      research_task_id: string | null;
       status: SlackInvitedMemberWelcomeDeliveryStatus;
     }>();
   if (!row) {
@@ -190,7 +190,7 @@ async function markStalePendingOutcomeUnknown(input: {
           updated_at_ms = ?
         WHERE interaction_id = ?
           AND target_slack_user_id = ?
-          AND research_task_id = ?
+          AND research_task_id IS ?
           AND status = 'pending'
           AND updated_at_ms <= ?
       `

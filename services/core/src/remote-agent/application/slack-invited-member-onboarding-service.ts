@@ -22,6 +22,11 @@ import {
   SlackMessagePublicationError,
 } from "./slack-client";
 import { readFirstProfileObservation } from "./slack-installation-welcome-preparation-service";
+import {
+  buildSlackResearchUnavailableWelcomeMessage,
+  isMemberResearchBusy,
+  requireWebAppUrl,
+} from "./slack-onboarding-copy";
 
 const WHITESPACE_PATTERN = /\s+/u;
 
@@ -81,11 +86,11 @@ export async function runSlackInvitedMemberOnboardingTick(input: {
     try {
       await advanceResearchingOnboarding({ ...input, onboarding });
     } catch (error) {
-      console.warn("[core.slack_invited_member.advance_failed]", {
-        error: error instanceof Error ? error.message : String(error),
-        interactionId: onboarding.interactionId,
-        organizationId: onboarding.organizationId,
-        targetSlackUserId: onboarding.targetSlackUserId,
+      await failOnboarding({
+        ...input,
+        error,
+        failureCode: "member_onboarding_advance_failed",
+        onboarding,
       });
     }
   }
@@ -244,6 +249,12 @@ async function advanceResearchingOnboarding(input: {
     fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
     slackTeamId: input.onboarding.slackTeamId,
   });
+  const blocks = buildJoinedMemberWelcomeBlocks({
+    documentId: report.document_id,
+    message,
+    organizationSlug: organization.slug,
+    webAppUrl: input.env.WEB_APP_URL,
+  });
   const delivery = await deliverJoinedMemberWelcome({
     db: input.db,
     key: {
@@ -254,12 +265,7 @@ async function advanceResearchingOnboarding(input: {
     nowMs: input.nowMs,
     publish: async () => {
       const publication = await postSlackDirectMessage({
-        blocks: buildJoinedMemberWelcomeBlocks({
-          documentId: report.document_id,
-          message,
-          organizationSlug: organization.slug,
-          webAppUrl: input.env.WEB_APP_URL,
-        }),
+        blocks,
         botToken,
         recipientUserId: input.onboarding.targetSlackUserId,
         text: message,
@@ -365,16 +371,13 @@ You can talk to me right here. Tell me what you’re working on, ask what I know
 When you’re ready, I can also help invite more teammates or get to know the apps your team uses.`;
 }
 
-function buildJoinedMemberWelcomeBlocks(input: {
+export function buildJoinedMemberWelcomeBlocks(input: {
   documentId: string;
   message: string;
   organizationSlug: string;
   webAppUrl?: string | null;
-}): readonly Record<string, unknown>[] | undefined {
-  const baseUrl = input.webAppUrl?.trim();
-  if (!baseUrl) {
-    return undefined;
-  }
+}): readonly Record<string, unknown>[] {
+  const baseUrl = requireWebAppUrl(input.webAppUrl);
   const url = new URL(
     `/o/${encodeURIComponent(input.organizationSlug)}/documents/${encodeURIComponent(input.documentId)}`,
     baseUrl
@@ -411,11 +414,26 @@ function buildJoinedMemberWelcomeBlocks(input: {
 
 async function failOnboarding(input: {
   db: D1Database;
+  env: CoreBindings;
   error?: unknown;
   failureCode: string;
   nowMs: number;
   onboarding: SlackInvitedMemberOnboarding;
 }): Promise<void> {
+  try {
+    await deliverResearchUnavailableWelcome(input);
+  } catch (notificationError) {
+    console.warn("[core.slack_invited_member.failure_notice_failed]", {
+      error:
+        notificationError instanceof Error
+          ? notificationError.message
+          : String(notificationError),
+      interactionId: input.onboarding.interactionId,
+      organizationId: input.onboarding.organizationId,
+      slackTeamId: input.onboarding.slackTeamId,
+      targetSlackUserId: input.onboarding.targetSlackUserId,
+    });
+  }
   await failSlackInvitedMemberOnboarding({
     db: input.db,
     failureCode: input.failureCode,
@@ -432,15 +450,48 @@ async function failOnboarding(input: {
   });
 }
 
-function normalizeEmail(value: string): string {
-  return value.trim().toLowerCase();
+async function deliverResearchUnavailableWelcome(input: {
+  db: D1Database;
+  env: CoreBindings;
+  nowMs: number;
+  onboarding: SlackInvitedMemberOnboarding;
+}): Promise<void> {
+  const organization = await input.db
+    .prepare("SELECT name FROM organizations WHERE id = ? LIMIT 1")
+    .bind(input.onboarding.organizationId)
+    .first<{ name: string }>();
+  if (!organization) {
+    throw new Error("Invited member Organization is unavailable.");
+  }
+  const message = buildSlackResearchUnavailableWelcomeMessage({
+    displayName: input.onboarding.targetDisplayName,
+    organizationName: organization.name,
+  });
+  const botToken = await resolveSlackBotToken({
+    cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+    db: input.db,
+    fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
+    slackTeamId: input.onboarding.slackTeamId,
+  });
+  await deliverJoinedMemberWelcome({
+    db: input.db,
+    key: {
+      interactionId: input.onboarding.interactionId,
+      researchTaskId: input.onboarding.researchTaskId,
+      targetSlackUserId: input.onboarding.targetSlackUserId,
+    },
+    nowMs: input.nowMs,
+    publish: async () => {
+      const publication = await postSlackDirectMessage({
+        botToken,
+        recipientUserId: input.onboarding.targetSlackUserId,
+        text: message,
+      });
+      return publication.id;
+    },
+  });
 }
 
-function isMemberResearchBusy(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "center_agent_member_research.already_running"
-  );
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
 }

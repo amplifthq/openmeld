@@ -21,12 +21,14 @@ export const centerAgentListSlackChannelsBodySchema = z.strictObject({
 export const centerAgentReadSlackChannelMembersBodySchema = z.strictObject({
   channelName: slackChannelNameSchema,
   cursor: slackCursorSchema,
+  includeChannelId: z.literal(true).optional(),
   limit: z.number().int().min(1).max(200).optional(),
 });
 
 export const centerAgentReadSlackChannelHistoryBodySchema = z.strictObject({
   channelName: slackChannelNameSchema,
   cursor: slackCursorSchema,
+  expectedChannelId: trimmedNonEmptyStringSchema.max(80).optional(),
   limit: z.number().int().min(1).max(15).optional(),
 });
 
@@ -45,6 +47,7 @@ export const slackChannelListResponseSchema = z.strictObject({
 });
 
 export const slackChannelMembersResponseSchema = z.strictObject({
+  channelId: trimmedNonEmptyStringSchema.max(80).optional(),
   channelName: slackChannelNameSchema,
   generatedAt: ISO_DATE_TIME_SCHEMA,
   members: z.array(slackWorkspaceDirectoryMemberSchema),

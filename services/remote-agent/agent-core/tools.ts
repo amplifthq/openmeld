@@ -107,6 +107,8 @@ import {
   recordCenterAgentMemberResearchComputerFileResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
   SPACE_PASSWORD_MIN_LENGTH,
+  slackWelcomeInteractionRpcInputSchema,
+  slackWelcomeInteractionRpcResponseSchema,
   startCenterAgentMemberResearchResponseSchema,
   submitFeedbackIssueRequestSchema,
   updateCenterAgentRoutineResponseSchema,
@@ -121,6 +123,7 @@ import type {
   OpenMeldRequestContext,
   ProfileReportType,
   RemoteAgentTurnEnvelope,
+  SlackWorkspaceDirectoryResponse,
 } from "@openmeld/schemas/types";
 import {
   array,
@@ -190,6 +193,7 @@ import {
   REMOTE_AGENT_GITHUB_TOOL_NAMES,
   type RemoteAgentConnectorExecutionConfig,
 } from "./github-tools";
+import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "./slack-member-research-state";
 import {
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
@@ -419,6 +423,11 @@ const SLACK_DISPLAY_NAME_MENTION_PATTERN =
 const SLACK_MENTION_DIRECTORY_KEY_PREFIX =
   "remote-agent:slack-mention-directory:";
 const SLACK_MENTION_DIRECTORY_RETENTION_MS = 60 * 60 * 1000;
+const SLACK_MEMBER_RESEARCH_CHANNEL_INSPECTION_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}channel-inspection:`;
+const SLACK_MEMBER_RESEARCH_CHANNEL_ELIGIBILITY_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}channel-eligibility:`;
+const SLACK_MEMBER_RESEARCH_HISTORY_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}history:`;
+const SLACK_MEMBER_RESEARCH_SUBJECT_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}subject:`;
+const SLACK_MEMBER_RESEARCH_MAX_CHANNELS = 5;
 const SLACK_SEARCH_ATTEMPT_KEY_PREFIX = "remote-agent:slack-search-attempt:";
 const SLACK_SEARCH_ATTEMPT_RETENTION_MS = 60 * 60 * 1000;
 const SLACK_USER_MENTION_TOKEN_PATTERN = /<@[A-Z0-9]+>/u;
@@ -429,6 +438,13 @@ const slackChannelNameSchema = pipe(
   maxLength(80)
 );
 const slackUserIdSchema = pipe(string(), trim(), minLength(1), maxLength(32));
+const slackTeammateInvitationToolInputSchema = strictObject({
+  targetSlackUserIds: pipe(
+    array(slackUserIdSchema),
+    minLength(1),
+    maxLength(10)
+  ),
+});
 const slackChannelMessageToolInputSchema = strictObject({
   channelName: slackChannelNameSchema,
   mentionSlackUserIds: optional(pipe(array(slackUserIdSchema), maxLength(50))),
@@ -491,6 +507,7 @@ const memberResearchEvidenceItemToolInputSchema = strictObject({
   date: trimmedNonEmptyStringSchema,
   source: picklist(CENTER_AGENT_MEMBER_RESEARCH_EVIDENCE_SOURCES),
   sourceId: pipe(trimmedNonEmptyStringSchema, maxLength(256)),
+  sourceName: optional(pipe(trimmedNonEmptyStringSchema, maxLength(120))),
   sourceUrl: optional(pipe(trimmedNonEmptyStringSchema, maxLength(2048))),
   text: pipe(trimmedNonEmptyStringSchema, maxLength(1000)),
 });
@@ -848,6 +865,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_read_organization_directory",
   "openmeld_read_member_openmeld_service_status",
   "openmeld_read_slack_workspace_directory",
+  "openmeld_invite_slack_teammates",
   "openmeld_list_slack_channels",
   "openmeld_read_slack_channel_members",
   "openmeld_read_slack_channel_history",
@@ -940,9 +958,15 @@ export const REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES = [
   ...REMOTE_AGENT_EXTERNAL_TOOL_NAMES,
   "openmeld_read_organization_directory",
   "openmeld_read_slack_workspace_directory",
+  "openmeld_list_slack_channels",
+  "openmeld_read_slack_channel_members",
+  "openmeld_read_slack_channel_history",
   "openmeld_read_org_documents",
   "openmeld_draft_org_document",
   "openmeld_read_agent_activity",
+  "openmeld_list_connected_apps",
+  "openmeld_list_app_actions",
+  "openmeld_execute_app_action",
   ...REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
 ] as const satisfies readonly RemoteAgentOpenMeldToolName[];
 
@@ -1212,11 +1236,15 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         const request = centerAgentReadSlackWorkspaceDirectoryBodySchema.parse(
           parseValibot(slackWorkspaceDirectoryToolInputSchema, payload)
         );
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildOpenMeldToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_read_slack_workspace_directory",
         });
+        const memberResearchTrigger =
+          toolContext.turnEnvelope?.trigger.source === "member_research"
+            ? toolContext.turnEnvelope.trigger
+            : null;
         const response =
           centerAgentReadSlackWorkspaceDirectoryResponseSchema.parse(
             await callCoreRpc(
@@ -1226,10 +1254,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
                 ...(request.cursor === undefined
                   ? {}
                   : { cursor: request.cursor }),
+                ...(memberResearchTrigger
+                  ? { includeMemberUserId: true as const }
+                  : {}),
                 ...(request.limit === undefined
                   ? {}
                   : { limit: request.limit }),
-                context,
+                context: toolContext.context,
               },
               (binding, rpcInput) =>
                 binding.centerAgentReadSlackWorkspaceDirectory?.(rpcInput)
@@ -1243,7 +1274,74 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           storage: input.storage,
           submissionId: input.submissionId,
         });
-        return response;
+        if (memberResearchTrigger) {
+          await rememberSlackMemberResearchSubjectMatches({
+            cursor: request.cursor,
+            members: response.members,
+            nextCursor: response.nextCursor,
+            storage: input.storage,
+            subjectUserId: memberResearchTrigger.subjectUserId,
+            submissionId: input.submissionId,
+          });
+        }
+        return hideSlackDirectoryMemberUserIds(response);
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_invite_slack_teammates",
+      description:
+        "Send private OpenMeld invitations to up to ten Slack teammates the user explicitly named in this direct-message conversation. First call openmeld_read_slack_workspace_directory, match each person exactly, and pass only the returned slackUserId values. If a name is ambiguous or missing, ask one short clarifying question instead of guessing. This sends the invitations immediately and reports the outcome to the requester; do not call it merely to preview an invite.",
+      input: slackTeammateInvitationToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          slackTeammateInvitationToolInputSchema,
+          payload
+        );
+        const toolContext = await buildOpenMeldToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_invite_slack_teammates",
+        });
+        const turnEnvelope = toolContext.turnEnvelope;
+        if (
+          turnEnvelope?.trigger.source !== "slack" ||
+          (turnEnvelope.interactionEnvironment ??
+            turnEnvelope.contextScopePlan?.interactionEnvironment) !==
+            "requester_private" ||
+          turnEnvelope.sender.kind !== "member" ||
+          !turnEnvelope.sender.verified ||
+          turnEnvelope.sender.messageChannelIdentity?.provider !== "slack" ||
+          !turnEnvelope.sender.messageChannelIdentity.providerUserId
+        ) {
+          throw new Error(
+            "Private Slack invitations are available only in a direct conversation with a verified OpenMeld member."
+          );
+        }
+        const targetSlackUserIds = [...new Set(request.targetSlackUserIds)];
+        await requireReturnedSlackUserIds({
+          slackUserIds: targetSlackUserIds,
+          storage: input.storage,
+          submissionId: input.submissionId,
+          missingDirectoryMessage:
+            "Read the Slack workspace directory in this turn before inviting teammates, then use only the returned Slack user IDs.",
+        });
+        const rpcInput = slackWelcomeInteractionRpcInputSchema.parse({
+          action: "submit_teammate_invites",
+          interactionId: `remote-agent:${input.submissionId}`,
+          slackTeamId: turnEnvelope.trigger.teamId,
+          slackUserId:
+            turnEnvelope.sender.messageChannelIdentity.providerUserId,
+          targetSlackUserIds,
+        });
+        return slackWelcomeInteractionRpcResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "handleSlackWelcomeInteraction",
+            rpcInput,
+            (binding, interaction) =>
+              binding.handleSlackWelcomeInteraction?.(interaction)
+          )
+        );
       },
     }),
     toolDefinition({
@@ -1286,12 +1384,19 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         const request = centerAgentReadSlackChannelMembersBodySchema.parse(
           parseValibot(slackChannelMembersToolInputSchema, payload)
         );
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildOpenMeldToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_read_slack_channel_members",
         });
-        return centerAgentReadSlackChannelMembersResponseSchema.parse(
+        const researchSubjectSlackUserId =
+          await prepareSlackMemberResearchChannelInspection({
+            channelName: request.channelName,
+            storage: input.storage,
+            submissionId: input.submissionId,
+            turnEnvelope: toolContext.turnEnvelope,
+          });
+        const response = centerAgentReadSlackChannelMembersResponseSchema.parse(
           await callCoreRpc(
             input.coreWorker,
             "centerAgentReadSlackChannelMembers",
@@ -1300,13 +1405,43 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
               ...(request.cursor === undefined
                 ? {}
                 : { cursor: request.cursor }),
+              ...(researchSubjectSlackUserId
+                ? { includeChannelId: true as const }
+                : {}),
               ...(request.limit === undefined ? {} : { limit: request.limit }),
-              context,
+              context: toolContext.context,
             },
             (binding, rpcInput) =>
               binding.centerAgentReadSlackChannelMembers?.(rpcInput)
           )
         );
+        if (
+          researchSubjectSlackUserId &&
+          !("status" in response) &&
+          response.members.some(
+            (member) => member.slackUserId === researchSubjectSlackUserId
+          )
+        ) {
+          if (!response.channelId) {
+            throw new Error(
+              "OpenMeld Core did not return the stable Slack channel identity required for member research. Deploy Core before Remote Agent, then try again."
+            );
+          }
+          await input.storage.putExpiring(
+            buildSlackMemberResearchChannelKey(
+              SLACK_MEMBER_RESEARCH_CHANNEL_ELIGIBILITY_KEY_PREFIX,
+              input.submissionId,
+              response.channelName
+            ),
+            { channelId: response.channelId },
+            Date.now() + SLACK_MENTION_DIRECTORY_RETENTION_MS
+          );
+        }
+        if ("status" in response || !response.channelId) {
+          return response;
+        }
+        const { channelId: _channelId, ...modelVisibleResponse } = response;
+        return modelVisibleResponse;
       },
     }),
     toolDefinition({
@@ -1318,27 +1453,75 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         const request = centerAgentReadSlackChannelHistoryBodySchema.parse(
           parseValibot(slackChannelHistoryToolInputSchema, payload)
         );
-        const context = await buildOpenMeldToolRequestContext({
+        const toolContext = await buildOpenMeldToolContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_read_slack_channel_history",
         });
-        return centerAgentReadSlackChannelHistoryResponseSchema.parse(
-          await callCoreRpc(
-            input.coreWorker,
-            "centerAgentReadSlackChannelHistory",
-            {
-              channelName: request.channelName,
-              ...(request.cursor === undefined
-                ? {}
-                : { cursor: request.cursor }),
-              ...(request.limit === undefined ? {} : { limit: request.limit }),
-              context,
-            },
-            (binding, rpcInput) =>
-              binding.centerAgentReadSlackChannelHistory?.(rpcInput)
-          )
-        );
+        const memberResearchHistoryClaim =
+          await claimSlackMemberResearchChannelHistory({
+            channelName: request.channelName,
+            cursor: request.cursor,
+            storage: input.storage,
+            submissionId: input.submissionId,
+            turnEnvelope: toolContext.turnEnvelope,
+          });
+        try {
+          const response =
+            centerAgentReadSlackChannelHistoryResponseSchema.parse(
+              await callCoreRpc(
+                input.coreWorker,
+                "centerAgentReadSlackChannelHistory",
+                {
+                  channelName: request.channelName,
+                  ...(request.cursor === undefined
+                    ? {}
+                    : { cursor: request.cursor }),
+                  ...(request.limit === undefined
+                    ? {}
+                    : { limit: request.limit }),
+                  ...(memberResearchHistoryClaim
+                    ? {
+                        expectedChannelId:
+                          memberResearchHistoryClaim.expectedChannelId,
+                      }
+                    : {}),
+                  context: toolContext.context,
+                },
+                (binding, rpcInput) =>
+                  binding.centerAgentReadSlackChannelHistory?.(rpcInput)
+              )
+            );
+          if (memberResearchHistoryClaim) {
+            if ("status" in response) {
+              await input.storage.delete(memberResearchHistoryClaim.key);
+              return response;
+            }
+            await input.storage.putExpiring(
+              memberResearchHistoryClaim.key,
+              { status: "completed" },
+              Date.now() + SLACK_MENTION_DIRECTORY_RETENTION_MS
+            );
+          }
+          return response;
+        } catch (error) {
+          if (memberResearchHistoryClaim) {
+            try {
+              await input.storage.delete(memberResearchHistoryClaim.key);
+            } catch (releaseError) {
+              throw new Error(
+                "The Slack channel history read failed, and OpenMeld could not release its member research claim for a safe retry.",
+                {
+                  cause: new AggregateError(
+                    [error, releaseError],
+                    "Slack history read and member research claim release both failed."
+                  ),
+                }
+              );
+            }
+          }
+          throw error;
+        }
       },
     }),
     toolDefinition({
@@ -4370,6 +4553,206 @@ async function rememberSlackMentionDirectory(input: {
   );
 }
 
+async function rememberSlackMemberResearchSubjectMatches(input: {
+  cursor?: string;
+  members: ReadonlyArray<{
+    openMeldMembership:
+      | {
+          memberUserId?: string;
+          status: "member";
+        }
+      | { status: "not_member" | "unknown" };
+    slackUserId: string;
+  }>;
+  nextCursor: string | null;
+  storage: RemoteAgentStorage;
+  subjectUserId: string;
+  submissionId: string;
+}): Promise<void> {
+  const key = `${SLACK_MEMBER_RESEARCH_SUBJECT_KEY_PREFIX}${input.submissionId}`;
+  const previousState = await input.storage.get<{
+    matches: string[];
+    nextCursor: string | null;
+    status: "complete" | "in_progress";
+    v: 1;
+  }>(key);
+  if (
+    input.cursor !== undefined &&
+    (!previousState ||
+      previousState.status !== "in_progress" ||
+      previousState.nextCursor !== input.cursor)
+  ) {
+    throw new Error(
+      "Continue the Slack workspace directory with the exact next cursor returned by the previous page. Restart without a cursor if that sequence is no longer available."
+    );
+  }
+  const currentMatches = input.members.flatMap((member) =>
+    member.openMeldMembership.status === "member" &&
+    member.openMeldMembership.memberUserId === input.subjectUserId
+      ? [member.slackUserId]
+      : []
+  );
+  await input.storage.putExpiring(
+    key,
+    {
+      matches: [
+        ...new Set([
+          ...(input.cursor === undefined ? [] : (previousState?.matches ?? [])),
+          ...currentMatches,
+        ]),
+      ],
+      nextCursor: input.nextCursor,
+      status: input.nextCursor === null ? "complete" : "in_progress",
+      v: 1,
+    },
+    Date.now() + SLACK_MENTION_DIRECTORY_RETENTION_MS
+  );
+}
+
+function hideSlackDirectoryMemberUserIds(
+  response: SlackWorkspaceDirectoryResponse
+): SlackWorkspaceDirectoryResponse {
+  return {
+    ...response,
+    members: response.members.map((member) => {
+      if (member.openMeldMembership.status !== "member") {
+        return member;
+      }
+      const { memberUserId: _memberUserId, ...modelVisibleMembership } =
+        member.openMeldMembership;
+      return {
+        ...member,
+        openMeldMembership: modelVisibleMembership,
+      };
+    }),
+  };
+}
+
+async function prepareSlackMemberResearchChannelInspection(input: {
+  channelName: string;
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  turnEnvelope: RemoteAgentTurnEnvelope | null | undefined;
+}): Promise<string | null> {
+  if (input.turnEnvelope?.trigger.source !== "member_research") {
+    return null;
+  }
+  const subjectSlackUserId = await requireExactSlackMemberResearchSubject({
+    storage: input.storage,
+    submissionId: input.submissionId,
+  });
+  const inspectionPrefix = `${SLACK_MEMBER_RESEARCH_CHANNEL_INSPECTION_KEY_PREFIX}${input.submissionId}:`;
+  const inspectionKey = buildSlackMemberResearchChannelKey(
+    SLACK_MEMBER_RESEARCH_CHANNEL_INSPECTION_KEY_PREFIX,
+    input.submissionId,
+    input.channelName
+  );
+  const claimed = await input.storage.putIfAbsentExpiring(
+    inspectionKey,
+    { inspected: true },
+    Date.now() + SLACK_MENTION_DIRECTORY_RETENTION_MS
+  );
+  if (claimed) {
+    const inspections = await input.storage.list({ prefix: inspectionPrefix });
+    if (inspections.size > SLACK_MEMBER_RESEARCH_MAX_CHANNELS) {
+      await input.storage.delete(inspectionKey);
+      throw new Error(
+        "A member research run may inspect at most five Slack channels. Continue with the channels already inspected."
+      );
+    }
+  }
+  return subjectSlackUserId;
+}
+
+async function claimSlackMemberResearchChannelHistory(input: {
+  channelName: string;
+  cursor?: string;
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  turnEnvelope: RemoteAgentTurnEnvelope | null | undefined;
+}): Promise<{ expectedChannelId: string; key: string } | null> {
+  if (input.turnEnvelope?.trigger.source !== "member_research") {
+    return null;
+  }
+  await requireExactSlackMemberResearchSubject({
+    storage: input.storage,
+    submissionId: input.submissionId,
+  });
+  if (input.cursor !== undefined) {
+    throw new Error(
+      "Member research may read only one newest-first history page per Slack channel. Do not follow the next cursor."
+    );
+  }
+  const eligibilityKey = buildSlackMemberResearchChannelKey(
+    SLACK_MEMBER_RESEARCH_CHANNEL_ELIGIBILITY_KEY_PREFIX,
+    input.submissionId,
+    input.channelName
+  );
+  const eligibility = await input.storage.get<{ channelId?: unknown }>(
+    eligibilityKey
+  );
+  if (
+    typeof eligibility?.channelId !== "string" ||
+    eligibility.channelId.trim().length === 0
+  ) {
+    throw new Error(
+      "This Slack channel does not contain the exact research subject in the inspected member page, so its message history is unavailable for this Profile Report."
+    );
+  }
+  const historyClaimKey = buildSlackMemberResearchChannelKey(
+    SLACK_MEMBER_RESEARCH_HISTORY_KEY_PREFIX,
+    input.submissionId,
+    input.channelName
+  );
+  const claimed = await input.storage.putIfAbsentExpiring(
+    historyClaimKey,
+    { status: "in_progress" },
+    Date.now() + SLACK_MENTION_DIRECTORY_RETENTION_MS
+  );
+  if (!claimed) {
+    throw new Error(
+      "This Slack channel history was already read for the current member research run. Continue with the evidence already returned."
+    );
+  }
+  return {
+    expectedChannelId: eligibility.channelId,
+    key: historyClaimKey,
+  };
+}
+
+async function requireExactSlackMemberResearchSubject(input: {
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+}): Promise<string> {
+  const state = await input.storage.get<{
+    matches: string[];
+    nextCursor: string | null;
+    status: "complete" | "in_progress";
+    v: 1;
+  }>(`${SLACK_MEMBER_RESEARCH_SUBJECT_KEY_PREFIX}${input.submissionId}`);
+  if (!state || state.status !== "complete") {
+    throw new Error(
+      "Read every Slack workspace directory page before inspecting channels for this Profile Report."
+    );
+  }
+  if (state.matches.length !== 1) {
+    throw new Error(
+      "Read the Slack workspace directory until it establishes one exact Slack identity for the Profile Report subject. Do not inspect channel messages when the identity is missing or ambiguous."
+    );
+  }
+  return state.matches[0] as string;
+}
+
+function buildSlackMemberResearchChannelKey(
+  prefix: string,
+  submissionId: string,
+  channelName: string
+): string {
+  return `${prefix}${submissionId}:${encodeURIComponent(
+    normalizeSlackChannelName(channelName)
+  )}`;
+}
+
 async function buildSlackChannelMessageText(input: {
   mentionSlackUserIds: readonly string[];
   storage: RemoteAgentReadableStorage;
@@ -4390,20 +4773,13 @@ async function buildSlackChannelMessageText(input: {
   if (mentionSlackUserIds.length === 0) {
     return input.text;
   }
-  const returnedSlackUserIds =
-    (await input.storage.get<string[]>(
-      `${SLACK_MENTION_DIRECTORY_KEY_PREFIX}${input.submissionId}`
-    )) ?? [];
-  const returnedSlackUserIdSet = new Set(returnedSlackUserIds);
-  if (
-    mentionSlackUserIds.some(
-      (slackUserId) => !returnedSlackUserIdSet.has(slackUserId)
-    )
-  ) {
-    throw new Error(
-      "Read the Slack workspace directory in this turn before mentioning people, then use only the returned Slack user IDs."
-    );
-  }
+  await requireReturnedSlackUserIds({
+    slackUserIds: mentionSlackUserIds,
+    storage: input.storage,
+    submissionId: input.submissionId,
+    missingDirectoryMessage:
+      "Read the Slack workspace directory in this turn before mentioning people, then use only the returned Slack user IDs.",
+  });
   const message = `${mentionSlackUserIds
     .map((slackUserId) => `<@${slackUserId}>`)
     .join(" ")} ${input.text}`;
@@ -4413,4 +4789,24 @@ async function buildSlackChannelMessageText(input: {
     );
   }
   return message;
+}
+
+async function requireReturnedSlackUserIds(input: {
+  missingDirectoryMessage: string;
+  slackUserIds: readonly string[];
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+}): Promise<void> {
+  const returnedSlackUserIds =
+    (await input.storage.get<string[]>(
+      `${SLACK_MENTION_DIRECTORY_KEY_PREFIX}${input.submissionId}`
+    )) ?? [];
+  const returnedSlackUserIdSet = new Set(returnedSlackUserIds);
+  if (
+    input.slackUserIds.some(
+      (slackUserId) => !returnedSlackUserIdSet.has(slackUserId)
+    )
+  ) {
+    throw new Error(input.missingDirectoryMessage);
+  }
 }

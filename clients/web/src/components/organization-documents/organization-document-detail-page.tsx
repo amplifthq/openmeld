@@ -510,11 +510,11 @@ function ProfileReportLearningNote() {
 			className="rounded-md border bg-muted/20 p-4"
 		>
 			<h2 className="font-medium text-lg" id="profile-report-learning-heading">
-				What Center Agent has learned so far
+				What your Center Agent has learned so far
 			</h2>
 			<p className="mt-1 text-muted-foreground text-sm">
-				Center Agent will update this Profile Report as it learns more about
-				your work. If anything feels off, tell Center Agent.
+				Your Center Agent will update this Profile Report as it learns more
+				about your work. If anything feels off, tell your Center Agent.
 			</p>
 		</section>
 	);

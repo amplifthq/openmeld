@@ -259,6 +259,96 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it("invites Slack teammates named in chat only after resolving exact directory IDs", async () => {
+    const baseRequest = createSubmitTurnRequest();
+    if (baseRequest.turnEnvelope.sender.kind !== "member") {
+      throw new Error("Expected a member sender fixture.");
+    }
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...baseRequest.turnEnvelope,
+        interactionEnvironment: "requester_private",
+        sender: {
+          ...baseRequest.turnEnvelope.sender,
+          messageChannelIdentity: {
+            connectionId: "T123",
+            provider: "slack",
+            providerUserId: "U_INSTALLER",
+          },
+        },
+        trigger: { source: "slack", teamId: "T123" },
+      },
+    });
+    const centerAgentReadSlackWorkspaceDirectory = vi.fn(async () =>
+      slackWorkspaceDirectoryResponse()
+    );
+    const handleSlackWelcomeInteraction = vi.fn(async () => ({
+      handled: true as const,
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentReadSlackWorkspaceDirectory,
+        handleSlackWelcomeInteraction,
+      },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_invite_slack_teammates", {
+        targetSlackUserIds: ["U_MORGAN"],
+      })
+    ).rejects.toThrow("Read the Slack workspace directory");
+    await executeTool(tools, "openmeld_read_slack_workspace_directory", {});
+    await expect(
+      executeTool(tools, "openmeld_invite_slack_teammates", {
+        targetSlackUserIds: ["U_MORGAN"],
+      })
+    ).resolves.toEqual({ handled: true });
+    expect(handleSlackWelcomeInteraction).toHaveBeenCalledWith({
+      action: "submit_teammate_invites",
+      interactionId: "remote-agent:flue_submission_123",
+      slackTeamId: "T123",
+      slackUserId: "U_INSTALLER",
+      targetSlackUserIds: ["U_MORGAN"],
+    });
+  });
+
+  it("rejects private Slack teammate invitations from a shared channel", async () => {
+    const baseRequest = createSubmitTurnRequest();
+    if (baseRequest.turnEnvelope.sender.kind !== "member") {
+      throw new Error("Expected a member sender fixture.");
+    }
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...baseRequest.turnEnvelope,
+        interactionEnvironment: "organization_shared",
+        sender: {
+          ...baseRequest.turnEnvelope.sender,
+          messageChannelIdentity: {
+            connectionId: "T123",
+            provider: "slack",
+            providerUserId: "U_INSTALLER",
+          },
+        },
+        trigger: { source: "slack", teamId: "T123" },
+      },
+    });
+    const handleSlackWelcomeInteraction = vi.fn();
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { handleSlackWelcomeInteraction },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_invite_slack_teammates", {
+        targetSlackUserIds: ["U_MORGAN"],
+      })
+    ).rejects.toThrow("only in a direct conversation");
+    expect(handleSlackWelcomeInteraction).not.toHaveBeenCalled();
+  });
+
   it("returns guided Slack connection help as a normal tool result", async () => {
     const request = createSubmitTurnRequest();
     const unavailable = {
@@ -428,6 +518,297 @@ describe("remote agent OpenMeld tool catalog", () => {
       ),
       limit: 15,
     });
+  });
+
+  it("bounds member research to one history page in five channels that contain the exact subject", async () => {
+    const baseRequest = createSubmitTurnRequest();
+    if (baseRequest.turnEnvelope.sender.kind !== "member") {
+      throw new Error("Expected a member sender fixture.");
+    }
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...baseRequest.turnEnvelope,
+        interactionEnvironment: "requester_private",
+        trigger: {
+          source: "member_research",
+          subjectDisplayName: "Morgan Lee",
+          subjectUserId: "user-morgan",
+          taskId: "research-morgan",
+        },
+      },
+    });
+    const subjectMember = slackWorkspaceDirectoryResponse().members[0];
+    if (!subjectMember) {
+      throw new Error("Expected a Slack directory member fixture.");
+    }
+    const directory = {
+      ...slackWorkspaceDirectoryResponse(),
+      members: [
+        {
+          ...subjectMember,
+          openMeldMembership: {
+            matchedBy: "identity_link" as const,
+            memberDisplayName: "Morgan Lee",
+            memberUserId: "user-morgan",
+            status: "member" as const,
+          },
+        },
+      ],
+    };
+    const centerAgentReadSlackWorkspaceDirectory = vi.fn(async () => directory);
+    const centerAgentReadSlackChannelMembers = vi.fn(
+      async (input: { channelName: string }) => ({
+        ...slackChannelMembersResponse(),
+        channelId: `C_${input.channelName.toUpperCase()}`,
+        channelName: input.channelName,
+        members:
+          input.channelName === "without-morgan" ? [] : directory.members,
+      })
+    );
+    const centerAgentReadSlackChannelHistory = vi.fn(
+      async (input: { channelName: string; expectedChannelId?: string }) => ({
+        ...slackChannelHistoryResponse(),
+        channelName: input.channelName,
+      })
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentReadSlackChannelHistory,
+        centerAgentReadSlackChannelMembers,
+        centerAgentReadSlackWorkspaceDirectory,
+      },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_read_slack_channel_history", {
+        channelName: "team-1",
+      })
+    ).rejects.toThrow("every Slack workspace directory page");
+    const modelVisibleDirectory = await executeTool(
+      tools,
+      "openmeld_read_slack_workspace_directory",
+      {}
+    );
+    expect(centerAgentReadSlackWorkspaceDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({ includeMemberUserId: true })
+    );
+    expect(modelVisibleDirectory).not.toHaveProperty(
+      "members.0.openMeldMembership.memberUserId"
+    );
+    const modelVisibleChannelMembers = await executeTool(
+      tools,
+      "openmeld_read_slack_channel_members",
+      {
+        channelName: "without-morgan",
+      }
+    );
+    expect(modelVisibleChannelMembers).not.toHaveProperty("channelId");
+    await expect(
+      executeTool(tools, "openmeld_read_slack_channel_history", {
+        channelName: "without-morgan",
+      })
+    ).rejects.toThrow("does not contain the exact research subject");
+
+    for (let index = 1; index <= 4; index += 1) {
+      await executeTool(tools, "openmeld_read_slack_channel_members", {
+        channelName: `team-${index}`,
+      });
+    }
+    await expect(
+      executeTool(tools, "openmeld_read_slack_channel_members", {
+        channelName: "team-5",
+      })
+    ).rejects.toThrow("at most five Slack channels");
+
+    await expect(
+      executeTool(tools, "openmeld_read_slack_channel_history", {
+        channelName: "team-1",
+        cursor: "second-page",
+      })
+    ).rejects.toThrow("one newest-first history page");
+    await expect(
+      executeTool(tools, "openmeld_read_slack_channel_history", {
+        channelName: "team-1",
+      })
+    ).resolves.toMatchObject({ channelName: "team-1" });
+    expect(centerAgentReadSlackChannelHistory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelName: "team-1",
+        expectedChannelId: "C_TEAM-1",
+      })
+    );
+    await expect(
+      executeTool(tools, "openmeld_read_slack_channel_history", {
+        channelName: "team-1",
+      })
+    ).rejects.toThrow("already read");
+  });
+
+  it("requires every Slack directory page before accepting one unambiguous research subject", async () => {
+    const baseRequest = createSubmitTurnRequest();
+    if (baseRequest.turnEnvelope.sender.kind !== "member") {
+      throw new Error("Expected a member sender fixture.");
+    }
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...baseRequest.turnEnvelope,
+        interactionEnvironment: "requester_private",
+        trigger: {
+          source: "member_research",
+          subjectDisplayName: "Morgan Lee",
+          subjectUserId: "user-morgan",
+          taskId: "research-morgan",
+        },
+      },
+    });
+    const subjectMember = slackWorkspaceDirectoryResponse().members[0];
+    if (!subjectMember) {
+      throw new Error("Expected a Slack directory member fixture.");
+    }
+    const memberFor = (slackUserId: string) => ({
+      ...subjectMember,
+      openMeldMembership: {
+        matchedBy: "identity_link" as const,
+        memberDisplayName: "Morgan Lee",
+        memberUserId: "user-morgan",
+        status: "member" as const,
+      },
+      slackUserId,
+    });
+    const centerAgentReadSlackWorkspaceDirectory = vi.fn(
+      async (input: { cursor?: string }) => ({
+        ...slackWorkspaceDirectoryResponse(),
+        members: [
+          memberFor(
+            input.cursor === "directory-page-2" ? "U_MORGAN_2" : "U_MORGAN_1"
+          ),
+        ],
+        nextCursor:
+          input.cursor === "directory-page-2" ? null : "directory-page-2",
+      })
+    );
+    const centerAgentReadSlackChannelMembers = vi.fn(async () => ({
+      ...slackChannelMembersResponse(),
+      channelId: "C_TEAM_1",
+      channelName: "team-1",
+      members: [memberFor("U_MORGAN_1")],
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentReadSlackChannelMembers,
+        centerAgentReadSlackWorkspaceDirectory,
+      },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+    });
+
+    await executeTool(tools, "openmeld_read_slack_workspace_directory", {});
+    await expect(
+      executeTool(tools, "openmeld_read_slack_channel_members", {
+        channelName: "team-1",
+      })
+    ).rejects.toThrow("every Slack workspace directory page");
+    await executeTool(tools, "openmeld_read_slack_workspace_directory", {
+      cursor: "directory-page-2",
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_slack_channel_members", {
+        channelName: "team-1",
+      })
+    ).rejects.toThrow("missing or ambiguous");
+    expect(centerAgentReadSlackChannelMembers).not.toHaveBeenCalled();
+  });
+
+  it("releases a member research history claim when the Slack read fails", async () => {
+    const baseRequest = createSubmitTurnRequest();
+    if (baseRequest.turnEnvelope.sender.kind !== "member") {
+      throw new Error("Expected a member sender fixture.");
+    }
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...baseRequest.turnEnvelope,
+        interactionEnvironment: "requester_private",
+        trigger: {
+          source: "member_research",
+          subjectDisplayName: "Morgan Lee",
+          subjectUserId: "user-morgan",
+          taskId: "research-morgan",
+        },
+      },
+    });
+    const subjectMember = slackWorkspaceDirectoryResponse().members[0];
+    if (!subjectMember) {
+      throw new Error("Expected a Slack directory member fixture.");
+    }
+    const directory = {
+      ...slackWorkspaceDirectoryResponse(),
+      members: [
+        {
+          ...subjectMember,
+          openMeldMembership: {
+            matchedBy: "identity_link" as const,
+            memberDisplayName: "Morgan Lee",
+            memberUserId: "user-morgan",
+            status: "member" as const,
+          },
+        },
+      ],
+    };
+    const unavailable = {
+      message: "Slack is temporarily unavailable.",
+      nextAction: "Try again in a moment.",
+      organizationId: "org_123",
+      reasonCode: "connection_state_unavailable" as const,
+      status: "unavailable" as const,
+    };
+    const historyResponse = {
+      ...slackChannelHistoryResponse(),
+      channelName: "team-1",
+    };
+    const centerAgentReadSlackChannelHistory = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Slack history temporarily unavailable"))
+      .mockResolvedValueOnce(unavailable)
+      .mockResolvedValue(historyResponse);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentReadSlackChannelHistory,
+        centerAgentReadSlackChannelMembers: vi.fn(async () => ({
+          ...slackChannelMembersResponse(),
+          channelId: "C_TEAM_1",
+          channelName: "team-1",
+          members: directory.members,
+        })),
+        centerAgentReadSlackWorkspaceDirectory: vi.fn(async () => directory),
+      },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+    });
+
+    await executeTool(tools, "openmeld_read_slack_workspace_directory", {});
+    await executeTool(tools, "openmeld_read_slack_channel_members", {
+      channelName: "team-1",
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_slack_channel_history", {
+        channelName: "team-1",
+      })
+    ).rejects.toThrow("Slack history temporarily unavailable");
+    await expect(
+      executeTool(tools, "openmeld_read_slack_channel_history", {
+        channelName: "team-1",
+      })
+    ).resolves.toEqual(unavailable);
+    await expect(
+      executeTool(tools, "openmeld_read_slack_channel_history", {
+        channelName: "team-1",
+      })
+    ).resolves.toEqual(historyResponse);
+    expect(centerAgentReadSlackChannelHistory).toHaveBeenLastCalledWith(
+      expect.objectContaining({ expectedChannelId: "C_TEAM_1" })
+    );
   });
 
   it("builds real Slack mentions only from user IDs read in the current turn", async () => {
@@ -4324,6 +4705,18 @@ function insufficientMemberResearchReport() {
         source: "slack_workspace_directory" as const,
         status: "unavailable" as const,
         timeRange: "Current",
+      },
+      {
+        evidence: "No attributable Slack messages were available.",
+        source: "slack_channel_history" as const,
+        status: "unavailable" as const,
+        timeRange: "Previous 180 days",
+      },
+      {
+        evidence: "No attributable shared App records were available.",
+        source: "connected_apps" as const,
+        status: "unavailable" as const,
+        timeRange: "Previous 180 days",
       },
     ],
     nextSteps: [

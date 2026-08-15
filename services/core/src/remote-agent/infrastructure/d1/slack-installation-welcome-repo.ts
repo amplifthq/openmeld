@@ -38,6 +38,7 @@ const STALE_PENDING_WELCOME_MS = 5 * 60 * 1000;
 
 export async function claimSlackInstallationWelcomeDelivery(input: {
   allowCreate: boolean;
+  allowRetry: boolean;
   claimId: string;
   db: D1Database;
   key: SlackInstallationWelcomeDeliveryKey;
@@ -97,6 +98,10 @@ export async function claimSlackInstallationWelcomeDelivery(input: {
     if (inserted) {
       return mapSlackInstallationWelcomeClaim(inserted);
     }
+  }
+
+  if (!input.allowRetry) {
+    return null;
   }
 
   const retried = await input.db

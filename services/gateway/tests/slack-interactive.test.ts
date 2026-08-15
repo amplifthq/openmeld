@@ -94,6 +94,58 @@ describe("Slack interactivity route", () => {
     });
   });
 
+  it("keeps an acknowledged teammate submission failure observable", async () => {
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const executionContext = {
+      ...TEST_EXECUTION_CONTEXT,
+      waitUntil: (promise: Promise<unknown>) => {
+        waitUntilPromises.push(promise);
+      },
+    } as unknown as ExecutionContext;
+    const handleSlackWelcomeInteraction = vi.fn(() =>
+      Promise.reject(new Error("Core unavailable"))
+    );
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const body = new URLSearchParams({
+      payload: JSON.stringify({
+        team: { id: "T123" },
+        type: "view_submission",
+        user: { id: "U_INSTALLER" },
+        view: {
+          callback_id: "openmeld_invite_teammates",
+          id: "V123",
+          state: {
+            values: {
+              teammates: {
+                selected_teammates: { selected_users: ["U_MAYA"] },
+              },
+            },
+          },
+        },
+      }),
+    }).toString();
+
+    const response = await app.fetch(
+      buildSlackInteractiveRequest(body),
+      buildEnv(handleSlackWelcomeInteraction),
+      executionContext
+    );
+    await Promise.all(waitUntilPromises);
+
+    expect(response.status).toBe(200);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[gateway.slack_interaction.core_failed]",
+      expect.objectContaining({
+        action: "submit_teammate_invites",
+        error: "Core unavailable",
+        slackTeamId: "T123",
+        slackUserId: "U_INSTALLER",
+      })
+    );
+  });
+
   it("opens the channel picker for the trust-first welcome action", async () => {
     const handleSlackWelcomeInteraction = vi.fn(async () => ({
       handled: true,

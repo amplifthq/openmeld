@@ -1015,7 +1015,7 @@ export const slackInvitedMemberWelcomeDeliveries = sqliteTable(
   {
     interactionId: text("interaction_id").notNull(),
     targetSlackUserId: text("target_slack_user_id").notNull(),
-    researchTaskId: text("research_task_id").notNull(),
+    researchTaskId: text("research_task_id"),
     status: text("status", {
       enum: ["pending", "delivered", "failed", "outcome_unknown"],
     }).notNull(),
@@ -1038,7 +1038,7 @@ export const slackInvitedMemberWelcomeDeliveries = sqliteTable(
       "slack_invited_member_welcome_identity_check",
       sql`length(trim("interaction_id")) > 0
         AND length(trim("target_slack_user_id")) > 0
-        AND length(trim("research_task_id")) > 0
+        AND ("research_task_id" IS NULL OR length(trim("research_task_id")) > 0)
         AND length(trim("claim_id")) > 0`
     ),
     check(

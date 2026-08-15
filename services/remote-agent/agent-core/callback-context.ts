@@ -102,6 +102,8 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   ResumeCenterAgentRoutineResponse,
+  SlackWelcomeInteractionRpcInput,
+  SlackWelcomeInteractionRpcResponse,
   SpaceAttachmentDescriptor,
   SpaceMessageAttachment,
   StartCenterAgentMemberResearchResponse,
@@ -346,6 +348,9 @@ export type RemoteAgentCoreWorkerBinding = {
       context: OpenMeldRequestContext;
     }
   ): Promise<CenterAgentReadSlackWorkspaceDirectoryResponse>;
+  handleSlackWelcomeInteraction?(
+    input: SlackWelcomeInteractionRpcInput
+  ): Promise<SlackWelcomeInteractionRpcResponse>;
   centerAgentListSlackChannels?(
     input: CenterAgentListSlackChannelsBody & {
       context: OpenMeldRequestContext;
