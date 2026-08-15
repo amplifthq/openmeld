@@ -1689,6 +1689,7 @@ export {
   slackChannelSummarySchema,
 } from "./http/slack-channel-reads";
 export {
+  SLACK_DIRECT_MESSAGE_REQUIRED_BOT_SCOPES,
   slackOAuthErrorCodeSchema,
   slackOAuthInstallationInputSchema,
   slackOAuthInstallationResultSchema,

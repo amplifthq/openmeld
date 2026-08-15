@@ -1255,6 +1255,7 @@ describe("shared drizzle migration history integrity", () => {
         "slack_team_id",
         "encrypted_bot_token",
         "bot_user_id",
+        "granted_bot_scopes",
         "installed_by_user_id",
         "organization_id",
         "created_at_ms",

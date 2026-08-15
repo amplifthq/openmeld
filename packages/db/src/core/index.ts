@@ -61,6 +61,8 @@ export {
   openMeldRemoteAgentSlackEventIngress,
   openMeldRemoteAgentSlackThreadContextCursors,
   openMeldRemoteAgentSlackWorkspaceBindings,
+  slackChannelIntroductionItems,
+  slackChannelIntroductionRuns,
   slackInstallationWelcomeDeliveries,
   slackInstallationWelcomePreparations,
   slackTeammateInvitationDeliveries,

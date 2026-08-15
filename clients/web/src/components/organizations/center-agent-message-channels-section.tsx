@@ -60,14 +60,17 @@ export function CenterAgentMessageChannelsSection(input: {
 	const slackConnected = slackProjection
 		? slackProjection.status === "connected"
 		: input.slackConnection?.connected === true;
+	const slackReconnectRequired =
+		slackConnected && input.slackConnection?.directMessagesReady !== true;
 	const managementMode = input.managementMode ?? "inline";
 	const availableProviders = new Set(
 		input.availableProviders ?? (["lark", "feishu"] as const)
 	);
-	const slackStatusLabel = resolveOrganizationRequiredStatusLabel({
-		connected: slackConnected,
-		organizationRequired: input.organizationRequired === true,
-	});
+	const slackStatusLabel =
+		resolveOrganizationRequiredStatusLabel({
+			connected: slackConnected,
+			organizationRequired: input.organizationRequired === true,
+		}) ?? (slackReconnectRequired ? "Reconnect required" : undefined);
 	let slackManagementControl: ReactNode = null;
 	if (managementMode === "inline" && input.managementPath) {
 		slackManagementControl = (
@@ -93,7 +96,10 @@ export function CenterAgentMessageChannelsSection(input: {
 				trigger={
 					<Button size="sm" type="button" variant="outline">
 						<LinkIcon aria-hidden="true" data-icon="inline-start" />
-						{slackConnected ? "Manage Slack" : "Connect Slack"}
+						{resolveSlackActionLabel({
+							connected: slackConnected,
+							reconnectRequired: slackReconnectRequired,
+						})}
 					</Button>
 				}
 			/>
@@ -108,14 +114,19 @@ export function CenterAgentMessageChannelsSection(input: {
 			>
 				<ChannelCard
 					connected={input.organizationRequired ? false : slackConnected}
-					description={resolveChannelDescription({
-						connected: slackConnected,
-						name: "Slack",
-						organizationRequired: input.organizationRequired === true,
-					})}
+					description={
+						slackReconnectRequired && !input.organizationRequired
+							? "Reconnect Slack once so people can message the Center Agent directly."
+							: resolveChannelDescription({
+									connected: slackConnected,
+									name: "Slack",
+									organizationRequired: input.organizationRequired === true,
+								})
+					}
 					logo={SLACK_CHANNEL_IDENTITY}
 					managementControl={slackManagementControl}
 					name="Slack"
+					needsAttention={slackReconnectRequired}
 					statusLabel={slackStatusLabel}
 				/>
 				{(["lark", "feishu"] as const).map((provider) => {
@@ -288,6 +299,7 @@ function ChannelCard(input: {
 	};
 	managementControl: ReactNode;
 	name: string;
+	needsAttention?: boolean;
 	statusLabel?: string;
 }) {
 	const usesThemeAwareLogoSurface =
@@ -295,6 +307,10 @@ function ChannelCard(input: {
 	const hasSupportingContent = Boolean(
 		input.accountName || input.details || input.guidance
 	);
+	const badgeClassName = resolveChannelBadgeClassName({
+		connected: input.connected,
+		needsAttention: input.needsAttention === true,
+	});
 
 	return (
 		<FluidCardItem itemId={input.name.toLowerCase()} role="listitem">
@@ -313,14 +329,7 @@ function ChannelCard(input: {
 						</div>
 					</div>
 					<CardAction className="self-center">
-						<Badge
-							className={cn(
-								"h-7 px-2.5",
-								input.connected
-									? resolveStatusToneProminentBadgeClassName("ready")
-									: "border-border bg-muted/40 text-muted-foreground"
-							)}
-						>
+						<Badge className={cn("h-7 px-2.5", badgeClassName)}>
 							{input.statusLabel ??
 								(input.connected ? "Connected" : "Not Connected")}
 						</Badge>
@@ -361,6 +370,29 @@ function ChannelCard(input: {
 			</Card>
 		</FluidCardItem>
 	);
+}
+
+function resolveSlackActionLabel(input: {
+	connected: boolean;
+	reconnectRequired: boolean;
+}): string {
+	if (input.reconnectRequired) {
+		return "Reconnect Slack";
+	}
+	return input.connected ? "Manage Slack" : "Connect Slack";
+}
+
+function resolveChannelBadgeClassName(input: {
+	connected: boolean;
+	needsAttention: boolean;
+}): string {
+	if (input.needsAttention) {
+		return resolveStatusToneProminentBadgeClassName("warning");
+	}
+	if (input.connected) {
+		return resolveStatusToneProminentBadgeClassName("ready");
+	}
+	return "border-border bg-muted/40 text-muted-foreground";
 }
 
 function resolveChannelDescription(input: {

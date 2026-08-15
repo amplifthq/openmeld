@@ -332,6 +332,7 @@ export const centerAgentRemoteRuntimeAvailabilitySchema = z.strictObject({
 
 export const centerAgentSlackWorkspaceConnectionSchema = z.strictObject({
   connected: z.boolean(),
+  directMessagesReady: z.boolean().optional(),
   slackTeamId: nullableTrimmedStringSchema,
   workspaceName: nullableTrimmedStringSchema,
 });

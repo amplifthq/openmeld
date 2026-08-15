@@ -15,6 +15,7 @@ import { encryptSlackBotToken } from "./slack-token-crypto";
 export async function installSlackWorkspaceFromOAuth(input: {
   actorProfileId: string;
   auditEntryId: string;
+  botScopes?: readonly string[];
   botToken: string;
   botUserId: string;
   cryptoKey: string;
@@ -65,6 +66,7 @@ export async function installSlackWorkspaceFromOAuth(input: {
       botUserId,
       createdAtMs: input.nowMs,
       encryptedBotToken,
+      grantedBotScopes: normalizeScopes(input.botScopes),
       installedByUserId,
       organizationId,
       slackTeamId,
@@ -152,6 +154,18 @@ export async function installSlackWorkspaceFromOAuth(input: {
     organizationId,
     slackTeamId,
   });
+}
+
+function normalizeScopes(
+  value: readonly string[] | undefined
+): string[] | null {
+  if (!value) {
+    return null;
+  }
+  const scopes = [
+    ...new Set(value.map((scope) => scope.trim()).filter(Boolean)),
+  ].sort();
+  return scopes.length > 0 ? scopes : null;
 }
 
 function normalizeOptionalText(

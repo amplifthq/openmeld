@@ -4,7 +4,11 @@ import {
   decryptSlackBotToken,
   encryptSlackBotToken,
 } from "../src/remote-agent/application/slack-token-crypto";
-import { upsertSlackWorkspaceToken } from "../src/remote-agent/infrastructure/d1/slack-workspace-token-repo";
+import {
+  hasSlackDirectMessageScopes,
+  readSlackWorkspaceToken,
+  upsertSlackWorkspaceToken,
+} from "../src/remote-agent/infrastructure/d1/slack-workspace-token-repo";
 import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
 
 const CRYPTO_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
@@ -23,6 +27,7 @@ describe("Slack workspace bot tokens", () => {
           slack_team_id TEXT PRIMARY KEY,
           encrypted_bot_token TEXT NOT NULL,
           bot_user_id TEXT NOT NULL,
+          granted_bot_scopes TEXT,
           installed_by_user_id TEXT NOT NULL,
           organization_id TEXT NOT NULL,
           created_at_ms INTEGER NOT NULL,
@@ -74,6 +79,36 @@ describe("Slack workspace bot tokens", () => {
     ).resolves.toBe("xoxb-global-token");
   });
 
+  it("distinguishes legacy installations from DM-ready OAuth grants", async () => {
+    await seedWorkspaceToken("T_LEGACY", "xoxb-legacy-token");
+    await seedWorkspaceToken("T_READY", "xoxb-ready-token", [
+      "chat:write",
+      "im:write",
+      "im:history",
+    ]);
+
+    const legacy = await readSlackWorkspaceToken({
+      db: harness.db,
+      slackTeamId: "T_LEGACY",
+    });
+    const ready = await readSlackWorkspaceToken({
+      db: harness.db,
+      slackTeamId: "T_READY",
+    });
+    expect(legacy?.grantedBotScopes).toBeNull();
+    expect(hasSlackDirectMessageScopes(legacy?.grantedBotScopes ?? null)).toBe(
+      false
+    );
+    expect(ready?.grantedBotScopes).toEqual([
+      "chat:write",
+      "im:history",
+      "im:write",
+    ]);
+    expect(hasSlackDirectMessageScopes(ready?.grantedBotScopes ?? null)).toBe(
+      true
+    );
+  });
+
   it("fails visibly when neither token source is available", async () => {
     await expect(
       resolveSlackBotToken({
@@ -111,7 +146,8 @@ describe("Slack workspace bot tokens", () => {
 
   async function seedWorkspaceToken(
     slackTeamId: string,
-    botToken: string
+    botToken: string,
+    grantedBotScopes?: readonly string[]
   ): Promise<void> {
     await upsertSlackWorkspaceToken({
       db: harness.db,
@@ -122,6 +158,7 @@ describe("Slack workspace bot tokens", () => {
           botToken,
           cryptoKey: CRYPTO_KEY,
         }),
+        grantedBotScopes,
         installedByUserId: "user-1",
         organizationId: "org-1",
         slackTeamId,

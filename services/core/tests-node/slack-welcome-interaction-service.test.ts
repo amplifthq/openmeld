@@ -129,6 +129,68 @@ describe("Slack welcome teammate invitations", () => {
     ).toHaveLength(1);
   });
 
+  it("keeps reading until both the selected teammate and inviter are resolved", async () => {
+    seedActiveJoinLink(harness);
+    slackFetch.mockImplementation((url: string, request?: RequestInit) => {
+      if (url.startsWith("https://slack.com/api/users.list")) {
+        const cursor = new URL(url).searchParams.get("cursor");
+        if (cursor === "page-2") {
+          return Response.json({
+            members: [
+              {
+                id: "U_ACTOR",
+                profile: { display_name: "Alex", email: "alex@example.com" },
+              },
+            ],
+            ok: true,
+            response_metadata: { next_cursor: "" },
+          });
+        }
+        return Response.json({
+          members: [
+            {
+              id: "U_TARGET",
+              profile: { display_name: "Maya", email: "maya@example.com" },
+            },
+          ],
+          ok: true,
+          response_metadata: { next_cursor: "page-2" },
+        });
+      }
+      if (url === "https://slack.com/api/chat.postMessage") {
+        const body = JSON.parse(String(request?.body)) as { channel: string };
+        return Response.json({ channel: body.channel, ok: true, ts: "1723.1" });
+      }
+      throw new Error(`Unexpected Slack request: ${url}`);
+    });
+
+    await expect(
+      handleSlackWelcomeInteraction(
+        buildEnv({
+          db: harness.db,
+          ensureOrganizationJoinLinkOnBehalfOf: vi.fn(),
+        }),
+        teammateInviteInput()
+      )
+    ).resolves.toEqual({ handled: true });
+
+    expect(
+      slackFetch.mock.calls.filter(([url]) =>
+        url.startsWith("https://slack.com/api/users.list")
+      )
+    ).toHaveLength(2);
+    const invitation = slackFetch.mock.calls
+      .filter(([url]) => url === "https://slack.com/api/chat.postMessage")
+      .map(
+        ([, request]) =>
+          JSON.parse(String(request?.body)) as Record<string, unknown>
+      )[0];
+    expect(invitation).toMatchObject({
+      channel: "U_TARGET",
+      text: expect.stringContaining("Alex asked me to invite you"),
+    });
+  });
+
   it("does not send a targeted invite when Slack cannot safely correlate the teammate", async () => {
     seedActiveJoinLink(harness);
     slackFetch.mockImplementation((url: string, request?: RequestInit) => {
@@ -332,7 +394,8 @@ function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
     )`,
     `CREATE TABLE slack_workspace_tokens (
       slack_team_id TEXT PRIMARY KEY, encrypted_bot_token TEXT NOT NULL,
-      bot_user_id TEXT NOT NULL, installed_by_user_id TEXT NOT NULL,
+      bot_user_id TEXT NOT NULL, granted_bot_scopes TEXT,
+      installed_by_user_id TEXT NOT NULL,
       organization_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL
     )`,

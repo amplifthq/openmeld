@@ -34,6 +34,7 @@ const slackOAuthErrorResponseSchema = z.object({
 });
 
 export type SlackOAuthAccess = {
+  botScopes: string[];
   botToken: string;
   botUserId: string;
   slackInstallerUserId: string;
@@ -76,9 +77,25 @@ export async function exchangeSlackOAuthCode(input: {
   }
 
   return {
+    botScopes: normalizeSlackScopes(slackSuccess.data.scope),
     botToken: slackSuccess.data.access_token,
     botUserId: slackSuccess.data.bot_user_id,
     slackInstallerUserId: slackSuccess.data.authed_user.id,
     slackTeamId: slackSuccess.data.team.id,
   };
+}
+
+function normalizeSlackScopes(value: string): string[] {
+  const scopes = [
+    ...new Set(
+      value
+        .split(",")
+        .map((scope) => scope.trim())
+        .filter(Boolean)
+    ),
+  ].sort();
+  if (scopes.length === 0) {
+    throw new Error("Slack OAuth returned no bot scopes");
+  }
+  return scopes;
 }

@@ -219,7 +219,7 @@ describe("Slack OAuth routes", () => {
         },
         ok: true,
         scope:
-          "app_mentions:read,channels:history,chat:write,users:read,users:read.email",
+          "app_mentions:read,channels:history,chat:write,im:history,im:write,users:read,users:read.email",
         team: {
           id: "T9TK3CUKW",
           name: "Acme Workspace",
@@ -260,6 +260,15 @@ describe("Slack OAuth routes", () => {
     });
     expect(coreRpc.installSlackWorkspaceFromOAuth).toHaveBeenCalledWith({
       actorProfileId: HUMAN_PROFILE_ID,
+      botScopes: [
+        "app_mentions:read",
+        "channels:history",
+        "chat:write",
+        "im:history",
+        "im:write",
+        "users:read",
+        "users:read.email",
+      ],
       botToken: "xoxb-installed-token",
       botUserId: "U0KRQLJ9H",
       installedByUserId: "user-1",

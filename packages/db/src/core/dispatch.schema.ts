@@ -700,6 +700,7 @@ export const slackWorkspaceTokens = sqliteTable(
     slackTeamId: text("slack_team_id").primaryKey(),
     encryptedBotToken: text("encrypted_bot_token").notNull(),
     botUserId: text("bot_user_id").notNull(),
+    grantedBotScopes: text("granted_bot_scopes"),
     installedByUserId: text("installed_by_user_id").notNull(),
     organizationId: text("organization_id").notNull(),
     createdAtMs: integer("created_at_ms").notNull(),
@@ -720,6 +721,10 @@ export const slackWorkspaceTokens = sqliteTable(
       sql`length(trim("bot_user_id")) > 0`
     ),
     check(
+      "slack_workspace_tokens_scopes_non_empty_check",
+      sql`"granted_bot_scopes" IS NULL OR length(trim("granted_bot_scopes")) > 0`
+    ),
+    check(
       "slack_workspace_tokens_installer_non_empty_check",
       sql`length(trim("installed_by_user_id")) > 0`
     ),
@@ -730,6 +735,118 @@ export const slackWorkspaceTokens = sqliteTable(
     check(
       "slack_workspace_tokens_updated_at_valid_check",
       sql`"updated_at_ms" >= "created_at_ms"`
+    ),
+  ]
+);
+
+export const slackChannelIntroductionRuns = sqliteTable(
+  "slack_channel_introduction_runs",
+  {
+    interactionId: text("interaction_id").primaryKey(),
+    manifestCreationId: text("manifest_creation_id").notNull(),
+    slackTeamId: text("slack_team_id").notNull(),
+    organizationId: text("organization_id").notNull(),
+    requesterSlackUserId: text("requester_slack_user_id").notNull(),
+    dmChannelId: text("dm_channel_id").notNull(),
+    organizationInviteUrl: text("organization_invite_url"),
+    status: text("status", {
+      enum: ["ack_pending", "ready", "failed", "outcome_unknown"],
+    }).notNull(),
+    acknowledgementTs: text("acknowledgement_ts"),
+    failureCode: text("failure_code"),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    index("idx_slack_channel_introduction_runs_status_updated").on(
+      table.status,
+      table.updatedAtMs
+    ),
+    check(
+      "slack_channel_introduction_runs_identity_check",
+      sql`length(trim("interaction_id")) > 0
+        AND length(trim("manifest_creation_id")) > 0
+        AND length(trim("slack_team_id")) > 0
+        AND length(trim("organization_id")) > 0
+        AND length(trim("requester_slack_user_id")) > 0
+        AND length(trim("dm_channel_id")) > 0
+        AND ("organization_invite_url" IS NULL OR length(trim("organization_invite_url")) > 0)`
+    ),
+    check(
+      "slack_channel_introduction_runs_status_check",
+      sql`"status" in ('ack_pending', 'ready', 'failed', 'outcome_unknown')`
+    ),
+    check(
+      "slack_channel_introduction_runs_outcome_shape_check",
+      sql`(
+        ("status" = 'ack_pending' AND "acknowledgement_ts" IS NULL AND "failure_code" IS NULL)
+        OR ("status" = 'ready' AND length(trim("acknowledgement_ts")) > 0 AND "failure_code" IS NULL)
+        OR ("status" IN ('failed', 'outcome_unknown') AND "acknowledgement_ts" IS NULL AND length(trim("failure_code")) > 0)
+      )`
+    ),
+    check(
+      "slack_channel_introduction_runs_time_check",
+      sql`"created_at_ms" > 0 AND "updated_at_ms" >= "created_at_ms"`
+    ),
+  ]
+);
+
+export const slackChannelIntroductionItems = sqliteTable(
+  "slack_channel_introduction_items",
+  {
+    interactionId: text("interaction_id").notNull(),
+    slackChannelId: text("slack_channel_id").notNull(),
+    slackChannelName: text("slack_channel_name").notNull(),
+    position: integer("position").notNull(),
+    botWasChannelMember: integer("bot_was_channel_member", {
+      mode: "boolean",
+    }).notNull(),
+    status: text("status", {
+      enum: ["ready", "submitting", "submitted", "failed", "outcome_unknown"],
+    }).notNull(),
+    claimId: text("claim_id"),
+    attemptCount: integer("attempt_count").notNull(),
+    failureCode: text("failure_code"),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.interactionId, table.slackChannelId] }),
+    uniqueIndex("slack_channel_introduction_items_position_unique").on(
+      table.interactionId,
+      table.position
+    ),
+    index("idx_slack_channel_introduction_items_status_updated").on(
+      table.status,
+      table.updatedAtMs
+    ),
+    check(
+      "slack_channel_introduction_items_identity_check",
+      sql`length(trim("interaction_id")) > 0
+        AND length(trim("slack_channel_id")) > 0
+        AND length(trim("slack_channel_name")) > 0
+        AND "position" >= 0`
+    ),
+    check(
+      "slack_channel_introduction_items_status_check",
+      sql`"status" in ('ready', 'submitting', 'submitted', 'failed', 'outcome_unknown')`
+    ),
+    check(
+      "slack_channel_introduction_items_attempt_count_check",
+      sql`"attempt_count" >= 0`
+    ),
+    check(
+      "slack_channel_introduction_items_outcome_shape_check",
+      sql`(
+        ("status" = 'ready' AND "claim_id" IS NULL AND "failure_code" IS NULL)
+        OR ("status" = 'submitting' AND length(trim("claim_id")) > 0 AND "failure_code" IS NULL)
+        OR ("status" = 'submitted' AND "claim_id" IS NULL AND "failure_code" IS NULL)
+        OR ("status" IN ('failed', 'outcome_unknown') AND "claim_id" IS NULL AND length(trim("failure_code")) > 0)
+      )`
+    ),
+    check(
+      "slack_channel_introduction_items_time_check",
+      sql`"created_at_ms" > 0 AND "updated_at_ms" >= "created_at_ms"`
     ),
   ]
 );
@@ -1503,6 +1620,8 @@ export const coreSchema = {
   openMeldRemoteAgentSlackEventIngress,
   openMeldRemoteAgentSlackThreadContextCursors,
   openMeldRemoteAgentSlackWorkspaceBindings,
+  slackChannelIntroductionItems,
+  slackChannelIntroductionRuns,
   slackInstallationWelcomeDeliveries,
   slackInstallationWelcomePreparations,
   slackInvitedMemberWelcomeDeliveries,

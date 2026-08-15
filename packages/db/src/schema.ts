@@ -119,6 +119,8 @@ export const {
   openMeldRemoteAgentOrgGuardrails,
   openMeldRemoteAgentSlackThreadContextCursors,
   openMeldRemoteAgentSlackWorkspaceBindings,
+  slackChannelIntroductionItems,
+  slackChannelIntroductionRuns,
   slackInstallationWelcomeDeliveries,
   slackInstallationWelcomePreparations,
   slackInvitedMemberWelcomeDeliveries,

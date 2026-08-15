@@ -227,6 +227,7 @@ async function finishSlackOAuthInstallation(
   try {
     const installation = await c.var.coreRpc.installSlackWorkspaceFromOAuth({
       actorProfileId: input.state.actorProfileId,
+      botScopes: input.access.botScopes,
       botToken: input.access.botToken,
       botUserId: input.access.botUserId,
       installedByUserId: input.state.userId,

@@ -1947,10 +1947,21 @@ scope response, device code, or message body.
 Core owns Slack workspace installation state and credentials. The
 `slack_workspace_tokens` table is keyed by Slack team id, keeps one
 organization-scoped installation record, and stores only an AES-GCM encrypted
-bot token plus the bot user, installer, organization, and timestamps. The
+bot token plus the normalized granted bot-scope set, bot user, installer,
+organization, and timestamps. A null granted-scope set means a legacy or manual
+installation whose current capabilities are unknown; it never proves direct
+message readiness. The
 workspace Binding and encrypted token write are one D1 batch so a failed token
 write cannot leave a connected Binding without its credential. Disconnecting
 deletes both records in the same batch.
+
+This capability projection uses an additive rollout contract. The OAuth
+installation input accepts an omitted scope set from an older Gateway and
+stores it as unknown; the Web projection keeps direct-message readiness
+optional for an older Core. Apply the nullable D1 migration first, then deploy
+Core, Gateway, and Web in that order. New Gateway is not deployed before Core
+because an older strict Core does not accept the new scope field. Rollback
+removes Web and Gateway callers before Core and retains the nullable column.
 
 Moving a workspace between organizations uses one D1 batch to compare-and-swap
 the expected previous Binding to the destination organization, update the
@@ -1978,6 +1989,16 @@ Slack Web API calls resolve credentials in this order: the encrypted
 per-workspace record, then the legacy global `SLACK_OPENMELD_BOT_TOKEN` only
 when no workspace record exists. A present record that cannot be decrypted is
 a visible failure and must not silently fall back to the global token.
+
+`slack_channel_introduction_runs` and
+`slack_channel_introduction_items` are the durable multi-channel publication
+manifest. The run freezes the workspace, Organization, requester, private Slack
+conversation, optional Organization invite URL, and acknowledgement outcome.
+Each ordered item freezes one selected public channel and owns its own claim,
+attempt count, and submitted/failed/outcome-unknown checkpoint. Remote Agent
+native-delivery idempotency includes the interaction and channel ids. A stale
+submitting claim may be reclaimed, while a submitted or provider-ambiguous item
+is never automatically replayed.
 
 `slack_installation_welcome_deliveries` is the durable publication ledger for
 the installer welcome DM. Its identity includes Slack workspace, OpenMeld

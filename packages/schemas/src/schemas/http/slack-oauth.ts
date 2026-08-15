@@ -3,6 +3,11 @@ import { z } from "zod/v4";
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
 const timestampMsSchema = z.number().int().nonnegative();
 
+export const SLACK_DIRECT_MESSAGE_REQUIRED_BOT_SCOPES = [
+  "im:history",
+  "im:write",
+] as const;
+
 export const slackOAuthStateSchema = z
   .string()
   .regex(/^slackoauth_[0-9a-f]{64}$/u);
@@ -33,6 +38,11 @@ export const slackOAuthStateConsumeResponseSchema = z.discriminatedUnion(
 
 export const slackOAuthInstallationInputSchema = z.strictObject({
   actorProfileId: trimmedNonEmptyStringSchema,
+  botScopes: z
+    .array(trimmedNonEmptyStringSchema.max(256))
+    .min(1)
+    .max(100)
+    .optional(),
   botToken: z.string().trim().min(1).max(4096),
   botUserId: trimmedNonEmptyStringSchema.max(256),
   installedByUserId: trimmedNonEmptyStringSchema,

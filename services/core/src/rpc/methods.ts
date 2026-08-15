@@ -854,7 +854,11 @@ import {
   readRemoteAgentSlackWorkspaceBinding,
   readRemoteAgentSlackWorkspaceBindingByOrganization,
 } from "../remote-agent/infrastructure/d1/slack-workspace-binding-repo";
-import { prepareDeleteSlackWorkspaceTokenByOrganizationStatement } from "../remote-agent/infrastructure/d1/slack-workspace-token-repo";
+import {
+  hasSlackDirectMessageScopes,
+  prepareDeleteSlackWorkspaceTokenByOrganizationStatement,
+  readSlackWorkspaceToken,
+} from "../remote-agent/infrastructure/d1/slack-workspace-token-repo";
 import {
   rpcCreateRoutine as createRoutine,
   rpcDeleteRoutine as deleteRoutine,
@@ -6289,6 +6293,7 @@ async function readCenterAgentSlackConnectionProjection(input: {
   if (!db) {
     return {
       connected: false,
+      directMessagesReady: false,
       slackTeamId: null,
       workspaceName: null,
     };
@@ -6298,8 +6303,17 @@ async function readCenterAgentSlackConnectionProjection(input: {
       db,
       organizationId: input.organizationId,
     });
+    const token = binding
+      ? await readSlackWorkspaceToken({
+          db,
+          slackTeamId: binding.slackTeamId,
+        })
+      : null;
     return {
       connected: Boolean(binding),
+      directMessagesReady: hasSlackDirectMessageScopes(
+        token?.grantedBotScopes ?? null
+      ),
       slackTeamId: binding?.slackTeamId ?? null,
       workspaceName: null,
     };
@@ -6310,6 +6324,7 @@ async function readCenterAgentSlackConnectionProjection(input: {
     });
     return {
       connected: false,
+      directMessagesReady: false,
       slackTeamId: null,
       workspaceName: null,
     };
@@ -7108,6 +7123,7 @@ export async function rpcInstallSlackWorkspaceFromOAuth(
   const result = await installSlackWorkspaceFromOAuth({
     actorProfileId: parsed.data.actorProfileId,
     auditEntryId: crypto.randomUUID(),
+    botScopes: parsed.data.botScopes,
     botToken: parsed.data.botToken,
     botUserId: parsed.data.botUserId,
     cryptoKey,

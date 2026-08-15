@@ -55,6 +55,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				organizationSlug="acme"
 				slackConnection={{
 					connected: true,
+					directMessagesReady: true,
 					slackTeamId: "T123",
 					workspaceName: "Acme HQ",
 				}}
@@ -162,6 +163,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				organizationSlug="acme"
 				slackConnection={{
 					connected: true,
+					directMessagesReady: true,
 					slackTeamId: "T123",
 					workspaceName: "Acme Slack",
 				}}
@@ -174,6 +176,32 @@ describe("CenterAgentMessageChannelsSection", () => {
 		expect(screen.getAllByText("Connected")[0]?.className).toContain("h-7");
 		screen.getByRole("button", { name: "Manage Lark" }).click();
 		expect(onManageLarkPlatform).toHaveBeenCalledWith("lark");
+	});
+
+	it("shows when a connected Slack installation needs DM permissions", () => {
+		render(
+			<CenterAgentMessageChannelsSection
+				canManage
+				disableSlackConnect={false}
+				disableSlackDisconnect={false}
+				onConnectSlackWorkspace={vi.fn()}
+				onDisconnectSlackWorkspace={vi.fn()}
+				organizationSlug="acme"
+				slackConnection={{
+					connected: true,
+					directMessagesReady: false,
+					slackTeamId: "T123",
+					workspaceName: "Acme Slack",
+				}}
+			/>
+		);
+
+		expect(screen.getByText("Reconnect required")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Reconnect Slack once so people can message the Center Agent directly."
+			)
+		).toBeTruthy();
 	});
 
 	it("hides unavailable disconnected providers outside the pilot Organization", () => {

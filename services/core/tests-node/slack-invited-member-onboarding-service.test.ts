@@ -546,6 +546,7 @@ function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
         slack_team_id TEXT PRIMARY KEY,
         encrypted_bot_token TEXT NOT NULL,
         bot_user_id TEXT NOT NULL,
+        granted_bot_scopes TEXT,
         installed_by_user_id TEXT NOT NULL,
         organization_id TEXT NOT NULL,
         created_at_ms INTEGER NOT NULL,

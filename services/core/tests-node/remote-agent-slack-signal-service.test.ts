@@ -82,17 +82,19 @@ afterEach(() => {
 });
 
 describe("Remote Agent Slack signal service", () => {
-  it("turns selected public channels into one contextual Center Agent introduction run", async () => {
+  it("checkpoints every selected channel as its own contextual Center Agent introduction", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
-    const workerSubmit = vi.fn(async () => ({
-      accepted: true,
-      createdAt: 1_710_000_001,
-      requestId: "req_channel_intro",
-      status: "pending" as const,
-      submissionId: "sub_channel_intro",
-    }));
+    const workerSubmit = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: `req_${request.idempotencyKey}`,
+        status: "pending" as const,
+        submissionId: `sub_${request.idempotencyKey}`,
+      })
+    );
     const fetchMock = stubSlackFetch({
       conversationsListResponse: {
         channels: [
@@ -133,43 +135,53 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toBeUndefined();
 
-      expect(workerSubmit).toHaveBeenCalledWith(
+      expect(workerSubmit).toHaveBeenCalledTimes(2);
+      const submissions = workerSubmit.mock.calls.map(([request]) => request);
+      expect(submissions).toEqual([
         expect.objectContaining({
-          idempotencyKey: "slack-channel-introduction:T123:V_CHANNELS",
+          idempotencyKey:
+            "slack-channel-introduction:T123:V_CHANNELS:C_PRODUCT",
           messages: [
             expect.objectContaining({
-              content: expect.stringContaining("#product and #design"),
+              content: expect.stringContaining("selected #product"),
               role: "user",
             }),
           ],
-          onBehalfOf: expect.objectContaining({
-            displayName: "Ari Human",
-          }),
+          onBehalfOf: expect.objectContaining({ displayName: "Ari Human" }),
           turnEnvelope: expect.objectContaining({
             interactionEnvironment: "requester_private",
-            sender: expect.objectContaining({
-              id: "member_1",
-              verified: true,
-            }),
+            sender: expect.objectContaining({ id: "member_1", verified: true }),
             space: expect.objectContaining({
               isCenterAgentDm: true,
               kind: "dm",
             }),
           }),
-        })
-      );
-      expect(workerSubmit).toHaveBeenCalledWith(
+        }),
         expect.objectContaining({
+          idempotencyKey: "slack-channel-introduction:T123:V_CHANNELS:C_DESIGN",
           messages: [
             expect.objectContaining({
-              content: expect.stringContaining(
-                "https://openmeld.ai/join/openmeld-test"
-              ),
+              content: expect.stringContaining("selected #design"),
               role: "user",
             }),
           ],
-        })
+        }),
+      ]);
+      expect(submissions[0]?.messages[0]?.content).not.toContain("#design");
+      expect(submissions[1]?.messages[0]?.content).not.toContain("#product");
+      expect(submissions[0]?.messages[0]?.content).toContain(
+        "https://openmeld.ai/join/openmeld-test"
       );
+      expect(
+        harness.queryAll({
+          sql: `SELECT slack_channel_id, status
+            FROM slack_channel_introduction_items
+            ORDER BY position`,
+        })
+      ).toEqual([
+        { slack_channel_id: "C_PRODUCT", status: "submitted" },
+        { slack_channel_id: "C_DESIGN", status: "submitted" },
+      ]);
       expect(
         fetchMock.mock.calls.filter(([request]) =>
           String(request).includes("/conversations.join")
@@ -4256,6 +4268,8 @@ function applySlackMigrations(
     "openMeldRemoteAgent_slack_thread_context_cursors"
   );
   applyMigrationForTable(input, "openMeldRemoteAgent_slack_workspace_bindings");
+  applyMigrationForTable(input, "slack_channel_introduction_runs");
+  applyMigrationForTable(input, "slack_channel_introduction_items");
   applyMigrationForTable(input, "slack_workspace_tokens");
   applyMigrationForTable(input, "slack_user_identity_links");
   applyMigrationForTable(input, "slack_user_identity_link_tokens");

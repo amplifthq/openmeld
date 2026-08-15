@@ -175,7 +175,8 @@ describe("Slack trust-first welcome preparation", () => {
       )`,
       `CREATE TABLE slack_workspace_tokens (
         slack_team_id TEXT PRIMARY KEY, encrypted_bot_token TEXT NOT NULL,
-        bot_user_id TEXT NOT NULL, installed_by_user_id TEXT NOT NULL,
+        bot_user_id TEXT NOT NULL, granted_bot_scopes TEXT,
+        installed_by_user_id TEXT NOT NULL,
         organization_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL,
         updated_at_ms INTEGER NOT NULL
       )`,
@@ -333,7 +334,8 @@ describe("Slack trust-first welcome preparation", () => {
       )`,
       `CREATE TABLE slack_workspace_tokens (
         slack_team_id TEXT PRIMARY KEY, encrypted_bot_token TEXT NOT NULL,
-        bot_user_id TEXT NOT NULL, installed_by_user_id TEXT NOT NULL,
+        bot_user_id TEXT NOT NULL, granted_bot_scopes TEXT,
+        installed_by_user_id TEXT NOT NULL,
         organization_id TEXT NOT NULL, created_at_ms INTEGER NOT NULL,
         updated_at_ms INTEGER NOT NULL
       )`,

@@ -1295,6 +1295,12 @@ surface adopts official features where they are free**:
   requester; the tool receives only presentation status, cannot page, is absent
   from Web, Space, Routine, and member-research turns, and never persists or
   reuses search data.
+  A requester-selected Slack channel introduction is not a model-owned loop.
+  Core first persists the exact selected-channel manifest, then creates one
+  native delivery per channel with a channel-scoped idempotency key and durable
+  item checkpoint. The model receives exactly one destination per turn. Core's
+  scheduled recovery may resume a stale submitting item, but it never reopens a
+  submitted or outcome-unknown item.
   The Center
   Agent may also save an explicit organization memory fact when organization
   memory is enabled. In an interactive OpenMeld Space or Center Agent DM turn,

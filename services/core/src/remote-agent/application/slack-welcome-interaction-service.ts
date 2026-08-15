@@ -366,11 +366,10 @@ async function sendSelectedTeammateInvitations(input: {
   }
   const memberById = await listSlackWorkspaceMembersUntilTargetsResolved({
     botToken: input.botToken,
-    targetSlackUserIds: new Set(
-      input.input.targetSlackUserIds.filter(
-        (slackUserId) => slackUserId !== input.input.slackUserId
-      )
-    ),
+    targetSlackUserIds: new Set([
+      ...input.input.targetSlackUserIds,
+      input.input.slackUserId,
+    ]),
   });
   const inviterName =
     memberById.get(input.input.slackUserId)?.displayName ?? "A teammate";

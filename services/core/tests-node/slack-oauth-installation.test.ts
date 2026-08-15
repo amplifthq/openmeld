@@ -9,7 +9,10 @@ import {
   deleteRemoteAgentSlackWorkspaceBindingByOrganization,
   readRemoteAgentSlackWorkspaceBinding,
 } from "../src/remote-agent/infrastructure/d1/slack-workspace-binding-repo";
-import { prepareDeleteSlackWorkspaceTokenByOrganizationStatement } from "../src/remote-agent/infrastructure/d1/slack-workspace-token-repo";
+import {
+  prepareDeleteSlackWorkspaceTokenByOrganizationStatement,
+  readSlackWorkspaceToken,
+} from "../src/remote-agent/infrastructure/d1/slack-workspace-token-repo";
 import { rpcInstallSlackWorkspaceFromOAuth } from "../src/rpc/methods";
 import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
 
@@ -17,13 +20,14 @@ const CRYPTO_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
 const NOW_MS = Date.parse("2026-07-10T00:00:00.000Z");
 const RPC_INSTALLATION_INPUT = {
   actorProfileId: "human-1",
+  botScopes: ["chat:write", "im:history", "im:write"],
   botToken: "xoxb-installed-token",
   botUserId: "U_BOT",
   installedByUserId: "openmeld-user-1",
   organizationId: "org-1",
   slackInstallerUserId: "U_INSTALLER",
   slackTeamId: "T_WORKSPACE",
-} as const;
+};
 
 // Mirrors the documented Slack chat.postMessage success response shape.
 const SLACK_MESSAGE_SUCCESS_RESPONSE = {
@@ -67,6 +71,7 @@ describe("Slack OAuth installation", () => {
           slack_team_id TEXT PRIMARY KEY,
           encrypted_bot_token TEXT NOT NULL,
           bot_user_id TEXT NOT NULL,
+          granted_bot_scopes TEXT,
           installed_by_user_id TEXT NOT NULL,
           organization_id TEXT NOT NULL UNIQUE,
           created_at_ms INTEGER NOT NULL,
@@ -222,6 +227,14 @@ describe("Slack OAuth installation", () => {
       openmeldUserId: "openmeld-user-1",
       organizationId: "org-1",
       source: "explicit",
+    });
+    await expect(
+      readSlackWorkspaceToken({
+        db: harness.db,
+        slackTeamId: "T_WORKSPACE",
+      })
+    ).resolves.toMatchObject({
+      grantedBotScopes: ["chat:write", "im:history", "im:write"],
     });
   });
 

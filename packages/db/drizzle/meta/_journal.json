@@ -827,6 +827,20 @@
       "when": 1786777290594,
       "tag": "0117_tearful_terror",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "6",
+      "when": 1786785242181,
+      "tag": "0118_medical_madripoor",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "6",
+      "when": 1786785709728,
+      "tag": "0119_opposite_the_anarchist",
+      "breakpoints": true
     }
   ]
 }

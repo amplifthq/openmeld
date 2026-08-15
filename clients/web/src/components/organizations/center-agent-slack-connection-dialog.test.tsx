@@ -30,6 +30,7 @@ describe("CenterAgentSlackConnectionDialog", () => {
 				organizationSlug="acme"
 				slackConnection={{
 					connected: true,
+					directMessagesReady: true,
 					slackTeamId: "T123",
 					workspaceName: "Acme HQ",
 				}}
@@ -50,5 +51,34 @@ describe("CenterAgentSlackConnectionDialog", () => {
 		expect(
 			screen.getByRole("button", { name: "Disconnect Slack" })
 		).toBeTruthy();
+	});
+
+	it("gives an older Slack installation one clear reconnect action", () => {
+		render(
+			<CenterAgentSlackConnectionDialog
+				canManage
+				organizationSlug="acme"
+				slackConnection={{
+					connected: true,
+					directMessagesReady: false,
+					slackTeamId: "T123",
+					workspaceName: "Acme HQ",
+				}}
+				trigger={<button type="button">Manage Slack</button>}
+			/>
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Manage Slack" }));
+
+		expect(screen.getByText("Reconnect required")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Slack is connected, but this installation can’t receive direct messages yet. Reconnect once to approve the latest permissions."
+			)
+		).toBeTruthy();
+		const reconnect = screen.getByRole("link", { name: "Reconnect Slack" });
+		expect(reconnect.getAttribute("href")).toBe(
+			"/slack/oauth/start?organization_slug=acme"
+		);
 	});
 });

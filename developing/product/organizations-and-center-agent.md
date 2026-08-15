@@ -1412,6 +1412,18 @@ those IDs through a structured field, verifies that the same turn's directory
 read returned them, and constructs the mention tokens outside model-authored
 text. It rejects display-name mentions and guessed IDs.
 
+Core records the exact bot scopes returned by Slack for every OAuth installation.
+`im:history` and `im:write` are both required before Web presents Slack direct
+messages as ready. Older installations without recorded grants remain connected
+for their existing capabilities but show **Reconnect required** with one OAuth
+action for an owner or admin. Reconnecting refreshes the same workspace
+installation and does not ask the user to disconnect it first.
+
+During rollout, an older Gateway may omit the grant list and the new Core
+records that installation as capability-unknown instead of rejecting it. Core
+must deploy before the Gateway starts sending the new field, and Web must
+deploy after Core before presenting the readiness result.
+
 A successful first Slack connection and an informed move from another
 Organization both start one trust-first onboarding sequence for the current
 Slack installer. The OAuth completion atomically links the exact authenticated
@@ -1467,7 +1479,12 @@ the lowest-cost safe next step. A channel
 introduction starts in direct message: a native picker accepts at most five
 public channels, Core joins those channels when needed, and the Center Agent
 reads one bounded recent page before posting a short introduction grounded in
-the channel's actual work. Core includes an existing active Organization join
+the channel's actual work. Core freezes the selected channels as one immutable
+durable manifest before the acknowledgement is published, then submits one
+idempotent native delivery per channel and checkpoints each item separately.
+The minute scheduler reclaims only an interrupted item; a completed channel is
+never silently repeated and a process restart cannot make a later selected
+channel disappear. Core includes an existing active Organization join
 link for any verified member; an owner or admin may also create the missing
 link. A member without link-creation authority can still complete the
 introduction without a link. The Center Agent does not rank people, disclose
