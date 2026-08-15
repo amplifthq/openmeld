@@ -261,15 +261,20 @@ The `connector_connections` D1 table is Core's non-secret ownership truth for
 external connections. It stores Organization id, member or shared scope,
 authorizing user id, service, OpenConnector-safe connection name, status, and
 timestamps; it stores no OAuth credential or runtime token. For member scope,
-the user id is both access owner and provider execution identity. For shared
-scope, the Organization owns access while the user id preserves who authorized
-the provider execution identity. A successful complete OpenConnector
-connection-list response is executor evidence for that service inventory. A
-matching registered name may promote from pending to active, while a registered
-active name absent from the response must become ineligible for selection until
-executor evidence confirms it again. A failed list request is not an empty
-inventory and must preserve the failure instead of rewriting status. Executor
-evidence cannot register a legacy or otherwise unowned connection.
+the user id is the access owner and records who authorized the connection. For
+shared scope, the Organization owns access while the user id preserves the
+authorizer for ownership and audit. Provider execution identity is a
+provider-owned authentication fact and must not be inferred from either Core
+ownership field. For example, Notion OAuth actions authenticate as the Notion
+integration bot rather than impersonating the authorizing member; OpenMeld must
+not present that provider activity as human-authored. A successful complete
+OpenConnector connection-list response is executor evidence for that service
+inventory. A matching registered name may promote from pending to active. When
+a registered active name is absent from the response, it must become ineligible
+for selection until executor evidence confirms it again. A failed list request
+is not an empty inventory and must preserve the failure instead of rewriting
+status. Executor evidence cannot register a legacy or otherwise unowned
+connection.
 
 Provider authentication mechanisms remain OpenConnector-owned credential
 detail and do not become a parallel Core connection kind. The Figma transition

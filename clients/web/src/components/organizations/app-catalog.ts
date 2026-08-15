@@ -129,18 +129,22 @@ export const APPS = [
 		category: "Productivity",
 		connection: {
 			auth: {
-				authType: "api_key",
-				fields: [
-					{
-						description:
-							"The installation access token from a Notion internal connection created by a Workspace Owner. Enable the capabilities OpenMeld should use, then grant Content access to the pages and databases you choose.",
-						key: "apiKey",
-						label: "Installation access token",
-						placeholder: "Paste the token from Notion",
-						secret: true,
-					},
-				],
-				kind: "credential",
+				credentialFallback: {
+					authType: "api_key",
+					fields: [
+						{
+							description:
+								"The installation access token from a Notion internal connection created by a Workspace Owner. Enable the capabilities OpenMeld should use, then grant Content access to the pages and databases you choose.",
+							key: "apiKey",
+							label: "Installation access token",
+							placeholder: "Paste the token from Notion",
+							secret: true,
+						},
+					],
+					kind: "credential",
+					switchLabel: "Use an internal connection token instead",
+				},
+				kind: "oauth",
 			},
 		},
 		description:
