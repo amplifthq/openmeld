@@ -129,7 +129,43 @@ export async function claimJoinedSlackInvitedMembers(input: {
 }): Promise<SlackInvitedMemberOnboarding[]> {
   const claimed: SlackInvitedMemberOnboarding[] = [];
   for (const candidate of input.candidates) {
-    const row = await input.db
+    const identityLink = input.db
+      .prepare(
+        `
+          INSERT INTO slack_user_identity_links (
+            organization_id,
+            slack_team_id,
+            slack_user_id,
+            openmeld_user_id,
+            source,
+            created_at_ms
+          )
+          SELECT
+            organization_id,
+            slack_team_id,
+            target_slack_user_id,
+            ?,
+            'email_auto',
+            ?
+          FROM slack_teammate_invitation_deliveries
+          WHERE interaction_id = ?
+            AND target_slack_user_id = ?
+            AND status = 'delivered'
+            AND onboarding_status = 'waiting_for_join'
+          ON CONFLICT(slack_team_id, slack_user_id) DO UPDATE SET
+            organization_id = excluded.organization_id,
+            openmeld_user_id = excluded.openmeld_user_id,
+            source = excluded.source
+          WHERE slack_user_identity_links.openmeld_user_id = excluded.openmeld_user_id
+        `
+      )
+      .bind(
+        candidate.joinedUserId,
+        input.nowMs,
+        candidate.interactionId,
+        candidate.targetSlackUserId
+      );
+    const onboardingClaim = input.db
       .prepare(
         `
           UPDATE slack_teammate_invitation_deliveries
@@ -142,6 +178,14 @@ export async function claimJoinedSlackInvitedMembers(input: {
             AND target_slack_user_id = ?
             AND status = 'delivered'
             AND onboarding_status = 'waiting_for_join'
+            AND EXISTS (
+              SELECT 1
+              FROM slack_user_identity_links AS identity_link
+              WHERE identity_link.organization_id = slack_teammate_invitation_deliveries.organization_id
+                AND identity_link.slack_team_id = slack_teammate_invitation_deliveries.slack_team_id
+                AND identity_link.slack_user_id = slack_teammate_invitation_deliveries.target_slack_user_id
+                AND identity_link.openmeld_user_id = ?
+            )
             AND NOT EXISTS (
               SELECT 1
               FROM slack_teammate_invitation_deliveries AS existing
@@ -155,7 +199,6 @@ export async function claimJoinedSlackInvitedMembers(input: {
                   OR existing.target_slack_user_id <> slack_teammate_invitation_deliveries.target_slack_user_id
                 )
             )
-          RETURNING *
         `
       )
       .bind(
@@ -163,11 +206,71 @@ export async function claimJoinedSlackInvitedMembers(input: {
         candidate.joinedProfileId,
         input.nowMs,
         candidate.interactionId,
+        candidate.targetSlackUserId,
+        candidate.joinedUserId
+      );
+    const [, claimResult] = await input.db.batch([
+      identityLink,
+      onboardingClaim,
+    ]);
+    if (Number(claimResult?.meta.changes ?? 0) === 1) {
+      const row = await input.db
+        .prepare(
+          `
+            SELECT *
+            FROM slack_teammate_invitation_deliveries
+            WHERE interaction_id = ?
+              AND target_slack_user_id = ?
+              AND onboarding_status = 'starting'
+              AND joined_user_id = ?
+            LIMIT 1
+          `
+        )
+        .bind(
+          candidate.interactionId,
+          candidate.targetSlackUserId,
+          candidate.joinedUserId
+        )
+        .first<SlackInvitedMemberOnboardingRow>();
+      if (!row) {
+        throw new Error(
+          "Slack invited-member onboarding claim lost its identity-bound row."
+        );
+      }
+      claimed.push(mapSlackInvitedMemberOnboarding(row));
+      continue;
+    }
+    const existingIdentity = await input.db
+      .prepare(
+        `
+          SELECT openmeld_user_id
+          FROM slack_user_identity_links
+          WHERE slack_user_id = ?
+            AND slack_team_id = (
+              SELECT slack_team_id
+              FROM slack_teammate_invitation_deliveries
+              WHERE interaction_id = ?
+                AND target_slack_user_id = ?
+              LIMIT 1
+            )
+          LIMIT 1
+        `
+      )
+      .bind(
+        candidate.targetSlackUserId,
+        candidate.interactionId,
         candidate.targetSlackUserId
       )
-      .first<SlackInvitedMemberOnboardingRow>();
-    if (row) {
-      claimed.push(mapSlackInvitedMemberOnboarding(row));
+      .first<{ openmeld_user_id: string }>();
+    if (
+      existingIdentity &&
+      existingIdentity.openmeld_user_id !== candidate.joinedUserId
+    ) {
+      await markSlackInvitedMemberIdentityMismatch({
+        ...candidate,
+        db: input.db,
+        nowMs: input.nowMs,
+      });
       continue;
     }
     await markDuplicateSlackInvitedMemberOnboarding({
@@ -177,6 +280,43 @@ export async function claimJoinedSlackInvitedMembers(input: {
     });
   }
   return claimed;
+}
+
+async function markSlackInvitedMemberIdentityMismatch(input: {
+  db: D1Database;
+  interactionId: string;
+  joinedUserId: string;
+  nowMs: number;
+  targetSlackUserId: string;
+}): Promise<void> {
+  await input.db
+    .prepare(
+      `
+        UPDATE slack_teammate_invitation_deliveries
+        SET
+          onboarding_status = 'failed',
+          onboarding_failure_code = 'identity_link_mismatch',
+          updated_at_ms = ?
+        WHERE interaction_id = ?
+          AND target_slack_user_id = ?
+          AND status = 'delivered'
+          AND onboarding_status = 'waiting_for_join'
+          AND EXISTS (
+            SELECT 1
+            FROM slack_user_identity_links AS identity_link
+            WHERE identity_link.slack_team_id = slack_teammate_invitation_deliveries.slack_team_id
+              AND identity_link.slack_user_id = slack_teammate_invitation_deliveries.target_slack_user_id
+              AND identity_link.openmeld_user_id <> ?
+          )
+      `
+    )
+    .bind(
+      input.nowMs,
+      input.interactionId,
+      input.targetSlackUserId,
+      input.joinedUserId
+    )
+    .run();
 }
 
 async function markDuplicateSlackInvitedMemberOnboarding(input: {

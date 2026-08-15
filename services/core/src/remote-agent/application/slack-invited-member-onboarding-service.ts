@@ -15,7 +15,6 @@ import {
   listActiveSlackInvitedMemberOnboardings,
   type SlackInvitedMemberOnboarding,
 } from "../infrastructure/d1/slack-teammate-invitation-delivery-repo";
-import { upsertSlackUserIdentityLinkForSameUser } from "../infrastructure/d1/slack-user-identity-link-repo";
 import { resolveSlackBotToken } from "./slack-bot-token";
 import {
   postSlackDirectMessage,
@@ -144,22 +143,11 @@ async function claimJoinedMembersForOrganization(input: {
         ]
       : [];
   });
-  const claimed = await claimJoinedSlackInvitedMembers({
+  await claimJoinedSlackInvitedMembers({
     candidates,
     db: input.db,
     nowMs: input.nowMs,
   });
-  for (const onboarding of claimed) {
-    await upsertSlackUserIdentityLinkForSameUser({
-      db: input.db,
-      nowMs: input.nowMs,
-      openmeldUserId: onboarding.joinedUserId,
-      organizationId: onboarding.organizationId,
-      slackTeamId: onboarding.slackTeamId,
-      slackUserId: onboarding.targetSlackUserId,
-      source: "email_auto",
-    });
-  }
 }
 
 async function advanceResearchingOnboarding(input: {

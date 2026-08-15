@@ -1459,7 +1459,11 @@ only an owner or admin may create that link when none exists. If a member asks
 to invite teammates before an owner or admin has created a link, the modal
 submission closes and the Center Agent immediately sends that member one
 private next step instead of failing silently in background work. It never
-posts those private invitations to a channel. A channel
+posts those private invitations to a channel. When Slack does not expose a
+selected teammate's email, Core does not send a targeted invitation that it
+cannot safely correlate after joining. The Center Agent instead tells the
+requester what happened and returns the same join link for manual sharing as
+the lowest-cost safe next step. A channel
 introduction starts in direct message: a native picker accepts at most five
 public channels, Core joins those channels when needed, and the Center Agent
 reads one bounded recent page before posting a short introduction grounded in

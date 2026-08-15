@@ -129,6 +129,64 @@ describe("Slack welcome teammate invitations", () => {
     ).toHaveLength(1);
   });
 
+  it("does not send a targeted invite when Slack cannot safely correlate the teammate", async () => {
+    seedActiveJoinLink(harness);
+    slackFetch.mockImplementation((url: string, request?: RequestInit) => {
+      if (url.startsWith("https://slack.com/api/users.list")) {
+        return Response.json({
+          members: [
+            {
+              id: "U_ACTOR",
+              profile: { display_name: "Alex", email: "alex@example.com" },
+            },
+            {
+              id: "U_TARGET",
+              profile: { display_name: "Maya" },
+            },
+          ],
+          ok: true,
+          response_metadata: { next_cursor: "" },
+        });
+      }
+      if (url === "https://slack.com/api/chat.postMessage") {
+        const body = JSON.parse(String(request?.body)) as { channel: string };
+        return Response.json({ channel: body.channel, ok: true, ts: "1723.1" });
+      }
+      throw new Error(`Unexpected Slack request: ${url}`);
+    });
+
+    await expect(
+      handleSlackWelcomeInteraction(
+        buildEnv({
+          db: harness.db,
+          ensureOrganizationJoinLinkOnBehalfOf: vi.fn(),
+        }),
+        teammateInviteInput()
+      )
+    ).resolves.toEqual({ handled: true });
+
+    const publications = slackFetch.mock.calls
+      .filter(([url]) => url === "https://slack.com/api/chat.postMessage")
+      .map(
+        ([, request]) =>
+          JSON.parse(String(request?.body)) as Record<string, unknown>
+      );
+    expect(publications).toEqual([
+      expect.objectContaining({
+        channel: "U_ACTOR",
+        text: expect.stringContaining("Slack didn’t share an email for Maya"),
+      }),
+    ]);
+    expect(String(publications[0]?.text)).toContain(
+      "https://openmeld.test/join-organization?token=join-token-1"
+    );
+    expect(
+      harness.queryFirst({
+        sql: "SELECT status FROM slack_teammate_invitation_deliveries",
+      })
+    ).toBeNull();
+  });
+
   it("gives a member one clear next step when no invite link exists", async () => {
     const ensureOrganizationJoinLinkOnBehalfOf = vi.fn(async () => ({
       code: "organization.join_link.forbidden" as const,

@@ -389,75 +389,124 @@ async function sendSelectedTeammateInvitations(input: {
 
   const delivered: string[] = [];
   const failed: string[] = [];
+  const needsManualInvite: string[] = [];
   const uncertain: string[] = [];
   let claimedCount = 0;
   for (const target of targets) {
-    const claim = await claimSlackTeammateInvitationDelivery({
+    if (!target.email?.trim()) {
+      needsManualInvite.push(target.displayName);
+      continue;
+    }
+    const outcome = await deliverPrivateTeammateInvitation({
       actorSlackUserId: input.input.slackUserId,
       actorUserId: input.actorUserId,
+      botToken: input.botToken,
       db: input.db,
       interactionId: input.input.interactionId,
-      nowMs: Date.now(),
+      invitation,
+      inviterName,
       organizationId: input.organizationId,
       slackTeamId: input.input.slackTeamId,
-      targetDisplayName: target.displayName,
       targetEmail: target.email,
-      targetSlackUserId: target.slackUserId,
+      target,
     });
-    if (!claim) {
+    if (outcome === "already_claimed") {
       continue;
     }
     claimedCount += 1;
-    try {
-      const message = buildPrivateTeammateInvitationMessage({
-        inviterName,
-        organizationName: invitation.organizationName,
-        targetDisplayName: target.displayName,
-      });
-      const publication = await postSlackDirectMessage({
-        blocks: buildPrivateTeammateInvitationBlocks({
-          inviteUrl: invitation.url,
-          message,
-        }),
-        botToken: input.botToken,
-        recipientUserId: target.slackUserId,
-        text: message,
-      });
-      await completeSlackTeammateInvitationDelivery({
-        claim,
-        db: input.db,
-        failureCode: null,
-        messageTs: publication.id,
-        nowMs: Date.now(),
-        status: "delivered",
-      });
+    if (outcome === "delivered") {
       delivered.push(target.displayName);
-    } catch (error) {
-      const outcomeUnknown =
-        error instanceof SlackMessagePublicationError &&
-        error.publicationOutcome === "unknown";
-      await completeSlackTeammateInvitationDelivery({
-        claim,
-        db: input.db,
-        failureCode:
-          error instanceof SlackMessagePublicationError
-            ? (error.errorCode ?? "slack_not_published")
-            : "invitation_failed",
-        messageTs: null,
-        nowMs: Date.now(),
-        status: outcomeUnknown ? "outcome_unknown" : "failed",
-      });
-      (outcomeUnknown ? uncertain : failed).push(target.displayName);
+    } else if (outcome === "outcome_unknown") {
+      uncertain.push(target.displayName);
+    } else {
+      failed.push(target.displayName);
     }
   }
-  if (claimedCount === 0) {
+  if (claimedCount === 0 && needsManualInvite.length === 0) {
     return;
   }
   await postSlackDirectMessage({
     botToken: input.botToken,
     recipientUserId: input.input.slackUserId,
-    text: buildInvitationSummary({ delivered, failed, uncertain }),
+    text: buildInvitationSummary({
+      delivered,
+      failed,
+      inviteUrl: invitation.url,
+      needsManualInvite,
+      uncertain,
+    }),
   });
+}
+
+async function deliverPrivateTeammateInvitation(input: {
+  actorSlackUserId: string;
+  actorUserId: string;
+  botToken: string;
+  db: D1Database;
+  interactionId: string;
+  invitation: { organizationName: string; url: string };
+  inviterName: string;
+  organizationId: string;
+  slackTeamId: string;
+  target: SlackWorkspaceMember;
+  targetEmail: string;
+}): Promise<"already_claimed" | "delivered" | "failed" | "outcome_unknown"> {
+  const claim = await claimSlackTeammateInvitationDelivery({
+    actorSlackUserId: input.actorSlackUserId,
+    actorUserId: input.actorUserId,
+    db: input.db,
+    interactionId: input.interactionId,
+    nowMs: Date.now(),
+    organizationId: input.organizationId,
+    slackTeamId: input.slackTeamId,
+    targetDisplayName: input.target.displayName,
+    targetEmail: input.targetEmail,
+    targetSlackUserId: input.target.slackUserId,
+  });
+  if (!claim) {
+    return "already_claimed";
+  }
+  try {
+    const message = buildPrivateTeammateInvitationMessage({
+      inviterName: input.inviterName,
+      organizationName: input.invitation.organizationName,
+      targetDisplayName: input.target.displayName,
+    });
+    const publication = await postSlackDirectMessage({
+      blocks: buildPrivateTeammateInvitationBlocks({
+        inviteUrl: input.invitation.url,
+        message,
+      }),
+      botToken: input.botToken,
+      recipientUserId: input.target.slackUserId,
+      text: message,
+    });
+    await completeSlackTeammateInvitationDelivery({
+      claim,
+      db: input.db,
+      failureCode: null,
+      messageTs: publication.id,
+      nowMs: Date.now(),
+      status: "delivered",
+    });
+    return "delivered";
+  } catch (error) {
+    const outcomeUnknown =
+      error instanceof SlackMessagePublicationError &&
+      error.publicationOutcome === "unknown";
+    await completeSlackTeammateInvitationDelivery({
+      claim,
+      db: input.db,
+      failureCode:
+        error instanceof SlackMessagePublicationError
+          ? (error.errorCode ?? "slack_not_published")
+          : "invitation_failed",
+      messageTs: null,
+      nowMs: Date.now(),
+      status: outcomeUnknown ? "outcome_unknown" : "failed",
+    });
+    return outcomeUnknown ? "outcome_unknown" : "failed";
+  }
 }
 
 function buildTeammateInviteModal(): Record<string, unknown> {
@@ -556,12 +605,19 @@ function buildPrivateTeammateInvitationBlocks(input: {
 function buildInvitationSummary(input: {
   delivered: readonly string[];
   failed: readonly string[];
+  inviteUrl: string;
+  needsManualInvite: readonly string[];
   uncertain: readonly string[];
 }): string {
+  const manualInviteNote =
+    input.needsManualInvite.length > 0
+      ? `Slack didn’t share an email for ${formatNameList(input.needsManualInvite)}, so I didn’t send a private invite that could connect to the wrong OpenMeld account. Send them this invite link instead: ${input.inviteUrl}. After they join, they can message Center Agent here.`
+      : "";
   if (
     input.delivered.length > 0 &&
     input.failed.length === 0 &&
-    input.uncertain.length === 0
+    input.uncertain.length === 0 &&
+    input.needsManualInvite.length === 0
   ) {
     return `Done — I sent private invites to ${formatNameList(input.delivered)}. I’ll be here when they join.`;
   }
@@ -572,12 +628,25 @@ function buildInvitationSummary(input: {
     const failedNote = input.failed.length
       ? `I couldn’t reach ${formatNameList(input.failed)}. `
       : "";
-    return `${deliveredNote}${failedNote}Slack didn’t confirm whether ${formatNameList(input.uncertain)} received the message, so I won’t guess or send a duplicate.`;
+    return `${deliveredNote}${failedNote}Slack didn’t confirm whether ${formatNameList(input.uncertain)} received the message, so I won’t guess or send a duplicate.${manualInviteNote ? ` ${manualInviteNote}` : ""}`;
   }
-  if (input.delivered.length === 0) {
+  if (
+    input.delivered.length === 0 &&
+    input.failed.length === 0 &&
+    manualInviteNote
+  ) {
+    return manualInviteNote;
+  }
+  if (input.delivered.length === 0 && !manualInviteNote) {
     return "I couldn’t send those invites. No one received a duplicate. Try again, or tell me who you want to invite here.";
   }
-  return `I sent private invites to ${formatNameList(input.delivered)}. I couldn’t reach ${formatNameList(input.failed)}, so I didn’t claim they were invited.`;
+  const deliveredNote = input.delivered.length
+    ? `I sent private invites to ${formatNameList(input.delivered)}. `
+    : "";
+  const failedNote = input.failed.length
+    ? `I couldn’t reach ${formatNameList(input.failed)}, so I didn’t claim they were invited.`
+    : "";
+  return `${deliveredNote}${failedNote}${manualInviteNote ? `${failedNote ? " " : ""}${manualInviteNote}` : ""}`;
 }
 
 function formatNameList(names: readonly string[]): string {
