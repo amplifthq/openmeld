@@ -1010,6 +1010,60 @@ export const slackTeammateInvitationDeliveries = sqliteTable(
   ]
 );
 
+export const slackInvitedMemberWelcomeDeliveries = sqliteTable(
+  "slack_invited_member_welcome_deliveries",
+  {
+    interactionId: text("interaction_id").notNull(),
+    targetSlackUserId: text("target_slack_user_id").notNull(),
+    researchTaskId: text("research_task_id").notNull(),
+    status: text("status", {
+      enum: ["pending", "delivered", "failed", "outcome_unknown"],
+    }).notNull(),
+    claimId: text("claim_id").notNull(),
+    attemptCount: integer("attempt_count").notNull(),
+    messageTs: text("message_ts"),
+    failureCode: text("failure_code"),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.interactionId, table.targetSlackUserId],
+    }),
+    index("idx_slack_invited_member_welcome_status_updated").on(
+      table.status,
+      table.updatedAtMs
+    ),
+    check(
+      "slack_invited_member_welcome_identity_check",
+      sql`length(trim("interaction_id")) > 0
+        AND length(trim("target_slack_user_id")) > 0
+        AND length(trim("research_task_id")) > 0
+        AND length(trim("claim_id")) > 0`
+    ),
+    check(
+      "slack_invited_member_welcome_status_check",
+      sql`"status" in ('pending', 'delivered', 'failed', 'outcome_unknown')`
+    ),
+    check(
+      "slack_invited_member_welcome_attempt_count_check",
+      sql`"attempt_count" > 0`
+    ),
+    check(
+      "slack_invited_member_welcome_outcome_shape_check",
+      sql`(
+        ("status" = 'pending' AND "message_ts" IS NULL AND "failure_code" IS NULL)
+        OR ("status" = 'delivered' AND length(trim("message_ts")) > 0 AND "failure_code" IS NULL)
+        OR ("status" IN ('failed', 'outcome_unknown') AND "message_ts" IS NULL AND length(trim("failure_code")) > 0)
+      )`
+    ),
+    check(
+      "slack_invited_member_welcome_time_check",
+      sql`"created_at_ms" > 0 AND "updated_at_ms" >= "created_at_ms"`
+    ),
+  ]
+);
+
 export const slackOAuthStates = sqliteTable(
   "slack_oauth_states",
   {
@@ -1451,6 +1505,7 @@ export const coreSchema = {
   openMeldRemoteAgentSlackWorkspaceBindings,
   slackInstallationWelcomeDeliveries,
   slackInstallationWelcomePreparations,
+  slackInvitedMemberWelcomeDeliveries,
   slackTeammateInvitationDeliveries,
   slackOAuthStates,
   slackWorkspaceTokens,

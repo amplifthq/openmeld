@@ -29,6 +29,7 @@ type DirectoryProfileReportDocument = Pick<
 	| "hasDraft"
 	| "id"
 	| "kind"
+	| "createdAt"
 	| "profileReportDate"
 	| "subjectUserId"
 	| "updatedAt"
@@ -277,10 +278,10 @@ function compareProfileReportRecency(
 	if (reportDateComparison !== 0) {
 		return reportDateComparison;
 	}
-	const updatedAtComparison = left.updatedAt.localeCompare(right.updatedAt);
-	return updatedAtComparison === 0
+	const createdAtComparison = left.createdAt.localeCompare(right.createdAt);
+	return createdAtComparison === 0
 		? left.id.localeCompare(right.id)
-		: updatedAtComparison;
+		: createdAtComparison;
 }
 
 function resolveDirectoryHumanProfileRole(

@@ -766,6 +766,53 @@ describe("DirectoryMembersOverview", () => {
 		]);
 	});
 
+	it("keeps the newest same-day Profile Report selected after an older report is edited", async () => {
+		listCurrentOrganizationDocumentsMock.mockResolvedValue({
+			canManage: true,
+			currentUserId: "user-owner",
+			documents: [
+				{
+					canEditContent: true,
+					canManage: true,
+					createdAt: "2026-08-15T10:00:00.000Z",
+					folderId: "folder-ada",
+					hasDraft: false,
+					id: "document-ada-newer",
+					kind: "member_profile",
+					organizationId: "org-acme",
+					profileReportDate: "2026-08-15",
+					profileReportType: "work_profile",
+					subjectUserId: "user-ada",
+					title: "2026-08-15 — Work Profile (2)",
+					updatedAt: "2026-08-15T10:00:00.000Z",
+				},
+				{
+					canEditContent: true,
+					canManage: true,
+					createdAt: "2026-08-15T09:00:00.000Z",
+					folderId: "folder-ada",
+					hasDraft: false,
+					id: "document-ada-older",
+					kind: "member_profile",
+					organizationId: "org-acme",
+					profileReportDate: "2026-08-15",
+					profileReportType: "work_profile",
+					subjectUserId: "user-ada",
+					title: "2026-08-15 — Work Profile",
+					updatedAt: "2026-08-15T11:00:00.000Z",
+				},
+			],
+			organizationId: "org-acme",
+		});
+		renderOverview({ isPersonal: false });
+
+		expect(
+			(
+				await screen.findAllByRole("link", { name: "Profile Report" })
+			)[0]?.getAttribute("href")
+		).toBe("/o/acme/documents/document-ada-newer");
+	});
+
 	it("lets members open an existing profile without offering an unauthorized create path", async () => {
 		listCurrentOrganizationDocumentsMock.mockResolvedValue({
 			canManage: false,

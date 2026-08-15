@@ -9,10 +9,12 @@ import type {
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
 import { localStateDb } from "../../lib/bindings";
+import { readOrganizationAccountIdentityProjection } from "../../organizations/organization-context";
 import {
   buildOrganizationJoinLinkUrl,
   readActiveOrganizationJoinLink,
 } from "../../organizations/organization-join-link-read-service";
+import { createCoreRpcHttpError } from "../../rpc/errors";
 import { callRequiredAuthWorkerRpc } from "../../rpc/required-auth-worker-rpc";
 import {
   claimSlackTeammateInvitationDelivery,
@@ -197,6 +199,27 @@ async function resolveVerifiedSlackActor(input: {
     throw new Error(
       "Link your Slack account to OpenMeld before inviting teammates."
     );
+  }
+  const membership = await readOrganizationAccountIdentityProjection({
+    account: { kind: "user_id", userId: identity.openmeldUserId },
+    authWorker: input.env.OPENMELD_AUTH_WORKER,
+    organizationId: binding.organizationId,
+  });
+  if (!membership?.ok) {
+    throw createCoreRpcHttpError({
+      code: "organization.membership_verification_unavailable",
+      reason:
+        "OpenMeld couldn’t verify your Organization membership. Try again. If it still doesn’t work, reconnect Slack in OpenMeld.",
+      status: 503,
+    });
+  }
+  if (!membership.account?.membership) {
+    throw createCoreRpcHttpError({
+      code: "organization.membership_required",
+      reason:
+        "You are no longer a member of this OpenMeld Organization, so this invitation action is no longer available. Ask an Organization owner or admin to add you again.",
+      status: 403,
+    });
   }
   return {
     actorUserId: identity.openmeldUserId,

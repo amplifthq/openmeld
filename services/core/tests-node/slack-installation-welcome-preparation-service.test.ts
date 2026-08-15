@@ -3,6 +3,7 @@ import {
   buildTrustFirstSlackWelcomeBlocks,
   buildTrustFirstSlackWelcomeMessage,
   readFirstProfileObservation,
+  readPreparedProfileReport,
   runSlackInstallationWelcomePreparationTick,
 } from "../src/remote-agent/application/slack-installation-welcome-preparation-service";
 import { buildJoinedMemberWelcomeMessage } from "../src/remote-agent/application/slack-invited-member-onboarding-service";
@@ -191,6 +192,73 @@ describe("Slack trust-first welcome preparation", () => {
       failure_code: null,
       research_task_id: null,
       status: "queued",
+    });
+  });
+
+  it("uses the published Profile Report when the draft was saved before welcome delivery", async () => {
+    for (const sql of [
+      `CREATE TABLE center_agent_member_research_computer_files (
+        task_id TEXT PRIMARY KEY, document_id TEXT NOT NULL,
+        subject_user_id TEXT NOT NULL, path TEXT NOT NULL
+      )`,
+      `CREATE TABLE organization_documents (
+        id TEXT PRIMARY KEY, organization_id TEXT NOT NULL,
+        content TEXT NOT NULL, draft_content TEXT,
+        last_member_research_task_id TEXT
+      )`,
+      `CREATE TABLE organizations (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL
+      )`,
+      "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
+      `CREATE TABLE connector_connections (
+        organization_id TEXT NOT NULL, status TEXT NOT NULL
+      )`,
+    ]) {
+      harness.run({ sql });
+    }
+    harness.run({
+      sql: `INSERT INTO organization_documents VALUES (
+        'document-1', 'org-1',
+        '### Current focus\n- 2026-08-15 — Shipping clearer onboarding. Source: Slack #product',
+        NULL, 'research-task-1'
+      )`,
+    });
+    harness.run({
+      sql: `INSERT INTO center_agent_member_research_computer_files VALUES (
+        'research-task-1', 'document-1', 'user-installer',
+        '/computer/home/documents/Profile Reports/Alex/2026-08-15 — Work Profile.md'
+      )`,
+    });
+    harness.run({
+      sql: "INSERT INTO organizations VALUES ('org-1', 'Ampli Lift', 'ampli-lift')",
+    });
+    harness.run({
+      sql: "INSERT INTO users VALUES ('user-installer', 'Alex Kim')",
+    });
+
+    const report = await readPreparedProfileReport({
+      db: harness.db,
+      preparation: {
+        claimId: "claim-1",
+        installedByProfileId: "profile-installer",
+        installedByUserId: "user-installer",
+        key: {
+          connectionCreatedAtMs: 100,
+          organizationId: "org-1",
+          recipientSlackUserId: "U_INSTALLER",
+          slackTeamId: "T123",
+          welcomeVersion: 2,
+        },
+        messageKind: "connected",
+        researchTaskId: "research-task-1",
+        status: "ready",
+      },
+    });
+
+    expect(report).toMatchObject({
+      documentId: "document-1",
+      firstObservation: "Shipping clearer onboarding.",
+      hasUsefulEvidence: true,
     });
   });
 });

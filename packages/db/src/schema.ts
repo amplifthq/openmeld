@@ -121,6 +121,7 @@ export const {
   openMeldRemoteAgentSlackWorkspaceBindings,
   slackInstallationWelcomeDeliveries,
   slackInstallationWelcomePreparations,
+  slackInvitedMemberWelcomeDeliveries,
   slackTeammateInvitationDeliveries,
   slackOAuthStates,
   slackWorkspaceTokens,

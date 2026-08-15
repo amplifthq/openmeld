@@ -1441,7 +1441,10 @@ The welcome offers **See what I learned**, **Invite teammates**, and
 Organization has no active App connection. The Slack teammate action opens a
 native multi-user picker, accepts at most ten selected active human workspace
 members, and sends a private invitation to each through an idempotent delivery
-ledger. A current member may share an existing active Organization join link;
+ledger. Every welcome button and modal submission rechecks the linked person's
+current Auth-owned Organization membership before it exposes a join link or
+performs an action; a removed member cannot keep using an old Slack identity
+link. A current member may share an existing active Organization join link;
 only an owner or admin may create that link when none exists. If a member asks
 to invite teammates before an owner or admin has created a link, the modal
 submission closes and the Center Agent immediately sends that member one
@@ -1467,6 +1470,9 @@ member research for the new member, writes the Profile Report to the Center
 Agent Computer, and sends a second private welcome with one evidence-backed
 observation or an honest insufficient-context state. Duplicate invitations are
 closed without starting another research task or sending another welcome.
+The second welcome has its own durable publication claim. A confirmed Slack
+rejection may retry, a confirmed delivery is recovered by its recorded message
+id, and a lost or ambiguous outcome never triggers a blind second message.
 The new member may then reply in Slack, invite more teammates, or start the
 channel-introduction flow. A move starts a new Organization context with
 different members, Spaces, Apps, and agent state, so reusing the previous
@@ -1727,7 +1733,9 @@ Core preserves every run and adds a human-readable ordinal suffix such as
 ` (2)`. Reports carry the report date and type as structured metadata. Managed
 report folders
 cannot be renamed, moved, deleted, used for unrelated documents, or extended
-with manual child folders. The Center Agent may create other root or nested
+with manual child folders. Web also omits every managed report folder from
+manual document and folder move destinations; Core rejects the same targets so
+drag-and-drop, menus, and direct requests preserve one rule. The Center Agent may create other root or nested
 folders, rename those folders, and move ordinary documents when acting for a
 verified owner/admin. Deleting and moving other existing folders remain
 human-only management actions.
@@ -1752,7 +1760,11 @@ Web presents the latest report as **What I've learned so far** in the normal
 editable Document surface without assigning approval, correction, or discard
 work. Saving any human edit turns that version into the current Document content
 and clears its internal provisional fields; the person can also simply tell the
-Center Agent when something feels off. When a verified owner/admin explicitly asks
+Center Agent when something feels off. Welcome preparation reads the current
+visible report body, whether it is still provisional or was already saved, so a
+fast human save cannot stall onboarding. When several reports share a date,
+Directory treats the later-created learning run as latest; editing an older
+report never makes it replace a newer run. When a verified owner/admin explicitly asks
 for a direct save in the current accepted turn, or explicitly grants a Routine
 the structured `organization_documents.save_approved_knowledge` action, the
 Center Agent may create or update approved ordinary knowledge content without a

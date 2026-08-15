@@ -216,7 +216,7 @@ async function advancePreparation(input: {
   }
 }
 
-async function readPreparedProfileReport(input: {
+export async function readPreparedProfileReport(input: {
   db: D1Database;
   preparation: SlackInstallationWelcomePreparation;
 }): Promise<PreparedProfileReport | null> {
@@ -225,7 +225,7 @@ async function readPreparedProfileReport(input: {
       `
         SELECT
           documents.id AS document_id,
-          documents.draft_content AS draft_content,
+          COALESCE(documents.draft_content, documents.content) AS report_content,
           files.path AS path,
           users.name AS installer_display_name,
           organizations.name AS organization_name,
@@ -259,7 +259,7 @@ async function readPreparedProfileReport(input: {
     .first<{
       active_connected_app_count: number;
       document_id: string;
-      draft_content: string;
+      report_content: string;
       installer_display_name: string;
       organization_name: string;
       organization_slug: string;
@@ -271,8 +271,10 @@ async function readPreparedProfileReport(input: {
   return {
     activeConnectedAppCount: Number(row.active_connected_app_count),
     documentId: row.document_id,
-    firstObservation: readFirstProfileObservation(row.draft_content),
-    hasUsefulEvidence: !row.draft_content.includes("**Insufficient evidence**"),
+    firstObservation: readFirstProfileObservation(row.report_content),
+    hasUsefulEvidence: !row.report_content.includes(
+      "**Insufficient evidence**"
+    ),
     installerDisplayName: row.installer_display_name,
     organizationName: row.organization_name,
     organizationSlug: row.organization_slug,

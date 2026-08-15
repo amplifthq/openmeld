@@ -114,6 +114,16 @@ describe("Slack invited member onboarding", () => {
       onboarding_status: "completed",
       welcome_message_ts: "1723.0002",
     });
+    expect(
+      harness.queryFirst({
+        sql: `SELECT status, message_ts, failure_code
+          FROM slack_invited_member_welcome_deliveries`,
+      })
+    ).toEqual({
+      failure_code: null,
+      message_ts: "1723.0002",
+      status: "delivered",
+    });
 
     await runSlackInvitedMemberOnboardingTick({
       db: harness.db,
@@ -164,6 +174,138 @@ describe("Slack invited member onboarding", () => {
       },
     ]);
     expect(slackFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not publish again while a durable welcome delivery is still pending", async () => {
+    const startResearch = vi.fn(async () => ({ taskId: "research-task-1" }));
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 2000,
+      startResearch,
+    });
+    seedCompletedResearch(harness);
+    seedWelcomeDelivery(harness, {
+      messageTs: null,
+      status: "pending",
+      updatedAtMs: 2500,
+    });
+
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 3000,
+      startResearch,
+    });
+
+    expect(slackFetch).not.toHaveBeenCalled();
+    expect(
+      harness.queryFirst({
+        sql: "SELECT onboarding_status FROM slack_teammate_invitation_deliveries",
+      })
+    ).toEqual({ onboarding_status: "researching" });
+
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 303_000,
+      startResearch,
+    });
+
+    expect(slackFetch).not.toHaveBeenCalled();
+    expect(
+      harness.queryFirst({
+        sql: `SELECT onboarding_status, onboarding_failure_code
+          FROM slack_teammate_invitation_deliveries`,
+      })
+    ).toEqual({
+      onboarding_failure_code: "welcome_delivery_outcome_unknown",
+      onboarding_status: "failed",
+    });
+  });
+
+  it("retries a welcome only after Slack confirms that nothing was published", async () => {
+    const startResearch = vi.fn(async () => ({ taskId: "research-task-1" }));
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 2000,
+      startResearch,
+    });
+    seedCompletedResearch(harness);
+    slackFetch.mockResolvedValueOnce(
+      Response.json({ error: "channel_not_found", ok: false })
+    );
+
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 3000,
+      startResearch,
+    });
+
+    expect(slackFetch).toHaveBeenCalledOnce();
+    expect(
+      harness.queryFirst({
+        sql: `SELECT status, failure_code
+          FROM slack_invited_member_welcome_deliveries`,
+      })
+    ).toEqual({
+      failure_code: "channel_not_found",
+      status: "failed",
+    });
+
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 4000,
+      startResearch,
+    });
+
+    expect(slackFetch).toHaveBeenCalledTimes(2);
+    expect(
+      harness.queryFirst({
+        sql: `SELECT onboarding_status, welcome_message_ts
+          FROM slack_teammate_invitation_deliveries`,
+      })
+    ).toEqual({
+      onboarding_status: "completed",
+      welcome_message_ts: "1723.0002",
+    });
+  });
+
+  it("finishes onboarding from a delivered welcome record without publishing twice", async () => {
+    const startResearch = vi.fn(async () => ({ taskId: "research-task-1" }));
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 2000,
+      startResearch,
+    });
+    seedCompletedResearch(harness);
+    seedWelcomeDelivery(harness, {
+      messageTs: "1723.0002",
+      status: "delivered",
+      updatedAtMs: 2500,
+    });
+
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 3000,
+      startResearch,
+    });
+
+    expect(slackFetch).not.toHaveBeenCalled();
+    expect(
+      harness.queryFirst({
+        sql: `SELECT onboarding_status, welcome_message_ts
+          FROM slack_teammate_invitation_deliveries`,
+      })
+    ).toEqual({
+      onboarding_status: "completed",
+      welcome_message_ts: "1723.0002",
+    });
   });
 });
 
@@ -260,6 +402,7 @@ function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
         id TEXT PRIMARY KEY,
         organization_id TEXT NOT NULL,
         last_member_research_task_id TEXT,
+        content TEXT NOT NULL DEFAULT '',
         draft_content TEXT NOT NULL
       )
     `,
@@ -279,6 +422,21 @@ function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
         organization_id TEXT NOT NULL,
         created_at_ms INTEGER NOT NULL,
         updated_at_ms INTEGER NOT NULL
+      )
+    `,
+    `
+      CREATE TABLE slack_invited_member_welcome_deliveries (
+        interaction_id TEXT NOT NULL,
+        target_slack_user_id TEXT NOT NULL,
+        research_task_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        claim_id TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL,
+        message_ts TEXT,
+        failure_code TEXT,
+        created_at_ms INTEGER NOT NULL,
+        updated_at_ms INTEGER NOT NULL,
+        PRIMARY KEY (interaction_id, target_slack_user_id)
       )
     `,
   ];
@@ -402,6 +560,34 @@ function seedCompletedResearch(
     sql: `
       INSERT INTO organizations (id, name, slug)
       VALUES ('org-1', 'Ampli Lift', 'ampli-lift')
+    `,
+  });
+}
+
+function seedWelcomeDelivery(
+  harness: ReturnType<typeof createSqliteD1Harness>,
+  input: {
+    messageTs: string | null;
+    status: "delivered" | "pending";
+    updatedAtMs: number;
+  }
+): void {
+  harness.run({
+    params: [
+      input.status,
+      input.messageTs,
+      input.status === "pending" ? null : null,
+      input.updatedAtMs,
+    ],
+    sql: `
+      INSERT INTO slack_invited_member_welcome_deliveries (
+        interaction_id, target_slack_user_id, research_task_id,
+        status, claim_id, attempt_count, message_ts, failure_code,
+        created_at_ms, updated_at_ms
+      ) VALUES (
+        'invite-1', 'U_MAYA', 'research-task-1',
+        ?, 'claim-1', 1, ?, ?, 2500, ?
+      )
     `,
   });
 }

@@ -1967,6 +1967,22 @@ describe("shared drizzle migration history integrity", () => {
           "worker_submit_request_json",
         ])
       );
+      expect(
+        listTableColumns(database, "slack_invited_member_welcome_deliveries")
+      ).toEqual(
+        expect.arrayContaining([
+          "interaction_id",
+          "target_slack_user_id",
+          "research_task_id",
+          "status",
+          "claim_id",
+          "attempt_count",
+          "message_ts",
+          "failure_code",
+          "created_at_ms",
+          "updated_at_ms",
+        ])
+      );
     } finally {
       database.close();
     }

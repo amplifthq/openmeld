@@ -134,13 +134,16 @@ export function documentKindLabel(
 function allFolderTargets(
 	folders: OrganizationDocumentFolder[]
 ): FolderMoveTarget[] {
-	return [
-		{ id: null, label: "Documents" },
-		...folders.map((folder) => ({
-			id: folder.id,
-			label: resolveFolderPath(folder, folders),
-		})),
-	];
+	const targets: FolderMoveTarget[] = [{ id: null, label: "Documents" }];
+	for (const folder of folders) {
+		if (!folder.isManaged) {
+			targets.push({
+				id: folder.id,
+				label: resolveFolderPath(folder, folders),
+			});
+		}
+	}
+	return targets;
 }
 
 function resolveFolderPath(

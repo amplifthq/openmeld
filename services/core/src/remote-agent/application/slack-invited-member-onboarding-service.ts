@@ -1,6 +1,13 @@
 import type { CoreBindings } from "../../lib/bindings";
 import { resolveOrganizationDirectoryMembers } from "../../organizations/organization-directory";
 import {
+  claimSlackInvitedMemberWelcomeDelivery,
+  completeSlackInvitedMemberWelcomeDelivery,
+  readSlackInvitedMemberWelcomeDelivery,
+  type SlackInvitedMemberWelcomeDelivery,
+  type SlackInvitedMemberWelcomeDeliveryKey,
+} from "../infrastructure/d1/slack-invited-member-welcome-delivery-repo";
+import {
   attachSlackInvitedMemberResearchTask,
   claimJoinedSlackInvitedMembers,
   completeSlackInvitedMemberOnboarding,
@@ -10,7 +17,10 @@ import {
 } from "../infrastructure/d1/slack-teammate-invitation-delivery-repo";
 import { upsertSlackUserIdentityLinkForSameUser } from "../infrastructure/d1/slack-user-identity-link-repo";
 import { resolveSlackBotToken } from "./slack-bot-token";
-import { postSlackDirectMessage } from "./slack-client";
+import {
+  postSlackDirectMessage,
+  SlackMessagePublicationError,
+} from "./slack-client";
 import { readFirstProfileObservation } from "./slack-installation-welcome-preparation-service";
 
 const WHITESPACE_PATTERN = /\s+/u;
@@ -68,7 +78,16 @@ export async function runSlackInvitedMemberOnboardingTick(input: {
       }
       continue;
     }
-    await advanceResearchingOnboarding({ ...input, onboarding });
+    try {
+      await advanceResearchingOnboarding({ ...input, onboarding });
+    } catch (error) {
+      console.warn("[core.slack_invited_member.advance_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        interactionId: onboarding.interactionId,
+        organizationId: onboarding.organizationId,
+        targetSlackUserId: onboarding.targetSlackUserId,
+      });
+    }
   }
 }
 
@@ -176,7 +195,9 @@ async function advanceResearchingOnboarding(input: {
   const report = await input.db
     .prepare(
       `
-        SELECT documents.id AS document_id, documents.draft_content AS draft_content
+        SELECT
+          documents.id AS document_id,
+          COALESCE(documents.draft_content, documents.content) AS report_content
         FROM center_agent_member_research_computer_files AS files
         INNER JOIN organization_documents AS documents
           ON documents.id = files.document_id
@@ -192,7 +213,7 @@ async function advanceResearchingOnboarding(input: {
       input.onboarding.joinedUserId,
       input.onboarding.organizationId
     )
-    .first<{ document_id: string; draft_content: string }>();
+    .first<{ document_id: string; report_content: string }>();
   if (!report) {
     await failOnboarding({
       ...input,
@@ -208,9 +229,9 @@ async function advanceResearchingOnboarding(input: {
   if (!organization) {
     throw new Error("Invited member Organization is unavailable.");
   }
-  const observation = readFirstProfileObservation(report.draft_content);
+  const observation = readFirstProfileObservation(report.report_content);
   const message = buildJoinedMemberWelcomeMessage({
-    hasUsefulEvidence: !report.draft_content.includes(
+    hasUsefulEvidence: !report.report_content.includes(
       "**Insufficient evidence**"
     ),
     observation,
@@ -223,25 +244,105 @@ async function advanceResearchingOnboarding(input: {
     fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
     slackTeamId: input.onboarding.slackTeamId,
   });
-  const publication = await postSlackDirectMessage({
-    blocks: buildJoinedMemberWelcomeBlocks({
-      documentId: report.document_id,
-      message,
-      organizationSlug: organization.slug,
-      webAppUrl: input.env.WEB_APP_URL,
-    }),
-    botToken,
-    recipientUserId: input.onboarding.targetSlackUserId,
-    text: message,
-  });
-  await completeSlackInvitedMemberOnboarding({
+  const delivery = await deliverJoinedMemberWelcome({
     db: input.db,
-    interactionId: input.onboarding.interactionId,
-    messageTs: publication.id,
-    nowMs: Date.now(),
-    researchTaskId: taskId,
-    targetSlackUserId: input.onboarding.targetSlackUserId,
+    key: {
+      interactionId: input.onboarding.interactionId,
+      researchTaskId: taskId,
+      targetSlackUserId: input.onboarding.targetSlackUserId,
+    },
+    nowMs: input.nowMs,
+    publish: async () => {
+      const publication = await postSlackDirectMessage({
+        blocks: buildJoinedMemberWelcomeBlocks({
+          documentId: report.document_id,
+          message,
+          organizationSlug: organization.slug,
+          webAppUrl: input.env.WEB_APP_URL,
+        }),
+        botToken,
+        recipientUserId: input.onboarding.targetSlackUserId,
+        text: message,
+      });
+      return publication.id;
+    },
   });
+  if (delivery.status === "delivered" && delivery.messageTs) {
+    await completeSlackInvitedMemberOnboarding({
+      db: input.db,
+      interactionId: input.onboarding.interactionId,
+      messageTs: delivery.messageTs,
+      nowMs: Date.now(),
+      researchTaskId: taskId,
+      targetSlackUserId: input.onboarding.targetSlackUserId,
+    });
+  } else if (delivery.status === "outcome_unknown") {
+    await failOnboarding({
+      ...input,
+      failureCode: "welcome_delivery_outcome_unknown",
+      onboarding: input.onboarding,
+    });
+  }
+}
+
+async function deliverJoinedMemberWelcome(input: {
+  db: D1Database;
+  key: SlackInvitedMemberWelcomeDeliveryKey;
+  nowMs: number;
+  publish: () => Promise<string>;
+}): Promise<SlackInvitedMemberWelcomeDelivery> {
+  const claim = await claimSlackInvitedMemberWelcomeDelivery({
+    claimId: crypto.randomUUID(),
+    db: input.db,
+    key: input.key,
+    nowMs: input.nowMs,
+  });
+  if (!claim) {
+    const existing = await readSlackInvitedMemberWelcomeDelivery({
+      db: input.db,
+      key: input.key,
+    });
+    if (!existing) {
+      throw new Error("Slack invited-member welcome delivery is unavailable.");
+    }
+    return existing;
+  }
+
+  let messageTs: string;
+  try {
+    messageTs = await input.publish();
+  } catch (error) {
+    const outcomeUnknown =
+      !(error instanceof SlackMessagePublicationError) ||
+      error.publicationOutcome === "unknown";
+    let failureCode = "slack_outcome_unknown";
+    if (!outcomeUnknown && error instanceof SlackMessagePublicationError) {
+      failureCode = error.errorCode ?? "slack_not_published";
+    }
+    await completeSlackInvitedMemberWelcomeDelivery({
+      claim,
+      db: input.db,
+      failureCode,
+      messageTs: null,
+      nowMs: Date.now(),
+      status: outcomeUnknown ? "outcome_unknown" : "failed",
+    });
+    return {
+      failureCode,
+      messageTs: null,
+      status: outcomeUnknown ? "outcome_unknown" : "failed",
+    };
+  }
+
+  await completeSlackInvitedMemberWelcomeDelivery({
+    claim,
+    db: input.db,
+    failureCode: null,
+    messageTs,
+    nowMs: Date.now(),
+    status: "delivered",
+  });
+  return { failureCode: null, messageTs, status: "delivered" };
 }
 
 export function buildJoinedMemberWelcomeMessage(input: {

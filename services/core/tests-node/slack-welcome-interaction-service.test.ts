@@ -103,16 +103,74 @@ describe("Slack welcome teammate invitations", () => {
       }),
     ]);
   });
+
+  it("rejects a stale Slack identity after the user leaves the Organization", async () => {
+    seedActiveJoinLink(harness);
+    const resolveOrganizationAccountIdentity = vi.fn(async () => ({
+      account: {
+        defaultHumanProfile: null,
+        displayName: "Alex",
+        email: "alex@example.com",
+        membership: null,
+        userId: "user-actor",
+      },
+      ok: true as const,
+      organization: {
+        id: "org-1",
+        memberCount: 1,
+        name: "Ampli Lift",
+        personal: false,
+        slug: "ampli-lift",
+      },
+    }));
+
+    await expect(
+      handleSlackWelcomeInteraction(
+        buildEnv({
+          db: harness.db,
+          ensureOrganizationJoinLinkOnBehalfOf: vi.fn(),
+          resolveOrganizationAccountIdentity,
+        }),
+        teammateInviteInput()
+      )
+    ).rejects.toThrow("no longer a member");
+
+    expect(resolveOrganizationAccountIdentity).toHaveBeenCalledWith({
+      account: { kind: "user_id", userId: "user-actor" },
+      organizationId: "org-1",
+    });
+    expect(slackFetch).not.toHaveBeenCalled();
+  });
 });
 
 function buildEnv(input: {
   db: D1Database;
   ensureOrganizationJoinLinkOnBehalfOf: ReturnType<typeof vi.fn>;
+  resolveOrganizationAccountIdentity?: ReturnType<typeof vi.fn>;
 }): never {
   return {
     OPENMELD_AUTH_WORKER: {
       ensureOrganizationJoinLinkOnBehalfOf:
         input.ensureOrganizationJoinLinkOnBehalfOf,
+      resolveOrganizationAccountIdentity:
+        input.resolveOrganizationAccountIdentity ??
+        vi.fn(async () => ({
+          account: {
+            defaultHumanProfile: null,
+            displayName: "Alex",
+            email: "alex@example.com",
+            membership: { memberId: "member-actor", role: "member" as const },
+            userId: "user-actor",
+          },
+          ok: true as const,
+          organization: {
+            id: "org-1",
+            memberCount: 2,
+            name: "Ampli Lift",
+            personal: false,
+            slug: "ampli-lift",
+          },
+        })),
     },
     OPENMELD_DB: input.db,
     SLACK_OPENMELD_BOT_TOKEN: "xoxb-test",

@@ -880,12 +880,12 @@ describe("Organization documents", () => {
       title: "Runbook",
     });
 
-    await service.update(fixture.owner, document.id, {
+    const renamedDocument = await service.update(fixture.owner, document.id, {
       title: "Operations runbook",
     });
     await service.update(fixture.owner, document.id, {
       content: "Updated content",
-      ...humanDocumentVersion(document),
+      ...humanDocumentVersion(renamedDocument),
     });
 
     expect(updateStatements).toHaveLength(2);

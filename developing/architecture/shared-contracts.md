@@ -1771,7 +1771,8 @@ interaction contract. Gateway verifies Slack's request signature, parses the
 native button or modal submission, and forwards only the discriminated action,
 workspace/user identity, trigger or interaction id, and bounded selected Slack
 user ids. Core re-resolves the workspace Binding and exact linked OpenMeld
-member before opening a modal, reading an active Organization join link,
+member, then consumes Auth's current Organization account-identity projection
+and requires a non-null membership before opening a modal, reading an active Organization join link,
 ensuring a missing link, or sending an invitation. Any verified member may
 reuse the active Core-owned link; Auth remains the only authority that can
 create a missing link on behalf of an owner or admin. A forbidden missing-link
@@ -1780,7 +1781,12 @@ than an unobserved `waitUntil()` rejection. Gateway never receives the bot token
 or decides Organization authority. Joined-member onboarding is claimed once
 per Organization, Slack workspace, and target Slack user. A competing delivered
 invitation is moved to a terminal duplicate outcome before it can start a
-second research task or welcome publication.
+second research task or welcome publication. Invited-member welcome delivery
+uses a separate Core-owned claim ledger keyed by invitation, Slack recipient,
+and research task. `pending` fences concurrent and crash retries, `delivered`
+stores the provider message id for onboarding recovery, a confirmed
+non-publication may retry from `failed`, and stale or ambiguous claims close as
+`outcome_unknown` instead of republishing blindly.
 
 Slack direct-message ingress uses the same event callback and durable queue
 contract as `app_mention`, with the strict human `message.im` subtype. Bot
@@ -2243,6 +2249,14 @@ update that writes the content. A zero-row update returns
 still exists, so a stale browser cannot erase a newer Center Agent draft or
 human edit. Title-only and folder-only updates remain independent management
 operations and do not require content versions.
+
+Welcome preparation reads `COALESCE(draft_content, content)` from the report
+bound to the completed research task. This preserves one visible-body rule when
+a human saves the provisional report before Slack delivery. Profile Report
+selection compares structured report date first and creation time second;
+`updatedAt` is an edit version and never changes which same-day learning run is
+the latest. Managed Profile Report folders are absent from every Web move-target
+projection and remain rejected by Core's document and folder placement writes.
 
 `packages/schemas/src/schemas/http/center-agent-member-research.ts` owns the
 single-member/all-members start request, batch/task progress projection, and
