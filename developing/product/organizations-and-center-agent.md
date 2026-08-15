@@ -1336,12 +1336,26 @@ rows are not migrated: operators disconnect the old GitHub connector
 connections, users reconnect through the GitHub App, and the old connector
 OAuth App is revoked after the cutover is verified.
 
-The current Notion connection uses the installation access token from a Notion
-internal connection. The token authenticates as the connection's bot and does
-not represent an OpenMeld-managed Notion OAuth installation. A Notion Workspace
-Owner creates the connection, enables only the capabilities OpenMeld should use,
-and explicitly grants Content access to the pages and databases the connection
-may reach; a new internal connection has no content access by default.
+Every new Notion connection uses OpenMeld's public OAuth Connection by default.
+The authorizing person chooses the Notion workspace and pages OpenMeld may
+access; the grant cannot reach content outside that selection or beyond the
+authorizing account's existing permissions. A member connection represents that
+member's authorization, but provider actions authenticate as the Notion
+integration bot rather than impersonating the member. OpenMeld keeps the
+authorizing member visible for ownership and audit without presenting bot
+activity as human-authored Notion activity. An owner/admin-managed shared
+connection makes the selected access available to Organization work and
+Routines through the existing Core connection projection while preserving the
+same distinction between the OpenMeld authorizer and the Notion bot execution
+identity.
+
+`Use an internal connection token instead` remains an explicit advanced
+fallback for a Notion Workspace Owner who manages a private internal
+connection. The Owner enables only the capabilities OpenMeld should use and
+grants Content access to the pages and databases the connection may reach; a
+new internal connection has no content access by default. Existing token-backed
+connections remain valid. OAuth and internal-token authorization both converge
+on the same Core-owned App connection identity and status truth.
 
 Figma uses OpenMeld's reviewed public OAuth App. Any member may authorize the
 Figma account they choose, including an account that belongs to a different

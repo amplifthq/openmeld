@@ -1138,6 +1138,13 @@ truth used by other OAuth Apps; it does not infer success from the redirect.
 custom-URL PostHog instances. Choosing the fallback does not create a separate
 connection kind in Core, and existing active PostHog connections remain valid.
 
+Notion uses OpenMeld's public OAuth Connection for every new member or
+Organization connection. The person authorizing the connection chooses the
+Notion pages OpenMeld may access. `Use an internal connection token instead` is
+an explicit advanced fallback for a Workspace Owner who manages a Notion
+internal connection. Existing token-backed connections remain valid, and both
+paths produce the same Core-owned App connection kind and status truth.
+
 Figma uses OpenMeld's public OAuth App for every new member or Organization
 connection. Web opens the same authorization popup and waits for Core-returned
 active connection truth; it never renders a personal-access-token field or

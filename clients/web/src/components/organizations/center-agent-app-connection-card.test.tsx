@@ -1254,6 +1254,52 @@ describe("CenterAgentAppConnectionCard", () => {
 		expect(popup.location.href).toBe("https://www.figma.com/oauth?state=test");
 	});
 
+	it("uses OAuth as the default Notion connection path", async () => {
+		const popup = {
+			closed: false,
+			close: vi.fn(),
+			focus: vi.fn(),
+			location: { href: "" },
+			opener: window,
+		} as unknown as Window;
+		const openSpy = vi.spyOn(window, "open").mockReturnValue(popup);
+		startMemberAuthorizationMock.mockResolvedValueOnce({
+			authorizationUrl: "https://api.notion.com/v1/oauth/authorize?state=test",
+		});
+
+		render(
+			<TestQueryClientProvider>
+				<CenterAgentAppConnectionCard
+					app={notionApp}
+					canManage={false}
+					mode="member"
+					organizationId="org-acme"
+				/>
+			</TestQueryClientProvider>
+		);
+
+		const connectButton = await screen.findByRole("button", {
+			name: "Connect Notion",
+		});
+		expect(screen.queryByLabelText("Installation access token")).toBeNull();
+		await waitFor(() => {
+			expect(connectButton.hasAttribute("disabled")).toBe(false);
+		});
+		fireEvent.click(connectButton);
+
+		await waitFor(() => {
+			expect(startMemberAuthorizationMock).toHaveBeenCalledWith({
+				organizationId: "org-acme",
+				service: "notion",
+			});
+		});
+		expect(connectMemberCredentialMock).not.toHaveBeenCalled();
+		expect(openSpy).toHaveBeenCalled();
+		expect(popup.location.href).toBe(
+			"https://api.notion.com/v1/oauth/authorize?state=test"
+		);
+	});
+
 	it("keeps a personal API key fallback for self-hosted PostHog", async () => {
 		connectMemberCredentialMock.mockResolvedValueOnce({
 			connection: {
@@ -1322,6 +1368,11 @@ describe("CenterAgentAppConnectionCard", () => {
 			</TestQueryClientProvider>
 		);
 
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "Use an internal connection token instead",
+			})
+		);
 		const apiKeyInput = await screen.findByLabelText(
 			"Installation access token"
 		);
@@ -1337,11 +1388,18 @@ describe("CenterAgentAppConnectionCard", () => {
 					apiKey: "notion_test_secret",
 				},
 			});
-			expect(
-				(screen.getByLabelText("Installation access token") as HTMLInputElement)
-					.value
-			).toBe("");
+			expect(screen.queryByLabelText("Installation access token")).toBeNull();
 		});
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Use an internal connection token instead",
+			})
+		);
+		expect(
+			(screen.getByLabelText("Installation access token") as HTMLInputElement)
+				.value
+		).toBe("");
 	});
 });
 
