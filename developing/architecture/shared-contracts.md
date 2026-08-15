@@ -2257,6 +2257,12 @@ selection compares structured report date first and creation time second;
 `updatedAt` is an edit version and never changes which same-day learning run is
 the latest. Managed Profile Report folders are absent from every Web move-target
 projection and remain rejected by Core's document and folder placement writes.
+The member-research draft RPC returns the exact current content produced by its
+Core write as the Computer-file body, so Documents and the Center Agent Computer
+cannot diverge or create an empty file from a summary that omits content. A
+preexisting ordinary root folder named `Profile Reports` remains ordinary and
+unchanged; Core creates a collision-safe managed root instead of converting
+user-owned hierarchy into managed storage.
 
 `packages/schemas/src/schemas/http/center-agent-member-research.ts` owns the
 single-member/all-members start request, batch/task progress projection, and

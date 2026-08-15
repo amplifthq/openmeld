@@ -963,6 +963,69 @@ describe("Organization documents", () => {
     expect(memberReports).toHaveLength(2);
   });
 
+  it("preserves an ordinary Profile Reports folder when managed reports begin", async () => {
+    const fixture = await seedFixture();
+    const service = createService();
+    const ordinaryRoot = await service.createFolder(fixture.owner, {
+      name: "Profile Reports",
+    });
+    const ordinaryOpenMeldRoot = await service.createFolder(fixture.owner, {
+      name: "OpenMeld Profile Reports",
+    });
+    const ordinaryChild = await service.createFolder(fixture.owner, {
+      name: "Imported notes",
+      parentFolderId: ordinaryRoot.id,
+    });
+    const ordinaryDocument = await service.create(fixture.owner, {
+      content: "A user-managed profile note.",
+      folderId: ordinaryRoot.id,
+      kind: "knowledge",
+      title: "Legacy profile notes",
+    });
+
+    const profile = await service.create(fixture.owner, {
+      content: "The first managed report.",
+      kind: "member_profile",
+      subjectUserId: fixture.member.userId,
+    });
+
+    const folders = await service.listFolders(fixture.owner);
+    const currentOrdinaryDocument = await service.get(
+      fixture.owner,
+      ordinaryDocument.id
+    );
+    const preservedRoot = folders.find(
+      (folder) => folder.id === ordinaryRoot.id
+    );
+    const preservedOpenMeldRoot = folders.find(
+      (folder) => folder.id === ordinaryOpenMeldRoot.id
+    );
+    const preservedChild = folders.find(
+      (folder) => folder.id === ordinaryChild.id
+    );
+    const managedRoot = folders.find(
+      (folder) => folder.isManaged && folder.parentFolderId === null
+    );
+    const personFolder = folders.find(
+      (folder) => folder.id === profile.folderId
+    );
+    expect(preservedRoot).toMatchObject({
+      isManaged: false,
+      name: "Profile Reports",
+    });
+    expect(preservedOpenMeldRoot).toMatchObject({
+      isManaged: false,
+      name: "OpenMeld Profile Reports",
+    });
+    expect(preservedChild?.parentFolderId).toBe(ordinaryRoot.id);
+    expect(currentOrdinaryDocument.folderId).toBe(ordinaryRoot.id);
+    expect(managedRoot).toMatchObject({
+      name: "OpenMeld Profile Reports (2)",
+    });
+    expect(managedRoot?.id).not.toBe(ordinaryRoot.id);
+    expect(personFolder?.parentFolderId).toBe(managedRoot?.id);
+  });
+
   it("replaces the pending draft and rejects review of a stale version", async () => {
     const fixture = await seedFixture();
     let timestamp = 10_000;

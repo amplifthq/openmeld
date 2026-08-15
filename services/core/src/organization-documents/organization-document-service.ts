@@ -25,6 +25,7 @@ import {
 } from "./organization-document-inbox-producer";
 
 const ORGANIZATION_BRIEF_TITLE = "Organization Brief";
+const PROFILE_REPORTS_COLLISION_ROOT_FOLDER_NAME = "OpenMeld Profile Reports";
 const PROFILE_REPORTS_ROOT_FOLDER_NAME = "Profile Reports";
 const PROFILE_REPORT_TYPE = "work_profile" as const;
 const PROFILE_REPORT_TYPE_LABEL = "Work Profile";
@@ -94,6 +95,7 @@ type PreparedOrganizationDocumentDraftInput = OrganizationDocumentDraftInput & {
 };
 
 type OrganizationDocumentDraftWriteResult = {
+  currentContent: string;
   document: OrganizationDocumentSummary;
   draftCreatedAtMs: number | null;
   draftReplaced: boolean;
@@ -609,6 +611,7 @@ export function createOrganizationDocumentService(
       input: OrganizationDocumentDraftInput,
       reviewerSource: OrganizationDocumentDraftReviewerSource
     ): Promise<{
+      currentContent: string;
       document: OrganizationDocumentSummary;
       draftReplaced: boolean;
     }> {
@@ -686,6 +689,7 @@ export function createOrganizationDocumentService(
         );
       }
       return {
+        currentContent: result.currentContent,
         document: result.document,
         draftReplaced: result.draftReplaced,
       };
@@ -1193,6 +1197,7 @@ async function updateOrganizationDocumentDraft(input: {
     documentId
   );
   return {
+    currentContent: updated.draft_content ?? updated.content,
     document: toSummary(
       updated,
       centerAgentDocumentActor(input.organizationId)
@@ -1221,6 +1226,7 @@ async function resolveOrganizationDocumentDraftUpdateMiss(input: {
         CENTER_AGENT_ORGANIZATION_DOCUMENT_DRAFT_CREATED_BY
     ) {
       return {
+        currentContent: current.draft_content ?? current.content,
         document: toSummary(
           current,
           centerAgentDocumentActor(input.organizationId)
@@ -1372,6 +1378,7 @@ async function createOrganizationDocumentDraft(input: {
     documentId
   );
   return {
+    currentContent: created.draft_content ?? created.content,
     document: toSummary(
       created,
       centerAgentDocumentActor(input.organizationId)
@@ -1532,26 +1539,49 @@ async function ensureProfileReportsRootFolder(input: {
       `
     )
     .bind(input.organizationId, PROFILE_REPORTS_ROOT_FOLDER_NAME)
-    .first<OrganizationDocumentFolderRow>();
-  if (existingNamedRoot) {
-    await input.db
-      .prepare(
-        `
-          UPDATE organization_document_folders
-          SET system_kind = 'profile_reports_root',
-              subject_user_id = NULL,
-              updated_at = ?
-          WHERE id = ?
-            AND organization_id = ?
-            AND system_kind IS NULL
-        `
+    .first<{ id: string }>();
+  const collisionNames = Array.from(
+    { length: ORGANIZATION_DOCUMENT_FOLDER_LIMIT },
+    (_, index) =>
+      buildProfileReportsRootFolderName(
+        PROFILE_REPORTS_COLLISION_ROOT_FOLDER_NAME,
+        index + 1
       )
-      .bind(input.timestamp, existingNamedRoot.id, input.organizationId)
-      .run();
-    const adopted = await readProfileReportsRootFolder(input);
-    if (adopted) {
-      return adopted;
+  );
+  const candidateNames = existingNamedRoot
+    ? collisionNames
+    : [PROFILE_REPORTS_ROOT_FOLDER_NAME, ...collisionNames];
+  for (const name of candidateNames) {
+    const created = await tryCreateProfileReportsRootFolder({ ...input, name });
+    if (created) {
+      return created;
     }
+  }
+  throw folderLimitError();
+}
+
+async function tryCreateProfileReportsRootFolder(input: {
+  db: D1Database;
+  name: string;
+  newId: () => string;
+  organizationId: string;
+  timestamp: number;
+}): Promise<OrganizationDocumentFolderRow | null> {
+  const nameCollision = await input.db
+    .prepare(
+      `
+        SELECT id
+        FROM organization_document_folders
+        WHERE organization_id = ?
+          AND parent_folder_id IS NULL
+          AND lower(name) = lower(?)
+        LIMIT 1
+      `
+    )
+    .bind(input.organizationId, input.name)
+    .first<{ id: string }>();
+  if (nameCollision) {
+    return await readProfileReportsRootFolder(input);
   }
   const folderId = input.newId();
   try {
@@ -1579,7 +1609,7 @@ async function ensureProfileReportsRootFolder(input: {
       .bind(
         folderId,
         input.organizationId,
-        PROFILE_REPORTS_ROOT_FOLDER_NAME,
+        input.name,
         input.timestamp,
         input.timestamp,
         input.organizationId,
@@ -1589,14 +1619,17 @@ async function ensureProfileReportsRootFolder(input: {
     if (result.meta.changes !== 1) {
       throw folderLimitError();
     }
+    return await requireFolderRow(input.db, input.organizationId, folderId);
   } catch (error) {
     const racedRoot = await readProfileReportsRootFolder(input);
     if (racedRoot) {
       return racedRoot;
     }
+    if (isUniqueConstraintError(error)) {
+      return null;
+    }
     throw mapFolderWriteError(error);
   }
-  return await requireFolderRow(input.db, input.organizationId, folderId);
 }
 
 async function readProfileReportsRootFolder(input: {
@@ -1741,6 +1774,19 @@ function buildProfileReportsPersonFolderName(
   return validateFolderName(name);
 }
 
+function buildProfileReportsRootFolderName(
+  baseName: string,
+  suffix: number
+): string {
+  const suffixText = suffix === 1 ? "" : ` (${suffix})`;
+  return validateFolderName(
+    `${baseName.slice(
+      0,
+      ORGANIZATION_DOCUMENT_FOLDER_NAME_MAX_CHARS - suffixText.length
+    )}${suffixText}`
+  );
+}
+
 async function resolveNextProfileReportTitle(input: {
   db: D1Database;
   organizationId: string;
@@ -1876,6 +1922,7 @@ async function readMemberResearchDraftReplay(input: {
     return null;
   }
   return {
+    currentContent: document.draft_content ?? document.content,
     document: toSummary(document, {
       organizationId: input.organizationId,
       role: "member",

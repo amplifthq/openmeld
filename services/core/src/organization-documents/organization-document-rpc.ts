@@ -434,7 +434,7 @@ export async function rpcCenterAgentDraftOrganizationDocument(
   }
   const service = createOrganizationDocumentService({ db });
   const organizationId = authorization.activeOrganization.organizationId;
-  const response = await service.draft(
+  const { currentContent, ...response } = await service.draft(
     organizationId,
     memberResearch ? { ...draft, memberResearch } : draft,
     async () => {
@@ -476,7 +476,7 @@ export async function rpcCenterAgentDraftOrganizationDocument(
       );
     }
     memberResearchDraft = {
-      content: draft.draftContent,
+      content: currentContent,
       documentId: response.document.id,
       profileReportFolderName:
         await requireMemberResearchProfileReportFolderName({

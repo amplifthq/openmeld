@@ -19,6 +19,7 @@ import {
   startCenterAgentMemberResearch,
 } from "../src/center-agent-member-research/member-research-service";
 import type { CoreBindings } from "../src/lib/bindings";
+import { rpcCenterAgentDraftOrganizationDocument } from "../src/organization-documents/organization-document-rpc";
 import { createOrganizationDocumentService } from "../src/organization-documents/organization-document-service";
 import {
   buildCenterAgentMemberResearchInstructions,
@@ -353,7 +354,7 @@ describe("Center Agent member research", () => {
 
   it("keeps durable draft-origin evidence after the reviewable draft is cleared", async () => {
     const fixture = await seedResearchFixture();
-    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const coreEnv = buildResearchDeliveryEnv(fixture);
     const startedAtMs = Date.now() + 1000;
     const accepted = await startCenterAgentMemberResearch(
       coreEnv,
@@ -462,14 +463,32 @@ describe("Center Agent member research", () => {
       .bind(fixture.organizationId)
       .first<{ count: number }>();
     expect(unauthorizedDraftCount?.count).toBe(0);
-    const drafted = await documentService.draft(
-      fixture.organizationId,
-      draftInput,
-      memberResearchDocumentReviewerUserIds(fixture)
+    const drafted = await rpcCenterAgentDraftOrganizationDocument(coreEnv, {
+      context: {
+        ...hostedCenterAgentContext(fixture),
+        agentControllerConversationId: submissionId,
+      },
+      draftContent: draftInput.draftContent,
+      kind: draftInput.kind,
+      memberResearchReport: draftInput.memberResearchReport,
+      memberResearchTaskId: task.id,
+      speakerMember: {
+        memberId: fixture.requester.memberId,
+        userId: fixture.requester.userId,
+      },
+      subjectUserId: draftInput.subjectUserId,
+      title: draftInput.title,
+    });
+    expect(drafted.memberResearchDraft?.content).toContain(
+      "**Insufficient evidence**"
     );
-    const expectedReportDate = new Date(startedAtMs + 2)
-      .toISOString()
-      .slice(0, 10);
+    expect(drafted.memberResearchDraft?.content).toContain(
+      "## Research coverage"
+    );
+    const expectedReportDate = drafted.document.profileReportDate;
+    if (!expectedReportDate) {
+      throw new Error("Expected the Profile Report date.");
+    }
     const storedReport = await env.OPENMELD_DB.prepare(
       `
         SELECT title, folder_id, profile_report_date, profile_report_type
@@ -544,6 +563,9 @@ describe("Center Agent member research", () => {
     )
       .bind(drafted.document.id)
       .first<{ draft_content: string }>();
+    expect(drafted.memberResearchDraft?.content).toBe(
+      renderedDraft?.draft_content
+    );
     expect(renderedDraft?.draft_content).toContain("**Insufficient evidence**");
     expect(renderedDraft?.draft_content).toContain("## Research coverage");
     await documentService.discardDraft(
@@ -833,6 +855,25 @@ function buildResearchDeliveryEnv(
           },
         });
       },
+      resolveOrganizationDirectoryMembers: ({ organizationId }) =>
+        Promise.resolve({
+          members: fixture.subjects.map((member) => ({
+            humanProfile: null,
+            joinedAt: new Date(1000).toISOString(),
+            memberId: member.memberId,
+            organizationId,
+            role: member.role,
+            user: {
+              email: `${member.userId}@example.com`,
+              id: member.userId,
+              image: null,
+              name: member.displayName,
+            },
+            userId: member.userId,
+          })),
+          ok: true as const,
+          organizationId,
+        }),
     },
     OPENMELD_DB: env.OPENMELD_DB,
   } as CoreBindings;

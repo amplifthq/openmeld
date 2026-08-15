@@ -1422,7 +1422,10 @@ the existing bounded member-research contract. Remote Agent writes Core's exact
 rendered Profile Report draft to
 `/computer/home/documents/Profile Reports/{person name}/{Core-assigned report title}.md`
 on the Center Agent's private Computer and records that file as completion
-evidence. Core assigns `{YYYY-MM-DD} — Work Profile` to the first report of the
+evidence. The Computer file body and the current visible Organization Document
+body come from the same Core draft write result; neither surface independently
+reconstructs or substitutes the report. Core assigns
+`{YYYY-MM-DD} — Work Profile` to the first report of the
 day and appends ` (2)`, ` (3)`, and so on for later same-day reports. The
 Organization Document title is the only file-naming truth; Remote Agent never
 invents a second collision suffix. The human-readable person folder and dated,
@@ -1727,7 +1730,11 @@ parent, and it never deletes document content. Folder create, rename, delete,
 moving folders, and moving documents require owner/admin authority, and every
 current member sees the same hierarchy. OpenMeld owns one managed **Profile
 Reports** root and one managed child folder per researched person. Reports are
-stored at `Profile Reports / {person name} / {YYYY-MM-DD} — {report type}`. If
+normally stored at `Profile Reports / {person name} / {YYYY-MM-DD} — {report
+type}`. If an ordinary root folder already uses `Profile Reports`, OpenMeld
+preserves that folder and everything inside it, then creates a collision-safe
+managed root such as `OpenMeld Profile Reports`; it never adopts or locks a
+user-managed folder. If
 more than one report of the same type is created for a person on the same day,
 Core preserves every run and adds a human-readable ordinal suffix such as
 ` (2)`. Reports carry the report date and type as structured metadata. Managed
