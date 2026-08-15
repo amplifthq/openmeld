@@ -342,8 +342,6 @@ describe("Remote Agent Slack signal service", () => {
           sql.includes("UPDATE slack_channel_introduction_runs") &&
           sql.includes("status = 'ready'"),
       });
-      const submittedAtMs = Date.now();
-
       await submitRemoteAgentSlackChannelIntroduction({
         env: buildEnv(db, { workerSubmit }),
         interactionId: "V_CHANNEL_DURABLE_RECOVERY",
@@ -352,6 +350,10 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         targetSlackChannelIds: ["C_PRODUCT"],
       });
+      const submittedAtMs = readSlackChannelIntroductionCreatedAtMs(
+        harness,
+        "V_CHANNEL_DURABLE_RECOVERY"
+      );
 
       expect(workerSubmit).not.toHaveBeenCalled();
       expect(
@@ -427,7 +429,6 @@ describe("Remote Agent Slack signal service", () => {
           sql.includes("UPDATE slack_channel_introduction_runs") &&
           sql.includes("status = 'ready'"),
       });
-      const submittedAtMs = Date.now();
       await submitRemoteAgentSlackChannelIntroduction({
         env: buildEnv(db, { workerSubmit }),
         interactionId: "V_CHANNEL_MISSING_ACK",
@@ -436,6 +437,10 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         targetSlackChannelIds: ["C_PRODUCT"],
       });
+      const submittedAtMs = readSlackChannelIntroductionCreatedAtMs(
+        harness,
+        "V_CHANNEL_MISSING_ACK"
+      );
 
       let historyRequests = 0;
       let releaseHistoryRequests!: () => void;
@@ -543,7 +548,6 @@ describe("Remote Agent Slack signal service", () => {
           sql.includes("UPDATE slack_channel_introduction_runs") &&
           sql.includes("status = 'ready'"),
       });
-      const submittedAtMs = Date.now();
       await submitRemoteAgentSlackChannelIntroduction({
         env: buildEnv(db, { workerSubmit }),
         interactionId: "V_CHANNEL_RETRY_NOTICE",
@@ -552,6 +556,10 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         targetSlackChannelIds: ["C_PRODUCT"],
       });
+      const submittedAtMs = readSlackChannelIntroductionCreatedAtMs(
+        harness,
+        "V_CHANNEL_RETRY_NOTICE"
+      );
 
       let postAttempt = 0;
       const recoveryFetch = vi.fn((request: RequestInfo | URL): Response => {
@@ -651,7 +659,6 @@ describe("Remote Agent Slack signal service", () => {
           sql.includes("UPDATE slack_channel_introduction_runs") &&
           sql.includes("status = 'ready'"),
       });
-      const submittedAtMs = Date.now();
       await submitRemoteAgentSlackChannelIntroduction({
         env: buildEnv(acknowledgementCheckpointDb, { workerSubmit }),
         interactionId: "V_CHANNEL_RECOVERY_CHECKPOINT",
@@ -660,6 +667,10 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         targetSlackChannelIds: ["C_PRODUCT"],
       });
+      const submittedAtMs = readSlackChannelIntroductionCreatedAtMs(
+        harness,
+        "V_CHANNEL_RECOVERY_CHECKPOINT"
+      );
 
       let historyRequestCount = 0;
       const recoveryFetch = vi.fn((request: RequestInfo | URL): Response => {
@@ -778,7 +789,6 @@ describe("Remote Agent Slack signal service", () => {
           sql.includes("UPDATE slack_channel_introduction_runs") &&
           sql.includes("status = 'ready'"),
       });
-      const submittedAtMs = Date.now();
       await submitRemoteAgentSlackChannelIntroduction({
         env: buildEnv(acknowledgementCheckpointDb, { workerSubmit }),
         interactionId: "V_CHANNEL_AMBIGUOUS_NOTICE",
@@ -787,6 +797,10 @@ describe("Remote Agent Slack signal service", () => {
         slackUserId: "U123",
         targetSlackChannelIds: ["C_PRODUCT"],
       });
+      const submittedAtMs = readSlackChannelIntroductionCreatedAtMs(
+        harness,
+        "V_CHANNEL_AMBIGUOUS_NOTICE"
+      );
 
       let postAttemptCount = 0;
       const recoveryFetch = vi.fn((request: RequestInfo | URL): Response => {
@@ -5624,6 +5638,24 @@ function readSlackPostBodies(fetchMock: ReturnType<typeof vi.fn>) {
   return fetchMock.mock.calls
     .filter(([request]) => String(request).includes("/chat.postMessage"))
     .map(([, init]) => JSON.parse(String(init?.body ?? "{}")) as unknown);
+}
+
+function readSlackChannelIntroductionCreatedAtMs(
+  harness: ReturnType<typeof createSqliteD1Harness>,
+  interactionId: string
+): number {
+  const row = harness.queryFirst<{ createdAtMs: number }>({
+    params: [interactionId],
+    sql: `SELECT created_at_ms AS createdAtMs
+      FROM slack_channel_introduction_runs
+      WHERE interaction_id = ?`,
+  });
+  if (!(row && Number.isFinite(row.createdAtMs))) {
+    throw new Error(
+      `Missing Slack channel introduction run for ${interactionId}.`
+    );
+  }
+  return row.createdAtMs;
 }
 
 function readSlackEphemeralBodies(fetchMock: ReturnType<typeof vi.fn>) {
