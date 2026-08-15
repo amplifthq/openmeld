@@ -5,6 +5,7 @@ import {
   centerAgentDraftOrganizationDocumentRpcInputSchema,
   centerAgentOrganizationDocumentsComputerSnapshotResponseSchema,
   centerAgentOrganizationDocumentsComputerSnapshotRpcInputSchema,
+  updateOrganizationDocumentBodySchema,
 } from "../../src";
 
 const CENTER_AGENT_CONTEXT = {
@@ -21,6 +22,24 @@ const CENTER_AGENT_CONTEXT = {
 };
 
 describe("Organization Documents Computer snapshot contract", () => {
+  it("requires the loaded document and draft versions when saving content", () => {
+    const versioned = {
+      content: "Human edit",
+      expectedDocumentUpdatedAt: "2026-08-15T10:00:00.000Z",
+      expectedDraftCreatedAt: null,
+      expectedOrganizationId: "org_acme",
+    };
+    expect(
+      updateOrganizationDocumentBodySchema.safeParse(versioned)
+    ).toMatchObject({ success: true });
+    expect(
+      updateOrganizationDocumentBodySchema.safeParse({
+        content: versioned.content,
+        expectedOrganizationId: versioned.expectedOrganizationId,
+      })
+    ).toMatchObject({ success: false });
+  });
+
   it("keeps the Core-assigned person folder in the member research response", () => {
     const response = centerAgentDraftOrganizationDocumentResponseSchema.parse({
       document: {

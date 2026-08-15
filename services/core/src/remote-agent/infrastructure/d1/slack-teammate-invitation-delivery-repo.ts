@@ -142,6 +142,19 @@ export async function claimJoinedSlackInvitedMembers(input: {
             AND target_slack_user_id = ?
             AND status = 'delivered'
             AND onboarding_status = 'waiting_for_join'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM slack_teammate_invitation_deliveries AS existing
+              WHERE existing.organization_id = slack_teammate_invitation_deliveries.organization_id
+                AND existing.slack_team_id = slack_teammate_invitation_deliveries.slack_team_id
+                AND existing.target_slack_user_id = slack_teammate_invitation_deliveries.target_slack_user_id
+                AND existing.status = 'delivered'
+                AND existing.onboarding_status IN ('starting', 'researching', 'completed')
+                AND (
+                  existing.interaction_id <> slack_teammate_invitation_deliveries.interaction_id
+                  OR existing.target_slack_user_id <> slack_teammate_invitation_deliveries.target_slack_user_id
+                )
+            )
           RETURNING *
         `
       )
@@ -155,9 +168,62 @@ export async function claimJoinedSlackInvitedMembers(input: {
       .first<SlackInvitedMemberOnboardingRow>();
     if (row) {
       claimed.push(mapSlackInvitedMemberOnboarding(row));
+      continue;
     }
+    await markDuplicateSlackInvitedMemberOnboarding({
+      ...candidate,
+      db: input.db,
+      nowMs: input.nowMs,
+    });
   }
   return claimed;
+}
+
+async function markDuplicateSlackInvitedMemberOnboarding(input: {
+  db: D1Database;
+  interactionId: string;
+  joinedProfileId: string;
+  joinedUserId: string;
+  nowMs: number;
+  targetSlackUserId: string;
+}): Promise<void> {
+  await input.db
+    .prepare(
+      `
+        UPDATE slack_teammate_invitation_deliveries
+        SET
+          onboarding_status = 'failed',
+          joined_user_id = ?,
+          joined_profile_id = ?,
+          onboarding_failure_code = 'duplicate_invitation',
+          updated_at_ms = ?
+        WHERE interaction_id = ?
+          AND target_slack_user_id = ?
+          AND status = 'delivered'
+          AND onboarding_status = 'waiting_for_join'
+          AND EXISTS (
+            SELECT 1
+            FROM slack_teammate_invitation_deliveries AS existing
+            WHERE existing.organization_id = slack_teammate_invitation_deliveries.organization_id
+              AND existing.slack_team_id = slack_teammate_invitation_deliveries.slack_team_id
+              AND existing.target_slack_user_id = slack_teammate_invitation_deliveries.target_slack_user_id
+              AND existing.status = 'delivered'
+              AND existing.onboarding_status IN ('starting', 'researching', 'completed')
+              AND (
+                existing.interaction_id <> slack_teammate_invitation_deliveries.interaction_id
+                OR existing.target_slack_user_id <> slack_teammate_invitation_deliveries.target_slack_user_id
+              )
+          )
+      `
+    )
+    .bind(
+      input.joinedUserId,
+      input.joinedProfileId,
+      input.nowMs,
+      input.interactionId,
+      input.targetSlackUserId
+    )
+    .run();
 }
 
 export async function listActiveSlackInvitedMemberOnboardings(input: {

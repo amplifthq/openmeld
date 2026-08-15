@@ -9,6 +9,10 @@ import type {
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../lib/bindings";
 import { localStateDb } from "../../lib/bindings";
+import {
+  buildOrganizationJoinLinkUrl,
+  readActiveOrganizationJoinLink,
+} from "../../organizations/organization-join-link-read-service";
 import { callRequiredAuthWorkerRpc } from "../../rpc/required-auth-worker-rpc";
 import {
   claimSlackTeammateInvitationDelivery,
@@ -51,6 +55,7 @@ export async function handleSlackWelcomeInteraction(
   } else if (input.action === "submit_channel_introductions") {
     const organizationInviteUrl = await resolveOptionalOrganizationInviteUrl({
       actorUserId: context.actorUserId,
+      db: context.db,
       env,
       organizationId: context.organizationId,
     });
@@ -104,9 +109,39 @@ function buildChannelIntroductionModal(): Record<string, unknown> {
 
 async function resolveOptionalOrganizationInviteUrl(input: {
   actorUserId: string;
+  db: D1Database;
   env: CoreBindings;
   organizationId: string;
 }): Promise<string | null> {
+  const invitation = await resolveOrganizationInvitation(input);
+  return invitation?.url ?? null;
+}
+
+async function resolveOrganizationInvitation(input: {
+  actorUserId: string;
+  db: D1Database;
+  env: CoreBindings;
+  organizationId: string;
+}): Promise<{ organizationName: string; url: string } | null> {
+  const activeLink = await readActiveOrganizationJoinLink({
+    db: input.db,
+    organizationId: input.organizationId,
+  });
+  if (activeLink) {
+    const webAppUrl = input.env.WEB_APP_URL?.trim();
+    if (!webAppUrl) {
+      throw new Error(
+        "Core WEB_APP_URL is required to build an Organization invite link."
+      );
+    }
+    return {
+      organizationName: activeLink.organizationName,
+      url: buildOrganizationJoinLinkUrl({
+        token: activeLink.token,
+        webAppUrl,
+      }),
+    };
+  }
   const result = ensureOrganizationJoinLinkOnBehalfOfRpcResponseSchema.parse(
     await callRequiredAuthWorkerRpc({
       authWorker: input.env.OPENMELD_AUTH_WORKER,
@@ -122,7 +157,10 @@ async function resolveOptionalOrganizationInviteUrl(input: {
     })
   );
   if (result.ok) {
-    return result.joinLink.url;
+    return {
+      organizationName: result.organizationName,
+      url: result.joinLink.url,
+    };
   }
   if (result.code === "organization.join_link.forbidden") {
     return null;
@@ -184,23 +222,19 @@ async function sendSelectedTeammateInvitations(input: {
   >;
   organizationId: string;
 }): Promise<void> {
-  const linkResult =
-    ensureOrganizationJoinLinkOnBehalfOfRpcResponseSchema.parse(
-      await callRequiredAuthWorkerRpc({
-        authWorker: input.env.OPENMELD_AUTH_WORKER,
-        call: async (authWorker) =>
-          await authWorker.ensureOrganizationJoinLinkOnBehalfOf({
-            actorUserId: input.actorUserId,
-            organizationId: input.organizationId,
-          }),
-        unavailable: {
-          code: "organization.join_link.ensure_unavailable",
-          reason: "Organization invitation is unavailable.",
-        },
-      })
-    );
-  if (!linkResult.ok) {
-    throw new Error(linkResult.message);
+  const invitation = await resolveOrganizationInvitation({
+    actorUserId: input.actorUserId,
+    db: input.db,
+    env: input.env,
+    organizationId: input.organizationId,
+  });
+  if (!invitation) {
+    await postSlackDirectMessage({
+      botToken: input.botToken,
+      recipientUserId: input.input.slackUserId,
+      text: "This Organization doesn’t have an invite link yet. Ask an owner or admin to create one in OpenMeld, then open Invite teammates here again.",
+    });
+    return;
   }
   const members = await listAllSlackWorkspaceMembers({
     botToken: input.botToken,
@@ -247,12 +281,12 @@ async function sendSelectedTeammateInvitations(input: {
     try {
       const message = buildPrivateTeammateInvitationMessage({
         inviterName,
-        organizationName: linkResult.organizationName,
+        organizationName: invitation.organizationName,
         targetDisplayName: target.displayName,
       });
       const publication = await postSlackDirectMessage({
         blocks: buildPrivateTeammateInvitationBlocks({
-          inviteUrl: linkResult.joinLink.url,
+          inviteUrl: invitation.url,
           message,
         }),
         botToken: input.botToken,

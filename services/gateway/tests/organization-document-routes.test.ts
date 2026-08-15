@@ -76,7 +76,12 @@ describe("Organization document routes", () => {
       jsonRequest(
         `http://local/v1/organizations/current/documents/${DOCUMENT_ID}`,
         "PATCH",
-        { content: "Updated content", expectedOrganizationId: "org-1" }
+        {
+          content: "Updated content",
+          expectedDocumentUpdatedAt: DOCUMENT.updatedAt,
+          expectedDraftCreatedAt: DOCUMENT.draftCreatedAt,
+          expectedOrganizationId: "org-1",
+        }
       ),
       jsonRequest(
         `http://local/v1/organizations/current/documents/${DOCUMENT_ID}/approve-draft`,
@@ -155,6 +160,8 @@ describe("Organization document routes", () => {
       expect.objectContaining({
         content: "Updated content",
         documentId: DOCUMENT_ID,
+        expectedDocumentUpdatedAt: DOCUMENT.updatedAt,
+        expectedDraftCreatedAt: DOCUMENT.draftCreatedAt,
         expectedOrganizationId: "org-1",
       })
     );

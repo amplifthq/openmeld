@@ -23,40 +23,7 @@ describe("Slack invited member onboarding", () => {
 
   it("learns a joined Slack invitee, sends one trust-first DM, and completes exactly once", async () => {
     const startResearch = vi.fn(async () => ({ taskId: "research-task-1" }));
-    const env = {
-      OPENMELD_AUTH_WORKER: {
-        resolveOrganizationDirectoryMembers: vi.fn(
-          async (input: { organizationId: string }) => ({
-            members: [
-              {
-                humanProfile: {
-                  lastUsedAt: null,
-                  profileHandle: "maya-chen",
-                  profileId: "11111111-1111-4111-8111-111111111111",
-                  profileName: "Maya Chen",
-                  status: "active" as const,
-                },
-                joinedAt: "2026-08-15T00:00:00.000Z",
-                memberId: "member-maya",
-                organizationId: input.organizationId,
-                role: "member",
-                user: {
-                  email: "maya@example.com",
-                  id: "user-maya",
-                  image: null,
-                  name: "Maya Chen",
-                },
-                userId: "user-maya",
-              },
-            ],
-            ok: true as const,
-            organizationId: input.organizationId,
-          })
-        ),
-      },
-      SLACK_OPENMELD_BOT_TOKEN: "xoxb-test",
-      WEB_APP_URL: "https://openmeld.test",
-    } as const;
+    const env = buildOnboardingEnv();
 
     await runSlackInvitedMemberOnboardingTick({
       db: harness.db,
@@ -158,7 +125,84 @@ describe("Slack invited member onboarding", () => {
     expect(startResearch).toHaveBeenCalledOnce();
     expect(slackFetch).toHaveBeenCalledOnce();
   });
+
+  it("starts one onboarding when the same Slack member has duplicate invitations", async () => {
+    seedDuplicateWaitingInvitation(harness);
+    const startResearch = vi.fn(async () => ({ taskId: "research-task-1" }));
+
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 2000,
+      startResearch,
+    });
+
+    expect(startResearch).toHaveBeenCalledOnce();
+    expect(
+      harness.queryAll({
+        sql: `
+          SELECT interaction_id, onboarding_status, onboarding_failure_code,
+            joined_user_id, joined_profile_id
+          FROM slack_teammate_invitation_deliveries
+          ORDER BY interaction_id
+        `,
+      })
+    ).toEqual([
+      {
+        interaction_id: "invite-1",
+        joined_profile_id: "11111111-1111-4111-8111-111111111111",
+        joined_user_id: "user-maya",
+        onboarding_failure_code: null,
+        onboarding_status: "researching",
+      },
+      {
+        interaction_id: "invite-2",
+        joined_profile_id: "11111111-1111-4111-8111-111111111111",
+        joined_user_id: "user-maya",
+        onboarding_failure_code: "duplicate_invitation",
+        onboarding_status: "failed",
+      },
+    ]);
+    expect(slackFetch).not.toHaveBeenCalled();
+  });
 });
+
+function buildOnboardingEnv() {
+  return {
+    OPENMELD_AUTH_WORKER: {
+      resolveOrganizationDirectoryMembers: vi.fn(
+        async (input: { organizationId: string }) => ({
+          members: [
+            {
+              humanProfile: {
+                lastUsedAt: null,
+                profileHandle: "maya-chen",
+                profileId: "11111111-1111-4111-8111-111111111111",
+                profileName: "Maya Chen",
+                status: "active" as const,
+              },
+              joinedAt: "2026-08-15T00:00:00.000Z",
+              memberId: "member-maya",
+              organizationId: input.organizationId,
+              role: "member",
+              user: {
+                email: "maya@example.com",
+                id: "user-maya",
+                image: null,
+                name: "Maya Chen",
+              },
+              userId: "user-maya",
+            },
+          ],
+          ok: true as const,
+          organizationId: input.organizationId,
+        })
+      ),
+    },
+    SLACK_OPENMELD_BOT_TOKEN: "xoxb-test",
+    WEB_APP_URL: "https://openmeld.test",
+  } as const;
+}
 
 function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
   const statements = [
@@ -282,6 +326,36 @@ function seedWaitingInvitation(
         updated_at_ms
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'delivered', '1723.0001', NULL,
+        'waiting_for_join', NULL, NULL, NULL, NULL, NULL, ?, ?)
+    `,
+  });
+}
+
+function seedDuplicateWaitingInvitation(
+  harness: ReturnType<typeof createSqliteD1Harness>
+): void {
+  harness.run({
+    params: [
+      "invite-2",
+      "T123",
+      "org-1",
+      "U_INSTALLER_2",
+      "user-installer-2",
+      "U_MAYA",
+      "maya@example.com",
+      "Maya Chen",
+      1100,
+      1100,
+    ],
+    sql: `
+      INSERT INTO slack_teammate_invitation_deliveries (
+        interaction_id, slack_team_id, organization_id,
+        actor_slack_user_id, actor_user_id, target_slack_user_id,
+        target_email, target_display_name, status, message_ts, failure_code,
+        onboarding_status, joined_user_id, joined_profile_id, research_task_id,
+        welcome_message_ts, onboarding_failure_code, created_at_ms, updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'delivered', '1723.0002', NULL,
         'waiting_for_join', NULL, NULL, NULL, NULL, NULL, ?, ?)
     `,
   });

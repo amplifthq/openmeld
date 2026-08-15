@@ -479,8 +479,10 @@ describe("Organization documents", () => {
     expect(first.documents[0]).not.toHaveProperty("draftContent");
     expect(replay.revision).toBe(first.revision);
 
+    const currentDocument = await service.get(fixture.owner, document.id);
     await service.update(fixture.owner, document.id, {
       content: "Approved version two",
+      ...humanDocumentVersion(currentDocument),
     });
     const updated = await rpcCenterAgentOrganizationDocumentsComputerSnapshot(
       coreEnv,
@@ -521,6 +523,7 @@ describe("Organization documents", () => {
     });
     await humanService.update(fixture.owner, document.id, {
       content: "Human's newer approved plan",
+      ...humanDocumentVersion(document),
     });
     const centerAgentService = createOrganizationDocumentService({
       db: env.OPENMELD_DB,
@@ -637,6 +640,7 @@ describe("Organization documents", () => {
     await expect(
       service.update(fixture.member, profile.id, {
         content: "I updated my own about text.",
+        ...humanDocumentVersion(profile),
       })
     ).resolves.toMatchObject({ content: "I updated my own about text." });
     await expect(
@@ -740,16 +744,70 @@ describe("Organization documents", () => {
       },
       documentReviewerUserIds(fixture)
     );
+    const pending = await service.get(fixture.member, profile.id);
 
     await expect(
       service.update(fixture.member, profile.id, {
         content: "What Morgan and the Center Agent learned together",
+        ...humanDocumentVersion(pending),
       })
     ).resolves.toMatchObject({
       content: "What Morgan and the Center Agent learned together",
       draftContent: null,
       draftCreatedAt: null,
       draftCreatedBy: null,
+    });
+  });
+
+  it("keeps a newer Profile Report draft when an older editor tries to save", async () => {
+    const fixture = await seedFixture();
+    let nowMs = 10_000;
+    const service = createOrganizationDocumentService({
+      db: env.OPENMELD_DB,
+      now: () => nowMs,
+    });
+    const profile = await service.create(fixture.owner, {
+      content: "Earlier working report",
+      kind: "member_profile",
+      subjectUserId: fixture.member.userId,
+    });
+    nowMs = 20_000;
+    await service.draft(
+      fixture.organizationId,
+      {
+        documentId: profile.id,
+        draftContent: "First draft loaded in the editor",
+      },
+      documentReviewerUserIds(fixture)
+    );
+    const editorCopy = await service.get(fixture.member, profile.id);
+    nowMs = 30_000;
+    await service.draft(
+      fixture.organizationId,
+      {
+        documentId: profile.id,
+        draftContent: "Newer research that must be preserved",
+      },
+      documentReviewerUserIds(fixture)
+    );
+
+    await expect(
+      service.update(fixture.member, profile.id, {
+        content: "Stale editor content",
+        ...humanDocumentVersion(editorCopy),
+      })
+    ).rejects.toMatchObject({
+      cause: {
+        code: "organization_document.working_copy_conflict",
+        status: 409,
+      },
+    });
+    await expect(
+      service.get(fixture.member, profile.id)
+    ).resolves.toMatchObject({
+      content: "Earlier working report",
+      draftContent: "Newer research that must be preserved",
+      draftCreatedAt: new Date(30_000).toISOString(),
     });
   });
 
@@ -771,6 +829,7 @@ describe("Organization documents", () => {
     await expect(
       service.update(fixture.admin, document.id, {
         content: "Admin edit",
+        ...humanDocumentVersion(document),
         title: "Operations runbook",
       })
     ).resolves.toMatchObject({
@@ -826,6 +885,7 @@ describe("Organization documents", () => {
     });
     await service.update(fixture.owner, document.id, {
       content: "Updated content",
+      ...humanDocumentVersion(document),
     });
 
     expect(updateStatements).toHaveLength(2);
@@ -2220,6 +2280,16 @@ function draftVersion(document: { draftCreatedAt: string | null }): string {
     throw new Error("Expected a pending draft version in this test.");
   }
   return document.draftCreatedAt;
+}
+
+function humanDocumentVersion(document: {
+  draftCreatedAt: string | null;
+  updatedAt: string;
+}) {
+  return {
+    expectedDocumentUpdatedAt: document.updatedAt,
+    expectedDraftCreatedAt: document.draftCreatedAt,
+  };
 }
 
 function documentReviewerUserIds(fixture: {

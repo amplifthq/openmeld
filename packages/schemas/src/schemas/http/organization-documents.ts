@@ -182,9 +182,30 @@ export const createOrganizationDocumentResponseSchema = z.strictObject({
 export const updateOrganizationDocumentBodySchema = z
   .strictObject({
     content: contentSchema.optional(),
+    expectedDocumentUpdatedAt: isoDateTimeSchema.optional(),
+    expectedDraftCreatedAt: isoDateTimeSchema.nullable().optional(),
     expectedOrganizationId: identifierSchema,
     folderId: identifierSchema.nullable().optional(),
     title: titleSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.content === undefined) {
+      return;
+    }
+    if (value.expectedDocumentUpdatedAt === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "Saving content requires the loaded document version.",
+        path: ["expectedDocumentUpdatedAt"],
+      });
+    }
+    if (value.expectedDraftCreatedAt === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "Saving content requires the loaded draft version.",
+        path: ["expectedDraftCreatedAt"],
+      });
+    }
   })
   .refine(
     (value) =>

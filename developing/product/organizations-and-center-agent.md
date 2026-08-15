@@ -1441,24 +1441,32 @@ The welcome offers **See what I learned**, **Invite teammates**, and
 Organization has no active App connection. The Slack teammate action opens a
 native multi-user picker, accepts at most ten selected active human workspace
 members, and sends a private invitation to each through an idempotent delivery
-ledger. It never posts those private invitations to a channel. A channel
+ledger. A current member may share an existing active Organization join link;
+only an owner or admin may create that link when none exists. If a member asks
+to invite teammates before an owner or admin has created a link, the modal
+submission closes and the Center Agent immediately sends that member one
+private next step instead of failing silently in background work. It never
+posts those private invitations to a channel. A channel
 introduction starts in direct message: a native picker accepts at most five
 public channels, Core joins those channels when needed, and the Center Agent
 reads one bounded recent page before posting a short introduction grounded in
-the channel's actual work. When the requester is an owner or admin, Core gives
-the Center Agent the exact current Organization join link to include. A member
-without invite-link authority can still complete the introduction without that
-link. The Center Agent does not rank people, disclose private observations, or
-mention an individual unless the requester explicitly asked it to notify that
-person.
+the channel's actual work. Core includes an existing active Organization join
+link for any verified member; an owner or admin may also create the missing
+link. A member without link-creation authority can still complete the
+introduction without a link. The Center Agent does not rank people, disclose
+private observations, or mention an individual unless the requester explicitly
+asked it to notify that person.
 
 An invited Slack user receives the Organization join link and a simple account
 of what will happen after joining; OpenMeld does not claim to know that person
 before Organization membership exists. After an exact normalized Slack email
 matches a joined Organization member with an active Human Profile, Core links
-that same Slack identity, runs member research for the new member, writes the
-Profile Report to the Center Agent Computer, and sends a second private welcome
-with one evidence-backed observation or an honest insufficient-context state.
+that same Slack identity, atomically claims at most one onboarding across all
+delivered invitations for that Organization, workspace, and Slack user, runs
+member research for the new member, writes the Profile Report to the Center
+Agent Computer, and sends a second private welcome with one evidence-backed
+observation or an honest insufficient-context state. Duplicate invitations are
+closed without starting another research task or sending another welcome.
 The new member may then reply in Slack, invite more teammates, or start the
 channel-introduction flow. A move starts a new Organization context with
 different members, Spaces, Apps, and agent state, so reusing the previous
@@ -1729,6 +1737,13 @@ create, rename, edit, delete, approve, and discard across the organization. A
 member may edit only the Markdown body of an existing Profile Report about
 them; that exception does not grant creation, title, deletion, approval, folder
 management, report placement, or other-member access.
+
+Every human content save carries the Document `updatedAt` and nullable draft
+version that the editor loaded. Core applies the content only when both still
+match. If the Center Agent writes a newer Profile Report draft or another human
+changes the Document first, the older editor keeps its unsaved text and receives
+one explicit conflict outcome instead of overwriting the newer work. Title-only
+and folder-only management updates do not use this content-version fence.
 
 The Center Agent normally creates or replaces the single pending draft for a
 document. Ordinary Organization Brief and knowledge drafts use an explicit

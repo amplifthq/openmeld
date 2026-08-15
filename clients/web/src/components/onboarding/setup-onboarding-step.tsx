@@ -224,10 +224,16 @@ export function SetupOnboardingStep(input: { onContinue: () => void }) {
 	>({
 		mutationFn: async (content) => {
 			if (brief) {
+				const loadedBrief = briefQuery.data?.document;
+				if (!loadedBrief) {
+					throw new Error("The Organization brief is still loading.");
+				}
 				return (
 					await updateCurrentOrganizationDocument({
 						content,
 						documentId: brief.id,
+						expectedDocumentUpdatedAt: loadedBrief.updatedAt,
+						expectedDraftCreatedAt: loadedBrief.draftCreatedAt,
 						expectedOrganizationId: currentOrganization.id,
 					})
 				).document;

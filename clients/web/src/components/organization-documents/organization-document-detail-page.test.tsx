@@ -182,6 +182,8 @@ describe("OrganizationDocumentDetailPage", () => {
 			expect(updateCurrentOrganizationDocumentMock).toHaveBeenCalledWith({
 				content: "What Ada and the Center Agent learned together",
 				documentId: "document-1",
+				expectedDocumentUpdatedAt: "2026-07-15T00:00:00.000Z",
+				expectedDraftCreatedAt: "2026-07-15T01:00:00.000Z",
 				expectedOrganizationId: "org-acme",
 			})
 		);
@@ -252,6 +254,8 @@ describe("OrganizationDocumentDetailPage", () => {
 			expect(updateCurrentOrganizationDocumentMock).toHaveBeenCalledWith({
 				content: "Human edit",
 				documentId: "document-1",
+				expectedDocumentUpdatedAt: "2026-07-15T00:00:00.000Z",
+				expectedDraftCreatedAt: "2026-07-15T01:00:00.000Z",
 				expectedOrganizationId: "org-acme",
 			})
 		);
@@ -278,6 +282,8 @@ describe("OrganizationDocumentDetailPage", () => {
 			expect(updateCurrentOrganizationDocumentMock).toHaveBeenCalledWith({
 				content: "Human edit",
 				documentId: "document-1",
+				expectedDocumentUpdatedAt: "2026-07-15T00:00:00.000Z",
+				expectedDraftCreatedAt: null,
 				expectedOrganizationId: "org-acme",
 			})
 		);

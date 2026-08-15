@@ -80,13 +80,19 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 		]);
 	};
 	const saveMutation = useMutation({
-		mutationFn: async (payload: { content: string; title?: string }) =>
-			await updateCurrentOrganizationDocument({
+		mutationFn: async (payload: { content: string; title?: string }) => {
+			if (!document) {
+				throw new Error("The document is no longer loaded.");
+			}
+			return await updateCurrentOrganizationDocument({
 				content: payload.content,
 				documentId: input.documentId,
+				expectedDocumentUpdatedAt: document.updatedAt,
+				expectedDraftCreatedAt: document.draftCreatedAt,
 				expectedOrganizationId: currentOrganization.id,
 				...(payload.title === undefined ? {} : { title: payload.title }),
-			}),
+			});
+		},
 		onError: (error) =>
 			setErrorMessage(resolveOrganizationDocumentErrorMessage(error)),
 		onSuccess: refresh,

@@ -254,6 +254,8 @@ export function resolveOrganizationDocumentErrorMessage(
 			return "This draft changed after you opened it. Review the latest draft before continuing.";
 		case "organization_document.draft_not_found":
 			return "This draft was already reviewed. Reload the document to see its current content.";
+		case "organization_document.working_copy_conflict":
+			return "OpenMeld found a newer version while you were editing. Your changes are still here. Copy anything you want to keep, then reload the document.";
 		case "organization_document.folder_exists":
 			return "A folder with this name already exists.";
 		case "organization_document.folder_limit_reached":

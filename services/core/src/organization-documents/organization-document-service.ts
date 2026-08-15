@@ -14,6 +14,7 @@ import type {
   OrganizationDocumentFolder,
   OrganizationDocumentKind,
   OrganizationDocumentSummary,
+  UpdateOrganizationDocumentBody,
 } from "@openmeld/schemas/types";
 import { renderCenterAgentMemberResearchDraft } from "../center-agent-member-research/member-research-report";
 import { createCoreRpcHttpError } from "../rpc/errors";
@@ -102,6 +103,11 @@ type OrganizationDocumentDraftWriteResult = {
 type OrganizationDocumentDraftReviewerSource =
   | readonly string[]
   | (() => Promise<readonly string[]>);
+
+type OrganizationDocumentUpdateInput = Omit<
+  UpdateOrganizationDocumentBody,
+  "expectedOrganizationId"
+>;
 
 export function createOrganizationDocumentService(
   dependencies: OrganizationDocumentServiceDependencies
@@ -793,7 +799,7 @@ export function createOrganizationDocumentService(
     async update(
       actor: OrganizationDocumentActor,
       documentId: string,
-      input: { content?: string; folderId?: string | null; title?: string }
+      input: OrganizationDocumentUpdateInput
     ): Promise<OrganizationDocument> {
       const existing = await requireDocument(
         dependencies.db,
@@ -806,17 +812,37 @@ export function createOrganizationDocumentService(
         existing,
         input,
       });
+      const version = requireHumanDocumentUpdateVersion(input);
       const update = buildDocumentUpdate(existing, input, now());
-      await dependencies.db
+      const result = await dependencies.db
         .prepare(
           `
             UPDATE organization_documents
             SET ${update.assignments.join(", ")}
             WHERE id = ? AND organization_id = ?
+              AND (
+                ? = 0
+                OR (updated_at = ? AND draft_created_at IS ?)
+              )
           `
         )
-        .bind(...update.values, documentId, actor.organizationId)
+        .bind(
+          ...update.values,
+          documentId,
+          actor.organizationId,
+          version ? 1 : 0,
+          version?.documentUpdatedAtMs ?? null,
+          version?.draftCreatedAtMs ?? null
+        )
         .run();
+      if (Number(result.meta.changes ?? 0) !== 1) {
+        await requireDocument(
+          dependencies.db,
+          actor.organizationId,
+          documentId
+        );
+        throw workingCopyConflictError();
+      }
       return await getDocument(dependencies.db, actor, documentId);
     },
 
@@ -1909,7 +1935,7 @@ function pendingDraftConflictError(): Error {
 
 function buildDocumentUpdate(
   existing: OrganizationDocumentRow,
-  input: { content?: string; folderId?: string | null; title?: string },
+  input: OrganizationDocumentUpdateInput,
   updatedAt: number
 ): { assignments: string[]; values: unknown[] } {
   const assignments: string[] = [];
@@ -1949,6 +1975,31 @@ function buildDocumentUpdate(
   return { assignments, values };
 }
 
+function requireHumanDocumentUpdateVersion(
+  input: OrganizationDocumentUpdateInput
+): { documentUpdatedAtMs: number; draftCreatedAtMs: number | null } | null {
+  if (input.content === undefined) {
+    return null;
+  }
+  if (
+    input.expectedDocumentUpdatedAt === undefined ||
+    input.expectedDraftCreatedAt === undefined
+  ) {
+    throw documentError(
+      400,
+      "invalid_payload",
+      "Saving document content requires the loaded document and draft versions."
+    );
+  }
+  return {
+    documentUpdatedAtMs: Date.parse(input.expectedDocumentUpdatedAt),
+    draftCreatedAtMs:
+      input.expectedDraftCreatedAt === null
+        ? null
+        : Date.parse(input.expectedDraftCreatedAt),
+  };
+}
+
 function requireExpectedDraft(
   row: OrganizationDocumentRow,
   expectedDraftCreatedAt: string
@@ -1979,7 +2030,7 @@ function workingCopyConflictError(): Error {
   return documentError(
     409,
     "organization_document.working_copy_conflict",
-    "This document changed after the Computer working copy was created. Check out the latest version and reapply the useful edits before submitting again."
+    "This document changed after this copy was loaded. Load the latest version and reapply the useful edits before saving again."
   );
 }
 

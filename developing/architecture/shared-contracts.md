@@ -1771,9 +1771,16 @@ interaction contract. Gateway verifies Slack's request signature, parses the
 native button or modal submission, and forwards only the discriminated action,
 workspace/user identity, trigger or interaction id, and bounded selected Slack
 user ids. Core re-resolves the workspace Binding and exact linked OpenMeld
-member before opening a modal, ensuring an Organization join link, or sending
-an invitation. Gateway never receives the bot token or decides Organization
-authority.
+member before opening a modal, reading an active Organization join link,
+ensuring a missing link, or sending an invitation. Any verified member may
+reuse the active Core-owned link; Auth remains the only authority that can
+create a missing link on behalf of an owner or admin. A forbidden missing-link
+result becomes a private actionable Slack outcome for the requester rather
+than an unobserved `waitUntil()` rejection. Gateway never receives the bot token
+or decides Organization authority. Joined-member onboarding is claimed once
+per Organization, Slack workspace, and target Slack user. A competing delivered
+invitation is moved to a terminal duplicate outcome before it can start a
+second research task or welcome publication.
 
 Slack direct-message ingress uses the same event callback and durable queue
 contract as `app_mention`, with the strict human `message.im` subtype. Bot
@@ -2228,6 +2235,14 @@ Human list/get/create/update/delete/approve/discard routes live under
 `/v1/organizations/current/documents`. Every route has a same-batch Gateway and
 Core RPC method using the same schema so a partial deployment fails as an
 explicit contract error rather than an unowned 502.
+
+Human content updates carry both `expectedDocumentUpdatedAt` and nullable
+`expectedDraftCreatedAt`. Core includes both values in the same conditional D1
+update that writes the content. A zero-row update returns
+`organization_document.working_copy_conflict` after confirming the Document
+still exists, so a stale browser cannot erase a newer Center Agent draft or
+human edit. Title-only and folder-only updates remain independent management
+operations and do not require content versions.
 
 `packages/schemas/src/schemas/http/center-agent-member-research.ts` owns the
 single-member/all-members start request, batch/task progress projection, and
