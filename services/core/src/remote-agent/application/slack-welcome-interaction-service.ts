@@ -10,6 +10,7 @@ import type {
 import type { CoreBindings } from "../../lib/bindings";
 import { localStateDb } from "../../lib/bindings";
 import { readOrganizationAccountIdentityProjection } from "../../organizations/organization-context";
+import { resolveOrganizationDirectoryMembers } from "../../organizations/organization-directory";
 import {
   buildOrganizationJoinLinkUrl,
   readActiveOrganizationJoinLink,
@@ -150,6 +151,12 @@ function buildSlackWelcomeInteractionFailureMessage(error: unknown): string {
     "organization.membership_required"
   ) {
     return "Center Agent couldn’t finish that action because you’re no longer a member of this OpenMeld Organization. Ask an Organization owner or admin to add you again, then come back here.";
+  }
+  if (
+    readSlackWelcomeInteractionErrorCode(error) ===
+    "organization.directory_unavailable"
+  ) {
+    return "Center Agent couldn’t check who is already in this Organization, so no invitations were sent. In a moment, open Invite teammates and choose them again.";
   }
   return "Center Agent couldn’t finish that action. Try once more. If it still doesn’t work, reconnect Slack in OpenMeld, then come back here.";
 }
@@ -390,7 +397,16 @@ async function sendSelectedTeammateInvitations(input: {
     });
     return;
   }
+  const organizationMembers = await resolveOrganizationDirectoryMembers({
+    authWorker: input.env.OPENMELD_AUTH_WORKER,
+    organizationId: input.organizationId,
+    requestId: `slack-teammate-invite:${input.input.interactionId}`,
+  });
+  const organizationMemberEmails = new Set(
+    organizationMembers.map((member) => normalizeEmail(member.user.email))
+  );
 
+  const alreadyMembers: string[] = [];
   const delivered: string[] = [];
   const failed: string[] = [];
   const needsManualInvite: string[] = [];
@@ -399,6 +415,10 @@ async function sendSelectedTeammateInvitations(input: {
   for (const target of targets) {
     if (!target.email?.trim()) {
       needsManualInvite.push(target.displayName);
+      continue;
+    }
+    if (organizationMemberEmails.has(normalizeEmail(target.email))) {
+      alreadyMembers.push(target.displayName);
       continue;
     }
     const outcome = await deliverPrivateTeammateInvitation({
@@ -426,17 +446,23 @@ async function sendSelectedTeammateInvitations(input: {
       failed.push(target.displayName);
     }
   }
-  if (claimedCount === 0 && needsManualInvite.length === 0) {
+  if (
+    claimedCount === 0 &&
+    needsManualInvite.length === 0 &&
+    alreadyMembers.length === 0
+  ) {
     return;
   }
   await postSlackDirectMessage({
     botToken: input.botToken,
     recipientUserId: input.input.slackUserId,
     text: buildInvitationSummary({
+      alreadyMembers,
       delivered,
       failed,
       inviteUrl: invitation.url,
       needsManualInvite,
+      organizationName: invitation.organizationName,
       uncertain,
     }),
   });
@@ -631,22 +657,17 @@ function buildPrivateTeammateInvitationBlocks(input: {
 }
 
 function buildInvitationSummary(input: {
+  alreadyMembers: readonly string[];
   delivered: readonly string[];
   failed: readonly string[];
   inviteUrl: string;
   needsManualInvite: readonly string[];
+  organizationName: string;
   uncertain: readonly string[];
 }): string {
-  const manualInviteNote =
-    input.needsManualInvite.length > 0
-      ? `Slack didn’t share an email for ${formatNameList(input.needsManualInvite)}, so I didn’t send a private invite that could connect to the wrong OpenMeld account. Send them this invite link instead: ${input.inviteUrl}. After they join, they can message Center Agent here.`
-      : "";
-  if (
-    input.delivered.length > 0 &&
-    input.failed.length === 0 &&
-    input.uncertain.length === 0 &&
-    input.needsManualInvite.length === 0
-  ) {
+  const alreadyMemberNote = buildAlreadyMemberInvitationNote(input);
+  const manualInviteNote = buildManualInvitationNote(input);
+  if (isFullyDeliveredInvitationSummary(input)) {
     return `Done — I sent private invites to ${formatNameList(input.delivered)}. I’ll be here when they join.`;
   }
   if (input.uncertain.length > 0) {
@@ -656,16 +677,19 @@ function buildInvitationSummary(input: {
     const failedNote = input.failed.length
       ? `I couldn’t reach ${formatNameList(input.failed)}. `
       : "";
-    return `${deliveredNote}${failedNote}Slack didn’t confirm whether ${formatNameList(input.uncertain)} received the message, so I won’t guess or send a duplicate.${manualInviteNote ? ` ${manualInviteNote}` : ""}`;
+    return `${deliveredNote}${failedNote}Slack didn’t confirm whether ${formatNameList(input.uncertain)} received the message, so I won’t guess or send a duplicate.${alreadyMemberNote ? ` ${alreadyMemberNote}` : ""}${manualInviteNote ? ` ${manualInviteNote}` : ""}`;
   }
   if (
     input.delivered.length === 0 &&
     input.failed.length === 0 &&
-    manualInviteNote
+    (alreadyMemberNote || manualInviteNote)
   ) {
-    return manualInviteNote;
+    return [alreadyMemberNote, manualInviteNote].filter(Boolean).join(" ");
   }
-  if (input.delivered.length === 0 && !manualInviteNote) {
+  if (
+    input.delivered.length === 0 &&
+    !(alreadyMemberNote || manualInviteNote)
+  ) {
     return "I couldn’t send those invites. No one received a duplicate. Try again, or tell me who you want to invite here.";
   }
   const deliveredNote = input.delivered.length
@@ -674,7 +698,54 @@ function buildInvitationSummary(input: {
   const failedNote = input.failed.length
     ? `I couldn’t reach ${formatNameList(input.failed)}, so I didn’t claim they were invited.`
     : "";
-  return `${deliveredNote}${failedNote}${manualInviteNote ? `${failedNote ? " " : ""}${manualInviteNote}` : ""}`;
+  return [
+    `${deliveredNote}${failedNote}`.trim(),
+    alreadyMemberNote,
+    manualInviteNote,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildAlreadyMemberInvitationNote(input: {
+  alreadyMembers: readonly string[];
+  organizationName: string;
+}): string {
+  if (input.alreadyMembers.length === 0) {
+    return "";
+  }
+  const verb = input.alreadyMembers.length === 1 ? "is" : "are";
+  return `${formatNameList(input.alreadyMembers)} ${verb} already in ${input.organizationName}, so I didn’t send another invite.`;
+}
+
+function buildManualInvitationNote(input: {
+  inviteUrl: string;
+  needsManualInvite: readonly string[];
+}): string {
+  if (input.needsManualInvite.length === 0) {
+    return "";
+  }
+  return `Slack didn’t share an email for ${formatNameList(input.needsManualInvite)}, so I didn’t send a private invite that could connect to the wrong OpenMeld account. Send them this invite link instead: ${input.inviteUrl}. After they join, they can message Center Agent here.`;
+}
+
+function isFullyDeliveredInvitationSummary(input: {
+  alreadyMembers: readonly string[];
+  delivered: readonly string[];
+  failed: readonly string[];
+  needsManualInvite: readonly string[];
+  uncertain: readonly string[];
+}): boolean {
+  return (
+    input.delivered.length > 0 &&
+    input.failed.length === 0 &&
+    input.uncertain.length === 0 &&
+    input.needsManualInvite.length === 0 &&
+    input.alreadyMembers.length === 0
+  );
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
 }
 
 function formatNameList(names: readonly string[]): string {

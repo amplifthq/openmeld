@@ -23,6 +23,7 @@ export const centerAgentMemberResearchBatches = sqliteTable(
     requestedByProfileId: text("requested_by_profile_id").notNull(),
     requestedByDisplayName: text("requested_by_display_name").notNull(),
     directMessageSpaceId: text("direct_message_space_id").notNull(),
+    acceptanceIdempotencyKey: text("acceptance_idempotency_key"),
     createdAtMs: integer("created_at_ms").notNull(),
     updatedAtMs: integer("updated_at_ms").notNull(),
   },
@@ -30,6 +31,9 @@ export const centerAgentMemberResearchBatches = sqliteTable(
     uniqueIndex("center_agent_member_research_one_active_batch_per_org")
       .on(table.organizationId)
       .where(sql`"status" in ('queued', 'running')`),
+    uniqueIndex("center_agent_member_research_acceptance_unique")
+      .on(table.organizationId, table.acceptanceIdempotencyKey)
+      .where(sql`"acceptance_idempotency_key" is not null`),
     index("center_agent_member_research_batches_org_created_idx").on(
       table.organizationId,
       desc(table.createdAtMs)

@@ -3,7 +3,10 @@ import {
   buildJoinedMemberWelcomeBlocks,
   runSlackInvitedMemberOnboardingTick,
 } from "../src/remote-agent/application/slack-invited-member-onboarding-service";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import {
+  createFaultInjectingD1Database,
+  createSqliteD1Harness,
+} from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Slack invited member onboarding", () => {
   let harness: ReturnType<typeof createSqliteD1Harness>;
@@ -316,6 +319,59 @@ describe("Slack invited member onboarding", () => {
     ).toEqual({
       onboarding_failure_code: "member_research_start_failed",
       onboarding_status: "failed",
+    });
+  });
+
+  it("keeps an accepted research task recoverable when attaching it fails", async () => {
+    const startResearch = vi.fn(async () => ({
+      taskId: "research-task-accepted",
+    }));
+    const checkpointDb = createFaultInjectingD1Database({
+      db: harness.db,
+      matches: (sql, operation) =>
+        operation === "run" &&
+        sql.includes("UPDATE slack_teammate_invitation_deliveries") &&
+        sql.includes("onboarding_status = 'researching'") &&
+        sql.includes("research_task_id = ?"),
+    });
+
+    await runSlackInvitedMemberOnboardingTick({
+      db: checkpointDb,
+      env: buildOnboardingEnv() as never,
+      nowMs: 2000,
+      startResearch,
+    });
+
+    expect(slackFetch).not.toHaveBeenCalled();
+    expect(
+      harness.queryFirst({
+        sql: `SELECT onboarding_status, research_task_id, onboarding_failure_code
+          FROM slack_teammate_invitation_deliveries`,
+      })
+    ).toEqual({
+      onboarding_failure_code: null,
+      onboarding_status: "starting",
+      research_task_id: null,
+    });
+
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 3000,
+      startResearch,
+    });
+
+    expect(startResearch).toHaveBeenCalledTimes(2);
+    expect(slackFetch).not.toHaveBeenCalled();
+    expect(
+      harness.queryFirst({
+        sql: `SELECT onboarding_status, research_task_id, onboarding_failure_code
+          FROM slack_teammate_invitation_deliveries`,
+      })
+    ).toEqual({
+      onboarding_failure_code: null,
+      onboarding_status: "researching",
+      research_task_id: "research-task-accepted",
     });
   });
 

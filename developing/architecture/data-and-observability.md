@@ -1996,7 +1996,10 @@ manifest. The run freezes the workspace, Organization, requester, private Slack
 conversation, optional Organization invite URL, and acknowledgement outcome.
 Each ordered item freezes one selected public channel and owns its own claim,
 attempt count, and submitted/failed/outcome-unknown checkpoint. Remote Agent
-native-delivery idempotency includes the interaction and channel ids. A stale
+native-delivery idempotency includes the interaction and channel ids. A
+provider-accepted native delivery whose item checkpoint is temporarily
+unavailable remains `submitting`; stale-claim recovery reuses that exact
+native-delivery identity and never writes a contradictory failure. A stale
 submitting claim may be reclaimed, while a submitted or provider-ambiguous item
 is never automatically replayed. The private acknowledgement carries the
 interaction id as Slack message metadata. If Slack confirms publication but the
@@ -2323,6 +2326,12 @@ Center Agent representing the verified speaker of an interactive conversation;
 both enter the same batch/task writer, audit path, and single-active-batch
 invariant. Conversational self-research derives the subject from the represented
 speaker instead of persisting model-selected identity.
+Slack onboarding batches also carry one nullable acceptance idempotency key,
+unique within the Organization. The installer or invited-member scheduler uses
+its stable onboarding identity for that key. A retry therefore returns the
+exact previously accepted batch and task after a downstream task-link
+checkpoint failure, including when the task has already become terminal; this
+key is orchestration recovery evidence, not a second execution authority.
 They do not replace the Remote Agent worker's in-flight execution truth or the
 native-delivery ledger. Core advances a running task only from that ledger's
 terminal outcome. At the Organization Document draft boundary, Core binds the

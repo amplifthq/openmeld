@@ -80,6 +80,97 @@ describe("Slack welcome teammate invitations", () => {
     });
   });
 
+  it("does not invite a teammate who is already in the OpenMeld Organization", async () => {
+    seedActiveJoinLink(harness);
+    const resolveOrganizationDirectoryMembers = vi.fn(async () => ({
+      members: [
+        buildDirectoryMember({
+          email: "alex@example.com",
+          memberId: "member-actor",
+          name: "Alex",
+          userId: "user-actor",
+        }),
+        buildDirectoryMember({
+          email: "MAYA@EXAMPLE.COM",
+          memberId: "member-maya",
+          name: "Maya",
+          userId: "user-maya",
+        }),
+      ],
+      ok: true as const,
+      organizationId: "org-1",
+    }));
+
+    await expect(
+      handleSlackWelcomeInteraction(
+        buildEnv({
+          db: harness.db,
+          ensureOrganizationJoinLinkOnBehalfOf: vi.fn(),
+          resolveOrganizationDirectoryMembers,
+        }),
+        teammateInviteInput()
+      )
+    ).resolves.toEqual({ handled: true });
+
+    expect(resolveOrganizationDirectoryMembers).toHaveBeenCalledWith({
+      organizationId: "org-1",
+    });
+    const publications = slackFetch.mock.calls
+      .filter(([url]) => url === "https://slack.com/api/chat.postMessage")
+      .map(
+        ([, request]) =>
+          JSON.parse(String(request?.body)) as Record<string, unknown>
+      );
+    expect(publications).toEqual([
+      expect.objectContaining({
+        channel: "U_ACTOR",
+        text: expect.stringContaining("Maya is already in Ampli Lift"),
+      }),
+    ]);
+    expect(
+      harness.queryFirst({
+        sql: "SELECT status FROM slack_teammate_invitation_deliveries",
+      })
+    ).toBeNull();
+  });
+
+  it("sends no invitations and gives one retry when membership checking is unavailable", async () => {
+    seedActiveJoinLink(harness);
+    const resolveOrganizationDirectoryMembers = vi.fn(async () => ({
+      code: "auth.organization_directory_unavailable",
+      message: "Organization Directory members are temporarily unavailable.",
+      ok: false as const,
+    }));
+
+    await expect(
+      handleSlackWelcomeInteraction(
+        buildEnv({
+          db: harness.db,
+          ensureOrganizationJoinLinkOnBehalfOf: vi.fn(),
+          resolveOrganizationDirectoryMembers,
+        }),
+        teammateInviteInput()
+      )
+    ).resolves.toEqual({ handled: true });
+
+    const publications = slackFetch.mock.calls
+      .filter(([url]) => url === "https://slack.com/api/chat.postMessage")
+      .map(
+        ([, request]) =>
+          JSON.parse(String(request?.body)) as Record<string, unknown>
+      );
+    expect(publications).toEqual([
+      expect.objectContaining({
+        channel: "U_ACTOR",
+        text: expect.stringContaining("no invitations were sent"),
+      }),
+    ]);
+    expect(String(publications[0]?.text)).toContain(
+      "In a moment, open Invite teammates and choose them again."
+    );
+    expect(String(publications[0]?.text)).not.toContain("reconnect Slack");
+  });
+
   it("keeps a confirmed teammate invitation delivered when its first checkpoint write fails", async () => {
     seedActiveJoinLink(harness);
     const db = createFaultInjectingD1Database({
@@ -381,6 +472,7 @@ function buildEnv(input: {
   db: D1Database;
   ensureOrganizationJoinLinkOnBehalfOf: ReturnType<typeof vi.fn>;
   resolveOrganizationAccountIdentity?: ReturnType<typeof vi.fn>;
+  resolveOrganizationDirectoryMembers?: ReturnType<typeof vi.fn>;
 }): never {
   return {
     OPENMELD_AUTH_WORKER: {
@@ -405,11 +497,47 @@ function buildEnv(input: {
             slug: "ampli-lift",
           },
         })),
+      resolveOrganizationDirectoryMembers:
+        input.resolveOrganizationDirectoryMembers ??
+        vi.fn(async () => ({
+          members: [
+            buildDirectoryMember({
+              email: "alex@example.com",
+              memberId: "member-actor",
+              name: "Alex",
+              userId: "user-actor",
+            }),
+          ],
+          ok: true as const,
+          organizationId: "org-1",
+        })),
     },
     OPENMELD_DB: input.db,
     SLACK_OPENMELD_BOT_TOKEN: "xoxb-test",
     WEB_APP_URL: "https://openmeld.test",
   } as never;
+}
+
+function buildDirectoryMember(input: {
+  email: string;
+  memberId: string;
+  name: string;
+  userId: string;
+}) {
+  return {
+    humanProfile: null,
+    joinedAt: "2026-08-15T00:00:00.000Z",
+    memberId: input.memberId,
+    organizationId: "org-1",
+    role: "member" as const,
+    user: {
+      email: input.email,
+      id: input.userId,
+      image: null,
+      name: input.name,
+    },
+    userId: input.userId,
+  };
 }
 
 function teammateInviteInput() {

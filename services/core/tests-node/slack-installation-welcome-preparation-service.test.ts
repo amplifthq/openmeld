@@ -9,7 +9,10 @@ import {
 import { buildJoinedMemberWelcomeMessage } from "../src/remote-agent/application/slack-invited-member-onboarding-service";
 import { buildPrivateTeammateInvitationMessage } from "../src/remote-agent/application/slack-welcome-interaction-service";
 import { enqueueSlackInstallationWelcomePreparation } from "../src/remote-agent/infrastructure/d1/slack-installation-welcome-preparation-repo";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import {
+  createFaultInjectingD1Database,
+  createSqliteD1Harness,
+} from "./helpers/sqlite-d1-harness.test-support";
 
 const PRESSURE_OR_NARROW_PRODUCT_LANGUAGE_PATTERN =
   /review|approve|discard|GitHub|coding agent/iu;
@@ -317,6 +320,77 @@ describe("Slack trust-first welcome preparation", () => {
       failure_code: null,
       research_task_id: null,
       status: "queued",
+    });
+  });
+
+  it("keeps an accepted research task recoverable when attaching it fails", async () => {
+    harness.run({
+      sql: `CREATE TABLE center_agent_member_research_tasks (
+        id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT
+      )`,
+    });
+    harness.run({
+      sql: `INSERT INTO center_agent_member_research_tasks
+        VALUES ('research-task-accepted', 'running', NULL)`,
+    });
+    await enqueueSlackInstallationWelcomePreparation({
+      allowCreate: true,
+      connectionCreatedAtMs: 100,
+      db: harness.db,
+      installedByProfileId: "profile-installer",
+      installedByUserId: "user-installer",
+      messageKind: "connected",
+      nowMs: 100,
+      organizationId: "org-1",
+      recipientSlackUserId: "U_INSTALLER",
+      slackTeamId: "T123",
+    });
+    const startResearch = vi.fn(async () => ({
+      taskId: "research-task-accepted",
+    }));
+    const checkpointDb = createFaultInjectingD1Database({
+      db: harness.db,
+      matches: (sql, operation) =>
+        operation === "run" &&
+        sql.includes("UPDATE slack_installation_welcome_preparations") &&
+        sql.includes("research_task_id = ?"),
+    });
+
+    await runSlackInstallationWelcomePreparationTick({
+      db: checkpointDb,
+      env: {} as never,
+      nowMs: 200,
+      startResearch,
+    });
+
+    expect(
+      harness.queryFirst({
+        sql: `SELECT status, research_task_id, failure_code
+          FROM slack_installation_welcome_preparations`,
+      })
+    ).toEqual({
+      failure_code: null,
+      research_task_id: null,
+      status: "researching",
+    });
+
+    await runSlackInstallationWelcomePreparationTick({
+      db: harness.db,
+      env: {} as never,
+      nowMs: 5 * 60_000 + 201,
+      startResearch,
+    });
+
+    expect(startResearch).toHaveBeenCalledTimes(2);
+    expect(
+      harness.queryFirst({
+        sql: `SELECT status, research_task_id, failure_code
+          FROM slack_installation_welcome_preparations`,
+      })
+    ).toEqual({
+      failure_code: null,
+      research_task_id: "research-task-accepted",
+      status: "researching",
     });
   });
 

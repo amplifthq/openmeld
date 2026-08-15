@@ -602,6 +602,114 @@ describe("shared drizzle migration history integrity", () => {
     }
   });
 
+  it("preserves research batches when adding Slack onboarding acceptance identity", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const migrationFileName = listSqlMigrationFiles().find((fileName) =>
+        fileName.startsWith("0121_")
+      );
+      expect(migrationFileName).toBeDefined();
+      if (!migrationFileName) {
+        return;
+      }
+
+      applyMigrationFiles(
+        database,
+        listSqlMigrationFiles().filter(
+          (fileName) => fileName.localeCompare(migrationFileName) < 0
+        )
+      );
+      database.exec("PRAGMA foreign_keys = OFF");
+      database.exec(`
+        INSERT INTO center_agent_member_research_batches (
+          id,
+          organization_id,
+          scope,
+          status,
+          requested_by_user_id,
+          requested_by_member_id,
+          requested_by_profile_id,
+          requested_by_display_name,
+          direct_message_space_id,
+          created_at_ms,
+          updated_at_ms
+        ) VALUES (
+          'batch-before-acceptance-key',
+          'organization-upgrade',
+          'member',
+          'completed',
+          'user-upgrade',
+          'member-upgrade',
+          'profile-upgrade',
+          'Upgrade User',
+          'space-upgrade',
+          1000,
+          2000
+        );
+      `);
+
+      applyMigrationFiles(database, [migrationFileName]);
+
+      expect(
+        database
+          .prepare(
+            `SELECT id, acceptance_idempotency_key
+             FROM center_agent_member_research_batches
+             WHERE id = 'batch-before-acceptance-key'`
+          )
+          .get()
+      ).toEqual({
+        acceptance_idempotency_key: null,
+        id: "batch-before-acceptance-key",
+      });
+      database.exec(`
+        INSERT INTO center_agent_member_research_batches (
+          id,
+          organization_id,
+          scope,
+          status,
+          requested_by_user_id,
+          requested_by_member_id,
+          requested_by_profile_id,
+          requested_by_display_name,
+          direct_message_space_id,
+          acceptance_idempotency_key,
+          created_at_ms,
+          updated_at_ms
+        ) VALUES (
+          'batch-with-acceptance-key',
+          'organization-upgrade',
+          'member',
+          'completed',
+          'user-upgrade',
+          'member-upgrade',
+          'profile-upgrade',
+          'Upgrade User',
+          'space-upgrade',
+          'slack-welcome:upgrade',
+          3000,
+          3000
+        );
+      `);
+      expectStatementToThrow(
+        database,
+        `INSERT INTO center_agent_member_research_batches (
+          id, organization_id, scope, status, requested_by_user_id,
+          requested_by_member_id, requested_by_profile_id,
+          requested_by_display_name, direct_message_space_id,
+          acceptance_idempotency_key, created_at_ms, updated_at_ms
+        ) VALUES (
+          'batch-duplicate-acceptance-key', 'organization-upgrade', 'member',
+          'completed', 'user-upgrade', 'member-upgrade', 'profile-upgrade',
+          'Upgrade User', 'space-upgrade', 'slack-welcome:upgrade', 4000, 4000
+        )`,
+        "UNIQUE constraint failed"
+      );
+    } finally {
+      database.close();
+    }
+  });
+
   it("preserves Center Agent identity and backfills the Organization creator when adding pause state", () => {
     const database = new DatabaseSync(":memory:");
     try {

@@ -49,15 +49,9 @@ export async function runSlackInstallationWelcomePreparationTick(input: {
     nowMs: input.nowMs,
   });
   for (const preparation of claimed) {
+    let research: { taskId: string };
     try {
-      const research = await input.startResearch(preparation);
-      await attachSlackInstallationWelcomeResearchTask({
-        claimId: preparation.claimId,
-        db: input.db,
-        key: preparation.key,
-        nowMs: input.nowMs,
-        researchTaskId: research.taskId,
-      });
+      research = await input.startResearch(preparation);
     } catch (error) {
       if (isMemberResearchBusy(error)) {
         await releaseSlackInstallationWelcomePreparation({
@@ -76,6 +70,26 @@ export async function runSlackInstallationWelcomePreparationTick(input: {
         nowMs: input.nowMs,
         preparation,
       });
+      continue;
+    }
+    try {
+      await attachSlackInstallationWelcomeResearchTask({
+        claimId: preparation.claimId,
+        db: input.db,
+        key: preparation.key,
+        nowMs: input.nowMs,
+        researchTaskId: research.taskId,
+      });
+    } catch (error) {
+      console.warn(
+        "[core.slack_installation_welcome.research_checkpoint_pending]",
+        {
+          error: error instanceof Error ? error.message : String(error),
+          organizationId: preparation.key.organizationId,
+          researchTaskId: research.taskId,
+          slackTeamId: preparation.key.slackTeamId,
+        }
+      );
     }
   }
 

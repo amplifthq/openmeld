@@ -163,6 +163,103 @@ describe("Center Agent member research", () => {
       .run();
   });
 
+  it("returns the same accepted research task for one internal onboarding request", async () => {
+    const fixture = await seedResearchFixture();
+    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const request = {
+      context: humanContext(fixture, fixture.requester),
+      expectedOrganizationId: fixture.organizationId,
+      scope: "member" as const,
+      subjectUserId: fixture.requester.userId,
+    };
+    const acceptanceIdempotencyKey = `slack-welcome:${fixture.suffix}`;
+
+    const first = await startCenterAgentMemberResearch(
+      coreEnv,
+      request,
+      `ca_dm_${fixture.suffix}`,
+      { acceptanceIdempotencyKey, nowMs: 1000 }
+    );
+    await env.OPENMELD_DB.batch([
+      env.OPENMELD_DB.prepare(
+        `UPDATE center_agent_member_research_tasks
+         SET status = 'completed', started_at_ms = 2000, finished_at_ms = 3000
+         WHERE batch_id = ?`
+      ).bind(first.batch.id),
+      env.OPENMELD_DB.prepare(
+        `UPDATE center_agent_member_research_batches
+         SET status = 'completed', updated_at_ms = 3000
+         WHERE id = ?`
+      ).bind(first.batch.id),
+    ]);
+    const recovered = await startCenterAgentMemberResearch(
+      coreEnv,
+      request,
+      `ca_dm_${fixture.suffix}`,
+      { acceptanceIdempotencyKey }
+    );
+
+    expect(recovered.batch.id).toBe(first.batch.id);
+    expect(recovered.batch.status).toBe("completed");
+    expect(recovered.batch.tasks[0]?.id).toBe(first.batch.tasks[0]?.id);
+    const batchCount = await env.OPENMELD_DB.prepare(
+      `SELECT COUNT(*) AS count
+        FROM center_agent_member_research_batches
+        WHERE organization_id = ?`
+    )
+      .bind(fixture.organizationId)
+      .first<{ count: number }>();
+    expect(batchCount?.count).toBe(1);
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM center_agent_member_research_batches WHERE id = ?"
+    )
+      .bind(first.batch.id)
+      .run();
+  });
+
+  it("returns one accepted research task when the same onboarding request races", async () => {
+    const fixture = await seedResearchFixture();
+    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const request = {
+      context: humanContext(fixture, fixture.requester),
+      expectedOrganizationId: fixture.organizationId,
+      scope: "member" as const,
+      subjectUserId: fixture.requester.userId,
+    };
+    const acceptanceIdempotencyKey = `slack-welcome-race:${fixture.suffix}`;
+
+    const [first, second] = await Promise.all([
+      startCenterAgentMemberResearch(
+        coreEnv,
+        request,
+        `ca_dm_${fixture.suffix}`,
+        { acceptanceIdempotencyKey, nowMs: 1000 }
+      ),
+      startCenterAgentMemberResearch(
+        coreEnv,
+        request,
+        `ca_dm_${fixture.suffix}`,
+        { acceptanceIdempotencyKey, nowMs: 1001 }
+      ),
+    ]);
+
+    expect(second.batch.id).toBe(first.batch.id);
+    expect(second.batch.tasks[0]?.id).toBe(first.batch.tasks[0]?.id);
+    const batchCount = await env.OPENMELD_DB.prepare(
+      `SELECT COUNT(*) AS count
+        FROM center_agent_member_research_batches
+        WHERE organization_id = ?`
+    )
+      .bind(fixture.organizationId)
+      .first<{ count: number }>();
+    expect(batchCount?.count).toBe(1);
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM center_agent_member_research_batches WHERE id = ?"
+    )
+      .bind(first.batch.id)
+      .run();
+  });
+
   it("lets a verified member ask the hosted Center Agent to learn about themselves", async () => {
     const fixture = await seedResearchFixture();
     const coreEnv = buildResearchDeliveryEnv(fixture);

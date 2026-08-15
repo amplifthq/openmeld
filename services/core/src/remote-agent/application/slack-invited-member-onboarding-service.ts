@@ -70,15 +70,9 @@ export async function runSlackInvitedMemberOnboardingTick(input: {
   });
   for (const onboarding of active) {
     if (!onboarding.researchTaskId) {
+      let research: { taskId: string };
       try {
-        const research = await input.startResearch(onboarding);
-        await attachSlackInvitedMemberResearchTask({
-          db: input.db,
-          interactionId: onboarding.interactionId,
-          nowMs: input.nowMs,
-          researchTaskId: research.taskId,
-          targetSlackUserId: onboarding.targetSlackUserId,
-        });
+        research = await input.startResearch(onboarding);
       } catch (error) {
         if (isMemberResearchBusy(error)) {
           continue;
@@ -89,6 +83,28 @@ export async function runSlackInvitedMemberOnboardingTick(input: {
           onboarding,
           error,
         });
+        continue;
+      }
+      try {
+        await attachSlackInvitedMemberResearchTask({
+          db: input.db,
+          interactionId: onboarding.interactionId,
+          nowMs: input.nowMs,
+          researchTaskId: research.taskId,
+          targetSlackUserId: onboarding.targetSlackUserId,
+        });
+      } catch (error) {
+        console.warn(
+          "[core.slack_invited_member.research_checkpoint_pending]",
+          {
+            error: error instanceof Error ? error.message : String(error),
+            interactionId: onboarding.interactionId,
+            organizationId: onboarding.organizationId,
+            researchTaskId: research.taskId,
+            slackTeamId: onboarding.slackTeamId,
+            targetSlackUserId: onboarding.targetSlackUserId,
+          }
+        );
       }
       continue;
     }

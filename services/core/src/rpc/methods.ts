@@ -7308,26 +7308,6 @@ async function startSlackMemberResearch(input: {
   subjectUserId: string;
 }): Promise<{ taskId: string }> {
   const db = requireCenterAgentDb(input.env);
-  const existingTask = await db
-    .prepare(
-      `
-        SELECT tasks.id
-        FROM center_agent_member_research_tasks AS tasks
-        INNER JOIN center_agent_member_research_batches AS batches
-          ON batches.id = tasks.batch_id
-        WHERE batches.organization_id = ?
-          AND batches.status IN ('queued', 'running')
-          AND tasks.subject_user_id = ?
-          AND tasks.status IN ('queued', 'running')
-        ORDER BY tasks.created_at_ms ASC
-        LIMIT 1
-      `
-    )
-    .bind(input.organizationId, input.subjectUserId)
-    .first<{ id: string }>();
-  if (existingTask) {
-    return { taskId: existingTask.id };
-  }
   const humanProfile = await db
     .prepare(
       `
@@ -7371,7 +7351,10 @@ async function startSlackMemberResearch(input: {
       subjectUserId: input.subjectUserId,
     },
     directMessage.spaceId,
-    { nowMs: input.nowMs }
+    {
+      acceptanceIdempotencyKey: input.requestId,
+      nowMs: input.nowMs,
+    }
   );
   const task = research.batch.tasks[0];
   if (!task) {

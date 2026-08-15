@@ -880,17 +880,42 @@ async function submitClaimedSlackChannelIntroduction(input: {
         turnEnvelope,
       },
     });
+    if (delivery.status === "submitted") {
+      const checkpoint = await persistConfirmedPublicationCheckpoint(
+        async () => {
+          await completeSlackChannelIntroductionItemClaim({
+            claim: input.claim,
+            db: input.db,
+            failureCode: null,
+            nowMs: Date.now(),
+            status: "submitted",
+          });
+        }
+      );
+      if (!checkpoint.persisted) {
+        console.warn(
+          "[core.slack_channel_introduction.item_checkpoint_pending]",
+          {
+            error:
+              checkpoint.error instanceof Error
+                ? checkpoint.error.message
+                : String(checkpoint.error),
+            interactionId: input.claim.run.interactionId,
+            slackChannelId: input.claim.slackChannelId,
+            slackTeamId: input.claim.run.slackTeamId,
+          }
+        );
+      }
+      return "submitted";
+    }
     await completeSlackChannelIntroductionItemClaim({
       claim: input.claim,
       db: input.db,
-      failureCode:
-        delivery.status === "failed"
-          ? "slack_channel_introduction.delivery_failed"
-          : null,
+      failureCode: "slack_channel_introduction.delivery_failed",
       nowMs: Date.now(),
-      status: delivery.status === "submitted" ? "submitted" : "failed",
+      status: "failed",
     });
-    return delivery.status === "submitted" ? "submitted" : "failed";
+    return "failed";
   } catch (error) {
     return await settleFailedSlackChannelIntroductionClaim({ ...input, error });
   }

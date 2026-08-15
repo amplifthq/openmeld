@@ -1805,6 +1805,13 @@ the strict Remote Agent turn envelope: a top-level App Home direct message uses
 publication and recovery. Older stored requests without the optional field
 continue to use the legacy thread placement.
 
+This additive field rolls out Remote Agent receiver first. The guarded
+production planner recognizes the shared turn-envelope owner, Slack Core
+producer, and Center Agent receiver together, then deploys Remote Agent before
+Core. Old Core safely omits the optional field while the new receiver preserves
+legacy thread placement; Core may emit `replyPlacement` only after that receiver
+is visible. Rollback stops the Core producer before removing the receiver.
+
 ### Slack Event Ingress Contracts
 
 `packages/schemas/src/schemas/runtime/remote-agent-slack.ts` owns the strict

@@ -467,6 +467,32 @@ test("deploys an additive Remote Agent turn-request receiver before its Core pro
   );
 });
 
+test("deploys the Slack turn-envelope receiver before its Core producer", () => {
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths: [
+      "packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts",
+      "services/core/src/remote-agent/application/slack-signal-service.ts",
+      "services/remote-agent/.flue/agents/center-agent.ts",
+    ],
+    scope: "db,core,remote-agent",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+
+  assert.equal(plan.deployOrderProfile, "remote-agent-receiver-first");
+  assert.deepEqual(
+    plan.deploySteps.map((step) => step.label),
+    [
+      "Synchronize production database",
+      "Deploy Remote Agent Worker",
+      "Verify Remote Agent deployment is visible",
+      "Deploy Core Worker",
+      "Verify Core deployment is visible",
+    ]
+  );
+});
+
 test("does not infer the Remote Agent receiver-first profile from bidirectional contract paths", () => {
   const plan = buildProductionReleasePlan({
     affectedPackages: [],

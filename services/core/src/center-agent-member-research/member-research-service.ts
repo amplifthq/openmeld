@@ -38,6 +38,7 @@ type SubmitMemberResearchDelivery = (
 ) => Promise<{ failureCode?: string; status: "failed" | "submitted" }>;
 
 type StartCenterAgentMemberResearchOptions = {
+  acceptanceIdempotencyKey?: string;
   nowMs?: number;
 };
 
@@ -96,6 +97,27 @@ export async function startCenterAgentMemberResearch(
       status: 403,
     });
   }
+  const acceptanceIdempotencyKey = requireAcceptanceIdempotencyKey(
+    options.acceptanceIdempotencyKey
+  );
+  const acceptanceLookup = {
+    acceptanceIdempotencyKey,
+    db,
+    directMessageSpaceId,
+    organizationId: membership.organizationId,
+    requesterProfileId: requester.profileId,
+    requesterUserId: requester.userId,
+    scope: request.scope,
+    subjectUserId:
+      request.scope === "member" ? request.subjectUserId : undefined,
+  } as const;
+  const existingAcceptedBatch =
+    await readAcceptedResearchBatch(acceptanceLookup);
+  if (existingAcceptedBatch) {
+    return startCenterAgentMemberResearchResponseSchema.parse({
+      batch: existingAcceptedBatch,
+    });
+  }
   const designation = await readCenterAgentDesignationRecord({
     db,
     organizationId: membership.organizationId,
@@ -112,6 +134,13 @@ export async function startCenterAgentMemberResearch(
     organizationId: membership.organizationId,
   });
   if (activeBatch) {
+    const concurrentlyAcceptedBatch =
+      await readAcceptedResearchBatch(acceptanceLookup);
+    if (concurrentlyAcceptedBatch) {
+      return startCenterAgentMemberResearchResponseSchema.parse({
+        batch: concurrentlyAcceptedBatch,
+      });
+    }
     throw createCoreRpcHttpError({
       code: "center_agent_member_research.already_running",
       reason: "Member research is already in progress for this Organization.",
@@ -155,9 +184,10 @@ export async function startCenterAgentMemberResearch(
             id, organization_id, scope, status,
             requested_by_user_id, requested_by_member_id,
             requested_by_profile_id, requested_by_display_name,
-            direct_message_space_id, created_at_ms, updated_at_ms
+            direct_message_space_id, acceptance_idempotency_key,
+            created_at_ms, updated_at_ms
           )
-          VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)
         `
       )
       .bind(
@@ -169,6 +199,7 @@ export async function startCenterAgentMemberResearch(
         requester.profileId,
         requester.displayName,
         directMessageSpaceId,
+        acceptanceIdempotencyKey,
         nowMs,
         nowMs
       ),
@@ -206,12 +237,129 @@ export async function startCenterAgentMemberResearch(
       })
     );
   });
-  await db.batch(statements);
+  try {
+    await db.batch(statements);
+  } catch (acceptanceError) {
+    const concurrentlyAcceptedBatch =
+      await recoverAcceptedResearchBatchAfterWriteFailure({
+        acceptanceError,
+        acceptanceLookup,
+      });
+    return startCenterAgentMemberResearchResponseSchema.parse({
+      batch: concurrentlyAcceptedBatch,
+    });
+  }
   const batch = await readResearchBatchById({ batchId, db });
   if (!batch) {
     throw new Error("Member research acceptance did not persist its batch.");
   }
   return startCenterAgentMemberResearchResponseSchema.parse({ batch });
+}
+
+function requireAcceptanceIdempotencyKey(
+  value: string | undefined
+): string | null {
+  if (value === undefined) {
+    return null;
+  }
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error("Member research acceptance idempotency key is empty.");
+  }
+  return normalized;
+}
+
+async function readAcceptedResearchBatch(input: {
+  acceptanceIdempotencyKey: string | null;
+  db: D1Database;
+  directMessageSpaceId: string;
+  organizationId: string;
+  requesterProfileId: string;
+  requesterUserId: string;
+  scope: "all" | "member";
+  subjectUserId?: string;
+}) {
+  if (!input.acceptanceIdempotencyKey) {
+    return null;
+  }
+  const existingAcceptance = await input.db
+    .prepare(
+      `
+        SELECT
+          id,
+          direct_message_space_id,
+          requested_by_profile_id,
+          requested_by_user_id,
+          scope
+        FROM center_agent_member_research_batches
+        WHERE organization_id = ?
+          AND acceptance_idempotency_key = ?
+        LIMIT 1
+      `
+    )
+    .bind(input.organizationId, input.acceptanceIdempotencyKey)
+    .first<{
+      direct_message_space_id: string;
+      id: string;
+      requested_by_profile_id: string;
+      requested_by_user_id: string;
+      scope: "all" | "member";
+    }>();
+  if (!existingAcceptance) {
+    return null;
+  }
+  if (
+    existingAcceptance.direct_message_space_id !== input.directMessageSpaceId ||
+    existingAcceptance.requested_by_profile_id !== input.requesterProfileId ||
+    existingAcceptance.requested_by_user_id !== input.requesterUserId ||
+    existingAcceptance.scope !== input.scope
+  ) {
+    throw new Error(
+      "Member research acceptance idempotency key was reused with different input."
+    );
+  }
+  const existingBatch = await readResearchBatchById({
+    batchId: existingAcceptance.id,
+    db: input.db,
+  });
+  if (!existingBatch) {
+    throw new Error(
+      "Member research acceptance exists without its durable batch."
+    );
+  }
+  if (
+    input.scope === "member" &&
+    (existingBatch.tasks.length !== 1 ||
+      existingBatch.tasks[0]?.subjectUserId !== input.subjectUserId)
+  ) {
+    throw new Error(
+      "Member research acceptance subject does not match its durable batch."
+    );
+  }
+  return existingBatch;
+}
+
+async function recoverAcceptedResearchBatchAfterWriteFailure(input: {
+  acceptanceError: unknown;
+  acceptanceLookup: Parameters<typeof readAcceptedResearchBatch>[0];
+}) {
+  let concurrentlyAcceptedBatch: Awaited<
+    ReturnType<typeof readAcceptedResearchBatch>
+  > = null;
+  try {
+    concurrentlyAcceptedBatch = await readAcceptedResearchBatch(
+      input.acceptanceLookup
+    );
+  } catch (recoveryError) {
+    throw new AggregateError(
+      [input.acceptanceError, recoveryError],
+      "Member research acceptance failed and its concurrent outcome could not be verified."
+    );
+  }
+  if (!concurrentlyAcceptedBatch) {
+    throw input.acceptanceError;
+  }
+  return concurrentlyAcceptedBatch;
 }
 
 export async function getCenterAgentMemberResearchStatus(

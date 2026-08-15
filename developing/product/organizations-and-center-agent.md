@@ -1475,7 +1475,11 @@ posts those private invitations to a channel. When Slack does not expose a
 selected teammate's email, Core does not send a targeted invitation that it
 cannot safely correlate after joining. The Center Agent instead tells the
 requester what happened and returns the same join link for manual sharing as
-the lowest-cost safe next step. A channel
+the lowest-cost safe next step. Before claiming any private invitation, Core
+also compares the selected Slack email with the current Auth-owned Organization
+directory using exact normalized email. Someone who is already a member is
+skipped, receives no redundant join message or onboarding, and the requester
+gets one short no-action confirmation. A channel
 introduction starts in direct message: a native picker accepts at most five
 public channels, Core joins those channels when needed, and the Center Agent
 reads one bounded recent page before posting a short introduction grounded in
@@ -1490,6 +1494,10 @@ before continuing onboarding or channel publication. Recovery never blindly
 duplicates a provider-ambiguous message. If the original channel acknowledgement
 cannot be confirmed, the one private retry action is also durably claimed,
 checkpointed, and reconciled instead of being sent as an untracked follow-up.
+If native delivery was durably accepted but the per-channel item checkpoint
+fails, the item remains submitting; the scheduler reclaims it after the bounded
+lease and the same native-delivery idempotency key recovers acceptance without
+submitting the Center Agent turn or publishing a failure notice twice.
 The minute scheduler reclaims only an interrupted item; a completed channel is
 never silently repeated and a process restart cannot make a later selected
 channel disappear. Core includes an existing active Organization join
@@ -1507,6 +1515,13 @@ DM. Missing or invalid Web URL configuration fails before publication rather
 than stripping the promised welcome actions. Any failed welcome button or
 modal action likewise produces one private retry/reconnect next step when Core
 can still reach the Slack workspace.
+
+Each Slack onboarding research acceptance has one stable internal idempotency
+key stored on the Core research batch. If research is accepted but the welcome
+preparation or invited-member row cannot yet store the task id, that onboarding
+remains recoverable. A later scheduler tick resolves the exact same batch and
+task, even after research has finished, instead of opening a duplicate report
+or sending a false research-failure welcome.
 
 An invited Slack user receives the Organization join link and a simple account
 of what will happen after joining; OpenMeld does not claim to know that person

@@ -283,6 +283,94 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
+  it("recovers a submitted channel introduction when its item checkpoint stays unavailable", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: `req_${request.idempotencyKey}`,
+        status: "pending" as const,
+        submissionId: `sub_${request.idempotencyKey}`,
+      })
+    );
+    const fetchMock = stubSlackFetch({
+      conversationsListResponse: {
+        channels: [
+          {
+            id: "C_PRODUCT",
+            is_member: true,
+            is_private: false,
+            name: "product",
+          },
+        ],
+        ok: true,
+        response_metadata: { next_cursor: "" },
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      const db = createFaultInjectingD1Database({
+        db: harness.db,
+        failureCount: 2,
+        matches: (sql, operation) =>
+          operation === "first" &&
+          sql.includes("UPDATE slack_channel_introduction_items") &&
+          sql.includes("status = ?") &&
+          sql.includes("AND claim_id = ?"),
+      });
+
+      await submitRemoteAgentSlackChannelIntroduction({
+        env: buildEnv(db, { workerSubmit }),
+        interactionId: "V_CHANNEL_ITEM_CHECKPOINT",
+        organizationInviteUrl: null,
+        slackTeamId: "T123",
+        slackUserId: "U123",
+        targetSlackChannelIds: ["C_PRODUCT"],
+      });
+
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
+      const pendingCheckpoint = harness.queryFirst<{
+        status: string;
+        updated_at_ms: number;
+      }>({
+        sql: `SELECT status, updated_at_ms
+          FROM slack_channel_introduction_items
+          WHERE interaction_id = 'V_CHANNEL_ITEM_CHECKPOINT'`,
+      });
+      expect(pendingCheckpoint?.status).toBe("submitting");
+
+      await runSlackChannelIntroductionTick({
+        db: harness.db,
+        env: buildEnv(harness.db, { workerSubmit }),
+        interactionId: "V_CHANNEL_ITEM_CHECKPOINT",
+        nowMs: (pendingCheckpoint?.updated_at_ms ?? 0) + 5 * 60_000 + 1,
+      });
+
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      expect(readSlackPostBodies(fetchMock)).toHaveLength(1);
+      expect(
+        harness.queryFirst({
+          sql: `SELECT status, failure_code
+            FROM slack_channel_introduction_items
+            WHERE interaction_id = 'V_CHANNEL_ITEM_CHECKPOINT'`,
+        })
+      ).toEqual({ failure_code: null, status: "submitted" });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("reconciles a confirmed acknowledgement after its checkpoint stays unavailable", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);

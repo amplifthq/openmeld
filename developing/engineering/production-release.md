@@ -113,11 +113,11 @@ the diff contains one of these explicit Core-to-Remote-Agent receiver owners:
 - `services/remote-agent/flue-adapter/cloudflare-entrypoint.ts`
 - `services/remote-agent/flue-adapter/execution-reconciliation.ts`
 
-It selects the same profile when a diff introduces a new strict Remote Agent
-request version and changes its explicit shared-schema request owner, Core
-producer/admission owner, and Remote Agent Center Agent receiver together.
-Those three signals distinguish a directional request-envelope rollout from a
-non-directional shared-schema edit.
+It selects the same profile when a diff expands a strict Remote Agent request
+shape—either with a new request version or an additive field—and changes its
+explicit shared-schema request owner, Core producer/admission owner, and Remote
+Agent Center Agent receiver together. Those three signals distinguish a
+directional request-envelope rollout from a non-directional shared-schema edit.
 
 Within the selected scopes it deploys Database, Remote Agent, Auth, Core,
 Gateway, Web, then CLI. This installs strict Remote Agent RPC receivers before
