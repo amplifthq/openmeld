@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildJoinedMemberWelcomeBlocks,
+  buildJoinedMemberWelcomeMessage,
   runSlackInvitedMemberOnboardingTick,
 } from "../src/remote-agent/application/slack-invited-member-onboarding-service";
 import {
@@ -25,6 +26,36 @@ describe("Slack invited member onboarding", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     harness.close();
+  });
+
+  it("localizes a joined-member welcome from the frozen Traditional Chinese observation", () => {
+    const message = buildJoinedMemberWelcomeMessage({
+      hasUsefulEvidence: true,
+      languageTag: "zh-TW",
+      observation: "你正在改善團隊的交付流程。",
+      organizationName: "範例團隊",
+      targetDisplayName: "陳小美",
+    });
+    const blocks = buildJoinedMemberWelcomeBlocks({
+      documentId: "document-maya",
+      languageTag: "zh-TW",
+      message,
+      organizationSlug: "example-team",
+      webAppUrl: "https://openmeld.test",
+    });
+
+    expect(message).toContain("你已加入，陳小美");
+    expect(message).toContain("我目前瞭解到的一點");
+    expect(blocks[1]).toEqual(
+      expect.objectContaining({
+        elements: expect.arrayContaining([
+          expect.objectContaining({
+            action_id: "invite_teammates",
+            text: { text: "邀請團隊成員", type: "plain_text" },
+          }),
+        ]),
+      })
+    );
   });
 
   it("learns a joined Slack invitee, sends one trust-first DM, and completes exactly once", async () => {
@@ -626,7 +657,8 @@ function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
       CREATE TABLE center_agent_member_research_tasks (
         id TEXT PRIMARY KEY,
         status TEXT NOT NULL,
-        failure_code TEXT
+        failure_code TEXT,
+        observed_language_tag TEXT
       )
     `,
     `
@@ -650,6 +682,12 @@ function createTables(harness: ReturnType<typeof createSqliteD1Harness>): void {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         slug TEXT NOT NULL
+      )
+    `,
+    `
+      CREATE TABLE organization_working_language_preferences (
+        organization_id TEXT PRIMARY KEY,
+        language_tag TEXT NOT NULL
       )
     `,
     `
@@ -769,8 +807,10 @@ function seedCompletedResearch(
   harness.run({
     params: ["research-task-1"],
     sql: `
-      INSERT INTO center_agent_member_research_tasks (id, status, failure_code)
-      VALUES (?, 'completed', NULL)
+      INSERT INTO center_agent_member_research_tasks (
+        id, status, failure_code, observed_language_tag
+      )
+      VALUES (?, 'completed', NULL, NULL)
     `,
   });
   harness.run({

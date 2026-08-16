@@ -18,12 +18,15 @@ import {
   isMemberResearchBusy,
   requireWebAppUrl,
 } from "./slack-onboarding-copy";
+import {
+  buildLocalizedTrustFirstSlackWelcomeMessage,
+  getSlackOnboardingActionLabels,
+} from "./slack-onboarding-localization";
 
 const PROFILE_CURRENT_FOCUS_SECTION_PATTERN =
   /### Current focus\s+([\s\S]*?)(?:\n### |\n## |$)/u;
 const PROFILE_OBSERVATION_ITEM_PATTERN =
   /^- \d{4}-\d{2}-\d{2} — (.+?) Source: /mu;
-const WHITESPACE_PATTERN = /\s+/u;
 
 type PreparedProfileReport = {
   activeConnectedAppCount: number;
@@ -33,6 +36,7 @@ type PreparedProfileReport = {
   installerDisplayName: string;
   organizationName: string;
   organizationSlug: string;
+  observedLanguageTag: string | null;
   path: string;
 };
 
@@ -129,14 +133,18 @@ async function advancePreparation(input: {
   const research = await input.db
     .prepare(
       `
-        SELECT status, failure_code
+        SELECT status, failure_code, observed_language_tag
         FROM center_agent_member_research_tasks
         WHERE id = ?
         LIMIT 1
       `
     )
     .bind(researchTaskId)
-    .first<{ failure_code: string | null; status: string }>();
+    .first<{
+      failure_code: string | null;
+      observed_language_tag: string | null;
+      status: string;
+    }>();
   if (!research) {
     await failPreparationSafely({
       db: input.db,
@@ -188,12 +196,14 @@ async function advancePreparation(input: {
     firstObservation: report.firstObservation,
     hasUsefulEvidence: report.hasUsefulEvidence,
     installerDisplayName: report.installerDisplayName,
+    languageTag: report.observedLanguageTag,
     messageKind: preparation.messageKind,
     organizationName: report.organizationName,
   });
   const blocks = buildTrustFirstSlackWelcomeBlocks({
     activeConnectedAppCount: report.activeConnectedAppCount,
     documentId: report.documentId,
+    languageTag: report.observedLanguageTag,
     message,
     organizationSlug: report.organizationSlug,
     webAppUrl: input.env.WEB_APP_URL,
@@ -280,6 +290,7 @@ export async function readPreparedProfileReport(input: {
           users.name AS installer_display_name,
           organizations.name AS organization_name,
           organizations.slug AS organization_slug,
+          tasks.observed_language_tag,
           (
             SELECT COUNT(*)
             FROM connector_connections
@@ -294,6 +305,8 @@ export async function readPreparedProfileReport(input: {
           ON organizations.id = documents.organization_id
         INNER JOIN users
           ON users.id = ?
+        INNER JOIN center_agent_member_research_tasks AS tasks
+          ON tasks.id = files.task_id
         WHERE files.task_id = ?
           AND files.subject_user_id = ?
           AND documents.organization_id = ?
@@ -313,6 +326,7 @@ export async function readPreparedProfileReport(input: {
       installer_display_name: string;
       organization_name: string;
       organization_slug: string;
+      observed_language_tag: string | null;
       path: string;
     }>();
   if (!row) {
@@ -328,6 +342,7 @@ export async function readPreparedProfileReport(input: {
     installerDisplayName: row.installer_display_name,
     organizationName: row.organization_name,
     organizationSlug: row.organization_slug,
+    observedLanguageTag: row.observed_language_tag,
     path: row.path,
   };
 }
@@ -336,31 +351,17 @@ export function buildTrustFirstSlackWelcomeMessage(input: {
   firstObservation: string | null;
   hasUsefulEvidence: boolean;
   installerDisplayName: string;
+  languageTag?: string | null;
   messageKind: "connected" | "moved";
   organizationName: string;
 }): string {
-  const firstName = resolveFirstName(input.installerDisplayName);
-  const opening =
-    input.messageKind === "moved"
-      ? `Hi ${firstName} — this Slack workspace is now connected to *${input.organizationName}*. I’m its Center Agent.`
-      : `Hi ${firstName} — I’m the Center Agent for *${input.organizationName}*.`;
-  const learningResult = input.hasUsefulEvidence
-    ? `I’ve already started getting to know your work. I made a first Profile Report and saved it as a file on my computer, so you don’t have to explain everything from scratch.${input.firstObservation ? `\n\nOne thing I picked up: ${input.firstObservation}` : ""}`
-    : "I’ve already started getting to know your work. I made a first Profile Report and saved it as a file on my computer. I don’t have enough context to say much yet, and I won’t make things up.";
-  return `${opening}
-
-OpenMeld is a place where people and agents work as one team. I learn how your team works, keep the important context together, and help move work forward.
-
-${learningResult}
-
-This is just a starting point. If anything feels off, tell me here. I’ll learn as we work together.
-
-You can talk to me right here. Whenever you’re ready, I can help invite your teammates or learn from more of the apps your team uses.`;
+  return buildLocalizedTrustFirstSlackWelcomeMessage(input);
 }
 
 export function buildTrustFirstSlackWelcomeBlocks(input: {
   activeConnectedAppCount: number;
   documentId: string;
+  languageTag?: string | null;
   message: string;
   organizationSlug: string;
   webAppUrl?: string | null;
@@ -370,10 +371,11 @@ export function buildTrustFirstSlackWelcomeBlocks(input: {
     `/o/${encodeURIComponent(input.organizationSlug)}/`,
     baseUrl
   );
+  const labels = getSlackOnboardingActionLabels(input.languageTag);
   const actions: Record<string, unknown>[] = [
     slackLinkButton({
       actionId: "open_profile_report",
-      label: "See what I learned",
+      label: labels.seeWhatILearned,
       style: "primary",
       url: new URL(
         `documents/${encodeURIComponent(input.documentId)}`,
@@ -382,18 +384,18 @@ export function buildTrustFirstSlackWelcomeBlocks(input: {
     }),
     slackActionButton({
       actionId: "invite_teammates",
-      label: "Invite teammates",
+      label: labels.inviteTeammates,
     }),
     slackActionButton({
       actionId: "start_channel_introduction",
-      label: "Introduce me in channels",
+      label: labels.introduceInChannels,
     }),
   ];
   if (input.activeConnectedAppCount === 0) {
     actions.push(
       slackLinkButton({
         actionId: "connect_more_context",
-        label: "Connect more context",
+        label: labels.connectMoreContext,
         url: new URL("center-agent/apps", organizationRoot).toString(),
       })
     );
@@ -490,9 +492,14 @@ async function deliverResearchUnavailableWelcome(input: {
   const context = await input.db
     .prepare(
       `
-        SELECT organizations.name AS organization_name, users.name AS display_name
+        SELECT
+          organizations.name AS organization_name,
+          preferences.language_tag,
+          users.name AS display_name
         FROM organizations
         INNER JOIN users ON users.id = ?
+        LEFT JOIN organization_working_language_preferences AS preferences
+          ON preferences.organization_id = organizations.id
         WHERE organizations.id = ?
         LIMIT 1
       `
@@ -501,12 +508,17 @@ async function deliverResearchUnavailableWelcome(input: {
       input.preparation.installedByUserId,
       input.preparation.key.organizationId
     )
-    .first<{ display_name: string; organization_name: string }>();
+    .first<{
+      display_name: string;
+      language_tag: string | null;
+      organization_name: string;
+    }>();
   if (!context) {
     throw new Error("Slack welcome failure notice context is unavailable.");
   }
   const message = buildSlackResearchUnavailableWelcomeMessage({
     displayName: context.display_name,
+    languageTag: context.language_tag,
     organizationName: context.organization_name,
     workspaceMoved: input.preparation.messageKind === "moved",
   });
@@ -530,10 +542,6 @@ async function deliverResearchUnavailableWelcome(input: {
     recipientSlackUserId: input.preparation.key.recipientSlackUserId,
     slackTeamId: input.preparation.key.slackTeamId,
   });
-}
-
-function resolveFirstName(displayName: string): string {
-  return displayName.trim().split(WHITESPACE_PATTERN)[0] || "there";
 }
 
 function toOptionalErrorMessage(error: unknown): string | null {

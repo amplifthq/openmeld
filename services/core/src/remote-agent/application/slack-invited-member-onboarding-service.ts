@@ -31,11 +31,14 @@ import {
   requireWebAppUrl,
 } from "./slack-onboarding-copy";
 import {
+  buildLocalizedJoinedMemberWelcomeMessage,
+  getSlackOnboardingActionLabels,
+} from "./slack-onboarding-localization";
+import {
   buildSlackTeammateInvitationDeliveryId,
   SLACK_TEAMMATE_INVITATION_METADATA,
 } from "./slack-onboarding-publication-identity";
 
-const WHITESPACE_PATTERN = /\s+/u;
 const STALE_TEAMMATE_INVITATION_CHECKPOINT_MS = 5 * 60_000;
 
 export async function runSlackInvitedMemberOnboardingTick(input: {
@@ -237,10 +240,14 @@ async function advanceResearchingOnboarding(input: {
   }
   const task = await input.db
     .prepare(
-      "SELECT status, failure_code FROM center_agent_member_research_tasks WHERE id = ? LIMIT 1"
+      "SELECT status, failure_code, observed_language_tag FROM center_agent_member_research_tasks WHERE id = ? LIMIT 1"
     )
     .bind(taskId)
-    .first<{ failure_code: string | null; status: string }>();
+    .first<{
+      failure_code: string | null;
+      observed_language_tag: string | null;
+      status: string;
+    }>();
   if (!task) {
     await failOnboarding({
       ...input,
@@ -302,6 +309,7 @@ async function advanceResearchingOnboarding(input: {
     hasUsefulEvidence: !report.report_content.includes(
       "**Insufficient evidence**"
     ),
+    languageTag: task.observed_language_tag,
     observation,
     organizationName: organization.name,
     targetDisplayName: input.onboarding.targetDisplayName,
@@ -314,6 +322,7 @@ async function advanceResearchingOnboarding(input: {
   });
   const blocks = buildJoinedMemberWelcomeBlocks({
     documentId: report.document_id,
+    languageTag: task.observed_language_tag,
     message,
     organizationSlug: organization.slug,
     webAppUrl: input.env.WEB_APP_URL,
@@ -416,26 +425,17 @@ async function deliverJoinedMemberWelcome(input: {
 
 export function buildJoinedMemberWelcomeMessage(input: {
   hasUsefulEvidence: boolean;
+  languageTag?: string | null;
   observation: string | null;
   organizationName: string;
   targetDisplayName: string;
 }): string {
-  const firstName =
-    input.targetDisplayName.trim().split(WHITESPACE_PATTERN)[0] ?? "there";
-  const proof = input.hasUsefulEvidence
-    ? `I’ve already started getting to know your work and made your first Profile Report. I saved it as a file on my computer.${input.observation ? `\n\nOne thing I picked up: ${input.observation}` : ""}`
-    : "I’ve already started getting to know your work and made your first Profile Report. I saved it as a file on my computer. I don’t have enough context to say much yet, and I won’t make things up.";
-  return `You’re in, ${firstName} — welcome to *${input.organizationName}* in OpenMeld.
-
-${proof}
-
-You can talk to me right here. Tell me what you’re working on, ask what I know, or ask me to help move something forward. If anything I learned feels off, just say so and I’ll keep learning.
-
-When you’re ready, I can also help invite more teammates or get to know the apps your team uses.`;
+  return buildLocalizedJoinedMemberWelcomeMessage(input);
 }
 
 export function buildJoinedMemberWelcomeBlocks(input: {
   documentId: string;
+  languageTag?: string | null;
   message: string;
   organizationSlug: string;
   webAppUrl?: string | null;
@@ -445,28 +445,29 @@ export function buildJoinedMemberWelcomeBlocks(input: {
     `/o/${encodeURIComponent(input.organizationSlug)}/documents/${encodeURIComponent(input.documentId)}`,
     baseUrl
   ).toString();
+  const labels = getSlackOnboardingActionLabels(input.languageTag);
   return [
     { text: { text: input.message, type: "mrkdwn" }, type: "section" },
     {
       elements: [
         {
-          accessibility_label: "See what the Center Agent learned",
+          accessibility_label: labels.seeWhatILearned,
           action_id: "open_profile_report",
           style: "primary",
-          text: { text: "See what I learned", type: "plain_text" },
+          text: { text: labels.seeWhatILearned, type: "plain_text" },
           type: "button",
           url,
         },
         {
-          accessibility_label: "Invite teammates",
+          accessibility_label: labels.inviteTeammates,
           action_id: "invite_teammates",
-          text: { text: "Invite teammates", type: "plain_text" },
+          text: { text: labels.inviteTeammates, type: "plain_text" },
           type: "button",
         },
         {
-          accessibility_label: "Introduce the Center Agent in channels",
+          accessibility_label: labels.introduceInChannels,
           action_id: "start_channel_introduction",
-          text: { text: "Introduce me in channels", type: "plain_text" },
+          text: { text: labels.introduceInChannels, type: "plain_text" },
           type: "button",
         },
       ],
@@ -520,14 +521,28 @@ async function deliverResearchUnavailableWelcome(input: {
   onboarding: SlackInvitedMemberOnboarding;
 }): Promise<void> {
   const organization = await input.db
-    .prepare("SELECT name FROM organizations WHERE id = ? LIMIT 1")
-    .bind(input.onboarding.organizationId)
-    .first<{ name: string }>();
+    .prepare(
+      `
+        SELECT
+          organizations.name,
+          COALESCE(tasks.observed_language_tag, preferences.language_tag) AS language_tag
+        FROM organizations
+        LEFT JOIN center_agent_member_research_tasks AS tasks
+          ON tasks.id = ?
+        LEFT JOIN organization_working_language_preferences AS preferences
+          ON preferences.organization_id = organizations.id
+        WHERE organizations.id = ?
+        LIMIT 1
+      `
+    )
+    .bind(input.onboarding.researchTaskId, input.onboarding.organizationId)
+    .first<{ language_tag: string | null; name: string }>();
   if (!organization) {
     throw new Error("Invited member Organization is unavailable.");
   }
   const message = buildSlackResearchUnavailableWelcomeMessage({
     displayName: input.onboarding.targetDisplayName,
+    languageTag: organization.language_tag,
     organizationName: organization.name,
   });
   const botToken = await resolveSlackBotToken({

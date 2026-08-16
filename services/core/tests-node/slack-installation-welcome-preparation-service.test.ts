@@ -89,6 +89,42 @@ describe("Slack trust-first welcome preparation", () => {
     expect(message).toContain("I won’t make things up");
   });
 
+  it("uses the frozen trusted observation language for Simplified Chinese welcome copy and actions", () => {
+    const message = buildTrustFirstSlackWelcomeMessage({
+      firstObservation: "你正在改进客户反馈流程。",
+      hasUsefulEvidence: true,
+      installerDisplayName: "张三",
+      languageTag: "zh-CN",
+      messageKind: "connected",
+      organizationName: "示例团队",
+    });
+    const blocks = buildTrustFirstSlackWelcomeBlocks({
+      activeConnectedAppCount: 0,
+      documentId: "document-1",
+      languageTag: "zh-CN",
+      message,
+      organizationSlug: "example-team",
+      webAppUrl: "https://openmeld.test",
+    });
+
+    expect(message).toContain("你好，张三");
+    expect(message).toContain("我目前了解到的一点");
+    expect(blocks?.[1]).toEqual(
+      expect.objectContaining({
+        elements: expect.arrayContaining([
+          expect.objectContaining({
+            action_id: "open_profile_report",
+            text: { text: "看看我学到了什么", type: "plain_text" },
+          }),
+          expect.objectContaining({
+            action_id: "connect_more_context",
+            text: { text: "连接更多工作信息", type: "plain_text" },
+          }),
+        ]),
+      })
+    );
+  });
+
   it("offers the report and team expansion without a connector upsell when context already exists", () => {
     const message = "Prepared welcome";
     const blocks = buildTrustFirstSlackWelcomeBlocks({
@@ -148,7 +184,8 @@ describe("Slack trust-first welcome preparation", () => {
   it("closes the loop with a plain next step when a prepared welcome has an invalid Web app URL", async () => {
     for (const sql of [
       `CREATE TABLE center_agent_member_research_tasks (
-        id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT
+        id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT,
+        observed_language_tag TEXT
       )`,
       `CREATE TABLE center_agent_member_research_computer_files (
         task_id TEXT PRIMARY KEY, document_id TEXT NOT NULL,
@@ -161,6 +198,9 @@ describe("Slack trust-first welcome preparation", () => {
       )`,
       `CREATE TABLE organizations (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL
+      )`,
+      `CREATE TABLE organization_working_language_preferences (
+        organization_id TEXT PRIMARY KEY, language_tag TEXT NOT NULL
       )`,
       "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
       `CREATE TABLE connector_connections (
@@ -187,7 +227,7 @@ describe("Slack trust-first welcome preparation", () => {
       harness.run({ sql });
     }
     harness.run({
-      sql: "INSERT INTO center_agent_member_research_tasks VALUES ('research-task-1', 'completed', NULL)",
+      sql: "INSERT INTO center_agent_member_research_tasks VALUES ('research-task-1', 'completed', NULL, NULL)",
     });
     harness.run({
       sql: `INSERT INTO organization_documents VALUES (
@@ -326,12 +366,13 @@ describe("Slack trust-first welcome preparation", () => {
   it("keeps an accepted research task recoverable when attaching it fails", async () => {
     harness.run({
       sql: `CREATE TABLE center_agent_member_research_tasks (
-        id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT
+        id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT,
+        observed_language_tag TEXT
       )`,
     });
     harness.run({
       sql: `INSERT INTO center_agent_member_research_tasks
-        VALUES ('research-task-accepted', 'running', NULL)`,
+        VALUES ('research-task-accepted', 'running', NULL, NULL)`,
     });
     await enqueueSlackInstallationWelcomePreparation({
       allowCreate: true,
@@ -415,6 +456,13 @@ describe("Slack trust-first welcome preparation", () => {
       )`,
       "CREATE TABLE organizations (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
       "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
+      `CREATE TABLE center_agent_member_research_tasks (
+        id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT,
+        observed_language_tag TEXT
+      )`,
+      `CREATE TABLE organization_working_language_preferences (
+        organization_id TEXT PRIMARY KEY, language_tag TEXT NOT NULL
+      )`,
     ]) {
       harness.run({ sql });
     }
@@ -469,6 +517,10 @@ describe("Slack trust-first welcome preparation", () => {
 
   it("uses the published Profile Report when the draft was saved before welcome delivery", async () => {
     for (const sql of [
+      `CREATE TABLE center_agent_member_research_tasks (
+        id TEXT PRIMARY KEY, status TEXT NOT NULL, failure_code TEXT,
+        observed_language_tag TEXT
+      )`,
       `CREATE TABLE center_agent_member_research_computer_files (
         task_id TEXT PRIMARY KEY, document_id TEXT NOT NULL,
         subject_user_id TEXT NOT NULL, path TEXT NOT NULL
@@ -488,6 +540,9 @@ describe("Slack trust-first welcome preparation", () => {
     ]) {
       harness.run({ sql });
     }
+    harness.run({
+      sql: "INSERT INTO center_agent_member_research_tasks VALUES ('research-task-1', 'completed', NULL, NULL)",
+    });
     harness.run({
       sql: `INSERT INTO organization_documents VALUES (
         'document-1', 'org-1',

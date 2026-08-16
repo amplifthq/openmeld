@@ -2845,6 +2845,7 @@ export function buildCenterAgentMemberResearchInstructions(input: {
     "",
     "memberResearchReport contract:",
     "- Set result to evidence_backed or insufficient_evidence.",
+    "- When the subject's actual work communication gives strong evidence of one likely working language, set observedLanguageTag to its canonical BCP 47 tag. Judge this semantically from the available work context; do not count keywords or infer it from a name, location, title, or profile metadata. Omit the field when evidence is mixed or unclear.",
     "- coverage must contain exactly one entry for each source: organization_directory, approved_profile_report, agent_activity, github, slack_workspace_directory, slack_channel_history, connected_apps.",
     "- Every coverage entry must contain source, status (checked, unavailable, or not_attributable), timeRange, and a factual evidence summary.",
     "- Use the actual researched date range. Do not claim checked when a source was unavailable or could not be attributed.",
