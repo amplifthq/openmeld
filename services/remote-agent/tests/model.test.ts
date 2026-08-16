@@ -472,15 +472,6 @@ describe("remote agent model routing", () => {
     ).toBe("custom-gateway");
   });
 
-  it("prefers the production migration gateway override", () => {
-    expect(
-      resolveRemoteAgentAiGatewayId({
-        OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID: "openmeld-remote-agent-prod",
-        OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID_OVERRIDE: " migration-gateway ",
-      })
-    ).toBe("migration-gateway");
-  });
-
   it("resolves the Cloudflare AI Gateway OpenRouter endpoint", () => {
     expect(resolveRemoteAgentAiGatewayOpenRouterBaseUrl({})).toBe(
       "https://gateway.ai.cloudflare.com/v1/e74a33891b4c7a16b1fe853c41011f52/openmeld-remote-agent/openrouter"

@@ -1039,6 +1039,27 @@ for (const secretName of [
   );
 }
 
+const remoteAgentWrangler = parseJsoncObject(
+  "services/remote-agent/wrangler.jsonc"
+);
+const remoteAgentProductionConfig = remoteAgentWrangler?.env?.prod;
+ensure(
+  remoteAgentProductionConfig?.vars?.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID ===
+    "openmeld-remote-agent-prod",
+  "services/remote-agent/wrangler.jsonc env.prod must route through openmeld-remote-agent-prod."
+);
+ensure(
+  remoteAgentProductionConfig?.vars
+    ?.OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS === "production",
+  "services/remote-agent/wrangler.jsonc env.prod must select the production BYOK alias."
+);
+ensure(
+  !remoteAgentProductionConfig?.secrets?.required?.includes(
+    "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID_OVERRIDE"
+  ),
+  "services/remote-agent/wrangler.jsonc env.prod must not declare a second AI Gateway routing authority."
+);
+
 const workflowExpectations = [
   {
     workflowPath: ".github/workflows/sync-auth-worker-secrets.yml",

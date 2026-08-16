@@ -234,7 +234,7 @@
         "OPENMELD_CONNECTORS_BASE_URL": "https://connectors.openmeld.ai",
         "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID": "e74a33891b4c7a16b1fe853c41011f52",
         "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID": "openmeld-remote-agent-prod",
-        "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS": "openrouter",
+        "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS": "production",
         "OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID": "x-ai/grok-4.5",
         "OPENMELD_REMOTE_AGENT_WORK_SURFACE_MODEL_ID": "openai/gpt-5.4-mini",
         "OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "false",
@@ -245,7 +245,6 @@
       "secrets": {
         "required": [
           "CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN",
-          "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID_OVERRIDE",
           "OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN"
         ]
       },
