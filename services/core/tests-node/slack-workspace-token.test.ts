@@ -85,6 +85,7 @@ describe("Slack workspace bot tokens", () => {
       "chat:write",
       "im:write",
       "im:history",
+      "im:read",
     ]);
 
     const legacy = await readSlackWorkspaceToken({
@@ -102,11 +103,13 @@ describe("Slack workspace bot tokens", () => {
     expect(ready?.grantedBotScopes).toEqual([
       "chat:write",
       "im:history",
+      "im:read",
       "im:write",
     ]);
     expect(hasSlackDirectMessageScopes(ready?.grantedBotScopes ?? null)).toBe(
       true
     );
+    expect(hasSlackDirectMessageScopes(["im:history", "im:write"])).toBe(false);
   });
 
   it("fails visibly when neither token source is available", async () => {

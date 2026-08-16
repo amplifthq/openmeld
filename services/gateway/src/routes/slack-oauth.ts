@@ -27,6 +27,7 @@ export const SLACK_BOT_SCOPES = [
   "groups:read",
   "groups:write",
   "im:history",
+  "im:read",
   "im:write",
   "links:read",
   "links:write",

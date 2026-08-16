@@ -25,6 +25,7 @@ const EXPECTED_SLACK_BOT_SCOPES = [
   "groups:read",
   "groups:write",
   "im:history",
+  "im:read",
   "im:write",
   "links:read",
   "links:write",
@@ -219,7 +220,7 @@ describe("Slack OAuth routes", () => {
         },
         ok: true,
         scope:
-          "app_mentions:read,channels:history,chat:write,im:history,im:write,users:read,users:read.email",
+          "app_mentions:read,channels:history,chat:write,im:history,im:read,im:write,users:read,users:read.email",
         team: {
           id: "T9TK3CUKW",
           name: "Acme Workspace",
@@ -265,6 +266,7 @@ describe("Slack OAuth routes", () => {
         "channels:history",
         "chat:write",
         "im:history",
+        "im:read",
         "im:write",
         "users:read",
         "users:read.email",
