@@ -121,6 +121,14 @@ export const createOrganizationDocumentsApi: CreateOrganizationDocumentsApi = (
       updateOrganizationDocumentBodySchema,
       {
         ...(input.content === undefined ? {} : { content: input.content }),
+        ...(input.expectedDocumentUpdatedAt === undefined
+          ? {}
+          : {
+              expectedDocumentUpdatedAt: input.expectedDocumentUpdatedAt,
+            }),
+        ...(input.expectedDraftCreatedAt === undefined
+          ? {}
+          : { expectedDraftCreatedAt: input.expectedDraftCreatedAt }),
         expectedOrganizationId: input.expectedOrganizationId,
         ...(input.folderId === undefined ? {} : { folderId: input.folderId }),
         ...(input.title === undefined ? {} : { title: input.title }),
