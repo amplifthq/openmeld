@@ -4015,6 +4015,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 }
 
 export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
+  handleSlackWelcomeInteraction(
+    input: SlackWelcomeInteractionRpcInput
+  ): Promise<SlackWelcomeInteractionRpcResponse> {
+    return handleSlackWelcomeInteraction(this.env, input);
+  }
+
   listCenterAgentTasks(
     input: ListCenterAgentTasksRpcInput
   ): Promise<ListCenterAgentTasksRpcResponse> {

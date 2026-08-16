@@ -66,6 +66,7 @@ oauth_config:
       - groups:read
       - groups:write
       - im:history
+      - im:read
       - im:write
       - links:read
       - links:write

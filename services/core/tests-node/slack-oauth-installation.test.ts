@@ -20,7 +20,7 @@ const CRYPTO_KEY = btoa(String.fromCharCode(...new Uint8Array(32).fill(9)));
 const NOW_MS = Date.parse("2026-07-10T00:00:00.000Z");
 const RPC_INSTALLATION_INPUT = {
   actorProfileId: "human-1",
-  botScopes: ["chat:write", "im:history", "im:write"],
+  botScopes: ["chat:write", "im:history", "im:read", "im:write"],
   botToken: "xoxb-installed-token",
   botUserId: "U_BOT",
   installedByUserId: "openmeld-user-1",
@@ -234,7 +234,7 @@ describe("Slack OAuth installation", () => {
         slackTeamId: "T_WORKSPACE",
       })
     ).resolves.toMatchObject({
-      grantedBotScopes: ["chat:write", "im:history", "im:write"],
+      grantedBotScopes: ["chat:write", "im:history", "im:read", "im:write"],
     });
   });
 

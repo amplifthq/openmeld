@@ -1413,11 +1413,14 @@ read returned them, and constructs the mention tokens outside model-authored
 text. It rejects display-name mentions and guessed IDs.
 
 Core records the exact bot scopes returned by Slack for every OAuth installation.
-`im:history` and `im:write` are both required before Web presents Slack direct
-messages as ready. Older installations without recorded grants remain connected
-for their existing capabilities but show **Reconnect required** with one OAuth
-action for an owner or admin. Reconnecting refreshes the same workspace
-installation and does not ask the user to disconnect it first.
+`im:history`, `im:read`, and `im:write` are all required before Web presents
+Slack direct messages as ready. `im:read` lets Core ask Slack for the
+conversation facts that prove an App Home message is requester-private; without
+that proof, private invitation tools fail closed. Older installations without
+recorded grants remain connected for their existing capabilities but show
+**Reconnect required** with one OAuth action for an owner or admin. Reconnecting
+refreshes the same workspace installation and does not ask the user to
+disconnect it first.
 
 During rollout, an older Gateway may omit the grant list and the new Core
 records that installation as capability-unknown instead of rejecting it. Core

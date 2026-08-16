@@ -5,6 +5,7 @@ const timestampMsSchema = z.number().int().nonnegative();
 
 export const SLACK_DIRECT_MESSAGE_REQUIRED_BOT_SCOPES = [
   "im:history",
+  "im:read",
   "im:write",
 ] as const;
 
