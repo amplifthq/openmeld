@@ -857,7 +857,7 @@ uses it.
 
 Center Agent model traffic remains **Cloudflare AI Gateway → OpenRouter**. The
 OpenRouter provider key stays in Cloudflare AI Gateway Provider Keys under
-the environment-owned alias; production uses `production`, while local and
+the environment-owned alias; production uses `openrouter`, while local and
 development environments retain `openrouter`. The Remote Agent worker sends
 the authenticated gateway token plus that exact `cf-aig-byok-alias` value and
 does not carry provider API keys in code or tracked config. This is
@@ -2065,7 +2065,7 @@ Core-owned hosted readiness has exactly two product states in MVP:
   This operational evidence does not decide admission, retry, timeout, native
   delivery, or final result-surface truth.
 - New-turn default route: Cloudflare AI Gateway → OpenRouter BYOK
-  `x-ai/grok-4.6` with the environment-owned BYOK alias (`production` in
+  `x-ai/grok-4.6` with the environment-owned BYOK alias (`openrouter` in
   production). The legacy version-1
   environment fallback remains `x-ai/grok-4.5` for durable recovery
   compatibility (settled; see Implementation Base).

@@ -1050,8 +1050,8 @@ ensure(
 );
 ensure(
   remoteAgentProductionConfig?.vars
-    ?.OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS === "production",
-  "services/remote-agent/wrangler.jsonc env.prod must select the production BYOK alias."
+    ?.OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS === "openrouter",
+  "services/remote-agent/wrangler.jsonc env.prod must select the configured OpenRouter BYOK alias."
 );
 ensure(
   !remoteAgentProductionConfig?.secrets?.required?.includes(
