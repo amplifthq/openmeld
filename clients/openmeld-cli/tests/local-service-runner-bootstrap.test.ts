@@ -104,7 +104,7 @@ describe("local service dispatch bootstrap prompt", () => {
     expect(prompt).toContain(
       "Never wake another Agent Profile just to thank, acknowledge, or confirm receipt"
     );
-    expect(promptWithoutWakeMessageBody.length).toBeLessThan(4000);
+    expect(promptWithoutWakeMessageBody.length).toBeLessThan(6000);
     expect(prompt).toContain(
       "Current Wake message:\nSummarize today's status.\n\nMandatory completion:"
     );
@@ -122,6 +122,34 @@ describe("local service dispatch bootstrap prompt", () => {
     expect(prompt).toContain(
       "Current Wake message:\nSummarize today's status."
     );
+  });
+
+  it("keeps working-language judgment stable while injecting only the current advisory per turn", () => {
+    const base = {
+      shouldInjectBootstrap: false,
+      dispatchTriggerSource: "activation_targets" as const,
+      prompt: "Please summarize this thread.",
+      spaceId: "space_a",
+      targetProfileId: "agent_profile_a",
+    };
+    const automatic = buildDispatchPromptPlan({
+      ...base,
+      workingLanguage: { languageTag: "zh-Hans", mode: "automatic" },
+    });
+    const selected = buildDispatchPromptPlan({
+      ...base,
+      workingLanguage: { languageTag: "fr", mode: "selected" },
+    });
+
+    expect(automatic.developerInstructions).toContain(
+      "You decide the language for this response"
+    );
+    expect(automatic.developerInstructions).not.toContain("zh-Hans");
+    expect(automatic.userPrompt).toContain("Observed language: zh-Hans");
+    expect(selected.userPrompt).toContain("Preferred language: fr");
+    expect(selected.developerInstructions).toContain("fully in English");
+    expect(automatic.instructionEpoch).toBe(selected.instructionEpoch);
+    expect(selected.fallbackPrompt).toContain("Preferred language: fr");
   });
 
   it("applies the shared information protection rules to local Wakes", () => {

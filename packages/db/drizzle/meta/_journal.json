@@ -855,6 +855,13 @@
       "when": 1786794455536,
       "tag": "0121_real_quasimodo",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "6",
+      "when": 1786900090348,
+      "tag": "0122_fine_vulture",
+      "breakpoints": true
     }
   ]
 }

@@ -4100,6 +4100,17 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     },
     {
       expectedPayload: {
+        languageTag: "zh-Hans",
+        mode: "selected",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: { languageTag: "zh-Hans", mode: "selected" },
+      response: organizationWorkingLanguageResponse(),
+      rpcName: "centerAgentSetOrganizationWorkingLanguage",
+      toolName: "openmeld_set_organization_working_language",
+    },
+    {
+      expectedPayload: {
         impact: "response_needed",
         prompt: "Choose whether we should ship today or tomorrow.",
         submissionId: ACK.submissionId,
@@ -4844,6 +4855,17 @@ function rememberForOrganizationResponse() {
     organizationId: "org_123",
     saved: true,
     source: "explicit_tool",
+  };
+}
+
+function organizationWorkingLanguageResponse() {
+  return {
+    languageTag: "zh-Hans",
+    mode: "selected",
+    organizationId: "org_123",
+    revision: 1,
+    updatedAt: ISO_NOW,
+    updatedByUserId: "user_1",
   };
 }
 

@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { workingLanguageTagSchema } from "../runtime/working-language";
 import { centerAgentToolSpeakerSchema } from "./center-agent-speaker";
 
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
@@ -153,6 +154,7 @@ const centerAgentMemberResearchEvidenceBackedReportSchema = z
       .min(1)
       .max(8),
     result: z.literal("evidence_backed"),
+    observedLanguageTag: workingLanguageTagSchema.optional(),
     suggestedAboutAdditions: z
       .array(centerAgentMemberResearchEvidenceItemSchema)
       .max(5),
@@ -175,6 +177,7 @@ const centerAgentMemberResearchInsufficientEvidenceReportSchema =
   z.strictObject({
     coverage: centerAgentMemberResearchCoverageListSchema,
     nextSteps: z.array(memberResearchTextSchema.max(400)).min(1).max(2),
+    observedLanguageTag: workingLanguageTagSchema.optional(),
     result: z.literal("insufficient_evidence"),
   });
 

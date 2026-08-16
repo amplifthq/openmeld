@@ -594,6 +594,12 @@ uses **Requested by _member_ via _client_**. Direct work never receives a
 guessed Local Agent label. It is not Agent Activity and must never be labeled
 **Activity**.
 
+The optional Organization working language has no direct Web control in this
+release. An owner or admin changes it conversationally through the Center
+Agent; members cannot mutate it. Web does not cache, infer, or display a second
+preference, and a new Center Agent Web conversation simply follows the current
+request language unless stronger current context says otherwise.
+
 The **Model** section is readable by every active Organization member. It shows
 the effective friendly primary-model name and never exposes a raw OpenRouter
 model id. Owners and admins may choose **OpenMeld default**, **Grok 4.6**,

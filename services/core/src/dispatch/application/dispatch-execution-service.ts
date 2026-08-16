@@ -57,6 +57,10 @@ import { resolveLocalComponentUpdateProjection } from "../../local-components/up
 import { summarizeInformationProtectionError } from "../../organizations/organization-information-protection-observability";
 import { readOrganizationInformationProtectionPolicyForSpace } from "../../organizations/organization-information-protection-repository";
 import {
+  readOrganizationWorkingLanguagePreferenceForSpace,
+  toWorkingLanguageGuidance,
+} from "../../organizations/organization-working-language-repository";
+import {
   emitSpaceStatusSignal,
   emitSpaceSystemNoticeSignal,
   emitSpaceTextSignal,
@@ -798,6 +802,28 @@ export const deliverDispatchMessageToDaemon = async (input: {
             return null;
           })
       : null;
+  const workingLanguage =
+    route.capabilities.workingLanguagePrompt === true
+      ? await readOrganizationWorkingLanguagePreferenceForSpace({
+          db: localStateDbHandle,
+          spaceId: input.message.spaceId,
+        })
+          .then((preference) =>
+            preference ? toWorkingLanguageGuidance(preference) : null
+          )
+          .catch((error) => {
+            console.warn(
+              "[core.openMeldDaemon.dispatch_execution.working_language_unavailable]",
+              {
+                event:
+                  "core.openMeldDaemon.dispatch_execution.working_language_unavailable",
+                ...executionLogBase,
+                error: summarizeInformationProtectionError(error),
+              }
+            );
+            return null;
+          })
+      : null;
   const deliverRequest = await measureDispatchTiming({
     description: "Build the RuntimeTransport delivery request",
     name: "openmeld_dispatch_deliver_request_build",
@@ -813,6 +839,7 @@ export const deliverDispatchMessageToDaemon = async (input: {
         defaultProjectId: targetProfileIdentity.defaultProjectId,
         message: input.message,
         organizationProtectedInformation,
+        workingLanguage,
         sourceSignal,
         targetProfileIsCenterAgent,
         targetProfileMentionLabel,

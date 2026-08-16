@@ -73,9 +73,13 @@ import {
   requireCenterAgentMemberResearchDraftTarget,
 } from "../center-agent-member-research/member-research-repository";
 import { type CoreBindings, organizationDocumentsDb } from "../lib/bindings";
-import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
+import {
+  readOrganizationPersonalClassification,
+  resolveActiveOrganizationMembership,
+} from "../organizations/organization-context";
 import { resolveOrganizationDirectoryMembers } from "../organizations/organization-directory";
 import { readOrganizationInformationProtectionForPrompt } from "../organizations/organization-information-protection-prompt";
+import { observeOrganizationWorkingLanguage } from "../organizations/organization-working-language-repository";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   createOrganizationDocumentService,
@@ -390,6 +394,42 @@ export async function rpcCenterAgentOrganizationDocumentsComputerSnapshot(
   );
 }
 
+async function observeSharedOrganizationWorkingLanguage(input: {
+  db: D1Database;
+  env: CoreBindings;
+  languageTag: string;
+  memberResearchTaskId: string;
+  organizationId: string;
+  requestId: string;
+}): Promise<boolean> {
+  const classification = await readOrganizationPersonalClassification({
+    env: input.env,
+    organizationId: input.organizationId,
+    requestId: input.requestId,
+  });
+  if (!classification.ok) {
+    console.warn(
+      "[core.organization_document.working_language_classification_unavailable]",
+      {
+        memberResearchTaskId: input.memberResearchTaskId,
+        organizationId: input.organizationId,
+        requestId: input.requestId,
+      }
+    );
+    return false;
+  }
+  if (classification.personal) {
+    return false;
+  }
+  const observation = await observeOrganizationWorkingLanguage({
+    db: input.db,
+    languageTag: input.languageTag,
+    nowMs: Date.now(),
+    organizationId: input.organizationId,
+  });
+  return observation.changed;
+}
+
 export async function rpcCenterAgentDraftOrganizationDocument(
   env: CoreBindings,
   input: CenterAgentDraftOrganizationDocumentRpcInput
@@ -452,6 +492,51 @@ export async function rpcCenterAgentDraftOrganizationDocument(
       return reviewerUserIds;
     }
   );
+  const observedLanguageTag = draft.memberResearchReport?.observedLanguageTag;
+  if (memberResearch && observedLanguageTag) {
+    const taskUpdate = await db
+      .prepare(
+        `
+          UPDATE center_agent_member_research_tasks
+          SET observed_language_tag = ?
+          WHERE id = ?
+            AND status = 'running'
+            AND EXISTS (
+              SELECT 1
+              FROM center_agent_member_research_batches AS batch
+              WHERE batch.id = center_agent_member_research_tasks.batch_id
+                AND batch.organization_id = ?
+            )
+        `
+      )
+      .bind(observedLanguageTag, memberResearch.taskId, organizationId)
+      .run();
+    if (Number(taskUpdate.meta.changes ?? 0) !== 1) {
+      throw new Error(
+        "Member research working-language observation lost its active task."
+      );
+    }
+    const changed = await observeSharedOrganizationWorkingLanguage({
+      db,
+      env,
+      languageTag: observedLanguageTag,
+      memberResearchTaskId: memberResearch.taskId,
+      organizationId,
+      requestId: request.context.actorContext.requestId,
+    });
+    if (changed) {
+      await writeCenterAgentAuditEntry({
+        action: "observe_working_language",
+        authorization,
+        onBehalfOfProfileId: representedHuman.profileId,
+        resource: {
+          id: organizationId,
+          type: "organization_working_language",
+        },
+        sourceNativeDeliveryId,
+      });
+    }
+  }
   await writeCenterAgentAuditEntry({
     action: "draft_org_document",
     authorization,

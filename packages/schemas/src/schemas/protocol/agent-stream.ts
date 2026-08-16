@@ -109,6 +109,7 @@ const agentWorkActivityKeySchema = z.enum([
   "organization.member_service_status.read",
   "organization.members.read",
   "organization.memory.update",
+  "organization.settings.update",
   "organization.skills.install",
   "organization.skills.read",
   "project.create",

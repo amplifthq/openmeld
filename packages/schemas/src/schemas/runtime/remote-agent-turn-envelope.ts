@@ -20,6 +20,7 @@ import {
   messageChannelParticipantIdentitySchema,
   messageChannelProviderSchema,
 } from "./message-channel";
+import { workingLanguageGuidanceSchema } from "./working-language";
 
 const nonEmptyStringSchema = z.string().trim().min(1);
 export const REMOTE_AGENT_TRIGGER_TEXT_MAX_CHARS = 4000;
@@ -116,6 +117,7 @@ export const remoteAgentTurnEnvelopeOrganizationSchema = z.strictObject({
   personal: z.boolean(),
   memberCount: z.number().int().nonnegative(),
   webUrl: openMeldWebUrlSchema.optional(),
+  workingLanguage: workingLanguageGuidanceSchema.optional(),
 });
 
 export const remoteAgentTurnEnvelopeCenterAgentSchema = z.strictObject({

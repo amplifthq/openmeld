@@ -66,6 +66,7 @@ import {
   centerAgentRequestMemberAttentionResponseSchema,
   centerAgentSearchSlackMessagesResponseSchema,
   centerAgentSetAgentProfileDefaultProjectToolResponseSchema,
+  centerAgentSetOrganizationWorkingLanguageToolResponseSchema,
   centerAgentSpaceAuthoringContractResponseSchema,
   centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema,
   centerAgentUpdateProjectToolResponseSchema,
@@ -107,12 +108,14 @@ import {
   recordCenterAgentMemberResearchComputerFileResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
   SPACE_PASSWORD_MIN_LENGTH,
+  setOrganizationWorkingLanguagePreferenceBodySchema,
   slackWelcomeInteractionRpcInputSchema,
   slackWelcomeInteractionRpcResponseSchema,
   startCenterAgentMemberResearchResponseSchema,
   submitFeedbackIssueRequestSchema,
   updateCenterAgentRoutineResponseSchema,
   updateFeedbackIssueStatusForOrganizationRequestSchema,
+  WORKING_LANGUAGE_TAG_MAX_CHARS,
 } from "@openmeld/schemas";
 import type {
   CenterAgentAnonymousMemberToolSpeaker,
@@ -547,6 +550,14 @@ const memberResearchReportToolInputSchema = strictObject({
       maxLength(12)
     )
   ),
+  observedLanguageTag: optional(
+    pipe(
+      string(),
+      trim(),
+      minLength(2),
+      maxLength(WORKING_LANGUAGE_TAG_MAX_CHARS)
+    )
+  ),
   recentContributions: optional(
     pipe(
       array(memberResearchEvidenceItemToolInputSchema),
@@ -889,6 +900,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_read_space_context",
   "openmeld_read_dispatch_history",
   "openmeld_remember_for_organization",
+  "openmeld_set_organization_working_language",
   "openmeld_request_member_attention",
   "openmeld_create_task",
   "openmeld_create_routine",
@@ -946,6 +958,7 @@ export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_recover_execution_result",
   "openmeld_resume_controller_conversation",
   "openmeld_retry_as_new_execution",
+  "openmeld_set_organization_working_language",
 ] as const satisfies readonly RemoteAgentOpenMeldToolName[];
 
 const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAME_SET =
@@ -1020,6 +1033,17 @@ const slackChannelHistoryToolInputSchema = strictObject({
 const slackMessageSearchToolInputSchema = strictObject({
   includeBots: optional(boolean()),
   query: pipe(string(), trim(), minLength(1), maxLength(500)),
+});
+const setOrganizationWorkingLanguageToolInputSchema = strictObject({
+  languageTag: optional(
+    pipe(
+      string(),
+      trim(),
+      minLength(2),
+      maxLength(WORKING_LANGUAGE_TAG_MAX_CHARS)
+    )
+  ),
+  mode: picklist(["automatic", "selected"]),
 });
 
 export function getRemoteAgentOpenMeldToolDefinitions(input: {
@@ -2334,6 +2358,35 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
               toolContext.turnEnvelope
             ),
           })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_set_organization_working_language",
+      description:
+        "Set or reset the current Organization's advisory preferred working language. Call this only when the current verified requester explicitly asks to change the Organization-wide preference. Use selected with a canonical BCP 47 language tag, or automatic to let the Center Agent learn from trusted Organization work again. A change in the language of one message is never authorization. Core allows only current Organization owners and admins to complete this action.",
+      input: setOrganizationWorkingLanguageToolInputSchema,
+      execute: async (payload) => {
+        const request =
+          setOrganizationWorkingLanguagePreferenceBodySchema.parse(
+            parseValibot(setOrganizationWorkingLanguageToolInputSchema, payload)
+          );
+        const toolContext = await buildVerifiedMemberToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_set_organization_working_language",
+        });
+        return centerAgentSetOrganizationWorkingLanguageToolResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentSetOrganizationWorkingLanguage",
+            {
+              ...request,
+              ...toolContext,
+            },
+            (binding, rpcInput) =>
+              binding.centerAgentSetOrganizationWorkingLanguage?.(rpcInput)
+          )
         );
       },
     }),

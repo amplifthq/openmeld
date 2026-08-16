@@ -419,7 +419,10 @@ state. It carries:
 - `space`: the conversation locator, whether it is the Center Agent DM, and an
   optional current Space guide projection for Space-context turns.
 - `organization`: the organization identity and lightweight presentation facts,
-  plus the optional Core-built canonical `webUrl` for the selected Organization.
+  plus the optional Core-built canonical `webUrl` for the selected Organization
+  and optional frozen working-language guidance. The guidance is advisory; the
+  model applies the language precedence owned by
+  `developing/product/organizations-and-center-agent.md` to the current turn.
 - `trigger`: one of `web_dm`, `space_wake`, `slack`, `routine`,
   `message_channel`, `member_research`, `task_continuation`, or
   `task_watch_continuation`.
@@ -446,6 +449,12 @@ environment contract. Only `web_dm` and `space_wake` label Core's
 `triggerMessageId` as an OpenMeld source signal. Routine run ids, Slack message
 locators, member-research task ids, and delegated-task ids retain their own
 trigger-specific names and are never presented as Space signal ids.
+
+Working-language choice is part of that same model inference. The worker does
+not call a second model or run a keyword detector before submission. The
+Organization hint is rendered separately from stable language-judgment rules
+so a preference change affects the next admitted turn without creating a new
+instruction owner or rewriting conversation history.
 
 For a Local Agent-carried request, the worker tells the Center Agent to return a
 self-contained result that the carrier can use, but it never injects the local

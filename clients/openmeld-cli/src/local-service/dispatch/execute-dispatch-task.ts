@@ -2286,6 +2286,7 @@ function buildDispatchRuntimePrompt(input: {
     profileOwnerUserId: input.profileOwnerUserId,
     organizationProtectedInformation:
       input.parsedTask.organizationProtectedInformation,
+    workingLanguage: input.parsedTask.workingLanguage,
     prompt: input.parsedTask.prompt,
     recipientExplicitlyAddressedByActivationTargets:
       input.parsedTask.recipientExplicitlyAddressedByActivationTargets,

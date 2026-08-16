@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import {
   buildInformationProtectionPromptPlan,
+  buildWorkingLanguagePromptPlan,
   parseAgentControllerRef,
   renderInformationProtectionPrompt,
+  renderWorkingLanguagePrompt,
 } from "@openmeld/agent-runtime";
 import {
   buildDispatchReplyContextSummary,
@@ -175,6 +177,7 @@ export function parseDispatchTask(
     mentionSourceProfileMentionLabel: mentionSourceProfileMentionLabel ?? null,
     organizationProtectedInformation:
       resolveDispatchTaskOrganizationProtectedInformation(payload),
+    workingLanguage: resolveDispatchTaskWorkingLanguage(payload),
     prompt,
     targetProfileIsCenterAgent: payload.targetProfileIsCenterAgent === true,
     replyToSnapshot: spaceContext.replyToSnapshot,
@@ -197,6 +200,12 @@ export function parseDispatchTask(
     triggerMode,
     contextIdMappingSpec,
   };
+}
+
+function resolveDispatchTaskWorkingLanguage(
+  payload: RuntimeTransportDeliverDispatchPayload
+): ParsedDispatchTask["workingLanguage"] {
+  return payload.workingLanguage ?? null;
 }
 
 function resolveDispatchTaskOrganizationProtectedInformation(
@@ -388,6 +397,9 @@ export function buildDispatchPromptWithBootstrap(
       organizationProtectedInformation:
         input.organizationProtectedInformation ?? null,
     }),
+    workingLanguagePrompt: renderWorkingLanguagePrompt({
+      workingLanguage: input.workingLanguage ?? null,
+    }),
     input,
   });
 }
@@ -399,10 +411,14 @@ export function buildDispatchPromptPlan(
     organizationProtectedInformation:
       input.organizationProtectedInformation ?? null,
   });
+  const workingLanguagePlan = buildWorkingLanguagePromptPlan({
+    workingLanguage: input.workingLanguage ?? null,
+  });
   const developerInstructions = [
     "OpenMeld local agent contract:",
     OPENMELD_SPACE_DEFINITION,
     informationProtectionPlan.developerInstructions,
+    workingLanguagePlan.developerInstructions,
   ].join("\n\n");
   const contentFingerprint = createHash("sha256")
     .update(developerInstructions, "utf8")
@@ -414,6 +430,7 @@ export function buildDispatchPromptPlan(
     instructionEpoch: `${LOCAL_AGENT_INSTRUCTION_CONTRACT_VERSION}:${contentFingerprint}`,
     userPrompt: renderDispatchPrompt({
       informationProtectionPrompt: informationProtectionPlan.perTurnPrompt,
+      workingLanguagePrompt: workingLanguagePlan.perTurnPrompt,
       input,
     }),
   };
@@ -421,6 +438,7 @@ export function buildDispatchPromptPlan(
 
 function renderDispatchPrompt(input: {
   informationProtectionPrompt: string | null;
+  workingLanguagePrompt: string | null;
   input: DispatchPromptBootstrapInput;
 }): string {
   const promptInput = input.input;
@@ -436,6 +454,9 @@ function renderDispatchPrompt(input: {
   }
   if (input.informationProtectionPrompt) {
     sections.push(input.informationProtectionPrompt);
+  }
+  if (input.workingLanguagePrompt) {
+    sections.push(input.workingLanguagePrompt);
   }
   if (promptInput.shouldInjectBootstrap && isEntryBriefEnabled(promptInput)) {
     sections.push(renderEntryBriefSection(promptInput));

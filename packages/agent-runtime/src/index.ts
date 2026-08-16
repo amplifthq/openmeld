@@ -299,3 +299,8 @@ export {
   type WakeStopEligibility,
   type WakeStopEligibilityControlMode,
 } from "./wake-stop-eligibility";
+export {
+  buildWorkingLanguagePromptPlan,
+  renderWorkingLanguagePrompt,
+  type WorkingLanguagePromptPlan,
+} from "./working-language-prompt";

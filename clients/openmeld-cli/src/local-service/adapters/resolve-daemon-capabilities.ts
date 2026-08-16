@@ -23,6 +23,7 @@ export function resolveDaemonCapabilities(input: {
 
   return {
     informationProtectionPrompt: true,
+    workingLanguagePrompt: true,
     localAgentInteraction: true,
     ...(input.profileConfigurationRevision === true
       ? { profileConfigurationRevision: true as const }

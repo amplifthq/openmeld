@@ -78,6 +78,30 @@ describe("remote agent turn envelope", () => {
     });
   });
 
+  it("adds the Core-owned working-language advisory for a shared Organization", async () => {
+    const envelope = await resolveRemoteAgentTurnEnvelope({
+      author: {
+        displayName: "Felix",
+        profileId: "hum_123",
+        profileKind: "human",
+      } as RemoteAgentWorkerAuthorContext,
+      centerAgentProfileId: "agt_center",
+      db: createTeamTurnEnvelopeDb() as unknown as D1Database,
+      message: createDispatchMessage(),
+      organizationId: "org_team",
+      webAppUrl: "https://openmeld.test",
+    });
+
+    expect(envelope.organization).toMatchObject({
+      id: "org_team",
+      personal: false,
+      workingLanguage: {
+        languageTag: "zh-Hans",
+        mode: "automatic",
+      },
+    });
+  });
+
   it("marks non-DM Space wakes as shared Space triggers", () => {
     expect(
       buildRemoteAgentTurnEnvelope({
@@ -281,6 +305,64 @@ function createTurnEnvelopeDb() {
                   organization_id: "org_personal",
                   space_purpose: "openmeld_dm_space",
                   direct_message_pair_key: "agt_center:hum_123",
+                };
+              }
+              throw new Error(`Unexpected SQL: ${sql}`);
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+function createTeamTurnEnvelopeDb() {
+  return {
+    prepare(sql: string) {
+      return {
+        bind() {
+          return {
+            first: () => {
+              if (sql.includes("organization_working_language_preferences")) {
+                return {
+                  language_tag: "zh-Hans",
+                  mode: "automatic",
+                  organization_id: "org_team",
+                  revision: 1,
+                  updated_at_ms: 1_700_000_000_000,
+                  updated_by_user_id: null,
+                };
+              }
+              if (sql.includes("FROM organizations")) {
+                return {
+                  member_count: 4,
+                  metadata: null,
+                  name: "OpenMeld Labs",
+                  slug: "openmeld-labs",
+                };
+              }
+              if (sql.includes("profile_handle")) {
+                return {
+                  profile_handle: "center-agent",
+                  profile_name: "Center Agent",
+                };
+              }
+              if (sql.includes("FROM openmeld_profiles")) {
+                return {
+                  member_id: "member_123",
+                  owner_user_id: "user_123",
+                  profile_id: "hum_123",
+                  profile_kind: "human",
+                  profile_name: "Felix",
+                  role: "owner",
+                };
+              }
+              if (sql.includes("FROM space_index_spaces")) {
+                return {
+                  direct_message_pair_key: "agt_center:hum_123",
+                  organization_id: "org_team",
+                  space_id: "space_dm",
+                  space_purpose: "openmeld_dm_space",
                 };
               }
               throw new Error(`Unexpected SQL: ${sql}`);

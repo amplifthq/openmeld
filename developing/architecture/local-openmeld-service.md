@@ -203,9 +203,12 @@ OpenMeld owns one provider-neutral instruction plan for every workstation Wake:
 stable developer instructions, a content-derived instruction epoch, the current
 Wake input, and a complete fallback prompt. Stable developer instructions may
 include OpenMeld's collaboration model and built-in information-protection
-guidance. Current message, Space, profile, Organization policy, attachment, and
-action facts remain per-turn input. Provider adapters must not maintain a second
-copy of either category.
+guidance, including the rule that the Agent makes the final semantic working-
+language choice. Current message, Space, profile, Organization policy,
+attachment, action facts, and the optional Core-frozen Organization working-
+language advisory remain per-turn input. A preference change therefore does not
+change the stable instruction epoch. Provider adapters must not maintain a
+second copy of either category or run a separate language detector/model call.
 
 An adapter may separate the plan only through an official controller surface it
 can prove. Codex App Server installs stable instructions on a new thread and

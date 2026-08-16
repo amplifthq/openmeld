@@ -64,6 +64,13 @@ const permissionMatrix = [
     resource: "wakeAccess",
   },
   {
+    actions: ["manage"],
+    admin: true,
+    member: false,
+    owner: true,
+    resource: "workingLanguage",
+  },
+  {
     actions: ["saveApprovedKnowledge"],
     admin: true,
     member: false,

@@ -127,9 +127,14 @@ describe("RuntimeTransport dispatch delivery request", () => {
     const request = buildRuntimeTransportDeliverDispatchRequest({
       ...input,
       defaultProjectId: "project-1",
+      workingLanguage: { languageTag: "zh-Hans", mode: "selected" },
     });
 
     expect(request.payload.defaultProjectId).toBe("project-1");
+    expect(request.payload.workingLanguage).toEqual({
+      languageTag: "zh-Hans",
+      mode: "selected",
+    });
     expect(request.payload.sourceClientMessageId).toBe("client-message-1");
     expect(request.payload.sourceSignalSnapshot?.attachments).toEqual([
       {

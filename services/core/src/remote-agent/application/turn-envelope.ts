@@ -19,6 +19,10 @@ import {
   readCenterAgentDesignationRecord,
   readCenterAgentProfileIdentity,
 } from "../../center-agent/center-agent-repository";
+import {
+  readOrganizationWorkingLanguagePreference,
+  toWorkingLanguageGuidance,
+} from "../../organizations/organization-working-language-repository";
 import { readCenterAgentDirectMessageProjectionCandidateBySpaceId } from "../../space-index/space-index-repository";
 import { parseCoreOwnedRemoteAgentTurnEnvelope } from "./center-agent-context-scope";
 
@@ -28,6 +32,7 @@ type OrganizationEnvelopeFacts = {
   name: string;
   personal: boolean;
   webUrl?: string;
+  workingLanguage?: RemoteAgentTurnEnvelope["organization"]["workingLanguage"];
 };
 
 type SenderEnvelopeFacts = {
@@ -697,13 +702,14 @@ async function readOrganizationEnvelopeFacts(input: {
   }
 
   const webAppUrl = normalizeOptionalText(input.webAppUrl);
-  return {
+  const personal =
+    row.slug.startsWith("personal-") ||
+    hasPersonalOrganizationMetadata(row.metadata);
+  const organization: OrganizationEnvelopeFacts = {
     id: input.organizationId,
     memberCount: Math.max(0, Number(row.member_count ?? 0)),
     name: normalizeOptionalText(row.name) ?? "this organization",
-    personal:
-      row.slug.startsWith("personal-") ||
-      hasPersonalOrganizationMetadata(row.metadata),
+    personal,
     ...(webAppUrl
       ? {
           webUrl: buildOpenMeldOrganizationWebUrl({
@@ -713,6 +719,29 @@ async function readOrganizationEnvelopeFacts(input: {
         }
       : {}),
   };
+  if (personal) {
+    return organization;
+  }
+  try {
+    const workingLanguage = toWorkingLanguageGuidance(
+      await readOrganizationWorkingLanguagePreference({
+        db: input.db,
+        organizationId: input.organizationId,
+      })
+    );
+    return workingLanguage
+      ? { ...organization, workingLanguage }
+      : organization;
+  } catch (error) {
+    console.warn(
+      "[core.remote_agent.turn_envelope.working_language_unavailable]",
+      {
+        error: error instanceof Error ? error.message : String(error),
+        organizationId: input.organizationId,
+      }
+    );
+    return organization;
+  }
 }
 
 async function readSenderEnvelopeFacts(input: {

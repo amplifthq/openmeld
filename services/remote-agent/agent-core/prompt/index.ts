@@ -1,4 +1,7 @@
-import { renderInformationProtectionPrompt } from "@openmeld/agent-runtime";
+import {
+  renderInformationProtectionPrompt,
+  renderWorkingLanguagePrompt,
+} from "@openmeld/agent-runtime";
 import type { RemoteAgentTurnEnvelope } from "@openmeld/schemas/types";
 import { formatMessageChannelProviderName } from "../message-channel";
 import { REMOTE_AGENT_MODEL_DISPLAY_NAME } from "../model";
@@ -35,6 +38,9 @@ export function buildRemoteAgentSystemPrompt(
     ),
     renderCurrentTimePrompt(),
     REMOTE_AGENT_PRINCIPLES_PROMPT,
+    renderWorkingLanguagePrompt({
+      workingLanguage: input.turnEnvelope?.organization.workingLanguage ?? null,
+    }),
     REMOTE_AGENT_EXECUTION_ROUTING_PROMPT,
     renderReplySurfacePrompt(input.turnEnvelope ?? null),
     renderInformationProtectionPrompt({

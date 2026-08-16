@@ -34,6 +34,7 @@ describe("resolve local service capabilities", () => {
       })
     ).toEqual({
       informationProtectionPrompt: true,
+      workingLanguagePrompt: true,
       localAgentControl: {
         cancel: true,
         interrupt: true,
@@ -97,6 +98,7 @@ describe("resolve local service capabilities", () => {
       })
     ).toEqual({
       informationProtectionPrompt: true,
+      workingLanguagePrompt: true,
       localAgentControl: {
         cancel: true,
         interrupt: true,

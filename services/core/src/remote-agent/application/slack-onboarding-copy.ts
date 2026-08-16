@@ -1,20 +1,12 @@
-const WHITESPACE_PATTERN = /\s+/u;
+import { buildLocalizedSlackResearchUnavailableWelcomeMessage } from "./slack-onboarding-localization";
 
 export function buildSlackResearchUnavailableWelcomeMessage(input: {
   displayName: string;
+  languageTag?: string | null;
   organizationName: string;
   workspaceMoved?: boolean;
 }): string {
-  const firstName =
-    input.displayName.trim().split(WHITESPACE_PATTERN)[0] || "there";
-  const opening = input.workspaceMoved
-    ? `Hi ${firstName} — this Slack workspace is now connected to *${input.organizationName}*.`
-    : `Hi ${firstName} — welcome to *${input.organizationName}* in OpenMeld.`;
-  return `${opening}
-
-Center Agent couldn’t finish your first Profile Report, so it won’t guess about your work. You can still talk to Center Agent here now.
-
-Reply “try again” to start a fresh Profile Report.`;
+  return buildLocalizedSlackResearchUnavailableWelcomeMessage(input);
 }
 
 export function isMemberResearchBusy(error: unknown): boolean {

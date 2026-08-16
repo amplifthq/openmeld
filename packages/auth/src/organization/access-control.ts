@@ -24,6 +24,7 @@ const organizationStatements = {
   organizationDocuments: ["saveApprovedKnowledge"],
   project: ["create", "manage", "archive"],
   wakeAccess: ["manage"],
+  workingLanguage: ["manage"],
 } as const;
 
 export type OrganizationPermissionCheck = RoleAuthorizeRequest<
@@ -49,6 +50,7 @@ export const owner = organizationAccessControl.newRole({
   organizationDocuments: ["saveApprovedKnowledge"],
   project: ["create", "manage", "archive"],
   wakeAccess: ["manage"],
+  workingLanguage: ["manage"],
 });
 
 export const admin = organizationAccessControl.newRole({
@@ -65,6 +67,7 @@ export const admin = organizationAccessControl.newRole({
   organizationDocuments: ["saveApprovedKnowledge"],
   project: ["create"],
   wakeAccess: ["manage"],
+  workingLanguage: ["manage"],
 });
 
 export const member = organizationAccessControl.newRole({
