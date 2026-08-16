@@ -28,6 +28,7 @@ import type {
   SpaceContract,
   SpaceMessageAttachment,
   SpaceThreadContext,
+  WorkingLanguageGuidance,
 } from "@openmeld/schemas/types";
 import type { AgentsRegistryRuntimeAdapterMatch } from "../../agents/registry-source";
 import type {
@@ -219,6 +220,7 @@ export type ParsedDispatchTask = {
   mentionSourceProfileKind: "agent" | "human" | "system" | null;
   mentionSourceProfileMentionLabel: string | null;
   organizationProtectedInformation: string | null;
+  workingLanguage: WorkingLanguageGuidance | null;
   prompt: string;
   replyToSnapshot: OpenMeldDaemonDispatchReplyToSnapshot | null;
   recipientExplicitlyAddressedByActivationTargets: boolean;
@@ -247,6 +249,7 @@ export type DispatchPromptBootstrapInput = {
   dispatchTriggerSource: "activation_targets" | "listen_all";
   imageAttachmentPromptSection?: string | null;
   organizationProtectedInformation?: string | null;
+  workingLanguage?: WorkingLanguageGuidance | null;
   serviceFreshnessWarningLines?: string[] | null;
   sendTargetReferenceLines?: string[] | null;
   shouldInjectBootstrap: boolean;

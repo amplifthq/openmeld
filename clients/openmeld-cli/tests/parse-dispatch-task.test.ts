@@ -12,6 +12,7 @@ function createDeliverRequest(input: {
   dispatchPolicy?: "listen_all" | "mention_only";
   sourceText?: string;
   organizationProtectedInformation?: string;
+  workingLanguage?: RuntimeTransportDeliverDispatchRequest["payload"]["workingLanguage"];
   spacePassword?: string;
   targetProfileId: string;
   targetProfileIsCenterAgent?: boolean;
@@ -68,6 +69,9 @@ function createDeliverRequest(input: {
               input.organizationProtectedInformation,
           }
         : {}),
+      ...(input.workingLanguage
+        ? { workingLanguage: input.workingLanguage }
+        : {}),
       ...(input.targetProfileIsCenterAgent === undefined
         ? {}
         : { targetProfileIsCenterAgent: input.targetProfileIsCenterAgent }),
@@ -116,6 +120,21 @@ describe("parseDispatchTask", () => {
     expect(parsed?.organizationProtectedInformation).toBe(
       "Private customer pricing."
     );
+  });
+
+  it("carries the advisory Organization working language into local prompt assembly", () => {
+    const parsed = parseDispatchTask({
+      deliverRequest: createDeliverRequest({
+        targetProfileId: "agt-target-a",
+        workingLanguage: { languageTag: "zh-Hans", mode: "selected" },
+      }),
+      fallbackRouteConfig: null,
+    });
+
+    expect(parsed?.workingLanguage).toEqual({
+      languageTag: "zh-Hans",
+      mode: "selected",
+    });
   });
 
   it("carries the canonical Default Project into dispatch preflight", () => {

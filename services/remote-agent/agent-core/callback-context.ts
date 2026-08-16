@@ -71,6 +71,8 @@ import type {
   CenterAgentSearchSlackMessagesResponse,
   CenterAgentSetAgentProfileDefaultProjectToolResponse,
   CenterAgentSetAgentProfileDefaultProjectToolRpcInput,
+  CenterAgentSetOrganizationWorkingLanguageToolResponse,
+  CenterAgentSetOrganizationWorkingLanguageToolRpcInput,
   CenterAgentSpaceAuthoringContractResponse,
   CenterAgentStartSelfMemberResearchToolRpcInput,
   CenterAgentTaskReference,
@@ -245,6 +247,9 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  centerAgentSetOrganizationWorkingLanguage?(
+    input: CenterAgentSetOrganizationWorkingLanguageToolRpcInput
+  ): Promise<CenterAgentSetOrganizationWorkingLanguageToolResponse>;
   centerAgentAuthorizeAnonymousMemberTool?(
     input: CenterAgentAuthorizeAnonymousMemberToolRpcInput
   ): Promise<CenterAgentAuthorizeAnonymousMemberToolResponse>;

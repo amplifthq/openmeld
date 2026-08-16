@@ -57,6 +57,7 @@ import type {
   RuntimeTransportRuntimeCoordinatorWakeStopResponse,
   RuntimeTransportWaitDispatchResultRequest,
   RuntimeTransportWaitDispatchResultResponse,
+  WorkingLanguageGuidance,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../../../lib/bindings";
 import type { SpaceBootstrapTimingCollector } from "../../../space/application/space-bootstrap-timing";
@@ -186,6 +187,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
   targetProfileName?: string | null;
   defaultProjectId?: string | null;
   organizationProtectedInformation?: string | null;
+  workingLanguage?: WorkingLanguageGuidance | null;
 }): RuntimeTransportDeliverDispatchRequest => {
   const sourceProfileHandle = normalizeOptionalText(
     input.sourceSignal.profileHandle
@@ -235,6 +237,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
           ) as string,
         }
       : {}),
+    ...buildWorkingLanguagePayload(input.workingLanguage),
     dispatchContractVersion: input.message.dispatchContractVersion,
     dispatchPolicy: input.message.dispatchPolicy,
     controllerSnapshot: input.message.controllerSnapshot,
@@ -310,6 +313,12 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
   };
   return requestCandidate;
 };
+
+function buildWorkingLanguagePayload(
+  workingLanguage?: WorkingLanguageGuidance | null
+): Pick<RuntimeTransportDeliverDispatchPayload, "workingLanguage"> | object {
+  return workingLanguage ? { workingLanguage } : {};
+}
 
 function buildRuntimeTransportSourceSignalSnapshot(input: {
   executionIdentity: RuntimeTransportDeliveryExecutionIdentity;
