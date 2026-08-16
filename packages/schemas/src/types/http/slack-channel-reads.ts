@@ -24,3 +24,12 @@ export type SlackChannelHistoryMessage = z.infer<
 export type SlackChannelHistoryResponse = z.infer<
   Schemas["slackChannelHistoryResponseSchema"]
 >;
+export type CenterAgentListSlackChannelsResponse = z.infer<
+  Schemas["centerAgentListSlackChannelsResponseSchema"]
+>;
+export type CenterAgentReadSlackChannelMembersResponse = z.infer<
+  Schemas["centerAgentReadSlackChannelMembersResponseSchema"]
+>;
+export type CenterAgentReadSlackChannelHistoryResponse = z.infer<
+  Schemas["centerAgentReadSlackChannelHistoryResponseSchema"]
+>;

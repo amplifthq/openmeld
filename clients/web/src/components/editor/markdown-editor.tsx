@@ -45,7 +45,7 @@ export function MarkdownEditor(input: {
 				}}
 				readOnly={input.disabled}
 			>
-				<EditorContainer className="rounded-md border bg-card">
+				<EditorContainer>
 					<Editor
 						aria-label={input.ariaLabel}
 						placeholder={

@@ -26,6 +26,8 @@ export const SLACK_BOT_SCOPES = [
   "groups:history",
   "groups:read",
   "groups:write",
+  "im:history",
+  "im:write",
   "links:read",
   "links:write",
   "pins:read",
@@ -225,6 +227,7 @@ async function finishSlackOAuthInstallation(
   try {
     const installation = await c.var.coreRpc.installSlackWorkspaceFromOAuth({
       actorProfileId: input.state.actorProfileId,
+      botScopes: input.access.botScopes,
       botToken: input.access.botToken,
       botUserId: input.access.botUserId,
       installedByUserId: input.state.userId,

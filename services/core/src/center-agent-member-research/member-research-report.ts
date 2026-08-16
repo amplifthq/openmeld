@@ -9,6 +9,8 @@ const COVERAGE_SOURCE_LABELS = {
   approved_profile_report: "Approved Profile Report",
   github: "GitHub",
   organization_directory: "Organization directory",
+  connected_apps: "Connected Apps",
+  slack_channel_history: "Slack channel history",
   slack_workspace_directory: "Slack workspace directory",
 } as const satisfies Record<
   CenterAgentMemberResearchCoverage["source"],
@@ -152,6 +154,15 @@ function renderEvidenceReference(
       throw new TypeError("GitHub member research evidence requires a URL.");
     }
     return `[GitHub: ${escapeLinkLabel(evidence.sourceId)}](${escapeLinkDestination(evidence.sourceUrl)})`;
+  }
+  if (evidence.source === "slack") {
+    return `Slack ${escapeMarkdownInlineText(evidence.sourceName ?? "message")} \`${escapeInlineCode(evidence.sourceId)}\``;
+  }
+  if (evidence.source === "connected_app") {
+    const label = `${evidence.sourceName ?? "Connected App"}: ${evidence.sourceId}`;
+    return evidence.sourceUrl
+      ? `[${escapeLinkLabel(label)}](${escapeLinkDestination(evidence.sourceUrl)})`
+      : `${escapeMarkdownInlineText(evidence.sourceName ?? "Connected App")} \`${escapeInlineCode(evidence.sourceId)}\``;
   }
   return `Agent Activity \`${escapeInlineCode(evidence.sourceId)}\``;
 }

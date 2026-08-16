@@ -1,4 +1,7 @@
-import { centerAgentMemberResearchBatchSchema } from "@openmeld/schemas";
+import {
+  buildCenterAgentProfileReportComputerPath,
+  centerAgentMemberResearchBatchSchema,
+} from "@openmeld/schemas";
 import type { CenterAgentMemberResearchBatch } from "@openmeld/schemas/types";
 import { createCoreRpcHttpError } from "../rpc/errors";
 
@@ -259,25 +262,8 @@ export async function requireCenterAgentMemberResearchDraftTarget(input: {
       status: 409,
     });
   }
-  if (input.documentId) {
-    const document = await input.db
-      .prepare(
-        `
-          SELECT kind, subject_user_id
-          FROM organization_documents
-          WHERE id = ? AND organization_id = ?
-          LIMIT 1
-        `
-      )
-      .bind(input.documentId, input.organizationId)
-      .first<{ kind: string; subject_user_id: string | null }>();
-    if (
-      document?.kind === "member_profile" &&
-      document.subject_user_id === task.subject_user_id
-    ) {
-      return;
-    }
-  } else if (
+  if (
+    !input.documentId &&
     input.kind === "member_profile" &&
     input.subjectUserId === task.subject_user_id
   ) {
@@ -285,7 +271,144 @@ export async function requireCenterAgentMemberResearchDraftTarget(input: {
   }
   throw createCoreRpcHttpError({
     code: "center_agent_member_research.draft_target_mismatch",
-    reason: "Member research can only draft the assigned Profile Report.",
+    reason:
+      "Member research must create one new dated Profile Report for the assigned member.",
     status: 409,
   });
+}
+
+export async function recordCenterAgentMemberResearchComputerFile(input: {
+  db: D1Database;
+  documentId: string;
+  nowMs: number;
+  organizationId: string;
+  path: string;
+  subjectUserId: string;
+  submissionId: string;
+  taskId: string;
+}): Promise<{ documentId: string; path: string; taskId: string }> {
+  const document = await input.db
+    .prepare(
+      `
+        SELECT
+          documents.subject_user_id,
+          documents.title,
+          person.name AS profile_report_folder_name
+        FROM organization_documents documents
+        INNER JOIN organization_document_folders person
+          ON person.id = documents.folder_id
+         AND person.organization_id = documents.organization_id
+        INNER JOIN center_agent_member_research_tasks task
+          ON task.id = documents.last_member_research_task_id
+        INNER JOIN center_agent_member_research_batches batch
+          ON batch.id = task.batch_id
+        INNER JOIN openMeldRemoteAgent_native_delivery_ledger delivery
+          ON delivery.idempotency_key = task.id
+        WHERE documents.id = ?
+          AND documents.organization_id = ?
+          AND documents.kind = 'member_profile'
+          AND documents.subject_user_id = ?
+          AND documents.last_member_research_task_id = ?
+          AND person.system_kind = 'profile_reports_person'
+          AND person.subject_user_id = documents.subject_user_id
+          AND task.status = 'running'
+          AND batch.organization_id = documents.organization_id
+          AND delivery.organization_id = batch.organization_id
+          AND delivery.submission_id = ?
+          AND delivery.status IN ('accepted', 'retry_observed')
+        LIMIT 1
+      `
+    )
+    .bind(
+      input.documentId,
+      input.organizationId,
+      input.subjectUserId,
+      input.taskId,
+      input.submissionId
+    )
+    .first<{
+      profile_report_folder_name: string;
+      subject_user_id: string;
+      title: string;
+    }>();
+  if (!document) {
+    throw createCoreRpcHttpError({
+      code: "center_agent_member_research.computer_file_target_mismatch",
+      reason:
+        "This file is not the assigned Profile Report for this research task.",
+      status: 409,
+    });
+  }
+  const expectedPath = buildCenterAgentProfileReportComputerPath({
+    documentTitle: document.title,
+    profileReportFolderName: document.profile_report_folder_name,
+  });
+  if (input.path !== expectedPath) {
+    throw createCoreRpcHttpError({
+      code: "center_agent_member_research.computer_file_path_invalid",
+      reason:
+        "This file path does not match the Profile Report folder and title assigned by Core.",
+      status: 422,
+    });
+  }
+  const existing = await input.db
+    .prepare(
+      `
+        SELECT document_id, path, subject_user_id
+        FROM center_agent_member_research_computer_files
+        WHERE task_id = ?
+        LIMIT 1
+      `
+    )
+    .bind(input.taskId)
+    .first<{
+      document_id: string;
+      path: string;
+      subject_user_id: string;
+    }>();
+  if (existing) {
+    if (
+      existing.document_id !== input.documentId ||
+      existing.path !== input.path ||
+      existing.subject_user_id !== input.subjectUserId
+    ) {
+      throw createCoreRpcHttpError({
+        code: "center_agent_member_research.computer_file_conflict",
+        reason:
+          "This research task already recorded a different Profile Report file.",
+        status: 409,
+      });
+    }
+    return {
+      documentId: existing.document_id,
+      path: existing.path,
+      taskId: input.taskId,
+    };
+  }
+  await input.db
+    .prepare(
+      `
+        INSERT INTO center_agent_member_research_computer_files (
+          task_id,
+          document_id,
+          subject_user_id,
+          path,
+          created_at_ms
+        )
+        VALUES (?, ?, ?, ?, ?)
+      `
+    )
+    .bind(
+      input.taskId,
+      input.documentId,
+      input.subjectUserId,
+      input.path,
+      input.nowMs
+    )
+    .run();
+  return {
+    documentId: input.documentId,
+    path: input.path,
+    taskId: input.taskId,
+  };
 }

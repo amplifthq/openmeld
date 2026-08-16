@@ -10,6 +10,7 @@ import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   getRemoteAgentOpenMeldToolDefinitions,
   type RemoteAgentFeedbackSubmissionConfig,
+  type RemoteAgentMemberProfileReportComputerFiles,
 } from "../agent-core/tools";
 import {
   createRemoteAgentCodeModeFlueTool,
@@ -29,6 +30,7 @@ export async function getRemoteAgentFlueTools(input: {
   env?: RemoteAgentExternalToolEnv;
   feedbackSubmission?: RemoteAgentFeedbackSubmissionConfig;
   fetch?: typeof globalThis.fetch;
+  memberProfileReportFiles?: RemoteAgentMemberProfileReportComputerFiles;
   sandboxDefinitions?: RemoteAgentToolDefinition[];
   storage: RemoteAgentStorage;
   submissionId: string;

@@ -256,6 +256,42 @@ export async function upsertSlackUserIdentityLinkForSameUser(input: {
   return record;
 }
 
+export function prepareUpsertSlackOAuthInstallerIdentityLinkStatement(input: {
+  db: D1Database;
+  nowMs: number;
+  openmeldUserId: string;
+  organizationId: string;
+  slackTeamId: string;
+  slackUserId: string;
+}): D1PreparedStatement {
+  return input.db
+    .prepare(
+      `
+        INSERT INTO slack_user_identity_links (
+          organization_id,
+          slack_team_id,
+          slack_user_id,
+          openmeld_user_id,
+          source,
+          created_at_ms
+        )
+        VALUES (?, ?, ?, ?, 'explicit', ?)
+        ON CONFLICT(slack_team_id, slack_user_id) DO UPDATE SET
+          organization_id = excluded.organization_id,
+          openmeld_user_id = excluded.openmeld_user_id,
+          source = excluded.source,
+          created_at_ms = excluded.created_at_ms
+      `
+    )
+    .bind(
+      input.organizationId,
+      input.slackTeamId,
+      input.slackUserId,
+      input.openmeldUserId,
+      input.nowMs
+    );
+}
+
 export async function deleteSlackUserIdentityLinkIfMatches(input: {
   db: D1Database;
   organizationId: string;

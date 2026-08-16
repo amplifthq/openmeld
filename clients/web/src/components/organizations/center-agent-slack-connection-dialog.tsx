@@ -31,8 +31,10 @@ import {
 	useId,
 	useState,
 } from "react";
+import { buildSlackOAuthStartPath } from "#/lib/slack-oauth-start";
 
 type CenterAgentSlackConnectionDialogBaseInput = {
+	organizationSlug: string;
 	slackConnection?: CenterAgentSlackWorkspaceConnection;
 	trigger: ReactElement;
 };
@@ -63,6 +65,8 @@ export function CenterAgentSlackConnectionDialog(
 	const [slackTeamId, setSlackTeamId] = useState("");
 	const inputId = useId();
 	const connected = input.slackConnection?.connected === true;
+	const reconnectRequired =
+		connected && input.slackConnection?.directMessagesReady !== true;
 	const normalizedSlackTeamId = slackTeamId.trim();
 	const canSubmitConnect =
 		input.mode !== "channels-handoff" &&
@@ -109,6 +113,7 @@ export function CenterAgentSlackConnectionDialog(
 				onCancelDisconnect={() => setConfirmingDisconnect(false)}
 				onDisconnectSlackWorkspace={input.onDisconnectSlackWorkspace}
 				onStartDisconnect={() => setConfirmingDisconnect(true)}
+				organizationSlug={input.organizationSlug}
 				slackConnection={input.slackConnection}
 			/>
 		);
@@ -122,6 +127,7 @@ export function CenterAgentSlackConnectionDialog(
 				inputId={inputId}
 				onSlackTeamIdChange={setSlackTeamId}
 				onSubmit={handleSubmit}
+				organizationSlug={input.organizationSlug}
 				slackTeamId={slackTeamId}
 			/>
 		);
@@ -133,10 +139,10 @@ export function CenterAgentSlackConnectionDialog(
 			<DialogContent className="gap-5 p-5 sm:max-w-lg sm:p-6">
 				<DialogHeader>
 					<DialogTitle className="text-base">
-						{resolveDialogTitle({ connected, input })}
+						{resolveDialogTitle({ connected, input, reconnectRequired })}
 					</DialogTitle>
 					<DialogDescription className="max-w-md text-sm/6">
-						{resolveDialogDescription({ connected, input })}
+						{resolveDialogDescription({ connected, input, reconnectRequired })}
 					</DialogDescription>
 				</DialogHeader>
 				{dialogContent}
@@ -148,9 +154,13 @@ export function CenterAgentSlackConnectionDialog(
 function resolveDialogTitle(input: {
 	connected: boolean;
 	input: CenterAgentSlackConnectionDialogInput;
+	reconnectRequired: boolean;
 }): string {
 	if (!input.connected) {
 		return "Connect Slack";
+	}
+	if (input.reconnectRequired && input.input.mode !== "channels-handoff") {
+		return "Reconnect Slack";
 	}
 	return input.input.mode === "channels-handoff"
 		? "Slack connected"
@@ -160,9 +170,13 @@ function resolveDialogTitle(input: {
 function resolveDialogDescription(input: {
 	connected: boolean;
 	input: CenterAgentSlackConnectionDialogInput;
+	reconnectRequired: boolean;
 }): string {
 	if (input.input.mode === "channels-handoff") {
 		return "Slack connections are managed in Center Agent → Channels.";
+	}
+	if (input.reconnectRequired) {
+		return "Slack is connected, but this installation can’t receive direct messages yet. Reconnect once to approve the latest permissions.";
 	}
 	return input.connected
 		? "People can message your Center Agent from this Slack workspace and receive replies in the same conversation."
@@ -174,6 +188,8 @@ function SlackSettingsHandoffContent(input: {
 	slackConnection?: CenterAgentSlackWorkspaceConnection;
 }) {
 	const connected = input.slackConnection?.connected === true;
+	const reconnectRequired =
+		connected && input.slackConnection?.directMessagesReady !== true;
 	const workspaceLabel = resolveSlackWorkspaceLabel(input.slackConnection);
 
 	return (
@@ -190,15 +206,20 @@ function SlackSettingsHandoffContent(input: {
 							</p>
 						) : null}
 					</div>
-					<Badge className={resolveStatusToneProminentBadgeClassName("ready")}>
-						Connected
+					<Badge
+						className={resolveStatusToneProminentBadgeClassName(
+							reconnectRequired ? "warning" : "ready"
+						)}
+					>
+						{reconnectRequired ? "Reconnect required" : "Connected"}
 					</Badge>
 				</div>
 			) : null}
 			<p className="text-muted-foreground text-sm">
-				{connected
-					? "Open Channels to review or change this organization's Slack connection."
-					: "Organization owners and admins connect Slack in Center Agent → Channels."}
+				{resolveSlackSettingsHandoffGuidance({
+					connected,
+					reconnectRequired,
+				})}
 			</p>
 			<DialogFooter showCloseButton>
 				<Link
@@ -212,6 +233,19 @@ function SlackSettingsHandoffContent(input: {
 	);
 }
 
+function resolveSlackSettingsHandoffGuidance(input: {
+	connected: boolean;
+	reconnectRequired: boolean;
+}): string {
+	if (input.reconnectRequired) {
+		return "Open Channels and reconnect Slack once to enable direct messages.";
+	}
+	if (input.connected) {
+		return "Open Channels to review or change this organization's Slack connection.";
+	}
+	return "Organization owners and admins connect Slack in Center Agent → Channels.";
+}
+
 function ConnectedSlackDialogContent(input: {
 	canManage: boolean;
 	confirmingDisconnect: boolean;
@@ -220,11 +254,13 @@ function ConnectedSlackDialogContent(input: {
 	onCancelDisconnect: () => void;
 	onDisconnectSlackWorkspace?: () => void;
 	onStartDisconnect: () => void;
+	organizationSlug: string;
 	slackConnection?: CenterAgentSlackWorkspaceConnection;
 }) {
 	const workspaceName =
 		input.slackConnection?.workspaceName?.trim() || "Slack workspace";
 	const slackTeamId = input.slackConnection?.slackTeamId;
+	const reconnectRequired = input.slackConnection?.directMessagesReady !== true;
 
 	return (
 		<div className="space-y-5">
@@ -245,16 +281,40 @@ function ConnectedSlackDialogContent(input: {
 				</div>
 				<Badge
 					className={`h-7 px-2.5 ${resolveStatusToneProminentBadgeClassName(
-						"ready"
+						reconnectRequired ? "warning" : "ready"
 					)}`}
 				>
-					Connected
+					{reconnectRequired ? "Reconnect required" : "Connected"}
 				</Badge>
 			</div>
-			<p className="max-w-md text-muted-foreground text-sm/6">
-				OpenMeld sign-in is only required when someone asks for private
-				organization context or an authorized action.
-			</p>
+			{reconnectRequired ? (
+				<div className="space-y-3 border border-border/70 bg-card/30 p-4">
+					<p className="max-w-md text-muted-foreground text-sm/6">
+						Reconnect once so people can message the Center Agent directly. Your
+						workspace connection stays in place.
+					</p>
+					{input.canManage ? (
+						<a
+							className={buttonVariants({ size: "sm" })}
+							href={buildSlackOAuthStartPath({
+								organizationSlug: input.organizationSlug,
+							})}
+						>
+							<LinkIcon aria-hidden="true" data-icon="inline-start" />
+							Reconnect Slack
+						</a>
+					) : (
+						<p className="text-muted-foreground text-xs/5">
+							Ask an organization owner or admin to reconnect Slack.
+						</p>
+					)}
+				</div>
+			) : (
+				<p className="max-w-md text-muted-foreground text-sm/6">
+					OpenMeld sign-in is only required when someone asks for private
+					organization context or an authorized action.
+				</p>
+			)}
 			{input.canManage ? (
 				<SlackDisconnectControl
 					confirming={input.confirmingDisconnect}
@@ -345,6 +405,7 @@ function DisconnectedSlackDialogContent(input: {
 	inputId: string;
 	onSlackTeamIdChange: (value: string) => void;
 	onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+	organizationSlug: string;
 	slackTeamId: string;
 }) {
 	return (
@@ -364,7 +425,9 @@ function DisconnectedSlackDialogContent(input: {
 						</div>
 						<a
 							className={buttonVariants({ size: "default" })}
-							href="/slack/oauth/start"
+							href={buildSlackOAuthStartPath({
+								organizationSlug: input.organizationSlug,
+							})}
 						>
 							<LinkIcon aria-hidden="true" data-icon="inline-start" />
 							Add to Slack

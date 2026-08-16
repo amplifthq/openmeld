@@ -20,6 +20,7 @@ export {
 } from "./center-agent.schema.ts";
 export {
   centerAgentMemberResearchBatches,
+  centerAgentMemberResearchComputerFiles,
   centerAgentMemberResearchTasks,
 } from "./center-agent-member-research.schema.ts";
 export {
@@ -60,7 +61,11 @@ export {
   openMeldRemoteAgentSlackEventIngress,
   openMeldRemoteAgentSlackThreadContextCursors,
   openMeldRemoteAgentSlackWorkspaceBindings,
+  slackChannelIntroductionItems,
+  slackChannelIntroductionRuns,
   slackInstallationWelcomeDeliveries,
+  slackInstallationWelcomePreparations,
+  slackTeammateInvitationDeliveries,
   slackUserIdentityLinks,
   slackUserIdentityLinkTokens,
 } from "./dispatch.schema.ts";

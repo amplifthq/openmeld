@@ -31,8 +31,6 @@ import {
   authorizeAgentProfileBindingForOrganizationResponseSchema,
   authRpcResolveUserDisplayNameResultSchema,
   buildAgentTaskKey,
-  buildOpenMeldNavigationAction,
-  buildOpenMeldOrganizationWebUrl,
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   centerAgentAddAgentProfilesToSpaceBodySchema,
@@ -87,6 +85,7 @@ import {
   centerAgentSlackWorkspaceConnectionResponseSchema,
   centerAgentSlackWorkspaceDisconnectResponseSchema,
   centerAgentSpaceAuthoringContractResponseSchema,
+  centerAgentStartSelfMemberResearchToolRpcInputSchema,
   centerAgentToolSpeakerSchema,
   centerAgentUpdateAgentProfileRuntimeSettingsBodySchema,
   centerAgentUpdateAgentProfileRuntimeSettingsResponseSchema,
@@ -223,6 +222,7 @@ import {
   slackOAuthStateConsumeResponseSchema,
   slackOAuthStateCreateResponseSchema,
   slackOAuthStateSchema,
+  slackReadUnavailableResponseSchema,
   slackWorkspaceDirectoryResponseSchema,
   spaceAccessModeSchema,
   spaceAttachmentDescriptorSchema,
@@ -293,6 +293,7 @@ import type {
   CenterAgentListLocalAgentConnectionCandidatesBody,
   CenterAgentListLocalAgentConnectionCandidatesResponse,
   CenterAgentListSlackChannelsBody,
+  CenterAgentListSlackChannelsResponse,
   CenterAgentModelConfigurationResponse,
   CenterAgentOrganizationMemoryPolicyResponse,
   CenterAgentPostSlackChannelMessageBody,
@@ -307,8 +308,11 @@ import type {
   CenterAgentReadMemberOpenMeldServiceStatusBody,
   CenterAgentReadMemberOpenMeldServiceStatusResponse,
   CenterAgentReadSlackChannelHistoryBody,
+  CenterAgentReadSlackChannelHistoryResponse,
   CenterAgentReadSlackChannelMembersBody,
+  CenterAgentReadSlackChannelMembersResponse,
   CenterAgentReadSlackWorkspaceDirectoryBody,
+  CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceContextBody,
   CenterAgentReadSpaceContextResponse,
   CenterAgentRecordConnectorActionAuditBody,
@@ -327,6 +331,7 @@ import type {
   CenterAgentSlackWorkspaceConnectionResponse,
   CenterAgentSlackWorkspaceDisconnectResponse,
   CenterAgentSpaceAuthoringContractResponse,
+  CenterAgentStartSelfMemberResearchToolRpcInput,
   CenterAgentToolSpeaker,
   CenterAgentUpdateAgentProfileRuntimeSettingsBody,
   CenterAgentUpdateAgentProfileRuntimeSettingsResponse,
@@ -468,9 +473,6 @@ import type {
   SetLocalRuntimeDisplayNameBody,
   SetOrganizationBindingAuthorizationPreferenceBody,
   SetOrganizationBindingAuthorizationPreferenceResponse,
-  SlackChannelHistoryResponse,
-  SlackChannelListResponse,
-  SlackChannelMembersResponse,
   SlackIdentityLinkConsumeBody,
   SlackIdentityLinkConsumeResponse,
   SlackIdentityLinkPreviewBody,
@@ -479,8 +481,8 @@ import type {
   SlackOAuthInstallationResult,
   SlackOAuthStateConsumeResponse,
   SlackOAuthStateCreateResponse,
+  SlackReadUnavailableResponse,
   SlackWorkspaceDirectoryMember,
-  SlackWorkspaceDirectoryResponse,
   SlackWorkspaceMembership,
   SpaceAccessMode,
   SpaceAccessModeState,
@@ -498,6 +500,7 @@ import type {
   SpaceSignalAuthoringPolicy,
   SpaceThreadContext,
   SpaceViewerMembershipResponse,
+  StartCenterAgentMemberResearchResponse,
   SubmitAgentActivityEventsRpcInput,
   SubmitAgentControllerTaskLifecycleEventItem,
   SubmitAgentControllerTaskLifecycleEventsResponse,
@@ -677,6 +680,7 @@ import {
   requireCurrentDesignatedCenterAgentCaller,
 } from "../center-agent/current-designated-center-agent";
 import type { CenterAgentWakePublicationCommand } from "../center-agent/infrastructure/d1/center-agent-wake-publication-repo";
+import { startCenterAgentMemberResearch } from "../center-agent-member-research/member-research-service";
 import type { CenterAgentMemoryEpisodeOrigin } from "../center-agent-memory/contract";
 import { createCoreCenterAgentMemoryService } from "../center-agent-memory/core-memory-service";
 import { createD1CenterAgentMemoryRepository } from "../center-agent-memory/d1-memory-repository";
@@ -800,12 +804,12 @@ import {
   readSlackUserIdentity,
   resolveSlackChannelMessageTarget,
   SlackApiError,
-  type SlackBlockKitBlock,
   type SlackWorkspaceMember,
   searchSlackPublicMessages,
 } from "../remote-agent/application/slack-client";
 import { digestSlackIdentityLinkToken } from "../remote-agent/application/slack-identity-link-token";
-import { deliverSlackInstallationWelcome } from "../remote-agent/application/slack-installation-welcome-service";
+import { runSlackInstallationWelcomePreparationTick as advanceSlackInstallationWelcomePreparations } from "../remote-agent/application/slack-installation-welcome-preparation-service";
+import { runSlackInvitedMemberOnboardingTick } from "../remote-agent/application/slack-invited-member-onboarding-service";
 import { installSlackWorkspaceFromOAuth } from "../remote-agent/application/slack-oauth-installation";
 import {
   buildSlackOAuthChannelsReturnPath,
@@ -830,6 +834,13 @@ import {
   readRemoteAgentNativeDeliveryBySubmissionId,
 } from "../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
+  authorizeFailedSlackInstallationWelcomeRetry,
+  enqueueSlackInstallationWelcomePreparation,
+  type SlackInstallationWelcomePreparation,
+} from "../remote-agent/infrastructure/d1/slack-installation-welcome-preparation-repo";
+import { SLACK_INSTALLATION_WELCOME_VERSION } from "../remote-agent/infrastructure/d1/slack-installation-welcome-repo";
+import type { SlackInvitedMemberOnboarding } from "../remote-agent/infrastructure/d1/slack-teammate-invitation-delivery-repo";
+import {
   claimSlackIdentityLinkTokenForUser,
   consumeSlackIdentityLinkTokenAndUpsertUserLink,
   readActiveSlackIdentityLinkToken,
@@ -843,7 +854,11 @@ import {
   readRemoteAgentSlackWorkspaceBinding,
   readRemoteAgentSlackWorkspaceBindingByOrganization,
 } from "../remote-agent/infrastructure/d1/slack-workspace-binding-repo";
-import { prepareDeleteSlackWorkspaceTokenByOrganizationStatement } from "../remote-agent/infrastructure/d1/slack-workspace-token-repo";
+import {
+  hasSlackDirectMessageScopes,
+  prepareDeleteSlackWorkspaceTokenByOrganizationStatement,
+  readSlackWorkspaceToken,
+} from "../remote-agent/infrastructure/d1/slack-workspace-token-repo";
 import {
   rpcCreateRoutine as createRoutine,
   rpcDeleteRoutine as deleteRoutine,
@@ -2514,6 +2529,7 @@ export type CenterAgentReadOrganizationSpaceDirectoryInput = {
 
 export type OpenCenterAgentDirectMessageSpaceInput = {
   context?: CoreRpcContextInput;
+  suppressWelcome?: boolean;
 };
 
 export type OpenDirectMessageSpaceInput = OpenDirectMessageSpaceBody & {
@@ -6277,6 +6293,7 @@ async function readCenterAgentSlackConnectionProjection(input: {
   if (!db) {
     return {
       connected: false,
+      directMessagesReady: false,
       slackTeamId: null,
       workspaceName: null,
     };
@@ -6286,8 +6303,17 @@ async function readCenterAgentSlackConnectionProjection(input: {
       db,
       organizationId: input.organizationId,
     });
+    const token = binding
+      ? await readSlackWorkspaceToken({
+          db,
+          slackTeamId: binding.slackTeamId,
+        })
+      : null;
     return {
       connected: Boolean(binding),
+      directMessagesReady: hasSlackDirectMessageScopes(
+        token?.grantedBotScopes ?? null
+      ),
       slackTeamId: binding?.slackTeamId ?? null,
       workspaceName: null,
     };
@@ -6298,6 +6324,7 @@ async function readCenterAgentSlackConnectionProjection(input: {
     });
     return {
       connected: false,
+      directMessagesReady: false,
       slackTeamId: null,
       workspaceName: null,
     };
@@ -7051,75 +7078,6 @@ export async function rpcConsumeSlackOAuthState(
   return slackOAuthStateConsumeResponseSchema.parse(result);
 }
 
-const SLACK_INSTALLATION_WELCOME_MESSAGE = `:wave: Hi! I'm OpenMeld, your Center Agent — the hub that connects your team's real coding agents.
-
-Two ways to get value right now:
-1. *Mention me in a channel* — invite me to any channel, then @-mention me with a question or task.
-2. *Connect GitHub* — in OpenMeld, open *Center Agent → Apps → GitHub* so I can read your issues and help dispatch work.`;
-
-const SLACK_WORKSPACE_MOVE_WELCOME_MESSAGE = `:wave: This Slack workspace is now connected to a different OpenMeld Organization. I'm your Center Agent here, and this Organization starts with its own members, Spaces, Apps, and agent context.
-
-Two ways to get value right now:
-1. *Mention me in a channel* — invite me to any channel, then @-mention me with a question or task.
-2. *Connect GitHub* — in OpenMeld, open *Center Agent → Apps → GitHub* so I can read your issues and help dispatch work.`;
-
-function buildSlackInstallationWelcomeBlocks(
-  message: string,
-  githubSettingsUrl: string
-): readonly SlackBlockKitBlock[] {
-  return [
-    {
-      text: {
-        text: message,
-        type: "mrkdwn",
-      },
-      type: "section",
-    },
-    {
-      elements: [
-        {
-          accessibility_label: "Open OpenMeld GitHub settings",
-          action_id: "open_openmeld_github_settings",
-          style: "primary",
-          text: {
-            text: "Connect GitHub",
-            type: "plain_text",
-          },
-          type: "button",
-          url: githubSettingsUrl,
-        },
-      ],
-      type: "actions",
-    },
-  ];
-}
-
-async function resolveSlackInstallationGitHubSettingsUrl(input: {
-  env: CoreBindings;
-  organizationId: string;
-}): Promise<string | null> {
-  const webAppUrl = normalizeOptionalText(input.env.WEB_APP_URL);
-  if (!webAppUrl) {
-    return null;
-  }
-  const organizationSlug = await readOrganizationRouteSlug({
-    env: input.env,
-    organizationId: input.organizationId,
-    requestId: null,
-  });
-  if (!organizationSlug) {
-    return null;
-  }
-  const organizationWebUrl = buildOpenMeldOrganizationWebUrl({
-    organizationSlug,
-    webAppUrl,
-  });
-  return buildOpenMeldNavigationAction({
-    organizationWebUrl,
-    target: { kind: "organization_app", service: "github" },
-  }).url;
-}
-
 export async function rpcInstallSlackWorkspaceFromOAuth(
   env: CoreBindings,
   input: InstallSlackWorkspaceFromOAuthInput
@@ -7165,6 +7123,7 @@ export async function rpcInstallSlackWorkspaceFromOAuth(
   const result = await installSlackWorkspaceFromOAuth({
     actorProfileId: parsed.data.actorProfileId,
     auditEntryId: crypto.randomUUID(),
+    botScopes: parsed.data.botScopes,
     botToken: parsed.data.botToken,
     botUserId: parsed.data.botUserId,
     cryptoKey,
@@ -7176,37 +7135,36 @@ export async function rpcInstallSlackWorkspaceFromOAuth(
     moveFromOrganizationId: parsed.data.moveFromOrganizationId,
     nowMs,
     organizationId: parsed.data.organizationId,
+    slackInstallerUserId: parsed.data.slackInstallerUserId,
     slackTeamId: parsed.data.slackTeamId,
   });
   if ("record" in result && parsed.data.slackInstallerUserId) {
     try {
-      await deliverSlackInstallationWelcome({
-        allowCreate: result.status === "created" || result.status === "moved",
-        botToken: parsed.data.botToken,
-        buildBlocks: async (message) => {
-          const githubSettingsUrl =
-            await resolveSlackInstallationGitHubSettingsUrl({
-              env,
-              organizationId: parsed.data.organizationId,
-            });
-          return githubSettingsUrl
-            ? buildSlackInstallationWelcomeBlocks(message, githubSettingsUrl)
-            : undefined;
-        },
+      const key = {
         connectionCreatedAtMs: result.record.createdAtMs,
-        db,
-        messageKind: result.status === "moved" ? "moved" : "connected",
-        messages: {
-          connected: SLACK_INSTALLATION_WELCOME_MESSAGE,
-          moved: SLACK_WORKSPACE_MOVE_WELCOME_MESSAGE,
-        },
-        nowMs,
         organizationId: parsed.data.organizationId,
         recipientSlackUserId: parsed.data.slackInstallerUserId,
         slackTeamId: parsed.data.slackTeamId,
-      });
+        welcomeVersion: SLACK_INSTALLATION_WELCOME_VERSION,
+      };
+      if (result.status === "unchanged") {
+        await authorizeFailedSlackInstallationWelcomeRetry({ db, key, nowMs });
+      } else {
+        await enqueueSlackInstallationWelcomePreparation({
+          allowCreate: result.status === "created" || result.status === "moved",
+          connectionCreatedAtMs: result.record.createdAtMs,
+          db,
+          installedByProfileId: parsed.data.actorProfileId,
+          installedByUserId: parsed.data.installedByUserId,
+          messageKind: result.status === "moved" ? "moved" : "connected",
+          nowMs,
+          organizationId: parsed.data.organizationId,
+          recipientSlackUserId: parsed.data.slackInstallerUserId,
+          slackTeamId: parsed.data.slackTeamId,
+        });
+      }
     } catch (error) {
-      console.warn("[core.slack_oauth.installation_welcome_failed]", {
+      console.warn("[core.slack_oauth.installation_welcome_queue_failed]", {
         error: error instanceof Error ? error.message : String(error),
         organizationId: parsed.data.organizationId,
         slackTeamId: parsed.data.slackTeamId,
@@ -7218,6 +7176,191 @@ export async function rpcInstallSlackWorkspaceFromOAuth(
       ? { existing: result.existing, status: result.status }
       : { status: result.status };
   return slackOAuthInstallationResultSchema.parse(response);
+}
+
+export async function runSlackInstallationWelcomePreparationTick(input: {
+  db: D1Database;
+  env: CoreBindings;
+  nowMs: number;
+}): Promise<void> {
+  await advanceSlackInstallationWelcomePreparations({
+    ...input,
+    startResearch: async (preparation) =>
+      await startSlackInstallationWelcomeMemberResearch({
+        env: input.env,
+        nowMs: input.nowMs,
+        preparation,
+      }),
+  });
+  await runSlackInvitedMemberOnboardingTick({
+    ...input,
+    startResearch: async (onboarding) =>
+      await startSlackInvitedMemberResearch({
+        env: input.env,
+        nowMs: input.nowMs,
+        onboarding,
+      }),
+  });
+}
+
+export async function rpcCenterAgentStartSelfMemberResearch(
+  env: CoreBindings,
+  input: CenterAgentStartSelfMemberResearchToolRpcInput,
+  options: {
+    nowMs?: number;
+    openDirectMessage?: (
+      context: CoreRpcContextInput
+    ) => Promise<{ spaceId: string }>;
+  } = {}
+): Promise<StartCenterAgentMemberResearchResponse> {
+  const parsed =
+    centerAgentStartSelfMemberResearchToolRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason:
+        parsed.error.issues[0]?.message ??
+        "Invalid Center Agent Profile Report learning request.",
+      status: 400,
+    });
+  }
+  const { authorization, representedHuman } =
+    await prepareCenterAgentRepresentedMemberRequest(
+      env,
+      requireRpcContext(parsed.data.context),
+      parsed.data.speakerMember,
+      {
+        code: "center_agent.member_research_speaker_required",
+        reason:
+          "Starting a Profile Report learning run requires a verified active human Organization member.",
+      }
+    );
+  const humanContext: CoreRpcContextInput = {
+    activeOrganizationId: authorization.activeOrganization.organizationId,
+    actorContext: {
+      callerPrincipalId: representedHuman.userId,
+      openMeldProfileId: representedHuman.profileId,
+      ownerName: representedHuman.displayName,
+      ownerUserId: representedHuman.userId,
+      profileKind: "human",
+      profileName: representedHuman.displayName,
+      requestId: `${authorization.context.actorContext.requestId ?? "center-agent"}:learn-about-me`,
+    },
+  };
+  const directMessage = options.openDirectMessage
+    ? await options.openDirectMessage(humanContext)
+    : await rpcOpenCenterAgentDirectMessageSpace(env, {
+        context: humanContext,
+        suppressWelcome: true,
+      });
+  return await startCenterAgentMemberResearch(
+    env,
+    {
+      context: humanContext,
+      expectedOrganizationId: authorization.activeOrganization.organizationId,
+      scope: "member",
+      subjectUserId: representedHuman.userId,
+    },
+    directMessage.spaceId,
+    options
+  );
+}
+
+async function startSlackInstallationWelcomeMemberResearch(input: {
+  env: CoreBindings;
+  nowMs: number;
+  preparation: SlackInstallationWelcomePreparation;
+}): Promise<{ taskId: string }> {
+  return await startSlackMemberResearch({
+    actorProfileId: input.preparation.installedByProfileId,
+    actorUserId: input.preparation.installedByUserId,
+    env: input.env,
+    nowMs: input.nowMs,
+    organizationId: input.preparation.key.organizationId,
+    requestId: `slack-welcome:${input.preparation.key.slackTeamId}:${input.preparation.key.connectionCreatedAtMs}`,
+    subjectUserId: input.preparation.installedByUserId,
+  });
+}
+
+async function startSlackInvitedMemberResearch(input: {
+  env: CoreBindings;
+  nowMs: number;
+  onboarding: SlackInvitedMemberOnboarding;
+}): Promise<{ taskId: string }> {
+  return await startSlackMemberResearch({
+    actorProfileId: input.onboarding.joinedProfileId,
+    actorUserId: input.onboarding.joinedUserId,
+    env: input.env,
+    nowMs: input.nowMs,
+    organizationId: input.onboarding.organizationId,
+    requestId: `slack-invited-member:${input.onboarding.interactionId}:${input.onboarding.targetSlackUserId}`,
+    subjectUserId: input.onboarding.joinedUserId,
+  });
+}
+
+async function startSlackMemberResearch(input: {
+  actorProfileId: string;
+  actorUserId: string;
+  env: CoreBindings;
+  nowMs: number;
+  organizationId: string;
+  requestId: string;
+  subjectUserId: string;
+}): Promise<{ taskId: string }> {
+  const db = requireCenterAgentDb(input.env);
+  const humanProfile = await db
+    .prepare(
+      `
+        SELECT profiles.profile_name, users.name AS owner_name
+        FROM openmeld_profiles AS profiles
+        INNER JOIN users ON users.id = profiles.owner_user_id
+        WHERE profiles.profile_id = ?
+          AND profiles.owner_user_id = ?
+          AND profiles.profile_kind = 'human'
+          AND profiles.status = 'active'
+        LIMIT 1
+      `
+    )
+    .bind(input.actorProfileId, input.actorUserId)
+    .first<{ owner_name: string; profile_name: string }>();
+  if (!humanProfile) {
+    throw new Error("Slack member Human Profile is unavailable.");
+  }
+  const context: CoreRpcContextInput = {
+    activeOrganizationId: input.organizationId,
+    actorContext: {
+      callerPrincipalId: input.actorUserId,
+      openMeldProfileId: input.actorProfileId,
+      ownerName: humanProfile.owner_name,
+      ownerUserId: input.actorUserId,
+      profileKind: "human",
+      profileName: humanProfile.profile_name,
+      requestId: input.requestId,
+    },
+  };
+  const directMessage = await rpcOpenCenterAgentDirectMessageSpace(input.env, {
+    context,
+    suppressWelcome: true,
+  });
+  const research = await startCenterAgentMemberResearch(
+    input.env,
+    {
+      context,
+      expectedOrganizationId: input.organizationId,
+      scope: "member",
+      subjectUserId: input.subjectUserId,
+    },
+    directMessage.spaceId,
+    {
+      acceptanceIdempotencyKey: input.requestId,
+      nowMs: input.nowMs,
+    }
+  );
+  const task = research.batch.tasks[0];
+  if (!task) {
+    throw new Error("Slack onboarding member research created no task.");
+  }
+  return { taskId: task.id };
 }
 
 export async function rpcDisconnectCenterAgentSlackWorkspace(
@@ -8989,16 +9132,53 @@ export async function rpcCenterAgentReadMemberOpenMeldServiceStatus(
   return response;
 }
 
+function buildSlackReadUnavailable(input: {
+  message: string;
+  nextAction: string;
+  organizationId: string;
+  reasonCode: SlackReadUnavailableResponse["reasonCode"];
+}): SlackReadUnavailableResponse {
+  return slackReadUnavailableResponseSchema.parse({
+    ...input,
+    status: "unavailable",
+  });
+}
+
+function buildSlackNotConnectedResult(
+  organizationId: string
+): SlackReadUnavailableResponse {
+  return buildSlackReadUnavailable({
+    message: "Slack isn't connected to this Organization yet.",
+    nextAction: "Open Center Agent → Channels and choose Connect Slack.",
+    organizationId,
+    reasonCode: "slack_not_connected",
+  });
+}
+
+function buildSlackConnectionStateUnavailableResult(
+  organizationId: string
+): SlackReadUnavailableResponse {
+  return buildSlackReadUnavailable({
+    message: "I can't check this Organization's Slack connection right now.",
+    nextAction: "Try again in a moment.",
+    organizationId,
+    reasonCode: "connection_state_unavailable",
+  });
+}
+
 export async function rpcCenterAgentReadSlackWorkspaceDirectory(
   env: CoreBindings,
   input: CenterAgentReadSlackWorkspaceDirectoryInput
-): Promise<SlackWorkspaceDirectoryResponse> {
+): Promise<CenterAgentReadSlackWorkspaceDirectoryResponse> {
   const authorization = await requireCurrentDesignatedCenterAgentCaller({
     context: requireRpcContext(input.context),
     env,
   });
   const parsed = centerAgentReadSlackWorkspaceDirectoryBodySchema.safeParse({
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+    ...(input.includeMemberUserId === undefined
+      ? {}
+      : { includeMemberUserId: input.includeMemberUserId }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
   if (!parsed.success) {
@@ -9011,26 +9191,17 @@ export async function rpcCenterAgentReadSlackWorkspaceDirectory(
     });
   }
 
+  const organizationId = authorization.activeOrganization.organizationId;
   const slackDb = localStateDb(env);
   if (!slackDb) {
-    throw createCoreRpcHttpError({
-      code: "center_agent.slack_connection_state_unavailable",
-      reason: "Slack connection state is unavailable.",
-      status: 503,
-    });
+    return buildSlackConnectionStateUnavailableResult(organizationId);
   }
-  const organizationId = authorization.activeOrganization.organizationId;
   const binding = await readRemoteAgentSlackWorkspaceBindingByOrganization({
     db: slackDb,
     organizationId,
   });
   if (!binding) {
-    throw createCoreRpcHttpError({
-      code: "center_agent.slack_workspace_not_connected",
-      reason:
-        "Connect this Organization to Slack before asking the Center Agent to read its member directory.",
-      status: 409,
-    });
+    return buildSlackNotConnectedResult(organizationId);
   }
   const botToken = await resolveSlackBotToken({
     cryptoKey: env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
@@ -9059,6 +9230,7 @@ export async function rpcCenterAgentReadSlackWorkspaceDirectory(
   const response = {
     generatedAt: new Date().toISOString(),
     members: classifySlackWorkspaceMembers({
+      includeMemberUserId: parsed.data.includeMemberUserId === true,
       slackIdentityLinks,
       slackMembers: slackPage.members,
       openMeldDirectory,
@@ -9084,7 +9256,7 @@ export async function rpcCenterAgentReadSlackWorkspaceDirectory(
 export async function rpcCenterAgentListSlackChannels(
   env: CoreBindings,
   input: CenterAgentListSlackChannelsInput
-): Promise<SlackChannelListResponse> {
+): Promise<CenterAgentListSlackChannelsResponse> {
   const authorization = await requireCurrentDesignatedCenterAgentCaller({
     context: requireRpcContext(input.context),
     env,
@@ -9102,26 +9274,17 @@ export async function rpcCenterAgentListSlackChannels(
       status: 400,
     });
   }
+  const organizationId = authorization.activeOrganization.organizationId;
   const slackDb = localStateDb(env);
   if (!slackDb) {
-    throw createCoreRpcHttpError({
-      code: "center_agent.slack_connection_state_unavailable",
-      reason: "Slack connection state is unavailable.",
-      status: 503,
-    });
+    return buildSlackConnectionStateUnavailableResult(organizationId);
   }
-  const organizationId = authorization.activeOrganization.organizationId;
   const binding = await readRemoteAgentSlackWorkspaceBindingByOrganization({
     db: slackDb,
     organizationId,
   });
   if (!binding) {
-    throw createCoreRpcHttpError({
-      code: "center_agent.slack_workspace_not_connected",
-      reason:
-        "Connect this Organization to Slack before asking the Center Agent to list channels.",
-      status: 409,
-    });
+    return buildSlackNotConnectedResult(organizationId);
   }
   const botToken = await resolveSlackBotToken({
     cryptoKey: env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
@@ -9162,7 +9325,7 @@ export async function rpcCenterAgentListSlackChannels(
 export async function rpcCenterAgentReadSlackChannelMembers(
   env: CoreBindings,
   input: CenterAgentReadSlackChannelMembersInput
-): Promise<SlackChannelMembersResponse> {
+): Promise<CenterAgentReadSlackChannelMembersResponse> {
   const authorization = await requireCurrentDesignatedCenterAgentCaller({
     context: requireRpcContext(input.context),
     env,
@@ -9170,6 +9333,9 @@ export async function rpcCenterAgentReadSlackChannelMembers(
   const parsed = centerAgentReadSlackChannelMembersBodySchema.safeParse({
     channelName: input.channelName,
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+    ...(input.includeChannelId === undefined
+      ? {}
+      : { includeChannelId: input.includeChannelId }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
   if (!parsed.success) {
@@ -9181,26 +9347,17 @@ export async function rpcCenterAgentReadSlackChannelMembers(
       status: 400,
     });
   }
+  const organizationId = authorization.activeOrganization.organizationId;
   const slackDb = localStateDb(env);
   if (!slackDb) {
-    throw createCoreRpcHttpError({
-      code: "center_agent.slack_connection_state_unavailable",
-      reason: "Slack connection state is unavailable.",
-      status: 503,
-    });
+    return buildSlackConnectionStateUnavailableResult(organizationId);
   }
-  const organizationId = authorization.activeOrganization.organizationId;
   const binding = await readRemoteAgentSlackWorkspaceBindingByOrganization({
     db: slackDb,
     organizationId,
   });
   if (!binding) {
-    throw createCoreRpcHttpError({
-      code: "center_agent.slack_workspace_not_connected",
-      reason:
-        "Connect this Organization to Slack before asking the Center Agent to read channel members.",
-      status: 409,
-    });
+    return buildSlackNotConnectedResult(organizationId);
   }
   const botToken = await resolveSlackBotToken({
     cryptoKey: env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
@@ -9213,10 +9370,11 @@ export async function rpcCenterAgentReadSlackChannelMembers(
     channelName: parsed.data.channelName,
   });
   if (!target.isMember) {
-    throw createCoreRpcHttpError({
-      code: "center_agent.slack_channel_membership_required",
-      reason: `Invite the OpenMeld app to #${target.channelName} before asking it to read channel members.`,
-      status: 409,
+    return buildSlackReadUnavailable({
+      message: `OpenMeld hasn't been added to #${target.channelName} yet.`,
+      nextAction: `In Slack, invite OpenMeld to #${target.channelName}, then ask me to try again.`,
+      organizationId,
+      reasonCode: "channel_access_required",
     });
   }
   const openMeldDirectoryPromise = rpcGetCurrentOrganizationDirectory(env, {
@@ -9243,9 +9401,11 @@ export async function rpcCenterAgentReadSlackChannelMembers(
       openMeldDirectoryPromise,
     ]);
   const validated = slackChannelMembersResponseSchema.safeParse({
+    ...(parsed.data.includeChannelId ? { channelId: target.channelId } : {}),
     channelName: target.channelName,
     generatedAt: new Date().toISOString(),
     members: classifySlackWorkspaceMembers({
+      includeMemberUserId: false,
       slackIdentityLinks,
       slackMembers,
       openMeldDirectory,
@@ -9270,7 +9430,7 @@ export async function rpcCenterAgentReadSlackChannelMembers(
 export async function rpcCenterAgentReadSlackChannelHistory(
   env: CoreBindings,
   input: CenterAgentReadSlackChannelHistoryInput
-): Promise<SlackChannelHistoryResponse> {
+): Promise<CenterAgentReadSlackChannelHistoryResponse> {
   const authorization = await requireCurrentDesignatedCenterAgentCaller({
     context: requireRpcContext(input.context),
     env,
@@ -9278,6 +9438,9 @@ export async function rpcCenterAgentReadSlackChannelHistory(
   const parsed = centerAgentReadSlackChannelHistoryBodySchema.safeParse({
     channelName: input.channelName,
     ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+    ...(input.expectedChannelId === undefined
+      ? {}
+      : { expectedChannelId: input.expectedChannelId }),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
   if (!parsed.success) {
@@ -9289,26 +9452,17 @@ export async function rpcCenterAgentReadSlackChannelHistory(
       status: 400,
     });
   }
+  const organizationId = authorization.activeOrganization.organizationId;
   const slackDb = localStateDb(env);
   if (!slackDb) {
-    throw createCoreRpcHttpError({
-      code: "center_agent.slack_connection_state_unavailable",
-      reason: "Slack connection state is unavailable.",
-      status: 503,
-    });
+    return buildSlackConnectionStateUnavailableResult(organizationId);
   }
-  const organizationId = authorization.activeOrganization.organizationId;
   const binding = await readRemoteAgentSlackWorkspaceBindingByOrganization({
     db: slackDb,
     organizationId,
   });
   if (!binding) {
-    throw createCoreRpcHttpError({
-      code: "center_agent.slack_workspace_not_connected",
-      reason:
-        "Connect this Organization to Slack before asking the Center Agent to read channel history.",
-      status: 409,
-    });
+    return buildSlackNotConnectedResult(organizationId);
   }
   const botToken = await resolveSlackBotToken({
     cryptoKey: env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
@@ -9320,11 +9474,23 @@ export async function rpcCenterAgentReadSlackChannelHistory(
     botToken,
     channelName: parsed.data.channelName,
   });
-  if (!target.isMember) {
+  if (
+    parsed.data.expectedChannelId &&
+    target.channelId !== parsed.data.expectedChannelId
+  ) {
     throw createCoreRpcHttpError({
-      code: "center_agent.slack_channel_membership_required",
-      reason: `Invite the OpenMeld app to #${target.channelName} before asking it to read channel history.`,
+      code: "slack.channel_identity_changed",
+      reason:
+        "The Slack channel identity changed after its members were checked. Read the channel members again before reading message history.",
       status: 409,
+    });
+  }
+  if (!target.isMember) {
+    return buildSlackReadUnavailable({
+      message: `OpenMeld hasn't been added to #${target.channelName} yet.`,
+      nextAction: `In Slack, invite OpenMeld to #${target.channelName}, then ask me to try again.`,
+      organizationId,
+      reasonCode: "channel_access_required",
     });
   }
   const slackPage = await readSlackChannelHistory({
@@ -9407,6 +9573,7 @@ async function readSlackWorkspaceMembersByIds(input: {
 }
 
 function classifySlackWorkspaceMembers(input: {
+  includeMemberUserId: boolean;
   slackIdentityLinks: readonly SlackUserIdentityLinkRecord[];
   slackMembers: readonly SlackWorkspaceMember[];
   openMeldDirectory: OrganizationDirectoryResponse;
@@ -9436,12 +9603,18 @@ function classifySlackWorkspaceMembers(input: {
       openMeldMembership = {
         matchedBy: "identity_link",
         memberDisplayName: linkedOpenMeldMember.user.name,
+        ...(input.includeMemberUserId
+          ? { memberUserId: linkedOpenMeldMember.userId }
+          : {}),
         status: "member",
       };
     } else if (emailMatchedOpenMeldMember) {
       openMeldMembership = {
         matchedBy: "email",
         memberDisplayName: emailMatchedOpenMeldMember.user.name,
+        ...(input.includeMemberUserId
+          ? { memberUserId: emailMatchedOpenMeldMember.userId }
+          : {}),
         status: "member",
       };
     } else if (normalizedEmail) {
@@ -11636,29 +11809,31 @@ export async function rpcOpenCenterAgentDirectMessageSpace(
         })
     );
     opened = openedSpace;
-    try {
-      await timing.measure(
-        "welcome",
-        async () =>
-          await ensureCenterAgentDirectMessageWelcomeSignal(env, {
-            activeOrganization,
-            centerAgentMember,
-            humanMember,
-            requestContext: context,
-            spaceId: openedSpace.spaceId,
-          })
-      );
-    } catch (error) {
-      console.warn("[core.center_agent.dm_welcome_delivery_failed]", {
-        event: "core.center_agent.dm_welcome_delivery_failed",
-        organizationId: activeOrganization.organizationId,
-        spaceId: openedSpace.spaceId,
-        centerAgentProfileId: designation.agentProfileId,
-        memberProfileId: humanMember.profileId,
-        requestId: context.actorContext.requestId,
-        error: toErrorMessage(error),
-        errorStack: error instanceof Error ? error.stack : undefined,
-      });
+    if (!input.suppressWelcome) {
+      try {
+        await timing.measure(
+          "welcome",
+          async () =>
+            await ensureCenterAgentDirectMessageWelcomeSignal(env, {
+              activeOrganization,
+              centerAgentMember,
+              humanMember,
+              requestContext: context,
+              spaceId: openedSpace.spaceId,
+            })
+        );
+      } catch (error) {
+        console.warn("[core.center_agent.dm_welcome_delivery_failed]", {
+          event: "core.center_agent.dm_welcome_delivery_failed",
+          organizationId: activeOrganization.organizationId,
+          spaceId: openedSpace.spaceId,
+          centerAgentProfileId: designation.agentProfileId,
+          memberProfileId: humanMember.profileId,
+          requestId: context.actorContext.requestId,
+          error: toErrorMessage(error),
+          errorStack: error instanceof Error ? error.stack : undefined,
+        });
+      }
     }
     const response: OpenCenterAgentDirectMessageSpaceResponse = {
       organizationId: activeOrganization.organizationId,

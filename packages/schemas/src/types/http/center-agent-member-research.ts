@@ -35,6 +35,9 @@ export type StartCenterAgentMemberResearchResponse = z.infer<
 export type StartCenterAgentMemberResearchRpcInput = z.infer<
   Schemas["startCenterAgentMemberResearchRpcInputSchema"]
 >;
+export type CenterAgentStartSelfMemberResearchToolRpcInput = z.infer<
+  Schemas["centerAgentStartSelfMemberResearchToolRpcInputSchema"]
+>;
 export type GetCenterAgentMemberResearchStatusResponse = z.infer<
   Schemas["getCenterAgentMemberResearchStatusResponseSchema"]
 >;

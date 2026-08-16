@@ -63,6 +63,7 @@ function createWorkspaceFake() {
     writeFile,
   };
   return {
+    chmod: fs.chmod,
     directories,
     files,
     modes,
@@ -92,6 +93,7 @@ function snapshot(
       {
         createdAt: "2026-08-08T09:00:00.000Z",
         id: "folder_plans",
+        isManaged: false,
         name: "Plans",
         organizationId: "org_acme",
         parentFolderId: null,
@@ -104,6 +106,21 @@ function snapshot(
 }
 
 describe("Organization Documents Computer projection", () => {
+  it("initializes a first-run projection without touching a missing directory", async () => {
+    const fixture = createWorkspaceFake();
+
+    await materializeOrganizationDocumentsComputerProjection(
+      fixture.workspace,
+      snapshot("0".repeat(64))
+    );
+
+    expect(fixture.chmod).toHaveBeenNthCalledWith(
+      1,
+      ORGANIZATION_DOCUMENTS_COMPUTER_ROOT,
+      0o755
+    );
+  });
+
   it("writes exact approved Markdown into stable read-only paths", async () => {
     const fixture = createWorkspaceFake();
     const approvedContent =

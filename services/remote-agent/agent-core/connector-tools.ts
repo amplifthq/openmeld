@@ -249,6 +249,12 @@ async function executeAppAction(input: {
     submissionId: input.dependencies.submissionId,
     toolName: "openmeld_execute_app_action",
   });
+  await requireMemberResearchReadOnlyConnectorAction({
+    actionId: input.request.actionId,
+    connectorExecution: input.dependencies.connectorExecution,
+    service: input.request.service,
+    toolContext,
+  });
   const connectedMemberPolicy =
     await resolveConnectedMessageChannelActionPolicy({
       actionId: input.request.actionId,
@@ -409,6 +415,23 @@ async function executeAppAction(input: {
     providerExecutionId: run.providerExecutionId,
     replayed: operation.coreOperationReplayed,
   };
+}
+
+async function requireMemberResearchReadOnlyConnectorAction(input: {
+  actionId: string;
+  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  service: CenterAgentAppConnectorService;
+  toolContext: Awaited<ReturnType<typeof buildRemoteAgentToolContext>>;
+}): Promise<void> {
+  if (input.toolContext.turnEnvelope?.trigger.source !== "member_research") {
+    return;
+  }
+  const action = await requireOpenConnectorAction(input);
+  if (resolveConnectorActionEffect(action) !== "read") {
+    throw new Error(
+      "Member research can only execute connected App actions declared read."
+    );
+  }
 }
 
 async function resolveConnectedMessageChannelActionPolicy(input: {

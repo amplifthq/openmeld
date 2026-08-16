@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   remoteAgentSlackAppMentionEventSchema,
+  remoteAgentSlackDirectMessageEventSchema,
   remoteAgentSlackEventQueueMessageSchema,
   remoteAgentSlackEventsApiPayloadSchema,
 } from "../../src/index";
@@ -44,6 +45,33 @@ describe("Remote Agent Slack contracts", () => {
         ts: "1710000000.000100",
       })
     );
+  });
+
+  it("accepts only human messages sent directly to the app", () => {
+    const directMessage = {
+      type: "message",
+      channel_type: "im",
+      user: "U123",
+      text: "What do you know about my work?",
+      ts: "1710000000.000100",
+      channel: "D123",
+    };
+
+    expect(
+      remoteAgentSlackDirectMessageEventSchema.parse(directMessage)
+    ).toEqual(directMessage);
+    expect(
+      remoteAgentSlackDirectMessageEventSchema.safeParse({
+        ...directMessage,
+        bot_id: "B123",
+      }).success
+    ).toBe(false);
+    expect(
+      remoteAgentSlackDirectMessageEventSchema.safeParse({
+        ...directMessage,
+        subtype: "message_changed",
+      }).success
+    ).toBe(false);
   });
 
   it("carries Slack retry evidence through the durable Queue ingress", () => {

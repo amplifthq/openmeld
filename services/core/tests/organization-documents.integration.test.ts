@@ -45,6 +45,7 @@ import {
 
 const ORGANIZATION_DOCUMENT_UPDATE_SQL_PATTERN =
   /UPDATE organization_documents/u;
+const ISO_CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 
 describe("Organization documents", () => {
   it("projects a maximum-length document title within the Inbox title contract", async () => {
@@ -478,8 +479,10 @@ describe("Organization documents", () => {
     expect(first.documents[0]).not.toHaveProperty("draftContent");
     expect(replay.revision).toBe(first.revision);
 
+    const currentDocument = await service.get(fixture.owner, document.id);
     await service.update(fixture.owner, document.id, {
       content: "Approved version two",
+      ...humanDocumentVersion(currentDocument),
     });
     const updated = await rpcCenterAgentOrganizationDocumentsComputerSnapshot(
       coreEnv,
@@ -520,6 +523,7 @@ describe("Organization documents", () => {
     });
     await humanService.update(fixture.owner, document.id, {
       content: "Human's newer approved plan",
+      ...humanDocumentVersion(document),
     });
     const centerAgentService = createOrganizationDocumentService({
       db: env.OPENMELD_DB,
@@ -622,7 +626,11 @@ describe("Organization documents", () => {
       kind: "member_profile",
       subjectUserId: fixture.member.userId,
     });
-    expect(profile.title).toBe("Morgan Member Profile Report");
+    expect(profile.profileReportDate).toMatch(ISO_CALENDAR_DATE_PATTERN);
+    expect(profile.profileReportType).toBe("work_profile");
+    expect(profile.title).toBe(
+      `${profile.profileReportDate as string} — Work Profile`
+    );
     const otherProfile = await service.create(fixture.owner, {
       content: "Owner profile",
       kind: "member_profile",
@@ -632,6 +640,7 @@ describe("Organization documents", () => {
     await expect(
       service.update(fixture.member, profile.id, {
         content: "I updated my own about text.",
+        ...humanDocumentVersion(profile),
       })
     ).resolves.toMatchObject({ content: "I updated my own about text." });
     await expect(
@@ -645,6 +654,161 @@ describe("Organization documents", () => {
     await expect(
       service.delete(fixture.member, profile.id)
     ).rejects.toMatchObject({ cause: { status: 403 } });
+  });
+
+  it("gives same-day Profile Reports distinct human-readable titles", async () => {
+    const fixture = await seedFixture();
+    const reportTimestamp = Date.UTC(2026, 7, 14, 12, 30, 0);
+    const service = createOrganizationDocumentService({
+      db: env.OPENMELD_DB,
+      now: () => reportTimestamp,
+    });
+
+    const first = await service.create(fixture.owner, {
+      content: "First angle",
+      kind: "member_profile",
+      subjectUserId: fixture.member.userId,
+    });
+    const second = await service.create(fixture.owner, {
+      content: "Second angle",
+      kind: "member_profile",
+      subjectUserId: fixture.member.userId,
+    });
+
+    expect(first.title).toBe("2026-08-14 — Work Profile");
+    expect(second.title).toBe("2026-08-14 — Work Profile (2)");
+  });
+
+  it("gives different members with the same display name distinct managed folders", async () => {
+    const fixture = await seedFixture();
+    const sameNameUserId = `same_name_${crypto.randomUUID()}`;
+    const timestamp = Date.UTC(2026, 7, 14, 12, 30, 0);
+    await env.OPENMELD_DB.batch([
+      env.OPENMELD_DB.prepare(
+        "INSERT INTO users (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+      ).bind(
+        sameNameUserId,
+        "Morgan Member",
+        `${sameNameUserId}@example.com`,
+        1,
+        timestamp,
+        timestamp
+      ),
+      env.OPENMELD_DB.prepare(
+        "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
+      ).bind(
+        `membership_${sameNameUserId}`,
+        fixture.organizationId,
+        sameNameUserId,
+        timestamp
+      ),
+    ]);
+    const service = createOrganizationDocumentService({
+      db: env.OPENMELD_DB,
+      now: () => timestamp,
+    });
+
+    const first = await service.create(fixture.owner, {
+      content: "First Morgan",
+      kind: "member_profile",
+      subjectUserId: fixture.member.userId,
+    });
+    const second = await service.create(fixture.owner, {
+      content: "Second Morgan",
+      kind: "member_profile",
+      subjectUserId: sameNameUserId,
+    });
+    const folders = await service.listFolders(fixture.owner);
+    const firstFolder = folders.find((folder) => folder.id === first.folderId);
+    const secondFolder = folders.find(
+      (folder) => folder.id === second.folderId
+    );
+
+    expect(firstFolder?.name).toBe("Morgan Member");
+    expect(secondFolder?.name).toBe("Morgan Member (2)");
+  });
+
+  it("turns a Profile Report draft into the editable working report when its subject saves", async () => {
+    const fixture = await seedFixture();
+    const service = createService();
+    const profile = await service.create(fixture.owner, {
+      content: "Earlier working report",
+      kind: "member_profile",
+      subjectUserId: fixture.member.userId,
+    });
+    await service.draft(
+      fixture.organizationId,
+      {
+        documentId: profile.id,
+        draftContent: "What the Center Agent learned",
+      },
+      documentReviewerUserIds(fixture)
+    );
+    const pending = await service.get(fixture.member, profile.id);
+
+    await expect(
+      service.update(fixture.member, profile.id, {
+        content: "What Morgan and the Center Agent learned together",
+        ...humanDocumentVersion(pending),
+      })
+    ).resolves.toMatchObject({
+      content: "What Morgan and the Center Agent learned together",
+      draftContent: null,
+      draftCreatedAt: null,
+      draftCreatedBy: null,
+    });
+  });
+
+  it("keeps a newer Profile Report draft when an older editor tries to save", async () => {
+    const fixture = await seedFixture();
+    let nowMs = 10_000;
+    const service = createOrganizationDocumentService({
+      db: env.OPENMELD_DB,
+      now: () => nowMs,
+    });
+    const profile = await service.create(fixture.owner, {
+      content: "Earlier working report",
+      kind: "member_profile",
+      subjectUserId: fixture.member.userId,
+    });
+    nowMs = 20_000;
+    await service.draft(
+      fixture.organizationId,
+      {
+        documentId: profile.id,
+        draftContent: "First draft loaded in the editor",
+      },
+      documentReviewerUserIds(fixture)
+    );
+    const editorCopy = await service.get(fixture.member, profile.id);
+    nowMs = 30_000;
+    await service.draft(
+      fixture.organizationId,
+      {
+        documentId: profile.id,
+        draftContent: "Newer research that must be preserved",
+      },
+      documentReviewerUserIds(fixture)
+    );
+
+    await expect(
+      service.update(fixture.member, profile.id, {
+        content: "Stale editor content",
+        ...humanDocumentVersion(editorCopy),
+      })
+    ).rejects.toMatchObject({
+      cause: {
+        code: "organization_document.working_copy_conflict",
+        status: 409,
+      },
+    });
+    await expect(
+      service.get(fixture.member, profile.id)
+    ).resolves.toMatchObject({
+      content: "Earlier working report",
+      draftContent: "Newer research that must be preserved",
+      draftCreatedAt: new Date(30_000).toISOString(),
+    });
   });
 
   it("supports manager CRUD and keeps draft review manager-only", async () => {
@@ -665,6 +829,7 @@ describe("Organization documents", () => {
     await expect(
       service.update(fixture.admin, document.id, {
         content: "Admin edit",
+        ...humanDocumentVersion(document),
         title: "Operations runbook",
       })
     ).resolves.toMatchObject({
@@ -715,11 +880,12 @@ describe("Organization documents", () => {
       title: "Runbook",
     });
 
-    await service.update(fixture.owner, document.id, {
+    const renamedDocument = await service.update(fixture.owner, document.id, {
       title: "Operations runbook",
     });
     await service.update(fixture.owner, document.id, {
       content: "Updated content",
+      ...humanDocumentVersion(renamedDocument),
     });
 
     expect(updateStatements).toHaveLength(2);
@@ -729,11 +895,11 @@ describe("Organization documents", () => {
     expect(updateStatements[1]).not.toContain("title = ?");
   });
 
-  it("enforces brief and member-profile singletons", async () => {
+  it("keeps one Organization Brief and preserves dated Profile Report history", async () => {
     const fixture = await seedFixture();
     const service = createService();
     await service.create(fixture.owner, { content: "First", kind: "brief" });
-    await service.create(fixture.owner, {
+    const firstProfile = await service.create(fixture.owner, {
       content: "About",
       kind: "member_profile",
       subjectUserId: fixture.member.userId,
@@ -744,18 +910,120 @@ describe("Organization documents", () => {
     ).rejects.toMatchObject({
       cause: { code: "organization_document.brief_exists", status: 409 },
     });
+    const secondProfile = await service.create(fixture.owner, {
+      content: "Duplicate",
+      kind: "member_profile",
+      subjectUserId: fixture.member.userId,
+    });
+    expect(secondProfile.id).not.toBe(firstProfile.id);
+    expect(secondProfile.folderId).toBe(firstProfile.folderId);
+    const profileFolders = (await service.listFolders(fixture.owner)).filter(
+      (folder) => folder.isManaged
+    );
+    expect(profileFolders).toHaveLength(2);
+    const profileReportsRoot = profileFolders.find(
+      (folder) => folder.name === "Profile Reports"
+    );
+    const memberFolder = profileFolders.find(
+      (folder) => folder.id === firstProfile.folderId
+    );
+    expect(memberFolder?.parentFolderId).toBe(profileReportsRoot?.id);
     await expect(
-      service.create(fixture.owner, {
-        content: "Duplicate",
-        kind: "member_profile",
-        subjectUserId: fixture.member.userId,
+      service.renameFolder(fixture.owner, memberFolder?.id ?? "", {
+        name: "Moved reports",
       })
     ).rejects.toMatchObject({
-      cause: {
-        code: "organization_document.member_profile_exists",
-        status: 409,
-      },
+      cause: { code: "organization_document.managed_placement", status: 409 },
     });
+    await expect(
+      service.createFolder(fixture.owner, {
+        name: "Manual child",
+        parentFolderId: profileReportsRoot?.id,
+      })
+    ).rejects.toMatchObject({
+      cause: { code: "organization_document.managed_placement", status: 409 },
+    });
+    const knowledge = await service.create(fixture.owner, {
+      content: "Ordinary knowledge",
+      kind: "knowledge",
+      title: "Runbook",
+    });
+    await expect(
+      service.update(fixture.owner, knowledge.id, {
+        folderId: memberFolder?.id,
+      })
+    ).rejects.toMatchObject({
+      cause: { code: "organization_document.managed_placement", status: 409 },
+    });
+    const memberReports = (await service.list(fixture.owner)).filter(
+      (document) =>
+        document.kind === "member_profile" &&
+        document.subjectUserId === fixture.member.userId
+    );
+    expect(memberReports).toHaveLength(2);
+  });
+
+  it("preserves an ordinary Profile Reports folder when managed reports begin", async () => {
+    const fixture = await seedFixture();
+    const service = createService();
+    const ordinaryRoot = await service.createFolder(fixture.owner, {
+      name: "Profile Reports",
+    });
+    const ordinaryOpenMeldRoot = await service.createFolder(fixture.owner, {
+      name: "OpenMeld Profile Reports",
+    });
+    const ordinaryChild = await service.createFolder(fixture.owner, {
+      name: "Imported notes",
+      parentFolderId: ordinaryRoot.id,
+    });
+    const ordinaryDocument = await service.create(fixture.owner, {
+      content: "A user-managed profile note.",
+      folderId: ordinaryRoot.id,
+      kind: "knowledge",
+      title: "Legacy profile notes",
+    });
+
+    const profile = await service.create(fixture.owner, {
+      content: "The first managed report.",
+      kind: "member_profile",
+      subjectUserId: fixture.member.userId,
+    });
+
+    const folders = await service.listFolders(fixture.owner);
+    const currentOrdinaryDocument = await service.get(
+      fixture.owner,
+      ordinaryDocument.id
+    );
+    const preservedRoot = folders.find(
+      (folder) => folder.id === ordinaryRoot.id
+    );
+    const preservedOpenMeldRoot = folders.find(
+      (folder) => folder.id === ordinaryOpenMeldRoot.id
+    );
+    const preservedChild = folders.find(
+      (folder) => folder.id === ordinaryChild.id
+    );
+    const managedRoot = folders.find(
+      (folder) => folder.isManaged && folder.parentFolderId === null
+    );
+    const personFolder = folders.find(
+      (folder) => folder.id === profile.folderId
+    );
+    expect(preservedRoot).toMatchObject({
+      isManaged: false,
+      name: "Profile Reports",
+    });
+    expect(preservedOpenMeldRoot).toMatchObject({
+      isManaged: false,
+      name: "OpenMeld Profile Reports",
+    });
+    expect(preservedChild?.parentFolderId).toBe(ordinaryRoot.id);
+    expect(currentOrdinaryDocument.folderId).toBe(ordinaryRoot.id);
+    expect(managedRoot).toMatchObject({
+      name: "OpenMeld Profile Reports (2)",
+    });
+    expect(managedRoot?.id).not.toBe(ordinaryRoot.id);
+    expect(personFolder?.parentFolderId).toBe(managedRoot?.id);
   });
 
   it("replaces the pending draft and rejects review of a stale version", async () => {
@@ -2075,6 +2343,16 @@ function draftVersion(document: { draftCreatedAt: string | null }): string {
     throw new Error("Expected a pending draft version in this test.");
   }
   return document.draftCreatedAt;
+}
+
+function humanDocumentVersion(document: {
+  draftCreatedAt: string | null;
+  updatedAt: string;
+}) {
+  return {
+    expectedDocumentUpdatedAt: document.updatedAt,
+    expectedDraftCreatedAt: document.draftCreatedAt,
+  };
 }
 
 function documentReviewerUserIds(fixture: {

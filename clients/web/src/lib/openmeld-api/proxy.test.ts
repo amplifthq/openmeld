@@ -100,6 +100,36 @@ describe("OpenMeld gateway proxy", () => {
 		);
 	});
 
+	it("turns the Slack OAuth organization slug into an authorized upstream selector", async () => {
+		const fetchMock = vi.fn<typeof fetch>((input, init) => {
+			expect(input).toBe(
+				"https://gateway.openmeld.test/slack/oauth/start?move_from=org-existing"
+			);
+			const headers = init?.headers as Headers;
+			expect(headers.get("x-openmeld-requested-organization-slug")).toBe(
+				"openmeld-welcome-lab"
+			);
+			return Promise.resolve(
+				Response.redirect(
+					"https://slack.com/oauth/v2/authorize?state=test",
+					302
+				)
+			);
+		});
+
+		const response = await proxyOpenMeldGatewayRequest({
+			request: new Request(
+				"https://openmeld.test/slack/oauth/start?organization_slug=openmeld-welcome-lab&move_from=org-existing",
+				{ headers: { cookie: "session=abc" } }
+			),
+			gatewayUrl: "https://gateway.openmeld.test",
+			webAppUrl: "https://openmeld.test",
+			fetchImpl: fetchMock,
+		});
+
+		expect(response.status).toBe(302);
+	});
+
 	it("preserves Wake Stop POST routes through the gateway proxy", async () => {
 		const fetchMock = vi.fn<typeof fetch>(() =>
 			Promise.resolve(

@@ -9,6 +9,7 @@ import {
 	gatewayErrorEnvelopeSchema,
 	normalizeSpacePasswordText,
 } from "@openmeld/schemas";
+import { SLACK_OAUTH_ORGANIZATION_SLUG_SEARCH_PARAM } from "#/lib/slack-oauth-start";
 import {
 	createExpiredProtectedSpaceAccessCookieHeader,
 	resolveProtectedSpaceAccessFromCookieHeader,
@@ -64,6 +65,9 @@ export function buildOpenMeldGatewayUpstreamUrl(input: {
 	upstreamUrl.searchParams.delete(
 		WEB_SPACE_ATTACHMENT_ORGANIZATION_SLUG_SEARCH_PARAM
 	);
+	if (incomingUrl.pathname === OPENMELD_SLACK_OAUTH_START_ROUTE) {
+		upstreamUrl.searchParams.delete(SLACK_OAUTH_ORGANIZATION_SLUG_SEARCH_PARAM);
+	}
 	return upstreamUrl;
 }
 
@@ -144,6 +148,9 @@ export async function proxyOpenMeldGatewayRequest(input: {
 			const attachmentOrganizationSlug = readWebAttachmentOrganizationSlug(
 				input.request
 			);
+			const slackOAuthOrganizationSlug = readWebSlackOAuthOrganizationSlug(
+				input.request
+			);
 			const protectedSpaceId = readProtectedSpaceIdFromPath(
 				requestUrl.pathname
 			);
@@ -185,6 +192,12 @@ export async function proxyOpenMeldGatewayRequest(input: {
 				upstreamHeaders.set(
 					OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG,
 					attachmentOrganizationSlug
+				);
+			}
+			if (slackOAuthOrganizationSlug) {
+				upstreamHeaders.set(
+					OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG,
+					slackOAuthOrganizationSlug
 				);
 			}
 			const upstreamResponse = await fetchImpl(upstreamUrl, {
@@ -239,6 +252,20 @@ function readWebAttachmentOrganizationSlug(request: Request): string | null {
 	}
 	const organizationSlug = requestUrl.searchParams
 		.get(WEB_SPACE_ATTACHMENT_ORGANIZATION_SLUG_SEARCH_PARAM)
+		?.trim();
+	return organizationSlug || null;
+}
+
+function readWebSlackOAuthOrganizationSlug(request: Request): string | null {
+	if (request.method !== "GET") {
+		return null;
+	}
+	const requestUrl = new URL(request.url);
+	if (requestUrl.pathname !== OPENMELD_SLACK_OAUTH_START_ROUTE) {
+		return null;
+	}
+	const organizationSlug = requestUrl.searchParams
+		.get(SLACK_OAUTH_ORGANIZATION_SLUG_SEARCH_PARAM)
 		?.trim();
 	return organizationSlug || null;
 }

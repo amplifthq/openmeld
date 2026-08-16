@@ -5,6 +5,7 @@ type Schemas = typeof import("../../schemas/http/organization-documents");
 export type OrganizationDocumentKind = z.infer<
   Schemas["organizationDocumentKindSchema"]
 >;
+export type ProfileReportType = z.infer<Schemas["profileReportTypeSchema"]>;
 export type OrganizationDocumentSummary = z.infer<
   Schemas["organizationDocumentSummarySchema"]
 >;
@@ -109,6 +110,12 @@ export type CenterAgentDraftOrganizationDocumentRpcInput = z.infer<
 >;
 export type CenterAgentDraftOrganizationDocumentResponse = z.infer<
   Schemas["centerAgentDraftOrganizationDocumentResponseSchema"]
+>;
+export type RecordCenterAgentMemberResearchComputerFileRpcInput = z.infer<
+  Schemas["recordCenterAgentMemberResearchComputerFileRpcInputSchema"]
+>;
+export type RecordCenterAgentMemberResearchComputerFileResponse = z.infer<
+  Schemas["recordCenterAgentMemberResearchComputerFileResponseSchema"]
 >;
 export type CenterAgentManageOrganizationDocumentsRpcInput = z.infer<
   Schemas["centerAgentManageOrganizationDocumentsRpcInputSchema"]

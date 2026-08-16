@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCenterAgentProfileReportComputerPath,
+  centerAgentDraftOrganizationDocumentResponseSchema,
   centerAgentDraftOrganizationDocumentRpcInputSchema,
   centerAgentOrganizationDocumentsComputerSnapshotResponseSchema,
   centerAgentOrganizationDocumentsComputerSnapshotRpcInputSchema,
+  updateOrganizationDocumentBodySchema,
 } from "../../src";
 
 const CENTER_AGENT_CONTEXT = {
@@ -19,6 +22,81 @@ const CENTER_AGENT_CONTEXT = {
 };
 
 describe("Organization Documents Computer snapshot contract", () => {
+  it("requires the loaded document and draft versions when saving content", () => {
+    const versioned = {
+      content: "Human edit",
+      expectedDocumentUpdatedAt: "2026-08-15T10:00:00.000Z",
+      expectedDraftCreatedAt: null,
+      expectedOrganizationId: "org_acme",
+    };
+    expect(
+      updateOrganizationDocumentBodySchema.safeParse(versioned)
+    ).toMatchObject({ success: true });
+    expect(
+      updateOrganizationDocumentBodySchema.safeParse({
+        content: versioned.content,
+        expectedOrganizationId: versioned.expectedOrganizationId,
+      })
+    ).toMatchObject({ success: false });
+  });
+
+  it("keeps the Core-assigned person folder in the member research response", () => {
+    const response = centerAgentDraftOrganizationDocumentResponseSchema.parse({
+      document: {
+        canEditContent: true,
+        canManage: false,
+        createdAt: "2026-08-15T10:00:00.000Z",
+        folderId: "folder_felix_test_2",
+        hasDraft: true,
+        id: "document_profile_report",
+        kind: "member_profile",
+        organizationId: "org_acme",
+        profileReportDate: "2026-08-15",
+        profileReportType: "work_profile",
+        subjectUserId: "user_felix_test_2",
+        title: "2026-08-15 — Work Profile",
+        updatedAt: "2026-08-15T10:00:00.000Z",
+      },
+      draftReplaced: false,
+      memberResearchDraft: {
+        content: "# Profile Report",
+        documentId: "document_profile_report",
+        profileReportFolderName: "Felix Test (2)",
+        subjectUserId: "user_felix_test_2",
+        title: "2026-08-15 — Work Profile",
+      },
+    });
+
+    expect(response.memberResearchDraft?.profileReportFolderName).toBe(
+      "Felix Test (2)"
+    );
+    expect(
+      buildCenterAgentProfileReportComputerPath({
+        documentTitle: response.document.title,
+        profileReportFolderName:
+          response.memberResearchDraft?.profileReportFolderName ?? "",
+      })
+    ).toBe(
+      "/computer/home/documents/Profile Reports/Felix Test (2)/2026-08-15 — Work Profile.md"
+    );
+  });
+
+  it("preserves Core's collision suffix for long same-name person folders", () => {
+    const longName = "A".repeat(200);
+    const secondPath = buildCenterAgentProfileReportComputerPath({
+      documentTitle: "2026-08-15 — Work Profile",
+      profileReportFolderName: `${longName} (2)`,
+    });
+    const thirdPath = buildCenterAgentProfileReportComputerPath({
+      documentTitle: "2026-08-15 — Work Profile",
+      profileReportFolderName: `${longName} (3)`,
+    });
+
+    expect(secondPath).not.toBe(thirdPath);
+    expect(secondPath).toContain(" (2)/2026-08-15 — Work Profile.md");
+    expect(thirdPath).toContain(" (3)/2026-08-15 — Work Profile.md");
+  });
+
   it("accepts the designated Center Agent request context", () => {
     expect(
       centerAgentOrganizationDocumentsComputerSnapshotRpcInputSchema.safeParse({

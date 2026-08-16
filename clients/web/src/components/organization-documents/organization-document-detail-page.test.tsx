@@ -138,6 +138,57 @@ describe("OrganizationDocumentDetailPage", () => {
 		expect(screen.queryByLabelText("Center Agent draft content")).toBeNull();
 	});
 
+	it("presents a Profile Report as a helpful first look without approval pressure", async () => {
+		getCurrentOrganizationDocumentMock.mockResolvedValue(
+			response({
+				draftContent: "What the Center Agent learned",
+				draftCreatedAt: "2026-07-15T01:00:00.000Z",
+				draftCreatedBy: "center_agent",
+				kind: "member_profile",
+				subjectUserId: "user-ada",
+				title: "Ada Lovelace Profile Report",
+			})
+		);
+		renderPage();
+
+		const report = (await screen.findByLabelText(
+			"Document content"
+		)) as HTMLTextAreaElement;
+		expect(report.value).toBe("What the Center Agent learned");
+		expect(report.disabled).toBe(false);
+		expect(
+			screen.getByRole("heading", {
+				name: "What your Center Agent has learned so far",
+			})
+		).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Your Center Agent will update this Profile Report as it learns more about your work. If anything feels off, tell your Center Agent."
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Draft waiting for review")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Discard" })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: APPROVE_DRAFT_BUTTON_NAME })
+		).toBeNull();
+		expect(screen.queryByRole("button", { name: "View approved" })).toBeNull();
+
+		fireEvent.change(report, {
+			target: { value: "What Ada and the Center Agent learned together" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		await waitFor(() =>
+			expect(updateCurrentOrganizationDocumentMock).toHaveBeenCalledWith({
+				content: "What Ada and the Center Agent learned together",
+				documentId: "document-1",
+				expectedDocumentUpdatedAt: "2026-07-15T00:00:00.000Z",
+				expectedDraftCreatedAt: "2026-07-15T01:00:00.000Z",
+				expectedOrganizationId: "org-acme",
+			})
+		);
+	});
+
 	it("discards the reviewed Center Agent draft without changing approved content", async () => {
 		const pending = response({
 			content: "Published content",
@@ -203,6 +254,8 @@ describe("OrganizationDocumentDetailPage", () => {
 			expect(updateCurrentOrganizationDocumentMock).toHaveBeenCalledWith({
 				content: "Human edit",
 				documentId: "document-1",
+				expectedDocumentUpdatedAt: "2026-07-15T00:00:00.000Z",
+				expectedDraftCreatedAt: "2026-07-15T01:00:00.000Z",
 				expectedOrganizationId: "org-acme",
 			})
 		);
@@ -229,6 +282,8 @@ describe("OrganizationDocumentDetailPage", () => {
 			expect(updateCurrentOrganizationDocumentMock).toHaveBeenCalledWith({
 				content: "Human edit",
 				documentId: "document-1",
+				expectedDocumentUpdatedAt: "2026-07-15T00:00:00.000Z",
+				expectedDraftCreatedAt: null,
 				expectedOrganizationId: "org-acme",
 			})
 		);

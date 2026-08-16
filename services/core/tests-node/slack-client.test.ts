@@ -4,6 +4,7 @@ import {
   listSlackChannelMemberIds,
   listSlackChannels,
   listSlackWorkspaceMembers,
+  openSlackDirectMessage,
   postSlackChannelMessageByName,
   postSlackDirectMessage,
   postSlackThreadMessage,
@@ -142,6 +143,29 @@ const SLACK_INVALID_BLOCKS_RESPONSE = {
 } as const;
 
 describe("Slack direct messages", () => {
+  it("opens a writable direct-message conversation for one Slack user", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        Response.json({ channel: { id: "D_OPENMELD" }, ok: true })
+      )
+    );
+
+    await expect(
+      openSlackDirectMessage({
+        botToken: "xoxb-test",
+        fetchImpl: fetchMock,
+        recipientUserId: "U_INSTALLER",
+      })
+    ).resolves.toEqual({ channelId: "D_OPENMELD" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://slack.com/api/conversations.open",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      users: ["U_INSTALLER"],
+    });
+  });
+
   it("posts Block Kit content to the recipient's Slack user ID", async () => {
     const fetchMock = vi.fn<typeof fetch>(() =>
       Promise.resolve(Response.json(SLACK_CHAT_POST_MESSAGE_SUCCESS_RESPONSE))
@@ -846,6 +870,35 @@ describe("Slack thread status", () => {
 });
 
 describe("Slack channel messages", () => {
+  it("resolves Slack channel mention IDs back to their visible channel name", async () => {
+    const fetchMock = createSlackApiFetchMock({
+      channels: [
+        {
+          id: "C0BPRRGHGMS",
+          is_archived: false,
+          is_member: true,
+          is_private: false,
+          name: "openmeld-smoke",
+        },
+      ],
+      messageTs: "1710000000.000",
+    });
+
+    await expect(
+      postSlackChannelMessageByName({
+        botToken: "xoxb-test",
+        channelName: "#c0bprrghgms",
+        fetchImpl: fetchMock,
+        text: "Hello from the Center Agent.",
+      })
+    ).resolves.toEqual({
+      channelId: "C0BPRRGHGMS",
+      channelName: "openmeld-smoke",
+      joinedChannel: false,
+      messageTs: "1710000000.000",
+    });
+  });
+
   it("joins an accessible public channel and posts to its main conversation", async () => {
     const fetchMock = createSlackApiFetchMock({
       channels: [

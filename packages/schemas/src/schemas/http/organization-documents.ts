@@ -10,6 +10,10 @@ export const ORGANIZATION_DOCUMENT_FOLDER_NAME_MAX_CHARS = 200;
 export const ORGANIZATION_DOCUMENT_OPERATION_ID_MAX_CHARS = 256;
 export const ORGANIZATION_KNOWLEDGE_DOCUMENT_LIMIT = 50;
 export const ORGANIZATION_DOCUMENT_FOLDER_LIMIT = 50;
+export const CENTER_AGENT_PROFILE_REPORT_COMPUTER_ROOT =
+  "/computer/home/documents/Profile Reports";
+const CENTER_AGENT_PROFILE_REPORT_FORBIDDEN_PATH_CHARACTERS = '\\\\/:*?"<>|';
+const CENTER_AGENT_PROFILE_REPORT_COLLISION_SUFFIX_PATTERN = / \(\d+\)$/u;
 export const CENTER_AGENT_ORGANIZATION_DOCUMENT_DRAFT_CREATED_BY =
   "center_agent" as const;
 export const ORGANIZATION_DOCUMENT_ERROR_CODES = [
@@ -24,6 +28,7 @@ export const ORGANIZATION_DOCUMENT_ERROR_CODES = [
   "organization_document.folder_not_found",
   "organization_document.human_actor_required",
   "organization_document.knowledge_limit_reached",
+  "organization_document.managed_placement",
   "organization_document.member_profile_exists",
   "organization_document.not_found",
   "organization_document.operation_conflict",
@@ -42,6 +47,7 @@ export const organizationDocumentKindSchema = z.enum([
   "member_profile",
   "knowledge",
 ]);
+export const profileReportTypeSchema = z.enum(["work_profile"]);
 
 const identifierSchema = z.string().trim().min(1).max(256);
 const titleSchema = z
@@ -54,6 +60,48 @@ const folderNameSchema = z
   .trim()
   .min(1)
   .max(ORGANIZATION_DOCUMENT_FOLDER_NAME_MAX_CHARS);
+
+export function buildCenterAgentProfileReportComputerPath(input: {
+  documentTitle: string;
+  profileReportFolderName: string;
+}): string {
+  const folderName = sanitizeCenterAgentProfileReportPathSegment(
+    input.profileReportFolderName
+  );
+  const documentTitle = sanitizeCenterAgentProfileReportPathSegment(
+    input.documentTitle
+  );
+  return `${CENTER_AGENT_PROFILE_REPORT_COMPUTER_ROOT}/${folderName}/${documentTitle}.md`;
+}
+
+function sanitizeCenterAgentProfileReportPathSegment(value: string): string {
+  const safeCharacters = Array.from(value.normalize("NFKC"), (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 31 ||
+      CENTER_AGENT_PROFILE_REPORT_FORBIDDEN_PATH_CHARACTERS.includes(character)
+      ? " - "
+      : character;
+  }).join("");
+  const sanitized = safeCharacters
+    .replace(/\s+/gu, " ")
+    .replace(/(?:\s+-\s+){2,}/gu, " - ")
+    .replace(/^[.\s]+|[.\s]+$/gu, "")
+    .trim();
+  if (!sanitized) {
+    throw new Error("Profile Report files require a folder name and title.");
+  }
+  const maxLength = 120;
+  if (sanitized.length <= maxLength) {
+    return sanitized;
+  }
+  const collisionSuffix = sanitized.match(
+    CENTER_AGENT_PROFILE_REPORT_COLLISION_SUFFIX_PATTERN
+  )?.[0];
+  if (collisionSuffix && collisionSuffix.length < maxLength) {
+    return `${sanitized.slice(0, maxLength - collisionSuffix.length).trimEnd()}${collisionSuffix}`;
+  }
+  return sanitized.slice(0, maxLength).trim();
+}
 const contentSchema = z.string().max(ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS);
 const isoDateTimeSchema = z.iso.datetime({ offset: true });
 const operationIdSchema = z
@@ -65,6 +113,7 @@ const operationIdSchema = z
 export const organizationDocumentFolderSchema = z.strictObject({
   createdAt: isoDateTimeSchema,
   id: identifierSchema,
+  isManaged: z.boolean().default(false),
   name: folderNameSchema,
   organizationId: identifierSchema,
   parentFolderId: identifierSchema.nullable().optional(),
@@ -80,6 +129,8 @@ export const organizationDocumentSummarySchema = z.strictObject({
   id: identifierSchema,
   kind: organizationDocumentKindSchema,
   organizationId: identifierSchema,
+  profileReportDate: z.iso.date().nullable().optional(),
+  profileReportType: profileReportTypeSchema.nullable().optional(),
   subjectUserId: identifierSchema.nullable(),
   title: titleSchema,
   updatedAt: isoDateTimeSchema,
@@ -131,9 +182,30 @@ export const createOrganizationDocumentResponseSchema = z.strictObject({
 export const updateOrganizationDocumentBodySchema = z
   .strictObject({
     content: contentSchema.optional(),
+    expectedDocumentUpdatedAt: isoDateTimeSchema.optional(),
+    expectedDraftCreatedAt: isoDateTimeSchema.nullable().optional(),
     expectedOrganizationId: identifierSchema,
     folderId: identifierSchema.nullable().optional(),
     title: titleSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.content === undefined) {
+      return;
+    }
+    if (value.expectedDocumentUpdatedAt === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "Saving content requires the loaded document version.",
+        path: ["expectedDocumentUpdatedAt"],
+      });
+    }
+    if (value.expectedDraftCreatedAt === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "Saving content requires the loaded draft version.",
+        path: ["expectedDraftCreatedAt"],
+      });
+    }
   })
   .refine(
     (value) =>
@@ -349,6 +421,32 @@ export const centerAgentDraftOrganizationDocumentResponseSchema =
   z.strictObject({
     document: organizationDocumentSummarySchema,
     draftReplaced: z.boolean(),
+    memberResearchDraft: z
+      .strictObject({
+        content: contentSchema,
+        documentId: identifierSchema,
+        profileReportFolderName: folderNameSchema,
+        subjectUserId: identifierSchema,
+        title: titleSchema,
+      })
+      .optional(),
+  });
+
+export const recordCenterAgentMemberResearchComputerFileRpcInputSchema =
+  z.strictObject({
+    context: openMeldRequestContextSchema,
+    documentId: identifierSchema,
+    path: z.string().trim().min(1).max(1024),
+    subjectUserId: identifierSchema,
+    taskId: identifierSchema,
+  });
+
+export const recordCenterAgentMemberResearchComputerFileResponseSchema =
+  z.strictObject({
+    documentId: identifierSchema,
+    path: z.string().trim().min(1).max(1024),
+    recorded: z.literal(true),
+    taskId: identifierSchema,
   });
 
 const centerAgentOrganizationDocumentProjectionSchema =

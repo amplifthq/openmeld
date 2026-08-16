@@ -37,6 +37,18 @@ const COVERAGE: CenterAgentMemberResearchCoverage[] = [
     status: "checked",
     timeRange: "Current",
   },
+  {
+    evidence: "Two attributable messages were found in joined channels.",
+    source: "slack_channel_history",
+    status: "checked",
+    timeRange: "2026-04-17 to 2026-07-16",
+  },
+  {
+    evidence: "One attributable document was found in a shared App.",
+    source: "connected_apps",
+    status: "checked",
+    timeRange: "2026-04-17 to 2026-07-16",
+  },
 ];
 const AGENT_ACTIVITY_EVIDENCE: CenterAgentMemberResearchEvidenceItem = {
   date: "2026-07-10",
@@ -50,6 +62,21 @@ const GITHUB_EVIDENCE: CenterAgentMemberResearchEvidenceItem = {
   sourceId: "acme/repo#42",
   sourceUrl: "https://github.com/acme/repo/pull/42",
   text: "Merged the release guard.",
+};
+const SLACK_EVIDENCE: CenterAgentMemberResearchEvidenceItem = {
+  date: "2026-07-13",
+  source: "slack",
+  sourceId: "C_PRODUCT:1720890000.000100",
+  sourceName: "#product",
+  text: "Shared the rollout plan.",
+};
+const CONNECTED_APP_EVIDENCE: CenterAgentMemberResearchEvidenceItem = {
+  date: "2026-07-14",
+  source: "connected_app",
+  sourceId: "drive:file-42",
+  sourceName: "Google Drive",
+  sourceUrl: "https://drive.google.com/open?id=file-42",
+  text: "Updated the launch brief.",
 };
 
 describe("member research report quality", () => {
@@ -104,6 +131,32 @@ describe("member research report quality", () => {
     );
     expect(draft).not.toContain("## Working profile");
     expect(draft).toContain("## Next step");
+  });
+
+  it("renders Slack and connected App evidence with human-readable sources", () => {
+    const report = centerAgentMemberResearchReportSchema.parse({
+      collaborationGuidance: [],
+      coverage: COVERAGE,
+      currentFocus: [SLACK_EVIDENCE],
+      observedActivity: [SLACK_EVIDENCE, CONNECTED_APP_EVIDENCE],
+      recentContributions: [CONNECTED_APP_EVIDENCE],
+      result: "evidence_backed",
+      suggestedAboutAdditions: [],
+    });
+
+    const draft = renderCenterAgentMemberResearchDraft({
+      approvedContent: null,
+      draftedAtMs: Date.UTC(2026, 6, 16, 12),
+      report,
+      subjectDisplayName: "Morgan Lee",
+    });
+
+    expect(draft).toContain("Slack #product `C_PRODUCT:1720890000.000100`");
+    expect(draft).toContain(
+      "[Google Drive: drive:file-42](https://drive.google.com/open?id=file-42)"
+    );
+    expect(draft).toContain("| Slack channel history | Checked |");
+    expect(draft).toContain("| Connected Apps | Checked |");
   });
 
   it("preserves the approved About section verbatim", () => {

@@ -40,6 +40,7 @@ import {
   retryRemoteAgentRoutineSubmissions,
   submitRemoteAgentRoutineDelivery,
 } from "../remote-agent/application/native-delivery-service";
+import { runSlackChannelIntroductionTick } from "../remote-agent/application/slack-signal-service";
 import { countStrandedRemoteAgentSlackEventIngress } from "../remote-agent/infrastructure/d1/slack-event-ingress-repo";
 import {
   assertRoutineWorkflowConfiguration,
@@ -53,6 +54,7 @@ import {
 import {
   rpcPostCenterAgentWakePublicationSignal,
   rpcResolveCenterAgentWakePublicationSignal,
+  runSlackInstallationWelcomePreparationTick,
 } from "../rpc/methods";
 import { emitCoreCloudflareRuntimeEvidence } from "../shared/observability/cloudflare-runtime-evidence";
 
@@ -75,6 +77,8 @@ export async function runCoreScheduledTasks(input: {
   runAgentActivityRetention?: typeof runAgentActivityRetention;
   runAgentControllerTaskRetention?: typeof runAgentControllerTaskRetention;
   runMemberResearchTick?: typeof runCenterAgentMemberResearchTick;
+  runSlackWelcomePreparationTick?: typeof runSlackInstallationWelcomePreparationTick;
+  runSlackChannelIntroductionTick?: typeof runSlackChannelIntroductionTick;
   runLarkPlatformRegistrationTick?: typeof runLarkPlatformRegistrationTick;
   retryAgentTaskContinuations?: typeof retryReadyAgentTaskContinuations;
   retryAcceptedDeliveryProbes?: typeof retryMissingRemoteAgentAcceptedDeliveryProbes;
@@ -117,11 +121,14 @@ export async function runCoreScheduledTasks(input: {
       });
       throw new Error("Routine scheduler database is unavailable");
     }
+    await runSlackWelcomePreparationContinuation(input, db);
+    await runSlackChannelIntroductionContinuation(input, db);
     await (input.runMemberResearchTick ?? runCenterAgentMemberResearchTick)({
       db,
       env: input.env,
       nowMs: input.nowMs,
     });
+    await runSlackWelcomePreparationContinuation(input, db);
     const retryRoutineFailurePublications =
       input.retryRoutineFailurePublications ??
       retryRemoteAgentRoutineFailurePublications;
@@ -214,6 +221,45 @@ export async function runCoreScheduledTasks(input: {
     scheduledRetentionFailures.push(error);
   }
   throwScheduledRetentionFailures(scheduledRetentionFailures);
+}
+
+async function runSlackWelcomePreparationContinuation(
+  input: Parameters<typeof runCoreScheduledTasks>[0],
+  db: D1Database
+): Promise<void> {
+  try {
+    await (
+      input.runSlackWelcomePreparationTick ??
+      runSlackInstallationWelcomePreparationTick
+    )({
+      db,
+      env: input.env,
+      nowMs: input.nowMs,
+    });
+  } catch (error) {
+    console.error("[core.slack_installation_welcome.tick_failed]", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function runSlackChannelIntroductionContinuation(
+  input: Parameters<typeof runCoreScheduledTasks>[0],
+  db: D1Database
+): Promise<void> {
+  try {
+    await (
+      input.runSlackChannelIntroductionTick ?? runSlackChannelIntroductionTick
+    )({
+      db,
+      env: input.env,
+      nowMs: input.nowMs,
+    });
+  } catch (error) {
+    console.error("[core.slack_channel_introduction.tick_failed]", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function runAcceptedDeliveryProbeRecovery(input: {

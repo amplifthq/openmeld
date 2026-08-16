@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   centerAgentMemberResearchBatchSchema,
   centerAgentMemberResearchReportSchema,
+  centerAgentStartSelfMemberResearchToolRpcInputSchema,
 } from "../../src/schemas/http/center-agent-member-research";
 
 const CREATED_AT = "2026-07-16T00:00:00.000Z";
@@ -12,6 +13,8 @@ const COMPLETE_COVERAGE = [
   "agent_activity",
   "github",
   "slack_workspace_directory",
+  "slack_channel_history",
+  "connected_apps",
 ].map((source) => ({
   evidence: `${source} research result`,
   source,
@@ -31,8 +34,53 @@ const GITHUB_EVIDENCE = {
   sourceUrl: "https://github.com/acme/repo/pull/42",
   text: "Merged the release guard.",
 };
+const SLACK_EVIDENCE = {
+  date: "2026-07-13",
+  source: "slack",
+  sourceId: "C_PRODUCT:1720890000.000100",
+  sourceName: "#product",
+  text: "Shared the rollout plan with the product team.",
+};
+const CONNECTED_APP_EVIDENCE = {
+  date: "2026-07-14",
+  source: "connected_app",
+  sourceId: "drive:file-42",
+  sourceName: "Google Drive",
+  sourceUrl: "https://drive.google.com/open?id=file-42",
+  text: "Updated the launch brief.",
+};
 
 describe("Center Agent member research contracts", () => {
+  it("accepts only a verified member speaker for conversational self research", () => {
+    const input = {
+      context: {
+        activeOrganizationId: "organization-1",
+        actorContext: {
+          callerPrincipalId: "center-agent-owner",
+          openMeldProfileId: "agt_00000000-0000-4000-8000-000000000001",
+          ownerUserId: "center-agent-owner",
+          profileKind: "agent",
+          requestId: "request-1",
+        },
+      },
+      speakerMember: {
+        memberId: "member-1",
+        userId: "user-1",
+      },
+    };
+
+    expect(
+      centerAgentStartSelfMemberResearchToolRpcInputSchema.safeParse(input)
+        .success
+    ).toBe(true);
+    expect(
+      centerAgentStartSelfMemberResearchToolRpcInputSchema.safeParse({
+        ...input,
+        subjectUserId: "user-2",
+      }).success
+    ).toBe(false);
+  });
+
   it("accepts an ordered batch whose status and counts match its tasks", () => {
     expect(
       centerAgentMemberResearchBatchSchema.safeParse({
@@ -127,6 +175,12 @@ describe("Center Agent member research contracts", () => {
     expect(
       centerAgentMemberResearchReportSchema.safeParse({
         ...report,
+        coverage: COMPLETE_COVERAGE.slice(0, 5),
+      }).success
+    ).toBe(true);
+    expect(
+      centerAgentMemberResearchReportSchema.safeParse({
+        ...report,
         observedActivity: [
           ACTIVITY_EVIDENCE,
           { ...ACTIVITY_EVIDENCE, text: "The same item restated." },
@@ -139,6 +193,45 @@ describe("Center Agent member research contracts", () => {
         currentFocus: [
           { ...ACTIVITY_EVIDENCE, source: "organization_directory" },
         ],
+      }).success
+    ).toBe(false);
+    expect(
+      centerAgentMemberResearchReportSchema.safeParse({
+        collaborationGuidance: [],
+        coverage: COMPLETE_COVERAGE,
+        currentFocus: [SLACK_EVIDENCE],
+        observedActivity: [
+          SLACK_EVIDENCE,
+          { ...CONNECTED_APP_EVIDENCE, sourceUrl: "http://example.test/file" },
+        ],
+        recentContributions: [CONNECTED_APP_EVIDENCE],
+        result: "evidence_backed",
+        suggestedAboutAdditions: [],
+      }).success
+    ).toBe(false);
+  });
+
+  it("accepts attributable Slack messages and read-only connected App artifacts as work evidence", () => {
+    expect(
+      centerAgentMemberResearchReportSchema.safeParse({
+        collaborationGuidance: [],
+        coverage: COMPLETE_COVERAGE,
+        currentFocus: [SLACK_EVIDENCE],
+        observedActivity: [SLACK_EVIDENCE, CONNECTED_APP_EVIDENCE],
+        recentContributions: [CONNECTED_APP_EVIDENCE],
+        result: "evidence_backed",
+        suggestedAboutAdditions: [],
+      }).success
+    ).toBe(true);
+    expect(
+      centerAgentMemberResearchReportSchema.safeParse({
+        collaborationGuidance: [],
+        coverage: COMPLETE_COVERAGE,
+        currentFocus: [{ ...SLACK_EVIDENCE, sourceName: undefined }],
+        observedActivity: [SLACK_EVIDENCE, CONNECTED_APP_EVIDENCE],
+        recentContributions: [CONNECTED_APP_EVIDENCE],
+        result: "evidence_backed",
+        suggestedAboutAdditions: [],
       }).success
     ).toBe(false);
   });

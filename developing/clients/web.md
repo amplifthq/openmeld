@@ -1024,9 +1024,15 @@ routing to the previous organization. Confirming starts a new Slack OAuth flow.
 A non-member never receives the previous organization name and is told to ask
 the administrator who originally connected that workspace for help.
 After Core completes the move, the Slack installer receives the same fresh
-welcome-card treatment as a first connection because the destination
-Organization has independent members, Spaces, Apps, and agent context. An
-unchanged reauthorization does not repeat the welcome.
+trust-first treatment as a first connection because the destination
+Organization has independent members, Spaces, Apps, and agent context. The
+message is intentionally deferred until Center Agent member research has
+produced both the provisional Profile Report and its real private Computer
+file. **See what I learned** deep-links to that exact Organization Document.
+**Invite teammates** and **Introduce me in channels** continue natively in
+Slack; Web remains the complete People and Apps management surface rather than
+owning a second onboarding state. An unchanged reauthorization does not repeat
+the welcome.
 
 The workspace-ID form remains under `Advanced: connect manually` for existing
 installations and development recovery. Web does not collect a bot token,
@@ -1225,11 +1231,14 @@ route and sets the `folder` search param. The breadcrumb resolves every ancestor
 depth without a secondary sidebar or a permanently expanded tree. Documents
 within each folder remain ordered Organization Brief first, Profile Reports
 with their associated member, then ordinary knowledge documents. Pending
-Center Agent content is visible as an amber Draft badge, and the detail
-surface opens on the read-only proposed draft in the same editor. The approved
-document stays available behind an explicit view toggle and must remain
-unchanged until approval; draft text becomes approved content only through
-approval.
+Center Agent content for the Organization Brief and knowledge documents is
+visible as an amber Draft badge, and the detail surface opens on the read-only
+proposed draft in the same editor. The approved document stays available behind
+an explicit view toggle and must remain unchanged until approval; draft text
+becomes approved content only through approval. A Profile Report is the
+deliberate exception in presentation: the browser does not add a Draft warning,
+and its detail page shows the latest provisional result under **What I've
+learned so far** without approve, discard, or review instructions.
 
 The Documents root includes one compact, non-technical sharing explanation:
 approved Documents are available on the Center Agent Computer, and its proposed
@@ -1254,7 +1263,12 @@ exposes must round-trip through Markdown, and non-Markdown upstream features
 stay out. A pending Center Agent draft renders read-only in that same Plate
 surface, so what the reviewer reads is exactly what approval publishes; an
 amber review bar owns the draft/approved view toggle and the approve and
-discard actions. Documents introduces no upload surface.
+discard actions for Organization Brief and knowledge drafts. A provisional
+Profile Report opens directly in the same editable Plate editor for the person
+it describes. Saving turns that visible starting point into the member's
+current content without an approval, correction, or discard chore; the calm
+explanation only says that the Center Agent will keep learning.
+Documents introduces no upload surface.
 
 People rows link to the existing Profile Report, or to the new
 Profile Report route prefilled with that member.
@@ -1276,12 +1290,11 @@ an earlier selection. The Human Profiles header includes
 Core runs the serial batch. A member currently queued or running shows
 **Learning…**; other starts stay disabled until the batch is terminal.
 People polls the Core-owned status and document list while work is active.
-When a Profile Report has pending Center Agent content, its People row uses
-an amber **Report waiting for review** action in the content area instead of
-moving document status into the top-right profile controls or adding a second
-status badge. The Documents list still shows **Draft**; approval and discard
-remain exclusively in the existing document review surface. **Profile Report**
-is the user-facing document term; the persisted `member_profile` kind and
+When a Profile Report has pending Center Agent content, its People row keeps a
+plain **Profile Report** action in the content area instead of turning the
+Center Agent's work into a warning or approval chore. The Documents list also
+omits a Draft badge for Profile Reports. **Profile Report** is the user-facing
+document term; the persisted `member_profile` kind and
 member-research orchestration names remain compatibility contracts.
 
 In an Organization workspace, People independently reads

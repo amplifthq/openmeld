@@ -55,7 +55,7 @@ import {
 	organizationBindingAuthorizationQueryKeys,
 } from "#/query/profiles/organization-binding-authorizations";
 
-export function SetupOnboardingStep(input: { onContinue: () => void }) {
+function useSetupOnboardingStepController(input: { onContinue: () => void }) {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const queryClient = useQueryClient();
 	const isPersonalWorkspace = currentOrganization.isPersonal === true;
@@ -224,10 +224,16 @@ export function SetupOnboardingStep(input: { onContinue: () => void }) {
 	>({
 		mutationFn: async (content) => {
 			if (brief) {
+				const loadedBrief = briefQuery.data?.document;
+				if (!loadedBrief) {
+					throw new Error("The Organization brief is still loading.");
+				}
 				return (
 					await updateCurrentOrganizationDocument({
 						content,
 						documentId: brief.id,
+						expectedDocumentUpdatedAt: loadedBrief.updatedAt,
+						expectedDraftCreatedAt: loadedBrief.draftCreatedAt,
 						expectedOrganizationId: currentOrganization.id,
 					})
 				).document;
@@ -452,6 +458,64 @@ export function SetupOnboardingStep(input: { onContinue: () => void }) {
 			// Each mutation owns its visible error and precise cache rollback.
 		}
 	};
+
+	return {
+		brief,
+		briefDraft,
+		briefExpanded,
+		briefMutation,
+		briefQuery,
+		canManageInformationProtection,
+		canManageMemory,
+		continueOnboarding,
+		currentOrganization,
+		documentsQuery,
+		informationProtectionQuery,
+		isPersonalWorkspace,
+		memoryMutation,
+		memoryPolicyQuery,
+		mutationError,
+		protectedInformation,
+		protectionDraft,
+		protectionExpanded,
+		saving,
+		setBriefDraft,
+		setBriefExpanded,
+		setProtectionDraft,
+		setProtectionExpanded,
+		wakeAccessMutation,
+		wakeAccessPreferenceQuery,
+	};
+}
+
+export function SetupOnboardingStep(input: { onContinue: () => void }) {
+	const {
+		brief,
+		briefDraft,
+		briefExpanded,
+		briefMutation,
+		briefQuery,
+		canManageInformationProtection,
+		canManageMemory,
+		continueOnboarding,
+		currentOrganization,
+		documentsQuery,
+		informationProtectionQuery,
+		isPersonalWorkspace,
+		memoryMutation,
+		memoryPolicyQuery,
+		mutationError,
+		protectedInformation,
+		protectionDraft,
+		protectionExpanded,
+		saving,
+		setBriefDraft,
+		setBriefExpanded,
+		setProtectionDraft,
+		setProtectionExpanded,
+		wakeAccessMutation,
+		wakeAccessPreferenceQuery,
+	} = useSetupOnboardingStepController(input);
 
 	return (
 		<div className="flex flex-1 flex-col">

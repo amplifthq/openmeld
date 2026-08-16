@@ -36,6 +36,7 @@ import type {
   CenterAgentListProjectsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
   CenterAgentListSlackChannelsBody,
+  CenterAgentListSlackChannelsResponse,
   CenterAgentManageOrganizationDocumentsResponse,
   CenterAgentManageOrganizationDocumentsRpcInput,
   CenterAgentOrganizationDocumentsComputerSnapshotResponse,
@@ -52,8 +53,11 @@ import type {
   CenterAgentReadOrganizationSkillsResponse,
   CenterAgentReadOrganizationSkillsRpcInput,
   CenterAgentReadSlackChannelHistoryBody,
+  CenterAgentReadSlackChannelHistoryResponse,
   CenterAgentReadSlackChannelMembersBody,
+  CenterAgentReadSlackChannelMembersResponse,
   CenterAgentReadSlackWorkspaceDirectoryBody,
+  CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentRecordConnectorActionAuditBody,
   CenterAgentRecordConnectorActionAuditResponse,
   CenterAgentRecordConnectorActionOperationBody,
@@ -68,6 +72,7 @@ import type {
   CenterAgentSetAgentProfileDefaultProjectToolResponse,
   CenterAgentSetAgentProfileDefaultProjectToolRpcInput,
   CenterAgentSpaceAuthoringContractResponse,
+  CenterAgentStartSelfMemberResearchToolRpcInput,
   CenterAgentTaskReference,
   CenterAgentUpdateProjectToolResponse,
   CenterAgentUpdateProjectToolRpcInput,
@@ -84,6 +89,8 @@ import type {
   OrganizationSkillRuntimeSnapshotResponse,
   PauseCenterAgentRoutineResponse,
   ReadOrganizationSkillRuntimeSnapshotRpcInput,
+  RecordCenterAgentMemberResearchComputerFileResponse,
+  RecordCenterAgentMemberResearchComputerFileRpcInput,
   RecordOrganizationSkillActivationResponse,
   RecordOrganizationSkillActivationRpcInput,
   RemoteAgentCoreCallbackBody,
@@ -95,12 +102,11 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   ResumeCenterAgentRoutineResponse,
-  SlackChannelHistoryResponse,
-  SlackChannelListResponse,
-  SlackChannelMembersResponse,
-  SlackWorkspaceDirectoryResponse,
+  SlackWelcomeInteractionRpcInput,
+  SlackWelcomeInteractionRpcResponse,
   SpaceAttachmentDescriptor,
   SpaceMessageAttachment,
+  StartCenterAgentMemberResearchResponse,
   UpdateCenterAgentRoutineResponse,
 } from "@openmeld/schemas/types";
 import {
@@ -271,6 +277,12 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentDraftOrganizationDocument?(
     input: CenterAgentDraftOrganizationDocumentRpcInput
   ): Promise<CenterAgentDraftOrganizationDocumentResponse>;
+  centerAgentStartSelfMemberResearch?(
+    input: CenterAgentStartSelfMemberResearchToolRpcInput
+  ): Promise<StartCenterAgentMemberResearchResponse>;
+  recordCenterAgentMemberResearchComputerFile?(
+    input: RecordCenterAgentMemberResearchComputerFileRpcInput
+  ): Promise<RecordCenterAgentMemberResearchComputerFileResponse>;
   centerAgentManageOrganizationDocuments?(
     input: CenterAgentManageOrganizationDocumentsRpcInput
   ): Promise<CenterAgentManageOrganizationDocumentsResponse>;
@@ -335,22 +347,25 @@ export type RemoteAgentCoreWorkerBinding = {
     input: CenterAgentReadSlackWorkspaceDirectoryBody & {
       context: OpenMeldRequestContext;
     }
-  ): Promise<SlackWorkspaceDirectoryResponse>;
+  ): Promise<CenterAgentReadSlackWorkspaceDirectoryResponse>;
+  handleSlackWelcomeInteraction?(
+    input: SlackWelcomeInteractionRpcInput
+  ): Promise<SlackWelcomeInteractionRpcResponse>;
   centerAgentListSlackChannels?(
     input: CenterAgentListSlackChannelsBody & {
       context: OpenMeldRequestContext;
     }
-  ): Promise<SlackChannelListResponse>;
+  ): Promise<CenterAgentListSlackChannelsResponse>;
   centerAgentReadSlackChannelMembers?(
     input: CenterAgentReadSlackChannelMembersBody & {
       context: OpenMeldRequestContext;
     }
-  ): Promise<SlackChannelMembersResponse>;
+  ): Promise<CenterAgentReadSlackChannelMembersResponse>;
   centerAgentReadSlackChannelHistory?(
     input: CenterAgentReadSlackChannelHistoryBody & {
       context: OpenMeldRequestContext;
     }
-  ): Promise<SlackChannelHistoryResponse>;
+  ): Promise<CenterAgentReadSlackChannelHistoryResponse>;
   centerAgentSearchSlackMessages?(
     input: CenterAgentSearchSlackMessagesBody & {
       context: OpenMeldRequestContext;
@@ -501,7 +516,7 @@ export function createRemoteAgentCallbackContext(input: {
       : {}),
     dispatchId: input.request.dispatchId,
     idempotencyKey: input.request.idempotencyKey,
-    ...(input.request.v !== 1 ? { modelRoute: input.request.modelRoute } : {}),
+    ...(input.request.v === 1 ? {} : { modelRoute: input.request.modelRoute }),
     organizationId: input.request.organizationId,
     organizationSkillReleases:
       input.request.organizationSkillReleases?.map((release) => ({

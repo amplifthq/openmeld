@@ -1973,8 +1973,8 @@ describe("organization Core RPC", () => {
       canManage: false,
       configurationRevision: 4,
       effectiveModel: {
-        displayName: "Grok 4.5",
-        modelId: "x-ai/grok-4.5",
+        displayName: "Grok 4.6",
+        modelId: "x-ai/grok-4.6",
       },
       preference: { kind: "system_default" },
     });
@@ -3610,6 +3610,39 @@ describe("organization Core RPC", () => {
     ).toHaveLength(1);
   });
 
+  it("returns a clear next step when Slack is not connected", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+
+    await expect(
+      rpcCenterAgentReadSlackWorkspaceDirectory(buildEnv({ db }), {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+      })
+    ).resolves.toEqual({
+      message: "Slack isn't connected to this Organization yet.",
+      nextAction: "Open Center Agent → Channels and choose Connect Slack.",
+      organizationId: "org-a",
+      reasonCode: "slack_not_connected",
+      status: "unavailable",
+    });
+    expect(db.centerAgentAuditRows).toEqual([]);
+  });
+
   it("classifies Slack workspace membership by identity link before email", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
@@ -3699,6 +3732,7 @@ describe("organization Core RPC", () => {
           profileKind: "agent",
           userId: "user-a",
         }),
+        includeMemberUserId: true,
         limit: 200,
       })
     ).resolves.toMatchObject({
@@ -3708,6 +3742,7 @@ describe("organization Core RPC", () => {
           openMeldMembership: {
             matchedBy: "email",
             memberDisplayName: "Ava",
+            memberUserId: "user-a",
             status: "member",
           },
         },
@@ -3716,6 +3751,7 @@ describe("organization Core RPC", () => {
           openMeldMembership: {
             matchedBy: "identity_link",
             memberDisplayName: "Ava",
+            memberUserId: "user-a",
             status: "member",
           },
         },
@@ -3961,9 +3997,11 @@ describe("organization Core RPC", () => {
           profileKind: "agent",
           userId: "user-a",
         }),
+        includeChannelId: true,
         limit: 200,
       })
     ).resolves.toMatchObject({
+      channelId: "C_OK8",
       channelName: "ok8-okok",
       members: [
         {
@@ -4075,6 +4113,24 @@ describe("organization Core RPC", () => {
     });
     vi.stubGlobal("fetch", slackFetch);
     const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+
+    await expect(
+      rpcCenterAgentReadSlackChannelHistory(env, {
+        channelName: "ok8-okok",
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+        expectedChannelId: "C_RENAMED",
+        limit: 15,
+      })
+    ).rejects.toMatchObject({
+      code: "slack.channel_identity_changed",
+      status: 409,
+    });
 
     await expect(
       rpcCenterAgentReadSlackChannelHistory(env, {

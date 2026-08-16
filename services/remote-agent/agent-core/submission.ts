@@ -25,6 +25,7 @@ import {
   initializeRemoteAgentExecutionState,
 } from "./execution-state";
 import { buildRemoteAgentTurnTimeContext } from "./prompt";
+import { cleanupExpiredRemoteAgentSlackMemberResearchState } from "./slack-member-research-state";
 import { cleanupExpiredRemoteAgentTurnEndMarkers } from "./turn-end";
 import { renderRemoteAgentTurnEnvelope } from "./turn-envelope";
 import {
@@ -578,6 +579,10 @@ export async function submitRemoteAgentConversationTurn(
   if (input.storage) {
     await Promise.all([
       cleanupExpiredRemoteAgentSubmissionReceipts({
+        nowMs: submittedAtMs,
+        storage: input.storage,
+      }),
+      cleanupExpiredRemoteAgentSlackMemberResearchState({
         nowMs: submittedAtMs,
         storage: input.storage,
       }),

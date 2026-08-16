@@ -216,7 +216,9 @@ describe("DirectoryMembersOverview", () => {
 				.getAttribute("href")
 		).toBe("/o/felix/new-organization");
 		expect(
-			(await screen.findByRole("link", { name: "Report" })).getAttribute("href")
+			(
+				await screen.findByRole("link", { name: "Profile Report" })
+			).getAttribute("href")
 		).toBe(
 			"/o/felix/documents/new?kind=member_profile&subjectUserId=user-felix"
 		);
@@ -309,7 +311,7 @@ describe("DirectoryMembersOverview", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByText(
-				"A Human Profile is the name and identity each member uses in Spaces. The Center Agent can learn about members and draft Profile Reports for review."
+				"A Human Profile is the name and identity each member uses in Spaces. The Center Agent can learn about members and keep their Profile Reports up to date."
 			)
 		).toBeTruthy();
 		expect(screen.queryByRole("heading", { name: "Members" })).toBeNull();
@@ -325,7 +327,9 @@ describe("DirectoryMembersOverview", () => {
 			within(adaCard).getByText("Human Profile not connected")
 		).toBeTruthy();
 		expect(within(adaCard).getByText("No recent activity")).toBeTruthy();
-		expect(within(adaCard).queryByRole("link", { name: "Report" })).toBeNull();
+		expect(
+			within(adaCard).queryByRole("link", { name: "Profile Report" })
+		).toBeNull();
 		expect(
 			(
 				within(adaCard).getByRole("button", {
@@ -351,7 +355,7 @@ describe("DirectoryMembersOverview", () => {
 		expect(learnAction.className).toContain("border-transparent");
 		expect(learnAction.className).toContain("hover:bg-muted");
 		expect(learnAction.getAttribute("aria-description")).toBe(
-			"Learn about Ada Lovelace and draft Profile Report updates for review."
+			"Learn about Ada Lovelace and update their Profile Report."
 		);
 		expect(adaCard.firstElementChild?.contains(learnAction)).toBe(true);
 		expect(within(adaCard).getByText("Owner")).toBeTruthy();
@@ -720,13 +724,31 @@ describe("DirectoryMembersOverview", () => {
 				{
 					canEditContent: true,
 					canManage: true,
-					createdAt: "2026-07-15T00:00:00.000Z",
+					createdAt: "2026-08-14T00:00:00.000Z",
+					folderId: "folder-ada",
 					hasDraft: false,
-					id: "document-ada",
+					id: "document-ada-latest",
 					kind: "member_profile",
 					organizationId: "org-acme",
+					profileReportDate: "2026-08-14",
+					profileReportType: "work_profile",
 					subjectUserId: "user-ada",
-					title: "Ada Lovelace Profile Report",
+					title: "2026-08-14 — Work Profile",
+					updatedAt: "2026-08-14T00:00:00.000Z",
+				},
+				{
+					canEditContent: true,
+					canManage: true,
+					createdAt: "2026-07-15T00:00:00.000Z",
+					folderId: "folder-ada",
+					hasDraft: false,
+					id: "document-ada-older",
+					kind: "member_profile",
+					organizationId: "org-acme",
+					profileReportDate: "2026-07-15",
+					profileReportType: "work_profile",
+					subjectUserId: "user-ada",
+					title: "2026-07-15 — Work Profile",
 					updatedAt: "2026-07-15T00:00:00.000Z",
 				},
 			],
@@ -735,13 +757,60 @@ describe("DirectoryMembersOverview", () => {
 		renderOverview({ isPersonal: false });
 
 		expect(
-			(await screen.findAllByRole("link", { name: "Report" })).map((link) =>
-				link.getAttribute("href")
+			(await screen.findAllByRole("link", { name: "Profile Report" })).map(
+				(link) => link.getAttribute("href")
 			)
 		).toEqual([
-			"/o/acme/documents/document-ada",
+			"/o/acme/documents/document-ada-latest",
 			"/o/acme/documents/new?kind=member_profile&subjectUserId=user-grace",
 		]);
+	});
+
+	it("keeps the newest same-day Profile Report selected after an older report is edited", async () => {
+		listCurrentOrganizationDocumentsMock.mockResolvedValue({
+			canManage: true,
+			currentUserId: "user-owner",
+			documents: [
+				{
+					canEditContent: true,
+					canManage: true,
+					createdAt: "2026-08-15T10:00:00.000Z",
+					folderId: "folder-ada",
+					hasDraft: false,
+					id: "document-ada-newer",
+					kind: "member_profile",
+					organizationId: "org-acme",
+					profileReportDate: "2026-08-15",
+					profileReportType: "work_profile",
+					subjectUserId: "user-ada",
+					title: "2026-08-15 — Work Profile (2)",
+					updatedAt: "2026-08-15T10:00:00.000Z",
+				},
+				{
+					canEditContent: true,
+					canManage: true,
+					createdAt: "2026-08-15T09:00:00.000Z",
+					folderId: "folder-ada",
+					hasDraft: false,
+					id: "document-ada-older",
+					kind: "member_profile",
+					organizationId: "org-acme",
+					profileReportDate: "2026-08-15",
+					profileReportType: "work_profile",
+					subjectUserId: "user-ada",
+					title: "2026-08-15 — Work Profile",
+					updatedAt: "2026-08-15T11:00:00.000Z",
+				},
+			],
+			organizationId: "org-acme",
+		});
+		renderOverview({ isPersonal: false });
+
+		expect(
+			(
+				await screen.findAllByRole("link", { name: "Profile Report" })
+			)[0]?.getAttribute("href")
+		).toBe("/o/acme/documents/document-ada-newer");
 	});
 
 	it("lets members open an existing profile without offering an unauthorized create path", async () => {
@@ -767,9 +836,13 @@ describe("DirectoryMembersOverview", () => {
 		renderOverview({ isPersonal: false });
 
 		expect(
-			(await screen.findByRole("link", { name: "Report" })).getAttribute("href")
+			(
+				await screen.findByRole("link", { name: "Profile Report" })
+			).getAttribute("href")
 		).toBe("/o/acme/documents/document-ada");
-		expect(screen.getAllByRole("link", { name: "Report" })).toHaveLength(1);
+		expect(
+			screen.getAllByRole("link", { name: "Profile Report" })
+		).toHaveLength(1);
 		const graceCard = (
 			await screen.findAllByTestId("organization-human-profile-row")
 		)[1];
@@ -946,15 +1019,17 @@ describe("DirectoryMembersOverview", () => {
 		if (!adaCard) {
 			throw new Error("Expected Ada's Human Profile card.");
 		}
-		const draftReviewAction = within(adaCard).getByRole("link", {
-			name: "Report waiting for review",
+		const profileReportAction = within(adaCard).getByRole("link", {
+			name: "Profile Report",
 		});
-		expect(draftReviewAction.className).toContain("border-transparent");
-		expect(draftReviewAction.className).toContain("hover:bg-muted");
-		expect(draftReviewAction.className).not.toContain("border-amber-");
-		expect(draftReviewAction.className).toContain("text-amber-");
-		expect(draftReviewAction.querySelector("svg")).toBeTruthy();
-		expect(adaCard.firstElementChild?.contains(draftReviewAction)).toBe(false);
+		expect(profileReportAction.className).toContain("border-transparent");
+		expect(profileReportAction.className).toContain("hover:bg-muted");
+		expect(profileReportAction.className).not.toContain("border-amber-");
+		expect(profileReportAction.className).not.toContain("text-amber-");
+		expect(profileReportAction.querySelector("svg")).toBeTruthy();
+		expect(adaCard.firstElementChild?.contains(profileReportAction)).toBe(
+			false
+		);
 		expect(within(adaCard).queryByText("Draft available")).toBeNull();
 		expect(within(adaCard).queryByText("Draft ready")).toBeNull();
 		expect(
@@ -1022,7 +1097,7 @@ describe("DirectoryMembersOverview", () => {
 
 		await waitFor(() => {
 			expect(toastSuccessMock).toHaveBeenCalledWith(
-				"Learning complete. Ada Lovelace's Profile Report is ready to review."
+				"Learning complete. Ada Lovelace's Profile Report is ready."
 			);
 		});
 		expect(toastSuccessMock).toHaveBeenCalledTimes(1);

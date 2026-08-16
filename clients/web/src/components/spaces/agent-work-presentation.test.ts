@@ -128,6 +128,30 @@ describe("Agent work presentation", () => {
 		).toBe("Couldn't check member OpenMeld Service status");
 	});
 
+	it("describes starting the current member's learning run without claiming it finished", () => {
+		expect(
+			resolveAgentWorkPresentation(
+				{ v: 1, key: "organization.member_research.start" },
+				"input-available",
+				true
+			).text
+		).toBe("Starting to learn about you…");
+		expect(
+			resolveAgentWorkPresentation(
+				{ v: 1, key: "organization.member_research.start" },
+				"output-available",
+				false
+			).text
+		).toBe("Started learning about you");
+		expect(
+			resolveAgentWorkPresentation(
+				{ v: 1, key: "organization.member_research.start" },
+				"output-error",
+				false
+			).text
+		).toBe("Couldn't start learning about you");
+	});
+
 	it("uses safe subjects for work beyond repository cloning", () => {
 		expect(
 			resolveAgentWorkPresentation(

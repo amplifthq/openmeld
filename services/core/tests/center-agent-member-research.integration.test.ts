@@ -9,13 +9,17 @@ import type {
   AuthRpcResolveOrganizationAccountIdentityResult,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
-import { requireCenterAgentMemberResearchDraftTarget } from "../src/center-agent-member-research/member-research-repository";
+import {
+  recordCenterAgentMemberResearchComputerFile,
+  requireCenterAgentMemberResearchDraftTarget,
+} from "../src/center-agent-member-research/member-research-repository";
 import {
   getCenterAgentMemberResearchStatus,
   runCenterAgentMemberResearchTick,
   startCenterAgentMemberResearch,
 } from "../src/center-agent-member-research/member-research-service";
 import type { CoreBindings } from "../src/lib/bindings";
+import { rpcCenterAgentDraftOrganizationDocument } from "../src/organization-documents/organization-document-rpc";
 import { createOrganizationDocumentService } from "../src/organization-documents/organization-document-service";
 import {
   buildCenterAgentMemberResearchInstructions,
@@ -26,6 +30,7 @@ import {
   markRemoteAgentNativeDeliveryCompleted,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import { rpcCenterAgentStartSelfMemberResearch } from "../src/rpc/methods";
 
 describe("Center Agent member research", () => {
   it("builds a privacy-bounded research instruction with an explicit quality floor", () => {
@@ -59,10 +64,10 @@ describe("Center Agent member research", () => {
     expect(instructions).toContain(
       "must never write or restate approved content"
     );
-    expect(instructions).toContain('the title "Morgan Lee Profile Report"');
+    expect(instructions).toContain('the title "2026-07-16 — Work Profile"');
     expect(instructions).toContain("memberResearchReport");
     expect(instructions).toContain(
-      "Do not combine documentId with kind, subjectUserId, or title"
+      "Always omit documentId so this learning run remains a separate dated report"
     );
     expect(instructions).toContain(
       "Core validates the report, preserves the approved About section, and renders all Markdown"
@@ -83,6 +88,7 @@ describe("Center Agent member research", () => {
   it("lets any active human Organization member accept a single-member research task and audits it", async () => {
     const fixture = await seedResearchFixture();
     const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const nowMs = Date.UTC(2026, 7, 14, 3, 45);
 
     const accepted = await startCenterAgentMemberResearch(
       coreEnv,
@@ -92,7 +98,8 @@ describe("Center Agent member research", () => {
         scope: "member",
         subjectUserId: fixture.requester.userId,
       },
-      `ca_dm_${fixture.suffix}`
+      `ca_dm_${fixture.suffix}`,
+      { nowMs }
     );
 
     expect(accepted.batch).toMatchObject({
@@ -107,6 +114,8 @@ describe("Center Agent member research", () => {
       status: "queued",
       subjectUserId: fixture.requester.userId,
     });
+    expect(accepted.batch.createdAt).toBe(new Date(nowMs).toISOString());
+    expect(accepted.batch.updatedAt).toBe(new Date(nowMs).toISOString());
     const audit = await env.OPENMELD_DB.prepare(
       `
         SELECT action, on_behalf_of_user_id, resource_type, resource_id
@@ -146,6 +155,152 @@ describe("Center Agent member research", () => {
         },
         `ca_dm_${fixture.suffix}`
       )
+    ).rejects.toMatchObject({ cause: { status: 403 } });
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM center_agent_member_research_batches WHERE id = ?"
+    )
+      .bind(accepted.batch.id)
+      .run();
+  });
+
+  it("returns the same accepted research task for one internal onboarding request", async () => {
+    const fixture = await seedResearchFixture();
+    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const request = {
+      context: humanContext(fixture, fixture.requester),
+      expectedOrganizationId: fixture.organizationId,
+      scope: "member" as const,
+      subjectUserId: fixture.requester.userId,
+    };
+    const acceptanceIdempotencyKey = `slack-welcome:${fixture.suffix}`;
+
+    const first = await startCenterAgentMemberResearch(
+      coreEnv,
+      request,
+      `ca_dm_${fixture.suffix}`,
+      { acceptanceIdempotencyKey, nowMs: 1000 }
+    );
+    await env.OPENMELD_DB.batch([
+      env.OPENMELD_DB.prepare(
+        `UPDATE center_agent_member_research_tasks
+         SET status = 'completed', started_at_ms = 2000, finished_at_ms = 3000
+         WHERE batch_id = ?`
+      ).bind(first.batch.id),
+      env.OPENMELD_DB.prepare(
+        `UPDATE center_agent_member_research_batches
+         SET status = 'completed', updated_at_ms = 3000
+         WHERE id = ?`
+      ).bind(first.batch.id),
+    ]);
+    const recovered = await startCenterAgentMemberResearch(
+      coreEnv,
+      request,
+      `ca_dm_${fixture.suffix}`,
+      { acceptanceIdempotencyKey }
+    );
+
+    expect(recovered.batch.id).toBe(first.batch.id);
+    expect(recovered.batch.status).toBe("completed");
+    expect(recovered.batch.tasks[0]?.id).toBe(first.batch.tasks[0]?.id);
+    const batchCount = await env.OPENMELD_DB.prepare(
+      `SELECT COUNT(*) AS count
+        FROM center_agent_member_research_batches
+        WHERE organization_id = ?`
+    )
+      .bind(fixture.organizationId)
+      .first<{ count: number }>();
+    expect(batchCount?.count).toBe(1);
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM center_agent_member_research_batches WHERE id = ?"
+    )
+      .bind(first.batch.id)
+      .run();
+  });
+
+  it("returns one accepted research task when the same onboarding request races", async () => {
+    const fixture = await seedResearchFixture();
+    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const request = {
+      context: humanContext(fixture, fixture.requester),
+      expectedOrganizationId: fixture.organizationId,
+      scope: "member" as const,
+      subjectUserId: fixture.requester.userId,
+    };
+    const acceptanceIdempotencyKey = `slack-welcome-race:${fixture.suffix}`;
+
+    const [first, second] = await Promise.all([
+      startCenterAgentMemberResearch(
+        coreEnv,
+        request,
+        `ca_dm_${fixture.suffix}`,
+        { acceptanceIdempotencyKey, nowMs: 1000 }
+      ),
+      startCenterAgentMemberResearch(
+        coreEnv,
+        request,
+        `ca_dm_${fixture.suffix}`,
+        { acceptanceIdempotencyKey, nowMs: 1001 }
+      ),
+    ]);
+
+    expect(second.batch.id).toBe(first.batch.id);
+    expect(second.batch.tasks[0]?.id).toBe(first.batch.tasks[0]?.id);
+    const batchCount = await env.OPENMELD_DB.prepare(
+      `SELECT COUNT(*) AS count
+        FROM center_agent_member_research_batches
+        WHERE organization_id = ?`
+    )
+      .bind(fixture.organizationId)
+      .first<{ count: number }>();
+    expect(batchCount?.count).toBe(1);
+    await env.OPENMELD_DB.prepare(
+      "DELETE FROM center_agent_member_research_batches WHERE id = ?"
+    )
+      .bind(first.batch.id)
+      .run();
+  });
+
+  it("lets a verified member ask the hosted Center Agent to learn about themselves", async () => {
+    const fixture = await seedResearchFixture();
+    const coreEnv = buildResearchDeliveryEnv(fixture);
+    const nowMs = Date.UTC(2026, 7, 15, 3, 45);
+
+    const accepted = await rpcCenterAgentStartSelfMemberResearch(
+      coreEnv,
+      {
+        context: hostedCenterAgentContext(fixture),
+        speakerMember: {
+          memberId: fixture.requester.memberId,
+          userId: fixture.requester.userId,
+        },
+      },
+      {
+        nowMs,
+        openDirectMessage: async () => ({
+          spaceId: `ca_dm_${fixture.suffix}`,
+        }),
+      }
+    );
+
+    expect(accepted.batch).toMatchObject({
+      organizationId: fixture.organizationId,
+      scope: "member",
+      status: "queued",
+      tasks: [
+        {
+          status: "queued",
+          subjectUserId: fixture.requester.userId,
+        },
+      ],
+    });
+    await expect(
+      rpcCenterAgentStartSelfMemberResearch(coreEnv, {
+        context: hostedCenterAgentContext(fixture),
+        speakerMember: {
+          memberId: fixture.requester.memberId,
+          userId: `someone-else-${fixture.suffix}`,
+        },
+      })
     ).rejects.toMatchObject({ cause: { status: 403 } });
     await env.OPENMELD_DB.prepare(
       "DELETE FROM center_agent_member_research_batches WHERE id = ?"
@@ -296,7 +451,7 @@ describe("Center Agent member research", () => {
 
   it("keeps durable draft-origin evidence after the reviewable draft is cleared", async () => {
     const fixture = await seedResearchFixture();
-    const coreEnv = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+    const coreEnv = buildResearchDeliveryEnv(fixture);
     const startedAtMs = Date.now() + 1000;
     const accepted = await startCenterAgentMemberResearch(
       coreEnv,
@@ -405,11 +560,93 @@ describe("Center Agent member research", () => {
       .bind(fixture.organizationId)
       .first<{ count: number }>();
     expect(unauthorizedDraftCount?.count).toBe(0);
-    const drafted = await documentService.draft(
-      fixture.organizationId,
-      draftInput,
-      memberResearchDocumentReviewerUserIds(fixture)
+    const drafted = await rpcCenterAgentDraftOrganizationDocument(coreEnv, {
+      context: {
+        ...hostedCenterAgentContext(fixture),
+        agentControllerConversationId: submissionId,
+      },
+      draftContent: draftInput.draftContent,
+      kind: draftInput.kind,
+      memberResearchReport: draftInput.memberResearchReport,
+      memberResearchTaskId: task.id,
+      speakerMember: {
+        memberId: fixture.requester.memberId,
+        userId: fixture.requester.userId,
+      },
+      subjectUserId: draftInput.subjectUserId,
+      title: draftInput.title,
+    });
+    expect(drafted.memberResearchDraft?.content).toContain(
+      "**Insufficient evidence**"
     );
+    expect(drafted.memberResearchDraft?.content).toContain(
+      "## Research coverage"
+    );
+    const expectedReportDate = drafted.document.profileReportDate;
+    if (!expectedReportDate) {
+      throw new Error("Expected the Profile Report date.");
+    }
+    const storedReport = await env.OPENMELD_DB.prepare(
+      `
+        SELECT title, folder_id, profile_report_date, profile_report_type
+        FROM organization_documents
+        WHERE id = ?
+      `
+    )
+      .bind(drafted.document.id)
+      .first<{
+        folder_id: string;
+        profile_report_date: string;
+        profile_report_type: string;
+        title: string;
+      }>();
+    expect(storedReport).toMatchObject({
+      profile_report_date: expectedReportDate,
+      profile_report_type: "work_profile",
+      title: `${expectedReportDate} — Work Profile`,
+    });
+    const folderPath = await env.OPENMELD_DB.prepare(
+      `
+        SELECT person.name AS person_name, root.name AS root_name
+        FROM organization_document_folders person
+        INNER JOIN organization_document_folders root
+          ON root.id = person.parent_folder_id
+        WHERE person.id = ?
+      `
+    )
+      .bind(storedReport?.folder_id)
+      .first<{ person_name: string; root_name: string }>();
+    expect(folderPath).toEqual({
+      person_name: fixture.requester.displayName,
+      root_name: "Profile Reports",
+    });
+    await expect(
+      recordCenterAgentMemberResearchComputerFile({
+        db: env.OPENMELD_DB,
+        documentId: drafted.document.id,
+        nowMs: startedAtMs + 2,
+        organizationId: fixture.organizationId,
+        path: `/computer/home/documents/Profile Reports/Someone Else/${expectedReportDate} — Work Profile.md`,
+        subjectUserId: fixture.requester.userId,
+        submissionId,
+        taskId: task.id,
+      })
+    ).rejects.toMatchObject({
+      cause: {
+        code: "center_agent_member_research.computer_file_path_invalid",
+        status: 422,
+      },
+    });
+    await recordCenterAgentMemberResearchComputerFile({
+      db: env.OPENMELD_DB,
+      documentId: drafted.document.id,
+      nowMs: startedAtMs + 2,
+      organizationId: fixture.organizationId,
+      path: `/computer/home/documents/Profile Reports/${folderPath?.person_name}/${expectedReportDate} — Work Profile.md`,
+      subjectUserId: fixture.requester.userId,
+      submissionId,
+      taskId: task.id,
+    });
     const draftVersion = await env.OPENMELD_DB.prepare(
       "SELECT draft_created_at FROM organization_documents WHERE id = ?"
     )
@@ -423,6 +660,9 @@ describe("Center Agent member research", () => {
     )
       .bind(drafted.document.id)
       .first<{ draft_content: string }>();
+    expect(drafted.memberResearchDraft?.content).toBe(
+      renderedDraft?.draft_content
+    );
     expect(renderedDraft?.draft_content).toContain("**Insufficient evidence**");
     expect(renderedDraft?.draft_content).toContain("## Research coverage");
     await documentService.discardDraft(
@@ -712,6 +952,25 @@ function buildResearchDeliveryEnv(
           },
         });
       },
+      resolveOrganizationDirectoryMembers: ({ organizationId }) =>
+        Promise.resolve({
+          members: fixture.subjects.map((member) => ({
+            humanProfile: null,
+            joinedAt: new Date(1000).toISOString(),
+            memberId: member.memberId,
+            organizationId,
+            role: member.role,
+            user: {
+              email: `${member.userId}@example.com`,
+              id: member.userId,
+              image: null,
+              name: member.displayName,
+            },
+            userId: member.userId,
+          })),
+          ok: true as const,
+          organizationId,
+        }),
     },
     OPENMELD_DB: env.OPENMELD_DB,
   } as CoreBindings;
@@ -730,6 +989,23 @@ function humanContext(
       profileName: actor.displayName,
       requestId: `member-research-request-${fixture.suffix}`,
       openMeldProfileId: actor.profileId,
+    },
+  };
+}
+
+function hostedCenterAgentContext(
+  fixture: Awaited<ReturnType<typeof seedResearchFixture>>
+) {
+  return {
+    activeOrganizationId: fixture.organizationId,
+    actorContext: {
+      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      callerPrincipalId: fixture.requester.userId,
+      openMeldProfileId: fixture.centerAgentProfileId,
+      ownerUserId: fixture.requester.userId,
+      profileKind: "agent" as const,
+      profileName: "Center Agent",
+      requestId: `center-agent-learn-about-me-${fixture.suffix}`,
     },
   };
 }
@@ -774,6 +1050,18 @@ function insufficientEvidenceReport() {
         source: "slack_workspace_directory" as const,
         status: "unavailable" as const,
         timeRange: "Current",
+      },
+      {
+        evidence: "No attributable Slack messages were available.",
+        source: "slack_channel_history" as const,
+        status: "unavailable" as const,
+        timeRange: "Previous 180 days",
+      },
+      {
+        evidence: "No attributable shared App records were available.",
+        source: "connected_apps" as const,
+        status: "unavailable" as const,
+        timeRange: "Previous 180 days",
       },
     ],
     nextSteps: [

@@ -1412,11 +1412,145 @@ those IDs through a structured field, verifies that the same turn's directory
 read returned them, and constructs the mention tokens outside model-authored
 text. It rejects display-name mentions and guessed IDs.
 
+Core records the exact bot scopes returned by Slack for every OAuth installation.
+`im:history` and `im:write` are both required before Web presents Slack direct
+messages as ready. Older installations without recorded grants remain connected
+for their existing capabilities but show **Reconnect required** with one OAuth
+action for an owner or admin. Reconnecting refreshes the same workspace
+installation and does not ask the user to disconnect it first.
+
+During rollout, an older Gateway may omit the grant list and the new Core
+records that installation as capability-unknown instead of rejecting it. Core
+must deploy before the Gateway starts sending the new field, and Web must
+deploy after Core before presenting the readiness result.
+
 A successful first Slack connection and an informed move from another
-Organization both send the current Slack installer a fresh welcome card. A move
-starts a new Organization context with different members, Spaces, Apps, and
-agent state, so reusing the previous welcome state would be misleading. A
-same-Organization reauthorization does not repeat the welcome.
+Organization both start one trust-first onboarding sequence for the current
+Slack installer. The OAuth completion atomically links the exact authenticated
+Slack installer identity to the signed-in OpenMeld user alongside the workspace
+Binding and encrypted token, so the welcome's native actions work immediately.
+Core first asks the designated Center Agent to learn about the installer through
+the existing bounded member-research contract. Remote Agent writes Core's exact
+rendered Profile Report draft to
+`/computer/home/documents/Profile Reports/{person name}/{Core-assigned report title}.md`
+on the Center Agent's private Computer and records that file as completion
+evidence. The Computer file body and the current visible Organization Document
+body come from the same Core draft write result; neither surface independently
+reconstructs or substitutes the report. Core assigns
+`{YYYY-MM-DD} — Work Profile` to the first report of the
+day and appends ` (2)`, ` (3)`, and so on for later same-day reports. The
+Organization Document title is the only file-naming truth; Remote Agent never
+invents a second collision suffix. The human-readable person folder and dated,
+typed file name leave a stable place for future Profile Reports created on
+different dates or from different learning plans. Only
+after the research task, provisional Organization Document draft, and exact
+Computer file all exist does Core send the first Slack direct message. The
+message explains OpenMeld in plain language as a place where people and agents
+work as one team, names the Organization, shows at most one evidence-backed
+observation, and invites an ordinary reply. It never makes GitHub, coding
+agents, approval work, or a feature checklist the product's opening idea. When
+evidence is insufficient, it says so instead of inventing familiarity.
+
+The welcome offers **See what I learned**, **Invite teammates**, and
+**Introduce me in channels**. It offers **Connect more context** only when the
+Organization has no active App connection. The Slack teammate action opens a
+native multi-user picker, accepts at most ten selected active human workspace
+members, and sends a private invitation to each through an idempotent delivery
+ledger. The same private-invitation action is available in ordinary Slack DM
+conversation: the Center Agent reads the live workspace directory, resolves
+only exact named people, and sends their returned Slack user ids through the
+same Core interaction and delivery contract. An ambiguous or missing name
+produces one short clarification; the model never guesses an id. The execution
+boundary also requires `requester_private`; a public-channel mention cannot
+invoke the private invitation action. Every welcome button, conversational
+invitation, and modal submission rechecks the linked person's current
+Auth-owned Organization membership before it exposes a join link or
+performs an action; a removed member cannot keep using an old Slack identity
+link. A current member may share an existing active Organization join link;
+only an owner or admin may create that link when none exists. If a member asks
+to invite teammates before an owner or admin has created a link, the modal
+submission closes and the Center Agent immediately sends that member one
+private next step instead of failing silently in background work. It never
+posts those private invitations to a channel. When Slack does not expose a
+selected teammate's email, Core does not send a targeted invitation that it
+cannot safely correlate after joining. The Center Agent instead tells the
+requester what happened and returns the same join link for manual sharing as
+the lowest-cost safe next step. Before claiming any private invitation, Core
+also compares the selected Slack email with the current Auth-owned Organization
+directory using exact normalized email. Someone who is already a member is
+skipped, receives no redundant join message or onboarding, and the requester
+gets one short no-action confirmation. A channel
+introduction starts in direct message: a native picker accepts at most five
+public channels, Core joins those channels when needed, and the Center Agent
+reads one bounded recent page before posting a short introduction grounded in
+the channel's actual work. Core freezes the selected channels as one immutable
+durable manifest before the acknowledgement is published, then submits one
+idempotent native delivery per channel and checkpoints each item separately.
+The acknowledgement and each private teammate invitation carry stable Slack
+message metadata. A confirmed Slack message followed by a failed D1 checkpoint
+stays recoverable rather than becoming a false terminal failure: Core first
+retries the checkpoint, then scheduled work reconciles the exact Slack message
+before continuing onboarding or channel publication. Recovery never blindly
+duplicates a provider-ambiguous message. If the original channel acknowledgement
+cannot be confirmed, the one private retry action is also durably claimed,
+checkpointed, and reconciled instead of being sent as an untracked follow-up.
+If native delivery was durably accepted but the per-channel item checkpoint
+fails, the item remains submitting; the scheduler reclaims it after the bounded
+lease and the same native-delivery idempotency key recovers acceptance without
+submitting the Center Agent turn or publishing a failure notice twice.
+The minute scheduler reclaims only an interrupted item; a completed channel is
+never silently repeated and a process restart cannot make a later selected
+channel disappear. Core includes an existing active Organization join
+link for any verified member; an owner or admin may also create the missing
+link. A member without link-creation authority can still complete the
+introduction without a link. The Center Agent does not rank people, disclose
+private observations, or mention an individual unless the requester explicitly
+asked it to notify that person.
+
+Member research or report-file failure never makes the first Slack experience
+silently disappear. Core uses the existing durable welcome publication claim
+to send one brief, honest message that the first Profile Report could not be
+finished and offers the lowest-cost next action: reply “try again” in the same
+DM. Missing or invalid Web URL configuration fails before publication rather
+than stripping the promised welcome actions. Any failed welcome button or
+modal action likewise produces one private retry/reconnect next step when Core
+can still reach the Slack workspace.
+
+Each Slack onboarding research acceptance has one stable internal idempotency
+key stored on the Core research batch. If research is accepted but the welcome
+preparation or invited-member row cannot yet store the task id, that onboarding
+remains recoverable. A later scheduler tick resolves the exact same batch and
+task, even after research has finished, instead of opening a duplicate report
+or sending a false research-failure welcome.
+
+An invited Slack user receives the Organization join link and a simple account
+of what will happen after joining; OpenMeld does not claim to know that person
+before Organization membership exists. After an exact normalized Slack email
+matches a joined Organization member with an active Human Profile, Core links
+that same Slack identity, atomically claims at most one onboarding across all
+delivered invitations for that Organization, workspace, and Slack user, runs
+member research for the new member, writes the Profile Report to the Center
+Agent Computer, and sends a second private welcome with one evidence-backed
+observation or an honest insufficient-context state. Duplicate invitations are
+closed without starting another research task or sending another welcome.
+The second welcome has its own durable publication claim. A confirmed Slack
+rejection may retry, a confirmed delivery is recovered by its recorded message
+id, and a lost or ambiguous outcome never triggers a blind second message.
+That claim may omit a research-task id only when research could not start; the
+same ledger then owns the one honest failure-aware welcome instead of storing a
+made-up task.
+The new member may then reply in Slack, invite more teammates, or start the
+channel-introduction flow. A move starts a new Organization context with
+different members, Spaces, Apps, and agent state, so reusing the previous
+welcome state would be misleading. A same-Organization reauthorization does
+not repeat the sequence.
+
+Lark and Feishu support the same product shape through Lark Card 2.0's
+`multi_select_person` component and `card.action.trigger` form values; they do
+not require Slack's modal API. Provider parity must reuse the same trust-first
+research, membership, invitation, and publication ledgers rather than adding a
+second onboarding authority. Until that adapter is implemented and real-smoked,
+the Slack native picker remains the only shipped native teammate selector.
 
 The shipped outbound action requires an explicit request from a verified
 current human member to publish a top-level channel message, is recorded in the
@@ -1644,8 +1778,9 @@ introduce storage syntax outside that contract. It has three document kinds:
 
 - one canonical **Organization Brief** per organization, used to tell the
   Center Agent who the organization is, how it works, and how work is assigned;
-- at most one **Profile Report** per organization member, associated with that
-  member's user identity; and
+- dated **Profile Reports** associated with an organization member's user
+  identity; each automatic learning run creates a new report instead of
+  replacing that person's report history; and
 - up to 50 ordinary **knowledge** documents.
 
 Documents may be organized into nested, organization-scoped **folders** (up to
@@ -1656,19 +1791,50 @@ meaning to the Center Agent context assembly. Deleting a folder unwraps one
 level: its documents and direct child folders move to the deleted folder's
 parent, and it never deletes document content. Folder create, rename, delete,
 moving folders, and moving documents require owner/admin authority, and every
-current member sees the same hierarchy. The Center Agent may create root or
-nested folders, rename folders, and move documents when acting for a verified
-owner/admin. Folder deletion and moving an existing folder remain human-only
-management actions.
+current member sees the same hierarchy. OpenMeld owns one managed **Profile
+Reports** root and one managed child folder per researched person. Reports are
+normally stored at `Profile Reports / {person name} / {YYYY-MM-DD} — {report
+type}`. If an ordinary root folder already uses `Profile Reports`, OpenMeld
+preserves that folder and everything inside it, then creates a collision-safe
+managed root such as `OpenMeld Profile Reports`; it never adopts or locks a
+user-managed folder. If
+more than one report of the same type is created for a person on the same day,
+Core preserves every run and adds a human-readable ordinal suffix such as
+` (2)`. Reports carry the report date and type as structured metadata. Managed
+report folders
+cannot be renamed, moved, deleted, used for unrelated documents, or extended
+with manual child folders. Web also omits every managed report folder from
+manual document and folder move destinations; Core rejects the same targets so
+drag-and-drop, menus, and direct requests preserve one rule. The Center Agent may create other root or nested
+folders, rename those folders, and move ordinary documents when acting for a
+verified owner/admin. Deleting and moving other existing folders remain
+human-only management actions.
 
 Every current organization member may read documents. Owners and admins may
 create, rename, edit, delete, approve, and discard across the organization. A
-member may edit only the approved Markdown body of an existing Profile Report
-about them; that exception does not grant creation, title, deletion, approval,
-folder management, or other-member access.
+member may edit only the Markdown body of an existing Profile Report about
+them; that exception does not grant creation, title, deletion, approval, folder
+management, report placement, or other-member access.
+
+Every human content save carries the Document `updatedAt` and nullable draft
+version that the editor loaded. Core applies the content only when both still
+match. If the Center Agent writes a newer Profile Report draft or another human
+changes the Document first, the older editor keeps its unsaved text and receives
+one explicit conflict outcome instead of overwriting the newer work. Title-only
+and folder-only management updates do not use this content-version fence.
 
 The Center Agent normally creates or replaces the single pending draft for a
-document so a human can review it. When a verified owner/admin explicitly asks
+document. Ordinary Organization Brief and knowledge drafts use an explicit
+human review flow. A Profile Report starts as a provisional working report, but
+Web presents the latest report as **What I've learned so far** in the normal
+editable Document surface without assigning approval, correction, or discard
+work. Saving any human edit turns that version into the current Document content
+and clears its internal provisional fields; the person can also simply tell the
+Center Agent when something feels off. Welcome preparation reads the current
+visible report body, whether it is still provisional or was already saved, so a
+fast human save cannot stall onboarding. When several reports share a date,
+Directory treats the later-created learning run as latest; editing an older
+report never makes it replace a newer run. When a verified owner/admin explicitly asks
 for a direct save in the current accepted turn, or explicitly grants a Routine
 the structured `organization_documents.save_approved_knowledge` action, the
 Center Agent may create or update approved ordinary knowledge content without a
@@ -1677,10 +1843,10 @@ Core binds the save to the current accepted native delivery and, for a Routine,
 to its current Run and stored action grant. Direct saves never apply to the
 Organization Brief or Profile Reports, and they fail while the target document
 has a pending draft so an unreviewed proposal cannot be erased or silently
-approved. Human edits continue to write approved content directly without
-clearing a pending draft. Approval and discard carry the draft version the
-human reviewed; if the Center Agent replaces that draft first, Core rejects the
-stale review so the human must read the latest proposal.
+approved. Human edits to ordinary documents continue to write approved content
+without clearing a pending review draft. Approval and discard carry the draft
+version the human reviewed; if the Center Agent replaces that draft first, Core
+rejects the stale review so the human must read the latest proposal.
 
 When the Center Agent performs substantial file-based editing, it checks out a
 writable Computer working copy from the approved Documents projection. The
@@ -1716,19 +1882,29 @@ missing document exposes a creation link only when the document projection says
 the current actor can manage Organization documents; otherwise the card
 explains that owners and admins must create it. A single-member learning start
 failure stays on that member's card with its retry action. **Learn about** asks
-the designated Center Agent to process one member at a time and create or
-replace that Profile Report's pending draft. The all-members operation is
+the designated Center Agent to process one member at a time and create one new
+dated Profile Report. The all-members operation is
 serial: one task reaches a terminal outcome before Core starts the next, and
 one failure is recorded without stopping the remaining members. Research never
-bypasses document review.
+writes approved document content directly.
+
+A verified member may also ask the Center Agent in an interactive conversation
+to learn about them or create a fresh Profile Report. The model-visible action
+is deliberately self-only: Core derives the subject from the verified speaker,
+starts the same durable single-member research workflow, and never accepts a
+model-selected user id. The Center Agent immediately says that the background
+learning run has started and does not claim the new report is complete until
+the research task reaches its terminal outcome. User-defined recurring learning
+plans and proactive opt-in prompts for organization-wide automatic learning are
+future extensions of this same workflow, not alternate document writers.
 
 Human Profile cards use the same top-right action model as Agent Profile cards.
 The icon row owns **Learn about {member}**, **Direct Message** for another active
 Human Profile, **Edit Human Profile** for the signed-in member's own active
 default Human Profile, and an overflow menu whose **About profile** item opens
-the shared profile-details surface. The Profile Report action and its
-**Report waiting for review** state remain in the card's content area; they are
-document workflow, not profile chrome. Self-Direct Messages are unavailable,
+the shared profile-details surface. The **Profile Report** action remains in
+the card's content area and opens the latest report without a warning-style
+review state. It is document content, not profile chrome. Self-Direct Messages are unavailable,
 and owners or admins do not receive an edit action for another member's Human
 Profile. Editing the current member's default Human Profile reuses the paired
 Account Display Name mutation rather than introducing a second identity writer.
@@ -1766,31 +1942,39 @@ exposes device details.
 collide with Agent Profile or Human Profile identity. The persisted document
 kind remains `member_profile`, and the orchestration contract remains member
 research; those internal compatibility names do not appear as the document's
-user-facing name. New reports default to `{member name} Profile Report`.
+user-facing name. New work-profile reports default to
+`{YYYY-MM-DD} — Work Profile` inside the managed folder for that person.
 
 A member-research callback settles its native delivery and research task; it
-does not publish a fabricated Center Agent Direct Message. A pending draft may
-become available for review before that settlement finishes, so clients must
-distinguish **Draft available** from a terminal research outcome. Completion
-feedback is emitted only after the research task reaches that terminal outcome.
+does not publish a fabricated Center Agent Direct Message. A provisional report
+may become available before that settlement finishes, so clients must not call
+the research complete until its task reaches a terminal outcome. Completion
+feedback is emitted only after that terminal outcome.
 
 The server-authored task may use Organization directory identity, Slack
 workspace directory identity metadata, approved Organization documents, the
-bounded Agent Activity snapshot, and an Organization-shared GitHub connection.
-Directory identity, email, role, profile ownership, source availability, and
-the absence of activity are not evidence of a member's work. Slack directory
-profile text is untrusted and Slack messages are not exposed. GitHub work is
-included only when it can be confidently attributed to the subject. The task
-must not read local agent session content or invent missing facts. V1 does not
-expose Space message context because the existing generic read does not bind
-public visibility and subject participation at its execution boundary.
+bounded Agent Activity snapshot, Organization-shared GitHub, and read-only
+Organization-shared App actions. After exact Slack identity resolution it may
+inspect one newest-first page in at most five relevant joined channels, but
+only when channel membership contains that exact Slack user id. Directory
+identity, email, role, profile ownership, source availability, and the absence
+of activity are not evidence of a member's work. Slack directory profile text,
+channel messages, and connected-App output are untrusted data. Slack or App
+artifacts count only with exact subject attribution, a stable id, and a date;
+ambiguous attribution is omitted and reported as `not_attributable`. Connected
+App execution is structurally limited to actions declared `read`. GitHub work
+is included only when it can be confidently attributed to the subject. The
+task must not read local agent session content or invent missing facts. Space
+message context remains excluded because the generic read does not bind public
+visibility and subject participation at its execution boundary.
 
 Member research has a server-enforced quality floor. Remote Agent submits the
 shared structured member-research report contract rather than authored
 Markdown. Core validates the evidence packet, preserves the existing approved
 `## About` section, and is the only owner that renders the reviewable Profile
 Report Markdown. A useful evidence-backed report requires at least two
-distinct, dated Agent Activity or attributable GitHub work items. It separates
+distinct, dated Agent Activity or attributable GitHub, Slack, or connected-App
+work items. It separates
 supported About additions and adds a Working profile with Current focus, Recent
 contributions, and Collaboration guidance before dated, source-cited Observed
 activity. Research coverage names every checked source, its availability, the

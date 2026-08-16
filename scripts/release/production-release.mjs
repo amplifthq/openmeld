@@ -82,12 +82,17 @@ const REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS = new Set([
 ]);
 const REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH =
   "packages/schemas/src/schemas/runtime/remote-agent-worker.ts";
+const REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS = new Set([
+  REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH,
+  "packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts",
+]);
 const REMOTE_AGENT_WORKER_RESPONSE_PRODUCER_PATHS = new Set([
   "services/remote-agent/.flue/agents/center-agent.ts",
 ]);
 const REMOTE_AGENT_WORKER_REQUEST_PRODUCER_PATHS = new Set([
   "services/core/src/remote-agent/application/remote-agent-conversation-continuity.ts",
   "services/core/src/remote-agent/application/remote-agent-worker-admission.ts",
+  "services/core/src/remote-agent/application/slack-signal-service.ts",
 ]);
 const REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH =
   "services/remote-agent/.flue/agents/center-agent.ts";
@@ -507,7 +512,9 @@ function resolveProductionDeployOrderProfile(changedPaths) {
 
 function isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) {
   return (
-    changedPaths.includes(REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH) &&
+    changedPaths.some((path) =>
+      REMOTE_AGENT_WORKER_REQUEST_SCHEMA_PATHS.has(path)
+    ) &&
     changedPaths.includes(REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH) &&
     changedPaths.some((path) =>
       REMOTE_AGENT_WORKER_REQUEST_PRODUCER_PATHS.has(path)

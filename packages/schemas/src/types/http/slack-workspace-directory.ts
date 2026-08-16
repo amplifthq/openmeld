@@ -14,3 +14,9 @@ export type SlackWorkspaceDirectoryMember = z.infer<
 export type SlackWorkspaceDirectoryResponse = z.infer<
   Schemas["slackWorkspaceDirectoryResponseSchema"]
 >;
+export type SlackReadUnavailableResponse = z.infer<
+  Schemas["slackReadUnavailableResponseSchema"]
+>;
+export type CenterAgentReadSlackWorkspaceDirectoryResponse = z.infer<
+  Schemas["centerAgentReadSlackWorkspaceDirectoryResponseSchema"]
+>;

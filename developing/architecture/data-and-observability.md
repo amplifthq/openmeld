@@ -1947,10 +1947,21 @@ scope response, device code, or message body.
 Core owns Slack workspace installation state and credentials. The
 `slack_workspace_tokens` table is keyed by Slack team id, keeps one
 organization-scoped installation record, and stores only an AES-GCM encrypted
-bot token plus the bot user, installer, organization, and timestamps. The
+bot token plus the normalized granted bot-scope set, bot user, installer,
+organization, and timestamps. A null granted-scope set means a legacy or manual
+installation whose current capabilities are unknown; it never proves direct
+message readiness. The
 workspace Binding and encrypted token write are one D1 batch so a failed token
 write cannot leave a connected Binding without its credential. Disconnecting
 deletes both records in the same batch.
+
+This capability projection uses an additive rollout contract. The OAuth
+installation input accepts an omitted scope set from an older Gateway and
+stores it as unknown; the Web projection keeps direct-message readiness
+optional for an older Core. Apply the nullable D1 migration first, then deploy
+Core, Gateway, and Web in that order. New Gateway is not deployed before Core
+because an older strict Core does not accept the new scope field. Rollback
+removes Web and Gateway callers before Core and retains the nullable column.
 
 Moving a workspace between organizations uses one D1 batch to compare-and-swap
 the expected previous Binding to the destination organization, update the
@@ -1968,10 +1979,39 @@ atomically consumes the row before Gateway exchanges the Slack code; expired,
 tampered, and replayed states fail closed. Abandoned expired rows are removed
 when a new state is created.
 
+When Slack returns an exact authenticated installer user id, the installation
+batch also upserts that provider identity as an explicit link to the state-bound
+OpenMeld installer. This link is part of the same created, unchanged, or moved
+workspace transaction as the encrypted token. A welcome action therefore never
+depends on a second identity-link setup after OAuth succeeds.
+
 Slack Web API calls resolve credentials in this order: the encrypted
 per-workspace record, then the legacy global `SLACK_OPENMELD_BOT_TOKEN` only
 when no workspace record exists. A present record that cannot be decrypted is
 a visible failure and must not silently fall back to the global token.
+
+`slack_channel_introduction_runs` and
+`slack_channel_introduction_items` are the durable multi-channel publication
+manifest. The run freezes the workspace, Organization, requester, private Slack
+conversation, optional Organization invite URL, and acknowledgement outcome.
+Each ordered item freezes one selected public channel and owns its own claim,
+attempt count, and submitted/failed/outcome-unknown checkpoint. Remote Agent
+native-delivery idempotency includes the interaction and channel ids. A
+provider-accepted native delivery whose item checkpoint is temporarily
+unavailable remains `submitting`; stale-claim recovery reuses that exact
+native-delivery identity and never writes a contradictory failure. A stale
+submitting claim may be reclaimed, while a submitted or provider-ambiguous item
+is never automatically replayed. The private acknowledgement carries the
+interaction id as Slack message metadata. If Slack confirms publication but the
+run checkpoint cannot be written, the run remains `ack_pending`; scheduled
+recovery finds that exact message through Slack history, persists its timestamp,
+and only then releases the frozen channel items. If no exact message exists,
+recovery moves the run into a durable private-retry-notice state instead of
+risking a duplicate. That notice has its own claim, attempt count, stable Slack
+metadata, confirmed timestamp, and ambiguous-outcome checkpoint. Only one claim
+may publish it; a known non-publication is retried a bounded number of times,
+while a provider-ambiguous result is never replayed. A confirmed acknowledgement
+is never converted to a terminal failure because a later D1 write failed.
 
 `slack_installation_welcome_deliveries` is the durable publication ledger for
 the installer welcome DM. Its identity includes Slack workspace, OpenMeld
@@ -1979,11 +2019,49 @@ Organization, recipient Slack user, workspace-connection generation, and
 welcome version, so moving or reconnecting a workspace creates a new welcome
 without duplicating one connection's message. A claim is persisted before the
 Slack call. Confirmed non-publication becomes `failed` and may be retried on a
-later OAuth reauthorization; provider-ambiguous publication becomes
+later OAuth reauthorization. The scheduler never reclaims that `failed` row on
+its own: reauthorization first changes the matching failed preparation to an
+explicit retry-authorized ready state, and only that state may reclaim the
+publication row. Provider-ambiguous publication becomes
 `outcome_unknown` and is never retried automatically. A stale `pending` claim
 is classified as `outcome_unknown`, not reclaimed. The ledger stores only
 bounded outcome metadata and Slack's published message timestamp, never the
 welcome text, blocks, token, or provider response body.
+
+`slack_installation_welcome_preparations` is the separate durable work ledger
+that gates publication on completed member research. It owns the installer,
+workspace-connection generation, research-task link, and queued/researching/
+ready/completed/failed lifecycle. It stores no report body. A preparation can
+become ready only when the task's Profile Report Organization Document and the
+exact Center Agent Computer file evidence join successfully. The publication
+ledger remains the only Slack-send authority; preparation readiness never
+means that Slack received a message. A research or report-file failure uses the
+same publication ledger to send one plain failure-aware welcome with an inline
+“try again” CTA before the preparation becomes terminal; it does not add a
+second notification authority or store message copy in D1.
+
+`center_agent_member_research_computer_files` proves that Remote Agent wrote
+Core's exact rendered Profile Report content to the Center Agent's private
+Computer. It binds one research task, Profile Report document, subject user,
+submission, and path. The row is completion evidence, not a second document
+body or a new source of Profile Report truth. Core remains the only Markdown
+renderer and Organization Documents remains the formal reviewable document.
+
+`slack_teammate_invitation_deliveries` is the idempotency and onboarding ledger
+for native Slack teammate selection. Its publication identity is the Slack
+view interaction plus selected target user. It records only target identity
+metadata already returned by the live Slack workspace directory, bounded
+outcome state, Slack message timestamp, and later joined-member research
+linkage. A provider-ambiguous send is never retried. The joined-member flow
+advances only after exact normalized email matches a current Organization
+member with an active Human Profile; Slack display names and titles never
+establish identity. Every invitation carries its interaction-and-recipient
+delivery identity as Slack message metadata. If Slack confirms publication but
+the `delivered` checkpoint cannot be written, Core reports the real delivery
+outcome and leaves the row pending. Scheduled invited-member onboarding
+reconciles stale pending rows against that exact metadata before claiming a
+joined member. A match restores `delivered` and `waiting_for_join`; confirmed
+absence becomes `outcome_unknown` without blindly sending a duplicate.
 
 The retired Remote Agent guardrail table and breaker columns remain in the
 schema and historical migrations because old rows are durable evidence. Active
@@ -2177,9 +2255,12 @@ Core D1 owns `organization_documents`, including approved Markdown, the one
 replaceable Center Agent draft, document identity, kind, member subject, and
 timestamps. Core D1 also owns `organization_document_folders`, including each
 folder's optional parent edge. Database constraints enforce one Brief per
-organization, one Profile Report per organization and subject user, sibling
-folder-name uniqueness, the closed kind set, draft metadata coherence, and the
-20,000-character body limits. Core prevents cross-organization parent edges and
+organization, unique Profile Report titles within one organization, subject,
+report date, and report type, sibling folder-name uniqueness, the closed kind
+set, draft metadata coherence, and the 20,000-character body limits. Profile
+Report history is append-only across learning runs; Core assigns a dated base
+title and a human-readable ordinal suffix for additional same-day reports. Core
+prevents cross-organization parent edges and
 folder cycles, preserves child folders and documents when a folder is deleted,
 enforces the 50-folder and 50-document knowledge caps, and verifies that Profile
 Report subjects are current organization members. Web and Gateway consume this
@@ -2240,6 +2321,17 @@ Core D1 also owns `center_agent_member_research_batches` and
 `center_agent_member_research_tasks`. These rows are the durable serial
 orchestration record for a human-requested member-research batch: one running
 task per batch, explicit per-member failure, and continue-on-failure progress.
+The request may originate from the authenticated Web action or from the hosted
+Center Agent representing the verified speaker of an interactive conversation;
+both enter the same batch/task writer, audit path, and single-active-batch
+invariant. Conversational self-research derives the subject from the represented
+speaker instead of persisting model-selected identity.
+Slack onboarding batches also carry one nullable acceptance idempotency key,
+unique within the Organization. The installer or invited-member scheduler uses
+its stable onboarding identity for that key. A retry therefore returns the
+exact previously accepted batch and task after a downstream task-link
+checkpoint failure, including when the task has already become terminal; this
+key is orchestration recovery evidence, not a second execution authority.
 They do not replace the Remote Agent worker's in-flight execution truth or the
 native-delivery ledger. Core advances a running task only from that ledger's
 terminal outcome. At the Organization Document draft boundary, Core binds the

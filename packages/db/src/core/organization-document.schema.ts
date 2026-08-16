@@ -21,6 +21,8 @@ export const organizationDocuments = sqliteTable(
     subjectUserId: text("subject_user_id").references(() => users.id, {
       onDelete: "cascade",
     }),
+    profileReportDate: text("profile_report_date"),
+    profileReportType: text("profile_report_type"),
     // Deleting a folder preserves its documents. The service first moves
     // them to the deleted folder's parent; the FK is a final safety net.
     folderId: text("folder_id").references(
@@ -44,9 +46,22 @@ export const organizationDocuments = sqliteTable(
     uniqueIndex("organization_documents_org_brief_unique")
       .on(table.organizationId)
       .where(sql`"kind" = 'brief'`),
-    uniqueIndex("organization_documents_org_member_profile_unique")
-      .on(table.organizationId, table.subjectUserId)
-      .where(sql`"kind" = 'member_profile'`),
+    index("organization_documents_org_member_profile_date_idx").on(
+      table.organizationId,
+      table.subjectUserId,
+      desc(table.profileReportDate)
+    ),
+    uniqueIndex("organization_documents_profile_report_title_unique")
+      .on(
+        table.organizationId,
+        table.subjectUserId,
+        table.profileReportDate,
+        table.profileReportType,
+        table.title
+      )
+      .where(
+        sql`"kind" = 'member_profile' and "profile_report_date" is not null`
+      ),
     uniqueIndex("organization_documents_member_research_task_unique")
       .on(table.lastMemberResearchTaskId)
       .where(sql`"last_member_research_task_id" is not null`),
@@ -86,6 +101,10 @@ export const organizationDocuments = sqliteTable(
     check(
       "organization_documents_member_research_check",
       sql`"last_member_research_task_id" is null or "kind" = 'member_profile'`
+    ),
+    check(
+      "organization_documents_profile_report_metadata_check",
+      sql`("kind" != 'member_profile' and "profile_report_date" is null and "profile_report_type" is null) or ("kind" = 'member_profile' and (("profile_report_date" is null and "profile_report_type" is null) or (length("profile_report_date") = 10 and "profile_report_type" = 'work_profile')))`
     ),
     check(
       "organization_documents_updated_at_check",

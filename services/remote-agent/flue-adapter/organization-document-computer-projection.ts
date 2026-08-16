@@ -131,14 +131,13 @@ export async function clearOrganizationDocumentsComputerProjection(
 async function resetProjectionRoot(
   workspace: Pick<WorkspaceClient, "fs">
 ): Promise<void> {
-  try {
-    await workspace.fs.chmod(
-      ORGANIZATION_DOCUMENTS_COMPUTER_ROOT,
-      WRITABLE_DIRECTORY_MODE
-    );
-  } catch {
-    // A missing first-run projection is the normal path.
-  }
+  await workspace.fs.mkdir(ORGANIZATION_DOCUMENTS_COMPUTER_ROOT, {
+    recursive: true,
+  });
+  await workspace.fs.chmod(
+    ORGANIZATION_DOCUMENTS_COMPUTER_ROOT,
+    WRITABLE_DIRECTORY_MODE
+  );
   await workspace.fs.rm(ORGANIZATION_DOCUMENTS_COMPUTER_ROOT, {
     force: true,
     recursive: true,

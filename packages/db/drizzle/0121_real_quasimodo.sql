@@ -1,0 +1,2 @@
+ALTER TABLE `center_agent_member_research_batches` ADD `acceptance_idempotency_key` text;--> statement-breakpoint
+CREATE UNIQUE INDEX `center_agent_member_research_acceptance_unique` ON `center_agent_member_research_batches` (`organization_id`,`acceptance_idempotency_key`) WHERE "acceptance_idempotency_key" is not null;

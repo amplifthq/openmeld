@@ -147,6 +147,7 @@ describe("OrganizationDocumentsPage", () => {
 					title: "Organization Brief",
 				}),
 				summary({
+					hasDraft: true,
 					id: "profile-1",
 					kind: "member_profile",
 					subjectUserId: "user-ada",
@@ -189,6 +190,7 @@ describe("OrganizationDocumentsPage", () => {
 		expect(
 			within(rows[1] as HTMLElement).getByText("Profile Report · Ada Lovelace")
 		).toBeTruthy();
+		expect(within(rows[1] as HTMLElement).queryByText("Draft")).toBeNull();
 		expect(
 			screen.getByRole("link", { name: NEW_DOCUMENT_LINK_NAME })
 		).toBeTruthy();
@@ -253,6 +255,7 @@ describe("OrganizationDocumentsPage", () => {
 			folder: {
 				createdAt: "2026-07-16T00:00:00.000Z",
 				id: "folder-new",
+				isManaged: false,
 				name: "Checklists",
 				organizationId: "org-acme",
 				parentFolderId: "folder-1",
@@ -310,6 +313,55 @@ describe("OrganizationDocumentsPage", () => {
 			screen.queryByRole("button", { name: DOCUMENT_ACTIONS_BUTTON_NAME })
 		).toBeNull();
 	});
+
+	it("keeps OpenMeld-managed Profile Report folders out of manual folder controls", async () => {
+		listCurrentOrganizationDocumentsMock.mockResolvedValue(
+			listResponse({
+				documents: [],
+				folders: [
+					{
+						createdAt: "2026-08-14T00:00:00.000Z",
+						id: "profile-reports-root",
+						isManaged: true,
+						name: "Profile Reports",
+						organizationId: "org-acme",
+						parentFolderId: null,
+						updatedAt: "2026-08-14T00:00:00.000Z",
+					},
+				],
+			})
+		);
+		readCurrentOrganizationDirectoryMock.mockResolvedValue({
+			agentProfiles: [],
+			generatedAt: "2026-08-14T00:00:00.000Z",
+			members: [],
+			organizationId: "org-acme",
+		});
+
+		renderPage();
+		const managedFolderCard = (
+			await screen.findByRole("heading", { name: "Profile Reports" })
+		).closest("article");
+		expect(managedFolderCard).toBeTruthy();
+		expect(
+			within(managedFolderCard as HTMLElement).queryByRole("button", {
+				name: FOLDER_ACTIONS_BUTTON_NAME,
+			})
+		).toBeNull();
+		expect(
+			managedFolderCard?.querySelector("a")?.getAttribute("draggable")
+		).toBe("false");
+
+		cleanup();
+		renderPage("profile-reports-root");
+		await screen.findByRole("heading", { name: "This folder is empty" });
+		expect(
+			screen.queryByRole("button", { name: NEW_FOLDER_BUTTON_NAME })
+		).toBeNull();
+		expect(
+			screen.queryByRole("link", { name: NEW_DOCUMENT_LINK_NAME })
+		).toBeNull();
+	});
 });
 
 function listResponse(overrides: Record<string, unknown> = {}) {
@@ -333,6 +385,7 @@ function listResponse(overrides: Record<string, unknown> = {}) {
 			{
 				createdAt: "2026-07-14T00:00:00.000Z",
 				id: "folder-1",
+				isManaged: false,
 				name: "Runbooks",
 				organizationId: "org-acme",
 				parentFolderId: null,
@@ -341,6 +394,7 @@ function listResponse(overrides: Record<string, unknown> = {}) {
 			{
 				createdAt: "2026-07-14T00:00:00.000Z",
 				id: "folder-2",
+				isManaged: false,
 				name: "Production",
 				organizationId: "org-acme",
 				parentFolderId: "folder-1",
@@ -348,6 +402,8 @@ function listResponse(overrides: Record<string, unknown> = {}) {
 			},
 		],
 		organizationId: "org-acme",
+		profileReportDate: null,
+		profileReportType: null,
 		...overrides,
 	};
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
 import { buildRemoteAgentSystemPrompt } from "../agent-core/prompt";
+import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "../agent-core/slack-member-research-state";
 import {
   buildRemoteAgentName,
   buildRemoteAgentPromptMessage,
@@ -1115,6 +1116,11 @@ describe("remote agent submission", () => {
         TEST_NOW_MS - 1
       );
     }
+    await storage.putExpiring(
+      `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}subject:expired`,
+      ["U_EXPIRED"],
+      TEST_NOW_MS - 1
+    );
     const request = createSubmitTurnRequest({
       dispatchId: "dispatch_lazy_cleanup",
       idempotencyKey: "idempotency_lazy_cleanup",
@@ -1145,6 +1151,11 @@ describe("remote agent submission", () => {
       receiptKeys.filter((key) => key.startsWith(expiredReceiptPrefix))
     ).toHaveLength(1);
     expect(receiptKeys).toHaveLength(2);
+    expect(
+      [...(await storage.list()).keys()].filter((key) =>
+        key.startsWith(REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX)
+      )
+    ).toEqual([]);
   });
 
   it("builds stable submission metadata without embedding harness details", () => {

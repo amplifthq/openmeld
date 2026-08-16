@@ -23,6 +23,7 @@ export const centerAgentMemberResearchBatches = sqliteTable(
     requestedByProfileId: text("requested_by_profile_id").notNull(),
     requestedByDisplayName: text("requested_by_display_name").notNull(),
     directMessageSpaceId: text("direct_message_space_id").notNull(),
+    acceptanceIdempotencyKey: text("acceptance_idempotency_key"),
     createdAtMs: integer("created_at_ms").notNull(),
     updatedAtMs: integer("updated_at_ms").notNull(),
   },
@@ -30,6 +31,9 @@ export const centerAgentMemberResearchBatches = sqliteTable(
     uniqueIndex("center_agent_member_research_one_active_batch_per_org")
       .on(table.organizationId)
       .where(sql`"status" in ('queued', 'running')`),
+    uniqueIndex("center_agent_member_research_acceptance_unique")
+      .on(table.organizationId, table.acceptanceIdempotencyKey)
+      .where(sql`"acceptance_idempotency_key" is not null`),
     index("center_agent_member_research_batches_org_created_idx").on(
       table.organizationId,
       desc(table.createdAtMs)
@@ -99,6 +103,30 @@ export const centerAgentMemberResearchTasks = sqliteTable(
     check(
       "center_agent_member_research_tasks_failure_check",
       sql`("status" = 'failed' and "failure_code" is not null) or ("status" != 'failed' and "failure_code" is null)`
+    ),
+  ]
+);
+
+export const centerAgentMemberResearchComputerFiles = sqliteTable(
+  "center_agent_member_research_computer_files",
+  {
+    taskId: text("task_id")
+      .primaryKey()
+      .references(() => centerAgentMemberResearchTasks.id, {
+        onDelete: "cascade",
+      }),
+    documentId: text("document_id").notNull(),
+    subjectUserId: text("subject_user_id").notNull(),
+    path: text("path").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+  },
+  (table) => [
+    uniqueIndex(
+      "center_agent_member_research_computer_files_document_unique"
+    ).on(table.documentId),
+    check(
+      "center_agent_member_research_computer_files_path_check",
+      sql`length(trim("path")) > 0`
     ),
   ]
 );

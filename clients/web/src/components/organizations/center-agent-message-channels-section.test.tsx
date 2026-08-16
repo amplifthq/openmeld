@@ -15,6 +15,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -51,8 +52,10 @@ describe("CenterAgentMessageChannelsSection", () => {
 				managementMode="read-only"
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
+				organizationSlug="acme"
 				slackConnection={{
 					connected: true,
+					directMessagesReady: true,
 					slackTeamId: "T123",
 					workspaceName: "Acme HQ",
 				}}
@@ -92,6 +95,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={onManageLarkPlatform}
 				organizationRequired
+				organizationSlug="acme"
 			/>
 		);
 
@@ -111,6 +115,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -155,8 +160,10 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={onManageLarkPlatform}
+				organizationSlug="acme"
 				slackConnection={{
 					connected: true,
+					directMessagesReady: true,
 					slackTeamId: "T123",
 					workspaceName: "Acme Slack",
 				}}
@@ -171,6 +178,32 @@ describe("CenterAgentMessageChannelsSection", () => {
 		expect(onManageLarkPlatform).toHaveBeenCalledWith("lark");
 	});
 
+	it("shows when a connected Slack installation needs DM permissions", () => {
+		render(
+			<CenterAgentMessageChannelsSection
+				canManage
+				disableSlackConnect={false}
+				disableSlackDisconnect={false}
+				onConnectSlackWorkspace={vi.fn()}
+				onDisconnectSlackWorkspace={vi.fn()}
+				organizationSlug="acme"
+				slackConnection={{
+					connected: true,
+					directMessagesReady: false,
+					slackTeamId: "T123",
+					workspaceName: "Acme Slack",
+				}}
+			/>
+		);
+
+		expect(screen.getByText("Reconnect required")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Reconnect Slack once so people can message the Center Agent directly."
+			)
+		).toBeTruthy();
+	});
+
 	it("hides unavailable disconnected providers outside the pilot Organization", () => {
 		render(
 			<CenterAgentMessageChannelsSection
@@ -181,6 +214,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -198,6 +232,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -226,6 +261,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -263,6 +299,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -299,6 +336,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -335,6 +373,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={onManageLarkPlatform}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -366,6 +405,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={vi.fn()}
+				organizationSlug="acme"
 			/>
 		);
 
@@ -403,6 +443,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 				onConnectSlackWorkspace={vi.fn()}
 				onDisconnectSlackWorkspace={vi.fn()}
 				onManageLarkPlatform={onManageLarkPlatform}
+				organizationSlug="acme"
 			/>
 		);
 

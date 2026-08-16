@@ -46,6 +46,12 @@ describe("Core scheduled task dispatcher", () => {
     const routineDatabase = {} as D1Database;
     const countStrandedSlackIngress = vi.fn(async () => 0);
     const runMemberResearchTick = vi.fn(async () => undefined);
+    const runSlackChannelIntroductionTick = vi.fn(async () => ({
+      failed: 0,
+      outcomeUnknown: 0,
+      submitted: 1,
+    }));
+    const runSlackWelcomePreparationTick = vi.fn(async () => undefined);
     const runRoutineTick = vi.fn(async () => emptyRoutineTickSummary());
     const runLarkPlatformRegistrationTick = vi.fn(async () => ({
       errors: 0,
@@ -189,6 +195,8 @@ describe("Core scheduled task dispatcher", () => {
       retryRoutineSubmissions,
       retryRoutineWorkflowStarts,
       runMemberResearchTick,
+      runSlackChannelIntroductionTick,
+      runSlackWelcomePreparationTick,
       runLarkPlatformRegistrationTick,
       runRoutineTick,
       runWakeEvidenceRetention,
@@ -208,6 +216,17 @@ describe("Core scheduled task dispatcher", () => {
       nowMs: 1000,
     });
     expect(runMemberResearchTick).toHaveBeenCalledWith({
+      db: routineDatabase,
+      env: expect.anything(),
+      nowMs: 1000,
+    });
+    expect(runSlackWelcomePreparationTick).toHaveBeenCalledTimes(2);
+    expect(runSlackWelcomePreparationTick).toHaveBeenNthCalledWith(1, {
+      db: routineDatabase,
+      env: expect.anything(),
+      nowMs: 1000,
+    });
+    expect(runSlackChannelIntroductionTick).toHaveBeenCalledWith({
       db: routineDatabase,
       env: expect.anything(),
       nowMs: 1000,

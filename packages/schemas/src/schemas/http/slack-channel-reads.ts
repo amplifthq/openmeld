@@ -1,5 +1,8 @@
 import { z } from "zod/v4";
-import { slackWorkspaceDirectoryMemberSchema } from "./slack-workspace-directory";
+import {
+  slackReadUnavailableResponseSchema,
+  slackWorkspaceDirectoryMemberSchema,
+} from "./slack-workspace-directory";
 
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 const trimmedNonEmptyStringSchema = z.string().trim().min(1);
@@ -18,12 +21,14 @@ export const centerAgentListSlackChannelsBodySchema = z.strictObject({
 export const centerAgentReadSlackChannelMembersBodySchema = z.strictObject({
   channelName: slackChannelNameSchema,
   cursor: slackCursorSchema,
+  includeChannelId: z.literal(true).optional(),
   limit: z.number().int().min(1).max(200).optional(),
 });
 
 export const centerAgentReadSlackChannelHistoryBodySchema = z.strictObject({
   channelName: slackChannelNameSchema,
   cursor: slackCursorSchema,
+  expectedChannelId: trimmedNonEmptyStringSchema.max(80).optional(),
   limit: z.number().int().min(1).max(15).optional(),
 });
 
@@ -42,6 +47,7 @@ export const slackChannelListResponseSchema = z.strictObject({
 });
 
 export const slackChannelMembersResponseSchema = z.strictObject({
+  channelId: trimmedNonEmptyStringSchema.max(80).optional(),
   channelName: slackChannelNameSchema,
   generatedAt: ISO_DATE_TIME_SCHEMA,
   members: z.array(slackWorkspaceDirectoryMemberSchema),
@@ -64,3 +70,18 @@ export const slackChannelHistoryResponseSchema = z.strictObject({
   nextCursor: nullableTrimmedStringSchema,
   organizationId: trimmedNonEmptyStringSchema,
 });
+
+export const centerAgentListSlackChannelsResponseSchema = z.union([
+  slackChannelListResponseSchema,
+  slackReadUnavailableResponseSchema,
+]);
+
+export const centerAgentReadSlackChannelMembersResponseSchema = z.union([
+  slackChannelMembersResponseSchema,
+  slackReadUnavailableResponseSchema,
+]);
+
+export const centerAgentReadSlackChannelHistoryResponseSchema = z.union([
+  slackChannelHistoryResponseSchema,
+  slackReadUnavailableResponseSchema,
+]);

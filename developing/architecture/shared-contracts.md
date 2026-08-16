@@ -1766,6 +1766,52 @@ shared boundary so Core can be deployed before Gateway without breaking
 installations during a rolling deployment; the current Gateway always supplies
 it after a successful exchange.
 
+`packages/schemas` also owns the closed Gateway-to-Core Slack welcome
+interaction contract. Gateway verifies Slack's request signature, parses the
+native button or modal submission, and forwards only the discriminated action,
+workspace/user identity, trigger or interaction id, and bounded selected Slack
+user ids. Core re-resolves the workspace Binding and exact linked OpenMeld
+member, then consumes Auth's current Organization account-identity projection
+and requires a non-null membership before opening a modal, reading an active Organization join link,
+ensuring a missing link, or sending an invitation. Any verified member may
+reuse the active Core-owned link; Auth remains the only authority that can
+create a missing link on behalf of an owner or admin. A forbidden missing-link
+result becomes a private actionable Slack outcome for the requester rather
+than an unobserved `waitUntil()` rejection. Other Core-side interaction
+failures also attempt one private retry/reconnect next step; Gateway observes
+and logs a binding-level background rejection instead of dropping a bare
+`waitUntil()` promise. Gateway never receives the bot token
+or decides Organization authority. Joined-member onboarding is claimed once
+per Organization, Slack workspace, and target Slack user. A competing delivered
+invitation is moved to a terminal duplicate outcome before it can start a
+second research task or welcome publication. Invited-member welcome delivery
+uses a separate Core-owned claim ledger keyed by invitation, Slack recipient,
+and nullable research task. A null research-task id means research could not
+start and the same ledger owns the one failure-aware welcome; Core never
+fabricates a task id merely to satisfy publication storage. `pending` fences
+concurrent and crash retries, `delivered` stores the provider message id for
+onboarding recovery, a confirmed
+non-publication may retry from `failed`, and stale or ambiguous claims close as
+`outcome_unknown` instead of republishing blindly.
+
+Slack direct-message ingress uses the same event callback and durable queue
+contract as `app_mention`, with the strict human `message.im` subtype. Bot
+messages and messages with a Slack subtype fail parsing, preventing the Center
+Agent from replying to itself or treating edits and other message variants as
+new human turns. Core writes the Slack trigger's optional `replyPlacement` into
+the strict Remote Agent turn envelope: a top-level App Home direct message uses
+`conversation`, an existing direct-message thread and every channel mention use
+`thread`. The stored worker request preserves that decision across final
+publication and recovery. Older stored requests without the optional field
+continue to use the legacy thread placement.
+
+This additive field rolls out Remote Agent receiver first. The guarded
+production planner recognizes the shared turn-envelope owner, Slack Core
+producer, and Center Agent receiver together, then deploys Remote Agent before
+Core. Old Core safely omits the optional field while the new receiver preserves
+legacy thread placement; Core may emit `replyPlacement` only after that receiver
+is visible. Rollback stops the Core producer before removing the receiver.
+
 ### Slack Event Ingress Contracts
 
 `packages/schemas/src/schemas/runtime/remote-agent-slack.ts` owns the strict
@@ -1789,6 +1835,13 @@ Slack workspace directory tool. The request contains only a bounded page size
 and opaque Slack cursor. The response contains one live page of normalized
 active human Slack profiles, an opaque next cursor, and Core's current
 OpenMeld-membership classification.
+
+The response is a strict union between a successful page and an expected
+unavailable result. An unavailable result carries a stable reason code, plain
+message, and one lowest-cost next action. A missing Organization Slack
+connection therefore remains an ordinary model-visible tool result instead of
+becoming an uncaught Worker RPC exception. Remote Agent may explain that result
+but must not reinterpret it as an empty Slack directory.
 
 Core owns the comparison, not Slack or the Remote Agent. Core fetches
 `users.list` with the Organization-bound Slack bot credential, filters deleted
@@ -1815,8 +1868,35 @@ reader and older-action-set filters while that durable row remains.
 `packages/schemas` owns the Center Agent Slack channel list, channel member,
 and channel history request and response contracts. Requests are bounded and
 cursor-paginated. Model-visible responses expose channel names and provider
-metadata but not internal Slack channel ids; Core retains ids only for provider
-calls and audit correlation.
+metadata but not internal Slack channel ids. Member research opts into a
+service-binding-only `channelId` field on the member read, stores it outside
+model-visible output, and sends it back as `expectedChannelId` on the history
+read. Core resolves the name again and fails closed unless it still identifies
+that exact immutable channel before reading history.
+
+The Slack workspace-directory request can opt into `memberUserId`; Core includes
+it only when the Slack identity matches a current Organization member. Remote
+Agent requests it only for member research, stores the exact task-subject Slack
+id, and removes the OpenMeld member id before returning directory data to the
+model. It must follow the returned directory cursors from the first page to the
+end and proceeds only when the completed traversal yields exactly one subject
+Slack id. The execution boundary bounds membership inspection to five distinct
+immutable channels and allows one history page only for a channel containing
+that exact Slack id. Research state expires after one hour and is deleted in a
+bounded batch when a later submission is admitted.
+
+These opt-in request fields preserve the receiver-first rollout. Deploy Core
+first: callers that do not opt in receive the legacy strict response shapes.
+Then deploy Remote Agent, which opts into the new internal fields and fails
+closed if Core does not return them. Rollback removes Remote Agent before Core.
+
+Each response is a strict union between its successful payload and the same
+expected-unavailable shape. Core uses that result for a missing Slack
+connection, temporarily unavailable connection state, or a channel the App has
+not joined. The result names the cheapest recovery action, such as connecting
+Slack or inviting OpenMeld to the channel; these expected product states do not
+cross Worker RPC as thrown errors and are never represented as successful empty
+history.
 
 Channel listing reports whether the App is already a member and has no mutation
 side effect. Channel member and history reads require that membership evidence
@@ -2194,6 +2274,28 @@ Human list/get/create/update/delete/approve/discard routes live under
 Core RPC method using the same schema so a partial deployment fails as an
 explicit contract error rather than an unowned 502.
 
+Human content updates carry both `expectedDocumentUpdatedAt` and nullable
+`expectedDraftCreatedAt`. Core includes both values in the same conditional D1
+update that writes the content. A zero-row update returns
+`organization_document.working_copy_conflict` after confirming the Document
+still exists, so a stale browser cannot erase a newer Center Agent draft or
+human edit. Title-only and folder-only updates remain independent management
+operations and do not require content versions.
+
+Welcome preparation reads `COALESCE(draft_content, content)` from the report
+bound to the completed research task. This preserves one visible-body rule when
+a human saves the provisional report before Slack delivery. Profile Report
+selection compares structured report date first and creation time second;
+`updatedAt` is an edit version and never changes which same-day learning run is
+the latest. Managed Profile Report folders are absent from every Web move-target
+projection and remain rejected by Core's document and folder placement writes.
+The member-research draft RPC returns the exact current content produced by its
+Core write as the Computer-file body, so Documents and the Center Agent Computer
+cannot diverge or create an empty file from a summary that omits content. A
+preexisting ordinary root folder named `Profile Reports` remains ordinary and
+unchanged; Core creates a collision-safe managed root instead of converting
+user-owned hierarchy into managed storage.
+
 `packages/schemas/src/schemas/http/center-agent-member-research.ts` owns the
 single-member/all-members start request, batch/task progress projection, and
 status response. The public HTTP route is
@@ -2204,6 +2306,40 @@ task id to worker dispatch, trigger, idempotency, and requesting-profile
 identity. Remote Agent adds the internal task id to the draft RPC from the
 trusted envelope rather than model input; Core binds that id and the worker
 submission to the assigned `member_profile` target.
+
+The same schema module owns the private
+`centerAgentStartSelfMemberResearch` service-binding request used by the
+model-visible `openmeld_learn_about_me` action. Its payload contains only the
+trusted Center Agent context and the current verified speaker. Core derives the
+single subject from that speaker and starts the existing research contract; the
+model cannot name another subject. The same rollout adds the
+`organization.member_research.start` Agent Work key so Web can describe the
+background start without claiming that the Profile Report is already complete.
+
+The member-research evidence extension adds `slack_channel_history` and
+`connected_apps` coverage plus attributable `slack` and `connected_app`
+evidence. Core accepts the complete legacy five-source coverage set and the
+complete current seven-source set so an old Remote Agent remains compatible
+during a Core-first rollout. The current Remote Agent tool input requires all
+seven sources, and connected-App evidence execution is independently fenced to
+actions whose provider declaration says `read`. Deploy Core before Remote
+Agent; roll back Remote Agent before Core.
+
+This contract has two strict directions and rolls out consumer-first:
+
+1. apply D1 migration `0115_tense_cannonball`;
+2. deploy Web so it accepts the new Agent Work key before any worker emits it;
+3. deploy Remote Agent so it accepts the `member_research` turn variant and
+   exposes the self-only tool;
+4. deploy Core with the new tool RPC receiver and the producer that schedules
+   `member_research` turns.
+
+During the Remote-Agent-first window, the new tool fails explicitly against an
+older Core RPC receiver and does not create a document through another path.
+An older Remote Agent never calls the new Core method, but new Core must not
+lead the Remote Agent rollout because the old worker does not accept the new
+strict turn variant. Rollback therefore removes the Core producer first, then
+Remote Agent, then Web; the additive D1 migration may remain.
 
 Core persists that trusted task id with the Organization Document draft write so
 completion can be verified even if a human immediately approves or discards the

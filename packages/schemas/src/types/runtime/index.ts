@@ -33,3 +33,4 @@ export type * from "./remote-agent-metering";
 export type * from "./remote-agent-slack";
 export type * from "./remote-agent-turn-envelope";
 export type * from "./remote-agent-worker";
+export type * from "./slack-welcome-interaction";

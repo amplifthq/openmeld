@@ -59,9 +59,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 		})
 	);
 	const document = documentQuery.data?.document;
-	const documentFolderSearch = document?.folderId
-		? { folder: document.folderId }
-		: {};
+	const documentFolderSearch = resolveDocumentFolderSearch(document?.folderId);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [deleteOpen, setDeleteOpen] = useState(false);
 	const [editorEpoch, setEditorEpoch] = useState(0);
@@ -82,13 +80,19 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 		]);
 	};
 	const saveMutation = useMutation({
-		mutationFn: async (payload: { content: string; title?: string }) =>
-			await updateCurrentOrganizationDocument({
+		mutationFn: async (payload: { content: string; title?: string }) => {
+			if (!document) {
+				throw new Error("The document is no longer loaded.");
+			}
+			return await updateCurrentOrganizationDocument({
 				content: payload.content,
 				documentId: input.documentId,
+				expectedDocumentUpdatedAt: document.updatedAt,
+				expectedDraftCreatedAt: document.draftCreatedAt,
 				expectedOrganizationId: currentOrganization.id,
 				...(payload.title === undefined ? {} : { title: payload.title }),
-			}),
+			});
+		},
 		onError: (error) =>
 			setErrorMessage(resolveOrganizationDocumentErrorMessage(error)),
 		onSuccess: refresh,
@@ -156,7 +160,16 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 		discardMutation.isPending ||
 		deleteMutation.isPending;
 	const hasDraft = document !== undefined && document.draftContent !== null;
-	const showingDraft = hasDraft && reviewView === "draft";
+	const isProfileReport = document?.kind === "member_profile";
+	const showingDraft = resolveShowingDraft({
+		hasDraft: hasDraft && !isProfileReport,
+		reviewView,
+	});
+	const editFormPresentation = resolveDocumentEditFormPresentation(
+		document,
+		isProfileReport,
+		editorEpoch
+	);
 
 	if (documentQuery.isPending) {
 		return (
@@ -212,11 +225,10 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 						<p className="font-medium text-muted-foreground text-xs">
 							{organizationDocumentKindLabel(document.kind)}
 						</p>
-						{hasDraft ? (
-							<Badge className={resolveStatusToneBadgeClassName("warning")}>
-								Draft waiting for review
-							</Badge>
-						) : null}
+						<DocumentDraftStatusBadge
+							hasDraft={hasDraft}
+							isProfileReport={isProfileReport}
+						/>
 					</div>
 					<h1 className="mt-1 break-words font-medium text-2xl">
 						{document.title}
@@ -233,28 +245,31 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 				) : null}
 			</header>
 
-			{hasDraft ? (
-				<DocumentDraftReviewBar
-					disabled={reviewPending || saveMutation.isPending}
-					document={document}
-					onApprove={() => approveMutation.mutate()}
-					onDiscard={() => discardMutation.mutate()}
-					onToggleView={() =>
-						setReviewView(showingDraft ? "approved" : "draft")
-					}
-					showingDraft={showingDraft}
-				/>
-			) : null}
+			<DocumentDraftPresentation
+				disabled={reviewPending || saveMutation.isPending}
+				document={document}
+				hasDraft={hasDraft}
+				onApprove={() => approveMutation.mutate()}
+				onDiscard={() => discardMutation.mutate()}
+				onToggleView={() => setReviewView(showingDraft ? "approved" : "draft")}
+				showingDraft={showingDraft}
+			/>
 
-			{/* Both surfaces stay mounted so switching views never drops unsaved
-			    approved edits; the inactive one is hidden. min-w-0 keeps wide
+			{/* Ordinary review drafts keep both surfaces mounted so switching views
+			    never drops unsaved approved edits. A Profile Report is one editable
+			    working document, even when its latest Center Agent version still uses
+			    the legacy draft fields. The inactive review surface is hidden.
+			    min-w-0 keeps wide
 			    document content scrolling inside the editor instead of stretching
 			    the page grid past the layout width. */}
 			<div className={cn("min-w-0", showingDraft ? "hidden" : null)}>
 				<DocumentEditForm
 					disabled={reviewPending}
 					document={document}
-					key={`${document.id}:${editorEpoch}`}
+					initialContent={
+						editFormPresentation?.initialContent ?? document.content
+					}
+					key={editFormPresentation?.key ?? document.id}
 					onSave={async (payload) => {
 						setErrorMessage(null);
 						await saveMutation.mutateAsync(payload);
@@ -262,7 +277,7 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 					saving={saveMutation.isPending}
 				/>
 			</div>
-			{document.draftContent === null ? null : (
+			{document.draftContent === null || isProfileReport ? null : (
 				<div className={cn("min-w-0", showingDraft ? null : "hidden")}>
 					<OrganizationDocumentMarkdownEditor
 						ariaLabel="Center Agent draft content"
@@ -315,15 +330,16 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 function DocumentEditForm(input: {
 	disabled: boolean;
 	document: OrganizationDocument;
+	initialContent: string;
 	onSave: (payload: { content: string; title?: string }) => Promise<void>;
 	saving: boolean;
 }) {
 	const { document } = input;
 	const canEditTitle = document.canManage && document.kind === "knowledge";
 	const [title, setTitle] = useState(document.title);
-	const [content, setContent] = useState(document.content);
+	const [content, setContent] = useState(input.initialContent);
 	const [savedTitle, setSavedTitle] = useState(document.title);
-	const [savedContent, setSavedContent] = useState(document.content);
+	const [savedContent, setSavedContent] = useState(input.initialContent);
 	const contentOverLimit =
 		content.length > ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS;
 	const unchanged = content === savedContent && title === savedTitle;
@@ -388,7 +404,7 @@ function DocumentEditForm(input: {
 						}
 						onClick={save}
 					>
-						{input.saving ? "Saving…" : "Save approved content"}
+						{resolveDocumentSaveLabel(document, input.saving)}
 					</Button>
 				</div>
 			) : null}
@@ -396,8 +412,112 @@ function DocumentEditForm(input: {
 	);
 }
 
+function resolveDocumentEditFormPresentation(
+	document: OrganizationDocument | undefined,
+	isProfileReport: boolean,
+	editorEpoch: number
+): { initialContent: string; key: string } | null {
+	if (!document) {
+		return null;
+	}
+	const initialContent =
+		isProfileReport && document.draftContent !== null
+			? document.draftContent
+			: document.content;
+	const version = isProfileReport
+		? (document.draftCreatedAt ?? document.updatedAt)
+		: document.updatedAt;
+	return {
+		initialContent,
+		key: `${document.id}:${editorEpoch}:${version}`,
+	};
+}
+
+function resolveDocumentFolderSearch(folderId: string | null | undefined): {
+	folder?: string;
+} {
+	return folderId ? { folder: folderId } : {};
+}
+
+function resolveDocumentSaveLabel(
+	document: OrganizationDocument,
+	saving: boolean
+): string {
+	if (saving) {
+		return "Saving…";
+	}
+	return document.kind === "member_profile"
+		? "Save changes"
+		: "Save approved content";
+}
+
 function ignoreDraftChange() {
 	// The draft surface is read-only; Plate still requires an onChange handler.
+}
+
+function resolveShowingDraft(input: {
+	hasDraft: boolean;
+	reviewView: "approved" | "draft";
+}): boolean {
+	return input.hasDraft && input.reviewView === "draft";
+}
+
+function DocumentDraftStatusBadge(input: {
+	hasDraft: boolean;
+	isProfileReport: boolean;
+}) {
+	if (!(input.hasDraft && !input.isProfileReport)) {
+		return null;
+	}
+	return (
+		<Badge className={resolveStatusToneBadgeClassName("warning")}>
+			Draft waiting for review
+		</Badge>
+	);
+}
+
+function DocumentDraftPresentation(input: {
+	disabled: boolean;
+	document: OrganizationDocument;
+	hasDraft: boolean;
+	onApprove: () => void;
+	onDiscard: () => void;
+	onToggleView: () => void;
+	showingDraft: boolean;
+}) {
+	if (input.document.kind === "member_profile") {
+		return <ProfileReportLearningNote />;
+	}
+	if (!input.hasDraft) {
+		return null;
+	}
+	return (
+		<DocumentDraftReviewBar
+			disabled={input.disabled}
+			document={input.document}
+			onApprove={input.onApprove}
+			onDiscard={input.onDiscard}
+			onToggleView={input.onToggleView}
+			showingDraft={input.showingDraft}
+		/>
+	);
+}
+
+function ProfileReportLearningNote() {
+	return (
+		<section
+			aria-labelledby="profile-report-learning-heading"
+			className="rounded-md border bg-muted/20 p-4"
+		>
+			<h2 className="font-medium text-lg" id="profile-report-learning-heading">
+				What your Center Agent has learned so far
+			</h2>
+			<p className="mt-1 text-muted-foreground text-sm">
+				Your Center Agent will update this Profile Report as it learns more
+				about your work. If anything feels off, tell your Center Agent.
+			</p>
+		</section>
+	);
 }
 
 function DocumentDraftReviewBar(input: {

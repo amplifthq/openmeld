@@ -134,6 +134,95 @@ const toSnapshotFileName = (entry: DrizzleJournalEntry): string => {
 };
 
 describe("shared drizzle migration history integrity", () => {
+  it("preserves pending Slack channel introductions when adding durable recovery notices", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const migrationFileName = listSqlMigrationFiles().find((fileName) =>
+        fileName.startsWith("0120_")
+      );
+      expect(migrationFileName).toBeDefined();
+      if (!migrationFileName) {
+        return;
+      }
+
+      applyMigrationFiles(
+        database,
+        listSqlMigrationFiles().filter(
+          (fileName) => fileName.localeCompare(migrationFileName) < 0
+        )
+      );
+      database.exec(`
+        INSERT INTO slack_channel_introduction_runs (
+          interaction_id,
+          manifest_creation_id,
+          slack_team_id,
+          organization_id,
+          requester_slack_user_id,
+          dm_channel_id,
+          organization_invite_url,
+          status,
+          acknowledgement_ts,
+          failure_code,
+          created_at_ms,
+          updated_at_ms
+        ) VALUES (
+          'interaction-upgrade',
+          'manifest-upgrade',
+          'team-upgrade',
+          'organization-upgrade',
+          'user-upgrade',
+          'dm-upgrade',
+          'https://app.openmeld.com/invite/upgrade',
+          'ack_pending',
+          NULL,
+          NULL,
+          1000,
+          2000
+        );
+      `);
+
+      applyMigrationFiles(database, [migrationFileName]);
+
+      expect(
+        database
+          .prepare(
+            `
+              SELECT
+                interaction_id,
+                manifest_creation_id,
+                organization_invite_url,
+                status,
+                acknowledgement_ts,
+                recovery_notice_ts,
+                recovery_notice_attempt_count,
+                failure_code,
+                created_at_ms,
+                updated_at_ms
+              FROM slack_channel_introduction_runs
+              WHERE interaction_id = 'interaction-upgrade'
+            `
+          )
+          .get()
+      ).toEqual({
+        acknowledgement_ts: null,
+        created_at_ms: 1000,
+        failure_code: null,
+        interaction_id: "interaction-upgrade",
+        manifest_creation_id: "manifest-upgrade",
+        organization_invite_url: "https://app.openmeld.com/invite/upgrade",
+        recovery_notice_attempt_count: 0,
+        recovery_notice_ts: null,
+        status: "ack_pending",
+        updated_at_ms: 2000,
+      });
+      expect(
+        listTableIndexes(database, "slack_channel_introduction_runs")
+      ).toContain("idx_slack_channel_introduction_runs_status_updated");
+    } finally {
+      database.close();
+    }
+  });
+
   it("preserves existing document folders while adding nested sibling rules", () => {
     const database = new DatabaseSync(":memory:");
     try {
@@ -508,6 +597,114 @@ describe("shared drizzle migration history integrity", () => {
           user_id: "task-requester",
         },
       ]);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("preserves research batches when adding Slack onboarding acceptance identity", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const migrationFileName = listSqlMigrationFiles().find((fileName) =>
+        fileName.startsWith("0121_")
+      );
+      expect(migrationFileName).toBeDefined();
+      if (!migrationFileName) {
+        return;
+      }
+
+      applyMigrationFiles(
+        database,
+        listSqlMigrationFiles().filter(
+          (fileName) => fileName.localeCompare(migrationFileName) < 0
+        )
+      );
+      database.exec("PRAGMA foreign_keys = OFF");
+      database.exec(`
+        INSERT INTO center_agent_member_research_batches (
+          id,
+          organization_id,
+          scope,
+          status,
+          requested_by_user_id,
+          requested_by_member_id,
+          requested_by_profile_id,
+          requested_by_display_name,
+          direct_message_space_id,
+          created_at_ms,
+          updated_at_ms
+        ) VALUES (
+          'batch-before-acceptance-key',
+          'organization-upgrade',
+          'member',
+          'completed',
+          'user-upgrade',
+          'member-upgrade',
+          'profile-upgrade',
+          'Upgrade User',
+          'space-upgrade',
+          1000,
+          2000
+        );
+      `);
+
+      applyMigrationFiles(database, [migrationFileName]);
+
+      expect(
+        database
+          .prepare(
+            `SELECT id, acceptance_idempotency_key
+             FROM center_agent_member_research_batches
+             WHERE id = 'batch-before-acceptance-key'`
+          )
+          .get()
+      ).toEqual({
+        acceptance_idempotency_key: null,
+        id: "batch-before-acceptance-key",
+      });
+      database.exec(`
+        INSERT INTO center_agent_member_research_batches (
+          id,
+          organization_id,
+          scope,
+          status,
+          requested_by_user_id,
+          requested_by_member_id,
+          requested_by_profile_id,
+          requested_by_display_name,
+          direct_message_space_id,
+          acceptance_idempotency_key,
+          created_at_ms,
+          updated_at_ms
+        ) VALUES (
+          'batch-with-acceptance-key',
+          'organization-upgrade',
+          'member',
+          'completed',
+          'user-upgrade',
+          'member-upgrade',
+          'profile-upgrade',
+          'Upgrade User',
+          'space-upgrade',
+          'slack-welcome:upgrade',
+          3000,
+          3000
+        );
+      `);
+      expectStatementToThrow(
+        database,
+        `INSERT INTO center_agent_member_research_batches (
+          id, organization_id, scope, status, requested_by_user_id,
+          requested_by_member_id, requested_by_profile_id,
+          requested_by_display_name, direct_message_space_id,
+          acceptance_idempotency_key, created_at_ms, updated_at_ms
+        ) VALUES (
+          'batch-duplicate-acceptance-key', 'organization-upgrade', 'member',
+          'completed', 'user-upgrade', 'member-upgrade', 'profile-upgrade',
+          'Upgrade User', 'space-upgrade', 'slack-welcome:upgrade', 4000, 4000
+        )`,
+        "UNIQUE constraint failed"
+      );
     } finally {
       database.close();
     }
@@ -1255,6 +1452,7 @@ describe("shared drizzle migration history integrity", () => {
         "slack_team_id",
         "encrypted_bot_token",
         "bot_user_id",
+        "granted_bot_scopes",
         "installed_by_user_id",
         "organization_id",
         "created_at_ms",
@@ -1967,6 +2165,167 @@ describe("shared drizzle migration history integrity", () => {
           "worker_submit_request_json",
         ])
       );
+      expect(
+        listTableColumns(database, "slack_invited_member_welcome_deliveries")
+      ).toEqual(
+        expect.arrayContaining([
+          "interaction_id",
+          "target_slack_user_id",
+          "research_task_id",
+          "status",
+          "claim_id",
+          "attempt_count",
+          "message_ts",
+          "failure_code",
+          "created_at_ms",
+          "updated_at_ms",
+        ])
+      );
+    } finally {
+      database.close();
+    }
+  });
+
+  it("stores invited-member onboarding state on the invitation delivery", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      applyMigrationFiles(database, listSqlMigrationFiles());
+
+      expect(
+        listTableColumns(database, "slack_teammate_invitation_deliveries")
+      ).toEqual(
+        expect.arrayContaining([
+          "onboarding_status",
+          "joined_user_id",
+          "joined_profile_id",
+          "research_task_id",
+          "welcome_message_ts",
+          "onboarding_failure_code",
+        ])
+      );
+      expect(
+        listTableColumns(database, "openMeldRemoteAgent_native_delivery_ledger")
+      ).not.toEqual(
+        expect.arrayContaining([
+          "onboarding_status",
+          "joined_user_id",
+          "joined_profile_id",
+          "research_task_id",
+          "welcome_message_ts",
+          "onboarding_failure_code",
+        ])
+      );
+    } finally {
+      database.close();
+    }
+  });
+
+  it("preserves existing documents and folders while adding Profile Report metadata", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const migrationFileName = listSqlMigrationFiles().find((fileName) =>
+        fileName.startsWith("0115_")
+      );
+      expect(migrationFileName).toBeDefined();
+      if (!migrationFileName) {
+        return;
+      }
+
+      applyMigrationFiles(
+        database,
+        listSqlMigrationFiles().filter(
+          (fileName) => fileName.localeCompare(migrationFileName) < 0
+        )
+      );
+      database.exec(`
+        INSERT INTO users (id, name, email)
+        VALUES ('profile-report-user', 'Profile Report User', 'profile-report@example.com');
+        INSERT INTO organizations (id, name, slug, created_at)
+        VALUES ('profile-report-org', 'Profile Report Org', 'profile-report-org', 1000);
+        INSERT INTO organization_document_folders (
+          id,
+          organization_id,
+          name,
+          created_at,
+          updated_at
+        ) VALUES (
+          'profile-report-folder',
+          'profile-report-org',
+          'People',
+          1000,
+          1000
+        );
+        INSERT INTO organization_document_folders (
+          id,
+          organization_id,
+          parent_folder_id,
+          name,
+          created_at,
+          updated_at
+        ) VALUES (
+          'profile-report-child-folder',
+          'profile-report-org',
+          'profile-report-folder',
+          'Existing profiles',
+          1000,
+          1000
+        );
+        INSERT INTO organization_documents (
+          id,
+          organization_id,
+          kind,
+          subject_user_id,
+          folder_id,
+          title,
+          content,
+          created_at,
+          updated_at
+        ) VALUES (
+          'profile-report-document',
+          'profile-report-org',
+          'member_profile',
+          'profile-report-user',
+          'profile-report-child-folder',
+          'Existing work profile',
+          'Existing profile content',
+          1000,
+          1000
+        );
+      `);
+
+      applyMigrationFiles(database, [migrationFileName]);
+
+      expect(
+        database
+          .prepare(
+            `SELECT id, title, content, folder_id, profile_report_date, profile_report_type
+             FROM organization_documents
+             WHERE id = 'profile-report-document'`
+          )
+          .get()
+      ).toEqual({
+        content: "Existing profile content",
+        folder_id: "profile-report-child-folder",
+        id: "profile-report-document",
+        profile_report_date: null,
+        profile_report_type: null,
+        title: "Existing work profile",
+      });
+      expect(
+        database
+          .prepare(
+            `SELECT id, name, parent_folder_id, system_kind, subject_user_id
+             FROM organization_document_folders
+             WHERE id = 'profile-report-child-folder'`
+          )
+          .get()
+      ).toEqual({
+        id: "profile-report-child-folder",
+        name: "Existing profiles",
+        parent_folder_id: "profile-report-folder",
+        subject_user_id: null,
+        system_kind: null,
+      });
     } finally {
       database.close();
     }

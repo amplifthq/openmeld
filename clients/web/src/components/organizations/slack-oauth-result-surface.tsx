@@ -19,10 +19,12 @@ import {
 	resolveSlackOAuthResultMessage,
 	type SlackOAuthResult,
 } from "#/lib/organizations/slack-oauth-result";
+import { buildSlackOAuthStartPath } from "#/lib/slack-oauth-start";
 
 export function SlackOAuthResultSurface(input: {
 	canManage: boolean;
 	organizationName: string;
+	organizationSlug: string;
 	result?: SlackOAuthResult;
 }) {
 	if (!input.result) {
@@ -36,6 +38,7 @@ export function SlackOAuthResultSurface(input: {
 			fromOrganizationId={input.result.fromOrganizationId}
 			fromOrganizationName={input.result.fromOrganizationName}
 			organizationName={input.organizationName}
+			organizationSlug={input.organizationSlug}
 		/>
 	);
 }
@@ -73,9 +76,13 @@ function SlackWorkspaceMoveConfirmationDialog(input: {
 	fromOrganizationId: string;
 	fromOrganizationName: string;
 	organizationName: string;
+	organizationSlug: string;
 }) {
 	const [open, setOpen] = useState(true);
-	const moveUrl = `/slack/oauth/start?move_from=${encodeURIComponent(input.fromOrganizationId)}`;
+	const moveUrl = buildSlackOAuthStartPath({
+		moveFromOrganizationId: input.fromOrganizationId,
+		organizationSlug: input.organizationSlug,
+	});
 	return (
 		<Dialog onOpenChange={setOpen} open={open}>
 			<DialogContent>

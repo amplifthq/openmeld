@@ -30,10 +30,13 @@ import {
 	buildOrganizationHumanProfileRows,
 	buildPersonalHumanProfileRows,
 	type DirectoryDocumentsStatus,
-	DirectoryHumanProfilesSection,
 	type DirectoryMemberOpenMeldServiceDisplayState,
-	type DirectoryMemberResearchRequest,
 	resolveMissingPersonalHumanProfileMessage,
+} from "#/components/directory/directory-human-profile-model";
+import {
+	DirectoryHumanProfilesSection,
+	type DirectoryHumanProfilesViewState,
+	type DirectoryMemberResearchRequest,
 } from "#/components/directory/directory-human-profiles-section";
 import { OrganizationInviteLink } from "#/components/organizations/organization-invite-link";
 import { PersonalWorkspaceInvitationGuidance } from "#/components/organizations/personal-workspace-invitation-guidance";
@@ -191,6 +194,20 @@ function reportMemberResearchDocumentRefreshFailure(input: {
 	});
 }
 
+function resolveHumanProfilesViewState(input: {
+	directMessageIsPending: boolean;
+	isPersonalWorkspace: boolean;
+	profilesArePending: boolean;
+	researchIsPending: boolean;
+}): DirectoryHumanProfilesViewState {
+	return {
+		context: input.isPersonalWorkspace ? "personal" : "organization",
+		directMessage: input.directMessageIsPending ? "pending" : "idle",
+		profiles: input.profilesArePending ? "loading" : "ready",
+		research: input.researchIsPending ? "pending" : "idle",
+	};
+}
+
 export function DirectoryMembersOverview(input: {
 	account: AppShellAccount;
 	currentOrganization: OrganizationSummary;
@@ -336,6 +353,12 @@ export function DirectoryMembersOverview(input: {
 	const profilesEmptyMessage = isPersonalWorkspace
 		? resolveMissingPersonalHumanProfileMessage(canCreateHumanProfile)
 		: "No members appear in this organization yet.";
+	const profilesViewState = resolveHumanProfilesViewState({
+		directMessageIsPending: directMessageMutation.isPending,
+		isPersonalWorkspace,
+		profilesArePending,
+		researchIsPending: researchMutation.isPending,
+	});
 	const profilesSection = (
 		<DirectoryHumanProfilesSection
 			activeBatch={activeResearchBatch}
@@ -343,10 +366,6 @@ export function DirectoryMembersOverview(input: {
 			emptyMessage={profilesEmptyMessage}
 			errorMessage={profilesError}
 			focusProfileId={input.focusProfileId}
-			isDirectMessagePending={directMessageMutation.isPending}
-			isOrganizationContext={!isPersonalWorkspace}
-			isPending={profilesArePending}
-			isResearchPending={researchMutation.isPending}
 			latestBatch={latestResearchBatch}
 			memberResearchError={researchErrors.member}
 			members={memberRows}
@@ -357,9 +376,9 @@ export function DirectoryMembersOverview(input: {
 				researchMutation.mutate({ scope: "member", subjectUserId })
 			}
 			onResearchAll={() => researchMutation.mutate({ scope: "all" })}
-			organizationName={input.currentOrganization.name}
 			pendingResearch={researchMutation.variables}
 			researchErrorMessage={researchErrors.section}
+			state={profilesViewState}
 		/>
 	);
 
@@ -597,13 +616,13 @@ function showMemberResearchCompletionToast(
 		const subjectName = batch.tasks[0]?.subjectDisplayName;
 		toast.success(
 			subjectName
-				? `Learning complete. ${subjectName}'s Profile Report is ready to review.`
-				: "Learning complete. The Profile Report is ready to review."
+				? `Learning complete. ${subjectName}'s Profile Report is ready.`
+				: "Learning complete. The Profile Report is ready."
 		);
 		return;
 	}
 	toast.success(
-		`Learning complete. ${batch.completedCount} Profile Reports are ready to review.`
+		`Learning complete. ${batch.completedCount} Profile Reports are ready.`
 	);
 }
 
