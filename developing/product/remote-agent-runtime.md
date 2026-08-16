@@ -857,10 +857,11 @@ uses it.
 
 Center Agent model traffic remains **Cloudflare AI Gateway → OpenRouter**. The
 OpenRouter provider key stays in Cloudflare AI Gateway Provider Keys under
-alias `openrouter`; the Remote Agent worker sends the authenticated gateway
-token plus `cf-aig-byok-alias: openrouter` and does not carry provider API keys
-in code or tracked config. This is OpenMeld-operated provider configuration,
-not user BYOK.
+the environment-owned alias; production uses `production`, while local and
+development environments retain `openrouter`. The Remote Agent worker sends
+the authenticated gateway token plus that exact `cf-aig-byok-alias` value and
+does not carry provider API keys in code or tracked config. This is
+OpenMeld-operated provider configuration, not user BYOK.
 
 The repo-owned `center-agent` catalog exposes Grok 4.6, Grok 4.5, and DeepSeek
 V4 Flash, with Grok 4.6 as the OpenMeld default. Core resolves a complete
@@ -2064,7 +2065,8 @@ Core-owned hosted readiness has exactly two product states in MVP:
   This operational evidence does not decide admission, retry, timeout, native
   delivery, or final result-surface truth.
 - New-turn default route: Cloudflare AI Gateway → OpenRouter BYOK
-  `x-ai/grok-4.6` with BYOK alias `openrouter`. The legacy version-1
+  `x-ai/grok-4.6` with the environment-owned BYOK alias (`production` in
+  production). The legacy version-1
   environment fallback remains `x-ai/grok-4.5` for durable recovery
   compatibility (settled; see Implementation Base).
 

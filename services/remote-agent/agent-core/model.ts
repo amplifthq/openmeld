@@ -11,7 +11,6 @@ export const DEFAULT_REMOTE_AGENT_AI_GATEWAY_BYOK_ALIAS = "openrouter";
 export type RemoteAgentModelEnv = {
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID?: string;
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID?: string;
-  OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID_OVERRIDE?: string;
   CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN?: string;
   OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS?: string;
   OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID?: string;
@@ -28,16 +27,8 @@ export function resolveRemoteAgentAiGatewayAccountId(
 }
 
 export function resolveRemoteAgentAiGatewayId(
-  env: Pick<
-    RemoteAgentModelEnv,
-    | "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID"
-    | "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID_OVERRIDE"
-  >
+  env: Pick<RemoteAgentModelEnv, "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID">
 ): string {
-  const override = env.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID_OVERRIDE?.trim();
-  if (override) {
-    return override;
-  }
   const configured = env.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID?.trim();
   return configured && configured.length > 0
     ? configured
@@ -90,7 +81,6 @@ export function resolveRemoteAgentAiGatewayOpenRouterBaseUrl(
     RemoteAgentModelEnv,
     | "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID"
     | "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID"
-    | "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID_OVERRIDE"
   >
 ): string {
   return `https://gateway.ai.cloudflare.com/v1/${encodeURIComponent(
