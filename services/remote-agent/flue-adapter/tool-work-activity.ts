@@ -81,6 +81,10 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_read_slack_workspace_directory", "slack.members.read"],
   ["openmeld_read_space_context", "space.context.read"],
   ["openmeld_remember_for_organization", "organization.memory.update"],
+  [
+    "openmeld_set_organization_working_language",
+    "organization.settings.update",
+  ],
   ["openmeld_require_identity_for_action", "navigation.prepare"],
   ["openmeld_remove_agent_profiles_from_space", "space.agents.remove"],
   ["openmeld_remove_project", "project.remove"],

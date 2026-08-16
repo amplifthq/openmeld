@@ -384,6 +384,11 @@ const AGENT_WORK_COPY = {
 		"Updated organization memory",
 		"Couldn't update organization memory"
 	),
+	"organization.settings.update": workCopy(
+		"Updating organization settings…",
+		"Updated organization settings",
+		"Couldn't update organization settings"
+	),
 	"project.create": workCopy(
 		"Creating a Project…",
 		"Created a Project",
