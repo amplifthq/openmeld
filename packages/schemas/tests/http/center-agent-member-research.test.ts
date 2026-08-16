@@ -163,15 +163,16 @@ describe("Center Agent member research contracts", () => {
       collaborationGuidance: [ACTIVITY_EVIDENCE],
       coverage: COMPLETE_COVERAGE,
       currentFocus: [ACTIVITY_EVIDENCE],
+      observedLanguageTag: "zh-hans",
       observedActivity: [ACTIVITY_EVIDENCE, GITHUB_EVIDENCE],
       recentContributions: [GITHUB_EVIDENCE],
       result: "evidence_backed",
       suggestedAboutAdditions: [],
     };
 
-    expect(
-      centerAgentMemberResearchReportSchema.safeParse(report).success
-    ).toBe(true);
+    expect(centerAgentMemberResearchReportSchema.parse(report)).toMatchObject({
+      observedLanguageTag: "zh-Hans",
+    });
     expect(
       centerAgentMemberResearchReportSchema.safeParse({
         ...report,

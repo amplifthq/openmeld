@@ -79,6 +79,8 @@ import type {
   CenterAgentSearchSlackMessagesResponse,
   CenterAgentSetAgentProfileDefaultProjectToolResponse,
   CenterAgentSetAgentProfileDefaultProjectToolRpcInput,
+  CenterAgentSetOrganizationWorkingLanguageToolResponse,
+  CenterAgentSetOrganizationWorkingLanguageToolRpcInput,
   CenterAgentSlackWorkspaceConnectionResponse,
   CenterAgentSlackWorkspaceDisconnectResponse,
   CenterAgentSpaceAuthoringContractResponse,
@@ -381,6 +383,7 @@ import {
   rpcCenterAgentCreateOrganizationInviteLink,
   rpcCenterAgentGetOrganizationInviteLink,
 } from "./organizations/center-agent-organization-invite-link-rpc";
+import { rpcCenterAgentSetOrganizationWorkingLanguage } from "./organizations/center-agent-working-language-rpc";
 import { PrepareSessionHub } from "./prepare-session/transport/do/prepare-session-hub";
 import {
   type CreatePrepareSessionInput,
@@ -4165,6 +4168,12 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
 
   centerAgentReadAgentActivity(input: CenterAgentReadAgentActivityInput) {
     return rpcCenterAgentReadAgentActivity(this.env, input);
+  }
+
+  centerAgentSetOrganizationWorkingLanguage(
+    input: CenterAgentSetOrganizationWorkingLanguageToolRpcInput
+  ): Promise<CenterAgentSetOrganizationWorkingLanguageToolResponse> {
+    return rpcCenterAgentSetOrganizationWorkingLanguage(this.env, input);
   }
 
   centerAgentListRoutines(

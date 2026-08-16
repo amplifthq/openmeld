@@ -158,6 +158,8 @@ export const centerAgentActionSchema = z.enum([
   "pause_routine",
   "resume_routine",
   "delete_routine",
+  "set_working_language",
+  "observe_working_language",
 ]);
 
 export const centerAgentConnectorActionAuditOutcomeSchema = z.enum([
@@ -556,6 +558,7 @@ export const listCenterAgentAuditJournalQuerySchema = z.strictObject({
       "v15",
       "v16",
       "v17",
+      "v18",
     ])
     .optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),

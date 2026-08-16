@@ -174,6 +174,9 @@ describe("Center Agent Context Manifest contracts", () => {
     expect(
       listCenterAgentAuditJournalQuerySchema.parse({ actionSet: "v17" })
     ).toEqual({ actionSet: "v17" });
+    expect(
+      listCenterAgentAuditJournalQuerySchema.parse({ actionSet: "v18" })
+    ).toEqual({ actionSet: "v18" });
     for (const action of [
       "create_routine",
       "update_routine",

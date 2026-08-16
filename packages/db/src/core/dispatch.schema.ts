@@ -96,6 +96,7 @@ import {
   organizationSkillReleases,
   organizationSkills,
 } from "./organization-skill.schema.ts";
+import { organizationWorkingLanguagePreferences } from "./organization-working-language.schema.ts";
 import { openMeldDaemonOwnedDevices } from "./owned-device.schema.ts";
 import { openMeldDaemonPreHeadFailurePublicationOutbox } from "./pre-head-failure-publication-outbox.schema.ts";
 import {
@@ -1597,6 +1598,7 @@ export const coreSchema = {
   organizationSkillActivations,
   centerAgentOrganizationSkillOperations,
   organizationInformationProtectionPolicies,
+  organizationWorkingLanguagePreferences,
   centerAgentDesignations,
   centerAgentAttentionRequests,
   centerAgentAuditJournal,

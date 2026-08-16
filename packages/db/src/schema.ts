@@ -83,6 +83,7 @@ export const {
   organizationSkillActivations,
   centerAgentOrganizationSkillOperations,
   organizationInformationProtectionPolicies,
+  organizationWorkingLanguagePreferences,
   organizationBindingAuthorizations,
   centerAgentDesignations,
   centerAgentAuditJournal,

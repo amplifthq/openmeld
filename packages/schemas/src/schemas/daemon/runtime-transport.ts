@@ -26,6 +26,7 @@ import {
   profileWorkspaceModeSchema,
 } from "../protocol/profile";
 import { targetWakeLifecycleIdentitySchema } from "../protocol/target-wake-lifecycle";
+import { workingLanguageGuidanceSchema } from "../runtime/working-language";
 import { spaceContractSchema } from "../space-mesh/space-contract";
 import { spaceThreadContextSchema } from "../space-mesh/space-thread";
 import {
@@ -136,6 +137,7 @@ export const runtimeTransportLeaseSchema = z.strictObject({
 
 export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
   informationProtectionPrompt: z.literal(true).optional(),
+  workingLanguagePrompt: z.literal(true).optional(),
   localAgentInteraction: z.literal(true).optional(),
   profileConfigurationRevision: z.literal(true).optional(),
   localComponents: localComponentsStatusSchema.optional(),
@@ -688,6 +690,7 @@ export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
   defaultProjectId: z.string().trim().min(1).optional(),
   organizationProtectedInformation:
     organizationProtectedInformationSchema.optional(),
+  workingLanguage: workingLanguageGuidanceSchema.optional(),
   dispatchContractVersion: z.number().int().positive(),
   dispatchPolicy: runtimeDispatchPolicySchema,
   controllerSnapshot: openMeldDaemonDispatchControllerSnapshotSchema,

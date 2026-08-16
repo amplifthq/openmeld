@@ -8029,12 +8029,15 @@ export async function rpcListCenterAgentAuditJournal(
     entries: entries.map((entry) =>
       toCenterAgentAuditJournalEntryDto(entry, {
         includeContextDetails:
-          parsed.data.actionSet === "v16" || parsed.data.actionSet === "v17",
+          parsed.data.actionSet === "v16" ||
+          parsed.data.actionSet === "v17" ||
+          parsed.data.actionSet === "v18",
         includeInteractionSource:
           parsed.data.actionSet === "v14" ||
           parsed.data.actionSet === "v15" ||
           parsed.data.actionSet === "v16" ||
-          parsed.data.actionSet === "v17",
+          parsed.data.actionSet === "v17" ||
+          parsed.data.actionSet === "v18",
       })
     ),
   };
@@ -8057,7 +8060,8 @@ function isCurrentCenterAgentAuditActionSet(
     actionSet === "v14" ||
     actionSet === "v15" ||
     actionSet === "v16" ||
-    actionSet === "v17"
+    actionSet === "v17" ||
+    actionSet === "v18"
   );
 }
 
@@ -8070,33 +8074,45 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v14" ||
     input.actionSet === "v15" ||
     input.actionSet === "v16" ||
-    input.actionSet === "v17"
+    input.actionSet === "v17" ||
+    input.actionSet === "v18"
       ? []
       : ["receive_local_agent_request"];
   const contextCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v15" ||
     input.actionSet === "v16" ||
-    input.actionSet === "v17"
+    input.actionSet === "v17" ||
+    input.actionSet === "v18"
       ? []
       : ["read_center_agent_context"];
   const contextLoadCompatibilityActions: readonly CenterAgentAction[] =
-    input.actionSet === "v16" || input.actionSet === "v17"
+    input.actionSet === "v16" ||
+    input.actionSet === "v17" ||
+    input.actionSet === "v18"
       ? []
       : ["load_center_agent_context"];
   const routineCompatibilityActions: readonly CenterAgentAction[] =
-    input.actionSet === "v17" ? [] : input.routineActions;
+    input.actionSet === "v17" || input.actionSet === "v18"
+      ? []
+      : input.routineActions;
+  const workingLanguageCompatibilityActions: readonly CenterAgentAction[] =
+    input.actionSet === "v18"
+      ? []
+      : ["set_working_language", "observe_working_language"];
   if (
     input.actionSet === "v13" ||
     input.actionSet === "v14" ||
     input.actionSet === "v15" ||
     input.actionSet === "v16" ||
-    input.actionSet === "v17"
+    input.actionSet === "v17" ||
+    input.actionSet === "v18"
   ) {
     return [
       ...localAgentCompatibilityActions,
       ...contextCompatibilityActions,
       ...contextLoadCompatibilityActions,
       ...routineCompatibilityActions,
+      ...workingLanguageCompatibilityActions,
       "revoke_center_agent",
     ];
   }
@@ -8106,6 +8122,7 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     ...contextCompatibilityActions,
     ...contextLoadCompatibilityActions,
     ...routineCompatibilityActions,
+    ...workingLanguageCompatibilityActions,
     "pause_center_agent",
     "resume_center_agent",
   ];

@@ -1,3 +1,4 @@
+import { WORKING_LANGUAGE_TAG_MAX_CHARS } from "@openmeld/schemas";
 import { asc, desc, sql } from "drizzle-orm";
 import {
   check,
@@ -71,6 +72,7 @@ export const centerAgentMemberResearchTasks = sqliteTable(
     position: integer("position").notNull(),
     status: text("status").default("queued").notNull(),
     failureCode: text("failure_code"),
+    observedLanguageTag: text("observed_language_tag"),
     createdAtMs: integer("created_at_ms").notNull(),
     startedAtMs: integer("started_at_ms"),
     finishedAtMs: integer("finished_at_ms"),
@@ -103,6 +105,12 @@ export const centerAgentMemberResearchTasks = sqliteTable(
     check(
       "center_agent_member_research_tasks_failure_check",
       sql`("status" = 'failed' and "failure_code" is not null) or ("status" != 'failed' and "failure_code" is null)`
+    ),
+    check(
+      "center_agent_member_research_tasks_language_tag_check",
+      sql.raw(
+        `"observed_language_tag" is null or length(trim("observed_language_tag")) between 2 and ${WORKING_LANGUAGE_TAG_MAX_CHARS}`
+      )
     ),
   ]
 );
