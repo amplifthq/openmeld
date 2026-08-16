@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-16T10:14:00.806Z",
+  "updatedAt": "2026-08-16T18:00:52.647Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.59",
+      "packageVersion": "0.3.60",
       "updatePolicy": "available",
-      "reason": "Ship the production document save fix from the shared API client."
+      "reason": "Deliver advisory working-language guidance to Center and Local Agents."
     },
     "service": {
-      "bundleHash": "1a25db674e993b62c5ab6bfd0c67d05ad1bbc3a96909acdcba3af863263e85a8",
-      "bundleVersion": "0.3.59",
+      "bundleHash": "dbc95c02e3f97e02d88115b4fb786f49adad00e32e8a869455a65e5b4e05ac09",
+      "bundleVersion": "0.3.60",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Ship the production document save fix from the shared API client."
+      "reason": "Deliver advisory working-language guidance to Center and Local Agents."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Ship the production document save fix from the shared API client."
+      "reason": "Deliver advisory working-language guidance to Center and Local Agents."
     }
   }
 }
