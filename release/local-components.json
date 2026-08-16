@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-14T08:49:27.918Z",
+  "updatedAt": "2026-08-16T09:16:50.341Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.57",
+      "packageVersion": "0.3.58",
       "updatePolicy": "available",
       "reason": "Ship clearer connected App action results and Agent work details without blocking existing Wake work."
     },
     "service": {
-      "bundleHash": "bf210cf05979c4dc336012e97158505525274308e4d746fb29e3f90d449f27d5",
-      "bundleVersion": "0.3.57",
+      "bundleHash": "5b9f3cb229babf31f1ffd22cbd075b94235e03f9ad7db737d906ba1a4b3c7e2c",
+      "bundleVersion": "0.3.58",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
