@@ -335,6 +335,49 @@ change to a fixed bare default; the concept/type name stays the generic
 into the concept name, and do not reintroduce ordinary-profile selection for
 Center Agent identity.
 
+### Organization working language
+
+A non-personal Organization may have one optional **working language**. It is
+an advisory to the Organization's Center Agent and Local Agents, not a locale,
+translation setting, response constraint, or deterministic classifier. The
+preference has exactly two modes:
+
+- `automatic`: no row means that no reliable Organization-wide language has
+  been observed. Trusted Center Agent member research may record or replace one
+  BCP 47 language tag when the work evidence is clear. Mixed or insufficient
+  evidence leaves the current state unchanged.
+- `selected`: an Organization owner or admin explicitly selected one BCP 47
+  language tag. Automatic observations never overwrite it. The same roles may
+  return the Organization to `automatic`; an ordinary member may ask about the
+  behavior but cannot change it.
+
+Core is the single authorization, storage, revision, and audit owner. The
+Center Agent tool accepts a mutation only for an explicit current-user request
+and Core resolves the represented member and current role server-side.
+Personal Workspaces do not persist this state. Web exposes no direct setting in
+this release; the Center Agent is the management surface.
+
+The Agent performing the work remains the final language judge. It decides
+semantically in the same inference that creates the response; OpenMeld does not
+run keyword rules, a text-language detector, or a second judge model. The order
+is intentionally contextual rather than a rigid scoring algorithm:
+
+1. An explicit language instruction from the current user wins.
+2. A current request clearly written in one language uses that language. In
+   particular, a fully English request receives an English answer unless the
+   user explicitly asks otherwise.
+3. The current conversation, Slack thread or channel, Space, intended audience,
+   requested artifact, and a Local Agent owner's established habits outweigh
+   the Organization hint when they clearly point elsewhere.
+4. The Organization preference is a fallback for ambiguous work, including
+   agent-to-agent collaboration. Genuinely unclear cases use English.
+
+A new Web conversation without connected work context follows the current
+request and never turns that one message into Organization state. Ordinary
+messages on any surface cannot mutate the preference. Product terms, code,
+identifiers, machine contracts, and internal maintenance text remain English
+where translation would reduce precision.
+
 ### Web product home
 
 The Center Agent has one Web product home with complementary destinations:
@@ -867,6 +910,10 @@ this release.
   Setting Default Project is limited to that member's local Agent Profiles.
   Role-scoped actions use the represented member's current server-side role;
   they are not autonomous Center Agent privileges.
+- Selecting or resetting the Organization working language is a represented
+  owner/admin configuration action. The Center Agent does not receive
+  autonomous authority to change it, and member research may write only the
+  conditional `automatic` observation path described above.
 - Center Agent Space creation defaults to private Organization visibility and
   members-only link access. Public exposure requires an explicit verified
   requester instruction and explicit public values for both controls. The

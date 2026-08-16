@@ -168,9 +168,11 @@ The Space report is the complete user-facing learning result. When the optional
 Slack report is enabled, Slack receives only a concise summary of what changed,
 the strongest opportunities, useful missing capabilities, the Documents
 updated, and an invitation to continue in the thread. It never receives the
-full Organization Documents. The report uses an explicitly documented team
-working language when one exists, otherwise the dominant language in the
-selected Slack evidence, with English as the final fallback.
+full Organization Documents. The report follows the current intended audience
+and selected Slack evidence when they clearly establish a language, then uses
+the optional Organization working-language hint, with English as the final
+fallback. The Agent makes this semantic decision during the Run; a Routine does
+not add its own detector, model call, or stored language state.
 
 The Routine may recommend connecting another App, Slack, or Local Service only
 when current evidence supports a concrete benefit. It does not create another

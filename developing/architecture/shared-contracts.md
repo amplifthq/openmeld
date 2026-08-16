@@ -43,6 +43,24 @@ and shared policy define common language and eligibility projections. They do
 not reserve leases, start execution, accept results, publish replies, or decide
 final Wake outcomes.
 
+### Organization Working Language Contracts
+
+`packages/schemas` owns the canonical BCP 47 language tag, `automatic` and
+`selected` modes, Center Agent mutation RPC, Remote Agent turn-envelope field,
+and Runtime Transport delivery field. Inputs are strict and language tags are
+canonicalized at the boundary. Callers never supply Organization identity,
+role, actor attribution, revisions, or audit authority.
+
+Core owns authorization, durable state, conditional automatic observation, and
+audit. `packages/agent-runtime` owns the stable, provider-neutral language
+judgment instructions and rendering of the optional per-turn advisory. Remote
+Agent and Local OpenMeld Service consume those contracts; they do not persist a
+second preference or convert advisory guidance into permission or execution
+truth. The additive rollout deploys the D1 migration and cloud receivers before
+Core emits the optional fields, then publishes the local Service producer.
+Older receivers ignore no new required field; new receivers admit an omitted
+field as no guidance.
+
 ### Organization Skill Contracts
 
 `packages/schemas` owns strict Organization Skill list, detail, import preview,
@@ -3880,6 +3898,7 @@ It is the shared source for:
 - Prepare readiness summaries
 - Agent Profile Binding projections and command eligibility
 - Core claim eligibility policy projections
+- stable working-language judgment instructions and per-turn advisory rendering
 
 Agent Controller refs must use the shared helpers. Do not hand-build or
 hand-parse refs such as `builtin:<id>` or `custom:<id>` in clients or services.

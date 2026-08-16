@@ -72,6 +72,17 @@ flow. A Channel reply cannot confirm the link. A different signed-in account,
 lost membership, changed provider connection, conflict, or expired action fails
 closed without revealing another member's account details.
 
+Trust-first Slack onboarding freezes the optional language observed by the
+same accepted Center Agent member-research task that produces the Profile
+Report. Core uses that frozen observation for the deterministic welcome and
+its action labels; it does not reclassify the generated report or scan the
+welcome text. When the task has no clear observation, Core falls back to the
+Organization working-language preference and then English. The shipped
+deterministic copy catalog supports English, Simplified Chinese, and
+Traditional Chinese; an unsupported tag falls back to English. Later Slack
+replies remain ordinary Agent decisions and follow the current DM, thread, or
+channel even when it differs from the onboarding language.
+
 The two layers deliberately have different state:
 
 ```text
