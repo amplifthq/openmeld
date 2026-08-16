@@ -68,6 +68,9 @@ jobs:
       - name: Check developer documentation lifecycle
         run: pnpm run verify:docs -- --strict
 
+      - name: Check Changelog contract and projections
+        run: pnpm run verify:changelog
+
       - name: Check CI and release workflow contracts
         run: pnpm run verify:release-workflows
 

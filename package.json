@@ -19,6 +19,8 @@
     "deploy:release-ready": "pnpm run verify:release-ready",
     "deploy:core:local-components": "OPENMELD_RELEASE_CHANNEL_SYNC_CHECK=1 pnpm run deploy:release-ready && pnpm --filter @openmeld/core run deploy",
     "release:cli": "node scripts/release/release-cli.mjs",
+    "changelog:build": "node scripts/changelog/build.mjs",
+    "changelog:check": "node scripts/changelog/check.mjs",
     "setup:dev": "pnpm build && pnpm openmeld:dev:install",
     "dev": "node scripts/dev/dev-guard.mjs",
     "dev:doctor": "node scripts/dev/doppler-environment.mjs doctor",
@@ -91,7 +93,8 @@
     "test:runtime": "turbo run test:runtime --filter=!//",
     "test:full": "pnpm test && pnpm run test:integration && pnpm run test:runtime",
     "check:affected": "node scripts/dev/turbo-affected.mjs check",
-    "verify:pre-push:checks": "pnpm sherif && pnpm run verify:release-workflows && pnpm run verify:doppler-environment && pnpm run verify:cloudflare:env-contract && pnpm run verify:theme-background && bash scripts/ci/check-retired-identifiers.sh",
+    "verify:changelog": "node --test scripts/changelog/changelog.test.mjs && pnpm run changelog:check",
+    "verify:pre-push:checks": "pnpm sherif && pnpm run verify:changelog && pnpm run verify:release-workflows && pnpm run verify:doppler-environment && pnpm run verify:cloudflare:env-contract && pnpm run verify:theme-background && bash scripts/ci/check-retired-identifiers.sh",
     "verify:pre-push": "pnpm run verify:pre-push:checks && pnpm run verify:release-ready",
     "verify:pre-push:full": "node scripts/dev/turbo-affected.mjs check test -- --concurrency=2 && pnpm run verify:release-ready",
     "verify:pr": "node scripts/dev/turbo-affected.mjs --changed-only check test -- --concurrency=2",
@@ -147,7 +150,8 @@
     "turbo": "^2.9.6",
     "typescript": "^5.9.3",
     "ultracite": "7.1.5",
-    "wrangler": "catalog:"
+    "wrangler": "catalog:",
+    "yaml": "2.8.2"
   },
   "packageManager": "pnpm@10.30.0",
   "engines": {

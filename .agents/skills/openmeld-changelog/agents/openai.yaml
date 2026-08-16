@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenMeld Changelog"
+  short_description: "Maintain the official OpenMeld Changelog"
+  default_prompt: "Maintain or backfill the OpenMeld Changelog from repository evidence."
