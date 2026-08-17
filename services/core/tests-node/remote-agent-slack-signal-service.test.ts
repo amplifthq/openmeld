@@ -1407,20 +1407,18 @@ describe("Remote Agent Slack signal service", () => {
               channel_id: "C_PRODUCT",
               channel_name: "product",
               content: rawMessage,
-              context_messages: [
-                {
-                  author_name: "Morgan",
-                  author_user_id: "U456",
-                  channel_id: "C_PRODUCT",
-                  channel_name: "product",
-                  content: rawContext,
-                  is_author_bot: false,
-                  message_ts: "1710000000.000050",
-                  permalink:
-                    "https://openmeld-labs.slack.com/archives/C_PRODUCT/p1710000000000050",
-                  team_id: "T123",
-                },
-              ],
+              context_messages: {
+                after: [],
+                before: [
+                  {
+                    author_name: "Morgan",
+                    is_author_bot: false,
+                    text: rawContext,
+                    ts: "1710000000.000050",
+                    user_id: "U456",
+                  },
+                ],
+              },
               is_author_bot: false,
               message_ts: "1710000000.000100",
               permalink:
