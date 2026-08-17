@@ -122,6 +122,20 @@ where the Channels step may offer the existing Slack OAuth flow. A completed
 account continues to Center Agent → Channels, which owns connection status and
 keeps **Add to Slack** as the user's explicit installation confirmation.
 
+### Public Changelog
+
+`/changelog` is the canonical public Web view of published OpenMeld updates.
+It is discoverable from the public landing footer and does not enter the
+authenticated app shell or Organization navigation. It shows newest-first
+publication dates, optional release names, public outcome Markdown, change kind,
+and product areas, then loads older entries only through an explicit action.
+
+The page calls the shared anonymous `GET /v1/changelog` contract through a Web
+server function. Core remains the validated GitHub reader; Web never imports a
+build-time copy, stores a second archive, or manufactures publication state. A
+source failure renders an explicit unavailable state with one retry action and
+no stale or model-authored fallback.
+
 ### Workspace switcher
 
 The top of the rail contains the only workspace-switching surface. Its order

@@ -26,6 +26,7 @@ import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as DeviceRouteImport } from './routes/device'
 import { Route as DesktopRouteImport } from './routes/desktop'
 import { Route as CheckEmailRouteImport } from './routes/check-email'
+import { Route as ChangelogRouteImport } from './routes/changelog'
 import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as AgentInterfaceRouteImport } from './routes/agent-interface'
 import { Route as AddToSlackRouteImport } from './routes/add-to-slack'
@@ -194,6 +195,11 @@ const DesktopRoute = DesktopRouteImport.update({
 const CheckEmailRoute = CheckEmailRouteImport.update({
   id: '/check-email',
   path: '/check-email',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChangelogRoute = ChangelogRouteImport.update({
+  id: '/changelog',
+  path: '/changelog',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CallbackRoute = CallbackRouteImport.update({
@@ -656,6 +662,7 @@ export interface FileRoutesByFullPath {
   '/add-to-slack': typeof AddToSlackRoute
   '/agent-interface': typeof AgentInterfaceRouteWithChildren
   '/callback': typeof CallbackRoute
+  '/changelog': typeof ChangelogRoute
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
   '/device': typeof DeviceRouteWithChildren
@@ -758,6 +765,7 @@ export interface FileRoutesByTo {
   '/add-to-slack': typeof AddToSlackRoute
   '/agent-interface': typeof AgentInterfaceRouteWithChildren
   '/callback': typeof CallbackRoute
+  '/changelog': typeof ChangelogRoute
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
   '/device': typeof DeviceRouteWithChildren
@@ -851,6 +859,7 @@ export interface FileRoutesById {
   '/add-to-slack': typeof AddToSlackRoute
   '/agent-interface': typeof AgentInterfaceRouteWithChildren
   '/callback': typeof CallbackRoute
+  '/changelog': typeof ChangelogRoute
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
   '/device': typeof DeviceRouteWithChildren
@@ -956,6 +965,7 @@ export interface FileRouteTypes {
     | '/add-to-slack'
     | '/agent-interface'
     | '/callback'
+    | '/changelog'
     | '/check-email'
     | '/desktop'
     | '/device'
@@ -1058,6 +1068,7 @@ export interface FileRouteTypes {
     | '/add-to-slack'
     | '/agent-interface'
     | '/callback'
+    | '/changelog'
     | '/check-email'
     | '/desktop'
     | '/device'
@@ -1150,6 +1161,7 @@ export interface FileRouteTypes {
     | '/add-to-slack'
     | '/agent-interface'
     | '/callback'
+    | '/changelog'
     | '/check-email'
     | '/desktop'
     | '/device'
@@ -1254,6 +1266,7 @@ export interface RootRouteChildren {
   AddToSlackRoute: typeof AddToSlackRoute
   AgentInterfaceRoute: typeof AgentInterfaceRouteWithChildren
   CallbackRoute: typeof CallbackRoute
+  ChangelogRoute: typeof ChangelogRoute
   CheckEmailRoute: typeof CheckEmailRoute
   DesktopRoute: typeof DesktopRouteWithChildren
   DeviceRoute: typeof DeviceRouteWithChildren
@@ -1406,6 +1419,13 @@ declare module '@tanstack/react-router' {
       path: '/check-email'
       fullPath: '/check-email'
       preLoaderRoute: typeof CheckEmailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/changelog': {
+      id: '/changelog'
+      path: '/changelog'
+      fullPath: '/changelog'
+      preLoaderRoute: typeof ChangelogRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/callback': {
@@ -2332,6 +2352,7 @@ const rootRouteChildren: RootRouteChildren = {
   AddToSlackRoute: AddToSlackRoute,
   AgentInterfaceRoute: AgentInterfaceRouteWithChildren,
   CallbackRoute: CallbackRoute,
+  ChangelogRoute: ChangelogRoute,
   CheckEmailRoute: CheckEmailRoute,
   DesktopRoute: DesktopRouteWithChildren,
   DeviceRoute: DeviceRouteWithChildren,

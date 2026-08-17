@@ -9,6 +9,7 @@ import { registerBoardRoute } from "./rpc-http.board";
 import { registerBootstrapRoute } from "./rpc-http.bootstrap";
 import { registerCenterAgentRoutes } from "./rpc-http.center-agent";
 import { registerCenterAgentTaskRoutes } from "./rpc-http.center-agent-tasks";
+import { registerChangelogRoutes } from "./rpc-http.changelog";
 import { registerConfigRoutes } from "./rpc-http.config";
 import { registerConnectorConnectionRoutes } from "./rpc-http.connector-connections";
 import { registerContractRoutes } from "./rpc-http.contract";
@@ -51,6 +52,7 @@ import { registerWakeTraceWaterfallRoutes } from "./rpc-http.wake-trace-waterfal
 export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerAccountAvatarRoutes(app);
   registerDiagnosticsRoute(app);
+  registerChangelogRoutes(app);
   registerConfigRoutes(app);
   registerCreateSpaceRoute(app);
   registerCurrentDeviceTargetRoutes(app);

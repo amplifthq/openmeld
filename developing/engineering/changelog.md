@@ -207,12 +207,27 @@ public. Git merge makes a published index discoverable without a Core deploy;
 the short cache means an already-warm isolate may take up to one minute to see
 the new commit.
 
+## Web reader
+
+The public `/changelog` page reads the same Core Changelog reader through
+Gateway's anonymous `GET /v1/changelog` contract. The Web server function keeps
+the Gateway origin and any future server-only credentials out of the browser.
+The page renders publication date, optional release identity, title, Markdown
+outcome, kind, and product areas. It fetches at most 10 newest-first entries per
+request and loads older entries by exact offset only when the visitor asks.
+
+Web does not import the generated index into its build, copy it into client
+state as a second archive, or render draft entries. If GitHub or the validated
+Core reader is unavailable, the page says so and shows no guessed or stale
+updates. Anonymous reads do not require an OpenMeld account, Organization
+membership, or Slack permission.
+
 ## Consumers and next extension
 
 This foundation keeps later integration small:
 
 - Center Agent searches entries by date, area, audience, kind, or release;
-- a Web Changelog page can render the same `changelog/index.json` next;
+- the public Web page and Center Agent read the same validated projection;
 - Channel and App experiences can reuse the same read projection;
 - relevance and notification preferences can be layered on without changing
   historical entries; and

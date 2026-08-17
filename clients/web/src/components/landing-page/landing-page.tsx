@@ -199,6 +199,11 @@ function LandingPageFooter() {
 					<nav aria-label="Footer">
 						<ul className="flex flex-wrap gap-x-6 gap-y-3">
 							<li>
+								<Link className="hover:text-foreground" to="/changelog">
+									Changelog
+								</Link>
+							</li>
+							<li>
 								<Link
 									className="hover:text-foreground"
 									to={AGENT_INTERFACE_PATH}

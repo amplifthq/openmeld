@@ -79,6 +79,9 @@ export type {
   RetryCenterAgentTaskInput,
   StopCenterAgentTaskInput,
 } from "./center-agent-tasks/types";
+export { createChangelogApi, readChangelog } from "./changelog/api";
+export { buildChangelogPath } from "./changelog/routes";
+export type { ChangelogApi, CreateChangelogApi } from "./changelog/types";
 export type {
   OpenMeldApiClientConfig,
   OpenMeldApiClientFoundation,

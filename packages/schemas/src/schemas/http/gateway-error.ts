@@ -25,6 +25,7 @@ export const gatewayErrorCodeSchema = z.enum([
   "gateway.misconfigured",
   "auth.invalid_origin",
   "auth.unauthenticated",
+  "changelog.source_unavailable",
   "account.avatar.conflict",
   "account.avatar.content_mismatch",
   "account.avatar.invalid_image",

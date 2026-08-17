@@ -479,7 +479,7 @@ slug, route, or Project path.
 ### Changelog Read Contracts
 
 `packages/schemas/src/schemas/http/changelog.ts` owns the versioned published
-entry, generated index, bounded query, source metadata, model-visible response,
+entry, generated index, bounded query, source metadata, shared read response,
 and represented-member private RPC input. The source entry Markdown remains the
 authoring authority; this schema validates its generated projection at runtime
 and does not create another writer.
@@ -494,6 +494,14 @@ receiver before the Remote Agent caller. Old Remote Agents call nothing new; a
 new Remote Agent against an old Core fails closed. Rollback removes Remote Agent
 first. Reusing the existing `documentation.read` work activity avoids a new
 stream enum and keeps Web, CLI, and OpenMeld Service contracts unchanged.
+
+The public `GET /v1/changelog` Gateway route uses the same query and response
+schemas and the same Core reader. `packages/api-client` owns its repeated-filter
+URL encoding. Web calls it through a server function so repository credentials
+never enter the browser; anonymous visitors do not need Organization or profile
+identity. The route is read-only, keeps failures in the shared Gateway error
+envelope, and never turns a public read into Changelog write or publication
+authority.
 
 ### Organization Directory Contracts
 

@@ -1,7 +1,4 @@
-import {
-  centerAgentReadChangelogToolRpcInputSchema,
-  changelogQueryResponseSchema,
-} from "@openmeld/schemas";
+import { centerAgentReadChangelogToolRpcInputSchema } from "@openmeld/schemas";
 import type {
   CenterAgentReadChangelogToolRpcInput,
   ChangelogQueryResponse,
@@ -9,12 +6,7 @@ import type {
 import { prepareCenterAgentOrganizationMemberRequest } from "../center-agent/application/anonymous-member-request";
 import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
-import {
-  ChangelogSourceError,
-  createChangelogService,
-} from "./changelog-service";
-
-const changelogService = createChangelogService();
+import { rpcReadChangelog } from "./changelog-read-rpc";
 
 export async function rpcCenterAgentReadChangelog(
   env: CoreBindings,
@@ -36,22 +28,5 @@ export async function rpcCenterAgentReadChangelog(
     speakerMember
   );
 
-  try {
-    return changelogQueryResponseSchema.parse(
-      await changelogService.query({
-        githubToken: env.GITHUB_OPENMELD_API_TOKEN,
-        query,
-      })
-    );
-  } catch (error) {
-    console.error("[core.changelog.read_failed]", {
-      error: error instanceof Error ? error.message : String(error),
-      sourceError: error instanceof ChangelogSourceError,
-    });
-    throw createCoreRpcHttpError({
-      code: "changelog.source_unavailable",
-      reason: "The official OpenMeld Changelog is temporarily unavailable.",
-      status: 503,
-    });
-  }
+  return await rpcReadChangelog(env, query);
 }

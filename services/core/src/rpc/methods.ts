@@ -345,6 +345,8 @@ import type {
   CenterAgentWatchAgentTaskBody,
   CenterAgentWatchAgentTaskResponse,
   CenterAgentWipeMemberMemoryResponse,
+  ChangelogQuery,
+  ChangelogQueryResponse,
   ComputerFileAccessPolicyResponse,
   ComputerFileAccessReadRpcInput,
   ComputerFileAccessUpdateRpcInput,
@@ -691,6 +693,7 @@ import {
   resolveExplicitMemorySourceTurnRequest,
 } from "../center-agent-memory/explicit-memory-origin";
 import { rpcCenterAgentReadChangelog as centerAgentReadChangelog } from "../changelog/changelog-center-agent-rpc";
+import { rpcReadChangelog as readChangelog } from "../changelog/changelog-read-rpc";
 import { createComputerFileAccessRpc } from "../computers/computer-file-access-rpc";
 import { createLocalFolderPickerRpc } from "../computers/local-folder-picker-rpc";
 import { readModelCatalog } from "../config/model-catalog";
@@ -1012,6 +1015,7 @@ export type CenterAgentReadAgentActivityInput =
   CenterAgentReadAgentActivityToolRpcInput;
 export type CenterAgentReadChangelogInput =
   CenterAgentReadChangelogToolRpcInput;
+export type ReadChangelogInput = ChangelogQuery;
 export type DeleteRoutineInput = RoutineDeleteInput;
 export type ListRoutineRunsInput = RoutineRunsListInput;
 export type ListRoutineTargetSpacesInput = RoutineTargetSpacesListInput;
@@ -1232,6 +1236,13 @@ export function rpcCenterAgentReadChangelog(
   input: CenterAgentReadChangelogInput
 ) {
   return centerAgentReadChangelog(env, input);
+}
+
+export function rpcReadChangelog(
+  env: CoreBindings,
+  input: ReadChangelogInput
+): Promise<ChangelogQueryResponse> {
+  return readChangelog(env, input);
 }
 
 export function rpcListRoutines(env: CoreBindings, input: ListRoutinesInput) {
