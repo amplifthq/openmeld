@@ -13,7 +13,7 @@ describe("Slack Real-time Search client", () => {
         channel_types: ["public_channel"],
         content_types: ["messages"],
         include_bots: false,
-        include_context_messages: false,
+        include_context_messages: true,
         limit: 10,
         query: "project gizmo status",
       });
@@ -35,6 +35,24 @@ describe("Slack Real-time Search client", () => {
                   permalink:
                     "https://example.slack.com/archives/C0123456/p1234567890",
                   team_id: "T0123456",
+                  context_messages: {
+                    after: [
+                      {
+                        author_name: "Jennifer Hynes",
+                        text: "a".repeat(4500),
+                        ts: "123457.7890",
+                        user_id: "U0123456",
+                      },
+                    ],
+                    before: [
+                      {
+                        author_name: "Felix Lu",
+                        text: "The customer interviews point to navigation as the blocker.",
+                        ts: "123455.7890",
+                        user_id: "U0654321",
+                      },
+                    ],
+                  },
                 },
                 {
                   author_name: "Untrusted result",
@@ -67,6 +85,7 @@ describe("Slack Real-time Search client", () => {
         botToken: "xoxb-test",
         fetchImpl,
         includeBots: false,
+        includeContextMessages: true,
         limit: 10,
         query: "project gizmo status",
       })
@@ -82,6 +101,31 @@ describe("Slack Real-time Search client", () => {
           isAuthorBot: false,
           messageTs: "123456.7890",
           permalink: "https://example.slack.com/archives/C0123456/p1234567890",
+          contextMessages: [
+            {
+              authorName: "Felix Lu",
+              authorUserId: "U0654321",
+              channelId: "C0123456",
+              channelName: "proj-gizmo",
+              content:
+                "The customer interviews point to navigation as the blocker.",
+              isAuthorBot: false,
+              messageTs: "123455.7890",
+              permalink:
+                "https://example.slack.com/archives/C0123456/p1234557890",
+            },
+            {
+              authorName: "Jennifer Hynes",
+              authorUserId: "U0123456",
+              channelId: "C0123456",
+              channelName: "proj-gizmo",
+              content: `${"a".repeat(3999)}…`,
+              isAuthorBot: false,
+              messageTs: "123457.7890",
+              permalink:
+                "https://example.slack.com/archives/C0123456/p1234577890",
+            },
+          ],
         },
       ],
       moreResultsAvailable: true,

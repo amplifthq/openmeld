@@ -309,16 +309,22 @@ the connected provider API.
    status and does not make the current request disappear. This automatic read
    is current-thread and current-channel context only. Interactive and Routine
    turns may use the channel-read tool for another named channel that the App
-   has already joined. Locating an arbitrary message or thread across public
-   Slack requires the provider-search tool, which is available only when the
-   current Slack event supplies an event-bound search authorization. It makes
-   one public-message search on behalf of the verified requester and privately
-   presents bounded results with Slack permalinks in the originating thread.
-   The durable agent turn receives only presentation status and exposes explicit
-   `authorization_expired`, `forbidden`, `rate_limited`, or `unavailable`
-   outcomes. The model cannot claim it read or summarized the private results.
-   Search results are never copied into Remote Agent storage, Center Agent
-   memory, Organization documents, or audit logs.
+   has already joined. Locating arbitrary messages or threads across public
+   Slack uses the stateless transient-context resolver when the current Slack
+   event supplies an event-bound search authorization. Before the ordinary
+   durable turn, that resolver lets a model decide whether workspace evidence
+   is useful, refine a bounded set of provider searches, read normalized matches
+   with nearby context in memory for that call only, and answer the requester
+   directly in first person with Slack permalinks. It passes through without
+   searching when Slack evidence is unnecessary or the request asks for any
+   durable action. Explicit `authorization_expired`, `forbidden`,
+   `rate_limited`, or `unavailable` outcomes remain model-visible inside the
+   transient call; none becomes an empty successful search. Search results,
+   generated queries, transient prompts, and transient answers are never copied
+   into Flue storage, Center Agent Memory, Organization Documents, Computer
+   files, logs, diagnostics, or audit rows. The old one-search presentation
+   tool remains only for mixed-version compatibility; current Core does not
+   expose its authorization to the ordinary durable turn.
    Lark and Feishu are the next Message Channel producers. They reuse the same
    connected-member-or-external-participant resolution, ordinary-member
    Organization and shared-App capability, Center Agent designation, daily
@@ -1299,12 +1305,19 @@ surface adopts official features where they are free**:
   create Agent Profiles, enable Agent Profiles, add active Organization members
   and Agent Profiles to Spaces, remove Agent Profiles from Spaces, update Space
   settings, post plain Space messages, and Wake Agent Profiles in Spaces through
-  Space activation targets. A Slack-triggered turn may additionally search one
-  bounded page of public Slack messages when that event carries an encrypted
-  event-bound authorization. Core privately presents provider permalinks to the
-  requester; the tool receives only presentation status, cannot page, is absent
-  from Web, Space, Routine, and member-research turns, and never persists or
-  reuses search data.
+  Space activation targets. Before admitting an ordinary verified-member Slack
+  turn, Core may call the Remote Agent's stateless transient-context resolver
+  when that event carries an encrypted event-bound authorization. A model,
+  rather than a keyword gate, decides whether public workspace search is
+  relevant. It can refine up to six focused searches, use normalized matches
+  plus nearby context in memory for that call only, and answer the requester
+  directly with Slack permalinks. Public Real-time Search does not require App
+  channel membership. A request that needs no workspace evidence, or asks to
+  save, remember, create a Profile Report, or perform another durable action,
+  passes through to the ordinary Flue turn. The current Core never places
+  Real-time Search authorization or evidence into that durable turn. Web,
+  Space, Routine, member-research, and background turns cannot invoke this
+  path.
   A requester-selected Slack channel introduction is not a model-owned loop.
   Core first persists the exact selected-channel manifest, then creates one
   native delivery per channel with a channel-scoped idempotency key and durable

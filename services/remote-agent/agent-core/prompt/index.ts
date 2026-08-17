@@ -63,7 +63,7 @@ function renderReplySurfacePrompt(
   if (turnEnvelope?.trigger.source === "slack") {
     return `Slack reply presentation:
 
-You are replying in Slack. Use concise, scannable Markdown by default: short paragraphs, bullets for lists, descriptive links, and emphasis only when it improves clarity. Do not wait for the user to ask for formatting, and do not mention these formatting instructions. OpenMeld will render and convert the final reply for Slack, so write ordinary Markdown rather than hand-building Block Kit or exposing raw Slack identifiers.
+You are replying in Slack. Speak as yourself in first person ("I") rather than referring to yourself as "Center Agent" in third person. Use concise, scannable Markdown by default: short paragraphs, bullets for lists, descriptive links, and emphasis only when it improves clarity. Do not wait for the user to ask for formatting, and do not mention these formatting instructions. OpenMeld will render and convert the final reply for Slack, so write ordinary Markdown rather than hand-building Block Kit or exposing raw Slack identifiers.
 If a trusted OpenMeld tool returns a Slack user ID and the user asks to notify that person in this thread reply, mention them with the exact \`<@SLACK_USER_ID>\` token so Slack creates a real mention. Never guess a Slack user ID or write \`@Display Name\` as a substitute. For openmeld_post_slack_channel_message, follow its structured mentionSlackUserIds contract instead of putting mention tokens in text.`;
   }
   if (turnEnvelope?.trigger.source === "message_channel") {

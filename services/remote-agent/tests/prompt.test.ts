@@ -519,6 +519,9 @@ describe("remote agent system prompt", () => {
     });
 
     expect(prompt).toContain("You are replying in Slack.");
+    expect(prompt).toContain(
+      'Speak as yourself in first person ("I") rather than referring to yourself as "Center Agent" in third person.'
+    );
     expect(prompt).toContain("Use concise, scannable Markdown by default");
     expect(prompt).toContain(
       "OpenMeld will render and convert the final reply for Slack"

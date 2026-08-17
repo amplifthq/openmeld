@@ -247,6 +247,8 @@ import type {
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamDeltaCallbackResponse,
   RemoteAgentStreamPartCallbackBody,
+  RemoteAgentTransientSlackSearchRequest,
+  RemoteAgentTransientSlackSearchResponse,
   RemoveSpaceMembersResponse,
   RespondToSpaceAgentInteractionResponse,
   ResumeCenterAgentRoutineResponse,
@@ -638,6 +640,7 @@ import {
   rpcCenterAgentReadSlackWorkspaceDirectory,
   rpcCenterAgentReadSpaceAuthoringContract,
   rpcCenterAgentReadSpaceContext,
+  rpcCenterAgentReadTransientSlackSearch,
   rpcCenterAgentRecordConnectorActionAudit,
   rpcCenterAgentRecordConnectorActionOperation,
   rpcCenterAgentRememberForOrganization,
@@ -2481,6 +2484,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: CenterAgentSearchSlackMessagesInput
   ): Promise<CenterAgentSearchSlackMessagesResponse> {
     return rpcCenterAgentSearchSlackMessages(this.env, input);
+  }
+
+  centerAgentReadTransientSlackSearch(
+    input: RemoteAgentTransientSlackSearchRequest
+  ): Promise<RemoteAgentTransientSlackSearchResponse> {
+    return rpcCenterAgentReadTransientSlackSearch(this.env, input);
   }
 
   centerAgentGetOrganizationSpaceDirectory(
