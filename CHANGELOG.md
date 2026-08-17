@@ -13,3 +13,23 @@ product changes through one Git-backed workflow that works across coding
 agents.
 
 Evidence: pr:73, commit:c6d12969c91aae7ebb3a95e976fbeaf49fa23b74
+
+### Ask the Center Agent what changed in OpenMeld
+
+New · center-agent · channels · changelog
+
+Organization members can ask the Center Agent what is new in OpenMeld and get
+an answer grounded in the official published Changelog across Web, Slack, and
+other supported Channels.
+
+Evidence: pr:77, commit:b9c09ed418895e16a96d084bcc8b98bb630958ef, workflow:31998554935, workflow:31999100178
+
+### Read official OpenMeld updates on the Web
+
+New · web · changelog
+
+Anyone can read the official OpenMeld Changelog at a public Web page, with
+clear publication dates, release names, product areas, and older-update
+pagination backed by the same GitHub record used by the Center Agent.
+
+Evidence: pr:78, commit:b5c18c414a427e5a60da60e878c321f5456278fb, workflow:32003748438, workflow:32003982048, workflow:32004183368
