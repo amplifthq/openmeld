@@ -5,13 +5,13 @@
 - Purpose: Define cross-client and cross-service shared contract ownership for
   schemas, runtime policy, API clients, Gateway contracts, shared database
   contracts, Space Board and reply context, Space reply streaming, Center Agent
-  Tasks, Routines and memory, weekly evaluation reports, reusable Space policy,
-  and reusable Agent Profile semantics.
+  Opportunities, Tasks, Routines and memory, weekly evaluation reports,
+  reusable Space policy, and reusable Agent Profile semantics.
 - Read this when: You are changing cross-boundary payloads, shared schemas,
   `packages/agent-runtime`, `packages/agent-profile`, `packages/space`, API
   client contracts, Gateway contracts, Space Board or reply metadata, Space
-  streaming, Routine HTTP/RPC/turn envelopes, Organization Skill registry and
-  exact-release delivery, Center Agent Task HTTP/RPC/turn envelopes and live
+  streaming, Opportunity RPC contracts, Routine HTTP/RPC/turn envelopes,
+  Organization Skill registry and exact-release delivery, Center Agent Task HTTP/RPC/turn envelopes and live
   invalidation, Center Agent memory, evaluation report payloads, Space password
   handling, or logic that might otherwise be
   duplicated in Web, CLI, Core, daemon, or adapters.
@@ -502,6 +502,31 @@ never enter the browser; anonymous visitors do not need Organization or profile
 identity. The route is read-only, keeps failures in the shared Gateway error
 envelope, and never turns a public read into Changelog write or publication
 authority.
+
+### Opportunity Contracts
+
+`packages/schemas/src/schemas/http/opportunities.ts` owns the strict shared
+Opportunity projection plus the three represented-member Center Agent RPC
+contracts: recommend, list, and respond. Inputs are bounded, reject unknown
+fields, require the verified speaker and Core-originated request context, and
+never accept Organization identity, recipient selection, role, execution
+permission, destination Channel, or downstream capability input from the
+model.
+
+Core admits the current designated Center Agent and represented current member,
+then scopes every read and write by both Organization and recipient. Recommend
+requires a stable key, observation, benefit, next step, and bounded evidence.
+Respond accepts only `accepted`, `deferred`, or `dismissed`. The response
+explicitly states that acceptance does not execute work. Remote Agent keeps all
+three tools out of Routine turns and permits at most one recommendation per
+interactive turn through its model guidance.
+
+This additive rollout is migration and receiver first: apply the D1 migration,
+deploy the Core RPC receivers, then deploy Remote Agent callers. Old Remote
+Agents call nothing new; a new Remote Agent against old Core fails closed.
+Rollback removes Remote Agent callers before Core receivers or the table.
+Gateway, Auth, Web HTTP APIs, CLI, OpenMeld Service, daemon, local components,
+Changelog contracts, and RuntimeCoordinator contracts are unchanged.
 
 ### Organization Directory Contracts
 

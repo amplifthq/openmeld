@@ -1000,6 +1000,16 @@ Organization memory, a per-Channel cache, current setup evidence, or a roadmap.
 The model reads it only when the user asks about changes or available releases;
 OpenMeld does not inject the complete history into every turn.
 
+Opportunity recommendations follow the same anti-drift rule. Every interactive
+Center Agent surface uses the same three represented-member Core RPCs to
+recommend, list, and decide Opportunities. The Center Agent may recommend at
+most one evidence-backed Opportunity to the current verified speaker in a
+turn; it cannot choose another recipient or broadcast. Core owns the durable
+decision, Inbox is only a projection, and acceptance never becomes action
+authority. There is no separate rule engine, moderation model, Channel sender,
+or Organization-wide queue in Phase 1. Product meaning and future extension
+boundaries are owned by `developing/product/opportunities.md`.
+
 The capability tiers, current prompt implementation, and role-semantic
 single-source follow-up are owned by
 `developing/product/remote-agent-runtime.md`. This Organization owner adds no

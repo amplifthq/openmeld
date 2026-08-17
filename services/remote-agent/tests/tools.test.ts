@@ -3250,6 +3250,68 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   }
 
+  it("does not let the model choose an Opportunity recipient", () => {
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      storage: new InMemoryDurableObjectStorage(),
+    });
+    const recommendTool = tools.find(
+      (tool) => tool.name === "openmeld_recommend_opportunity"
+    );
+
+    expect(
+      safeParse(recommendTool?.input as never, {
+        evidence: ["No recurring release review is configured."],
+        expectedBenefit: "Catch release blockers earlier.",
+        observation: "Release reviews happen after deployment.",
+        opportunityKey: "release-review:weekly-check",
+        recipientUserId: "user-two",
+        suggestedNextStep: "Create a weekly release-review Routine.",
+        title: "Review releases before they ship",
+      }).success
+    ).toBe(false);
+  });
+
+  it("refuses Opportunity recommendations without a verified member speaker", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      author: { displayName: "Ashley", profileId: null, profileKind: null },
+      onBehalfOf: null,
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        sender: {
+          displayName: "Ashley",
+          id: "slack:T123:U123",
+          kind: "member",
+          messageChannelIdentity: {
+            connectionId: "T123",
+            provider: "slack",
+            providerUserId: "U123",
+          },
+          verified: false,
+        },
+        trigger: { source: "slack", teamId: "T123" },
+      },
+    });
+    const centerAgentRecommendOpportunity = vi.fn();
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentRecommendOpportunity },
+      storage: await createStorageWithPendingContext(request),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_recommend_opportunity", {
+        evidence: ["No recurring release review is configured."],
+        expectedBenefit: "Catch release blockers earlier.",
+        observation: "Release reviews happen after deployment.",
+        opportunityKey: "release-review:weekly-check",
+        suggestedNextStep: "Create a weekly release-review Routine.",
+        title: "Review releases before they ship",
+      })
+    ).rejects.toThrow("requires verified OpenMeld identity");
+    expect(centerAgentRecommendOpportunity).not.toHaveBeenCalled();
+  });
+
   it("locks the turn when Core drops requested Reference targets from a publication", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorageWithPendingContext(request);
@@ -4096,6 +4158,63 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_read_changelog",
     },
     {
+      expectedPayload: {
+        evidence: ["No recurring release review is configured."],
+        expectedBenefit:
+          "Catch release blockers before customers encounter them.",
+        observation: "Release reviews happen manually after deployment.",
+        opportunityKey: "release-review:weekly-check",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+        suggestedNextStep: "Create a weekly release-review Routine.",
+        title: "Review releases before they ship",
+      },
+      input: {
+        evidence: ["No recurring release review is configured."],
+        expectedBenefit:
+          "Catch release blockers before customers encounter them.",
+        observation: "Release reviews happen manually after deployment.",
+        opportunityKey: "release-review:weekly-check",
+        suggestedNextStep: "Create a weekly release-review Routine.",
+        title: "Review releases before they ship",
+      },
+      response: {
+        created: true,
+        instruction: "Present this Opportunity once.",
+        opportunity: opportunityRecord("open"),
+      },
+      rpcName: "centerAgentRecommendOpportunity",
+      toolName: "openmeld_recommend_opportunity",
+    },
+    {
+      expectedPayload: {
+        limit: 10,
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+        statuses: ["open", "deferred"],
+      },
+      input: { limit: 10, statuses: ["open", "deferred"] },
+      response: {
+        opportunities: [opportunityRecord("open")],
+        organizationId: "org_123",
+      },
+      rpcName: "centerAgentListOpportunities",
+      toolName: "openmeld_list_opportunities",
+    },
+    {
+      expectedPayload: {
+        decision: "accepted",
+        opportunityId: "opp-1",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: { decision: "accepted", opportunityId: "opp-1" },
+      response: {
+        changed: true,
+        instruction: "Nothing has been executed.",
+        opportunity: opportunityRecord("accepted"),
+      },
+      rpcName: "centerAgentRespondToOpportunity",
+      toolName: "openmeld_respond_to_opportunity",
+    },
+    {
       expectedPayload: { actionSet: "v12", limit: 25 },
       input: { limit: 25 },
       response: auditJournalResponse(),
@@ -4511,6 +4630,26 @@ function feedbackIssueRecord() {
     summary: "Feedback submit is blocked",
     triageNote: null,
     updatedAtMs: TEST_NOW_MS,
+  };
+}
+
+function opportunityRecord(
+  status: "accepted" | "deferred" | "dismissed" | "open"
+) {
+  const decidedAtMs = status === "open" ? null : TEST_NOW_MS + 1000;
+  return {
+    createdAtMs: TEST_NOW_MS,
+    decidedAtMs,
+    evidence: ["No recurring release review is configured."],
+    expectedBenefit: "Catch release blockers before customers encounter them.",
+    id: "opp-1",
+    observation: "Release reviews happen manually after deployment.",
+    opportunityKey: "release-review:weekly-check",
+    organizationId: "org_123",
+    status,
+    suggestedNextStep: "Create a weekly release-review Routine.",
+    title: "Review releases before they ship",
+    updatedAtMs: decidedAtMs ?? TEST_NOW_MS,
   };
 }
 

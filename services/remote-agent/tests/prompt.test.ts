@@ -214,6 +214,21 @@ describe("remote agent system prompt", () => {
     );
   });
 
+  it("keeps Opportunity recommendations evidence-backed and separate from execution", () => {
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "one concrete, evidence-backed recommendation for the current verified member"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Recommend at most one Opportunity in a turn"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "acceptance records interest only and never authorizes or executes"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "never resurface a deferred or dismissed Opportunity automatically"
+    );
+  });
+
   it("requires structured Reference targets instead of text-only addressing", () => {
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
       "pass every exact Human or Agent Profile ID that is context only"

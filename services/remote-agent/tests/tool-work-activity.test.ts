@@ -75,6 +75,27 @@ describe("Remote Agent user-visible work semantics", () => {
     });
   });
 
+  it("describes Opportunity reads and decisions without inventing a new work taxonomy", () => {
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_list_opportunities", {})
+    ).toEqual({
+      v: 1,
+      key: "center_agent.activity.read",
+    });
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_recommend_opportunity", {})
+    ).toEqual({
+      v: 1,
+      key: "center_agent.attention.request",
+    });
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_respond_to_opportunity", {})
+    ).toEqual({
+      v: 1,
+      key: "center_agent.attention.request",
+    });
+  });
+
   it("describes starting the current member's learning run precisely", () => {
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_learn_about_me", {})

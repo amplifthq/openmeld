@@ -294,6 +294,7 @@ import type {
   CenterAgentListComputersResponse,
   CenterAgentListLocalAgentConnectionCandidatesBody,
   CenterAgentListLocalAgentConnectionCandidatesResponse,
+  CenterAgentListOpportunitiesToolRpcInput,
   CenterAgentListSlackChannelsBody,
   CenterAgentListSlackChannelsResponse,
   CenterAgentModelConfigurationResponse,
@@ -318,6 +319,7 @@ import type {
   CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceContextBody,
   CenterAgentReadSpaceContextResponse,
+  CenterAgentRecommendOpportunityToolRpcInput,
   CenterAgentRecordConnectorActionAuditBody,
   CenterAgentRecordConnectorActionAuditResponse,
   CenterAgentRecordConnectorActionOperationBody,
@@ -328,6 +330,7 @@ import type {
   CenterAgentRemoteRuntimeAvailabilityReasonCode,
   CenterAgentRemoveAgentProfilesFromSpaceBody,
   CenterAgentRemoveAgentProfilesFromSpaceResponse,
+  CenterAgentRespondToOpportunityToolRpcInput,
   CenterAgentSearchSlackMessagesBody,
   CenterAgentSearchSlackMessagesResponse,
   CenterAgentSlackWorkspaceConnectBody,
@@ -757,6 +760,11 @@ import {
 } from "../lib/bindings";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
 import {
+  rpcCenterAgentListOpportunities as centerAgentListOpportunities,
+  rpcCenterAgentRecommendOpportunity as centerAgentRecommendOpportunity,
+  rpcCenterAgentRespondToOpportunity as centerAgentRespondToOpportunity,
+} from "../opportunities/opportunity-center-agent-rpc";
+import {
   readOrganizationAccountIdentityProjection,
   readOrganizationCreatorUserId,
   readOrganizationPersonalClassification,
@@ -1023,6 +1031,12 @@ export type CenterAgentReadAgentActivityInput =
   CenterAgentReadAgentActivityToolRpcInput;
 export type CenterAgentReadChangelogInput =
   CenterAgentReadChangelogToolRpcInput;
+export type CenterAgentListOpportunitiesInput =
+  CenterAgentListOpportunitiesToolRpcInput;
+export type CenterAgentRecommendOpportunityInput =
+  CenterAgentRecommendOpportunityToolRpcInput;
+export type CenterAgentRespondToOpportunityInput =
+  CenterAgentRespondToOpportunityToolRpcInput;
 export type ReadChangelogInput = ChangelogQuery;
 export type DeleteRoutineInput = RoutineDeleteInput;
 export type ListRoutineRunsInput = RoutineRunsListInput;
@@ -1244,6 +1258,27 @@ export function rpcCenterAgentReadChangelog(
   input: CenterAgentReadChangelogInput
 ) {
   return centerAgentReadChangelog(env, input);
+}
+
+export function rpcCenterAgentListOpportunities(
+  env: CoreBindings,
+  input: CenterAgentListOpportunitiesInput
+) {
+  return centerAgentListOpportunities(env, input);
+}
+
+export function rpcCenterAgentRecommendOpportunity(
+  env: CoreBindings,
+  input: CenterAgentRecommendOpportunityInput
+) {
+  return centerAgentRecommendOpportunity(env, input);
+}
+
+export function rpcCenterAgentRespondToOpportunity(
+  env: CoreBindings,
+  input: CenterAgentRespondToOpportunityInput
+) {
+  return centerAgentRespondToOpportunity(env, input);
 }
 
 export function rpcReadChangelog(

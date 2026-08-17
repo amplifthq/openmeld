@@ -179,6 +179,13 @@ when current evidence supports a concrete benefit. It does not create another
 Routine in this slice. Routine generation, evaluation, and a Routine-building
 Skill remain separate future work.
 
+The **Opportunity Ledger** is approved Organization Document content, not the
+typed member-private Opportunity product defined in
+`developing/product/opportunities.md`. Phase 1 performs no import, export, or
+automatic synchronization between them. A Self-Evolution Run cannot call the
+Opportunity recommend, list, or decision tools and cannot turn a document row
+into an Inbox item or member decision.
+
 The Web recognizes the built-in template through a stable instruction marker
 plus its stable product name. A user-created Routine that only reuses the
 display name is not treated as the built-in template. This avoids a new
@@ -669,6 +676,14 @@ surface for that watch contract rather than a general task-history browser, so
 the pair remains absent together instead of exposing a dead-end partial
 capability. Both names keep negative Routine capability tests.
 
+Opportunity recommendation, history, and decision are a second explicit
+interactive-only exception. A Routine has no live member to review a new
+Recommendation, must not choose a recipient, and must not resurface deferred or
+dismissed work. The three Opportunity tools remain absent together and keep
+negative Routine capability tests. A Routine may write evidence to the
+Self-Evolution Opportunity Ledger only under its separate approved-document
+grant; that document does not mutate typed Opportunity state.
+
 The durable Routine envelope supplies the reauthorized delegated member. Each
 exposed capability keeps its existing Core authorization, connector ownership,
 attribution, audit, destructive-confirmation, and fail-closed rules; scheduling
@@ -704,7 +719,7 @@ actionable result instead of asking a real-time question. Delete and merge are
 the explicit effect exception: they are unsupported during a Routine. This
 difference alone does not justify changing connection identity or creating a
 Routine-only ordinary-write permission model.
-Any exception beyond the Agent Task discovery or watch set above requires an
+Any exception beyond the Agent Task discovery/watch and Opportunity sets above requires an
 explicit product decision in this owner document and the
 capability owner plus a negative capability test; absence from the Routine
 catalog is never the default.

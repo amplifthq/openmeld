@@ -459,6 +459,7 @@ import {
   type CenterAgentListAgentTasksInput,
   type CenterAgentListComputersInput,
   type CenterAgentListLocalAgentConnectionCandidatesInput,
+  type CenterAgentListOpportunitiesInput,
   type CenterAgentListSlackChannelsInput,
   type CenterAgentPostSlackChannelMessageInput,
   type CenterAgentPostSpaceMessageInput,
@@ -474,11 +475,13 @@ import {
   type CenterAgentReadSlackWorkspaceDirectoryInput,
   type CenterAgentReadSpaceAuthoringContractInput,
   type CenterAgentReadSpaceContextInput,
+  type CenterAgentRecommendOpportunityInput,
   type CenterAgentRecordConnectorActionAuditInput,
   type CenterAgentRecordConnectorActionOperationInput,
   type CenterAgentRememberForOrganizationInput,
   type CenterAgentRemoveAgentProfilesFromSpaceInput,
   type CenterAgentResolveConnectorConnectionInput,
+  type CenterAgentRespondToOpportunityInput,
   type CenterAgentSearchSlackMessagesInput,
   type CenterAgentUpdateAgentProfileRuntimeSettingsInput,
   type CenterAgentUpdateSpaceSettingsInput,
@@ -632,6 +635,7 @@ import {
   rpcCenterAgentListAgentTasks,
   rpcCenterAgentListComputers,
   rpcCenterAgentListLocalAgentConnectionCandidates,
+  rpcCenterAgentListOpportunities,
   rpcCenterAgentListSlackChannels,
   rpcCenterAgentPostSlackChannelMessage,
   rpcCenterAgentPostSpaceMessage,
@@ -646,11 +650,13 @@ import {
   rpcCenterAgentReadSpaceAuthoringContract,
   rpcCenterAgentReadSpaceContext,
   rpcCenterAgentReadTransientSlackSearch,
+  rpcCenterAgentRecommendOpportunity,
   rpcCenterAgentRecordConnectorActionAudit,
   rpcCenterAgentRecordConnectorActionOperation,
   rpcCenterAgentRememberForOrganization,
   rpcCenterAgentRemoveAgentProfilesFromSpace,
   rpcCenterAgentResolveConnectorConnection,
+  rpcCenterAgentRespondToOpportunity,
   rpcCenterAgentSearchSlackMessages,
   rpcCenterAgentStartSelfMemberResearch,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
@@ -4199,6 +4205,18 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
 
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {
     return rpcCenterAgentReadChangelog(this.env, input);
+  }
+
+  centerAgentListOpportunities(input: CenterAgentListOpportunitiesInput) {
+    return rpcCenterAgentListOpportunities(this.env, input);
+  }
+
+  centerAgentRecommendOpportunity(input: CenterAgentRecommendOpportunityInput) {
+    return rpcCenterAgentRecommendOpportunity(this.env, input);
+  }
+
+  centerAgentRespondToOpportunity(input: CenterAgentRespondToOpportunityInput) {
+    return rpcCenterAgentRespondToOpportunity(this.env, input);
   }
 
   centerAgentSetOrganizationWorkingLanguage(

@@ -125,7 +125,8 @@ This directory is the durable context layer. Use these entrypoints:
 - `developing/product/`: product model, Agent Profile, Agent Profile model
   selection, Space collaboration, Organizations/Center Agent, Projects, Agent
   Activity, Center Agent Tasks, Center Agent Routines, Organization Skills,
-  Feedback Loop, Inbox, and the progressive-disclosure presentation model
+  Feedback Loop, Opportunities, Inbox, and the progressive-disclosure
+  presentation model
 - `developing/architecture/`: transport, local service, data/observability, physical DB split, and shared contract ownership
 - `developing/clients/`: Web, CLI, Desktop, cross-client shell/Settings, and
   shared UI client boundaries
@@ -184,6 +185,11 @@ For Inbox work, start with `developing/product/inbox.md`, then follow its
 source-specific links to Space, Center Agent, Documents, data, shared-contract,
 Auth, and Web owners. Do not use Inbox as a replacement authority for any
 source domain.
+
+For Opportunity work, start with `developing/product/opportunities.md`, then
+follow its scoped links to the Center Agent, Inbox, data, shared-contract, and
+Web owners. Do not treat a Recommendation as execution permission or use Inbox
+as the Opportunity authority.
 
 Context is useful only when it changes the next action.
 

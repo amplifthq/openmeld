@@ -1388,6 +1388,7 @@ export {
   projectObservabilityCloudflareRuntimeEvent,
   shouldLogObservabilityCloudflareRuntimeEvent,
 } from "./http/observability-runtime-event";
+export * from "./http/opportunities";
 export {
   organizationDirectoryAgentProfileIdentitySchema,
   organizationDirectoryAgentProfileSchema,

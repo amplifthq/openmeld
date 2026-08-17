@@ -29,6 +29,8 @@ export const CORE_CENTER_AGENT_PUBLICATION_SCHEMA_DEFINITION_PATH =
   "packages/db/src/core/center-agent-publication.schema.ts";
 export const CORE_ORGANIZATION_INFORMATION_PROTECTION_SCHEMA_DEFINITION_PATH =
   "packages/db/src/core/organization-information-protection.schema.ts";
+export const CORE_OPPORTUNITY_SCHEMA_DEFINITION_PATH =
+  "packages/db/src/core/opportunity.schema.ts";
 export const CORE_AGENT_ACTIVITY_SCHEMA_DEFINITION_PATH =
   "packages/db/src/core/agent-activity.schema.ts";
 export const CORE_EVAL_REPORT_SCHEMA_DEFINITION_PATH =
@@ -42,6 +44,12 @@ export const CORE_DB_RELEASE_NOTES = [
 
 export const getCoreDbSchemaSources = (): DbFactSource[] => {
   return [
+    {
+      kind: "schema_module",
+      owner: "packages/db",
+      path: CORE_OPPORTUNITY_SCHEMA_DEFINITION_PATH,
+      note: "Core owns recipient-private Organization Opportunity decisions and their source provenance in shared D1.",
+    },
     {
       kind: "schema_module",
       owner: "packages/db",
