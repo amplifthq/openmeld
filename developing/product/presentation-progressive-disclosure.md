@@ -194,10 +194,19 @@ org" direction):
   label; it is not the stored name or a second tenant type. The Organization
   name can be renamed through its canonical workspace settings (account
   renames do not auto-propagate; acceptable).
-- Slugs are human-friendly: personal slug derives from the account name or
-  email local-part (`felix`, collision-suffixed), org slugs are chosen at
-  creation; both are editable through the canonical Organization settings.
-  `/o/{slug}` structure is unchanged.
+- Organization names are display identity and are never globally unique. Auth
+  generates every new Organization URL slug from the readable name plus a
+  six-character cryptographically random public discriminator (for example,
+  `acme-labs-k7m3qx`). Personal Organizations use the same rule. The
+  discriminator is not an ordinal, database count, UUID prefix, or internal
+  Organization id, so same-named Organizations neither block one another nor
+  disclose creation order. Auth retries an exact collision while the database
+  unique index remains the final constraint.
+- Creation asks only for the Organization name. Existing slugs remain unchanged,
+  and slugs remain editable through canonical Organization settings for an
+  explicit custom URL. Renaming an Organization does not silently change its
+  URL. `/o/{slug}` remains a mutable selector; immutable Organization id remains
+  the identity and authorization authority.
 - A global slug **reserved list** (route and anti-phishing words such as
   `admin`, `support`, `api`, `www`, `mail`, `help`, and `security`) applies to
   derivation and manual edits. `openmeld` remains available for the official
@@ -216,7 +225,7 @@ revocable, fail closed — unchanged. What changes is how they are created:
    bindings are auto-authorized in their personal organization. Own machine,
    own garden, zero concepts.
 2. **Organization entry: one explicit choice in the shared dialog.** Creation
-   collects only the Organization name and slug, then opens the Organization
+   collects only the Organization name, then opens the Organization
    without writing a Wake preference. The unanswered preference opens the same
    default-checked Wake access choice used after joining. Confirming atomically
    writes the current Binding authorization records and saves automatic

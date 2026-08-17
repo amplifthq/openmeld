@@ -20,7 +20,6 @@ import { Link, Navigate, useNavigate } from "@tanstack/react-router";
 import {
 	type FormEvent,
 	type MouseEvent as ReactMouseEvent,
-	useRef,
 	useState,
 } from "react";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
@@ -46,6 +45,7 @@ import {
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { prepareOrganizationDestination } from "#/lib/organizations/prepare-organization-destination";
+import { organizationScopeQueryKeys } from "#/query/organizations/organization-scope";
 
 type OrganizationSetupStep = "creating_organization" | "opening_organization";
 
@@ -71,21 +71,23 @@ function OrganizationEntryPageContent(input: {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [organizationName, setOrganizationName] = useState("");
-	const [organizationSlug, setOrganizationSlug] = useState("");
-	const slugEditedRef = useRef(false);
 	const [createdOrganization, setCreatedOrganization] =
 		useState<OrganizationSummary | null>(null);
 	const [setupStep, setSetupStep] = useState<OrganizationSetupStep | null>(
 		null
 	);
 	const normalizedName = organizationName.trim();
-	const normalizedSlug = organizationSlug.trim();
 	const isSlackInstallIntent = input.intent === SLACK_INSTALL_INTENT;
 	const intentSearch = input.intent ? { intent: input.intent } : {};
 	const createOrganizationMutation = useMutation({
-		mutationFn: async (input: { name: string; slug: string }) => {
+		mutationFn: async (input: { name: string }) => {
 			setSetupStep("creating_organization");
 			return await createOrganization(input);
+		},
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({
+				queryKey: organizationScopeQueryKeys.all,
+			});
 		},
 	});
 	const openCreatedOrganizationMutation = useMutation({
@@ -117,20 +119,11 @@ function OrganizationEntryPageContent(input: {
 	);
 	const selectableOrganizations = joinableOrganizations;
 	const canCreateOrganization =
-		normalizedName.length > 0 &&
-		normalizedSlug.length > 0 &&
-		!organizationSetupIsPending;
+		normalizedName.length > 0 && !organizationSetupIsPending;
 	const returnsToOrganizationPicker = selectableOrganizations.length > 0;
 	const backLabel = returnsToOrganizationPicker
 		? "Back to Organizations"
 		: "Back to Spaces";
-
-	const handleNameChange = (value: string) => {
-		setOrganizationName(value);
-		if (!slugEditedRef.current) {
-			setOrganizationSlug(deriveOrganizationSlug(value));
-		}
-	};
 
 	const handleCreateOrganization = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
@@ -152,7 +145,6 @@ function OrganizationEntryPageContent(input: {
 			if (!organization) {
 				organization = await createOrganizationMutation.mutateAsync({
 					name: normalizedName,
-					slug: normalizedSlug,
 				});
 				setCreatedOrganization(organization);
 			}
@@ -193,14 +185,9 @@ function OrganizationEntryPageContent(input: {
 			errorMessage={setupErrorMessage}
 			errorTitle={setupErrorTitle}
 			isPending={organizationSetupIsPending}
-			onNameChange={handleNameChange}
-			onSlugChange={(value) => {
-				slugEditedRef.current = true;
-				setOrganizationSlug(value);
-			}}
+			onNameChange={setOrganizationName}
 			onSubmit={handleCreateOrganization}
 			organizationName={organizationName}
-			organizationSlug={organizationSlug}
 			setupStep={setupStep}
 		/>
 	);
@@ -409,10 +396,8 @@ function OrganizationCreateForm(input: {
 	errorTitle: string | null;
 	isPending: boolean;
 	onNameChange: (value: string) => void;
-	onSlugChange: (value: string) => void;
 	onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 	organizationName: string;
-	organizationSlug: string;
 	setupStep: OrganizationSetupStep | null;
 }) {
 	const fieldsAreLocked = input.isPending || input.createdOrganization !== null;
@@ -437,16 +422,6 @@ function OrganizationCreateForm(input: {
 					onChange={(event) => input.onNameChange(event.target.value)}
 					placeholder="Acme Labs"
 					value={input.organizationName}
-				/>
-			</div>
-			<div className="grid gap-2">
-				<Label htmlFor="new-organization-slug">Slug</Label>
-				<Input
-					disabled={fieldsAreLocked}
-					id="new-organization-slug"
-					onChange={(event) => input.onSlugChange(event.target.value)}
-					placeholder="acme-labs"
-					value={input.organizationSlug}
 				/>
 			</div>
 			<Button
@@ -485,12 +460,4 @@ function getOrganizationSetupStepLabel(input: {
 		default:
 			return "Creating organization";
 	}
-}
-
-function deriveOrganizationSlug(value: string): string {
-	return value
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "");
 }

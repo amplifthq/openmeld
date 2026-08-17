@@ -13,7 +13,7 @@ import {
 	UserIcon,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useState } from "react";
 import type { OrganizationOnboardingPreview } from "#/components/onboarding/organization-onboarding-demo";
 import { OrganizationIdentityMark } from "#/components/organizations/organization-identity-mark";
 import {
@@ -53,9 +53,7 @@ export function OrganizationOnboardingStep(input: {
 	const queryClient = useQueryClient();
 	const [mode, setMode] = useState<OrganizationChoiceMode>("choose");
 	const [name, setName] = useState("");
-	const [slug, setSlug] = useState("");
 	const [inviteLink, setInviteLink] = useState("");
-	const slugEditedRef = useRef(false);
 	const personalWorkspace = input.organizations.find(
 		(organization) => organization.isPersonal === true
 	);
@@ -84,37 +82,13 @@ export function OrganizationOnboardingStep(input: {
 	const createMutation = useMutation<
 		OrganizationSummary,
 		Error,
-		OrganizationCreateInput,
-		OrganizationMutationContext
+		OrganizationCreateInput
 	>({
 		mutationFn: createOrganization,
 		mutationKey: ["onboarding", "organization", "create"],
-		onError: (_error, _variables, context) => {
-			restoreOrganizationScopeSnapshots(queryClient, context?.snapshots);
-		},
-		onMutate: async (variables) => {
-			const optimisticOrganization: OrganizationSummary = {
-				id: `optimistic:${variables.slug}`,
-				isPersonal: false,
-				name: variables.name,
-				slug: variables.slug,
-			};
-			const snapshots = await addOptimisticOrganization({
-				organization: optimisticOrganization,
-				queryClient,
-			});
-			return { optimisticOrganization, snapshots };
-		},
 		onSettled: async () => {
 			await queryClient.invalidateQueries({
 				queryKey: organizationScopeQueryKeys.all,
-			});
-		},
-		onSuccess: (organization, _variables, context) => {
-			replaceOptimisticOrganization({
-				organization,
-				optimisticId: context.optimisticOrganization.id,
-				queryClient,
 			});
 		},
 	});
@@ -217,7 +191,7 @@ export function OrganizationOnboardingStep(input: {
 				id: invitation.organizationId,
 				isPersonal: false,
 				name: invitation.organizationName,
-				slug: deriveOrganizationSlug(invitation.organizationName),
+				slug: deriveOptimisticInvitationSlug(invitation.organizationName),
 			};
 			const snapshots = await addOptimisticOrganization({
 				organization: optimisticOrganization,
@@ -269,22 +243,13 @@ export function OrganizationOnboardingStep(input: {
 						logo: null,
 						name: value,
 					});
-					if (!slugEditedRef.current) {
-						setSlug(deriveOrganizationSlug(value));
-					}
-				}}
-				onSlugChange={(value) => {
-					slugEditedRef.current = true;
-					setSlug(value);
 				}}
 				onSubmit={async () => {
 					const organization = await createMutation.mutateAsync({
 						name: name.trim(),
-						slug: slug.trim(),
 					});
 					await input.onOrganizationChosen(organization);
 				}}
-				slug={slug}
 			/>
 		);
 	}
@@ -574,14 +539,9 @@ function OrganizationCreateForm(input: {
 	name: string;
 	onBack: () => void;
 	onNameChange: (value: string) => void;
-	onSlugChange: (value: string) => void;
 	onSubmit: () => Promise<void>;
-	slug: string;
 }) {
-	const canSubmit =
-		input.name.trim().length > 0 &&
-		input.slug.trim().length > 0 &&
-		!input.isPending;
+	const canSubmit = input.name.trim().length > 0 && !input.isPending;
 	return (
 		<form
 			className="flex flex-1 flex-col"
@@ -604,16 +564,6 @@ function OrganizationCreateForm(input: {
 						onChange={(event) => input.onNameChange(event.target.value)}
 						placeholder="Acme"
 						value={input.name}
-					/>
-				</div>
-				<div className="grid gap-2">
-					<Label htmlFor="onboarding-organization-slug">URL slug</Label>
-					<Input
-						disabled={input.isPending}
-						id="onboarding-organization-slug"
-						onChange={(event) => input.onSlugChange(event.target.value)}
-						placeholder="acme"
-						value={input.slug}
 					/>
 				</div>
 				<MutationError error={input.error} />
@@ -828,7 +778,7 @@ function extractJoinLinkToken(value: string): string {
 	return normalized;
 }
 
-function deriveOrganizationSlug(value: string): string {
+function deriveOptimisticInvitationSlug(value: string): string {
 	return value
 		.trim()
 		.toLowerCase()

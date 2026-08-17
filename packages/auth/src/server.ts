@@ -101,6 +101,14 @@ export {
   createD1OrganizationLogoMutationRepository,
   createOrganizationLogoService,
 } from "./organization/logo-service";
+export {
+  buildGeneratedOrganizationSlug,
+  createWithGeneratedOrganizationSlug,
+  generateOrganizationSlugDiscriminator,
+  isOrganizationSlugConflictError,
+  OrganizationSlugAllocationError,
+  OrganizationSlugConflictError,
+} from "./organization/organization-slug";
 export { isPersonalOrganization } from "./organization/personal-organization";
 export {
   AdditionalHumanProfileCreationDisabledError,

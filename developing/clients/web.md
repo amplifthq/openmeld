@@ -143,7 +143,8 @@ and actions are fixed:
 
 1. the personal workspace, pinned first
 2. the member's Organizations
-3. **Create organization**, which opens the creation form in one step
+3. **Create organization**, which opens a one-field name form; Auth returns the
+   generated Organization URL
 4. **Manage organizations**, which opens the full-page Organization manager
 5. a separated **Settings** utility, which opens **Settings → Personal →
    Account** for the current workspace
@@ -748,8 +749,9 @@ invite, and ready. Detailed product semantics live in
 
 - pending email invitations use Better Auth's current-user invitation list and
   existing acceptance mutation;
-- Organization creation and join flows update route-scope caches
-  optimistically without writing Better Auth active-Organization session state;
+- Organization join flows update route-scope caches optimistically without
+  writing Better Auth active-Organization session state. Creation waits for the
+  Auth-generated slug because Web cannot invent a truthful provisional URL;
 - Slack, Lark/Feishu, Apps, connector requests, Prepare, memory, Wake access,
   Organization documents, Information Protection, and invitations reuse their
   existing query keys and mutations;

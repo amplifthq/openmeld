@@ -134,6 +134,104 @@ const toSnapshotFileName = (entry: DrizzleJournalEntry): string => {
 };
 
 describe("shared drizzle migration history integrity", () => {
+  it("enforces one personal Organization per creator from canonical metadata", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const migrationFileName = listSqlMigrationFiles().find((fileName) =>
+        fileName.startsWith("0123_")
+      );
+      expect(migrationFileName).toBeDefined();
+      if (!migrationFileName) {
+        return;
+      }
+
+      applyMigrationFiles(
+        database,
+        listSqlMigrationFiles().filter(
+          (fileName) => fileName.localeCompare(migrationFileName) < 0
+        )
+      );
+      database.exec(`
+        INSERT INTO organizations (
+          id,
+          name,
+          slug,
+          created_at,
+          metadata,
+          created_by_user_id
+        ) VALUES
+          (
+            'personal-owner-fence',
+            'Personal Owner',
+            'personal-owner-fence',
+            1000,
+            '{"personal":true}',
+            'owner-fence-user'
+          ),
+          (
+            'shared-owner-fence',
+            'Shared Owner',
+            'shared-owner-fence',
+            1000,
+            NULL,
+            'owner-fence-user'
+          ),
+          (
+            'malformed-owner-fence',
+            'Malformed Metadata',
+            'malformed-owner-fence',
+            1000,
+            'not-json',
+            'owner-fence-user'
+          );
+      `);
+
+      applyMigrationFiles(database, [migrationFileName]);
+
+      expect(listTableIndexes(database, "organizations")).toContain(
+        "organizations_personal_created_by_user_uidx"
+      );
+      expectStatementToThrow(
+        database,
+        `INSERT INTO organizations (
+           id,
+           name,
+           slug,
+           created_at,
+           metadata,
+           created_by_user_id
+         ) VALUES (
+           'duplicate-personal-owner',
+           'Duplicate Personal Owner',
+           'duplicate-personal-owner',
+           1000,
+           '{"personal":true}',
+           'owner-fence-user'
+         )`,
+        "UNIQUE constraint failed: organizations.created_by_user_id"
+      );
+      database.exec(`
+        INSERT INTO organizations (
+          id,
+          name,
+          slug,
+          created_at,
+          metadata,
+          created_by_user_id
+        ) VALUES (
+          'another-personal-owner',
+          'Another Personal Owner',
+          'another-personal-owner',
+          1000,
+          '{"personal":true}',
+          'another-owner-fence-user'
+        );
+      `);
+    } finally {
+      database.close();
+    }
+  });
+
   it("preserves pending Slack channel introductions when adding durable recovery notices", () => {
     const database = new DatabaseSync(":memory:");
     try {

@@ -27,7 +27,9 @@ import {
 } from "../organization/center-agent-memory-lifecycle";
 import {
   assertManualOrganizationSlugAllowed,
-  buildUniquePersonalOrganizationSlug,
+  createWithGeneratedOrganizationSlug,
+} from "../organization/organization-slug";
+import {
   isPersonalOrganization,
   PERSONAL_ORGANIZATION_METADATA,
   readOrganizationMetadata,
@@ -68,6 +70,10 @@ export type AuthConfigEnv = AuthConfigInput & {
 };
 
 const TRAILING_SLASH_PATTERN = /\/$/;
+const PERSONAL_ORGANIZATION_OWNER_UNIQUE_CONSTRAINT =
+  "UNIQUE constraint failed: organizations.created_by_user_id";
+const PERSONAL_MEMBERSHIP_ID_UNIQUE_CONSTRAINT =
+  "UNIQUE constraint failed: members.id";
 
 type OrganizationHookContext = Parameters<typeof getOrgAdapter>[0];
 type DatabaseHookContext =
@@ -310,33 +316,144 @@ async function ensurePersonalOrganizationForUser({
     userName,
   });
   const createdAt = new Date();
-  const organization = await orgAdapter.createOrganization({
-    organization: {
-      createdAt,
-      createdByUserId: userId,
-      metadata: PERSONAL_ORGANIZATION_METADATA,
-      name: resolvePersonalOrganizationName({
-        userEmail: user.email,
-        userName: user.name,
-      }),
-      slug: await buildUniquePersonalOrganizationSlug({
-        fallbackId: user.id,
-        findOrganizationBySlug: async (slug) =>
-          await orgAdapter.findOrganizationBySlug(slug),
-        userEmail: user.email,
-        userName: user.name,
-      }),
-    },
+  const organizationName = resolvePersonalOrganizationName({
+    userEmail: user.email,
+    userName: user.name,
   });
+  let organization: OrganizationRecord;
+  try {
+    organization = await createWithGeneratedOrganizationSlug({
+      allowPersonalPrefix: true,
+      create: async (slug) =>
+        await orgAdapter.createOrganization({
+          organization: {
+            createdAt,
+            createdByUserId: userId,
+            metadata: PERSONAL_ORGANIZATION_METADATA,
+            name: organizationName,
+            slug,
+          },
+        }),
+      name: organizationName,
+    });
+  } catch (error) {
+    if (
+      !errorHasMessage(error, PERSONAL_ORGANIZATION_OWNER_UNIQUE_CONSTRAINT)
+    ) {
+      throw error;
+    }
+    organization = await readPersonalOrganizationByOwner({ context, userId });
+  }
 
-  await orgAdapter.createMember({
+  await ensurePersonalOrganizationMembership({
+    context,
     createdAt,
     organizationId: organization.id,
-    role: "owner",
     userId,
   });
 
   return organization.id;
+}
+
+async function readPersonalOrganizationByOwner(input: {
+  context: OrganizationHookContext;
+  userId: string;
+}): Promise<OrganizationRecord> {
+  const organizations = await input.context.adapter.findMany({
+    model: "organization",
+    where: [{ field: "createdByUserId", value: input.userId }],
+  });
+  const personalOrganizations = organizations.filter((organization) => {
+    if (!(organization && typeof organization === "object")) {
+      return false;
+    }
+    const metadata = readOrganizationMetadata(
+      (organization as Record<string, unknown>).metadata
+    );
+    return metadata.ok && metadata.value.personal === true;
+  });
+  if (personalOrganizations.length !== 1) {
+    throw new Error(
+      "Personal Organization owner conflict did not resolve to exactly one Organization."
+    );
+  }
+  const [organization] = personalOrganizations;
+  const id = readRecordString(organization, "id");
+  const createdAt =
+    organization &&
+    typeof organization === "object" &&
+    (organization as Record<string, unknown>).createdAt instanceof Date
+      ? (organization as { createdAt: Date }).createdAt
+      : null;
+  if (!(id && createdAt)) {
+    throw new Error(
+      "Personal Organization owner conflict did not resolve to a valid Organization."
+    );
+  }
+  return { createdAt, id };
+}
+
+async function ensurePersonalOrganizationMembership(input: {
+  context: OrganizationHookContext;
+  createdAt: Date;
+  organizationId: string;
+  userId: string;
+}): Promise<void> {
+  // A personal Organization has exactly one owner membership, so its
+  // Organization UUID is also a stable, valid UUID for that membership. This
+  // lets concurrent session creation converge at the database boundary.
+  const membershipId = input.organizationId;
+  try {
+    await input.context.adapter.create({
+      data: {
+        createdAt: input.createdAt,
+        id: membershipId,
+        organizationId: input.organizationId,
+        role: "owner",
+        userId: input.userId,
+      },
+      forceAllowId: true,
+      model: "member",
+    });
+  } catch (error) {
+    if (!errorHasMessage(error, PERSONAL_MEMBERSHIP_ID_UNIQUE_CONSTRAINT)) {
+      throw error;
+    }
+    const existingMembership = await input.context.adapter.findOne({
+      model: "member",
+      where: [{ field: "id", value: membershipId }],
+    });
+    if (
+      readRecordString(existingMembership, "organizationId") !==
+        input.organizationId ||
+      readRecordString(existingMembership, "userId") !== input.userId ||
+      readRecordString(existingMembership, "role") !== "owner"
+    ) {
+      throw error;
+    }
+  }
+}
+
+function errorHasMessage(error: unknown, expectedMessage: string): boolean {
+  let current = error;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (current instanceof Error) {
+      if (current.message.includes(expectedMessage)) {
+        return true;
+      }
+      current = current.cause;
+      continue;
+    }
+    if (!(current && typeof current === "object")) {
+      return false;
+    }
+    const message = readRecordString(current, "message");
+    if (message?.includes(expectedMessage)) {
+      return true;
+    }
+    current = "cause" in current ? current.cause : null;
+  }
+  return false;
 }
 
 async function resolveUserIdentity(input: {
