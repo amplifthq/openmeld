@@ -4,6 +4,7 @@ import {
   SLACK_INSTALLATION_WELCOME_VERSION,
   type SlackInstallationWelcomeMessageKind,
 } from "../infrastructure/d1/slack-installation-welcome-repo";
+import { persistConfirmedPublicationCheckpoint } from "./confirmed-publication-checkpoint";
 import {
   postSlackDirectMessage,
   type SlackBlockKitBlock,
@@ -45,24 +46,16 @@ export async function deliverSlackInstallationWelcome(input: {
     return "skipped";
   }
 
+  let publication: { id: string };
   try {
     const message = input.messages[claim.messageKind];
     const blocks = await input.buildBlocks(message);
-    const publication = await postSlackDirectMessage({
+    publication = await postSlackDirectMessage({
       ...(blocks ? { blocks } : {}),
       botToken: input.botToken,
       recipientUserId: input.recipientSlackUserId,
       text: message,
     });
-    await completeSlackInstallationWelcomeDelivery({
-      claim,
-      db: input.db,
-      failureCode: null,
-      messageTs: publication.id,
-      nowMs: Date.now(),
-      status: "delivered",
-    });
-    return "delivered";
   } catch (error) {
     const completion = classifySlackInstallationWelcomeFailure(error);
     try {
@@ -84,6 +77,26 @@ export async function deliverSlackInstallationWelcome(input: {
     }
     throw error;
   }
+
+  const checkpoint = await persistConfirmedPublicationCheckpoint(async () => {
+    await completeSlackInstallationWelcomeDelivery({
+      claim,
+      db: input.db,
+      failureCode: null,
+      messageTs: publication.id,
+      nowMs: Date.now(),
+      status: "delivered",
+    });
+  });
+  if (!checkpoint.persisted) {
+    console.warn("[core.slack_installation_welcome.checkpoint_pending]", {
+      attemptCount: claim.attemptCount,
+      error: serializeError(checkpoint.error),
+      organizationId: claim.key.organizationId,
+      slackTeamId: claim.key.slackTeamId,
+    });
+  }
+  return "delivered";
 }
 
 function classifySlackInstallationWelcomeFailure(error: unknown): {

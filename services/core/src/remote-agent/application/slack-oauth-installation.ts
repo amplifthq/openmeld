@@ -1,4 +1,5 @@
 import { prepareCenterAgentAuditJournalEntryStatement } from "../../center-agent/center-agent-repository";
+import { prepareEnqueueSlackInstallationWelcomePreparationStatement } from "../infrastructure/d1/slack-installation-welcome-preparation-repo";
 import {
   prepareReconcileSlackUserIdentityLinksForWorkspaceMoveStatements,
   prepareUpsertSlackOAuthInstallerIdentityLinkStatement,
@@ -27,6 +28,7 @@ export async function installSlackWorkspaceFromOAuth(input: {
   organizationId: string;
   slackInstallerUserId?: string | null;
   slackTeamId: string;
+  welcomePreparationRecipientSlackUserId?: string | null;
 }): Promise<
   | RemoteAgentSlackWorkspaceBindingCreateResult
   | RemoteAgentSlackWorkspaceBindingMoveResult
@@ -55,6 +57,9 @@ export async function installSlackWorkspaceFromOAuth(input: {
   const slackTeamId = requireNonEmptyText(input.slackTeamId, "workspace id");
   const slackInstallerUserId = normalizeOptionalText(
     input.slackInstallerUserId
+  );
+  const welcomePreparationRecipientSlackUserId = normalizeOptionalText(
+    input.welcomePreparationRecipientSlackUserId
   );
   const encryptedBotToken = await encryptSlackBotToken({
     botToken,
@@ -93,6 +98,19 @@ export async function installSlackWorkspaceFromOAuth(input: {
         slackUserId: slackInstallerUserId,
       })
     : null;
+  const welcomePreparationStatement = welcomePreparationRecipientSlackUserId
+    ? prepareEnqueueSlackInstallationWelcomePreparationStatement({
+        connectionCreatedAtMs: input.nowMs,
+        db: input.db,
+        installedByProfileId: actorProfileId,
+        installedByUserId,
+        messageKind: moveFromOrganizationId ? "moved" : "connected",
+        nowMs: input.nowMs,
+        organizationId,
+        recipientSlackUserId: welcomePreparationRecipientSlackUserId,
+        slackTeamId,
+      })
+    : null;
 
   if (moveFromOrganizationId) {
     const moveAuditEntryId = requireNonEmptyText(
@@ -124,6 +142,7 @@ export async function installSlackWorkspaceFromOAuth(input: {
         ...(installerIdentityLinkStatement
           ? [installerIdentityLinkStatement]
           : []),
+        ...(welcomePreparationStatement ? [welcomePreparationStatement] : []),
       ],
       atomicUnchangedStatements: [
         tokenStatement,
@@ -141,7 +160,10 @@ export async function installSlackWorkspaceFromOAuth(input: {
 
   return await createRemoteAgentSlackWorkspaceBinding({
     atomicWrites: {
-      onCreated: [auditStatement],
+      onCreated: [
+        auditStatement,
+        ...(welcomePreparationStatement ? [welcomePreparationStatement] : []),
+      ],
       onSuccess: [
         tokenStatement,
         ...(installerIdentityLinkStatement

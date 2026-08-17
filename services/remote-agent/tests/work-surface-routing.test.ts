@@ -7,6 +7,7 @@ import {
   resolveRemoteAgentWorkSurfaceModelId,
   shouldClassifyRemoteAgentWorkSurface,
 } from "../agent-core/work-surface-routing";
+import { TEST_REMOTE_AGENT_AI_GATEWAY_ENV } from "./fixtures";
 
 describe("Remote Agent lightweight work-surface binding", () => {
   it("keeps only the current request and authoritative turn time", () => {
@@ -44,9 +45,7 @@ describe("Remote Agent lightweight work-surface binding", () => {
   });
 });
 
-const WORK_SURFACE_ENV = {
-  CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
-};
+const WORK_SURFACE_ENV = TEST_REMOTE_AGENT_AI_GATEWAY_ENV;
 
 describe("Remote Agent work-surface routing", () => {
   it("uses one validated auxiliary model policy for classification and binding", () => {
@@ -152,7 +151,7 @@ describe("Remote Agent work-surface routing", () => {
 
     const result = await classifyRemoteAgentWorkSurface({
       env: {
-        CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        ...TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
       },
       fetchImpl,
       request: "Please create a dedicated Space for this work.",
@@ -198,7 +197,7 @@ describe("Remote Agent work-surface routing", () => {
     await expect(
       classifyRemoteAgentWorkSurface({
         env: {
-          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+          ...TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
         },
         fetchImpl,
         request: "Create a Task.",
@@ -225,7 +224,7 @@ describe("Remote Agent work-surface routing", () => {
 
     await classifyRemoteAgentWorkSurface({
       env: {
-        CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        ...TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
       },
       fetchImpl,
       request,

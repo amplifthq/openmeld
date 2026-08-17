@@ -18,6 +18,7 @@ import {
   isMemberResearchBusy,
   requireWebAppUrl,
 } from "./slack-onboarding-copy";
+import { resolveSlackOnboardingLanguageTag } from "./slack-onboarding-language";
 import {
   buildLocalizedTrustFirstSlackWelcomeMessage,
   getSlackOnboardingActionLabels,
@@ -36,7 +37,7 @@ type PreparedProfileReport = {
   installerDisplayName: string;
   organizationName: string;
   organizationSlug: string;
-  observedLanguageTag: string | null;
+  languageTag: string | null;
   path: string;
 };
 
@@ -196,14 +197,14 @@ async function advancePreparation(input: {
     firstObservation: report.firstObservation,
     hasUsefulEvidence: report.hasUsefulEvidence,
     installerDisplayName: report.installerDisplayName,
-    languageTag: report.observedLanguageTag,
+    languageTag: report.languageTag,
     messageKind: preparation.messageKind,
     organizationName: report.organizationName,
   });
   const blocks = buildTrustFirstSlackWelcomeBlocks({
     activeConnectedAppCount: report.activeConnectedAppCount,
     documentId: report.documentId,
-    languageTag: report.observedLanguageTag,
+    languageTag: report.languageTag,
     message,
     organizationSlug: report.organizationSlug,
     webAppUrl: input.env.WEB_APP_URL,
@@ -290,7 +291,6 @@ export async function readPreparedProfileReport(input: {
           users.name AS installer_display_name,
           organizations.name AS organization_name,
           organizations.slug AS organization_slug,
-          tasks.observed_language_tag,
           (
             SELECT COUNT(*)
             FROM connector_connections
@@ -326,12 +326,16 @@ export async function readPreparedProfileReport(input: {
       installer_display_name: string;
       organization_name: string;
       organization_slug: string;
-      observed_language_tag: string | null;
       path: string;
     }>();
   if (!row) {
     return null;
   }
+  const languageTag = await resolveSlackOnboardingLanguageTag({
+    db: input.db,
+    organizationId: input.preparation.key.organizationId,
+    researchTaskId: input.preparation.researchTaskId,
+  });
   return {
     activeConnectedAppCount: Number(row.active_connected_app_count),
     documentId: row.document_id,
@@ -342,7 +346,7 @@ export async function readPreparedProfileReport(input: {
     installerDisplayName: row.installer_display_name,
     organizationName: row.organization_name,
     organizationSlug: row.organization_slug,
-    observedLanguageTag: row.observed_language_tag,
+    languageTag,
     path: row.path,
   };
 }
@@ -494,12 +498,9 @@ async function deliverResearchUnavailableWelcome(input: {
       `
         SELECT
           organizations.name AS organization_name,
-          preferences.language_tag,
           users.name AS display_name
         FROM organizations
         INNER JOIN users ON users.id = ?
-        LEFT JOIN organization_working_language_preferences AS preferences
-          ON preferences.organization_id = organizations.id
         WHERE organizations.id = ?
         LIMIT 1
       `
@@ -510,15 +511,19 @@ async function deliverResearchUnavailableWelcome(input: {
     )
     .first<{
       display_name: string;
-      language_tag: string | null;
       organization_name: string;
     }>();
   if (!context) {
     throw new Error("Slack welcome failure notice context is unavailable.");
   }
+  const languageTag = await resolveSlackOnboardingLanguageTag({
+    db: input.db,
+    organizationId: input.preparation.key.organizationId,
+    researchTaskId: input.preparation.researchTaskId,
+  });
   const message = buildSlackResearchUnavailableWelcomeMessage({
     displayName: context.display_name,
-    languageTag: context.language_tag,
+    languageTag,
     organizationName: context.organization_name,
     workspaceMoved: input.preparation.messageKind === "moved",
   });

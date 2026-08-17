@@ -107,6 +107,10 @@ describe("Slack invited member onboarding", () => {
     expect(slackFetch).not.toHaveBeenCalled();
 
     seedCompletedResearch(harness);
+    harness.run({
+      sql: `INSERT INTO organization_working_language_preferences
+        (organization_id, language_tag) VALUES ('org-1', 'zh-CN')`,
+    });
     await runSlackInvitedMemberOnboardingTick({
       db: harness.db,
       env: env as never,
@@ -121,11 +125,11 @@ describe("Slack invited member onboarding", () => {
     const body = JSON.parse(String(request.body)) as Record<string, unknown>;
     expect(body).toMatchObject({
       channel: "U_MAYA",
-      text: expect.stringContaining("You’re in, Maya"),
+      text: expect.stringContaining("你已加入，Maya"),
     });
     expect(body).not.toHaveProperty("thread_ts");
-    expect(String(body.text)).toContain("One thing I picked up:");
-    expect(String(body.text)).toContain("You can talk to me right here");
+    expect(String(body.text)).toContain("我目前了解到的一点");
+    expect(String(body.text)).toContain("你可以直接在这里与我对话");
     expect(body.blocks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

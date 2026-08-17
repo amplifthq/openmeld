@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { requireOrganizationWorkingLanguageManager } from "../src/organizations/center-agent-working-language-rpc";
 import {
   observeOrganizationWorkingLanguage,
+  prepareRequirePreviousStatementChangedOneRow,
   readOrganizationWorkingLanguagePreference,
   readOrganizationWorkingLanguagePreferenceForSpace,
   setOrganizationWorkingLanguagePreference,
@@ -113,6 +114,116 @@ describe("Organization working language", () => {
         updatedByUserId: null,
       });
       expect(toWorkingLanguageGuidance(reset)).toBeNull();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("rolls back an explicit preference when its required audit write fails", async () => {
+    const harness = createWorkingLanguageHarness();
+    try {
+      harness.run({
+        sql: "CREATE TABLE required_audit (id TEXT PRIMARY KEY)",
+      });
+      harness.run({
+        sql: `CREATE TRIGGER reject_required_audit
+          BEFORE INSERT ON required_audit
+          BEGIN
+            SELECT RAISE(ABORT, 'audit rejected');
+          END`,
+      });
+
+      await expect(
+        setOrganizationWorkingLanguagePreference({
+          atomicStatements: [
+            harness.db
+              .prepare("INSERT INTO required_audit (id) VALUES (?)")
+              .bind("audit-1"),
+          ],
+          db: harness.db,
+          languageTag: "fr",
+          mode: "selected",
+          nowMs: 100,
+          organizationId: "org-1",
+          updatedByUserId: "owner-1",
+        })
+      ).rejects.toThrow("audit rejected");
+      await expect(
+        readOrganizationWorkingLanguagePreference({
+          db: harness.db,
+          organizationId: "org-1",
+        })
+      ).resolves.toMatchObject({
+        languageTag: null,
+        mode: "automatic",
+        revision: 0,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("rolls back an automatic observation when its required audit write fails", async () => {
+    const harness = createWorkingLanguageHarness();
+    try {
+      harness.run({
+        sql: "CREATE TABLE required_audit (id TEXT PRIMARY KEY)",
+      });
+      harness.run({
+        sql: `CREATE TABLE member_research_tasks (
+          id TEXT PRIMARY KEY, observed_language_tag TEXT
+        )`,
+      });
+      harness.run({
+        sql: `INSERT INTO member_research_tasks (id, observed_language_tag)
+          VALUES ('task-1', NULL)`,
+      });
+      harness.run({
+        sql: `CREATE TRIGGER reject_required_audit
+          BEFORE INSERT ON required_audit
+          BEGIN
+            SELECT RAISE(ABORT, 'audit rejected');
+          END`,
+      });
+
+      await expect(
+        observeOrganizationWorkingLanguage({
+          beforeStatements: [
+            harness.db
+              .prepare(
+                `UPDATE member_research_tasks
+                  SET observed_language_tag = ? WHERE id = ?`
+              )
+              .bind("zh-CN", "task-1"),
+            prepareRequirePreviousStatementChangedOneRow(harness.db),
+          ],
+          db: harness.db,
+          languageTag: "zh-CN",
+          nowMs: 100,
+          onChangedStatements: [
+            harness.db
+              .prepare("INSERT INTO required_audit (id) VALUES (?)")
+              .bind("audit-1"),
+          ],
+          organizationId: "org-1",
+        })
+      ).rejects.toThrow("audit rejected");
+      await expect(
+        readOrganizationWorkingLanguagePreference({
+          db: harness.db,
+          organizationId: "org-1",
+        })
+      ).resolves.toMatchObject({
+        languageTag: null,
+        mode: "automatic",
+        revision: 0,
+      });
+      expect(
+        harness.queryFirst({
+          sql: `SELECT observed_language_tag FROM member_research_tasks
+            WHERE id = 'task-1'`,
+        })
+      ).toEqual({ observed_language_tag: null });
     } finally {
       harness.close();
     }

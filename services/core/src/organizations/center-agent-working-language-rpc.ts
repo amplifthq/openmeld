@@ -8,7 +8,8 @@ import type {
   CenterAgentSetOrganizationWorkingLanguageToolRpcInput,
 } from "@openmeld/schemas/types";
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
-import { writeCenterAgentAuditEntry } from "../center-agent/center-agent-audit";
+import { resolveCenterAgentAuditAttribution } from "../center-agent/center-agent-audit";
+import { prepareCenterAgentAuditJournalEntryStatement } from "../center-agent/center-agent-repository";
 import { type CoreBindings, localStateDb } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { readOrganizationPersonalClassification } from "./organization-context";
@@ -73,22 +74,32 @@ export async function rpcCenterAgentSetOrganizationWorkingLanguage(
       status: 503,
     });
   }
+  const nowMs = Date.now();
+  const attribution = await resolveCenterAgentAuditAttribution({
+    authorization: represented.authorization,
+    onBehalfOfProfileId: represented.representedHuman.profileId,
+  });
+  const auditStatement = prepareCenterAgentAuditJournalEntryStatement({
+    action: "set_working_language",
+    actorProfileId: represented.authorization.actorProfileId,
+    attribution,
+    db,
+    id: crypto.randomUUID(),
+    nowMs,
+    organizationId,
+    resource: { id: organizationId, type: "organization_working_language" },
+    sourceNativeDeliveryId: represented.sourceNativeDeliveryId,
+  });
   const preference = await setOrganizationWorkingLanguagePreference({
+    atomicStatements: [auditStatement],
     db,
     ...(request.mode === "selected"
       ? { languageTag: request.languageTag }
       : {}),
     mode: request.mode,
-    nowMs: Date.now(),
+    nowMs,
     organizationId,
     updatedByUserId: represented.representedHuman.userId,
-  });
-  await writeCenterAgentAuditEntry({
-    action: "set_working_language",
-    authorization: represented.authorization,
-    onBehalfOfProfileId: represented.representedHuman.profileId,
-    resource: { id: organizationId, type: "organization_working_language" },
-    sourceNativeDeliveryId: represented.sourceNativeDeliveryId,
   });
   return centerAgentSetOrganizationWorkingLanguageToolResponseSchema.parse(
     toOrganizationWorkingLanguagePreferenceResponse(preference)

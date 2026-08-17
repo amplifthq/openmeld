@@ -38,6 +38,8 @@ import {
   centerAgentGetOrganizationInviteLinkResponseSchema,
   centerAgentInstallOrganizationSkillResponseSchema,
   centerAgentInstallOrganizationSkillRpcInputSchema,
+  centerAgentInviteSlackTeammatesRpcInputSchema,
+  centerAgentInviteSlackTeammatesRpcResponseSchema,
   centerAgentListAgentTasksResponseSchema,
   centerAgentListComputersResponseSchema,
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
@@ -113,8 +115,6 @@ import {
   resumeCenterAgentRoutineResponseSchema,
   SPACE_PASSWORD_MIN_LENGTH,
   setOrganizationWorkingLanguagePreferenceBodySchema,
-  slackWelcomeInteractionRpcInputSchema,
-  slackWelcomeInteractionRpcResponseSchema,
   startCenterAgentMemberResearchResponseSchema,
   submitFeedbackIssueRequestSchema,
   updateCenterAgentRoutineResponseSchema,
@@ -1378,21 +1378,28 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           missingDirectoryMessage:
             "Read the Slack workspace directory in this turn before inviting teammates, then use only the returned Slack user IDs.",
         });
-        const rpcInput = slackWelcomeInteractionRpcInputSchema.parse({
-          action: "submit_teammate_invites",
+        const speakerMember = resolveVerifiedTurnEnvelopeSpeaker(turnEnvelope);
+        if (!speakerMember) {
+          throw new Error(
+            "Private Slack invitations require the verified OpenMeld member for this delivery."
+          );
+        }
+        const rpcInput = centerAgentInviteSlackTeammatesRpcInputSchema.parse({
+          context: toolContext.context,
           interactionId: `remote-agent:${input.submissionId}`,
           slackTeamId: turnEnvelope.trigger.teamId,
           slackUserId:
             turnEnvelope.sender.messageChannelIdentity.providerUserId,
+          speakerMember,
           targetSlackUserIds,
         });
-        return slackWelcomeInteractionRpcResponseSchema.parse(
+        return centerAgentInviteSlackTeammatesRpcResponseSchema.parse(
           await callCoreRpc(
             input.coreWorker,
-            "handleSlackWelcomeInteraction",
+            "centerAgentInviteSlackTeammates",
             rpcInput,
             (binding, interaction) =>
-              binding.handleSlackWelcomeInteraction?.(interaction)
+              binding.centerAgentInviteSlackTeammates?.(interaction)
           )
         );
       },

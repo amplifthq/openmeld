@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleSlackWelcomeInteraction } from "../src/remote-agent/application/slack-welcome-interaction-service";
+import {
+  handleSlackWelcomeInteraction,
+  requireRemoteAgentSlackTeammateInvitationDeliveryEvidence,
+} from "../src/remote-agent/application/slack-welcome-interaction-service";
 import {
   createFaultInjectingD1Database,
   createSqliteD1Harness,
@@ -37,6 +40,66 @@ describe("Slack welcome teammate invitations", () => {
       throw new Error(`Unexpected Slack request: ${url}`);
     });
     vi.stubGlobal("fetch", slackFetch);
+  });
+
+  it("accepts teammate invitation authority only from the matching private Slack delivery", () => {
+    const privateDelivery = {
+      conversationKind: "slack",
+      deliveryId: "delivery-1",
+      slackChannelId: "D_ACTOR",
+      slackTeamId: "T1",
+      workerSubmitRequest: {
+        turnEnvelope: {
+          interactionEnvironment: "requester_private",
+          sender: {
+            kind: "member",
+            messageChannelIdentity: {
+              connectionId: "T1",
+              provider: "slack",
+              providerUserId: "U_ACTOR",
+            },
+            ownerUserId: "user-actor",
+            profileId: "profile-actor",
+            verified: true,
+          },
+          trigger: { source: "slack", teamId: "T1" },
+        },
+      },
+    };
+
+    expect(() =>
+      requireRemoteAgentSlackTeammateInvitationDeliveryEvidence({
+        delivery: privateDelivery,
+        representedHuman: {
+          profileId: "profile-actor",
+          userId: "user-actor",
+        },
+        slackTeamId: "T1",
+        slackUserId: "U_ACTOR",
+        sourceNativeDeliveryId: "delivery-1",
+      })
+    ).not.toThrow();
+    expect(() =>
+      requireRemoteAgentSlackTeammateInvitationDeliveryEvidence({
+        delivery: {
+          ...privateDelivery,
+          workerSubmitRequest: {
+            ...privateDelivery.workerSubmitRequest,
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              interactionEnvironment: "organization_shared",
+            },
+          },
+        },
+        representedHuman: {
+          profileId: "profile-actor",
+          userId: "user-actor",
+        },
+        slackTeamId: "T1",
+        slackUserId: "U_ACTOR",
+        sourceNativeDeliveryId: "delivery-1",
+      })
+    ).toThrow("active private Slack delivery");
   });
 
   afterEach(() => {

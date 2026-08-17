@@ -6,13 +6,11 @@ import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
   buildRemoteAgentZeroRetentionAiGatewayHeaders,
-  DEFAULT_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID,
-  DEFAULT_REMOTE_AGENT_AI_GATEWAY_BYOK_ALIAS,
-  DEFAULT_REMOTE_AGENT_AI_GATEWAY_ID,
   prepareRemoteAgentZeroRetentionOpenRouterPayload,
   REMOTE_AGENT_MAX_OUTPUT_TOKENS,
   REMOTE_AGENT_MODEL_DISPLAY_NAME,
   REMOTE_AGENT_OPENROUTER_MODEL_ID,
+  resolveRemoteAgentAiGatewayAccountId,
   resolveRemoteAgentAiGatewayId,
   resolveRemoteAgentAiGatewayOpenRouterBaseUrl,
   resolveRemoteAgentAiGatewayToken,
@@ -33,11 +31,18 @@ import openAiGpt54MiniModel from "./fixtures/openrouter-model-openai-gpt-5.4-min
 import xAiGrok45Model from "./fixtures/openrouter-model-x-ai-grok-4.5.json";
 import xAiGrok46Model from "./fixtures/openrouter-model-x-ai-grok-4.6.json";
 
+const CONFIGURED_AI_GATEWAY_ENV = {
+  OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID: "account_123",
+  OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID: "gateway_123",
+  OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
+} as const;
+
 describe("remote agent model routing", () => {
   it("disables provider logging and caching for transient Slack evidence", () => {
     expect(
       buildRemoteAgentZeroRetentionAiGatewayHeaders({
         env: {
+          OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
           CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
         },
       })
@@ -130,6 +135,7 @@ describe("remote agent model routing", () => {
     try {
       const runtime = await registerRemoteAgentCloudflareProvider({
         env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
           CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
         },
         executionProfile: "work_surface_binding",
@@ -165,6 +171,7 @@ describe("remote agent model routing", () => {
     try {
       const runtime = await registerRemoteAgentCloudflareProvider({
         env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
           CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
         },
         organizationId: "org_legacy",
@@ -227,6 +234,7 @@ describe("remote agent model routing", () => {
       };
       const first = await registerRemoteAgentCloudflareProvider({
         env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
           CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
         },
         modelRoute: grokRoute,
@@ -234,6 +242,7 @@ describe("remote agent model routing", () => {
       });
       const second = await registerRemoteAgentCloudflareProvider({
         env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
           CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
         },
         modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
@@ -282,6 +291,7 @@ describe("remote agent model routing", () => {
       };
       const runtime = await registerRemoteAgentCloudflareProvider({
         env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
           CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
         },
         modelRoute: grokRoute,
@@ -319,6 +329,7 @@ describe("remote agent model routing", () => {
     try {
       const runtime = await registerRemoteAgentCloudflareProvider({
         env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
           CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
         },
         modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
@@ -353,6 +364,7 @@ describe("remote agent model routing", () => {
     try {
       const runtime = await registerRemoteAgentCloudflareProvider({
         env: {
+          ...CONFIGURED_AI_GATEWAY_ENV,
           CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
         },
         modelRoute: TEST_CENTER_AGENT_MODEL_ROUTE,
@@ -482,20 +494,23 @@ describe("remote agent model routing", () => {
     );
   });
 
-  it("pins the legacy v1 OpenRouter fallback and AI Gateway route", () => {
+  it("pins only the legacy v1 OpenRouter model fallback", () => {
     expect(REMOTE_AGENT_OPENROUTER_MODEL_ID).toBe("x-ai/grok-4.5");
     expect(REMOTE_AGENT_MAX_OUTPUT_TOKENS).toBe(8192);
-    expect(DEFAULT_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID).toBe(
-      "e74a33891b4c7a16b1fe853c41011f52"
-    );
-    expect(DEFAULT_REMOTE_AGENT_AI_GATEWAY_ID).toBe("openmeld-remote-agent");
-    expect(DEFAULT_REMOTE_AGENT_AI_GATEWAY_BYOK_ALIAS).toBe("openrouter");
   });
 
-  it("falls back to the default AI Gateway id when the env var is missing", () => {
-    expect(resolveRemoteAgentAiGatewayId({})).toBe(
-      DEFAULT_REMOTE_AGENT_AI_GATEWAY_ID
+  it("requires the environment-owned AI Gateway account and gateway ids", () => {
+    expect(() => resolveRemoteAgentAiGatewayAccountId({})).toThrow(
+      "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID must be configured"
     );
+    expect(() => resolveRemoteAgentAiGatewayId({})).toThrow(
+      "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID must be configured"
+    );
+    expect(() =>
+      resolveRemoteAgentAiGatewayId({
+        OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID: "   ",
+      })
+    ).toThrow("OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID must be configured");
     expect(
       resolveRemoteAgentAiGatewayId({
         OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID: " custom-gateway ",
@@ -504,8 +519,8 @@ describe("remote agent model routing", () => {
   });
 
   it("resolves the Cloudflare AI Gateway OpenRouter endpoint", () => {
-    expect(resolveRemoteAgentAiGatewayOpenRouterBaseUrl({})).toBe(
-      "https://gateway.ai.cloudflare.com/v1/e74a33891b4c7a16b1fe853c41011f52/openmeld-remote-agent/openrouter"
+    expect(() => resolveRemoteAgentAiGatewayOpenRouterBaseUrl({})).toThrow(
+      "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID must be configured"
     );
     expect(
       resolveRemoteAgentAiGatewayOpenRouterBaseUrl({
@@ -574,8 +589,10 @@ describe("remote agent model routing", () => {
     );
   });
 
-  it("uses the configured BYOK alias and defaults to the OpenRouter alias", () => {
-    expect(resolveRemoteAgentOpenRouterByokAlias({})).toBe("openrouter");
+  it("requires the environment-owned BYOK alias", () => {
+    expect(() => resolveRemoteAgentOpenRouterByokAlias({})).toThrow(
+      "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS must be configured"
+    );
     expect(
       resolveRemoteAgentOpenRouterByokAlias({
         OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: " staging ",

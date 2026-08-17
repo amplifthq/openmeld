@@ -9,7 +9,10 @@ import {
   buildTransientSlackModel,
   runTransientSlackContextReasoning,
 } from "../agent-core/slack-transient-context";
-import { TEST_CENTER_AGENT_MODEL_ROUTE } from "./fixtures";
+import {
+  TEST_CENTER_AGENT_MODEL_ROUTE,
+  TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+} from "./fixtures";
 
 const baseInput = {
   organizationId: "org_1",
@@ -56,7 +59,7 @@ describe("transient Slack context reasoning", () => {
 
     expect(
       buildTransientSlackModel({
-        env: {},
+        env: TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
         headers: {},
         request,
       })

@@ -47,7 +47,25 @@ export async function enqueueSlackInstallationWelcomePreparation(input: {
   if (!input.allowCreate) {
     return false;
   }
-  const result = await input.db
+  const result =
+    await prepareEnqueueSlackInstallationWelcomePreparationStatement(
+      input
+    ).run();
+  return Number(result.meta.changes ?? 0) === 1;
+}
+
+export function prepareEnqueueSlackInstallationWelcomePreparationStatement(input: {
+  connectionCreatedAtMs: number;
+  db: D1Database;
+  installedByProfileId: string;
+  installedByUserId: string;
+  messageKind: SlackInstallationWelcomeMessageKind;
+  nowMs: number;
+  organizationId: string;
+  recipientSlackUserId: string;
+  slackTeamId: string;
+}): D1PreparedStatement {
+  return input.db
     .prepare(
       `
         INSERT INTO slack_installation_welcome_preparations (
@@ -81,9 +99,7 @@ export async function enqueueSlackInstallationWelcomePreparation(input: {
       input.installedByProfileId,
       input.nowMs,
       input.nowMs
-    )
-    .run();
-  return Number(result.meta.changes ?? 0) === 1;
+    );
 }
 
 export async function authorizeFailedSlackInstallationWelcomeRetry(input: {
