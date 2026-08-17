@@ -620,6 +620,26 @@ describe("openmeld service interactive menu", () => {
     expect(cancelMock).toHaveBeenCalledWith("Cancelled.");
   });
 
+  it("does not repeat command-entry authentication after Start is chosen from the service menu", async () => {
+    getDaemonStatusMock.mockResolvedValue(INSTALLED_DAEMON_STATUS);
+    getDaemonRuntimeStatusMock.mockResolvedValue(NOT_RUNNING_RUNTIME_STATUS);
+    resolveDaemonServiceManagerMock.mockResolvedValue(null);
+    getAuthSessionStateMock.mockResolvedValue({
+      state: "missing",
+      session: null,
+    });
+    selectMock.mockResolvedValueOnce("run");
+
+    await withCapturedStdio(async () => {
+      await runDaemon({ view: "human" });
+    });
+
+    expect(getAuthSessionStateMock).not.toHaveBeenCalledWith({
+      validateRemote: true,
+    });
+    expect(selectMock).toHaveBeenCalledTimes(1);
+  });
+
   it("retries background start once after reinstall auto-start when the first start throws", async () => {
     await withTempHome(async () => {
       getDaemonStatusMock.mockResolvedValue(INSTALLED_DAEMON_STATUS);
@@ -990,8 +1010,11 @@ describe("openmeld service interactive menu", () => {
       );
       expect(runRunMock).toHaveBeenCalledWith({
         agentOverviewHandled: true,
+        entryChecksHandled: true,
+        gatewayUrl: undefined,
         mode: "background",
         outputMode: "silent",
+        profile: undefined,
         suppressStartSpinner: true,
         view: "human",
       });

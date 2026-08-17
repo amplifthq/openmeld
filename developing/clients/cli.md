@@ -873,6 +873,15 @@ discovering local Agent Controllers, preparing runnable Agent Controllers,
 updating OpenMeld-managed skills, and reporting Agent Controller availability
 evidence.
 
+One CLI command entry owns its interactive authentication and choice prompts.
+Nested Service install, repair, and background-start operations must inherit
+that completed entry context and must not open the same authentication prompt
+again. A prompt-capable Human View setup or Prepare session renders progress as
+durable lines; it must not leave an animated terminal writer active while a
+prompt owns the terminal. User cancellation is a control-flow outcome: setup
+must stop, and an active Prepare step remains resumable instead of being written
+as failed.
+
 The local setup portion must not create or join a Space, create Binding truth as
 a side effect, choose Space members, send a Wake, decide execution ownership,
 decide final Wake outcome, or decide final user-facing Wake availability.

@@ -5,6 +5,10 @@ const openMeldSource = readFileSync(
   new URL("../src/openmeld.ts", import.meta.url),
   "utf8"
 );
+const serviceSource = readFileSync(
+  new URL("../src/commands/service.ts", import.meta.url),
+  "utf8"
+);
 const startNextActionSource = readFileSync(
   new URL("../src/commands/start-next-action.ts", import.meta.url),
   "utf8"
@@ -19,8 +23,9 @@ const spaceCommandSource = readFileSync(
 );
 const PROFILE_MENU_ENTRY_CHECKS_RE =
   /runProfileMenu\(\{\s*view,\s*entryChecksHandled:\s*true,/m;
+const DAEMON_RUN_AFTER_ENTRY_CHECKS_RE = /runDaemonRunAfterEntryChecks\(\{/m;
 const DAEMON_RUN_ENTRY_CHECKS_RE =
-  /runDaemonRun\(\{[\s\S]*entryChecksHandled:\s*true,/m;
+  /runDaemonRunAfterEntryChecks\([\s\S]*return await runRun\(\{[\s\S]*entryChecksHandled:\s*true,/m;
 const SPACE_MENU_ENTRY_CHECKS_RE =
   /runSpaceMenu\(\{[\s\S]*entryChecksHandled:\s*true,/m;
 const SPACE_JOIN_ENTRY_CHECKS_RE =
@@ -29,7 +34,8 @@ const SPACE_JOIN_ENTRY_CHECKS_RE =
 describe("command entry duplicate guards", () => {
   it("marks public wrappers that already passed shared entry checks", () => {
     expect(openMeldSource).toMatch(PROFILE_MENU_ENTRY_CHECKS_RE);
-    expect(openMeldSource).toMatch(DAEMON_RUN_ENTRY_CHECKS_RE);
+    expect(openMeldSource).toMatch(DAEMON_RUN_AFTER_ENTRY_CHECKS_RE);
+    expect(serviceSource).toMatch(DAEMON_RUN_ENTRY_CHECKS_RE);
     expect(openMeldSource).toMatch(SPACE_MENU_ENTRY_CHECKS_RE);
     expect(openMeldSource).toMatch(SPACE_JOIN_ENTRY_CHECKS_RE);
   });

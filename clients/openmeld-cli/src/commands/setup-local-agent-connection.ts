@@ -43,7 +43,11 @@ import {
   type PrepareSessionLocalAgentSelection,
   runPrepareSessionExecutor,
 } from "./prepare-session-executor";
-import { runDaemonInstall, runDaemonReinstall, runDaemonRun } from "./service";
+import {
+  runDaemonBackgroundStartForDecision,
+  runDaemonInstall,
+  runDaemonReinstall,
+} from "./service";
 
 const LOCAL_AGENT_CONNECTION_CARD_TITLE = "Local Agent Connection";
 const RETIRED_HUMAN_PROFILE_SETUP_MESSAGE =
@@ -120,23 +124,8 @@ export async function runSetupLocalAgentConnection(input: {
     view: input.view,
   });
 
-  const explicitProfileId = normalizeOptionalString(input.profile);
-  let explicitProfile: Awaited<
-    ReturnType<typeof resolveOpenMeldProfileOrNull>
-  > | null = null;
-  let explicitProfileResolved = false;
-  if (explicitProfileId) {
-    explicitProfile = await resolveOpenMeldProfileOrNull({
-      openMeldProfileId: explicitProfileId,
-      allowUnauthenticated: true,
-      allowDefaultFallback: false,
-      persistSelection: false,
-    });
-    explicitProfileResolved = true;
-    if (isHumanProfile(explicitProfile)) {
-      throw new Error(HUMAN_PROFILE_SETUP_TARGET_MESSAGE);
-    }
-  }
+  const { profile: explicitProfile, resolved: explicitProfileResolved } =
+    await resolveExplicitSetupProfile(input.profile);
 
   if (!input.startSession) {
     const gateResult = await runSetupLocalAgentConnectionServiceGate({
@@ -168,10 +157,7 @@ export async function runSetupLocalAgentConnection(input: {
       view: input.view,
     });
     if (sessionResult.status !== "completed") {
-      return {
-        reason: "setup_session_not_completed",
-        status: "not_completed",
-      };
+      return resolveIncompletePrepareSessionSetupResult(sessionResult);
     }
     return buildCompletedSetupSessionResult(sessionResult);
   }
@@ -240,12 +226,19 @@ export async function runSetupLocalAgentConnection(input: {
     ? preparedProfileCandidate
     : agentProfile;
 
-  await maybeCompleteServiceReadinessAfterPreparation({
-    interactive,
-    profile: preparedProfile,
-    runtime,
-    view: input.view,
-  });
+  const serviceReadinessResult =
+    await maybeCompleteServiceReadinessAfterPreparation({
+      interactive,
+      profile: preparedProfile,
+      runtime,
+      view: input.view,
+    });
+  if (serviceReadinessResult === "cancelled") {
+    return {
+      reason: "cancelled",
+      status: "not_completed",
+    };
+  }
   const completionFacts = await emitSetupLocalAgentConnectionReadinessResult({
     presenter,
     preparedConnection: result.preparedConnections?.find(
@@ -258,6 +251,43 @@ export async function runSetupLocalAgentConnection(input: {
     completionFacts,
     setupSessionSnapshot: null,
     status: "completed",
+  };
+}
+
+async function resolveExplicitSetupProfile(
+  profileId: string | undefined
+): Promise<{
+  profile: Awaited<ReturnType<typeof resolveOpenMeldProfileOrNull>> | null;
+  resolved: boolean;
+}> {
+  const normalizedProfileId = normalizeOptionalString(profileId);
+  if (!normalizedProfileId) {
+    return { profile: null, resolved: false };
+  }
+  const profile = await resolveOpenMeldProfileOrNull({
+    openMeldProfileId: normalizedProfileId,
+    allowUnauthenticated: true,
+    allowDefaultFallback: false,
+    persistSelection: false,
+  });
+  if (isHumanProfile(profile)) {
+    throw new Error(HUMAN_PROFILE_SETUP_TARGET_MESSAGE);
+  }
+  return { profile, resolved: true };
+}
+
+function resolveIncompletePrepareSessionSetupResult(
+  sessionResult: Extract<
+    PrepareSessionExecutorResult,
+    { status: "not_completed" }
+  >
+): Extract<SetupLocalAgentConnectionResult, { status: "not_completed" }> {
+  return {
+    reason:
+      sessionResult.reason === "user_cancelled"
+        ? "cancelled"
+        : "setup_session_not_completed",
+    status: "not_completed",
   };
 }
 
@@ -521,9 +551,9 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
   profile: AgentProfile;
   runtime: Awaited<ReturnType<typeof resolveRuntimeContext>>;
   view?: string;
-}): Promise<void> {
+}): Promise<"completed" | "cancelled"> {
   if (!input.interactive || input.runtime.resolvedView !== "human") {
-    return;
+    return "completed";
   }
 
   const snapshot = await resolveCurrentReplyReadinessSnapshot({
@@ -535,7 +565,7 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
   });
   const reasonCodes = collectReadinessReasonCodes(snapshot);
   if (reasonCodes.length === 0) {
-    return;
+    return "completed";
   }
 
   const inventory = await inspectDaemonServiceInventory({
@@ -567,12 +597,15 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
         suppressAgentOverview: true,
       }
     );
+    if (!refreshOutcome.ok && refreshOutcome.result === "cancelled") {
+      return "cancelled";
+    }
     if (!refreshOutcome.ok) {
       throw new Error(
         `OpenMeld Service refresh did not complete: ${refreshOutcome.result}`
       );
     }
-    return;
+    return "completed";
   }
 
   if (reasonCodes.includes("service.not_installed")) {
@@ -587,25 +620,25 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
         suppressAgentOverview: true,
       }
     );
-    await runDaemonRun({
-      agentOverviewHandled: true,
+    const runResult = await runDaemonBackgroundStartForDecision({
       gatewayUrl: await resolveBaseUrl(),
-      mode: "background",
       profile: input.profile.openMeldProfileId,
       view: input.view,
     });
-    return;
+    return runResult === "cancelled" ? "cancelled" : "completed";
   }
 
   if (reasonCodes.includes("service.not_running")) {
-    await runDaemonRun({
-      agentOverviewHandled: true,
+    const runResult = await runDaemonBackgroundStartForDecision({
       gatewayUrl: await resolveBaseUrl(),
-      mode: "background",
       profile: input.profile.openMeldProfileId,
       view: input.view,
     });
+    if (runResult === "cancelled") {
+      return "cancelled";
+    }
   }
+  return "completed";
 }
 
 function collectReadinessReasonCodes(input: {

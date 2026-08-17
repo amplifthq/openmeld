@@ -98,6 +98,13 @@ class PrepareSessionBlockedByCoreError extends Error {
   }
 }
 
+export class PrepareSessionCancelledError extends Error {
+  constructor() {
+    super("Setup was cancelled.");
+    this.name = "PrepareSessionCancelledError";
+  }
+}
+
 type PrepareSessionExecutorInput = {
   gatewayUrl: string;
   startSession: string;
@@ -115,7 +122,7 @@ export type PrepareSessionExecutorResult =
       status: "completed";
     }
   | {
-      reason: "terminal_replaced";
+      reason: "terminal_replaced" | "user_cancelled";
       status: "not_completed";
     };
 
@@ -168,6 +175,12 @@ export async function runPrepareSessionExecutor(
         },
       });
     } catch (error) {
+      if (error instanceof PrepareSessionCancelledError) {
+        return {
+          reason: "user_cancelled",
+          status: "not_completed",
+        };
+      }
       if (error instanceof PrepareSessionTerminalReplacedError) {
         emitHumanStatus(input, "Terminal replaced", [
           "A newer Terminal command is running this setup.",
@@ -908,6 +921,7 @@ function requireStartedTerminalStepSnapshot(input: {
   startedSnapshot: PrepareSessionSnapshot | null;
 }): PrepareSessionSnapshot {
   if (
+    input.error instanceof PrepareSessionCancelledError ||
     input.error instanceof PrepareSessionConnectionInterruptedError ||
     input.error instanceof PrepareSessionBlockedByCoreError
   ) {
@@ -1084,6 +1098,9 @@ async function runRefreshServiceTerminalStep(
     suppressStartSpinner: true,
     view: input.input.view,
   });
+  if (gate.status === "cancelled") {
+    throw new PrepareSessionCancelledError();
+  }
   if (gate.status !== "aligned") {
     if (gate.localMachineIssue) {
       throw new LocalMachineFailureError({

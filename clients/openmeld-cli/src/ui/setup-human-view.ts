@@ -9,7 +9,7 @@ import {
 
 type SetupHumanView = "human" | "agent";
 
-export async function runWithSetupSpinner<T>(input: {
+export async function runWithSetupProgress<T>(input: {
   code: string;
   completionMessage: string;
   message: string;

@@ -782,6 +782,7 @@ describe("openmeld service commands", () => {
     );
     expect(runRunMock).toHaveBeenCalledWith({
       agentOverviewHandled: true,
+      entryChecksHandled: true,
       mode: "background",
       outputMode: "silent",
       suppressStartSpinner: true,
@@ -1133,7 +1134,7 @@ describe("openmeld service commands", () => {
     expect(resolveCurrentReplyReadinessSnapshotMock).not.toHaveBeenCalled();
   });
 
-  it("treats reinstall auto-start cancellation as a completed stopped service", async () => {
+  it("propagates reinstall auto-start cancellation instead of reporting completion", async () => {
     const teardownMock = vi.fn().mockResolvedValue({
       removed: true,
       stopSignal: "SIGTERM",
@@ -1167,13 +1168,12 @@ describe("openmeld service commands", () => {
     );
 
     expect(result).toEqual({
-      ok: true,
-      result: "completed",
-      backupDataPath: null,
-      desiredState: "background",
-      forceUsed: false,
-      serviceState: "stopped",
+      ok: false,
+      result: "cancelled",
     });
+    expect(runRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({ entryChecksHandled: true })
+    );
   });
 
   it("maps reinstall auto-start cleanup_required to start_blocked", async () => {
@@ -2166,8 +2166,11 @@ describe("openmeld service commands", () => {
 
       expect(runRunMock).toHaveBeenCalledWith({
         agentOverviewHandled: true,
+        entryChecksHandled: true,
+        gatewayUrl: undefined,
         mode: "background",
         outputMode: "silent",
+        profile: undefined,
         suppressStartSpinner: true,
         view: "agent",
       });

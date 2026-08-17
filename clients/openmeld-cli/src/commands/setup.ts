@@ -45,7 +45,7 @@ import { resolveControllingTerminalSession } from "../ui/controlling-terminal";
 import { renderInfoCard } from "../ui/info-card";
 import {
   emitSetupHumanHeader,
-  runWithSetupSpinner,
+  runWithSetupProgress,
 } from "../ui/setup-human-view";
 import { formatTerminalHyperlink } from "../ui/terminal-hyperlink";
 import { runAuthLogin } from "./auth";
@@ -166,7 +166,7 @@ async function runSetupUnlocked(input: {
   // This is the Phase 2 local entry for humans and agents. It establishes the
   // local service session, reports local runtime capabilities, and emits the
   // setup.complete fact that follow-up Space/profile commands must use.
-  const initialReadiness = await runWithSetupSpinner({
+  const initialReadiness = await runWithSetupProgress({
     code: "setup.progress.local_agents.checking",
     completionMessage: "Local agents checked.",
     message: setupCopy.cliProgressCheckingLocalAgents,
@@ -212,7 +212,7 @@ async function runSetupUnlocked(input: {
 
   if (selectedLocalAgentIds.length > 0) {
     assertStartLocalAgentsEnableCompleted(
-      await runWithSetupSpinner({
+      await runWithSetupProgress({
         code: "setup.progress.local_agents.enabling",
         completionMessage: "Local agents connected.",
         message: setupCopy.cliProgressConnectingLocalAgents,
@@ -234,7 +234,7 @@ async function runSetupUnlocked(input: {
   // not force-reinstall a healthy running service.
   const expectedOwnerUserId = await getCurrentAuthOwnerUserId();
   const forceServiceRefresh = shouldForceSetupServiceRefresh();
-  const serviceGate = await runWithSetupSpinner({
+  const serviceGate = await runWithSetupProgress({
     code: "setup.progress.service.starting",
     completionMessage: "Background service prepared.",
     message: setupCopy.cliProgressStartingService,
@@ -302,7 +302,7 @@ async function runSetupUnlocked(input: {
         })
       : null;
 
-  await runWithSetupSpinner({
+  await runWithSetupProgress({
     code: "setup.progress.skills.updating",
     completionMessage: "OpenMeld skills ready.",
     message: setupCopy.cliProgressUpdatingSkills,
@@ -313,7 +313,7 @@ async function runSetupUnlocked(input: {
         view: input.view,
       }),
   });
-  const localComponents = await runWithSetupSpinner({
+  const localComponents = await runWithSetupProgress({
     code: "setup.progress.local_components.snapshot",
     completionMessage: "Local component status saved.",
     message: "Saving local component status",
@@ -611,7 +611,7 @@ async function emitSetupCompleteForDelegatedPath(input: {
     });
   }
   const setupCopy = getSetupFlowCopy("setup");
-  await runWithSetupSpinner({
+  await runWithSetupProgress({
     code: "setup.progress.skills.updating",
     completionMessage: "OpenMeld skills ready.",
     message: setupCopy.cliProgressUpdatingSkills,
@@ -622,7 +622,7 @@ async function emitSetupCompleteForDelegatedPath(input: {
       }),
     runtime,
   });
-  const localComponents = await runWithSetupSpinner({
+  const localComponents = await runWithSetupProgress({
     code: "setup.progress.local_components.snapshot",
     completionMessage: "Local component status saved.",
     message: "Saving local component status",

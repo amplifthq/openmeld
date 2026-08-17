@@ -1,4 +1,3 @@
-import { stripVTControlCharacters } from "node:util";
 import {
   afterEach,
   beforeEach,
@@ -74,7 +73,7 @@ describe("setup progress reporter", () => {
     });
   });
 
-  it("renders human TTY setup progress through one spinner lifecycle", () => {
+  it("keeps human setup progress static when the terminal may open prompts", () => {
     setProcessStdoutProperty("isTTY", true);
     setProcessStdoutProperty("columns", 80);
     const presenter = buildPresenter("human");
@@ -87,28 +86,25 @@ describe("setup progress reporter", () => {
       code: "setup.progress.service.starting",
       text: "Preparing OpenMeld Service.",
     });
-    vi.advanceTimersByTime(250);
     step.detail({
       code: "setup.progress.service.identity",
       text: "Saving this computer's OpenMeld Service identity.",
     });
     step.complete("OpenMeld Service is running.");
 
-    expect(stdoutWriteSpy).toHaveBeenCalledTimes(3);
-    expect(stdoutChunks[0]).toContain("Preparing OpenMeld Service...");
-    expect(stdoutChunks[1]).toContain(
-      "Saving this computer's OpenMeld Service identity..."
-    );
-    expect(stdoutChunks.at(-1)).toBe("\r\x1B[2K");
-    expect(stripTerminalControls(stdoutChunks.join(""))).not.toContain(
-      "OpenMeld Service is running."
-    );
-    for (const chunk of stdoutChunks) {
-      expect(chunk).not.toContain("\n");
-    }
+    expect(stdoutWriteSpy).not.toHaveBeenCalled();
+    expect(stdoutChunks).toEqual([]);
+    expect(presenter.line).toHaveBeenNthCalledWith(1, {
+      code: "setup.progress.service.starting",
+      text: "• Preparing OpenMeld Service...",
+    });
+    expect(presenter.line).toHaveBeenNthCalledWith(2, {
+      code: "setup.progress.service.identity",
+      text: "  Saving this computer's OpenMeld Service identity...",
+    });
     expect(presenter.line).toHaveBeenCalledWith({
       code: "setup.progress.service.starting.completed",
-      text: "✓ OpenMeld Service is running. · 0.3s",
+      text: "✓ OpenMeld Service is running.",
     });
   });
 
@@ -289,8 +285,4 @@ function restoreProcessStdoutProperty(
     return;
   }
   Reflect.deleteProperty(process.stdout, key);
-}
-
-function stripTerminalControls(value: string): string {
-  return stripVTControlCharacters(value).replaceAll("\r", "");
 }

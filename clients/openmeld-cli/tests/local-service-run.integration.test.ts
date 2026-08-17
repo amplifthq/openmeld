@@ -1910,6 +1910,36 @@ describe("openmeld service run command", () => {
     expect(result).toBe("started");
   });
 
+  it("does not reopen command-entry authentication during an internal background-start decision", async () => {
+    runtimeContext = {
+      resolvedView: "human",
+      interactive: true,
+    };
+    getAuthSessionStateMock.mockResolvedValue({
+      state: "missing",
+      session: null,
+    });
+    getObservedDaemonRuntimeStatusMock.mockResolvedValue({
+      status: "running",
+      mode: "background",
+      pid: 777,
+      startedAt: "2026-03-06T00:00:00.000Z",
+      updatedAt: "2026-03-06T00:00:00.000Z",
+      managedBySystemService: false,
+      serviceController: "legacy-detached",
+      autoStart: false,
+    });
+    selectMock.mockResolvedValueOnce("__command_auth_cancel__");
+
+    const result = await runDaemonBackgroundStartForDecision({
+      view: "human",
+    });
+
+    expect(result).toBe("started");
+    expect(getAuthSessionStateMock).not.toHaveBeenCalled();
+    expect(selectMock).not.toHaveBeenCalled();
+  });
+
   it("runs foreground loop when detached runtime marker is set", async () => {
     const previousDetachedFlag =
       process.env[DAEMON_SERVICE_RUNTIME_DETACHED_ENV];

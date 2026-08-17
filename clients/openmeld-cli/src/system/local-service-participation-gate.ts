@@ -651,13 +651,10 @@ async function runDaemonServiceParticipationRefresh(input: {
         forceRefresh: input.input.forceRefresh,
       }),
     });
-    if (
-      refreshOutcome.ok &&
-      (refreshOutcome.result === "already_healthy" ||
-        refreshOutcome.result === "completed" ||
-        refreshOutcome.result === "stopped_safe") &&
-      refreshOutcome.serviceState === "stopped"
-    ) {
+    if (isCancelledDaemonServiceRefresh(refreshOutcome)) {
+      return { status: "cancelled" };
+    }
+    if (isStoppedDaemonServiceRefresh(refreshOutcome)) {
       const startResult = await runDaemonBackgroundStartForParticipation({
         openMeldProfileId: input.input.openMeldProfileId,
         gatewayUrl: input.input.gatewayUrl,
@@ -892,6 +889,27 @@ function resolveDaemonServiceParticipationCodePrefix(
     default:
       throw new Error(`Unknown local service participation intent: ${intent}`);
   }
+}
+
+function isCancelledDaemonServiceRefresh(
+  outcome: Awaited<ReturnType<typeof runDaemonServiceSafeRefresh>>
+): boolean {
+  return !outcome.ok && outcome.result === "cancelled";
+}
+
+function isStoppedDaemonServiceRefresh(
+  outcome: Awaited<ReturnType<typeof runDaemonServiceSafeRefresh>>
+): outcome is Extract<
+  Awaited<ReturnType<typeof runDaemonServiceSafeRefresh>>,
+  { ok: true; serviceState: "stopped" }
+> {
+  return (
+    outcome.ok &&
+    (outcome.result === "already_healthy" ||
+      outcome.result === "completed" ||
+      outcome.result === "stopped_safe") &&
+    outcome.serviceState === "stopped"
+  );
 }
 
 function shouldStartAfterDaemonInstall(

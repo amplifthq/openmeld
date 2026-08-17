@@ -28,6 +28,14 @@ const DISCLAIMER_PROMPT_SMOKE_ENTRY = path.join(
   "fixtures",
   "disclaimer-prompt-binary-smoke.ts"
 );
+const SETUP_PROGRESS_PROMPT_SMOKE_ENTRY = path.join(
+  REPO_ROOT,
+  "clients",
+  "openmeld-cli",
+  "tests",
+  "fixtures",
+  "setup-progress-prompt-binary-smoke.ts"
+);
 const CANARY_LAUNCHD_LABEL = "com.openmeld.openmeld-background-service.canary";
 
 async function main() {
@@ -63,6 +71,7 @@ async function main() {
       label: "managed binary version smoke",
     });
     runInteractivePromptBinarySmoke({ tempRoot });
+    runSetupProgressPromptBinarySmoke({ tempRoot });
     runDisclaimerPromptBinarySmoke({ tempRoot, openMeldHome });
     await runBinaryServiceLifecycleSmoke({
       built,
@@ -384,6 +393,125 @@ function runDisclaimerPromptBinarySmoke(input) {
     throw new Error(
       [
         `disclaimer prompt binary smoke failed with exit ${result.status}`,
+        result.stdout,
+        result.stderr,
+      ].join("\n")
+    );
+  }
+}
+
+function runSetupProgressPromptBinarySmoke(input) {
+  process.stdout.write(
+    "[cli:binary:smoke] setup progress + prompt PTY smoke\n"
+  );
+  if (process.platform !== "darwin") {
+    process.stdout.write(
+      "[cli:binary:smoke] skipped setup progress + prompt smoke outside darwin\n"
+    );
+    return;
+  }
+  const outFile = path.join(input.tempRoot, "setup-progress-prompt-smoke");
+  const buildResult = spawnSync(
+    "bun",
+    buildBunCompileArgs({
+      bunTarget: SUPPORTED_CLI_BINARY_PLATFORMS["darwin-arm64"],
+      entry: SETUP_PROGRESS_PROMPT_SMOKE_ENTRY,
+      outFile,
+    }),
+    {
+      cwd: REPO_ROOT,
+      env: process.env,
+      stdio: "inherit",
+    }
+  );
+  if (buildResult.error) {
+    throw buildResult.error;
+  }
+  if (buildResult.status !== 0) {
+    throw new Error(
+      `setup progress prompt binary smoke build failed with exit ${buildResult.status}`
+    );
+  }
+
+  runSetupProgressPromptExpect({
+    expectScript: [
+      "set timeout 8",
+      "set binary $env(OPENMELD_SETUP_PROMPT_SMOKE_BINARY)",
+      'spawn sh -c "$binary < /dev/tty"',
+      "stty rows 40 columns 120",
+      "expect {",
+      "  -re {LINE:.*Preparing OpenMeld Service} {}",
+      "  timeout { exit 3 }",
+      "  eof { exit 4 }",
+      "}",
+      "expect {",
+      "  -re {What do you want to do\\?} {}",
+      "  timeout { exit 3 }",
+      "  eof { exit 4 }",
+      "}",
+      'send "\\r"',
+      "expect {",
+      '  -re {RESULT:\\{"status":"selected","choice":"sign_in"\\}} {}',
+      "  timeout { exit 3 }",
+      "  eof { exit 4 }",
+      "}",
+      "expect eof",
+      "set waitStatus [wait]",
+      "if {[lindex $waitStatus 3] != 0} { exit 5 }",
+      "exit 0",
+    ].join("\n"),
+    outFile,
+    scenario: "selection",
+  });
+  runSetupProgressPromptExpect({
+    expectScript: [
+      "set timeout 8",
+      "set binary $env(OPENMELD_SETUP_PROMPT_SMOKE_BINARY)",
+      'spawn sh -c "$binary < /dev/tty"',
+      "stty rows 40 columns 120",
+      "expect {",
+      "  -re {LINE:.*Preparing OpenMeld Service} {}",
+      "  timeout { exit 3 }",
+      "  eof { exit 4 }",
+      "}",
+      "expect {",
+      "  -re {What do you want to do\\?} {}",
+      "  timeout { exit 3 }",
+      "  eof { exit 4 }",
+      "}",
+      'send "\\003"',
+      "expect {",
+      '  -re {RESULT:\\{"status":"cancelled"\\}} {}',
+      "  timeout { exit 3 }",
+      "  eof { exit 4 }",
+      "}",
+      "expect eof",
+      "set waitStatus [wait]",
+      "if {[lindex $waitStatus 3] != 0} { exit 5 }",
+      "exit 0",
+    ].join("\n"),
+    outFile,
+    scenario: "Ctrl+C cancellation",
+  });
+}
+
+function runSetupProgressPromptExpect(input) {
+  const result = spawnSync("expect", ["-c", input.expectScript], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      OPENMELD_SETUP_PROMPT_SMOKE_BINARY: input.outFile,
+    },
+    timeout: 15_000,
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      [
+        `setup progress prompt ${input.scenario} smoke failed with exit ${result.status}`,
         result.stdout,
         result.stderr,
       ].join("\n")

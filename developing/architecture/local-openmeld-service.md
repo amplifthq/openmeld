@@ -1247,6 +1247,11 @@ membership, Core readiness, a concrete Wake execution, and trace diagnostics.
 Repair succeeds only for the component it repairs. It must not claim success
 just because a process started, local files were rewritten, or inventory was
 detected, and it must not project service health as final Wake availability.
+The top-level command entry owns interactive authentication. Nested lifecycle
+and background-start operations run only after that entry decision and must not
+open another authentication prompt. A cancelled start remains `cancelled`; it
+must never be normalized into a completed-but-stopped repair or trigger an
+automatic retry loop.
 Repair first compares the intended bundle, service-manager registration,
 runtime contract, saved desired state, and effective running state. When those
 facts are already aligned, repair succeeds without stopping or rewriting the
