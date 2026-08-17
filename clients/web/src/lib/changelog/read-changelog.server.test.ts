@@ -27,11 +27,17 @@ describe("Web Changelog server reader", () => {
 			readChangelogFromGateway({
 				fetchImpl,
 				gatewayUrl: "https://gateway.openmeld.test",
-				query: { limit: 10, offset: 20 },
+				query: {
+					areas: ["web", "center-agent"],
+					kinds: ["new", "fixed"],
+					limit: 10,
+					offset: 20,
+					since: "2026-08-01",
+				},
 			})
 		).resolves.toEqual(RESPONSE);
 		expect(fetchImpl).toHaveBeenCalledExactlyOnceWith(
-			"https://gateway.openmeld.test/v1/changelog?limit=10&offset=20",
+			"https://gateway.openmeld.test/v1/changelog?area=web&area=center-agent&kind=new&kind=fixed&limit=10&offset=20&since=2026-08-01",
 			expect.objectContaining({
 				method: "GET",
 			})

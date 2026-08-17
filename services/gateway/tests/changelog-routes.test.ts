@@ -114,8 +114,9 @@ describe("Changelog routes", () => {
     await expect(response.json()).resolves.toMatchObject({
       ok: false,
       error: {
-        code: "changelog.source_unavailable",
+        code: "upstream_error",
         message: "The official OpenMeld Changelog is temporarily unavailable.",
+        upstreamCode: "changelog.source_unavailable",
       },
     });
   });

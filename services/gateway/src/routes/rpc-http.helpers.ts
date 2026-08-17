@@ -122,7 +122,6 @@ const DIRECT_GATEWAY_ERROR_CODES = [
   "invalid_space_id",
   "invalid_device_id",
   "auth.unauthenticated",
-  "changelog.source_unavailable",
   "connected_computer.enrollment_invalid",
   "device.forgotten",
   "profile.not_found",
