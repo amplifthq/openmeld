@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-17T05:25:47.982Z",
+  "updatedAt": "2026-08-17T09:50:29.491Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.61",
+      "packageVersion": "0.3.62",
       "updatePolicy": "available",
-      "reason": "Publish the shared Changelog contracts used by Center Agent answers."
+      "reason": "Ship transient, zero-retention Slack public-message context for Center Agent."
     },
     "service": {
-      "bundleHash": "78a2e5c590e4e68d6a1dc238fe0a604160d6bf9ca2fffe0903cd6ff1cef49d4f",
-      "bundleVersion": "0.3.61",
+      "bundleHash": "98bb91b07d41c5a3e0b5f59e6a29ef56f74266cee41348ae091d94dda0f4d359",
+      "bundleVersion": "0.3.62",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Publish the shared Changelog contracts used by Center Agent answers."
+      "reason": "Ship transient, zero-retention Slack public-message context for Center Agent."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Publish the shared Changelog contracts used by Center Agent answers."
+      "reason": "Ship transient, zero-retention Slack public-message context for Center Agent."
     }
   }
 }
