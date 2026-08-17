@@ -95,6 +95,7 @@ import type {
   CenterAgentWakeAgentProfilesInSpaceResponse,
   CenterAgentWatchAgentTaskResponse,
   CenterAgentWipeMemberMemoryResponse,
+  ChangelogQueryResponse,
   ConnectorAppRequestListResponse,
   ConnectorAppRequestResponse,
   ConnectorConnection,
@@ -581,6 +582,7 @@ import {
   type ReadAgentActivitySnapshotInput,
   type ReadAgentActivityStatsInput,
   type ReadCenterAgentOrganizationMemoryPolicyInput,
+  type ReadChangelogInput,
   type ReadComputerFileAccessPolicyInput,
   type ReadCurrentOrganizationFeedbackReportingPolicyInput,
   type ReadOrganizationInformationProtectionPolicyInput,
@@ -754,6 +756,7 @@ import {
   rpcReadAgentActivitySnapshot,
   rpcReadAgentActivityStats,
   rpcReadCenterAgentOrganizationMemoryPolicy,
+  rpcReadChangelog,
   rpcReadComputerFileAccessPolicy,
   rpcReadCurrentOrganizationFeedbackReportingPolicy,
   rpcReadOrganizationInformationProtectionPolicy,
@@ -1358,6 +1361,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   getModelCatalog(): GetModelCatalogResponse {
     return readModelCatalog();
+  }
+
+  readChangelog(input: ReadChangelogInput): Promise<ChangelogQueryResponse> {
+    return rpcReadChangelog(this.env, input);
   }
 
   inspectDbState(): DbFactSnapshot {
@@ -2691,6 +2698,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 
   getModelCatalog(): GetModelCatalogResponse {
     return super.getModelCatalog();
+  }
+
+  readChangelog(input: ReadChangelogInput): Promise<ChangelogQueryResponse> {
+    return super.readChangelog(input);
   }
 
   listAccountSpaces(

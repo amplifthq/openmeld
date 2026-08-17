@@ -34,6 +34,7 @@ const PREPARE_TERMINAL_STEP_ROUTE_PATTERN =
 const PREPARE_STREAM_ROUTE_PATTERN =
   /^\/v1\/prepare\/sessions\/[^/]+\/stream$/u;
 const MODEL_CATALOG_ROUTE = "/v1/config/model-catalog";
+const PUBLIC_CHANGELOG_ROUTE = "/v1/changelog";
 const PUBLIC_ORGANIZATION_LOGO_ROUTE_PATTERN =
   /^\/v1\/organization-logos\/[a-zA-Z0-9_-]+\/[0-9a-fA-F-]+\.webp$/u;
 const PUBLIC_ACCOUNT_AVATAR_ROUTE_PATTERN =
@@ -41,6 +42,10 @@ const PUBLIC_ACCOUNT_AVATAR_ROUTE_PATTERN =
 
 export const gatewayAuthMiddleware = createMiddleware<HonoBindings>(
   async (c, next) => {
+    if (isPublicChangelogRequest(c.req.raw)) {
+      await next();
+      return;
+    }
     if (isPublicIdentityImageRequest(c.req.raw)) {
       await next();
       return;
@@ -169,6 +174,13 @@ export const gatewayAuthMiddleware = createMiddleware<HonoBindings>(
     await next();
   }
 );
+
+function isPublicChangelogRequest(request: Request): boolean {
+  return (
+    request.method === "GET" &&
+    new URL(request.url).pathname === PUBLIC_CHANGELOG_ROUTE
+  );
+}
 
 async function enforceSpacePasswordRateLimit(
   c: Context<HonoBindings>,

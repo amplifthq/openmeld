@@ -559,6 +559,11 @@ describe("LandingPage", () => {
 		expect(experimentalLabel.className).toContain("text-amber-600");
 		expect(
 			within(footer as HTMLElement)
+				.getByRole("link", { name: "Changelog" })
+				.getAttribute("href")
+		).toBe("/changelog");
+		expect(
+			within(footer as HTMLElement)
 				.getByRole("link", { name: "Guide for your agents" })
 				.getAttribute("href")
 		).toBe("/agent-interface");
