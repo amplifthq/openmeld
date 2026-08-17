@@ -6,7 +6,7 @@
     "ultracite/biome/next"
   ],
   "files": {
-    "includes": ["!!**/.claude/worktrees"]
+    "includes": ["!changelog/index.json", "!!**/.claude/worktrees"]
   },
   "linter": {
     "rules": {
