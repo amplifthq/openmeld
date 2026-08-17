@@ -11,6 +11,7 @@ import type {
   AuthRpcResolveOrganizationAccountIdentityResult,
   RemoteAgentCoreCallbackBody,
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
+  RemoteAgentTransientSlackContextRequest,
   RemoteAgentWorkerSubmitTurnRequest,
 } from "@openmeld/schemas/types";
 import type { UsersInfoResponse } from "@slack/web-api";
@@ -31,7 +32,10 @@ import {
 } from "../src/remote-agent/application/slack-client";
 import { buildRemoteAgentSlackConversationId } from "../src/remote-agent/application/slack-conversation-id";
 import { digestSlackIdentityLinkToken } from "../src/remote-agent/application/slack-identity-link-token";
-import { decryptSlackSearchAuthorization } from "../src/remote-agent/application/slack-search-authorization";
+import {
+  decryptSlackSearchAuthorization,
+  encryptSlackSearchAuthorization,
+} from "../src/remote-agent/application/slack-search-authorization";
 import {
   processRemoteAgentSlackEvent,
   runSlackChannelIntroductionTick,
@@ -57,6 +61,7 @@ import {
 } from "../src/remote-agent/infrastructure/d1/slack-user-identity-link-repo";
 import { upsertRemoteAgentSlackWorkspaceBinding } from "../src/remote-agent/infrastructure/d1/slack-workspace-binding-repo";
 import {
+  rpcCenterAgentReadTransientSlackSearch,
   rpcConnectCenterAgentSlackWorkspace,
   rpcConsumeSlackIdentityLink,
   rpcPreviewSlackIdentityLink,
@@ -1234,6 +1239,335 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
+  it("publishes transient Slack evidence directly in the DM without creating a durable turn", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn();
+    const workerResolveTransient = vi.fn(
+      async (_request: RemoteAgentTransientSlackContextRequest) => ({
+        outcome: "answered" as const,
+        text: "I checked your public Slack messages and found a clear onboarding focus.",
+        v: 1 as const,
+      })
+    );
+    const cryptoKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    const fetchMock = stubSlackFetch({
+      conversationsInfoResponse: {
+        channel: { id: "D123", is_im: true },
+        ok: true,
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, {
+            cryptoKey,
+            workerResolveTransient,
+            workerSubmit,
+          }),
+          createDirectMessagePayload({
+            actionToken: "dm-action-token",
+            text: "What have you learned about how I work?",
+          })
+        )
+      ).resolves.toEqual({ status: "replied" });
+
+      expect(workerSubmit).not.toHaveBeenCalled();
+      expect(workerResolveTransient).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: "org_1",
+          requestText: "What have you learned about how I work?",
+          requester: expect.objectContaining({
+            displayName: "Ari Human",
+            memberId: "member_1",
+            slackUserId: "U123",
+            userId: "user_member",
+          }),
+          searchAuthorization: {
+            encryptedAuthorization:
+              expect.not.stringContaining("dm-action-token"),
+          },
+          v: 1,
+        })
+      );
+      expect(readSlackPostBodies(fetchMock)).toEqual([
+        expect.objectContaining({
+          channel: "D123",
+          metadata: {
+            event_payload: {
+              slack_event_key: "remote-agent-slack:T123:EvDm123",
+            },
+            event_type: "openmeld_transient_slack_context",
+          },
+          text: expect.stringContaining("I checked"),
+        }),
+      ]);
+      expect(readSlackPostBodies(fetchMock)[0]).not.toHaveProperty("thread_ts");
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        expect.stringContaining("/conversations.history"),
+        expect.anything()
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("reconciles a transient Slack reply by metadata only when Slack retries the event", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerResolveTransient = vi.fn();
+    const fetchMock = stubSlackFetch({
+      conversationsHistoryResponse: {
+        messages: [
+          {
+            metadata: {
+              event_payload: {
+                slack_event_key: "remote-agent-slack:T123:EvDmRetry123",
+              },
+              event_type: "openmeld_transient_slack_context",
+            },
+            text: "I already answered with Slack evidence.",
+            ts: "1710000001.000200",
+          },
+        ],
+        ok: true,
+        response_metadata: { next_cursor: "" },
+      },
+      conversationsInfoResponse: {
+        channel: { id: "D123", is_im: true },
+        ok: true,
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, {
+            cryptoKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            workerResolveTransient,
+          }),
+          createDirectMessagePayload({
+            actionToken: "dm-action-token",
+            eventId: "EvDmRetry123",
+          }),
+          { queueAttempts: 2 }
+        )
+      ).resolves.toEqual({ status: "replied" });
+
+      expect(workerResolveTransient).not.toHaveBeenCalled();
+      expect(readSlackPostBodies(fetchMock)).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/conversations.history"),
+        expect.anything()
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("returns bounded Slack evidence with nearby context without logging message content", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    seedCenterAgentOwnerMembership(harness);
+    const cryptoKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    const rawMessage =
+      "Ari led the launch review and resolved the rollout risk.";
+    const rawContext = "Morgan confirmed the revised launch plan.";
+    const infoSpy = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+    const fetchMock = stubSlackFetch({
+      assistantSearchResponse: {
+        ok: true,
+        results: {
+          messages: [
+            {
+              author_name: "Ari",
+              author_user_id: "U123",
+              channel_id: "C_PRODUCT",
+              channel_name: "product",
+              content: rawMessage,
+              context_messages: {
+                after: [],
+                before: [
+                  {
+                    author_name: "Morgan",
+                    is_author_bot: false,
+                    text: rawContext,
+                    ts: "1710000000.000050",
+                    user_id: "U456",
+                  },
+                ],
+              },
+              is_author_bot: false,
+              message_ts: "1710000000.000100",
+              permalink:
+                "https://openmeld-labs.slack.com/archives/C_PRODUCT/p1710000000000100",
+              team_id: "T123",
+            },
+          ],
+        },
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      const encryptedAuthorization = await encryptSlackSearchAuthorization({
+        actionToken: "dm-action-token",
+        cryptoKey,
+        memberId: "member_1",
+        openMeldUserId: "user_member",
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserId: "U123",
+        sourceChannelId: "D123",
+        sourceThreadTs: "1710000000.000100",
+      });
+
+      await expect(
+        rpcCenterAgentReadTransientSlackSearch(
+          buildEnv(harness.db, { cryptoKey }),
+          {
+            includeBots: false,
+            organizationId: "org_1",
+            query: "from:ari launch",
+            requestContext: buildTransientSlackRequestContext(),
+            requester: {
+              memberId: "member_1",
+              slackUserId: "U123",
+              userId: "user_member",
+            },
+            searchAuthorization: { encryptedAuthorization },
+            v: 1,
+          }
+        )
+      ).resolves.toEqual({
+        messages: [
+          expect.objectContaining({
+            content: rawMessage,
+            contextMessages: [expect.objectContaining({ content: rawContext })],
+          }),
+        ],
+        moreResultsAvailable: false,
+        status: "found",
+        v: 1,
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        expect.stringContaining("/assistant.search.context"),
+        expect.objectContaining({
+          body: expect.stringContaining('"include_context_messages":true'),
+        })
+      );
+      expect(JSON.stringify(infoSpy.mock.calls)).not.toContain(rawMessage);
+      expect(JSON.stringify(infoSpy.mock.calls)).not.toContain(rawContext);
+      expect(
+        harness.queryFirst<{
+          action: string;
+          onBehalfOfProfileId: string;
+          resourceId: string;
+          resourceType: string;
+        }>({
+          sql: `SELECT
+            action,
+            on_behalf_of_profile_id AS onBehalfOfProfileId,
+            resource_id AS resourceId,
+            resource_type AS resourceType
+          FROM center_agent_audit_journal
+          WHERE action = 'search_slack_messages'`,
+        })
+      ).toEqual({
+        action: "search_slack_messages",
+        onBehalfOfProfileId: "22222222-2222-4222-8222-222222222222",
+        resourceId: "T123",
+        resourceType: "slack_workspace",
+      });
+    } finally {
+      infoSpy.mockRestore();
+      harness.close();
+    }
+  });
+
+  it("rejects transient Slack evidence when the event authorization belongs to another Slack user", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    seedCenterAgentOwnerMembership(harness);
+    const cryptoKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      const encryptedAuthorization = await encryptSlackSearchAuthorization({
+        actionToken: "dm-action-token",
+        cryptoKey,
+        memberId: "member_1",
+        openMeldUserId: "user_member",
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserId: "U123",
+        sourceChannelId: "D123",
+        sourceThreadTs: "1710000000.000100",
+      });
+
+      await expect(
+        rpcCenterAgentReadTransientSlackSearch(
+          buildEnv(harness.db, { cryptoKey }),
+          {
+            includeBots: false,
+            organizationId: "org_1",
+            query: "from:ari launch",
+            requestContext: buildTransientSlackRequestContext(),
+            requester: {
+              memberId: "member_1",
+              slackUserId: "U999",
+              userId: "user_member",
+            },
+            searchAuthorization: { encryptedAuthorization },
+            v: 1,
+          }
+        )
+      ).resolves.toMatchObject({ status: "forbidden" });
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        expect.stringContaining("/assistant.search.context"),
+        expect.anything()
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
   it("keeps a Slack app DM reply inside the thread the user continued", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
@@ -1447,7 +1781,7 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
-  it("encrypts event-bound Slack search authorization for the submitted turn", async () => {
+  it("keeps event-bound Slack search authorization inside transient reasoning", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
@@ -1459,6 +1793,12 @@ describe("Remote Agent Slack signal service", () => {
       submissionId: "sub_slack_search",
     }));
     const cryptoKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    const workerResolveTransient = vi.fn(
+      async (_request: RemoteAgentTransientSlackContextRequest) => ({
+        outcome: "pass_through" as const,
+        v: 1 as const,
+      })
+    );
     stubSlackFetch({ email: "ari@example.test" });
 
     try {
@@ -1471,11 +1811,24 @@ describe("Remote Agent Slack signal service", () => {
 
       await expect(
         processRemoteAgentSlackEvent(
-          buildEnv(harness.db, { cryptoKey, workerSubmit }),
+          buildEnv(harness.db, {
+            cryptoKey,
+            workerResolveTransient,
+            workerSubmit,
+          }),
           createAppMentionPayload({ actionToken: "search-action-token" })
         )
       ).resolves.toEqual({ status: "processed" });
 
+      const transientRequest = workerResolveTransient.mock.calls[0]?.[0];
+      if (!transientRequest) {
+        throw new Error("expected a transient Slack context request");
+      }
+      expect(transientRequest.searchAuthorization).toEqual({
+        encryptedAuthorization: expect.not.stringContaining(
+          "search-action-token"
+        ),
+      });
       const submittedRequest = workerSubmit.mock.calls[0]?.[0] as {
         turnEnvelope: {
           trigger: {
@@ -1487,22 +1840,15 @@ describe("Remote Agent Slack signal service", () => {
       };
       const trigger = submittedRequest.turnEnvelope.trigger;
       expect(trigger).toMatchObject({
-        searchAuthorization: {
-          encryptedAuthorization: expect.not.stringContaining(
-            "search-action-token"
-          ),
-        },
         source: "slack",
         teamId: "T123",
       });
-      const searchAuthorization = trigger.searchAuthorization;
-      if (!searchAuthorization) {
-        throw new Error("expected encrypted Slack search authorization");
-      }
+      expect(trigger).not.toHaveProperty("searchAuthorization");
       await expect(
         decryptSlackSearchAuthorization({
           cryptoKey,
-          encryptedAuthorization: searchAuthorization.encryptedAuthorization,
+          encryptedAuthorization:
+            transientRequest.searchAuthorization.encryptedAuthorization,
         })
       ).resolves.toEqual({
         actionToken: "search-action-token",
@@ -5312,6 +5658,53 @@ function seedSlackOrganization(
   });
 }
 
+function seedCenterAgentOwnerMembership(
+  input: Parameters<typeof applyMigrationForTable>[0]
+) {
+  applyMigrationForTable(input, "center_agent_audit_journal");
+  input.run({
+    sql: "ALTER TABLE openmeld_profiles ADD COLUMN managed_role TEXT",
+  });
+  input.run({
+    params: [AGENT_PROFILE_ID],
+    sql: "UPDATE openmeld_profiles SET managed_role = 'center_agent' WHERE profile_id = ?",
+  });
+  input.run({
+    params: [
+      "user_owner",
+      "Center Agent Owner",
+      "owner@example.test",
+      1,
+      100,
+      100,
+    ],
+    sql: `
+      INSERT INTO users (
+        id,
+        name,
+        email,
+        email_verified,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?)
+    `,
+  });
+  input.run({
+    params: ["member_owner", "org_1", "user_owner", "owner", 100],
+    sql: `
+      INSERT INTO members (
+        id,
+        organization_id,
+        user_id,
+        role,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?)
+    `,
+  });
+}
+
 function buildEnv(
   db: D1Database,
   input: {
@@ -5319,6 +5712,7 @@ function buildEnv(
     ensureWorkspaceMember?: ReturnType<typeof vi.fn>;
     queueSend?: ReturnType<typeof vi.fn>;
     workerReconcile?: ReturnType<typeof vi.fn>;
+    workerResolveTransient?: ReturnType<typeof vi.fn>;
     workerSubmit?: ReturnType<typeof vi.fn>;
   } = {}
 ): CoreBindings {
@@ -5337,13 +5731,18 @@ function buildEnv(
         : {}),
     },
     OPENMELD_REMOTE_AGENT_WORKER:
-      input.workerSubmit || input.workerReconcile
+      input.workerSubmit ||
+      input.workerReconcile ||
+      input.workerResolveTransient
         ? {
             ...(input.workerReconcile
               ? { reconcileExecution: input.workerReconcile }
               : {}),
             ...(input.workerSubmit
               ? { submitConversationTurn: input.workerSubmit }
+              : {}),
+            ...(input.workerResolveTransient
+              ? { resolveTransientSlackContext: input.workerResolveTransient }
               : {}),
           }
         : undefined,
@@ -5577,6 +5976,7 @@ function buildSlackUsersInfoResponseWithout(
 }
 
 function stubSlackFetch(input: {
+  assistantSearchResponse?: Record<string, unknown>;
   chatEphemeralResponse?: Record<string, unknown>;
   chatPostError?: Error;
   chatPostResponse?: Record<string, unknown>;
@@ -5715,6 +6115,14 @@ function stubSlackFetch(input: {
       if (url.includes("/assistant.threads.setStatus")) {
         return Response.json(input.threadStatusResponse ?? { ok: true });
       }
+      if (url.includes("/assistant.search.context")) {
+        return Response.json(
+          input.assistantSearchResponse ?? {
+            ok: true,
+            results: { messages: [] },
+          }
+        );
+      }
       return Response.json({ error: "unknown_method", ok: false });
     }
   );
@@ -5778,6 +6186,22 @@ function buildHumanContext(
       requestId: "req_slack_link_test",
       openMeldProfileId:
         input.profileId ?? "22222222-2222-4222-8222-222222222222",
+    },
+  };
+}
+
+function buildTransientSlackRequestContext() {
+  return {
+    activeOrganizationId: "org_1",
+    actorContext: {
+      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+      callerPrincipalId: "user_owner",
+      openMeldProfileId: AGENT_PROFILE_ID,
+      ownerUserId: "user_owner",
+      profileHandle: "center-agent",
+      profileKind: "agent" as const,
+      profileName: "Center Agent",
+      requestId: "remote-agent-slack:T123:EvDm123:transient-slack-context",
     },
   };
 }
@@ -5846,6 +6270,7 @@ function createAppMentionPayload(
 
 function createDirectMessagePayload(
   overrides: {
+    actionToken?: string;
     eventId?: string;
     text?: string;
     threadTs?: string;
@@ -5866,6 +6291,7 @@ function createDirectMessagePayload(
       ts,
       channel: "D123",
       event_ts: ts,
+      ...(overrides.actionToken ? { action_token: overrides.actionToken } : {}),
       ...(overrides.threadTs ? { thread_ts: overrides.threadTs } : {}),
     },
   };

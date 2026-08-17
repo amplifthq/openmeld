@@ -419,29 +419,44 @@ Provider errors remain failures rather than empty successful results.
 ## Slack Real-time Search Evidence Boundary
 
 Slack Real-time Search is transient provider evidence for one user-initiated
-Slack turn. Core sends one bounded public-message query with the event-bound
-Slack action token, uses the normalized fields only to build a requester-only
-ephemeral Slack presentation, and returns only presentation status to the
-durable Remote Agent turn. Every displayed result links back to its Slack
-source. The model cannot claim it read or summarized the presented messages.
+Slack turn. Core encrypts the event-bound Slack action token and sends it with
+the exact Organization, designated Center Agent request context, verified
+member identity, requester Slack user id, and current request to the Remote
+Agent's stateless transient-context RPC. This path never enters a Flue Durable
+Object, conversation history, Memory, or Computer workspace.
 
-OpenMeld stores no result content, permalink list, cursor, plaintext action
-token, or provider response in D1, Remote Agent durable storage, Center Agent
-memory, Organization documents, logs, or diagnostics. The user request and
-model-selected bounded query remain ordinary durable conversation input; they
-are not Real-time Search response data and never enter the audit journal or
-Core logs. Core records one Center Agent audit row containing the action,
-represented requester, and Slack workspace identifier. The encrypted
-authorization may exist only inside the already-bounded turn envelope and is
-never rendered into the model prompt.
+The transient model decides whether workspace-wide evidence is useful. It may
+make at most six focused public-message searches. Each Core call returns at
+most eight normalized matches with up to four nearby context messages per
+match; the transient runtime deduplicates permalinks and admits at most sixteen
+total evidence items across the full reasoning loop. The Slack App does not
+need to join a public channel for this provider search. When evidence is used,
+the model answers the requester directly in first person and links the most
+useful claims to their Slack sources. When evidence is unnecessary or the
+request asks for a durable action, the transient path returns `pass_through`
+and the ordinary durable Center Agent turn owns the request.
 
-Authorization decryption or Organization/workspace/Slack-user/OpenMeld-member
-mismatch fails closed before a Slack search request. Provider rate limits,
-missing permission, expired authorization, and availability failures remain
-distinct model-visible statuses. An unavailable search must never be reported
-as an empty successful search. If Slack rejects the controlled Block Kit
-presentation before publication, Core retries the same requester-only
-presentation as plain text.
+OpenMeld stores no generated search query, result content, nearby context,
+permalink list, cursor, plaintext action token, provider response, or transient
+model prompt/answer in D1, Flue storage, Center Agent Memory, Organization
+Documents, Computer files, logs, or diagnostics. AI Gateway logging and
+payload logging are disabled for these model calls, gateway caching is skipped,
+and the OpenRouter request requires a zero-data-retention provider with data
+collection denied. A successful provider read records only the ordinary Center
+Agent audit action, represented requester, and Slack workspace identifier; its
+query and evidence never enter the audit row. The encrypted authorization and
+trusted request context exist only across the bounded Core-to-Remote-Agent RPC
+chain and are never model-controlled tool arguments.
+
+Authorization decryption or designated-Center-Agent, Organization, workspace,
+Slack-user, OpenMeld-member, or represented-profile mismatch fails closed
+before a Slack search request. Provider rate limits, missing permission,
+expired authorization, and availability failures remain distinct transient
+model-visible statuses. An unavailable search must never be reported as an
+empty successful search. The final Slack message carries deterministic
+OpenMeld metadata. An ordinary first delivery performs no reconciliation read;
+a Slack retry searches that message metadata before reasoning so a confirmed
+reply is never knowingly published twice.
 
 ## Weekly Evaluation Report Data Boundary
 

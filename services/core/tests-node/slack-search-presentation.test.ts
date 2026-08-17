@@ -11,6 +11,7 @@ describe("Slack search presentation", () => {
           channelId: "C_RELEASE",
           channelName: "release",
           content: "Ask <@U_TARGET> about A & B > C.",
+          contextMessages: [],
           isAuthorBot: false,
           messageTs: "1710000000.001",
           permalink:

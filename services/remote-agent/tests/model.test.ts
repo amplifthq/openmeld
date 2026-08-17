@@ -5,9 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
+  buildRemoteAgentZeroRetentionAiGatewayHeaders,
   DEFAULT_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID,
   DEFAULT_REMOTE_AGENT_AI_GATEWAY_BYOK_ALIAS,
   DEFAULT_REMOTE_AGENT_AI_GATEWAY_ID,
+  prepareRemoteAgentZeroRetentionOpenRouterPayload,
   REMOTE_AGENT_MAX_OUTPUT_TOKENS,
   REMOTE_AGENT_MODEL_DISPLAY_NAME,
   REMOTE_AGENT_OPENROUTER_MODEL_ID,
@@ -32,6 +34,35 @@ import xAiGrok45Model from "./fixtures/openrouter-model-x-ai-grok-4.5.json";
 import xAiGrok46Model from "./fixtures/openrouter-model-x-ai-grok-4.6.json";
 
 describe("remote agent model routing", () => {
+  it("disables provider logging and caching for transient Slack evidence", () => {
+    expect(
+      buildRemoteAgentZeroRetentionAiGatewayHeaders({
+        env: {
+          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+        },
+      })
+    ).toMatchObject({
+      "cf-aig-collect-log": "false",
+      "cf-aig-collect-log-payload": "false",
+      "cf-aig-skip-cache": "true",
+    });
+  });
+
+  it("restricts transient Slack evidence to zero-retention providers", () => {
+    expect(
+      prepareRemoteAgentZeroRetentionOpenRouterPayload({
+        messages: [{ content: "private Slack evidence", role: "user" }],
+        provider: { allow_fallbacks: false },
+      })
+    ).toMatchObject({
+      provider: {
+        allow_fallbacks: false,
+        data_collection: "deny",
+        zdr: true,
+      },
+      store: false,
+    });
+  });
   it("registers the bounded work-surface model from static metadata", async () => {
     let resolveRefresh: ((response: Response) => void) | undefined;
     const fetchModelMetadata = vi.fn(

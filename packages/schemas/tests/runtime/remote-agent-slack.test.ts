@@ -49,6 +49,7 @@ describe("Remote Agent Slack contracts", () => {
 
   it("accepts only human messages sent directly to the app", () => {
     const directMessage = {
+      action_token: "event-bound-search-token",
       type: "message",
       channel_type: "im",
       user: "U123",
@@ -60,6 +61,12 @@ describe("Remote Agent Slack contracts", () => {
     expect(
       remoteAgentSlackDirectMessageEventSchema.parse(directMessage)
     ).toEqual(directMessage);
+    expect(
+      remoteAgentSlackDirectMessageEventSchema.safeParse({
+        ...directMessage,
+        action_token: "x".repeat(4097),
+      }).success
+    ).toBe(false);
     expect(
       remoteAgentSlackDirectMessageEventSchema.safeParse({
         ...directMessage,

@@ -15,6 +15,7 @@ import {
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
 import { summarizeAgentActivityDigest } from "../agent-core/agent-activity-digest";
+import { runRemoteAgentTransientSlackContext } from "../agent-core/slack-transient-context";
 import {
   type CenterAgentNamespace,
   cancelExecutionInCenterAgent,
@@ -32,6 +33,14 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  async resolveTransientSlackContext(input: unknown) {
+    return await runRemoteAgentTransientSlackContext({
+      env: env as unknown as Parameters<
+        typeof runRemoteAgentTransientSlackContext
+      >[0]["env"],
+      request: input,
+    });
+  },
   async cancelExecution(input: unknown) {
     const namespace = env.FLUE_CENTER_AGENT_AGENT as CenterAgentNamespace;
     return await observeRemoteAgentRpc({

@@ -1,3 +1,4 @@
+import { REMOTE_AGENT_TRANSIENT_SLACK_CONTENT_MAX_CHARS } from "@openmeld/schemas";
 import { toSlackMrkdwn } from "./slack-mrkdwn";
 
 type FetchLike = typeof fetch;
@@ -76,6 +77,22 @@ type SlackApiResponse = {
       message_ts?: string | null;
       permalink?: string | null;
       team_id?: string | null;
+      context_messages?: {
+        after?: Array<{
+          author_name?: string | null;
+          is_author_bot?: boolean | null;
+          text?: string | null;
+          ts?: string | null;
+          user_id?: string | null;
+        }> | null;
+        before?: Array<{
+          author_name?: string | null;
+          is_author_bot?: boolean | null;
+          text?: string | null;
+          ts?: string | null;
+          user_id?: string | null;
+        }> | null;
+      } | null;
     }> | null;
   } | null;
   ts?: string;
@@ -99,6 +116,8 @@ const SLACK_API_BASE_URL = "https://slack.com/api";
 const SLACK_CHANNEL_LIST_PAGE_LIMIT = 200;
 const SLACK_CHANNEL_LIST_MAX_PAGES = 100;
 const SLACK_CHANNEL_NAME_PREFIX_PATTERN = /^#+/u;
+const SLACK_MESSAGE_TIMESTAMP_PATTERN = /^\d+\.\d+$/u;
+const SLACK_SEARCH_TRUNCATED_HIGH_SURROGATE_PATTERN = /[\uD800-\uDBFF]$/;
 const SLACK_THREAD_CONTEXT_PAGE_LIMIT = 15;
 const SLACK_WORKSPACE_MEMBER_PAGE_LIMIT = 200;
 const SLACKBOT_USER_ID = "USLACKBOT";
@@ -146,6 +165,7 @@ export type SlackSearchMessage = {
   channelId: string;
   channelName: string;
   content: string;
+  contextMessages: Omit<SlackSearchMessage, "contextMessages">[];
   isAuthorBot: boolean;
   messageTs: string;
   permalink: string;
@@ -371,6 +391,7 @@ export async function searchSlackPublicMessages(input: {
   botToken: string;
   fetchImpl?: FetchLike;
   includeBots: boolean;
+  includeContextMessages?: boolean;
   limit: number;
   query: string;
   signal?: AbortSignal;
@@ -386,7 +407,7 @@ export async function searchSlackPublicMessages(input: {
         channel_types: ["public_channel"],
         content_types: ["messages"],
         include_bots: input.includeBots,
-        include_context_messages: false,
+        include_context_messages: input.includeContextMessages ?? false,
         limit: input.limit,
         query: input.query,
       }),
@@ -399,42 +420,128 @@ export async function searchSlackPublicMessages(input: {
   assertSlackOk(response, data, "assistant.search.context");
   return {
     messages: (data.results?.messages ?? []).flatMap((message) => {
-      const authorName = normalizeOptionalText(message.author_name);
-      const authorUserId = normalizeOptionalText(message.author_user_id);
-      const channelId = normalizeOptionalText(message.channel_id);
-      const channelName = normalizeOptionalText(message.channel_name);
-      const content = normalizeOptionalText(message.content);
-      const messageTs = normalizeOptionalText(message.message_ts);
-      const permalink = normalizeSlackPermalink(message.permalink);
-      if (
-        !(
-          authorName &&
-          authorUserId &&
-          channelId &&
-          channelName &&
-          content &&
-          messageTs &&
-          permalink
-        )
-      ) {
+      const normalized = normalizeSlackSearchEvidenceItem(message);
+      if (!normalized) {
         return [];
       }
       return [
         {
-          authorName,
-          authorUserId,
-          channelId,
-          channelName,
-          content,
-          isAuthorBot: message.is_author_bot === true,
-          messageTs,
-          permalink,
+          ...normalized,
+          contextMessages: [
+            ...(message.context_messages?.before ?? []),
+            ...(message.context_messages?.after ?? []),
+          ]
+            .flatMap((contextMessage) => {
+              const context = normalizeSlackSearchContextEvidenceItem({
+                contextMessage,
+                parent: normalized,
+              });
+              return context ? [context] : [];
+            })
+            .slice(0, 4),
         },
       ];
     }),
     moreResultsAvailable: Boolean(
       normalizeOptionalText(data.response_metadata?.next_cursor)
     ),
+  };
+}
+
+function normalizeSlackSearchContextEvidenceItem(input: {
+  contextMessage: {
+    author_name?: string | null;
+    is_author_bot?: boolean | null;
+    text?: string | null;
+    ts?: string | null;
+    user_id?: string | null;
+  };
+  parent: Omit<SlackSearchMessage, "contextMessages">;
+}): Omit<SlackSearchMessage, "contextMessages"> | null {
+  const authorName = normalizeOptionalText(input.contextMessage.author_name);
+  const authorUserId = normalizeOptionalText(input.contextMessage.user_id);
+  const content = normalizeSlackSearchContent(input.contextMessage.text);
+  const messageTs = normalizeOptionalText(input.contextMessage.ts);
+  const permalink = messageTs
+    ? buildSlackContextMessagePermalink({
+        channelId: input.parent.channelId,
+        messageTs,
+        parentPermalink: input.parent.permalink,
+      })
+    : null;
+  if (!(authorName && authorUserId && content && messageTs && permalink)) {
+    return null;
+  }
+  return {
+    authorName,
+    authorUserId,
+    channelId: input.parent.channelId,
+    channelName: input.parent.channelName,
+    content,
+    isAuthorBot: input.contextMessage.is_author_bot === true,
+    messageTs,
+    permalink,
+  };
+}
+
+function buildSlackContextMessagePermalink(input: {
+  channelId: string;
+  messageTs: string;
+  parentPermalink: string;
+}): string | null {
+  if (!SLACK_MESSAGE_TIMESTAMP_PATTERN.test(input.messageTs)) {
+    return null;
+  }
+  try {
+    const parent = new URL(input.parentPermalink);
+    parent.pathname = `/archives/${encodeURIComponent(input.channelId)}/p${input.messageTs.replace(".", "")}`;
+    parent.search = "";
+    parent.hash = "";
+    return normalizeSlackPermalink(parent.toString());
+  } catch {
+    return null;
+  }
+}
+
+function normalizeSlackSearchEvidenceItem(message: {
+  author_name?: string | null;
+  author_user_id?: string | null;
+  channel_id?: string | null;
+  channel_name?: string | null;
+  content?: string | null;
+  is_author_bot?: boolean | null;
+  message_ts?: string | null;
+  permalink?: string | null;
+}): Omit<SlackSearchMessage, "contextMessages"> | null {
+  const authorName = normalizeOptionalText(message.author_name);
+  const authorUserId = normalizeOptionalText(message.author_user_id);
+  const channelId = normalizeOptionalText(message.channel_id);
+  const channelName = normalizeOptionalText(message.channel_name);
+  const content = normalizeSlackSearchContent(message.content);
+  const messageTs = normalizeOptionalText(message.message_ts);
+  const permalink = normalizeSlackPermalink(message.permalink);
+  if (
+    !(
+      authorName &&
+      authorUserId &&
+      channelId &&
+      channelName &&
+      content &&
+      messageTs &&
+      permalink
+    )
+  ) {
+    return null;
+  }
+  return {
+    authorName,
+    authorUserId,
+    channelId,
+    channelName,
+    content,
+    isAuthorBot: message.is_author_bot === true,
+    messageTs,
+    permalink,
   };
 }
 
@@ -1309,6 +1416,24 @@ function parseRetryAfterSeconds(value: string | null): number | null {
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeSlackSearchContent(value: unknown): string | null {
+  const normalized = normalizeOptionalText(value);
+  if (
+    !normalized ||
+    normalized.length <= REMOTE_AGENT_TRANSIENT_SLACK_CONTENT_MAX_CHARS
+  ) {
+    return normalized;
+  }
+  const body = normalized.slice(
+    0,
+    REMOTE_AGENT_TRANSIENT_SLACK_CONTENT_MAX_CHARS - 1
+  );
+  const safeBody = SLACK_SEARCH_TRUNCATED_HIGH_SURROGATE_PATTERN.test(body)
+    ? body.slice(0, -1)
+    : body;
+  return `${safeBody}…`;
 }
 
 function normalizeSlackPermalink(value: unknown): string | null {

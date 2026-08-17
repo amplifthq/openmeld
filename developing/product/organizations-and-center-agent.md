@@ -1536,7 +1536,19 @@ the lowest-cost safe next step. Before claiming any private invitation, Core
 also compares the selected Slack email with the current Auth-owned Organization
 directory using exact normalized email. Someone who is already a member is
 skipped, receives no redundant join message or onboarding, and the requester
-gets one short no-action confirmation. A channel
+gets one short no-action confirmation.
+
+In an ordinary verified Slack conversation, the Center Agent may also use
+Slack Real-time Search to answer a question such as "what have you learned
+about how I work?" from public workspace messages without first joining those
+channels. The reply speaks as the Center Agent in first person, says concretely
+what it searched, separates verified observations from gaps, and links useful
+claims back to Slack. This is a transient answer, not an automatic Profile
+Report or Memory write. A request to create or update durable knowledge passes
+to the separately governed member-research, Profile Report, Document, or Memory
+flow instead of silently saving Real-time Search evidence.
+
+A channel
 introduction starts in direct message: a native picker accepts at most five
 public channels, Core joins those channels when needed, and the Center Agent
 reads one bounded recent page before posting a short introduction grounded in
