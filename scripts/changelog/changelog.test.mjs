@@ -16,6 +16,8 @@ import {
   checkChangelog,
 } from "./changelog.mjs";
 
+const REPOSITORY_ROOT = path.resolve(import.meta.dirname, "../..");
+
 const createFixture = () => {
   const rootDirectory = mkdtempSync(path.join(tmpdir(), "openmeld-changelog-"));
   mkdirSync(path.join(rootDirectory, "changelog", "entries"), {
@@ -253,4 +255,13 @@ People can now complete a useful workflow.
   } finally {
     rmSync(rootDirectory, { force: true, recursive: true });
   }
+});
+
+test("keeps the generated machine projection under builder ownership", () => {
+  const biomeConfig = readFileSync(
+    path.join(REPOSITORY_ROOT, "biome.jsonc"),
+    "utf8"
+  );
+
+  assert.match(biomeConfig, /"!changelog\/index\.json"/u);
 });

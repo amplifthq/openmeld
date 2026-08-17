@@ -4,6 +4,8 @@ title: A shared Changelog workflow for coding agents
 kind: new
 areas: ["developer-experience"]
 audiences: ["contributors"]
+publishedAt: 2026-08-17
+evidence: ["pr:73", "commit:c6d12969c91aae7ebb3a95e976fbeaf49fa23b74"]
 ---
 
 OpenMeld contributors can record, validate, publish, and historically backfill
