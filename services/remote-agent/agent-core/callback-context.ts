@@ -44,6 +44,7 @@ import type {
   CenterAgentPauseRoutineToolRpcInput,
   CenterAgentPrepareRemoveProjectToolResponse,
   CenterAgentPrepareRemoveProjectToolRpcInput,
+  CenterAgentReadChangelogToolRpcInput,
   CenterAgentReadConnectorActionOperationBody,
   CenterAgentReadConnectorActionOperationResponse,
   CenterAgentReadMemberOpenMeldServiceStatusBody,
@@ -79,6 +80,7 @@ import type {
   CenterAgentUpdateProjectToolResponse,
   CenterAgentUpdateProjectToolRpcInput,
   CenterAgentUpdateRoutineToolRpcInput,
+  ChangelogQueryResponse,
   ConversationCompactionMarker,
   CreateCenterAgentRoutineResponse,
   CreateCenterAgentTaskResponse,
@@ -304,6 +306,9 @@ export type RemoteAgentCoreWorkerBinding = {
     input: CenterAgentReadOrganizationSkillsRpcInput
   ): Promise<CenterAgentReadOrganizationSkillsResponse>;
   centerAgentReadAgentActivity?(input: unknown): Promise<unknown>;
+  centerAgentReadChangelog?(
+    input: CenterAgentReadChangelogToolRpcInput
+  ): Promise<ChangelogQueryResponse>;
   centerAgentDeleteRoutine?(
     input: CenterAgentDeleteRoutineToolRpcInput
   ): Promise<DeleteCenterAgentRoutineResponse>;

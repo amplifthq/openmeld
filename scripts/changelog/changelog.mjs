@@ -16,6 +16,12 @@ const CHANGELOG_PATH = "CHANGELOG.md";
 const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const RELEASE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/+@-]*$/u;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
+const ENTRY_ID_MAX_CHARS = 120;
+const ENTRY_TITLE_MAX_CHARS = 240;
+const ENTRY_BODY_MAX_CHARS = 4000;
+const ENTRY_LIST_MAX_ITEMS = 10;
+const ENTRY_LIST_ITEM_MAX_CHARS = 120;
+const ENTRY_EVIDENCE_MAX_CHARS = 240;
 const ENTRY_FIELDS = new Set([
   "id",
   "title",
@@ -130,7 +136,12 @@ const isRealDate = (date) => {
   );
 };
 
-const validateStringList = (entry, fieldName, errors, { required, slugs }) => {
+const validateStringList = (
+  entry,
+  fieldName,
+  errors,
+  { itemMaxChars, required, slugs }
+) => {
   const values = entry[fieldName];
   if (values === undefined && !required) {
     return;
@@ -158,6 +169,17 @@ const validateStringList = (entry, fieldName, errors, { required, slugs }) => {
   if (new Set(values).size !== values.length) {
     errors.push(`${entry.filePath}: ${fieldName} must not contain duplicates`);
   }
+  if (values.length > ENTRY_LIST_MAX_ITEMS) {
+    errors.push(
+      `${entry.filePath}: ${fieldName} must contain at most ${ENTRY_LIST_MAX_ITEMS} items`
+    );
+  }
+  const oversizedValue = values.find((value) => value.length > itemMaxChars);
+  if (oversizedValue) {
+    errors.push(
+      `${entry.filePath}: ${fieldName} values must contain at most ${itemMaxChars} characters`
+    );
+  }
 };
 
 const isNonEmptyString = (value) =>
@@ -170,6 +192,11 @@ const validateIdentity = (entry, knownIds, errors) => {
   }
   if (!ID_PATTERN.test(entry.id)) {
     errors.push(`${entry.filePath}: id must be a lowercase slug`);
+  }
+  if (entry.id.length > ENTRY_ID_MAX_CHARS) {
+    errors.push(
+      `${entry.filePath}: id must contain at most ${ENTRY_ID_MAX_CHARS} characters`
+    );
   }
   const expectedId = path.posix.basename(entry.filePath, ".md");
   if (entry.id !== expectedId) {
@@ -186,23 +213,37 @@ const validateIdentity = (entry, knownIds, errors) => {
 const validateRequiredContent = (entry, errors) => {
   if (!isNonEmptyString(entry.title)) {
     errors.push(`${entry.filePath}: title must be a non-empty string`);
+  } else if (entry.title.length > ENTRY_TITLE_MAX_CHARS) {
+    errors.push(
+      `${entry.filePath}: title must contain at most ${ENTRY_TITLE_MAX_CHARS} characters`
+    );
   }
   if (!(isNonEmptyString(entry.kind) && ENTRY_KINDS.includes(entry.kind))) {
     errors.push(
       `${entry.filePath}: kind must be one of ${ENTRY_KINDS.join(", ")}`
     );
   }
-  validateStringList(entry, "areas", errors, { required: true, slugs: true });
+  validateStringList(entry, "areas", errors, {
+    itemMaxChars: ENTRY_LIST_ITEM_MAX_CHARS,
+    required: true,
+    slugs: true,
+  });
   validateStringList(entry, "audiences", errors, {
+    itemMaxChars: ENTRY_LIST_ITEM_MAX_CHARS,
     required: true,
     slugs: true,
   });
   validateStringList(entry, "evidence", errors, {
+    itemMaxChars: ENTRY_EVIDENCE_MAX_CHARS,
     required: false,
     slugs: false,
   });
   if (!entry.body) {
     errors.push(`${entry.filePath}: Markdown body is required`);
+  } else if (entry.body.length > ENTRY_BODY_MAX_CHARS) {
+    errors.push(
+      `${entry.filePath}: Markdown body must contain at most ${ENTRY_BODY_MAX_CHARS} characters`
+    );
   }
 };
 

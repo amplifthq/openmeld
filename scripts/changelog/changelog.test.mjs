@@ -257,6 +257,41 @@ People can now complete a useful workflow.
   }
 });
 
+test("keeps authored entries inside the shared runtime bounds", () => {
+  const rootDirectory = createFixture();
+  try {
+    writeEntry(
+      rootDirectory,
+      "oversized-entry",
+      entry({
+        id: "oversized-entry",
+        areas: JSON.stringify(
+          Array.from({ length: 11 }, (_, index) => `area-${index}`)
+        ),
+        body: "b".repeat(4001),
+        evidence: JSON.stringify(["e".repeat(241)]),
+        title: "t".repeat(241),
+      })
+    );
+
+    assert.throws(
+      () => buildChangelog(rootDirectory),
+      (error) =>
+        error instanceof ChangelogError &&
+        error.message.includes("areas must contain at most 10 items") &&
+        error.message.includes("title must contain at most 240 characters") &&
+        error.message.includes(
+          "Markdown body must contain at most 4000 characters"
+        ) &&
+        error.message.includes(
+          "evidence values must contain at most 240 characters"
+        )
+    );
+  } finally {
+    rmSync(rootDirectory, { force: true, recursive: true });
+  }
+});
+
 test("keeps the generated machine projection under builder ownership", () => {
   const biomeConfig = readFileSync(
     path.join(REPOSITORY_ROOT, "biome.jsonc"),

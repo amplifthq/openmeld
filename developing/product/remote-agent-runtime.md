@@ -1407,6 +1407,27 @@ surface adopts official features where they are free**:
   session, claim work, Wake an Agent Profile, or turn activity into execution
   authority. It remains available during interactive member and Routine turns.
 
+  The read-only `openmeld_read_changelog` tool uses the same verified current
+  human speaker or reauthorized delegated member path and a private Core RPC.
+  Core reads and validates the official GitHub-backed machine index; Remote
+  Agent never reads repository content directly and never receives a GitHub
+  token. The tool returns only published entries, with bounded date, area,
+  audience, kind, release, and result-count filters. It is available in Web,
+  Slack, other supported Message Channels, and Routine turns, including the
+  existing connected-member path. It does not require another Slack scope
+  because it neither reads Slack data nor publishes a message. The prompt uses
+  it for questions about what changed or what is newly available, but never as
+  roadmap, current Organization configuration, or deployment evidence beyond
+  the entry's own publication claim.
+
+  This is an additive shared-schema and private RPC rollout. Deploy Core's new
+  RPC receiver before Remote Agent exposes the tool. An old Remote Agent never
+  calls the method; a new Remote Agent against an old Core fails closed with an
+  explicit RPC-unavailable result and does not fall back to model memory.
+  Rollback removes the Remote Agent caller first. The tool reuses the existing
+  `documentation.read` work activity, so no new Web or local-component stream
+  contract is required.
+
   The Project tool family adds bounded cloud Project automation:
   `openmeld_list_projects`, `openmeld_create_project`,
   `openmeld_update_project`,

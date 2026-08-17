@@ -19,6 +19,9 @@ import {
   CENTER_AGENT_ROUTINE_TIMEZONE_MAX_CHARS,
   CENTER_AGENT_TASK_GOAL_MAX_CHARS,
   CENTER_AGENT_TASK_TITLE_MAX_CHARS,
+  CHANGELOG_ENTRY_KINDS,
+  CHANGELOG_QUERY_MAX_LIMIT,
+  CHANGELOG_QUERY_MAX_OFFSET,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
   centerAgentAddMembersToSpaceResponseSchema,
   centerAgentAuthorizeAnonymousMemberToolResponseSchema,
@@ -73,6 +76,7 @@ import {
   centerAgentUpdateSpaceSettingsResponseSchema,
   centerAgentWakeAgentProfilesInSpaceResponseSchema,
   centerAgentWatchAgentTaskResponseSchema,
+  changelogQueryResponseSchema,
   createCenterAgentRoutineResponseSchema,
   createCenterAgentTaskResponseSchema,
   deleteCenterAgentRoutineResponseSchema,
@@ -208,6 +212,30 @@ import type { RemoteAgentToolDefinition } from "./tool-definition";
 const nonEmptyStringSchema = pipe(string(), minLength(1));
 const optionalNonEmptyStringSchema = optional(nonEmptyStringSchema);
 const trimmedNonEmptyStringSchema = pipe(string(), trim(), minLength(1));
+const changelogFilterListInputSchema = pipe(
+  array(trimmedNonEmptyStringSchema),
+  minLength(1),
+  maxLength(20)
+);
+const readChangelogToolInputSchema = object({
+  areas: optional(changelogFilterListInputSchema),
+  audiences: optional(changelogFilterListInputSchema),
+  kinds: optional(
+    pipe(
+      array(picklist(CHANGELOG_ENTRY_KINDS)),
+      minLength(1),
+      maxLength(CHANGELOG_ENTRY_KINDS.length)
+    )
+  ),
+  limit: optional(
+    pipe(number(), integer(), minValue(1), maxValue(CHANGELOG_QUERY_MAX_LIMIT))
+  ),
+  offset: optional(
+    pipe(number(), integer(), minValue(0), maxValue(CHANGELOG_QUERY_MAX_OFFSET))
+  ),
+  release: optional(trimmedNonEmptyStringSchema),
+  since: optional(trimmedNonEmptyStringSchema),
+});
 const createSpaceCommonInputEntries = {
   guide: optionalNonEmptyStringSchema,
   name: optionalNonEmptyStringSchema,
@@ -896,6 +924,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_prepare_remove_project",
   "openmeld_remove_project",
   "openmeld_read_agent_activity",
+  "openmeld_read_changelog",
   "openmeld_read_center_agent_activity",
   "openmeld_read_space_context",
   "openmeld_read_dispatch_history",
@@ -2222,6 +2251,30 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         );
         return agentActivitySnapshotResponseSchema.parse(
           await rpc({ ...payload, ...toolContext })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_read_changelog",
+      description:
+        "Read the official published OpenMeld Changelog from its GitHub-backed machine index. Use this before answering what changed, what is new, or which recently released OpenMeld capabilities are available. You may filter by inclusive publication date, area, audience, kind, or exact release. Results are newest first; if hasMore is true, add the previous offset plus the number of returned entries to read the next page. Omit a filter rather than guessing an internal slug. This is published product history, not a roadmap or proof of current per-user configuration.",
+      input: readChangelogToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(readChangelogToolInputSchema, payload);
+        const toolContext = await buildOrganizationMemberToolContext({
+          missingSpeakerMessage:
+            "OpenMeld Changelog access requires a current Organization member speaker.",
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_changelog",
+        });
+        return changelogQueryResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentReadChangelog",
+            { ...request, ...toolContext },
+            (binding, rpcInput) => binding.centerAgentReadChangelog?.(rpcInput)
+          )
         );
       },
     }),

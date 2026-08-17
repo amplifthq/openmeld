@@ -4051,6 +4051,47 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_read_agent_activity",
     },
     {
+      expectedPayload: {
+        areas: ["channels", "center-agent"],
+        limit: 5,
+        offset: 10,
+        since: "2026-08-01",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: {
+        areas: ["channels", "center-agent"],
+        limit: 5,
+        offset: 10,
+        since: "2026-08-01",
+      },
+      response: {
+        entries: [
+          {
+            areas: ["center-agent", "channels"],
+            audiences: ["members"],
+            body: "Members can ask the Center Agent what changed.",
+            evidence: ["pr:100"],
+            id: "center-agent-changelog",
+            kind: "new",
+            publishedAt: "2026-08-18",
+            title: "Ask what changed",
+          },
+        ],
+        hasMore: false,
+        latestPublishedAt: "2026-08-18",
+        schemaVersion: 1,
+        source: {
+          kind: "github",
+          path: "changelog/index.json",
+          ref: "main",
+          repository: "amplifthq/openmeld",
+        },
+        totalMatching: 1,
+      },
+      rpcName: "centerAgentReadChangelog",
+      toolName: "openmeld_read_changelog",
+    },
+    {
       expectedPayload: { actionSet: "v12", limit: 25 },
       input: { limit: 25 },
       response: auditJournalResponse(),

@@ -980,6 +980,13 @@ must not grow a parallel behavior surface. Two independently-evolved tool
 surfaces will drift into two behaviorally-different Center Agents; do not let
 them.
 
+Published OpenMeld product history follows this rule. Every supported Center
+Agent surface uses the same read-only Core Changelog RPC over the GitHub-backed
+machine projection. The Changelog is global public product history, not
+Organization memory, a per-Channel cache, current setup evidence, or a roadmap.
+The model reads it only when the user asks about changes or available releases;
+OpenMeld does not inject the complete history into every turn.
+
 The capability tiers, current prompt implementation, and role-semantic
 single-source follow-up are owned by
 `developing/product/remote-agent-runtime.md`. This Organization owner adds no

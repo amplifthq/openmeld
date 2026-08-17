@@ -202,6 +202,18 @@ describe("remote agent system prompt", () => {
     );
   });
 
+  it("grounds OpenMeld update answers in the published Changelog", () => {
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "call openmeld_read_changelog before answering"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "published product history only"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "do not turn it into a roadmap"
+    );
+  });
+
   it("requires structured Reference targets instead of text-only addressing", () => {
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
       "pass every exact Human or Agent Profile ID that is context only"

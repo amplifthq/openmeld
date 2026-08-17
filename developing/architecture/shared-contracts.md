@@ -476,6 +476,25 @@ navigation uses the shared `projects` and `project` Navigation
 Action targets; the model never constructs an OpenMeld origin, Organization
 slug, route, or Project path.
 
+### Changelog Read Contracts
+
+`packages/schemas/src/schemas/http/changelog.ts` owns the versioned published
+entry, generated index, bounded query, source metadata, model-visible response,
+and represented-member private RPC input. The source entry Markdown remains the
+authoring authority; this schema validates its generated projection at runtime
+and does not create another writer.
+
+Remote Agent supplies only filters, the verified speaker, and the
+Core-originated request context. It never supplies repository identity,
+Organization authority, publication status, or evidence. Core admits the
+current designated Center Agent and represented member, reads the canonical
+GitHub projection, and returns at most the shared result limit with explicit
+newest-first offset pagination. The additive rollout deploys the Core RPC
+receiver before the Remote Agent caller. Old Remote Agents call nothing new; a
+new Remote Agent against an old Core fails closed. Rollback removes Remote Agent
+first. Reusing the existing `documentation.read` work activity avoids a new
+stream enum and keeps Web, CLI, and OpenMeld Service contracts unchanged.
+
 ### Organization Directory Contracts
 
 Auth owns the private Organization Directory identity projections.

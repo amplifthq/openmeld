@@ -66,6 +66,15 @@ describe("Remote Agent user-visible work semantics", () => {
     });
   });
 
+  it("reuses bounded documentation-read work for the Changelog", () => {
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_read_changelog", {})
+    ).toEqual({
+      v: 1,
+      key: "documentation.read",
+    });
+  });
+
   it("describes starting the current member's learning run precisely", () => {
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_learn_about_me", {})

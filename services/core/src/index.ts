@@ -455,6 +455,7 @@ import {
   type CenterAgentPostSlackChannelMessageInput,
   type CenterAgentPostSpaceMessageInput,
   type CenterAgentReadAgentActivityInput,
+  type CenterAgentReadChangelogInput,
   type CenterAgentReadConnectorActionOperationInput,
   type CenterAgentReadDispatchHistoryInput,
   type CenterAgentReadMemberOpenMeldServiceStatusInput,
@@ -626,6 +627,7 @@ import {
   rpcCenterAgentPostSlackChannelMessage,
   rpcCenterAgentPostSpaceMessage,
   rpcCenterAgentReadAgentActivity,
+  rpcCenterAgentReadChangelog,
   rpcCenterAgentReadConnectorActionOperation,
   rpcCenterAgentReadDispatchHistory,
   rpcCenterAgentReadMemberOpenMeldServiceStatus,
@@ -4168,6 +4170,10 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
 
   centerAgentReadAgentActivity(input: CenterAgentReadAgentActivityInput) {
     return rpcCenterAgentReadAgentActivity(this.env, input);
+  }
+
+  centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {
+    return rpcCenterAgentReadChangelog(this.env, input);
   }
 
   centerAgentSetOrganizationWorkingLanguage(
