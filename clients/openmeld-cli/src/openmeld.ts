@@ -111,7 +111,7 @@ import {
   runDaemonInstall,
   runDaemonInterrupt,
   runDaemonReinstall,
-  runDaemonRun,
+  runDaemonRunAfterEntryChecks,
   runDaemonSnapshot,
   runDaemonStatusFlow,
   runDaemonStop,
@@ -2587,7 +2587,7 @@ async function runServiceStartCliAction(
     profile: opts.profile,
     gatewayUrl: opts.gatewayUrl,
     run: async () => {
-      const result = await runDaemonRun({
+      const result = await runDaemonRunAfterEntryChecks({
         deviceId: opts.deviceId,
         gatewayUrl: opts.gatewayUrl,
         heartbeatMs: parseNonNegativeIntegerOption(
@@ -2598,7 +2598,6 @@ async function runServiceStartCliAction(
         mode: opts.mode,
         view,
         agentOverviewHandled: view === "agent",
-        entryChecksHandled: true,
         outputMode: json ? "silent" : "normal",
       });
       if (json) {

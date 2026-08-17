@@ -360,6 +360,11 @@ type DaemonRunInput = DaemonBaseInput & {
   serviceProgress?: DaemonServiceProgressReporter;
 };
 
+export type DaemonRunAfterEntryChecksInput = Omit<
+  DaemonRunInput,
+  "entryChecksHandled"
+>;
+
 export type DaemonServiceProgressReporter = {
   detail: (input: { code: string; text: string }) => void;
 };
@@ -1122,12 +1127,7 @@ async function autoStartDaemonAfterReinstall(input: {
 
   if (startOutcome.reason === "cancelled") {
     await clearDaemonStartFailureStateSafely();
-    return createDaemonReinstallCompletedOutcome({
-      backupDataPath: null,
-      desiredState: input.desiredState,
-      forceUsed: input.forceUsed,
-      serviceState: "stopped",
-    });
+    return { ok: false, result: "cancelled" };
   }
 
   const blockReason = resolveDaemonReinstallStartBlockedReason(
@@ -1208,15 +1208,18 @@ async function runDaemonAfterReinstallStartWithRetry(input: {
   ) {
     const previousExitCode = process.exitCode;
     try {
-      const result = await input.resolved.runRun({
-        agentOverviewHandled: true,
-        gatewayUrl: input.gatewayUrl,
-        outputMode: "silent",
-        profile: input.profile,
-        suppressStartSpinner: true,
-        view: input.view,
-        mode: "background",
-      });
+      const result = await runDaemonRunAfterEntryChecks(
+        {
+          agentOverviewHandled: true,
+          gatewayUrl: input.gatewayUrl,
+          mode: "background",
+          outputMode: "silent",
+          profile: input.profile,
+          suppressStartSpinner: true,
+          view: input.view,
+        },
+        input.resolved.runRun
+      );
       if (
         result.ok ||
         isDaemonRunAlreadyRunningReason(result.reason) ||
@@ -2691,6 +2694,16 @@ export async function runDaemonRun(
   });
 }
 
+export async function runDaemonRunAfterEntryChecks(
+  input: DaemonRunAfterEntryChecksInput,
+  runRun: typeof runDaemonRun = runDaemonRun
+): Promise<DaemonRunResult> {
+  return await runRun({
+    ...input,
+    entryChecksHandled: true,
+  });
+}
+
 async function executeResolvedDaemonRun(input: {
   daemonVersion: string;
   input: DaemonRunInput;
@@ -2848,7 +2861,7 @@ export async function runDaemonBackgroundStartForDecision(input: {
   }
 
   const previousExitCode = process.exitCode;
-  const result = await runDaemonRun({
+  const result = await runDaemonRunAfterEntryChecks({
     agentOverviewHandled: true,
     gatewayUrl: input.gatewayUrl,
     mode: "background",
@@ -5228,7 +5241,7 @@ async function handleInteractiveDaemonMenuChoice(
     return true;
   }
   if (choice === DAEMON_MENU_CHOICE.run) {
-    const result = await runDaemonRun({
+    const result = await runDaemonRunAfterEntryChecks({
       ...input,
       allowModeBack: true,
       suppressModeCancelOutput: true,

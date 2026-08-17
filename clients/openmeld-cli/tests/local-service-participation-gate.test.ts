@@ -333,6 +333,34 @@ describe("local service participation gate", () => {
     });
   });
 
+  it("stops setup when service repair startup is cancelled", async () => {
+    inspectDaemonServiceInventoryMock.mockResolvedValueOnce(
+      createInventory({
+        anomalyCodes: ["bundle_id_drift", "bundle_version_drift"],
+        runtimeStatus: "not_running",
+      })
+    );
+    runDaemonReinstallMock.mockResolvedValueOnce({
+      ok: false,
+      result: "cancelled",
+    });
+    const presenter = createPresenter();
+
+    const result = await runDaemonServiceParticipationGate({
+      intent: "start",
+      presenter,
+      resolvedView: "human",
+      allowPrompt: true,
+      autoRepair: true,
+      forcePrompt: true,
+      gatewayUrl: "http://localhost:8080",
+      view: "human",
+    });
+
+    expect(result).toEqual({ status: "cancelled" });
+    expect(runDaemonBackgroundStartForDecisionMock).not.toHaveBeenCalled();
+  });
+
   it("starts service when repair recovers to stopped_safe", async () => {
     inspectDaemonServiceInventoryMock
       .mockResolvedValueOnce(

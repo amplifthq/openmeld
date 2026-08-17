@@ -333,8 +333,12 @@ function resolveSetupProgressRenderMode(
   if (runtime.resolvedView === "agent") {
     return "agent";
   }
-  // `curl | sh` makes stdin non-TTY, but progress animation only needs a TTY
-  // stdout. Keep prompt interactivity separate from progress rendering.
+  // Setup and Prepare can open prompts while a step is in progress. Keep the
+  // shared terminal single-owner: prompt-capable human sessions use durable
+  // progress lines, while non-interactive sessions may animate on a TTY.
+  if (runtime.interactive) {
+    return "human_static";
+  }
   if (process.stdout.isTTY === true) {
     return "human_tty";
   }

@@ -409,6 +409,26 @@ describe("local setup executor", () => {
     });
   });
 
+  it("preserves start-session cancellation as a cancelled setup", async () => {
+    runPrepareSessionExecutorMock.mockResolvedValueOnce({
+      reason: "user_cancelled",
+      status: "not_completed",
+    });
+    const { runSetupLocalAgentConnection } = await import(
+      "../src/commands/setup-local-agent-connection"
+    );
+
+    await expect(
+      runSetupLocalAgentConnection({
+        startSession: "starttok_demo",
+        view: "human",
+      })
+    ).resolves.toEqual({
+      reason: "cancelled",
+      status: "not_completed",
+    });
+  });
+
   it("keeps the setup logo out of agent-view start-session output", async () => {
     const { runSetupLocalAgentConnection } = await import(
       "../src/commands/setup-local-agent-connection"
@@ -1366,15 +1386,45 @@ describe("local setup executor", () => {
       view: "human",
     });
 
-    expect(runDaemonRunMock).toHaveBeenCalledWith({
-      agentOverviewHandled: true,
+    expect(runDaemonBackgroundStartForDecisionMock).toHaveBeenCalledWith({
       gatewayUrl: "https://gateway.openmeld.test",
-      mode: "background",
       profile: "agt-codex",
       view: "human",
     });
+    expect(runDaemonRunMock).not.toHaveBeenCalled();
     expect(runDaemonReinstallMock).not.toHaveBeenCalled();
     expect(runDaemonInstallMock).not.toHaveBeenCalled();
+  });
+
+  it("stops standalone setup when the post-prepare service start is cancelled", async () => {
+    resolveRuntimeContextMock.mockResolvedValue({
+      resolvedView: "human",
+      viewMode: "human",
+      interactive: true,
+    });
+    canUseInteractivePromptsMock.mockReturnValue(true);
+    runDaemonBackgroundStartForDecisionMock.mockImplementation(
+      async (input: { profile?: string }) =>
+        input.profile === "agt-codex" ? "cancelled" : "started"
+    );
+    const { runSetupLocalAgentConnection } = await import(
+      "../src/commands/setup-local-agent-connection"
+    );
+
+    await expect(
+      runSetupLocalAgentConnection({
+        profile: "agt-codex",
+        view: "human",
+      })
+    ).resolves.toEqual({
+      reason: "cancelled",
+      status: "not_completed",
+    });
+    expect(runDaemonBackgroundStartForDecisionMock).toHaveBeenCalledWith({
+      gatewayUrl: "https://gateway.openmeld.test",
+      profile: "agt-codex",
+      view: "human",
+    });
   });
 
   it("refreshes OpenMeld Service when local service run would block on bundle drift", async () => {
@@ -1687,13 +1737,12 @@ describe("local setup executor", () => {
         suppressAgentOverview: true,
       }
     );
-    expect(runDaemonRunMock).toHaveBeenCalledWith({
-      agentOverviewHandled: true,
+    expect(runDaemonBackgroundStartForDecisionMock).toHaveBeenCalledWith({
       gatewayUrl: "https://gateway.openmeld.test",
-      mode: "background",
       profile: "agt-codex",
       view: "human",
     });
+    expect(runDaemonRunMock).not.toHaveBeenCalled();
     expect(runDaemonReinstallMock).not.toHaveBeenCalled();
   });
 

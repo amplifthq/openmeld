@@ -20,6 +20,7 @@ import {
   formatTerminalStepFailureMessage,
   isLegacyPrepareSessionClientHelloRejection,
   isPrepareSessionFrameSchemaRejection,
+  PrepareSessionCancelledError,
   PrepareSessionConnectionInterruptedError,
   reportLocalAgentCatalogForSelection,
   resolveAgentSelection,
@@ -1852,6 +1853,61 @@ describe("prepare session executor", () => {
         },
       },
     });
+  });
+
+  it("keeps a cancelled service prompt resumable instead of failing the Prepare step", async () => {
+    vi.mocked(runDaemonServiceParticipationGate).mockResolvedValueOnce({
+      status: "cancelled",
+    });
+    const snapshot = buildSnapshot({ refresh_service: "pending" });
+    const activeSnapshot: PrepareSessionSnapshot = {
+      ...snapshot,
+      sessionRevision: snapshot.sessionRevision + 1,
+      steps: snapshot.steps.map((step) =>
+        step.id === "refresh_service"
+          ? { ...step, state: "active" as const }
+          : step
+      ),
+    };
+    const writeTerminalStep = vi.fn();
+    const stream: PrepareSessionStream = {
+      close: vi.fn(),
+      getLatestSnapshot: () => snapshot,
+      waitForSnapshot: vi.fn().mockResolvedValue(activeSnapshot),
+      writeTerminalAgentSelection: vi.fn(),
+      writeTerminalLocalAgentCatalog: vi.fn(),
+      writeTerminalStep,
+    };
+    const input = buildHumanExecutorInput();
+    const terminalStep = buildTerminalStep({
+      humanProfileId: "human-1",
+      input,
+      localAgentIds: ["codex"],
+      ownerUserId: "owner-1",
+      stepId: "refresh_service",
+    });
+
+    const thrown = await runTerminalStep({
+      collectDiagnostics: vi.fn().mockResolvedValue(null),
+      connectionEpoch: 1,
+      input,
+      message: terminalStep.message,
+      run: terminalStep.run,
+      snapshot,
+      stepId: "refresh_service",
+      stream,
+    }).catch((error: unknown) => error);
+
+    expect(thrown).toBeInstanceOf(PrepareSessionCancelledError);
+    expect(writeTerminalStep).toHaveBeenCalledTimes(1);
+    expect(writeTerminalStep).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "failed" })
+    );
+    const output = vi
+      .mocked(input.presenter.line)
+      .mock.calls.map(([line]) => (line as { text: string }).text)
+      .join("\n");
+    expect(output).not.toContain("Setup blocked");
   });
 
   it("forces OpenMeld Service refresh when the setup bootstrap just force-installed a binary", async () => {
