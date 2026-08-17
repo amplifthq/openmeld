@@ -32,6 +32,8 @@ import type {
   CenterAgentGetOrganizationInviteLinkToolRpcInput,
   CenterAgentInstallOrganizationSkillResponse,
   CenterAgentInstallOrganizationSkillRpcInput,
+  CenterAgentInviteSlackTeammatesRpcInput,
+  CenterAgentInviteSlackTeammatesRpcResponse,
   CenterAgentListProjectsToolResponse,
   CenterAgentListProjectsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
@@ -106,8 +108,6 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   ResumeCenterAgentRoutineResponse,
-  SlackWelcomeInteractionRpcInput,
-  SlackWelcomeInteractionRpcResponse,
   SpaceAttachmentDescriptor,
   SpaceMessageAttachment,
   StartCenterAgentMemberResearchResponse,
@@ -358,9 +358,9 @@ export type RemoteAgentCoreWorkerBinding = {
       context: OpenMeldRequestContext;
     }
   ): Promise<CenterAgentReadSlackWorkspaceDirectoryResponse>;
-  handleSlackWelcomeInteraction?(
-    input: SlackWelcomeInteractionRpcInput
-  ): Promise<SlackWelcomeInteractionRpcResponse>;
+  centerAgentInviteSlackTeammates?(
+    input: CenterAgentInviteSlackTeammatesRpcInput
+  ): Promise<CenterAgentInviteSlackTeammatesRpcResponse>;
   centerAgentListSlackChannels?(
     input: CenterAgentListSlackChannelsBody & {
       context: OpenMeldRequestContext;

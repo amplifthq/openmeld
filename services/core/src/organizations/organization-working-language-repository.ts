@@ -81,6 +81,7 @@ export async function readOrganizationWorkingLanguagePreferenceForSpace(input: {
 }
 
 export async function setOrganizationWorkingLanguagePreference(input: {
+  atomicStatements?: readonly D1PreparedStatement[];
   db: D1Database;
   languageTag?: string;
   mode: "automatic" | "selected";
@@ -88,21 +89,38 @@ export async function setOrganizationWorkingLanguagePreference(input: {
   organizationId: string;
   updatedByUserId: string;
 }): Promise<OrganizationWorkingLanguagePreferenceRecord> {
+  const preferenceStatement =
+    prepareSetOrganizationWorkingLanguagePreferenceStatement(input);
+  await input.db.batch([
+    preferenceStatement,
+    ...(input.atomicStatements ?? []),
+  ]);
+  return input.mode === "automatic"
+    ? defaultPreference(input.organizationId)
+    : await readOrganizationWorkingLanguagePreference(input);
+}
+
+export function prepareSetOrganizationWorkingLanguagePreferenceStatement(input: {
+  db: D1Database;
+  languageTag?: string;
+  mode: "automatic" | "selected";
+  nowMs: number;
+  organizationId: string;
+  updatedByUserId: string;
+}): D1PreparedStatement {
   if (input.mode === "automatic") {
-    await input.db
+    return input.db
       .prepare(
         `
           DELETE FROM organization_working_language_preferences
           WHERE organization_id = ?
         `
       )
-      .bind(input.organizationId)
-      .run();
-    return defaultPreference(input.organizationId);
+      .bind(input.organizationId);
   }
 
   const languageTag = workingLanguageTagSchema.parse(input.languageTag);
-  await input.db
+  return input.db
     .prepare(
       `
         INSERT INTO organization_working_language_preferences (
@@ -129,22 +147,52 @@ export async function setOrganizationWorkingLanguagePreference(input: {
       input.updatedByUserId,
       input.nowMs,
       input.nowMs
-    )
-    .run();
-  return await readOrganizationWorkingLanguagePreference(input);
+    );
 }
 
 export async function observeOrganizationWorkingLanguage(input: {
+  beforeStatements?: readonly D1PreparedStatement[];
   db: D1Database;
   languageTag: string;
   nowMs: number;
+  onChangedStatements?: readonly D1PreparedStatement[];
   organizationId: string;
 }): Promise<{
   changed: boolean;
   preference: OrganizationWorkingLanguagePreferenceRecord;
 }> {
   const languageTag = workingLanguageTagSchema.parse(input.languageTag);
-  const result = await input.db
+  const current = await readOrganizationWorkingLanguagePreference(input);
+  const mutationStatements =
+    current.mode === "automatic" && current.languageTag !== languageTag
+      ? prepareObserveOrganizationWorkingLanguageStatements({
+          ...input,
+          languageTag,
+        })
+      : [];
+  const changed = mutationStatements.length > 0;
+  const statements = [
+    ...(input.beforeStatements ?? []),
+    ...mutationStatements,
+    ...(changed ? (input.onChangedStatements ?? []) : []),
+  ];
+  if (statements.length > 0) {
+    await input.db.batch(statements);
+  }
+  return {
+    changed,
+    preference: await readOrganizationWorkingLanguagePreference(input),
+  };
+}
+
+export function prepareObserveOrganizationWorkingLanguageStatements(input: {
+  db: D1Database;
+  languageTag: string;
+  nowMs: number;
+  organizationId: string;
+}): readonly D1PreparedStatement[] {
+  const languageTag = workingLanguageTagSchema.parse(input.languageTag);
+  const mutationStatement = input.db
     .prepare(
       `
         INSERT INTO organization_working_language_preferences (
@@ -165,12 +213,24 @@ export async function observeOrganizationWorkingLanguage(input: {
           AND organization_working_language_preferences.language_tag != excluded.language_tag
       `
     )
-    .bind(input.organizationId, languageTag, input.nowMs, input.nowMs)
-    .run();
-  return {
-    changed: Number(result.meta.changes ?? 0) === 1,
-    preference: await readOrganizationWorkingLanguagePreference(input),
-  };
+    .bind(input.organizationId, languageTag, input.nowMs, input.nowMs);
+  return [
+    mutationStatement,
+    prepareRequirePreviousStatementChangedOneRow(input.db),
+  ];
+}
+
+export function prepareRequirePreviousStatementChangedOneRow(
+  db: D1Database
+): D1PreparedStatement {
+  // SQLite evaluates only the selected CASE branch. abs(min-int) raises an
+  // integer-overflow error, turning a lost CAS/update into a batch rollback.
+  return db.prepare(`
+    SELECT CASE
+      WHEN changes() = 1 THEN 1
+      ELSE abs(-9223372036854775808)
+    END
+  `);
 }
 
 export function toWorkingLanguageGuidance(

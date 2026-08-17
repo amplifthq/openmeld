@@ -4,6 +4,7 @@ import {
   appendRemoteAgentImageUnderstanding,
   understandRemoteAgentImages,
 } from "../agent-core/image-understanding";
+import { TEST_REMOTE_AGENT_AI_GATEWAY_ENV } from "./fixtures";
 
 const IMAGE_MODEL: CenterAgentModelRoute["imageUnderstandingModel"] = {
   contextWindow: 500_000,
@@ -44,7 +45,7 @@ describe("Remote Agent image understanding", () => {
     await expect(
       understandRemoteAgentImages({
         env: {
-          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+          ...TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
         },
         fetch,
         images: [
@@ -82,7 +83,7 @@ describe("Remote Agent image understanding", () => {
     await expect(
       understandRemoteAgentImages({
         env: {
-          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
+          ...TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
         },
         fetch: async () => new Response("unavailable", { status: 503 }),
         images: [

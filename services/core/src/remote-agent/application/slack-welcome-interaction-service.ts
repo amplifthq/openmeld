@@ -1,14 +1,19 @@
 import {
+  centerAgentInviteSlackTeammatesRpcInputSchema,
+  centerAgentInviteSlackTeammatesRpcResponseSchema,
   ensureOrganizationJoinLinkOnBehalfOfRpcResponseSchema,
   slackWelcomeInteractionRpcInputSchema,
   slackWelcomeInteractionRpcResponseSchema,
 } from "@openmeld/schemas";
 import type {
+  CenterAgentInviteSlackTeammatesRpcInput,
+  CenterAgentInviteSlackTeammatesRpcResponse,
   SlackWelcomeInteractionRpcInput,
   SlackWelcomeInteractionRpcResponse,
 } from "@openmeld/schemas/types";
+import { prepareCenterAgentRepresentedMemberRequest } from "../../center-agent/application/represented-member-request";
 import type { CoreBindings } from "../../lib/bindings";
-import { localStateDb } from "../../lib/bindings";
+import { localStateDb, wakeEvidenceDb } from "../../lib/bindings";
 import { readOrganizationAccountIdentityProjection } from "../../organizations/organization-context";
 import { resolveOrganizationDirectoryMembers } from "../../organizations/organization-directory";
 import {
@@ -17,6 +22,7 @@ import {
 } from "../../organizations/organization-join-link-read-service";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import { callRequiredAuthWorkerRpc } from "../../rpc/required-auth-worker-rpc";
+import { readRemoteAgentNativeDeliveryByDeliveryId } from "../infrastructure/d1/native-delivery-ledger-repo";
 import {
   claimSlackTeammateInvitationDelivery,
   completeSlackTeammateInvitationDelivery,
@@ -42,6 +48,134 @@ const INVITE_MODAL_CALLBACK_ID = "openmeld_invite_teammates";
 const CHANNEL_INTRODUCTION_MODAL_CALLBACK_ID = "openmeld_introduce_in_channels";
 const WHITESPACE_PATTERN = /\s+/u;
 const RPC_ERROR_CODE_PATTERN = /"code"\s*:\s*"([^"]+)"/u;
+
+export async function handleCenterAgentSlackTeammateInvitations(
+  env: CoreBindings,
+  rawInput: CenterAgentInviteSlackTeammatesRpcInput
+): Promise<CenterAgentInviteSlackTeammatesRpcResponse> {
+  const input = centerAgentInviteSlackTeammatesRpcInputSchema.parse(rawInput);
+  const represented = await prepareCenterAgentRepresentedMemberRequest(
+    env,
+    input.context,
+    input.speakerMember,
+    {
+      code: "center_agent.slack_invitation_member_required",
+      reason:
+        "Inviting Slack teammates requires a verified active human Organization member.",
+    }
+  );
+  const sourceNativeDeliveryId = represented.sourceNativeDeliveryId;
+  const deliveryDb = wakeEvidenceDb(env);
+  const delivery =
+    sourceNativeDeliveryId && deliveryDb
+      ? await readRemoteAgentNativeDeliveryByDeliveryId({
+          db: deliveryDb,
+          deliveryId: sourceNativeDeliveryId,
+        })
+      : null;
+  requireRemoteAgentSlackTeammateInvitationDeliveryEvidence({
+    delivery,
+    representedHuman: represented.representedHuman,
+    slackTeamId: input.slackTeamId,
+    slackUserId: input.slackUserId,
+    sourceNativeDeliveryId,
+  });
+
+  const interaction = slackWelcomeInteractionRpcInputSchema.parse({
+    action: "submit_teammate_invites",
+    interactionId: input.interactionId,
+    slackTeamId: input.slackTeamId,
+    slackUserId: input.slackUserId,
+    targetSlackUserIds: input.targetSlackUserIds,
+  });
+  if (interaction.action !== "submit_teammate_invites") {
+    throw new Error("Unexpected Slack teammate invitation action");
+  }
+  const context = await resolveVerifiedSlackActor({ env, input: interaction });
+  if (context.actorUserId !== represented.representedHuman.userId) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.slack_invitation_actor_mismatch",
+      reason:
+        "The active private Slack requester no longer matches this invitation request.",
+      status: 403,
+    });
+  }
+  await sendSelectedTeammateInvitations({
+    ...context,
+    env,
+    input: interaction,
+  });
+  return centerAgentInviteSlackTeammatesRpcResponseSchema.parse({
+    handled: true,
+  });
+}
+
+type SlackTeammateInvitationDeliveryEvidence = {
+  conversationKind: string;
+  deliveryId: string;
+  slackChannelId: string | null;
+  slackTeamId: string | null;
+  workerSubmitRequest: {
+    turnEnvelope: {
+      contextScopePlan?: { interactionEnvironment?: string } | null;
+      interactionEnvironment?: string;
+      sender: {
+        kind: string;
+        messageChannelIdentity?: {
+          connectionId: string;
+          provider: string;
+          providerUserId: string;
+        };
+        ownerUserId?: string;
+        profileId?: string;
+        verified?: boolean;
+      };
+      trigger: { source: string; teamId?: string };
+    };
+  } | null;
+};
+
+export function requireRemoteAgentSlackTeammateInvitationDeliveryEvidence(input: {
+  delivery: SlackTeammateInvitationDeliveryEvidence | null;
+  representedHuman: { profileId: string; userId: string };
+  slackTeamId: string;
+  slackUserId: string;
+  sourceNativeDeliveryId: string | null;
+}): void {
+  const delivery = input.delivery;
+  const envelope = delivery?.workerSubmitRequest?.turnEnvelope;
+  const sender = envelope?.sender;
+  const messageChannelIdentity = sender?.messageChannelIdentity;
+  const interactionEnvironment =
+    envelope?.interactionEnvironment ??
+    envelope?.contextScopePlan?.interactionEnvironment;
+  if (
+    !(
+      input.sourceNativeDeliveryId &&
+      delivery?.deliveryId === input.sourceNativeDeliveryId &&
+      delivery.conversationKind === "slack" &&
+      delivery.slackTeamId === input.slackTeamId &&
+      delivery.slackChannelId?.startsWith("D") &&
+      envelope?.trigger.source === "slack" &&
+      envelope.trigger.teamId === input.slackTeamId &&
+      interactionEnvironment === "requester_private" &&
+      sender?.kind === "member" &&
+      sender.verified === true &&
+      sender.ownerUserId === input.representedHuman.userId &&
+      sender.profileId === input.representedHuman.profileId &&
+      messageChannelIdentity?.provider === "slack" &&
+      messageChannelIdentity.connectionId === input.slackTeamId &&
+      messageChannelIdentity.providerUserId === input.slackUserId
+    )
+  ) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.slack_invitation_private_delivery_required",
+      reason:
+        "Slack teammate invitations require the active private Slack delivery for this verified requester.",
+      status: 403,
+    });
+  }
+}
 
 export async function handleSlackWelcomeInteraction(
   env: CoreBindings,

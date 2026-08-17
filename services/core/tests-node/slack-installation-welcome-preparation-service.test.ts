@@ -199,12 +199,12 @@ describe("Slack trust-first welcome preparation", () => {
       `CREATE TABLE organizations (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL
       )`,
-      `CREATE TABLE organization_working_language_preferences (
-        organization_id TEXT PRIMARY KEY, language_tag TEXT NOT NULL
-      )`,
       "CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
       `CREATE TABLE connector_connections (
         organization_id TEXT NOT NULL, status TEXT NOT NULL
+      )`,
+      `CREATE TABLE organization_working_language_preferences (
+        organization_id TEXT PRIMARY KEY, language_tag TEXT NOT NULL
       )`,
       `CREATE TABLE slack_installation_welcome_deliveries (
         slack_team_id TEXT NOT NULL, organization_id TEXT NOT NULL,
@@ -537,6 +537,9 @@ describe("Slack trust-first welcome preparation", () => {
       `CREATE TABLE connector_connections (
         organization_id TEXT NOT NULL, status TEXT NOT NULL
       )`,
+      `CREATE TABLE organization_working_language_preferences (
+        organization_id TEXT PRIMARY KEY, language_tag TEXT NOT NULL
+      )`,
     ]) {
       harness.run({ sql });
     }
@@ -561,6 +564,10 @@ describe("Slack trust-first welcome preparation", () => {
     });
     harness.run({
       sql: "INSERT INTO users VALUES ('user-installer', 'Alex Kim')",
+    });
+    harness.run({
+      sql: `INSERT INTO organization_working_language_preferences
+        VALUES ('org-1', 'zh-CN')`,
     });
 
     const report = await readPreparedProfileReport({
@@ -587,6 +594,7 @@ describe("Slack trust-first welcome preparation", () => {
       documentId: "document-1",
       firstObservation: "Shipping clearer onboarding.",
       hasUsefulEvidence: true,
+      languageTag: "zh-CN",
     });
   });
 });

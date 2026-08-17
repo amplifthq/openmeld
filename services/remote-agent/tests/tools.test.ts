@@ -282,13 +282,13 @@ describe("remote agent OpenMeld tool catalog", () => {
     const centerAgentReadSlackWorkspaceDirectory = vi.fn(async () =>
       slackWorkspaceDirectoryResponse()
     );
-    const handleSlackWelcomeInteraction = vi.fn(async () => ({
+    const centerAgentInviteSlackTeammates = vi.fn(async () => ({
       handled: true as const,
     }));
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: {
         centerAgentReadSlackWorkspaceDirectory,
-        handleSlackWelcomeInteraction,
+        centerAgentInviteSlackTeammates,
       },
       storage: await createStorageWithPendingContext(request),
       turnEnvelope: request.turnEnvelope,
@@ -305,11 +305,15 @@ describe("remote agent OpenMeld tool catalog", () => {
         targetSlackUserIds: ["U_MORGAN"],
       })
     ).resolves.toEqual({ handled: true });
-    expect(handleSlackWelcomeInteraction).toHaveBeenCalledWith({
-      action: "submit_teammate_invites",
+    expect(centerAgentInviteSlackTeammates).toHaveBeenCalledWith({
+      context: expectedHostedCenterAgentContext(
+        request,
+        "openmeld_invite_slack_teammates"
+      ),
       interactionId: "remote-agent:flue_submission_123",
       slackTeamId: "T123",
       slackUserId: "U_INSTALLER",
+      speakerMember: { memberId: "member_123", userId: "user_1" },
       targetSlackUserIds: ["U_MORGAN"],
     });
   });
@@ -334,9 +338,9 @@ describe("remote agent OpenMeld tool catalog", () => {
         trigger: { source: "slack", teamId: "T123" },
       },
     });
-    const handleSlackWelcomeInteraction = vi.fn();
+    const centerAgentInviteSlackTeammates = vi.fn();
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { handleSlackWelcomeInteraction },
+      coreWorker: { centerAgentInviteSlackTeammates },
       storage: await createStorageWithPendingContext(request),
       turnEnvelope: request.turnEnvelope,
     });
@@ -346,7 +350,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         targetSlackUserIds: ["U_MORGAN"],
       })
     ).rejects.toThrow("only in a direct conversation");
-    expect(handleSlackWelcomeInteraction).not.toHaveBeenCalled();
+    expect(centerAgentInviteSlackTeammates).not.toHaveBeenCalled();
   });
 
   it("returns guided Slack connection help as a normal tool result", async () => {

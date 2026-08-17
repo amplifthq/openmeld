@@ -189,6 +189,8 @@ export {
   routineWorkflowContinuationEventPayloadSchema,
 } from "./remote-agent-worker";
 export {
+  centerAgentInviteSlackTeammatesRpcInputSchema,
+  centerAgentInviteSlackTeammatesRpcResponseSchema,
   slackWelcomeInteractionRpcInputSchema,
   slackWelcomeInteractionRpcResponseSchema,
 } from "./slack-welcome-interaction";

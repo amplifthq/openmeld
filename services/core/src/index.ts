@@ -38,6 +38,8 @@ import type {
   CenterAgentInboxSummaryResponse,
   CenterAgentInstallOrganizationSkillResponse,
   CenterAgentInstallOrganizationSkillRpcInput,
+  CenterAgentInviteSlackTeammatesRpcInput,
+  CenterAgentInviteSlackTeammatesRpcResponse,
   CenterAgentListAgentTasksResponse,
   CenterAgentListComputersResponse,
   CenterAgentListLocalAgentConnectionCandidatesResponse,
@@ -417,7 +419,10 @@ import { verifyLarkPlatformWebhook } from "./remote-agent/application/lark-platf
 import { createConfiguredMessageChannelProviderRegistry } from "./remote-agent/application/message-channel-provider-runtime";
 import { completeRemoteAgentNativeDelivery } from "./remote-agent/application/native-delivery-service";
 import { processRemoteAgentSlackEvent } from "./remote-agent/application/slack-signal-service";
-import { handleSlackWelcomeInteraction } from "./remote-agent/application/slack-welcome-interaction-service";
+import {
+  handleCenterAgentSlackTeammateInvitations,
+  handleSlackWelcomeInteraction,
+} from "./remote-agent/application/slack-welcome-interaction-service";
 import { submitRemoteAgentStreamDelta } from "./remote-agent/application/stream-delta-service";
 import { submitRemoteAgentStreamPart } from "./remote-agent/application/stream-part-service";
 import {
@@ -4040,10 +4045,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
 }
 
 export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
-  handleSlackWelcomeInteraction(
-    input: SlackWelcomeInteractionRpcInput
-  ): Promise<SlackWelcomeInteractionRpcResponse> {
-    return handleSlackWelcomeInteraction(this.env, input);
+  centerAgentInviteSlackTeammates(
+    input: CenterAgentInviteSlackTeammatesRpcInput
+  ): Promise<CenterAgentInviteSlackTeammatesRpcResponse> {
+    return handleCenterAgentSlackTeammateInvitations(this.env, input);
   }
 
   listCenterAgentTasks(

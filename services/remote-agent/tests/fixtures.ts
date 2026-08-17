@@ -7,6 +7,12 @@ import type {
 } from "@openmeld/schemas/types";
 
 export const TEST_NOW_MS = Date.UTC(2026, 6, 6, 12, 0, 0);
+export const TEST_REMOTE_AGENT_AI_GATEWAY_ENV = {
+  CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-ai-gateway-token",
+  OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID: "account_123",
+  OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID: "gateway_123",
+  OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
+} as const;
 export const TEST_CENTER_AGENT_MODEL_ROUTE = {
   automaticModelFallback: false,
   catalogUpdatedAt: "2026-07-31T00:00:00.000Z",

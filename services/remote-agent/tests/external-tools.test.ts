@@ -10,7 +10,11 @@ import {
   type RemoteAgentExternalToolEnv,
   type RemoteAgentExternalToolName,
 } from "../agent-core/external-tools";
-import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
+import {
+  createSubmitTurnRequest,
+  TEST_NOW_MS,
+  TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
+} from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const SUBMISSION_ID = "submission_external_tools";
@@ -509,6 +513,7 @@ function externalToolEnv(input: {
   writeDataPoint?: (point: unknown) => void;
 }): RemoteAgentExternalToolEnv {
   return {
+    ...TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
     BROWSER: input.quickAction
       ? ({
           quickAction: input.quickAction,
@@ -517,8 +522,6 @@ function externalToolEnv(input: {
     OPENMELD_OBSERVABILITY: input.writeDataPoint
       ? ({ writeDataPoint: input.writeDataPoint } as AnalyticsEngineDataset)
       : undefined,
-    CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-ai-gateway-token",
-    OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS: "openrouter",
     OPENMELD_SPACE_ATTACHMENTS:
       input.bucket as RemoteAgentExternalToolEnv["OPENMELD_SPACE_ATTACHMENTS"],
   };

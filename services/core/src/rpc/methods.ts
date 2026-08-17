@@ -7167,38 +7167,35 @@ export async function rpcInstallSlackWorkspaceFromOAuth(
     organizationId: parsed.data.organizationId,
     slackInstallerUserId: parsed.data.slackInstallerUserId,
     slackTeamId: parsed.data.slackTeamId,
+    welcomePreparationRecipientSlackUserId: parsed.data.slackInstallerUserId,
   });
   if ("record" in result && parsed.data.slackInstallerUserId) {
-    try {
-      const key = {
-        connectionCreatedAtMs: result.record.createdAtMs,
-        organizationId: parsed.data.organizationId,
-        recipientSlackUserId: parsed.data.slackInstallerUserId,
-        slackTeamId: parsed.data.slackTeamId,
-        welcomeVersion: SLACK_INSTALLATION_WELCOME_VERSION,
-      };
-      if (result.status === "unchanged") {
+    const key = {
+      connectionCreatedAtMs: result.record.createdAtMs,
+      organizationId: parsed.data.organizationId,
+      recipientSlackUserId: parsed.data.slackInstallerUserId,
+      slackTeamId: parsed.data.slackTeamId,
+      welcomeVersion: SLACK_INSTALLATION_WELCOME_VERSION,
+    };
+    if (result.status === "unchanged") {
+      const retryAuthorized =
         await authorizeFailedSlackInstallationWelcomeRetry({ db, key, nowMs });
-      } else {
+      if (!retryAuthorized) {
         await enqueueSlackInstallationWelcomePreparation({
-          allowCreate: result.status === "created" || result.status === "moved",
+          allowCreate: true,
           connectionCreatedAtMs: result.record.createdAtMs,
           db,
           installedByProfileId: parsed.data.actorProfileId,
           installedByUserId: parsed.data.installedByUserId,
-          messageKind: result.status === "moved" ? "moved" : "connected",
+          messageKind: parsed.data.moveFromOrganizationId
+            ? "moved"
+            : "connected",
           nowMs,
           organizationId: parsed.data.organizationId,
           recipientSlackUserId: parsed.data.slackInstallerUserId,
           slackTeamId: parsed.data.slackTeamId,
         });
       }
-    } catch (error) {
-      console.warn("[core.slack_oauth.installation_welcome_queue_failed]", {
-        error: error instanceof Error ? error.message : String(error),
-        organizationId: parsed.data.organizationId,
-        slackTeamId: parsed.data.slackTeamId,
-      });
     }
   }
   const response: SlackOAuthInstallationResult =

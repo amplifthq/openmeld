@@ -1,4 +1,6 @@
 import { z } from "zod/v4";
+import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { centerAgentVerifiedMemberToolSpeakerSchema } from "../http/center-agent-speaker";
 
 const slackIdSchema = z.string().trim().min(1).max(128);
 
@@ -45,3 +47,19 @@ export const slackWelcomeInteractionRpcInputSchema = z.discriminatedUnion(
 export const slackWelcomeInteractionRpcResponseSchema = z.strictObject({
   handled: z.literal(true),
 });
+
+export const centerAgentInviteSlackTeammatesRpcInputSchema = z.strictObject({
+  context: openMeldRequestContextSchema,
+  interactionId: slackIdSchema,
+  slackTeamId: slackIdSchema,
+  slackUserId: slackIdSchema,
+  speakerMember: centerAgentVerifiedMemberToolSpeakerSchema,
+  targetSlackUserIds: z
+    .array(slackIdSchema)
+    .min(1)
+    .max(10)
+    .transform((values) => [...new Set(values)]),
+});
+
+export const centerAgentInviteSlackTeammatesRpcResponseSchema =
+  slackWelcomeInteractionRpcResponseSchema;

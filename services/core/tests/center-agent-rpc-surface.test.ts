@@ -16,6 +16,7 @@ const ROUTINE_RPC_METHODS = [
 
 const ORGANIZATION_INVITE_LINK_RPC_METHOD =
   "centerAgentGetOrganizationInviteLink";
+const CENTER_AGENT_SLACK_INVITE_RPC_METHOD = "centerAgentInviteSlackTeammates";
 const SLACK_WELCOME_INTERACTION_RPC_METHOD = "handleSlackWelcomeInteraction";
 
 const PROJECT_RPC_METHODS = [
@@ -68,13 +69,20 @@ describe("Private Center Agent RPC surface", () => {
     ).not.toContain(ORGANIZATION_INVITE_LINK_RPC_METHOD);
   });
 
-  it("exposes Slack welcome interactions to both Gateway and Remote Agent", () => {
-    expect(
-      Object.getOwnPropertyNames(CenterAgentRpcEntrypoint.prototype)
-    ).toContain(SLACK_WELCOME_INTERACTION_RPC_METHOD);
-    expect(
-      Object.getOwnPropertyNames(GatewayRpcEntrypoint.prototype)
-    ).toContain(SLACK_WELCOME_INTERACTION_RPC_METHOD);
+  it("separates signed Gateway interactions from authorized Remote Agent invitations", () => {
+    const centerAgentMethods = Object.getOwnPropertyNames(
+      CenterAgentRpcEntrypoint.prototype
+    );
+    const gatewayMethods = Object.getOwnPropertyNames(
+      GatewayRpcEntrypoint.prototype
+    );
+
+    expect(centerAgentMethods).toContain(CENTER_AGENT_SLACK_INVITE_RPC_METHOD);
+    expect(centerAgentMethods).not.toContain(
+      SLACK_WELCOME_INTERACTION_RPC_METHOD
+    );
+    expect(gatewayMethods).toContain(SLACK_WELCOME_INTERACTION_RPC_METHOD);
+    expect(gatewayMethods).not.toContain(CENTER_AGENT_SLACK_INVITE_RPC_METHOD);
   });
 
   it("exposes Project management only on the private Center Agent entrypoint", () => {

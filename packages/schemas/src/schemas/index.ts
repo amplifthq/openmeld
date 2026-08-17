@@ -2294,6 +2294,8 @@ export {
   CHANNEL_CONTEXT_MAX_MESSAGES,
   CHANNEL_CONTEXT_MESSAGE_TEXT_MAX_CHARS,
   CHANNEL_CONTEXT_TOTAL_TEXT_MAX_CHARS,
+  centerAgentInviteSlackTeammatesRpcInputSchema,
+  centerAgentInviteSlackTeammatesRpcResponseSchema,
   centerAgentModelChoiceSchema,
   centerAgentModelPreferenceSchema,
   centerAgentModelRouteSchema,

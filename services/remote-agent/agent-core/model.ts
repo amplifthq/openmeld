@@ -3,11 +3,6 @@ import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
 export const REMOTE_AGENT_OPENROUTER_MODEL_ID = "x-ai/grok-4.5";
 export const REMOTE_AGENT_MODEL_DISPLAY_NAME = "xAI's Grok 4.5";
 export const REMOTE_AGENT_MAX_OUTPUT_TOKENS = 8192;
-export const DEFAULT_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID =
-  "e74a33891b4c7a16b1fe853c41011f52";
-export const DEFAULT_REMOTE_AGENT_AI_GATEWAY_ID = "openmeld-remote-agent";
-export const DEFAULT_REMOTE_AGENT_AI_GATEWAY_BYOK_ALIAS = "openrouter";
-
 export type RemoteAgentModelEnv = {
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID?: string;
   OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID?: string;
@@ -21,18 +16,24 @@ export function resolveRemoteAgentAiGatewayAccountId(
   env: Pick<RemoteAgentModelEnv, "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID">
 ): string {
   const configured = env.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID?.trim();
-  return configured && configured.length > 0
-    ? configured
-    : DEFAULT_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID;
+  if (configured) {
+    return configured;
+  }
+  throw new Error(
+    "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ACCOUNT_ID must be configured for the current Remote Agent environment."
+  );
 }
 
 export function resolveRemoteAgentAiGatewayId(
   env: Pick<RemoteAgentModelEnv, "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID">
 ): string {
   const configured = env.OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID?.trim();
-  return configured && configured.length > 0
-    ? configured
-    : DEFAULT_REMOTE_AGENT_AI_GATEWAY_ID;
+  if (configured) {
+    return configured;
+  }
+  throw new Error(
+    "OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID must be configured for the current Remote Agent environment."
+  );
 }
 
 export function resolveRemoteAgentAiGatewayToken(
@@ -51,9 +52,12 @@ export function resolveRemoteAgentOpenRouterByokAlias(
   env: Pick<RemoteAgentModelEnv, "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS">
 ): string {
   const configured = env.OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS?.trim();
-  return configured && configured.length > 0
-    ? configured
-    : DEFAULT_REMOTE_AGENT_AI_GATEWAY_BYOK_ALIAS;
+  if (configured) {
+    return configured;
+  }
+  throw new Error(
+    "OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS must be configured for the current Remote Agent environment."
+  );
 }
 
 export function resolveRemoteAgentOpenRouterModelId(

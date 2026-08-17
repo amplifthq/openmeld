@@ -66,7 +66,11 @@ import type {
 } from "@openmeld/schemas/types";
 import { prepareCenterAgentOrganizationMemberRequest } from "../center-agent/application/anonymous-member-request";
 import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
-import { writeCenterAgentAuditEntry } from "../center-agent/center-agent-audit";
+import {
+  resolveCenterAgentAuditAttribution,
+  writeCenterAgentAuditEntry,
+} from "../center-agent/center-agent-audit";
+import { prepareCenterAgentAuditJournalEntryStatement } from "../center-agent/center-agent-repository";
 import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
 import {
   recordCenterAgentMemberResearchComputerFile,
@@ -79,7 +83,10 @@ import {
 } from "../organizations/organization-context";
 import { resolveOrganizationDirectoryMembers } from "../organizations/organization-directory";
 import { readOrganizationInformationProtectionForPrompt } from "../organizations/organization-information-protection-prompt";
-import { observeOrganizationWorkingLanguage } from "../organizations/organization-working-language-repository";
+import {
+  observeOrganizationWorkingLanguage,
+  prepareRequirePreviousStatementChangedOneRow,
+} from "../organizations/organization-working-language-repository";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   createOrganizationDocumentService,
@@ -394,10 +401,8 @@ export async function rpcCenterAgentOrganizationDocumentsComputerSnapshot(
   );
 }
 
-async function observeSharedOrganizationWorkingLanguage(input: {
-  db: D1Database;
+async function allowsSharedOrganizationWorkingLanguageObservation(input: {
   env: CoreBindings;
-  languageTag: string;
   memberResearchTaskId: string;
   organizationId: string;
   requestId: string;
@@ -421,13 +426,7 @@ async function observeSharedOrganizationWorkingLanguage(input: {
   if (classification.personal) {
     return false;
   }
-  const observation = await observeOrganizationWorkingLanguage({
-    db: input.db,
-    languageTag: input.languageTag,
-    nowMs: Date.now(),
-    organizationId: input.organizationId,
-  });
-  return observation.changed;
+  return true;
 }
 
 export async function rpcCenterAgentDraftOrganizationDocument(
@@ -494,7 +493,8 @@ export async function rpcCenterAgentDraftOrganizationDocument(
   );
   const observedLanguageTag = draft.memberResearchReport?.observedLanguageTag;
   if (memberResearch && observedLanguageTag) {
-    const taskUpdate = await db
+    const nowMs = Date.now();
+    const taskUpdateStatement = db
       .prepare(
         `
           UPDATE center_agent_member_research_tasks
@@ -509,32 +509,47 @@ export async function rpcCenterAgentDraftOrganizationDocument(
             )
         `
       )
-      .bind(observedLanguageTag, memberResearch.taskId, organizationId)
-      .run();
-    if (Number(taskUpdate.meta.changes ?? 0) !== 1) {
-      throw new Error(
-        "Member research working-language observation lost its active task."
-      );
-    }
-    const changed = await observeSharedOrganizationWorkingLanguage({
-      db,
-      env,
-      languageTag: observedLanguageTag,
-      memberResearchTaskId: memberResearch.taskId,
-      organizationId,
-      requestId: request.context.actorContext.requestId,
-    });
-    if (changed) {
-      await writeCenterAgentAuditEntry({
-        action: "observe_working_language",
+      .bind(observedLanguageTag, memberResearch.taskId, organizationId);
+    const taskStatements = [
+      taskUpdateStatement,
+      prepareRequirePreviousStatementChangedOneRow(db),
+    ];
+    const observesSharedOrganization =
+      await allowsSharedOrganizationWorkingLanguageObservation({
+        env,
+        memberResearchTaskId: memberResearch.taskId,
+        organizationId,
+        requestId: request.context.actorContext.requestId,
+      });
+    if (observesSharedOrganization) {
+      const attribution = await resolveCenterAgentAuditAttribution({
         authorization,
         onBehalfOfProfileId: representedHuman.profileId,
+      });
+      const auditStatement = prepareCenterAgentAuditJournalEntryStatement({
+        action: "observe_working_language",
+        actorProfileId: authorization.actorProfileId,
+        attribution,
+        db,
+        id: crypto.randomUUID(),
+        nowMs,
+        organizationId,
         resource: {
           id: organizationId,
           type: "organization_working_language",
         },
         sourceNativeDeliveryId,
       });
+      await observeOrganizationWorkingLanguage({
+        beforeStatements: taskStatements,
+        db,
+        languageTag: observedLanguageTag,
+        nowMs,
+        onChangedStatements: [auditStatement],
+        organizationId,
+      });
+    } else {
+      await db.batch(taskStatements);
     }
   }
   await writeCenterAgentAuditEntry({

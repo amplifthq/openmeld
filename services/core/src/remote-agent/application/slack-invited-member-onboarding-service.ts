@@ -30,6 +30,7 @@ import {
   isMemberResearchBusy,
   requireWebAppUrl,
 } from "./slack-onboarding-copy";
+import { resolveSlackOnboardingLanguageTag } from "./slack-onboarding-language";
 import {
   buildLocalizedJoinedMemberWelcomeMessage,
   getSlackOnboardingActionLabels,
@@ -304,12 +305,17 @@ async function advanceResearchingOnboarding(input: {
   if (!organization) {
     throw new Error("Invited member Organization is unavailable.");
   }
+  const languageTag = await resolveSlackOnboardingLanguageTag({
+    db: input.db,
+    organizationId: input.onboarding.organizationId,
+    researchTaskId: taskId,
+  });
   const observation = readFirstProfileObservation(report.report_content);
   const message = buildJoinedMemberWelcomeMessage({
     hasUsefulEvidence: !report.report_content.includes(
       "**Insufficient evidence**"
     ),
-    languageTag: task.observed_language_tag,
+    languageTag,
     observation,
     organizationName: organization.name,
     targetDisplayName: input.onboarding.targetDisplayName,
@@ -322,7 +328,7 @@ async function advanceResearchingOnboarding(input: {
   });
   const blocks = buildJoinedMemberWelcomeBlocks({
     documentId: report.document_id,
-    languageTag: task.observed_language_tag,
+    languageTag,
     message,
     organizationSlug: organization.slug,
     webAppUrl: input.env.WEB_APP_URL,
@@ -524,25 +530,25 @@ async function deliverResearchUnavailableWelcome(input: {
     .prepare(
       `
         SELECT
-          organizations.name,
-          COALESCE(tasks.observed_language_tag, preferences.language_tag) AS language_tag
+          organizations.name
         FROM organizations
-        LEFT JOIN center_agent_member_research_tasks AS tasks
-          ON tasks.id = ?
-        LEFT JOIN organization_working_language_preferences AS preferences
-          ON preferences.organization_id = organizations.id
         WHERE organizations.id = ?
         LIMIT 1
       `
     )
-    .bind(input.onboarding.researchTaskId, input.onboarding.organizationId)
-    .first<{ language_tag: string | null; name: string }>();
+    .bind(input.onboarding.organizationId)
+    .first<{ name: string }>();
   if (!organization) {
     throw new Error("Invited member Organization is unavailable.");
   }
+  const languageTag = await resolveSlackOnboardingLanguageTag({
+    db: input.db,
+    organizationId: input.onboarding.organizationId,
+    researchTaskId: input.onboarding.researchTaskId,
+  });
   const message = buildSlackResearchUnavailableWelcomeMessage({
     displayName: input.onboarding.targetDisplayName,
-    languageTag: organization.language_tag,
+    languageTag,
     organizationName: organization.name,
   });
   const botToken = await resolveSlackBotToken({

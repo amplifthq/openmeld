@@ -321,7 +321,7 @@ describe("Slack OAuth installation", () => {
     });
   });
 
-  it("keeps a successful installation successful when preparation cannot be queued", async () => {
+  it("rolls back the installation when its durable welcome preparation cannot be queued", async () => {
     insertOrganizationOwner(harness);
     harness.run({
       sql: `
@@ -332,28 +332,29 @@ describe("Slack OAuth installation", () => {
         END
       `,
     });
-    const warnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
-
     await expect(
       rpcInstallSlackWorkspaceFromOAuth(
         createRpcEnv(harness),
         RPC_INSTALLATION_INPUT
       )
-    ).resolves.toEqual({ status: "created" });
+    ).rejects.toThrow("preparation rejected");
 
-    expect(warnSpy).toHaveBeenCalledOnce();
-    expect(warnSpy.mock.calls[0]?.[0]).toBe(
-      "[core.slack_oauth.installation_welcome_queue_failed]"
-    );
-    expect(warnSpy.mock.calls[0]?.[1]).toMatchObject({
-      organizationId: "org-1",
-      slackTeamId: "T_WORKSPACE",
-    });
-    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(
-      "xoxb-installed-token"
-    );
+    await expect(
+      readRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        slackTeamId: RPC_INSTALLATION_INPUT.slackTeamId,
+      })
+    ).resolves.toBeNull();
+    expect(
+      harness.queryFirst({
+        sql: "SELECT slack_team_id FROM slack_workspace_tokens LIMIT 1",
+      })
+    ).toBeNull();
+    expect(
+      harness.queryFirst({
+        sql: "SELECT id FROM center_agent_audit_journal LIMIT 1",
+      })
+    ).toBeNull();
     expect(readWelcomePreparation(harness)).toBeNull();
   });
 
@@ -393,6 +394,57 @@ describe("Slack OAuth installation", () => {
         slackTeamId: "T_WORKSPACE",
       })
     ).rejects.toThrow("socket closed");
+  });
+
+  it("never rewrites a confirmed Slack publication as failed when its checkpoint cannot be stored", async () => {
+    harness.run({
+      sql: `
+        CREATE TRIGGER reject_delivered_welcome_checkpoint
+        BEFORE UPDATE OF status ON slack_installation_welcome_deliveries
+        WHEN NEW.status = 'delivered'
+        BEGIN
+          SELECT RAISE(ABORT, 'delivered checkpoint rejected');
+        END
+      `,
+    });
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(Response.json(SLACK_MESSAGE_SUCCESS_RESPONSE))
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const delivery = {
+      allowCreate: true,
+      botToken: "xoxb-installed-token",
+      buildBlocks: () => Promise.resolve(undefined),
+      connectionCreatedAtMs: NOW_MS,
+      db: harness.db,
+      messages: {
+        connected: "Welcome to OpenMeld.",
+        moved: "Your workspace moved.",
+      },
+      messageKind: "connected" as const,
+      nowMs: NOW_MS,
+      organizationId: "org-1",
+      recipientSlackUserId: "U_INSTALLER",
+      slackTeamId: "T_WORKSPACE",
+    };
+
+    await expect(
+      deliverSlackInstallationWelcome({ ...delivery, allowRetry: false })
+    ).resolves.toBe("delivered");
+    expect(readWelcomeDelivery(harness)).toMatchObject({
+      failure_code: null,
+      message_ts: null,
+      status: "pending",
+    });
+
+    await expect(
+      deliverSlackInstallationWelcome({
+        ...delivery,
+        allowRetry: true,
+        nowMs: NOW_MS + 1,
+      })
+    ).resolves.toBe("skipped");
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it("does not retry a confirmed Slack rejection until reauthorization explicitly allows it", async () => {
@@ -463,6 +515,29 @@ describe("Slack OAuth installation", () => {
         sql: "SELECT status FROM slack_installation_welcome_preparations",
       })
     ).toEqual([{ status: "queued" }]);
+  });
+
+  it("repairs a historically missing welcome preparation on OAuth reauthorization", async () => {
+    insertOrganizationOwner(harness);
+    await rpcInstallSlackWorkspaceFromOAuth(
+      createRpcEnv(harness),
+      RPC_INSTALLATION_INPUT
+    );
+    harness.run({
+      sql: "DELETE FROM slack_installation_welcome_preparations",
+    });
+
+    await expect(
+      rpcInstallSlackWorkspaceFromOAuth(
+        createRpcEnv(harness),
+        RPC_INSTALLATION_INPUT
+      )
+    ).resolves.toEqual({ status: "unchanged" });
+
+    expect(readWelcomePreparation(harness)).toMatchObject({
+      message_kind: "connected",
+      status: "queued",
+    });
   });
 
   it("authorizes one failed welcome retry when the installer reauthorizes Slack", async () => {

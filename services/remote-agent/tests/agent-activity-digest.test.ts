@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { summarizeAgentActivityDigest } from "../agent-core/agent-activity-digest";
+import { TEST_REMOTE_AGENT_AI_GATEWAY_ENV } from "./fixtures";
 
 describe("Remote Agent Activity digest summarization", () => {
   it("uses a configured no-tool structured-output model request", async () => {
@@ -19,8 +20,8 @@ describe("Remote Agent Activity digest summarization", () => {
     );
     const response = await summarizeAgentActivityDigest({
       env: {
+        ...TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
         OPENMELD_AGENT_ACTIVITY_DIGEST_MODEL_ID: "openai/gpt-5-nano",
-        CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
       },
       fetch,
       request: {
@@ -69,8 +70,8 @@ describe("Remote Agent Activity digest summarization", () => {
     await expect(
       summarizeAgentActivityDigest({
         env: {
+          ...TEST_REMOTE_AGENT_AI_GATEWAY_ENV,
           OPENMELD_AGENT_ACTIVITY_DIGEST_MODEL_ID: "openai/gpt-5-nano",
-          CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN: "test-token",
         },
         fetch: async () =>
           Response.json({
