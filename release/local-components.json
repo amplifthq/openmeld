@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-16T18:00:52.647Z",
+  "updatedAt": "2026-08-17T05:25:47.982Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.60",
+      "packageVersion": "0.3.61",
       "updatePolicy": "available",
-      "reason": "Deliver advisory working-language guidance to Center and Local Agents."
+      "reason": "Publish the shared Changelog contracts used by Center Agent answers."
     },
     "service": {
-      "bundleHash": "dbc95c02e3f97e02d88115b4fb786f49adad00e32e8a869455a65e5b4e05ac09",
-      "bundleVersion": "0.3.60",
+      "bundleHash": "78a2e5c590e4e68d6a1dc238fe0a604160d6bf9ca2fffe0903cd6ff1cef49d4f",
+      "bundleVersion": "0.3.61",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Deliver advisory working-language guidance to Center and Local Agents."
+      "reason": "Publish the shared Changelog contracts used by Center Agent answers."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Deliver advisory working-language guidance to Center and Local Agents."
+      "reason": "Publish the shared Changelog contracts used by Center Agent answers."
     }
   }
 }
