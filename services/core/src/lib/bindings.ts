@@ -303,6 +303,10 @@ export const organizationSkillsDb = (
   env: Pick<CoreBindings, "OPENMELD_DB">
 ): D1Database | undefined => env.OPENMELD_DB;
 
+export const opportunityDb = (
+  env: Pick<CoreBindings, "OPENMELD_DB">
+): D1Database | undefined => env.OPENMELD_DB;
+
 export type HonoBindings = {
   Bindings: CoreBindings;
   Variables: {

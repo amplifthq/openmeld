@@ -559,6 +559,7 @@ export type {
   ObservabilityCloudflareWorkerName,
   ObservabilityRuntimeEvidenceStatus,
 } from "./observability-runtime-event";
+export type * from "./opportunities";
 export type {
   OrganizationDirectoryAgentProfile,
   OrganizationDirectoryAgentProfileIdentity,

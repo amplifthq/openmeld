@@ -494,6 +494,16 @@ Unread treatment includes a text or semantic marker and must not rely on color
 alone. Urgent and action-required semantics remain separate in copy and icons.
 A resolved action remains in **Updates** as history but does not keep the active
 `Urgent` label.
+
+An Opportunity Inbox item uses the existing `center_agent` target and opens the
+canonical Center Agent Chat. Web does not add an Opportunities route, detail
+page, secondary navigation item, inline decision mutation, or client-side
+Opportunity store in Phase 1. The member accepts, defers, or dismisses the
+Recommendation in ordinary conversation; Core updates only Opportunity truth.
+The Inbox item is an ordinary update, so it does not enter the action
+badge or browser-notification path. Dismissing only the Inbox row remains a
+separate Inbox-owned action and does not decide the Opportunity.
+
 The list uses shared Fluid interaction, focus, color, spacing, and semantic
 shape tokens; it does not add a private radius or animation system. Loading,
 empty, filtered-empty, error, and offline states remain visually stable and

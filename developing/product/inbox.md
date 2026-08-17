@@ -140,6 +140,9 @@ The first release creates items for these explicit user-visible events:
    exact recipient, safe summary, supported recovery destination, and clear
    condition. Phase 1 provides the typed adapter but does not synthesize items
    by polling current-state or diagnostic tables.
+9. One evidence-backed Opportunity that the Center Agent has chosen to present
+   to the current verified member. It is an ordinary normal-importance update;
+   the Opportunity domain, not Inbox, owns the member's decision.
 
 Producers must identify one or more exact recipients from source-owned identity
 facts. They must not guess from display names, notify every administrator as a
@@ -155,6 +158,21 @@ Phase 1 intentionally excludes generic Agent Activity events, unassigned
 Feedback Issues, diagnostic-only state, typing/progress/presence events,
 successful background bookkeeping, and internal queue or execution records.
 Those are not human attention merely because they exist.
+
+### Opportunity projection
+
+The Opportunity domain owns recommendation identity, evidence, recipient, and
+the member's `open`, `accepted`, `deferred`, or `dismissed` decision as defined
+in `developing/product/opportunities.md`. Inbox stores one bounded
+`organization_opportunity` projection whose source key is the canonical
+Opportunity id and whose target opens the Center Agent. It never copies action
+authority, a destination Channel, or a downstream tool instruction.
+
+Opening or Dismissing the Inbox item does not accept, defer, or dismiss the
+Opportunity. A Center Agent decision does not rewrite this historical update.
+Phase 1 does not create an action badge, browser notification, email, Slack,
+Lark, Feishu, or other proactive delivery from this source; the existing Inbox
+surface is the only durable reminder.
 
 ### Center Agent Task projection
 

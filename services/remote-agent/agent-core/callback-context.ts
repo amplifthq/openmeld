@@ -34,6 +34,8 @@ import type {
   CenterAgentInstallOrganizationSkillRpcInput,
   CenterAgentInviteSlackTeammatesRpcInput,
   CenterAgentInviteSlackTeammatesRpcResponse,
+  CenterAgentListOpportunitiesToolResponse,
+  CenterAgentListOpportunitiesToolRpcInput,
   CenterAgentListProjectsToolResponse,
   CenterAgentListProjectsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
@@ -61,6 +63,8 @@ import type {
   CenterAgentReadSlackChannelMembersResponse,
   CenterAgentReadSlackWorkspaceDirectoryBody,
   CenterAgentReadSlackWorkspaceDirectoryResponse,
+  CenterAgentRecommendOpportunityToolResponse,
+  CenterAgentRecommendOpportunityToolRpcInput,
   CenterAgentRecordConnectorActionAuditBody,
   CenterAgentRecordConnectorActionAuditResponse,
   CenterAgentRecordConnectorActionOperationBody,
@@ -69,6 +73,8 @@ import type {
   CenterAgentRemoveProjectToolRpcInput,
   CenterAgentRequestMemberAttentionResponse,
   CenterAgentRequestMemberAttentionRpcInput,
+  CenterAgentRespondToOpportunityToolResponse,
+  CenterAgentRespondToOpportunityToolRpcInput,
   CenterAgentResumeRoutineToolRpcInput,
   CenterAgentSearchSlackMessagesBody,
   CenterAgentSearchSlackMessagesResponse,
@@ -309,6 +315,15 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadChangelog?(
     input: CenterAgentReadChangelogToolRpcInput
   ): Promise<ChangelogQueryResponse>;
+  centerAgentListOpportunities?(
+    input: CenterAgentListOpportunitiesToolRpcInput
+  ): Promise<CenterAgentListOpportunitiesToolResponse>;
+  centerAgentRecommendOpportunity?(
+    input: CenterAgentRecommendOpportunityToolRpcInput
+  ): Promise<CenterAgentRecommendOpportunityToolResponse>;
+  centerAgentRespondToOpportunity?(
+    input: CenterAgentRespondToOpportunityToolRpcInput
+  ): Promise<CenterAgentRespondToOpportunityToolResponse>;
   centerAgentDeleteRoutine?(
     input: CenterAgentDeleteRoutineToolRpcInput
   ): Promise<DeleteCenterAgentRoutineResponse>;

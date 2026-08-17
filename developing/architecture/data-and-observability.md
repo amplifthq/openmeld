@@ -3,16 +3,16 @@
 ## Agent Context
 
 - Purpose: Define durable data ownership, projections, correlation keys, trace
-  contracts, Center Agent Routine and memory storage boundaries, diagnostic
-  reports, weekly evaluation reports, Cloudflare runtime evidence, and
-  sensitive-data boundaries.
+  contracts, Opportunity, Center Agent Routine and memory storage boundaries,
+  diagnostic reports, weekly evaluation reports, Cloudflare runtime evidence,
+  and sensitive-data boundaries.
 - Read this when: You are changing D1 ownership, projections, database writer
-  rules, Routine or Run storage, Center Agent memory storage, Wake trace
+  rules, Opportunity, Routine or Run storage, Center Agent memory storage, Wake trace
   selectors, `clientMessageId`, weekly evaluation reports, Cloudflare runtime
   evidence, diagnostic reports, structured logs, or observability payload
   schemas.
-- Update this when: Data ownership, trace correlation, diagnostic read paths,
-  memory/provider ownership, runtime evidence projection, evaluation or
+- Update this when: Data ownership, Opportunity storage, trace correlation,
+  diagnostic read paths, memory/provider ownership, runtime evidence projection, evaluation or
   Diagnostic Report ownership, or sensitive-data logging rules change.
 - Do not use this for: Product object semantics, local service lifecycle, client
   presentation details, SQL tutorials, Cloudflare operations runbooks, endpoint
@@ -101,6 +101,7 @@ membership in that Organization.
 | Space Attachments                  | Private image bytes and their authorization metadata.                                                                                                                                               | Core owns D1 metadata; Gateway owns writes and authenticated user byte transfer; the Remote Agent worker is a read-only internal consumer for Core-authorized native delivery; Space DO membership remains the access truth.                                                                                                                                           |
 | Organization Logos                 | Organization identity image reference and public versioned bytes.                                                                                                                                   | Auth owns the canonical `organizations.logo` reference and owner-only mutation decision; Gateway owns image validation, Cloudflare Images transformation, and R2 object lifecycle. Personal workspaces have no Organization logo mutation path.                                                                                                                        |
 | Feedback                           | Organization-scoped Feedback Inboxes, submitted Feedback Issues, and Center Agent reporting policy.                                                                                                 | Core owns runtime writes; the guarded admin ensure command provisions inboxes.                                                                                                                                                                                                                                                                                         |
+| Opportunities                      | Member-private, Organization-scoped evidence-backed recommendations and their current decision.                                                                                                     | Core-owned D1 source of truth and sole writer. Source domains own cited facts; Inbox is only a recipient attention projection; downstream capabilities own execution and authorization.                                                                                                                                                                                 |
 | Inbox                              | Member-private, workspace-scoped attention items, per-Space read-through watermarks, read state, delivery preferences, and notification delivery attempts.                                          | Core owns item, watermark, state, preference, and delivery-ledger writes in D1. Source domains remain authoritative for represented work. Auth owns account email identity and performs Cloudflare Email Service sends through a strict internal RPC.                                                                                                                  |
 | Space Index                        | Cross-Space list projection.                                                                                                                                                                        | Rebuildable projection from Space truth.                                                                                                                                                                                                                                                                                                                               |
 | Ephemeral                          | Short-lived handoff/session state.                                                                                                                                                                  | Temporary state, not a permanent domain.                                                                                                                                                                                                                                                                                                                               |
@@ -1195,6 +1196,35 @@ marked `truncated` and resumes from its last admitted message on a later turn.
 Forbidden, rate-limited, timed-out, and otherwise unavailable reads do not
 block the verified current request, do not advance the cursor, and carry their
 explicit empty retrieval status to the Remote Agent.
+
+## Opportunity Data Boundary
+
+`organization_opportunities` is the Core-owned product truth for one
+recipient's Opportunity identity, bounded safe evidence, recommendation
+content, current decision, and creation/decision provenance. Core is its only
+writer. The unique Organization, recipient, and stable-key tuple is the replay
+fence; an exact retry returns the existing record, while changed content under
+the same key fails closed.
+
+Opportunity records never store transcripts, provider responses, credentials,
+private local paths, Changelog entry copies, or downstream permission. The
+creating Center Agent profile and source native-delivery id are descriptive
+provenance only. Reads and decisions bind to the represented current member;
+another member receives not found rather than existence disclosure.
+
+The same D1 batch creates the initial `organization_opportunity` Inbox update.
+It is normal importance and not action-required, so it does not enter proactive
+browser or email delivery. A later decision updates only Opportunity truth.
+Inbox read or clear state never mutates Opportunity truth, and an accepted
+decision never invokes a Routine, Task, App, Channel, Space, or local Agent
+operation. Those owners keep their independent authorization, audit, and
+execution evidence.
+
+The Self-Evolution Opportunity Ledger remains Organization Document content.
+Remote Agent state, Organization Documents, Inbox, Changelog, client caches,
+and future Local Agent reports must not become alternate Opportunity stores or
+writers. Any later ingestion path requires an explicit Core contract rather
+than direct table access.
 
 ## Center Agent Tasks
 

@@ -43,6 +43,7 @@ import {
   centerAgentListAgentTasksResponseSchema,
   centerAgentListComputersResponseSchema,
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
+  centerAgentListOpportunitiesToolResponseSchema,
   centerAgentListProjectsToolResponseSchema,
   centerAgentListSlackChannelsBodySchema,
   centerAgentListSlackChannelsResponseSchema,
@@ -65,10 +66,12 @@ import {
   centerAgentReadSlackWorkspaceDirectoryBodySchema,
   centerAgentReadSlackWorkspaceDirectoryResponseSchema,
   centerAgentReadSpaceContextResponseSchema,
+  centerAgentRecommendOpportunityToolResponseSchema,
   centerAgentRememberForOrganizationResponseSchema,
   centerAgentRemoveAgentProfilesFromSpaceResponseSchema,
   centerAgentRemoveProjectToolResponseSchema,
   centerAgentRequestMemberAttentionResponseSchema,
+  centerAgentRespondToOpportunityToolResponseSchema,
   centerAgentSearchSlackMessagesResponseSchema,
   centerAgentSetAgentProfileDefaultProjectToolResponseSchema,
   centerAgentSetOrganizationWorkingLanguageToolResponseSchema,
@@ -94,6 +97,15 @@ import {
   listFeedbackIssuesForOrganizationResponseSchema,
   MAX_TEXT_LENGTH,
   navigationActionSchema,
+  OPPORTUNITY_DECISIONS,
+  OPPORTUNITY_EVIDENCE_MAX_CHARS,
+  OPPORTUNITY_EVIDENCE_MAX_ITEMS,
+  OPPORTUNITY_EXPECTED_BENEFIT_MAX_CHARS,
+  OPPORTUNITY_LIST_MAX_LIMIT,
+  OPPORTUNITY_OBSERVATION_MAX_CHARS,
+  OPPORTUNITY_STATUSES,
+  OPPORTUNITY_SUGGESTED_NEXT_STEP_MAX_CHARS,
+  OPPORTUNITY_TITLE_MAX_CHARS,
   type OpenMeldNavigationTarget,
   ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS,
   ORGANIZATION_DOCUMENT_FOLDER_NAME_MAX_CHARS,
@@ -235,6 +247,61 @@ const readChangelogToolInputSchema = object({
   ),
   release: optional(trimmedNonEmptyStringSchema),
   since: optional(trimmedNonEmptyStringSchema),
+});
+const recommendOpportunityToolInputSchema = strictObject({
+  evidence: pipe(
+    array(
+      pipe(
+        string(),
+        trim(),
+        minLength(1),
+        maxLength(OPPORTUNITY_EVIDENCE_MAX_CHARS)
+      )
+    ),
+    minLength(1),
+    maxLength(OPPORTUNITY_EVIDENCE_MAX_ITEMS)
+  ),
+  expectedBenefit: pipe(
+    string(),
+    trim(),
+    minLength(1),
+    maxLength(OPPORTUNITY_EXPECTED_BENEFIT_MAX_CHARS)
+  ),
+  observation: pipe(
+    string(),
+    trim(),
+    minLength(1),
+    maxLength(OPPORTUNITY_OBSERVATION_MAX_CHARS)
+  ),
+  opportunityKey: pipe(string(), trim(), minLength(1), maxLength(256)),
+  suggestedNextStep: pipe(
+    string(),
+    trim(),
+    minLength(1),
+    maxLength(OPPORTUNITY_SUGGESTED_NEXT_STEP_MAX_CHARS)
+  ),
+  title: pipe(
+    string(),
+    trim(),
+    minLength(1),
+    maxLength(OPPORTUNITY_TITLE_MAX_CHARS)
+  ),
+});
+const listOpportunitiesToolInputSchema = strictObject({
+  limit: optional(
+    pipe(number(), integer(), minValue(1), maxValue(OPPORTUNITY_LIST_MAX_LIMIT))
+  ),
+  statuses: optional(
+    pipe(
+      array(picklist(OPPORTUNITY_STATUSES)),
+      minLength(1),
+      maxLength(OPPORTUNITY_STATUSES.length)
+    )
+  ),
+});
+const respondToOpportunityToolInputSchema = strictObject({
+  decision: picklist(OPPORTUNITY_DECISIONS),
+  opportunityId: pipe(string(), trim(), minLength(1), maxLength(256)),
 });
 const createSpaceCommonInputEntries = {
   guide: optionalNonEmptyStringSchema,
@@ -925,6 +992,9 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_remove_project",
   "openmeld_read_agent_activity",
   "openmeld_read_changelog",
+  "openmeld_list_opportunities",
+  "openmeld_recommend_opportunity",
+  "openmeld_respond_to_opportunity",
   "openmeld_read_center_agent_activity",
   "openmeld_read_space_context",
   "openmeld_read_dispatch_history",
@@ -977,8 +1047,11 @@ export type RemoteAgentOpenMeldToolName =
 
 export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_install_organization_skill",
+  "openmeld_list_opportunities",
   "openmeld_remember_for_organization",
+  "openmeld_recommend_opportunity",
   "openmeld_request_member_attention",
+  "openmeld_respond_to_opportunity",
   "openmeld_learn_about_me",
   "openmeld_create_task",
   "openmeld_list_agent_tasks",
@@ -2281,6 +2354,87 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
             "centerAgentReadChangelog",
             { ...request, ...toolContext },
             (binding, rpcInput) => binding.centerAgentReadChangelog?.(rpcInput)
+          )
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_list_opportunities",
+      description:
+        "List Opportunity recommendations previously presented to the current verified member in this Organization. Use it when the member asks what opportunities are open or wants to revisit an earlier recommendation. This is recipient-private history, not an Organization-wide queue.",
+      input: listOpportunitiesToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(listOpportunitiesToolInputSchema, payload);
+        const toolContext = await buildVerifiedMemberToolContext({
+          missingSpeakerMessage:
+            "Opportunity history requires a verified OpenMeld member identity.",
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_list_opportunities",
+        });
+        return centerAgentListOpportunitiesToolResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentListOpportunities",
+            { ...request, ...toolContext },
+            (binding, rpcInput) =>
+              binding.centerAgentListOpportunities?.(rpcInput)
+          )
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_recommend_opportunity",
+      description:
+        "Save and present one specific, evidence-backed Opportunity to the current verified member. Use only when a concrete observation has a meaningful expected benefit and a clear next step. Provide a stable opportunityKey so retries cannot create duplicates. This records a recommendation and creates a quiet Inbox update; it does not execute the next step or grant permission.",
+      input: recommendOpportunityToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          recommendOpportunityToolInputSchema,
+          payload
+        );
+        const toolContext = await buildVerifiedMemberToolContext({
+          missingSpeakerMessage:
+            "Opportunity recommendations require a verified OpenMeld member identity.",
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_recommend_opportunity",
+        });
+        return centerAgentRecommendOpportunityToolResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentRecommendOpportunity",
+            { ...request, ...toolContext },
+            (binding, rpcInput) =>
+              binding.centerAgentRecommendOpportunity?.(rpcInput)
+          )
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_respond_to_opportunity",
+      description:
+        "Record the current verified member's clear response to one exact Opportunity: accepted, deferred (not now), or dismissed (not useful). Acceptance records the recommendation decision only and never executes the suggested next step.",
+      input: respondToOpportunityToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          respondToOpportunityToolInputSchema,
+          payload
+        );
+        const toolContext = await buildVerifiedMemberToolContext({
+          missingSpeakerMessage:
+            "Opportunity decisions require a verified OpenMeld member identity.",
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_respond_to_opportunity",
+        });
+        return centerAgentRespondToOpportunityToolResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentRespondToOpportunity",
+            { ...request, ...toolContext },
+            (binding, rpcInput) =>
+              binding.centerAgentRespondToOpportunity?.(rpcInput)
           )
         );
       },

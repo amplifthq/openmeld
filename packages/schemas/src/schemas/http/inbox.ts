@@ -51,6 +51,7 @@ export const inboxSourceKindSchema = z.enum([
   "remote_agent_native_interaction",
   "center_agent_task_event",
   "organization_document_draft",
+  "organization_opportunity",
   "system_attention_event",
 ]);
 

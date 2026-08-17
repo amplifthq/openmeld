@@ -273,6 +273,7 @@ test("keeps one fast PR gate and makes exhaustive confidence manual", () => {
     ".github/actions/setup-fast-pr-plan/action.yml"
   );
   const planJob = prChecks.split("\n  plan:")[1]?.split("\n  static:")[0];
+  const checkJob = prChecks.split("\n  check:")[1]?.split("\n  unit-test-shards:")[0];
 
   assert.equal(prChecks.match(/^ {4}name: Fast PR$/gmu)?.length, 1);
   assert.ok(prChecks.includes("  plan:"));
@@ -282,6 +283,8 @@ test("keeps one fast PR gate and makes exhaustive confidence manual", () => {
   assert.ok(prChecks.includes("pnpm run verify:changelog"));
   assert.ok(prChecks.includes("  check:"));
   assert.ok(prChecks.includes("    name: Fast PR / Checks"));
+  assert.ok(checkJob);
+  assert.ok(checkJob.includes("NODE_OPTIONS: --max-old-space-size=4096"));
   assert.ok(prChecks.includes("  unit-test-shards:"));
   assert.equal(prChecks.match(/^ {4}needs: plan$/gmu)?.length, 2);
   assert.ok(

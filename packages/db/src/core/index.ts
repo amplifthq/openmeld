@@ -93,6 +93,7 @@ export {
   CORE_EVAL_REPORT_SCHEMA_DEFINITION_PATH,
   CORE_FEEDBACK_SCHEMA_DEFINITION_PATH,
   CORE_INBOX_SCHEMA_DEFINITION_PATH,
+  CORE_OPPORTUNITY_SCHEMA_DEFINITION_PATH,
   CORE_ORGANIZATION_DOCUMENT_SCHEMA_DEFINITION_PATH,
   CORE_ORGANIZATION_INFORMATION_PROTECTION_SCHEMA_DEFINITION_PATH,
   CORE_PROJECT_SCHEMA_DEFINITION_PATH,
@@ -122,6 +123,7 @@ export {
   openMeldRemoteAgentMessageChannelEventIngress,
   openMeldRemoteAgentMessageChannelIdentityLinkTokens,
 } from "./message-channel.schema.ts";
+export { organizationOpportunities } from "./opportunity.schema.ts";
 export { organizationBindingAuthorizations } from "./organization-binding-authorization.schema.ts";
 export { organizationBindingAuthorizationPreferences } from "./organization-binding-authorization-preference.schema.ts";
 export { organizationDocuments } from "./organization-document.schema.ts";

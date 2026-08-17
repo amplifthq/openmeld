@@ -14,6 +14,7 @@ import {
   CORE_DB_SCHEMA_DEFINITION_PATH,
   CORE_EVAL_REPORT_SCHEMA_DEFINITION_PATH,
   CORE_FEEDBACK_SCHEMA_DEFINITION_PATH,
+  CORE_OPPORTUNITY_SCHEMA_DEFINITION_PATH,
   CORE_ORGANIZATION_DOCUMENT_SCHEMA_DEFINITION_PATH,
   CORE_PROJECT_SCHEMA_DEFINITION_PATH,
   CORE_ROUTINE_SCHEMA_DEFINITION_PATH,
@@ -32,7 +33,7 @@ export const SHARED_DB_DATABASE_NAME = "openmeld-db-prod";
  * Keep in sync with packages/db/drizzle/meta/_journal.json; the shared migration
  * history integrity test guards the two against drift.
  */
-export const LATEST_SHARED_MIGRATION_ID = 124;
+export const LATEST_SHARED_MIGRATION_ID = 125;
 export const SHARED_DB_SCHEMA_ENTRYPOINT_PATH = "packages/db/src/schema.ts";
 export const SHARED_DB_RELEASE_NOTES = [
   "Root db:* commands now report the shared OPENMELD_DB schema and migration contract instead of an auth-only view.",
@@ -67,6 +68,12 @@ export const getSharedDbSchemaSources = (): DbFactSource[] => {
       owner: "packages/db",
       path: CORE_CENTER_AGENT_TASKS_SCHEMA_DEFINITION_PATH,
       note: "Core-owned requester-private Center Agent Tasks, attempts, and safe visible events are part of the shared OPENMELD_DB aggregate.",
+    },
+    {
+      kind: "core_schema_module",
+      owner: "packages/db",
+      path: CORE_OPPORTUNITY_SCHEMA_DEFINITION_PATH,
+      note: "Core-owned recipient-private Opportunities and member decisions are part of the shared OPENMELD_DB aggregate.",
     },
     {
       kind: "shared_schema_entrypoint",

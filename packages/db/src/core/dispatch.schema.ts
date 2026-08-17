@@ -83,6 +83,7 @@ import {
   openMeldRemoteAgentMessageChannelEventIngress,
   openMeldRemoteAgentMessageChannelIdentityLinkTokens,
 } from "./message-channel.schema.ts";
+import { organizationOpportunities } from "./opportunity.schema.ts";
 import { organizationBindingAuthorizations } from "./organization-binding-authorization.schema.ts";
 import { organizationBindingAuthorizationPreferences } from "./organization-binding-authorization-preference.schema.ts";
 import { organizationDocuments } from "./organization-document.schema.ts";
@@ -1598,6 +1599,7 @@ export const coreSchema = {
   organizationSkillActivations,
   centerAgentOrganizationSkillOperations,
   organizationInformationProtectionPolicies,
+  organizationOpportunities,
   organizationWorkingLanguagePreferences,
   centerAgentDesignations,
   centerAgentAttentionRequests,
