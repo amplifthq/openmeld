@@ -109,7 +109,14 @@ export const organizations = sqliteTable(
     metadata: text("metadata"),
     createdByUserId: text("created_by_user_id"),
   },
-  (table) => [uniqueIndex("organizations_slug_uidx").on(table.slug)]
+  (table) => [
+    uniqueIndex("organizations_slug_uidx").on(table.slug),
+    uniqueIndex("organizations_personal_created_by_user_uidx")
+      .on(table.createdByUserId)
+      .where(
+        sql`${table.createdByUserId} is not null and case when json_valid(${table.metadata}) then json_extract(${table.metadata}, '$.personal') else 0 end = 1`
+      ),
+  ]
 );
 
 export const members = sqliteTable(

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import {
   AUTH_DB_BETTER_AUTH_CONFIG_PATH,
@@ -8,6 +9,7 @@ import {
   getPackagesDbDirectoryPath,
   getRepoRootDirectoryPath,
 } from "../auth/paths.ts";
+import { applyAuthSchemaCustomizations } from "./auth-schema-customizations.ts";
 
 const loadRepoEnvFile = (): void => {
   const processWithLoadEnvFile = process as typeof process & {
@@ -64,6 +66,15 @@ export const runAuthCodegen = (): void => {
       env: process.env,
       stdio: "inherit",
     }
+  );
+
+  const generatedSchemaSource = fs.readFileSync(
+    generatedSchemaAbsolutePath,
+    "utf8"
+  );
+  fs.writeFileSync(
+    generatedSchemaAbsolutePath,
+    applyAuthSchemaCustomizations(generatedSchemaSource)
   );
 
   execFileSync(

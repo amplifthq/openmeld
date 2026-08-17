@@ -31,6 +31,13 @@ const WEB_APP_URL = "http://localhost:3000";
 const validSecret = "12345678901234567890123456789012345678901234";
 const password = "correct-horse-battery-staple";
 const SET_COOKIE_SEPARATOR_PATTERN = /,(?=\s*[^;,]+=)/;
+const API_PERSONAL_ORGANIZATION_SLUG_PATTERN = /^api-[0-9a-hjkmnp-tv-z]{6}$/;
+const OWNER_PERSONAL_ORGANIZATION_SLUG_PATTERN =
+  /^owner-example-[0-9a-hjkmnp-tv-z]{6}$/;
+const GITHUB_OWNER_PERSONAL_ORGANIZATION_SLUG_PATTERN =
+  /^github-owner-[0-9a-hjkmnp-tv-z]{6}$/;
+const LEGACY_PERSONAL_ORGANIZATION_SLUG_PATTERN =
+  /^legacy-example-[0-9a-hjkmnp-tv-z]{6}$/;
 const CENTER_AGENT_HOST_GUARD_FAILED_MESSAGE =
   "OpenMeld couldn't verify that this member can be removed. The member was not removed.";
 
@@ -91,7 +98,7 @@ describe("organization identity foundation", () => {
     );
 
     expect(organization.name).toBe("Owner Example");
-    expect(organization.slug).toBe("owner-example");
+    expect(organization.slug).toMatch(OWNER_PERSONAL_ORGANIZATION_SLUG_PATTERN);
     expect(parseOrganizationMetadata(organization.metadata)).toEqual({
       personal: true,
     });
@@ -210,10 +217,10 @@ describe("organization identity foundation", () => {
       "Expected personal organization"
     );
 
-    expect(organization).toEqual({
-      name: "github-owner",
-      slug: "github-owner",
-    });
+    expect(organization).toMatchObject({ name: "github-owner" });
+    expect(organization.slug).toMatch(
+      GITHUB_OWNER_PERSONAL_ORGANIZATION_SLUG_PATTERN
+    );
   });
 
   it("creates a personal organization lazily for existing users without organization membership", async () => {
@@ -254,12 +261,14 @@ describe("organization identity foundation", () => {
       "Expected lazy personal organization"
     );
 
-    expect(organization).toEqual({
+    expect(organization).toMatchObject({
       id: organization.id,
       metadata: organization.metadata,
       name: "Legacy Example",
-      slug: "legacy-example",
     });
+    expect(organization.slug).toMatch(
+      LEGACY_PERSONAL_ORGANIZATION_SLUG_PATTERN
+    );
     expect(parseOrganizationMetadata(organization.metadata)).toEqual({
       personal: true,
     });
@@ -281,6 +290,127 @@ describe("organization identity foundation", () => {
     ).toEqual({ activeOrganizationId: organization.id });
   });
 
+  it("converges concurrent legacy-user sessions on one personal organization", async () => {
+    const { auth, harness } = createTestAuth();
+    const legacyUserId = "concurrent-legacy-user";
+
+    await insertLegacyCredentialUser(harness, {
+      email: "concurrent-legacy@example.com",
+      id: legacyUserId,
+      name: "Concurrent Legacy",
+      password,
+    });
+
+    const [firstHeaders, secondHeaders] = await Promise.all([
+      signIn(auth, {
+        email: "concurrent-legacy@example.com",
+        password,
+      }),
+      signIn(auth, {
+        email: "concurrent-legacy@example.com",
+        password,
+      }),
+    ]);
+
+    const organizations = harness.queryAll<{ id: string }>({
+      params: [legacyUserId],
+      sql: `
+        select organizations.id
+        from organizations
+        where organizations.created_by_user_id = ?
+          and json_extract(organizations.metadata, '$.personal') = 1
+      `,
+    });
+    const sessionOrganizationIds = harness
+      .queryAll<{ activeOrganizationId: string }>({
+        params: [legacyUserId],
+        sql: `
+          select active_organization_id as activeOrganizationId
+          from sessions
+          where user_id = ?
+          order by id
+        `,
+      })
+      .map((session) => session.activeOrganizationId);
+
+    expect(firstHeaders.get("cookie")).toBeTruthy();
+    expect(secondHeaders.get("cookie")).toBeTruthy();
+    expect(organizations).toHaveLength(1);
+    expect(new Set(sessionOrganizationIds)).toEqual(
+      new Set([organizations[0]?.id])
+    );
+  });
+
+  it("repairs the winning personal Organization after losing its creation race", async () => {
+    const { auth, harness } = createTestAuth();
+    const legacyUserId = "race-loser-legacy-user";
+    const winningOrganizationId = "11111111-1111-4111-8111-111111111111";
+
+    await insertLegacyCredentialUser(harness, {
+      email: "race-loser@example.com",
+      id: legacyUserId,
+      name: "Race Loser",
+      password,
+    });
+    harness.run({
+      params: [winningOrganizationId, legacyUserId],
+      sql: `
+        insert into organizations (
+          id,
+          name,
+          slug,
+          created_at,
+          metadata,
+          created_by_user_id
+        ) values (?, 'Race Winner', 'race-winner-k7m3qx', 1000, '{"personal":true}', ?)
+      `,
+    });
+
+    const headers = await signIn(auth, {
+      email: "race-loser@example.com",
+      password,
+    });
+
+    expect(headers.get("cookie")).toBeTruthy();
+    expect(
+      harness.queryAll({
+        params: [legacyUserId],
+        sql: `
+          select id
+          from organizations
+          where created_by_user_id = ?
+            and json_extract(metadata, '$.personal') = 1
+        `,
+      })
+    ).toEqual([{ id: winningOrganizationId }]);
+    expect(
+      harness.queryAll({
+        params: [winningOrganizationId],
+        sql: `
+          select organization_id as organizationId, user_id as userId, role
+          from members
+          where organization_id = ?
+        `,
+      })
+    ).toEqual([
+      {
+        organizationId: winningOrganizationId,
+        role: "owner",
+        userId: legacyUserId,
+      },
+    ]);
+    expect(
+      harness.queryFirst({
+        params: [legacyUserId],
+        sql: `
+          select active_organization_id as activeOrganizationId
+          from sessions
+          where user_id = ?
+        `,
+      })
+    ).toEqual({ activeOrganizationId: winningOrganizationId });
+  });
+
   it("derives personal organization slugs from the user identity and avoids reserved words and collisions", async () => {
     const { auth, harness } = createTestAuth();
 
@@ -300,13 +430,21 @@ describe("organization identity foundation", () => {
       password,
     });
 
-    expect(readPersonalOrganizationSlug(harness, "api@example.com")).toBe(
-      "api-2"
+    const apiSlug = readPersonalOrganizationSlug(harness, "api@example.com");
+    const firstOwnerSlug = readPersonalOrganizationSlug(
+      harness,
+      "owner-a@example.com"
     );
-    expect(readPersonalOrganizationSlug(harness, "owner-a@example.com")).toBe(
-      "owner-example"
+    const secondOwnerSlug = readPersonalOrganizationSlug(
+      harness,
+      "owner-b@example.com"
     );
-    expect(readPersonalOrganizationSlug(harness, "owner-b@example.com")).toBe(
+
+    expect(apiSlug).toMatch(API_PERSONAL_ORGANIZATION_SLUG_PATTERN);
+    expect(firstOwnerSlug).toMatch(OWNER_PERSONAL_ORGANIZATION_SLUG_PATTERN);
+    expect(secondOwnerSlug).toMatch(OWNER_PERSONAL_ORGANIZATION_SLUG_PATTERN);
+    expect(secondOwnerSlug).not.toBe(firstOwnerSlug);
+    expect([apiSlug, firstOwnerSlug, secondOwnerSlug]).not.toContain(
       "owner-example-2"
     );
   });

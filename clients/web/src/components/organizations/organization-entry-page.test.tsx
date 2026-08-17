@@ -9,7 +9,10 @@ import {
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
-import { TestQueryClientProvider } from "#/test-support/query-client";
+import {
+	createTestQueryClient,
+	TestQueryClientProvider,
+} from "#/test-support/query-client";
 import {
 	NewOrganizationPage,
 	OrganizationEntryPage,
@@ -349,9 +352,7 @@ describe("OrganizationEntryPage", () => {
 		fireEvent.change(screen.getByLabelText("Organization name"), {
 			target: { value: "Acme Labs" },
 		});
-		expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe(
-			"acme-labs"
-		);
+		expect(screen.queryByLabelText("Slug")).toBeNull();
 		expect(screen.queryByLabelText(WAKE_ACCESS_LABEL)).toBeNull();
 		expect(screen.queryByLabelText("Organization memory")).toBeNull();
 		expect(screen.queryByRole("dialog")).toBeNull();
@@ -359,14 +360,14 @@ describe("OrganizationEntryPage", () => {
 	});
 
 	it("creates and opens an organization without answering onboarding decisions", async () => {
-		renderNewOrganizationPage();
+		const queryClient = createTestQueryClient();
+		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+		renderNewOrganizationPage(queryClient);
 
 		fireEvent.change(screen.getByLabelText("Organization name"), {
 			target: { value: "Acme Labs" },
 		});
-		expect((screen.getByLabelText("Slug") as HTMLInputElement).value).toBe(
-			"acme-labs"
-		);
+		expect(screen.queryByLabelText("Slug")).toBeNull();
 		fireEvent.click(
 			screen.getByRole("button", {
 				name: "Create organization",
@@ -376,7 +377,9 @@ describe("OrganizationEntryPage", () => {
 		await waitFor(() => {
 			expect(createOrganizationMock).toHaveBeenCalledWith({
 				name: "Acme Labs",
-				slug: "acme-labs",
+			});
+			expect(invalidateQueries).toHaveBeenCalledWith({
+				queryKey: ["organization-scope"],
 			});
 			expect(prepareOrganizationDestinationMock).toHaveBeenCalledWith({
 				organizationId: "org-acme",
@@ -604,9 +607,11 @@ function renderSlackInstallPage() {
 	);
 }
 
-function renderNewOrganizationPage() {
+function renderNewOrganizationPage(
+	queryClient?: ReturnType<typeof createTestQueryClient>
+) {
 	return render(
-		<TestQueryClientProvider>
+		<TestQueryClientProvider queryClient={queryClient}>
 			<NewOrganizationPage />
 		</TestQueryClientProvider>
 	);

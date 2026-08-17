@@ -1456,6 +1456,12 @@ export {
   updateOrganizationDocumentRpcInputSchema,
 } from "./http/organization-documents";
 export {
+  createdOrganizationResponseSchema,
+  createOrganizationBodySchema,
+  ORGANIZATION_NAME_MAX_LENGTH,
+  organizationNameSchema,
+} from "./http/organization-identity";
+export {
   ORGANIZATION_PROTECTED_INFORMATION_MAX_CHARS,
   organizationInformationProtectionPolicyResponseSchema,
   organizationProtectedInformationSchema,

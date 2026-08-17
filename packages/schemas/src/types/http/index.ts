@@ -612,6 +612,10 @@ export type {
   UpdateOrganizationDocumentRpcInput,
 } from "./organization-documents";
 export type {
+  CreatedOrganizationResponse,
+  CreateOrganizationBody,
+} from "./organization-identity";
+export type {
   OrganizationInformationProtectionPolicyResponse,
   UpdateOrganizationInformationProtectionPolicyBody,
 } from "./organization-information-protection";

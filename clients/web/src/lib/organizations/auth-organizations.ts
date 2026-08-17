@@ -1,5 +1,7 @@
 import {
 	acceptOrganizationJoinLinkResponseSchema,
+	createdOrganizationResponseSchema,
+	createOrganizationBodySchema,
 	getOrganizationJoinLinkResponseSchema,
 	previewOrganizationJoinLinkResponseSchema,
 	revokeOrganizationJoinLinkResponseSchema,
@@ -21,7 +23,6 @@ import type { OrganizationSummary } from "./organization-types";
 type OrganizationClientApi = {
 	acceptInvitation?: (input: { invitationId: string }) => Promise<unknown>;
 	cancelInvitation?: (input: { invitationId: string }) => Promise<unknown>;
-	create?: (input: { name: string; slug: string }) => Promise<unknown>;
 	delete?: (input: { organizationId: string }) => Promise<unknown>;
 	inviteMember?: (input: {
 		email: string;
@@ -73,7 +74,6 @@ export type UserOrganizationInvitation = OrganizationInvitation & {
 
 export type OrganizationCreateInput = {
 	name: string;
-	slug: string;
 };
 
 export type OrganizationUpdateData = {
@@ -149,29 +149,19 @@ export async function listOrganizations(): Promise<OrganizationSummary[]> {
 export async function createOrganization(
 	input: OrganizationCreateInput
 ): Promise<OrganizationSummary> {
-	if (authClientWithOrganizationApi.organization?.create) {
-		const response = await resolveClientResult<unknown>(
-			() => authClientWithOrganizationApi.organization?.create?.(input),
-			"Failed to create organization."
-		);
-		if (response.error) {
-			throwAuthError(response.error, "Failed to create organization.");
-		}
-		return normalizeCreatedOrganization(response.data, input);
-	}
-
+	const body = createOrganizationBodySchema.parse(input);
 	const response = await requestAuthEndpoint<unknown>({
 		fallbackMessage: "Failed to create organization.",
 		path: "/organization/create",
 		request: {
-			body: JSON.stringify(input),
+			body: JSON.stringify(body),
 			method: "POST",
 		},
 	});
 	if (response.error) {
 		throwAuthError(response.error, "Failed to create organization.");
 	}
-	return normalizeCreatedOrganization(response.data, input);
+	return normalizeCreatedOrganization(response.data);
 }
 
 export async function inviteOrganizationMember(input: {
@@ -534,24 +524,21 @@ export async function cancelOrganizationInvitation(input: {
 	}
 }
 
-function normalizeCreatedOrganization(
-	input: unknown,
-	fallback: OrganizationCreateInput
-): OrganizationSummary {
+function normalizeCreatedOrganization(input: unknown): OrganizationSummary {
 	if (!input || typeof input !== "object") {
 		throw new Error("Created organization response is invalid.");
 	}
 	const record = resolveCreatedOrganizationRecord(input);
-	const id = readTrimmedText(record.id);
-	if (!id) {
+	const parsed = createdOrganizationResponseSchema.safeParse(record);
+	if (!parsed.success) {
 		throw new Error("Created organization response is invalid.");
 	}
 	return {
-		id,
+		id: parsed.data.id,
 		isPersonal: false,
-		logo: readTrimmedText(record.logo),
-		name: readTrimmedText(record.name) ?? fallback.name,
-		slug: readTrimmedText(record.slug) ?? fallback.slug,
+		logo: parsed.data.logo ?? null,
+		name: parsed.data.name,
+		slug: parsed.data.slug,
 	};
 }
 

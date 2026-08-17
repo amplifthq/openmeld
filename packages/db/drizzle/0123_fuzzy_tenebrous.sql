@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `organizations_personal_created_by_user_uidx` ON `organizations` (`created_by_user_id`) WHERE "organizations"."created_by_user_id" is not null and case when json_valid("organizations"."metadata") then json_extract("organizations"."metadata", '$.personal') else 0 end = 1;

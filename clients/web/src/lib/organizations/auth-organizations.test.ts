@@ -76,29 +76,35 @@ describe("auth organization client helpers", () => {
 		expect(acceptInvitation).toHaveBeenCalledWith({ invitationId: "inv-123" });
 	});
 
-	it("creates an organization through Better Auth and normalizes the result", async () => {
-		const create = vi.fn().mockResolvedValue({
-			data: {
-				id: "org-acme",
-				name: "Acme Labs",
-				slug: "acme-labs",
-			},
-		});
-		openMeldAuthClientMock.organization = { create };
+	it("asks Auth to create an organization URL and normalizes the result", async () => {
+		fetchMock.mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					id: "org-acme",
+					name: "Acme Labs",
+					slug: "acme-labs-k7m3qx",
+				}),
+				{
+					headers: { "content-type": "application/json" },
+					status: 200,
+				}
+			)
+		);
 
-		await expect(
-			createOrganization({ name: "Acme Labs", slug: "acme-labs" })
-		).resolves.toEqual({
+		await expect(createOrganization({ name: "Acme Labs" })).resolves.toEqual({
 			id: "org-acme",
 			isPersonal: false,
 			logo: null,
 			name: "Acme Labs",
-			slug: "acme-labs",
+			slug: "acme-labs-k7m3qx",
 		});
-		expect(create).toHaveBeenCalledWith({
-			name: "Acme Labs",
-			slug: "acme-labs",
-		});
+		expect(fetchMock).toHaveBeenCalledWith(
+			"/api/auth/organization/create",
+			expect.objectContaining({
+				body: JSON.stringify({ name: "Acme Labs" }),
+				method: "POST",
+			})
+		);
 	});
 
 	it("uses Better Auth organization management methods with documented input shapes", async () => {

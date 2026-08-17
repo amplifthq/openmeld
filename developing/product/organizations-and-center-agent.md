@@ -167,7 +167,20 @@ docs directly readable against our schema.
   and Spaces multiply, so grouping pressure arrives sooner than in
   human-only SaaS. Enable only when a real org hits that need.
 - Auto-personal-org lands via a user-create database hook calling server-side
-  org creation; the session-create hook sets `activeOrganizationId`.
+  org creation; the session-create hook sets `activeOrganizationId`. Each Auth
+  user has at most one personal Organization. D1 enforces that invariant with a
+  partial unique index over the existing canonical facts:
+  `created_by_user_id` where valid Organization metadata has `personal: true`.
+  Concurrent first sessions resolve the same winning Organization and converge
+  on its single owner membership instead of creating parallel personal contexts.
+- Auth owns new Organization URL allocation. Web submits the display name only;
+  Auth derives a readable base, appends a six-character cryptographically random
+  public discriminator, and delegates the resulting create to the Better Auth
+  Organization API. The existing `/organization/create` request may accept and
+  ignore the legacy client `slug` field during deployment compatibility, but no
+  client value or ordinal suffix is a creation authority. Personal Organization
+  creation uses the same allocator. The database unique index is the final
+  constraint and exact collisions are retried.
 - Roles: the plugin's default three — `owner`, `admin`, `member`. No custom
   roles, no dynamic access control in MVP. Org-scoped permission statements
   (via `createAccessControl`) carry our resources (for example
