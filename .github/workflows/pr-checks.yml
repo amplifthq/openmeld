@@ -110,6 +110,7 @@ jobs:
 
       - name: Check changed workspaces
         env:
+          NODE_OPTIONS: --max-old-space-size=4096
           OPENMELD_AFFECTED_BASE: ${{ github.event.pull_request.base.sha }}
         run: node scripts/dev/turbo-affected.mjs --changed-only check -- --concurrency=2 --output-logs=errors-only
 
