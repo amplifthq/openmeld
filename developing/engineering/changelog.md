@@ -80,6 +80,12 @@ The filename must be `<id>.md`. Fields are intentionally small:
   published entry and optional while the entry is a draft.
 - Markdown body: concise public explanation of the outcome and practical value.
 
+To keep every human and agent consumer bounded, `id` and list values are at
+most 120 characters, `title` is at most 240 characters, the body is at most
+4,000 characters, evidence values are at most 240 characters, and each entry
+list contains at most 10 items. These authoring limits are the same limits used
+to validate the generated machine index at runtime.
+
 Arrays use JSON string-array syntax. The frontmatter stays flat on purpose: it
 is easy for humans and agents to edit, straightforward to validate with the
 mature `yaml` parser, and portable to ordinary Markdown tooling.
@@ -179,17 +185,40 @@ delivery time. The Changelog keeps the original `publishedAt` truth. Any future
 backfill that creates GitHub Release objects must disclose this distinction and
 consider subscriber notifications before writing external state.
 
-## Future consumers
+## Center Agent reader
+
+The Center Agent reads the committed `changelog/index.json` from the canonical
+GitHub repository's `main` branch through a private Core RPC. Core validates the
+shared schema and keeps only a 60-second in-isolate cache to avoid repeated
+GitHub reads. It does not copy Changelog entries into D1, KV, R2, prompts, or
+Organization memory. A failed or invalid GitHub response fails visibly instead
+of being replaced with guessed or silently stale update data.
+
+The model-visible `openmeld_read_changelog` tool returns only published entries
+and supports bounded filters for publication date, area, audience, kind, and
+release plus newest-first offset pagination. It is read-only and uses the same verified speaker and designated
+Center Agent admission path in Web, Slack, and every other supported Channel.
+No additional Slack scope is required because the tool neither reads Slack data
+nor creates a new publication path.
+
+The GitHub contents request may use Core's existing repository token while the
+repository is private and works without authentication once the source is
+public. Git merge makes a published index discoverable without a Core deploy;
+the short cache means an already-warm isolate may take up to one minute to see
+the new commit.
+
+## Consumers and next extension
 
 This foundation keeps later integration small:
 
-- a Web Changelog page can render `changelog/index.json`;
-- Center Agent can search entries by date, area, audience, kind, or release;
+- Center Agent searches entries by date, area, audience, kind, or release;
+- a Web Changelog page can render the same `changelog/index.json` next;
 - Channel and App experiences can reuse the same read projection;
 - relevance and notification preferences can be layered on without changing
   historical entries; and
 - another project can reuse the Skill, entry contract, and scripts without an
   OpenMeld database.
 
-Those consumers remain out of scope until the internal workflow has enough
-real use to prove the authoring contract is comfortable.
+Proactive notifications and preference controls remain out of scope until the
+passive authoring, Center Agent, and Web reading paths have enough real use to
+prove the contract is comfortable.

@@ -412,6 +412,15 @@ export type {
   StopCenterAgentTaskRpcInput,
 } from "./center-agent-tasks";
 export type {
+  CenterAgentReadChangelogToolRpcInput,
+  ChangelogEntry,
+  ChangelogEntryKind,
+  ChangelogIndex,
+  ChangelogQuery,
+  ChangelogQueryResponse,
+  ChangelogSource,
+} from "./changelog";
+export type {
   CliBinaryCompressedRelease,
   CliBinaryDeltaPatch,
   CliBinaryDeltaTransport,

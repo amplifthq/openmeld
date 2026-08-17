@@ -301,6 +301,7 @@ import type {
   CenterAgentPostSpaceMessageBody,
   CenterAgentPostSpaceMessageResponse,
   CenterAgentReadAgentActivityToolRpcInput,
+  CenterAgentReadChangelogToolRpcInput,
   CenterAgentReadConnectorActionOperationBody,
   CenterAgentReadConnectorActionOperationResponse,
   CenterAgentReadDispatchHistoryBody,
@@ -689,6 +690,7 @@ import {
   resolveExplicitMemorySourceDeliveryDb,
   resolveExplicitMemorySourceTurnRequest,
 } from "../center-agent-memory/explicit-memory-origin";
+import { rpcCenterAgentReadChangelog as centerAgentReadChangelog } from "../changelog/changelog-center-agent-rpc";
 import { createComputerFileAccessRpc } from "../computers/computer-file-access-rpc";
 import { createLocalFolderPickerRpc } from "../computers/local-folder-picker-rpc";
 import { readModelCatalog } from "../config/model-catalog";
@@ -1008,6 +1010,8 @@ export type ReadOrganizationUsageOverviewInput =
   OrganizationUsageOverviewRpcInput;
 export type CenterAgentReadAgentActivityInput =
   CenterAgentReadAgentActivityToolRpcInput;
+export type CenterAgentReadChangelogInput =
+  CenterAgentReadChangelogToolRpcInput;
 export type DeleteRoutineInput = RoutineDeleteInput;
 export type ListRoutineRunsInput = RoutineRunsListInput;
 export type ListRoutineTargetSpacesInput = RoutineTargetSpacesListInput;
@@ -1221,6 +1225,13 @@ export function rpcCenterAgentReadAgentActivity(
   input: CenterAgentReadAgentActivityInput
 ) {
   return centerAgentReadAgentActivity(env, input);
+}
+
+export function rpcCenterAgentReadChangelog(
+  env: CoreBindings,
+  input: CenterAgentReadChangelogInput
+) {
+  return centerAgentReadChangelog(env, input);
 }
 
 export function rpcListRoutines(env: CoreBindings, input: ListRoutinesInput) {

@@ -1163,6 +1163,19 @@ export {
   stopCenterAgentTaskRpcInputSchema,
 } from "./http/center-agent-tasks";
 export {
+  CHANGELOG_ENTRY_KINDS,
+  CHANGELOG_QUERY_DEFAULT_LIMIT,
+  CHANGELOG_QUERY_MAX_LIMIT,
+  CHANGELOG_QUERY_MAX_OFFSET,
+  centerAgentReadChangelogToolRpcInputSchema,
+  changelogEntryKindSchema,
+  changelogEntrySchema,
+  changelogIndexSchema,
+  changelogQueryResponseSchema,
+  changelogQuerySchema,
+  changelogSourceSchema,
+} from "./http/changelog";
+export {
   cliBinaryCompressedReleaseSchema,
   cliBinaryDeltaPatchSchema,
   cliBinaryDeltaTransportSchema,
