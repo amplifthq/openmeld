@@ -174,6 +174,9 @@ change must leave those signals cleaner and less ambiguous.
 
 - Before starting a task, re-read the user goal and choose the scoped owner docs
   that apply.
+- Before declaring a user-, operator-, integrator-, or contributor-visible
+  change done, decide whether it needs an OpenMeld Changelog entry and, when it
+  does, follow `.agents/skills/openmeld-changelog/SKILL.md`.
 - Before declaring a change done, answer explicitly: does this change violate
   any rule in the scoped `developing/architecture/` owner documents? For state,
   readiness, availability, Wake routing, or service lifecycle changes this
