@@ -132,6 +132,9 @@ This directory is the durable context layer. Use these entrypoints:
 - `developing/engineering/production-release.md`: production release lane
   selection, scoped local and GitHub deploys, database sequencing, CLI rollout,
   health checks, and release evidence
+- `developing/engineering/changelog.md`: Git-backed Changelog entries,
+  publication evidence, historical backfill, generated projections, and
+  GitHub release-note handoff
 - `developing/engineering/environment-and-secrets.md`: Doppler project/config
   ownership, shared local environment commands, secret safety, and production
   readiness boundaries

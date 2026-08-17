@@ -279,6 +279,7 @@ test("keeps one fast PR gate and makes exhaustive confidence manual", () => {
   assert.ok(prChecks.includes("    name: Fast PR / Plan"));
   assert.ok(prChecks.includes("  static:"));
   assert.ok(prChecks.includes("    name: Fast PR / Static"));
+  assert.ok(prChecks.includes("pnpm run verify:changelog"));
   assert.ok(prChecks.includes("  check:"));
   assert.ok(prChecks.includes("    name: Fast PR / Checks"));
   assert.ok(prChecks.includes("  unit-test-shards:"));

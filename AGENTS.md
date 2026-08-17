@@ -78,6 +78,7 @@ Use these owner documents:
 | Desktop preview download page, R2 artifact binding, and production Web download/update routes | `developing/clients/desktop.md`, `developing/clients/web.md`, `developing/engineering/development-workflow.md` |
 | CLI binary release, R2 manifest, Web download route, and setup `dist=` distribution switch | `developing/engineering/cli-binary-release.md`, `developing/clients/cli.md`, `developing/clients/web.md` |
 | Production release lane selection, scoped local/GitHub deploys, D1 production sequencing, CLI rollout choice, health checks, and release reporting | `developing/engineering/production-release.md` |
+| OpenMeld Changelog authoring, publication, historical backfill, generated projections, and GitHub release-note handoff | `developing/engineering/changelog.md`, then `.agents/skills/openmeld-changelog/SKILL.md` |
 | Environment variables, Doppler local development, secret ownership, contributor onboarding, and production secret readiness | `developing/engineering/environment-and-secrets.md` |
 | Parallel-agent worktree ownership and coordination, unattended execution, local lanes, validation gates, contract rollouts, `OPENMELD_HOME`, real-user smoke, local component releases, DB workflow, Fresh Web Start | `developing/engineering/development-workflow.md` |
 | Code style, lint, and formatting standards (Ultracite/Biome) | `developing/engineering/code-standards.md` |
@@ -173,6 +174,9 @@ change must leave those signals cleaner and less ambiguous.
 
 - Before starting a task, re-read the user goal and choose the scoped owner docs
   that apply.
+- Before declaring a user-, operator-, integrator-, or contributor-visible
+  change done, decide whether it needs an OpenMeld Changelog entry and, when it
+  does, follow `.agents/skills/openmeld-changelog/SKILL.md`.
 - Before declaring a change done, answer explicitly: does this change violate
   any rule in the scoped `developing/architecture/` owner documents? For state,
   readiness, availability, Wake routing, or service lifecycle changes this
