@@ -1,3 +1,4 @@
+import { CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   postSlackEphemeralMessage,
@@ -42,6 +43,12 @@ describe("Slack Real-time Search client", () => {
                         text: "a".repeat(4500),
                         ts: "123457.7890",
                         user_id: "U0123456",
+                      },
+                      {
+                        author_name: "Morgan Lee",
+                        text: "This third nearby message should stay outside the focused result.",
+                        ts: "123458.7890",
+                        user_id: "U0777777",
                       },
                     ],
                     before: [
@@ -119,7 +126,7 @@ describe("Slack Real-time Search client", () => {
               authorUserId: "U0123456",
               channelId: "C0123456",
               channelName: "proj-gizmo",
-              content: `${"a".repeat(3999)}…`,
+              content: `${"a".repeat(CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS - 1)}…`,
               isAuthorBot: false,
               messageTs: "123457.7890",
               permalink:

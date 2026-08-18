@@ -15,6 +15,32 @@ describe("working language prompt", () => {
     expect(prompt).not.toContain("detect");
   });
 
+  it("inherits the established conversation language for follow-up fragments", () => {
+    const prompt = renderWorkingLanguagePrompt();
+
+    expect(prompt).toContain("short fragment");
+    expect(prompt).toContain("proper name");
+    expect(prompt).toContain("answer to your follow-up question");
+    expect(prompt).toContain("Fangyuan");
+    expect(prompt).toContain("Yes");
+    expect(prompt).toContain("OK8");
+    expect(prompt).toContain("@handle");
+    expect(prompt).toContain("URL");
+    expect(prompt).toContain("number");
+  });
+
+  it("separates a one-response language choice from a durable language change", () => {
+    const prompt = renderWorkingLanguagePrompt();
+
+    expect(prompt).toContain("complete, self-contained request");
+    expect(prompt).toContain("that response only");
+    expect(prompt).toContain(
+      "does not reset the conversation's established language"
+    );
+    expect(prompt).toContain("explicitly asks to continue in that language");
+    expect(prompt).toContain("sustained sequence");
+  });
+
   it("renders a selected Organization preference as advice, not a restriction", () => {
     const prompt = renderWorkingLanguagePrompt({
       workingLanguage: { languageTag: "zh-Hans", mode: "selected" },

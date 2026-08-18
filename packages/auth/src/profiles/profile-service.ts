@@ -885,13 +885,15 @@ export function createOpenMeldProfileService(
       if (existing?.status !== "active") {
         throw new ProfileNotFoundError();
       }
-      if (
-        existing.profileKind !== "agent" ||
-        existing.organizationId !== organizationId ||
-        existing.managedRole !== null
-      ) {
+      if (existing.organizationId !== organizationId) {
         throw new ProfileValidationError(
-          "Default Project is only available for local Agent Profiles"
+          "This Agent Profile does not belong to this Organization.",
+          "profile.organization_mismatch"
+        );
+      }
+      if (existing.profileKind !== "agent" || existing.managedRole !== null) {
+        throw new ProfileValidationError(
+          "Default Project is only available for ordinary Agent Profiles."
         );
       }
       if (existing.defaultProjectId === defaultProjectId) {

@@ -11,6 +11,7 @@ import {
   REMOTE_AGENT_IDENTITY_PERSONAL_PROMPT,
 } from "./identity";
 import { renderRemoteAgentKnowledgePrompt } from "./knowledge";
+import { OPENMELD_KERNEL_PROMPT } from "./openmeld-kernel";
 import { renderOrganizationBrief } from "./organization-brief";
 import { REMOTE_AGENT_PLAYBOOKS_PROMPT } from "./playbooks";
 import { REMOTE_AGENT_PRINCIPLES_PROMPT } from "./principles";
@@ -36,6 +37,7 @@ export function buildRemoteAgentSystemPrompt(
       input.turnEnvelope ?? null,
       input.modelDisplayName ?? REMOTE_AGENT_MODEL_DISPLAY_NAME
     ),
+    OPENMELD_KERNEL_PROMPT,
     renderCurrentTimePrompt(),
     REMOTE_AGENT_PRINCIPLES_PROMPT,
     renderWorkingLanguagePrompt({

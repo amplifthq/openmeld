@@ -3,13 +3,18 @@ import {
 	createAgentProfileBodySchema,
 } from "@openmeld/schemas";
 import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod/v4";
 import { getRequiredServerEnv } from "#/env";
+
+const createStartAgentProfileInputSchema = createAgentProfileBodySchema.extend({
+	organizationId: z.string().trim().min(1).max(256),
+});
 
 export const createStartAgentProfile = createServerFn({
 	method: "POST",
 })
 	.inputValidator((data: unknown) => {
-		const parsed = createAgentProfileBodySchema.safeParse(data);
+		const parsed = createStartAgentProfileInputSchema.safeParse(data);
 		if (!parsed.success) {
 			throw new Error(
 				parsed.error.issues[0]?.message ?? "Invalid create agent profile input."
@@ -23,8 +28,10 @@ export const createStartAgentProfile = createServerFn({
 			"./create-agent-profile.server"
 		);
 
+		const { organizationId, ...body } = data;
 		return await createStartAgentProfileFromRequest({
 			authBaseUrl: getRequiredServerEnv("BETTER_AUTH_URL"),
-			body: data,
+			body,
+			organizationId,
 		});
 	});
