@@ -1536,7 +1536,15 @@ The welcome offers **See what I learned**, **Invite teammates**, and
 Organization has no active App connection. The Slack teammate action opens a
 native multi-user picker, accepts at most ten selected active human workspace
 members, and sends a private invitation to each through an idempotent delivery
-ledger. The same private-invitation action is available in ordinary Slack DM
+ledger. Gateway acknowledges every valid welcome button interaction, including
+a URL button, within Slack's three-second deadline before waiting for Core.
+For either native picker, Core uses the single-use trigger only to open a
+generic, input-free checking modal within a shorter bounded budget while it
+rechecks the linked member. No Organization data, join link, selection control,
+or submission action appears before that check succeeds. Core then replaces the
+same modal through Slack's returned view id and hash with either the authorized
+picker or one private next step; closing the checking modal is a normal outcome.
+The same private-invitation action is available in ordinary Slack DM
 conversation: the Center Agent reads the live workspace directory, resolves
 only exact named people, and sends their returned Slack user ids through the
 same Core interaction and delivery contract. An ambiguous or missing name
