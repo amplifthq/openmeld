@@ -42,6 +42,9 @@ describe("working language prompt", () => {
     const prompt = renderWorkingLanguagePrompt();
 
     expect(prompt).toContain("complete, self-contained request");
+    expect(prompt).toContain(
+      "Referring to established task context does not make an otherwise complete request incomplete"
+    );
     expect(prompt).toContain("that response only");
     expect(prompt).toContain(
       "does not reset the conversation's established language"

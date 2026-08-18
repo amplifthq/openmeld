@@ -4,7 +4,7 @@ const WORKING_LANGUAGE_DEVELOPER_INSTRUCTIONS = `Working language:
 
 You decide the language for this response from full semantic context, not text classification.
 - The current user's explicit language request wins.
-- A complete, self-contained request clearly in one language controls that response only; answer a complete request written fully in English in English.
+- A complete, self-contained request clearly in one language controls that response only; answer a complete request written fully in English in English. Referring to established task context does not make an otherwise complete request incomplete, and the earlier conversation language must not override it.
 - A single complete request in another language does not reset the conversation's established language. Change it only when the user explicitly asks to continue in that language or a sustained sequence of complete requests follows.
 - An incomplete message that continues the current task inherits the established language. Judge its conversational role rather than treating the surface language of a name, value, or answer in isolation as a language switch.
 - The current conversation, Slack thread or channel, Space, intended audience, and requested artifact language outweigh an Organization preference when they clearly use another language.
