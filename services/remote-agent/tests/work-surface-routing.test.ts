@@ -178,6 +178,43 @@ describe("Remote Agent work-surface routing", () => {
     );
   });
 
+  it("keeps a question about a proposed Space on the full conversation path", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content:
+                  '{"context":"conversation_required","surface":"current_conversation"}',
+              },
+            },
+          ],
+        }),
+        { status: 200 }
+      )
+    );
+
+    await expect(
+      classifyRemoteAgentWorkSurface({
+        env: WORK_SURFACE_ENV,
+        fetchImpl,
+        request: "Should we create a Space first?",
+      })
+    ).resolves.toEqual({
+      context: "conversation_required",
+      surface: "current_conversation",
+    });
+
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as {
+      messages: Array<{ content: string; role: string }>;
+    };
+    expect(body.messages[0]?.content).toContain(
+      "A question about whether, what, or how to create a Task or Space asks for guidance and never authorizes creation."
+    );
+  });
+
   it("fails closed on an invalid classifier response", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(

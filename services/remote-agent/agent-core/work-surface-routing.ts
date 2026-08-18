@@ -165,6 +165,7 @@ export async function classifyRemoteAgentWorkSurface(input: {
               "Classify whether the current user explicitly asks the Center Agent to create a new canonical work surface now.",
               "Return new_task only for an explicit request to create, open, start, or move this work into a new or dedicated Task.",
               "Return new_space only for an explicit request to create, open, start, or move this work into a new or dedicated Space.",
+              "A question about whether, what, or how to create a Task or Space asks for guidance and never authorizes creation. Return current_conversation even when that question names the possible action explicitly.",
               "Return current_conversation when the user asks for an answer here, discusses or quotes Task/Space concepts, refers to an existing Task/Space, or does not explicitly request creation.",
               "Return ambiguous when the request explicitly asks for both surfaces or the requested surface cannot be determined.",
               "Set context to self_contained only when the current request alone contains enough information for exactly one create-Task action, or for one create-Space action plus at most one immediately requested Space message such as a checklist or note. Looking up participants, adding members, or performing any other action requires conversation_required.",

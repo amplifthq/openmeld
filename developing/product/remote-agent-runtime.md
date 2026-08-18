@@ -982,7 +982,9 @@ only the current request and may select that path only when the request is
 self-contained and requires exactly one canonical creation action. Earlier
 conversation, attachments, participant lookup or membership changes, multiple
 actions, an unverified speaker, and an existing Task conversation all require
-the complete runtime path.
+the complete runtime path. A question about whether, what, or how to create a
+Task or Space asks for guidance, not creation, and must remain on the complete
+runtime path even when it names the possible action explicitly.
 
 The lightweight path persists only the typed surface decision in the existing
 durable callback context. It does not store request text or create another
