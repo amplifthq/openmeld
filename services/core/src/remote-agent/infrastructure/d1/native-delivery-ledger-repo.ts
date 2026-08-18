@@ -456,7 +456,8 @@ export async function isLatestRemoteAgentNativeDeliveryActiveForSlackThread(inpu
             slack_team_id,
             slack_channel_id,
             slack_thread_ts,
-            trigger_message_id
+            trigger_message_id,
+            created_at_ms
           FROM openMeldRemoteAgent_native_delivery_ledger
           WHERE conversation_kind = 'slack'
             AND organization_id = ?
@@ -475,6 +476,7 @@ export async function isLatestRemoteAgentNativeDeliveryActiveForSlackThread(inpu
             AND latest_turn.slack_channel_id = deliveries.slack_channel_id
             AND latest_turn.slack_thread_ts = deliveries.slack_thread_ts
             AND latest_turn.trigger_message_id = deliveries.trigger_message_id
+            AND latest_turn.created_at_ms = deliveries.created_at_ms
           WHERE deliveries.conversation_kind = 'slack'
             AND deliveries.status IN ('submitted', 'accepted', 'retry_observed')
             AND deliveries.final_publication_state IS NULL
