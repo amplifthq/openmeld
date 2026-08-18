@@ -457,6 +457,29 @@ function buildOrganizationComputers(input: {
 						localAgents: [
 							{
 								agentControllerRef: "builtin:claude-code",
+								details: {
+									capabilities: {
+										approvals: true,
+										cancel: false,
+										interrupt: true,
+										modelSelection: true,
+										nativeEventStream: true,
+										permissionModes: true,
+										structuredUserInput: false,
+									},
+									checkedAt: "2026-08-18T05:00:00.000Z",
+									launch: { installChoiceCount: 2, status: "ready" },
+									models: [{ displayName: "Claude Sonnet" }],
+									nativeInterface: "claude-cli",
+									status: "ready",
+									version: "2.1.234",
+									versionAdvisory: {
+										checkedAt: "2026-08-18T05:00:00.000Z",
+										currentVersion: "2.1.234",
+										latestVersion: "2.1.234",
+										status: "current",
+									},
+								},
 								enabled: true,
 								status: "ready",
 							},
@@ -467,9 +490,35 @@ function buildOrganizationComputers(input: {
 							},
 						],
 						osVersion: "25.5.0",
+						openMeldTools: {
+							cli: {
+								installedPackageVersion: "0.3.66",
+								latestPackageVersion: "0.3.66",
+								reasonCodes: [],
+								status: "current",
+								updatePolicy: "ok",
+								wakeBlocked: false,
+							},
+							service: {
+								installedVersion: "0.3.65",
+								latestVersion: "0.3.66",
+								reasonCodes: ["service.update_available"],
+								requiredVersion: "0.3.65",
+								status: "update_available",
+								updatePolicy: "available",
+								wakeBlocked: false,
+							},
+							skills: {
+								reasonCodes: [],
+								status: "current",
+								targetCount: 2,
+								updatePolicy: "ok",
+								wakeBlocked: false,
+							},
+						},
 						ownerUserId: "user-ashley",
 						platformFamily: "macOS",
-						serviceState: "connected",
+						serviceState: "needs_attention",
 					},
 				]
 			: [],
@@ -615,8 +664,11 @@ describe("ComputersPage", () => {
 				"Desktop · macOS 25.5.0 · Owned by Ashley"
 			)
 		).toBeTruthy();
-		expect(within(ashleyComputer).getByText("Claude Code, Codex")).toBeTruthy();
+		expect(within(ashleyComputer).queryByText("Claude Code, Codex")).toBeNull();
 		expect(within(ashleyComputer).queryByText("2 Local agents")).toBeNull();
+		expect(
+			within(ashleyComputer).getByText("OpenMeld Service is connected")
+		).toBeTruthy();
 		expect(
 			within(ashleyComputer).getByTestId("local-agent-logo-claude-code")
 		).toBeTruthy();
@@ -655,7 +707,10 @@ describe("ComputersPage", () => {
 		).toBeTruthy();
 		expect(screen.getAllByText("Ashley's Mac Studio")).toHaveLength(1);
 		expect(screen.getByText("OpenMeld Tools")).toBeTruthy();
-		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
+		expect(screen.getByText("OpenMeld Tools need an update")).toBeTruthy();
+		expect(screen.getByText("Installed v0.3.65")).toBeTruthy();
+		expect(screen.getByText("Installed v0.3.66")).toBeTruthy();
+		expect(screen.getByText("Installed")).toBeTruthy();
 		expect(screen.getByText("Local agents")).toBeTruthy();
 		const claudeCodeSwitch = screen.getByRole("switch", {
 			name: "Claude Code local agent",
@@ -673,12 +728,29 @@ describe("ComputersPage", () => {
 		);
 		expect(screen.getByText("Controller")).toBeTruthy();
 		expect(screen.getByText("Enabled")).toBeTruthy();
-		expect(screen.getByText("Status")).toBeTruthy();
+		expect(screen.getByText("Native interface")).toBeTruthy();
+		expect(screen.getByText("Claude CLI")).toBeTruthy();
+		expect(screen.getByText("Version")).toBeTruthy();
+		expect(screen.getAllByText("v2.1.234")).toHaveLength(2);
+		expect(screen.getByText("Version status")).toBeTruthy();
+		expect(screen.getByText("Up to date · v2.1.234")).toBeTruthy();
+		expect(screen.getByText("Launch check")).toBeTruthy();
+		expect(
+			screen.getByText("Can launch · 2 local installs found")
+		).toBeTruthy();
+		expect(screen.getByText("Models")).toBeTruthy();
+		expect(screen.getByText("Claude Sonnet")).toBeTruthy();
+		expect(screen.getByText("Capabilities")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Approvals, Interrupt, Model selection, Native event stream, Permission modes"
+			)
+		).toBeTruthy();
+		expect(screen.getByText("Last checked")).toBeTruthy();
 		expect(
 			screen.getAllByText("Available on this computer").length
 		).toBeGreaterThan(0);
 		expect(screen.queryByText("Account")).toBeNull();
-		expect(screen.queryByText("Version")).toBeNull();
 		expect(screen.queryByText("Installation")).toBeNull();
 		expect(screen.queryByText("Agent Profiles")).toBeNull();
 		expect(screen.queryByText("Researcher")).toBeNull();

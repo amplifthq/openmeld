@@ -566,6 +566,8 @@ export type {
 export type * from "./opportunities";
 export type {
   OrganizationComputerLocalAgent,
+  OrganizationComputerLocalAgentDetails,
+  OrganizationComputerOpenMeldTools,
   OrganizationComputerRecord,
   OrganizationComputersResponse,
 } from "./organization-computers";

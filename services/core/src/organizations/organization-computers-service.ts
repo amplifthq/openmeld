@@ -12,6 +12,7 @@ const MEMBER_COMPUTER_LOOKUP_CONCURRENCY = 8;
 export type OrganizationComputerLiveSession = {
   deviceId: string;
   executionCompatibility: DaemonExecutionCompatibility;
+  openMeldTools?: OrganizationComputerRecord["openMeldTools"];
   serviceUpdateWakeBlocked: boolean;
 };
 
@@ -82,23 +83,30 @@ function projectMemberComputers(input: {
     targetsByDeviceId.set(target.deviceId, targets);
   }
 
-  return input.devices.map((device) => ({
-    computerId: device.deviceId,
-    deviceDisplayName:
-      device.userDisplayName ?? device.observedDisplayName ?? "Computer",
-    deviceType: device.deviceType ?? "unknown",
-    lastSeenAtMs: device.lastObservedAtMs,
-    localAgents: projectTeamSafeLocalAgents(
-      targetsByDeviceId.get(device.deviceId) ?? []
-    ),
-    osVersion: device.osVersion,
-    ownerUserId: input.ownerUserId,
-    platformFamily: device.platformFamily ?? "Unknown",
-    serviceState: resolveComputerServiceState({
+  return input.devices.map((device) => {
+    const openMeldTools = resolveComputerOpenMeldTools({
       deviceId: device.deviceId,
       liveSessions: input.liveSessions,
-    }),
-  }));
+    });
+    return {
+      computerId: device.deviceId,
+      deviceDisplayName:
+        device.userDisplayName ?? device.observedDisplayName ?? "Computer",
+      deviceType: device.deviceType ?? "unknown",
+      lastSeenAtMs: device.lastObservedAtMs,
+      localAgents: projectTeamSafeLocalAgents(
+        targetsByDeviceId.get(device.deviceId) ?? []
+      ),
+      ...(openMeldTools ? { openMeldTools } : {}),
+      osVersion: device.osVersion,
+      ownerUserId: input.ownerUserId,
+      platformFamily: device.platformFamily ?? "Unknown",
+      serviceState: resolveComputerServiceState({
+        deviceId: device.deviceId,
+        liveSessions: input.liveSessions,
+      }),
+    };
+  });
 }
 
 function resolveComputerServiceState(input: {
@@ -116,6 +124,16 @@ function resolveComputerServiceState(input: {
   });
 }
 
+function resolveComputerOpenMeldTools(input: {
+  deviceId: string;
+  liveSessions: readonly OrganizationComputerLiveSession[] | null;
+}): OrganizationComputerRecord["openMeldTools"] {
+  return input.liveSessions?.find(
+    (session) =>
+      session.deviceId === input.deviceId && session.openMeldTools != null
+  )?.openMeldTools;
+}
+
 function projectTeamSafeLocalAgents(
   targets: readonly OwnedDeviceExecutionTargetRecord[]
 ): OrganizationComputerRecord["localAgents"] {
@@ -127,8 +145,10 @@ function projectTeamSafeLocalAgents(
     if (!target.agentControllerRef) {
       continue;
     }
-    const candidate = {
+    const details = projectTeamSafeLocalAgentDetails(target);
+    const candidate: OrganizationComputerRecord["localAgents"][number] = {
       agentControllerRef: target.agentControllerRef,
+      ...(details ? { details } : {}),
       enabled: target.capabilityEnabled,
       status: target.capabilityStatus,
     };
@@ -142,6 +162,45 @@ function projectTeamSafeLocalAgents(
   );
 }
 
+function projectTeamSafeLocalAgentDetails(
+  target: OwnedDeviceExecutionTargetRecord
+): NonNullable<
+  OrganizationComputerRecord["localAgents"][number]["details"]
+> | null {
+  const snapshot = target.agentControllerInterface;
+  if (
+    !(snapshot && target.agentControllerRef) ||
+    snapshot.agentControllerRef !== target.agentControllerRef
+  ) {
+    return null;
+  }
+  return {
+    capabilities: snapshot.capabilities,
+    ...(snapshot.check ? { check: snapshot.check } : {}),
+    checkedAt: snapshot.checkedAt,
+    launch: {
+      installChoiceCount: snapshot.launch.installChoiceCount,
+      status: snapshot.launch.status,
+    },
+    models: snapshot.models.map((model) => ({
+      displayName: model.displayName,
+    })),
+    nativeInterface: snapshot.nativeInterface,
+    status: snapshot.status,
+    version: snapshot.version,
+    ...(snapshot.versionAdvisory
+      ? {
+          versionAdvisory: {
+            checkedAt: snapshot.versionAdvisory.checkedAt,
+            currentVersion: snapshot.versionAdvisory.currentVersion,
+            latestVersion: snapshot.versionAdvisory.latestVersion,
+            status: snapshot.versionAdvisory.status,
+          },
+        }
+      : {}),
+  };
+}
+
 function compareLocalAgentEvidence(
   left: OrganizationComputerRecord["localAgents"][number],
   right: OrganizationComputerRecord["localAgents"][number]
@@ -149,6 +208,17 @@ function compareLocalAgentEvidence(
   const rank = { unknown: 0, stale: 1, not_ready: 2, ready: 3 } as const;
   return (
     Number(left.enabled) - Number(right.enabled) ||
-    rank[left.status] - rank[right.status]
+    rank[left.status] - rank[right.status] ||
+    Number(Boolean(left.details)) - Number(Boolean(right.details)) ||
+    readAgentDetailsCheckedAtMs(left) - readAgentDetailsCheckedAtMs(right)
   );
+}
+
+function readAgentDetailsCheckedAtMs(
+  agent: OrganizationComputerRecord["localAgents"][number]
+): number {
+  const checkedAtMs = agent.details
+    ? Date.parse(agent.details.checkedAt)
+    : Number.NaN;
+  return Number.isFinite(checkedAtMs) ? checkedAtMs : 0;
 }
