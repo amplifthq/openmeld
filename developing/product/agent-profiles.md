@@ -86,6 +86,17 @@ Project, Organization Wake access, and Space-membership steps must keep that
 same Organization id. A mismatch fails before the Profile write instead of
 creating an identity in one Organization and configuring it through another.
 
+A successful Agent Profile identity write is the creation commit point. A
+client must never report a later Binding, working-folder, Default Project,
+Organization Wake access, or Space-membership failure as if Profile creation
+failed, because retrying the create would produce a second teammate identity.
+Creation surfaces return one explicit outcome for the committed Profile and
+each requested follow-up. When creation starts from a Space, the client adds
+the committed Profile to that Space before optional local setup so a temporary
+computer or Agent Controller failure cannot leave a hidden Profile outside the
+Space. Any failed follow-up stays visible as a precise recovery issue against
+the already-created Profile.
+
 Human Profiles and the Center Agent use deterministic Dither artwork derived
 from their stable Profile kind and Profile ID. A Human Profile's uploaded image
 remains authoritative. The Center Agent always uses its Dither identity instead

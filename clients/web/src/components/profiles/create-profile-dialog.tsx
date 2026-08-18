@@ -31,13 +31,15 @@ import type { useLocalAgentRecoveryController } from "#/components/agents/use-lo
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
-import {
-	createNewStartProfile,
-	type NewProfileErrorState,
-	type NewProfileKind,
-	NewProfileLocalSetupError,
+import type {
+	NewProfileErrorState,
+	NewProfileKind,
 } from "#/lib/profiles/create-profile-flow";
-import { joinProfileToSpace } from "#/lib/profiles/join-profile-to-space";
+import {
+	type CreatedProfileFollowUpIssue,
+	type CreateProfileSpaceContext,
+	createProfileWithFollowUps,
+} from "#/lib/profiles/create-profile-orchestration";
 import {
 	bulkAuthorizeAgentProfileBindingsForOrganization,
 	setOrganizationBindingAuthorizationPreference,
@@ -70,18 +72,12 @@ import { isOpenCodeAgentId } from "./open-code-permissions-field";
 
 type RecoveryController = ReturnType<typeof useLocalAgentRecoveryController>;
 
-export type CreateProfileSpaceContext = {
-	spaceId: string;
-	spaceName: string | null;
-};
+export type { CreateProfileSpaceContext } from "#/lib/profiles/create-profile-orchestration";
 
 export type CreateProfileOrganizationAuthorizationContext = {
 	organizationId: string;
 	organizationName: string;
 };
-
-const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
-	"Add a human profile to this account before bringing profiles into this Space.";
 
 // Standalone, route-free Create Profile dialog. Reused from Profiles, legacy
 // agent redirects, and Spaces — the only difference is `spaceContext`: when
@@ -211,7 +207,7 @@ export function CreateProfileDialog(input: {
 					boundAgentControllerPermissionMode,
 					boundAgentId,
 				});
-			const profile = await createProfileAndMaybeJoinSpace({
+			const creationOutcome = await createProfileWithFollowUps({
 				...(agentControllerPermissionMode
 					? { agentControllerPermissionMode }
 					: {}),
@@ -239,6 +235,7 @@ export function CreateProfileDialog(input: {
 				selectedHumanProfile,
 				spaceContext,
 			});
+			const { profile } = creationOutcome;
 			const organizationAuthorization =
 				await applyCreatedProfileOrganizationAuthorization({
 					authorizeForOrganization,
@@ -258,6 +255,7 @@ export function CreateProfileDialog(input: {
 				organizationAuthorization,
 				queryClient,
 				recovery,
+				spaceJoined: creationOutcome.spaceJoined,
 				spaceContext,
 			}).catch((error) => {
 				console.warn(
@@ -265,17 +263,9 @@ export function CreateProfileDialog(input: {
 					error
 				);
 			});
-			return { organizationAuthorization, profile };
+			return { creationOutcome, organizationAuthorization, profile };
 		},
 		onError: (error) => {
-			if (error instanceof NewProfileLocalSetupError) {
-				setErrorState({
-					message: error.message,
-					setupRefreshActionLabel: error.setupRefreshActionLabel,
-					setupRefreshAvailable: error.setupRefreshAvailable,
-				});
-				return;
-			}
 			const failure = toStructuredApiClientFailure(error);
 			setErrorState({
 				message:
@@ -286,8 +276,9 @@ export function CreateProfileDialog(input: {
 				setupRefreshAvailable: false,
 			});
 		},
-		onSuccess: ({ organizationAuthorization, profile }) => {
+		onSuccess: ({ creationOutcome, organizationAuthorization, profile }) => {
 			showCreatedProfileToast({
+				followUpIssues: creationOutcome.followUpIssues,
 				organizationAuthorization,
 				profile,
 				spaceContext,
@@ -586,87 +577,6 @@ function resolveSelectedDefaultProjectId(input: {
 		: null;
 }
 
-async function createProfileAndMaybeJoinSpace(input: {
-	agentControllerPermissionMode?: AgentControllerPermissionMode;
-	boundAgentId: string;
-	currentServiceCanSetProfileWorkspace: boolean;
-	defaultProjectId: string | null;
-	deviceId: string | null;
-	modelId: string | null;
-	openCodePermission: AgentProfileBindingOpenCodePermission | null;
-	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
-	organizationId: string | null;
-	projectFolderPath: string | null;
-	profileKind: NewProfileKind | null;
-	profileName: string;
-	queryClient: QueryClient;
-	reasoningLevel: string | null;
-	runtimeLane: Parameters<typeof createNewStartProfile>[0]["runtimeLane"];
-	selectedHumanProfile: AuthProfileView | null | undefined;
-	selectedHumanProfileId: string | null;
-	spaceContext: CreateProfileSpaceContext | undefined;
-}): Promise<AuthProfileView> {
-	// When joining a Space, membership must be managed by a human. If the
-	// account has no human profile and we are not creating one, fail before the
-	// irreversible create so we never orphan a created/bound profile.
-	if (
-		input.spaceContext &&
-		!input.selectedHumanProfile &&
-		input.profileKind !== "human"
-	) {
-		throw new Error(SPACE_JOIN_REQUIRES_HUMAN_MESSAGE);
-	}
-	const spaceJoinContext = input.spaceContext
-		? {
-				organizationId: requireSpaceOrganizationId(input.organizationId),
-				spaceContext: input.spaceContext,
-			}
-		: null;
-
-	const profile = await createNewStartProfile({
-		...(input.agentControllerPermissionMode
-			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
-			: {}),
-		boundAgentId: input.boundAgentId,
-		currentServiceCanSetProfileWorkspace:
-			input.currentServiceCanSetProfileWorkspace,
-		defaultProjectId: input.defaultProjectId,
-		deviceId: input.deviceId,
-		modelId: input.modelId,
-		openCodePermission: input.openCodePermission,
-		organizationId: input.organizationId,
-		projectFolderPath: input.projectFolderPath,
-		profileKind: input.profileKind,
-		profileName: input.profileName,
-		reasoningLevel: input.reasoningLevel,
-		runtimeLane: input.runtimeLane,
-		selectedHumanProfileId: input.selectedHumanProfileId,
-	});
-
-	if (spaceJoinContext) {
-		await joinCreatedProfileToSpace({
-			boundAgentId: input.boundAgentId,
-			onAfterJoin: input.onAfterJoin,
-			organizationId: spaceJoinContext.organizationId,
-			profile,
-			queryClient: input.queryClient,
-			selectedHumanProfile: input.selectedHumanProfile,
-			spaceContext: spaceJoinContext.spaceContext,
-		});
-	}
-
-	return profile;
-}
-
-function requireSpaceOrganizationId(organizationId: string | null): string {
-	if (organizationId) {
-		return organizationId;
-	}
-	throw new Error(
-		"OpenMeld could not confirm the Organization for this Space. Refresh the page and try again."
-	);
-}
-
 type CreatedProfileOrganizationAuthorizationResult =
 	| {
 			organizationId: string;
@@ -785,13 +695,39 @@ async function refreshOrganizationAuthorizationCaches(input: {
 }
 
 function showCreatedProfileToast(input: {
+	followUpIssues: CreatedProfileFollowUpIssue[];
 	organizationAuthorization: CreatedProfileOrganizationAuthorizationResult;
 	profile: AuthProfileView;
 	spaceContext: CreateProfileSpaceContext | undefined;
 }) {
+	const authorizationIssueSentence =
+		toOrganizationAuthorizationFollowUpSentence(
+			input.organizationAuthorization
+		);
+	const spaceJoinIssue = input.followUpIssues.find(
+		(issue) => issue.kind === "space_join"
+	);
+	const localSetupIssue = input.followUpIssues.find(
+		(issue) => issue.kind === "local_setup"
+	);
+	if (spaceJoinIssue) {
+		const localSetupSentence = localSetupIssue
+			? ` Local setup also needs attention: ${localSetupIssue.message}`
+			: "";
+		toast.error(
+			`${input.profile.profileName} was created, but OpenMeld couldn't add it to ${input.spaceContext?.spaceName ?? "the Space"}. Add the existing profile from the Members panel.${localSetupSentence}${authorizationIssueSentence}`
+		);
+		return;
+	}
+	if (localSetupIssue) {
+		toast.warning(
+			`${input.profile.profileName} was created${input.spaceContext ? ` and added to ${input.spaceContext.spaceName ?? "this Space"}` : ""}, but local setup isn't complete. ${localSetupIssue.message}${authorizationIssueSentence}`
+		);
+		return;
+	}
 	if (input.organizationAuthorization.status === "failed") {
 		toast.error(
-			`${input.profile.profileName} was created, but OpenMeld couldn't authorize it for ${input.organizationAuthorization.organizationName}.`
+			`${input.profile.profileName} was created, but OpenMeld couldn't authorize it for ${input.organizationAuthorization.organizationName}. ${input.organizationAuthorization.errorMessage}`
 		);
 		return;
 	}
@@ -814,6 +750,18 @@ function showCreatedProfileToast(input: {
 			? `${input.profile.profileName} was created and added to ${input.spaceContext.spaceName ?? "this Space"}.`
 			: `${input.profile.profileName} was created.`
 	);
+}
+
+function toOrganizationAuthorizationFollowUpSentence(
+	result: CreatedProfileOrganizationAuthorizationResult
+): string {
+	if (result.status === "failed") {
+		return ` Wake access also needs attention: ${result.errorMessage}`;
+	}
+	if (result.status === "authorized" && result.preferenceUpdateFailed) {
+		return ` This Agent is authorized for ${result.organizationName}, but OpenMeld couldn't save automatic authorization for future Agents.`;
+	}
+	return "";
 }
 
 function CreateProfileOrganizationWakeAccessChoice(input: {
@@ -926,50 +874,6 @@ function buildBuiltinAgentControllerRef(agentId: string): string {
 	return `builtin:${agentId}`;
 }
 
-async function joinCreatedProfileToSpace(input: {
-	boundAgentId: string;
-	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
-	organizationId: string;
-	profile: AuthProfileView;
-	queryClient: QueryClient;
-	selectedHumanProfile: AuthProfileView | null | undefined;
-	spaceContext: CreateProfileSpaceContext;
-}) {
-	// Always act as a human: the default/selected human, or when this is the
-	// account's first human, the profile we just created.
-	const actingHumanProfile =
-		input.selectedHumanProfile ??
-		(input.profile.profileKind === "human" ? input.profile : null);
-	if (!actingHumanProfile) {
-		throw new Error(SPACE_JOIN_REQUIRES_HUMAN_MESSAGE);
-	}
-	const shouldDeferMembersRefresh =
-		input.profile.profileKind === "agent" &&
-		input.boundAgentId.trim().length > 0;
-	await joinProfileToSpace({
-		actingHumanProfile,
-		memberProfileIds: [input.profile.openMeldProfileId],
-		organizationId: input.organizationId,
-		pendingWakeReadinessProfileIds: shouldDeferMembersRefresh
-			? [input.profile.openMeldProfileId]
-			: [],
-		queryClient: input.queryClient,
-		spaceId: input.spaceContext.spaceId,
-		spaceName: input.spaceContext.spaceName,
-	});
-	if (shouldDeferMembersRefresh) {
-		return;
-	}
-	// Best-effort: imperatively refresh the Space members panel, whose members
-	// query is enabled:false and only refetches on demand.
-	Promise.resolve(input.onAfterJoin?.(input.profile)).catch((error) => {
-		console.warn(
-			"OpenMeld added the new profile to the Space but could not refresh the members panel.",
-			error
-		);
-	});
-}
-
 async function refreshCreatedProfileCaches(input: {
 	boundAgentId: string;
 	createdProfile: AuthProfileView;
@@ -977,6 +881,7 @@ async function refreshCreatedProfileCaches(input: {
 	organizationAuthorization: CreatedProfileOrganizationAuthorizationResult;
 	queryClient: QueryClient;
 	recovery: RecoveryController;
+	spaceJoined: boolean;
 	spaceContext: CreateProfileSpaceContext | undefined;
 }) {
 	// Best-effort: surface the new profile in the account/agent lists. A refresh
@@ -993,7 +898,7 @@ async function refreshCreatedProfileCaches(input: {
 		) {
 			await refreshOrganizationDirectoryAfterCreatedProfileAuthorization(input);
 			await refreshCreatedAgentProfileLocalState(input);
-			if (input.spaceContext) {
+			if (input.spaceContext && input.spaceJoined) {
 				await Promise.resolve(input.onAfterJoin?.(input.createdProfile)).catch(
 					(error) => {
 						console.warn(

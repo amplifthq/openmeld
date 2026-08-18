@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createNewStartProfile } from "./create-profile-flow";
+import {
+	createNewProfile,
+	setupNewAgentProfileLocalState,
+} from "./create-profile-flow";
 
 const createStartAgentProfileMock = vi.hoisted(() => vi.fn());
 const ensureRuntimeBindingMock = vi.hoisted(() => vi.fn());
@@ -25,7 +28,7 @@ vi.mock("./update-profile-workspace", () => ({
 	updateAgentProfileWorkspace: updateWorkspaceMock,
 }));
 
-describe("createNewStartProfile Default Project setup", () => {
+describe("new Agent Profile local setup", () => {
 	beforeEach(() => {
 		createStartAgentProfileMock.mockReset().mockResolvedValue(profileFixture());
 		ensureRuntimeBindingMock
@@ -38,12 +41,11 @@ describe("createNewStartProfile Default Project setup", () => {
 	});
 
 	it("saves the connected folder before the cloud Default Project preference", async () => {
-		const result = await createNewStartProfile({
+		const result = await createAndSetupAgent({
 			boundAgentId: "codex",
 			defaultProjectId: "project-1",
 			deviceId: "device-1",
 			organizationId: "organization-1",
-			profileKind: "agent",
 			profileName: "Research Agent",
 			projectFolderPath: "/repo",
 			runtimeLane: "dev-local",
@@ -77,13 +79,10 @@ describe("createNewStartProfile Default Project setup", () => {
 
 	it("fails before profile creation when an Agent has no explicit Organization", async () => {
 		await expect(
-			createNewStartProfile({
-				boundAgentId: "codex",
-				deviceId: "device-1",
+			createNewProfile({
 				organizationId: null,
 				profileKind: "agent",
 				profileName: "Research Agent",
-				runtimeLane: "dev-local",
 				selectedHumanProfileId: "profile-human",
 			})
 		).rejects.toThrow(
@@ -93,11 +92,10 @@ describe("createNewStartProfile Default Project setup", () => {
 	});
 
 	it("preserves a selected folder name with trailing spaces", async () => {
-		await createNewStartProfile({
+		await createAndSetupAgent({
 			boundAgentId: "codex",
 			deviceId: "device-1",
 			organizationId: "organization-1",
-			profileKind: "agent",
 			profileName: "Research Agent",
 			projectFolderPath: "/Users/felix/Design Work ",
 			runtimeLane: "dev-local",
@@ -113,11 +111,10 @@ describe("createNewStartProfile Default Project setup", () => {
 	});
 
 	it("preserves the existing managed-workspace behavior when no Project is selected", async () => {
-		await createNewStartProfile({
+		await createAndSetupAgent({
 			boundAgentId: "codex",
 			deviceId: "device-1",
 			organizationId: "organization-1",
-			profileKind: "agent",
 			profileName: "Research Agent",
 			runtimeLane: "dev-local",
 			selectedHumanProfileId: "profile-human",
@@ -132,12 +129,11 @@ describe("createNewStartProfile Default Project setup", () => {
 	});
 
 	it("prepares a managed workspace for an unbound Agent created on the current computer", async () => {
-		await createNewStartProfile({
+		await createAndSetupAgent({
 			boundAgentId: "",
 			currentServiceCanSetProfileWorkspace: true,
 			deviceId: "device-1",
 			organizationId: "organization-1",
-			profileKind: "agent",
 			profileName: "Future Grok Agent",
 			runtimeLane: "dev-local",
 			selectedHumanProfileId: "profile-human",
@@ -152,11 +148,10 @@ describe("createNewStartProfile Default Project setup", () => {
 	});
 
 	it("keeps an unbound Agent independent from a historical computer without current workspace control", async () => {
-		await createNewStartProfile({
+		await createAndSetupAgent({
 			boundAgentId: "",
 			deviceId: "historical-device",
 			organizationId: "organization-1",
-			profileKind: "agent",
 			profileName: "Manual Teammate",
 			runtimeLane: "prod",
 			selectedHumanProfileId: "profile-human",
@@ -166,6 +161,25 @@ describe("createNewStartProfile Default Project setup", () => {
 		expect(updateWorkspaceMock).not.toHaveBeenCalled();
 	});
 });
+
+async function createAndSetupAgent(
+	input: Omit<
+		Parameters<typeof setupNewAgentProfileLocalState>[0],
+		"profile"
+	> & { profileName: string }
+) {
+	const { profileName, ...localSetup } = input;
+	const profile = await createNewProfile({
+		organizationId: input.organizationId,
+		profileKind: "agent",
+		profileName,
+		selectedHumanProfileId: input.selectedHumanProfileId,
+	});
+	return await setupNewAgentProfileLocalState({
+		...localSetup,
+		profile,
+	});
+}
 
 function profileFixture(overrides: { defaultProjectId?: string | null } = {}) {
 	return {
