@@ -48,6 +48,14 @@ describe("Remote Agent generic App tools", () => {
     expect(tools.map((tool) => tool.name)).toEqual([
       ...REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
     ]);
+    const executeAction = tools.find(
+      (tool) => tool.name === "openmeld_execute_app_action"
+    );
+    expect(executeAction?.description).toContain(
+      "The discovered action's effect declares whether this call is a read, ordinary external write, or destructive external write"
+    );
+    expect(executeAction?.description).not.toContain("short reply");
+    expect(executeAction?.description).not.toContain("Bare Yes or OK");
   });
 
   it("allows member research to execute connected App reads but rejects writes", async () => {
