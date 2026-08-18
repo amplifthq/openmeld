@@ -64,6 +64,7 @@ import {
   runtimeCoordinatorFailurePublicationCommandSchema,
   runtimeCoordinatorFinalizationCommandSchema,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
+  SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
   SPACE_PASSWORD_MIN_LENGTH,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_MESSAGE,
   sanitizeSignalTextPreview,
@@ -408,7 +409,6 @@ import {
   publishPresenceSignalUseCase,
   publishTextSignalUseCase,
   type SignalTextBuildOptions,
-  SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
   SPACE_FINAL_OUTCOME_STOPPED_ERROR_CODE,
   SPACE_WAKE_HANDOFF_SEED_FAILED_ERROR_CODE,
   SPACE_WAKE_TARGET_INVALID_ERROR_CODE,
@@ -2732,7 +2732,7 @@ export class Space extends DurableObject<CoreBindings> {
           spaceId: this.spaceId,
         }
       );
-      return buildRuntimeCoordinatorFinalizationFailureOutcome({
+      return buildRuntimeCoordinatorFinalizationPublicationErrorOutcome({
         finalizationCommandId: command.finalizationCommandId,
         reasonCode:
           resolveRuntimeCoordinatorFinalizationPublicationErrorCode(error),
@@ -3090,10 +3090,13 @@ export class Space extends DurableObject<CoreBindings> {
       resolveSourceDispatchChainContext(requestContext);
     const spacePassword = getSpaceAccessPassword(spaceAccess);
     const signalContext = {
-      ...(input.plan.kind === "message" && input.plan.observedThroughSignalId
+      ...(input.plan.kind === "message"
         ? {
             agentReplyObservation: {
-              observedThroughSignalId: input.plan.observedThroughSignalId,
+              observedThroughSignalId:
+                input.plan.observedThroughSignalId ??
+                input.dispatchMessage.sourceEventId,
+              sourceSignalId: input.dispatchMessage.sourceEventId,
               targetProfileId: input.dispatchMessage.targetProfileId,
             },
           }
@@ -12419,6 +12422,8 @@ export class Space extends DurableObject<CoreBindings> {
             ? {
                 observedThroughSignalId:
                   signalContext.agentReplyObservation.observedThroughSignalId,
+                sourceSignalId:
+                  signalContext.agentReplyObservation.sourceSignalId,
                 threadId: signalContext.threadContext?.threadId ?? null,
               }
             : null,
@@ -12540,6 +12545,8 @@ export class Space extends DurableObject<CoreBindings> {
             ? {
                 observedThroughSignalId:
                   signalContext.agentReplyObservation.observedThroughSignalId,
+                sourceSignalId:
+                  signalContext.agentReplyObservation.sourceSignalId,
                 threadId: signalContext.threadContext?.threadId ?? null,
               }
             : null,
@@ -18008,6 +18015,23 @@ function buildRuntimeCoordinatorFinalizationFailureOutcome(input: {
     publishState: "reply_publication_failed",
     status: "retry_later",
   };
+}
+
+function buildRuntimeCoordinatorFinalizationPublicationErrorOutcome(input: {
+  finalizationCommandId: string;
+  reasonCode: string;
+}): RuntimeCoordinatorFinalizationOutcome {
+  if (input.reasonCode === SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE) {
+    return {
+      finalizationCommandId: input.finalizationCommandId,
+      ok: false,
+      publicationErrorCode: SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
+      publishedSignalId: null,
+      publishState: "reply_review_required",
+      status: "review_required",
+    };
+  }
+  return buildRuntimeCoordinatorFinalizationFailureOutcome(input);
 }
 
 function buildRuntimeCoordinatorFailurePublicationFailureOutcome(input: {

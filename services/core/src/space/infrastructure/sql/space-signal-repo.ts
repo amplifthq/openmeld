@@ -522,6 +522,7 @@ export const readAgentReplyObservationState = (
   sql: SqlStorage,
   input: {
     observedThroughSignalId: string;
+    sourceSignalId: string;
     threadId: string | null;
   }
 ): AgentReplyObservationState => {
@@ -529,6 +530,10 @@ export const readAgentReplyObservationState = (
     input.observedThroughSignalId ?? ""
   ).trim();
   if (!observedThroughSignalId) {
+    return "anchor_missing";
+  }
+  const sourceSignalId = String(input.sourceSignalId ?? "").trim();
+  if (!sourceSignalId) {
     return "anchor_missing";
   }
   const threadId = String(input.threadId ?? "").trim() || null;
@@ -607,6 +612,7 @@ export const readAgentReplyObservationState = (
 export const runAgentReplyObservationGuardedTransaction = <T>(input: {
   observation: {
     observedThroughSignalId: string;
+    sourceSignalId: string;
     threadId: string | null;
   } | null;
   operation: () => T;

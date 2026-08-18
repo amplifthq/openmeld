@@ -14669,6 +14669,156 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toHaveLength(0);
   });
 
+  it("returns review_required without accepting the result when a capable Service proposed a stale reply", async () => {
+    const {
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+    } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("test session missing");
+    }
+    session.capabilities.agentReplyContextReview = true;
+    (
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand as ReturnType<
+        typeof vi.fn
+      >
+    ).mockImplementation(
+      async (command: RuntimeCoordinatorFinalizationCommand) => ({
+        finalizationCommandId: command.finalizationCommandId,
+        ok: false as const,
+        publicationErrorCode: "space.agent_reply.context_changed" as const,
+        publishedSignalId: null,
+        publishState: "reply_review_required" as const,
+        status: "review_required" as const,
+      })
+    );
+    sentFrames.length = 0;
+
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        taskResult: buildSuccessfulPostMessageTaskResult(),
+      })
+    );
+
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.dispatch.accepted",
+        payload: {
+          attemptId: "attempt-1",
+          dispatchId: "dispatch-1",
+          ok: false,
+          reasonCode: "space.agent_reply.context_changed",
+          status: "review_required",
+        },
+      })
+    );
+    expect(recordingD1.inboxRows.has("dispatch-1::attempt-1")).toBe(false);
+    expect(
+      state.pendingDispatches.get(
+        buildDispatchAttemptKey("dispatch-1", "attempt-1")
+      )?.phase
+    ).toBe("starting");
+    expect(
+      [...storageRecords.keys()].some((key) =>
+        key.startsWith(
+          RUNTIME_COORDINATOR_FINALIZATION_COMMAND_STORAGE_KEY_PREFIX
+        )
+      )
+    ).toBe(false);
+    expect(
+      (storageRecords.get(
+        RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
+      ) as unknown[] | undefined) ?? []
+    ).toHaveLength(0);
+  });
+
+  it("finalizes an accepted Agent reply from the same command without publishing it twice", async () => {
+    const {
+      appliedFinalizationCommands,
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("test session missing");
+    }
+    session.capabilities.agentReplyContextReview = true;
+    sentFrames.length = 0;
+
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        taskResult: buildSuccessfulPostMessageTaskResult(),
+      })
+    );
+    await Promise.all(waitUntilTasks.splice(0));
+
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.dispatch.accepted",
+        payload: expect.objectContaining({
+          ok: true,
+          status: "accepted",
+        }),
+      })
+    );
+    expect(appliedFinalizationCommands).toHaveLength(1);
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({ status: "reply_published" });
+    expect(recordingD1.inboxRows.get("dispatch-1::attempt-1")).toMatchObject({
+      published_signal_id: "signal-final-1",
+      publish_state: "reply_published",
+    });
+    expect(
+      (storageRecords.get(
+        RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
+      ) as unknown[] | undefined) ?? []
+    ).toHaveLength(0);
+  });
+
   it("keeps a token-valid accepted result retryable until the finalization command is durable", async () => {
     const {
       appliedFinalizationCommands,

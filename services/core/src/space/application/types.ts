@@ -26,6 +26,7 @@ export type FinalOutcomeWriteAuthority =
 export type SignalPublishContext = {
   agentReplyObservation?: {
     observedThroughSignalId: string;
+    sourceSignalId: string;
     targetProfileId: string;
   };
   agentStreamId?: string;

@@ -2,6 +2,7 @@ import type { Profile, SignalEnvelope } from "@openmeld/protocol";
 import { parseSignalText } from "@openmeld/protocol";
 import {
   type SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
+  type SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
   systemEmittedSignalTextSchema,
   validateSpaceSignalClientMessageIdPolicy,
 } from "@openmeld/schemas";
@@ -22,9 +23,6 @@ export const SPACE_NAVIGATION_ACTION_OWNER_REQUIRED_MESSAGE =
   "Navigation Actions can only be published by OpenMeld's Remote Agent delivery path." as const;
 export const SPACE_FINAL_OUTCOME_STOPPED_ERROR_CODE =
   "space.final_outcome_stopped" as const;
-export const SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE =
-  "space.agent_reply.context_changed" as const;
-
 export class SpaceSignalAuthoringError extends Error {
   readonly code:
     | typeof SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE

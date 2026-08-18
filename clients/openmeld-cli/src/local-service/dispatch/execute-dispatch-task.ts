@@ -135,7 +135,10 @@ import {
   downloadDispatchImageAttachment,
   materializeDispatchImageAttachments,
 } from "./dispatch-image-attachments";
-import { enqueueDispatchResultOutboxRecord } from "./dispatch-result-outbox";
+import {
+  type DispatchResultOutboxSettlement,
+  enqueueDispatchResultOutboxRecord,
+} from "./dispatch-result-outbox";
 import {
   markBootstrapInjectedContext as markBootstrapInjectedContextInternal,
   reconcileBootstrapInjectedContextAfterDispatch as reconcileBootstrapInjectedContextAfterDispatchInternal,
@@ -953,6 +956,7 @@ export async function handleDispatchDeliverFrame(input: {
     null;
   let runtimePromptPlan: DispatchPromptPlan | null = null;
   let runtimePromptTrace: DispatchPromptTrace | null = null;
+  let settledResultSummary: LocalExecutionSlotTaskResult | null = null;
   let stopRunningKeepalive: (() => void) | null = null;
   let firstOutputEvidenceSent = false;
   input.inflightTaskControlRegistry.registerTask({
@@ -1593,42 +1597,115 @@ export async function handleDispatchDeliverFrame(input: {
       presenter: input.presenter,
     });
 
-    const observedAgentControllerConversation =
-      resolveObservedDispatchAgentControllerConversation({
-        plannedAgentControllerConversation,
-        contextDelta,
-        contextResolution: runtimeResult.contextResolution ?? null,
-        agentControllerConversationOverride,
-      });
-    dispatchExecution = buildDispatchExecution({
+    const {
+      bootstrapPlan: completedBootstrapPlan,
+      ledgerIo: completedLedgerIo,
+      localRuntimeContextPlan: completedLocalRuntimeContextPlan,
+      runtimePromptPlan: completedRuntimePromptPlan,
+    } = requireCompletedDispatchPlans({
       bootstrapPlan,
-      agentControllerConversationId: effectiveAgentControllerConversationId,
+      ledgerIo,
       localRuntimeContextPlan,
-      observedAgentControllerConversation,
-      plannedAgentControllerConversation,
+      runtimePromptPlan,
     });
-    resultPayload = resolveDispatchResultPayload({
-      attemptId: parsedTask.attemptId,
-      contextDelta,
-      contextResolution: runtimeResult.contextResolution ?? null,
-      basePayload: runtimeResult.resultPayload,
-      bootstrapTemplateFacts: bootstrapContext.bootstrapTemplateFacts,
-      agentControllerRef: parsedTask.agentControllerRef,
-      dispatchExecution,
-      existingContextId: contextIdForDispatch,
-      openClawBinding: runtimeOpenClawBinding,
-      openClawGatewayVisibility: runtimeOpenClawGatewayVisibility,
-      promptTrace: runtimePromptTrace,
-      agentControllerConversationForDispatch:
-        observedAgentControllerConversation ??
+    const completedAgentControllerConversationOverride =
+      agentControllerConversationOverride ?? null;
+    const buildCurrentResultPayload = (): OpenMeldDaemonTaskResultPayload => {
+      const currentContextDelta = resolveDispatchContextDeltaFromRuntimeResult(
+        runtimeResult.dispatchResult
+      );
+      const observedAgentControllerConversation =
+        resolveObservedDispatchAgentControllerConversation({
+          plannedAgentControllerConversation,
+          contextDelta: currentContextDelta,
+          contextResolution: runtimeResult.contextResolution ?? null,
+          agentControllerConversationOverride:
+            completedAgentControllerConversationOverride,
+        });
+      dispatchExecution = buildDispatchExecution({
+        bootstrapPlan: completedBootstrapPlan,
+        agentControllerConversationId: effectiveAgentControllerConversationId,
+        localRuntimeContextPlan: completedLocalRuntimeContextPlan,
+        observedAgentControllerConversation,
         plannedAgentControllerConversation,
-      workingDirectory: activeRuntimeContext.providerRuntimeWorkingDirectory,
-      spaceAction: resolvedSpaceAction,
-      spaceActionProvenance: resolvedSpaceActionProvenance,
-      sourceEventId: parsedTask.sourceEventId,
-      targetProfileId: parsedTask.targetProfileId,
-      taskId: parsedTask.taskId,
+      });
+      return resolveDispatchResultPayload({
+        attemptId: parsedTask.attemptId,
+        contextDelta: currentContextDelta,
+        contextResolution: runtimeResult.contextResolution ?? null,
+        basePayload: runtimeResult.resultPayload,
+        bootstrapTemplateFacts: bootstrapContext.bootstrapTemplateFacts,
+        agentControllerRef: parsedTask.agentControllerRef,
+        dispatchExecution,
+        existingContextId: contextIdForDispatch,
+        openClawBinding: runtimeOpenClawBinding,
+        openClawGatewayVisibility: runtimeOpenClawGatewayVisibility,
+        promptTrace: runtimePromptTrace,
+        agentControllerConversationForDispatch:
+          observedAgentControllerConversation ??
+          plannedAgentControllerConversation,
+        workingDirectory: activeRuntimeContext.providerRuntimeWorkingDirectory,
+        spaceAction: resolvedSpaceAction,
+        spaceActionProvenance: resolvedSpaceActionProvenance,
+        sourceEventId: parsedTask.sourceEventId,
+        targetProfileId: parsedTask.targetProfileId,
+        taskId: parsedTask.taskId,
+      });
+    };
+    resultPayload = buildCurrentResultPayload();
+    const replySettlement = await settleAgentReplyProposals({
+      initialResultPayload: resultPayload,
+      reconsider: async (agentReplyObservationCursor) => {
+        const reconsidered = await resolveRuntimeResultStructuredSpaceAction({
+          agentReplyObservationCursor,
+          computerFileAccessBoundary,
+          ledgerIo: completedLedgerIo,
+          ledgerPaths: input.ledgerPaths,
+          instructionPrompt: completedRuntimePromptPlan,
+          parsedTask,
+          profileOwnerName: input.profileOwnerName,
+          profileOwnerUserId: input.profileOwnerUserId,
+          presenter: input.presenter,
+          routeConfig,
+          cliEntry: bootstrapContext.cliEntry,
+          dispatchSpaceActionContext,
+          runtimeResult,
+          sendTargetReference,
+          runtimeContext: activeRuntimeContext,
+          runtimeEnvOverrides,
+          runtimeControllerSupport,
+          agentControllerConversationOverride,
+        });
+        runtimeResult = reconsidered.runtimeResult;
+        resolvedSpaceAction = reconsidered.resolvedSpaceAction;
+        resolvedSpaceActionProvenance =
+          reconsidered.resolvedSpaceActionProvenance;
+        return buildCurrentResultPayload();
+      },
+      submit: (payload) =>
+        sendResultAndSummarize({
+          attemptId: parsedTask.attemptId,
+          connectionGeneration: input.deliverRequest.connectionGeneration,
+          currentSocketRef,
+          daemonSessionId: input.daemonSessionId,
+          dispatchId: parsedTask.dispatchId,
+          emitCompletedLifecycle: false,
+          executionIdentityEcho: toRuntimeTransportResultIdentityEcho(
+            input.deliverRequest
+          ),
+          executionTokenEcho: parsedTask.executionTokenEcho,
+          leaseEpoch: input.deliverRequest.leaseEpoch,
+          payload,
+          presenter: input.presenter,
+          runtimeCoordinatorExecutionId:
+            parsedTask.runtimeCoordinatorExecutionId,
+          ledgerPaths: input.ledgerPaths,
+          taskId: parsedTask.taskId,
+          waitForSettlement: true,
+        }),
     });
+    resultPayload = replySettlement.resultPayload;
+    settledResultSummary = replySettlement.resultSummary;
     const runtimeObservationPayload = buildRuntimeObservationPayload({
       continuityObservation,
       dispatchId: parsedTask.dispatchId,
@@ -1734,23 +1811,25 @@ export async function handleDispatchDeliverFrame(input: {
     reasonCode: resolveRuntimeEvidenceResultReasonCode(resultPayload),
   });
 
-  const resultSummary = sendResultAndSummarize({
-    attemptId: parsedTask.attemptId,
-    connectionGeneration: input.deliverRequest.connectionGeneration,
-    currentSocketRef,
-    daemonSessionId: input.daemonSessionId,
-    dispatchId: parsedTask.dispatchId,
-    executionIdentityEcho: toRuntimeTransportResultIdentityEcho(
-      input.deliverRequest
-    ),
-    executionTokenEcho: parsedTask.executionTokenEcho,
-    leaseEpoch: input.deliverRequest.leaseEpoch,
-    payload: resultPayload,
-    presenter: input.presenter,
-    runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
-    ledgerPaths: input.ledgerPaths,
-    taskId: parsedTask.taskId,
-  });
+  const resultSummary =
+    settledResultSummary ??
+    sendResultAndSummarize({
+      attemptId: parsedTask.attemptId,
+      connectionGeneration: input.deliverRequest.connectionGeneration,
+      currentSocketRef,
+      daemonSessionId: input.daemonSessionId,
+      dispatchId: parsedTask.dispatchId,
+      executionIdentityEcho: toRuntimeTransportResultIdentityEcho(
+        input.deliverRequest
+      ),
+      executionTokenEcho: parsedTask.executionTokenEcho,
+      leaseEpoch: input.deliverRequest.leaseEpoch,
+      payload: resultPayload,
+      presenter: input.presenter,
+      runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+      ledgerPaths: input.ledgerPaths,
+      taskId: parsedTask.taskId,
+    }).resultSummary;
   emitDispatchPreviewEndFrame({
     attemptId: parsedTask.attemptId,
     connectionGeneration: input.deliverRequest.connectionGeneration,
@@ -3036,6 +3115,7 @@ async function readCliSpaceActionRecordWithGrace(input: {
 }
 
 async function resolveRuntimeResultStructuredSpaceAction(input: {
+  agentReplyObservationCursor?: string | null;
   allowConcurrentReplyReconsideration?: boolean;
   cliEntry?: string | null;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
@@ -3266,6 +3346,7 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
 }
 
 async function coordinateConcurrentAgentReply(input: {
+  agentReplyObservationCursor?: string | null;
   cliEntry?: string | null;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
   dispatchSpaceActionContext: DispatchSpaceActionContext | null;
@@ -3339,7 +3420,10 @@ async function coordinateConcurrentAgentReply(input: {
       };
     }
   };
-  const observation = await readObservation(input.parsedTask.sourceEventId);
+  const observation = await readObservation(
+    normalizeOptionalText(input.agentReplyObservationCursor) ??
+      input.parsedTask.sourceEventId
+  );
 
   const coordinated = await coordinateDispatchAgentReply({
     action: input.resolvedSpaceAction,
@@ -4435,7 +4519,7 @@ function sendDispatchRejectionResult(input: {
     runtimeCoordinatorExecutionId:
       input.deliverRequest.payload.runtimeCoordinatorExecutionId,
     taskId: input.payload.taskId,
-  });
+  }).resultSummary;
 }
 
 export function buildDispatchExecution(input: {
@@ -4495,6 +4579,7 @@ function sendResultAndSummarize(input: {
   currentSocketRef: CurrentDaemonSocketRef;
   daemonSessionId: string;
   dispatchId: string;
+  emitCompletedLifecycle?: boolean;
   executionIdentityEcho: RuntimeTransportResultIdentityEcho;
   executionTokenEcho: RuntimeCoordinatorExecutionTokenEcho | null;
   ledgerPaths: LedgerPaths;
@@ -4503,22 +4588,29 @@ function sendResultAndSummarize(input: {
   presenter: Presenter;
   runtimeCoordinatorExecutionId: string | null;
   taskId: string;
-}): LocalExecutionSlotTaskResult {
+  waitForSettlement?: boolean;
+}): {
+  resultSummary: LocalExecutionSlotTaskResult;
+  settlement: Promise<DispatchResultOutboxSettlement> | null;
+} {
+  let settlement: Promise<DispatchResultOutboxSettlement> | null = null;
   try {
-    emitDispatchLifecycleTransition({
-      attemptId: input.attemptId,
-      connectionGeneration: input.connectionGeneration,
-      currentSocketRef: input.currentSocketRef,
-      daemonSessionId: input.daemonSessionId,
-      dispatchId: input.dispatchId,
-      leaseEpoch: input.leaseEpoch,
-      phase: "completed_local",
-      presenter: input.presenter,
-      executionTokenEcho: input.executionTokenEcho,
-      runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
-      taskId: input.taskId,
-    });
-    enqueueDispatchResultOutboxRecord({
+    if (input.emitCompletedLifecycle !== false) {
+      emitDispatchLifecycleTransition({
+        attemptId: input.attemptId,
+        connectionGeneration: input.connectionGeneration,
+        currentSocketRef: input.currentSocketRef,
+        daemonSessionId: input.daemonSessionId,
+        dispatchId: input.dispatchId,
+        leaseEpoch: input.leaseEpoch,
+        phase: "completed_local",
+        presenter: input.presenter,
+        executionTokenEcho: input.executionTokenEcho,
+        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+        taskId: input.taskId,
+      });
+    }
+    settlement = enqueueDispatchResultOutboxRecord({
       attemptId: input.attemptId,
       connectionGeneration: input.connectionGeneration,
       currentSocketRef: input.currentSocketRef,
@@ -4532,6 +4624,7 @@ function sendResultAndSummarize(input: {
       presenter: input.presenter,
       runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
       taskId: input.taskId,
+      waitForSettlement: input.waitForSettlement,
     });
     emitDaemonDispatchJournalEvent({
       attemptId: input.attemptId,
@@ -4589,7 +4682,106 @@ function sendResultAndSummarize(input: {
     });
     throw error;
   }
-  return summarizeTaskResultPayload(input.payload);
+  return {
+    resultSummary: summarizeTaskResultPayload(input.payload),
+    settlement,
+  };
+}
+
+function requireDispatchResultOutboxSettlement(input: {
+  settlement: Promise<DispatchResultOutboxSettlement> | null;
+}): Promise<DispatchResultOutboxSettlement> {
+  if (!input.settlement) {
+    throw new DaemonServiceRunError({
+      code: "dispatch.result_settlement.not_registered",
+      message:
+        "OpenMeld could not wait for the Agent reply because result settlement was not registered.",
+    });
+  }
+  return input.settlement;
+}
+
+function shouldAwaitAgentReplySettlement(
+  payload: OpenMeldDaemonTaskResultPayload
+): boolean {
+  return (
+    (payload.status === "success" || payload.status === "partial_success") &&
+    payload.spaceAction?.type === "post_message"
+  );
+}
+
+function requireCompletedDispatchPlans(input: {
+  bootstrapPlan: BootstrapPlan | null;
+  ledgerIo: ReturnType<typeof createLedgerIo> | null;
+  localRuntimeContextPlan: LocalRuntimeContextPlan | null;
+  runtimePromptPlan: DispatchPromptPlan | null;
+}): {
+  bootstrapPlan: BootstrapPlan;
+  ledgerIo: ReturnType<typeof createLedgerIo>;
+  localRuntimeContextPlan: LocalRuntimeContextPlan;
+  runtimePromptPlan: DispatchPromptPlan;
+} {
+  if (
+    !(
+      input.bootstrapPlan &&
+      input.ledgerIo &&
+      input.localRuntimeContextPlan &&
+      input.runtimePromptPlan
+    )
+  ) {
+    throw new DaemonServiceRunError({
+      code: "dispatch.runtime_context.incomplete",
+      message:
+        "OpenMeld could not settle the Agent reply because its runtime context is incomplete.",
+    });
+  }
+  return {
+    bootstrapPlan: input.bootstrapPlan,
+    ledgerIo: input.ledgerIo,
+    localRuntimeContextPlan: input.localRuntimeContextPlan,
+    runtimePromptPlan: input.runtimePromptPlan,
+  };
+}
+
+async function settleAgentReplyProposals(input: {
+  initialResultPayload: OpenMeldDaemonTaskResultPayload;
+  reconsider: (
+    agentReplyObservationCursor: string
+  ) => Promise<OpenMeldDaemonTaskResultPayload>;
+  submit: (payload: OpenMeldDaemonTaskResultPayload) => {
+    resultSummary: LocalExecutionSlotTaskResult;
+    settlement: Promise<DispatchResultOutboxSettlement> | null;
+  };
+}): Promise<{
+  resultPayload: OpenMeldDaemonTaskResultPayload;
+  resultSummary: LocalExecutionSlotTaskResult | null;
+}> {
+  let resultPayload = input.initialResultPayload;
+  while (shouldAwaitAgentReplySettlement(resultPayload)) {
+    const proposal = input.submit(resultPayload);
+    const settlement = await requireDispatchResultOutboxSettlement(proposal);
+    if (settlement.status === "accepted") {
+      return {
+        resultPayload,
+        resultSummary: proposal.resultSummary,
+      };
+    }
+    if (settlement.status === "rejected_terminal") {
+      throw new DaemonServiceRunError({
+        code: settlement.reasonCode,
+        message: `OpenMeld rejected the Agent reply proposal: ${settlement.reasonCode}`,
+      });
+    }
+    const observedThroughSignalId =
+      resultPayload.spaceAction?.type === "post_message"
+        ? resultPayload.spaceAction.observedThroughSignalId
+        : null;
+    resultPayload = await input.reconsider(
+      normalizeOptionalText(observedThroughSignalId) ??
+        resultPayload.sourceEventId
+    );
+  }
+  return { resultPayload, resultSummary: null };
 }
 
 async function requestDispatchAgentInteraction(input: {

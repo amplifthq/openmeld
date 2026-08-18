@@ -765,14 +765,14 @@ reads at most 20 newer, non-transient public text or status signals and Wake-
 closing system notices from the originating main timeline or thread. Agent and
 system signals must both name an Agent Profile activated by the source message
 and reply to that exact source message; newer human messages remain relevant.
-A failed, stopped, or silent
-outcome is availability and coordination context, not a public contribution.
-If that bounded delta is empty,
+A sibling Agent's reply, failure, stopped outcome, or silent outcome is
+coordination context, not proof that the current Agent's work is wrong. If that
+bounded delta is empty,
 the proposed action carries the current observation cursor without another
 controller turn. If the delta is non-empty, Service continues the exact same
 Agent Controller conversation in repair mode with only the previous proposed
-action and the bounded newer messages. It reads again after that turn and may
-perform at most one additional repair turn when collaboration changed again.
+action and the bounded newer messages. It reads again after that turn whenever
+Space atomically reports that collaboration advanced again.
 The earlier dispatch-scoped Space Action remains an unpublished, replaceable
 proposal even if its local command reported that OpenMeld accepted it. The
 repair turn must state that distinction explicitly: only final publication
@@ -780,9 +780,13 @@ consumes the Agent's one public reply for the Wake.
 Those turns may replace only the final Space action; they must not repeat tools,
 completed work, or external side effects. Each CLI-authored prior action is
 preserved as superseded evidence. Missing exact-conversation identity fails
-explicitly instead of starting a fresh conversation. If the Space is still
-changing after two repair turns, Service chooses `stay_silent` instead of
-submitting a reply it already knows is stale.
+explicitly instead of starting a fresh conversation. There is no semantic
+review-count limit: a fixed count can discard a valid result in a legitimately
+busy business workflow. Context remains bounded because every review reads at
+most 20 signals, bounds each rendered signal, and advances from the last
+observed Space cursor. RuntimeCoordinator Stop, execution authority, and real
+transport failure remain the terminal controls; context review is not a new
+Wake, retry of external work, or unbounded transcript replay.
 
 An unavailable pre-publication read records diagnostic evidence and carries the
 dispatch source signal as the conservative observation cursor. The Space atomic
@@ -830,6 +834,15 @@ Space rejects the outdated reply before persistence. The check does not queue
 or serialize Agent execution; Agents continue working concurrently and only
 their final public write is protected.
 
+A final reply, final status, or Wake-closing outcome from another target of the
+same source message is newer collaboration context. Service includes that
+sibling outcome in the bounded review delta, and Space includes it in the
+atomic write guard. The current Agent then decides whether to adapt, preserve,
+or withdraw its own proposal in the same controller conversation. This does not
+make sibling replies mutually exclusive: the stale proposal is replaceable and
+the Wake remains running until its reviewed proposal is atomically published or
+the Agent selects another valid outcome.
+
 `terminal_failure` copy is derived from shared public failure mapping, not from
 raw adapter text. Runtime results may carry full diagnostic `errorCode`,
 `errorType`, and `errorMessage` evidence for trace/debugging, but Space-visible
@@ -847,14 +860,23 @@ finalization path. RuntimeCoordinator failure publication may have its own
 Space-owned notice path, but it must still produce or observe the same Space
 final claim before the Wake is considered visibly closed.
 
-The daemon result receipt (`daemon.dispatch.accepted`) acknowledges durable
-cloud acceptance, not Space publication: it is sent once the result is in the
-dispatch result inbox and the finalization command plus its seeded retry entry
-are persisted. From that point the local OpenMeld Service may release its result
-outbox record; replaying the finalization to the Space final signal is
-Core-owned work backed by the finalization retry alarm, never by daemon
-re-sends. A finalization command must never exist without a stored outcome or
-a live retry entry — that pairing is what makes the early receipt safe.
+For a `post_message` result from a Service that advertises
+`agentReplyContextReview: true`, the daemon result receipt is the settlement
+boundary. Core first asks Space to atomically publish the proposal against its
+observation cursor. A committed or already-committed publication is then
+accepted into the dispatch result inbox and acknowledged. A context mismatch
+returns `review_required` instead of accepting the result; Service removes only
+that stale proposal from its durable outbox, keeps the same Wake and execution
+token active, reads the bounded cursor delta, and resumes the exact controller
+conversation.
+
+Older Services omit the capability, so Core must not send them
+`review_required`; their existing result receipt remains the durable-cloud-
+acceptance boundary. Non-message outcomes also keep the existing finalization
+flow. Once a result is accepted, replaying finalization and repairing task or
+stream projections remain Core-owned work backed by the finalization retry
+alarm, never by daemon re-sends. A persisted finalization command must never
+exist without a stored outcome or a live retry entry.
 
 Execution Recovery is an execution-level, surface-neutral capability. The
 execution's owning publication pipeline freezes the authorized Space, Slack,

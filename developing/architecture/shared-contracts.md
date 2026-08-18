@@ -4132,6 +4132,16 @@ Core issues and stores the execution token before daemon delivery. The daemon
 echoes the received token from dispatch context. Core validates the echo before
 advancing lifecycle or accepting result frames.
 
+Runtime Transport capability `agentReplyContextReview: true` means the Service
+understands the additive `review_required` result-settlement response and can
+resume the exact controller conversation with a bounded Space cursor delta.
+Core emits that response only to a session advertising the capability. An old
+Service omits it and therefore never receives the new status. Because the base
+capability envelope is strict, the cloud receiver must deploy before a Service
+that advertises this field; an old Core does not silently ignore unknown base
+capabilities. `review_required` is non-terminal: it does not accept the dispatch
+result, retire execution authority, or create another Wake.
+
 Finalization commands and outcomes must use the shared RuntimeCoordinator
 finalization command schema. Do not hand-build finalization envelopes in Core,
 daemon, adapters, or clients.

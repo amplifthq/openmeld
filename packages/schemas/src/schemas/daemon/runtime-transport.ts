@@ -113,6 +113,7 @@ export const runtimeTransportErrorCodeSchema = z.enum([
   "daemon.result.identity_mismatch",
   "daemon.result.inbox_unavailable",
   "daemon.result.finalization_unavailable",
+  "space.agent_reply.context_changed",
   "core.transport_restarting",
   "execution_token_authority_missing",
   "execution_token_expired",
@@ -138,6 +139,7 @@ export const runtimeTransportLeaseSchema = z.strictObject({
 });
 
 export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
+  agentReplyContextReview: z.literal(true).optional(),
   informationProtectionPrompt: z.literal(true).optional(),
   workingLanguagePrompt: z.literal(true).optional(),
   localAgentInteraction: z.literal(true).optional(),
@@ -1618,6 +1620,11 @@ export const runtimeTransportSubmitTaskResultResponseSchema =
     z.strictObject({
       ok: z.literal(true),
       status: z.literal("accepted"),
+    }),
+    z.strictObject({
+      ok: z.literal(false),
+      status: z.literal("review_required"),
+      reasonCode: z.literal("space.agent_reply.context_changed"),
     }),
     z.strictObject({
       ok: z.literal(false),

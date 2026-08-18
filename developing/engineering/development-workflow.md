@@ -746,6 +746,37 @@ Prepare Session, dispatch-owned Space Action, diagnostic, or D1 schemas.
   terminal outcome; rollback must not strand a provider waiter or rewrite
   RuntimeCoordinator state.
 
+### Agent Reply Context Review Contract Impact Audit
+
+Agent reply context review changes the shared Runtime Transport capability and
+result-response schemas, the Service result outbox and exact-conversation
+continuation path, RuntimeCoordinator result settlement, and Space atomic final
+reply publication. It does not change setup, Prepare Session, CLI command,
+Gateway HTTP, D1 schema, or controller-specific adapter contracts.
+
+- Old cloud -> new local is not a safe rollout direction. The frozen base
+  capability envelope is strict, so an old Core can reject the new
+  `agentReplyContextReview` field. Deploy shared-schema consumers and Core
+  before publishing a Service that advertises the capability.
+- New cloud -> old local remains safe. An old Service omits the capability, so
+  Core never emits `review_required` and preserves the previous accepted-result
+  flow for existing Wake, setup, status, trace, and Space Action behavior.
+- New cloud -> new local enables atomic `post_message` settlement. A stale
+  proposal is not accepted into the result inbox and does not retire execution
+  authority. Service removes only that proposal from its durable outbox,
+  resumes the exact controller conversation with a bounded Space cursor delta,
+  and submits the replacement under the same Wake.
+- No Runtime Transport epoch or Service contract bump is required because the
+  response addition is emitted only behind the explicit session capability and
+  new Core remains compatible with old Services. The local component remains an
+  `available` update rather than a forced update: old Services retain their
+  pre-existing behavior and are not sent an incompatible status, while the
+  stronger collaboration guarantee activates after update.
+- Rollback removes or disables the Service capability producer before rolling
+  Core back. Existing accepted results remain on the established finalization
+  path; a non-terminal review in progress must be allowed to settle or be
+  explicitly stopped, never rewritten into success or failure.
+
 ### Grok Build Harness Contract Impact Audit
 
 Grok Build support adds one runtime registry controller, model-catalog entry,

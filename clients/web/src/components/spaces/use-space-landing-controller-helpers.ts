@@ -328,6 +328,34 @@ export function reconcilePolledWakeProgressItems(input: {
 	});
 }
 
+export function reconcileActiveWakeProgressSnapshot(input: {
+	currentItems: readonly WakeProgressItem[];
+	incomingItems: readonly WakeProgressItem[];
+	signals: readonly SignalEnvelope[];
+	snapshotItemsAtRequestStart: readonly WakeProgressItem[];
+}): WakeProgressItem[] {
+	const retainedItems = input.currentItems.filter((currentItem) => {
+		const requestStartItem = input.snapshotItemsAtRequestStart.find(
+			(candidate) =>
+				doWakeProgressItemsMatch({ left: currentItem, right: candidate })
+		);
+		if (!requestStartItem) {
+			return true;
+		}
+		if (!areWakeProgressItemsEqual([currentItem], [requestStartItem])) {
+			return true;
+		}
+		return input.incomingItems.some((candidate) =>
+			doWakeProgressItemsMatch({ left: currentItem, right: candidate })
+		);
+	});
+	return mergeWakeProgressItemState({
+		currentItems: retainedItems,
+		incomingItems: input.incomingItems,
+		signals: input.signals,
+	});
+}
+
 export function mergeActiveWakeProgressPresentation(input: {
 	detailedItems: readonly WakeProgressItem[];
 	signals: readonly SignalEnvelope[];

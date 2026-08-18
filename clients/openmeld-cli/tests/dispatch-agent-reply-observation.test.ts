@@ -52,6 +52,39 @@ describe("dispatch Agent reply observation", () => {
     });
   });
 
+  it("treats sibling final outcomes from the same multi-target Wake as collaboration context", () => {
+    const siblingReply = textSignal({
+      final: true,
+      id: "signal-sibling-reply",
+      profileId: FAILED_AGENT_PROFILE_ID,
+      text: "Sibling reply",
+    });
+    const siblingStatus = statusSignal({
+      actorProfileId: FAILED_AGENT_PROFILE_ID,
+      id: "signal-sibling-status",
+    });
+    const siblingFailure = systemNotice({
+      actorProfileId: FAILED_AGENT_PROFILE_ID,
+      id: "signal-sibling-failed",
+      noticeType: "terminal_failure",
+    });
+
+    expect(
+      resolveDispatchAgentReplyObservation({
+        candidates: [siblingReply, siblingStatus, siblingFailure],
+        currentWakeTargetProfileIds: [
+          AGENT_PROFILE_ID,
+          FAILED_AGENT_PROFILE_ID,
+        ],
+        sourceSignalId: "signal-source",
+      })
+    ).toEqual({
+      observedThroughSignalId: siblingFailure.id,
+      relevantSignals: [siblingReply, siblingStatus, siblingFailure],
+      status: "changed",
+    });
+  });
+
   it("advances the safety cursor without adding irrelevant model context", () => {
     expect(
       resolveDispatchAgentReplyObservation({
@@ -273,15 +306,21 @@ describe("dispatch Agent reply observation", () => {
     });
   });
 
-  it("stays silent instead of publishing known-stale work when two reviews cannot stabilize the Space", async () => {
+  it("keeps reviewing bounded deltas beyond two changes until the Space is current", async () => {
     const reconsider = vi.fn(async () => ({
-      action: postMessageAction("Still changing"),
+      action: postMessageAction("Reviewed latest collaboration context"),
       value: { conversationId: "same-session-1" },
     }));
     const refreshObservation = vi
       .fn()
       .mockResolvedValueOnce(changedObservation("signal-peer-2"))
-      .mockResolvedValueOnce(changedObservation("signal-peer-3"));
+      .mockResolvedValueOnce(changedObservation("signal-peer-3"))
+      .mockResolvedValueOnce(changedObservation("signal-peer-4"))
+      .mockResolvedValueOnce({
+        observedThroughSignalId: "signal-peer-4",
+        relevantSignals: [],
+        status: "current" as const,
+      });
 
     const result = await coordinateDispatchAgentReply({
       action: postMessageAction("Before peers"),
@@ -292,13 +331,19 @@ describe("dispatch Agent reply observation", () => {
       spaceId: "space-1",
     });
 
-    expect(reconsider).toHaveBeenCalledTimes(2);
-    expect(result.action).toEqual({
-      type: "stay_silent",
-      reason:
-        "The Space kept changing while this Agent reviewed concurrent replies, so OpenMeld did not publish a reply based on outdated context.",
+    expect(reconsider).toHaveBeenCalledTimes(4);
+    expect(refreshObservation).toHaveBeenCalledTimes(4);
+    expect(result).toMatchObject({
+      action: {
+        messageEnvelope: {
+          text: "Reviewed latest collaboration context",
+        },
+        observedThroughSignalId: "signal-peer-4",
+        type: "post_message",
+      },
+      reconsiderationCount: 4,
+      reconsidered: true,
     });
-    expect(result.reconsiderationCount).toBe(2);
   });
 });
 
@@ -323,6 +368,7 @@ function postMessageAction(text: string) {
 }
 
 function textSignal(input: {
+  final?: boolean;
   id: string;
   kind?: "agent" | "human";
   profileId?: string;
@@ -349,6 +395,41 @@ function textSignal(input: {
             replyTo: replyToSource(input.replyToSignalId ?? "signal-source"),
           }),
       ...(input.transient ? { meta: { transient: true } } : {}),
+      ...(input.final
+        ? {
+            meta: {
+              dispatchId: "dispatch-1",
+              purpose: "agent_reply_final",
+              targetProfileId: input.profileId ?? AGENT_PROFILE_ID,
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+function statusSignal(input: {
+  actorProfileId: string;
+  id: string;
+}): SignalEnvelope {
+  return {
+    v: 1,
+    id: input.id,
+    profile: {
+      kind: "system",
+      profileId: "openmeld-system",
+      profileName: "OpenMeld",
+    },
+    spaceId: "space-1",
+    ts: 1,
+    type: "signal.status",
+    data: {
+      actorProfileId: input.actorProfileId,
+      dispatchId: "dispatch-1",
+      generatedBy: "openmeld",
+      replyTo: replyToSource("signal-source"),
+      status: "done",
+      text: "Done",
     },
   };
 }

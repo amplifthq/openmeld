@@ -13,6 +13,9 @@ export const SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_MESSAGE =
 export const SPACE_SIGNAL_AUTHORING_POLICY_REQUIRED_ERROR_CODE =
   "space.signal_authoring_policy_required";
 
+export const SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE =
+  "space.agent_reply.context_changed" as const;
+
 export const SPACE_SIGNAL_AUTHORING_POLICY_REQUIRED_MESSAGE =
   "Signal posts must declare authoringPolicy before clientMessageId policy validation.";
 

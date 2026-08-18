@@ -610,9 +610,10 @@ function normalizeOptionalFrameValue(value: unknown): string | null {
 
 function normalizeResultAckStatus(
   value: unknown
-): "accepted" | "rejected_terminal" | "retry_later" | null {
+): "accepted" | "rejected_terminal" | "review_required" | "retry_later" | null {
   return value === "accepted" ||
     value === "rejected_terminal" ||
+    value === "review_required" ||
     value === "retry_later"
     ? value
     : null;

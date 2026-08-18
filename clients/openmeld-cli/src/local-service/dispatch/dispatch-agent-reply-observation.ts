@@ -13,10 +13,7 @@ import { createCliSpaceApi } from "../../space/cli-space-api";
 import { fetchSpaceUpdates } from "../../space/updates-api";
 
 const OBSERVATION_LIMIT = 20;
-const MAX_REPLY_RECONSIDERATIONS = 2;
 const SIGNAL_TEXT_LIMIT = 2000;
-const UNSTABLE_SPACE_SILENCE_REASON =
-  "The Space kept changing while this Agent reviewed concurrent replies, so OpenMeld did not publish a reply based on outdated context.";
 
 export type DispatchAgentReplyObservation = {
   observedThroughSignalId: string;
@@ -161,17 +158,6 @@ export async function coordinateDispatchAgentReply<T>(input: {
   let value = input.currentValue;
 
   while (observation.status === "changed") {
-    if (reconsiderationCount >= MAX_REPLY_RECONSIDERATIONS) {
-      return {
-        action: {
-          type: "stay_silent",
-          reason: UNSTABLE_SPACE_SILENCE_REASON,
-        },
-        reconsiderationCount,
-        reconsidered: true,
-        value,
-      };
-    }
     const reconsidered = await input.reconsider(
       buildAgentReplyReconsiderationPrompt({
         action,

@@ -2572,6 +2572,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           },
           finalizeDurableDispatchResult: async (result) =>
             await this.finalizeDurableDispatchResult(result),
+          settleDurableDispatchResult: async (result) =>
+            await this.settleDurableDispatchResult(result),
           resolveDurableDispatchResultAcceptance: async (result) =>
             await this.resolveDurableDispatchResultAcceptance(db, result),
         })
@@ -2832,6 +2834,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     runtimeCoordinatorExecutionId?: string | null;
     spaceId: string | null;
     submittedConnectionGeneration: number;
+    settledFinalization?: {
+      command: RuntimeCoordinatorFinalizationCommand;
+      outcome: RuntimeCoordinatorFinalizationOutcome;
+    } | null;
     targetProfileId: string;
     taskId: string;
     taskResult: OpenMeldDaemonTaskResultEnvelope;
@@ -2879,18 +2885,27 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     }
 
+    if (result.settledFinalization) {
+      return await this.finalizeSettledDurableDispatchResult({
+        ...result,
+        db,
+        executionTokenRunId,
+        runtimeCoordinatorExecutionId,
+        settledFinalization: result.settledFinalization,
+        spaceId,
+      });
+    }
+
     let command: RuntimeCoordinatorFinalizationCommand | null;
     try {
-      command =
-        await this.ensureRuntimeCoordinatorFinalizationCommandForAcceptedResult(
-          {
-            ...result,
-            db,
-            executionTokenRunId,
-            runtimeCoordinatorExecutionId,
-            spaceId,
-          }
-        );
+      command = await this.prepareRuntimeCoordinatorFinalizationCommand({
+        ...result,
+        db,
+        executionTokenRunId,
+        persistForReplay: true,
+        runtimeCoordinatorExecutionId,
+        spaceId,
+      });
     } catch (error) {
       console.warn(
         "[core.runtime_transport.runtime_coordinator_finalization_command_write_failed]",
@@ -2917,8 +2932,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     }
 
+    await this.retireAcceptedRuntimeCoordinatorTokenRun({
+      runId: executionTokenRunId,
+      runtimeCoordinatorExecutionId,
+    });
+
     // The daemon receipt needs durable cloud acceptance only: the command is
-    // persisted and its retry entry is seeded (inside ensure… above), so the
+    // persisted and its retry entry is seeded (inside prepare… above), so the
     // finalization retry alarm replays this command even if the DO is evicted
     // before the waitUntil work runs. The Space publish never fed the receipt
     // result (replay converts publish failures into outcome records), so
@@ -2946,6 +2966,247 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       })
     );
     return { ok: true };
+  }
+
+  private async finalizeSettledDurableDispatchResult(input: {
+    acceptedAtMs: number;
+    attemptId: string;
+    daemonSessionId: string;
+    db: D1Database;
+    dispatchId: string;
+    executionTokenFingerprint?: string | null;
+    executionTokenRunId: string;
+    finalizationRequired?: boolean;
+    leaseEpoch: number;
+    runtimeCoordinatorExecutionId: string;
+    settledFinalization: {
+      command: RuntimeCoordinatorFinalizationCommand;
+      outcome: RuntimeCoordinatorFinalizationOutcome;
+    };
+    spaceId: string;
+    submittedConnectionGeneration: number;
+    targetProfileId: string;
+    taskId: string;
+    taskResult: OpenMeldDaemonTaskResultEnvelope;
+  }): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        reasonCode: "daemon.result.finalization_unavailable";
+        status: "retry_later";
+      }
+  > {
+    const { command, outcome } = input.settledFinalization;
+    if (
+      !(
+        outcome.ok &&
+        outcome.finalizationCommandId === command.finalizationCommandId &&
+        this.isRuntimeCoordinatorFinalizationCommandForDispatch(command, input)
+      )
+    ) {
+      return {
+        ok: false,
+        reasonCode: "daemon.result.finalization_unavailable",
+        status: "retry_later",
+      };
+    }
+
+    try {
+      await this.persistRuntimeCoordinatorFinalizationCommand({
+        command,
+        db: input.db,
+      });
+      await this.ctx.storage.put(
+        buildRuntimeCoordinatorFinalizationOutcomeStorageKey(
+          command.finalizationCommandId
+        ),
+        outcome
+      );
+    } catch (error) {
+      console.warn(
+        "[core.runtime_transport.runtime_coordinator_finalization_command_write_failed]",
+        {
+          attemptId: input.attemptId,
+          dispatchId: input.dispatchId,
+          error: error instanceof Error ? error.message : String(error),
+          reasonCode: "daemon.result.finalization_unavailable",
+          runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+          spaceId: input.spaceId,
+        }
+      );
+      return {
+        ok: false,
+        reasonCode: "daemon.result.finalization_unavailable",
+        status: "retry_later",
+      };
+    }
+
+    await this.retireAcceptedRuntimeCoordinatorTokenRun({
+      runId: input.executionTokenRunId,
+      runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+    });
+    this.ctx.waitUntil(
+      this.replayRuntimeCoordinatorFinalizationCommand({
+        attemptId: input.attemptId,
+        dispatchId: input.dispatchId,
+        executionTokenRunId: input.executionTokenRunId,
+        preloadedCommand: command,
+        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+        spaceId: input.spaceId,
+      }).catch((error) => {
+        console.warn(
+          "[core.runtime_transport.runtime_coordinator_finalization_replay_failed]",
+          {
+            attemptId: input.attemptId,
+            dispatchId: input.dispatchId,
+            error: error instanceof Error ? error.message : String(error),
+            runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+            spaceId: input.spaceId,
+          }
+        );
+      })
+    );
+    return { ok: true };
+  }
+
+  private async settleDurableDispatchResult(result: {
+    acceptedAtMs: number;
+    attemptId: string;
+    daemonSessionId: string;
+    dispatchId: string;
+    executionTokenFingerprint?: string | null;
+    executionTokenRunId?: string | null;
+    finalizationRequired?: boolean;
+    leaseEpoch: number;
+    runtimeCoordinatorExecutionId?: string | null;
+    spaceId: string | null;
+    submittedConnectionGeneration: number;
+    targetProfileId: string;
+    taskId: string;
+    taskResult: OpenMeldDaemonTaskResultEnvelope;
+  }): Promise<
+    | {
+        ok: true;
+        settledFinalization: {
+          command: RuntimeCoordinatorFinalizationCommand;
+          outcome: RuntimeCoordinatorFinalizationOutcome;
+        } | null;
+      }
+    | {
+        ok: false;
+        reasonCode: "space.agent_reply.context_changed";
+        status: "review_required";
+      }
+    | {
+        ok: false;
+        reasonCode: "daemon.result.finalization_unavailable";
+        status: "retry_later";
+      }
+  > {
+    const db = wakeEvidenceDb(this.env);
+    const spaceId = normalizeOptionalText(result.spaceId);
+    const runtimeCoordinatorExecutionId = normalizeOptionalText(
+      result.runtimeCoordinatorExecutionId
+    );
+    const executionTokenRunId = normalizeOptionalText(
+      result.executionTokenRunId
+    );
+    if (
+      !(db && spaceId && runtimeCoordinatorExecutionId && executionTokenRunId)
+    ) {
+      return {
+        ok: false,
+        reasonCode: "daemon.result.finalization_unavailable",
+        status: "retry_later",
+      };
+    }
+
+    const command = await this.prepareRuntimeCoordinatorFinalizationCommand({
+      ...result,
+      db,
+      executionTokenRunId,
+      persistForReplay: false,
+      runtimeCoordinatorExecutionId,
+      spaceId,
+    }).catch(() => null);
+    if (!command) {
+      return {
+        ok: false,
+        reasonCode: "daemon.result.finalization_unavailable",
+        status: "retry_later",
+      };
+    }
+
+    if (
+      await this.suppressRuntimeCoordinatorFinalizationAfterWakeStop({
+        command,
+        db,
+      })
+    ) {
+      return { ok: true, settledFinalization: null };
+    }
+    const spaceStub = resolveSpaceStub(this.env.OPENMELD_SPACES, spaceId);
+    if (!spaceStub) {
+      return {
+        ok: false,
+        reasonCode: "daemon.result.finalization_unavailable",
+        status: "retry_later",
+      };
+    }
+
+    let rawOutcome: unknown;
+    try {
+      rawOutcome =
+        await spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand(command);
+    } catch (error) {
+      console.warn("[core.runtime_transport.agent_reply_settlement_failed]", {
+        attemptId: result.attemptId,
+        dispatchId: result.dispatchId,
+        error: error instanceof Error ? error.message : String(error),
+        runtimeCoordinatorExecutionId,
+        spaceId,
+      });
+      return {
+        ok: false,
+        reasonCode: "daemon.result.finalization_unavailable",
+        status: "retry_later",
+      };
+    }
+    const parsedOutcome =
+      runtimeCoordinatorFinalizationOutcomeSchema.safeParse(rawOutcome);
+    if (!parsedOutcome.success) {
+      return {
+        ok: false,
+        reasonCode: "daemon.result.finalization_unavailable",
+        status: "retry_later",
+      };
+    }
+    if (parsedOutcome.data.status === "review_required") {
+      return {
+        ok: false,
+        reasonCode: "space.agent_reply.context_changed",
+        status: "review_required",
+      };
+    }
+    if (
+      !parsedOutcome.data.ok &&
+      (await this.suppressRuntimeCoordinatorFinalizationAfterWakeStop({
+        command,
+        db,
+      }))
+    ) {
+      return { ok: true, settledFinalization: null };
+    }
+    return parsedOutcome.data.ok
+      ? {
+          ok: true,
+          settledFinalization: { command, outcome: parsedOutcome.data },
+        }
+      : {
+          ok: false,
+          reasonCode: "daemon.result.finalization_unavailable",
+          status: "retry_later",
+        };
   }
 
   private async replayRuntimeCoordinatorFinalizationCommand(input: {
@@ -3304,11 +3565,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     }
 
-    await this.retireAcceptedRuntimeCoordinatorTokenRun({
-      runId: command.executionTokenRunId,
-      runtimeCoordinatorExecutionId: command.runtimeCoordinatorExecutionId,
-    });
-
     const spaceStub = resolveSpaceStub(
       this.env.OPENMELD_SPACES,
       command.spaceId
@@ -3377,6 +3633,30 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           command,
           reasonCode: "runtime_coordinator.finalization_outcome_invalid",
         });
+    return await this.completeRuntimeCoordinatorFinalizationReplay({
+      command,
+      db,
+      outcome,
+    });
+  }
+
+  private async completeRuntimeCoordinatorFinalizationReplay(input: {
+    command: RuntimeCoordinatorFinalizationCommand;
+    db: D1Database;
+    outcome: RuntimeCoordinatorFinalizationOutcome;
+  }): Promise<
+    | RuntimeCoordinatorFinalizationOutcomeReplayResult
+    | {
+        ok: true;
+        reasonCode: "runtime_coordinator.wake_stop_requested";
+        status: "suppressed";
+      }
+  > {
+    const { command, db, outcome } = input;
+    if (outcome.status === "review_required") {
+      await this.clearRuntimeCoordinatorFinalizationCommandForReview(command);
+      return { ok: true, outcome };
+    }
     if (
       !outcome.ok &&
       (await this.suppressRuntimeCoordinatorFinalizationAfterWakeStop({
@@ -3816,9 +4096,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     return true;
   }
 
-  private async ensureRuntimeCoordinatorFinalizationCommandForAcceptedResult(input: {
+  private async prepareRuntimeCoordinatorFinalizationCommand(input: {
     acceptedAtMs: number;
-    acceptedResultStatus: "accepted" | "already_accepted";
     attemptId: string;
     daemonSessionId: string;
     db: D1Database;
@@ -3827,6 +4106,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     executionTokenRunId: string;
     finalizationRequired?: boolean;
     leaseEpoch: number;
+    persistForReplay: boolean;
     runtimeCoordinatorExecutionId: string;
     spaceId: string;
     submittedConnectionGeneration: number;
@@ -3906,9 +4186,25 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (!parsed.success) {
       return null;
     }
+    if (!input.persistForReplay) {
+      return parsed.data;
+    }
+    await this.persistRuntimeCoordinatorFinalizationCommand({
+      command: parsed.data,
+      db: input.db,
+    });
+    return parsed.data;
+  }
+
+  private async persistRuntimeCoordinatorFinalizationCommand(input: {
+    command: RuntimeCoordinatorFinalizationCommand;
+    db: D1Database;
+  }): Promise<void> {
     await this.ctx.storage.put(
-      buildRuntimeCoordinatorFinalizationCommandStorageKey(commandId),
-      parsed.data
+      buildRuntimeCoordinatorFinalizationCommandStorageKey(
+        input.command.finalizationCommandId
+      ),
+      input.command
     );
     // Seed the finalization retry entry at command-create time so the retry
     // alarm is a guaranteed backstop even when the inline replay never runs
@@ -3917,18 +4213,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     // outcome and no retry entry would never be replayed.
     await this.upsertRuntimeCoordinatorFinalizationRetryEntry(
       await this.buildRuntimeCoordinatorFinalizationRetry({
-        command: parsed.data,
-        nowMs: createdAtMs,
+        command: input.command,
+        nowMs: input.command.createdAtMs,
         nextReplayAtMs:
-          createdAtMs + RUNTIME_COORDINATOR_FINALIZATION_RETRY_DELAY_MS,
+          input.command.createdAtMs +
+          RUNTIME_COORDINATOR_FINALIZATION_RETRY_DELAY_MS,
       })
     );
     this.queueHousekeepingAlarmSync();
     await this.recordRuntimeCoordinatorFinalizationCommandCreated({
-      command: parsed.data,
+      command: input.command,
       db: input.db,
     });
-    return parsed.data;
   }
 
   private async readRuntimeCoordinatorFinalizationCommandForReplay(input: {
@@ -4007,6 +4303,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       input.command.finalizationCommandId
     );
     const outcome = storedOutcome?.ok ? storedOutcome : input.outcome;
+    if (outcome.status === "review_required") {
+      throw new Error(
+        "runtime_coordinator.review_required_outcome_is_not_terminal"
+      );
+    }
     await this.ctx.storage.put(
       buildRuntimeCoordinatorFinalizationOutcomeStorageKey(
         input.command.finalizationCommandId
@@ -4148,6 +4449,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       this.ctx.storage,
       finalizationCommandId
     );
+  }
+
+  private async clearRuntimeCoordinatorFinalizationCommandForReview(
+    command: RuntimeCoordinatorFinalizationCommand
+  ): Promise<void> {
+    await this.removeRuntimeCoordinatorFinalizationRetry(
+      command.finalizationCommandId
+    );
+    await Promise.all([
+      this.ctx.storage.delete(
+        buildRuntimeCoordinatorFinalizationCommandStorageKey(
+          command.finalizationCommandId
+        )
+      ),
+      this.ctx.storage.delete(
+        buildRuntimeCoordinatorFinalizationOutcomeStorageKey(
+          command.finalizationCommandId
+        )
+      ),
+    ]);
   }
 
   private async storeRuntimeCoordinatorFinalizationRetryOrPark(input: {

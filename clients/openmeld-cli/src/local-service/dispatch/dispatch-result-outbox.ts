@@ -32,10 +32,22 @@ const acknowledgementWaiters = new Map<
     resolve: (result: DispatchResultOutboxAcknowledgementWaitResult) => void;
   }>
 >();
+const settlementWaiters = new Map<
+  string,
+  Map<string, (result: DispatchResultOutboxSettlement) => void>
+>();
 
 export type DispatchResultOutboxAcknowledgementWaitResult =
   | "aborted"
   | "acknowledged";
+
+export type DispatchResultOutboxSettlement =
+  | { status: "accepted" }
+  | {
+      reasonCode: "space.agent_reply.context_changed";
+      status: "review_required";
+    }
+  | { reasonCode: string; status: "rejected_terminal" };
 
 type DispatchResultOutboxRecord = {
   schema: typeof OUTBOX_RECORD_SCHEMA;
@@ -79,7 +91,8 @@ export function enqueueDispatchResultOutboxRecord(input: {
   presenter: Presenter;
   runtimeCoordinatorExecutionId?: string | null;
   taskId: string;
-}): void {
+  waitForSettlement?: boolean;
+}): Promise<DispatchResultOutboxSettlement> | null {
   const nowMs = Date.now();
   const record: DispatchResultOutboxRecord = {
     schema: OUTBOX_RECORD_SCHEMA,
@@ -105,6 +118,12 @@ export function enqueueDispatchResultOutboxRecord(input: {
   };
 
   upsertOutboxRecord(input.ledgerPaths, record);
+  const settlement = input.waitForSettlement
+    ? registerDispatchResultOutboxSettlementWaiter({
+        ledgerPaths: input.ledgerPaths,
+        recordKey: buildRecordKey(record),
+      })
+    : null;
   emitRunLine({
     presenter: input.presenter,
     code: "daemon.run.result_outbox_queued",
@@ -120,6 +139,7 @@ export function enqueueDispatchResultOutboxRecord(input: {
     ledgerPaths: input.ledgerPaths,
     presenter: input.presenter,
   });
+  return settlement;
 }
 
 export function acknowledgeDispatchResultOutboxRecord(input: {
@@ -129,10 +149,22 @@ export function acknowledgeDispatchResultOutboxRecord(input: {
   ok: boolean;
   presenter: Presenter;
   reasonCode?: string | null;
-  status?: "accepted" | "rejected_terminal" | "retry_later" | null;
+  status?:
+    | "accepted"
+    | "rejected_terminal"
+    | "review_required"
+    | "retry_later"
+    | null;
 }): void {
   const acknowledgedAtMs = Date.now();
   const records = readOutboxRecords(input.ledgerPaths);
+  const matchedRecordKeys = records
+    .filter(
+      (record) =>
+        record.dispatchId === input.dispatchId &&
+        (!input.attemptId || record.attemptId === input.attemptId)
+    )
+    .map(buildRecordKey);
   const nextRecords = records.flatMap((record) => {
     if (
       record.dispatchId !== input.dispatchId ||
@@ -140,7 +172,7 @@ export function acknowledgeDispatchResultOutboxRecord(input: {
     ) {
       return [record];
     }
-    if (input.ok) {
+    if (input.ok || input.status === "review_required") {
       return [];
     }
     if (input.status === "retry_later") {
@@ -169,6 +201,10 @@ export function acknowledgeDispatchResultOutboxRecord(input: {
     ];
   });
   writeOutboxRecords(input.ledgerPaths, nextRecords);
+  const settlement = resolveDispatchResultOutboxSettlement(input);
+  if (settlement) {
+    notifySettlementWaiters(input.ledgerPaths, matchedRecordKeys, settlement);
+  }
   const retryLater = !input.ok && input.status === "retry_later";
   let eventCode = "daemon.run.result_outbox_rejected";
   let eventText = `daemon result outbox rejected for dispatch ${input.dispatchId}: ${input.reasonCode ?? "unknown"}`;
@@ -192,6 +228,36 @@ export function acknowledgeDispatchResultOutboxRecord(input: {
     },
   });
 }
+
+export function waitForDispatchResultOutboxSettlement(input: {
+  attemptId: string;
+  dispatchId: string;
+  ledgerPaths: LedgerPaths;
+}): Promise<DispatchResultOutboxSettlement> {
+  const recordKey = buildRecordKey(input);
+  if (
+    !readOutboxRecords(input.ledgerPaths).some(
+      (record) => buildRecordKey(record) === recordKey
+    )
+  ) {
+    return Promise.resolve({ status: "accepted" });
+  }
+  return registerDispatchResultOutboxSettlementWaiter({
+    ledgerPaths: input.ledgerPaths,
+    recordKey,
+  });
+}
+
+const registerDispatchResultOutboxSettlementWaiter = (input: {
+  ledgerPaths: LedgerPaths;
+  recordKey: string;
+}): Promise<DispatchResultOutboxSettlement> =>
+  new Promise<DispatchResultOutboxSettlement>((resolve) => {
+    const rootKey = input.ledgerPaths.rootDirPath;
+    const waiters = settlementWaiters.get(rootKey) ?? new Map();
+    waiters.set(input.recordKey, resolve);
+    settlementWaiters.set(rootKey, waiters);
+  });
 
 export function waitForDispatchResultOutboxAcknowledgement(input: {
   abortSignal?: AbortSignal;
@@ -455,6 +521,60 @@ const notifyAcknowledgementWaiters = (
     return;
   }
   acknowledgementWaiters.set(rootKey, pendingWaiters);
+};
+
+const resolveDispatchResultOutboxSettlement = (input: {
+  ok: boolean;
+  reasonCode?: string | null;
+  status?:
+    | "accepted"
+    | "rejected_terminal"
+    | "review_required"
+    | "retry_later"
+    | null;
+}): DispatchResultOutboxSettlement | null => {
+  if (input.ok) {
+    return { status: "accepted" };
+  }
+  if (
+    input.status === "review_required" &&
+    input.reasonCode === "space.agent_reply.context_changed"
+  ) {
+    return {
+      reasonCode: input.reasonCode,
+      status: "review_required",
+    };
+  }
+  if (input.status === "rejected_terminal") {
+    return {
+      reasonCode: input.reasonCode ?? "daemon.dispatch.result_rejected",
+      status: "rejected_terminal",
+    };
+  }
+  return null;
+};
+
+const notifySettlementWaiters = (
+  ledgerPaths: LedgerPaths,
+  recordKeys: readonly string[],
+  settlement: DispatchResultOutboxSettlement
+): void => {
+  const rootKey = ledgerPaths.rootDirPath;
+  const waiters = settlementWaiters.get(rootKey);
+  if (!waiters) {
+    return;
+  }
+  for (const recordKey of recordKeys) {
+    const resolve = waiters.get(recordKey);
+    if (!resolve) {
+      continue;
+    }
+    waiters.delete(recordKey);
+    resolve(settlement);
+  }
+  if (waiters.size === 0) {
+    settlementWaiters.delete(rootKey);
+  }
 };
 
 const isDispatchResultOutboxRecord = (

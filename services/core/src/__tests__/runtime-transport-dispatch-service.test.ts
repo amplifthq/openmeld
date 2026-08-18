@@ -833,6 +833,146 @@ describe("runtime transport dispatch service", () => {
     );
   });
 
+  it("keeps the Wake pending when atomic Space settlement requires Agent review", async () => {
+    const { state } = createState();
+    const session = state.sessionsById.get("session-2");
+    if (!session) {
+      throw new Error("test session missing");
+    }
+    session.capabilities.agentReplyContextReview = true;
+    const acceptDispatchResult = vi.fn(async () => ({
+      ok: true as const,
+      status: "accepted" as const,
+    }));
+    const settleDurableDispatchResult = vi.fn(async () => ({
+      ok: false as const,
+      reasonCode: "space.agent_reply.context_changed" as const,
+      status: "review_required" as const,
+    }));
+
+    state.pendingDispatches.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      buildPendingDispatch({ phase: "running", runningAtMs: 20 })
+    );
+
+    const response = await handleSubmitTaskResult(
+      state,
+      {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        executionIdentityEcho: createResultIdentityEcho(),
+        daemonSessionId: "session-2",
+        connectionGeneration: 1,
+        leaseEpoch: 2,
+        taskResult: {
+          v: 4,
+          code: "service.task_result",
+          payload: {
+            agentId: "agt-1",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "1",
+            sourceEventId: "evt-1",
+            spaceAction: {
+              type: "post_message",
+              observedThroughSignalId: "signal-1",
+              messageEnvelope: {
+                activationTargets: [],
+                referenceTargets: [],
+                text: "1",
+              },
+            },
+            status: "success",
+            taskId: "task-1",
+          },
+        },
+      },
+      {
+        acceptDispatchResult,
+        cleanupCompletedResults: () => undefined,
+        resolvePendingResultWaiters: () => undefined,
+        settleDurableDispatchResult,
+      } as never
+    );
+
+    expect(response).toEqual({
+      ok: false,
+      reasonCode: "space.agent_reply.context_changed",
+      status: "review_required",
+    });
+    expect(settleDurableDispatchResult).toHaveBeenCalledOnce();
+    expect(acceptDispatchResult).not.toHaveBeenCalled();
+    expect(
+      state.pendingDispatches.get(
+        buildDispatchAttemptKey("dispatch-1", "attempt-1")
+      )?.phase
+    ).toBe("running");
+  });
+
+  it("does not send review-required responses to Services that did not advertise support", async () => {
+    const { state } = createState();
+    const acceptDispatchResult = vi.fn(async () => ({
+      ok: true as const,
+      status: "accepted" as const,
+    }));
+    const settleDurableDispatchResult = vi.fn(async () => ({
+      ok: false as const,
+      reasonCode: "space.agent_reply.context_changed" as const,
+      status: "review_required" as const,
+    }));
+
+    state.pendingDispatches.set(
+      buildDispatchAttemptKey("dispatch-1", "attempt-1"),
+      buildPendingDispatch({ phase: "running", runningAtMs: 20 })
+    );
+
+    const response = await handleSubmitTaskResult(
+      state,
+      {
+        v: 1,
+        dispatchId: "dispatch-1",
+        attemptId: "attempt-1",
+        executionIdentityEcho: createResultIdentityEcho(),
+        daemonSessionId: "session-2",
+        connectionGeneration: 1,
+        leaseEpoch: 2,
+        taskResult: {
+          v: 4,
+          code: "service.task_result",
+          payload: {
+            agentId: "agt-1",
+            attemptId: "attempt-1",
+            deduped: false,
+            output: "1",
+            sourceEventId: "evt-1",
+            spaceAction: {
+              type: "post_message",
+              observedThroughSignalId: "signal-1",
+              messageEnvelope: {
+                activationTargets: [],
+                referenceTargets: [],
+                text: "1",
+              },
+            },
+            status: "success",
+            taskId: "task-1",
+          },
+        },
+      },
+      {
+        acceptDispatchResult,
+        cleanupCompletedResults: () => undefined,
+        resolvePendingResultWaiters: () => undefined,
+        settleDurableDispatchResult,
+      } as never
+    );
+
+    expect(response).toEqual({ ok: true, status: "accepted" });
+    expect(settleDurableDispatchResult).not.toHaveBeenCalled();
+    expect(acceptDispatchResult).toHaveBeenCalledOnce();
+  });
+
   it("accepts a result submitted on a newer connection when business identity and lease match", async () => {
     const { state } = createState();
     const resolvePendingResultWaiters = vi.fn();

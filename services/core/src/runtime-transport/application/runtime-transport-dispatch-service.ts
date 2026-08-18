@@ -4,6 +4,8 @@ import type {
   DaemonExecutionCompatibility,
   OpenMeldDaemonTaskResultEnvelope,
   OpenMeldRequestContext,
+  RuntimeCoordinatorFinalizationCommand,
+  RuntimeCoordinatorFinalizationOutcome,
   RuntimeTransportDeliverDispatchRequest,
   RuntimeTransportDeliverDispatchResponse,
   RuntimeTransportDispatchLifecycleRequest,
@@ -83,6 +85,11 @@ type DurableDispatchResultAcceptance = DispatchResultAcceptance & {
 
 type AcceptedResultStatus = "accepted" | "already_accepted";
 
+type SettledDurableDispatchFinalization = {
+  command: RuntimeCoordinatorFinalizationCommand;
+  outcome: RuntimeCoordinatorFinalizationOutcome;
+};
+
 type RuntimeCoordinatorAcceptedResultPointer = {
   executionTokenFingerprint: string;
   executionTokenRunId: string;
@@ -114,10 +121,30 @@ type AcceptDispatchResult = (result: DispatchResultAcceptance) => Promise<
 type FinalizeDurableDispatchResult = (
   result: DurableDispatchResultAcceptance & {
     acceptedResultStatus: AcceptedResultStatus;
+    settledFinalization?: SettledDurableDispatchFinalization | null;
   }
 ) => Promise<
   | {
       ok: true;
+    }
+  | {
+      ok: false;
+      status: "retry_later";
+      reasonCode: "daemon.result.finalization_unavailable";
+    }
+>;
+
+type SettleDurableDispatchResult = (
+  result: DurableDispatchResultAcceptance
+) => Promise<
+  | {
+      ok: true;
+      settledFinalization: SettledDurableDispatchFinalization | null;
+    }
+  | {
+      ok: false;
+      status: "review_required";
+      reasonCode: "space.agent_reply.context_changed";
     }
   | {
       ok: false;
@@ -164,6 +191,7 @@ type SubmitTaskResultDependencies = Pick<
   acceptedResultRuntimeCoordinatorPointer?: RuntimeCoordinatorAcceptedResultPointer | null;
   finalizeDurableDispatchResult?: FinalizeDurableDispatchResult;
   resolveDurableDispatchResultAcceptance?: ResolveDurableDispatchResultAcceptance;
+  settleDurableDispatchResult?: SettleDurableDispatchResult;
 };
 
 export const deliverDispatch = async (
@@ -672,7 +700,7 @@ export const handleSubmitTaskResult = async (
     deps,
     pending,
   });
-  const inboxAcceptance = await deps.acceptDispatchResult({
+  const resultAcceptance: DispatchResultAcceptance = {
     acceptedAtMs: receivedAtMs,
     attemptId: pending.attemptId,
     daemonSessionId: request.daemonSessionId,
@@ -685,28 +713,36 @@ export const handleSubmitTaskResult = async (
     targetProfileId: pending.profileId,
     taskId: pending.taskId,
     taskResult: request.taskResult,
-  });
+  };
+  const durableResultAcceptance: DurableDispatchResultAcceptance = {
+    ...resultAcceptance,
+    finalizationRequired: true,
+    spaceId: pending.spaceId,
+  };
+  let settledFinalization: SettledDurableDispatchFinalization | null = null;
+  if (
+    deps.settleDurableDispatchResult &&
+    state.sessionsById.get(request.daemonSessionId)?.capabilities
+      .agentReplyContextReview === true &&
+    shouldSettleAgentReplyBeforeResultAcceptance(request.taskResult)
+  ) {
+    const settlement = await deps.settleDurableDispatchResult(
+      durableResultAcceptance
+    );
+    if (!settlement.ok) {
+      return settlement;
+    }
+    settledFinalization = settlement.settledFinalization;
+  }
+  const inboxAcceptance = await deps.acceptDispatchResult(resultAcceptance);
   if (!inboxAcceptance.ok) {
     return toSubmitTaskResultResponse(inboxAcceptance);
   }
   if (deps.finalizeDurableDispatchResult) {
     const finalization = await deps.finalizeDurableDispatchResult({
-      acceptedAtMs: receivedAtMs,
-      attemptId: pending.attemptId,
-      daemonSessionId: request.daemonSessionId,
-      dispatchId: pending.dispatchId,
-      executionTokenFingerprint: resultPointer.executionTokenFingerprint,
-      executionTokenRunId: resultPointer.executionTokenRunId,
+      ...durableResultAcceptance,
       acceptedResultStatus: inboxAcceptance.status,
-      finalizationRequired: true,
-      leaseEpoch: request.leaseEpoch,
-      runtimeCoordinatorExecutionId:
-        resultPointer.runtimeCoordinatorExecutionId,
-      spaceId: pending.spaceId,
-      submittedConnectionGeneration: request.connectionGeneration,
-      targetProfileId: pending.profileId,
-      taskId: pending.taskId,
-      taskResult: request.taskResult,
+      settledFinalization,
     });
     if (!finalization.ok) {
       return finalization;
@@ -1021,6 +1057,17 @@ const isTaskResultForPendingDispatch = (
   return (
     taskResult.payload.taskId === pending.taskId &&
     taskResult.payload.agentId === pending.profileId
+  );
+};
+
+const shouldSettleAgentReplyBeforeResultAcceptance = (
+  taskResult: OpenMeldDaemonTaskResultEnvelope
+): boolean => {
+  const payload = taskResult.payload;
+  return (
+    (payload.status === "success" || payload.status === "partial_success") &&
+    "spaceAction" in payload &&
+    payload.spaceAction?.type === "post_message"
   );
 };
 

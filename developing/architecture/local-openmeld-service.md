@@ -1286,6 +1286,15 @@ the socket. If the socket disappears during that wait, unacknowledged results
 remain in the same durable outbox for the next Service session; lifecycle code
 must not create a second result store.
 
+`agentReplyContextReview: true` is an additive Runtime Transport capability.
+A Service advertises it only when it can keep a `post_message` result as an
+unpublished proposal, receive `review_required`, remove that proposal from the
+result outbox, read a bounded Space delta, and resume the exact Agent Controller
+conversation. The same execution slot stays active across review. Review never
+starts a new Wake, repeats completed tools, or creates a second result store.
+Older Services omit the capability and must never receive the new response
+status.
+
 For an operating-system-managed Service, lifecycle code disables automatic
 restart and sends the existing local `shutdown` control-plane request before it
 unloads the service definition. The Service acknowledges that request only

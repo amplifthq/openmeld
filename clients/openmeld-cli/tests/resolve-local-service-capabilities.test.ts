@@ -33,6 +33,7 @@ describe("resolve local service capabilities", () => {
         localAdapterContainer,
       })
     ).toEqual({
+      agentReplyContextReview: true,
       informationProtectionPrompt: true,
       workingLanguagePrompt: true,
       localAgentControl: {
@@ -98,6 +99,7 @@ describe("resolve local service capabilities", () => {
         localAdapterContainer,
       })
     ).toEqual({
+      agentReplyContextReview: true,
       informationProtectionPrompt: true,
       workingLanguagePrompt: true,
       localAgentControl: {

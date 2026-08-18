@@ -24,7 +24,10 @@ import type {
 	SpaceMemberAgentSnapshot,
 	SpaceMembersSnapshot,
 } from "@openmeld/schemas/types";
-import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
+import {
+	createWakeProgressItem,
+	OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+} from "@openmeld/space";
 import { QueryClient } from "@tanstack/react-query";
 import {
 	act,
@@ -416,6 +419,7 @@ function renderSpaceLanding(
 		onInitialPendingMessageConsumed?: () => void;
 		presentation?: "compact" | "full";
 		profileId?: string;
+		queryClient?: QueryClient;
 		spaceId?: string;
 	} = {}
 ) {
@@ -424,7 +428,7 @@ function renderSpaceLanding(
 	// test's own fixtures, so a QueryClientProvider must always be present --
 	// useQuery/useQueryClient stay fully mocked above and never read this
 	// client, but useMutation does.
-	const queryClient = createTestQueryClient();
+	const queryClient = input.queryClient ?? createTestQueryClient();
 	const view = render(
 		<TestQueryClientProvider queryClient={queryClient}>
 			<SpaceLanding
@@ -2743,6 +2747,99 @@ describe("SpaceLanding", () => {
 				},
 			});
 			await detailedWakeProgress;
+		});
+	});
+
+	it("clears a cached Sending to agent row when Core confirms that no Wake is active", async () => {
+		const queryClient = createTestQueryClient();
+		const cachedItem = createWakeProgressItem({
+			clientMessageId: "client-message-stale",
+			dispatchId: "dispatch-stale",
+			phase: "request_sent",
+			sourceSignalId: "sig-user-stale",
+			targetLabel: "@runner",
+			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+			updatedAtMs: RECENT_ACTIVITY_TS + 10,
+		});
+		queryClient.setQueryData(
+			spaceQueryKeys.wakeProgressPresentation(
+				"space-123",
+				DEFAULT_SPACE_PROFILE_ID
+			),
+			[cachedItem]
+		);
+		useQueryClientMock.mockReturnValue(queryClient);
+		let resolveActiveWakeProgress!: (value: {
+			items: never[];
+			query: { spaceId: string; targetProfileId: null };
+		}) => void;
+		const activeWakeProgress = new Promise<{
+			items: never[];
+			query: { spaceId: string; targetProfileId: null };
+		}>((resolve) => {
+			resolveActiveWakeProgress = resolve;
+		});
+		createWebSpaceApiMock.mockReturnValue({
+			getActiveWakeProgress: vi.fn(async () => await activeWakeProgress),
+			getUpdates: vi.fn().mockResolvedValue({ signals: [] }),
+			getWakeProgress: vi.fn().mockResolvedValue({
+				items: [],
+				query: {
+					clientMessageId: "client-message-stale",
+					spaceId: "space-123",
+					targetProfileId: null,
+				},
+			}),
+			leaveSpace: vi.fn(),
+			listSignalEnvelopes: vi.fn(),
+			postNormalMessage: vi.fn(),
+		});
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: {
+					envelopes: [
+						createTextSignal({
+							id: "sig-user-stale",
+							messageEnvelope: {
+								activationTargets: [DEFAULT_AGENT_PROFILE_ID],
+								referenceTargets: [],
+								text: "@runner(wake) status check",
+							},
+							meta: { clientMessageId: "client-message-stale" },
+							text: "@runner(wake) status check",
+							ts: RECENT_ACTIVITY_TS - 6 * 60 * 1000,
+						}),
+					],
+					nextCursor: null,
+				},
+			}),
+		});
+
+		renderSpaceLanding({ queryClient });
+
+		expect(
+			screen.getByTestId("space-wake-thinking-indicator").textContent
+		).toContain("Sending to agent");
+
+		await act(async () => {
+			resolveActiveWakeProgress({
+				items: [],
+				query: { spaceId: "space-123", targetProfileId: null },
+			});
+			await activeWakeProgress;
+		});
+
+		await waitFor(() => {
+			expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 		});
 	});
 
