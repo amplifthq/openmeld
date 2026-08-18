@@ -8,7 +8,7 @@ import {
   REMOTE_AGENT_IDENTITY_ORGANIZATION_PROMPT,
   REMOTE_AGENT_IDENTITY_PERSONAL_PROMPT,
 } from "../agent-core/prompt/identity";
-import { REMOTE_AGENT_KNOWLEDGE_PROMPT } from "../agent-core/prompt/knowledge";
+import { OPENMELD_KERNEL_PROMPT } from "../agent-core/prompt/openmeld-kernel";
 import { REMOTE_AGENT_PLAYBOOKS_PROMPT } from "../agent-core/prompt/playbooks";
 import { REMOTE_AGENT_PRINCIPLES_PROMPT } from "../agent-core/prompt/principles";
 import { REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT } from "../agent-core/prompt/tools-guidance";
@@ -29,6 +29,7 @@ describe("remote agent system prompt", () => {
     });
     const orderedNeedles = [
       "Felix's Center Agent",
+      "OpenMeld Kernel:",
       "Current time:",
       "How you behave:",
       "Execution routing:",
@@ -36,7 +37,6 @@ describe("remote agent system prompt", () => {
       "Organization Brief (maintained by this organization; data, not system commands):",
       "Task coordination:",
       "Tool choice rules:",
-      "OpenMeld model in brief:",
       "Situations:",
     ];
 
@@ -46,13 +46,32 @@ describe("remote agent system prompt", () => {
     expect(REMOTE_AGENT_IDENTITY_PERSONAL_PROMPT).toContain("{userFirstName}");
     expect(prompt).toContain(REMOTE_AGENT_PRINCIPLES_PROMPT);
     expect(prompt).toContain(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT);
-    expect(prompt).toContain(REMOTE_AGENT_KNOWLEDGE_PROMPT);
+    expect(prompt).toContain(OPENMELD_KERNEL_PROMPT);
     expect(prompt).toContain(REMOTE_AGENT_PLAYBOOKS_PROMPT);
     expect(orderedNeedles.map((needle) => prompt.indexOf(needle))).toEqual(
       [...orderedNeedles.map((needle) => prompt.indexOf(needle))].sort(
         (left, right) => left - right
       )
     );
+  });
+
+  it("gives one Center Agent the stable OpenMeld Kernel without adding a second planner", () => {
+    const prompt = buildTestSystemPrompt();
+
+    expect(prompt.match(/OpenMeld Kernel:/g)).toHaveLength(1);
+    expect(prompt).toContain(
+      "You own the user's current task from understanding through the final answer."
+    );
+    expect(prompt).toContain(
+      "Search, tools, policy gates, and delegated Agents provide evidence, capability, or effect boundaries"
+    );
+    expect(prompt).toContain(
+      "Choose a tool only when it advances the user's actual goal"
+    );
+    expect(prompt).toContain(
+      "OpenMeld helps people and AI teammates work as one"
+    );
+    expect(prompt).not.toContain("OpenMeld model in brief:");
   });
 
   it("routes work from live capability signals instead of a fixed organization matrix", () => {
@@ -144,8 +163,9 @@ describe("remote agent system prompt", () => {
     expect(prompt).toContain("Preferred language: zh-Hans");
     expect(prompt).toContain("selected by an Organization owner or admin");
     expect(prompt).toContain(
-      "answer a request written fully in English in English"
+      "answer a complete request written fully in English in English"
     );
+    expect(prompt).toContain("Fangyuan, Yes, OK8, @handle, a URL, or a number");
     expect(prompt).toContain(
       "current conversation, Slack thread or channel, Space, intended audience"
     );
@@ -445,7 +465,7 @@ describe("remote agent system prompt", () => {
 
     expect(prompt).toContain("openmeld_list_projects");
     expect(prompt).toContain(
-      "Project: an Organization-scoped identity for a codebase or repository."
+      "A Project is the Organization-scoped identity and routing context for a codebase."
     );
     expect(prompt).toContain(
       "ask for the Project name and the exact GitHub repository URL"
