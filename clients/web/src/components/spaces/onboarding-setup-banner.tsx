@@ -9,6 +9,7 @@ import {
 	ArrowRightIcon,
 	LaptopIcon,
 	RobotIcon,
+	UsersThreeIcon,
 	XIcon,
 } from "@phosphor-icons/react";
 import { type ReactNode, useId } from "react";
@@ -148,7 +149,7 @@ export function OnboardingSetupEmptyStateActions(
 		>
 			{showConnect ? (
 				<EmptyStateSetupActionCard
-					description="Bring Codex, Claude Code, or another local agent into OpenMeld. Then add it to this Space."
+					description="Make Codex, Claude Code, or another local agent available in OpenMeld."
 					icon={<LaptopIcon aria-hidden="true" className="size-5" />}
 					itemId="connect-this-computer"
 					onClick={props.onConnect}
@@ -158,11 +159,11 @@ export function OnboardingSetupEmptyStateActions(
 
 			{showBringAgents && props.onAddAgents ? (
 				<EmptyStateSetupActionCard
-					description="Choose an available agent—or create one—and add it to this Space."
-					icon={<RobotIcon aria-hidden="true" className="size-5" />}
-					itemId="add-agents"
+					description="Choose people or agents for this Space, or create a new agent."
+					icon={<UsersThreeIcon aria-hidden="true" className="size-5" />}
+					itemId="add-people-or-agents"
 					onClick={props.onAddAgents}
-					title="Add agents"
+					title="Add people or agents"
 				/>
 			) : null}
 		</FluidCardGroup>

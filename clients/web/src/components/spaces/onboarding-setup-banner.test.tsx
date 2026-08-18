@@ -14,7 +14,7 @@ import {
 
 afterEach(cleanup);
 
-const ADD_AGENTS_BUTTON_NAME_PATTERN = /^Add agents/;
+const ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN = /^Add people or agents/;
 const CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN = /^Connect this computer/;
 
 function renderBanner(
@@ -243,7 +243,7 @@ describe("OnboardingSetupBanner", () => {
 });
 
 describe("OnboardingSetupEmptyStateActions", () => {
-	it("shows connect and add agents together using the shared Fluid Card group", () => {
+	it("shows connect and add people or agents together using the shared Fluid Card group", () => {
 		const { props } = renderEmptyStateActions(
 			buildOnboardingPlan(hasAgentNotConnectedFacts())
 		);
@@ -257,12 +257,12 @@ describe("OnboardingSetupEmptyStateActions", () => {
 		expect(document.querySelectorAll("[data-fluid-card-item]")).toHaveLength(2);
 		expect(
 			screen.getByText(
-				"Bring Codex, Claude Code, or another local agent into OpenMeld. Then add it to this Space."
+				"Make Codex, Claude Code, or another local agent available in OpenMeld."
 			)
 		).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Choose an available agent—or create one—and add it to this Space."
+				"Choose people or agents for this Space, or create a new agent."
 			)
 		).toBeTruthy();
 
@@ -272,13 +272,15 @@ describe("OnboardingSetupEmptyStateActions", () => {
 			})
 		);
 		fireEvent.click(
-			screen.getByRole("button", { name: ADD_AGENTS_BUTTON_NAME_PATTERN })
+			screen.getByRole("button", {
+				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
+			})
 		);
 		expect(props.onConnect).toHaveBeenCalledTimes(1);
 		expect(props.onAddAgents).toHaveBeenCalledTimes(1);
 	});
 
-	it("keeps Add agents actionable when the user still needs to create an agent", () => {
+	it("keeps Add people or agents actionable when the user still needs to create an agent", () => {
 		const { props } = renderEmptyStateActions(
 			buildOnboardingPlan(joinedZeroAgentsOnboardingFacts())
 		);
@@ -289,7 +291,9 @@ describe("OnboardingSetupEmptyStateActions", () => {
 			})
 		).toBeTruthy();
 		fireEvent.click(
-			screen.getByRole("button", { name: ADD_AGENTS_BUTTON_NAME_PATTERN })
+			screen.getByRole("button", {
+				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
+			})
 		);
 		expect(props.onAddAgents).toHaveBeenCalledTimes(1);
 		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
