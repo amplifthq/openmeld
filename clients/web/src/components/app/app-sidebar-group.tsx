@@ -25,12 +25,17 @@ const AppSidebarGroupStateContext = createContext<AppSidebarGroupState | null>(
 	null
 );
 
-export function AppSidebarGroupStateProvider(input: {
+const EMPTY_COLLAPSED_GROUP_IDS: readonly string[] = [];
+
+export function AppSidebarGroupStateProvider({
+	children,
+	collapsedGroupIds = EMPTY_COLLAPSED_GROUP_IDS,
+	onCollapsedGroupIdsChange,
+}: {
 	children: ReactNode;
 	collapsedGroupIds?: readonly string[];
 	onCollapsedGroupIdsChange: (groupIds: readonly string[]) => void;
 }) {
-	const collapsedGroupIds = input.collapsedGroupIds ?? [];
 	const collapsedGroupIdSet = useMemo(
 		() => new Set(collapsedGroupIds),
 		[collapsedGroupIds]
@@ -45,19 +50,19 @@ export function AppSidebarGroupStateProvider(input: {
 			if (open === isCurrentlyOpen) {
 				return;
 			}
-			input.onCollapsedGroupIdsChange(
+			onCollapsedGroupIdsChange(
 				open
 					? collapsedGroupIds.filter((id) => id !== groupId)
 					: [...collapsedGroupIds, groupId]
 			);
 		},
-		[collapsedGroupIdSet, collapsedGroupIds, input.onCollapsedGroupIdsChange]
+		[collapsedGroupIdSet, collapsedGroupIds, onCollapsedGroupIdsChange]
 	);
 	const value = useMemo(() => ({ isOpen, setOpen }), [isOpen, setOpen]);
 
 	return (
 		<AppSidebarGroupStateContext.Provider value={value}>
-			{input.children}
+			{children}
 		</AppSidebarGroupStateContext.Provider>
 	);
 }
