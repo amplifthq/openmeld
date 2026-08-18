@@ -39,6 +39,7 @@ import {
 } from "../src/remote-agent/application/slack-signal-service";
 import { REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS } from "../src/remote-agent/application/slack-working-status";
 import {
+  isLatestRemoteAgentNativeDeliveryActiveForSlackThread,
   markRemoteAgentNativeDeliveryAck,
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
@@ -363,6 +364,35 @@ describe("Remote Agent Slack signal service", () => {
           "Expected both recovered channel introduction deliveries"
         );
       }
+
+      await upsertRemoteAgentNativeDeliveryRecord({
+        attemptId: null,
+        bindingId: firstRequest.bindingId,
+        conversationKind: "slack",
+        db: harness.db,
+        deliveryId: "delivery_late_legacy_introduction_sibling",
+        dispatchId: "dispatch_late_legacy_introduction_sibling",
+        idempotencyKey:
+          "slack-channel-introduction:T123:V_CHANNELS_RECOVERED:C_LATE",
+        nowMs: 3200,
+        organizationId: firstRequest.organizationId,
+        profileId: firstRequest.agentProfileId,
+        slackChannelId: "D_OPENMELD",
+        slackTeamId: "T123",
+        slackThreadTs: "1710000001.000200",
+        spaceId: firstRequest.spaceId,
+        status: "completed",
+        triggerMessageId: "1710000001.000200",
+      });
+      await expect(
+        isLatestRemoteAgentNativeDeliveryActiveForSlackThread({
+          channelId: "D_OPENMELD",
+          db: harness.db,
+          organizationId: "org_1",
+          teamId: "T123",
+          threadTs: "1710000001.000200",
+        })
+      ).resolves.toBe(true);
 
       await completeRemoteAgentNativeDelivery(
         env,

@@ -1580,10 +1580,13 @@ ordinary delivery derives its effective identity from its idempotency key and
 leaves this override null. Multiple deliveries that are intentional fan-out
 from one user turn share an explicit override across recovery. When a new Core
 replays or continues a fan-out admitted by an older Core, it compare-and-sets
-nullable siblings under the same exact Slack trigger and conversation scope to
-that shared identity. This field groups lifecycle evidence but does not own
-execution, conversation, task, or authorization truth. Older nullable rows
-remain replayable and readable as single-delivery turns during rollout.
+nullable siblings under the same exact Slack trigger, conversation scope, and
+explicit idempotency-parent lineage to that shared identity. A late legacy row
+that remains nullable derives the same effective identity only when exactly one
+explicit parent lineage matches; conflicting parent lineages fail closed. This
+field groups lifecycle evidence but does not own execution, conversation, task,
+or authorization truth. Older nullable rows remain replayable and readable as
+single-delivery turns during rollout.
 
 `openMeldRemoteAgent_conversation_generations` is the Core-owned routing
 projection from one Organization-scoped logical Center Agent conversation to

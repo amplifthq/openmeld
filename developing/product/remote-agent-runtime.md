@@ -341,9 +341,11 @@ the connected provider API.
    storing a separate override, while deliveries that intentionally fan out one
    user turn, such as a multi-channel introduction, share one explicit override
    across retries and scheduled recovery. A new Core safely fills that override
-   for exact-scope legacy siblings when a fan-out spans the rollout window.
-   Creation time is never used as turn identity. Every status write is followed by a
-   fresh lifecycle read and corrected
+   only for exact-scope legacy siblings under the override's idempotency-parent
+   lineage when a fan-out spans the rollout window. A late nullable sibling
+   derives the shared identity only from one unambiguous explicit parent;
+   conflicting parent lineages fail closed. Creation time is never used as turn
+   identity. Every status write is followed by a fresh lifecycle read and corrected
    until the provider status matches the latest turn. This presentation does
    not own execution truth, and its refresh cadence must not shorten the
    reconciliation processing lease. A timed-out reconciliation keeps its

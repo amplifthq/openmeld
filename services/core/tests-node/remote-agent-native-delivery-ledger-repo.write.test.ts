@@ -9,6 +9,7 @@ import {
   claimRemoteAgentFinalPublication,
   clearRemoteAgentNativeDeliveryTriggerTextForOrganization,
   insertRemoteAgentRejectedCallbackRecord,
+  isLatestRemoteAgentNativeDeliveryActiveForSlackThread,
   markRemoteAgentCallbackRejected,
   markRemoteAgentNativeDeliveryAck,
   markRemoteAgentNativeDeliveryCompleted,
@@ -73,6 +74,113 @@ describe("Remote Agent native delivery ledger repo", () => {
         idempotencyKey: input.idempotencyKey,
         slackWorkingStatusTurnId: null,
       });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("backfills only siblings inside the explicit Slack fan-out lineage", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentLedgerMigration(harness);
+    try {
+      const base = buildImmutableAdmissionInput({
+        db: harness.db,
+        surface: "slack",
+      });
+      const sharedTurnId = "slack-fanout:T1:turn_1";
+      await upsertRemoteAgentNativeDeliveryRecord({
+        ...base,
+        deliveryId: "delivery_fanout_legacy",
+        dispatchId: "dispatch_fanout_legacy",
+        idempotencyKey: `${sharedTurnId}:first`,
+      });
+      await upsertRemoteAgentNativeDeliveryRecord({
+        ...base,
+        deliveryId: "delivery_independent_continuation",
+        dispatchId: "dispatch_independent_continuation",
+        idempotencyKey: "remote-agent-task-continuation:independent",
+      });
+
+      await upsertRemoteAgentNativeDeliveryRecord({
+        ...base,
+        deliveryId: "delivery_fanout_current",
+        dispatchId: "dispatch_fanout_current",
+        idempotencyKey: `${sharedTurnId}:second`,
+        slackWorkingStatusTurnId: sharedTurnId,
+      });
+
+      expect(
+        harness.queryAll({
+          sql: `
+            SELECT idempotency_key, slack_working_status_turn_id
+            FROM openMeldRemoteAgent_native_delivery_ledger
+            ORDER BY idempotency_key
+          `,
+        })
+      ).toEqual([
+        {
+          idempotency_key: "remote-agent-task-continuation:independent",
+          slack_working_status_turn_id: null,
+        },
+        {
+          idempotency_key: `${sharedTurnId}:first`,
+          slack_working_status_turn_id: sharedTurnId,
+        },
+        {
+          idempotency_key: `${sharedTurnId}:second`,
+          slack_working_status_turn_id: sharedTurnId,
+        },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("fails closed when one Slack delivery matches conflicting fan-out lineages", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentLedgerMigration(harness);
+    try {
+      const base = buildImmutableAdmissionInput({
+        db: harness.db,
+        surface: "slack",
+      });
+      const outerTurnId = "slack-fanout:T1";
+      const nestedTurnId = `${outerTurnId}:turn_1`;
+      await upsertRemoteAgentNativeDeliveryRecord({
+        ...base,
+        deliveryId: "delivery_outer_fanout",
+        dispatchId: "dispatch_outer_fanout",
+        idempotencyKey: `${outerTurnId}:member_a`,
+        nowMs: 1000,
+        slackWorkingStatusTurnId: outerTurnId,
+      });
+      await upsertRemoteAgentNativeDeliveryRecord({
+        ...base,
+        deliveryId: "delivery_nested_fanout",
+        dispatchId: "dispatch_nested_fanout",
+        idempotencyKey: `${nestedTurnId}:member_b`,
+        nowMs: 2000,
+        slackWorkingStatusTurnId: nestedTurnId,
+      });
+      await upsertRemoteAgentNativeDeliveryRecord({
+        ...base,
+        deliveryId: "delivery_ambiguous_legacy_sibling",
+        dispatchId: "dispatch_ambiguous_legacy_sibling",
+        idempotencyKey: `${nestedTurnId}:late_legacy_member`,
+        nowMs: 3000,
+      });
+
+      await expect(
+        isLatestRemoteAgentNativeDeliveryActiveForSlackThread({
+          channelId: base.slackChannelId ?? "",
+          db: harness.db,
+          organizationId: base.organizationId,
+          teamId: base.slackTeamId ?? "",
+          threadTs: base.slackThreadTs ?? "",
+        })
+      ).rejects.toThrow(
+        "Slack working-status turn lineage is ambiguous for the latest trigger"
+      );
     } finally {
       harness.close();
     }
