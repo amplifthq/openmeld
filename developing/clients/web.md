@@ -2039,6 +2039,20 @@ preference is already enabled. An unbound Agent Profile still belongs to its
 Organization, but it has no Binding to authorize and must not be presented as
 wakeable until the user connects a local agent.
 
+Web treats the successful Auth Profile create response as an irreversible
+creation commit point. It then records Space membership, local Binding,
+working-folder, Default Project, and Organization Wake-access work as explicit
+follow-up outcomes for that same Profile. A follow-up failure must close the
+create transaction as partial success, refresh the committed Profile into the
+relevant lists, and show recovery copy that says what did and did not finish;
+it must not leave the form in a state where submitting again creates a duplicate
+Profile. For Space-originated creation, Web attempts the human-authorized Space
+membership write before optional local setup. This keeps the new participant
+visible in the Space even when the selected computer or Agent Controller goes
+offline between form selection and Binding creation. A Space membership failure
+still surfaces the committed Profile and directs the user to add that existing
+Profile from the Members panel.
+
 ## Space And Thread Presentation
 
 Web presents a Space as a collaboration room and visible outcome surface.

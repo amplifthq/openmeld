@@ -16,15 +16,11 @@ import { createStartHumanProfile } from "#/lib/profiles/create-human-profile";
 import { updateAgentProfileDefaultProject } from "./update-default-project";
 import { updateAgentProfileWorkspace } from "./update-profile-workspace";
 
-// Route-free "create profile" flow. The standalone Create Profile dialog and
-// any future caller can create a human/agent profile and optionally bind it to a
-// local agent without depending on a route tree.
-//
-// The setup steps are independent: (1) create the profile (auth, no Space),
-// (2) optionally bind an agent profile to a local agent (gateway), and
-// (3) configure its local workspace and optional Default Project. Space joining
-// remains in join-profile-to-space.ts. This module
-// owns those three local setup steps.
+// Route-free Profile creation and local setup primitives. Creating the durable
+// Profile identity is an explicit commit point. Callers must treat every later
+// Binding, workspace, Default Project, authorization, or Space-membership write
+// as a follow-up outcome rather than reporting the committed Profile as a
+// failed create and allowing a duplicate retry.
 
 export type NewProfileKind = "human" | "agent";
 
@@ -46,7 +42,14 @@ export class NewProfileLocalSetupError extends Error {
 	}
 }
 
-export type NewStartProfileInput = {
+export type NewProfileCreationInput = {
+	organizationId: string | null;
+	profileKind: NewProfileKind | null;
+	profileName: string;
+	selectedHumanProfileId: string | null;
+};
+
+export type NewAgentProfileLocalSetupInput = {
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	boundAgentId: string;
 	currentServiceCanSetProfileWorkspace?: boolean;
@@ -56,15 +59,14 @@ export type NewStartProfileInput = {
 	openCodePermission?: AgentProfileBindingOpenCodePermission | null;
 	organizationId: string | null;
 	projectFolderPath?: string | null;
-	profileKind: NewProfileKind | null;
-	profileName: string;
+	profile: AuthProfileView;
 	reasoningLevel?: string | null;
 	runtimeLane: DaemonServiceLane | null;
 	selectedHumanProfileId: string | null;
 };
 
-export async function createNewStartProfile(
-	input: NewStartProfileInput
+export async function createNewProfile(
+	input: NewProfileCreationInput
 ): Promise<AuthProfileView> {
 	const normalizedProfileName = requireNewProfileName(input.profileName);
 	const profileKind = requireNewProfileKind(input.profileKind);
@@ -80,23 +82,17 @@ export async function createNewStartProfile(
 		});
 	}
 
-	return await createStartAgentProfileWithLocalSetup({
-		...(input.agentControllerPermissionMode
-			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
-			: {}),
-		boundAgentId: input.boundAgentId,
-		currentServiceCanSetProfileWorkspace:
-			input.currentServiceCanSetProfileWorkspace === true,
-		deviceId: input.deviceId,
-		defaultProjectId: input.defaultProjectId ?? null,
-		modelId: input.modelId ?? null,
-		openCodePermission: input.openCodePermission ?? null,
-		organizationId: input.organizationId ?? null,
-		projectFolderPath: input.projectFolderPath ?? null,
-		profileName: normalizedProfileName,
-		reasoningLevel: input.reasoningLevel ?? null,
-		runtimeLane: input.runtimeLane,
-		selectedHumanProfileId: input.selectedHumanProfileId,
+	const organizationId = requireNewAgentProfileOrganizationId(
+		input.organizationId
+	);
+	return await createStartAgentProfile({
+		data: {
+			organizationId,
+			profileName: normalizedProfileName,
+			...(input.selectedHumanProfileId
+				? { creatorProfileId: input.selectedHumanProfileId }
+				: {}),
+		},
 	});
 }
 
@@ -119,73 +115,55 @@ function requireNewProfileKind(
 	return profileKind;
 }
 
-async function createStartAgentProfileWithLocalSetup(input: {
-	agentControllerPermissionMode?: AgentControllerPermissionMode;
-	boundAgentId: string;
-	currentServiceCanSetProfileWorkspace: boolean;
-	deviceId: string | null;
-	defaultProjectId: string | null;
-	modelId: string | null;
-	openCodePermission: AgentProfileBindingOpenCodePermission | null;
-	organizationId: string | null;
-	projectFolderPath: string | null;
-	profileName: string;
-	reasoningLevel: string | null;
-	runtimeLane: DaemonServiceLane | null;
-	selectedHumanProfileId: string | null;
-}): Promise<AuthProfileView> {
+export async function setupNewAgentProfileLocalState(
+	input: NewAgentProfileLocalSetupInput
+): Promise<AuthProfileView> {
+	if (input.profile.profileKind !== "agent") {
+		throw new Error("Local Agent setup requires an Agent Profile.");
+	}
 	const organizationId = requireNewAgentProfileOrganizationId(
 		input.organizationId
 	);
 	const agentControllerRef =
 		input.boundAgentId.length > 0 ? `builtin:${input.boundAgentId}` : null;
 
-	const profile = await createStartAgentProfile({
-		data: {
-			organizationId,
-			profileName: input.profileName,
-			...(input.selectedHumanProfileId
-				? { creatorProfileId: input.selectedHumanProfileId }
-				: {}),
-		},
-	});
 	if (!agentControllerRef) {
-		if (input.currentServiceCanSetProfileWorkspace) {
+		if (input.currentServiceCanSetProfileWorkspace === true) {
 			await configureNewAgentProfileWorkspace({
-				agentProfileId: profile.openMeldProfileId,
-				projectFolderPath: input.projectFolderPath,
+				agentProfileId: input.profile.openMeldProfileId,
+				projectFolderPath: input.projectFolderPath ?? null,
 				selectedHumanProfileId: input.selectedHumanProfileId,
 			});
 		}
-		return profile;
+		return input.profile;
 	}
 
 	await bindNewAgentProfileToLocalAgent({
 		...(input.agentControllerPermissionMode
 			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
 			: {}),
-		agentProfileId: profile.openMeldProfileId,
+		agentProfileId: input.profile.openMeldProfileId,
 		agentControllerRef,
 		deviceId: input.deviceId,
-		modelId: input.modelId,
-		openCodePermission: input.openCodePermission,
-		reasoningLevel: input.reasoningLevel,
+		modelId: input.modelId ?? null,
+		openCodePermission: input.openCodePermission ?? null,
+		reasoningLevel: input.reasoningLevel ?? null,
 		runtimeLane: input.runtimeLane,
 		selectedHumanProfileId: input.selectedHumanProfileId,
 	});
 	await configureNewAgentProfileWorkspace({
-		agentProfileId: profile.openMeldProfileId,
-		projectFolderPath: input.projectFolderPath,
+		agentProfileId: input.profile.openMeldProfileId,
+		projectFolderPath: input.projectFolderPath ?? null,
 		selectedHumanProfileId: input.selectedHumanProfileId,
 	});
 	if (!input.defaultProjectId) {
-		return profile;
+		return input.profile;
 	}
-	return await updateAgentProfileDefaultProject({
-		actorProfileId: input.selectedHumanProfileId,
+	return await configureNewAgentProfileDefaultProject({
 		defaultProjectId: input.defaultProjectId,
 		organizationId,
-		profileId: profile.openMeldProfileId,
+		profile: input.profile,
+		selectedHumanProfileId: input.selectedHumanProfileId,
 	});
 }
 
@@ -254,6 +232,31 @@ async function configureNewAgentProfileWorkspace(input: {
 				failure.message ||
 				"OpenMeld created the Agent, but couldn't prepare its working folder on this computer.",
 			setupRefreshActionLabel: "Reconnect computer",
+			setupRefreshAvailable: false,
+		});
+	}
+}
+
+async function configureNewAgentProfileDefaultProject(input: {
+	defaultProjectId: string;
+	organizationId: string;
+	profile: AuthProfileView;
+	selectedHumanProfileId: string | null;
+}): Promise<AuthProfileView> {
+	try {
+		return await updateAgentProfileDefaultProject({
+			actorProfileId: input.selectedHumanProfileId,
+			defaultProjectId: input.defaultProjectId,
+			organizationId: input.organizationId,
+			profileId: input.profile.openMeldProfileId,
+		});
+	} catch (error) {
+		const failure = toStructuredApiClientFailure(error);
+		throw new NewProfileLocalSetupError({
+			message:
+				failure.message ||
+				"OpenMeld created the Agent, but couldn't set its Default Project.",
+			setupRefreshActionLabel: "Review Agent settings",
 			setupRefreshAvailable: false,
 		});
 	}
