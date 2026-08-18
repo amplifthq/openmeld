@@ -966,6 +966,7 @@ export async function postSlackChannelMessageByName(input: {
   fetchImpl?: FetchLike;
   signal?: AbortSignal;
   text: string;
+  threadTs?: string;
 }): Promise<{
   channelId: string;
   channelName: string;
@@ -1022,6 +1023,7 @@ export async function postSlackChannelMessage(input: {
   signal?: AbortSignal;
   target: SlackChannelMessageTarget;
   text: string;
+  threadTs?: string;
 }): Promise<{ joinedChannel: boolean; messageTs: string }> {
   let joinedChannel = false;
   if (!input.target.isMember) {
@@ -1055,6 +1057,7 @@ export async function postSlackChannelMessage(input: {
     fetchImpl: input.fetchImpl,
     signal: input.signal,
     text: toSlackMrkdwn(input.text),
+    ...(input.threadTs ? { threadTs: input.threadTs } : {}),
   });
   return {
     joinedChannel,

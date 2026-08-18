@@ -912,6 +912,100 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it("passes an exact Slack thread target for an interactive current turn", async () => {
+    const request = createSubmitTurnRequest();
+    const centerAgentPostSlackChannelMessage = vi.fn(async () =>
+      slackChannelMessageResponse()
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentPostSlackChannelMessage },
+      storage: await createStorageWithPendingContext(request),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_post_slack_channel_message", {
+        channelName: "ok8-okok",
+        publicationSource: { kind: "current_turn" },
+        text: "Here is the proposed next step.",
+        threadTs: "1786979718.343639",
+      })
+    ).resolves.toEqual(slackChannelMessageResponse());
+
+    expect(centerAgentPostSlackChannelMessage).toHaveBeenCalledWith({
+      channelName: "ok8-okok",
+      context: expectedHostedCenterAgentContext(
+        request,
+        "openmeld_post_slack_channel_message"
+      ),
+      publicationSource: {
+        executionId: ACK.submissionId,
+        kind: "remote_agent_execution",
+      },
+      speakerMember: {
+        memberId: "member_123",
+        userId: "user_1",
+      },
+      text: "Here is the proposed next step.",
+      threadTs: "1786979718.343639",
+    });
+  });
+
+  it("rejects Slack thread targets for document and Routine publications", async () => {
+    const centerAgentPostSlackChannelMessage = vi.fn(async () =>
+      slackChannelMessageResponse()
+    );
+    const interactiveRequest = createSubmitTurnRequest();
+    const interactiveTools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentPostSlackChannelMessage },
+      storage: await createStorageWithPendingContext(interactiveRequest),
+    });
+
+    await expect(
+      executeTool(interactiveTools, "openmeld_post_slack_channel_message", {
+        channelName: "ok8-okok",
+        publicationSource: { kind: "current_turn" },
+        text: "Here is the proposed next step.",
+        threadTs: "not-a-slack-timestamp",
+      })
+    ).rejects.toThrow();
+
+    await expect(
+      executeTool(interactiveTools, "openmeld_post_slack_channel_message", {
+        channelName: "ok8-okok",
+        publicationSource: {
+          documentId: "document_release_notes",
+          kind: "organization_document",
+        },
+        text: "Here is the approved release note.",
+        threadTs: "1786979718.343639",
+      })
+    ).rejects.toThrow(
+      "Slack thread publication requires an explicitly requested interactive current turn."
+    );
+
+    const routineRequest = createRoutineSubmitTurnRequest(
+      "routine_run_daily_learning_journal",
+      "read_only",
+      ["slack.publish_channel_report"]
+    );
+    const routineTools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentPostSlackChannelMessage },
+      storage: await createStorageWithPendingContext(routineRequest),
+      turnEnvelope: routineRequest.turnEnvelope,
+    });
+    await expect(
+      executeTool(routineTools, "openmeld_post_slack_channel_message", {
+        channelName: "ok8-okok",
+        publicationSource: { kind: "current_turn" },
+        text: "Here is the Routine report.",
+        threadTs: "1786979718.343639",
+      })
+    ).rejects.toThrow(
+      "Slack thread publication requires an explicitly requested interactive current turn."
+    );
+    expect(centerAgentPostSlackChannelMessage).not.toHaveBeenCalled();
+  });
+
   it("binds a Routine Slack publication to the trusted Run id", async () => {
     const request = createRoutineSubmitTurnRequest(
       "routine_run_daily_learning_journal"
@@ -1825,6 +1919,9 @@ describe("remote agent OpenMeld tool catalog", () => {
     );
     expect(descriptions.get("openmeld_post_slack_channel_message")).toContain(
       "Do not put clickable links, Slack mentions, or channel references inside inline code or fenced code blocks."
+    );
+    expect(descriptions.get("openmeld_post_slack_channel_message")).toContain(
+      "Pass threadTs only when the user explicitly asks to reply to that exact existing thread"
     );
     expect(descriptions.get("openmeld_read_dispatch_history")).toContain(
       "historical dispatch evidence"

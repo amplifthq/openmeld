@@ -179,11 +179,15 @@ the connected provider API.
    side effect, not a second result surface. Interactive publication is
    available only when the user is a verified current human member and
    explicitly asks the Center Agent to publish a top-level message in a named
-   channel. A Routine may use the same action only when its stored structured
-   grant explicitly contains `slack.publish_channel_report`; Core rechecks that
-   canonical Routine grant independently before provider I/O. The model selects
-   either the current turn, the authorized Routine Run, or an exact approved
-   Organization document as the source.
+   channel or reply to an exact existing thread. A thread target is valid only
+   for the current interactive execution and must come from the user's Slack
+   link or trusted Slack evidence; it is never inferred. A Routine or approved
+   Organization document publication remains top-level. A Routine may use the
+   action only when its stored structured grant explicitly contains
+   `slack.publish_channel_report`; Core rechecks that canonical Routine grant
+   independently before provider I/O. The model selects either the current turn,
+   the authorized Routine Run, or an exact approved Organization document as the
+   source.
    Remote Agent and Core replace that selection with system-owned execution,
    Run, or document-revision identity before claiming the provider write. An
    exact retry returns the first result without another Slack call; ambiguity
@@ -2195,7 +2199,7 @@ tooling, not a user surface and not availability truth.
   exposes raw Slack identifiers as presentation. A real Slack mention is the
   narrow exception: only an exact user ID returned by a trusted OpenMeld tool
   may become `<@USER_ID>`, and only when the user asked to notify that person.
-  For explicit top-level channel publication, the model passes those exact IDs
+  For explicit channel publication, the model passes those exact IDs
   through the posting tool's structured mention field; the tool rejects
   display-name mentions and model-authored raw mention tokens, then constructs
   the verified tokens itself.
@@ -2206,8 +2210,9 @@ tooling, not a user surface and not availability truth.
   change while preserving a fuller artifact in Organization Documents; the
   runtime does not impose a diary schema or require a Slack post.
 - Every Slack message surface uses the same delivery-owned presentation and
-  publication semantics. Final thread replies and explicit top-level channel
-  messages use a controlled Markdown block while within Slack's block limit,
+  publication semantics. Final thread replies and explicit channel messages,
+  whether top-level or targeted to an exact existing thread, use a controlled
+  Markdown block while within Slack's block limit,
   plus a complete mrkdwn text fallback. When a long final reply also carries a
   Navigation Action, the visible blocks contain an explicitly shortened body
   block before the native button; they never contain a button with no visible

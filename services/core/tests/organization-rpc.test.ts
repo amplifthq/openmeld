@@ -3520,6 +3520,116 @@ describe("organization Core RPC", () => {
     });
   });
 
+  it("posts and deduplicates an exact Slack thread separately from the channel", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      slackWorkspaceBindings: [
+        {
+          createdAtMs: TEST_NOW_MS,
+          organizationId: "org-a",
+          slackTeamId: "T123",
+          updatedAtMs: TEST_NOW_MS,
+        },
+      ],
+    });
+    const postedBodies: unknown[] = [];
+    const slackFetch = vi.fn<typeof fetch>((request, init) => {
+      const pathname = new URL(String(request)).pathname;
+      if (pathname === "/api/conversations.list") {
+        return Promise.resolve(
+          Response.json({
+            channels: [
+              {
+                id: "C123",
+                is_archived: false,
+                is_member: true,
+                is_private: false,
+                name: "ok8-okok",
+              },
+            ],
+            ok: true,
+            response_metadata: { next_cursor: "" },
+          })
+        );
+      }
+      if (pathname === "/api/chat.postMessage") {
+        postedBodies.push(JSON.parse(String(init?.body)));
+        return Promise.resolve(
+          Response.json({ ok: true, ts: `1787091616.${postedBodies.length}` })
+        );
+      }
+      throw new Error(`Unexpected Slack API request: ${pathname}`);
+    });
+    vi.stubGlobal("fetch", slackFetch);
+    const env = buildEnv({ db, slackBotToken: "xoxb-test" });
+    const request = {
+      channelName: "ok8-okok",
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        agentControllerConversationId: "remote_agent_submission_proposal",
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        profileId: AGENT_PROFILE_ID,
+        profileKind: "agent" as const,
+        userId: "user-a",
+      }),
+      publicationSource: {
+        executionId: "remote_agent_submission_proposal",
+        kind: "remote_agent_execution" as const,
+      },
+      speakerMember: { memberId: "member-a", userId: "user-a" },
+      text: "Here is the proposed next step.",
+    };
+
+    await expect(
+      rpcCenterAgentPostSlackChannelMessage(env, {
+        ...request,
+        threadTs: "1786979718.343639",
+      })
+    ).resolves.toMatchObject({ messageTs: "1787091616.1" });
+    await expect(
+      rpcCenterAgentPostSlackChannelMessage(env, {
+        ...request,
+        threadTs: "1786979718.343639",
+      })
+    ).resolves.toMatchObject({ messageTs: "1787091616.1" });
+    await expect(
+      rpcCenterAgentPostSlackChannelMessage(env, request)
+    ).resolves.toMatchObject({ messageTs: "1787091616.2" });
+
+    expect(postedBodies).toEqual([
+      expect.objectContaining({
+        channel: "C123",
+        text: "Here is the proposed next step.",
+        thread_ts: "1786979718.343639",
+      }),
+      expect.objectContaining({
+        channel: "C123",
+        text: "Here is the proposed next step.",
+      }),
+    ]);
+    expect(postedBodies[1]).not.toHaveProperty("thread_ts");
+    expect(db.centerAgentAuditRows).toEqual([
+      expect.objectContaining({
+        action: "post_slack_channel_message",
+        resourceId: "C123:1786979718.343639",
+        resourceType: "slack_channel",
+      }),
+      expect.objectContaining({
+        action: "post_slack_channel_message",
+        resourceId: "C123",
+        resourceType: "slack_channel",
+      }),
+    ]);
+  });
+
   it("allows an exact Slack publication retry when the audit write fails before sending", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],

@@ -608,7 +608,7 @@ describe("remote agent system prompt", () => {
       'Never include internal reasoning, guesswork, or phrases about what the context "seems to be" in a user-facing reply.'
     );
     expect(prompt).toContain(
-      "openmeld_post_slack_channel_message publishes a top-level message in a Slack channel's main conversation."
+      "openmeld_post_slack_channel_message publishes either a top-level message in a Slack channel or, for an explicitly requested interactive current turn, a reply to an exact existing thread."
     );
     expect(prompt).toContain(
       "Ordinary replies to a Slack mention must stay in the originating thread"

@@ -711,14 +711,34 @@ export const centerAgentPublicationSourceSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-export const centerAgentPostSlackChannelMessageBodySchema = z.strictObject({
-  channelName: trimmedNonEmptyStringSchema.max(80),
-  // Optional only for the mixed Core-first rollout. The current Remote Agent
-  // always sends a system-bound source before this becomes required.
-  publicationSource: centerAgentPublicationSourceSchema.optional(),
-  speakerMember: centerAgentToolSpeakerSchema,
-  text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
-});
+export const centerAgentPostSlackChannelMessageBodySchema = z
+  .strictObject({
+    channelName: trimmedNonEmptyStringSchema.max(80),
+    // Optional only for the mixed Core-first rollout. The current Remote Agent
+    // always sends a system-bound source before this becomes required.
+    publicationSource: centerAgentPublicationSourceSchema.optional(),
+    speakerMember: centerAgentToolSpeakerSchema,
+    text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
+    threadTs: z
+      .string()
+      .trim()
+      .regex(/^\d+\.\d+$/u)
+      .max(32)
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.threadTs &&
+      value.publicationSource?.kind !== "remote_agent_execution"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Slack thread publication requires the current interactive execution source.",
+        path: ["threadTs"],
+      });
+    }
+  });
 
 export const centerAgentSearchSlackMessagesBodySchema = z.strictObject({
   includeBots: z.boolean().optional(),

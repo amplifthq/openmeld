@@ -10844,6 +10844,7 @@ export async function rpcCenterAgentPostSlackChannelMessage(
     publicationSource: input.publicationSource,
     speakerMember: input.speakerMember,
     text: input.text,
+    threadTs: input.threadTs,
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -10905,6 +10906,7 @@ export async function rpcCenterAgentPostSlackChannelMessage(
     sourceNativeDeliveryId,
     target,
     text: parsed.data.text,
+    ...(parsed.data.threadTs ? { threadTs: parsed.data.threadTs } : {}),
   });
 }
 
