@@ -1924,9 +1924,12 @@ but not trigger.
    enqueue or self-requeue renews the ledger's next-probe due time. Core's
    minute scheduler scans missing or expired due times and uses one bounded D1
    compare-and-set lease before enqueueing compensation. A failed enqueue
-   releases its exact lease; a crashed caller becomes recoverable when the lease
-   expires. The historical first-enqueued timestamp remains audit evidence only
-   and must never suppress compensation.
+   releases its exact lease when Core knows the preceding operation stopped. If
+   the reconciliation RPC timed out, enqueue failure keeps the processing lease
+   until expiry because the underlying RPC may still be running. A crashed
+   caller becomes recoverable when its lease expires. The historical
+   first-enqueued timestamp remains audit evidence only and must never suppress
+   compensation.
    A terminal worker result is also retained until Core explicitly accepts its
    callback. Callback retry uses capped backoff and Core publication
    idempotency, but no attempt ceiling: a temporary Core, Space, or Slack

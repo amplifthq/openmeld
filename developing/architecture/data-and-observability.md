@@ -1802,11 +1802,13 @@ first-enqueued timestamp is immutable audit evidence, not proof that a Queue
 message still exists. Core's minute scheduler scans null or expired due times
 and conditionally moves one row to a bounded lease before sending compensation,
 so overlapping scheduler invocations cannot enqueue the same recovery
-concurrently. A send failure releases only that exact lease, while a process
-failure is recovered after lease expiry. Cloudflare Queue's finite retry budget
-therefore cannot permanently strand an accepted delivery. This due time and
-lease remain reconciliation projections; neither owns execution or authorizes a
-terminal outcome.
+concurrently. A send failure releases only that exact lease when Core knows the
+preceding operation stopped. If a reconciliation RPC timed out, send failure
+keeps the processing lease until expiry because the underlying RPC may still be
+running. A process failure is likewise recovered after lease expiry.
+Cloudflare Queue's finite retry budget therefore cannot permanently strand an
+accepted delivery. This due time and lease remain reconciliation projections;
+neither owns execution or authorizes a terminal outcome.
 
 Core also owns `openMeldRemoteAgent_daily_admissions`, with one row per
 `organizationId + dayUtc`, and the native-delivery ledger's
