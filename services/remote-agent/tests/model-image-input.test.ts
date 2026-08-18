@@ -173,7 +173,7 @@ describe("Remote Agent model reasoning", () => {
     );
   });
 
-  it("keeps connected App and GitHub actions direct alongside Code Mode for a large tool surface", async () => {
+  it("keeps large GitHub capability available through Code Mode without duplicating every action in the provider payload", async () => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
@@ -213,14 +213,15 @@ describe("Remote Agent model reasoning", () => {
       TEXT_ONLY_MODEL
     );
 
-    expect(payload).toMatchObject({
-      tools: [...connectedAppTools, ...githubTools, codemode],
+    expect(payload).toMatchObject({ tools: [...connectedAppTools, codemode] });
+    expect(payload).not.toMatchObject({
+      tools: expect.arrayContaining(githubTools),
     });
     expect(tools).toHaveLength(66 + githubTools.length);
     expect(reportStage).toHaveBeenCalledWith(
       expect.objectContaining({
         messageCount: 1,
-        toolCount: 4 + githubTools.length,
+        toolCount: 4,
       })
     );
   });

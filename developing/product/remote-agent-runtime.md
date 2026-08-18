@@ -955,15 +955,18 @@ The complete authorized direct-tool catalog remains the single source for both
 direct execution and Code Mode. For a bounded catalog of at most 64 direct
 tool schemas, the provider receives those direct tools plus `codemode`. Above
 that threshold, the provider receives `codemode`, the three generic Connected
-App discovery and execution tools, and the dedicated GitHub tools. Keeping
-those bounded direct sequences available prevents generic App discovery from
-being mistaken for a requested provider outcome and lets an explicit GitHub
-request verify its own connection through the matching GitHub action; it does
-not add a second action surface. The generic connected-Apps result explicitly
-reports GitHub as `not_checked` and directs the model to the matching dedicated
-GitHub action. It must never let the absence of GitHub from the ordinary Apps
-list be interpreted as missing GitHub access. The required direct subset must
-itself remain within the same 64-schema limit and fails fast if it exceeds that
+App discovery and execution tools. The three generic tools remain direct so a
+simple Connected App request can discover and execute one matching action
+without generated orchestration. Dedicated GitHub tools remain fully available
+inside the exact same Code Mode catalog instead of duplicating all of their
+descriptions and schemas at the provider boundary. This keeps GitHub capability
+and authorization unchanged while avoiding a large repeated prompt on every
+model step. The generic connected-Apps result explicitly reports GitHub as
+`not_checked` and directs the model to the matching dedicated GitHub action;
+the model calls that action through Code Mode when the large catalog is
+compacted. It must never let the absence of GitHub from the ordinary Apps list
+be interpreted as missing GitHub access. The required direct subset must itself
+remain within the same 64-schema limit and fails fast if it exceeds that
 boundary.
 The generated Code Mode catalog still contains every active direct tool,
 including that subset, and every direct or inner call re-enters the same

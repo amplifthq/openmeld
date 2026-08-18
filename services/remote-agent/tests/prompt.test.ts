@@ -357,7 +357,7 @@ describe("remote agent system prompt", () => {
       "GitHub is not included in openmeld_list_connected_apps"
     );
     expect(prompt).toContain(
-      "call the matching direct github_* tool before concluding that GitHub is unavailable"
+      "when Code Mode is the only capability surface, call that same GitHub tool through Code Mode"
     );
   });
 
