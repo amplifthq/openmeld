@@ -2029,13 +2029,15 @@ permission preset or change one setting when the user edits the other.
 
 When Web opens Agent Profile creation from an organization-scoped creation
 surface, including Agent Profiles and Space member creation flows, Web must
-preserve the organization intent without changing ownership: the Agent Profile
-identity is still created on the user's account, and Web then authorizes the
-new Binding for that organization when the user confirms or when the user's
-per-org auto-authorization preference is already enabled. If the user chooses
-to create only in their account, Web must not write organization Wake access.
-Unbound Agent Profiles have no Binding to authorize and should be presented as
-account-only until the user connects a local agent.
+preserve both ownership facts: the signed-in account owns the Agent Profile,
+and the explicitly selected Organization contains it. Web must create the
+Profile in that Organization before it creates or authorizes a Binding, and all
+later working-folder, Default Project, Wake-access, and Space-membership writes
+must keep the same Organization id. Web then authorizes the new Binding when
+the user confirms or when the user's per-Organization auto-authorization
+preference is already enabled. An unbound Agent Profile still belongs to its
+Organization, but it has no Binding to authorize and must not be presented as
+wakeable until the user connects a local agent.
 
 ## Space And Thread Presentation
 
