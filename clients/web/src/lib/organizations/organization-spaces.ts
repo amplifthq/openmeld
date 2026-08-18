@@ -7,8 +7,8 @@ import type {
 	OrganizationSpaceDirectoryWithMemberCountsResponse,
 	PostSpaceMembersResponse,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
 
 export type OrganizationSpacesFailure = StructuredApiClientFailure;
 
@@ -17,7 +17,7 @@ export async function listCurrentOrganizationSpaces(input: {
 }): Promise<OrganizationSpaceDirectoryWithMemberCountsResponse> {
 	try {
 		return await createOrganizationApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).listCurrentSpacesWithMemberCounts();
@@ -27,10 +27,13 @@ export async function listCurrentOrganizationSpaces(input: {
 }
 
 export async function joinOrganizationSpace(input: {
+	organizationId: string;
 	spaceId: string;
 }): Promise<PostSpaceMembersResponse> {
 	try {
-		return await createWebSpaceApi().joinSpace({ spaceId: input.spaceId });
+		return await createOrganizationScopedWebSpaceApi({
+			organizationId: input.organizationId,
+		}).joinSpace({ spaceId: input.spaceId });
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}

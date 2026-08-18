@@ -155,7 +155,11 @@ export function AppSpacesIndexContent(input: {
 		selfHealStatus: spacesSelfHeal.status,
 	});
 	const joinSpaceMutation = useMutation({
-		mutationFn: joinOrganizationSpace,
+		mutationFn: async (input: { spaceId: string }) =>
+			await joinOrganizationSpace({
+				organizationId: currentOrganization.id,
+				spaceId: input.spaceId,
+			}),
 		onError: (error, variables) => {
 			setJoinError({
 				message:

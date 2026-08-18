@@ -12,7 +12,10 @@ import type {
 	MessageChannelIdentityLinkConsumeResponse,
 	MessageChannelIdentityLinkPreviewResponse,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import {
+	createOrganizationScopedWebOpenMeldApiFoundation,
+	createUnscopedWebOpenMeldApiFoundation,
+} from "#/lib/openmeld-api/client";
 
 export type MessageChannelFailure = StructuredApiClientFailure;
 
@@ -158,10 +161,10 @@ export function resolveMessageChannelErrorMessage(
 
 function createMessageChannelApi(organizationId: string) {
 	return createOrganizationApi(
-		createWebOpenMeldApiFoundation({ organizationId })
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
 	);
 }
 
 function createUnscopedMessageChannelApi() {
-	return createOrganizationApi(createWebOpenMeldApiFoundation());
+	return createOrganizationApi(createUnscopedWebOpenMeldApiFoundation());
 }

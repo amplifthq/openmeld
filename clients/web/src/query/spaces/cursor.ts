@@ -1,5 +1,5 @@
 import { z } from "zod/v4";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 // The cursor endpoint returns the full SpaceCursor record; the web read-position
 // feature only needs lastSeenTs, so we parse loosely and ignore the rest.
@@ -24,7 +24,7 @@ export async function readSpaceCursorLastSeenTs(input: {
 	openMeldProfileId: string;
 }): Promise<number | null> {
 	try {
-		const result = await createWebOpenMeldApiFoundation({
+		const result = await createUnscopedWebOpenMeldApiFoundation({
 			openMeldProfileId: input.openMeldProfileId,
 		}).requestJson({
 			url: buildSpaceCursorPath(input.spaceId, input.openMeldProfileId),
@@ -48,7 +48,7 @@ export async function writeSpaceCursorLastSeenTs(input: {
 	lastSeenTs: number;
 }): Promise<void> {
 	try {
-		await createWebOpenMeldApiFoundation({
+		await createUnscopedWebOpenMeldApiFoundation({
 			openMeldProfileId: input.openMeldProfileId,
 		}).requestJson({
 			url: buildSpaceCursorPath(input.spaceId, input.openMeldProfileId),

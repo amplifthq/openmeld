@@ -15,7 +15,10 @@ import type {
 	SaveOrganizationWakeAccessChoiceResponse,
 	SetOrganizationBindingAuthorizationPreferenceResponse,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import {
+	createOrganizationScopedWebOpenMeldApiFoundation,
+	createUnscopedWebOpenMeldApiFoundation,
+} from "#/lib/openmeld-api/client";
 
 export type OrganizationBindingAuthorizationsFailure =
 	StructuredApiClientFailure;
@@ -25,7 +28,7 @@ export async function listOrganizationBindingAuthorizations(input: {
 }): Promise<ListOrganizationBindingAuthorizationsResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).listOrganizationAuthorizations();
@@ -37,7 +40,7 @@ export async function listOrganizationBindingAuthorizations(input: {
 export async function listCurrentUserAgentProfileOrganizationWakeAccess(): Promise<ListCurrentUserAgentProfileOrganizationWakeAccessResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createWebOpenMeldApiFoundation()
+			createUnscopedWebOpenMeldApiFoundation()
 		).listCurrentUserOrganizationWakeAccess();
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
@@ -50,7 +53,7 @@ export async function authorizeAgentProfileBindingForCurrentOrganization(input: 
 }): Promise<AuthorizeAgentProfileBindingForOrganizationResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).authorizePrimaryBindingForOrganization({
@@ -67,7 +70,7 @@ export async function revokeAgentProfileBindingForCurrentOrganization(input: {
 }): Promise<RevokeAgentProfileBindingForOrganizationResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).revokePrimaryBindingForOrganization({
@@ -84,7 +87,7 @@ export async function bulkAuthorizeAgentProfileBindingsForOrganization(input: {
 }): Promise<BulkAuthorizeAgentProfileBindingsForOrganizationResponse> {
 	try {
 		return await createOrganizationApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).bulkAuthorizeAgentProfileBindings({
@@ -103,7 +106,7 @@ export async function listOrganizationBindingAuthorizationProfiles(input: {
 }): Promise<ListOrganizationBindingAuthorizationProfilesResponse> {
 	try {
 		return await createOrganizationApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).listBindingAuthorizationProfiles({
@@ -119,7 +122,7 @@ export async function getOrganizationBindingAuthorizationPreference(input: {
 }): Promise<GetOrganizationBindingAuthorizationPreferenceResponse> {
 	try {
 		return await createOrganizationApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).getBindingAuthorizationPreference({
@@ -136,7 +139,7 @@ export async function setOrganizationBindingAuthorizationPreference(input: {
 }): Promise<SetOrganizationBindingAuthorizationPreferenceResponse> {
 	try {
 		return await createOrganizationApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).setBindingAuthorizationPreference({
@@ -155,7 +158,7 @@ export async function saveOrganizationWakeAccessChoice(input: {
 }): Promise<SaveOrganizationWakeAccessChoiceResponse> {
 	try {
 		return await createOrganizationApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).saveWakeAccessChoice(input);

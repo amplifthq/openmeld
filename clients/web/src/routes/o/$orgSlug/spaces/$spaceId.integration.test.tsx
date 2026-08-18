@@ -145,7 +145,12 @@ vi.mock("#/lib/spaces/account-spaces", async (importOriginal) => {
 });
 
 vi.mock("#/lib/spaces/api", () => ({
-	createWebSpaceApi: () => ({
+	createOrganizationScopedWebSpaceApi: () => ({
+		addMembers: vi.fn(),
+		addOrganizationDirectoryProfilesToSpace: vi.fn(),
+		removeMembers: vi.fn(),
+	}),
+	createUnscopedWebSpaceApi: () => ({
 		getStatus: (...args: unknown[]) => getSpaceStatusMock(...args),
 	}),
 }));

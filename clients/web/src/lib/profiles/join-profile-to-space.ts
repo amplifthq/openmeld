@@ -2,7 +2,7 @@ import type { AuthProfileView } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
 import { recordProfileSpaceHistory } from "#/lib/onboarding/record-profile-space-history";
 import { buildProfileRequestContext } from "#/lib/profiles/human-profiles";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
 import { applySpaceMembersResponseToCache } from "#/lib/spaces/member-cache";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 
@@ -21,6 +21,7 @@ export type JoinProfileToSpaceResult = {
 export async function joinProfileToSpace(input: {
 	actingHumanProfile: AuthProfileView;
 	memberProfileIds: readonly string[];
+	organizationId: string;
 	pendingWakeReadinessProfileIds?: readonly string[];
 	queryClient: QueryClient;
 	spaceId: string;
@@ -37,8 +38,9 @@ export async function joinProfileToSpace(input: {
 	// Only the addMembers write is load-bearing — once it resolves the member is
 	// added server-side, so the best-effort steps below must never reject the
 	// join (mirrors the in-space useSpaceAddProfilesHandler).
-	const addMembersResult = await createWebSpaceApi({
+	const addMembersResult = await createOrganizationScopedWebSpaceApi({
 		openMeldProfileId: actingProfileId,
+		organizationId: input.organizationId,
 	}).addMembers({
 		memberProfileIds,
 		requestContext: buildProfileRequestContext(input.actingHumanProfile),

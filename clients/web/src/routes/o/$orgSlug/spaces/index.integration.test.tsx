@@ -609,6 +609,7 @@ describe("app spaces index route", () => {
 
 		await waitFor(() => {
 			expect(joinOrganizationSpaceMock).toHaveBeenCalledWith({
+				organizationId: "org-acme",
 				spaceId: "space-support",
 			});
 		});

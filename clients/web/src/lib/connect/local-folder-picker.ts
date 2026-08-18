@@ -7,14 +7,14 @@ import type {
 	LocalFolderPickerResult,
 	LocalRuntimeComputer,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export async function selectLocalFolders(
 	input: LocalFolderPickerRequest & { timeoutMs: number }
 ): Promise<LocalFolderPickerResult> {
 	try {
 		return await createLocalFolderPickerApi(
-			createWebOpenMeldApiFoundation()
+			createUnscopedWebOpenMeldApiFoundation()
 		).selectFolders(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);

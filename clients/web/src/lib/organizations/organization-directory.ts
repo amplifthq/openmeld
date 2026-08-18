@@ -5,7 +5,7 @@ import {
 import { ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER } from "@openmeld/gateway-contract";
 import { organizationDirectoryResponseSchema } from "@openmeld/schemas";
 import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export async function readCurrentOrganizationDirectory(input: {
 	organizationId: string;
@@ -15,7 +15,7 @@ export async function readCurrentOrganizationDirectory(input: {
 			"true",
 	});
 	try {
-		return await createWebOpenMeldApiFoundation({
+		return await createOrganizationScopedWebOpenMeldApiFoundation({
 			organizationId: input.organizationId,
 		}).requestJson({
 			invalidMessage: "Invalid organization directory response.",

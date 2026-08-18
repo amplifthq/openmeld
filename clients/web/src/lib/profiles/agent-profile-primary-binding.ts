@@ -10,14 +10,14 @@ import type {
 	EnsureAgentProfilePrimaryBindingResponse,
 	GetAgentProfilePrimaryBindingResponse,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export async function readAgentProfilePrimaryBinding(input: {
 	agentProfileId: string;
 }): Promise<GetAgentProfilePrimaryBindingResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createWebOpenMeldApiFoundation()
+			createUnscopedWebOpenMeldApiFoundation()
 		).getPrimaryBinding({
 			agentProfileId: input.agentProfileId,
 		});
@@ -33,7 +33,7 @@ export async function updateAgentProfilePrimaryBindingAgentControllerPermissionM
 }): Promise<EnsureAgentProfilePrimaryBindingResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createWebOpenMeldApiFoundation({
+			createUnscopedWebOpenMeldApiFoundation({
 				...(input.actorProfileId
 					? { openMeldProfileId: input.actorProfileId }
 					: {}),
@@ -54,7 +54,7 @@ export async function updateAgentProfilePrimaryBindingAgentControllerCollaborati
 }): Promise<EnsureAgentProfilePrimaryBindingResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createWebOpenMeldApiFoundation({
+			createUnscopedWebOpenMeldApiFoundation({
 				...(input.actorProfileId
 					? { openMeldProfileId: input.actorProfileId }
 					: {}),
@@ -76,7 +76,7 @@ export async function updateAgentProfilePrimaryBindingModelSelection(input: {
 }): Promise<EnsureAgentProfilePrimaryBindingResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createWebOpenMeldApiFoundation({
+			createUnscopedWebOpenMeldApiFoundation({
 				...(input.actorProfileId
 					? { openMeldProfileId: input.actorProfileId }
 					: {}),
@@ -98,7 +98,7 @@ export async function updateAgentProfilePrimaryBindingOpenCodePermission(input: 
 }): Promise<EnsureAgentProfilePrimaryBindingResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createWebOpenMeldApiFoundation({
+			createUnscopedWebOpenMeldApiFoundation({
 				...(input.actorProfileId
 					? { openMeldProfileId: input.actorProfileId }
 					: {}),
@@ -118,7 +118,7 @@ export async function disableAgentProfilePrimaryBinding(input: {
 }): Promise<DisableAgentProfilePrimaryBindingResponse> {
 	try {
 		return await createAgentProfileBindingApi(
-			createWebOpenMeldApiFoundation({
+			createUnscopedWebOpenMeldApiFoundation({
 				...(input.actorProfileId
 					? { openMeldProfileId: input.actorProfileId }
 					: {}),

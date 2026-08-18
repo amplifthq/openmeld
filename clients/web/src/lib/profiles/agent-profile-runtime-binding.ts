@@ -13,7 +13,7 @@ import type {
 	DaemonServiceLane,
 } from "@openmeld/schemas/types";
 import { sleep } from "@openmeld/utils";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 const AGENT_CONTROLLER_REPORT_BINDING_MAX_ATTEMPTS = 5;
 const AGENT_CONTROLLER_REPORT_BINDING_RETRY_DELAY_MS = 1500;
@@ -110,7 +110,7 @@ export async function checkWebAgentProfileRuntimeReadiness(input: {
 	}
 
 	try {
-		const foundation = createWebOpenMeldApiFoundation({
+		const foundation = createUnscopedWebOpenMeldApiFoundation({
 			...(input.actorProfileId
 				? { openMeldProfileId: input.actorProfileId }
 				: {}),
@@ -197,7 +197,7 @@ export async function ensureWebAgentProfileRuntimeBinding(input: {
 	}
 
 	try {
-		const foundation = createWebOpenMeldApiFoundation({
+		const foundation = createUnscopedWebOpenMeldApiFoundation({
 			...(input.actorProfileId
 				? { openMeldProfileId: input.actorProfileId }
 				: {}),

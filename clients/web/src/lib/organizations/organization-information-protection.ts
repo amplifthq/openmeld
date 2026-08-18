@@ -4,7 +4,7 @@ import {
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
 import type { OrganizationInformationProtectionPolicyResponse } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type OrganizationInformationProtectionFailure =
 	StructuredApiClientFailure;
@@ -15,7 +15,7 @@ export async function readCurrentOrganizationInformationProtection(input: {
 }): Promise<OrganizationInformationProtectionPolicyResponse> {
 	try {
 		return await createOrganizationApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).readCurrentInformationProtection({ signal: input.signal });
@@ -30,7 +30,7 @@ export async function setCurrentOrganizationInformationProtection(input: {
 }): Promise<OrganizationInformationProtectionPolicyResponse> {
 	try {
 		return await createOrganizationApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).setCurrentInformationProtection({

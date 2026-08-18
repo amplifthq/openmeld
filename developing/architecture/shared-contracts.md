@@ -328,6 +328,25 @@ query or mutation. A generic Web API client must not infer that selector from
 requests can run while another URL is visible. `packages/api-client` reserves
 both headers so an individual call cannot override the owning request context.
 
+Web exposes separate Organization-scoped and explicitly unscoped API
+foundations. The Organization-scoped foundation requires the shared
+exactly-one selector at construction time and validates it before fetch. The
+unscoped foundation is reserved for account, device, public-link, or
+resource-identity entry points that do not take their Organization from an
+explicit `/o/{orgSlug}` route. Do not add an optional Organization parameter
+back to one generic foundation: every caller must make the scope decision
+explicit so a new Organization route cannot silently fall back to Session
+state.
+
+An explicit requested-Organization selector is authoritative over any
+`activeOrganizationId` carried by an API method's request context. In
+particular, a route slug must not be replaced by a Session-derived or actor
+request-context Organization id. Core compares any request-body
+`expectedOrganizationId` with the verified request Organization through the
+shared expected-Organization guard. Domain-specific error codes remain stable,
+while the mismatch meaning and user-facing reason are maintained once through
+`ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE` in `packages/schemas`.
+
 The Web proxy may forward those requested-selector headers, but it must strip
 browser-supplied trusted request-context headers, including
 `x-openmeld-active-organization-id`. Gateway parses the headers into the shared

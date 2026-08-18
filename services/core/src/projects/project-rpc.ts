@@ -19,8 +19,10 @@ import type {
   UpdateProjectRpcInput,
 } from "@openmeld/schemas/types";
 import type { CoreBindings } from "../lib/bindings";
-import { createCoreRpcHttpError } from "../rpc/errors";
-import { prepareHumanProjectRequest } from "./project-request-preparation";
+import {
+  prepareExpectedHumanProjectRequest,
+  prepareHumanProjectRequest,
+} from "./project-request-preparation";
 import {
   parseProjectPayload,
   parseProjectResponse,
@@ -47,8 +49,10 @@ export async function rpcCreateProject(
 ): Promise<CreateProjectResponse> {
   const request = parseProjectPayload(createProjectRpcInputSchema, input);
   const { context, expectedOrganizationId, ...body } = request;
-  const { authority, service } = await prepareHumanProjectRequest(env, context);
-  requireExpectedOrganization(authority.organizationId, expectedOrganizationId);
+  const { authority, service } = await prepareExpectedHumanProjectRequest(env, {
+    context,
+    expectedOrganizationId,
+  });
   return parseProjectResponse(createProjectResponseSchema, {
     project: await service.create(authority, body),
   });
@@ -60,8 +64,10 @@ export async function rpcUpdateProject(
 ): Promise<UpdateProjectResponse> {
   const request = parseProjectPayload(updateProjectRpcInputSchema, input);
   const { context, expectedOrganizationId, projectId, ...body } = request;
-  const { authority, service } = await prepareHumanProjectRequest(env, context);
-  requireExpectedOrganization(authority.organizationId, expectedOrganizationId);
+  const { authority, service } = await prepareExpectedHumanProjectRequest(env, {
+    context,
+    expectedOrganizationId,
+  });
   return parseProjectResponse(updateProjectResponseSchema, {
     project: await service.update(authority, projectId, body),
   });
@@ -72,30 +78,11 @@ export async function rpcArchiveProject(
   input: ArchiveProjectRpcInput
 ): Promise<ArchiveProjectResponse> {
   const request = parseProjectPayload(archiveProjectRpcInputSchema, input);
-  const { authority, service } = await prepareHumanProjectRequest(
-    env,
-    request.context
-  );
-  requireExpectedOrganization(
-    authority.organizationId,
-    request.expectedOrganizationId
-  );
+  const { authority, service } = await prepareExpectedHumanProjectRequest(env, {
+    context: request.context,
+    expectedOrganizationId: request.expectedOrganizationId,
+  });
   return parseProjectResponse(archiveProjectResponseSchema, {
     project: await service.archive(authority, request.projectId),
-  });
-}
-
-function requireExpectedOrganization(
-  activeOrganizationId: string,
-  expectedOrganizationId: string
-): void {
-  if (activeOrganizationId === expectedOrganizationId) {
-    return;
-  }
-  throw createCoreRpcHttpError({
-    code: "project.organization_context_changed",
-    reason:
-      "The active Organization changed before this Project request was applied.",
-    status: 409,
   });
 }

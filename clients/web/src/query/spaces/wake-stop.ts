@@ -5,7 +5,7 @@ import type {
 	PostSpaceWakeStopResponse,
 } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { SPACE_WAKE_STOP_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import { spaceQueryKeys } from "./status";
 
@@ -16,7 +16,7 @@ export async function postWebSpaceWakeStop(input: {
 	spacePassword?: string;
 }): Promise<PostSpaceWakeStopResponse> {
 	try {
-		return await createWebSpaceApi({
+		return await createUnscopedWebSpaceApi({
 			...(input.openMeldProfileId === undefined
 				? {}
 				: { openMeldProfileId: input.openMeldProfileId }),

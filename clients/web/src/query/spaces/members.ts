@@ -2,7 +2,7 @@ import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { ROUTE_REVISIT_GC_TIME_MS } from "#/query/query-config";
 import { shouldRetrySpaceQuery } from "./retry";
 import { SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS, spaceQueryKeys } from "./status";
@@ -14,7 +14,7 @@ export async function readSpaceMembers(input: {
 	signal?: AbortSignal;
 }): Promise<SpaceMembersSnapshot> {
 	try {
-		return await createWebSpaceApi({
+		return await createUnscopedWebSpaceApi({
 			...(input.openMeldProfileId === undefined
 				? {}
 				: { openMeldProfileId: input.openMeldProfileId }),

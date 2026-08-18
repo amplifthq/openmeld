@@ -11,13 +11,13 @@ import type {
 	RetryCenterAgentTaskBody,
 	StopCenterAgentTaskBody,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type CenterAgentTasksFailure = StructuredApiClientFailure;
 
 function createWebCenterAgentTasksApi(organizationId: string) {
 	return createCenterAgentTasksApi(
-		createWebOpenMeldApiFoundation({ organizationId })
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
 	);
 }
 

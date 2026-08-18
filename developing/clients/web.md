@@ -170,6 +170,20 @@ in different tabs without either tab changing the other's current request
 context, while the most recent explicit selection becomes the next browser or
 device's entry Organization.
 
+Web request modules make this distinction explicit: an Organization-route
+request constructs the Organization-scoped API foundation with the
+route-resolved Organization id (or the route slug while the id is not yet
+available). Account, device, public-link, and resource-identity entry points use
+the separately named unscoped foundation. A single factory with optional
+Organization fields is forbidden because an omitted field would silently
+reinterpret an Organization route under Session state.
+
+When the scoped foundation is constructed from a route slug, that slug remains
+authoritative even if a downstream API method also supplies an actor request
+context containing another Organization id. The transport sends exactly the
+route selector; it never combines or replaces it with mutable Session or actor
+state.
+
 Selection failures cross Auth and the Web proxy in the shared Gateway error
 envelope. The Web API client preserves the bounded error code and natural
 message; the switcher renders only that message and never a raw upstream JSON

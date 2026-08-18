@@ -21,7 +21,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { OPENMELD_OFFICIAL_FEEDBACK_INBOX_KEY } from "#/lib/feedback/config";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 const SUMMARY_MAX_LENGTH = 200;
 const DETAILS_MAX_LENGTH = 4000;
@@ -61,7 +61,9 @@ export function SendFeedbackDialog(input: {
 
 	const submitFeedbackMutation = useMutation({
 		mutationFn: async () => {
-			const feedbackApi = createFeedbackApi(createWebOpenMeldApiFoundation());
+			const feedbackApi = createFeedbackApi(
+				createUnscopedWebOpenMeldApiFoundation()
+			);
 			return await feedbackApi.submitFeedbackIssue({
 				inboxKey: OPENMELD_OFFICIAL_FEEDBACK_INBOX_KEY,
 				request: {

@@ -774,6 +774,7 @@ import {
   rpcCenterAgentRecommendOpportunity as centerAgentRecommendOpportunity,
   rpcCenterAgentRespondToOpportunity as centerAgentRespondToOpportunity,
 } from "../opportunities/opportunity-center-agent-rpc";
+import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import {
   listOrganizationComputers,
   type OrganizationComputerLiveSession,
@@ -802,7 +803,7 @@ import {
   buildCanonicalLocalProjectDiscoveryRequest,
   createLocalProjectControlRpc,
 } from "../projects/local-project-control-rpc";
-import { prepareHumanProjectRequest } from "../projects/project-request-preparation";
+import { prepareExpectedHumanProjectRequest } from "../projects/project-request-preparation";
 import {
   rpcArchiveProject as archiveProject,
   rpcCreateProject as createProject,
@@ -1098,18 +1099,10 @@ export async function rpcUpdateAgentProfileDefaultProject(
     });
   }
   const request = parsedRequest.data;
-  const { authority, service } = await prepareHumanProjectRequest(
-    env,
-    request.context
-  );
-  if (authority.organizationId !== request.expectedOrganizationId) {
-    throw createCoreRpcHttpError({
-      code: "project.organization_context_changed",
-      reason:
-        "The active Organization changed before this Agent Profile request was applied.",
-      status: 409,
-    });
-  }
+  const { authority, service } = await prepareExpectedHumanProjectRequest(env, {
+    context: request.context,
+    expectedOrganizationId: request.expectedOrganizationId,
+  });
   return await updateAgentProfileDefaultProjectForAuthority({
     agentProfileId: request.agentProfileId,
     authority,
@@ -5648,14 +5641,11 @@ function requireExpectedConnectorOrganization(input: {
       status: 400,
     });
   }
-  if (expectedOrganizationId !== input.activeOrganizationId) {
-    throw createCoreRpcHttpError({
-      code: "connector.organization_context_changed",
-      reason:
-        "The active Organization changed before this GitHub request was applied.",
-      status: 409,
-    });
-  }
+  requireExpectedOrganizationContext({
+    actualOrganizationId: input.activeOrganizationId,
+    errorCode: "connector.organization_context_changed",
+    expectedOrganizationId,
+  });
 }
 
 async function resolveConnectorConnectionUnavailableReason(input: {

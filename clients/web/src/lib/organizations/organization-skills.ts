@@ -4,6 +4,7 @@ import {
 	type StructuredApiClientFailure,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
+import { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "@openmeld/schemas";
 import type {
 	CreateOrganizationSkillBody,
 	CreateOrganizationSkillResponse,
@@ -22,13 +23,13 @@ import type {
 	UpdateOrganizationSkillBody,
 	UpdateOrganizationSkillResponse,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type OrganizationSkillFailure = StructuredApiClientFailure;
 
 function createWebOrganizationSkillsApi(organizationId: string) {
 	return createOrganizationSkillsApi(
-		createWebOpenMeldApiFoundation({ organizationId })
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
 	);
 }
 
@@ -183,7 +184,7 @@ export function resolveOrganizationSkillErrorMessage(error: unknown): string {
 		case "organization_skill.not_found":
 			return "This Skill no longer exists.";
 		case "organization_skill.organization_context_changed":
-			return "Your active Organization changed. Reload this page before saving.";
+			return ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE;
 		case "organization_skill.version_conflict":
 			return "This Skill changed after you opened it. Reload the latest version before saving.";
 		case "organization_skill.github_selection_required":

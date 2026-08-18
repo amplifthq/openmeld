@@ -4,7 +4,10 @@ import {
 	type StructuredApiClientFailure,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
-import { ORGANIZATION_KNOWLEDGE_DOCUMENT_LIMIT } from "@openmeld/schemas";
+import {
+	ORGANIZATION_KNOWLEDGE_DOCUMENT_LIMIT,
+	ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE,
+} from "@openmeld/schemas";
 import type {
 	ApproveOrganizationDocumentDraftBody,
 	CreateOrganizationDocumentBody,
@@ -24,13 +27,13 @@ import type {
 	UpdateOrganizationDocumentFolderResponse,
 	UpdateOrganizationDocumentResponse,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type OrganizationDocumentFailure = StructuredApiClientFailure;
 
 function createWebOrganizationDocumentsApi(organizationId: string) {
 	return createOrganizationDocumentsApi(
-		createWebOpenMeldApiFoundation({ organizationId })
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
 	);
 }
 
@@ -249,7 +252,7 @@ export function resolveOrganizationDocumentErrorMessage(
 		case "organization_document.not_found":
 			return "This document no longer exists.";
 		case "organization_document.organization_context_changed":
-			return "Your active Organization changed. Reload this page before saving.";
+			return ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE;
 		case "organization_document.draft_changed":
 			return "This draft changed after you opened it. Review the latest draft before continuing.";
 		case "organization_document.draft_not_found":

@@ -11,7 +11,8 @@ const { createSpaceMock, createWebSpaceApiMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("./api", () => ({
-	createWebSpaceApi: (...args: unknown[]) => createWebSpaceApiMock(...args),
+	createOrganizationScopedWebSpaceApi: (...args: unknown[]) =>
+		createWebSpaceApiMock(...args),
 }));
 
 const ACTING_PROFILE: AuthProfileView = {
