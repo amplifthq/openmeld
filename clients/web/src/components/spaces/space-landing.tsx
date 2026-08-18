@@ -149,6 +149,9 @@ import { useSpacePanelWidth } from "./use-space-panel-width";
 import { useWakeDisplayDebounce } from "./use-wake-display-debounce";
 
 const EMPTY_ACCOUNT_PROFILES: readonly AuthProfileView[] = [];
+const EMPTY_SPACE_DESCRIPTION =
+	"You and your teammates can give agents work. Agents can ask other agents for help. Everyone can see the results here.";
+const EMPTY_SPACE_TITLE = "A Space is where people and agents work together.";
 const ACTIVE_WAKE_DISPLAY_PHASES = new Set<WakeProgressItem["phase"]>([
 	"sending",
 	"request_sent",
@@ -1613,6 +1616,10 @@ function SpaceLandingConversation({
 			composerSelection={controller.composerSelection}
 			composerText={controller.composerText}
 			currentOwnerUserId={currentOwnerUserId}
+			emptyStateDescription={
+				isDirectMessage ? undefined : EMPTY_SPACE_DESCRIPTION
+			}
+			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			firstUnreadSignalId={controller.firstUnreadSignalId}
 			hasEarlierHistory={controller.hasEarlierHistory}
@@ -1630,23 +1637,6 @@ function SpaceLandingConversation({
 			isLoadingEarlierHistory={controller.isLoadingEarlierHistory}
 			isPersonalContext={input.isPersonalContext === true}
 			isSendingMessage={controller.isSendingMessage}
-			localAgentRecoveryBanner={
-				controller.isCurrentAccessConfirmed ? (
-					<SpaceConversationRecoveryBanner
-						accountProfiles={accountProfiles}
-						actingProfileId={input.profileId}
-						isDirectMessage={isDirectMessage}
-						onAddAgents={currentSpaceControls.onAddAgentsFromBanner}
-						onSetupVisibilityChange={handleSetupVisibilityChange}
-						orgSlug={input.orgSlug}
-						recovery={recovery}
-						setupRecallNonce={setupRecallNonce}
-						snapshot={controller.membersSnapshot}
-						spaceId={controller.spaceId}
-						spaceName={spaceName}
-					/>
-				) : null
-			}
 			membersSnapshot={controller.membersSnapshot}
 			mentionPopoverState={controller.mentionPopoverState}
 			modelCatalog={modelCatalog}
@@ -1681,6 +1671,24 @@ function SpaceLandingConversation({
 			profileControl={composerProfileControl}
 			readOnly={!controller.isCurrentAccessConfirmed}
 			readOnlyComposerPlaceholder="Checking access…"
+			renderSetupGuidance={(presentation) =>
+				controller.isCurrentAccessConfirmed ? (
+					<SpaceConversationRecoveryBanner
+						accountProfiles={accountProfiles}
+						actingProfileId={input.profileId}
+						isDirectMessage={isDirectMessage}
+						onAddAgents={currentSpaceControls.onAddAgentsFromBanner}
+						onSetupVisibilityChange={handleSetupVisibilityChange}
+						orgSlug={input.orgSlug}
+						presentation={presentation}
+						recovery={recovery}
+						setupRecallNonce={setupRecallNonce}
+						snapshot={controller.membersSnapshot}
+						spaceId={controller.spaceId}
+						spaceName={spaceName}
+					/>
+				) : null
+			}
 			selfAvatarImageUrl={currentUserAvatarImageUrl}
 			selfProfileId={controller.profileId}
 			spaceId={controller.spaceId}

@@ -4,6 +4,7 @@ import { SpaceConversationDatePill } from "./space-conversation-date-marker";
 
 const DATE_MARKER_SELECTOR = "[data-conversation-date-marker]";
 const STICKY_TOP_PROPERTY = "--space-conversation-sticky-top";
+const TOP_OVERLAY_HEIGHT_PROPERTY = "--space-conversation-top-overlay-height";
 const DATE_PILL_HEIGHT_PX = 32;
 
 type StickyDateState = {
@@ -91,12 +92,17 @@ function useStickyConversationDate(
 		}
 		if (!topOverlayElement) {
 			scrollElement.style.removeProperty(STICKY_TOP_PROPERTY);
+			scrollElement.style.removeProperty(TOP_OVERLAY_HEIGHT_PROPERTY);
 			return;
 		}
 
 		const overlayHeight = Math.max(
 			0,
 			Math.ceil(topOverlayElement.getBoundingClientRect().height)
+		);
+		scrollElement.style.setProperty(
+			TOP_OVERLAY_HEIGHT_PROPERTY,
+			`${String(overlayHeight)}px`
 		);
 		const scrollPaddingTop = Number.parseFloat(
 			getComputedStyle(scrollElement).paddingTop
@@ -231,6 +237,7 @@ function useStickyConversationDate(
 			resizeObserver?.disconnect();
 			mutationObserver?.disconnect();
 			scrollElement.style.removeProperty(STICKY_TOP_PROPERTY);
+			scrollElement.style.removeProperty(TOP_OVERLAY_HEIGHT_PROPERTY);
 			if (syncFrameRef.current !== null) {
 				window.cancelAnimationFrame(syncFrameRef.current);
 				syncFrameRef.current = null;

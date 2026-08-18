@@ -92,6 +92,7 @@ import {
 	resolveLatestComputerSetupActionSignalId,
 } from "./center-agent-computer-setup-card";
 import { CenterAgentStarterActions } from "./center-agent-starter-actions";
+import type { OnboardingSetupPresentation } from "./onboarding-setup-presentation";
 import { Bubble, BubbleContent, BubbleGroup } from "./primitives/bubble";
 import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
 import { Message, MessageContent, MessageHeader } from "./primitives/message";
@@ -243,7 +244,6 @@ type SpaceConversationPanelProps = {
 	isDiagnosticReportPending: (signalId: string) => boolean;
 	isDiagnosticReportSent: (signalId: string) => boolean;
 	isSendingMessage: boolean;
-	localAgentRecoveryBanner?: ReactNode;
 	mentionPopoverState: SpaceMentionPopoverState;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
@@ -285,6 +285,9 @@ type SpaceConversationPanelProps = {
 	prepareSetupHref?: string;
 	readOnly?: boolean;
 	readOnlyComposerPlaceholder?: string;
+	renderSetupGuidance?: (
+		presentation: OnboardingSetupPresentation
+	) => ReactNode;
 	selfProfileId: string;
 	selfAvatarImageUrl?: string | null;
 	spaceId?: string;
@@ -302,6 +305,32 @@ type SpaceConversationPanelProps = {
 };
 
 const MAX_SPACE_FOCUS_HISTORY_LOAD_ATTEMPTS = 9;
+
+type SpaceSetupGuidanceSlots = {
+	banner: ReactNode;
+	emptyStateActions: ReactNode;
+};
+
+function resolveSpaceSetupGuidanceSlots(input: {
+	hasConversationEntries: boolean;
+	renderSetupGuidance?: (
+		presentation: OnboardingSetupPresentation
+	) => ReactNode;
+}): SpaceSetupGuidanceSlots {
+	if (!input.renderSetupGuidance) {
+		return { banner: null, emptyStateActions: null };
+	}
+	if (input.hasConversationEntries) {
+		return {
+			banner: input.renderSetupGuidance("banner"),
+			emptyStateActions: null,
+		};
+	}
+	return {
+		banner: null,
+		emptyStateActions: input.renderSetupGuidance("empty-state"),
+	};
+}
 
 function hasCurrentUserAuthoredSpaceMessage(input: {
 	items: readonly SpaceTimelineItem[];
@@ -681,12 +710,17 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 			profileId: input.selfProfileId,
 			spaceId: input.spaceId,
 		});
+	const setupGuidance = resolveSpaceSetupGuidanceSlots({
+		hasConversationEntries: entries.length > 0,
+		renderSetupGuidance: input.renderSetupGuidance,
+	});
 	const conversationBody = renderConversationBody({
 		agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
 		anchoredOutcomeNoticesBySourceSignalId,
 		centerAgentProfileId: input.centerAgentProfileId,
 		computerSetupContext: centerAgentComputerSetupContext,
 		currentOwnerUserId: input.currentOwnerUserId,
+		emptyStateActions: setupGuidance.emptyStateActions,
 		emptyStateDescription: input.emptyStateDescription,
 		emptyStateTitle: input.emptyStateTitle,
 		entries,
@@ -962,7 +996,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 								<EarlierHistoryLoadingIndicator
 									visible={showEarlierHistoryLoadingIndicator}
 								/>
-								{input.localAgentRecoveryBanner ?? null}
+								{setupGuidance.banner}
 							</SpaceConversationTopOverlay>
 							<MessageScrollerViewport
 								aria-busy={
@@ -998,7 +1032,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 									topOverlayElement={conversationTopOverlayElement}
 								/>
 								<MessageScrollerContent
-									className="w-full gap-0"
+									className="w-full gap-0 pt-[var(--space-conversation-top-overlay-height,0px)]"
 									data-space-conversation-content-width=""
 								>
 									{conversationBody}
@@ -1573,6 +1607,7 @@ function renderConversationBody(input: {
 	centerAgentProfileId: string | null;
 	computerSetupContext?: CenterAgentComputerSetupContext;
 	currentOwnerUserId: string | null;
+	emptyStateActions?: ReactNode;
 	emptyStateDescription?: string | null;
 	emptyStateTitle?: string;
 	entries: ReturnType<typeof buildSpaceConversationEntries>;
@@ -1681,18 +1716,24 @@ function renderConversationBody(input: {
 		}
 
 		return (
-			<MessageScrollerItem messageId="space-conversation-empty">
-				<div className="flex h-full min-h-56 items-center justify-center">
-					<div className="flex max-w-sm flex-col gap-2 text-center">
-						<p className="font-medium text-lg">
-							{input.emptyStateTitle ?? "No messages yet"}
-						</p>
-						{input.emptyStateDescription === null ? null : (
-							<p className="text-muted-foreground text-sm leading-6">
-								{input.emptyStateDescription ??
-									"Send the first message to start the conversation."}
-							</p>
-						)}
+			<MessageScrollerItem
+				className="flex flex-1 [content-visibility:visible]"
+				messageId="space-conversation-empty"
+			>
+				<div className="flex min-h-56 w-full flex-1 items-center justify-center px-6 py-8">
+					<div className="flex w-full max-w-2xl flex-col items-center gap-6 text-center">
+						<div className="grid max-w-xl gap-2">
+							<h2 className="font-medium text-xl">
+								{input.emptyStateTitle ?? "No messages yet"}
+							</h2>
+							{input.emptyStateDescription === null ? null : (
+								<p className="text-muted-foreground text-sm leading-6">
+									{input.emptyStateDescription ??
+										"Send the first message to start the conversation."}
+								</p>
+							)}
+						</div>
+						{input.emptyStateActions ?? null}
 					</div>
 				</div>
 			</MessageScrollerItem>

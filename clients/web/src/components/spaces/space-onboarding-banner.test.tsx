@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveDeviceStatus } from "./space-onboarding-banner";
+import { resolveDeviceStatus } from "./onboarding-setup-presentation";
 
 // resolveDeviceStatus turns the two device-related read models (the reply
 // readiness query + whether the account has any connected computer) into the

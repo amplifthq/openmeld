@@ -1,5 +1,4 @@
 import type {
-	OnboardingFacts,
 	OnboardingPlan,
 	SpaceMembersSnapshot,
 } from "@openmeld/schemas/types";
@@ -8,7 +7,15 @@ import { SparkleIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
-import { OnboardingSetupBanner } from "#/components/spaces/onboarding-setup-banner";
+import {
+	OnboardingSetupBanner,
+	OnboardingSetupEmptyStateActions,
+} from "#/components/spaces/onboarding-setup-banner";
+import {
+	type OnboardingSetupPresentation,
+	resolveDeviceStatus,
+	resolveOnboardingSetupActionVisibility,
+} from "#/components/spaces/onboarding-setup-presentation";
 import { useAuthSession } from "#/hooks/auth.hooks";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { deriveSpaceOnboardingPlan } from "#/lib/onboarding/space-onboarding-plan";
@@ -20,42 +27,14 @@ type AccountProfileLike = {
 	status: string;
 };
 
-type DeviceStatus = OnboardingFacts["device"]["status"];
 type SetupDecisionId = OnboardingPlan["decisions"][number]["id"];
 type LocalAgentRecoveryController = Pick<
 	ReturnType<typeof useLocalAgentRecoveryController>,
 	"currentLocalRuntimeReplyReadinessQuery" | "localRuntimesQuery"
 >;
 
-// The coarse, act-now setup decisions the banner surfaces (and the recall action
-// reasons about). Order matches the banner's render order.
-const SETUP_DECISION_IDS = [
-	"connect_this_computer",
-	"bring_agents",
-] as const satisfies readonly SetupDecisionId[];
-
-/**
- * Whether a setup decision should surface as an actionable Get-set-up row.
- * "available" decisions always do. Additionally, a joined account with no agent
- * yet (bring_agents "blocked", reason "agents.none_yet") is a real first-run gap
- * — surface it as an "add your first agent" row instead of silence, so a brand
- * new user is never left without a next step.
- */
-function isShowableSetupDecision(
-	decision: OnboardingPlan["decisions"][number]
-): boolean {
-	if (decision.status === "available") {
-		return true;
-	}
-	return (
-		decision.id === "bring_agents" &&
-		decision.status === "blocked" &&
-		decision.reason === "agents.none_yet"
-	);
-}
-
-/** Whether the Get-set-up panel has anything to show and, if so, whether every
- * available row is currently dismissed (so the header can offer a recall). */
+/** Whether the current setup presentation has anything to show and, for the
+ * banner, whether every available row is dismissed so the header can recall it. */
 export type SpaceSetupVisibility = {
 	hasSetup: boolean;
 	allHidden: boolean;
@@ -78,39 +57,11 @@ type SpaceOnboardingBannerProps = {
 	noConnectedComputer: boolean;
 	onAddAgents?: () => void;
 	orgSlug: string;
+	presentation: OnboardingSetupPresentation;
 	/** Bumped by the header recall action to un-dismiss every row. */
 	recallNonce: number;
 	onVisibilityChange: (visibility: SpaceSetupVisibility) => void;
 };
-
-export function resolveDeviceStatus(input: {
-	serviceConnected: boolean | null;
-	pending: boolean;
-	noConnectedComputer: boolean;
-}): DeviceStatus {
-	if (input.serviceConnected === true) {
-		return "connected";
-	}
-	// Definitive: this account has no connected computer at all. The reply
-	// readiness query is disabled in that state (it only runs once a computer
-	// exists), so its perpetual isPending must NOT be read as "still checking".
-	// A brand-new user with no computer is genuinely not_connected and must get
-	// the "set up your first agent on this computer" guidance, not silence.
-	if (input.noConnectedComputer) {
-		return "not_connected";
-	}
-	if (input.pending) {
-		// A device IS resolved but its readiness is still loading (e.g. a connected
-		// user refreshing): report unknown so the planner blocks connect_this_computer
-		// instead of speculatively flashing "Connect this computer" before the
-		// connected fact arrives on first paint.
-		return "unknown";
-	}
-	if (input.serviceConnected === false) {
-		return "not_connected";
-	}
-	return "unknown";
-}
 
 /**
  * Header action for recalling the Get-set-up panel after every available setup
@@ -177,23 +128,21 @@ function SpaceOnboardingBanner(props: SpaceOnboardingBannerProps) {
 		spaceId: props.spaceId,
 	});
 
-	const visibleDecisionIds = props.onAddAgents
-		? SETUP_DECISION_IDS
-		: SETUP_DECISION_IDS.filter((id) => id !== "bring_agents");
-	const availableCount = visibleDecisionIds.filter((id) =>
-		plan.decisions.some(
-			(decision) => decision.id === id && isShowableSetupDecision(decision)
-		)
-	).length;
-	const visibleCount = visibleDecisionIds.filter(
-		(id) =>
-			!dismissedIds.has(id) &&
-			plan.decisions.some(
-				(decision) => decision.id === id && isShowableSetupDecision(decision)
-			)
-	).length;
-	const hasSetup = availableCount > 0;
-	const allHidden = hasSetup && visibleCount === 0;
+	const availableActions = resolveOnboardingSetupActionVisibility({
+		canAddAgents: typeof props.onAddAgents === "function",
+		plan,
+	});
+	const visibleActions = resolveOnboardingSetupActionVisibility({
+		canAddAgents: typeof props.onAddAgents === "function",
+		dismissedIds: props.presentation === "banner" ? dismissedIds : undefined,
+		plan,
+	});
+	const hasSetup =
+		availableActions.showConnect || availableActions.showBringAgents;
+	const allHidden =
+		props.presentation === "banner" &&
+		hasSetup &&
+		!(visibleActions.showConnect || visibleActions.showBringAgents);
 
 	const { onVisibilityChange, recallNonce } = props;
 
@@ -211,6 +160,16 @@ function SpaceOnboardingBanner(props: SpaceOnboardingBannerProps) {
 			setDismissedIds(new Set());
 		}
 	}, [recallNonce]);
+
+	if (props.presentation === "empty-state") {
+		return (
+			<OnboardingSetupEmptyStateActions
+				onAddAgents={props.onAddAgents}
+				onConnect={handleConnect}
+				plan={plan}
+			/>
+		);
+	}
 
 	return (
 		<OnboardingSetupBanner
@@ -234,6 +193,7 @@ export type SpaceConversationRecoveryBannerProps = {
 	spaceId: string;
 	spaceName: string | null;
 	onAddAgents?: () => void;
+	presentation: OnboardingSetupPresentation;
 	setupRecallNonce: number;
 	orgSlug: string;
 	isDirectMessage: boolean;
@@ -241,8 +201,9 @@ export type SpaceConversationRecoveryBannerProps = {
 };
 
 /**
- * The conversation's setup banner slot. Computer-level setup lives here; per-agent
- * Wake recovery stays on member rows, member details, and Settings.
+ * The conversation's plan-driven setup slot. It renders centered cards before
+ * the first message and the dismissible banner afterward. Per-agent Wake
+ * recovery stays on member rows, member details, and Settings.
  */
 export function SpaceConversationRecoveryBanner(
 	props: SpaceConversationRecoveryBannerProps
@@ -294,6 +255,7 @@ export function SpaceConversationRecoveryBanner(
 			onAddAgents={allowAddAgentsGuidance ? props.onAddAgents : undefined}
 			onVisibilityChange={props.onSetupVisibilityChange}
 			orgSlug={props.orgSlug}
+			presentation={props.presentation}
 			recallNonce={props.setupRecallNonce}
 			serviceConnected={readinessQuery.data?.service.connected ?? null}
 			serviceReadinessPending={readinessQuery.isPending}

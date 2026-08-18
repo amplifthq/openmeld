@@ -394,6 +394,8 @@ const READY_WORD_PATTERN = /\bReady\b/u;
 const WAITING_FOR_OPENMELD_SERVICE_PATTERN = /Waiting for OpenMeld Service/;
 const SHOW_ME_AROUND_BUTTON_NAME_PATTERN = /Show me around/;
 const START_SOMETHING_NEW_BUTTON_NAME_PATTERN = /Start something new/;
+const ADD_AGENTS_BUTTON_NAME_PATTERN = /^Add agents/;
+const CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN = /^Connect this computer/;
 type TestAgentExecutionReadiness = ReturnType<
 	typeof createSpaceMemberAgentExecutionReadiness
 >;
@@ -929,7 +931,14 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByRole("button", { name: MEMBERS_TOGGLE_BUTTON_NAME })
 		).toBeTruthy();
-		expect(screen.getByText("No messages yet")).toBeTruthy();
+		expect(
+			screen.getByText("A Space is where people and agents work together.")
+		).toBeTruthy();
+		expect(
+			screen.getByText(
+				"You and your teammates can give agents work. Agents can ask other agents for help. Everyone can see the results here."
+			)
+		).toBeTruthy();
 		expect(
 			screen.getByText("To wake an agent, type @, then pick the agent.")
 		).toBeTruthy();
@@ -3459,7 +3468,9 @@ describe("SpaceLanding", () => {
 		);
 
 		await waitFor(() => {
-			expect(screen.getByText("No messages yet")).toBeTruthy();
+			expect(
+				screen.getByText("A Space is where people and agents work together.")
+			).toBeTruthy();
 		});
 		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
 		getWakeProgressMock.mockImplementation(() => new Promise(() => undefined));
@@ -4234,7 +4245,7 @@ describe("SpaceLanding", () => {
 		expect(sharedSetupParams.get("spaceId")).toBe("space-123");
 	});
 
-	it("suppresses per-agent computer-level recovery and surfaces the Get-set-up banner connect action", () => {
+	it("suppresses per-agent computer-level recovery and surfaces the Space setup connect action", () => {
 		vi.stubGlobal(
 			"matchMedia",
 			createMatchMediaMock({ desktopMembersPanel: true })
@@ -4250,7 +4261,7 @@ describe("SpaceLanding", () => {
 				deviceId: "device-office",
 				deviceDisplayName: "Office Mac mini",
 			},
-			// No connected local runtime for this account -> the Get-set-up banner's
+			// No connected local runtime for this account -> the Space setup planner's
 			// device.status resolves to not_connected, so connect_this_computer is
 			// available and the "Connect this computer" row renders.
 			localRuntimesQuery: {
@@ -4317,9 +4328,9 @@ describe("SpaceLanding", () => {
 			screen.queryByRole("link", { name: "Reconnect OpenMeld Service" })
 		).toBeNull();
 
-		// The Get-set-up banner owns computer setup guidance and sends the user to
-		// the canonical Connect page. The return route preserves this Space so the
-		// user comes back after connecting OpenMeld Service.
+		// The empty Space action card owns computer setup guidance and sends the
+		// user to the canonical Connect page. The return route preserves this Space
+		// so the user comes back after connecting OpenMeld Service.
 		expect(screen.getByText("Connect this computer")).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
@@ -4333,11 +4344,84 @@ describe("SpaceLanding", () => {
 		expect(screen.getByText("Connect this computer")).toBeTruthy();
 
 		fireEvent.click(
-			screen.getByRole("button", { name: "Connect OpenMeld Service" })
+			screen.getByRole("button", {
+				name: CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN,
+			})
 		);
 		expect(useNavigateMock).toHaveBeenCalledWith({
 			to: "/o/acme/connect?returnTo=space&spaceId=space-123",
 		});
+	});
+
+	it("shows both empty Space setup cards and opens the existing Add members flow", () => {
+		useLocalAgentRecoveryControllerMock.mockReturnValue({
+			localRuntimesQuery: {
+				data: { localRuntimes: [] },
+				isSuccess: true,
+			},
+		});
+		const members = createMembersSnapshot();
+		members.agents = [];
+		members.summary = {
+			...members.summary,
+			agentCount: 0,
+			totalCount: 1,
+		};
+		mockSpaceQueries({
+			history: createQueryResult({
+				data: { envelopes: [], nextCursor: null },
+				isSuccess: true,
+			}),
+			members: createQueryResult({ data: members, isSuccess: true }),
+			status: createQueryResult({
+				data: createSpaceStatus(),
+				isSuccess: true,
+			}),
+		});
+
+		renderSpaceLanding({
+			accountProfiles: [
+				createLandingAccountProfile({
+					openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
+					ownerUserId: "user-mira",
+					profileKind: "human",
+					profileName: "Mira",
+				}),
+				createLandingAccountProfile({
+					openMeldProfileId: DEFAULT_AGENT_PROFILE_ID,
+					ownerUserId: "user-mira",
+					profileKind: "agent",
+					profileName: "Scout",
+				}),
+			],
+		});
+
+		const setupActions = screen.getByRole("group", {
+			name: "Set up this Space",
+		});
+		expect(
+			within(setupActions).getByRole("button", {
+				name: CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN,
+			})
+		).toBeTruthy();
+		expect(
+			within(setupActions).getByRole("button", {
+				name: ADD_AGENTS_BUTTON_NAME_PATTERN,
+			})
+		).toBeTruthy();
+
+		fireEvent.click(
+			within(setupActions).getByRole("button", {
+				name: ADD_AGENTS_BUTTON_NAME_PATTERN,
+			})
+		);
+		const membersPanel = screen.getByRole("dialog", { name: "Members" });
+		expect(
+			within(membersPanel).getByRole("heading", { name: "Add members" })
+		).toBeTruthy();
+		expect(
+			within(membersPanel).getByRole("button", { name: "Create Agent" })
+		).toBeTruthy();
 	});
 
 	it("does not show ordinary setup guidance in a direct conversation with an agent", () => {
@@ -4581,11 +4665,15 @@ describe("SpaceLanding", () => {
 			],
 		});
 
-		expect(screen.getByRole("region", { name: "Get set up" })).toBeTruthy();
+		expect(
+			screen.getByRole("group", { name: "Set up this Space" })
+		).toBeTruthy();
 		expect(screen.getByText("Connect this computer")).toBeTruthy();
 		expect(screen.queryByText("Bring your agents")).toBeNull();
 		expect(screen.queryByText("Add your first agent")).toBeNull();
-		expect(screen.queryByRole("button", { name: "Add agents" })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: ADD_AGENTS_BUTTON_NAME_PATTERN })
+		).toBeNull();
 	});
 
 	it("does not show setup guidance in a human-to-human Direct Message", () => {
@@ -4652,7 +4740,9 @@ describe("SpaceLanding", () => {
 
 		expect(screen.queryByRole("region", { name: "Get set up" })).toBeNull();
 		expect(screen.queryByText("Connect this computer")).toBeNull();
-		expect(screen.queryByRole("button", { name: "Add agents" })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: ADD_AGENTS_BUTTON_NAME_PATTERN })
+		).toBeNull();
 	});
 
 	it("does not write legacy controller compatibility when formal Binding cannot be confirmed", async () => {

@@ -9,9 +9,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	OnboardingSetupBanner,
 	type OnboardingSetupBannerProps,
+	OnboardingSetupEmptyStateActions,
 } from "./onboarding-setup-banner";
 
 afterEach(cleanup);
+
+const ADD_AGENTS_BUTTON_NAME_PATTERN = /^Add agents/;
+const CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN = /^Connect this computer/;
 
 function renderBanner(
 	plan: OnboardingSetupBannerProps["plan"],
@@ -29,6 +33,31 @@ function renderBanner(
 		...overrides,
 	};
 	const result = render(<OnboardingSetupBanner {...props} />);
+	return { props, ...result };
+}
+
+function renderEmptyStateActions(
+	plan: OnboardingSetupBannerProps["plan"],
+	overrides: Partial<OnboardingSetupBannerProps> = {}
+) {
+	const props: OnboardingSetupBannerProps = {
+		plan,
+		onConnect: vi.fn(),
+		onAddAgents: vi.fn(),
+		orgSlug: "acme",
+		spaceId: "space-1",
+		spaceName: "Test Space",
+		dismissedIds: new Set(),
+		onDismiss: vi.fn(),
+		...overrides,
+	};
+	const result = render(
+		<OnboardingSetupEmptyStateActions
+			onAddAgents={props.onAddAgents}
+			onConnect={props.onConnect}
+			plan={props.plan}
+		/>
+	);
 	return { props, ...result };
 }
 
@@ -55,6 +84,9 @@ describe("OnboardingSetupBanner", () => {
 		expect((blur as HTMLElement).style.backdropFilter).toBe("blur(6px)");
 		expect(banner.className.split(" ")).not.toContain("border-b");
 		expect(banner.className.split(" ")).not.toContain("bg-muted/10");
+		expect(banner.className).toContain(
+			"pt-[var(--space-conversation-navigation-height)]"
+		);
 		expect(connectRow).not.toBeNull();
 		expect(connectRow?.className.split(" ")).not.toContain("border");
 		expect(connectRow?.className.split(" ")).not.toContain("bg-card");
@@ -204,6 +236,68 @@ describe("OnboardingSetupBanner", () => {
 					"connect_this_computer",
 				] as const),
 			}
+		);
+
+		expect(container.firstChild).toBeNull();
+	});
+});
+
+describe("OnboardingSetupEmptyStateActions", () => {
+	it("shows connect and add agents together using the shared Fluid Card group", () => {
+		const { props } = renderEmptyStateActions(
+			buildOnboardingPlan(hasAgentNotConnectedFacts())
+		);
+
+		expect(
+			screen.getByRole("group", { name: "Set up this Space" })
+		).toBeTruthy();
+		expect(document.querySelectorAll("[data-fluid-card-group]")).toHaveLength(
+			1
+		);
+		expect(document.querySelectorAll("[data-fluid-card-item]")).toHaveLength(2);
+		expect(
+			screen.getByText(
+				"Bring Codex, Claude Code, or another local agent into OpenMeld. Then add it to this Space."
+			)
+		).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Choose an available agent—or create one—and add it to this Space."
+			)
+		).toBeTruthy();
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN,
+			})
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: ADD_AGENTS_BUTTON_NAME_PATTERN })
+		);
+		expect(props.onConnect).toHaveBeenCalledTimes(1);
+		expect(props.onAddAgents).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps Add agents actionable when the user still needs to create an agent", () => {
+		const { props } = renderEmptyStateActions(
+			buildOnboardingPlan(joinedZeroAgentsOnboardingFacts())
+		);
+
+		expect(
+			screen.getByRole("button", {
+				name: CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN,
+			})
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: ADD_AGENTS_BUTTON_NAME_PATTERN })
+		);
+		expect(props.onAddAgents).toHaveBeenCalledTimes(1);
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+	});
+
+	it("renders nothing when setup is complete", () => {
+		const { container } = renderEmptyStateActions(
+			buildOnboardingPlan(fullySetUpOnboardingFacts())
 		);
 
 		expect(container.firstChild).toBeNull();

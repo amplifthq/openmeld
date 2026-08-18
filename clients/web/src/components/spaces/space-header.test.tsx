@@ -154,6 +154,9 @@ describe("SpaceHeader", () => {
 		expect(viewControl.closest("header")).not.toBeNull();
 		expect(navigationRow).not.toBeNull();
 		expect(secondaryRow?.className).toContain("overflow-visible");
+		expect(inlineFrame?.className).toContain(
+			"grid-rows-[minmax(0,2.5rem)_minmax(0,var(--space-conversation-navigation-height))]"
+		);
 		expect(secondaryRow?.className).toContain("col-start-1");
 		expect(titleRow).not.toBeNull();
 		expect(titleRow?.className).toContain("col-start-2");
