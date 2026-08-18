@@ -4,6 +4,7 @@ import { decryptSlackBotToken } from "./slack-token-crypto";
 export async function resolveSlackBotToken(input: {
   cryptoKey?: string | null;
   db: D1Database;
+  expectedOrganizationId?: string;
   fallbackBotToken?: string | null;
   slackTeamId: string;
 }): Promise<string> {
@@ -12,6 +13,14 @@ export async function resolveSlackBotToken(input: {
     slackTeamId: input.slackTeamId,
   });
   if (record) {
+    if (
+      input.expectedOrganizationId &&
+      record.organizationId !== input.expectedOrganizationId
+    ) {
+      throw new Error(
+        "Slack workspace binding and bot token belong to different Organizations"
+      );
+    }
     const cryptoKey = normalizeOptionalText(input.cryptoKey);
     if (!cryptoKey) {
       throw new Error("SLACK_OPENMELD_TOKEN_CRYPTO_KEY is not configured");

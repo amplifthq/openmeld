@@ -79,6 +79,22 @@ describe("Slack workspace bot tokens", () => {
     ).resolves.toBe("xoxb-global-token");
   });
 
+  it("rejects a stored token owned by a different Organization", async () => {
+    await seedWorkspaceToken("T123", "xoxb-team-token");
+
+    await expect(
+      resolveSlackBotToken({
+        cryptoKey: CRYPTO_KEY,
+        db: harness.db,
+        expectedOrganizationId: "org-other",
+        fallbackBotToken: "xoxb-global-token",
+        slackTeamId: "T123",
+      })
+    ).rejects.toThrow(
+      "Slack workspace binding and bot token belong to different Organizations"
+    );
+  });
+
   it("distinguishes legacy installations from DM-ready OAuth grants", async () => {
     await seedWorkspaceToken("T_LEGACY", "xoxb-legacy-token");
     await seedWorkspaceToken("T_READY", "xoxb-ready-token", [
