@@ -357,8 +357,20 @@ describe("remote agent system prompt", () => {
       "GitHub is not included in openmeld_list_connected_apps"
     );
     expect(prompt).toContain(
-      "when Code Mode is the only capability surface, call that same GitHub tool through Code Mode"
+      "when that matching GitHub tool is not exposed directly, call it through Code Mode"
     );
+    expect(prompt).toContain(
+      "when the tool needed to complete the request is not exposed directly"
+    );
+  });
+
+  it("does not repeat an equivalent write that already succeeded", () => {
+    const prompt = buildTestSystemPrompt();
+
+    expect(prompt).toContain(
+      "Before executing a write, inspect successful tool results already present in this conversation"
+    );
+    expect(prompt).toContain("use that result and do not repeat the write");
   });
 
   it("uses one low-friction authorization policy across tools", () => {

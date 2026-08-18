@@ -9,7 +9,6 @@ export type RemoteAgentModelEnv = {
   CLOUDFLARE_OPENMELD_AI_GATEWAY_TOKEN?: string;
   OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS?: string;
   OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID?: string;
-  OPENMELD_REMOTE_AGENT_WORK_SURFACE_MODEL_ID?: string;
 };
 
 export function resolveRemoteAgentAiGatewayAccountId(

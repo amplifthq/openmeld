@@ -125,7 +125,6 @@ import {
   normalizeRemoteAgentErrorMessage,
 } from "./error-message";
 import type { RemoteAgentTurnUsage, RemoteAgentUsageRecord } from "./usage";
-import type { RemoteAgentWorkSurfaceBinding } from "./work-surface-routing";
 
 export type RemoteAgentCallbackStatus =
   | "completed"
@@ -214,7 +213,6 @@ export type RemoteAgentCallbackContext = {
   toolExecutionDeadlineAtMs?: number;
   triggerMessageId: string;
   turnEnvelope?: RemoteAgentTurnEnvelope;
-  workSurfaceBinding?: RemoteAgentWorkSurfaceBinding;
   v: 1;
 };
 
@@ -521,7 +519,6 @@ export function createRemoteAgentCallbackContext(input: {
   ack: RemoteAgentWorkerSubmitMessagesResult;
   nowMs: number;
   request: RemoteAgentWorkerSubmitTurnRequest;
-  workSurfaceBinding?: RemoteAgentWorkSurfaceBinding;
 }): RemoteAgentCallbackContext {
   return {
     accepted: input.ack.accepted,
@@ -555,9 +552,6 @@ export function createRemoteAgentCallbackContext(input: {
     toolExecutionDeadlineAtMs: input.request.toolExecutionDeadlineAtMs,
     triggerMessageId: input.request.triggerMessageId,
     turnEnvelope: input.request.turnEnvelope,
-    ...(input.workSurfaceBinding
-      ? { workSurfaceBinding: input.workSurfaceBinding }
-      : {}),
     v: 1,
   };
 }

@@ -35,6 +35,32 @@ const TOOL_OPTIONS = {
 } satisfies ToolExecutionOptions;
 
 describe("Remote Agent Code Mode", () => {
+  it("keeps Task, Space, and identity actions reachable through Code Mode", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const definitions = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      storage,
+      submissionId: SUBMISSION_ID,
+    });
+    const runtime = createRuntime({
+      execute: async () => ({ result: null }),
+      executorOptions: [],
+    });
+
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions,
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+      storage,
+      submissionId: SUBMISSION_ID,
+    });
+
+    expect(tool.description).toContain("openmeld_create_task");
+    expect(tool.description).toContain("openmeld_create_space");
+    expect(tool.description).toContain("openmeld_require_identity_for_action");
+  });
+
   it("exposes structured Space Reference input in the generated Code Mode catalog", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const definitions = getRemoteAgentOpenMeldToolDefinitions({
