@@ -73,6 +73,9 @@ jobs:
     if: github.ref == 'refs/heads/main' && inputs.mode == 'release'
     runs-on: macos-15
     timeout-minutes: 45
+    concurrency:
+      group: deploy-core-worker-production
+      cancel-in-progress: false
     environment: production
     steps:
       - name: Validate immutable release inputs

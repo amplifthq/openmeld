@@ -74,8 +74,20 @@ jobs:
       - name: Run Auth Worker deployment preflight
         run: pnpm run release:preflight:local -- --scope auth --base HEAD
 
+      - name: Capture Auth bundle evidence
+        run: pnpm run evidence:bundle:auth
+
       - name: Deploy Auth Worker
         run: pnpm -C services/auth run sync:config:prod
 
       - name: Verify Auth Worker health
         run: curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 https://auth.openmeld.ai/health > /dev/null
+
+      - name: Preserve Auth bundle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-bundle-evidence-${{ inputs.release_sha || github.sha }}
+          if-no-files-found: warn
+          path: dev-tmp/auth-bundle-evidence.json
+          retention-days: 30

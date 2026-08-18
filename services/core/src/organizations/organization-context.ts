@@ -1,5 +1,7 @@
-import { memberRoleHasOrganizationPermission } from "@openmeld/auth";
-import { isPersonalOrganization } from "@openmeld/auth/server";
+import {
+  isPersonalOrganization,
+  memberRoleHasOrganizationPermission,
+} from "@openmeld/auth/organization-policy";
 import { authRpcResolveOrganizationAccountIdentityResultSchema } from "@openmeld/schemas";
 import type {
   AuthRpcResolveOrganizationAccountIdentityInput,
