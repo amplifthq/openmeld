@@ -1205,12 +1205,16 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	const handleAddProfiles = useSpaceAddProfilesHandler({
 		accountProfiles,
 		controller,
+		organizationId,
+		organizationSlug: input.orgSlug,
 		queryClient,
 		storageScope: recovery.storageScope,
 	});
 	const handleAddOrganizationDirectoryProfiles =
 		useSpaceAddOrganizationDirectoryProfilesHandler({
 			controller,
+			organizationId,
+			organizationSlug: input.orgSlug,
 			queryClient,
 		});
 	const handleConvertDirectMessageToSpace =
@@ -1223,6 +1227,8 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	const handleRemoveMember = useSpaceRemoveMemberHandler({
 		accountProfiles,
 		controller,
+		organizationId,
+		organizationSlug: input.orgSlug,
 		queryClient,
 	});
 	const isDirectMessage =
@@ -2028,6 +2034,8 @@ function useRedirectAwayFromDeletedSpace(input: {
 function useSpaceAddProfilesHandler(input: {
 	accountProfiles: readonly AuthProfileView[];
 	controller: ReturnType<typeof useSpaceLandingController>;
+	organizationId: string | null;
+	organizationSlug: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 	storageScope: string;
 }): (profileIds: readonly string[]) => Promise<SpaceAddProfilesResult> {
@@ -2054,6 +2062,10 @@ function useSpaceAddProfilesHandler(input: {
 
 			const addMembersResult = await createWebSpaceApi({
 				openMeldProfileId: controller.profileId,
+				organizationSlug: input.organizationSlug,
+				...(input.organizationId === null
+					? {}
+					: { organizationId: input.organizationId }),
 			}).addMembers({
 				memberProfileIds,
 				requestContext: buildProfileRequestContext(actingProfile),
@@ -2135,6 +2147,8 @@ function useSpaceAddProfilesHandler(input: {
 		[
 			input.accountProfiles,
 			input.controller,
+			input.organizationId,
+			input.organizationSlug,
 			input.queryClient,
 			input.storageScope,
 		]
@@ -2143,6 +2157,8 @@ function useSpaceAddProfilesHandler(input: {
 
 function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 	controller: ReturnType<typeof useSpaceLandingController>;
+	organizationId: string | null;
+	organizationSlug: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 }): (
 	input: SpaceAddOrganizationDirectoryProfilesInput
@@ -2161,9 +2177,12 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 					"OpenMeld cannot add Organization Directory profiles until this Space is ready."
 				);
 			}
-
 			const addMembersResult = await createWebSpaceApi({
 				openMeldProfileId: controller.profileId,
+				organizationSlug: input.organizationSlug,
+				...(input.organizationId === null
+					? {}
+					: { organizationId: input.organizationId }),
 			}).addOrganizationDirectoryProfilesToSpace({
 				directoryProfileIds,
 				...(selection.expectedCenterAgentProfileId
@@ -2213,7 +2232,12 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 				alreadyMemberCount: addMembersResult.alreadyMemberIds.length,
 			};
 		},
-		[input.controller, input.queryClient]
+		[
+			input.controller,
+			input.organizationId,
+			input.organizationSlug,
+			input.queryClient,
+		]
 	);
 }
 
@@ -2350,6 +2374,8 @@ function applyDirectMessageConversionToAccountSpaceSections(
 function useSpaceRemoveMemberHandler(input: {
 	accountProfiles: readonly AuthProfileView[];
 	controller: ReturnType<typeof useSpaceLandingController>;
+	organizationId: string | null;
+	organizationSlug: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 }): (profileId: string) => Promise<SpaceRemoveMemberResult> {
 	return useCallback(
@@ -2403,6 +2429,10 @@ function useSpaceRemoveMemberHandler(input: {
 			try {
 				removeMembersResult = await createWebSpaceApi({
 					openMeldProfileId: controller.profileId,
+					organizationSlug: input.organizationSlug,
+					...(input.organizationId === null
+						? {}
+						: { organizationId: input.organizationId }),
 				}).removeMembers({
 					memberProfileIds,
 					requestContext: buildProfileRequestContext(actingProfile),
@@ -2441,7 +2471,13 @@ function useSpaceRemoveMemberHandler(input: {
 				removedCount: removeMembersResult.removedMemberIds.length,
 			};
 		},
-		[input.accountProfiles, input.controller, input.queryClient]
+		[
+			input.accountProfiles,
+			input.controller,
+			input.organizationId,
+			input.organizationSlug,
+			input.queryClient,
+		]
 	);
 }
 

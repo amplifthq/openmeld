@@ -21,12 +21,14 @@ import {
 	buildOrganizationSpacePath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
-import {
-	buildProfileRequestContext,
-	listActiveProfilesByKind,
-} from "#/lib/profiles/human-profiles";
+import { listActiveProfilesByKind } from "#/lib/profiles/human-profiles";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import {
+	createSpaceInOrganization,
+	ORGANIZATION_SPACE_SCOPE_ERROR_MESSAGE,
+	OrganizationSpaceScopeError,
+} from "#/lib/spaces/create-space-in-organization";
+import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import {
 	selectWelcomeScreen,
@@ -50,6 +52,15 @@ function resolveJoinableStatus(
 		return "ready";
 	}
 	return "loading";
+}
+
+function resolveCreateSpaceErrorMessage(error: Error | null): string | null {
+	if (error === null) {
+		return null;
+	}
+	return error instanceof OrganizationSpaceScopeError
+		? ORGANIZATION_SPACE_SCOPE_ERROR_MESSAGE
+		: "Couldn't create the space. Try again.";
 }
 
 function resolveWelcomeScreen(input: {
@@ -122,11 +133,7 @@ function renderWelcomeSpaceStep(input: {
 					: undefined
 			}
 			contextKind={input.contextKind}
-			errorMessage={
-				input.createSpace.isError
-					? "Couldn't create the space. Try again."
-					: null
-			}
+			errorMessage={resolveCreateSpaceErrorMessage(input.createSpace.error)}
 			isPending={input.createSpace.isPending}
 			joinableSpaces={input.joinableSpaces}
 			joinableStatus={resolveJoinableStatus(
@@ -249,20 +256,32 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 					new Error("No usable profile to create a space.")
 				);
 			}
-			return createWebSpaceApi({
-				openMeldProfileId: actingProfile.openMeldProfileId,
-			}).createSpace({
-				requestContext: buildProfileRequestContext(actingProfile),
-				accessMode: input.accessMode,
-				name: input.name,
-				visibility: input.visibility,
-				...(input.password ? { password: input.password } : {}),
+			return createSpaceInOrganization({
+				actingProfile,
+				organizationId: currentOrganization.id,
+				space: input,
 			});
 		},
-		onSuccess: (response) => {
-			queryClient
-				.invalidateQueries({ queryKey: accountSpacesOptions.queryKey })
-				.catch(() => undefined);
+		onSuccess: async (response) => {
+			try {
+				await Promise.all([
+					queryClient.invalidateQueries({
+						queryKey: accountSpacesOptions.queryKey,
+					}),
+					queryClient.invalidateQueries({
+						queryKey: organizationQueryKeys.spaces(currentOrganization.id),
+					}),
+				]);
+			} catch (error) {
+				console.warn(
+					"OpenMeld created a Space but could not refresh Space lists.",
+					{
+						error,
+						organizationId: currentOrganization.id,
+						spaceId: response.spaceId,
+					}
+				);
+			}
 			openSpace(response.spaceId);
 		},
 	});
