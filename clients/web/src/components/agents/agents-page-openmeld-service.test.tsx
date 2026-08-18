@@ -14,7 +14,10 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OpenMeldServiceCard } from "./agents-page-openmeld-service";
+import {
+	OpenMeldServiceCard,
+	type OpenMeldServiceCardOwnerProps,
+} from "./agents-page-openmeld-service";
 
 const copyCliEntryCommandMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
@@ -765,11 +768,9 @@ function buildComputer(input?: {
 	};
 }
 
-function buildRecoveryStub(): Parameters<
-	typeof OpenMeldServiceCard
->[0]["recovery"] {
+function buildRecoveryStub(): OpenMeldServiceCardOwnerProps["recovery"] {
 	return {
 		refreshAll: vi.fn().mockResolvedValue(undefined),
 		storageScope: "test",
-	} as unknown as Parameters<typeof OpenMeldServiceCard>[0]["recovery"];
+	} as unknown as OpenMeldServiceCardOwnerProps["recovery"];
 }

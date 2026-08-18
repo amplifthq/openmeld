@@ -52,7 +52,7 @@ import {
 } from "@phosphor-icons/react";
 import type { QueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { copyCliEntryCommand } from "#/lib/cli-entry-command";
@@ -81,7 +81,8 @@ const OPENMELD_SKILLS_MANAGEMENT_COMMAND = "npx -y openmeld@latest skills";
 const OPENMELD_CLI_UPDATE_COMMAND = "openmeld upgrade --yes";
 const UPDATE_OPENMELD_TOOLS_LABEL = "Update OpenMeld Tools";
 const OPENMELD_COMMAND_PREFIX_RE = /^openmeld/u;
-export function OpenMeldServiceCard(input: {
+
+export type OpenMeldServiceCardOwnerProps = {
 	computer: LocalRuntimeComputer;
 	currentExpectedServiceVersion: string | null;
 	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
@@ -93,7 +94,101 @@ export function OpenMeldServiceCard(input: {
 	replyReadiness: ComputerReplyReadiness | null;
 	recovery: AgentsPageController;
 	setupCompleteRefreshPending: boolean;
+	view?: "owner";
+};
+
+type TeamOpenMeldServiceCardProps = {
+	computer: {
+		deviceDisplayName: string;
+		ownerLabel: string;
+		serviceState:
+			| "connected"
+			| "needs_attention"
+			| "not_connected"
+			| "unknown"
+			| null;
+	};
+	view: "team";
+};
+
+export function OpenMeldServiceCard(
+	input: OpenMeldServiceCardOwnerProps | TeamOpenMeldServiceCardProps
+) {
+	if (input.view === "team") {
+		return <TeamOpenMeldServiceCard computer={input.computer} />;
+	}
+	return <OwnedOpenMeldServiceCard {...input} />;
+}
+
+function TeamOpenMeldServiceCard(input: {
+	computer: TeamOpenMeldServiceCardProps["computer"];
 }) {
+	const status = resolveTeamOpenMeldToolsStatus(input.computer);
+	return (
+		<OpenMeldToolsCardFrame
+			description={`Keeps OpenMeld Service connected and local agent tools ready on ${input.computer.deviceDisplayName}.`}
+		>
+			<div className="min-w-0 space-y-1.5">
+				<p
+					className={cn(
+						"flex items-center gap-2 font-medium text-sm",
+						resolveStatusToneStrongTextClassName(status.tone)
+					)}
+				>
+					<span
+						aria-hidden="true"
+						className={cn(
+							"h-2 w-2 shrink-0 rounded-full",
+							resolveStatusToneIndicatorClassName(status.tone)
+						)}
+					/>
+					{status.label}
+				</p>
+				<p className="max-w-2xl text-muted-foreground text-xs leading-5">
+					{status.description}
+				</p>
+			</div>
+		</OpenMeldToolsCardFrame>
+	);
+}
+
+function resolveTeamOpenMeldToolsStatus(
+	computer: TeamOpenMeldServiceCardProps["computer"]
+): {
+	description: string;
+	label: string;
+	tone: "danger" | "muted" | "ready" | "warning";
+} {
+	switch (computer.serviceState) {
+		case "connected":
+			return {
+				description: "OpenMeld Tools are ready on this computer.",
+				label: "OpenMeld Tools are ready",
+				tone: "ready",
+			};
+		case "needs_attention":
+			return {
+				description: `${computer.ownerLabel} needs to update OpenMeld Tools on this computer.`,
+				label: "OpenMeld Tools need an update",
+				tone: "warning",
+			};
+		case "not_connected":
+			return {
+				description: `${computer.ownerLabel} needs to reconnect OpenMeld Service on this computer.`,
+				label: "OpenMeld Tools are not connected",
+				tone: "danger",
+			};
+		default:
+			return {
+				description:
+					"OpenMeld is waiting for a current status from this computer.",
+				label: "OpenMeld Tools status unavailable",
+				tone: "muted",
+			};
+	}
+}
+
+function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 	const orgSlug = useCurrentOrganizationSlug();
 	const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 	const [isServiceHighlighted, setIsServiceHighlighted] = useState(false);
@@ -164,35 +259,25 @@ export function OpenMeldServiceCard(input: {
 			input.computer
 		);
 		return (
-			<Card>
-				<CardHeader>
-					<CardTitle className="flex items-center gap-2">
-						<PulseIcon className="h-5 w-5" />
-						{OPENMELD_TOOLS_CARD_TITLE}
-					</CardTitle>
-					<CardDescription>
-						Last reported OpenMeld tools state from{" "}
-						{input.computer.deviceDisplayName}.
-					</CardDescription>
-					<CardAction>
-						<OpenMeldServiceMoreMenu
-							isCheckingStatus={false}
-							onCheckStatus={checkServiceStatus}
-							setupLabel={setupLabel}
-							setupPath={setupPath}
-							showCheckStatus={false}
-						/>
-					</CardAction>
-				</CardHeader>
-				<CardContent className="flex flex-col gap-3">
-					<NonCurrentOpenMeldServiceGuidance
-						computer={input.computer}
+			<OpenMeldToolsCardFrame
+				action={
+					<OpenMeldServiceMoreMenu
+						isCheckingStatus={false}
+						onCheckStatus={checkServiceStatus}
 						setupLabel={setupLabel}
 						setupPath={setupPath}
+						showCheckStatus={false}
 					/>
-					<ReadOnlyRuntimeTargetList computer={input.computer} />
-				</CardContent>
-			</Card>
+				}
+				description={`Last reported OpenMeld tools state from ${input.computer.deviceDisplayName}.`}
+			>
+				<NonCurrentOpenMeldServiceGuidance
+					computer={input.computer}
+					setupLabel={setupLabel}
+					setupPath={setupPath}
+				/>
+				<ReadOnlyRuntimeTargetList computer={input.computer} />
+			</OpenMeldToolsCardFrame>
 		);
 	}
 
@@ -236,32 +321,48 @@ export function OpenMeldServiceCard(input: {
 	}
 
 	return (
-		<Card
+		<OpenMeldToolsCardFrame
+			action={
+				<OpenMeldServiceMoreMenu
+					isCheckingStatus={isCheckingStatus}
+					onCheckStatus={checkServiceStatus}
+					setupPath={setupPath}
+				/>
+			}
+			cardRef={serviceCardRef}
 			className={cn(
 				resolveAgentsPageFocusedSurfaceClassName(isServiceHighlighted)
 			)}
+			description={`Keeps OpenMeld Service connected and local agent tools ready on ${input.computer.deviceDisplayName}.`}
+		>
+			{serviceContent}
+		</OpenMeldToolsCardFrame>
+	);
+}
+
+function OpenMeldToolsCardFrame(input: {
+	action?: ReactNode;
+	cardRef?: Ref<HTMLDivElement>;
+	children: ReactNode;
+	className?: string;
+	description: string;
+}) {
+	return (
+		<Card
+			className={input.className}
 			data-testid="openmeld-service-card"
-			ref={serviceCardRef}
+			ref={input.cardRef}
 		>
 			<CardHeader>
 				<CardTitle className="flex items-center gap-2">
 					<PulseIcon className="h-5 w-5" />
 					{OPENMELD_TOOLS_CARD_TITLE}
 				</CardTitle>
-				<CardDescription>
-					Keeps OpenMeld Service connected and local agent tools ready on{" "}
-					{input.computer.deviceDisplayName}.
-				</CardDescription>
-				<CardAction>
-					<OpenMeldServiceMoreMenu
-						isCheckingStatus={isCheckingStatus}
-						onCheckStatus={checkServiceStatus}
-						setupPath={setupPath}
-					/>
-				</CardAction>
+				<CardDescription>{input.description}</CardDescription>
+				{input.action ? <CardAction>{input.action}</CardAction> : null}
 			</CardHeader>
 			<CardContent className="flex flex-col gap-3">
-				{serviceContent}
+				{input.children}
 			</CardContent>
 		</Card>
 	);

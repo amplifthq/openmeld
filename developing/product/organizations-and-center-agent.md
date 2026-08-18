@@ -2023,6 +2023,14 @@ Organization-visible Agents using that computer. They never expose controller
 accounts, executable or installation paths, controller versions, local policy,
 raw failure evidence, credentials, or management controls.
 
+The teammate view preserves the same Computer, **OpenMeld Tools**, and **Local
+agents** information architecture used for the owner's Computer. The product
+does not introduce simplified parallel cards for team visibility. Instead, the
+shared Local agents rows name each reported agent, keep its logo, show a
+disabled Switch, and allow team members to expand only safe enabled and
+availability facts. Privacy is enforced by omitting private fields and actions,
+not by replacing useful agent identities with a generic count.
+
 The designated Center Agent may read that same coarse projection for one active
 Organization member through
 `openmeld_read_member_openmeld_service_status`. It must first resolve the exact
