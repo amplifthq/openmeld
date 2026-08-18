@@ -37,6 +37,8 @@ import {
 } from "./agent-profile-project-selector-state";
 
 const WINDOWS_ABSOLUTE_PATH_PATTERN = /^[A-Za-z]:[\\/]/u;
+const OPENMELD_MANAGED_FOLDER_VALUE = "openmeld-managed";
+const CUSTOM_FOLDER_VALUE = "custom-folder";
 
 type PendingFolderMove =
 	| {
@@ -65,7 +67,6 @@ export function AgentProfileProjectSelector(input: {
 	selectedBindingGeneration: string | null;
 	showWorkspaceFallbacks?: boolean;
 	showProjectSelector?: boolean;
-	showWorkspaceModeChoices?: boolean;
 	workspaceFallbackMode?: "advanced" | "managed" | null;
 }) {
 	const controller = useProjectDiscovery({
@@ -73,6 +74,10 @@ export function AgentProfileProjectSelector(input: {
 		projects: input.projects,
 	});
 	const view = input.projectId ? controller.projectView(input.projectId) : null;
+	const projectOptions = input.projects.map((project) => ({
+		path: resolveProjectDefaultPath(controller.projectView(project.id)),
+		project,
+	}));
 	const branch = view
 		? resolveAgentProfileProjectSelectorBranch(view)
 		: "no_candidate";
@@ -298,50 +303,84 @@ export function AgentProfileProjectSelector(input: {
 
 	return (
 		<section
-			className="grid gap-3"
+			className="grid min-w-0 gap-3"
 			data-testid="agent-profile-project-selector"
 		>
 			{input.showProjectSelector === false ? null : (
-				<div className="grid gap-2">
-					<Label htmlFor="agent-profile-project-select">Default Project</Label>
+				<div className="grid min-w-0 gap-2">
+					<Label htmlFor="agent-profile-project-select">Working folder</Label>
 					<Select
 						disabled={input.disabled}
 						onValueChange={(value) => {
-							input.onProjectChange(value === "none" ? "" : (value ?? ""));
+							if (value === OPENMELD_MANAGED_FOLDER_VALUE) {
+								input.onProjectChange("");
+								input.onUseManagedWorkspace?.();
+							} else if (value === CUSTOM_FOLDER_VALUE) {
+								input.onProjectChange("");
+								input.onUseAdvancedWorkspace?.();
+							} else {
+								input.onProjectChange(value ?? "");
+							}
 							setErrorMessage(null);
 							setDeclaredPath("");
 							setConfirmNonGit(false);
 							setPendingFolderMove(null);
 							setSelectedCandidateId(null);
 						}}
-						value={input.projectId || "none"}
+						value={
+							input.projectId ||
+							(input.workspaceFallbackMode === "advanced"
+								? CUSTOM_FOLDER_VALUE
+								: OPENMELD_MANAGED_FOLDER_VALUE)
+						}
 					>
 						<SelectTrigger
-							className="h-10 w-full px-3 text-sm"
+							className="h-10 w-full min-w-0 px-3 text-sm"
 							displayValue={
-								input.projects.find((project) => project.id === input.projectId)
-									?.name ?? "Choose later"
+								<span
+									className="block max-w-full overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
+									data-testid="working-folder-display-value"
+								>
+									{resolveWorkingFolderDisplayValue({
+										manualPath: input.manualPath,
+										projectId: input.projectId,
+										projectOptions,
+										workspaceFallbackMode: input.workspaceFallbackMode,
+									})}
+								</span>
 							}
 							id="agent-profile-project-select"
 						/>
-						<SelectContent>
-							<SelectItem index={0} value="none">
-								Choose later
-							</SelectItem>
-							{input.projects.map((project, index) => (
-								<SelectItem
-									index={index + 1}
-									key={project.id}
-									value={project.id}
-								>
-									{project.name}
+						<SelectContent className="overflow-x-hidden" matchTriggerWidth>
+							{projectOptions.map(({ path, project }, index) => (
+								<SelectItem index={index} key={project.id} value={project.id}>
+									<span className="flex min-w-0 flex-col gap-0.5">
+										<span>{project.name}</span>
+										{path ? (
+											<span className="max-w-full overflow-x-auto whitespace-nowrap text-muted-foreground [scrollbar-width:thin]">
+												{path}
+											</span>
+										) : null}
+									</span>
 								</SelectItem>
 							))}
+							<SelectItem
+								index={projectOptions.length}
+								value={OPENMELD_MANAGED_FOLDER_VALUE}
+							>
+								Let OpenMeld choose
+							</SelectItem>
+							<SelectItem
+								index={projectOptions.length + 1}
+								value={CUSTOM_FOLDER_VALUE}
+							>
+								Choose a folder on this computer…
+							</SelectItem>
 						</SelectContent>
 					</Select>
 					<p className="text-muted-foreground text-xs leading-5">
-						Optional. A Default Project chooses the working folder for future
-						Wakes on this computer.
+						A Project keeps this Agent connected to the same work. You can also
+						let OpenMeld choose or use another folder on this computer.
 					</p>
 				</div>
 			)}
@@ -402,10 +441,7 @@ export function AgentProfileProjectSelector(input: {
 				disabled={input.disabled}
 				manualPath={input.manualPath}
 				onManualPathChange={input.onManualPathChange}
-				onUseAdvancedWorkspace={input.onUseAdvancedWorkspace}
-				onUseManagedWorkspace={input.onUseManagedWorkspace}
 				pickerDeviceId={pickerDeviceId}
-				showModeChoices={input.showWorkspaceModeChoices !== false}
 				visible={
 					input.showWorkspaceFallbacks !== false &&
 					(!input.projectId || branch === "no_candidate")
@@ -421,14 +457,44 @@ export function AgentProfileProjectSelector(input: {
 	);
 }
 
+function resolveProjectDefaultPath(view: ProjectComputerView): string | null {
+	return (
+		view.connections.find(
+			(connection) => connection.status === "available" && connection.isDefault
+		)?.path ?? null
+	);
+}
+
+function resolveWorkingFolderDisplayValue(input: {
+	manualPath: string;
+	projectId: string;
+	projectOptions: readonly {
+		path: string | null;
+		project: Project;
+	}[];
+	workspaceFallbackMode?: "advanced" | "managed" | null;
+}): string {
+	if (input.projectId) {
+		const selected = input.projectOptions.find(
+			(option) => option.project.id === input.projectId
+		);
+		if (selected) {
+			return selected.path
+				? `${selected.project.name} — ${selected.path}`
+				: selected.project.name;
+		}
+	}
+	if (input.workspaceFallbackMode === "advanced") {
+		return input.manualPath || "Folder on this computer";
+	}
+	return "Let OpenMeld choose";
+}
+
 function WorkspaceFallbackControls(input: {
 	disabled: boolean;
 	manualPath: string;
 	onManualPathChange: (path: string) => void;
-	onUseAdvancedWorkspace?: () => void;
-	onUseManagedWorkspace?: () => void;
 	pickerDeviceId: string | null;
-	showModeChoices: boolean;
 	visible: boolean;
 	wasProjectSelected: boolean;
 	workspaceFallbackMode?: "advanced" | "managed" | null;
@@ -438,39 +504,15 @@ function WorkspaceFallbackControls(input: {
 		return null;
 	}
 	return (
-		<div className="grid gap-3 border border-border/70 p-3">
-			<div className="grid gap-1">
-				<p className="font-medium text-sm">Working folder</p>
+		<div className="grid min-w-0 gap-3">
+			{input.wasProjectSelected ? (
 				<p className="text-muted-foreground text-xs leading-5">
-					{input.wasProjectSelected
-						? "No matching Project folder was found. Choose another working folder for this profile."
-						: "Choose where this Agent starts work on this computer, or let OpenMeld manage the folder for you."}
+					No matching Project folder was found. Choose another folder for this
+					profile.
 				</p>
-			</div>
-			{input.showModeChoices ? (
-				<div className="flex flex-wrap gap-2">
-					<Button
-						disabled={input.disabled}
-						onClick={input.onUseManagedWorkspace}
-						size="sm"
-						type="button"
-						variant="outline"
-					>
-						Use OpenMeld-managed workspace
-					</Button>
-					<Button
-						disabled={input.disabled}
-						onClick={input.onUseAdvancedWorkspace}
-						size="sm"
-						type="button"
-						variant="outline"
-					>
-						Choose a custom workspace
-					</Button>
-				</div>
 			) : null}
 			{input.workspaceFallbackMode === "advanced" ? (
-				<div className="grid gap-2">
+				<div className="grid min-w-0 gap-2">
 					{input.pickerDeviceId ? (
 						<LocalFolderPickerButton
 							allowMultiple={false}
@@ -549,7 +591,7 @@ function ProjectSelectionDetails(input: {
 	const candidates = input.view.discovery?.candidates ?? [];
 	if (input.branch === "connected" || input.branch === "multiple_connections") {
 		return (
-			<div className="grid gap-2 border border-border/70 p-3">
+			<div className="grid min-w-0 gap-2 pt-1">
 				<p className="font-medium text-sm">
 					{input.branch === "multiple_connections"
 						? "Choose the working folder"
@@ -557,7 +599,7 @@ function ProjectSelectionDetails(input: {
 				</p>
 				{availableConnections.map((connection) => (
 					<label
-						className="flex items-start gap-2 text-sm"
+						className="flex min-w-0 items-start gap-2 text-sm"
 						key={connection.bindingGeneration}
 					>
 						<input
@@ -572,7 +614,12 @@ function ProjectSelectionDetails(input: {
 							}}
 							type="radio"
 						/>
-						<span className="min-w-0 break-all">
+						<span
+							className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
+							data-testid={
+								connection.isDefault ? "default-working-folder-path" : undefined
+							}
+						>
 							{connection.path}
 							{connection.isDefault ? " (current default)" : ""}
 						</span>
@@ -583,7 +630,7 @@ function ProjectSelectionDetails(input: {
 	}
 
 	return (
-		<div className="grid gap-3 border border-border/70 p-3">
+		<div className="grid min-w-0 gap-3 pt-1">
 			{input.branch === "checking" ? (
 				<p className="text-sm">
 					OpenMeld is checking known repositories and worktrees on this
@@ -667,7 +714,7 @@ function ProjectConnectionDraft(input: {
 				</Button>
 			) : null}
 			{!input.pickerDeviceId || manualPathOpen ? (
-				<div className="grid gap-2">
+				<div className="grid min-w-0 gap-2">
 					<Label htmlFor="agent-profile-connect-folder-input">
 						Project folder path
 					</Label>
@@ -705,7 +752,7 @@ function MatchingProjectFolders(input: {
 	selectedCandidateId: string | null;
 }) {
 	return (
-		<div className="grid gap-2 border-border/70 border-t pt-3">
+		<div className="grid min-w-0 gap-2 border-border/70 border-t pt-3">
 			<p className="font-medium text-sm">Matching folders</p>
 			<p className="text-muted-foreground text-xs leading-5">
 				{input.candidates.length > 1
@@ -713,10 +760,10 @@ function MatchingProjectFolders(input: {
 					: `OpenMeld found ${input.candidates[0]?.canonicalPath}. You can use it instead.`}
 			</p>
 			{input.candidates.length > 1 ? (
-				<div className="grid gap-2">
+				<div className="grid min-w-0 gap-2">
 					{input.candidates.map((candidate) => (
 						<label
-							className="flex items-start gap-2 text-sm"
+							className="flex min-w-0 items-start gap-2 text-sm"
 							key={candidate.candidateId}
 						>
 							<input
@@ -727,7 +774,7 @@ function MatchingProjectFolders(input: {
 								}
 								type="radio"
 							/>
-							<span className="min-w-0 break-all">
+							<span className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
 								{candidate.canonicalPath}
 							</span>
 						</label>
@@ -766,11 +813,11 @@ function MissingProjectConnections(input: {
 		return null;
 	}
 	return (
-		<div className="grid gap-1 border border-border/70 p-3 text-xs">
+		<div className="grid min-w-0 gap-1 pt-1 text-xs">
 			<p className="font-medium">Unavailable on this computer</p>
 			{missingConnections.map((connection) => (
 				<p
-					className="break-all text-muted-foreground"
+					className="max-w-full overflow-x-auto whitespace-nowrap text-muted-foreground [scrollbar-width:thin]"
 					key={connection.bindingGeneration}
 				>
 					{connection.path}

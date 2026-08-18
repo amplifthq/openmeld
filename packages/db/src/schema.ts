@@ -73,6 +73,7 @@ export const {
   evalReports,
   openMeldDaemonAgentExecutionReadinessImpacts,
   openMeldDaemonAgentProfileBindings,
+  agentProfileCreationDefaults,
   organizationBindingAuthorizationPreferences,
   organizationDocuments,
   organizationDocumentFolders,

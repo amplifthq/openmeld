@@ -148,6 +148,47 @@ export const getOrganizationBindingAuthorizationPreferenceResponseSchema =
 export const setOrganizationBindingAuthorizationPreferenceResponseSchema =
   organizationBindingAuthorizationPreferenceSchema;
 
+const agentProfileCreationDefaultsFields = {
+  agentControllerPermissionMode: agentControllerPermissionModeSchema.nullable(),
+  defaultProjectId: boundedIdentifierSchema.nullable(),
+  modelId: boundedIdentifierSchema.nullable(),
+  openCodePermission: openCodePermissionConfigSchema.nullable(),
+  reasoningLevel: boundedIdentifierSchema.nullable(),
+};
+
+function requireCreationDefaultsModelForReasoning(
+  value: { modelId: string | null; reasoningLevel: string | null },
+  context: z.RefinementCtx
+): void {
+  if (value.reasoningLevel && !value.modelId) {
+    context.addIssue({
+      code: "custom",
+      message: "reasoningLevel requires modelId",
+      path: ["reasoningLevel"],
+    });
+  }
+}
+
+export const setAgentProfileCreationDefaultsBodySchema = z
+  .strictObject(agentProfileCreationDefaultsFields)
+  .superRefine(requireCreationDefaultsModelForReasoning);
+
+export const agentProfileCreationDefaultsSchema = z
+  .strictObject({
+    ...agentProfileCreationDefaultsFields,
+    agentControllerRef: boundedIdentifierSchema,
+    organizationId: boundedIdentifierSchema,
+    updatedAt: z.iso.datetime({ offset: true }).nullable(),
+    userId: boundedIdentifierSchema,
+  })
+  .superRefine(requireCreationDefaultsModelForReasoning);
+
+export const getAgentProfileCreationDefaultsResponseSchema =
+  agentProfileCreationDefaultsSchema;
+
+export const setAgentProfileCreationDefaultsResponseSchema =
+  agentProfileCreationDefaultsSchema;
+
 export const saveOrganizationWakeAccessChoiceBodySchema = z.strictObject({
   enableWakeAccess: z.boolean(),
 });
