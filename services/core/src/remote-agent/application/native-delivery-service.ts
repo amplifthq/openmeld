@@ -412,6 +412,7 @@ type RemoteAgentSlackNativeDeliveryInputBase = {
   slackChannelId: string;
   slackTeamId: string;
   slackThreadTs: string;
+  slackWorkingStatusTurnId?: string;
   sourceText: string;
   triggerMessageId: string;
   turnEnvelope: RemoteAgentTurnEnvelope;
@@ -442,6 +443,7 @@ export type RemoteAgentSlackNativeDeliveryAdmission = Pick<
   | "slackChannelId"
   | "slackTeamId"
   | "slackThreadTs"
+  | "slackWorkingStatusTurnId"
   | "sourceText"
   | "speakerMember"
   | "triggerMessageId"
@@ -2461,6 +2463,7 @@ export async function admitRemoteAgentSlackNativeDelivery(input: {
     slackChannelId: input.request.slackChannelId,
     slackTeamId: input.request.slackTeamId,
     slackThreadTs: input.request.slackThreadTs,
+    slackWorkingStatusTurnId: input.request.slackWorkingStatusTurnId,
     spaceId: input.request.conversationId,
     status: "submitted",
     triggerMessageId: input.request.triggerMessageId,

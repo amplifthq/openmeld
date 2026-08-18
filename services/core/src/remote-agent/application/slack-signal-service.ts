@@ -875,6 +875,7 @@ async function submitClaimedSlackChannelIntroduction(input: {
         slackChannelId: input.claim.run.dmChannelId,
         slackTeamId: input.claim.run.slackTeamId,
         slackThreadTs: input.claim.run.acknowledgementTs,
+        slackWorkingStatusTurnId: `slack-channel-introduction:${input.claim.run.slackTeamId}:${input.claim.run.interactionId}`,
         sourceText,
         speakerMember: {
           memberId: memberResolution.member.memberId,

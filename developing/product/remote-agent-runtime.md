@@ -336,7 +336,12 @@ the connected provider API.
    failure in that same thread. Working-status refresh is best-effort
    presentation derived from the latest delivery lifecycle in that Slack
    thread. An older terminal delivery cannot clear the status of a newer active
-   turn. Every status write is followed by a fresh lifecycle read and corrected
+   turn. Each new Slack delivery records a stable Working-status turn identity.
+   Independent turns use their own idempotency identity, while deliveries that
+   intentionally fan out one user turn, such as a multi-channel introduction,
+   share one explicit identity across retries and scheduled recovery. Creation
+   time is never used as turn identity. Every status write is followed by a
+   fresh lifecycle read and corrected
    until the provider status matches the latest turn. This presentation does
    not own execution truth, and its refresh cadence must not shorten the
    reconciliation processing lease. A timed-out reconciliation keeps its

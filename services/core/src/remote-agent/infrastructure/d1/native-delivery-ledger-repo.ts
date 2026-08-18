@@ -173,6 +173,7 @@ export type RemoteAgentNativeDeliveryRecord = {
   slackTeamId: string | null;
   slackChannelId: string | null;
   slackThreadTs: string | null;
+  slackWorkingStatusTurnId: string | null;
   messageChannelLocator: MessageChannelConversationLocator | null;
   providerPublicationIdempotencyKey: string | null;
   providerPublicationResultId: string | null;
@@ -257,6 +258,7 @@ type RemoteAgentNativeDeliveryRow = {
   slack_team_id: string | null;
   slack_channel_id: string | null;
   slack_thread_ts: string | null;
+  slack_working_status_turn_id: string | null;
   message_channel_provider: string | null;
   message_channel_connection_id: string | null;
   message_channel_locator_json: string | null;
@@ -336,6 +338,7 @@ const REMOTE_AGENT_NATIVE_DELIVERY_SELECT = `
     slack_team_id,
     slack_channel_id,
     slack_thread_ts,
+    slack_working_status_turn_id,
     message_channel_provider,
     message_channel_connection_id,
     message_channel_locator_json,
@@ -457,6 +460,8 @@ export async function isLatestRemoteAgentNativeDeliveryActiveForSlackThread(inpu
             slack_channel_id,
             slack_thread_ts,
             trigger_message_id,
+            COALESCE(slack_working_status_turn_id, delivery_id)
+              AS slack_working_status_turn_id,
             created_at_ms
           FROM openMeldRemoteAgent_native_delivery_ledger
           WHERE conversation_kind = 'slack'
@@ -476,7 +481,10 @@ export async function isLatestRemoteAgentNativeDeliveryActiveForSlackThread(inpu
             AND latest_turn.slack_channel_id = deliveries.slack_channel_id
             AND latest_turn.slack_thread_ts = deliveries.slack_thread_ts
             AND latest_turn.trigger_message_id = deliveries.trigger_message_id
-            AND latest_turn.created_at_ms = deliveries.created_at_ms
+            AND latest_turn.slack_working_status_turn_id = COALESCE(
+              deliveries.slack_working_status_turn_id,
+              deliveries.delivery_id
+            )
           WHERE deliveries.conversation_kind = 'slack'
             AND deliveries.status IN ('submitted', 'accepted', 'retry_observed')
             AND deliveries.final_publication_state IS NULL
@@ -663,6 +671,29 @@ function resolveControllerNormalizationStorage(
   return snapshot;
 }
 
+function resolveSlackWorkingStatusTurnId(input: {
+  conversationKind: RemoteAgentNativeDeliveryConversationKind;
+  idempotencyKey: string;
+  slackWorkingStatusTurnId?: string | null;
+}): string | null {
+  if (input.conversationKind !== "slack") {
+    if (input.slackWorkingStatusTurnId !== undefined) {
+      throw new Error(
+        "Slack working-status turn identity requires a Slack delivery"
+      );
+    }
+    return null;
+  }
+  if (input.slackWorkingStatusTurnId === null) {
+    return input.idempotencyKey;
+  }
+  const explicitTurnId = input.slackWorkingStatusTurnId?.trim();
+  if (input.slackWorkingStatusTurnId !== undefined && !explicitTurnId) {
+    throw new Error("Slack working-status turn identity cannot be empty");
+  }
+  return explicitTurnId ?? input.idempotencyKey;
+}
+
 export async function upsertRemoteAgentNativeDeliveryRecord(input: {
   db: D1Database;
   deliveryId?: string;
@@ -690,11 +721,17 @@ export async function upsertRemoteAgentNativeDeliveryRecord(input: {
   slackTeamId?: string | null;
   slackChannelId?: string | null;
   slackThreadTs?: string | null;
+  slackWorkingStatusTurnId?: string | null;
   messageChannelLocator?: MessageChannelConversationLocator | null;
   providerPublicationIdempotencyKey?: string | null;
 }): Promise<RemoteAgentNativeDeliveryRecord> {
   const threadContextJson = serializeThreadContext(input.threadContext ?? null);
   const conversationKind = input.conversationKind ?? "space";
+  const slackWorkingStatusTurnId = resolveSlackWorkingStatusTurnId({
+    conversationKind,
+    idempotencyKey: input.idempotencyKey,
+    slackWorkingStatusTurnId: input.slackWorkingStatusTurnId,
+  });
   const messageChannelStorage = resolveMessageChannelStorage({
     conversationKind,
     locator: input.messageChannelLocator ?? null,
@@ -737,6 +774,7 @@ export async function upsertRemoteAgentNativeDeliveryRecord(input: {
           slack_team_id,
           slack_channel_id,
           slack_thread_ts,
+          slack_working_status_turn_id,
           message_channel_provider,
           message_channel_connection_id,
           message_channel_locator_json,
@@ -745,7 +783,7 @@ export async function upsertRemoteAgentNativeDeliveryRecord(input: {
           updated_at_ms,
           submitted_at_ms
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(idempotency_key) DO NOTHING
       `
     )
@@ -776,6 +814,7 @@ export async function upsertRemoteAgentNativeDeliveryRecord(input: {
       input.slackTeamId ?? null,
       input.slackChannelId ?? null,
       input.slackThreadTs ?? null,
+      slackWorkingStatusTurnId,
       messageChannelStorage.provider,
       messageChannelStorage.connectionId,
       messageChannelStorage.locatorJson,
@@ -855,6 +894,11 @@ function assertImmutableNativeDeliveryAdmission(input: {
     slackChannelId: input.input.slackChannelId ?? null,
     slackTeamId: input.input.slackTeamId ?? null,
     slackThreadTs: input.input.slackThreadTs ?? null,
+    slackWorkingStatusTurnId: resolveSlackWorkingStatusTurnId({
+      conversationKind: input.conversationKind,
+      idempotencyKey: input.input.idempotencyKey,
+      slackWorkingStatusTurnId: input.input.slackWorkingStatusTurnId,
+    }),
     sourceClientMessageId: input.input.sourceClientMessageId ?? null,
     spaceId: input.input.spaceId,
     threadContext:
@@ -887,6 +931,7 @@ function assertImmutableNativeDeliveryAdmission(input: {
     slackChannelId: input.record.slackChannelId,
     slackTeamId: input.record.slackTeamId,
     slackThreadTs: input.record.slackThreadTs,
+    slackWorkingStatusTurnId: input.record.slackWorkingStatusTurnId,
     sourceClientMessageId: input.record.sourceClientMessageId,
     spaceId: input.record.spaceId,
     threadContext: input.record.threadContext,
@@ -5040,6 +5085,7 @@ function mapNativeDeliveryRow(
     slackTeamId: row.slack_team_id,
     slackChannelId: row.slack_channel_id,
     slackThreadTs: row.slack_thread_ts,
+    slackWorkingStatusTurnId: row.slack_working_status_turn_id,
     messageChannelLocator,
     providerPublicationIdempotencyKey: row.provider_publication_idempotency_key,
     providerPublicationResultId: row.provider_publication_result_id,

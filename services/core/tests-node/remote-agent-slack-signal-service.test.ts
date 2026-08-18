@@ -44,6 +44,10 @@ import {
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import {
+  completeSlackChannelIntroductionAcknowledgement,
+  createSlackChannelIntroductionManifest,
+} from "../src/remote-agent/infrastructure/d1/slack-channel-introduction-repo";
 import { readRemoteAgentSlackEventIngress } from "../src/remote-agent/infrastructure/d1/slack-event-ingress-repo";
 import {
   advanceSlackThreadContextCursor,
@@ -238,6 +242,134 @@ describe("Remote Agent Slack signal service", () => {
         createCompletedCallbackForSubmittedRequest({
           request: secondRequest,
           submissionId: `sub_${secondRequest.idempotencyKey}`,
+        })
+      );
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps a recovered multi-channel introduction working across submission ticks", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: `req_${request.idempotencyKey}`,
+        status: "pending" as const,
+        submissionId: `sub_${request.idempotencyKey}`,
+      })
+    );
+    const fetchMock = stubSlackFetch({
+      conversationsListResponse: {
+        channels: [
+          {
+            id: "C_PRODUCT",
+            is_member: true,
+            is_private: false,
+            name: "product",
+          },
+          {
+            id: "C_DESIGN",
+            is_member: true,
+            is_private: false,
+            name: "design",
+          },
+        ],
+        ok: true,
+        response_metadata: { next_cursor: "" },
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 900,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await createSlackChannelIntroductionManifest({
+        channels: [
+          {
+            botWasChannelMember: true,
+            slackChannelId: "C_PRODUCT",
+            slackChannelName: "product",
+          },
+          {
+            botWasChannelMember: true,
+            slackChannelId: "C_DESIGN",
+            slackChannelName: "design",
+          },
+        ],
+        db: harness.db,
+        dmChannelId: "D_OPENMELD",
+        interactionId: "V_CHANNELS_RECOVERED",
+        nowMs: 1000,
+        organizationId: "org_1",
+        organizationInviteUrl: null,
+        requesterSlackUserId: "U123",
+        slackTeamId: "T123",
+      });
+      await completeSlackChannelIntroductionAcknowledgement({
+        acknowledgementTs: "1710000001.000200",
+        db: harness.db,
+        interactionId: "V_CHANNELS_RECOVERED",
+        nowMs: 1100,
+      });
+      const env = buildEnv(harness.db, { workerSubmit });
+
+      await expect(
+        runSlackChannelIntroductionTick({
+          db: harness.db,
+          env,
+          interactionId: "V_CHANNELS_RECOVERED",
+          limit: 1,
+          nowMs: 1200,
+        })
+      ).resolves.toEqual({ failed: 0, outcomeUnknown: 0, submitted: 1 });
+      await expect(
+        runSlackChannelIntroductionTick({
+          db: harness.db,
+          env,
+          interactionId: "V_CHANNELS_RECOVERED",
+          limit: 1,
+          nowMs: 2200,
+        })
+      ).resolves.toEqual({ failed: 0, outcomeUnknown: 0, submitted: 1 });
+
+      const submissions = workerSubmit.mock.calls.map(([request]) => request);
+      const firstRequest = submissions[0];
+      const recoveredRequest = submissions[1];
+      expect(firstRequest).toBeDefined();
+      expect(recoveredRequest).toBeDefined();
+      if (!(firstRequest && recoveredRequest)) {
+        throw new Error(
+          "Expected both recovered channel introduction deliveries"
+        );
+      }
+
+      await completeRemoteAgentNativeDelivery(
+        env,
+        createCompletedCallbackForSubmittedRequest({
+          request: recoveredRequest,
+          submissionId: `sub_${recoveredRequest.idempotencyKey}`,
+        })
+      );
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "is working on your request…",
+      });
+
+      await completeRemoteAgentNativeDelivery(
+        env,
+        createCompletedCallbackForSubmittedRequest({
+          request: firstRequest,
+          submissionId: `sub_${firstRequest.idempotencyKey}`,
         })
       );
       expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({

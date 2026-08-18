@@ -1574,6 +1574,14 @@ terminal coordination must not reconstruct it from Dispatch Ledger. The ledger
 exists so trace and diagnostics cover native delivery with the same
 deterministic-evidence rule as wakes.
 
+For legacy Slack result surfaces, the ledger also records the stable
+Working-status turn identity used only to derive provider presentation. One
+ordinary delivery uses its idempotency identity; multiple deliveries that are
+intentional fan-out from one user turn share an explicit identity across
+recovery. This field groups lifecycle evidence but does not own execution,
+conversation, task, or authorization truth. Older nullable rows remain readable
+as single-delivery turns during rollout.
+
 `openMeldRemoteAgent_conversation_generations` is the Core-owned routing
 projection from one Organization-scoped logical Center Agent conversation to
 its active Remote Agent runtime generation. Core is its only writer and uses a
