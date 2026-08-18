@@ -16,6 +16,7 @@ import {
   messageChannelIdentityLinkPreviewBodySchema,
   messageChannelIdentityLinkPreviewResponseSchema,
   ORGANIZATION_LOGO_MAX_SIZE_BYTES,
+  organizationComputersResponseSchema,
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
   organizationLogoMimeTypeSchema,
@@ -34,6 +35,7 @@ import type { OpenMeldApiClientFoundation } from "../client";
 import {
   buildCurrentOrganizationCenterAgentMemoryPolicyPath,
   buildCurrentOrganizationCenterAgentMemoryWipeSelfPath,
+  buildCurrentOrganizationComputersPath,
   buildCurrentOrganizationDirectoryPath,
   buildCurrentOrganizationInformationProtectionPath,
   buildCurrentOrganizationLogoPath,
@@ -147,6 +149,17 @@ export const createOrganizationApi: CreateOrganizationApi = (
       timeoutMs: input.timeoutMs,
       schema: organizationDirectoryResponseSchema,
       invalidMessage: "invalid Organization directory response",
+    }),
+  getCurrentComputers: async (input = {}) =>
+    await client.requestJson({
+      url: buildCurrentOrganizationComputersPath(),
+      operation: "organization.computers.read",
+      method: "GET",
+      requestContext: input.requestContext,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      schema: organizationComputersResponseSchema,
+      invalidMessage: "invalid Organization computers response",
     }),
   getCurrentMemberOpenMeldServiceStatuses: async (input = {}) =>
     await client.requestJson({

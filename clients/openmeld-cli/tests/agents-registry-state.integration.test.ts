@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   detectInstalledSkillsAgentsMock,
+  listBuiltinControllerInstalledCandidatesMock,
   refreshBuiltinControllerPersistedLaunchContractMock,
 } = vi.hoisted(() => ({
   detectInstalledSkillsAgentsMock: vi.fn(),
+  listBuiltinControllerInstalledCandidatesMock: vi.fn(),
   refreshBuiltinControllerPersistedLaunchContractMock: vi.fn(),
 }));
 
@@ -24,6 +26,8 @@ vi.mock("../src/agents/local-controller-install", async () => {
   >("../src/agents/local-controller-install");
   return {
     ...actual,
+    listBuiltinControllerInstalledCandidates: (input: unknown) =>
+      listBuiltinControllerInstalledCandidatesMock(input),
     refreshBuiltinControllerPersistedLaunchContract: (input: unknown) =>
       refreshBuiltinControllerPersistedLaunchContractMock(input),
   };
@@ -33,6 +37,7 @@ import {
   type AgentTargetState,
   listAgentRegistrations,
   listAgentTargetStates,
+  manageAgentRegistrationInstallation,
   reconcileNewRunnableBuiltinAgentsForSetup,
   resolveAgentContextBinding,
   resolveAgentTargetState,
@@ -50,11 +55,94 @@ describe("agents registry resolve target state", () => {
     refreshBuiltinControllerPersistedLaunchContractMock.mockImplementation(
       async (input: { launchContract: unknown }) => input.launchContract
     );
+    listBuiltinControllerInstalledCandidatesMock.mockReset();
   });
 
   afterEach(() => {
     vi.clearAllMocks();
     detectInstalledSkillsAgentsMock.mockReset();
+    listBuiltinControllerInstalledCandidatesMock.mockReset();
+  });
+
+  it("lists verified installations and persists the owner's selected installation", async () => {
+    await withTempHome(async () => {
+      const localInstall = {
+        commandPath: "/Users/demo/.local/bin/claude",
+        detail: "Claude Code installed for this account",
+        installId: "install-local",
+        label: "User installation",
+        launchContract: {
+          commandPath: "/Users/demo/.local/bin/claude",
+          kind: "executable" as const,
+        },
+      };
+      const homebrewInstall = {
+        commandPath: "/opt/homebrew/bin/claude",
+        detail: "Claude Code installed with Homebrew",
+        installId: "install-homebrew",
+        label: "Homebrew installation",
+        launchContract: {
+          commandPath: "/opt/homebrew/bin/claude",
+          kind: "executable" as const,
+        },
+      };
+      listBuiltinControllerInstalledCandidatesMock.mockResolvedValue({
+        candidates: [localInstall, homebrewInstall],
+        ok: true,
+      });
+      detectInstalledSkillsAgentsMock.mockResolvedValue(["claude-code"]);
+      await setConfiguredDeviceRuntimeState({
+        controllers: [
+          {
+            agentId: "claude-code",
+            displayName: "Claude Code",
+            enabled: true,
+            launchContract: localInstall.launchContract,
+            registeredAt: "2026-08-18T00:00:00.000Z",
+            updatedAt: "2026-08-18T00:00:00.000Z",
+          },
+        ],
+      });
+      expect(
+        (await getConfiguredDeviceRuntimeState())?.controllers?.[0]
+          ?.launchContract
+      ).toEqual(localInstall.launchContract);
+      expect(
+        (await resolveAgentTargetState("claude-code"))?.registration
+          ?.launchContract
+      ).toEqual(localInstall.launchContract);
+
+      const listed = await manageAgentRegistrationInstallation({
+        agentId: "claude-code",
+        operation: "list",
+      });
+      expect(listed.installations).toEqual([
+        expect.objectContaining({
+          installationId: "install-local",
+          selected: true,
+        }),
+        expect.objectContaining({
+          installationId: "install-homebrew",
+          selected: false,
+        }),
+      ]);
+
+      const selected = await manageAgentRegistrationInstallation({
+        agentId: "claude-code",
+        installationId: "install-homebrew",
+        operation: "select",
+      });
+      expect(selected).toMatchObject({
+        agentId: "claude-code",
+        changed: true,
+        selectedInstallationId: "install-homebrew",
+        status: "updated",
+      });
+      expect(
+        (await getConfiguredDeviceRuntimeState())?.controllers?.[0]
+          ?.launchContract
+      ).toEqual(homebrewInstall.launchContract);
+    });
   });
 
   it("persists an adapter-refreshed launch contract without changing controller state", async () => {

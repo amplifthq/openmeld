@@ -1,13 +1,23 @@
 "use client";
 
-import { Card, CardContent } from "@openmeld/ui/components/card";
-import { SettingsComputerSummaryCardContent } from "@openmeld/ui/components/settings-computers";
+import { parseAgentControllerRef } from "@openmeld/agent-runtime";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@openmeld/ui/components/card";
+import {
+	SettingsComputerSummaryCardContent,
+	SettingsLocalAgentRows,
+} from "@openmeld/ui/components/settings-computers";
 import { cardPickerCardClassName } from "@openmeld/ui/lib/card-picker-contract";
 import { cn } from "@openmeld/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
 import {
-	formatAgentCount,
+	formatOrganizationComputerLastSeen,
 	type OrganizationComputer,
 } from "./organization-computers";
 
@@ -32,12 +42,14 @@ export function OrganizationComputerPickerCard(input: {
 				})}
 			>
 				<SettingsComputerSummaryCardContent
-					lastSeenLabel={formatComputerAgentNames(input.computer)}
-					localAgentsSummaryLabel={formatAgentCount(
-						input.computer.agents.length
+					lastSeenLabel={formatOrganizationComputerLastSeen(
+						input.computer.lastSeenAtMs
+					)}
+					localAgentsSummaryLabel={formatLocalAgentCount(
+						input.computer.localAgents.length
 					)}
 					name={input.computer.deviceDisplayName}
-					platformLabel={`Owned by ${input.computer.ownerLabel}`}
+					platformLabel={formatTeamComputerPlatform(input.computer)}
 				/>
 			</Link>
 		</div>
@@ -54,27 +66,72 @@ export function OrganizationComputerDetail(input: {
 		>
 			<Card className="gap-0 py-0">
 				<SettingsComputerSummaryCardContent
-					lastSeenLabel={formatComputerAgentNames(input.computer)}
-					localAgentsSummaryLabel={formatAgentCount(
-						input.computer.agents.length
+					lastSeenLabel={formatOrganizationComputerLastSeen(
+						input.computer.lastSeenAtMs
+					)}
+					localAgentsSummaryLabel={formatLocalAgentCount(
+						input.computer.localAgents.length
 					)}
 					name={input.computer.deviceDisplayName}
-					platformLabel={`Owned by ${input.computer.ownerLabel}`}
+					platformLabel={formatTeamComputerPlatform(input.computer)}
 				/>
+			</Card>
+			<Card>
+				<CardHeader>
+					<CardTitle>OpenMeld Service</CardTitle>
+					<CardDescription>
+						{formatServiceStatusDescription(input.computer.serviceState)}
+					</CardDescription>
+				</CardHeader>
+			</Card>
+			<Card>
+				<CardHeader>
+					<CardTitle>Local agents</CardTitle>
+					<CardDescription>
+						Shared status only. Accounts, versions, installation locations, and
+						computer settings stay private to {input.computer.ownerLabel}.
+					</CardDescription>
+				</CardHeader>
 				<CardContent className="border-border/70 border-t py-4">
-					<h2 className="font-medium text-foreground text-sm">Agents</h2>
-					<ul className="mt-2 space-y-1.5">
-						{input.computer.agents.map((agent) => (
-							<li
-								className="text-muted-foreground text-sm"
-								key={agent.profileId}
-							>
-								{agent.profileName}
-							</li>
-						))}
-					</ul>
+					{input.computer.localAgents.length > 0 ? (
+						<SettingsLocalAgentRows
+							rows={input.computer.localAgents.map((agent) => ({
+								description: formatTeamLocalAgentStatus(agent),
+								displayName: formatAgentControllerName(
+									agent.agentControllerRef
+								),
+								id: agent.agentControllerRef,
+								logoAgentId:
+									parseAgentControllerRef(agent.agentControllerRef)?.id ??
+									agent.agentControllerRef,
+							}))}
+						/>
+					) : (
+						<p className="text-muted-foreground text-sm">
+							No local agents have been reported from this computer yet.
+						</p>
+					)}
 				</CardContent>
 			</Card>
+			{input.computer.agents.length > 0 ? (
+				<Card>
+					<CardHeader>
+						<CardTitle>Agent Profiles</CardTitle>
+					</CardHeader>
+					<CardContent className="border-border/70 border-t py-4">
+						<ul className="space-y-1.5">
+							{input.computer.agents.map((agent) => (
+								<li
+									className="text-muted-foreground text-sm"
+									key={agent.profileId}
+								>
+									{agent.profileName}
+								</li>
+							))}
+						</ul>
+					</CardContent>
+				</Card>
+			) : null}
 			<p className="text-muted-foreground text-sm leading-6">
 				{input.computer.ownerLabel} owns this computer. Ask them to update its
 				connection or settings.
@@ -83,16 +140,67 @@ export function OrganizationComputerDetail(input: {
 	);
 }
 
-function formatComputerAgentNames(computer: OrganizationComputer): string {
-	const names = computer.agents.map((agent) => agent.profileName);
-	if (names.length === 0) {
-		return "No organization Agents";
+function formatTeamComputerPlatform(computer: OrganizationComputer): string {
+	const deviceType =
+		computer.deviceType === "unknown"
+			? null
+			: `${computer.deviceType.slice(0, 1).toUpperCase()}${computer.deviceType.slice(1)}`;
+	const operatingSystem =
+		computer.platformFamily === "Unknown"
+			? null
+			: [computer.platformFamily, computer.osVersion].filter(Boolean).join(" ");
+	return [deviceType, operatingSystem, `Owned by ${computer.ownerLabel}`]
+		.filter(Boolean)
+		.join(" · ");
+}
+
+function formatLocalAgentCount(count: number): string {
+	return count === 1 ? "1 Local agent" : `${count} Local agents`;
+}
+
+function formatServiceStatusDescription(
+	state: OrganizationComputer["serviceState"]
+): string {
+	switch (state) {
+		case "connected":
+			return "OpenMeld Service is connected.";
+		case "needs_attention":
+			return "Connected, but this computer needs an OpenMeld update before it can receive local work.";
+		case "not_connected":
+			return "Not connected right now. The computer owner can reconnect OpenMeld Service.";
+		default:
+			return "OpenMeld could not confirm this computer's connection status.";
 	}
-	if (names.length === 1) {
-		return names[0] ?? "1 Agent";
+}
+
+function formatTeamLocalAgentStatus(
+	agent: OrganizationComputer["localAgents"][number]
+): string {
+	if (!agent.enabled) {
+		return "Off on this computer";
 	}
-	if (names.length === 2) {
-		return `${names[0]} and ${names[1]}`;
+	switch (agent.status) {
+		case "ready":
+			return "Available on this computer";
+		case "not_ready":
+			return "Needs attention from the computer owner";
+		case "stale":
+			return "Needs a fresh check from this computer";
+		default:
+			return "Status not confirmed";
 	}
-	return `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
+}
+
+function formatAgentControllerName(agentControllerRef: string): string {
+	const id =
+		parseAgentControllerRef(agentControllerRef)?.id ?? agentControllerRef;
+	const names: Record<string, string> = {
+		"claude-code": "Claude Code",
+		codex: "Codex",
+		cursor: "Cursor",
+		"grok-build": "Grok Build",
+		opencode: "OpenCode",
+		openclaw: "OpenClaw",
+	};
+	return names[id] ?? id;
 }

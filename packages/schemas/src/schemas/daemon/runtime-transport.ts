@@ -34,6 +34,8 @@ import {
   openMeldDaemonCancelRequestPayloadSchema,
   openMeldDaemonInterruptPayloadSchema,
   openMeldDaemonInterruptRequestPayloadSchema,
+  openMeldDaemonManageLocalAgentInstallationPayloadSchema,
+  openMeldDaemonManageLocalAgentInstallationRequestPayloadSchema,
   openMeldDaemonSetLocalAgentEnabledPayloadSchema,
   openMeldDaemonSetLocalAgentEnabledRequestPayloadSchema,
   openMeldDaemonSetProfileWorkspacePayloadSchema,
@@ -145,6 +147,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
     .strictObject({
       cancel: z.literal(true).optional(),
       interrupt: z.literal(true).optional(),
+      manageInstallations: z.literal(true).optional(),
       refreshCatalog: z.literal(true).optional(),
       resumeControllerConversation: z.literal(true).optional(),
       setEnabled: z.literal(true).optional(),
@@ -411,6 +414,28 @@ export const runtimeTransportSetLocalAgentEnabledResponseSchema =
     }),
   ]);
 
+export const runtimeTransportManageLocalAgentInstallationRequestSchema =
+  z.strictObject({
+    v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
+    ownerUserId: z.string().min(1),
+    deviceId: z.string().min(1),
+    lane: daemonServiceLaneSchema,
+    request: openMeldDaemonManageLocalAgentInstallationRequestPayloadSchema,
+  });
+
+export const runtimeTransportManageLocalAgentInstallationResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      status: z.literal("accepted"),
+      payload: openMeldDaemonManageLocalAgentInstallationPayloadSchema,
+    }),
+    z.strictObject({
+      status: z.literal("rejected"),
+      reasonCode: z.string().min(1),
+      message: z.string().min(1),
+    }),
+  ]);
+
 export const runtimeTransportRefreshLocalAgentCatalogRequestSchema =
   z.strictObject({
     v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
@@ -480,6 +505,12 @@ export const runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema =
     payload: openMeldDaemonSetLocalAgentEnabledRequestPayloadSchema,
   });
 
+export const runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema =
+  z.strictObject({
+    requestId: z.string().min(1),
+    payload: openMeldDaemonManageLocalAgentInstallationRequestPayloadSchema,
+  });
+
 export const runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema =
   z.strictObject({
     requestId: z.string().min(1),
@@ -508,6 +539,7 @@ export const runtimeTransportLocalAgentControlResultFramePayloadSchema =
   z.strictObject({
     requestId: z.string().min(1),
     payload: z.union([
+      openMeldDaemonManageLocalAgentInstallationPayloadSchema,
       openMeldDaemonSetLocalAgentEnabledPayloadSchema,
       openMeldDaemonSetProfileWorkspacePayloadSchema,
       openMeldDaemonSyncRouteCatalogPayloadSchema,
@@ -1642,6 +1674,7 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.route_catalog.changed",
   "daemon.local_agent_control.cancel",
   "daemon.local_agent_control.interrupt",
+  "daemon.local_agent_control.manage_installation",
   "daemon.local_agent_control.refresh_catalog",
   "daemon.local_agent_control.set_enabled",
   "daemon.local_agent_control.set_profile_workspace",

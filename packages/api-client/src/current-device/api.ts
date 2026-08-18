@@ -1,5 +1,6 @@
 import {
   currentDeviceTargetResponseSchema,
+  currentLocalAgentInstallationsResponseSchema,
   currentLocalRuntimeReplyReadinessResponseSchema,
   forgetComputerResponseSchema,
   forgetCurrentComputerResponseSchema,
@@ -8,6 +9,8 @@ import {
   localRuntimesQuerySchema,
   localRuntimesResponseSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
+  selectCurrentLocalAgentInstallationBodySchema,
+  selectCurrentLocalAgentInstallationResponseSchema,
   setCurrentAgentProfileWorkspaceBodySchema,
   setCurrentAgentProfileWorkspaceResponseSchema,
   setCurrentLocalAgentEnabledBodySchema,
@@ -21,6 +24,7 @@ import {
   buildCurrentAgentProfileWorkspaceRoute,
   buildCurrentDeviceObservedMetadataRoute,
   buildCurrentLocalAgentEnabledRoute,
+  buildCurrentLocalAgentInstallationsRoute,
   buildForgetComputerRoute,
   buildLocalRuntimeDisplayNameRoute,
   buildLocalRuntimeEnrollmentRoute,
@@ -34,6 +38,7 @@ import type {
   CreateCurrentDeviceApi,
   EnrollLocalRuntimeInput,
   ListLocalRuntimesInput,
+  SelectCurrentLocalAgentInstallationInput,
   SetCurrentAgentProfileWorkspaceInput,
   SetCurrentLocalAgentEnabledInput,
   SetLocalRuntimeDisplayNameInput,
@@ -107,6 +112,21 @@ function requireValidCurrentLocalAgentEnabledBody(
   if (!parsed.success) {
     throw new Error(
       parsed.error.issues[0]?.message ?? "Invalid local agent enabled payload."
+    );
+  }
+  return parsed.data;
+}
+
+function requireValidCurrentLocalAgentInstallationBody(
+  input: SelectCurrentLocalAgentInstallationInput
+) {
+  const parsed = selectCurrentLocalAgentInstallationBodySchema.safeParse({
+    installationId: input.installationId,
+  });
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ??
+        "Invalid local agent installation payload."
     );
   }
   return parsed.data;
@@ -220,6 +240,28 @@ export const createCurrentDeviceApi: CreateCurrentDeviceApi = (
         body: JSON.stringify(body),
         schema: setCurrentLocalAgentEnabledResponseSchema,
         invalidMessage: "Invalid local agent enabled response.",
+      });
+    },
+    getCurrentLocalAgentInstallations: async (input) =>
+      await client.requestJson({
+        url: buildCurrentLocalAgentInstallationsRoute(input.agentId),
+        operation: "local_runtime.current.local_agent_installations.read",
+        method: "GET",
+        schema: currentLocalAgentInstallationsResponseSchema,
+        invalidMessage: "Invalid local agent installations response.",
+      }),
+    selectCurrentLocalAgentInstallation: async (input) => {
+      const body = requireValidCurrentLocalAgentInstallationBody(input);
+      return await client.requestJson({
+        url: buildCurrentLocalAgentInstallationsRoute(input.agentId),
+        operation: "local_runtime.current.local_agent_installation.write",
+        method: "PUT",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+        schema: selectCurrentLocalAgentInstallationResponseSchema,
+        invalidMessage: "Invalid selected local agent installation response.",
       });
     },
     setCurrentAgentProfileWorkspace: async (input) => {

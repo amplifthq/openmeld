@@ -111,6 +111,7 @@ export type {
   ListLocalRuntimesInput,
   LocalRuntimeEnrollmentResponse,
   LocalRuntimesResponse,
+  SelectCurrentLocalAgentInstallationInput,
   SetLocalRuntimeDisplayNameInput,
   WriteCurrentDeviceObservedMetadataInput,
 } from "./current-device/types";
@@ -195,6 +196,7 @@ export {
 export { createOrganizationApi } from "./organization/api";
 export {
   buildCurrentOrganizationCenterAgentMemoryWipeSelfPath,
+  buildCurrentOrganizationComputersPath,
   buildCurrentOrganizationDirectoryPath,
   buildCurrentOrganizationInformationProtectionPath,
   buildCurrentOrganizationLogoPath,

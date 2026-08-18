@@ -321,6 +321,7 @@ export type ParsedDaemonFrame = {
     | "daemon.execution_recovery.resume_controller_conversation_result"
     | "daemon.local_agent_control.cancel"
     | "daemon.local_agent_control.interrupt"
+    | "daemon.local_agent_control.manage_installation"
     | "daemon.local_agent_control.refresh_catalog"
     | "daemon.local_agent_control.result"
     | "daemon.local_agent_control.set_enabled"

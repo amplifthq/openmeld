@@ -816,14 +816,18 @@ remaining batch. Public consumers must not receive device ids, computer names,
 operating-system details, Service versions, per-member heartbeat timestamps,
 or raw lookup errors from this projection.
 
-The Organization Computers UI does not widen or reinterpret that member
-Service-status projection. Web derives its read-only, other-member computer
-cards only from the already authorized Organization Directory Agent projection:
-an active ordinary Agent must supply both its owner and current runtime computer
-display relationship. Web groups duplicate Agent relationships by owner and
-device, but it does not turn route or readiness evidence into per-computer
-Service liveness. The signed-in member's complete inventory still comes from
-the owner-scoped local-runtimes contract.
+Core owns a separate Organization Computers read projection. It joins current
+Organization membership with the Core-owned device registry, execution-target
+evidence, and Runtime Transport session liveness, then emits only team-safe
+fields: owner id, opaque computer id, display name, device category,
+operating-system family/version, last-seen time, coarse per-computer Service
+state, and local-agent ref/enabled/readiness status. It never emits controller
+accounts, controller versions, executable or installation paths, local policy,
+credentials, or raw lookup errors. One member's failed live lookup is logged
+with Organization/member correlation and projects `unknown` without hiding
+their registry-backed Computers or failing the remaining batch. The signed-in
+member's complete mutable inventory still comes from the owner-scoped
+local-runtimes contract.
 
 The Center Agent single-member reader uses the same Core projection and
 Runtime Transport owner-service authority after Core verifies current

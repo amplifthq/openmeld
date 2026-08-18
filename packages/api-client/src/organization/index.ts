@@ -2,6 +2,7 @@
 
 export { createOrganizationApi } from "./api";
 export {
+  buildCurrentOrganizationComputersPath,
   buildCurrentOrganizationDirectoryPath,
   buildCurrentOrganizationInformationProtectionPath,
   buildCurrentOrganizationLogoPath,

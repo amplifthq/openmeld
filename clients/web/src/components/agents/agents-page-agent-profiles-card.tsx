@@ -99,7 +99,10 @@ import {
 import { ProfileDetailsDialog } from "#/components/profiles/profile-details-dialog";
 import { ProfileCard } from "#/components/profiles/profile-list-item";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationDirectMessagePath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationComputerPath,
+	buildOrganizationDirectMessagePath,
+} from "#/lib/organizations/organization-routes";
 import { resolveWebAgentControllerPermissionModeDisplayFromBinding } from "#/lib/profiles/agent-controller-permission-mode-display";
 import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 import { disableAgentProfilePrimaryBinding } from "#/lib/profiles/agent-profile-primary-binding";
@@ -1866,6 +1869,15 @@ function AgentProfileExecutionReadinessRow(input: {
 			}
 			profile={input.profile}
 			profileName={input.profile.profileName}
+			runtimeComputer={
+				input.readiness?.routeDeviceId &&
+				input.readiness.runtimeDeviceDisplayName
+					? {
+							deviceId: input.readiness.routeDeviceId,
+							displayName: input.readiness.runtimeDeviceDisplayName,
+						}
+					: null
+			}
 		/>
 	);
 	const readiness = input.readiness;
@@ -2648,6 +2660,7 @@ function AgentProfileRowMoreMenu(input: {
 	profile: AuthProfileView;
 	profileName: string;
 	primaryAgentControllerRef: string | null;
+	runtimeComputer: { deviceId: string; displayName: string } | null;
 }) {
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
 	const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
@@ -2668,6 +2681,11 @@ function AgentProfileRowMoreMenu(input: {
 		agentControllerRef: input.primaryAgentControllerRef,
 		managedRole: input.profile.managedRole,
 	});
+	const { currentOrganization } = useAppOrganization();
+	const runtimeControllerLabel =
+		input.controllerChangeOptions.find(
+			(option) => option.agentControllerRef === input.primaryAgentControllerRef
+		)?.label ?? null;
 	return (
 		<>
 			<div className="flex items-center justify-end gap-1">
@@ -2849,6 +2867,18 @@ function AgentProfileRowMoreMenu(input: {
 				onRenameProfile={input.onRenameProfile}
 				open={isProfileEditDialogOpen}
 				profileName={input.profileName}
+				runtime={
+					input.runtimeComputer && runtimeControllerLabel
+						? {
+								computerName: input.runtimeComputer.displayName,
+								controllerName: runtimeControllerLabel,
+								managePath: buildOrganizationComputerPath({
+									deviceId: input.runtimeComputer.deviceId,
+									orgSlug: currentOrganization.slug,
+								}),
+							}
+						: null
+				}
 			/>
 			<AgentProfileUnbindControllerDialog
 				isOpen={isUnbindControllerDialogOpen}
@@ -2944,6 +2974,11 @@ export function AgentProfileEditDialog(input: {
 	onSaveComplete?: () => Promise<void>;
 	open: boolean;
 	profileName: string;
+	runtime?: {
+		computerName: string;
+		controllerName: string;
+		managePath: string;
+	} | null;
 }) {
 	const confirmationId = useId();
 	const profileNameInputId = useId();
@@ -3029,6 +3064,22 @@ export function AgentProfileEditDialog(input: {
 						Update settings for {input.profileName}.
 					</DialogDescription>
 				</DialogHeader>
+				{input.runtime ? (
+					<div className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5">
+						<div className="min-w-0">
+							<p className="text-muted-foreground text-xs">Runtime</p>
+							<p className="truncate font-medium text-sm">
+								{input.runtime.controllerName} on {input.runtime.computerName}
+							</p>
+						</div>
+						<Link
+							className={buttonVariants({ size: "sm", variant: "outline" })}
+							to={input.runtime.managePath}
+						>
+							Manage on Computer
+						</Link>
+					</div>
+				) : null}
 				{input.isLoading ? (
 					<p className="py-6 text-muted-foreground text-sm">
 						Loading Agent settings...

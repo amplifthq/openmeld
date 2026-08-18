@@ -24,11 +24,14 @@ import {
   runtimeTransportHeartbeatRequestSchema,
   runtimeTransportLocalAgentControlCancelFramePayloadSchema,
   runtimeTransportLocalAgentControlInterruptFramePayloadSchema,
+  runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlResultFramePayloadSchema,
   runtimeTransportLocalAgentControlSetProfileWorkspaceFramePayloadSchema,
   runtimeTransportLookupOwnerServiceResponseSchema,
   runtimeTransportLookupRouteResponseSchema,
+  runtimeTransportManageLocalAgentInstallationRequestSchema,
+  runtimeTransportManageLocalAgentInstallationResponseSchema,
   runtimeTransportPreExecutionHandoffResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
   runtimeTransportRefreshLocalAgentCatalogResponseSchema,
@@ -1679,6 +1682,7 @@ describe("runtime transport schema", () => {
       localAgentControl: {
         cancel: true,
         interrupt: true,
+        manageInstallations: true,
         refreshCatalog: true,
         setEnabled: true,
         setProfileWorkspace: true,
@@ -1686,6 +1690,63 @@ describe("runtime transport schema", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it("accepts owner installation list and selection control payloads", () => {
+    const request = {
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      ownerUserId: "owner-1",
+      deviceId: "device-1",
+      lane: "dev-local" as const,
+      request: {
+        agentId: "claude-code",
+        operation: "select" as const,
+        installationId: "install-homebrew",
+      },
+    };
+    expect(
+      runtimeTransportManageLocalAgentInstallationRequestSchema.safeParse(
+        request
+      ).success
+    ).toBe(true);
+    expect(
+      runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema.safeParse(
+        {
+          requestId: "install-1",
+          payload: request.request,
+        }
+      ).success
+    ).toBe(true);
+
+    const payload = {
+      accepted: true as const,
+      agentControllerRef: "builtin:claude-code",
+      agentId: "claude-code",
+      changed: true,
+      installations: [
+        {
+          details: "Claude Code installed with Homebrew",
+          installationId: "install-homebrew",
+          name: "Homebrew installation",
+          selected: true,
+        },
+      ],
+      reportSyncStatus: "submitted" as const,
+      selectedInstallationId: "install-homebrew",
+      status: "updated" as const,
+    };
+    expect(
+      runtimeTransportLocalAgentControlResultFramePayloadSchema.safeParse({
+        requestId: "install-1",
+        payload,
+      }).success
+    ).toBe(true);
+    expect(
+      runtimeTransportManageLocalAgentInstallationResponseSchema.safeParse({
+        status: "accepted",
+        payload,
+      }).success
+    ).toBe(true);
   });
 
   it("accepts refresh-catalog local agent control request and result payloads", () => {

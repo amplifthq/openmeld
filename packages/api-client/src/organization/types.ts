@@ -15,6 +15,7 @@ import type {
   MessageChannelIdentityLinkPreviewBody,
   MessageChannelIdentityLinkPreviewResponse,
   OpenMeldRequestContext,
+  OrganizationComputersResponse,
   OrganizationDirectoryResponse,
   OrganizationInformationProtectionPolicyResponse,
   OrganizationLogoMimeType,
@@ -96,6 +97,9 @@ export type OrganizationApi = {
   getCurrentDirectory: (
     input?: OrganizationRequestInput
   ) => Promise<OrganizationDirectoryResponse>;
+  getCurrentComputers: (
+    input?: OrganizationRequestInput
+  ) => Promise<OrganizationComputersResponse>;
   getCurrentMemberOpenMeldServiceStatuses: (
     input?: OrganizationRequestInput
   ) => Promise<OrganizationMemberOpenMeldServiceStatusesResponse>;

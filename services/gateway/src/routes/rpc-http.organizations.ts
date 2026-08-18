@@ -7,6 +7,7 @@ import {
   feedbackReportingPolicyResponseSchema,
   getOrganizationBindingAuthorizationPreferenceResponseSchema,
   listOrganizationBindingAuthorizationProfilesResponseSchema,
+  organizationComputersResponseSchema,
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
   organizationMemberOpenMeldServiceStatusesResponseSchema,
@@ -32,6 +33,8 @@ import { readJsonRequestBody } from "./rpc-http.parsers";
 
 const CURRENT_ORGANIZATION_DIRECTORY_ROUTE =
   "/v1/organizations/current/directory";
+const CURRENT_ORGANIZATION_COMPUTERS_ROUTE =
+  "/v1/organizations/current/computers";
 const CURRENT_ORGANIZATION_MEMBER_OPENMELD_SERVICE_STATUSES_ROUTE =
   "/v1/organizations/current/member-openmeld-service-statuses";
 const CURRENT_ORGANIZATION_SPACES_ROUTE = "/v1/organizations/current/spaces";
@@ -75,6 +78,19 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
         }),
     });
   });
+
+  app.get(CURRENT_ORGANIZATION_COMPUTERS_ROUTE, (c) =>
+    executeRpcRoute({
+      c,
+      route: CURRENT_ORGANIZATION_COMPUTERS_ROUTE,
+      method: "GET",
+      responseSchema: organizationComputersResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.getCurrentOrganizationComputers({
+          context: buildCoreRpcContext(c),
+        }),
+    })
+  );
 
   app.get(CURRENT_ORGANIZATION_MEMBER_OPENMELD_SERVICE_STATUSES_ROUTE, (c) =>
     executeRpcRoute({

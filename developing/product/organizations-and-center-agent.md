@@ -2012,14 +2012,16 @@ lookup failure detail, and it offers no action that would let one member manage
 another member's computer.
 
 The first-level **Computers** home is a separate Organization member surface,
-not an expansion of this coarse Human Profile status. It groups cards by owner
-and may project a computer display name only when an active ordinary Agent in
-the current Organization Directory names that computer as its execution
-relationship. The signed-in member's group continues to use their complete
-account inventory. Other members' groups are read-only and show only the owner,
-computer display name, and Organization-visible Agents using that computer.
-They never expose platform, operating-system or Service versions, last-seen
-time, local-agent inventory, raw failure evidence, or management controls.
+not an expansion of this coarse Human Profile status. It groups Core's
+Organization-scoped, team-safe Computer projection by owner, including a
+Service-connected Computer before its owner creates an Agent Profile. The
+signed-in member's group continues to use their complete account inventory.
+Other members' groups are read-only and may show the owner, computer display
+name, device category, operating-system family and version, last-seen time,
+coarse Service state, team-safe local-agent availability, and
+Organization-visible Agents using that computer. They never expose controller
+accounts, executable or installation paths, controller versions, local policy,
+raw failure evidence, credentials, or management controls.
 
 The designated Center Agent may read that same coarse projection for one active
 Organization member through

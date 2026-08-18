@@ -286,6 +286,13 @@ setup page only as a progress and recovery surface. The URL remains the durable
 fallback for remote terminals, blocked browser launches, or users who need to
 inspect setup progress manually. Agent View should not auto-open a browser.
 
+If discovery returns multiple verified installations for one controller, setup
+does not stop for a prompt. It keeps a valid saved launch contract; otherwise it
+selects the first PATH-ordered candidate and persists it. Human completion copy
+uses friendly product names and says how many local agents are **connected**;
+it must not label the selected set as merely detected or expose internal ids.
+The authenticated Computer owner may change that installation later from Web.
+
 `openmeld setup` is single-instance per computer: only one setup may mutate local
 setup state at a time, guarded by a setup command lock that records the holder
 pid. A stuck setup must never trap the user with no way forward. When a

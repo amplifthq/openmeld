@@ -164,6 +164,7 @@ export {
 export {
   DAEMON_PROFILE_SKIP_REASON_VALUES,
   daemonProfileSkipReasonSchema,
+  localAgentInstallationOptionSchema,
   OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
@@ -192,6 +193,8 @@ export {
   openMeldDaemonInterruptPayloadSchema,
   openMeldDaemonInterruptRequestPayloadSchema,
   openMeldDaemonInterruptResponseSchema,
+  openMeldDaemonManageLocalAgentInstallationPayloadSchema,
+  openMeldDaemonManageLocalAgentInstallationRequestPayloadSchema,
   openMeldDaemonProviderConversationProofMethodSchema,
   openMeldDaemonProviderConversationProofProviderSchema,
   openMeldDaemonProviderConversationProofSchema,
@@ -524,6 +527,7 @@ export {
   runtimeTransportLeaseSchema,
   runtimeTransportLocalAgentControlCancelFramePayloadSchema,
   runtimeTransportLocalAgentControlInterruptFramePayloadSchema,
+  runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlResultFramePayloadSchema,
   runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema,
@@ -534,6 +538,8 @@ export {
   runtimeTransportLookupRouteResponseSchema,
   runtimeTransportLookupRoutesBatchRequestSchema,
   runtimeTransportLookupRoutesBatchResponseSchema,
+  runtimeTransportManageLocalAgentInstallationRequestSchema,
+  runtimeTransportManageLocalAgentInstallationResponseSchema,
   runtimeTransportNotifyRouteCatalogChangedRequestSchema,
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
   runtimeTransportPreExecutionHandoffReasonCodeSchema,
@@ -1313,6 +1319,8 @@ export {
   localRuntimeExpectedRouteSchema,
 } from "./http/local-runtime-expected-routes";
 export {
+  currentLocalAgentInstallationsResponseSchema,
+  currentLocalAgentInstallationsRouteParamsSchema,
   currentLocalRuntimeReplyReadinessResponseSchema,
   localRuntimeComputerFileAccessSchema,
   localRuntimeComputerSchema,
@@ -1331,6 +1339,8 @@ export {
   localRuntimesQuerySchema,
   localRuntimesResponseSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
+  selectCurrentLocalAgentInstallationBodySchema,
+  selectCurrentLocalAgentInstallationResponseSchema,
   setCurrentAgentProfileWorkspaceBodySchema,
   setCurrentAgentProfileWorkspaceResponseSchema,
   setCurrentAgentProfileWorkspaceRouteParamsSchema,
@@ -1389,6 +1399,11 @@ export {
   shouldLogObservabilityCloudflareRuntimeEvent,
 } from "./http/observability-runtime-event";
 export * from "./http/opportunities";
+export {
+  organizationComputerLocalAgentSchema,
+  organizationComputerSchema,
+  organizationComputersResponseSchema,
+} from "./http/organization-computers";
 export {
   organizationDirectoryAgentProfileIdentitySchema,
   organizationDirectoryAgentProfileSchema,

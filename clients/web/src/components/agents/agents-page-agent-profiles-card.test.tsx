@@ -694,6 +694,41 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 	});
 
+	it("shows the current runtime and links Agent settings back to its computer", () => {
+		render(
+			<AgentProfileEditDialog
+				controllerChangeOptions={[]}
+				editState={null}
+				isPending={false}
+				modelCatalog={null}
+				onControllerChange={() => Promise.resolve()}
+				onControllerCollaborationModeUpdate={() => Promise.resolve()}
+				onControllerPermissionModeUpdate={() => Promise.resolve()}
+				onModelSelectionUpdate={() => Promise.resolve()}
+				onOpenChange={() => undefined}
+				onOpenCodePermissionUpdate={() => Promise.resolve()}
+				onRenameProfile={() => Promise.resolve()}
+				open={true}
+				profileName="Research Agent"
+				runtime={{
+					computerName: "Fangyuan's MacBook Pro",
+					controllerName: "Claude Code",
+					managePath: "/o/amplift/computers/device-fangyuan",
+				}}
+			/>
+		);
+
+		expect(screen.getByText("Runtime")).toBeTruthy();
+		expect(
+			screen.getByText("Claude Code on Fangyuan's MacBook Pro")
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("link", { name: "Manage on Computer" })
+				.getAttribute("href")
+		).toBe("/o/amplift/computers/device-fangyuan");
+	});
+
 	it("offers Agent editing for OpenCode model variants without a permissions mode", async () => {
 		const openCodeBinding = createPrimaryBindingResponse(
 			null,

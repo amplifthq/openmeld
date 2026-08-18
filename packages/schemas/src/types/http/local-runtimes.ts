@@ -24,6 +24,14 @@ type SetCurrentLocalAgentEnabledResponseSchema =
   typeof import("../../schemas/http/local-runtimes")["setCurrentLocalAgentEnabledResponseSchema"];
 type SetCurrentLocalAgentEnabledRouteParamsSchema =
   typeof import("../../schemas/http/local-runtimes")["setCurrentLocalAgentEnabledRouteParamsSchema"];
+type CurrentLocalAgentInstallationsRouteParamsSchema =
+  typeof import("../../schemas/http/local-runtimes")["currentLocalAgentInstallationsRouteParamsSchema"];
+type CurrentLocalAgentInstallationsResponseSchema =
+  typeof import("../../schemas/http/local-runtimes")["currentLocalAgentInstallationsResponseSchema"];
+type SelectCurrentLocalAgentInstallationBodySchema =
+  typeof import("../../schemas/http/local-runtimes")["selectCurrentLocalAgentInstallationBodySchema"];
+type SelectCurrentLocalAgentInstallationResponseSchema =
+  typeof import("../../schemas/http/local-runtimes")["selectCurrentLocalAgentInstallationResponseSchema"];
 type SetCurrentAgentProfileWorkspaceBodySchema =
   typeof import("../../schemas/http/local-runtimes")["setCurrentAgentProfileWorkspaceBodySchema"];
 type SetCurrentAgentProfileWorkspaceResponseSchema =
@@ -54,6 +62,14 @@ export type SetCurrentLocalAgentEnabledResponse =
   z.infer<SetCurrentLocalAgentEnabledResponseSchema>;
 export type SetCurrentLocalAgentEnabledRouteParams =
   z.infer<SetCurrentLocalAgentEnabledRouteParamsSchema>;
+export type CurrentLocalAgentInstallationsRouteParams =
+  z.infer<CurrentLocalAgentInstallationsRouteParamsSchema>;
+export type CurrentLocalAgentInstallationsResponse =
+  z.infer<CurrentLocalAgentInstallationsResponseSchema>;
+export type SelectCurrentLocalAgentInstallationBody =
+  z.infer<SelectCurrentLocalAgentInstallationBodySchema>;
+export type SelectCurrentLocalAgentInstallationResponse =
+  z.infer<SelectCurrentLocalAgentInstallationResponseSchema>;
 export type SetCurrentAgentProfileWorkspaceBody =
   z.infer<SetCurrentAgentProfileWorkspaceBodySchema>;
 export type SetCurrentAgentProfileWorkspaceResponse =

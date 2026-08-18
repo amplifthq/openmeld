@@ -1247,6 +1247,9 @@ function buildLocalAgentControlByDeviceLane(
     const setEnabled =
       session.executionCompatibility.status === "compatible" &&
       session.capabilities.localAgentControl?.setEnabled === true;
+    const manageInstallations =
+      session.executionCompatibility.status === "compatible" &&
+      session.capabilities.localAgentControl?.manageInstallations === true;
     const refreshCatalog =
       session.executionCompatibility.status === "compatible" &&
       session.capabilities.localAgentControl?.refreshCatalog === true;
@@ -1254,6 +1257,9 @@ function buildLocalAgentControlByDeviceLane(
       session.executionCompatibility.status === "compatible" &&
       session.capabilities.localAgentControl?.setProfileWorkspace === true;
     controls.set(key, {
+      ...(previous?.manageInstallations === true || manageInstallations
+        ? { manageInstallations: true }
+        : {}),
       refreshCatalog: previous?.refreshCatalog === true || refreshCatalog,
       setEnabled: previous?.setEnabled === true || setEnabled,
       setProfileWorkspace:

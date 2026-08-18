@@ -1,5 +1,7 @@
 import type {
 	LocalRuntimeComputer,
+	OrganizationComputerRecord,
+	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 
@@ -11,12 +13,18 @@ export type OrganizationComputerAgent = {
 export type OrganizationComputer = {
 	agents: OrganizationComputerAgent[];
 	deviceDisplayName: string;
+	deviceType: OrganizationComputerRecord["deviceType"];
 	deviceId: string;
 	isOwnedByCurrentUser: boolean;
+	lastSeenAtMs: number | null;
+	localAgents: OrganizationComputerRecord["localAgents"];
+	osVersion: string | null;
 	ownedComputer: LocalRuntimeComputer | null;
 	ownerLabel: string;
 	ownerUserId: string;
+	platformFamily: OrganizationComputerRecord["platformFamily"];
 	routeId: string;
+	serviceState: OrganizationComputerRecord["serviceState"] | null;
 };
 
 export type OrganizationComputerGroup = {
@@ -35,6 +43,11 @@ type VisibleOrganizationComputerProfile = DirectoryAgentProfile & {
 	};
 };
 
+const COMPUTER_LAST_SEEN_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	dateStyle: "medium",
+	timeStyle: "short",
+});
+
 export function formatComputerCount(count: number): string {
 	return count === 1 ? "1 Computer" : `${count} Computers`;
 }
@@ -43,9 +56,19 @@ export function formatAgentCount(count: number): string {
 	return count === 1 ? "1 Agent" : `${count} Agents`;
 }
 
+export function formatOrganizationComputerLastSeen(
+	lastSeenAtMs: number | null
+): string {
+	if (lastSeenAtMs === null) {
+		return "Last seen unknown";
+	}
+	return `Last seen ${COMPUTER_LAST_SEEN_FORMATTER.format(new Date(lastSeenAtMs))}`;
+}
+
 export function resolveOrganizationComputerGroups(input: {
 	currentUserId: string;
 	directory: OrganizationDirectoryResponse | null;
+	organizationComputers?: OrganizationComputersResponse | null;
 	ownedComputers: readonly LocalRuntimeComputer[];
 }): OrganizationComputerGroup[] {
 	const memberNameByUserId = new Map(
@@ -67,6 +90,7 @@ export function resolveOrganizationComputerGroups(input: {
 			currentUserId: input.currentUserId,
 			directory: input.directory,
 			memberNameByUserId,
+			organizationComputers: input.organizationComputers ?? null,
 		}),
 	];
 }
@@ -97,12 +121,18 @@ function resolveOwnedComputerGroup(input: {
 		computers: input.ownedComputers.map((computer) => ({
 			agents: sortComputerAgents(agentsByDeviceId.get(computer.deviceId) ?? []),
 			deviceDisplayName: computer.deviceDisplayName,
+			deviceType: computer.deviceType,
 			deviceId: computer.deviceId,
 			isOwnedByCurrentUser: true,
+			lastSeenAtMs: computer.lastObservedAtMs,
+			localAgents: [],
+			osVersion: computer.osVersion,
 			ownedComputer: computer,
 			ownerLabel: input.ownerLabel,
 			ownerUserId: input.currentUserId,
+			platformFamily: computer.platformFamily,
 			routeId: computer.deviceId,
+			serviceState: null,
 		})),
 		isCurrentUser: true,
 		ownerLabel: input.ownerLabel,
@@ -114,6 +144,7 @@ function resolveOtherMemberComputerGroups(input: {
 	currentUserId: string;
 	directory: OrganizationDirectoryResponse | null;
 	memberNameByUserId: ReadonlyMap<string, string>;
+	organizationComputers: OrganizationComputersResponse | null;
 }): OrganizationComputerGroup[] {
 	const directory = input.directory;
 	if (!directory) {
@@ -124,15 +155,28 @@ function resolveOtherMemberComputerGroups(input: {
 		directory,
 		memberNameByUserId: input.memberNameByUserId,
 	});
+	const computersByOwnerUserId = groupOrganizationComputersByOwner({
+		currentUserId: input.currentUserId,
+		organizationComputers: input.organizationComputers,
+	});
 	return directory.members.flatMap((member) => {
 		if (member.userId === input.currentUserId) {
 			return [];
 		}
-		const computers = resolveMemberComputers({
-			ownerLabel: member.user.name,
-			ownerUserId: member.userId,
-			profiles: profilesByOwnerUserId.get(member.userId) ?? [],
-		});
+		const profiles = profilesByOwnerUserId.get(member.userId) ?? [];
+		const reportedComputers = computersByOwnerUserId.get(member.userId);
+		const computers = reportedComputers
+			? resolveReportedMemberComputers({
+					computers: reportedComputers,
+					ownerLabel: member.user.name,
+					ownerUserId: member.userId,
+					profiles,
+				})
+			: resolveMemberComputers({
+					ownerLabel: member.user.name,
+					ownerUserId: member.userId,
+					profiles,
+				});
 		return computers.length === 0
 			? []
 			: [
@@ -144,6 +188,53 @@ function resolveOtherMemberComputerGroups(input: {
 					},
 				];
 	});
+}
+
+function groupOrganizationComputersByOwner(input: {
+	currentUserId: string;
+	organizationComputers: OrganizationComputersResponse | null;
+}): ReadonlyMap<string, OrganizationComputerRecord[]> {
+	const computersByOwner = new Map<string, OrganizationComputerRecord[]>();
+	for (const computer of input.organizationComputers?.computers ?? []) {
+		if (computer.ownerUserId === input.currentUserId) {
+			continue;
+		}
+		const computers = computersByOwner.get(computer.ownerUserId) ?? [];
+		computers.push(computer);
+		computersByOwner.set(computer.ownerUserId, computers);
+	}
+	return computersByOwner;
+}
+
+function resolveReportedMemberComputers(input: {
+	computers: readonly OrganizationComputerRecord[];
+	ownerLabel: string;
+	ownerUserId: string;
+	profiles: readonly VisibleOrganizationComputerProfile[];
+}): OrganizationComputer[] {
+	const agentsByDeviceId = new Map<string, OrganizationComputerAgent[]>();
+	for (const profile of input.profiles) {
+		appendComputerAgent(agentsByDeviceId, profile.readiness.routeDeviceId, {
+			profileId: profile.profileId,
+			profileName: profile.profileName,
+		});
+	}
+	return input.computers.map((computer) => ({
+		agents: sortComputerAgents(agentsByDeviceId.get(computer.computerId) ?? []),
+		deviceDisplayName: computer.deviceDisplayName,
+		deviceId: computer.computerId,
+		deviceType: computer.deviceType,
+		isOwnedByCurrentUser: false,
+		lastSeenAtMs: computer.lastSeenAtMs,
+		localAgents: computer.localAgents,
+		osVersion: computer.osVersion,
+		ownedComputer: null,
+		ownerLabel: input.ownerLabel,
+		ownerUserId: input.ownerUserId,
+		platformFamily: computer.platformFamily,
+		routeId: `computer:${computer.computerId}`,
+		serviceState: computer.serviceState,
+	}));
 }
 
 function groupVisibleProfilesByOwner(input: {
@@ -190,12 +281,18 @@ function resolveMemberComputers(input: {
 		computersByDeviceId.set(deviceId, {
 			agents: [agent],
 			deviceDisplayName: profile.readiness.runtimeDeviceDisplayName,
+			deviceType: "unknown",
 			deviceId,
 			isOwnedByCurrentUser: false,
+			lastSeenAtMs: null,
+			localAgents: [],
+			osVersion: null,
 			ownedComputer: null,
 			ownerLabel: input.ownerLabel,
 			ownerUserId: input.ownerUserId,
+			platformFamily: "Unknown",
 			routeId: buildOrganizationComputerRouteId([agent]),
+			serviceState: null,
 		});
 	}
 	return [...computersByDeviceId.values()].map((computer) => ({

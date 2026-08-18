@@ -29,7 +29,7 @@ type TestInstallResolver = {
       }
     | {
         errorMessage: string;
-        failureKind: "completed_negative" | "incomplete_check";
+        reason: "not_installed" | "not_launchable";
         ok: false;
       }
   >;
@@ -45,6 +45,7 @@ type TestInstallResolver = {
       }
     | {
         errorMessage: string;
+        failureKind: "completed_negative" | "incomplete_check";
         ok: false;
       }
   >;
@@ -188,7 +189,7 @@ describe("local controller install resolution", () => {
     });
   });
 
-  it("requires a local install choice when multiple installs are available", async () => {
+  it("uses the first verified PATH install when multiple installs are available", async () => {
     const installChoices = [
       createInstallChoice("install_homebrew", "/opt/homebrew/bin/codex"),
       createInstallChoice("install_nvm", "/Users/test/.nvm/bin/codex"),
@@ -207,14 +208,12 @@ describe("local controller install resolution", () => {
       runtimeSupported: true,
     });
 
-    expect(resolution.status).toBe("needs_choice");
-    expect(resolution.launchContract).toBeNull();
-    expect(resolution.installChoices.map((choice) => choice.installId)).toEqual(
-      ["install_homebrew", "install_nvm"]
-    );
-    expect(resolution.detail).toBe(
-      "OpenMeld found more than one Codex install on this computer. Choose which one OpenMeld should use here."
-    );
+    expect(resolution).toEqual({
+      detail: null,
+      installChoices: [],
+      launchContract: installChoices[0]?.launchContract ?? null,
+      status: "ready",
+    });
   });
 
   it("repairs a controller by resolving the selected install id to a launch contract", async () => {

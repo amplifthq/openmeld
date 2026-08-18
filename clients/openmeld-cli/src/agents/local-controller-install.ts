@@ -41,6 +41,54 @@ export type LocalControllerInstallRepairResult =
       ok: false;
     };
 
+export type LocalControllerInstalledCandidatesResult =
+  | {
+      candidates: LocalControllerInstallChoice[];
+      ok: true;
+    }
+  | {
+      errorCode: "controller.launch.needs_repair";
+      errorMessage: string;
+      ok: false;
+    };
+
+export async function listBuiltinControllerInstalledCandidates(input: {
+  agentId: string;
+  detected: boolean;
+  displayName: string;
+  runtimeSupported: boolean;
+}): Promise<LocalControllerInstalledCandidatesResult> {
+  if (!(input.detected && input.runtimeSupported)) {
+    return {
+      errorCode: "controller.launch.needs_repair",
+      errorMessage: `${input.displayName} is not available on this computer.`,
+      ok: false,
+    };
+  }
+
+  const resolver = resolveBuiltinControllerInstallResolverOrNull(input.agentId);
+  if (!resolver) {
+    return {
+      errorCode: "controller.launch.needs_repair",
+      errorMessage: `${input.displayName} does not expose a builtin local install resolver yet.`,
+      ok: false,
+    };
+  }
+
+  const installedCandidates = await resolver.resolveInstalledLaunchCandidates();
+  if (!installedCandidates.ok) {
+    return {
+      errorCode: "controller.launch.needs_repair",
+      errorMessage: installedCandidates.errorMessage,
+      ok: false,
+    };
+  }
+  return {
+    candidates: installedCandidates.candidates,
+    ok: true,
+  };
+}
+
 export async function resolveBuiltinControllerInstallResolution(input: {
   agentId: string;
   detected: boolean;
@@ -74,46 +122,11 @@ export async function resolveBuiltinControllerInstallResolution(input: {
       })
     : null;
   if (persistedLaunchContract) {
-    const persistedVerification = await resolver.verifyLaunchContract({
-      launchContract: persistedLaunchContract,
+    return await resolvePersistedControllerInstall({
+      displayName: input.displayName,
+      persistedLaunchContract,
+      resolver,
     });
-    if (persistedVerification.ok) {
-      return {
-        detail: null,
-        installChoices: [],
-        launchContract: persistedLaunchContract,
-        status: "ready",
-      };
-    }
-    if (persistedVerification.failureKind === "incomplete_check") {
-      return {
-        detail: null,
-        installChoices: [],
-        launchContract: persistedLaunchContract,
-        status: "ready",
-      };
-    }
-
-    const installedCandidates =
-      await resolver.resolveInstalledLaunchCandidates();
-    if (installedCandidates.ok && installedCandidates.candidates.length > 1) {
-      return {
-        detail: buildNeedsInstallChoiceDetail(input.displayName),
-        installChoices: installedCandidates.candidates,
-        launchContract: null,
-        status: "needs_choice",
-      };
-    }
-
-    return {
-      detail: persistedVerification.errorMessage,
-      installChoices:
-        installedCandidates.ok && installedCandidates.candidates.length === 1
-          ? installedCandidates.candidates
-          : [],
-      launchContract: persistedLaunchContract,
-      status: "needs_repair",
-    };
   }
 
   const installedCandidates = await resolver.resolveInstalledLaunchCandidates();
@@ -145,6 +158,17 @@ export async function resolveBuiltinControllerInstallResolution(input: {
   }
 
   if (installedCandidates.candidates.length > 1) {
+    const selectedInstall = resolveAutomaticInstallChoice({
+      candidates: installedCandidates.candidates,
+    });
+    if (selectedInstall) {
+      return {
+        detail: null,
+        installChoices: [],
+        launchContract: selectedInstall.launchContract,
+        status: "ready",
+      };
+    }
     return {
       detail: buildNeedsInstallChoiceDetail(input.displayName),
       installChoices: installedCandidates.candidates,
@@ -159,6 +183,56 @@ export async function resolveBuiltinControllerInstallResolution(input: {
     launchContract: null,
     status: "needs_repair",
   };
+}
+
+async function resolvePersistedControllerInstall(input: {
+  displayName: string;
+  persistedLaunchContract: RuntimeAgentControllerLaunchContract;
+  resolver: BuiltinControllerInstallResolver;
+}): Promise<LocalControllerInstallResolution> {
+  const persistedVerification = await input.resolver.verifyLaunchContract({
+    launchContract: input.persistedLaunchContract,
+  });
+  if (
+    persistedVerification.ok ||
+    persistedVerification.failureKind === "incomplete_check"
+  ) {
+    return {
+      detail: null,
+      installChoices: [],
+      launchContract: input.persistedLaunchContract,
+      status: "ready",
+    };
+  }
+
+  const installedCandidates =
+    await input.resolver.resolveInstalledLaunchCandidates();
+  if (installedCandidates.ok && installedCandidates.candidates.length > 1) {
+    return {
+      detail: buildNeedsInstallChoiceDetail(input.displayName),
+      installChoices: installedCandidates.candidates,
+      launchContract: null,
+      status: "needs_choice",
+    };
+  }
+
+  return {
+    detail: persistedVerification.errorMessage,
+    installChoices:
+      installedCandidates.ok && installedCandidates.candidates.length === 1
+        ? installedCandidates.candidates
+        : [],
+    launchContract: input.persistedLaunchContract,
+    status: "needs_repair",
+  };
+}
+
+function resolveAutomaticInstallChoice(input: {
+  candidates: readonly LocalControllerInstallChoice[];
+}): LocalControllerInstallChoice | null {
+  // Discovery is ordered: PATH comes first, then other verified locations.
+  // Persisted choices are handled above and always remain authoritative.
+  return input.candidates[0] ?? null;
 }
 
 export async function repairBuiltinControllerInstall(input: {

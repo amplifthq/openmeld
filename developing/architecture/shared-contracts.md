@@ -547,14 +547,15 @@ Organization id fails the Directory read closed with
 `organization.directory_unavailable`; there is no direct-table fallback. The
 public `OrganizationDirectoryResponse` remains unchanged.
 
-Web may use the existing Agent readiness fields in that response to build the
-read-only Organization Computers directory. Only active ordinary Agent
-Profiles owned by current Directory members participate. The projection groups
-the same owner and route device into one card and exposes only the runtime
-computer display name plus the visible Agent identities that use it. It does
-not become computer inventory authority, Service-liveness authority, or a
-computer mutation contract; owner-scoped local runtimes remain authoritative
-for the signed-in member's complete inventory and controls.
+`organization-computers.ts` owns the strict team-safe Organization Computer
+projection. Core authorizes the active Organization, resolves its current
+members, and projects their registry-backed Computers independently of Agent
+Profile creation. The contract permits only opaque Computer identity, owner,
+display/platform/last-seen metadata, coarse per-computer Service state, and
+bounded local-agent availability. Controller accounts, versions, launch paths,
+installation paths, local policy, credentials, and raw lookup failures are not
+members of this schema. Owner-scoped local runtimes remain authoritative for
+the signed-in member's complete inventory and controls.
 
 These Auth methods and schemas are additive private contracts. Deploy Auth
 before Core, and roll back Core before Auth. New Core against old Auth exposes
@@ -3275,6 +3276,17 @@ create parallel sources of truth.
 Clients should render ACI details from these shared read models. They must not
 separately probe local controllers or reconstruct ACI from private CLI
 implementation details.
+
+The shared daemon, Runtime Transport, Local Runtimes HTTP, and API-client
+contracts also own current-Computer installation management. The optional
+`localAgentControl.manageInstallations` capability gates an owner-only
+list/select request for one registered built-in agent. The Service returns
+bounded installation ids, friendly names/details, and one selected id; only the
+immediate owner response may contain path-derived details. Selection updates
+the local registry's launch contract and then refreshes the canonical runtime
+report. Older Services omit the capability, so new Web stays dormant; publish a
+new Service only after Core, Gateway, API client, and Web accept the additive
+frames and responses.
 
 `packages/schemas/src/schemas/daemon/computer-file-access.ts` owns the strict
 Computer file access mode, absolute-path, policy, current-device HTTP/RPC,
