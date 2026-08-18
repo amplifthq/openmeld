@@ -2,6 +2,7 @@ import { stream as streamOpenAICompletions } from "@earendil-works/pi-ai/api/ope
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
 import { describe, expect, it, vi } from "vitest";
 import { REMOTE_AGENT_GITHUB_TOOL_NAMES } from "../agent-core/github-tools";
+import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "../flue-adapter/capability-discovery";
 import {
   declareRemoteAgentModelImageInput,
   declareRemoteAgentModelReasoning,
@@ -172,30 +173,25 @@ describe("Remote Agent model reasoning", () => {
     );
   });
 
-  it("keeps large GitHub capability available through Code Mode without duplicating every action in the provider payload", async () => {
+  it("keeps progressive discovery beside Code Mode without duplicating the catalog in the provider payload", async () => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
       reportStage
     );
-    const connectedAppTools = [
-      "openmeld_list_connected_apps",
-      "openmeld_list_app_actions",
-      "openmeld_execute_app_action",
-    ].map((name) => ({ function: { name }, type: "function" }));
+    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
+      (name) => ({ function: { name }, type: "function" })
+    );
     const githubTools = REMOTE_AGENT_GITHUB_TOOL_NAMES.map((name) => ({
       function: { name },
       type: "function",
     }));
-    expect(connectedAppTools.length + githubTools.length).toBeLessThanOrEqual(
-      64
-    );
     const directTools = [
-      ...Array.from({ length: 62 }, (_, index) => ({
+      ...Array.from({ length: 65 }, (_, index) => ({
         function: { name: `tool_${String(index)}` },
         type: "function",
       })),
-      ...connectedAppTools,
+      ...discoveryTools,
       ...githubTools,
     ];
     const codemode = {
@@ -212,15 +208,15 @@ describe("Remote Agent model reasoning", () => {
       TEXT_ONLY_MODEL
     );
 
-    expect(payload).toMatchObject({ tools: [...connectedAppTools, codemode] });
+    expect(payload).toMatchObject({ tools: [...discoveryTools, codemode] });
     expect(payload).not.toMatchObject({
       tools: expect.arrayContaining(githubTools),
     });
-    expect(tools).toHaveLength(66 + githubTools.length);
+    expect(tools).toHaveLength(68 + githubTools.length);
     expect(reportStage).toHaveBeenCalledWith(
       expect.objectContaining({
         messageCount: 1,
-        toolCount: 4,
+        toolCount: 3,
       })
     );
   });

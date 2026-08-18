@@ -1,5 +1,5 @@
 diff --git a/dist/agent-execution-store-BCmrE5Jm.d.mts b/dist/agent-execution-store-BCmrE5Jm.d.mts
-index ace28ee..0391206 100644
+index ace28eee6b7e77760b09ad44c67bca24bf293acd..039120640f3a0703f6787698fb2f7df4d3cfbb65 100644
 --- a/dist/agent-execution-store-BCmrE5Jm.d.mts
 +++ b/dist/agent-execution-store-BCmrE5Jm.d.mts
 @@ -668,6 +668,12 @@ interface AgentSubmissionStore {
@@ -16,7 +16,7 @@ index ace28ee..0391206 100644
     * Return a running submission to queued — clearing its attempt, owner,
     * and lease — ONLY while input has not been applied and `attempt` owns
 diff --git a/dist/conversation-projections-XMug3C6A.mjs b/dist/conversation-projections-XMug3C6A.mjs
-index d052200..89c9f31 100644
+index d05220033fe9d56662329e478c7ebc7db283f3ba..7f0c156c8de93c9bddb842132f0f67cb922b2eb2 100644
 --- a/dist/conversation-projections-XMug3C6A.mjs
 +++ b/dist/conversation-projections-XMug3C6A.mjs
 @@ -105,7 +105,8 @@ const AGENT_RUNTIME_FIELDS = new Set([
@@ -108,7 +108,234 @@ index d052200..89c9f31 100644
  }
  //#endregion
  //#region src/usage.ts
-@@ -2326,7 +2342,7 @@ async function compact(preparation, model, apiKey, signal, observer) {
+@@ -2006,6 +2022,8 @@ function formatFileOperations(readFiles, modifiedFiles) {
+ 	return `\n\n${sections.join("\n\n")}`;
+ }
+ const TOOL_RESULT_MAX_CHARS = 2e3;
++const CANONICAL_ACTION_EVIDENCE_MAX_CHARS = 24e3;
++const CANONICAL_ACTION_EVIDENCE_MAX_TOOLS = 128;
+ function truncateForSummary(text, maxChars) {
+ 	if (text.length <= maxChars) return text;
+ 	const truncatedChars = text.length - maxChars;
+@@ -2039,6 +2057,60 @@ function serializeConversation(messages) {
+ 	}
+ 	return parts.join("\n\n");
+ }
++function buildCanonicalActionEvidence(conversation) {
++	const byToolName = /* @__PURE__ */ new Map();
++	const record = (toolName, timestamp, kind) => {
++		let evidence = byToolName.get(toolName);
++		if (!evidence) {
++			evidence = {
++				calls: 0,
++				nonErrorResults: 0,
++				errorResults: 0,
++				firstAt: timestamp,
++				latestAt: timestamp
++			};
++			byToolName.set(toolName, evidence);
++		}
++		evidence[kind] += 1;
++		if (timestamp < evidence.firstAt) evidence.firstAt = timestamp;
++		if (timestamp > evidence.latestAt) evidence.latestAt = timestamp;
++	};
++	for (const entry of getActiveConversationPath(conversation)) {
++		if (entry.type !== "message") continue;
++		const timestamp = String(entry.timestamp);
++		const message = entry.message;
++		if (message.role === "assistant") {
++			for (const block of message.content) if (block.type === "toolCall" && block.name) record(block.name, timestamp, "calls");
++			continue;
++		}
++		if (message.role === "toolResult" && message.toolName) record(message.toolName, timestamp, message.isError ? "errorResults" : "nonErrorResults");
++	}
++	const ordered = [...byToolName.entries()].sort((left, right) => right[1].latestAt.localeCompare(left[1].latestAt) || left[0].localeCompare(right[0]));
++	if (ordered.length === 0) return "- (none)";
++	const visible = ordered.slice(0, CANONICAL_ACTION_EVIDENCE_MAX_TOOLS);
++	const lines = [];
++	let projectedChars = 0;
++	let omitted = ordered.length - visible.length;
++	for (let index = 0; index < visible.length; index += 1) {
++		const [toolName, evidence] = visible[index];
++		const line = `- ${toolName}: calls=${evidence.calls}; non_error_results=${evidence.nonErrorResults}; error_results=${evidence.errorResults}; first=${evidence.firstAt}; latest=${evidence.latestAt}`;
++		if (projectedChars + line.length + 1 > CANONICAL_ACTION_EVIDENCE_MAX_CHARS) {
++			omitted += visible.length - index;
++			break;
++		}
++		lines.push(line);
++		projectedChars += line.length + 1;
++	}
++	if (omitted > 0) lines.push(`- (${omitted} older tool categories omitted from this bounded projection; canonical events remain durable.)`);
++	return lines.join("\n");
++}
++const CANONICAL_ACTION_EVIDENCE_HEADING = "## Canonical Action Evidence";
++function stripCanonicalActionEvidence(summary) {
++	if (!summary) return summary;
++	const marker = `\n\n${CANONICAL_ACTION_EVIDENCE_HEADING}\n`;
++	const markerIndex = summary.lastIndexOf(marker);
++	return (markerIndex < 0 ? summary : summary.slice(0, markerIndex)).trimEnd();
++}
+ const SUMMARIZATION_SYSTEM_PROMPT = "You are a context summarization assistant. Your task is to read a conversation between a user and an AI coding assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.";
+ const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
+ 
+@@ -2051,36 +2123,45 @@ Use this EXACT format:
+ - [Any constraints, preferences, or requirements mentioned by user]
+ - [Or "(none)" if none were mentioned]
+ 
+-## Progress
+-### Done
+-- [x] [Completed tasks/changes]
++## Observed Facts
++- [Completed actions and other facts that actually occurred. Preserve time, checkpoint, target, and scope when known.]
+ 
+-### In Progress
+-- [ ] [Current work]
++## Current Status
++- [What is true now, including current work and blockers. Do not use current status to erase historical facts.]
+ 
+-### Blocked
+-- [Issues preventing progress, if any]
++## Pending Plan
++1. [Ordered future actions. A plan is not evidence that an action already happened.]
+ 
+ ## Key Decisions
+ - **[Decision]**: [Brief rationale]
+ 
+-## Next Steps
+-1. [Ordered list of what should happen next]
+-
+ ## Critical Context
+ - [Any data, examples, or references needed to continue]
+ - [Or "(none)" if not applicable]
+ 
+-Keep each section concise. Preserve exact file paths, function names, and error messages.`;
++Keep each section concise. Preserve exact file paths, function names, and error messages.
++
++Keep Observed Facts, Current Status, and Pending Plan strictly separate:
++- A later status or plan may supersede an earlier status or plan, but it must not erase an action that actually happened.
++- Preserve temporal and scope qualifiers. A statement that something has not happened after a named checkpoint must never become a claim that it has never happened.
++- Treat plans, intentions, and requested future actions as pending until later evidence says they occurred.
++- If new evidence explicitly corrects or conflicts with an observed fact, preserve the correction or conflict with its time and scope instead of silently choosing one version.
++
++The <canonical-action-evidence> block is a bounded projection rebuilt from durable conversation events. Use it to verify whether tool work historically occurred, but do not reproduce its heading; the runtime appends one authoritative evidence section mechanically.`;
+ const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
+ 
+ Update the existing structured summary with new information. RULES:
+ - PRESERVE all existing information from the previous summary
+ - ADD new progress, decisions, and context from the new messages
+-- UPDATE the Progress section: move items from "In Progress" to "Done" when completed
+-- UPDATE "Next Steps" based on what was accomplished
++- UPDATE Current Status based on the newest evidence
++- UPDATE Pending Plan based on what was accomplished
+ - PRESERVE exact file paths, function names, and error messages
+-- If something is no longer relevant, you may remove it
++- REMOVE only superseded current status or plans. Never remove an observed fact merely because it is no longer current.
++- KEEP Observed Facts, Current Status, and Pending Plan strictly separate
++- A plan is not evidence that an action happened
++- Preserve temporal and scope qualifiers. "Not yet after checkpoint X" must never become "never happened."
++- If new evidence explicitly corrects or conflicts with an observed fact, record the correction or conflict with its time and scope instead of silently choosing one version
++- Use <canonical-action-evidence> to revalidate historical tool work, but do not reproduce its heading; the runtime appends that evidence mechanically
+ 
+ Use this EXACT format:
+ 
+@@ -2090,22 +2171,18 @@ Use this EXACT format:
+ ## Constraints & Preferences
+ - [Preserve existing, add new ones discovered]
+ 
+-## Progress
+-### Done
+-- [x] [Include previously done items AND newly completed items]
++## Observed Facts
++- [Preserve previously observed facts and add newly completed actions or other facts]
+ 
+-### In Progress
+-- [ ] [Current work - update based on progress]
++## Current Status
++- [What is true now, including current work and blockers]
+ 
+-### Blocked
+-- [Current blockers - remove if resolved]
++## Pending Plan
++1. [Future actions only; remove items once evidence shows they happened]
+ 
+ ## Key Decisions
+ - **[Decision]**: [Brief rationale] (preserve all previous, add new)
+ 
+-## Next Steps
+-1. [Update based on current state]
+-
+ ## Critical Context
+ - [Preserve important context, add new if needed]
+ 
+@@ -2118,12 +2195,18 @@ Summarize the prefix to provide context for the retained suffix:
+ [What did the user ask for in this turn?]
+ 
+ ## Early Progress
+-- [Key decisions and work done in the prefix]
++- [Observed facts: decisions and work that actually happened in the prefix]
++
++## Status at the Retained Suffix
++- [What was in progress or blocked at the boundary]
++
++## Pending Plan at the Retained Suffix
++- [Future actions only]
+ 
+ ## Context for Suffix
+ - [Information needed to understand the retained recent work]
+ 
+-Be concise. Focus on what's needed to understand the kept suffix.`;
++Be concise. Focus on what's needed to understand the kept suffix. Do not let pending work erase completed historical actions, and preserve time, checkpoint, target, and scope qualifiers.`;
+ /** Valid cut points: user or assistant messages. Never cut at toolResult. */
+ function findValidCutPoints(messages, start, end) {
+ 	const cutPoints = [];
+@@ -2196,11 +2279,12 @@ function prepareCompaction(messages, settings, previousCompaction) {
+ 		settings
+ 	};
+ }
+-async function generateSummary(currentMessages, model, reserveTokens, apiKey, signal, previousSummary, observer) {
++async function generateSummary(currentMessages, model, reserveTokens, apiKey, signal, previousSummary, canonicalActionEvidence, observer) {
+ 	const maxTokens = Math.min(Math.floor(.8 * reserveTokens), 16e3);
+ 	const basePrompt = previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
+ 	let promptText = `<conversation>\n${serializeConversation(currentMessages)}\n</conversation>\n\n`;
+-	if (previousSummary) promptText += `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n`;
++	if (previousSummary) promptText += `<previous-summary>\n${stripCanonicalActionEvidence(previousSummary)}\n</previous-summary>\n\n`;
++	promptText += `<canonical-action-evidence>\n${canonicalActionEvidence}\n</canonical-action-evidence>\n\n`;
+ 	promptText += basePrompt;
+ 	const summarizationMessages = [{
+ 		role: "user",
+@@ -2279,7 +2363,7 @@ async function generateTurnPrefixSummary(messages, model, reserveTokens, apiKey,
+ 	};
+ }
+ async function compact(preparation, model, apiKey, signal, observer) {
+-	const { messagesToSummarize, turnPrefixMessages, isSplitTurn, tokensBefore, previousSummary, fileOps, settings } = preparation;
++	const { messagesToSummarize, turnPrefixMessages, isSplitTurn, tokensBefore, previousSummary, canonicalActionEvidence = "- (none)", fileOps, settings } = preparation;
+ 	let summary;
+ 	let aggregateUsage;
+ 	const addCallUsage = (usage) => {
+@@ -2288,7 +2372,7 @@ async function compact(preparation, model, apiKey, signal, observer) {
+ 		aggregateUsage = aggregateUsage ? addUsage(aggregateUsage, normalized) : normalized;
+ 	};
+ 	if (isSplitTurn && turnPrefixMessages.length > 0) {
+-		const [historyResult, turnPrefixResult] = await Promise.all([messagesToSummarize.length > 0 ? generateSummary(messagesToSummarize, model, settings.reserveTokens, apiKey, signal, previousSummary, observer) : Promise.resolve({
++		const [historyResult, turnPrefixResult] = await Promise.all([messagesToSummarize.length > 0 ? generateSummary(messagesToSummarize, model, settings.reserveTokens, apiKey, signal, previousSummary, canonicalActionEvidence, observer) : Promise.resolve({
+ 			text: "No prior history.",
+ 			usage: void 0
+ 		}), generateTurnPrefixSummary(turnPrefixMessages, model, settings.reserveTokens, apiKey, signal, observer)]);
+@@ -2296,10 +2380,12 @@ async function compact(preparation, model, apiKey, signal, observer) {
+ 		addCallUsage(turnPrefixResult.usage);
+ 		summary = `${historyResult.text}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult.text}`;
+ 	} else {
+-		const historyResult = await generateSummary(messagesToSummarize, model, settings.reserveTokens, apiKey, signal, previousSummary, observer);
++		const historyResult = await generateSummary(messagesToSummarize, model, settings.reserveTokens, apiKey, signal, previousSummary, canonicalActionEvidence, observer);
+ 		addCallUsage(historyResult.usage);
+ 		summary = historyResult.text;
+ 	}
++	summary = stripCanonicalActionEvidence(summary);
++	summary += `\n\n${CANONICAL_ACTION_EVIDENCE_HEADING}\n${canonicalActionEvidence}`;
+ 	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
+ 	summary += formatFileOperations(readFiles, modifiedFiles);
+ 	return {
+@@ -2326,7 +2412,7 @@ async function compact(preparation, model, apiKey, signal, observer) {
  */
  function classifySubmissionState(following, opts) {
  	if (following === void 0) return { kind: "absent" };
@@ -117,7 +344,7 @@ index d052200..89c9f31 100644
  	const assistantEntry = following.findLast((entry) => entry.type === "message" && entry.message.role === "assistant");
  	const assistant = assistantEntry?.type === "message" ? assistantEntry.message : void 0;
  	if (!assistant) return {
-@@ -2476,7 +2492,10 @@ function classifyConversationSubmission(conversation, inputEntryId, options) {
+@@ -2476,7 +2562,10 @@ function classifyConversationSubmission(conversation, inputEntryId, options) {
  		messageId: inProgress.messageId,
  		assistant: materializeInterruptedAssistant(inProgress)
  	};
@@ -129,10 +356,24 @@ index d052200..89c9f31 100644
  }
  function projectConversationUi(conversation, streamOffset) {
  	const messages = [];
+@@ -2690,4 +2779,4 @@ function projectInProgressMessage(message) {
+ 	};
+ }
+ //#endregion
+-export { registerExecutionInterceptor as $, admitDetachedWorkflow as A, generateSessionAffinityKey as B, getActiveConversationPath as C, renderSignalMessage as D, toolResultEntryId as E, handleWorkflowRequest as F, DEFAULT_READ_LIMIT as G, generateWorkflowRunId as H, invokeDirectAttached as I, agentStreamPath as J, MAX_READ_LIMIT as K, invokeWorkflowAttached as L, assertWorkflowDefinition as M, failRecoveredRun as N, toolResultOutput as O, handleAgentRequest as P, interceptExecution as Q, generateConversationId as R, createReducedInstanceState as S, toolOutcomeKey as T, defineWorkflow as U, generateTurnId as V, assertProductEventV3 as W, parseOffset as X, formatOffset as Y, runStreamPath as Z, isContextOverflow as _, getLatestCompletedAssistantEntry as a, resolveAgentProfile as at, emptyUsage as b, projectConversationModelContextEntries as c, runActionWithParsedInput as ct, findTrailingPartialToolBatch as d, assertResolvedAgentProfile as et, isRetryableModelError as f, deriveCompactionDefaults as g, compact as h, getAssistantText as i, extendAgentProfile as it, assertAgentDispatchAdmissionInput as j, toolResultText as k, projectConversationUi as l, calculateContextTokens as m, classifyConversationSubmission as n, defineAgent as nt, getLatestConversationCompaction as o, defineAction as ot, DEFAULT_COMPACTION_SETTINGS as p, SqliteEventStreamStore as q, getActiveConversationPathSince as r, defineAgentProfile as rt, projectConversationModelContext as s, parseActionInput as st, aggregateConversationUsageSince as t, createAgent as tt, countConsecutiveRetryableModelErrors as u, prepareCompaction as v, reduceConversationRecords as w, fromProviderUsage as x, shouldCompact as y, generateOperationId as z };
++export { registerExecutionInterceptor as $, admitDetachedWorkflow as A, generateSessionAffinityKey as B, getActiveConversationPath as C, renderSignalMessage as D, toolResultEntryId as E, handleWorkflowRequest as F, DEFAULT_READ_LIMIT as G, generateWorkflowRunId as H, invokeDirectAttached as I, agentStreamPath as J, MAX_READ_LIMIT as K, invokeWorkflowAttached as L, assertWorkflowDefinition as M, failRecoveredRun as N, toolResultOutput as O, handleAgentRequest as P, interceptExecution as Q, generateConversationId as R, createReducedInstanceState as S, toolOutcomeKey as T, defineWorkflow as U, generateTurnId as V, assertProductEventV3 as W, parseOffset as X, formatOffset as Y, runStreamPath as Z, isContextOverflow as _, getLatestCompletedAssistantEntry as a, resolveAgentProfile as at, emptyUsage as b, buildCanonicalActionEvidence, projectConversationModelContextEntries as c, compact, runActionWithParsedInput as ct, findTrailingPartialToolBatch as d, assertResolvedAgentProfile as et, isRetryableModelError as f, deriveCompactionDefaults as g, compact as h, getAssistantText as i, extendAgentProfile as it, assertAgentDispatchAdmissionInput as j, toolResultText as k, projectConversationUi as l, calculateContextTokens as m, classifyConversationSubmission as n, defineAgent as nt, getLatestConversationCompaction as o, defineAction as ot, DEFAULT_COMPACTION_SETTINGS as p, SqliteEventStreamStore as q, getActiveConversationPathSince as r, defineAgentProfile as rt, projectConversationModelContext as s, parseActionInput as st, aggregateConversationUsageSince as t, createAgent as tt, countConsecutiveRetryableModelErrors as u, prepareCompaction as v, reduceConversationRecords as w, fromProviderUsage as x, shouldCompact as y, generateOperationId as z };
 diff --git a/dist/conversation-stream-store-Bitz7UoW.mjs b/dist/conversation-stream-store-Bitz7UoW.mjs
-index 9403255..319bf14 100644
+index 94032552cc83d3596ae6e53bd46ec6c9c9749b01..a787d35b0d00677050567875dcdab11153fffb30 100644
 --- a/dist/conversation-stream-store-Bitz7UoW.mjs
 +++ b/dist/conversation-stream-store-Bitz7UoW.mjs
+@@ -1,6 +1,6 @@
+ import { A as SkillNotRegisteredError, D as SessionBusyError, F as SubmissionRetryExhaustedError, I as SubmissionTimeoutError, M as SubagentNotDeclaredError, N as SubmissionAbortedError, P as SubmissionInterruptedError, _ as OperationFailedError, d as ConversationStreamStoreError, f as DelegationDepthExceededError, o as AttachmentNotAvailableError, p as FlueError, u as ConversationRecordInvariantError, z as ToolNameConflictError } from "./errors-DUgRtE8e.mjs";
+ import { i as validateToolOutput, l as valibotToJsonSchema, r as parseToolInput, t as assertToolDefinition } from "./tool-C2CuUqYC.mjs";
+-import { C as getActiveConversationPath, D as renderSignalMessage, E as toolResultEntryId, J as agentStreamPath, Q as interceptExecution, T as toolOutcomeKey, V as generateTurnId, X as parseOffset, Y as formatOffset, _ as isContextOverflow, a as getLatestCompletedAssistantEntry, b as emptyUsage, c as projectConversationModelContextEntries, ct as runActionWithParsedInput, d as findTrailingPartialToolBatch, f as isRetryableModelError, g as deriveCompactionDefaults, h as compact, i as getAssistantText, j as assertAgentDispatchAdmissionInput, m as calculateContextTokens, n as classifyConversationSubmission, o as getLatestConversationCompaction, p as DEFAULT_COMPACTION_SETTINGS, r as getActiveConversationPathSince, s as projectConversationModelContext, st as parseActionInput, t as aggregateConversationUsageSince, u as countConsecutiveRetryableModelErrors, v as prepareCompaction, x as fromProviderUsage, y as shouldCompact, z as generateOperationId } from "./conversation-projections-XMug3C6A.mjs";
++import { C as getActiveConversationPath, D as renderSignalMessage, E as toolResultEntryId, J as agentStreamPath, Q as interceptExecution, T as toolOutcomeKey, V as generateTurnId, X as parseOffset, Y as formatOffset, _ as isContextOverflow, a as getLatestCompletedAssistantEntry, b as emptyUsage, buildCanonicalActionEvidence, c as projectConversationModelContextEntries, ct as runActionWithParsedInput, d as findTrailingPartialToolBatch, f as isRetryableModelError, g as deriveCompactionDefaults, h as compact, i as getAssistantText, j as assertAgentDispatchAdmissionInput, m as calculateContextTokens, n as classifyConversationSubmission, o as getLatestConversationCompaction, p as DEFAULT_COMPACTION_SETTINGS, r as getActiveConversationPathSince, s as projectConversationModelContext, st as parseActionInput, t as aggregateConversationUsageSince, u as countConsecutiveRetryableModelErrors, v as prepareCompaction, x as fromProviderUsage, y as shouldCompact, z as generateOperationId } from "./conversation-projections-XMug3C6A.mjs";
+ import { C as IMAGE_DATA_OMITTED, T as redactObservationDetailImages, _ as createPackagedSkillReadTool, a as GIVE_UP_TOOL_NAME, b as formatBashResult, c as buildPromptText, d as buildWorkspaceSkillPrompt, f as createResultTools, g as createActivateSkillTool, h as READ_SKILL_RESOURCE_TOOL_NAME, i as FINISH_TOOL_NAME, l as buildResultFollowUpPrompt, m as parseSkillMarkdown, o as ResultUnavailableError, p as prepareResultTool, r as getSkillReferenceDirectory, s as buildPackagedSkillPrompt, u as buildSkillByPathlessNamePrompt, v as createTaskTool, w as redactEventImages, x as getPreparedToolAdapter, y as createTools } from "./skill-package-B-Co0HMC.mjs";
+ import { i as createFlueFs, l as createCallHandle, s as abortErrorFor } from "./sandbox-tx-XM70E.mjs";
+ import { T as MAX_IMAGE_DATA_LENGTH, d as SUBMISSION_SESSION_NAME, f as clampLimit, l as migrateFlueSqlSchema, x as parseSessionStorageKey } from "./run-store-CYeXjR-d.mjs";
 @@ -2329,7 +2329,7 @@ var Session = class {
  		let overflowRecoveryAttempted = false;
  		const throwIfHalted = () => {
@@ -142,7 +383,15 @@ index 9403255..319bf14 100644
  		};
  		while (true) {
  			const overflow = assistant !== void 0 && isContextOverflow(assistant, this.agentLoop.state.model.contextWindow ?? 0);
-@@ -2779,9 +2779,10 @@ var Session = class {
+@@ -2456,6 +2456,7 @@ var Session = class {
+ 				this.internalLog("info", "[flue:compaction] Nothing to compact (no valid cut point found)");
+ 				return false;
+ 			}
++			preparation.canonicalActionEvidence = buildCanonicalActionEvidence(canonicalConversation);
+ 			const firstKeptEntry = contextEntries[preparation.firstKeptIndex]?.sourceEntry;
+ 			if (!firstKeptEntry || firstKeptEntry.type !== "message") {
+ 				this.internalLog("info", "[flue:compaction] Nothing to compact (first kept message has no entry)");
+@@ -2779,9 +2780,10 @@ var Session = class {
  		});
  	}
  	resolveSubmissionDurability(startedAt, timeoutAt) {
@@ -154,7 +403,7 @@ index 9403255..319bf14 100644
  		};
  	}
  	async runPersistedContextInput(options) {
-@@ -3119,6 +3120,14 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -3119,6 +3121,14 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	const { input } = submission;
  	const attempt = submissionAttemptRef(submission);
  	if (!attempt) return { disposition: "stale" };
@@ -169,7 +418,7 @@ index 9403255..319bf14 100644
  	const dispatchId = agentSubmissionDispatchId(input);
  	const ctx = createContext(dispatchId);
  	if (submission.kind === "direct") ctx.setSubmissionId?.(submission.submissionId);
-@@ -3147,14 +3156,6 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -3147,14 +3157,6 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  			error: new SubmissionAbortedError()
  		};
  	}
@@ -184,7 +433,7 @@ index 9403255..319bf14 100644
  	if (submission.timeoutAt > 0 && Date.now() >= submission.timeoutAt) return failInterruptedSubmission(submissions, submission, attempt, agent, "exceeded_timeout", new SubmissionTimeoutError(), createContext, void 0, conversationWriter);
  	if (submission.inputAppliedAt === void 0 && state !== "absent") {
  		const replacement = await submissions.replaceSubmissionAttempt(attempt, crypto.randomUUID(), lease);
-@@ -3177,7 +3178,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+@@ -3177,7 +3179,7 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
  	if (state === "continuable" || state === "uncertain") {
  		const replacement = await submissions.replaceSubmissionAttempt(attempt, crypto.randomUUID(), lease);
  		if (!replacement?.attemptId) return { disposition: "stale" };
@@ -193,7 +442,7 @@ index 9403255..319bf14 100644
  			const recoveryCtx = createContext(dispatchId);
  			if (submission.kind === "direct") recoveryCtx.setSubmissionId?.(submission.submissionId);
  			await createAgentSubmissionSessionHandler(agent, input, (s) => s.recoverInterruptedStream({
-@@ -3313,25 +3314,28 @@ async function processSubmission(opts) {
+@@ -3313,25 +3315,28 @@ async function processSubmission(opts) {
  		if (submission.kind === "direct" && settled) observers.complete(submission.submissionId, result);
  	} finally {
  		if (submission.kind === "direct") ctx.setEventCallback(void 0);
@@ -235,7 +484,7 @@ index 9403255..319bf14 100644
  	return {
  		disposition: "failed",
  		error
-@@ -3354,6 +3358,8 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
+@@ -3354,6 +3359,8 @@ async function failInterruptedSubmission(submissions, submission, attempt, agent
  */
  async function settleAbortedWithContext(submissions, submission, attempt, agent, ctx, conversationWriter) {
  	const error = new SubmissionAbortedError();
@@ -244,7 +493,7 @@ index 9403255..319bf14 100644
  	try {
  		await createAgentSubmissionSessionHandler(agent, submission.input, (s) => s.recordSubmissionTerminal({
  			submissionId: submission.submissionId,
-@@ -3364,8 +3370,7 @@ async function settleAbortedWithContext(submissions, submission, attempt, agent,
+@@ -3364,8 +3371,7 @@ async function settleAbortedWithContext(submissions, submission, attempt, agent,
  	} catch (advisoryError) {
  		console.error("[flue:submission-abort] Failed to record abort advisory for submission", submission.submissionId, advisoryError);
  	}
@@ -255,7 +504,7 @@ index 9403255..319bf14 100644
  async function settleDirectSubmission(submissions, attempt, ctx, outcome, result, error, conversationWriter) {
  	const event = ctx.createEvent({
 diff --git a/dist/flue-app-DweeRG3g.mjs b/dist/flue-app-DweeRG3g.mjs
-index c0cd7c7..63af543 100644
+index c0cd7c7542ba19ee11b50a9cb5319eb519341288..63af543ca93fab5ff47df1fb1a1a8180ad8932a1 100644
 --- a/dist/flue-app-DweeRG3g.mjs
 +++ b/dist/flue-app-DweeRG3g.mjs
 @@ -201,10 +201,9 @@ async function loadReducedConversationState(options) {
@@ -273,7 +522,7 @@ index c0cd7c7..63af543 100644
  	}
  }
 diff --git a/dist/internal.mjs b/dist/internal.mjs
-index 1147b97..4efb036 100644
+index 1147b979db854e2c491a1ab802b4848a84e1dbd1..4efb036730e3520d3bdfb4a152733311fa00e783 100644
 --- a/dist/internal.mjs
 +++ b/dist/internal.mjs
 @@ -406,7 +406,7 @@ var Harness = class Harness {
@@ -556,7 +805,7 @@ index 1147b97..4efb036 100644
  			dispatchId: admission.submission.submissionId,
  			acceptedAt: input.acceptedAt
 diff --git a/dist/sql-run-store-DRLffFXh.mjs b/dist/sql-run-store-DRLffFXh.mjs
-index 777173d..1010ccc 100644
+index 777173d6e7cd6e14a75c95e92b4ac4ad50923b8a..1010ccc25617591e7b6158be02a4ef1dc73d9c3c 100644
 --- a/dist/sql-run-store-DRLffFXh.mjs
 +++ b/dist/sql-run-store-DRLffFXh.mjs
 @@ -154,10 +154,19 @@ var AgentSubmissionStoreImpl = class {
@@ -597,7 +846,7 @@ index 777173d..1010ccc 100644
  		return this.sql.exec(`UPDATE flue_agent_submissions
  					 SET status = 'queued', attempt_id = NULL, recovery_requested_at = NULL, started_at = NULL, owner_id = NULL, lease_expires_at = 0
 diff --git a/dist/types-USSZhfC6.d.mts b/dist/types-USSZhfC6.d.mts
-index e41ab79..9717e16 100644
+index e41ab79c03df8f1af64e73af81b76e545d17fa69..9717e16d89a6950fed6896ab0019d67ba4d9f349 100644
 --- a/dist/types-USSZhfC6.d.mts
 +++ b/dist/types-USSZhfC6.d.mts
 @@ -314,6 +314,8 @@ interface AgentConfig {

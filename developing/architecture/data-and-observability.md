@@ -2161,6 +2161,20 @@ completion time plus the number of successful compactions observed for that
 submission. The temporary start record is then removed. A normal turn performs
 no compaction-specific storage read or write.
 
+Flue remains the only private conversation and compaction owner. Its checkpoint
+schema keeps observed historical facts, current status, and pending plans in
+separate sections. A current or planned statement cannot erase an observed
+event, and temporal or target scope cannot be widened during summarization.
+Before each compaction, Flue rebuilds one bounded action-evidence read projection
+from the active path of its canonical conversation events. That projection
+contains tool names, call and error or non-error result counts, and first and
+latest timestamps, but no arguments or result content. The runtime strips any
+older projection from the model-authored summary and appends exactly one fresh
+projection. This is not another transcript or writer, and a non-error result is
+not independent proof of an external provider effect. OpenMeld does not copy
+the generated checkpoint or action-evidence projection into D1, Agent memory,
+Task events, callback context, Signals, or Analytics Engine.
+
 Structured compaction events record only correlation IDs, timestamps, duration,
 message counts, estimated token count, Flue reason, checkpoint count, and
 bounded issue codes. The issue codes are `missing_start`,
@@ -2205,6 +2219,14 @@ contents must not enter the Analytics Engine row. These are raw usage and
 reliability observations, not prices, credits, quotas, pilot budgets, admission
 authority, or billing truth. Pricing and packaging remain a later product study
 after production usage observability exists.
+
+No-progress protection is separate short-lived worker state, not execution or
+effect authority. The Remote Agent stores one expiring record per submission
+with a total call count and at most sixteen recent observation fingerprints.
+The fingerprints cover canonical tool name/input and result values; raw tool
+arguments and results are never stored in this record. It expires after one
+hour, cannot authorize or replay an action, and applies unchanged-result
+detection only to definitions explicitly classified as observation-only.
 
 ## Space Agent Stream Projection
 

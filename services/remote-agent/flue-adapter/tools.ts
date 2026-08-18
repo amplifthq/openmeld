@@ -12,6 +12,7 @@ import {
   type RemoteAgentFeedbackSubmissionConfig,
   type RemoteAgentMemberProfileReportComputerFiles,
 } from "../agent-core/tools";
+import { createRemoteAgentCapabilityDiscoveryDefinitions } from "./capability-discovery";
 import {
   createRemoteAgentCodeModeFlueTool,
   type RemoteAgentCodeModeRuntime,
@@ -42,12 +43,17 @@ export async function getRemoteAgentFlueTools(input: {
     ...getRemoteAgentOpenMeldToolDefinitions(input),
     ...(unverifiedMember ? [] : (input.sandboxDefinitions ?? [])),
   ];
-  const directTools = definitions.map((definition) =>
-    toFlueTool({
-      definition,
-      storage: input.storage,
-      submissionId: input.submissionId,
-    })
+  const capabilityDiscoveryDefinitions =
+    definitions.length > 0
+      ? createRemoteAgentCapabilityDiscoveryDefinitions(definitions)
+      : [];
+  const directTools = [...definitions, ...capabilityDiscoveryDefinitions].map(
+    (definition) =>
+      toFlueTool({
+        definition,
+        storage: input.storage,
+        submissionId: input.submissionId,
+      })
   );
   if (!input.env?.LOADER) {
     throw new Error("Remote Agent Code Mode Worker Loader is unavailable.");

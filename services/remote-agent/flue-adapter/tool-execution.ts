@@ -10,6 +10,13 @@ import {
 } from "../agent-core/execution-state";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
+  beginRemoteAgentToolAttempt,
+  type RemoteAgentToolAttempt,
+  RemoteAgentToolCallBudgetExceededError,
+  RemoteAgentToolProgressStateInvalidError,
+  recordRemoteAgentToolResultProgress,
+} from "../agent-core/tool-progress";
+import {
   isRemoteAgentToolResultWithinLimit,
   RemoteAgentToolResultTooLargeError as ToolResultTooLargeError,
 } from "../agent-core/tool-result-boundary";
@@ -47,12 +54,24 @@ export async function executeRemoteAgentToolDefinition(input: {
 }): Promise<unknown> {
   return await runRemoteAgentToolSerially(input, async () => {
     await requireRemoteAgentToolExecutionContext(input);
-    await assertRemoteAgentTurnAllowsToolExecution(input);
+    const attempt = await beginRemoteAgentToolExecutionAttempt({
+      progressTracking: input.definition.progressTracking,
+      storage: input.storage,
+      submissionId: input.submissionId,
+      toolInput: input.toolInput,
+      toolName: input.definition.name,
+    });
     const result = input.signal
       ? await input.definition.execute(input.toolInput, {
           signal: input.signal,
         })
       : await input.definition.execute(input.toolInput);
+    await recordRemoteAgentToolResultProgress({
+      attempt,
+      result,
+      storage: input.storage,
+      submissionId: input.submissionId,
+    });
     if (input.definition.endsTurnAfter?.(result, input.toolInput) === true) {
       await markRemoteAgentTurnEnded({
         storage: input.storage,
@@ -62,6 +81,34 @@ export async function executeRemoteAgentToolDefinition(input: {
     }
     return result;
   });
+}
+
+export async function beginRemoteAgentToolExecutionAttempt(input: {
+  progressTracking?: RemoteAgentToolDefinition["progressTracking"];
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  toolInput: Record<string, unknown>;
+  toolName: string;
+}): Promise<RemoteAgentToolAttempt> {
+  await assertRemoteAgentTurnAllowsToolExecution(input);
+  try {
+    return await beginRemoteAgentToolAttempt(input);
+  } catch (error) {
+    if (
+      error instanceof RemoteAgentToolCallBudgetExceededError ||
+      error instanceof RemoteAgentToolProgressStateInvalidError
+    ) {
+      await markRemoteAgentTurnEnded({
+        storage: input.storage,
+        submissionId: input.submissionId,
+        toolName:
+          error instanceof RemoteAgentToolCallBudgetExceededError
+            ? "the submission tool-call budget"
+            : "invalid durable tool progress",
+      });
+    }
+    throw error;
+  }
 }
 
 async function runRemoteAgentToolSerially<Result>(

@@ -1,3 +1,4 @@
+import { CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   assertCoreOriginatedTurnContext,
@@ -424,6 +425,57 @@ describe("remote agent callback context", () => {
     } finally {
       info.mockRestore();
     }
+  });
+
+  it("rejects provider protocol text instead of publishing it as an ordinary reply", async () => {
+    const request = createSubmitTurnRequest();
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(storage, context);
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal_protocol_failure_123",
+      status: "accepted" as const,
+    }));
+
+    const updated = await handleRemoteAgentChatResponse({
+      coreWorker: { completeRemoteAgentSubmission },
+      nowMs: () => TEST_NOW_MS + 1000,
+      result: {
+        continuation: false,
+        message: {
+          parts: [
+            {
+              text: "The streaming example is still open: `<tool_call>",
+              type: "text",
+            },
+          ],
+        },
+        requestId: ACK.submissionId,
+        status: "completed",
+      },
+      storage,
+    });
+
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.assistant_protocol_contamination",
+        failureMessage: CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
+        status: "failed",
+      })
+    );
+    expect(
+      JSON.stringify(completeRemoteAgentSubmission.mock.calls)
+    ).not.toContain("<tool_call>");
+    expect(updated).toMatchObject({
+      callbackStatus: "failed",
+      terminalFailureFact: {
+        code: "remote_agent.assistant_protocol_contamination",
+      },
+    });
   });
 
   it("publishes plain recovery copy instead of a completed internal failure", async () => {

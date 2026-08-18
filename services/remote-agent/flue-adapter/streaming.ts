@@ -11,6 +11,7 @@ import type {
   RemoteAgentStreamDeltaCallbackResponse,
   RemoteAgentStreamPartCallbackBody,
 } from "@openmeld/schemas/types";
+import { inspectStreamingAssistantPublicationProtocol } from "../agent-core/assistant-publication";
 import {
   listRemoteAgentCallbackContexts,
   type RemoteAgentCallbackContext,
@@ -249,37 +250,38 @@ export function createRemoteAgentStreamPublisher(
     transientState: RemoteAgentTransientStreamState,
     kind: RemoteAgentStreamDeltaKind
   ): Promise<RemoteAgentStreamPublishResult> => {
-    const pendingDelta =
-      kind === "thinking" ? transientState.pendingThinking : state.pendingText;
-    if (state.disabled) {
-      return {
-        status: "disabled",
-        sequence: state.sequence,
-        streamId: state.streamId,
-      };
-    }
-    if (kind === "thinking" && transientState.thinkingProjectionDisabled) {
-      return {
-        contentKind: "thinking",
-        deltaLength: pendingDelta.length,
-        status: "dropped",
-        sequence: state.sequence,
-        streamId: state.streamId,
-      };
-    }
-    if (pendingDelta.length === 0) {
-      return {
-        status: "buffered",
-        sequence: state.sequence,
-        streamId: state.streamId,
-      };
+    const pendingDelta = readPendingRemoteAgentStreamDelta({
+      kind,
+      state,
+      transientState,
+    });
+    const earlyResult = resolveRemoteAgentStreamEarlyResult({
+      kind,
+      pendingDelta,
+      state,
+      transientState,
+    });
+    if (earlyResult) {
+      return earlyResult;
     }
 
-    const currentSnapshot =
-      kind === "thinking"
-        ? transientState.thinkingSnapshot
-        : state.textSnapshot;
+    const currentSnapshot = readRemoteAgentStreamSnapshot({
+      kind,
+      state,
+      transientState,
+    });
     const snapshot = currentSnapshot + pendingDelta;
+    if (kind === "text") {
+      const protocolGuardResult = await guardRemoteAgentStreamTextProtocol({
+        snapshot,
+        state,
+        storage: input.storage,
+        transientState,
+      });
+      if (protocolGuardResult) {
+        return protocolGuardResult;
+      }
+    }
     if (
       pendingDelta.length > REMOTE_AGENT_STREAM_DELTA_MAX_CHARS ||
       snapshot.length > AGENT_STREAM_SNAPSHOT_MAX_CHARS
@@ -361,6 +363,9 @@ export function createRemoteAgentStreamPublisher(
         break;
       }
       result = await publish(input, state, transientState, kind);
+      if (result.status === "buffered") {
+        break;
+      }
     }
     return result;
   };
@@ -559,6 +564,45 @@ function disableRemoteAgentThinkingProjection(
   transientState.thinkingSnapshot = "";
 }
 
+async function guardRemoteAgentStreamTextProtocol(input: {
+  snapshot: string;
+  state: RemoteAgentStreamState;
+  storage: RemoteAgentStorage;
+  transientState: RemoteAgentTransientStreamState;
+}): Promise<RemoteAgentStreamPublishResult | null> {
+  const inspection = inspectStreamingAssistantPublicationProtocol(
+    input.snapshot
+  );
+  if (inspection.status === "publishable") {
+    return null;
+  }
+  if (inspection.status === "incomplete") {
+    return {
+      status: "buffered",
+      sequence: input.state.sequence,
+      streamId: input.state.streamId,
+    };
+  }
+
+  console.warn(
+    "[remote_agent.publication.stream_protocol_contamination_blocked]",
+    {
+      marker: inspection.marker,
+      submissionId: input.state.submissionId,
+    }
+  );
+  input.state.disabled = true;
+  input.state.pendingText = "";
+  input.transientState.pendingKindOrder = [];
+  input.transientState.pendingThinking = "";
+  await persistRemoteAgentStreamState(input.storage, input.state);
+  return {
+    status: "disabled",
+    sequence: input.state.sequence,
+    streamId: input.state.streamId,
+  };
+}
+
 async function handleRemoteAgentStreamLimitExceeded(input: {
   kind: RemoteAgentStreamDeltaKind;
   pendingDelta: string;
@@ -597,6 +641,51 @@ function readPendingRemoteAgentStreamDelta(input: {
   return input.kind === "thinking"
     ? input.transientState.pendingThinking
     : input.state.pendingText;
+}
+
+function readRemoteAgentStreamSnapshot(input: {
+  kind: RemoteAgentStreamDeltaKind;
+  state: RemoteAgentStreamState;
+  transientState: RemoteAgentTransientStreamState;
+}): string {
+  return input.kind === "thinking"
+    ? input.transientState.thinkingSnapshot
+    : input.state.textSnapshot;
+}
+
+function resolveRemoteAgentStreamEarlyResult(input: {
+  kind: RemoteAgentStreamDeltaKind;
+  pendingDelta: string;
+  state: RemoteAgentStreamState;
+  transientState: RemoteAgentTransientStreamState;
+}): RemoteAgentStreamPublishResult | null {
+  if (input.state.disabled) {
+    return {
+      status: "disabled",
+      sequence: input.state.sequence,
+      streamId: input.state.streamId,
+    };
+  }
+  if (
+    input.kind === "thinking" &&
+    input.transientState.thinkingProjectionDisabled
+  ) {
+    return {
+      contentKind: "thinking",
+      deltaLength: input.pendingDelta.length,
+      status: "dropped",
+      sequence: input.state.sequence,
+      streamId: input.state.streamId,
+    };
+  }
+  if (input.pendingDelta.length === 0) {
+    return {
+      status: "buffered",
+      sequence: input.state.sequence,
+      streamId: input.state.streamId,
+    };
+  }
+  return null;
 }
 
 function buildRemoteAgentStreamId(submissionId: string): string {

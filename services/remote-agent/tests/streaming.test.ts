@@ -178,6 +178,294 @@ describe("Remote Agent streaming", () => {
     });
   });
 
+  it("never streams provider protocol text, including markers split across deltas", async () => {
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: createSubmitTurnRequest(),
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const submitRemoteAgentStreamDelta = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const publisher = createRemoteAgentStreamPublisher();
+
+    await publisher.push({
+      context,
+      coreWorker: { submitRemoteAgentStreamDelta },
+      delta: "I'll check that now. ",
+      kind: "text",
+      observedAtMs: TEST_NOW_MS,
+      storage,
+    });
+    await publisher.push({
+      context,
+      coreWorker: { submitRemoteAgentStreamDelta },
+      delta: "<tool_",
+      kind: "text",
+      observedAtMs: TEST_NOW_MS + 100,
+      storage,
+    });
+    const blocked = await publisher.push({
+      context,
+      coreWorker: { submitRemoteAgentStreamDelta },
+      delta: "call>openmeld_list_app_actions",
+      kind: "text",
+      observedAtMs: TEST_NOW_MS + 200,
+      storage,
+    });
+
+    expect(blocked.status).toBe("disabled");
+    expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
+  });
+
+  it("returns from flush while an incomplete provider marker awaits another delta", async () => {
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: createSubmitTurnRequest(),
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const submitRemoteAgentStreamDelta = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const publisher = createRemoteAgentStreamPublisher();
+    const coreWorker = { submitRemoteAgentStreamDelta };
+
+    await expect(
+      publisher.push({
+        context,
+        coreWorker,
+        delta: "<tool_",
+        kind: "text",
+        observedAtMs: TEST_NOW_MS,
+        storage,
+      })
+    ).resolves.toMatchObject({ status: "buffered" });
+    await expect(
+      publisher.flush({
+        context,
+        coreWorker,
+        observedAtMs: TEST_NOW_MS + 1000,
+        storage,
+      })
+    ).resolves.toMatchObject({ status: "buffered" });
+    await expect(
+      publisher.push({
+        context,
+        coreWorker,
+        delta: "call>openmeld_list_app_actions",
+        kind: "text",
+        observedAtMs: TEST_NOW_MS + 2000,
+        storage,
+      })
+    ).resolves.toMatchObject({ status: "disabled" });
+    expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
+  });
+
+  it("never streams render-equivalent provider protocol split across deltas", async () => {
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: createSubmitTurnRequest(),
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const submitRemoteAgentStreamDelta = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const publisher = createRemoteAgentStreamPublisher();
+    const coreWorker = { submitRemoteAgentStreamDelta };
+
+    await publisher.push({
+      context,
+      coreWorker,
+      delta: "&l",
+      kind: "text",
+      observedAtMs: TEST_NOW_MS,
+      storage,
+    });
+    const blocked = await publisher.push({
+      context,
+      coreWorker,
+      delta: "t;tool_call&gt;openmeld_list_app_actions",
+      kind: "text",
+      observedAtMs: TEST_NOW_MS + 200,
+      storage,
+    });
+
+    expect(blocked.status).toBe("disabled");
+    expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
+  });
+
+  it("never streams a provider marker whose underscore is a split character reference", async () => {
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: createSubmitTurnRequest(),
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const submitRemoteAgentStreamDelta = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const publisher = createRemoteAgentStreamPublisher();
+    const coreWorker = { submitRemoteAgentStreamDelta };
+
+    await publisher.push({
+      context,
+      coreWorker,
+      delta: "&lt;tool&low",
+      kind: "text",
+      observedAtMs: TEST_NOW_MS,
+      storage,
+    });
+    const blocked = await publisher.push({
+      context,
+      coreWorker,
+      delta: "bar;call&gt;openmeld_list_app_actions",
+      kind: "text",
+      observedAtMs: TEST_NOW_MS + 200,
+      storage,
+    });
+
+    expect(blocked.status).toBe("disabled");
+    expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
+  });
+
+  it("resumes protocol inspection after a CRLF fence split across deltas", async () => {
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: createSubmitTurnRequest(),
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const submitRemoteAgentStreamDelta = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const publisher = createRemoteAgentStreamPublisher();
+    const coreWorker = { submitRemoteAgentStreamDelta };
+
+    await publisher.push({
+      context,
+      coreWorker,
+      delta: "```text\r\nexample\r\n```\r\n<tool_",
+      kind: "text",
+      observedAtMs: TEST_NOW_MS,
+      storage,
+    });
+    const blocked = await publisher.push({
+      context,
+      coreWorker,
+      delta: "call>openmeld_list_app_actions",
+      kind: "text",
+      observedAtMs: TEST_NOW_MS + 200,
+      storage,
+    });
+
+    expect(blocked.status).toBe("disabled");
+    expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
+  });
+
+  it("does not let a code span's inner backticks mask later streamed prose", async () => {
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: createSubmitTurnRequest(),
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const submitRemoteAgentStreamDelta = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const publisher = createRemoteAgentStreamPublisher();
+    const coreWorker = { submitRemoteAgentStreamDelta };
+
+    await publisher.push({
+      context,
+      coreWorker,
+      delta: "`code `` inner` <tool_",
+      kind: "text",
+      observedAtMs: TEST_NOW_MS,
+      storage,
+    });
+    const blocked = await publisher.push({
+      context,
+      coreWorker,
+      delta: "call>openmeld_list_app_actions ``",
+      kind: "text",
+      observedAtMs: TEST_NOW_MS + 200,
+      storage,
+    });
+
+    expect(blocked.status).toBe("disabled");
+    expect(submitRemoteAgentStreamDelta).not.toHaveBeenCalled();
+  });
+
+  it("keeps an inline-code example safe while its closing backtick is still pending", async () => {
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request: createSubmitTurnRequest(),
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    const submitRemoteAgentStreamDelta = vi.fn(
+      async (body: { sequence: number }) => ({
+        status: "accepted" as const,
+        lastSequence: body.sequence,
+      })
+    );
+    const publisher = createRemoteAgentStreamPublisher();
+    const coreWorker = { submitRemoteAgentStreamDelta };
+
+    await publisher.push({
+      context,
+      coreWorker,
+      delta: "The streaming example is still open: `<tool_call>",
+      kind: "text",
+      observedAtMs: TEST_NOW_MS,
+      storage,
+    });
+    await expect(
+      publisher.flush({
+        context,
+        coreWorker,
+        observedAtMs: TEST_NOW_MS + 100,
+        storage,
+      })
+    ).resolves.toMatchObject({ status: "published" });
+    await expect(
+      publisher.push({
+        context,
+        coreWorker,
+        delta: "`",
+        kind: "text",
+        observedAtMs: TEST_NOW_MS + 200,
+        storage,
+      })
+    ).resolves.toMatchObject({ status: "published" });
+
+    expect(submitRemoteAgentStreamDelta).toHaveBeenCalledTimes(2);
+    expect(submitRemoteAgentStreamDelta.mock.calls[1]?.[0]).toMatchObject({
+      snapshot: "The streaming example is still open: `<tool_call>`",
+    });
+  });
+
   it("orders thinking and text deltas without persisting thinking content", async () => {
     const context = createRemoteAgentCallbackContext({
       ack: ACK,

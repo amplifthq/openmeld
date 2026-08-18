@@ -44,6 +44,27 @@ export class RemoteAgentSqlStorage
     return Promise.resolve((updated.rowsWritten ?? 0) > 0);
   }
 
+  compareAndSetExpiring<T>(
+    key: string,
+    expectedValue: T,
+    nextValue: T,
+    expiresAtMs: number
+  ): Promise<boolean> {
+    const updated = this.sql.exec(
+      `
+        UPDATE ${TABLE_NAME}
+        SET value_json = ?, updated_at_ms = ?, expires_at_ms = ?
+        WHERE key = ? AND value_json = ?
+      `,
+      JSON.stringify(nextValue),
+      Date.now(),
+      expiresAtMs,
+      key,
+      JSON.stringify(expectedValue)
+    );
+    return Promise.resolve((updated.rowsWritten ?? 0) > 0);
+  }
+
   delete(key: string): Promise<boolean> {
     const deleted = this.sql.exec(
       `DELETE FROM ${TABLE_NAME} WHERE key = ?`,

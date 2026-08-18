@@ -11,6 +11,7 @@ import {
   REMOTE_AGENT_OPENMELD_TOOL_NAMES,
   REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES,
 } from "../agent-core/tools";
+import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "../flue-adapter/capability-discovery";
 import { getRemoteAgentFlueTools as buildRemoteAgentFlueTools } from "../flue-adapter/tools";
 import {
   TEST_CODE_MODE_LOADER,
@@ -47,6 +48,7 @@ describe("remote agent Flue capability inventory", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
+      ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
     ]);
     expect(tools.map((tool) => tool.name)).toContain("web_search");
@@ -210,6 +212,7 @@ describe("remote agent Flue capability inventory", () => {
             (hiddenName) => hiddenName === name
           )
       ),
+      ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
     ]);
     expect(names).toContain("openmeld_list_projects");
@@ -270,6 +273,7 @@ describe("remote agent Flue capability inventory", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
+      ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
     ]);
   });
@@ -298,6 +302,7 @@ describe("remote agent Flue capability inventory", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
+      ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
     ]);
   });
@@ -328,6 +333,7 @@ describe("remote agent Flue capability inventory", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       ...REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES,
+      ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
     ]);
     expect(tools.map((tool) => tool.name)).toContain(

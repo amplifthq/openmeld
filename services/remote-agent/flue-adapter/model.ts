@@ -8,7 +8,6 @@ import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { registerApiProvider, registerProvider } from "@flue/runtime";
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
 import { z } from "zod/v4";
-import { REMOTE_AGENT_CONNECTOR_TOOL_NAMES } from "../agent-core/connector-tools";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -19,6 +18,7 @@ import {
   resolveRemoteAgentOpenRouterModelId,
 } from "../agent-core/model";
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "../agent-core/openrouter-provider-routing";
+import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "./capability-discovery";
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
 import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
 
@@ -762,7 +762,7 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
 const REMOTE_AGENT_DIRECT_TOOL_SCHEMA_LIMIT = 64;
 const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
 const REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET = new Set<string>([
-  ...REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
+  ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
 ]);
 
 function compactRemoteAgentProviderTools(tools: unknown): unknown {
