@@ -1149,6 +1149,11 @@ describe("SpaceLanding", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Add 2 members" }));
 
 		await waitFor(() => {
+			expect(createWebSpaceApiMock).toHaveBeenCalledWith({
+				organizationId: "org-acme",
+				organizationSlug: "acme",
+				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
+			});
 			expect(addOrganizationDirectoryProfilesToSpaceMock).toHaveBeenCalledWith({
 				directoryProfileIds: [humanProfileId, centerAgentProfileId],
 				expectedCenterAgentProfileId: centerAgentProfileId,
