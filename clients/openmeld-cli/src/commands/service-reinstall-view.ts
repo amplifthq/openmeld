@@ -123,6 +123,7 @@ export type DaemonReinstallStoppedSafeOutcome = {
   evidencePath?: string | null;
   failureStage?: DaemonServiceFailureStage | null;
   forceUsed: boolean;
+  reasonCodes: string[];
   serviceState: "stopped";
   errorMessage: string;
 };
@@ -309,6 +310,7 @@ export function createDaemonReinstallStoppedSafeOutcome(input: {
   failureStage?: DaemonServiceFailureStage | null;
   forceUsed: boolean;
   errorMessage: string;
+  reasonCodes: string[];
 }): DaemonReinstallStoppedSafeOutcome {
   return {
     ok: true,
@@ -318,6 +320,7 @@ export function createDaemonReinstallStoppedSafeOutcome(input: {
     ...(input.evidencePath ? { evidencePath: input.evidencePath } : {}),
     ...(input.failureStage ? { failureStage: input.failureStage } : {}),
     forceUsed: input.forceUsed,
+    reasonCodes: input.reasonCodes,
     serviceState: "stopped",
     errorMessage: input.errorMessage,
   };
@@ -928,6 +931,15 @@ export function summarizeDaemonReinstallJournalResult(
     result: outcome.ok ? outcome.result : outcome.result,
     metadata: {
       ok: outcome.ok,
+      ...("failureStage" in outcome && outcome.failureStage
+        ? { failureStage: outcome.failureStage }
+        : {}),
+      ...("errorMessage" in outcome
+        ? { errorMessage: outcome.errorMessage }
+        : {}),
+      ...("reasonCodes" in outcome && outcome.reasonCodes.length > 0
+        ? { reasonCodes: outcome.reasonCodes }
+        : {}),
     },
   };
 }
