@@ -70,11 +70,23 @@ jobs:
       - name: Run Core Worker deployment preflight
         run: pnpm run release:preflight:local -- --scope core --base HEAD
 
+      - name: Capture Core bundle evidence
+        run: pnpm run evidence:bundle:core
+
       - name: Deploy Core Worker
         run: pnpm -C services/core run sync:config:prod
 
       - name: Verify Core deployment is visible
         run: pnpm exec wrangler deployments list --config services/core/wrangler.jsonc --env prod --json > /dev/null
+
+      - name: Preserve Core bundle evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-bundle-evidence-${{ inputs.release_sha || github.sha }}
+          if-no-files-found: warn
+          path: dev-tmp/core-bundle-evidence.json
+          retention-days: 30
 
       - name: Preserve a failed Core startup profile
         if: failure()
