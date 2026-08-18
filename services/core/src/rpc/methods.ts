@@ -33,6 +33,7 @@ import {
   buildAgentTaskKey,
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
+  CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
   centerAgentAddAgentProfilesToSpaceBodySchema,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
   centerAgentAddMembersToSpaceBodySchema,
@@ -10087,7 +10088,7 @@ export async function rpcCenterAgentSearchSlackMessages(
       botToken,
       includeBots: parsed.data.includeBots ?? false,
       includeContextMessages: true,
-      limit: 8,
+      limit: CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
       query: parsed.data.query,
       signal: AbortSignal.timeout(10_000),
     });

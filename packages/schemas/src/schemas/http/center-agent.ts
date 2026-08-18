@@ -1317,7 +1317,9 @@ const centerAgentSlackSearchFailureSchema = z.strictObject({
   ]),
 });
 
-export const CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS = 4000;
+export const CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS = 2000;
+export const CENTER_AGENT_SLACK_SEARCH_CONTEXT_MESSAGES_MAX = 2;
+export const CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX = 8;
 const centerAgentSlackSearchEvidenceItemSchema = z.strictObject({
   authorName: trimmedNonEmptyStringSchema.max(256),
   authorUserId: trimmedNonEmptyStringSchema.max(256),
@@ -1333,13 +1335,17 @@ const centerAgentSlackSearchEvidenceItemSchema = z.strictObject({
 
 export const centerAgentSlackSearchMessageSchema =
   centerAgentSlackSearchEvidenceItemSchema.extend({
-    contextMessages: z.array(centerAgentSlackSearchEvidenceItemSchema).max(4),
+    contextMessages: z
+      .array(centerAgentSlackSearchEvidenceItemSchema)
+      .max(CENTER_AGENT_SLACK_SEARCH_CONTEXT_MESSAGES_MAX),
   });
 
 export const centerAgentSearchSlackMessagesResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({
-      messages: z.array(centerAgentSlackSearchMessageSchema).max(8),
+      messages: z
+        .array(centerAgentSlackSearchMessageSchema)
+        .max(CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX),
       moreResultsAvailable: z.boolean(),
       organizationId: trimmedNonEmptyStringSchema,
       status: z.literal("found"),

@@ -1,4 +1,7 @@
-import { CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS } from "@openmeld/schemas";
+import {
+  CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS,
+  CENTER_AGENT_SLACK_SEARCH_CONTEXT_MESSAGES_MAX,
+} from "@openmeld/schemas";
 import { toSlackMrkdwn } from "./slack-mrkdwn";
 
 type FetchLike = typeof fetch;
@@ -438,7 +441,7 @@ export async function searchSlackPublicMessages(input: {
               });
               return context ? [context] : [];
             })
-            .slice(0, 4),
+            .slice(0, CENTER_AGENT_SLACK_SEARCH_CONTEXT_MESSAGES_MAX),
         },
       ];
     }),

@@ -845,6 +845,8 @@ export { catchupResponseSchema } from "./http/catchup-response";
 export {
   CENTER_AGENT_DELEGATION_COMPLETION_MODES,
   CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS,
+  CENTER_AGENT_SLACK_SEARCH_CONTEXT_MESSAGES_MAX,
+  CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
   centerAgentActionSchema,
   centerAgentAddAgentProfilesToSpaceBodySchema,
   centerAgentAddAgentProfilesToSpaceResponseSchema,

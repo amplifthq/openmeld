@@ -80,6 +80,30 @@ describe("Center Agent Slack message search contract", () => {
         text: "unstructured answer must never cross the tool boundary",
       }).success
     ).toBe(false);
+    const nearbyMessage = {
+      authorName: "Morgan Lee",
+      authorUserId: "U_MORGAN",
+      channelId: "C_PRODUCT",
+      channelName: "product",
+      content: "Nearby context.",
+      isAuthorBot: false,
+      messageTs: "1710000000.000090",
+      permalink:
+        "https://example.slack.com/archives/C_PRODUCT/p1710000000000090",
+    };
+    expect(
+      centerAgentSearchSlackMessagesResponseSchema.safeParse({
+        messages: [
+          {
+            ...nearbyMessage,
+            contextMessages: [nearbyMessage, nearbyMessage, nearbyMessage],
+          },
+        ],
+        moreResultsAvailable: false,
+        organizationId: "org_1",
+        status: "found",
+      }).success
+    ).toBe(false);
   });
 
   it("represents an expired action token as an explicit unavailable result", () => {
