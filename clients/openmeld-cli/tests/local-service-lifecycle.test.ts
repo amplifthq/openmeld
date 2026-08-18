@@ -360,6 +360,46 @@ describe("local service lifecycle", () => {
     expect(forceKillStalledDaemonAfterStopTimeoutMock).not.toHaveBeenCalled();
   });
 
+  it("accepts a verified stopped replacement while the retired runtime snapshot is stale", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    try {
+      const staleRetiredRuntimeInventory = {
+        ...buildFinalInventory(serviceManager),
+        runtimeCommandEntryPath: "/tmp/bundles/bundle-old/dist/openmeld-dev.js",
+        runtimeCommandPathExists: true,
+        anomalies: [
+          {
+            code: "runtime_stale" as const,
+            message: "Runtime state is stale (runtime_lease_missing).",
+          },
+          {
+            code: "runtime_bundle_mismatch" as const,
+            message: "The retired runtime snapshot still points at bundle-old.",
+          },
+        ],
+      } satisfies DaemonServiceInventory;
+      inspectDaemonServiceInventoryMock
+        .mockReset()
+        .mockResolvedValueOnce(buildInitialInventory(serviceManager))
+        .mockResolvedValue(staleRetiredRuntimeInventory);
+
+      const resultPromise = runDaemonServiceLifecycle({
+        expectedVersion: EXPECTED_VERSION,
+        operation: "reinstall",
+        installSource: "daemon.command.install",
+        desiredState: "stopped",
+        shouldStartAfterLifecycle: false,
+        forceReinstall: true,
+      });
+      const result = await settleLifecyclePromiseWithFakeTimers(resultPromise);
+
+      expect(result.status).toBe("aligned");
+      expect(serviceManager.start).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("repairs a registered system service that is already stopped without contacting its missing control socket", async () => {
     const stoppedInventory = buildInitialInventory(serviceManager);
     stoppedInventory.runtimeStatus = buildRuntimeStatus("stale");

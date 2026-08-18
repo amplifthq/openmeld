@@ -1020,6 +1020,7 @@ async function performDaemonReinstall(input: {
         failureStage: lifecycleResult.failureStage,
         forceUsed,
         errorMessage: lifecycleResult.errorMessage,
+        reasonCodes: lifecycleResult.reasonCodes,
       });
     }
 

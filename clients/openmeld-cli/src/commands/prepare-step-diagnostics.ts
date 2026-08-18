@@ -61,6 +61,8 @@ const LIFECYCLE_JOURNAL_METADATA_WHITELIST = [
   "jobDiagnostics",
   "durationMs",
   "reason",
+  "failureStage",
+  "reasonCodes",
   "processUptimeMs",
 ] as const;
 

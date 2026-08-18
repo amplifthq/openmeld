@@ -195,6 +195,50 @@ describe("local service runtime cleanup", () => {
     });
   });
 
+  it("clears a stale system-managed snapshot after the manager and owned processes have stopped", async () => {
+    await withTempHome(async () => {
+      listDaemonOwnedProcessesMock.mockReset().mockResolvedValue([]);
+      resolveDaemonServiceManagerMock.mockReset().mockResolvedValue({
+        controller: "launchd",
+        deactivate: vi.fn(async () => undefined),
+        install: vi.fn(async () => undefined),
+        start: vi.fn(async () => undefined),
+        status: vi.fn(async () => ({
+          enabled: true,
+          installed: true,
+          running: false,
+        })),
+        stop: vi.fn(async () => undefined),
+        uninstall: vi.fn(async () => undefined),
+      });
+
+      await writePersistedRuntimeState({
+        openMeldProfileId: null,
+        autoStart: true,
+        heartbeatAt: new Date(
+          Date.now() - DAEMON_HEARTBEAT_STALE_MS - 1000
+        ).toISOString(),
+        managedBySystemService: true,
+        pid: process.pid,
+        serviceController: "launchd",
+      });
+
+      const decision = await clearDaemonRuntimeStateIfDefinitelyStopped();
+
+      expect(decision.context.runtimeStatus).toMatchObject({
+        reason: "heartbeat_stale",
+        status: "stale",
+      });
+      expect(decision.context.serviceManagerStatus?.running).toBe(false);
+      expect(decision.cleared).toBe(true);
+
+      expect(await readDaemonRuntimeLease()).toBeNull();
+      await expect(
+        access(daemonServiceRuntimeStatePath())
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    });
+  });
+
   it("treats a missing heartbeat as stale when the runtime state is outdated", async () => {
     await withTempHome(async () => {
       listDaemonOwnedProcessesMock.mockReset().mockResolvedValue([]);
