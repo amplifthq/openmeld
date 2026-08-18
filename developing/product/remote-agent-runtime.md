@@ -333,7 +333,24 @@ the connected provider API.
    and model admission. The status and final answer use the same thread on App
    Home direct messages and channel mentions. Slack clears the status when the
    reply publishes; an admission or execution failure produces one visible
-   failure in that same thread.
+   failure in that same thread. Working-status refresh is best-effort
+   presentation derived from the latest delivery lifecycle in that Slack
+   thread. An older terminal delivery cannot clear the status of a newer active
+   turn. Each Slack delivery has a stable effective Working-status turn
+   identity. Independent turns derive it from their idempotency key without
+   storing a separate override, while deliveries that intentionally fan out one
+   user turn, such as a multi-channel introduction, share one explicit override
+   across retries and scheduled recovery. A new Core safely fills that override
+   only for exact-scope legacy siblings under the override's idempotency-parent
+   lineage when a fan-out spans the rollout window. A late nullable sibling
+   derives the shared identity only from one unambiguous explicit parent;
+   conflicting parent lineages fail closed. Creation time is never used as turn
+   identity. Every status write is followed by a fresh lifecycle read and corrected
+   until the provider status matches the latest turn. This presentation does
+   not own execution truth, and its refresh cadence must not shorten the
+   reconciliation processing lease. A timed-out reconciliation keeps its
+   processing lease even when recovery enqueue fails because stopping the
+   caller's wait does not prove that the underlying RPC stopped.
    Lark and Feishu are the next Message Channel producers. They reuse the same
    connected-member-or-external-participant resolution, ordinary-member
    Organization and shared-App capability, Center Agent designation, daily
@@ -486,6 +503,15 @@ conversation, whether it asks for guidance or action, and which Task, Space,
 identity, or other tools advance the goal. Large tool catalogs may compact
 schemas into Code Mode, but compaction does not change the semantic owner,
 reasoning policy, tool authorization, or available inner capabilities.
+
+Action authorization is semantic, not lexical. Conversation context may
+complete arguments only inside an action the user already authorized; it cannot
+create or broaden the action, effect, target, or scope. The same primary model
+judges this from the complete admitted conversation and the tool's actual
+effect. No keyword list, message-shape classifier, auxiliary model, or
+tool-specific prompt may become a parallel authorization owner. Tool
+descriptions declare capabilities and effect boundaries; the OpenMeld Kernel
+owns the shared reasoning policy.
 
 The Local Agent bridge has a separate progressive read contract. It may request
 a bounded Context Manifest containing recent user-visible text Signals from the
@@ -1916,9 +1942,12 @@ but not trigger.
    enqueue or self-requeue renews the ledger's next-probe due time. Core's
    minute scheduler scans missing or expired due times and uses one bounded D1
    compare-and-set lease before enqueueing compensation. A failed enqueue
-   releases its exact lease; a crashed caller becomes recoverable when the lease
-   expires. The historical first-enqueued timestamp remains audit evidence only
-   and must never suppress compensation.
+   releases its exact lease when Core knows the preceding operation stopped. If
+   the reconciliation RPC timed out, enqueue failure keeps the processing lease
+   until expiry because the underlying RPC may still be running. A crashed
+   caller becomes recoverable when its lease expires. The historical
+   first-enqueued timestamp remains audit evidence only and must never suppress
+   compensation.
    A terminal worker result is also retained until Core explicitly accepts its
    callback. Callback retry uses capped backoff and Core publication
    idempotency, but no attempt ceiling: a temporary Core, Space, or Slack

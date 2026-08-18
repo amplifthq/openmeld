@@ -177,7 +177,7 @@ The planner selects `inbox-message-channel-receiver-first` when a diff changes
 the strict Inbox source-target schema and the Core Slack Inbox writer together.
 It automatically includes Web, Gateway, and Core, and rejects a manually
 narrowed scope that omits any of those components. Within the selected scopes,
-Database migration `0127_handy_speed_demon` applies first when selected, Web
+Database migration `0128_massive_blur` applies first when selected, Web
 deploys and passes health next, Gateway deploys and passes health after Web, and
 Core deploys last. The nullable migration records fair Inbox repair attempts;
 old Core ignores it, so applying it before the receiver rollout does not start

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b992f70e-30c8-403f-a1aa-6fb0b5925168",
+  "id": "39f7b5fd-7af6-4a80-8bb6-8c462e5c4cbf",
   "prevId": "0481c427-b47b-4347-b7ac-c8d7cbc611ba",
   "tables": {
     "accounts": {
@@ -12269,6 +12269,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "slack_working_status_turn_id": {
+          "name": "slack_working_status_turn_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "message_channel_provider": {
           "name": "message_channel_provider",
           "type": "text",
@@ -12489,13 +12496,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "inbox_projection_attempted_at_ms": {
-          "name": "inbox_projection_attempted_at_ms",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "published_signal_id": {
           "name": "published_signal_id",
           "type": "text",
@@ -12656,11 +12656,6 @@
         "idx_openMeldRemoteAgent_native_delivery_task_terminal_projection": {
           "name": "idx_openMeldRemoteAgent_native_delivery_task_terminal_projection",
           "columns": ["center_agent_task_terminal_projection_attempted_at_ms"],
-          "isUnique": false
-        },
-        "idx_openMeldRemoteAgent_native_delivery_inbox_projection": {
-          "name": "idx_openMeldRemoteAgent_native_delivery_inbox_projection",
-          "columns": ["inbox_projection_attempted_at_ms"],
           "isUnique": false
         },
         "idx_openMeldRemoteAgent_native_delivery_routine_recovery": {

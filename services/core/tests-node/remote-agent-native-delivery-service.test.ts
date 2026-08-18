@@ -954,18 +954,30 @@ describe("Remote Agent native delivery callback service", () => {
         task: { kind: "native_delivery" },
       });
 
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
-        "/chat.postMessage"
+      const slackPostCalls = fetchMock.mock.calls.filter(([request]) =>
+        String(request).includes("/chat.postMessage")
       );
-      expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
-        "/chat.getPermalink"
+      const slackStatusCalls = fetchMock.mock.calls.filter(([request]) =>
+        String(request).includes("/assistant.threads.setStatus")
       );
+      const slackPermalinkCalls = fetchMock.mock.calls.filter(([request]) =>
+        String(request).includes("/chat.getPermalink")
+      );
+      expect(slackPostCalls).toHaveLength(1);
+      expect(slackPermalinkCalls).toHaveLength(1);
       expect(
-        JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body ?? "{}"))
+        JSON.parse(String(slackPostCalls[0]?.[1]?.body ?? "{}"))
       ).toMatchObject({
         channel: "C123",
         text: "Center Agent could not start this request. Please try again.",
+        thread_ts: "1700000000.000001",
+      });
+      expect(slackStatusCalls).toHaveLength(1);
+      expect(
+        JSON.parse(String(slackStatusCalls[0]?.[1]?.body ?? "{}"))
+      ).toMatchObject({
+        channel_id: "C123",
+        status: "",
         thread_ts: "1700000000.000001",
       });
       await expect(
@@ -1004,10 +1016,27 @@ describe("Remote Agent native delivery callback service", () => {
         status: "terminal",
         task: { kind: "native_delivery" },
       });
-      expect(fetchMock).toHaveBeenCalledTimes(3);
-      expect(String(fetchMock.mock.calls[2]?.[0])).toContain(
-        "/chat.getPermalink"
+      expect(
+        fetchMock.mock.calls.filter(([request]) =>
+          String(request).includes("/chat.postMessage")
+        )
+      ).toHaveLength(1);
+      const replayStatusCalls = fetchMock.mock.calls.filter(([request]) =>
+        String(request).includes("/assistant.threads.setStatus")
       );
+      expect(replayStatusCalls).toHaveLength(2);
+      expect(
+        replayStatusCalls.every(
+          ([, init]) =>
+            (JSON.parse(String(init?.body ?? "{}")) as { status?: unknown })
+              .status === ""
+        )
+      ).toBe(true);
+      expect(
+        fetchMock.mock.calls.filter(([request]) =>
+          String(request).includes("/chat.getPermalink")
+        )
+      ).toHaveLength(2);
       expect(workerSubmit).toHaveBeenCalledOnce();
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -4842,6 +4871,9 @@ describe("Remote Agent native delivery callback service", () => {
       const slackHistoryMessageId = "1700000000.000099";
       fetchMock.mockImplementation((request) => {
         const url = String(request);
+        if (url.includes("assistant.threads.setStatus")) {
+          return Promise.resolve(Response.json({ ok: true }));
+        }
         if (url.includes("conversations.replies")) {
           return Promise.resolve(
             Response.json({
@@ -4904,7 +4936,23 @@ describe("Remote Agent native delivery callback service", () => {
         operationId: "caller-slack-recovery-2",
         publicationId: slackHistoryMessageId,
       });
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(
+        fetchMock.mock.calls.filter(([request]) =>
+          String(request).includes("/chat.postMessage")
+        )
+      ).toHaveLength(1);
+      expect(
+        fetchMock.mock.calls.filter(([request]) =>
+          String(request).includes("/conversations.replies")
+        )
+      ).toHaveLength(1);
+      const slackStatusCalls = fetchMock.mock.calls.filter(([request]) =>
+        String(request).includes("/assistant.threads.setStatus")
+      );
+      expect(slackStatusCalls).toHaveLength(1);
+      expect(
+        JSON.parse(String(slackStatusCalls[0]?.[1]?.body ?? "{}"))
+      ).toMatchObject({ status: "" });
     } finally {
       vi.unstubAllGlobals();
       harness.close();

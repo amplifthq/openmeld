@@ -20,7 +20,7 @@ import { REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS } from "../src/remote-age
 import {
   completeRemoteAgentNativeDelivery,
   processRemoteAgentNativeDeliveryDeadlineProbe,
-  REMOTE_AGENT_EXECUTION_RECONCILIATION_DELAY_MS,
+  REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS,
   REMOTE_AGENT_SLACK_FINAL_PUBLICATION_CLAIM_LEASE_MS,
   REMOTE_AGENT_SLACK_FINAL_PUBLICATION_TIMEOUT_MS,
   retryMissingRemoteAgentAcceptedDeliveryProbes,
@@ -37,12 +37,18 @@ import {
   runSlackChannelIntroductionTick,
   submitRemoteAgentSlackChannelIntroduction,
 } from "../src/remote-agent/application/slack-signal-service";
+import { REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS } from "../src/remote-agent/application/slack-working-status";
 import {
+  isLatestRemoteAgentNativeDeliveryActiveForSlackThread,
   markRemoteAgentNativeDeliveryAck,
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
+import {
+  completeSlackChannelIntroductionAcknowledgement,
+  createSlackChannelIntroductionManifest,
+} from "../src/remote-agent/infrastructure/d1/slack-channel-introduction-repo";
 import { readRemoteAgentSlackEventIngress } from "../src/remote-agent/infrastructure/d1/slack-event-ingress-repo";
 import {
   advanceSlackThreadContextCursor,
@@ -84,7 +90,7 @@ afterEach(() => {
 });
 
 describe("Remote Agent Slack signal service", () => {
-  it("checkpoints every selected channel as its own contextual Center Agent introduction", async () => {
+  it("keeps a multi-channel introduction working until every delivery finishes", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
@@ -126,9 +132,10 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
+      const env = buildEnv(harness.db, { workerSubmit });
       await expect(
         submitRemoteAgentSlackChannelIntroduction({
-          env: buildEnv(harness.db, { workerSubmit }),
+          env,
           interactionId: "V_CHANNELS",
           organizationInviteUrl: "https://openmeld.ai/join/openmeld-test",
           slackTeamId: "T123",
@@ -199,6 +206,312 @@ describe("Remote Agent Slack signal service", () => {
           text: expect.stringContaining("#product and #design work"),
         })
       );
+
+      const [firstDelivery, secondDelivery] = harness.queryAll<{
+        idempotency_key: string;
+      }>({
+        sql: `SELECT idempotency_key
+          FROM openMeldRemoteAgent_native_delivery_ledger
+          WHERE idempotency_key LIKE 'slack-channel-introduction:T123:V_CHANNELS:%'
+          ORDER BY delivery_id DESC`,
+      });
+      const firstRequest = submissions.find(
+        (request) => request.idempotencyKey === firstDelivery?.idempotency_key
+      );
+      const secondRequest = submissions.find(
+        (request) => request.idempotencyKey === secondDelivery?.idempotency_key
+      );
+      expect(firstRequest).toBeDefined();
+      expect(secondRequest).toBeDefined();
+      if (!(firstRequest && secondRequest)) {
+        throw new Error("Expected both channel introduction deliveries");
+      }
+
+      await completeRemoteAgentNativeDelivery(
+        env,
+        createCompletedCallbackForSubmittedRequest({
+          request: firstRequest,
+          submissionId: `sub_${firstRequest.idempotencyKey}`,
+        })
+      );
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "is working on your request…",
+      });
+
+      await completeRemoteAgentNativeDelivery(
+        env,
+        createCompletedCallbackForSubmittedRequest({
+          request: secondRequest,
+          submissionId: `sub_${secondRequest.idempotencyKey}`,
+        })
+      );
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps a recovered mixed-version multi-channel introduction working across submission ticks", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: `req_${request.idempotencyKey}`,
+        status: "pending" as const,
+        submissionId: `sub_${request.idempotencyKey}`,
+      })
+    );
+    const fetchMock = stubSlackFetch({
+      conversationsListResponse: {
+        channels: [
+          {
+            id: "C_PRODUCT",
+            is_member: true,
+            is_private: false,
+            name: "product",
+          },
+          {
+            id: "C_DESIGN",
+            is_member: true,
+            is_private: false,
+            name: "design",
+          },
+        ],
+        ok: true,
+        response_metadata: { next_cursor: "" },
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 900,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await createSlackChannelIntroductionManifest({
+        channels: [
+          {
+            botWasChannelMember: true,
+            slackChannelId: "C_PRODUCT",
+            slackChannelName: "product",
+          },
+          {
+            botWasChannelMember: true,
+            slackChannelId: "C_DESIGN",
+            slackChannelName: "design",
+          },
+        ],
+        db: harness.db,
+        dmChannelId: "D_OPENMELD",
+        interactionId: "V_CHANNELS_RECOVERED",
+        nowMs: 1000,
+        organizationId: "org_1",
+        organizationInviteUrl: null,
+        requesterSlackUserId: "U123",
+        slackTeamId: "T123",
+      });
+      await completeSlackChannelIntroductionAcknowledgement({
+        acknowledgementTs: "1710000001.000200",
+        db: harness.db,
+        interactionId: "V_CHANNELS_RECOVERED",
+        nowMs: 1100,
+      });
+      const env = buildEnv(harness.db, { workerSubmit });
+
+      await expect(
+        runSlackChannelIntroductionTick({
+          db: harness.db,
+          env,
+          interactionId: "V_CHANNELS_RECOVERED",
+          limit: 1,
+          nowMs: 1200,
+        })
+      ).resolves.toEqual({ failed: 0, outcomeUnknown: 0, submitted: 1 });
+      harness.run({
+        params: [
+          "slack-channel-introduction:T123:V_CHANNELS_RECOVERED:C_PRODUCT",
+        ],
+        sql: `
+          UPDATE openMeldRemoteAgent_native_delivery_ledger
+          SET slack_working_status_turn_id = NULL
+          WHERE idempotency_key = ?
+        `,
+      });
+      await expect(
+        runSlackChannelIntroductionTick({
+          db: harness.db,
+          env,
+          interactionId: "V_CHANNELS_RECOVERED",
+          limit: 1,
+          nowMs: 2200,
+        })
+      ).resolves.toEqual({ failed: 0, outcomeUnknown: 0, submitted: 1 });
+
+      const submissions = workerSubmit.mock.calls.map(([request]) => request);
+      const firstRequest = submissions[0];
+      const recoveredRequest = submissions[1];
+      expect(firstRequest).toBeDefined();
+      expect(recoveredRequest).toBeDefined();
+      if (!(firstRequest && recoveredRequest)) {
+        throw new Error(
+          "Expected both recovered channel introduction deliveries"
+        );
+      }
+
+      await upsertRemoteAgentNativeDeliveryRecord({
+        attemptId: null,
+        bindingId: firstRequest.bindingId,
+        conversationKind: "slack",
+        db: harness.db,
+        deliveryId: "delivery_late_legacy_introduction_sibling",
+        dispatchId: "dispatch_late_legacy_introduction_sibling",
+        idempotencyKey:
+          "slack-channel-introduction:T123:V_CHANNELS_RECOVERED:C_LATE",
+        nowMs: 3200,
+        organizationId: firstRequest.organizationId,
+        profileId: firstRequest.agentProfileId,
+        slackChannelId: "D_OPENMELD",
+        slackTeamId: "T123",
+        slackThreadTs: "1710000001.000200",
+        spaceId: firstRequest.spaceId,
+        status: "completed",
+        triggerMessageId: "1710000001.000200",
+      });
+      await expect(
+        isLatestRemoteAgentNativeDeliveryActiveForSlackThread({
+          channelId: "D_OPENMELD",
+          db: harness.db,
+          organizationId: "org_1",
+          teamId: "T123",
+          threadTs: "1710000001.000200",
+        })
+      ).resolves.toBe(true);
+
+      await completeRemoteAgentNativeDelivery(
+        env,
+        createCompletedCallbackForSubmittedRequest({
+          request: recoveredRequest,
+          submissionId: `sub_${recoveredRequest.idempotencyKey}`,
+        })
+      );
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "is working on your request…",
+      });
+
+      await completeRemoteAgentNativeDelivery(
+        env,
+        createCompletedCallbackForSubmittedRequest({
+          request: firstRequest,
+          submissionId: `sub_${firstRequest.idempotencyKey}`,
+        })
+      );
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps a newer DM turn working when an older channel introduction finishes", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: `req_${request.idempotencyKey}`,
+        status: "pending" as const,
+        submissionId: `sub_${request.idempotencyKey}`,
+      })
+    );
+    const fetchMock = stubSlackFetch({
+      conversationsListResponse: {
+        channels: [
+          {
+            id: "C_PRODUCT",
+            is_member: true,
+            is_private: false,
+            name: "product",
+          },
+        ],
+        ok: true,
+        response_metadata: { next_cursor: "" },
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await submitRemoteAgentSlackChannelIntroduction({
+        env: buildEnv(harness.db, { workerSubmit }),
+        interactionId: "V_CHANNEL_THEN_DM",
+        organizationInviteUrl: "https://openmeld.ai/join/openmeld-test",
+        slackTeamId: "T123",
+        slackUserId: "U123",
+        targetSlackChannelIds: ["C_PRODUCT"],
+      });
+
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      const introductionRequest = workerSubmit.mock.calls[0]?.[0];
+      expect(introductionRequest).toBeDefined();
+      if (!introductionRequest) {
+        throw new Error("Expected the channel introduction to be submitted");
+      }
+
+      const newerTriggerMessageId = "1710000002.000300";
+      await upsertRemoteAgentNativeDeliveryRecord({
+        attemptId: null,
+        bindingId: introductionRequest.bindingId,
+        conversationKind: "slack",
+        db: harness.db,
+        dispatchId: "remote-agent-slack:EvAfterIntroduction",
+        idempotencyKey: "remote-agent-slack:T123:EvAfterIntroduction",
+        nowMs: 2000,
+        organizationId: introductionRequest.organizationId,
+        profileId: introductionRequest.agentProfileId,
+        slackChannelId: "D_OPENMELD",
+        slackTeamId: "T123",
+        slackThreadTs: "1710000001.000200",
+        spaceId: introductionRequest.spaceId,
+        status: "submitted",
+        triggerMessageId: newerTriggerMessageId,
+      });
+      await markRemoteAgentNativeDeliveryAck({
+        accepted: true,
+        db: harness.db,
+        idempotencyKey: "remote-agent-slack:T123:EvAfterIntroduction",
+        nowMs: 2100,
+        submissionId: "sub_after_introduction",
+        workerRequestId: "req_after_introduction",
+      });
+
+      await expect(
+        completeRemoteAgentNativeDelivery(
+          buildEnv(harness.db, { workerSubmit }),
+          createCompletedCallbackForSubmittedRequest({
+            request: introductionRequest,
+            submissionId: `sub_${introductionRequest.idempotencyKey}`,
+          })
+        )
+      ).resolves.toMatchObject({ status: "accepted" });
+
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "is working on your request…",
+      });
     } finally {
       harness.close();
     }
@@ -1079,6 +1392,16 @@ describe("Remote Agent Slack signal service", () => {
           submissionId: "admission_watchdog:remote-agent-slack:T123:Ev123",
         }),
         { delaySeconds: REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS }
+      );
+      expect(queueSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dispatchId: "remote-agent-slack:Ev123",
+          submissionId: "sub_slack_1",
+        }),
+        {
+          delaySeconds:
+            REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS,
+        }
       );
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("users.info"),
@@ -4953,13 +5276,21 @@ describe("Remote Agent Slack signal service", () => {
       });
       expect(workerReconcile).toHaveBeenCalledOnce();
       expect(queueSend).toHaveBeenCalledOnce();
+      expect(readSlackThreadStatusBodies(fetchMock)).toEqual([
+        {
+          channel_id: "C123",
+          status: "is working on your request…",
+          thread_ts: "1710000000.000100",
+        },
+      ]);
 
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
           env,
           nowMs:
-            probe.deadlineAtMs + REMOTE_AGENT_EXECUTION_RECONCILIATION_DELAY_MS,
+            probe.deadlineAtMs +
+            REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS * 1000,
           probe,
         })
       ).resolves.toEqual({
@@ -4976,8 +5307,10 @@ describe("Remote Agent Slack signal service", () => {
       });
       expect(queueSend).toHaveBeenCalledTimes(2);
       expect(queueSend).toHaveBeenLastCalledWith(probe, {
-        delaySeconds: 300,
+        delaySeconds:
+          REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS,
       });
+      expect(readSlackThreadStatusBodies(fetchMock)).toHaveLength(2);
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
           db: harness.db,
@@ -4993,9 +5326,490 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
+  it("does not let the Slack status refresh cadence expire an in-flight reconciliation lease", async () => {
+    vi.useFakeTimers();
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    const probe = createDeadlineProbe();
+    const reconciliation = createDeferred({
+      execution: {
+        acceptedAtMs: 1100,
+        cancellationReason: null,
+        completedAtMs: null,
+        idempotencyKey: probe.idempotencyKey,
+        lastProgressAtMs: probe.deadlineAtMs,
+        lastProgressKind: "tool_started" as const,
+        organizationId: probe.organizationId,
+        spaceId: probe.spaceId,
+        status: "running" as const,
+        submissionId: probe.submissionId,
+        v: 1 as const,
+      },
+      status: "found" as const,
+    });
+    const reconciliationStarted = createDeferred(undefined);
+    const workerReconcile = vi.fn(() => {
+      reconciliationStarted.resolve();
+      return reconciliation.promise;
+    });
+    const queueSend = vi.fn(async () => undefined);
+    stubSlackFetch({ email: "ari@example.test" });
+
+    try {
+      await createAcceptedSlackDelivery({
+        db: harness.db,
+        idempotencyKey: probe.idempotencyKey,
+        submissionId: probe.submissionId,
+      });
+      const env = buildEnv(harness.db, { queueSend, workerReconcile });
+      const firstProbe = processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: probe.deadlineAtMs,
+        probe,
+      });
+      await reconciliationStarted.promise;
+      expect(workerReconcile).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      await expect(firstProbe).resolves.toEqual({
+        reasonCode: "remote_agent.execution_reconciliation_unavailable",
+        status: "skipped",
+      });
+      expect(queueSend).toHaveBeenCalledOnce();
+
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs:
+            probe.deadlineAtMs +
+            REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS * 1000,
+          probe,
+        })
+      ).resolves.toEqual({
+        reasonCode: "remote_agent.execution_reconciliation_already_claimed",
+        status: "skipped",
+      });
+      expect(
+        REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS
+      ).toBeGreaterThan(
+        REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS * 1000
+      );
+      expect(workerReconcile).toHaveBeenCalledOnce();
+      expect(queueSend).toHaveBeenCalledOnce();
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: probe.idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        acceptedProbeNextDueAtMs:
+          probe.deadlineAtMs +
+          REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS,
+      });
+    } finally {
+      reconciliation.resolve();
+      harness.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a timed-out reconciliation lease when its recovery enqueue fails", async () => {
+    vi.useFakeTimers();
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    const probe = createDeadlineProbe();
+    const firstReconciliation = createDeferred({
+      execution: {
+        acceptedAtMs: 1100,
+        cancellationReason: null,
+        completedAtMs: null,
+        idempotencyKey: probe.idempotencyKey,
+        lastProgressAtMs: probe.deadlineAtMs,
+        lastProgressKind: "tool_started" as const,
+        organizationId: probe.organizationId,
+        spaceId: probe.spaceId,
+        status: "running" as const,
+        submissionId: probe.submissionId,
+        v: 1 as const,
+      },
+      status: "found" as const,
+    });
+    const reconciliationStarted = createDeferred(undefined);
+    const workerReconcile = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        reconciliationStarted.resolve();
+        return firstReconciliation.promise;
+      })
+      .mockResolvedValueOnce({
+        execution: {
+          acceptedAtMs: 1100,
+          cancellationReason: null,
+          completedAtMs: null,
+          idempotencyKey: probe.idempotencyKey,
+          lastProgressAtMs:
+            probe.deadlineAtMs +
+            REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS,
+          lastProgressKind: "tool_started" as const,
+          organizationId: probe.organizationId,
+          spaceId: probe.spaceId,
+          status: "running" as const,
+          submissionId: probe.submissionId,
+          v: 1 as const,
+        },
+        status: "found" as const,
+      });
+    const queueSend = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("queue unavailable"))
+      .mockResolvedValueOnce(undefined);
+    stubSlackFetch({ email: "ari@example.test" });
+
+    try {
+      await createAcceptedSlackDelivery({
+        db: harness.db,
+        idempotencyKey: probe.idempotencyKey,
+        submissionId: probe.submissionId,
+      });
+      const env = buildEnv(harness.db, { queueSend, workerReconcile });
+      const firstProbe = processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: probe.deadlineAtMs,
+        probe,
+      });
+      const firstProbeFailure = firstProbe.catch((error: unknown) => error);
+      await reconciliationStarted.promise;
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await firstProbeFailure).toEqual(
+        expect.objectContaining({ message: "queue unavailable" })
+      );
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: probe.idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        acceptedProbeNextDueAtMs:
+          probe.deadlineAtMs +
+          REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS,
+      });
+
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs:
+            probe.deadlineAtMs +
+            REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS * 1000,
+          probe,
+        })
+      ).resolves.toEqual({
+        reasonCode: "remote_agent.execution_reconciliation_already_claimed",
+        status: "skipped",
+      });
+      expect(workerReconcile).toHaveBeenCalledOnce();
+
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs:
+            probe.deadlineAtMs +
+            REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS,
+          probe,
+        })
+      ).resolves.toEqual({
+        reasonCode: "remote_agent.execution_reconciliation_scheduled",
+        status: "skipped",
+      });
+      expect(workerReconcile).toHaveBeenCalledTimes(2);
+      expect(queueSend).toHaveBeenCalledTimes(2);
+    } finally {
+      firstReconciliation.resolve();
+      harness.close();
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears a late Slack working-status refresh after the final reply wins", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    const probe = createDeadlineProbe();
+    const delayedWorkingStatus = createDeferred({ ok: true });
+    let heldWorkingStatus = false;
+    const fetchMock = stubSlackFetch({
+      email: "ari@example.test",
+      threadStatusResponse: (body) => {
+        if (body.status !== "" && !heldWorkingStatus) {
+          heldWorkingStatus = true;
+          return delayedWorkingStatus.promise;
+        }
+        return { ok: true };
+      },
+    });
+    const workerReconcile = vi.fn(async () => ({
+      execution: {
+        acceptedAtMs: 1100,
+        cancellationReason: null,
+        completedAtMs: null,
+        idempotencyKey: probe.idempotencyKey,
+        lastProgressAtMs: probe.deadlineAtMs,
+        lastProgressKind: "tool_started" as const,
+        organizationId: probe.organizationId,
+        spaceId: probe.spaceId,
+        status: "running" as const,
+        submissionId: probe.submissionId,
+        v: 1 as const,
+      },
+      status: "found" as const,
+    }));
+
+    try {
+      await createAcceptedSlackDelivery({
+        db: harness.db,
+        idempotencyKey: probe.idempotencyKey,
+        submissionId: probe.submissionId,
+      });
+      const env = buildEnv(harness.db, { workerReconcile });
+      const refreshProbe = processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: probe.deadlineAtMs,
+        probe,
+      });
+      await vi.waitFor(() =>
+        expect(readSlackThreadStatusBodies(fetchMock)).toEqual([
+          expect.objectContaining({ status: "is working on your request…" }),
+        ])
+      );
+
+      await expect(
+        completeRemoteAgentNativeDelivery(env, createCompletedCallbackBody())
+      ).resolves.toEqual({
+        publishedSignalId: "1710000001.000200",
+        status: "accepted",
+      });
+      delayedWorkingStatus.resolve();
+      await expect(refreshProbe).resolves.toEqual({
+        reasonCode: "remote_agent.execution_reconciled_terminal",
+        status: "skipped",
+      });
+
+      const statusBodies = readSlackThreadStatusBodies(fetchMock) as Array<{
+        status?: unknown;
+      }>;
+      expect(statusBodies.at(-1)).toMatchObject({ status: "" });
+      const firstClearIndex = statusBodies.findIndex(
+        (body) => body.status === ""
+      );
+      expect(firstClearIndex).toBeGreaterThan(0);
+      expect(
+        statusBodies.slice(firstClearIndex).every((body) => body.status === "")
+      ).toBe(true);
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: probe.idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        finalPublicationState: "published",
+        status: "completed",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("does not let a later-admitted older Slack message clear the newer turn's working status", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    const oldProbe = createDeadlineProbe();
+    const newProbe = {
+      ...oldProbe,
+      dispatchId: "remote-agent-slack:Ev124",
+      idempotencyKey: "remote-agent-slack:T123:Ev124",
+      submissionId: "sub_slack_2",
+    };
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+    const workerReconcile = vi.fn(
+      async (request: { idempotencyKey: string; submissionId: string }) => ({
+        execution: {
+          acceptedAtMs: 2100,
+          cancellationReason: null,
+          completedAtMs: null,
+          idempotencyKey: request.idempotencyKey,
+          lastProgressAtMs: newProbe.deadlineAtMs,
+          lastProgressKind: "tool_started" as const,
+          organizationId: newProbe.organizationId,
+          spaceId: newProbe.spaceId,
+          status: "running" as const,
+          submissionId: request.submissionId,
+          v: 1 as const,
+        },
+        status: "found" as const,
+      })
+    );
+    const env = buildEnv(harness.db, { workerReconcile });
+
+    try {
+      await createAcceptedSlackDelivery({
+        db: harness.db,
+        dispatchId: newProbe.dispatchId,
+        idempotencyKey: newProbe.idempotencyKey,
+        nowMs: 1000,
+        submissionId: newProbe.submissionId,
+        triggerMessageId: "1710000002.000200",
+      });
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: newProbe.deadlineAtMs,
+        probe: newProbe,
+      });
+      await createAcceptedSlackDelivery({
+        db: harness.db,
+        idempotencyKey: oldProbe.idempotencyKey,
+        nowMs: 2000,
+        submissionId: oldProbe.submissionId,
+        triggerMessageId: "1710000001.000100",
+      });
+      await completeRemoteAgentNativeDelivery(
+        env,
+        createCompletedCallbackBody({
+          triggerMessageId: "1710000001.000100",
+        })
+      );
+
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "is working on your request…",
+      });
+      expect(workerReconcile).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("converges a stale Slack status correction after a newer turn starts", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    const oldProbe = createDeadlineProbe();
+    const newProbe = {
+      ...oldProbe,
+      dispatchId: "remote-agent-slack:Ev124",
+      idempotencyKey: "remote-agent-slack:T123:Ev124",
+      submissionId: "sub_slack_2",
+    };
+    const delayedWorkingStatus = createDeferred({ ok: true });
+    const delayedClearStatus = createDeferred({ ok: true });
+    let heldWorkingStatus = false;
+    let heldClearStatus = false;
+    const fetchMock = stubSlackFetch({
+      email: "ari@example.test",
+      threadStatusResponse: (body) => {
+        if (body.status !== "" && !heldWorkingStatus) {
+          heldWorkingStatus = true;
+          return delayedWorkingStatus.promise;
+        }
+        if (body.status === "" && !heldClearStatus) {
+          heldClearStatus = true;
+          return delayedClearStatus.promise;
+        }
+        return { ok: true };
+      },
+    });
+    const reconciliation = createDeferred({
+      execution: {
+        acceptedAtMs: 1100,
+        cancellationReason: null,
+        completedAtMs: null,
+        idempotencyKey: oldProbe.idempotencyKey,
+        lastProgressAtMs: oldProbe.deadlineAtMs,
+        lastProgressKind: "tool_started" as const,
+        organizationId: oldProbe.organizationId,
+        spaceId: oldProbe.spaceId,
+        status: "running" as const,
+        submissionId: oldProbe.submissionId,
+        v: 1 as const,
+      },
+      status: "found" as const,
+    });
+    const reconciliationStarted = createDeferred(undefined);
+    const workerReconcile = vi.fn(() => {
+      reconciliationStarted.resolve();
+      return reconciliation.promise;
+    });
+    let refreshProbe: ReturnType<
+      typeof processRemoteAgentNativeDeliveryDeadlineProbe
+    > | null = null;
+
+    try {
+      await createAcceptedSlackDelivery({
+        db: harness.db,
+        idempotencyKey: oldProbe.idempotencyKey,
+        submissionId: oldProbe.submissionId,
+      });
+      refreshProbe = processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env: buildEnv(harness.db, { workerReconcile }),
+        nowMs: oldProbe.deadlineAtMs,
+        probe: oldProbe,
+      });
+      await vi.waitFor(() =>
+        expect(readSlackThreadStatusBodies(fetchMock)).toEqual([
+          expect.objectContaining({ status: "is working on your request…" }),
+        ])
+      );
+
+      harness.run({
+        params: [oldProbe.idempotencyKey],
+        sql: `
+          UPDATE openMeldRemoteAgent_native_delivery_ledger
+          SET
+            final_publication_state = 'published',
+            published_signal_id = '1710000001.000200',
+            status = 'completed',
+            updated_at_ms = 1500
+          WHERE idempotency_key = ?
+        `,
+      });
+      delayedWorkingStatus.resolve();
+      await vi.waitFor(() =>
+        expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+          status: "",
+        })
+      );
+
+      await createAcceptedSlackDelivery({
+        db: harness.db,
+        dispatchId: newProbe.dispatchId,
+        idempotencyKey: newProbe.idempotencyKey,
+        nowMs: 2000,
+        submissionId: newProbe.submissionId,
+      });
+      delayedClearStatus.resolve();
+      await reconciliationStarted.promise;
+
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "is working on your request…",
+      });
+      reconciliation.resolve();
+      await refreshProbe;
+      refreshProbe = null;
+    } finally {
+      reconciliation.resolve();
+      await refreshProbe?.catch(() => undefined);
+      harness.close();
+    }
+  });
+
   it("releases a failed reconciliation enqueue for scheduled compensation", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
+    stubSlackFetch({ email: "ari@example.test" });
     const probe = createDeadlineProbe();
     const workerReconcile = vi.fn(async () => ({
       execution: {
@@ -5715,11 +6529,14 @@ function stubSlackFetch(input: {
   isRestricted?: boolean;
   isUltraRestricted?: boolean;
   teamId?: string;
-  threadStatusResponse?: Record<string, unknown>;
+  threadStatusResponse?:
+    | Record<string, unknown>
+    | ((
+        body: Record<string, unknown>
+      ) => Promise<Record<string, unknown>> | Record<string, unknown>);
   usersInfoResponse?: UsersInfoResponse;
 }) {
   const fetchMock = vi.fn(
-    // biome-ignore lint/suspicious/useAwait: Fetch mocks intentionally preserve the asynchronous FetchLike contract.
     async (
       request: RequestInfo | URL,
       init?: RequestInit
@@ -5830,7 +6647,15 @@ function stubSlackFetch(input: {
         );
       }
       if (url.includes("/assistant.threads.setStatus")) {
-        return Response.json(input.threadStatusResponse ?? { ok: true });
+        const body = JSON.parse(String(init?.body ?? "{}")) as Record<
+          string,
+          unknown
+        >;
+        const configured =
+          typeof input.threadStatusResponse === "function"
+            ? await input.threadStatusResponse(body)
+            : input.threadStatusResponse;
+        return Response.json(configured ?? { ok: true });
       }
       if (url.includes("/assistant.search.context")) {
         return Response.json(
@@ -5909,19 +6734,23 @@ function buildHumanContext(
 
 async function createAcceptedSlackDelivery(input: {
   db: D1Database;
+  dispatchId?: string;
   idempotencyKey: string;
+  nowMs?: number;
   submissionId: string;
+  triggerMessageId?: string;
 }) {
+  const nowMs = input.nowMs ?? 1000;
   await upsertRemoteAgentNativeDeliveryRecord({
     db: input.db,
-    nowMs: 1000,
+    nowMs,
     organizationId: "org_1",
     conversationKind: "slack",
     spaceId: CONVERSATION_ID,
     profileId: AGENT_PROFILE_ID,
     bindingId: "binding_1",
-    triggerMessageId: CONVERSATION_ID,
-    dispatchId: "remote-agent-slack:Ev123",
+    triggerMessageId: input.triggerMessageId ?? CONVERSATION_ID,
+    dispatchId: input.dispatchId ?? "remote-agent-slack:Ev123",
     attemptId: null,
     idempotencyKey: input.idempotencyKey,
     status: "submitted",
@@ -5931,7 +6760,7 @@ async function createAcceptedSlackDelivery(input: {
   });
   await markRemoteAgentNativeDeliveryAck({
     db: input.db,
-    nowMs: 1100,
+    nowMs: nowMs + 100,
     accepted: true,
     idempotencyKey: input.idempotencyKey,
     submissionId: input.submissionId,
@@ -6030,10 +6859,9 @@ function createDeferred<T>(value: T): {
   };
 }
 
-function createCompletedCallbackBody(): Extract<
-  RemoteAgentCoreCallbackBody,
-  { text: string }
-> {
+function createCompletedCallbackBody(
+  input: { triggerMessageId?: string } = {}
+): Extract<RemoteAgentCoreCallbackBody, { text: string }> {
   return {
     agentProfileId: AGENT_PROFILE_ID,
     bindingId: "binding_1",
@@ -6044,7 +6872,7 @@ function createCompletedCallbackBody(): Extract<
     status: "completed",
     submissionId: "sub_slack_1",
     text: COMPLETED_SLACK_MARKDOWN,
-    triggerMessageId: CONVERSATION_ID,
+    triggerMessageId: input.triggerMessageId ?? CONVERSATION_ID,
   };
 }
 

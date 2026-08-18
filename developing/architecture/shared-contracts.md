@@ -254,7 +254,7 @@ permalink resolution or Inbox projection fails. The same bounded repair detects
 legacy Slack rows whose source identity still points to the former
 `{ kind: "center_agent" }` target and replaces only `source_target_json`; item
 identity, read time, action resolution, dismissal, and occurrence remain
-unchanged. Migration `0127_handy_speed_demon` adds the nullable last-attempt
+unchanged. Migration `0128_massive_blur` adds the nullable last-attempt
 field and index used to rotate a failed provider lookup behind never-attempted
 repairs rather than starving the bounded batch.
 

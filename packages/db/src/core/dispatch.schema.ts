@@ -367,6 +367,7 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     slackTeamId: text("slack_team_id"),
     slackChannelId: text("slack_channel_id"),
     slackThreadTs: text("slack_thread_ts"),
+    slackWorkingStatusTurnId: text("slack_working_status_turn_id"),
     messageChannelProvider: text("message_channel_provider"),
     messageChannelConnectionId: text("message_channel_connection_id"),
     messageChannelLocatorJson: text("message_channel_locator_json"),

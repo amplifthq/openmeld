@@ -36,13 +36,13 @@ export async function enqueueRemoteAgentAdmissionWatchdog(input: {
 
 export async function enqueueRemoteAgentAcceptedDeliveryProbe(input: {
   ack: { submissionId: string };
+  delaySeconds: number;
   env: CoreBindings;
   nowMs: number;
   target: RemoteAgentDeadlineProbeTarget;
 }): Promise<boolean> {
   return await enqueueRemoteAgentNativeDeliveryProbe({
     ...input,
-    delaySeconds: REMOTE_AGENT_ACCEPTED_DELIVERY_PROBE_DELAY_SECONDS,
     enqueueFailedLog:
       "[core.remote_agent.native_delivery.accepted_probe_enqueue_failed]",
     queueMissingLog:

@@ -90,7 +90,7 @@ describe("Remote Agent Routine management tools", () => {
     expect(routineNames).not.toContain("openmeld_request_member_attention");
   });
 
-  it("locks unified authorization and explicit-target guidance into model-visible descriptions", () => {
+  it("keeps Routine descriptions effect-focused under the Kernel policy", () => {
     const descriptions = new Map(
       getRemoteAgentOpenMeldToolDefinitions({
         coreWorker: {},
@@ -100,7 +100,10 @@ describe("Remote Agent Routine management tools", () => {
     );
 
     expect(descriptions.get("openmeld_update_routine")).toContain(
-      "A verified request that explicitly states the changes is authorization; do not ask for a second confirmation."
+      "This is an ordinary external write"
+    );
+    expect(descriptions.get("openmeld_update_routine")).not.toContain(
+      "is authorization"
     );
     expect(descriptions.get("openmeld_delete_routine")).toContain(
       "obtain one separate confirmation, even when the initial request was explicit"
@@ -109,10 +112,10 @@ describe("Remote Agent Routine management tools", () => {
       "Use current_conversation to deliver back to the Slack thread"
     );
     expect(descriptions.get("openmeld_create_routine")).toContain(
-      'A current verified request like "start the loop you proposed" is authorization'
+      "The required inputs are the exact Routine name, schedule, destination, and instructions"
     );
-    expect(descriptions.get("openmeld_create_routine")).toContain(
-      "Do not create a Routine from a proposal alone"
+    expect(descriptions.get("openmeld_create_routine")).not.toContain(
+      "is authorization"
     );
   });
 

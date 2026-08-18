@@ -64,6 +64,7 @@ import {
   publishRemoteAgentSlackAdmissionFailure,
   RemoteAgentSlackSubmissionOutcomeUnknownError,
   submitRemoteAgentSlackNativeDelivery,
+  synchronizeRemoteAgentSlackThreadWorkingStatus,
 } from "./native-delivery-service";
 import { resolveSlackBotToken } from "./slack-bot-token";
 import {
@@ -79,7 +80,6 @@ import {
   readSlackUserIdentity,
   type SlackChannel,
   SlackMessagePublicationError,
-  setSlackThreadStatus,
 } from "./slack-client";
 import { buildRemoteAgentSlackConversationId } from "./slack-conversation-id";
 import {
@@ -98,9 +98,7 @@ const REMOTE_AGENT_SLACK_EVENT_PROCESSING_FAILURE_CODE =
   "remote_agent.slack_event_processing_failed";
 const REMOTE_AGENT_SLACK_EVENT_PROCESSING_FAILURE_TEXT =
   "I couldn't complete that request. Please try again. If it keeps happening, open OpenMeld diagnostics.";
-const REMOTE_AGENT_SLACK_WORKING_STATUS = "is working on your request…";
 const SLACK_CONVERSATION_INFO_LOOKUP_TIMEOUT_MS = 500;
-const SLACK_THREAD_STATUS_TIMEOUT_MS = 500;
 const REMOTE_AGENT_SLACK_EVENT_CLAIM_LEASE_MS = 5 * 60_000;
 const STALE_CHANNEL_INTRODUCTION_ACKNOWLEDGEMENT_MS = 5 * 60_000;
 const SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_MAX_ATTEMPTS = 3;
@@ -877,12 +875,13 @@ async function submitClaimedSlackChannelIntroduction(input: {
         slackChannelId: input.claim.run.dmChannelId,
         slackTeamId: input.claim.run.slackTeamId,
         slackThreadTs: input.claim.run.acknowledgementTs,
+        slackWorkingStatusTurnId: `slack-channel-introduction:${input.claim.run.slackTeamId}:${input.claim.run.interactionId}`,
         sourceText,
         speakerMember: {
           memberId: memberResolution.member.memberId,
           userId: memberResolution.member.userId,
         },
-        triggerMessageId: `slack-interaction:${input.claim.run.interactionId}:${input.claim.slackChannelId}`,
+        triggerMessageId: input.claim.run.acknowledgementTs,
         turnEnvelope,
       },
     });
@@ -1230,14 +1229,6 @@ async function processRemoteAgentSlackAppMention(input: {
     });
     return { status: "replied" };
   }
-  await showRemoteAgentSlackThreadWorkingStatus({
-    botToken,
-    channelId: event.channel,
-    eventId: input.eventId ?? null,
-    slackTeamId,
-    threadTs,
-  });
-
   const dispatchId = buildSlackDispatchId({
     channelId: event.channel,
     eventId: input.eventId,
@@ -1276,6 +1267,54 @@ async function processRemoteAgentSlackAppMention(input: {
   const sourceText = isDirectMessage
     ? event.text.trim()
     : normalizeSlackMentionText(event.text);
+  const deliveryAdmission = {
+    agentProfileId: centerAgent.agentProfileId,
+    author:
+      participant.kind === "member"
+        ? {
+            displayName: participant.member.userDisplayName,
+            profileId: participant.member.humanProfileId,
+            profileKind: "human" as const,
+          }
+        : {
+            displayName: participant.slackDisplayName,
+            profileId: null,
+            profileKind: null,
+          },
+    bindingId: centerAgent.bindingId,
+    conversationId,
+    dispatchId,
+    idempotencyKey,
+    organizationId: organization.organizationId,
+    speakerMember:
+      participant.kind === "member"
+        ? {
+            memberId: participant.member.memberId,
+            userId: participant.member.userId,
+          }
+        : null,
+    slackChannelId: event.channel,
+    slackTeamId,
+    slackThreadTs: threadTs,
+    sourceText,
+    triggerMessageId: event.ts,
+  };
+  const admittedDelivery = await admitRemoteAgentSlackNativeDelivery({
+    db: stateDb,
+    env,
+    nowMs: Date.now(),
+    request: deliveryAdmission,
+  });
+  failureContext.ledgerStarted = true;
+  await showRemoteAgentSlackThreadWorkingStatus({
+    channelId: event.channel,
+    db: stateDb,
+    delivery: admittedDelivery,
+    env,
+    eventId: input.eventId ?? null,
+    slackTeamId,
+    threadTs,
+  });
   const searchAuthorization = await resolveSlackParticipantSearchAuthorization({
     cryptoKey: env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
     event,
@@ -1317,47 +1356,11 @@ async function processRemoteAgentSlackAppMention(input: {
     }),
   });
   const deliveryRequest = {
-    agentProfileId: centerAgent.agentProfileId,
+    ...deliveryAdmission,
     agentProfileOwnerUserId: centerAgent.ownerUserId,
-    author:
-      participant.kind === "member"
-        ? {
-            displayName: participant.member.userDisplayName,
-            profileId: participant.member.humanProfileId,
-            profileKind: "human" as const,
-          }
-        : {
-            displayName: participant.slackDisplayName,
-            profileId: null,
-            profileKind: null,
-          },
-    bindingId: centerAgent.bindingId,
-    conversationId,
-    dispatchId,
-    idempotencyKey,
     modelRoute: centerAgent.modelRoute,
-    organizationId: organization.organizationId,
-    speakerMember:
-      participant.kind === "member"
-        ? {
-            memberId: participant.member.memberId,
-            userId: participant.member.userId,
-          }
-        : null,
-    slackChannelId: event.channel,
-    slackTeamId,
-    slackThreadTs: threadTs,
-    sourceText,
-    triggerMessageId: event.ts,
     turnEnvelope,
   };
-  await admitRemoteAgentSlackNativeDelivery({
-    db: stateDb,
-    env,
-    nowMs: Date.now(),
-    request: deliveryRequest,
-  });
-  failureContext.ledgerStarted = true;
   const submission = await submitRemoteAgentSlackNativeDelivery({
     db: stateDb,
     env,
@@ -1434,19 +1437,19 @@ async function resolveSlackParticipantSearchAuthorization(input: {
 }
 
 async function showRemoteAgentSlackThreadWorkingStatus(input: {
-  botToken: string;
   channelId: string;
+  db: D1Database;
+  delivery: Awaited<ReturnType<typeof admitRemoteAgentSlackNativeDelivery>>;
+  env: CoreBindings;
   eventId: string | null;
   slackTeamId: string;
   threadTs: string;
 }): Promise<void> {
   try {
-    await setSlackThreadStatus({
-      botToken: input.botToken,
-      channelId: input.channelId,
-      signal: AbortSignal.timeout(SLACK_THREAD_STATUS_TIMEOUT_MS),
-      status: REMOTE_AGENT_SLACK_WORKING_STATUS,
-      threadTs: input.threadTs,
+    await synchronizeRemoteAgentSlackThreadWorkingStatus({
+      db: input.db,
+      delivery: input.delivery,
+      env: input.env,
     });
   } catch (error) {
     console.warn("[core.remote_agent.slack_thread_status.unavailable]", {
