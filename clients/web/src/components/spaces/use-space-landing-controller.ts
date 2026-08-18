@@ -141,6 +141,7 @@ import {
 	normalizeOptionalText,
 	pollWakeProgress,
 	readSpaceStatusName,
+	reconcileActiveWakeProgressSnapshot,
 	reconcilePolledWakeProgressItems,
 	recordDiagnosticReportPointer,
 	recordWakeDiagnosticIfNeeded,
@@ -1403,6 +1404,24 @@ export function useSpaceLandingController(input: {
 			mergeConversationWakeProgressItems(visibleItems);
 		}
 	);
+	const reconcileRecoveredActiveWakeProgressSnapshot = useEffectEvent(
+		(
+			incomingItems: readonly WakeProgressItem[],
+			snapshotItemsAtRequestStart: readonly WakeProgressItem[]
+		) => {
+			setWakeProgressItems((currentItems) =>
+				reconcileActiveWakeProgressSnapshot({
+					currentItems,
+					incomingItems: filterVisibleWakeProgressItems({
+						items: incomingItems,
+					}),
+					signals: timelineEnvelopes,
+					snapshotItemsAtRequestStart,
+				})
+			);
+		}
+	);
+	const readCurrentWakeProgressItems = useEffectEvent(() => wakeProgressItems);
 	const removeConversationWakeProgressItemsForClientMessageId = useCallback(
 		(clientMessageId: string) => {
 			setWakeProgressItems((currentItems) =>
@@ -1461,6 +1480,7 @@ export function useSpaceLandingController(input: {
 		}
 
 		let cancelled = false;
+		const snapshotItemsAtRequestStart = readCurrentWakeProgressItems();
 		createUnscopedWebSpaceApi({ openMeldProfileId: input.profileId })
 			.getActiveWakeProgress({
 				includeTiming: true,
@@ -1472,7 +1492,10 @@ export function useSpaceLandingController(input: {
 				if (cancelled) {
 					return;
 				}
-				mergeRecoveredWakeProgressItems(response.items);
+				reconcileRecoveredActiveWakeProgressSnapshot(
+					response.items,
+					snapshotItemsAtRequestStart
+				);
 			})
 			.catch((error) => {
 				console.warn("[openmeld.web.space.active_wake_progress_unhandled]", {

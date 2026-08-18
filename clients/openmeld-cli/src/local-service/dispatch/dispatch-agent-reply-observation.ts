@@ -1,4 +1,5 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
+import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
   OpenMeldSpaceEgressAction,
@@ -77,6 +78,11 @@ export function resolveDispatchAgentReplyObservation(input: {
       (signal) =>
         isRelevantCollaborationSignal(signal) &&
         isSignalInCurrentWakeScope(
+          signal,
+          currentWakeTargetProfileIds,
+          input.wakeSourceSignalId ?? input.sourceSignalId
+        ) &&
+        !isCurrentWakeFinalOutcomeSignal(
           signal,
           currentWakeTargetProfileIds,
           input.wakeSourceSignalId ?? input.sourceSignalId
@@ -242,6 +248,36 @@ function isSignalInCurrentWakeScope(
     publication?.actorProfileId &&
       currentWakeTargetProfileIds.has(publication.actorProfileId) &&
       publication.replyToSignalId === wakeSourceSignalId
+  );
+}
+
+function isCurrentWakeFinalOutcomeSignal(
+  signal: SignalEnvelope,
+  currentWakeTargetProfileIds: ReadonlySet<string>,
+  wakeSourceSignalId: string
+): boolean {
+  if (currentWakeTargetProfileIds.size === 0) {
+    return false;
+  }
+  const publication = buildSpaceRoundSignalPublication(signal);
+  if (
+    !(
+      publication?.actorProfileId &&
+      currentWakeTargetProfileIds.has(publication.actorProfileId)
+    ) ||
+    publication.replyToSignalId !== wakeSourceSignalId
+  ) {
+    return false;
+  }
+  if (signal.type === "signal.text") {
+    return signal.data.meta?.purpose === AGENT_REPLY_FINAL_PURPOSE;
+  }
+  if (signal.type === "signal.status") {
+    return true;
+  }
+  return (
+    signal.type === "signal.system_notice" &&
+    isWakeClosingSystemNoticeType(signal.data.noticeType)
   );
 }
 

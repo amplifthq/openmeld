@@ -3094,6 +3094,7 @@ export class Space extends DurableObject<CoreBindings> {
         ? {
             agentReplyObservation: {
               observedThroughSignalId: input.plan.observedThroughSignalId,
+              sourceSignalId: input.dispatchMessage.sourceEventId,
               targetProfileId: input.dispatchMessage.targetProfileId,
             },
           }
@@ -12419,6 +12420,8 @@ export class Space extends DurableObject<CoreBindings> {
             ? {
                 observedThroughSignalId:
                   signalContext.agentReplyObservation.observedThroughSignalId,
+                sourceSignalId:
+                  signalContext.agentReplyObservation.sourceSignalId,
                 threadId: signalContext.threadContext?.threadId ?? null,
               }
             : null,
@@ -12540,6 +12543,8 @@ export class Space extends DurableObject<CoreBindings> {
             ? {
                 observedThroughSignalId:
                   signalContext.agentReplyObservation.observedThroughSignalId,
+                sourceSignalId:
+                  signalContext.agentReplyObservation.sourceSignalId,
                 threadId: signalContext.threadContext?.threadId ?? null,
               }
             : null,

@@ -830,6 +830,15 @@ Space rejects the outdated reply before persistence. The check does not queue
 or serialize Agent execution; Agents continue working concurrently and only
 their final public write is protected.
 
+A final reply, final status, or Wake-closing outcome from another target of the
+same source message is not a newer collaboration mutation. Service excludes
+those sibling final outcomes from the bounded pre-publication reconsideration
+read, and Space excludes them from the atomic write guard. This keeps the two
+boundaries aligned and prevents independent multi-target Wakes from becoming
+mutually exclusive based on which target finishes first. New human messages,
+ordinary Agent messages, and final outcomes for another source remain newer
+collaboration and still reject the stale proposal.
+
 `terminal_failure` copy is derived from shared public failure mapping, not from
 raw adapter text. Runtime results may carry full diagnostic `errorCode`,
 `errorType`, and `errorMessage` evidence for trace/debugging, but Space-visible

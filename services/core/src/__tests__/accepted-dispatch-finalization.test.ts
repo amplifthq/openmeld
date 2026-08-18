@@ -2118,6 +2118,7 @@ describe("accepted dispatch finalization", () => {
         signalContext: {
           agentReplyObservation: {
             observedThroughSignalId: string;
+            sourceSignalId: string;
             targetProfileId: string;
           };
         }
@@ -2147,6 +2148,7 @@ describe("accepted dispatch finalization", () => {
       space.persistSignalWithOptionalOutbox(proposedReply, false, {
         agentReplyObservation: {
           observedThroughSignalId: source.id,
+          sourceSignalId: source.id,
           targetProfileId,
         },
       })
@@ -2197,6 +2199,7 @@ describe("accepted dispatch finalization", () => {
         signalContext: {
           agentReplyObservation: {
             observedThroughSignalId: string;
+            sourceSignalId: string;
             targetProfileId: string;
           };
         }
@@ -2231,6 +2234,7 @@ describe("accepted dispatch finalization", () => {
     const result = space.persistSignalWithOptionalOutbox(proposedReply, false, {
       agentReplyObservation: {
         observedThroughSignalId: source.id,
+        sourceSignalId: source.id,
         targetProfileId,
       },
     });

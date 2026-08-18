@@ -53,18 +53,21 @@ describe("space-signal-repo", () => {
       expect(
         readAgentReplyObservationState(harness.sql, {
           observedThroughSignalId: "source-thread-2",
+          sourceSignalId: "source-thread-2",
           threadId: "thread-1",
         })
       ).toBe("anchor_missing");
       expect(
         readAgentReplyObservationState(harness.sql, {
           observedThroughSignalId: "source-thread-1",
+          sourceSignalId: "source-thread-1",
           threadId: null,
         })
       ).toBe("anchor_missing");
       expect(
         readAgentReplyObservationState(harness.sql, {
           observedThroughSignalId: "source-main",
+          sourceSignalId: "source-main",
           threadId: "thread-1",
         })
       ).toBe("anchor_missing");
@@ -81,6 +84,7 @@ describe("space-signal-repo", () => {
       expect(
         readAgentReplyObservationState(harness.sql, {
           observedThroughSignalId: "source-main",
+          sourceSignalId: "source-main",
           threadId: null,
         })
       ).toBe("current");
@@ -89,6 +93,7 @@ describe("space-signal-repo", () => {
       expect(
         readAgentReplyObservationState(harness.sql, {
           observedThroughSignalId: "source-main",
+          sourceSignalId: "source-main",
           threadId: null,
         })
       ).toBe("changed");
@@ -98,6 +103,7 @@ describe("space-signal-repo", () => {
       expect(
         readAgentReplyObservationState(harness.sql, {
           observedThroughSignalId: "source-thread",
+          sourceSignalId: "source-thread",
           threadId: "thread-1",
         })
       ).toBe("current");
@@ -106,6 +112,7 @@ describe("space-signal-repo", () => {
       expect(
         readAgentReplyObservationState(harness.sql, {
           observedThroughSignalId: "source-thread",
+          sourceSignalId: "source-thread",
           threadId: "thread-1",
         })
       ).toBe("changed");
@@ -116,7 +123,7 @@ describe("space-signal-repo", () => {
 
   it.each([
     10, 20,
-  ])("lets only one of %i same-cursor replies pass the real SQLite observation guard", (agentCount) => {
+  ])("lets all %i same-source final replies pass the real SQLite observation guard", (agentCount) => {
     const harness = createObservationSqlHarness();
     try {
       harness.insertSignal("source-main", 1);
@@ -124,20 +131,69 @@ describe("space-signal-repo", () => {
         const result = runAgentReplyObservationGuardedTransaction({
           observation: {
             observedThroughSignalId: "source-main",
+            sourceSignalId: "source-main",
             threadId: null,
           },
           operation: () => {
-            harness.insertSignal(`agent-reply-${index + 1}`, index + 2);
+            const isStatus = index % 2 === 1;
+            harness.insertSignal(`agent-reply-${index + 1}`, index + 2, {
+              ...(isStatus
+                ? {
+                    dispatchId: `dispatch-${index + 1}`,
+                    generatedBy: "openmeld",
+                    signalType: "signal.status" as const,
+                  }
+                : { purpose: "agent_reply_final" }),
+              replyToSignalId: "source-main",
+            });
           },
           storage: harness.storage,
         });
         return result.status;
       });
 
-      expect(outcomes.filter((state) => state === "committed")).toHaveLength(1);
-      expect(outcomes.filter((state) => state === "changed")).toHaveLength(
-        agentCount - 1
+      expect(outcomes).toEqual(
+        Array.from({ length: agentCount }, () => "committed")
       );
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("still blocks an ordinary newer Agent message from the same source scope", () => {
+    const harness = createObservationSqlHarness();
+    try {
+      harness.insertSignal("source-main", 1);
+      harness.insertSignal("ordinary-agent-message", 2);
+
+      expect(
+        readAgentReplyObservationState(harness.sql, {
+          observedThroughSignalId: "source-main",
+          sourceSignalId: "source-main",
+          threadId: null,
+        })
+      ).toBe("changed");
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("still blocks a final Agent reply for another source message", () => {
+    const harness = createObservationSqlHarness();
+    try {
+      harness.insertSignal("source-main", 1);
+      harness.insertSignal("other-source-final-reply", 2, {
+        purpose: "agent_reply_final",
+        replyToSignalId: "other-source",
+      });
+
+      expect(
+        readAgentReplyObservationState(harness.sql, {
+          observedThroughSignalId: "source-main",
+          sourceSignalId: "source-main",
+          threadId: null,
+        })
+      ).toBe("changed");
     } finally {
       harness.close();
     }
@@ -151,6 +207,7 @@ describe("space-signal-repo", () => {
         runAgentReplyObservationGuardedTransaction({
           observation: {
             observedThroughSignalId: "source-main",
+            sourceSignalId: "source-main",
             threadId: null,
           },
           operation: () => {
@@ -169,7 +226,20 @@ describe("space-signal-repo", () => {
 function createObservationSqlHarness(): {
   close(): void;
   database: DatabaseSync;
-  insertSignal(id: string, ts: number, threadId?: string): void;
+  insertSignal(
+    id: string,
+    ts: number,
+    options?:
+      | string
+      | {
+          dispatchId?: string;
+          generatedBy?: string;
+          replyToSignalId?: string;
+          purpose?: string;
+          signalType?: "signal.status" | "signal.text";
+          threadId?: string;
+        }
+  ): void;
   sql: SqlStorage;
   storage: {
     sql: SqlStorage;
@@ -197,18 +267,43 @@ function createObservationSqlHarness(): {
   return {
     close: () => database.close(),
     database,
-    insertSignal: (id, ts, threadId) => {
+    insertSignal: (id, ts, options) => {
+      const threadId =
+        typeof options === "string" ? options : options?.threadId;
+      const signalType =
+        typeof options === "object"
+          ? (options.signalType ?? "signal.text")
+          : "signal.text";
       database
         .prepare(
           `INSERT INTO space_signals (
             id, ts, type, profile_id, profile_kind, payload_json
-          ) VALUES (?, ?, 'signal.text', ?, 'agent', ?)`
+          ) VALUES (?, ?, ?, ?, 'agent', ?)`
         )
         .run(
           id,
           ts,
+          signalType,
           `profile-${id}`,
-          JSON.stringify({ data: { text: id }, id, type: "signal.text" })
+          JSON.stringify({
+            data: {
+              text: id,
+              ...(typeof options === "object" && options.dispatchId
+                ? { dispatchId: options.dispatchId }
+                : {}),
+              ...(typeof options === "object" && options.generatedBy
+                ? { generatedBy: options.generatedBy }
+                : {}),
+              ...(typeof options === "object" && options.replyToSignalId
+                ? { replyTo: { signalId: options.replyToSignalId } }
+                : {}),
+              ...(typeof options === "object" && options.purpose
+                ? { meta: { purpose: options.purpose } }
+                : {}),
+            },
+            id,
+            type: signalType,
+          })
         );
       if (threadId) {
         database

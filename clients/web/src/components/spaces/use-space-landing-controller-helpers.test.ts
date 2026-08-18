@@ -16,6 +16,7 @@ import {
 	mergeActiveWakeProgressPresentation,
 	mergeWakeProgressItemState,
 	pollWakeProgress,
+	reconcileActiveWakeProgressSnapshot,
 	reconcilePolledWakeProgressItems,
 	resolveComposerWakeProgressTargetProfileIds,
 } from "./use-space-landing-controller-helpers";
@@ -318,6 +319,59 @@ describe("mergeActiveWakeProgressPresentation", () => {
 				summaryItems: [summary],
 			})
 		).toEqual([]);
+	});
+});
+
+describe("reconcileActiveWakeProgressSnapshot", () => {
+	it("clears cached presentation items absent from an authoritative active snapshot", () => {
+		const cached = createWakeProgressItem({
+			clientMessageId: "client-message-stale",
+			dispatchId: "dispatch-stale",
+			phase: "sending",
+			sourceSignalId: "signal-stale",
+			targetLabel: "Runner",
+			targetProfileId: AGENT_PROFILE_ID,
+			updatedAtMs: 100,
+		});
+
+		expect(
+			reconcileActiveWakeProgressSnapshot({
+				currentItems: [cached],
+				incomingItems: [],
+				signals: [],
+				snapshotItemsAtRequestStart: [cached],
+			})
+		).toEqual([]);
+	});
+
+	it("retains a live item that arrived after the active snapshot started", () => {
+		const requestStartItem = createWakeProgressItem({
+			clientMessageId: "client-message-live",
+			dispatchId: "dispatch-live",
+			phase: "request_sent",
+			sourceSignalId: "signal-live",
+			targetLabel: "Runner",
+			targetProfileId: AGENT_PROFILE_ID,
+			updatedAtMs: 100,
+		});
+		const live = createWakeProgressItem({
+			clientMessageId: "client-message-live",
+			dispatchId: "dispatch-live",
+			phase: "running",
+			sourceSignalId: "signal-live",
+			targetLabel: "Runner",
+			targetProfileId: AGENT_PROFILE_ID,
+			updatedAtMs: 201,
+		});
+
+		expect(
+			reconcileActiveWakeProgressSnapshot({
+				currentItems: [live],
+				incomingItems: [],
+				signals: [],
+				snapshotItemsAtRequestStart: [requestStartItem],
+			})
+		).toEqual([live]);
 	});
 });
 

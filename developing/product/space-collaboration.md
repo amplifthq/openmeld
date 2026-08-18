@@ -788,6 +788,10 @@ Use scoped owner documents for details:
 - Concurrent Agents may work in parallel, but a current Agent reply carries the
   latest relevant Space signal it observed. Space must atomically reject an
   outdated reply rather than publish work chosen from an older room state.
+- Final outcomes from sibling targets of the same source message are excluded
+  from both pre-publication reconsideration and the final atomic write guard, so
+  independent multi-target replies do not become mutually exclusive. New human
+  or ordinary Agent collaboration still invalidates an outdated proposal.
 - This concurrent-reply guard does not assign subtasks or turn independent
   multi-target Wakes into a hidden delegation. Planned ownership, completion
   barriers, fallback, and parent synthesis use declared Center Agent delegation

@@ -47,8 +47,41 @@ describe("dispatch Agent reply observation", () => {
 
     expect(observation).toEqual({
       observedThroughSignalId: sameAgentOtherWake.id,
-      relevantSignals: [humanUpdate, failed, relevant],
+      relevantSignals: [humanUpdate, relevant],
       status: "changed",
+    });
+  });
+
+  it("does not reconsider sibling final outcomes from the same multi-target Wake", () => {
+    const siblingReply = textSignal({
+      final: true,
+      id: "signal-sibling-reply",
+      profileId: FAILED_AGENT_PROFILE_ID,
+      text: "Sibling reply",
+    });
+    const siblingStatus = statusSignal({
+      actorProfileId: FAILED_AGENT_PROFILE_ID,
+      id: "signal-sibling-status",
+    });
+    const siblingFailure = systemNotice({
+      actorProfileId: FAILED_AGENT_PROFILE_ID,
+      id: "signal-sibling-failed",
+      noticeType: "terminal_failure",
+    });
+
+    expect(
+      resolveDispatchAgentReplyObservation({
+        candidates: [siblingReply, siblingStatus, siblingFailure],
+        currentWakeTargetProfileIds: [
+          AGENT_PROFILE_ID,
+          FAILED_AGENT_PROFILE_ID,
+        ],
+        sourceSignalId: "signal-source",
+      })
+    ).toEqual({
+      observedThroughSignalId: siblingFailure.id,
+      relevantSignals: [],
+      status: "current",
     });
   });
 
@@ -323,6 +356,7 @@ function postMessageAction(text: string) {
 }
 
 function textSignal(input: {
+  final?: boolean;
   id: string;
   kind?: "agent" | "human";
   profileId?: string;
@@ -349,6 +383,41 @@ function textSignal(input: {
             replyTo: replyToSource(input.replyToSignalId ?? "signal-source"),
           }),
       ...(input.transient ? { meta: { transient: true } } : {}),
+      ...(input.final
+        ? {
+            meta: {
+              dispatchId: "dispatch-1",
+              purpose: "agent_reply_final",
+              targetProfileId: input.profileId ?? AGENT_PROFILE_ID,
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+function statusSignal(input: {
+  actorProfileId: string;
+  id: string;
+}): SignalEnvelope {
+  return {
+    v: 1,
+    id: input.id,
+    profile: {
+      kind: "system",
+      profileId: "openmeld-system",
+      profileName: "OpenMeld",
+    },
+    spaceId: "space-1",
+    ts: 1,
+    type: "signal.status",
+    data: {
+      actorProfileId: input.actorProfileId,
+      dispatchId: "dispatch-1",
+      generatedBy: "openmeld",
+      replyTo: replyToSource("signal-source"),
+      status: "done",
+      text: "Done",
     },
   };
 }

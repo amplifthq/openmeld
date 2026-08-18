@@ -522,6 +522,7 @@ export const readAgentReplyObservationState = (
   sql: SqlStorage,
   input: {
     observedThroughSignalId: string;
+    sourceSignalId: string;
     threadId: string | null;
   }
 ): AgentReplyObservationState => {
@@ -529,6 +530,10 @@ export const readAgentReplyObservationState = (
     input.observedThroughSignalId ?? ""
   ).trim();
   if (!observedThroughSignalId) {
+    return "anchor_missing";
+  }
+  const sourceSignalId = String(input.sourceSignalId ?? "").trim();
+  if (!sourceSignalId) {
     return "anchor_missing";
   }
   const threadId = String(input.threadId ?? "").trim() || null;
@@ -572,6 +577,35 @@ export const readAgentReplyObservationState = (
                 json_extract(candidate.payload_json, '$.data.meta.transient'),
                 0
               ) != 1
+              AND COALESCE(
+                (
+                  json_extract(
+                    candidate.payload_json,
+                    '$.data.replyTo.signalId'
+                  ) = ?
+                  AND (
+                    (
+                      candidate.type = 'signal.text'
+                      AND json_extract(
+                        candidate.payload_json,
+                        '$.data.meta.purpose'
+                      ) = ?
+                    )
+                    OR (
+                      candidate.type = 'signal.status'
+                      AND json_extract(
+                        candidate.payload_json,
+                        '$.data.generatedBy'
+                      ) = 'openmeld'
+                      AND json_type(
+                        candidate.payload_json,
+                        '$.data.dispatchId'
+                      ) = 'text'
+                    )
+                  )
+                ),
+                0
+              ) = 0
               AND (
                 (
                   ? IS NULL
@@ -593,6 +627,8 @@ export const readAgentReplyObservationState = (
       threadId,
       threadId,
       threadId,
+      sourceSignalId,
+      AGENT_REPLY_FINAL_PURPOSE,
       threadId,
       threadId,
       threadId
@@ -607,6 +643,7 @@ export const readAgentReplyObservationState = (
 export const runAgentReplyObservationGuardedTransaction = <T>(input: {
   observation: {
     observedThroughSignalId: string;
+    sourceSignalId: string;
     threadId: string | null;
   } | null;
   operation: () => T;
