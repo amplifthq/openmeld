@@ -677,6 +677,28 @@ describe("Slack thread messages", () => {
     });
   });
 
+  it("can broadcast a thread reply into the parent conversation", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json(SLACK_CHAT_POST_MESSAGE_SUCCESS_RESPONSE))
+    );
+
+    await postSlackThreadMessage({
+      botToken: "xoxb-test",
+      channelId: "D_THREAD",
+      fetchImpl: fetchMock,
+      replyBroadcast: true,
+      text: "Done",
+      threadTs: "1710000000.001",
+    });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      channel: "D_THREAD",
+      reply_broadcast: true,
+      text: "Done",
+      thread_ts: "1710000000.001",
+    });
+  });
+
   it("posts and reconciles an execution recovery operation through Slack metadata", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
       Response.json({

@@ -1231,6 +1231,7 @@ describe("Remote Agent Slack signal service", () => {
         expect.objectContaining({
           channel: "D123",
           metadata: expect.any(Object),
+          reply_broadcast: true,
           text: expect.stringContaining("Done from Slack"),
           thread_ts: "1710000000.000100",
         }),
@@ -1417,6 +1418,9 @@ describe("Remote Agent Slack signal service", () => {
           thread_ts: "1710000000.000100",
         }),
       ]);
+      expect(readSlackPostBodies(fetchMock)[0]).not.toHaveProperty(
+        "reply_broadcast"
+      );
     } finally {
       harness.close();
     }
@@ -1549,6 +1553,7 @@ describe("Remote Agent Slack signal service", () => {
       expect(readSlackPostBodies(fetchMock)).toEqual([
         {
           channel: "D123",
+          reply_broadcast: true,
           text: "Center Agent couldn't start because its selected model is unavailable. Ask an organization owner or admin to choose an available model in OpenMeld.",
           thread_ts: "1710000000.000100",
         },

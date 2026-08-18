@@ -10939,9 +10939,21 @@ async function publishRemoteAgentSlackCallbackText(input: {
     botToken,
     channelId,
     metadata,
+    replyBroadcast: shouldBroadcastSlackDirectMessageReply(input.delivery),
     signal: input.signal,
     threadTs,
   });
+}
+
+function shouldBroadcastSlackDirectMessageReply(
+  delivery: NativeDeliveryPublishRecord
+): boolean {
+  const threadTs = normalizeOptionalText(delivery.slackThreadTs);
+  const triggerMessageId = normalizeOptionalText(delivery.triggerMessageId);
+  return (
+    delivery.executionRecoverySubmitRequest?.turnEnvelope.space.kind === "dm" &&
+    Boolean(threadTs && triggerMessageId && threadTs === triggerMessageId)
+  );
 }
 
 function resolveSlackReplyPlacement(

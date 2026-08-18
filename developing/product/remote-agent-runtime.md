@@ -165,8 +165,11 @@ the connected provider API.
    to the originating Slack thread with `chat.postMessage` and `thread_ts`.
    A top-level Slack App Home direct message starts one request thread; current
    working status, final reply, visible failure, and recovery all stay in that
-   thread. A reply inside an existing direct-message thread stays in that same
-   thread. Core freezes this placement before execution. Legacy Slack
+   thread. The final reply or visible failure for that top-level DM uses Slack's
+   native reply broadcast so it is also discoverable in the main DM timeline;
+   this remains one publication, not a second result surface. A reply inside an
+   existing direct-message thread stays only in that same thread. Core freezes
+   this placement before execution. Legacy Slack
    deliveries without an explicit placement remain thread replies. New
    Lark/Feishu turns use
    `conversationKind = "message_channel"` and publish through the provider

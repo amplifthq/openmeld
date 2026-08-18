@@ -186,6 +186,7 @@ type SlackEventFailureContext = {
   eventId: string | null;
   idempotencyKey: string;
   ledgerStarted: boolean;
+  replyBroadcast: boolean;
   replyPlacement: SlackReplyPlacement;
   slackTeamId: string;
   threadTs: string;
@@ -226,6 +227,10 @@ export async function processRemoteAgentSlackEvent(
 
   const { event, eventId, slackTeamId, threadTs } = prepared;
   const replyPlacement = resolveSlackReplyPlacement(event);
+  const replyBroadcast = shouldBroadcastSlackRootDirectMessage({
+    event,
+    threadTs,
+  });
   const idempotencyKey = buildSlackIdempotencyKey({
     channelId: event.channel,
     eventId,
@@ -240,6 +245,7 @@ export async function processRemoteAgentSlackEvent(
     eventId,
     idempotencyKey,
     ledgerStarted: false,
+    replyBroadcast,
     replyPlacement,
     slackTeamId,
     threadTs,
@@ -1142,6 +1148,10 @@ async function processRemoteAgentSlackAppMention(input: {
     slackTeamId,
     threadTs,
   } = input;
+  const replyBroadcast = shouldBroadcastSlackRootDirectMessage({
+    event,
+    threadTs,
+  });
 
   const stateDb = localStateDb(env);
   const memberDb = identityDb(env);
@@ -1174,6 +1184,7 @@ async function processRemoteAgentSlackAppMention(input: {
     await postSlackConversationReply({
       botToken,
       channelId: event.channel,
+      replyBroadcast,
       replyPlacement,
       text: REMOTE_AGENT_SLACK_WORKSPACE_NOT_CONNECTED_TEXT,
       threadTs,
@@ -1201,6 +1212,7 @@ async function processRemoteAgentSlackAppMention(input: {
     await postSlackConversationReply({
       botToken,
       channelId: event.channel,
+      replyBroadcast,
       replyPlacement,
       text: CENTER_AGENT_CHANNEL_MODEL_UNAVAILABLE_TEXT,
       threadTs,
@@ -1211,6 +1223,7 @@ async function processRemoteAgentSlackAppMention(input: {
     await postSlackConversationReply({
       botToken,
       channelId: event.channel,
+      replyBroadcast,
       replyPlacement,
       text: CENTER_AGENT_CHANNEL_UNAVAILABLE_TEXT,
       threadTs,
@@ -1509,6 +1522,7 @@ async function handleRemoteAgentSlackEventFailure(input: {
     await postSlackConversationReply({
       botToken: context.botToken,
       channelId: context.channelId,
+      replyBroadcast: context.replyBroadcast,
       replyPlacement: context.replyPlacement,
       text: REMOTE_AGENT_SLACK_EVENT_PROCESSING_FAILURE_TEXT,
       threadTs: context.threadTs,
@@ -1874,6 +1888,13 @@ function resolveSlackReplyPlacement(
   return "thread";
 }
 
+function shouldBroadcastSlackRootDirectMessage(input: {
+  event: RemoteAgentSlackConversationEvent;
+  threadTs: string;
+}): boolean {
+  return input.event.type === "message" && input.threadTs === input.event.ts;
+}
+
 async function postSlackConversationReply(input: {
   botToken: string;
   channelId: string;
@@ -1881,6 +1902,7 @@ async function postSlackConversationReply(input: {
     eventPayload: Record<string, string>;
     eventType: string;
   };
+  replyBroadcast?: boolean;
   replyPlacement: SlackReplyPlacement;
   text: string;
   threadTs: string;
@@ -1897,6 +1919,7 @@ async function postSlackConversationReply(input: {
     botToken: input.botToken,
     channelId: input.channelId,
     metadata: input.metadata,
+    replyBroadcast: input.replyBroadcast,
     text: input.text,
     threadTs: input.threadTs,
   });
