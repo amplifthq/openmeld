@@ -34,6 +34,7 @@ import {
 } from "@openmeld/schemas";
 import type {
   LocalComponentsStatus,
+  LocalProjectControlDaemonFrame,
   OpenMeldDaemonManageLocalAgentInstallationPayload,
   OpenMeldDaemonSetLocalAgentEnabledPayload,
   OpenMeldDaemonSetProfileWorkspacePayload,
@@ -335,6 +336,7 @@ function handleComputerFileAccessSocketFrame(input: {
 function handleLocalProjectControlSocketFrame(input: {
   deviceId: string;
   frame: ParsedDaemonFrame;
+  onLocalProjectConnected?: () => void;
   presenter: Presenter;
   socket: WsClient;
 }): boolean {
@@ -345,7 +347,21 @@ function handleLocalProjectControlSocketFrame(input: {
     deviceId: input.deviceId,
     frame: input.frame,
   })
-    .then((resultFrame) => input.socket.send(JSON.stringify(resultFrame)))
+    .then((resultFrame) => {
+      input.socket.send(JSON.stringify(resultFrame));
+      if (!isConnectedLocalProjectResult(resultFrame)) {
+        return;
+      }
+      try {
+        input.onLocalProjectConnected?.();
+      } catch (error) {
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.agent_activity_connection_signal_failed",
+          text: `Agent Activity connection signal failed: ${toErrorMessage(error)}`,
+        });
+      }
+    })
     .catch((error) => {
       emitRunLine({
         presenter: input.presenter,
@@ -354,6 +370,20 @@ function handleLocalProjectControlSocketFrame(input: {
       });
     });
   return true;
+}
+
+function isConnectedLocalProjectResult(
+  frame: LocalProjectControlDaemonFrame
+): boolean {
+  if (
+    frame.code !== "daemon.local_project_control.connect_candidate_result" &&
+    frame.code !== "daemon.local_project_control.connect_declared_path_result"
+  ) {
+    return false;
+  }
+  return (
+    "result" in frame.payload && frame.payload.result.status === "connected"
+  );
 }
 
 function handleLocalFolderPickerSocketFrame(input: {
@@ -428,6 +458,7 @@ export async function runDaemonSocketSession(input: {
   onRuntimeReportingAuthenticationFailure?: (
     failure: RuntimeReportingAuthenticationFailure
   ) => Promise<void> | void;
+  onLocalProjectConnected?: () => void;
   profileOwnerName: string | null;
   presenter: Presenter;
   persistRouteCatalogCache?: (catalog: RouteCatalog) => Promise<void>;
@@ -2242,6 +2273,7 @@ export async function runDaemonSocketSession(input: {
       handleLocalProjectControlSocketFrame({
         deviceId: input.deviceId,
         frame: parsedFrame,
+        onLocalProjectConnected: input.onLocalProjectConnected,
         presenter: input.presenter,
         socket: input.socket,
       }) ||

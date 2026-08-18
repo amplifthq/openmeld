@@ -19,6 +19,11 @@ export type ManagedAgentActivityIntegrationRefreshResult =
       status: "skipped";
     };
 
+export type ManagedAgentActivityIntegrationRefreshScheduler = {
+  request: () => void;
+  stop: () => Promise<void>;
+};
+
 export async function refreshManagedAgentActivityIntegrations(input?: {
   homeDir?: string;
   install?: typeof installAgentActivityIntegrations;
@@ -36,5 +41,58 @@ export async function refreshManagedAgentActivityIntegrations(input?: {
       paths: defaultManagedIntegrationPaths(input?.homeDir ?? homedir()),
     }),
     status: "ready",
+  };
+}
+
+export function createManagedAgentActivityIntegrationRefreshScheduler(input: {
+  onError?: (error: unknown) => void;
+  onResult?: (result: ManagedAgentActivityIntegrationRefreshResult) => void;
+  refresh?: () => Promise<ManagedAgentActivityIntegrationRefreshResult>;
+}): ManagedAgentActivityIntegrationRefreshScheduler {
+  let inFlight: Promise<void> | null = null;
+  let pending = false;
+  let scheduled = false;
+  let stopped = false;
+  const refresh = input.refresh ?? refreshManagedAgentActivityIntegrations;
+
+  const schedule = () => {
+    if (stopped || scheduled) {
+      return;
+    }
+    scheduled = true;
+    queueMicrotask(() => {
+      scheduled = false;
+      run();
+    });
+  };
+  const run = () => {
+    if (stopped || inFlight || !pending) {
+      return;
+    }
+    pending = false;
+    inFlight = refresh()
+      .then((result) => input.onResult?.(result))
+      .catch((error) => input.onError?.(error))
+      .finally(() => {
+        inFlight = null;
+        if (pending) {
+          schedule();
+        }
+      });
+  };
+
+  return {
+    request: () => {
+      if (stopped) {
+        return;
+      }
+      pending = true;
+      schedule();
+    },
+    stop: async () => {
+      stopped = true;
+      pending = false;
+      await inFlight;
+    },
   };
 }

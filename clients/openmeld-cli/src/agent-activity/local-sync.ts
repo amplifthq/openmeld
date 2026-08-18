@@ -49,6 +49,14 @@ export type AgentActivityLocalSyncResult = {
   submittedCount: number;
 };
 
+export type LocalAgentActivitySyncLoop = {
+  requestSync: (input?: {
+    reconcile?: boolean;
+    refreshContext?: boolean;
+  }) => void;
+  stop: () => Promise<void>;
+};
+
 export async function syncLocalAgentActivity(input?: {
   reconcile?: boolean;
   refreshContext?: boolean;
@@ -473,11 +481,13 @@ export function startLocalAgentActivitySyncLoop(input: {
   intervalMs?: number;
   onError?: (error: unknown) => void;
   onResult?: (result: AgentActivityLocalSyncResult) => void;
-}): () => Promise<void> {
+}): LocalAgentActivitySyncLoop {
   let stopped = false;
   let inFlight: Promise<void> | null = null;
   let nextContextRefreshAtMs = 0;
   let nextReconciliationAtMs = 0;
+  let pendingContextRefresh = false;
+  let pendingReconciliation = false;
   const stopWatchers = startAgentActivityTranscriptWatchers({
     onError: input.onError,
   });
@@ -486,8 +496,11 @@ export function startLocalAgentActivitySyncLoop(input: {
       return;
     }
     const nowMs = Date.now();
-    const refreshContext = nowMs >= nextContextRefreshAtMs;
-    const reconcile = nowMs >= nextReconciliationAtMs;
+    const refreshContext =
+      pendingContextRefresh || nowMs >= nextContextRefreshAtMs;
+    const reconcile = pendingReconciliation || nowMs >= nextReconciliationAtMs;
+    pendingContextRefresh = false;
+    pendingReconciliation = false;
     if (refreshContext) {
       nextContextRefreshAtMs = nowMs + 60_000;
     }
@@ -499,16 +512,31 @@ export function startLocalAgentActivitySyncLoop(input: {
       .catch((error) => input.onError?.(error))
       .finally(() => {
         inFlight = null;
+        if (!stopped && (pendingContextRefresh || pendingReconciliation)) {
+          queueMicrotask(run);
+        }
       });
   };
   const timer = setInterval(run, input.intervalMs ?? 5000);
   timer.unref();
   run();
-  return async () => {
-    stopped = true;
-    clearInterval(timer);
-    await inFlight;
-    await stopWatchers();
+  return {
+    requestSync: (request = {}) => {
+      if (stopped) {
+        return;
+      }
+      pendingReconciliation ||= request.reconcile !== false;
+      pendingContextRefresh ||= request.refreshContext !== false;
+      run();
+    },
+    stop: async () => {
+      stopped = true;
+      pendingContextRefresh = false;
+      pendingReconciliation = false;
+      clearInterval(timer);
+      await inFlight;
+      await stopWatchers();
+    },
   };
 }
 

@@ -11,6 +11,11 @@ const EMPTY_FILTERS = { provider: null, status: null };
 export function AgentActivityChanges() {
 	const data = useAgentActivityData();
 	const view = useAgentActivityView(EMPTY_FILTERS, FOUR_HOURS_MS);
+	const emptyContent = resolveChangesEmptyContent({
+		isError: data.snapshotQuery.isError,
+		isPending: data.snapshotQuery.isPending,
+		setupState: view?.setupState ?? null,
+	});
 	return (
 		<section
 			aria-labelledby="agent-activity-changes-heading"
@@ -25,13 +30,31 @@ export function AgentActivityChanges() {
 				</p>
 			</div>
 			<AgentActivityChangesFeed
-				emptyContent={
-					data.snapshotQuery.isSuccess ? <AgentActivityEmptySetup /> : undefined
-				}
+				emptyContent={emptyContent}
 				feedItems={view?.feedItems ?? []}
 				foldedHeartbeatCount={view?.foldedHeartbeatCount ?? 0}
 				nowMs={data.currentTimeMs}
 			/>
 		</section>
 	);
+}
+
+function resolveChangesEmptyContent(input: {
+	isError: boolean;
+	isPending: boolean;
+	setupState: "active" | "awaiting_first_session" | "no_projects" | null;
+}) {
+	if (input.isPending) {
+		return "Loading changes…";
+	}
+	if (input.isError) {
+		return "Changes are unavailable.";
+	}
+	if (
+		input.setupState === "no_projects" ||
+		input.setupState === "awaiting_first_session"
+	) {
+		return <AgentActivityEmptySetup setupState={input.setupState} />;
+	}
+	return "No state changes in the last 4 hours.";
 }

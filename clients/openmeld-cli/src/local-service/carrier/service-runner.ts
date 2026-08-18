@@ -23,7 +23,10 @@ import type {
   OpenMeldDaemonSyncRouteCatalogRequestPayload,
   RuntimeTransportStopCause,
 } from "@openmeld/schemas/types";
-import { refreshManagedAgentActivityIntegrations } from "../../agent-activity/integration-refresh";
+import {
+  createManagedAgentActivityIntegrationRefreshScheduler,
+  refreshManagedAgentActivityIntegrations,
+} from "../../agent-activity/integration-refresh";
 import { startLocalAgentActivitySyncLoop } from "../../agent-activity/local-sync";
 import { setAgentRegistrationEnabled } from "../../agents/registry";
 import {
@@ -858,7 +861,7 @@ export const runDaemonServiceLoop = async (
     }
   );
 
-  const stopAgentActivitySync = startLocalAgentActivitySyncLoop({
+  const agentActivitySync = startLocalAgentActivitySyncLoop({
     onError: (error) => {
       emitRunLine({
         presenter: input.presenter,
@@ -893,6 +896,34 @@ export const runDaemonServiceLoop = async (
       });
     },
   });
+  const agentActivityIntegrationRefresh =
+    createManagedAgentActivityIntegrationRefreshScheduler({
+      onError: (error) => {
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.agent_activity_integration_refresh_failed",
+          text: `Managed Agent integration refresh failed: ${toErrorMessage(error)}`,
+        });
+      },
+      onResult: (result) => {
+        if (result.status !== "ready") {
+          return;
+        }
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.agent_activity_integrations_ready",
+          text: "Managed Agent integrations are ready.",
+          payload: result.integrations,
+        });
+      },
+    });
+  const activateAgentActivityForProjectConnection = () => {
+    agentActivitySync.requestSync({
+      reconcile: true,
+      refreshContext: true,
+    });
+    agentActivityIntegrationRefresh.request();
+  };
 
   try {
     emitRunLine({
@@ -1000,6 +1031,7 @@ export const runDaemonServiceLoop = async (
                 failure,
               });
             },
+            onLocalProjectConnected: activateAgentActivityForProjectConnection,
             ownerUserId,
             profileOwnerName,
             presenter: input.presenter,
@@ -1059,7 +1091,8 @@ export const runDaemonServiceLoop = async (
       controlPlaneServer.close(),
       clearDaemonServiceRuntimeState(),
       localFolderPicker.close(),
-      stopAgentActivitySync(),
+      agentActivityIntegrationRefresh.stop(),
+      agentActivitySync.stop(),
       stopRegistrationReconcile(),
     ]);
   }
