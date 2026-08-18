@@ -361,13 +361,14 @@ Web contextual navigation composes that family through
 `AppContextualSidebarNav` in
 `clients/web/src/components/app/app-contextual-layout.tsx`. This component is
 the single owner of the compact header, content gutter, group-label spacing,
-active/focus treatment, and standard item density used by Center Agent,
-Agent Activity, Spaces, and Settings. Route families provide typed
-group configuration instead of rebuilding those primitives. A group may
-provide standard navigation items or custom dynamic content; `leadingContent`
-is reserved for a primary contextual action such as New Space. Dynamic content
-may own its business interaction, but it must reuse the shared typography and
-tone tokens rather than introducing another sidebar style system.
+accessible Base UI Collapsible disclosure, active/focus treatment, and standard
+item density used by Center Agent, Agent Activity, Spaces, and Settings. Route
+families provide typed group configuration instead of rebuilding those
+primitives. A group may provide standard navigation items or custom dynamic
+content; `leadingContent` is reserved for a primary contextual action such as
+New Space. Dynamic content may own its business interaction, but it must reuse
+the shared typography and tone tokens rather than introducing another sidebar
+style system.
 
 Resize affordance lives on the rail/divider itself. The shared engine supports
 pointer drag and keyboard resize (`role="separator"`, arrow/Home/End semantics,
@@ -377,14 +378,22 @@ does not toggle collapse.
 
 Persistence is injected by each client. Web stores non-sensitive layout
 preferences in first-party cookies so SSR can read them with no width flash.
-The outer rail remains one browser-wide preference:
+The same SSR-readable state stores width, tier, and stable ids for explicitly
+collapsed labeled groups, so disclosure state does not flash open during
+hydration. The outer rail remains one browser-wide preference:
 
 - outer rail: `openmeld_sidebar_outer`
 
+Without that cookie, Web defaults the outer rail to the full tier so a new
+user sees every destination label. Once the user changes tiers, Web restores
+that browser-wide choice without resetting it for a different account.
+
 Inner contextual sidebars persist independently by stable route family. A
-family shares one width across its child routes, selected records, and
-Organizations; persistence must not derive keys from a full pathname,
-Organization slug, Space id, Direct Message id, or Task id:
+family shares one width and one collapsed-group set across its child routes,
+selected records, and Organizations; persistence must not derive keys from a
+full pathname, Organization slug, Space id, Direct Message id, or Task id. New
+dynamic groups, including future member-defined Space groups, must use their
+stable group identity rather than their editable display label:
 
 - Center Agent: `openmeld_sidebar_inner_center_agent`
 - Spaces: `openmeld_sidebar_inner_spaces`

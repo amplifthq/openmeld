@@ -74,14 +74,36 @@ describe("sidebar-width-cookie", () => {
 		expect(parsed).toEqual(state);
 	});
 
+	it("round-trips collapsed group ids in the owning sidebar cookie", () => {
+		const state = {
+			collapsedGroupIds: ["work", "spaces:pinned"],
+			tier: "full" as const,
+			width: "15rem",
+		};
+
+		expect(
+			parseSidebarStateCookieValue(serializeSidebarStateCookieValue(state))
+		).toEqual(state);
+	});
+
+	it("ignores malformed and duplicate persisted group ids", () => {
+		expect(
+			parseSidebarStateCookieValue("15rem|0|work,work,bad%20id,team")
+		).toEqual({
+			collapsedGroupIds: ["work", "team"],
+			tier: "full",
+			width: "15rem",
+		});
+	});
+
 	it("defaults on an absent or malformed cookie value", () => {
 		expect(parseSidebarStateCookieValue(null)).toEqual(SIDEBAR_DEFAULT_STATE);
 		expect(parseSidebarStateCookieValue("")).toEqual(SIDEBAR_DEFAULT_STATE);
 		expect(parseSidebarStateCookieValue(null, "outer")).toEqual(
 			OUTER_SIDEBAR_DEFAULT_STATE
 		);
-		// New users default the outer rail to the compact tier, not collapsed.
-		expect(parseSidebarStateCookieValue(null, "outer").tier).toBe("compact");
+		// New users get the most informative outer rail until they choose otherwise.
+		expect(parseSidebarStateCookieValue(null, "outer").tier).toBe("full");
 		expect(parseSidebarStateCookieValue("garbage")).toEqual({
 			tier: "full",
 			width: SIDEBAR_DEFAULT_WIDTH,

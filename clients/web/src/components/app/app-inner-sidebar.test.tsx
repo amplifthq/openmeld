@@ -1,6 +1,7 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppInnerSidebar, AppInnerSidebarHeader } from "./app-inner-sidebar";
+import { AppSidebarGroup } from "./app-sidebar-group";
 
 afterEach(() => {
 	cleanup();
@@ -72,6 +73,42 @@ describe("AppInnerSidebar", () => {
 				.querySelector<HTMLElement>('[data-slot="sidebar-wrapper"]')
 				?.style.getPropertyValue("--sidebar-width")
 		).toBe("12rem");
+	});
+
+	it("restores labeled group disclosure state and keeps the latest choice across remounts", () => {
+		const renderSpacesSidebar = () =>
+			render(
+				<AppInnerSidebar
+					initialState={{
+						collapsedGroupIds: ["spaces"],
+						tier: "full",
+						width: "15rem",
+					}}
+					preferenceKey="spaces"
+					separatorLabel="Resize inner sidebar"
+				>
+					<AppSidebarGroup groupId="spaces" label="Spaces" labelText="Spaces">
+						<p>Workspace spaces</p>
+					</AppSidebarGroup>
+				</AppInnerSidebar>
+			);
+
+		const firstRender = renderSpacesSidebar();
+		const trigger = screen.getByRole("button", { name: "Spaces" });
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		expect(screen.queryByText("Workspace spaces")).toBeNull();
+
+		fireEvent.click(trigger);
+		expect(screen.getByText("Workspace spaces")).toBeTruthy();
+		firstRender.unmount();
+
+		renderSpacesSidebar();
+		expect(
+			screen
+				.getByRole("button", { name: "Spaces" })
+				.getAttribute("aria-expanded")
+		).toBe("true");
+		expect(screen.getByText("Workspace spaces")).toBeTruthy();
 	});
 
 	it("uses one compact title without secondary description copy", () => {

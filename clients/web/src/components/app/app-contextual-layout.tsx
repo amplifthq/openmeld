@@ -1,11 +1,6 @@
 "use client";
 
-import {
-	SidebarContent,
-	SidebarGroup,
-	SidebarGroupContent,
-	SidebarGroupLabel,
-} from "@openmeld/ui/components/sidebar";
+import { SidebarContent } from "@openmeld/ui/components/sidebar";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { resolveStatusToneInteractiveTextClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
@@ -23,6 +18,7 @@ import {
 	APP_NAV_ITEM_TONE_CLASS_NAME,
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "./app-nav-item-style";
+import { AppSidebarGroup } from "./app-sidebar-group";
 import { CenterTruncatedText } from "./center-truncated-text";
 
 export type AppContextualNavItem<ItemId extends string = string> = {
@@ -107,53 +103,50 @@ export function AppContextualSidebarNav<ItemId extends string>(
 					</div>
 				) : null}
 				{input.groups.map((group, groupIndex) => (
-					<SidebarGroup
-						className={cn(
+					<AppSidebarGroup
+						contentAriaLabel={
+							group.content === undefined ? undefined : group.ariaLabel
+						}
+						contentRole={group.content === undefined ? undefined : "region"}
+						groupClassName={cn(
 							APP_NAV_GROUP_CLASS_NAME,
 							groupIndex > 0 ? APP_NAV_GROUP_SPACING_CLASS_NAME : null
 						)}
+						groupId={group.id}
 						key={group.id}
-					>
-						<SidebarGroupLabel
-							aria-label={group.label}
-							className={cn(
-								APP_NAV_GROUP_LABEL_CLASS_NAME,
-								"flex min-w-0 items-center justify-between gap-2"
-							)}
-						>
+						label={
 							<CenterTruncatedText
-								className="flex-1"
+								className="min-w-0"
 								text={group.label}
 								title={group.label}
 							/>
-							{group.labelAccessory}
-						</SidebarGroupLabel>
+						}
+						labelAccessory={group.labelAccessory}
+						labelClassName={APP_NAV_GROUP_LABEL_CLASS_NAME}
+						labelText={group.label}
+					>
 						{group.items !== undefined ? (
-							<SidebarGroupContent>
-								<FluidNavMenu
-									activeIndicatorClassName="bg-sidebar-accent"
-									activeValue={input.activeItemId}
-									aria-label={group.ariaLabel}
-									focusIndicatorClassName="border-sidebar-ring"
-									hoverIndicatorClassName="bg-sidebar-accent"
-								>
-									{group.items.map((item, index) => (
-										<AppContextualSidebarNavItem
-											index={index}
-											isActive={item.id === input.activeItemId}
-											item={item}
-											key={item.id}
-											onActivate={input.onActivate}
-										/>
-									))}
-								</FluidNavMenu>
-							</SidebarGroupContent>
+							<FluidNavMenu
+								activeIndicatorClassName="bg-sidebar-accent"
+								activeValue={input.activeItemId}
+								aria-label={group.ariaLabel}
+								focusIndicatorClassName="border-sidebar-ring"
+								hoverIndicatorClassName="bg-sidebar-accent"
+							>
+								{group.items.map((item, index) => (
+									<AppContextualSidebarNavItem
+										index={index}
+										isActive={item.id === input.activeItemId}
+										item={item}
+										key={item.id}
+										onActivate={input.onActivate}
+									/>
+								))}
+							</FluidNavMenu>
 						) : (
-							<SidebarGroupContent aria-label={group.ariaLabel} role="region">
-								{group.content}
-							</SidebarGroupContent>
+							group.content
 						)}
-					</SidebarGroup>
+					</AppSidebarGroup>
 				))}
 			</SidebarContent>
 		</nav>

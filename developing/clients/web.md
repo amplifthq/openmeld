@@ -221,12 +221,20 @@ authorization.
 The rail places the current workspace switcher at the top and has no separate
 OpenMeld brand row or account entry. **Home** is the first destination. The
 remaining nine product destinations are organized into three fixed,
-non-collapsible groups:
+user-collapsible groups:
 
 - **Home** — the current Organization's adaptive overview and product entry.
 - **Work** — **Center Agent**, **Spaces**, **Direct Messages**.
 - **Team** — **People**, **Agents**, **Computers**.
 - **Resources** — **Projects**, **Documents**, **Agent Activity**.
+
+In the full rail, each labeled group uses its heading as an accessible
+disclosure trigger and restores the browser's collapsed groups from the same
+browser-wide layout preference as the rail width and tier. **Home** and the
+bottom utility area never collapse. Compact and icon-only tiers keep every
+destination visible because those tiers do not render group headings or a
+disclosure trigger; returning to the full tier restores the remembered group
+state.
 
 The destinations resolve in that group order:
 
