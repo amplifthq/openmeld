@@ -1,4 +1,8 @@
 import {
+  OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_INBOX_SOURCE_TARGET_VERSION,
+} from "@openmeld/gateway-contract";
+import {
   centerAgentInboxSummaryResponseSchema,
   dismissInboxItemResponseSchema,
   getInboxItemResponseSchema,
@@ -131,6 +135,11 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
           context: buildCoreRpcContext(c),
         }),
       method: "GET",
+      resolveSuccessPayload: (result) =>
+        resolveInboxListResponse({
+          result,
+          supportsCurrentSourceTargets: supportsCurrentInboxSourceTargets(c),
+        }),
       responseSchema: listInboxItemsResponseSchema,
       route: INBOX_ROUTE,
     });
@@ -167,6 +176,12 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
           itemId: params.data.itemId,
         }),
       method: "GET",
+      resolveSuccessPayload: (result) =>
+        resolveInboxItemResponse({
+          result,
+          schema: getInboxItemResponseSchema,
+          supportsCurrentSourceTargets: supportsCurrentInboxSourceTargets(c),
+        }),
       responseSchema: getInboxItemResponseSchema,
       route: INBOX_ITEM_ROUTE,
     });
@@ -223,6 +238,12 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
           itemId: params.data.itemId,
         }),
       method: "PATCH",
+      resolveSuccessPayload: (result) =>
+        resolveInboxItemResponse({
+          result,
+          schema: markInboxItemReadResponseSchema,
+          supportsCurrentSourceTargets: supportsCurrentInboxSourceTargets(c),
+        }),
       responseSchema: markInboxItemReadResponseSchema,
       route: INBOX_ITEM_READ_ROUTE,
     });
@@ -276,6 +297,56 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       route: INBOX_PREFERENCES_ROUTE,
     });
   });
+}
+
+function resolveInboxListResponse(input: {
+  result: unknown;
+  supportsCurrentSourceTargets: boolean;
+}): z.infer<typeof listInboxItemsResponseSchema> {
+  const response = listInboxItemsResponseSchema.parse(input.result);
+  if (input.supportsCurrentSourceTargets) {
+    return response;
+  }
+  return {
+    ...response,
+    items: response.items.map(projectLegacyInboxSourceTarget),
+  };
+}
+
+type InboxItemResponse = z.infer<typeof getInboxItemResponseSchema>;
+
+function resolveInboxItemResponse(input: {
+  result: unknown;
+  schema: { parse: (value: unknown) => InboxItemResponse };
+  supportsCurrentSourceTargets: boolean;
+}): InboxItemResponse {
+  const response = input.schema.parse(input.result);
+  if (input.supportsCurrentSourceTargets) {
+    return response;
+  }
+  return {
+    ...response,
+    item: projectLegacyInboxSourceTarget(response.item),
+  };
+}
+
+function projectLegacyInboxSourceTarget(
+  item: z.infer<typeof listInboxItemsResponseSchema>["items"][number]
+): z.infer<typeof listInboxItemsResponseSchema>["items"][number] {
+  if (item.sourceTarget.kind !== "message_channel") {
+    return item;
+  }
+  return {
+    ...item,
+    sourceTarget: { kind: "center_agent" },
+  };
+}
+
+function supportsCurrentInboxSourceTargets(c: Context<HonoBindings>): boolean {
+  return (
+    c.req.header(OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION) ===
+    OPENMELD_INBOX_SOURCE_TARGET_VERSION
+  );
 }
 
 async function parseBody<T>(

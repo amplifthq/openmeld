@@ -67,14 +67,44 @@ const CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER = [
   "web",
   "cli",
 ];
+const INBOX_MESSAGE_CHANNEL_RECEIVER_FIRST_SCOPE_ORDER = [
+  "db",
+  "auth",
+  "web",
+  "gateway",
+  "core",
+  "remote-agent",
+  "cli",
+];
+const REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER = [
+  "db",
+  "remote-agent",
+  "auth",
+  "web",
+  "gateway",
+  "core",
+  "cli",
+];
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
   "center-agent-cli-receiver-first":
     CENTER_AGENT_CLI_RECEIVER_FIRST_SCOPE_ORDER,
   "core-worker-response-reader-first":
     CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "default-auth-receiver-first": SCOPE_ORDER,
+  "inbox-message-channel-receiver-first":
+    INBOX_MESSAGE_CHANNEL_RECEIVER_FIRST_SCOPE_ORDER,
+  "remote-agent-and-inbox-receivers-first":
+    REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER,
   "remote-agent-receiver-first": REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER,
 };
+const INBOX_MESSAGE_CHANNEL_SOURCE_TARGET_SCHEMA_PATH =
+  "packages/schemas/src/schemas/http/inbox.ts";
+const INBOX_MESSAGE_CHANNEL_WRITER_PATHS = new Set([
+  "services/core/src/remote-agent/application/native-delivery-inbox-producer.ts",
+  "services/core/src/remote-agent/application/native-delivery-service.ts",
+  "services/core/src/remote-agent/application/slack-inbox-source-target.ts",
+]);
+const INBOX_MESSAGE_CHANNEL_REQUIRED_SCOPES = ["web", "gateway", "core"];
 const REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS = new Set([
   "services/remote-agent/.flue/cloudflare.ts",
   "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
@@ -246,6 +276,11 @@ export function resolveAutomaticReleaseScopes(input) {
   ) {
     scopes.add("cli");
   }
+  if (isInboxMessageChannelReceiverFirstDiff(input.changedPaths)) {
+    for (const scope of INBOX_MESSAGE_CHANNEL_REQUIRED_SCOPES) {
+      scopes.add(scope);
+    }
+  }
 
   return sortScopes(scopes);
 }
@@ -358,6 +393,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   const selected = new Set(scopes);
   const steps = [];
   const changedPaths = input.changedPaths ?? [];
+  assertInboxMessageChannelReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
   const orderedScopes = resolveProductionDeployScopeOrder(scopes, changedPaths);
   for (const scope of orderedScopes) {
@@ -495,19 +531,73 @@ function resolveProductionDeployScopeOrder(scopes, changedPaths) {
 }
 
 function resolveProductionDeployOrderProfile(changedPaths) {
-  if (isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths)) {
-    return "remote-agent-receiver-first";
+  const isInboxReceiverFirst =
+    isInboxMessageChannelReceiverFirstDiff(changedPaths);
+  const isRemoteAgentRequestReceiverFirst =
+    isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths);
+  if (isRemoteAgentRequestReceiverFirst) {
+    return isInboxReceiverFirst
+      ? "remote-agent-and-inbox-receivers-first"
+      : "remote-agent-receiver-first";
   }
   if (isCoreWorkerResponseReaderFirstDiff(changedPaths)) {
-    return "core-worker-response-reader-first";
+    return isInboxReceiverFirst
+      ? "inbox-message-channel-receiver-first"
+      : "core-worker-response-reader-first";
   }
-  if (changedPaths.some(isRemoteAgentReceiverFirstContractPath)) {
+  const isRemoteAgentReceiverFirst = changedPaths.some(
+    isRemoteAgentReceiverFirstContractPath
+  );
+  const isCenterAgentCliReceiverFirst = changedPaths.some(
+    isCenterAgentCliReceiverFirstContractPath
+  );
+  if (
+    isInboxReceiverFirst &&
+    (isRemoteAgentReceiverFirst || isCenterAgentCliReceiverFirst)
+  ) {
+    return "remote-agent-and-inbox-receivers-first";
+  }
+  if (isInboxReceiverFirst) {
+    return "inbox-message-channel-receiver-first";
+  }
+  if (isRemoteAgentReceiverFirst) {
     return "remote-agent-receiver-first";
   }
-  if (changedPaths.some(isCenterAgentCliReceiverFirstContractPath)) {
+  if (isCenterAgentCliReceiverFirst) {
     return "center-agent-cli-receiver-first";
   }
   return "default-auth-receiver-first";
+}
+
+function isInboxMessageChannelReceiverFirstDiff(changedPaths) {
+  return (
+    changedPaths.includes(INBOX_MESSAGE_CHANNEL_SOURCE_TARGET_SCHEMA_PATH) &&
+    changedPaths.some((path) => INBOX_MESSAGE_CHANNEL_WRITER_PATHS.has(path))
+  );
+}
+
+function assertInboxMessageChannelReleaseScopes(scopes, changedPaths) {
+  if (!isInboxMessageChannelReceiverFirstDiff(changedPaths)) {
+    return;
+  }
+  const selected = new Set(scopes);
+  const missing = INBOX_MESSAGE_CHANNEL_REQUIRED_SCOPES.filter(
+    (scope) => !selected.has(scope)
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Inbox Message Channel receiver-first release requires the Web, Gateway, and Core scopes before Core can write durable targets. Missing: ${missing.join(", ")}.`
+    );
+  }
+  if (
+    resolveProductionDeployOrderProfile(changedPaths) ===
+      "remote-agent-and-inbox-receivers-first" &&
+    !selected.has("remote-agent")
+  ) {
+    throw new Error(
+      "Combined Remote Agent and Inbox receiver-first release requires the Remote Agent scope before Core can write either contract."
+    );
+  }
 }
 
 function isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) {

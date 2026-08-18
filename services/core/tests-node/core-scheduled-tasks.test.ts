@@ -283,6 +283,7 @@ describe("Core scheduled task dispatcher", () => {
     });
     expect(reconcileSlackNativeDeliveryInbox).toHaveBeenCalledWith({
       db: localStateDatabase,
+      env: expect.anything(),
       nowMs: 1000,
     });
     expect(recoverCenterAgentTasks).toHaveBeenCalledWith({

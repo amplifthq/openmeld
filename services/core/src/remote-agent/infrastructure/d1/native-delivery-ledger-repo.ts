@@ -661,14 +661,54 @@ export async function listLinkedSlackNativeDeliveriesNeedingInboxProjection(inpu
                 )
               )
             )
+            OR EXISTS (
+              SELECT 1
+              FROM inbox_items
+              WHERE inbox_items.organization_id = openMeldRemoteAgent_native_delivery_ledger.organization_id
+                AND inbox_items.recipient_user_id = openMeldRemoteAgent_native_delivery_ledger.on_behalf_of_user_id
+                AND inbox_items.source_kind = 'remote_agent_native_delivery'
+                AND inbox_items.source_key IN (
+                  openMeldRemoteAgent_native_delivery_ledger.delivery_id || ':publication_unknown',
+                  openMeldRemoteAgent_native_delivery_ledger.delivery_id || ':terminal'
+                )
+                AND inbox_items.source_target_json = ?
+            )
           )
-        ORDER BY updated_at_ms ASC, delivery_id ASC
+        ORDER BY
+          inbox_projection_attempted_at_ms ASC,
+          updated_at_ms ASC,
+          delivery_id ASC
         LIMIT ?
       `
     )
-    .bind(limit)
+    .bind(JSON.stringify({ kind: "center_agent" }), limit)
     .all<RemoteAgentNativeDeliveryRow>();
   return rows.results.map(mapNativeDeliveryRow);
+}
+
+export async function markLinkedSlackNativeDeliveryInboxProjectionAttempted(input: {
+  db: D1Database;
+  deliveryId: string;
+  nowMs: number;
+}): Promise<void> {
+  if (!(Number.isSafeInteger(input.nowMs) && input.nowMs >= 0)) {
+    throw new TypeError("nowMs must be a non-negative safe integer");
+  }
+  if (!input.deliveryId.trim()) {
+    throw new TypeError("deliveryId must be a non-empty identifier");
+  }
+  await input.db
+    .prepare(
+      `
+        UPDATE openMeldRemoteAgent_native_delivery_ledger
+        SET inbox_projection_attempted_at_ms = ?
+        WHERE delivery_id = ?
+          AND conversation_kind = 'slack'
+          AND inbox_projection_suppressed_at_ms IS NULL
+      `
+    )
+    .bind(input.nowMs, input.deliveryId)
+    .run();
 }
 
 export async function suppressLinkedSlackNativeDeliveryInboxProjectionIfRecipientMissing(input: {

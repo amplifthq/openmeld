@@ -875,11 +875,23 @@ describe("Remote Agent native delivery callback service", () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
     const fetchMock = vi.fn(
-      async (
-        _input: Request | string | URL,
+      (
+        input: Request | string | URL,
         _init?: RequestInit
-      ): Promise<Response> =>
-        Response.json({ ok: true, ts: "1700000000.000999" })
+      ): Promise<Response> => {
+        if (String(input).includes("/chat.getPermalink")) {
+          return Promise.resolve(
+            Response.json({
+              ok: true,
+              permalink:
+                "https://openmeld.slack.com/archives/C123/p1700000000000999",
+            })
+          );
+        }
+        return Promise.resolve(
+          Response.json({ ok: true, ts: "1700000000.000999" })
+        );
+      }
     );
     vi.stubGlobal("fetch", fetchMock);
     const workerSubmit = vi.fn(async () => ({
@@ -948,7 +960,11 @@ describe("Remote Agent native delivery callback service", () => {
       const slackStatusCalls = fetchMock.mock.calls.filter(([request]) =>
         String(request).includes("/assistant.threads.setStatus")
       );
+      const slackPermalinkCalls = fetchMock.mock.calls.filter(([request]) =>
+        String(request).includes("/chat.getPermalink")
+      );
       expect(slackPostCalls).toHaveLength(1);
+      expect(slackPermalinkCalls).toHaveLength(1);
       expect(
         JSON.parse(String(slackPostCalls[0]?.[1]?.body ?? "{}"))
       ).toMatchObject({
@@ -1016,6 +1032,11 @@ describe("Remote Agent native delivery callback service", () => {
               .status === ""
         )
       ).toBe(true);
+      expect(
+        fetchMock.mock.calls.filter(([request]) =>
+          String(request).includes("/chat.getPermalink")
+        )
+      ).toHaveLength(2);
       expect(workerSubmit).toHaveBeenCalledOnce();
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({

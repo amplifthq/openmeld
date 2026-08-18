@@ -8,48 +8,69 @@ import {
 	buildOrganizationSpacePath,
 } from "#/lib/organizations/organization-routes";
 
-export function buildInboxItemSourcePath(input: {
+export function buildInboxItemSourceNavigation(input: {
 	item: InboxItem;
 	orgSlug: string;
-}): string {
+}): { href: string; openInNewTab: boolean } {
 	const target = input.item.sourceTarget;
 	switch (target.kind) {
 		case "space":
-			return buildOrganizationSpacePath({
-				orgSlug: input.orgSlug,
-				search: {
-					focusSignalId: target.signalId,
-					focusThreadRootSignalId: target.threadRootSignalId,
-				},
-				spaceId: target.spaceId,
-			});
+			return {
+				href: buildOrganizationSpacePath({
+					orgSlug: input.orgSlug,
+					search: {
+						focusSignalId: target.signalId,
+						focusThreadRootSignalId: target.threadRootSignalId,
+					},
+					spaceId: target.spaceId,
+				}),
+				openInNewTab: false,
+			};
 		case "agent_interaction":
-			return buildOrganizationSpacePath({
-				orgSlug: input.orgSlug,
-				search: {
-					focusInteractionId: target.interactionId,
-					focusSignalId: target.sourceSignalId,
-				},
-				spaceId: target.spaceId,
-			});
+			return {
+				href: buildOrganizationSpacePath({
+					orgSlug: input.orgSlug,
+					search: {
+						focusInteractionId: target.interactionId,
+						focusSignalId: target.sourceSignalId,
+					},
+					spaceId: target.spaceId,
+				}),
+				openInNewTab: false,
+			};
 		case "organization_document":
-			return buildOrganizationDocumentPath({
-				documentId: target.documentId,
-				orgSlug: input.orgSlug,
-			});
+			return {
+				href: buildOrganizationDocumentPath({
+					documentId: target.documentId,
+					orgSlug: input.orgSlug,
+				}),
+				openInNewTab: false,
+			};
 		case "center_agent":
-			return buildOrganizationCenterAgentChatPath(input.orgSlug, {
-				focusSignalId: target.signalId,
-			});
+			return {
+				href: buildOrganizationCenterAgentChatPath(input.orgSlug, {
+					focusSignalId: target.signalId,
+				}),
+				openInNewTab: false,
+			};
 		case "center_agent_task":
-			return buildOrganizationCenterAgentTaskPath({
-				orgSlug: input.orgSlug,
-				taskId: target.taskId,
-			});
+			return {
+				href: buildOrganizationCenterAgentTaskPath({
+					orgSlug: input.orgSlug,
+					taskId: target.taskId,
+				}),
+				openInNewTab: false,
+			};
+		case "message_channel":
+			return { href: target.permalink, openInNewTab: true };
 		case "settings":
-			return target.section === "computers"
-				? buildOrganizationComputersPath(input.orgSlug)
-				: buildOrganizationNotificationsSettingsPath(input.orgSlug);
+			return {
+				href:
+					target.section === "computers"
+						? buildOrganizationComputersPath(input.orgSlug)
+						: buildOrganizationNotificationsSettingsPath(input.orgSlug),
+				openInNewTab: false,
+			};
 		default:
 			return assertNever(target);
 	}

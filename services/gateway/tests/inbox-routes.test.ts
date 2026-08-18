@@ -31,6 +31,21 @@ const ITEM = {
   updatedAt: "2026-08-04T01:00:00.000Z",
 };
 
+const MESSAGE_CHANNEL_ITEM = {
+  ...ITEM,
+  id: "inbox-item-2",
+  sourceTarget: {
+    channelId: "C0123456789",
+    kind: "message_channel" as const,
+    messageId: "1723200000.123456",
+    permalink:
+      "https://workspace.slack.com/archives/C0123456789/p1723200000123456?thread_ts=1723199999.654321&cid=C0123456789",
+    provider: "slack" as const,
+    teamId: "T0123456789",
+    threadRootMessageId: "1723199999.654321",
+  },
+};
+
 describe("Inbox routes", () => {
   it("forwards the complete member Inbox surface to Core", async () => {
     const { coreRpc, env } = makeEnv();
@@ -138,6 +153,120 @@ describe("Inbox routes", () => {
     expect(coreRpc.markCenterAgentInboxReadThrough).not.toHaveBeenCalled();
     expect(coreRpc.markSpaceInboxReadThrough).not.toHaveBeenCalled();
   });
+
+  it("projects the legacy source target for every item response from a stale Inbox client", async () => {
+    const { env } = makeEnv();
+    const legacyMessageChannelItem = {
+      ...MESSAGE_CHANNEL_ITEM,
+      sourceTarget: { kind: "center_agent" },
+    };
+
+    const staleResponse = await app.fetch(
+      new Request("http://local/v1/inbox?limit=25"),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const currentResponse = await app.fetch(
+      new Request("http://local/v1/inbox?limit=25", {
+        headers: { "x-openmeld-inbox-source-target-version": "2" },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const staleItemResponse = await app.fetch(
+      new Request("http://local/v1/inbox/items/inbox-item-2"),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const currentItemResponse = await app.fetch(
+      new Request("http://local/v1/inbox/items/inbox-item-2", {
+        headers: { "x-openmeld-inbox-source-target-version": "2" },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const staleReadResponse = await app.fetch(
+      jsonRequest("http://local/v1/inbox/items/inbox-item-2/read", "PATCH", {
+        read: true,
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const currentReadResponse = await app.fetch(
+      jsonRequest(
+        "http://local/v1/inbox/items/inbox-item-2/read",
+        "PATCH",
+        { read: true },
+        { "x-openmeld-inbox-source-target-version": "2" }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(staleResponse.status).toBe(200);
+    await expect(staleResponse.json()).resolves.toEqual({
+      items: [ITEM, legacyMessageChannelItem],
+      nextCursor: "next-page",
+      organizationId: "org-1",
+    });
+    expect(currentResponse.status).toBe(200);
+    await expect(currentResponse.json()).resolves.toEqual({
+      items: [ITEM, MESSAGE_CHANNEL_ITEM],
+      nextCursor: "next-page",
+      organizationId: "org-1",
+    });
+    expect(staleItemResponse.status).toBe(200);
+    await expect(staleItemResponse.json()).resolves.toEqual({
+      item: legacyMessageChannelItem,
+    });
+    expect(currentItemResponse.status).toBe(200);
+    await expect(currentItemResponse.json()).resolves.toEqual({
+      item: MESSAGE_CHANNEL_ITEM,
+    });
+    expect(staleReadResponse.status).toBe(200);
+    await expect(staleReadResponse.json()).resolves.toEqual({
+      item: {
+        ...legacyMessageChannelItem,
+        readAt: "2026-08-04T01:01:00.000Z",
+      },
+    });
+    expect(currentReadResponse.status).toBe(200);
+    await expect(currentReadResponse.json()).resolves.toEqual({
+      item: {
+        ...MESSAGE_CHANNEL_ITEM,
+        readAt: "2026-08-04T01:01:00.000Z",
+      },
+    });
+  });
+
+  it("rejects an invalid current source target before projecting a legacy response", async () => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.listInboxItems.mockResolvedValueOnce({
+      items: [
+        {
+          ...MESSAGE_CHANNEL_ITEM,
+          sourceTarget: {
+            ...MESSAGE_CHANNEL_ITEM.sourceTarget,
+            permalink: "not a url",
+          },
+        },
+      ],
+      nextCursor: null,
+      organizationId: "org-1",
+    });
+
+    const response = await app.fetch(
+      new Request("http://local/v1/inbox"),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "upstream_unreachable" },
+      ok: false,
+    });
+  });
 });
 
 function makeEnv() {
@@ -145,7 +274,10 @@ function makeEnv() {
     dismissInboxItem: vi.fn(async () => ({
       dismissedItemId: ITEM.id,
     })),
-    getInboxItem: vi.fn(async () => ({ item: ITEM })),
+    getInboxItem: vi.fn(async (input: { itemId: string }) => ({
+      item:
+        input.itemId === MESSAGE_CHANNEL_ITEM.id ? MESSAGE_CHANNEL_ITEM : ITEM,
+    })),
     getInboxNotificationPreferences: vi.fn(async () => ({
       updatedAt: null,
       urgentEmailEnabled: true,
@@ -170,8 +302,8 @@ function makeEnv() {
       ],
     })),
     listInboxItems: vi.fn(async () => ({
-      items: [ITEM],
-      nextCursor: null,
+      items: [ITEM, MESSAGE_CHANNEL_ITEM],
+      nextCursor: "next-page" as string | null,
       organizationId: "org-1",
     })),
     markAllInboxItemsRead: vi.fn(async () => ({ markedReadCount: 1 })),
@@ -183,8 +315,13 @@ function makeEnv() {
       markedReadCount: 1,
       readThroughAt: "2026-04-02T02:40:00.000Z",
     })),
-    markInboxItemRead: vi.fn(async () => ({
-      item: { ...ITEM, readAt: "2026-08-04T01:01:00.000Z" },
+    markInboxItemRead: vi.fn(async (input: { itemId: string }) => ({
+      item: {
+        ...(input.itemId === MESSAGE_CHANNEL_ITEM.id
+          ? MESSAGE_CHANNEL_ITEM
+          : ITEM),
+        readAt: "2026-08-04T01:01:00.000Z",
+      },
     })),
     updateInboxNotificationPreferences: vi.fn(async () => ({
       updatedAt: "2026-08-04T01:01:00.000Z",
@@ -223,10 +360,15 @@ function makeEnv() {
   };
 }
 
-function jsonRequest(url: string, method: string, body: unknown): Request {
+function jsonRequest(
+  url: string,
+  method: string,
+  body: unknown,
+  headers: Record<string, string> = {}
+): Request {
   return new Request(url, {
     body: JSON.stringify(body),
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
     method,
   });
 }

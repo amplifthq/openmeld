@@ -469,7 +469,7 @@ async function runSlackNativeDeliveryInboxReconciliation(input: {
     const result = await (
       input.reconcileSlackNativeDeliveryInbox ??
       reconcileLinkedSlackNativeDeliveryInbox
-    )({ db, nowMs: input.nowMs });
+    )({ db, env: input.env, nowMs: input.nowMs });
     if (result.attempted > 0 || result.errors > 0) {
       console.log(
         JSON.stringify({

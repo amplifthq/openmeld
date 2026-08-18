@@ -85,6 +85,7 @@ export {
   normalizedMessageChannelEventSchema,
   normalizedMessageChannelMessageEventSchema,
   normalizedMessageChannelReactionEventSchema,
+  slackMessagePermalinkSchema,
 } from "./message-channel";
 export {
   OPENCONNECTOR_RUNTIME_ACTION_CONTRACT_VERSION,
