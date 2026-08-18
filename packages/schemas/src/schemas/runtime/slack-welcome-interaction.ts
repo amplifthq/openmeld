@@ -3,18 +3,24 @@ import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { centerAgentVerifiedMemberToolSpeakerSchema } from "../http/center-agent-speaker";
 
 const slackIdSchema = z.string().trim().min(1).max(128);
+const slackInteractionPresentationContextSchema = {
+  gatewayRequestId: z.uuid().optional(),
+  interactionReceivedAtMs: z.number().int().nonnegative().optional(),
+};
 
 export const slackWelcomeInteractionRpcInputSchema = z.discriminatedUnion(
   "action",
   [
     z.strictObject({
       action: z.literal("open_teammate_invite_modal"),
+      ...slackInteractionPresentationContextSchema,
       slackTeamId: slackIdSchema,
       slackUserId: slackIdSchema,
       triggerId: z.string().trim().min(1).max(512),
     }),
     z.strictObject({
       action: z.literal("open_channel_introduction_modal"),
+      ...slackInteractionPresentationContextSchema,
       slackTeamId: slackIdSchema,
       slackUserId: slackIdSchema,
       triggerId: z.string().trim().min(1).max(512),

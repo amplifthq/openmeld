@@ -5,6 +5,7 @@ import {
   listSlackChannels,
   listSlackWorkspaceMembers,
   openSlackDirectMessage,
+  openSlackModal,
   postSlackChannelMessageByName,
   postSlackDirectMessage,
   postSlackThreadMessage,
@@ -12,7 +13,76 @@ import {
   readSlackConversationInfo,
   readSlackThreadMessages,
   setSlackThreadStatus,
+  updateSlackModal,
 } from "../src/remote-agent/application/slack-client";
+
+// Mirrors the view identity Slack documents in successful views.open and
+// views.update responses: https://docs.slack.dev/reference/methods/views.open/
+const SLACK_MODAL_SUCCESS_RESPONSE = {
+  ok: true,
+  view: {
+    hash: "1569262015.55b5e41b",
+    id: "VMHU10V25",
+    type: "modal",
+  },
+} as const;
+
+describe("Slack modal presentation", () => {
+  it("returns the opened view identity needed for a race-safe update", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json(SLACK_MODAL_SUCCESS_RESPONSE))
+    );
+    const view = {
+      blocks: [],
+      close: { text: "Cancel", type: "plain_text" },
+      title: { text: "OpenMeld", type: "plain_text" },
+      type: "modal",
+    };
+
+    await expect(
+      openSlackModal({
+        botToken: "xoxb-test",
+        fetchImpl: fetchMock,
+        triggerId: "trigger-1",
+        view,
+      })
+    ).resolves.toEqual({
+      hash: "1569262015.55b5e41b",
+      viewId: "VMHU10V25",
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      trigger_id: "trigger-1",
+      view,
+    });
+  });
+
+  it("updates the opened view by id and hash", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(Response.json(SLACK_MODAL_SUCCESS_RESPONSE))
+    );
+    const view = {
+      blocks: [],
+      close: { text: "Close", type: "plain_text" },
+      title: { text: "OpenMeld", type: "plain_text" },
+      type: "modal",
+    };
+
+    await expect(
+      updateSlackModal({
+        botToken: "xoxb-test",
+        fetchImpl: fetchMock,
+        hash: "1569262015.55b5e41b",
+        view,
+        viewId: "VMHU10V25",
+      })
+    ).resolves.toEqual({ hash: "1569262015.55b5e41b" });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      hash: "1569262015.55b5e41b",
+      view,
+      view_id: "VMHU10V25",
+    });
+  });
+});
 
 describe("Slack conversation audience", () => {
   it("classifies a nameless Slack DM without discarding its audience facts", async () => {
