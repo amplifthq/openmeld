@@ -101,6 +101,10 @@ import {
   buildInboxUrgentEmail,
   classifyInboxEmailError,
 } from "../inbox/urgent-email";
+import {
+  type AuthenticatedOrganizationContext,
+  resolveAuthenticatedOrganizationContext,
+} from "../organization/authenticated-organization-context";
 import { reconcileDeletedAgentProfileMemberships } from "../profiles/deleted-profile-reconcile";
 import { listMembershipSpaceIdsForProfiles } from "../profiles/membership-space-access";
 import {
@@ -546,18 +550,6 @@ type OrganizationDirectoryAgentProfileIdentityRow = {
   status: "active" | "disabled";
   updated_at: number;
 };
-
-type AuthenticatedOrganizationContext =
-  | {
-      ok: true;
-      activeOrganizationId: string | null;
-      source: NonNullable<AuthClaims["organizationContextSource"]> | null;
-    }
-  | {
-      ok: false;
-      code: string;
-      message: string;
-    };
 
 export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
   fetch(request: Request): Promise<Response> {
@@ -2117,7 +2109,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     try {
       organizationContext = await resolveAuthenticatedOrganizationContext({
         db: this.env.OPENMELD_DB,
-        input,
+        requestedOrganization: input.requestedOrganization,
         sessionActiveOrganizationId: (
           sessionResolution.session as { activeOrganizationId?: unknown }
         ).activeOrganizationId,
@@ -2261,7 +2253,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     try {
       organizationContext = await resolveAuthenticatedOrganizationContext({
         db: this.env.OPENMELD_DB,
-        input,
+        requestedOrganization: input.requestedOrganization,
         sessionActiveOrganizationId: (
           sessionResolution.session as { activeOrganizationId?: unknown }
         ).activeOrganizationId,
@@ -2975,71 +2967,6 @@ function isPersonalOrganizationMetadata(value: string | null): boolean {
   } catch {
     return false;
   }
-}
-
-async function resolveAuthenticatedOrganizationContext(input: {
-  db: D1Database;
-  input: ResolveRequestAuthInput;
-  sessionActiveOrganizationId: unknown;
-  userId: string;
-}): Promise<AuthenticatedOrganizationContext> {
-  const requestedOrganization = input.input.requestedOrganization;
-  if (!requestedOrganization) {
-    const activeOrganizationId = normalizeOptionalText(
-      input.sessionActiveOrganizationId
-    );
-    return {
-      ok: true,
-      activeOrganizationId,
-      source: activeOrganizationId ? "session" : null,
-    };
-  }
-
-  const row =
-    "organizationId" in requestedOrganization
-      ? await input.db
-          .prepare(
-            `
-            SELECT
-              organizations.id AS organization_id
-            FROM members
-            INNER JOIN organizations
-              ON organizations.id = members.organization_id
-            WHERE members.user_id = ?
-              AND organizations.id = ?
-            LIMIT 1
-          `
-          )
-          .bind(input.userId, requestedOrganization.organizationId)
-          .first<{ organization_id: string }>()
-      : await input.db
-          .prepare(
-            `
-            SELECT
-              organizations.id AS organization_id
-            FROM members
-            INNER JOIN organizations
-              ON organizations.id = members.organization_id
-            WHERE members.user_id = ?
-              AND organizations.slug = ?
-            LIMIT 1
-          `
-          )
-          .bind(input.userId, requestedOrganization.organizationSlug)
-          .first<{ organization_id: string }>();
-  const activeOrganizationId = normalizeOptionalText(row?.organization_id);
-  if (!activeOrganizationId) {
-    return {
-      ok: false,
-      code: "organization.membership_required",
-      message: "You do not have access to this organization.",
-    };
-  }
-  return {
-    ok: true,
-    activeOrganizationId,
-    source: "request",
-  };
 }
 
 async function resolveCenterAgentDefaultProfileName(input: {

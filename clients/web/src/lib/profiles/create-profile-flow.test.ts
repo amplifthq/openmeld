@@ -49,6 +49,13 @@ describe("createNewStartProfile Default Project setup", () => {
 			runtimeLane: "dev-local",
 			selectedHumanProfileId: "profile-human",
 		});
+		expect(createStartAgentProfileMock).toHaveBeenCalledWith({
+			data: {
+				creatorProfileId: "profile-human",
+				organizationId: "organization-1",
+				profileName: "Research Agent",
+			},
+		});
 
 		expect(updateWorkspaceMock).toHaveBeenCalledWith({
 			actorProfileId: "profile-human",
@@ -68,10 +75,28 @@ describe("createNewStartProfile Default Project setup", () => {
 		expect(result.defaultProjectId).toBe("project-1");
 	});
 
+	it("fails before profile creation when an Agent has no explicit Organization", async () => {
+		await expect(
+			createNewStartProfile({
+				boundAgentId: "codex",
+				deviceId: "device-1",
+				organizationId: null,
+				profileKind: "agent",
+				profileName: "Research Agent",
+				runtimeLane: "dev-local",
+				selectedHumanProfileId: "profile-human",
+			})
+		).rejects.toThrow(
+			"Choose an organization before creating an Agent Profile."
+		);
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
+	});
+
 	it("preserves a selected folder name with trailing spaces", async () => {
 		await createNewStartProfile({
 			boundAgentId: "codex",
 			deviceId: "device-1",
+			organizationId: "organization-1",
 			profileKind: "agent",
 			profileName: "Research Agent",
 			projectFolderPath: "/Users/felix/Design Work ",
@@ -91,6 +116,7 @@ describe("createNewStartProfile Default Project setup", () => {
 		await createNewStartProfile({
 			boundAgentId: "codex",
 			deviceId: "device-1",
+			organizationId: "organization-1",
 			profileKind: "agent",
 			profileName: "Research Agent",
 			runtimeLane: "dev-local",
@@ -110,6 +136,7 @@ describe("createNewStartProfile Default Project setup", () => {
 			boundAgentId: "",
 			currentServiceCanSetProfileWorkspace: true,
 			deviceId: "device-1",
+			organizationId: "organization-1",
 			profileKind: "agent",
 			profileName: "Future Grok Agent",
 			runtimeLane: "dev-local",
@@ -128,6 +155,7 @@ describe("createNewStartProfile Default Project setup", () => {
 		await createNewStartProfile({
 			boundAgentId: "",
 			deviceId: "historical-device",
+			organizationId: "organization-1",
 			profileKind: "agent",
 			profileName: "Manual Teammate",
 			runtimeLane: "prod",

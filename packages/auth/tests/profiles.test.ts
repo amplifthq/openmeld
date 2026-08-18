@@ -1251,6 +1251,31 @@ describe("OpenMeld profile service", () => {
     expect(cleared.defaultProjectId).toBeNull();
   });
 
+  it("reports an Organization mismatch instead of misclassifying a local Agent Profile", async () => {
+    const repository = createInMemoryRepository();
+    const service = createOpenMeldProfileService(repository, {
+      generateAgentProfileId: () => TEST_AGENT_PROFILE_ID,
+    });
+    await service.createAgentProfile({
+      ownerUserId: "user_1",
+      createdByUserId: "user_1",
+      organizationId: TEST_ORGANIZATION_ID,
+      profileName: "Project Agent",
+    });
+
+    await expect(
+      service.updateAgentProfileDefaultProjectForOwner({
+        defaultProjectId: "project_alpha",
+        organizationId: "organization-other",
+        ownerUserId: "user_1",
+        profileId: TEST_AGENT_PROFILE_ID,
+      })
+    ).rejects.toMatchObject({
+      code: "profile.organization_mismatch",
+      message: "This Agent Profile does not belong to this Organization.",
+    });
+  });
+
   it("rejects Default Project writes for managed and human profiles", async () => {
     const repository = createInMemoryRepository();
     const service = createOpenMeldProfileService(repository, {

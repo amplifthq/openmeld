@@ -178,6 +178,14 @@ the separately named unscoped foundation. A single factory with optional
 Organization fields is forbidden because an omitted field would silently
 reinterpret an Organization route under Session state.
 
+This requirement also covers Organization-owned mutations sent directly to
+Auth rather than through Gateway. Web must send the same standard requested
+Organization selector, and Auth must resolve it through its shared verified
+membership resolver. A direct Auth endpoint is not permission to recover the
+Organization from Session state. Agent Profile creation is the canonical
+example: creation, Binding, Default Project, and optional Space join all carry
+the one route-resolved Organization id.
+
 When the scoped foundation is constructed from a route slug, that slug remains
 authoritative even if a downstream API method also supplies an actor request
 context containing another Organization id. The transport sends exactly the
