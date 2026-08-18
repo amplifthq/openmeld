@@ -303,11 +303,11 @@ export function AgentProfileProjectSelector(input: {
 
 	return (
 		<section
-			className="grid gap-3"
+			className="grid min-w-0 gap-3"
 			data-testid="agent-profile-project-selector"
 		>
 			{input.showProjectSelector === false ? null : (
-				<div className="grid gap-2">
+				<div className="grid min-w-0 gap-2">
 					<Label htmlFor="agent-profile-project-select">Working folder</Label>
 					<Select
 						disabled={input.disabled}
@@ -335,22 +335,29 @@ export function AgentProfileProjectSelector(input: {
 						}
 					>
 						<SelectTrigger
-							className="h-10 w-full px-3 text-sm"
-							displayValue={resolveWorkingFolderDisplayValue({
-								manualPath: input.manualPath,
-								projectId: input.projectId,
-								projectOptions,
-								workspaceFallbackMode: input.workspaceFallbackMode,
-							})}
+							className="h-10 w-full min-w-0 px-3 text-sm"
+							displayValue={
+								<span
+									className="block max-w-full overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
+									data-testid="working-folder-display-value"
+								>
+									{resolveWorkingFolderDisplayValue({
+										manualPath: input.manualPath,
+										projectId: input.projectId,
+										projectOptions,
+										workspaceFallbackMode: input.workspaceFallbackMode,
+									})}
+								</span>
+							}
 							id="agent-profile-project-select"
 						/>
-						<SelectContent>
+						<SelectContent className="overflow-x-hidden" matchTriggerWidth>
 							{projectOptions.map(({ path, project }, index) => (
 								<SelectItem index={index} key={project.id} value={project.id}>
 									<span className="flex min-w-0 flex-col gap-0.5">
 										<span>{project.name}</span>
 										{path ? (
-											<span className="truncate text-muted-foreground">
+											<span className="max-w-full overflow-x-auto whitespace-nowrap text-muted-foreground [scrollbar-width:thin]">
 												{path}
 											</span>
 										) : null}
@@ -497,7 +504,7 @@ function WorkspaceFallbackControls(input: {
 		return null;
 	}
 	return (
-		<div className="grid gap-3">
+		<div className="grid min-w-0 gap-3">
 			{input.wasProjectSelected ? (
 				<p className="text-muted-foreground text-xs leading-5">
 					No matching Project folder was found. Choose another folder for this
@@ -505,7 +512,7 @@ function WorkspaceFallbackControls(input: {
 				</p>
 			) : null}
 			{input.workspaceFallbackMode === "advanced" ? (
-				<div className="grid gap-2">
+				<div className="grid min-w-0 gap-2">
 					{input.pickerDeviceId ? (
 						<LocalFolderPickerButton
 							allowMultiple={false}
@@ -584,7 +591,7 @@ function ProjectSelectionDetails(input: {
 	const candidates = input.view.discovery?.candidates ?? [];
 	if (input.branch === "connected" || input.branch === "multiple_connections") {
 		return (
-			<div className="grid gap-2 pt-1">
+			<div className="grid min-w-0 gap-2 pt-1">
 				<p className="font-medium text-sm">
 					{input.branch === "multiple_connections"
 						? "Choose the working folder"
@@ -592,7 +599,7 @@ function ProjectSelectionDetails(input: {
 				</p>
 				{availableConnections.map((connection) => (
 					<label
-						className="flex items-start gap-2 text-sm"
+						className="flex min-w-0 items-start gap-2 text-sm"
 						key={connection.bindingGeneration}
 					>
 						<input
@@ -607,7 +614,12 @@ function ProjectSelectionDetails(input: {
 							}}
 							type="radio"
 						/>
-						<span className="min-w-0 break-all">
+						<span
+							className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]"
+							data-testid={
+								connection.isDefault ? "default-working-folder-path" : undefined
+							}
+						>
 							{connection.path}
 							{connection.isDefault ? " (current default)" : ""}
 						</span>
@@ -618,7 +630,7 @@ function ProjectSelectionDetails(input: {
 	}
 
 	return (
-		<div className="grid gap-3 pt-1">
+		<div className="grid min-w-0 gap-3 pt-1">
 			{input.branch === "checking" ? (
 				<p className="text-sm">
 					OpenMeld is checking known repositories and worktrees on this
@@ -702,7 +714,7 @@ function ProjectConnectionDraft(input: {
 				</Button>
 			) : null}
 			{!input.pickerDeviceId || manualPathOpen ? (
-				<div className="grid gap-2">
+				<div className="grid min-w-0 gap-2">
 					<Label htmlFor="agent-profile-connect-folder-input">
 						Project folder path
 					</Label>
@@ -740,7 +752,7 @@ function MatchingProjectFolders(input: {
 	selectedCandidateId: string | null;
 }) {
 	return (
-		<div className="grid gap-2 border-border/70 border-t pt-3">
+		<div className="grid min-w-0 gap-2 border-border/70 border-t pt-3">
 			<p className="font-medium text-sm">Matching folders</p>
 			<p className="text-muted-foreground text-xs leading-5">
 				{input.candidates.length > 1
@@ -748,10 +760,10 @@ function MatchingProjectFolders(input: {
 					: `OpenMeld found ${input.candidates[0]?.canonicalPath}. You can use it instead.`}
 			</p>
 			{input.candidates.length > 1 ? (
-				<div className="grid gap-2">
+				<div className="grid min-w-0 gap-2">
 					{input.candidates.map((candidate) => (
 						<label
-							className="flex items-start gap-2 text-sm"
+							className="flex min-w-0 items-start gap-2 text-sm"
 							key={candidate.candidateId}
 						>
 							<input
@@ -762,7 +774,7 @@ function MatchingProjectFolders(input: {
 								}
 								type="radio"
 							/>
-							<span className="min-w-0 break-all">
+							<span className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
 								{candidate.canonicalPath}
 							</span>
 						</label>
@@ -801,11 +813,11 @@ function MissingProjectConnections(input: {
 		return null;
 	}
 	return (
-		<div className="grid gap-1 pt-1 text-xs">
+		<div className="grid min-w-0 gap-1 pt-1 text-xs">
 			<p className="font-medium">Unavailable on this computer</p>
 			{missingConnections.map((connection) => (
 				<p
-					className="break-all text-muted-foreground"
+					className="max-w-full overflow-x-auto whitespace-nowrap text-muted-foreground [scrollbar-width:thin]"
 					key={connection.bindingGeneration}
 				>
 					{connection.path}

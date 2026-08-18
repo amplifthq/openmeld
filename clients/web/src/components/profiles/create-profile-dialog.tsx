@@ -488,7 +488,7 @@ export function CreateProfileDialog(input: {
 			}}
 			open={input.open}
 		>
-			<DialogContent className="flex max-h-[min(42rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-xl">
+			<DialogContent className="flex max-h-[min(42rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-xl">
 				<DialogHeader>
 					<DialogTitle>
 						{additionalHumanProfileCreationEnabled
@@ -502,7 +502,7 @@ export function CreateProfileDialog(input: {
 						})}
 					</DialogDescription>
 				</DialogHeader>
-				<div className="min-h-0 flex-1 overflow-y-auto pr-1">
+				<div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
 					<CreateProfileForm
 						additionalHumanProfileCreationEnabled={
 							additionalHumanProfileCreationEnabled

@@ -600,6 +600,18 @@ describe("CreateProfileDialog", () => {
 		).toBeNull();
 	});
 
+	it("keeps the create form shrinkable inside the Dialog", async () => {
+		renderCreateProfileDialog();
+
+		await waitFor(() => {
+			expect(listStartProfilesMock).toHaveBeenCalled();
+		});
+		const panel = screen.getByTestId("create-profile-panel");
+
+		expect(panel.className).toContain("min-w-0");
+		expect(panel.querySelector("form")?.className).toContain("min-w-0");
+	});
+
 	it("creates an agent profile with Choose later and joins no Space", async () => {
 		renderCreateProfileDialog();
 

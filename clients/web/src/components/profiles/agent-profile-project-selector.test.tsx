@@ -136,6 +136,50 @@ describe("AgentProfileProjectSelector folder moves", () => {
 		expect(screen.queryByText(RECOMMENDED_COPY_PATTERN)).toBeNull();
 	});
 
+	it("contains long Project paths inside the selector instead of widening the form", () => {
+		const longPath =
+			"/workspace/projects/a-deliberately-long-project-folder-that-must-scroll-inside-the-control";
+		discoveryController.projectView.mockReturnValue({
+			connections: [
+				{
+					bindingGeneration: "binding-openmeld",
+					isDefault: true,
+					path: longPath,
+					status: "available",
+				},
+			],
+			discovery: null,
+			errorMessage: null,
+			status: "ready",
+		});
+		render(
+			<AgentProfileProjectSelector
+				disabled={false}
+				manualPath=""
+				onConnectionReady={vi.fn()}
+				onManualPathChange={vi.fn()}
+				onProjectChange={vi.fn()}
+				onUseAdvancedWorkspace={vi.fn()}
+				onUseManagedWorkspace={vi.fn()}
+				organizationId="org-1"
+				projectId="project-1"
+				projects={[project()]}
+				selectedBindingGeneration={null}
+				workspaceFallbackMode={null}
+			/>
+		);
+
+		expect(
+			screen.getByTestId("agent-profile-project-selector").className
+		).toContain("min-w-0");
+		expect(
+			screen.getByTestId("working-folder-display-value").className
+		).toContain("overflow-x-auto");
+		expect(
+			screen.getByTestId("default-working-folder-path").className
+		).toContain("overflow-x-auto");
+	});
+
 	it("fills a Project working folder from the native picker before connecting it", async () => {
 		vi.mocked(selectLocalFolders).mockResolvedValue({
 			deviceId: "device-current",
