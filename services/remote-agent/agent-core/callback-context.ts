@@ -414,6 +414,7 @@ export type RemoteAgentCoreWorkerBinding = {
   ): Promise<unknown>;
   listCenterAgentAuditJournal?(input: unknown): Promise<unknown>;
   centerAgentPostSlackChannelMessage?(input: unknown): Promise<unknown>;
+  centerAgentPostSlackThreadMessage?(input: unknown): Promise<unknown>;
   centerAgentPostSpaceMessage?(input: unknown): Promise<unknown>;
   centerAgentReadSpaceAuthoringContract?(input: {
     context: OpenMeldRequestContext;

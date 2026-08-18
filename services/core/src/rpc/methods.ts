@@ -60,6 +60,7 @@ import {
   centerAgentListSlackChannelsBodySchema,
   centerAgentOrganizationMemoryPolicyResponseSchema,
   centerAgentPostSlackChannelMessageBodySchema,
+  centerAgentPostSlackThreadMessageBodySchema,
   centerAgentPostSpaceMessageBodySchema,
   centerAgentPostSpaceMessageResponseSchema,
   centerAgentReadConnectorActionOperationBodySchema,
@@ -311,6 +312,7 @@ import type {
   CenterAgentOrganizationMemoryPolicyResponse,
   CenterAgentPostSlackChannelMessageBody,
   CenterAgentPostSlackChannelMessageResponse,
+  CenterAgentPostSlackThreadMessageBody,
   CenterAgentPostSpaceMessageBody,
   CenterAgentPostSpaceMessageResponse,
   CenterAgentReadAgentActivityToolRpcInput,
@@ -666,7 +668,10 @@ import {
   projectCenterAgentLocalAgentConnectionCandidates,
   updateAgentProfileRuntimeSettingsOperation,
 } from "../center-agent/application/product-operations";
-import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
+import {
+  prepareCenterAgentRepresentedMemberRequest,
+  type VerifiedCenterAgentRepresentedMember,
+} from "../center-agent/application/represented-member-request";
 import { shouldWriteDestinationNeutralTaskContinuations } from "../center-agent/application/task-continuation-rollout";
 import {
   resolveCenterAgentAuditAttribution,
@@ -2558,6 +2563,11 @@ export type CenterAgentReadSpaceAuthoringContractInput = {
 
 export type CenterAgentPostSlackChannelMessageInput =
   CenterAgentPostSlackChannelMessageBody & {
+    context?: CoreRpcContextInput;
+  };
+
+export type CenterAgentPostSlackThreadMessageInput =
+  CenterAgentPostSlackThreadMessageBody & {
     context?: CoreRpcContextInput;
   };
 
@@ -10037,6 +10047,53 @@ async function readSlackWorkspaceMembersByIds(input: {
   });
 }
 
+async function requireInteractiveSlackThreadPublicationProvenance(input: {
+  authorization: CurrentDesignatedCenterAgentAuthorization;
+  env: CoreBindings;
+  publicationSource: Extract<
+    CenterAgentPostSlackThreadMessageBody["publicationSource"],
+    { kind: "remote_agent_execution" }
+  >;
+  representedHuman: VerifiedCenterAgentRepresentedMember;
+  sourceNativeDeliveryId: string | null;
+}): Promise<void> {
+  const db = wakeEvidenceDb(input.env);
+  if (!(db && input.sourceNativeDeliveryId)) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.publication_source_invalid",
+      reason:
+        "Slack thread publication requires a current interactive Center Agent task.",
+      status: 409,
+    });
+  }
+  const delivery = await readRemoteAgentNativeDeliveryByDeliveryId({
+    db,
+    deliveryId: input.sourceNativeDeliveryId,
+  });
+  const active =
+    delivery?.status === "accepted" || delivery?.status === "retry_observed";
+  if (
+    !(
+      delivery &&
+      active &&
+      delivery.submissionId === input.publicationSource.executionId &&
+      delivery.organizationId ===
+        input.authorization.activeOrganization.organizationId &&
+      delivery.profileId === input.authorization.actorProfileId &&
+      delivery.onBehalfOfProfileId === input.representedHuman.profileId &&
+      delivery.onBehalfOfUserId === input.representedHuman.userId &&
+      delivery.routineRunId === null
+    )
+  ) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.publication_source_invalid",
+      reason:
+        "Slack thread publication requires a current interactive Center Agent task.",
+      status: 409,
+    });
+  }
+}
+
 function classifySlackWorkspaceMembers(input: {
   includeMemberUserId: boolean;
   slackIdentityLinks: readonly SlackUserIdentityLinkRecord[];
@@ -10844,7 +10901,6 @@ export async function rpcCenterAgentPostSlackChannelMessage(
     publicationSource: input.publicationSource,
     speakerMember: input.speakerMember,
     text: input.text,
-    threadTs: input.threadTs,
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -10855,11 +10911,53 @@ export async function rpcCenterAgentPostSlackChannelMessage(
       code: "invalid_payload",
     });
   }
+  return await executeRpcCenterAgentSlackPublication({
+    env,
+    input: parsed.data,
+    context: requireRpcContext(input.context),
+  });
+}
+
+export async function rpcCenterAgentPostSlackThreadMessage(
+  env: CoreBindings,
+  input: CenterAgentPostSlackThreadMessageInput
+): Promise<CenterAgentPostSlackChannelMessageResponse> {
+  const channelName = normalizeSlackChannelNameForRpc(input.channelName);
+  const parsed = centerAgentPostSlackThreadMessageBodySchema.safeParse({
+    channelName,
+    publicationSource: input.publicationSource,
+    speakerMember: input.speakerMember,
+    text: input.text,
+    threadTs: input.threadTs,
+  });
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      reason:
+        parsed.error.issues[0]?.message ??
+        "invalid Center Agent Slack thread message payload",
+      code: "invalid_payload",
+    });
+  }
+  return await executeRpcCenterAgentSlackPublication({
+    env,
+    input: parsed.data,
+    context: requireRpcContext(input.context),
+  });
+}
+
+async function executeRpcCenterAgentSlackPublication(input: {
+  context: OpenMeldRequestContext;
+  env: CoreBindings;
+  input:
+    | CenterAgentPostSlackChannelMessageBody
+    | CenterAgentPostSlackThreadMessageBody;
+}): Promise<CenterAgentPostSlackChannelMessageResponse> {
   const { authorization, representedHuman, sourceNativeDeliveryId } =
     await prepareCenterAgentRepresentedMemberRequest(
-      env,
-      requireRpcContext(input.context),
-      parsed.data.speakerMember,
+      input.env,
+      input.context,
+      input.input.speakerMember,
       {
         code: "center_agent.slack_channel_speaker_required",
         reason:
@@ -10867,7 +10965,17 @@ export async function rpcCenterAgentPostSlackChannelMessage(
       }
     );
 
-  const slackDb = localStateDb(env);
+  if ("threadTs" in input.input) {
+    await requireInteractiveSlackThreadPublicationProvenance({
+      authorization,
+      env: input.env,
+      publicationSource: input.input.publicationSource,
+      representedHuman,
+      sourceNativeDeliveryId,
+    });
+  }
+
+  const slackDb = localStateDb(input.env);
   if (!slackDb) {
     throw createCoreRpcHttpError({
       status: 503,
@@ -10889,24 +10997,24 @@ export async function rpcCenterAgentPostSlackChannelMessage(
   }
 
   const botToken = await resolveSlackBotToken({
-    cryptoKey: env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+    cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
     db: slackDb,
-    fallbackBotToken: env.SLACK_OPENMELD_BOT_TOKEN,
+    fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
     slackTeamId: binding.slackTeamId,
   });
   const target = await resolveSlackChannelMessageTarget({
     botToken,
-    channelName: parsed.data.channelName,
+    channelName: input.input.channelName,
   });
   return await executeCenterAgentSlackPublication({
     authorization,
     botToken,
-    publicationSource: parsed.data.publicationSource,
+    publicationSource: input.input.publicationSource,
     representedHuman,
     sourceNativeDeliveryId,
     target,
-    text: parsed.data.text,
-    ...(parsed.data.threadTs ? { threadTs: parsed.data.threadTs } : {}),
+    text: input.input.text,
+    ...("threadTs" in input.input ? { threadTs: input.input.threadTs } : {}),
   });
 }
 

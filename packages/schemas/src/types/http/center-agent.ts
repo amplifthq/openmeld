@@ -90,6 +90,8 @@ type CenterAgentOperatingStateSchema =
   typeof import("../../schemas/http/center-agent")["centerAgentOperatingStateSchema"];
 type CenterAgentPostSlackChannelMessageBodySchema =
   typeof import("../../schemas/http/center-agent")["centerAgentPostSlackChannelMessageBodySchema"];
+type CenterAgentPostSlackThreadMessageBodySchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentPostSlackThreadMessageBodySchema"];
 type CenterAgentPostSlackChannelMessageResponseSchema =
   typeof import("../../schemas/http/center-agent")["centerAgentPostSlackChannelMessageResponseSchema"];
 type CenterAgentSearchSlackMessagesBodySchema =
@@ -278,6 +280,8 @@ export type CenterAgentOperatingState =
   z.infer<CenterAgentOperatingStateSchema>;
 export type CenterAgentPostSlackChannelMessageBody =
   z.infer<CenterAgentPostSlackChannelMessageBodySchema>;
+export type CenterAgentPostSlackThreadMessageBody =
+  z.infer<CenterAgentPostSlackThreadMessageBodySchema>;
 export type CenterAgentPostSlackChannelMessageResponse =
   z.infer<CenterAgentPostSlackChannelMessageResponseSchema>;
 export type CenterAgentSearchSlackMessagesBody =

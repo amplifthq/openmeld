@@ -38,6 +38,7 @@ import {
   rpcCenterAgentListComputers,
   rpcCenterAgentListSlackChannels,
   rpcCenterAgentPostSlackChannelMessage,
+  rpcCenterAgentPostSlackThreadMessage,
   rpcCenterAgentPostSpaceMessage,
   rpcCenterAgentReadDispatchHistory,
   rpcCenterAgentReadMemberOpenMeldServiceStatus,
@@ -3531,6 +3532,17 @@ describe("organization Core RPC", () => {
         }),
       ],
       members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      nativeDeliveries: [
+        nativeDeliveryLedgerRow({
+          deliveryId: "delivery-interactive-proposal",
+          submissionId: "remote_agent_submission_proposal",
+        }),
+        nativeDeliveryLedgerRow({
+          deliveryId: "delivery-routine-proposal",
+          routineRunId: "routine-run-proposal",
+          submissionId: "remote_agent_submission_routine_proposal",
+        }),
+      ],
       slackWorkspaceBindings: [
         {
           createdAtMs: TEST_NOW_MS,
@@ -3589,13 +3601,13 @@ describe("organization Core RPC", () => {
     };
 
     await expect(
-      rpcCenterAgentPostSlackChannelMessage(env, {
+      rpcCenterAgentPostSlackThreadMessage(env, {
         ...request,
         threadTs: "1786979718.343639",
       })
     ).resolves.toMatchObject({ messageTs: "1787091616.1" });
     await expect(
-      rpcCenterAgentPostSlackChannelMessage(env, {
+      rpcCenterAgentPostSlackThreadMessage(env, {
         ...request,
         threadTs: "1786979718.343639",
       })
@@ -3628,6 +3640,30 @@ describe("organization Core RPC", () => {
         resourceType: "slack_channel",
       }),
     ]);
+
+    await expect(
+      rpcCenterAgentPostSlackThreadMessage(env, {
+        ...request,
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          agentControllerConversationId:
+            "remote_agent_submission_routine_proposal",
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent" as const,
+          userId: "user-a",
+        }),
+        publicationSource: {
+          executionId: "remote_agent_submission_routine_proposal",
+          kind: "remote_agent_execution",
+        },
+        threadTs: "1786979718.343639",
+      })
+    ).rejects.toMatchObject({
+      code: "center_agent.publication_source_invalid",
+      status: 409,
+    });
+    expect(postedBodies).toHaveLength(2);
   });
 
   it("allows an exact Slack publication retry when the audit write fails before sending", async () => {
@@ -9214,6 +9250,91 @@ type AgentProfileBindingTestRow = {
   openMeldServiceRuntimeId: string;
 };
 
+function nativeDeliveryLedgerRow(input: {
+  deliveryId: string;
+  routineRunId?: string | null;
+  submissionId: string;
+}) {
+  return {
+    accepted_at_ms: TEST_NOW_MS,
+    accepted_probe_next_due_at_ms: null,
+    anonymous_member_speaker_json: null,
+    attempt_id: null,
+    binding_id: "binding-center-agent",
+    callback_received_at_ms: null,
+    completed_at_ms: null,
+    controller_binding_updated_at_ms: null,
+    controller_stored_agent_controller_ref: null,
+    controller_stored_agent_controller_ref_status: null,
+    conversation_kind: "space",
+    created_at_ms: TEST_NOW_MS,
+    deadline_probe_enqueued_at_ms: null,
+    delivery_id: input.deliveryId,
+    dispatch_id: `dispatch-${input.deliveryId}`,
+    execution_evidence_at_ms: TEST_NOW_MS,
+    execution_evidence_sequence: 1,
+    execution_recovery_submit_request_json: null,
+    failure_code: null,
+    failure_detail: null,
+    final_publication_ambiguity_deadline_at_ms: null,
+    final_publication_attempt_count: 0,
+    final_publication_claim_expires_at_ms: null,
+    final_publication_claim_id: null,
+    final_publication_claimed_at_ms: null,
+    final_publication_next_attempt_at_ms: null,
+    final_publication_payload_json: null,
+    final_publication_provider_progress_sequence: null,
+    final_publication_state: null,
+    idempotency_key: `idempotency-${input.deliveryId}`,
+    message_channel_connection_id: null,
+    message_channel_locator_json: null,
+    message_channel_provider: null,
+    on_behalf_of_display_name: "Ava",
+    on_behalf_of_profile_id: HUMAN_PROFILE_ID,
+    on_behalf_of_user_id: "user-a",
+    organization_id: "org-a",
+    profile_id: AGENT_PROFILE_ID,
+    provider_progress_card_id: null,
+    provider_progress_claim_expires_at_ms: null,
+    provider_progress_claim_id: null,
+    provider_progress_claimed_at_ms: null,
+    provider_progress_failure_code: null,
+    provider_progress_message_id: null,
+    provider_progress_pending_card_id: null,
+    provider_progress_pending_sequence: null,
+    provider_progress_pending_source_offset: null,
+    provider_progress_pending_text_hash: null,
+    provider_progress_publication_idempotency_key: null,
+    provider_progress_rollover_index: 0,
+    provider_progress_sequence: null,
+    provider_progress_source_offset: 0,
+    provider_progress_state: null,
+    provider_publication_idempotency_key: null,
+    provider_publication_result_id: null,
+    published_signal_id: null,
+    retired_deadline_failure_code: null,
+    retired_deadline_failure_published_signal_id: null,
+    retired_deadline_failure_reconciled_at_ms: null,
+    routine_name_snapshot: null,
+    routine_run_id: input.routineRunId ?? null,
+    slack_channel_id: null,
+    slack_team_id: null,
+    slack_thread_ts: null,
+    slack_working_status_turn_id: null,
+    source_client_message_id: null,
+    space_id: JOINED_PUBLIC_SPACE_ID,
+    status: "accepted" as const,
+    submission_id: input.submissionId,
+    submitted_at_ms: TEST_NOW_MS,
+    thread_context_json: null,
+    trigger_message_id: `signal-${input.deliveryId}`,
+    trigger_text: "Test Center Agent request",
+    updated_at_ms: TEST_NOW_MS,
+    worker_request_id: null,
+    worker_submit_request_json: null,
+  };
+}
+
 function createOrganizationRpcDb(input: {
   agentProfiles: Array<{
     createdAt?: number;
@@ -9242,6 +9363,7 @@ function createOrganizationRpcDb(input: {
   centerAgentAuditJournal?: CenterAgentAuditJournalTestRow[];
   dispatchLedgerEntries?: DispatchLedgerTestEntry[];
   members: ReturnType<typeof memberRow>[];
+  nativeDeliveries?: ReturnType<typeof nativeDeliveryLedgerRow>[];
   centerAgentMemoryPolicies?: Array<{
     organizationId: string;
     organizationMemoryOptIn: boolean;
@@ -9395,6 +9517,7 @@ function createOrganizationRpcDb(input: {
               centerAgentPublicationRows,
               informationProtectionPolicyRows,
               members: input.members,
+              nativeDeliveries: input.nativeDeliveries,
               normalizedSql,
               organizations: input.organizations,
               personalOrganizations: input.personalOrganizations,
@@ -9892,6 +10015,9 @@ function resolveFirstRow(input: {
     }
   >;
   members: Parameters<typeof createOrganizationRpcDb>[0]["members"];
+  nativeDeliveries?: Parameters<
+    typeof createOrganizationRpcDb
+  >[0]["nativeDeliveries"];
   normalizedSql: string;
   organizations?: Parameters<
     typeof createOrganizationRpcDb
@@ -9906,6 +10032,21 @@ function resolveFirstRow(input: {
   }>;
   spaces?: ReturnType<typeof spaceRow>[];
 }) {
+  if (
+    input.normalizedSql.includes(
+      "from openmeldremoteagent_native_delivery_ledger"
+    )
+  ) {
+    const lookup = String(input.args[0] ?? "");
+    return (
+      input.nativeDeliveries?.find((delivery) =>
+        input.normalizedSql.includes("where delivery_id = ?")
+          ? delivery.delivery_id === lookup
+          : delivery.submission_id === lookup
+      ) ?? null
+    );
+  }
+
   if (
     input.normalizedSql.includes("from center_agent_publication_operations")
   ) {

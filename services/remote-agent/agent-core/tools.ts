@@ -545,7 +545,7 @@ const slackChannelNameSchema = pipe(
 const slackMessageTimestampSchema = pipe(
   string(),
   trim(),
-  regex(/^\d+\.\d+$/u),
+  regex(/^\d+\.\d+$/),
   maxLength(32)
 );
 const slackUserIdSchema = pipe(string(), trim(), minLength(1), maxLength(32));
@@ -3187,9 +3187,14 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
             "Slack channel publication requires a verified human member speaker."
           );
         }
+        const rpcName = request.threadTs
+          ? "centerAgentPostSlackThreadMessage"
+          : "centerAgentPostSlackChannelMessage";
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentPostSlackChannelMessage,
-          "centerAgentPostSlackChannelMessage"
+          request.threadTs
+            ? input.coreWorker.centerAgentPostSlackThreadMessage
+            : input.coreWorker.centerAgentPostSlackChannelMessage,
+          rpcName
         );
         return parseCoreToolResponse(
           centerAgentPostSlackChannelMessageResponseSchema,
@@ -3205,7 +3210,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
             text,
             ...(request.threadTs ? { threadTs: request.threadTs } : {}),
           }),
-          "centerAgentPostSlackChannelMessage",
+          rpcName,
           "Slack channel message response"
         );
       },

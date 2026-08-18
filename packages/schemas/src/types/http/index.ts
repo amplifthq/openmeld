@@ -198,6 +198,7 @@ export type {
   CenterAgentOperatingState,
   CenterAgentPostSlackChannelMessageBody,
   CenterAgentPostSlackChannelMessageResponse,
+  CenterAgentPostSlackThreadMessageBody,
   CenterAgentPostSpaceMessageBody,
   CenterAgentPostSpaceMessageResponse,
   CenterAgentProductOperationStep,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   centerAgentPostSlackChannelMessageBodySchema,
   centerAgentPostSlackChannelMessageResponseSchema,
+  centerAgentPostSlackThreadMessageBodySchema,
   listCenterAgentAuditJournalQuerySchema,
 } from "../../src";
 
@@ -67,7 +68,7 @@ describe("Center Agent Slack channel message contracts", () => {
     ).toBe(false);
   });
 
-  it("accepts an exact Slack thread only for an interactive execution source", () => {
+  it("keeps exact Slack thread publication on a receiver-first contract", () => {
     const request = {
       channelName: "ok8-okok",
       publicationSource: {
@@ -79,17 +80,17 @@ describe("Center Agent Slack channel message contracts", () => {
       threadTs: "1786979718.343639",
     };
 
-    expect(centerAgentPostSlackChannelMessageBodySchema.parse(request)).toEqual(
+    expect(centerAgentPostSlackThreadMessageBodySchema.parse(request)).toEqual(
       request
     );
     expect(
-      centerAgentPostSlackChannelMessageBodySchema.safeParse({
+      centerAgentPostSlackThreadMessageBodySchema.safeParse({
         ...request,
         threadTs: "not-a-slack-timestamp",
       }).success
     ).toBe(false);
     expect(
-      centerAgentPostSlackChannelMessageBodySchema.safeParse({
+      centerAgentPostSlackThreadMessageBodySchema.safeParse({
         ...request,
         publicationSource: {
           documentId: "document_release_notes",
@@ -98,13 +99,16 @@ describe("Center Agent Slack channel message contracts", () => {
       }).success
     ).toBe(false);
     expect(
-      centerAgentPostSlackChannelMessageBodySchema.safeParse({
+      centerAgentPostSlackThreadMessageBodySchema.safeParse({
         ...request,
         publicationSource: {
           kind: "routine_run",
           runId: "routine_run_daily_journal",
         },
       }).success
+    ).toBe(false);
+    expect(
+      centerAgentPostSlackChannelMessageBodySchema.safeParse(request).success
     ).toBe(false);
   });
 

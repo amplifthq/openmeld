@@ -917,8 +917,14 @@ describe("remote agent OpenMeld tool catalog", () => {
     const centerAgentPostSlackChannelMessage = vi.fn(async () =>
       slackChannelMessageResponse()
     );
+    const centerAgentPostSlackThreadMessage = vi.fn(async () =>
+      slackChannelMessageResponse()
+    );
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentPostSlackChannelMessage },
+      coreWorker: {
+        centerAgentPostSlackChannelMessage,
+        centerAgentPostSlackThreadMessage,
+      },
       storage: await createStorageWithPendingContext(request),
     });
 
@@ -931,7 +937,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       })
     ).resolves.toEqual(slackChannelMessageResponse());
 
-    expect(centerAgentPostSlackChannelMessage).toHaveBeenCalledWith({
+    expect(centerAgentPostSlackThreadMessage).toHaveBeenCalledWith({
       channelName: "ok8-okok",
       context: expectedHostedCenterAgentContext(
         request,
@@ -948,6 +954,30 @@ describe("remote agent OpenMeld tool catalog", () => {
       text: "Here is the proposed next step.",
       threadTs: "1786979718.343639",
     });
+    expect(centerAgentPostSlackChannelMessage).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when Core does not support exact Slack thread publication", async () => {
+    const request = createSubmitTurnRequest();
+    const centerAgentPostSlackChannelMessage = vi.fn(async () =>
+      slackChannelMessageResponse()
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentPostSlackChannelMessage },
+      storage: await createStorageWithPendingContext(request),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_post_slack_channel_message", {
+        channelName: "ok8-okok",
+        publicationSource: { kind: "current_turn" },
+        text: "Here is the proposed next step.",
+        threadTs: "1786979718.343639",
+      })
+    ).rejects.toThrow(
+      "OpenMeld Core RPC centerAgentPostSlackThreadMessage is unavailable."
+    );
+    expect(centerAgentPostSlackChannelMessage).not.toHaveBeenCalled();
   });
 
   it("rejects Slack thread targets for document and Routine publications", async () => {

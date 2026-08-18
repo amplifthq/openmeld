@@ -229,7 +229,9 @@ provider destination, and a Core-verified source identity. For Slack, the
 destination id is the resolved channel id for a top-level publication or the
 resolved channel id plus exact root message timestamp for a thread publication;
 both retain destination kind `slack_channel`. A current
-interactive turn becomes its trusted Remote Agent execution id, a Routine turn
+interactive turn becomes its trusted Remote Agent execution id only after Core
+revalidates the active native-delivery provenance and excludes Routine-owned
+deliveries. A Routine turn
 becomes the Run id verified against native delivery, and an Organization
 document becomes its id plus a revision digest of the approved title, kind, and
 content. The model can select the current turn or an exact document, but it

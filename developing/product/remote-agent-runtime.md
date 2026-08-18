@@ -188,6 +188,9 @@ the connected provider API.
    independently before provider I/O. The model selects either the current turn,
    the authorized Routine Run, or an exact approved Organization document as the
    source.
+   Core additionally proves an exact thread write came from an active native
+   delivery whose durable provenance is interactive rather than a Routine; the
+   model-visible source label is not sufficient authorization.
    Remote Agent and Core replace that selection with system-owned execution,
    Run, or document-revision identity before claiming the provider write. An
    exact retry returns the first result without another Slack call; ambiguity
