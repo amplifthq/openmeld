@@ -3,9 +3,6 @@
 import { Popover } from "@base-ui/react/popover";
 import { buildProfileDetailsSnapshotFromAuthProfile } from "@openmeld/agent-profile";
 import {
-	type AgentControllerCollaborationModeOption,
-	type AgentControllerPermissionModeOption,
-	type AgentProfileEditCapabilities,
 	type AgentWakeAvailabilityCategory,
 	getAgentControllerPermissionModeDisplayMetadata,
 	parseAgentControllerRef,
@@ -79,6 +76,22 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
+import {
+	invalidateAgentProfileListCaches,
+	optimisticallyRemoveAgentProfileFromListCaches,
+	restoreAgentProfileListCaches,
+} from "#/components/agents/agent-profile-delete-cache";
+import {
+	type AgentProfileControllerChangeOption,
+	type AgentProfileControllerCollaborationModeEditState,
+	type AgentProfileControllerPermissionModeEditState,
+	type AgentProfileEditState,
+	type AgentProfileModelSelectionEditState,
+	type AgentProfileOpenCodePermissionEditState,
+	resolveAgentProfileControllerChangeOptions,
+	resolveAgentProfileEditState,
+	resolveLocalAgentEntryControllerRef,
+} from "#/components/agents/agent-profile-edit-state";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import {
 	DirectoryCardGrid,
@@ -111,10 +124,7 @@ import {
 	authorizeAgentProfileBindingForCurrentOrganization,
 	revokeAgentProfileBindingForCurrentOrganization,
 } from "#/lib/profiles/organization-binding-authorizations";
-import {
-	bindableLocalAgentEntriesFromTarget,
-	resolveProfileBindingCatalogExecutionTarget,
-} from "#/lib/profiles/profile-binding-target";
+import { resolveProfileBindingCatalogExecutionTarget } from "#/lib/profiles/profile-binding-target";
 import { formatProfileDate } from "#/lib/profiles/profile-date-format";
 import { isAgentExecutionSelfHealingReadiness } from "#/lib/spaces/agent-route-status";
 import {
@@ -200,45 +210,12 @@ type PrimaryBindingDisplayState = {
 	>;
 	storageScope: string;
 };
-type AgentProfileControllerPermissionModeEditState = {
-	agentControllerRef: string;
-	editable: boolean;
-	options: AgentControllerPermissionModeOption[];
-	value: AgentControllerPermissionMode | null;
-};
-type AgentProfileControllerCollaborationModeEditState = {
-	agentControllerRef: string;
-	editable: boolean;
-	options: AgentControllerCollaborationModeOption[];
-	value: AgentControllerCollaborationMode | null;
-};
-type AgentProfileModelSelectionEditState = {
-	agentControllerId: string;
-	agentControllerRef: string;
-	modelId: string;
-	reasoningLevel: string;
-};
-type AgentProfileOpenCodePermissionEditState = {
-	agentControllerRef: string;
-	value: AgentProfileBindingOpenCodePermission | null;
-};
-export type AgentProfileEditState = {
-	agentControllerId: string;
-	agentControllerRef: string;
-	capabilities: AgentProfileEditCapabilities;
-	controllerCollaborationMode: AgentProfileControllerCollaborationModeEditState | null;
-	controllerPermissionMode: AgentProfileControllerPermissionModeEditState | null;
-	modelSelection: AgentProfileModelSelectionEditState | null;
-	openCodePermission: AgentProfileOpenCodePermissionEditState | null;
-};
+
 export type {
 	AgentProfileControllerChangeUpdate,
 	AgentProfileModelSelectionUpdate,
 } from "./agent-profile-edit-actions";
-export type AgentProfileControllerChangeOption = {
-	agentControllerRef: string;
-	label: string;
-};
+
 type AgentProfileEditDraft = {
 	confirmed: boolean;
 	key: string;
@@ -297,14 +274,15 @@ function pruneInactiveProfileIds(
 	activeProfileIds: readonly string[],
 	deleteProfileId: (profileId: string) => void
 ) {
+	const activeProfileIdSet = new Set(activeProfileIds);
 	for (const profileId of [...profileIds]) {
-		if (!activeProfileIds.includes(profileId)) {
+		if (!activeProfileIdSet.has(profileId)) {
 			deleteProfileId(profileId);
 		}
 	}
 }
 
-export function AgentProfilesCard(input: {
+type AgentProfilesCardProps = {
 	availabilityFilter: AgentProfileAvailabilityFilter;
 	agentExecutionReadinessByProfileId?: ReadonlyMap<
 		string,
@@ -328,7 +306,14 @@ export function AgentProfilesCard(input: {
 	serviceUpdatePath: string;
 	showOwnerGroups?: boolean;
 	setupPath: string;
-}) {
+};
+
+export function AgentProfilesCard(input: AgentProfilesCardProps) {
+	const controller = useAgentProfilesCardController(input);
+	return <AgentProfilesCardView controller={controller} input={input} />;
+}
+
+function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 	const navigate = useNavigate();
 	const { currentOrganization } = useAppOrganization();
 	const agentProfiles = input.agentProfiles ?? input.recovery.agentProfiles;
@@ -387,6 +372,9 @@ export function AgentProfilesCard(input: {
 		}
 		return next;
 	}, [currentUserOrganizationWakeAccessQuery.data]);
+	const [pendingRemoveProfileId, setPendingRemoveProfileId] = useState<
+		string | null
+	>(null);
 	const sortedAgentProfiles = useMemo(
 		() =>
 			sortAgentProfilesForDisplay({
@@ -396,23 +384,28 @@ export function AgentProfilesCard(input: {
 		[agentExecutionReadinessByProfileId, agentProfiles]
 	);
 	const visibleAgentProfiles = useMemo(() => {
-		if (input.availabilityFilter === "all") {
-			return sortedAgentProfiles;
-		}
-		return sortedAgentProfiles.filter(
-			(profile) =>
+		return sortedAgentProfiles.filter((profile) => {
+			if (profile.openMeldProfileId === pendingRemoveProfileId) {
+				return false;
+			}
+			if (input.availabilityFilter === "all") {
+				return true;
+			}
+			return (
 				resolveAgentProfileAvailabilityFilterState({
 					errorByProfileId: agentExecutionReadinessErrorByProfileId,
 					pendingProfileIds: agentExecutionReadinessPendingProfileIds,
 					profileId: profile.openMeldProfileId,
 					readinessByProfileId: agentExecutionReadinessByProfileId,
 				}) === input.availabilityFilter
-		);
+			);
+		});
 	}, [
 		agentExecutionReadinessByProfileId,
 		agentExecutionReadinessErrorByProfileId,
 		agentExecutionReadinessPendingProfileIds,
 		input.availabilityFilter,
+		pendingRemoveProfileId,
 		sortedAgentProfiles,
 	]);
 	const visibleAgentProfileGroups = useMemo(
@@ -427,9 +420,6 @@ export function AgentProfilesCard(input: {
 		ReadonlySet<string>
 	>(new Set());
 	const [pendingCheckProfileId, setPendingCheckProfileId] = useState<
-		string | null
-	>(null);
-	const [pendingRemoveProfileId, setPendingRemoveProfileId] = useState<
 		string | null
 	>(null);
 	const [
@@ -533,9 +523,8 @@ export function AgentProfilesCard(input: {
 	const consumedFocusProfileIdRef = useRef<string | null>(null);
 	const profileRowElementsRef = useRef(new Map<string, HTMLElement>());
 	const readinessByProfileIdRef = useRef(agentExecutionReadinessByProfileId);
-	const [highlightedProfileId, setHighlightedProfileId] = useState<
-		string | null
-	>(input.focusProfileId);
+	const highlightedProfileId =
+		input.focusProfileId ?? consumedFocusProfileIdRef.current;
 	const [primaryBindingDisplayState, setPrimaryBindingDisplayState] =
 		useState<PrimaryBindingDisplayState>(() => ({
 			bindingByProfileId: new Map(),
@@ -620,7 +609,6 @@ export function AgentProfilesCard(input: {
 			return;
 		}
 		consumedFocusProfileIdRef.current = input.focusProfileId;
-		setHighlightedProfileId(input.focusProfileId);
 		focusedRow.scrollIntoView({
 			behavior: "smooth",
 			block: "center",
@@ -1238,34 +1226,53 @@ export function AgentProfilesCard(input: {
 	};
 	const handleRemoveProfile = async (profile: AuthProfileView) => {
 		setPendingRemoveProfileId(profile.openMeldProfileId);
+		let cacheSnapshot:
+			| Awaited<
+					ReturnType<typeof optimisticallyRemoveAgentProfileFromListCaches>
+			  >
+			| undefined;
 		try {
+			cacheSnapshot = await optimisticallyRemoveAgentProfileFromListCaches({
+				agentProfileId: profile.openMeldProfileId,
+				queryClient: input.queryClient,
+				storageScope: input.recovery.storageScope,
+			});
 			await deleteStartAgentProfile({ data: profile.openMeldProfileId });
-			await input.recovery.refreshAll();
 			toast.success(`${profile.profileName} was removed from Local Agents.`);
 		} catch (error) {
 			if (isAgentProfileAlreadyRemovedError(error)) {
-				try {
-					await input.recovery.refreshAll();
-					toast.success(
-						`${profile.profileName} was already removed from Local Agents.`
-					);
-				} catch (refreshError) {
-					console.error(
-						"Failed to refresh Local Agents after the Agent Profile was already removed.",
-						refreshError
-					);
-					toast.warning(
-						`${profile.profileName} was already removed. Refresh this page if Local Agents still shows it.`
-					);
-				}
-			} else {
-				toast.error(
-					formatMutationError(
-						error,
-						`OpenMeld could not remove ${profile.profileName} right now.`
-					)
+				toast.success(
+					`${profile.profileName} was already removed from Local Agents.`
 				);
+			} else {
+				restoreAgentProfileListCaches(input.queryClient, cacheSnapshot);
+				toast.error(
+					`OpenMeld could not remove ${profile.profileName}. The Agent was restored to Local Agents.`
+				);
+				setPendingRemoveProfileId(null);
+				return;
 			}
+		}
+		try {
+			await Promise.all([
+				invalidateAgentProfileListCaches({
+					queryClient: input.queryClient,
+					storageScope: input.recovery.storageScope,
+				}),
+				refreshWebAgentReadinessSharedCaches({
+					agentProfileIds: [profile.openMeldProfileId],
+					queryClient: input.queryClient,
+					storageScope: input.recovery.storageScope,
+				}),
+			]);
+		} catch (refreshError) {
+			console.error(
+				"Failed to refresh Agent Profile caches after removal.",
+				refreshError
+			);
+			toast.warning(
+				`${profile.profileName} was removed, but OpenMeld could not refresh every related status. The lists will check again automatically.`
+			);
 		}
 		setPendingRemoveProfileId(null);
 	};
@@ -1330,6 +1337,77 @@ export function AgentProfilesCard(input: {
 		}
 	};
 
+	return {
+		agentExecutionReadinessByProfileId,
+		agentExecutionReadinessErrorByProfileId,
+		agentExecutionReadinessPendingProfileIds,
+		agentProfiles,
+		agentProfilesQueryState,
+		autoRefreshExhaustedProfileIds,
+		bulkReconnectCandidates,
+		canManageProfile,
+		controllerChangeOptions,
+		currentLocalRuntimeCanReply,
+		currentOrganization,
+		duplicateConversationProfileNamesByProfileId,
+		handleBulkReconnectProfiles,
+		handleChangeProfileController,
+		handleCheckProfileAgain,
+		handleConnectProfileToComputer,
+		handleDisableProfilePrimaryBinding,
+		handleOpenDirectMessage,
+		handleRemoveProfile,
+		handleRenameProfile,
+		handleToggleOrganizationWakeAccess,
+		handleUpdateProfileControllerCollaborationMode,
+		handleUpdateProfileControllerPermissionMode,
+		handleUpdateProfileModelSelection,
+		handleUpdateProfileOpenCodePermission,
+		highlightedProfileId,
+		isPersonalOrganizationContext,
+		localAgentCatalogEntries,
+		modelCatalog,
+		organizationMembershipsByProfileId,
+		organizationWakeAccessByProfileId,
+		pendingCheckProfileId,
+		pendingControllerChangeProfileId,
+		pendingControllerCollaborationModeProfileId,
+		pendingControllerPermissionModeProfileId,
+		pendingDirectMessageProfileId,
+		pendingDisablePrimaryBindingProfileId,
+		pendingModelSelectionProfileId,
+		pendingOpenCodePermissionProfileId,
+		pendingOrganizationWakeAccessProfileId,
+		pendingRemoveProfileId,
+		pendingRenameProfileId,
+		pendingRepairProfileIds,
+		primaryBindingByProfileId,
+		profileRowElementsRef,
+		visibleAgentProfileGroups,
+		visibleAgentProfiles,
+		wakeAvailabilityDisplayOverrideByProfileId,
+	};
+}
+
+type AgentProfilesCardController = ReturnType<
+	typeof useAgentProfilesCardController
+>;
+
+function AgentProfilesCardView(input: {
+	controller: AgentProfilesCardController;
+	input: AgentProfilesCardProps;
+}) {
+	const {
+		agentProfiles,
+		agentProfilesQueryState,
+		bulkReconnectCandidates,
+		handleBulkReconnectProfiles,
+		pendingRepairProfileIds,
+		visibleAgentProfileGroups,
+		visibleAgentProfiles,
+	} = input.controller;
+	const cardInput = input.input;
+
 	if (agentProfilesQueryState.isPending) {
 		return <AgentProfilesLoadingRows />;
 	}
@@ -1341,197 +1419,24 @@ export function AgentProfilesCard(input: {
 	}
 
 	if (agentProfiles.length === 0) {
-		return <EmptyAgentProfilesState onCreateProfile={input.onCreateProfile} />;
+		return (
+			<EmptyAgentProfilesState onCreateProfile={cardInput.onCreateProfile} />
+		);
 	}
 
 	if (visibleAgentProfiles.length === 0) {
 		return <AgentProfilesInlineState message="No Agents match this filter." />;
 	}
 
-	const renderAgentProfileRow = (profile: AuthProfileView) => {
-		const canManage = canManageProfile(profile);
-		const readiness =
-			agentExecutionReadinessByProfileId.get(profile.openMeldProfileId) ?? null;
-		const localAgentEntry = readiness
-			? resolveAgentProfileLocalAgentEntry({
-					entries: localAgentCatalogEntries,
-					readiness,
-				})
-			: null;
-		const organizationWakeAccessRecord =
-			organizationWakeAccessByProfileId.get(profile.openMeldProfileId) ?? null;
-		const organizationWakeAccess =
-			!isPersonalOrganizationContext &&
-			canManage &&
-			organizationWakeAccessRecord?.bindingId
-				? {
-						authorized: organizationWakeAccessRecord.authorized,
-						isPending:
-							pendingOrganizationWakeAccessProfileId ===
-							profile.openMeldProfileId,
-						onToggle: (authorized: boolean) =>
-							handleToggleOrganizationWakeAccess(profile, authorized),
-					}
-				: null;
-		const organizationMemberships = isPersonalOrganizationContext
-			? (organizationMembershipsByProfileId.get(profile.openMeldProfileId) ??
-				[])
-			: [];
-		return (
-			<AgentProfileExecutionReadinessRow
-				actorProfileId={input.recovery.selectedHumanProfileId}
-				autoRefreshExhausted={autoRefreshExhaustedProfileIds.has(
-					profile.openMeldProfileId
-				)}
-				canManage={canManage}
-				checkAgainIsPending={
-					pendingCheckProfileId === profile.openMeldProfileId
-				}
-				controllerChangeIsPending={
-					pendingControllerChangeProfileId === profile.openMeldProfileId
-				}
-				controllerChangeOptions={controllerChangeOptions}
-				controllerCollaborationModeIsPending={
-					pendingControllerCollaborationModeProfileId ===
-					profile.openMeldProfileId
-				}
-				controllerPermissionModeIsPending={
-					pendingControllerPermissionModeProfileId === profile.openMeldProfileId
-				}
-				currentLocalRuntimeCanReply={currentLocalRuntimeCanReply}
-				directMessageIsPending={
-					pendingDirectMessageProfileId === profile.openMeldProfileId
-				}
-				disablePrimaryBindingIsPending={
-					pendingDisablePrimaryBindingProfileId === profile.openMeldProfileId
-				}
-				duplicateConversationProfileNames={
-					duplicateConversationProfileNamesByProfileId.get(
-						profile.openMeldProfileId
-					) ?? []
-				}
-				errorMessage={
-					agentExecutionReadinessErrorByProfileId.get(
-						profile.openMeldProfileId
-					) ?? null
-				}
-				isFocusedProfile={highlightedProfileId === profile.openMeldProfileId}
-				isPending={agentExecutionReadinessPendingProfileIds.has(
-					profile.openMeldProfileId
-				)}
-				key={profile.openMeldProfileId}
-				localAgentCatalogEntries={localAgentCatalogEntries}
-				modelCatalog={modelCatalog}
-				modelSelectionIsPending={
-					pendingModelSelectionProfileId === profile.openMeldProfileId
-				}
-				onCheckAgain={async () => {
-					await handleCheckProfileAgain(profile);
-				}}
-				onControllerChange={async (update) => {
-					await handleChangeProfileController(profile, update);
-				}}
-				onControllerCollaborationModeUpdate={async (
-					agentControllerCollaborationMode
-				) => {
-					await handleUpdateProfileControllerCollaborationMode(
-						profile,
-						agentControllerCollaborationMode
-					);
-				}}
-				onControllerPermissionModeUpdate={async (
-					agentControllerPermissionMode
-				) => {
-					await handleUpdateProfileControllerPermissionMode(
-						profile,
-						agentControllerPermissionMode
-					);
-				}}
-				onDisablePrimaryBinding={async () => {
-					await handleDisableProfilePrimaryBinding(profile);
-				}}
-				onModelSelectionUpdate={async (modelSelection) => {
-					await handleUpdateProfileModelSelection(profile, modelSelection);
-				}}
-				onOpenCodePermissionUpdate={async (openCodePermission) => {
-					await handleUpdateProfileOpenCodePermission(
-						profile,
-						openCodePermission
-					);
-				}}
-				onOpenDirectMessage={async () => {
-					await handleOpenDirectMessage(profile);
-				}}
-				onProfileUpdated={(updatedProfile) => {
-					updateAgentProfileListCaches({
-						profile: updatedProfile,
-						queryClient: input.queryClient,
-						storageScope: input.recovery.storageScope,
-					});
-				}}
-				onRemoveProfile={async () => {
-					await handleRemoveProfile(profile);
-				}}
-				onRenameProfile={async (profileName) => {
-					await handleRenameProfile(profile, profileName);
-				}}
-				onRepairAction={async (action) =>
-					await handleConnectProfileToComputer(profile, action)
-				}
-				openCodePermissionIsPending={
-					pendingOpenCodePermissionProfileId === profile.openMeldProfileId
-				}
-				organizationId={currentOrganization.id}
-				organizationMemberships={organizationMemberships}
-				organizationWakeAccess={organizationWakeAccess}
-				primaryBinding={
-					primaryBindingByProfileId.get(profile.openMeldProfileId) ?? null
-				}
-				profile={profile}
-				readiness={readiness}
-				removeIsPending={pendingRemoveProfileId === profile.openMeldProfileId}
-				renameIsPending={pendingRenameProfileId === profile.openMeldProfileId}
-				repairActions={
-					canManage
-						? resolveAgentProfileRepairActions({
-								isCurrentComputer: input.isCurrentComputer,
-								localAgentCatalogEntries,
-								readiness,
-							})
-						: []
-				}
-				repairIsPending={pendingRepairProfileIds.has(profile.openMeldProfileId)}
-				rowRef={(node) => {
-					if (node) {
-						profileRowElementsRef.current.set(profile.openMeldProfileId, node);
-					} else {
-						profileRowElementsRef.current.delete(profile.openMeldProfileId);
-					}
-				}}
-				setupAction={
-					canManage
-						? resolveAgentProfileSetupAction({
-								autoRefreshExhausted: autoRefreshExhaustedProfileIds.has(
-									profile.openMeldProfileId
-								),
-								currentLocalRuntimeCanReply,
-								localAgentDisplayName: localAgentEntry?.displayName ?? null,
-								readiness,
-								serviceUpdatePath: input.serviceUpdatePath,
-								setupPath: input.setupPath,
-							})
-						: null
-				}
-				wakeAvailabilityDisplayOverride={
-					wakeAvailabilityDisplayOverrideByProfileId.get(
-						profile.openMeldProfileId
-					) ?? null
-				}
-			/>
-		);
-	};
+	const renderAgentProfileRow = (profile: AuthProfileView) => (
+		<AgentProfileDirectoryRow
+			cardInput={cardInput}
+			controller={input.controller}
+			profile={profile}
+		/>
+	);
 
-	if (!input.showOwnerGroups) {
+	if (!cardInput.showOwnerGroups) {
 		return (
 			<>
 				{bulkReconnectCandidates.length > 1 ? (
@@ -1594,6 +1499,216 @@ export function AgentProfilesCard(input: {
 	);
 }
 
+function AgentProfileDirectoryRow(input: {
+	cardInput: AgentProfilesCardProps;
+	controller: AgentProfilesCardController;
+	profile: AuthProfileView;
+}) {
+	const { controller, profile } = input;
+	const canManage = controller.canManageProfile(profile);
+	const readiness =
+		controller.agentExecutionReadinessByProfileId.get(
+			profile.openMeldProfileId
+		) ?? null;
+	const localAgentEntry = readiness
+		? resolveAgentProfileLocalAgentEntry({
+				entries: controller.localAgentCatalogEntries,
+				readiness,
+			})
+		: null;
+	const organizationWakeAccessRecord =
+		controller.organizationWakeAccessByProfileId.get(
+			profile.openMeldProfileId
+		) ?? null;
+	const organizationWakeAccess =
+		!controller.isPersonalOrganizationContext &&
+		canManage &&
+		organizationWakeAccessRecord?.bindingId
+			? {
+					authorized: organizationWakeAccessRecord.authorized,
+					isPending:
+						controller.pendingOrganizationWakeAccessProfileId ===
+						profile.openMeldProfileId,
+					onToggle: (authorized: boolean) =>
+						controller.handleToggleOrganizationWakeAccess(profile, authorized),
+				}
+			: null;
+	const organizationMemberships = controller.isPersonalOrganizationContext
+		? (controller.organizationMembershipsByProfileId.get(
+				profile.openMeldProfileId
+			) ?? [])
+		: [];
+
+	return (
+		<AgentProfileExecutionReadinessRow
+			actorProfileId={input.cardInput.recovery.selectedHumanProfileId}
+			controllerChangeOptions={controller.controllerChangeOptions}
+			duplicateConversationProfileNames={
+				controller.duplicateConversationProfileNamesByProfileId.get(
+					profile.openMeldProfileId
+				) ?? []
+			}
+			errorMessage={
+				controller.agentExecutionReadinessErrorByProfileId.get(
+					profile.openMeldProfileId
+				) ?? null
+			}
+			localAgentCatalogEntries={controller.localAgentCatalogEntries}
+			modelCatalog={controller.modelCatalog}
+			onCheckAgain={async () => {
+				await controller.handleCheckProfileAgain(profile);
+			}}
+			onControllerChange={async (update) => {
+				await controller.handleChangeProfileController(profile, update);
+			}}
+			onControllerCollaborationModeUpdate={async (
+				agentControllerCollaborationMode
+			) => {
+				await controller.handleUpdateProfileControllerCollaborationMode(
+					profile,
+					agentControllerCollaborationMode
+				);
+			}}
+			onControllerPermissionModeUpdate={async (
+				agentControllerPermissionMode
+			) => {
+				await controller.handleUpdateProfileControllerPermissionMode(
+					profile,
+					agentControllerPermissionMode
+				);
+			}}
+			onDisablePrimaryBinding={async () => {
+				await controller.handleDisableProfilePrimaryBinding(profile);
+			}}
+			onModelSelectionUpdate={async (modelSelection) => {
+				await controller.handleUpdateProfileModelSelection(
+					profile,
+					modelSelection
+				);
+			}}
+			onOpenCodePermissionUpdate={async (openCodePermission) => {
+				await controller.handleUpdateProfileOpenCodePermission(
+					profile,
+					openCodePermission
+				);
+			}}
+			onOpenDirectMessage={async () => {
+				await controller.handleOpenDirectMessage(profile);
+			}}
+			onProfileUpdated={(updatedProfile) => {
+				updateAgentProfileListCaches({
+					profile: updatedProfile,
+					queryClient: input.cardInput.queryClient,
+					storageScope: input.cardInput.recovery.storageScope,
+				});
+			}}
+			onRemoveProfile={async () => {
+				await controller.handleRemoveProfile(profile);
+			}}
+			onRenameProfile={async (profileName) => {
+				await controller.handleRenameProfile(profile, profileName);
+			}}
+			onRepairAction={async (action) =>
+				await controller.handleConnectProfileToComputer(profile, action)
+			}
+			organizationId={controller.currentOrganization.id}
+			organizationMemberships={organizationMemberships}
+			organizationWakeAccess={organizationWakeAccess}
+			pendingState={{
+				checkAgain:
+					controller.pendingCheckProfileId === profile.openMeldProfileId,
+				controllerChange:
+					controller.pendingControllerChangeProfileId ===
+					profile.openMeldProfileId,
+				controllerCollaborationMode:
+					controller.pendingControllerCollaborationModeProfileId ===
+					profile.openMeldProfileId,
+				controllerPermissionMode:
+					controller.pendingControllerPermissionModeProfileId ===
+					profile.openMeldProfileId,
+				directMessage:
+					controller.pendingDirectMessageProfileId ===
+					profile.openMeldProfileId,
+				disablePrimaryBinding:
+					controller.pendingDisablePrimaryBindingProfileId ===
+					profile.openMeldProfileId,
+				modelSelection:
+					controller.pendingModelSelectionProfileId ===
+					profile.openMeldProfileId,
+				openCodePermission:
+					controller.pendingOpenCodePermissionProfileId ===
+					profile.openMeldProfileId,
+				remove: controller.pendingRemoveProfileId !== null,
+				rename: controller.pendingRenameProfileId === profile.openMeldProfileId,
+				repair: controller.pendingRepairProfileIds.has(
+					profile.openMeldProfileId
+				),
+			}}
+			primaryBinding={
+				controller.primaryBindingByProfileId.get(profile.openMeldProfileId) ??
+				null
+			}
+			profile={profile}
+			readiness={readiness}
+			repairActions={
+				canManage
+					? resolveAgentProfileRepairActions({
+							isCurrentComputer: input.cardInput.isCurrentComputer,
+							localAgentCatalogEntries: controller.localAgentCatalogEntries,
+							readiness,
+						})
+					: []
+			}
+			rowRef={(node) => {
+				if (node) {
+					controller.profileRowElementsRef.current.set(
+						profile.openMeldProfileId,
+						node
+					);
+				} else {
+					controller.profileRowElementsRef.current.delete(
+						profile.openMeldProfileId
+					);
+				}
+			}}
+			rowState={{
+				autoRefreshExhausted: controller.autoRefreshExhaustedProfileIds.has(
+					profile.openMeldProfileId
+				),
+				canManage,
+				currentLocalRuntimeCanReply: controller.currentLocalRuntimeCanReply,
+				isFocused:
+					controller.highlightedProfileId === profile.openMeldProfileId,
+				isReadinessPending:
+					controller.agentExecutionReadinessPendingProfileIds.has(
+						profile.openMeldProfileId
+					),
+			}}
+			setupAction={
+				canManage
+					? resolveAgentProfileSetupAction({
+							autoRefreshExhausted:
+								controller.autoRefreshExhaustedProfileIds.has(
+									profile.openMeldProfileId
+								),
+							currentLocalRuntimeCanReply:
+								controller.currentLocalRuntimeCanReply,
+							localAgentDisplayName: localAgentEntry?.displayName ?? null,
+							readiness,
+							serviceUpdatePath: input.cardInput.serviceUpdatePath,
+							setupPath: input.cardInput.setupPath,
+						})
+					: null
+			}
+			wakeAvailabilityDisplayOverride={
+				controller.wakeAvailabilityDisplayOverrideByProfileId.get(
+					profile.openMeldProfileId
+				) ?? null
+			}
+		/>
+	);
+}
+
 type AgentProfileOwnerGroup = {
 	ownerLabel: string;
 	ownerUserId: string;
@@ -1644,23 +1759,6 @@ function createMissingAgentProfilePrimaryBindingResponse(input: {
 		grantsClaimSuccess: false,
 		status: "missing",
 	};
-}
-
-export function resolveAgentProfileControllerChangeOptions(
-	executionTarget: LocalRuntimeExecutionTarget | null
-): readonly AgentProfileControllerChangeOption[] {
-	const options = new Map<string, AgentProfileControllerChangeOption>();
-	for (const entry of bindableLocalAgentEntriesFromTarget(executionTarget)) {
-		const agentControllerRef = resolveLocalAgentEntryControllerRef(entry);
-		if (!agentControllerRef || options.has(agentControllerRef)) {
-			continue;
-		}
-		options.set(agentControllerRef, {
-			agentControllerRef,
-			label: entry.displayName || entry.agentId,
-		});
-	}
-	return [...options.values()];
 }
 
 function resolveAgentProfileControllerOptionLabel(input: {
@@ -1747,30 +1845,38 @@ function EmptyAgentProfilesState(input: { onCreateProfile?: () => void }) {
 	);
 }
 
-function AgentProfileExecutionReadinessRow(input: {
-	actorProfileId: string | null;
+type AgentProfileRowState = {
 	autoRefreshExhausted: boolean;
 	canManage: boolean;
-	checkAgainIsPending: boolean;
-	controllerCollaborationModeIsPending: boolean;
-	controllerPermissionModeIsPending: boolean;
 	currentLocalRuntimeCanReply: boolean | null;
-	directMessageIsPending: boolean;
-	disablePrimaryBindingIsPending: boolean;
+	isFocused: boolean;
+	isReadinessPending: boolean;
+};
+
+type AgentProfileActionPendingState = {
+	checkAgain: boolean;
+	controllerChange: boolean;
+	controllerCollaborationMode: boolean;
+	controllerPermissionMode: boolean;
+	directMessage: boolean;
+	disablePrimaryBinding: boolean;
+	modelSelection: boolean;
+	openCodePermission: boolean;
+	remove: boolean;
+	rename: boolean;
+	repair: boolean;
+};
+
+type AgentProfileExecutionReadinessRowProps = {
+	actorProfileId: string | null;
 	duplicateConversationProfileNames: readonly string[];
 	errorMessage: string | null;
-	isFocusedProfile: boolean;
-	isPending: boolean;
 	localAgentCatalogEntries: readonly DeviceAgentCatalogEntry[];
 	modelCatalog: ModelCatalog | null;
-	modelSelectionIsPending: boolean;
-	openCodePermissionIsPending: boolean;
-	controllerChangeIsPending: boolean;
 	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
 	onControllerChange: (
 		update: AgentProfileControllerChangeUpdate
 	) => Promise<void>;
-	renameIsPending: boolean;
 	onControllerCollaborationModeUpdate: (
 		agentControllerCollaborationMode: AgentControllerCollaborationMode
 	) => Promise<void>;
@@ -1802,14 +1908,18 @@ function AgentProfileExecutionReadinessRow(input: {
 	} | null;
 	profile: AuthProfileView;
 	primaryBinding: GetAgentProfilePrimaryBindingResponse["binding"] | null;
+	pendingState: AgentProfileActionPendingState;
 	readiness: GetAgentExecutionReadinessResponse | null;
+	rowState: AgentProfileRowState;
 	wakeAvailabilityDisplayOverride: AgentWakeAvailability | null;
 	repairActions: readonly AgentProfileRepairAction[];
-	repairIsPending: boolean;
-	removeIsPending: boolean;
 	rowRef?: Ref<HTMLElement>;
 	setupAction: AgentProfileSetupAction | null;
-}) {
+};
+
+function AgentProfileExecutionReadinessRow(
+	input: AgentProfileExecutionReadinessRowProps
+) {
 	const controllerPermissionModeDisplay =
 		resolveWebAgentControllerPermissionModeDisplayFromBinding(
 			input.primaryBinding
@@ -1825,75 +1935,22 @@ function AgentProfileExecutionReadinessRow(input: {
 		}
 	);
 	const rowMoreMenu = (details: ProfileDetailsSnapshot) => (
-		<AgentProfileRowMoreMenu
-			actorProfileId={input.actorProfileId}
-			canManage={input.canManage}
-			controllerChangeOptions={input.controllerChangeOptions}
-			details={details}
-			editState={resolveAgentProfileEditState({
-				binding: input.primaryBinding,
-				modelCatalog: input.modelCatalog,
-			})}
-			hasEnabledPrimaryBinding={
-				input.primaryBinding?.bindingState === "enabled_primary"
-			}
-			isControllerChangePending={input.controllerChangeIsPending}
-			isControllerCollaborationModePending={
-				input.controllerCollaborationModeIsPending
-			}
-			isControllerPermissionModePending={
-				input.controllerPermissionModeIsPending
-			}
-			isDirectMessagePending={input.directMessageIsPending}
-			isDisablePrimaryBindingPending={input.disablePrimaryBindingIsPending}
-			isModelSelectionPending={input.modelSelectionIsPending}
-			isOpenCodePermissionPending={input.openCodePermissionIsPending}
-			isRemovePending={input.removeIsPending}
-			isRenamePending={input.renameIsPending}
-			modelCatalog={input.modelCatalog}
-			onControllerChange={input.onControllerChange}
-			onControllerCollaborationModeUpdate={
-				input.onControllerCollaborationModeUpdate
-			}
-			onControllerPermissionModeUpdate={input.onControllerPermissionModeUpdate}
-			onDisablePrimaryBinding={input.onDisablePrimaryBinding}
-			onModelSelectionUpdate={input.onModelSelectionUpdate}
-			onOpenCodePermissionUpdate={input.onOpenCodePermissionUpdate}
-			onOpenDirectMessage={input.onOpenDirectMessage}
-			onProfileUpdated={input.onProfileUpdated}
-			onRemoveProfile={input.onRemoveProfile}
-			onRenameProfile={input.onRenameProfile}
-			organizationId={input.organizationId}
-			primaryAgentControllerRef={
-				input.primaryBinding?.executionTarget?.agentControllerRef ?? null
-			}
-			profile={input.profile}
-			profileName={input.profile.profileName}
-			runtimeComputer={
-				input.readiness?.routeDeviceId &&
-				input.readiness.runtimeDeviceDisplayName
-					? {
-							deviceId: input.readiness.routeDeviceId,
-							displayName: input.readiness.runtimeDeviceDisplayName,
-						}
-					: null
-			}
-		/>
+		<AgentProfileExecutionReadinessRowMenu details={details} row={input} />
 	);
 	const readiness = input.readiness;
 	if (readiness === null || input.errorMessage) {
 		return renderAgentProfileReadinessPlaceholderCard({
 			controllerPermissionModeDisplay,
 			errorMessage: input.errorMessage,
-			isFocusedProfile: input.isFocusedProfile,
-			isPending: input.isPending,
+			isFocusedProfile: input.rowState.isFocused,
+			isPending: input.rowState.isReadinessPending,
 			menu: rowMoreMenu(profileDetailsWithoutModel),
 			onRepairAction: input.onRepairAction,
 			profileCreatedAt: input.profile.createdAt,
 			profileName: input.profile.profileName,
 			readiness,
 			repairActions: input.repairActions,
-			repairIsPending: input.repairIsPending,
+			repairIsPending: input.pendingState.repair,
 			rowRef: input.rowRef,
 		});
 	}
@@ -1905,7 +1962,7 @@ function AgentProfileExecutionReadinessRow(input: {
 		isAgentExecutionDisplayProjectionRefreshing(readiness);
 	const isServiceProjectionRefreshing =
 		isCurrentRuntimeServiceProjectionRefreshing({
-			currentLocalRuntimeCanReply: input.currentLocalRuntimeCanReply,
+			currentLocalRuntimeCanReply: input.rowState.currentLocalRuntimeCanReply,
 			readiness,
 		});
 	const hasControllerConversationConflict = hasAgentExecutionReason(
@@ -1917,7 +1974,7 @@ function AgentProfileExecutionReadinessRow(input: {
 		(isSelfHealing ||
 			isDisplayProjectionRefreshing ||
 			isServiceProjectionRefreshing) &&
-		!input.autoRefreshExhausted;
+		!input.rowState.autoRefreshExhausted;
 	const localAgentEntry = resolveAgentProfileLocalAgentEntry({
 		entries: input.localAgentCatalogEntries,
 		readiness,
@@ -1925,8 +1982,8 @@ function AgentProfileExecutionReadinessRow(input: {
 	const localAgentDisplayName = localAgentEntry?.displayName ?? null;
 	const rawDisplayedAgentWakeAvailability =
 		resolveAgentProfileRowWakeAvailability({
-			autoRefreshExhausted: input.autoRefreshExhausted,
-			currentLocalRuntimeCanReply: input.currentLocalRuntimeCanReply,
+			autoRefreshExhausted: input.rowState.autoRefreshExhausted,
+			currentLocalRuntimeCanReply: input.rowState.currentLocalRuntimeCanReply,
 			localAgentDisplayName,
 			readiness,
 		});
@@ -1936,8 +1993,8 @@ function AgentProfileExecutionReadinessRow(input: {
 	});
 	const canCheckExpiredWakeRouteAgain =
 		canManuallyRefreshAgentProfileConnection({
-			autoRefreshExhausted: input.autoRefreshExhausted,
-			currentLocalRuntimeCanReply: input.currentLocalRuntimeCanReply,
+			autoRefreshExhausted: input.rowState.autoRefreshExhausted,
+			currentLocalRuntimeCanReply: input.rowState.currentLocalRuntimeCanReply,
 			readiness,
 		});
 	const hideSetupAction =
@@ -1990,8 +2047,8 @@ function AgentProfileExecutionReadinessRow(input: {
 	});
 	const cardActions = renderAgentProfileCardActions({
 		canCheckExpiredWakeRouteAgain:
-			input.canManage && canCheckExpiredWakeRouteAgain,
-		checkAgainIsPending: input.checkAgainIsPending,
+			input.rowState.canManage && canCheckExpiredWakeRouteAgain,
+		checkAgainIsPending: input.pendingState.checkAgain,
 		duplicateConversationProfileNames: input.duplicateConversationProfileNames,
 		hasControllerConversationConflict,
 		hideSetupAction,
@@ -1999,9 +2056,9 @@ function AgentProfileExecutionReadinessRow(input: {
 		onRemoveProfile: input.onRemoveProfile,
 		onRepairAction: input.onRepairAction,
 		profileName: input.profile.profileName,
-		removeIsPending: input.removeIsPending,
+		removeIsPending: input.pendingState.remove,
 		repairActions: input.repairActions,
-		repairIsPending: input.repairIsPending,
+		repairIsPending: input.pendingState.repair,
 		setupAction: input.setupAction,
 	});
 	const organizationAccessRow = renderAgentProfileOrganizationAccessRow({
@@ -2018,7 +2075,7 @@ function AgentProfileExecutionReadinessRow(input: {
 			)}
 			className={cn(
 				"min-h-40",
-				resolveFocusedAgentProfileClassName(input.isFocusedProfile)
+				resolveFocusedAgentProfileClassName(input.rowState.isFocused)
 			)}
 			dimTitle={rowTone === "muted"}
 			footerLeft={
@@ -2059,6 +2116,59 @@ function AgentProfileExecutionReadinessRow(input: {
 			subtitle={controllerModelDetail ?? "No local agent connected"}
 			testId="agent-profile-execution-readiness"
 			title={input.profile.profileName}
+		/>
+	);
+}
+
+function AgentProfileExecutionReadinessRowMenu(input: {
+	details: ProfileDetailsSnapshot;
+	row: AgentProfileExecutionReadinessRowProps;
+}) {
+	return (
+		<AgentProfileRowMoreMenu
+			actorProfileId={input.row.actorProfileId}
+			capabilities={{
+				canManage: input.row.rowState.canManage,
+				hasEnabledPrimaryBinding:
+					input.row.primaryBinding?.bindingState === "enabled_primary",
+			}}
+			controllerChangeOptions={input.row.controllerChangeOptions}
+			details={input.details}
+			editState={resolveAgentProfileEditState({
+				binding: input.row.primaryBinding,
+				modelCatalog: input.row.modelCatalog,
+			})}
+			modelCatalog={input.row.modelCatalog}
+			onControllerChange={input.row.onControllerChange}
+			onControllerCollaborationModeUpdate={
+				input.row.onControllerCollaborationModeUpdate
+			}
+			onControllerPermissionModeUpdate={
+				input.row.onControllerPermissionModeUpdate
+			}
+			onDisablePrimaryBinding={input.row.onDisablePrimaryBinding}
+			onModelSelectionUpdate={input.row.onModelSelectionUpdate}
+			onOpenCodePermissionUpdate={input.row.onOpenCodePermissionUpdate}
+			onOpenDirectMessage={input.row.onOpenDirectMessage}
+			onProfileUpdated={input.row.onProfileUpdated}
+			onRemoveProfile={input.row.onRemoveProfile}
+			onRenameProfile={input.row.onRenameProfile}
+			organizationId={input.row.organizationId}
+			pendingState={input.row.pendingState}
+			primaryAgentControllerRef={
+				input.row.primaryBinding?.executionTarget?.agentControllerRef ?? null
+			}
+			profile={input.row.profile}
+			profileName={input.row.profile.profileName}
+			runtimeComputer={
+				input.row.readiness?.routeDeviceId &&
+				input.row.readiness.runtimeDeviceDisplayName
+					? {
+							deviceId: input.row.readiness.routeDeviceId,
+							displayName: input.row.readiness.runtimeDeviceDisplayName,
+						}
+					: null
+			}
 		/>
 	);
 }
@@ -2484,79 +2594,6 @@ function resolveAgentProfilePrimaryDetail(input: {
 	return formatAgentProfileExecutionComputerDetail(input.runtimeDeviceName);
 }
 
-function resolveLocalAgentEntryControllerRef(
-	localAgentEntry: DeviceAgentCatalogEntry | null
-): string | null {
-	if (!localAgentEntry) {
-		return null;
-	}
-	return `${localAgentEntry.targetKind}:${localAgentEntry.agentId}`;
-}
-
-export function resolveAgentProfileEditState(input: {
-	binding: GetAgentProfilePrimaryBindingResponse["binding"] | null;
-	modelCatalog: ModelCatalog | null;
-}): AgentProfileEditState | null {
-	const agentControllerRef =
-		input.binding?.executionTarget?.agentControllerRef ?? null;
-	if (!agentControllerRef) {
-		return null;
-	}
-	const parsedAgentControllerRef = parseAgentControllerRef(agentControllerRef);
-	if (!parsedAgentControllerRef) {
-		return null;
-	}
-	const capabilities = resolveAgentProfileEditCapabilities({
-		agentControllerRef,
-		modelCatalog: input.modelCatalog,
-	});
-	const controllerCollaborationMode = {
-		agentControllerRef,
-		editable: capabilities.collaborationMode.editable,
-		options: capabilities.collaborationMode.options,
-		value: capabilities.collaborationMode.editable
-			? (resolveNativeAgentControllerCollaborationModeForController(
-					input.binding?.agentControllerCollaborationMode,
-					{ agentControllerRef }
-				) ?? null)
-			: null,
-	};
-	const controllerPermissionMode = {
-		agentControllerRef,
-		editable: capabilities.permissionMode.editable,
-		options: capabilities.permissionMode.options,
-		value: capabilities.permissionMode.editable
-			? resolveAgentControllerPermissionModeForController(
-					input.binding?.agentControllerPermissionMode,
-					{ agentControllerRef }
-				)
-			: null,
-	};
-	const modelSelection = capabilities.modelSelection.editable
-		? {
-				agentControllerId: parsedAgentControllerRef.id,
-				agentControllerRef,
-				modelId: input.binding?.modelSelection?.modelId ?? "",
-				reasoningLevel: input.binding?.modelSelection?.reasoningLevel ?? "",
-			}
-		: null;
-	const openCodePermission = isOpenCodeAgentControllerRef(agentControllerRef)
-		? {
-				agentControllerRef,
-				value: input.binding?.openCodePermission ?? null,
-			}
-		: null;
-	return {
-		agentControllerId: parsedAgentControllerRef.id,
-		agentControllerRef,
-		capabilities,
-		controllerCollaborationMode,
-		controllerPermissionMode,
-		modelSelection,
-		openCodePermission,
-	};
-}
-
 function AgentProfileControllerPermissionModeInlineDisplay(input: {
 	display: ReturnType<
 		typeof resolveWebAgentControllerPermissionModeDisplayFromBinding
@@ -2621,20 +2658,13 @@ function AgentProfileConflictActions(input: {
 
 function AgentProfileRowMoreMenu(input: {
 	actorProfileId: string | null;
-	canManage: boolean;
+	capabilities: {
+		canManage: boolean;
+		hasEnabledPrimaryBinding: boolean;
+	};
 	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
 	details: ProfileDetailsSnapshot;
 	editState: AgentProfileEditState | null;
-	hasEnabledPrimaryBinding: boolean;
-	isControllerChangePending: boolean;
-	isControllerCollaborationModePending: boolean;
-	isControllerPermissionModePending: boolean;
-	isDirectMessagePending: boolean;
-	isDisablePrimaryBindingPending: boolean;
-	isModelSelectionPending: boolean;
-	isOpenCodePermissionPending: boolean;
-	isRenamePending: boolean;
-	isRemovePending: boolean;
 	modelCatalog: ModelCatalog | null;
 	onControllerChange: (
 		update: AgentProfileControllerChangeUpdate
@@ -2660,6 +2690,7 @@ function AgentProfileRowMoreMenu(input: {
 	profile: AuthProfileView;
 	profileName: string;
 	primaryAgentControllerRef: string | null;
+	pendingState: AgentProfileActionPendingState;
 	runtimeComputer: { deviceId: string; displayName: string } | null;
 }) {
 	const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -2671,12 +2702,12 @@ function AgentProfileRowMoreMenu(input: {
 		useState(false);
 	const [isRemoveDialogOpen, setIsRemoveDialogOpen] = useState(false);
 	const isProfileEditPending =
-		input.isControllerChangePending ||
-		input.isControllerCollaborationModePending ||
-		input.isControllerPermissionModePending ||
-		input.isModelSelectionPending ||
-		input.isOpenCodePermissionPending ||
-		input.isRenamePending;
+		input.pendingState.controllerChange ||
+		input.pendingState.controllerCollaborationMode ||
+		input.pendingState.controllerPermissionMode ||
+		input.pendingState.modelSelection ||
+		input.pendingState.openCodePermission ||
+		input.pendingState.rename;
 	const showProjectSettings = shouldShowAgentProfileProjectSettings({
 		agentControllerRef: input.primaryAgentControllerRef,
 		managedRole: input.profile.managedRole,
@@ -2694,7 +2725,7 @@ function AgentProfileRowMoreMenu(input: {
 						render={
 							<Button
 								aria-label="Direct Message"
-								disabled={input.isDirectMessagePending}
+								disabled={input.pendingState.directMessage}
 								onClick={() => {
 									input.onOpenDirectMessage().catch((error) => {
 										console.error("Direct Message action failed.", error);
@@ -2710,14 +2741,15 @@ function AgentProfileRowMoreMenu(input: {
 					/>
 					<TooltipContent side="bottom">Direct Message</TooltipContent>
 				</Tooltip>
-				{input.canManage ? (
+				{input.capabilities.canManage ? (
 					<Tooltip>
 						<TooltipTrigger
 							render={
 								<Button
 									aria-label="Edit Agent"
 									disabled={
-										isProfileEditPending || input.isDisablePrimaryBindingPending
+										isProfileEditPending ||
+										input.pendingState.disablePrimaryBinding
 									}
 									onClick={() => {
 										setIsMenuOpen(false);
@@ -2778,7 +2810,7 @@ function AgentProfileRowMoreMenu(input: {
 									<InfoIcon aria-hidden="true" className="h-4 w-4" />
 									About profile
 								</button>
-								{input.canManage ? (
+								{input.capabilities.canManage ? (
 									<>
 										{showProjectSettings ? (
 											<button
@@ -2793,11 +2825,11 @@ function AgentProfileRowMoreMenu(input: {
 												Default Project and folder
 											</button>
 										) : null}
-										{input.hasEnabledPrimaryBinding ? (
+										{input.capabilities.hasEnabledPrimaryBinding ? (
 											<button
 												className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-destructive text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
 												disabled={
-													input.isDisablePrimaryBindingPending ||
+													input.pendingState.disablePrimaryBinding ||
 													isProfileEditPending
 												}
 												onClick={() => {
@@ -2812,7 +2844,7 @@ function AgentProfileRowMoreMenu(input: {
 										) : null}
 										<button
 											className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-destructive text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-											disabled={input.isRemovePending}
+											disabled={input.pendingState.remove}
 											onClick={() => {
 												setIsMenuOpen(false);
 												setIsRemoveDialogOpen(true);
@@ -2831,7 +2863,7 @@ function AgentProfileRowMoreMenu(input: {
 			</div>
 			<ProfileDetailsDialog
 				details={input.details}
-				isDirectMessagePending={input.isDirectMessagePending}
+				isDirectMessagePending={input.pendingState.directMessage}
 				onOpenChange={setIsDetailsDialogOpen}
 				onOpenDirectMessage={() => {
 					input.onOpenDirectMessage().catch((error) => {
@@ -2882,14 +2914,14 @@ function AgentProfileRowMoreMenu(input: {
 			/>
 			<AgentProfileUnbindControllerDialog
 				isOpen={isUnbindControllerDialogOpen}
-				isPending={input.isDisablePrimaryBindingPending}
+				isPending={input.pendingState.disablePrimaryBinding}
 				onOpenChange={setIsUnbindControllerDialogOpen}
 				onUnbindController={input.onDisablePrimaryBinding}
 				profileName={input.profileName}
 			/>
 			<AgentProfileRemoveDialog
 				isOpen={isRemoveDialogOpen}
-				isPending={input.isRemovePending}
+				isPending={input.pendingState.remove}
 				onOpenChange={setIsRemoveDialogOpen}
 				onRemoveProfile={input.onRemoveProfile}
 				profileName={input.profileName}
@@ -2980,8 +3012,6 @@ export function AgentProfileEditDialog(input: {
 		managePath: string;
 	} | null;
 }) {
-	const confirmationId = useId();
-	const profileNameInputId = useId();
 	const draftInput = useMemo(
 		() =>
 			resolveAgentProfileEditDraftInput({
@@ -2991,19 +3021,27 @@ export function AgentProfileEditDialog(input: {
 			}),
 		[input.editState, input.open, input.profileName]
 	);
-	const draftKey = draftInput.draftKey;
-	const [draft, setDraft] = useState<AgentProfileEditDraft>(() =>
-		createAgentProfileEditDraft(draftInput)
+	return (
+		<AgentProfileEditDialogContent
+			key={draftInput.draftKey}
+			{...input}
+			draftInput={draftInput}
+		/>
 	);
-	useEffect(() => {
-		setDraft((currentDraft) =>
-			currentDraft.key === draftInput.draftKey
-				? currentDraft
-				: createAgentProfileEditDraft(draftInput)
-		);
-	}, [draftInput]);
-	const activeDraft =
-		draft.key === draftKey ? draft : createAgentProfileEditDraft(draftInput);
+}
+
+function AgentProfileEditDialogContent(
+	input: Parameters<typeof AgentProfileEditDialog>[0] & {
+		draftInput: CreateAgentProfileEditDraftInput;
+	}
+) {
+	const confirmationId = useId();
+	const profileNameInputId = useId();
+	const draftKey = input.draftInput.draftKey;
+	const [draft, setDraft] = useState<AgentProfileEditDraft>(() =>
+		createAgentProfileEditDraft(input.draftInput)
+	);
+	const activeDraft = draft;
 	const activeEditState = resolveActiveAgentProfileEditState({
 		currentEditState: input.editState,
 		modelCatalog: input.modelCatalog,
@@ -4015,14 +4053,10 @@ function AgentProfileRemoveDialog(input: {
 					<Button
 						disabled={input.isPending}
 						onClick={() => {
-							input
-								.onRemoveProfile()
-								.then(() => {
-									input.onOpenChange(false);
-								})
-								.catch((error) => {
-									console.error("Failed to remove Agent Profile.", error);
-								});
+							input.onOpenChange(false);
+							input.onRemoveProfile().catch((error) => {
+								console.error("Failed to remove Agent Profile.", error);
+							});
 						}}
 						type="button"
 						variant="destructive"
@@ -4108,20 +4142,6 @@ function AgentProfileRepairActions(input: {
 	const [selectedActionKey, setSelectedActionKey] = useState(
 		input.actions[0] ? buildAgentProfileRepairActionKey(input.actions[0]) : ""
 	);
-	useEffect(() => {
-		if (
-			input.actions.some(
-				(action) =>
-					buildAgentProfileRepairActionKey(action) === selectedActionKey
-			)
-		) {
-			return;
-		}
-		setSelectedActionKey(
-			input.actions[0] ? buildAgentProfileRepairActionKey(input.actions[0]) : ""
-		);
-	}, [input.actions, selectedActionKey]);
-
 	const selectedAction =
 		input.actions.find(
 			(action) => buildAgentProfileRepairActionKey(action) === selectedActionKey
@@ -4169,7 +4189,7 @@ function AgentProfileRepairActions(input: {
 			<Select
 				disabled={input.isPending}
 				onValueChange={setSelectedActionKey}
-				value={selectedActionKey}
+				value={buildAgentProfileRepairActionKey(selectedAction)}
 			>
 				<SelectTrigger
 					aria-label="Choose local agent"
