@@ -49,6 +49,16 @@ const bulkAuthorizeAgentProfileBindingsForOrganizationMock = vi.hoisted(() =>
 const setOrganizationBindingAuthorizationPreferenceMock = vi.hoisted(() =>
 	vi.fn()
 );
+const toastErrorMock = vi.hoisted(() => vi.fn());
+const toastWarningMock = vi.hoisted(() => vi.fn());
+
+vi.mock("sonner", () => ({
+	toast: {
+		error: toastErrorMock,
+		success: vi.fn(),
+		warning: toastWarningMock,
+	},
+}));
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, to }: { children: ReactNode; to: string }) => (
@@ -438,6 +448,8 @@ describe("CreateProfileDialog", () => {
 			.mockResolvedValue({
 				autoAuthorizeAgentProfileBindings: true,
 			});
+		toastErrorMock.mockReset();
+		toastWarningMock.mockReset();
 	});
 
 	afterEach(() => {
@@ -580,6 +592,105 @@ describe("CreateProfileDialog", () => {
 				})
 			);
 		});
+	});
+
+	it("keeps the created Agent in the Space when local Binding setup fails", async () => {
+		ensureRuntimeBindingMock.mockResolvedValue({
+			reasonCodes: ["agent_profile_binding.runtime_unavailable"],
+			status: "retry_required",
+		});
+		const onAfterJoin = vi.fn().mockResolvedValue(undefined);
+		const onProfileCreated = vi.fn();
+		const { onOpenChange } = renderCreateProfileDialog({
+			onAfterJoin,
+			onProfileCreated,
+			organizationId: "organization-123",
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+			spaceContext: { spaceId: "space-123", spaceName: "Design Room" },
+		});
+
+		await waitFor(() => {
+			expect(listStartProfilesMock).toHaveBeenCalled();
+		});
+		fireEvent.click(
+			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
+		);
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Research Agent" },
+		});
+		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
+		);
+
+		await waitFor(() => {
+			expect(addMembersMock).toHaveBeenCalledWith({
+				spaceId: "space-123",
+				memberProfileIds: [NEW_AGENT_ID],
+				requestContext: expect.objectContaining({
+					actorContext: expect.objectContaining({
+						openMeldProfileId: FELIX_ID,
+					}),
+				}),
+			});
+		});
+		await waitFor(() => {
+			expect(onProfileCreated).toHaveBeenCalledWith(
+				expect.objectContaining({ openMeldProfileId: NEW_AGENT_ID })
+			);
+			expect(onOpenChange).toHaveBeenCalledWith(false);
+			expect(toastWarningMock).toHaveBeenCalledWith(
+				expect.stringContaining(
+					"was created and added to Design Room, but local setup isn't complete"
+				)
+			);
+		});
+		expect(addMembersMock.mock.invocationCallOrder[0]).toBeLessThan(
+			ensureRuntimeBindingMock.mock.invocationCallOrder[0] ?? 0
+		);
+		expect(createStartAgentProfileMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("reports a created profile as partial success when Space membership fails", async () => {
+		addMembersMock.mockRejectedValue(
+			new Error("Space membership is unavailable.")
+		);
+		const onProfileCreated = vi.fn();
+		const { onOpenChange } = renderCreateProfileDialog({
+			onProfileCreated,
+			organizationId: "organization-123",
+			spaceContext: { spaceId: "space-123", spaceName: "Design Room" },
+		});
+
+		await fillProfileForm({
+			kind: AGENT_PROFILE_CARD_PATTERN,
+			name: "Research Agent",
+		});
+
+		await waitFor(() => {
+			expect(addMembersMock).toHaveBeenCalledTimes(1);
+			expect(onProfileCreated).toHaveBeenCalledWith(
+				expect.objectContaining({ openMeldProfileId: NEW_AGENT_ID })
+			);
+			expect(onOpenChange).toHaveBeenCalledWith(false);
+			expect(toastErrorMock).toHaveBeenCalledWith(
+				expect.stringContaining(
+					"was created, but OpenMeld couldn't add it to Design Room"
+				)
+			);
+			expect(toastErrorMock).toHaveBeenCalledWith(
+				expect.stringContaining(
+					"Add the existing profile from the Members panel"
+				)
+			);
+		});
+		expect(createStartAgentProfileMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not create an orphan agent when the account has no human profile in a Space", async () => {
