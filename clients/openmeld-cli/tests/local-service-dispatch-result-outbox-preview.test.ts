@@ -20,6 +20,7 @@ import type {
   LedgerPaths,
 } from "../src/local-service/core/types";
 import { readRecentDaemonDispatchJournalEvents } from "../src/local-service/dispatch/daemon-dispatch-journal";
+import { acknowledgeDispatchResultOutboxRecord } from "../src/local-service/dispatch/dispatch-result-outbox";
 import { handleDispatchDeliverFrame } from "../src/local-service/dispatch/execute-dispatch-task";
 import { OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV } from "../src/runtime/dispatch-space-action-context";
 import type { Presenter } from "../src/runtime/presenter/types";
@@ -108,6 +109,67 @@ function createPresenter(): Presenter & { events: Array<{ code?: string }> } {
     events,
     view: "agent",
   } as Presenter & { events: Array<{ code?: string }> };
+}
+
+function createAcceptedSettlementSocket(input: {
+  ledgerPaths: LedgerPaths;
+  presenter: Presenter;
+}): { send: ReturnType<typeof vi.fn> } {
+  let acknowledgementQueued = false;
+  return {
+    send: vi.fn((rawFrame: string) => {
+      const frame = JSON.parse(rawFrame) as {
+        code?: string;
+        payload?: { attemptId?: string; dispatchId?: string };
+      };
+      if (
+        acknowledgementQueued ||
+        frame.code !== "daemon.dispatch.result" ||
+        !frame.payload?.attemptId ||
+        !frame.payload.dispatchId
+      ) {
+        return;
+      }
+      acknowledgementQueued = true;
+      queueMicrotask(() => {
+        acknowledgeDispatchResultOutboxRecord({
+          attemptId: frame.payload?.attemptId ?? null,
+          dispatchId: frame.payload?.dispatchId ?? "unknown",
+          ledgerPaths: input.ledgerPaths,
+          ok: true,
+          presenter: input.presenter,
+          status: "accepted",
+        });
+      });
+    }),
+  };
+}
+
+function readSentTaskResultPayload(socket: {
+  send: ReturnType<typeof vi.fn>;
+}): ReturnType<
+  typeof readOutboxFile
+>["records"][number]["taskResult"]["payload"] {
+  const resultFrame = socket.send.mock.calls
+    .map(
+      ([rawFrame]) => JSON.parse(String(rawFrame)) as Record<string, unknown>
+    )
+    .find((frame) => frame.code === "daemon.dispatch.result") as
+    | {
+        payload?: {
+          taskResult?: {
+            payload?: ReturnType<
+              typeof readOutboxFile
+            >["records"][number]["taskResult"]["payload"];
+          };
+        };
+      }
+    | undefined;
+  const payload = resultFrame?.payload?.taskResult?.payload;
+  if (!payload) {
+    throw new Error("expected one daemon.dispatch.result frame");
+  }
+  return payload;
 }
 
 function createLedgerPaths(): LedgerPaths {
@@ -319,7 +381,12 @@ describe("dispatch result outbox around preview teardown", () => {
   it("injects current Space meta into the runtime prompt", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
-      const socket = { send: vi.fn() } as never;
+      const presenter = createPresenter();
+      const settlementSocket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      });
+      const socket = settlementSocket as never;
       const runtimeContext = {
         providerRuntimeWorkingDirectory: process.cwd(),
       };
@@ -370,7 +437,7 @@ describe("dispatch result outbox around preview teardown", () => {
         } as never,
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
-        presenter: createPresenter(),
+        presenter,
         routeByProfileId: new Map(),
         socket,
       });
@@ -387,7 +454,12 @@ describe("dispatch result outbox around preview teardown", () => {
   it("continues dispatch with an omitted meta section when Space meta loading fails", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
-      const socket = { send: vi.fn() } as never;
+      const presenter = createPresenter();
+      const settlementSocket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      });
+      const socket = settlementSocket as never;
       const runtimeContext = {
         providerRuntimeWorkingDirectory: process.cwd(),
       };
@@ -426,7 +498,7 @@ describe("dispatch result outbox around preview teardown", () => {
         } as never,
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
-        presenter: createPresenter(),
+        presenter,
         routeByProfileId: new Map(),
         socket,
       });
@@ -447,7 +519,11 @@ describe("dispatch result outbox around preview teardown", () => {
         join(tmpdir(), "openmeld-image-wake-runtime-")
       );
       tempDirs.push(workspace);
-      const socket = { send: vi.fn() } as never;
+      const presenter = createPresenter();
+      const socket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      }) as never;
       const runtimeContext = {
         providerRuntimeWorkingDirectory: workspace,
       };
@@ -511,7 +587,7 @@ describe("dispatch result outbox around preview teardown", () => {
         } as never,
         profileOwnerName: "Owner",
         profileOwnerUserId: "user-1",
-        presenter: createPresenter(),
+        presenter,
         routeByProfileId: new Map(),
         socket,
       });
@@ -539,12 +615,16 @@ describe("dispatch result outbox around preview teardown", () => {
   it("finalizes a dispatch from a CLI Space action even if the controller runtime keeps running", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
-      const socket = { send: vi.fn() } as never;
+      const presenter = createPresenter();
+      const settlementSocket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      });
+      const socket = settlementSocket as never;
       const currentSocketRef: CurrentDaemonSocketRef = {
         connectionGeneration: 1,
         socket,
       };
-      const presenter = createPresenter();
       const runtimeContext = {
         providerRuntimeWorkingDirectory: process.cwd(),
       };
@@ -629,9 +709,8 @@ describe("dispatch result outbox around preview teardown", () => {
         errorMessage: null,
         result: "success",
       });
-      const outbox = readOutboxFile(ledgerPaths);
-      expect(outbox.records).toHaveLength(1);
-      expect(outbox.records[0]?.taskResult.payload).toMatchObject({
+      expect(readOutboxFile(ledgerPaths).records).toHaveLength(0);
+      expect(readSentTaskResultPayload(settlementSocket)).toMatchObject({
         agentControllerConversationId: "ctx-1",
         output: "CLI action should finalize this Wake.",
         spaceAction: {
@@ -649,12 +728,16 @@ describe("dispatch result outbox around preview teardown", () => {
   it("uses a CLI action recorded during controller repair as the final Space action", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
-      const socket = { send: vi.fn() } as never;
+      const presenter = createPresenter();
+      const settlementSocket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      });
+      const socket = settlementSocket as never;
       const currentSocketRef: CurrentDaemonSocketRef = {
         connectionGeneration: 1,
         socket,
       };
-      const presenter = createPresenter();
       const runtimeContext = {
         providerRuntimeWorkingDirectory: process.cwd(),
       };
@@ -731,9 +814,8 @@ describe("dispatch result outbox around preview teardown", () => {
         result: "success",
       });
       expect(runRuntimeTaskMock).toHaveBeenCalledTimes(2);
-      const outbox = readOutboxFile(ledgerPaths);
-      expect(outbox.records).toHaveLength(1);
-      expect(outbox.records[0]?.taskResult.payload).toMatchObject({
+      expect(readOutboxFile(ledgerPaths).records).toHaveLength(0);
+      expect(readSentTaskResultPayload(settlementSocket)).toMatchObject({
         output: "Recovered via CLI.",
         spaceAction: {
           messageEnvelope: {
@@ -859,7 +941,7 @@ describe("dispatch result outbox around preview teardown", () => {
         return createRuntimeSuccessResult();
       });
 
-      const result = await handleDispatchDeliverFrame({
+      const resultPromise = handleDispatchDeliverFrame({
         computerFileAccessStorePath:
           "/tmp/openmeld-test-missing-computer-file-access-policy.json",
         contextStore: new Map(),
@@ -882,14 +964,30 @@ describe("dispatch result outbox around preview teardown", () => {
         socket,
       });
 
+      await vi.waitFor(
+        () => {
+          expect(readOutboxFile(ledgerPaths).records).toHaveLength(1);
+        },
+        { timeout: 5000 }
+      );
+      const persistedOutbox = readOutboxFile(ledgerPaths);
+      acknowledgeDispatchResultOutboxRecord({
+        attemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        ledgerPaths,
+        ok: true,
+        presenter,
+        status: "accepted",
+      });
+      const result = await resultPromise;
+
       expect(result).toEqual({
         errorCode: null,
         errorMessage: null,
         result: "success",
       });
-      const outbox = readOutboxFile(ledgerPaths);
-      expect(outbox.records).toHaveLength(1);
-      expect(outbox.records[0]).toMatchObject({
+      expect(readOutboxFile(ledgerPaths).records).toHaveLength(0);
+      expect(persistedOutbox.records[0]).toMatchObject({
         dispatchId: "dispatch-1",
         taskResult: {
           payload: {
@@ -898,7 +996,7 @@ describe("dispatch result outbox around preview teardown", () => {
           },
         },
       });
-      const payload = outbox.records[0]?.taskResult.payload;
+      const payload = persistedOutbox.records[0]?.taskResult.payload;
       expect(payload).toBeDefined();
       expect(payload && "claimLease" in payload).toBe(false);
       const journalEvents = readRecentDaemonDispatchJournalEvents({
