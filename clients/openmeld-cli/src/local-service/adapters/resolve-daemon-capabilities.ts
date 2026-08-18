@@ -22,6 +22,7 @@ export function resolveDaemonCapabilities(input: {
     .sort((left, right) => left.adapterId.localeCompare(right.adapterId));
 
   return {
+    agentReplyContextReview: true,
     informationProtectionPrompt: true,
     workingLanguagePrompt: true,
     localAgentInteraction: true,

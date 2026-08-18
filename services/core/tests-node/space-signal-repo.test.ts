@@ -121,13 +121,11 @@ describe("space-signal-repo", () => {
     }
   });
 
-  it.each([
-    10, 20,
-  ])("lets all %i same-source final replies pass the real SQLite observation guard", (agentCount) => {
+  it("serializes four same-cursor Agent replies through the real SQLite observation guard", () => {
     const harness = createObservationSqlHarness();
     try {
       harness.insertSignal("source-main", 1);
-      const outcomes = Array.from({ length: agentCount }, (_, index) => {
+      const outcomes = Array.from({ length: 4 }, (_, index) => {
         const result = runAgentReplyObservationGuardedTransaction({
           observation: {
             observedThroughSignalId: "source-main",
@@ -152,9 +150,7 @@ describe("space-signal-repo", () => {
         return result.status;
       });
 
-      expect(outcomes).toEqual(
-        Array.from({ length: agentCount }, () => "committed")
-      );
+      expect(outcomes).toEqual(["committed", "changed", "changed", "changed"]);
     } finally {
       harness.close();
     }

@@ -47,12 +47,12 @@ describe("dispatch Agent reply observation", () => {
 
     expect(observation).toEqual({
       observedThroughSignalId: sameAgentOtherWake.id,
-      relevantSignals: [humanUpdate, relevant],
+      relevantSignals: [humanUpdate, failed, relevant],
       status: "changed",
     });
   });
 
-  it("does not reconsider sibling final outcomes from the same multi-target Wake", () => {
+  it("treats sibling final outcomes from the same multi-target Wake as collaboration context", () => {
     const siblingReply = textSignal({
       final: true,
       id: "signal-sibling-reply",
@@ -80,8 +80,8 @@ describe("dispatch Agent reply observation", () => {
       })
     ).toEqual({
       observedThroughSignalId: siblingFailure.id,
-      relevantSignals: [],
-      status: "current",
+      relevantSignals: [siblingReply, siblingStatus, siblingFailure],
+      status: "changed",
     });
   });
 
@@ -306,15 +306,21 @@ describe("dispatch Agent reply observation", () => {
     });
   });
 
-  it("stays silent instead of publishing known-stale work when two reviews cannot stabilize the Space", async () => {
+  it("keeps reviewing bounded deltas beyond two changes until the Space is current", async () => {
     const reconsider = vi.fn(async () => ({
-      action: postMessageAction("Still changing"),
+      action: postMessageAction("Reviewed latest collaboration context"),
       value: { conversationId: "same-session-1" },
     }));
     const refreshObservation = vi
       .fn()
       .mockResolvedValueOnce(changedObservation("signal-peer-2"))
-      .mockResolvedValueOnce(changedObservation("signal-peer-3"));
+      .mockResolvedValueOnce(changedObservation("signal-peer-3"))
+      .mockResolvedValueOnce(changedObservation("signal-peer-4"))
+      .mockResolvedValueOnce({
+        observedThroughSignalId: "signal-peer-4",
+        relevantSignals: [],
+        status: "current" as const,
+      });
 
     const result = await coordinateDispatchAgentReply({
       action: postMessageAction("Before peers"),
@@ -325,13 +331,19 @@ describe("dispatch Agent reply observation", () => {
       spaceId: "space-1",
     });
 
-    expect(reconsider).toHaveBeenCalledTimes(2);
-    expect(result.action).toEqual({
-      type: "stay_silent",
-      reason:
-        "The Space kept changing while this Agent reviewed concurrent replies, so OpenMeld did not publish a reply based on outdated context.",
+    expect(reconsider).toHaveBeenCalledTimes(4);
+    expect(refreshObservation).toHaveBeenCalledTimes(4);
+    expect(result).toMatchObject({
+      action: {
+        messageEnvelope: {
+          text: "Reviewed latest collaboration context",
+        },
+        observedThroughSignalId: "signal-peer-4",
+        type: "post_message",
+      },
+      reconsiderationCount: 4,
+      reconsidered: true,
     });
-    expect(result.reconsiderationCount).toBe(2);
   });
 });
 

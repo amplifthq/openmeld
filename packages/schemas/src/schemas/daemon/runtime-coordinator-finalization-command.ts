@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE } from "../http/space-signals";
 import { openMeldDaemonTaskResultEnvelopeSchema } from "./task-result";
 
 export const RUNTIME_COORDINATOR_FINALIZATION_COMMAND_MODEL_VERSION =
@@ -80,9 +81,19 @@ export const runtimeCoordinatorFinalizationSuccessOutcomeSchema =
   });
 
 export const runtimeCoordinatorFinalizationOutcomeSchema = z.discriminatedUnion(
-  "ok",
+  "status",
   [
     runtimeCoordinatorFinalizationSuccessOutcomeSchema,
+    z.strictObject({
+      ok: z.literal(false),
+      finalizationCommandId: boundedIdentifierSchema,
+      publicationErrorCode: z.literal(
+        SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE
+      ),
+      publishedSignalId: z.null(),
+      publishState: z.literal("reply_review_required"),
+      status: z.literal("review_required"),
+    }),
     z.strictObject({
       ok: z.literal(false),
       finalizationCommandId: boundedIdentifierSchema,

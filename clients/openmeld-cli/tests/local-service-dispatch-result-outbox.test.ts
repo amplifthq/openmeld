@@ -13,6 +13,7 @@ import {
   enqueueDispatchResultOutboxRecord,
   flushDispatchResultOutbox,
   waitForDispatchResultOutboxAcknowledgement,
+  waitForDispatchResultOutboxSettlement,
 } from "../src/local-service/dispatch/dispatch-result-outbox";
 import type { Presenter } from "../src/runtime/presenter/types";
 import { withTempHome } from "./helpers/fs";
@@ -98,8 +99,9 @@ const enqueueSuccessResult = (input: {
   currentSocketRef: CurrentDaemonSocketRef;
   ledgerPaths: LedgerPaths;
   output?: string;
-}): void => {
-  enqueueDispatchResultOutboxRecord({
+  waitForSettlement?: boolean;
+}) => {
+  return enqueueDispatchResultOutboxRecord({
     attemptId: "attempt-1",
     connectionGeneration: 1,
     currentSocketRef: input.currentSocketRef,
@@ -129,6 +131,7 @@ const enqueueSuccessResult = (input: {
     },
     presenter: createPresenter(),
     taskId: "task-1",
+    waitForSettlement: input.waitForSettlement,
   });
 };
 
@@ -262,6 +265,67 @@ describe("local service dispatch result outbox", () => {
 
     await expect(observedAcknowledgement).resolves.toBe("acknowledged");
     expect(acknowledged).toBe(true);
+  });
+
+  it("returns review_required and removes the stale proposal from the outbox", async () => {
+    const ledgerPaths = createLedgerPaths();
+    enqueueSuccessResult({
+      currentSocketRef: {
+        connectionGeneration: 1,
+        socket: { send: vi.fn() } as never,
+      },
+      ledgerPaths,
+    });
+
+    const settlement = waitForDispatchResultOutboxSettlement({
+      attemptId: "attempt-1",
+      dispatchId: "dispatch-1",
+      ledgerPaths,
+    });
+    acknowledgeDispatchResultOutboxRecord({
+      attemptId: "attempt-1",
+      dispatchId: "dispatch-1",
+      ledgerPaths,
+      ok: false,
+      presenter: createPresenter(),
+      reasonCode: "space.agent_reply.context_changed",
+      status: "review_required",
+    });
+
+    await expect(settlement).resolves.toEqual({
+      reasonCode: "space.agent_reply.context_changed",
+      status: "review_required",
+    });
+    expect(readOutboxFile(ledgerPaths).records).toHaveLength(0);
+  });
+
+  it("registers settlement before sending so an immediate review response is not lost", async () => {
+    const ledgerPaths = createLedgerPaths();
+    const settlement = enqueueSuccessResult({
+      currentSocketRef: {
+        connectionGeneration: 1,
+        socket: {
+          send: vi.fn(() => {
+            acknowledgeDispatchResultOutboxRecord({
+              attemptId: "attempt-1",
+              dispatchId: "dispatch-1",
+              ledgerPaths,
+              ok: false,
+              presenter: createPresenter(),
+              reasonCode: "space.agent_reply.context_changed",
+              status: "review_required",
+            });
+          }),
+        } as never,
+      },
+      ledgerPaths,
+      waitForSettlement: true,
+    });
+
+    await expect(settlement).resolves.toEqual({
+      reasonCode: "space.agent_reply.context_changed",
+      status: "review_required",
+    });
   });
 
   it("releases controlled shutdown when its cloud connection closes before acknowledgement", async () => {

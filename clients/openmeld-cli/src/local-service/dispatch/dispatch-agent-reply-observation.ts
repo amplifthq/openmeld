@@ -1,5 +1,4 @@
 import type { SignalEnvelope } from "@openmeld/protocol";
-import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
 import type {
   OpenMeldRequestContext,
   OpenMeldSpaceEgressAction,
@@ -14,10 +13,7 @@ import { createCliSpaceApi } from "../../space/cli-space-api";
 import { fetchSpaceUpdates } from "../../space/updates-api";
 
 const OBSERVATION_LIMIT = 20;
-const MAX_REPLY_RECONSIDERATIONS = 2;
 const SIGNAL_TEXT_LIMIT = 2000;
-const UNSTABLE_SPACE_SILENCE_REASON =
-  "The Space kept changing while this Agent reviewed concurrent replies, so OpenMeld did not publish a reply based on outdated context.";
 
 export type DispatchAgentReplyObservation = {
   observedThroughSignalId: string;
@@ -78,11 +74,6 @@ export function resolveDispatchAgentReplyObservation(input: {
       (signal) =>
         isRelevantCollaborationSignal(signal) &&
         isSignalInCurrentWakeScope(
-          signal,
-          currentWakeTargetProfileIds,
-          input.wakeSourceSignalId ?? input.sourceSignalId
-        ) &&
-        !isCurrentWakeFinalOutcomeSignal(
           signal,
           currentWakeTargetProfileIds,
           input.wakeSourceSignalId ?? input.sourceSignalId
@@ -167,17 +158,6 @@ export async function coordinateDispatchAgentReply<T>(input: {
   let value = input.currentValue;
 
   while (observation.status === "changed") {
-    if (reconsiderationCount >= MAX_REPLY_RECONSIDERATIONS) {
-      return {
-        action: {
-          type: "stay_silent",
-          reason: UNSTABLE_SPACE_SILENCE_REASON,
-        },
-        reconsiderationCount,
-        reconsidered: true,
-        value,
-      };
-    }
     const reconsidered = await input.reconsider(
       buildAgentReplyReconsiderationPrompt({
         action,
@@ -248,36 +228,6 @@ function isSignalInCurrentWakeScope(
     publication?.actorProfileId &&
       currentWakeTargetProfileIds.has(publication.actorProfileId) &&
       publication.replyToSignalId === wakeSourceSignalId
-  );
-}
-
-function isCurrentWakeFinalOutcomeSignal(
-  signal: SignalEnvelope,
-  currentWakeTargetProfileIds: ReadonlySet<string>,
-  wakeSourceSignalId: string
-): boolean {
-  if (currentWakeTargetProfileIds.size === 0) {
-    return false;
-  }
-  const publication = buildSpaceRoundSignalPublication(signal);
-  if (
-    !(
-      publication?.actorProfileId &&
-      currentWakeTargetProfileIds.has(publication.actorProfileId)
-    ) ||
-    publication.replyToSignalId !== wakeSourceSignalId
-  ) {
-    return false;
-  }
-  if (signal.type === "signal.text") {
-    return signal.data.meta?.purpose === AGENT_REPLY_FINAL_PURPOSE;
-  }
-  if (signal.type === "signal.status") {
-    return true;
-  }
-  return (
-    signal.type === "signal.system_notice" &&
-    isWakeClosingSystemNoticeType(signal.data.noticeType)
   );
 }
 
