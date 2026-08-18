@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-18T10:02:06.762Z",
+  "updatedAt": "2026-08-18T11:13:53.721Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.68",
+      "packageVersion": "0.3.69",
       "updatePolicy": "available",
-      "reason": "Center Agent hosted contract update; current local Wake, setup, and diagnostic workflows remain compatible."
+      "reason": "Fixes an OpenMeld Service update that could stop setup after your local agents were found."
     },
     "service": {
-      "bundleHash": "99b2b54940b4e679740df1b1e207dc1d376148ab18ad8ed6cd4f0347a7dbf04e",
-      "bundleVersion": "0.3.68",
+      "bundleHash": "d27d23ccabc5e660c9c5326f4a22f03c1b1141c90e797110f46fbcb2a06db2f4",
+      "bundleVersion": "0.3.69",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Center Agent hosted contract update; current local Wake, setup, and diagnostic workflows remain compatible."
+      "reason": "Fixes an OpenMeld Service update that could stop setup after your local agents were found."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Center Agent hosted contract update; current local Wake, setup, and diagnostic workflows remain compatible."
+      "reason": "Fixes an OpenMeld Service update that could stop setup after your local agents were found."
     }
   }
 }
