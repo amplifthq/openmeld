@@ -5015,6 +5015,7 @@ describe("Remote Agent Slack signal service", () => {
   });
 
   it("does not let the Slack status refresh cadence expire an in-flight reconciliation lease", async () => {
+    vi.useFakeTimers();
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     const probe = createDeadlineProbe();
@@ -5034,7 +5035,11 @@ describe("Remote Agent Slack signal service", () => {
       },
       status: "found" as const,
     });
-    const workerReconcile = vi.fn(() => reconciliation.promise);
+    const reconciliationStarted = createDeferred(undefined);
+    const workerReconcile = vi.fn(() => {
+      reconciliationStarted.resolve();
+      return reconciliation.promise;
+    });
     const queueSend = vi.fn(async () => undefined);
     stubSlackFetch({ email: "ari@example.test" });
 
@@ -5051,7 +5056,15 @@ describe("Remote Agent Slack signal service", () => {
         nowMs: probe.deadlineAtMs,
         probe,
       });
-      await vi.waitFor(() => expect(workerReconcile).toHaveBeenCalledOnce());
+      await reconciliationStarted.promise;
+      expect(workerReconcile).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      await expect(firstProbe).resolves.toEqual({
+        reasonCode: "remote_agent.execution_reconciliation_unavailable",
+        status: "skipped",
+      });
+      expect(queueSend).toHaveBeenCalledOnce();
 
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
@@ -5072,13 +5085,6 @@ describe("Remote Agent Slack signal service", () => {
         REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS * 1000
       );
       expect(workerReconcile).toHaveBeenCalledOnce();
-      expect(queueSend).not.toHaveBeenCalled();
-
-      reconciliation.resolve();
-      await expect(firstProbe).resolves.toEqual({
-        reasonCode: "remote_agent.execution_reconciliation_scheduled",
-        status: "skipped",
-      });
       expect(queueSend).toHaveBeenCalledOnce();
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
@@ -5088,10 +5094,12 @@ describe("Remote Agent Slack signal service", () => {
       ).resolves.toMatchObject({
         acceptedProbeNextDueAtMs:
           probe.deadlineAtMs +
-          REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS * 1000,
+          REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS,
       });
     } finally {
+      reconciliation.resolve();
       harness.close();
+      vi.useRealTimers();
     }
   });
 
@@ -5179,6 +5187,77 @@ describe("Remote Agent Slack signal service", () => {
         finalPublicationState: "published",
         status: "completed",
       });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("does not let an older terminal delivery clear a newer turn's Slack working status", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    const oldProbe = createDeadlineProbe();
+    const newProbe = {
+      ...oldProbe,
+      dispatchId: "remote-agent-slack:Ev124",
+      idempotencyKey: "remote-agent-slack:T123:Ev124",
+      submissionId: "sub_slack_2",
+    };
+    const fetchMock = stubSlackFetch({ email: "ari@example.test" });
+    const workerReconcile = vi.fn(
+      async (request: { idempotencyKey: string; submissionId: string }) => ({
+        execution: {
+          acceptedAtMs: 2100,
+          cancellationReason: null,
+          completedAtMs: null,
+          idempotencyKey: request.idempotencyKey,
+          lastProgressAtMs: newProbe.deadlineAtMs,
+          lastProgressKind: "tool_started" as const,
+          organizationId: newProbe.organizationId,
+          spaceId: newProbe.spaceId,
+          status: "running" as const,
+          submissionId: request.submissionId,
+          v: 1 as const,
+        },
+        status: "found" as const,
+      })
+    );
+    const env = buildEnv(harness.db, { workerReconcile });
+
+    try {
+      await createAcceptedSlackDelivery({
+        db: harness.db,
+        idempotencyKey: oldProbe.idempotencyKey,
+        submissionId: oldProbe.submissionId,
+      });
+      await completeRemoteAgentNativeDelivery(
+        env,
+        createCompletedCallbackBody()
+      );
+      await createAcceptedSlackDelivery({
+        db: harness.db,
+        dispatchId: newProbe.dispatchId,
+        idempotencyKey: newProbe.idempotencyKey,
+        nowMs: 2000,
+        submissionId: newProbe.submissionId,
+      });
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: newProbe.deadlineAtMs,
+        probe: newProbe,
+      });
+
+      await processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: newProbe.deadlineAtMs + 1,
+        probe: oldProbe,
+      });
+
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "is working on your request…",
+      });
+      expect(workerReconcile).toHaveBeenCalledOnce();
     } finally {
       harness.close();
     }
@@ -6112,19 +6191,22 @@ function buildHumanContext(
 
 async function createAcceptedSlackDelivery(input: {
   db: D1Database;
+  dispatchId?: string;
   idempotencyKey: string;
+  nowMs?: number;
   submissionId: string;
 }) {
+  const nowMs = input.nowMs ?? 1000;
   await upsertRemoteAgentNativeDeliveryRecord({
     db: input.db,
-    nowMs: 1000,
+    nowMs,
     organizationId: "org_1",
     conversationKind: "slack",
     spaceId: CONVERSATION_ID,
     profileId: AGENT_PROFILE_ID,
     bindingId: "binding_1",
     triggerMessageId: CONVERSATION_ID,
-    dispatchId: "remote-agent-slack:Ev123",
+    dispatchId: input.dispatchId ?? "remote-agent-slack:Ev123",
     attemptId: null,
     idempotencyKey: input.idempotencyKey,
     status: "submitted",
@@ -6134,7 +6216,7 @@ async function createAcceptedSlackDelivery(input: {
   });
   await markRemoteAgentNativeDeliveryAck({
     db: input.db,
-    nowMs: 1100,
+    nowMs: nowMs + 100,
     accepted: true,
     idempotencyKey: input.idempotencyKey,
     submissionId: input.submissionId,

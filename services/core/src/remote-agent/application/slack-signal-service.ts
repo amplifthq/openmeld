@@ -1228,14 +1228,6 @@ async function processRemoteAgentSlackAppMention(input: {
     });
     return { status: "replied" };
   }
-  await showRemoteAgentSlackThreadWorkingStatus({
-    botToken,
-    channelId: event.channel,
-    eventId: input.eventId ?? null,
-    slackTeamId,
-    threadTs,
-  });
-
   const dispatchId = buildSlackDispatchId({
     channelId: event.channel,
     eventId: input.eventId,
@@ -1274,6 +1266,52 @@ async function processRemoteAgentSlackAppMention(input: {
   const sourceText = isDirectMessage
     ? event.text.trim()
     : normalizeSlackMentionText(event.text);
+  const deliveryAdmission = {
+    agentProfileId: centerAgent.agentProfileId,
+    author:
+      participant.kind === "member"
+        ? {
+            displayName: participant.member.userDisplayName,
+            profileId: participant.member.humanProfileId,
+            profileKind: "human" as const,
+          }
+        : {
+            displayName: participant.slackDisplayName,
+            profileId: null,
+            profileKind: null,
+          },
+    bindingId: centerAgent.bindingId,
+    conversationId,
+    dispatchId,
+    idempotencyKey,
+    organizationId: organization.organizationId,
+    speakerMember:
+      participant.kind === "member"
+        ? {
+            memberId: participant.member.memberId,
+            userId: participant.member.userId,
+          }
+        : null,
+    slackChannelId: event.channel,
+    slackTeamId,
+    slackThreadTs: threadTs,
+    sourceText,
+    triggerMessageId: event.ts,
+  };
+  await admitRemoteAgentSlackNativeDelivery({
+    db: stateDb,
+    env,
+    nowMs: Date.now(),
+    request: deliveryAdmission,
+  });
+  failureContext.ledgerStarted = true;
+  await showRemoteAgentSlackThreadWorkingStatus({
+    botToken,
+    channelId: event.channel,
+    eventId: input.eventId ?? null,
+    slackTeamId,
+    threadTs,
+  });
   const searchAuthorization = await resolveSlackParticipantSearchAuthorization({
     cryptoKey: env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
     event,
@@ -1315,47 +1353,11 @@ async function processRemoteAgentSlackAppMention(input: {
     }),
   });
   const deliveryRequest = {
-    agentProfileId: centerAgent.agentProfileId,
+    ...deliveryAdmission,
     agentProfileOwnerUserId: centerAgent.ownerUserId,
-    author:
-      participant.kind === "member"
-        ? {
-            displayName: participant.member.userDisplayName,
-            profileId: participant.member.humanProfileId,
-            profileKind: "human" as const,
-          }
-        : {
-            displayName: participant.slackDisplayName,
-            profileId: null,
-            profileKind: null,
-          },
-    bindingId: centerAgent.bindingId,
-    conversationId,
-    dispatchId,
-    idempotencyKey,
     modelRoute: centerAgent.modelRoute,
-    organizationId: organization.organizationId,
-    speakerMember:
-      participant.kind === "member"
-        ? {
-            memberId: participant.member.memberId,
-            userId: participant.member.userId,
-          }
-        : null,
-    slackChannelId: event.channel,
-    slackTeamId,
-    slackThreadTs: threadTs,
-    sourceText,
-    triggerMessageId: event.ts,
     turnEnvelope,
   };
-  await admitRemoteAgentSlackNativeDelivery({
-    db: stateDb,
-    env,
-    nowMs: Date.now(),
-    request: deliveryRequest,
-  });
-  failureContext.ledgerStarted = true;
   const submission = await submitRemoteAgentSlackNativeDelivery({
     db: stateDb,
     env,

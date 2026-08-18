@@ -440,6 +440,38 @@ export async function listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceByS
   });
 }
 
+export async function isLatestRemoteAgentNativeDeliveryActiveForSlackThread(input: {
+  channelId: string;
+  db: D1Database;
+  organizationId: string;
+  teamId: string;
+  threadTs: string;
+}): Promise<boolean> {
+  const row = await input.db
+    .prepare(
+      `
+        SELECT
+          CASE
+            WHEN status IN ('submitted', 'accepted', 'retry_observed')
+              AND final_publication_state IS NULL
+              THEN 1
+            ELSE 0
+          END AS active
+        FROM openMeldRemoteAgent_native_delivery_ledger
+        WHERE conversation_kind = 'slack'
+          AND organization_id = ?
+          AND slack_team_id = ?
+          AND slack_channel_id = ?
+          AND slack_thread_ts = ?
+        ORDER BY created_at_ms DESC, trigger_message_id DESC, delivery_id DESC
+        LIMIT 1
+      `
+    )
+    .bind(input.organizationId, input.teamId, input.channelId, input.threadTs)
+    .first<{ active: number }>();
+  return row?.active === 1;
+}
+
 // Keeps every chunked statement within D1's bound-parameter limit (100):
 // chunk spaceIds + the two active statuses + freshAfterMs.
 const ACTIVE_COUNT_SPACE_ID_CHUNK_SIZE = 80;
