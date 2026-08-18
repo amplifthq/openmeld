@@ -1,4 +1,7 @@
-import type { RuntimeTransportSetLocalAgentEnabledResponse } from "@openmeld/schemas/types";
+import type {
+  RuntimeTransportManageLocalAgentInstallationResponse,
+  RuntimeTransportSetLocalAgentEnabledResponse,
+} from "@openmeld/schemas/types";
 import { createCoreRpcHttpError } from "./errors";
 
 type AcceptedLocalAgentControlPayload = Omit<
@@ -39,4 +42,33 @@ export function requireAcceptedLocalAgentControlPayload(
     });
   }
   return transportResult.payload as AcceptedLocalAgentControlPayload;
+}
+
+export function requireAcceptedLocalAgentInstallationPayload(
+  transportResult: RuntimeTransportManageLocalAgentInstallationResponse
+): Extract<
+  RuntimeTransportManageLocalAgentInstallationResponse,
+  { status: "accepted" }
+>["payload"] & { accepted: true } {
+  if (transportResult.status !== "accepted") {
+    throw createCoreRpcHttpError({
+      status:
+        transportResult.reasonCode === "local_agent_control.timeout"
+          ? 504
+          : 409,
+      reason: transportResult.message,
+      code: transportResult.reasonCode,
+    });
+  }
+  if (!transportResult.payload.accepted) {
+    throw createCoreRpcHttpError({
+      status: 409,
+      reason:
+        transportResult.payload.message ??
+        "OpenMeld Service could not manage this local agent installation.",
+      code:
+        transportResult.payload.reasonCode ?? "local_agent_control.rejected",
+    });
+  }
+  return transportResult.payload;
 }

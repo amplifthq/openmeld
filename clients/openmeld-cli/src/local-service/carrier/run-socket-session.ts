@@ -23,6 +23,7 @@ import {
   localFolderPickerDaemonFrameSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportHeartbeatRequestSchema,
+  runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema,
   runtimeTransportLocalAgentControlSetProfileWorkspaceFramePayloadSchema,
@@ -33,6 +34,7 @@ import {
 } from "@openmeld/schemas";
 import type {
   LocalComponentsStatus,
+  OpenMeldDaemonManageLocalAgentInstallationPayload,
   OpenMeldDaemonSetLocalAgentEnabledPayload,
   OpenMeldDaemonSetProfileWorkspacePayload,
   OpenMeldDaemonSyncRouteCatalogPayload,
@@ -40,7 +42,10 @@ import type {
   RuntimeTransportRegisterSessionResponse,
   RuntimeTransportStopCause,
 } from "@openmeld/schemas/types";
-import { setAgentRegistrationEnabled } from "../../agents/registry";
+import {
+  manageAgentRegistrationInstallation,
+  setAgentRegistrationEnabled,
+} from "../../agents/registry";
 import { resolveLocalComponentsStatus } from "../../local-components/manifest";
 import {
   ensureOpenMeldManagedProfileWorkspace,
@@ -1736,6 +1741,34 @@ export async function runDaemonSocketSession(input: {
     });
   };
 
+  const handleLocalAgentControlManageInstallationFrame = async (
+    payload: Record<string, unknown>
+  ): Promise<void> => {
+    const parsed =
+      runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema.safeParse(
+        payload
+      );
+    if (!parsed.success) {
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.local_agent_installation_frame_invalid",
+        text: "ignored invalid local agent installation frame",
+      });
+      return;
+    }
+
+    const responsePayload = await applyLocalAgentControlManageInstallation(
+      parsed.data.payload
+    );
+    sendDaemonFrame(input.socket, {
+      code: "daemon.local_agent_control.result",
+      payload: {
+        requestId: parsed.data.requestId,
+        payload: responsePayload,
+      },
+    });
+  };
+
   const handleLocalAgentControlRefreshCatalogFrame = async (
     payload: Record<string, unknown>
   ): Promise<void> => {
@@ -1905,6 +1938,87 @@ export async function runDaemonSocketSession(input: {
     }
   };
 
+  const applyLocalAgentControlManageInstallation = async (controlInput: {
+    agentId: string;
+    installationId?: string;
+    operation: "list" | "select";
+  }): Promise<OpenMeldDaemonManageLocalAgentInstallationPayload> => {
+    try {
+      const result = await manageAgentRegistrationInstallation(controlInput);
+      let reportSyncStatus: OpenMeldDaemonManageLocalAgentInstallationPayload["reportSyncStatus"] =
+        "skipped";
+      if (result.changed) {
+        try {
+          const reportSync =
+            await requestFreshRuntimeAgentControllerReportSync();
+          reportSyncStatus = reportSync.status;
+        } catch (error) {
+          reportSyncStatus = "failed";
+          emitRunLine({
+            presenter: input.presenter,
+            code: "daemon.run.local_agent_installation_report_sync_failed",
+            text: `runtime agent controller report sync failed after installation change: ${toErrorMessage(error)}`,
+          });
+        }
+        requestLocalExecutionEvidenceRefresh({
+          reason: "local_state_changed",
+          scheduleReason: "local_agent_installation_selected",
+        });
+      }
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.local_agent_installation_managed",
+        text:
+          controlInput.operation === "list"
+            ? `${result.displayName} installations listed.`
+            : `${result.displayName} installation selected.`,
+        payload: {
+          agentControllerRef: result.agentControllerRef,
+          agentId: result.agentId,
+          changed: result.changed,
+          installationCount: result.installations.length,
+          operation: controlInput.operation,
+          reportSyncStatus,
+          selectedInstallationId: result.selectedInstallationId,
+        },
+      });
+      return {
+        accepted: true,
+        agentControllerRef: result.agentControllerRef,
+        agentId: result.agentId,
+        changed: result.changed,
+        installations: result.installations,
+        reportSyncStatus,
+        selectedInstallationId: result.selectedInstallationId,
+        status: result.status,
+      };
+    } catch (error) {
+      const message = toErrorMessage(error);
+      const reasonCode = resolveLocalAgentEnabledErrorCode(error);
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.local_agent_installation_rejected",
+        text: `local agent installation request rejected: ${message}`,
+        payload: {
+          agentId: controlInput.agentId,
+          operation: controlInput.operation,
+          reasonCode,
+        },
+      });
+      return {
+        accepted: false,
+        agentId: controlInput.agentId,
+        changed: false,
+        installations: [],
+        message,
+        reasonCode,
+        reportSyncStatus: "failed",
+        selectedInstallationId: null,
+        status: "rejected",
+      };
+    }
+  };
+
   const applyLocalAgentControlSetProfileWorkspace = async (controlInput: {
     targetProfileId: string;
     workspaceMode: "custom" | "openmeld_managed";
@@ -2010,6 +2124,35 @@ export async function runDaemonSocketSession(input: {
     });
   });
 
+  const handleLocalAgentRegistrationControlFrame = (frame: {
+    code: string;
+    payload: Record<string, unknown>;
+  }): boolean => {
+    if (frame.code === "daemon.local_agent_control.set_enabled") {
+      handleLocalAgentControlSetEnabledFrame(frame.payload).catch((error) => {
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.local_agent_control_failed",
+          text: `local agent control failed: ${toErrorMessage(error)}`,
+        });
+      });
+      return true;
+    }
+    if (frame.code === "daemon.local_agent_control.manage_installation") {
+      handleLocalAgentControlManageInstallationFrame(frame.payload).catch(
+        (error) => {
+          emitRunLine({
+            presenter: input.presenter,
+            code: "daemon.run.local_agent_control_failed",
+            text: `local agent installation control failed: ${toErrorMessage(error)}`,
+          });
+        }
+      );
+      return true;
+    }
+    return false;
+  };
+
   input.socket.onMessage((raw) => {
     // Keepalive PONG (bare "pong", auto-answered by the RuntimeTransportHub DO)
     // is not a daemon frame; feed the keepalive watchdog and swallow it before
@@ -2044,16 +2187,7 @@ export async function runDaemonSocketSession(input: {
       });
       return;
     }
-    if (parsedFrame.code === "daemon.local_agent_control.set_enabled") {
-      handleLocalAgentControlSetEnabledFrame(parsedFrame.payload).catch(
-        (error) => {
-          emitRunLine({
-            presenter: input.presenter,
-            code: "daemon.run.local_agent_control_failed",
-            text: `local agent control failed: ${toErrorMessage(error)}`,
-          });
-        }
-      );
+    if (handleLocalAgentRegistrationControlFrame(parsedFrame)) {
       return;
     }
     if (parsedFrame.code === "daemon.local_agent_control.refresh_catalog") {

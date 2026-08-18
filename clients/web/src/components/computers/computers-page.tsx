@@ -18,7 +18,10 @@ import { AppPageHeader } from "#/components/app/app-page-header";
 import { resolveConnectedLocalRuntime } from "#/lib/connect/connected-runtime";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationComputersPath } from "#/lib/organizations/organization-routes";
-import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import {
+	organizationComputersQueryOptions,
+	organizationDirectoryQueryOptions,
+} from "#/query/organizations/organization-directory";
 import { ComputersPicker } from "./computers-picker";
 import { OrganizationComputerDetail } from "./organization-computer-card";
 import {
@@ -35,11 +38,12 @@ const COMPUTERS_SERVICE_STATUS_REFETCH_INTERVAL_MS = 10_000;
  *
  * `/o/:orgSlug/computers` opens on a picker grouped by owner in Organization
  * workspaces. The signed-in member's cards come from their complete personal
- * inventory. Other members' read-only cards come only from active ordinary
- * Agents in the current Organization Directory, and expose the owner and those
- * visible Agent relationships without local diagnostics or controls. Selecting
- * a computer navigates to `/o/:orgSlug/computers/:deviceId`; other-member links
- * use an Agent Profile reference instead of exposing the runtime device id.
+ * inventory. Other members' read-only cards come from Core's team-safe
+ * Organization Computer projection, so a connected computer remains visible
+ * before its owner creates an Agent Profile. They expose only the bounded team
+ * status defined by that projection and never local accounts, paths, versions,
+ * policies, or controls. Selecting a computer navigates to
+ * `/o/:orgSlug/computers/:deviceId` with an opaque directory route id.
  *
  * This reuses the same `useLocalAgentRecoveryController` hook, the same device
  * list / current-device sources, and the same
@@ -85,9 +89,25 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 			organizationId: currentOrganization.id,
 		})
 	);
+	const organizationComputersQuery = useQuery(
+		organizationComputersQueryOptions({
+			enabled: isOrganizationContext,
+			organizationId: currentOrganization.id,
+		})
+	);
+	const directoryIsPending =
+		isOrganizationContext &&
+		(organizationDirectoryQuery.isPending ||
+			organizationComputersQuery.isPending);
+	const directoryError =
+		isOrganizationContext &&
+		(organizationDirectoryQuery.isError || organizationComputersQuery.isError)
+			? "OpenMeld couldn't load other members' computers."
+			: null;
 	const computerGroups = resolveOrganizationComputerGroups({
 		currentUserId,
 		directory: organizationDirectoryQuery.data ?? null,
+		organizationComputers: organizationComputersQuery.data ?? null,
 		ownedComputers: devices,
 	});
 	const isReconcilingCurrentToolsStatus =
@@ -114,72 +134,15 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 		preferredDeviceId !== null &&
 		devices.some((device) => device.deviceId === preferredDeviceId);
 
-	// A Computers deep-link can target one current-Computer control. Resolve the
-	// current connected Computer to its canonical detail route before the reused
-	// detail panel consumes focus.
-	useEffect(() => {
-		if (
-			!(
-				routeState.computersFocusFileAccess || routeState.computersFocusService
-			) ||
-			selectedDeviceId !== null
-		) {
-			return;
-		}
-		if (preferredDeviceId && canResolvePreferredDeviceRoute) {
-			routeState.onComputerRouteResolved?.(preferredDeviceId);
-		}
-	}, [
+	useResolvePreferredComputerRoute({
 		canResolvePreferredDeviceRoute,
+		onComputerRouteResolved: routeState.onComputerRouteResolved,
 		preferredDeviceId,
-		routeState.computersFocusFileAccess,
-		routeState.computersFocusService,
-		routeState.onComputerRouteResolved,
-		selectedDeviceId,
-	]);
-
-	let body = (
-		<ComputersPicker
-			computerGroups={computerGroups}
-			directoryError={
-				organizationDirectoryQuery.isError
-					? "OpenMeld couldn't load other members' computers."
-					: null
-			}
-			directoryIsPending={organizationDirectoryQuery.isPending}
-			isOrganizationContext={isOrganizationContext}
-			isPending={recovery.localRuntimesQuery.isPending}
-			isReconcilingCurrentToolsStatus={isReconcilingCurrentToolsStatus}
-			orgSlug={orgSlug}
-			recovery={recovery}
-		/>
-	);
-	if (
-		selectedDeviceId !== null &&
-		(recovery.localRuntimesQuery.isPending ||
-			(isOrganizationContext && organizationDirectoryQuery.isPending))
-	) {
-		body = <SelectedComputerLoading />;
-	} else if (selectedDeviceId !== null && selectedComputer) {
-		body = (
-			<SelectedComputerPanel
-				computer={selectedComputer}
-				focusFileAccess={routeState.computersFocusFileAccess}
-				focusService={routeState.computersFocusService}
-				isReconcilingStatus={isReconcilingCurrentToolsStatus}
-				onFocusConsumed={routeState.onFocusConsumed}
-				queryClient={queryClient}
-				recovery={recovery}
-				setupCompleteRefreshPending={setupCompleteRefreshStatus === "pending"}
-			/>
-		);
-	} else if (selectedDeviceId !== null && selectedOrganizationComputer) {
-		body = (
-			<OrganizationComputerDetail computer={selectedOrganizationComputer} />
-		);
-	} else if (selectedDeviceId !== null) {
-		body = <ComputerNotFoundState orgSlug={orgSlug} />;
-	}
+		shouldResolve:
+			(routeState.computersFocusFileAccess ||
+				routeState.computersFocusService) &&
+			selectedDeviceId === null,
+	});
 
 	const sectionTitle = resolveComputersSectionTitle({
 		selectedOrganizationComputer,
@@ -222,10 +185,108 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 						</Link>
 					</div>
 				) : null}
-				{body}
+				<ComputersPageBody
+					computerGroups={computerGroups}
+					directoryError={directoryError}
+					directoryIsPending={directoryIsPending}
+					isOrganizationContext={isOrganizationContext}
+					isReconcilingCurrentToolsStatus={isReconcilingCurrentToolsStatus}
+					orgSlug={orgSlug}
+					queryClient={queryClient}
+					recovery={recovery}
+					routeState={routeState}
+					selectedComputer={selectedComputer}
+					selectedDeviceId={selectedDeviceId}
+					selectedOrganizationComputer={selectedOrganizationComputer}
+					setupCompleteRefreshPending={setupCompleteRefreshStatus === "pending"}
+				/>
 			</section>
 		</>
 	);
+}
+
+function ComputersPageBody(input: {
+	computerGroups: readonly OrganizationComputerGroup[];
+	directoryError: string | null;
+	directoryIsPending: boolean;
+	isOrganizationContext: boolean;
+	isReconcilingCurrentToolsStatus: boolean;
+	orgSlug: string;
+	queryClient: ReturnType<typeof useQueryClient>;
+	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
+	routeState: ComputersRouteState;
+	selectedComputer: LocalRuntimeComputer | null;
+	selectedDeviceId: string | null;
+	selectedOrganizationComputer: OrganizationComputer | null;
+	setupCompleteRefreshPending: boolean;
+}) {
+	if (
+		input.selectedDeviceId !== null &&
+		(input.recovery.localRuntimesQuery.isPending || input.directoryIsPending)
+	) {
+		return <SelectedComputerLoading />;
+	}
+	if (input.selectedDeviceId !== null && input.selectedComputer) {
+		return (
+			<SelectedComputerPanel
+				computer={input.selectedComputer}
+				focusFileAccess={input.routeState.computersFocusFileAccess}
+				focusService={input.routeState.computersFocusService}
+				isReconcilingStatus={input.isReconcilingCurrentToolsStatus}
+				onFocusConsumed={input.routeState.onFocusConsumed}
+				queryClient={input.queryClient}
+				recovery={input.recovery}
+				setupCompleteRefreshPending={input.setupCompleteRefreshPending}
+			/>
+		);
+	}
+	if (input.selectedDeviceId !== null && input.selectedOrganizationComputer) {
+		return (
+			<OrganizationComputerDetail
+				computer={input.selectedOrganizationComputer}
+			/>
+		);
+	}
+	if (input.selectedDeviceId !== null) {
+		return <ComputerNotFoundState orgSlug={input.orgSlug} />;
+	}
+	return (
+		<ComputersPicker
+			computerGroups={input.computerGroups}
+			directoryError={input.directoryError}
+			directoryIsPending={input.directoryIsPending}
+			isOrganizationContext={input.isOrganizationContext}
+			isPending={input.recovery.localRuntimesQuery.isPending}
+			isReconcilingCurrentToolsStatus={input.isReconcilingCurrentToolsStatus}
+			orgSlug={input.orgSlug}
+			recovery={input.recovery}
+		/>
+	);
+}
+
+// A Computers deep-link can target one current-Computer control. Resolve the
+// current connected Computer to its canonical detail route before the reused
+// detail panel consumes focus.
+function useResolvePreferredComputerRoute(input: {
+	canResolvePreferredDeviceRoute: boolean;
+	onComputerRouteResolved?: (deviceId: string) => void;
+	preferredDeviceId: string | null;
+	shouldResolve: boolean;
+}) {
+	useEffect(() => {
+		if (
+			input.shouldResolve &&
+			input.preferredDeviceId &&
+			input.canResolvePreferredDeviceRoute
+		) {
+			input.onComputerRouteResolved?.(input.preferredDeviceId);
+		}
+	}, [
+		input.canResolvePreferredDeviceRoute,
+		input.onComputerRouteResolved,
+		input.preferredDeviceId,
+		input.shouldResolve,
+	]);
 }
 
 function resolveSelectedOrganizationComputer(input: {

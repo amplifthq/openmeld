@@ -1103,7 +1103,7 @@ describe("setup command", () => {
     expect(output).toContain(
       `CLI version: ${resolveCurrentDaemonExpectedVersion()}`
     );
-    expect(output).toContain("Agents: 1 detected: codex");
+    expect(output).toContain("Local agents: 1 connected: Codex");
     expect(output).toContain("OpenMeld Service");
     expect(output).toContain("Status: Running");
     expect(output).toContain("Auto-start: On - starts when you log in");
@@ -1235,7 +1235,7 @@ describe("setup command", () => {
     const output = presenter.line.mock.calls
       .map(([line]) => (line as { text: string }).text)
       .join("\n");
-    expect(output).toContain("No local agents connected.");
+    expect(output).toContain("Local agents: None connected.");
     expect(output).toContain("Install guide:");
     expect(output).toContain(
       "https://gateway.openmeld.test/guides/local-agents"

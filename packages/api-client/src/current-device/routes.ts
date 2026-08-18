@@ -21,6 +21,11 @@ export function buildCurrentAgentProfileWorkspaceRoute(
 export function buildCurrentLocalAgentEnabledRoute(agentId: string): string {
   return `/v1/local-runtimes/current/local-agents/${encodeURIComponent(agentId)}/enabled`;
 }
+export function buildCurrentLocalAgentInstallationsRoute(
+  agentId: string
+): string {
+  return `/v1/local-runtimes/current/local-agents/${encodeURIComponent(agentId)}/installations`;
+}
 export const LOCAL_RUNTIMES_ROUTE = "/v1/local-runtimes";
 
 export function buildLocalRuntimesRoute(input?: {

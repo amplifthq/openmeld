@@ -619,6 +619,16 @@ registry state, create new local Agent Controller registrations, or report
 success when the service is offline, old, unsupported, or not the current
 runtime lane.
 
+Web may also let the authenticated Computer owner list verified installations
+for an already registered built-in controller and explicitly select one. This
+uses the same current-device authorization and RuntimeTransportHub path. The
+local registry remains the single writer for the selected launch contract;
+paths stay in the immediate owner-only response and must not enter an
+Organization projection. Setup remains non-blocking: it preserves a valid saved
+choice, otherwise selects the first verified PATH-ordered candidate. Listing or
+selection failure stays visible and must not be reported as a successful local
+agent refresh.
+
 An explicit Off decision is sticky. Setup, service restart, catalog refresh,
 binary update, controller reinstall, and later controller detection must not
 turn that controller back on. Only an explicit current-service enable command

@@ -57,6 +57,7 @@ import {
   runtimeTransportHeartbeatRequestSchema,
   runtimeTransportInspectExecutionRecoveryRequestSchema,
   runtimeTransportInspectExecutionRecoveryResponseSchema,
+  runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlResultFramePayloadSchema,
   runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema,
@@ -72,6 +73,8 @@ import {
   runtimeTransportLookupOwnerServiceResponseSchema,
   runtimeTransportLookupRouteRequestSchema,
   runtimeTransportLookupRoutesBatchRequestSchema,
+  runtimeTransportManageLocalAgentInstallationRequestSchema,
+  runtimeTransportManageLocalAgentInstallationResponseSchema,
   runtimeTransportNotifyRouteCatalogChangedRequestSchema,
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
   runtimeTransportPreExecutionHandoffRequestSchema,
@@ -120,6 +123,7 @@ import type {
   LocalWakeRouteReport,
   OpenMeldDaemonCancelPayload,
   OpenMeldDaemonInterruptPayload,
+  OpenMeldDaemonManageLocalAgentInstallationPayload,
   OpenMeldDaemonSetLocalAgentEnabledPayload,
   OpenMeldDaemonSetProfileWorkspacePayload,
   OpenMeldDaemonSyncRouteCatalogPayload,
@@ -152,9 +156,11 @@ import type {
   RuntimeTransportInspectExecutionRecoveryResponse,
   RuntimeTransportLocalAgentControlCancelFramePayload,
   RuntimeTransportLocalAgentControlInterruptFramePayload,
+  RuntimeTransportLocalAgentControlManageInstallationFramePayload,
   RuntimeTransportLocalAgentControlRefreshCatalogFramePayload,
   RuntimeTransportLocalAgentControlSetEnabledFramePayload,
   RuntimeTransportLocalAgentControlSetProfileWorkspaceFramePayload,
+  RuntimeTransportManageLocalAgentInstallationResponse,
   RuntimeTransportPreExecutionHandoffRequest,
   RuntimeTransportPreExecutionHandoffResponse,
   RuntimeTransportRefreshLocalAgentCatalogResponse,
@@ -555,6 +561,7 @@ type RuntimeCoordinatorStoppedTaskProjectionIndex = {
   publicationIds: string[];
 };
 export type LocalAgentControlResultPayloadKind =
+  | "manage_installation"
   | "refresh_catalog"
   | "set_profile_workspace"
   | "set_enabled";
@@ -2057,6 +2064,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       case "daemon.dispatch.deliver":
       case "daemon.dispatch.interaction_response":
       case "daemon.local_agent_control.refresh_catalog":
+      case "daemon.local_agent_control.manage_installation":
       case "daemon.local_agent_control.set_enabled":
       case "daemon.local_agent_control.set_profile_workspace":
       case "daemon.execution_recovery.resume_controller_conversation":
@@ -7980,6 +7988,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | undefined = {
       "/local-agent-control/set-enabled": (input: Request) =>
         this.handleSetLocalAgentEnabledRequest(input),
+      "/local-agent-control/installations": (input: Request) =>
+        this.handleManageLocalAgentInstallationRequest(input),
       "/local-agent-control/refresh-catalog": (input: Request) =>
         this.handleRefreshLocalAgentCatalogRequest(input),
       "/local-agent-control/set-profile-workspace": (input: Request) =>
@@ -8293,6 +8303,114 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               ? error.message
               : "Timed out waiting for the local OpenMeld Service.",
         } satisfies RuntimeTransportSetLocalAgentEnabledResponse,
+        { status: 504 }
+      );
+    }
+  }
+
+  private async handleManageLocalAgentInstallationRequest(
+    request: Request
+  ): Promise<Response> {
+    const parsed =
+      runtimeTransportManageLocalAgentInstallationRequestSchema.safeParse(
+        await readJsonBody(request)
+      );
+    if (!parsed.success) {
+      return Response.json(
+        {
+          status: "rejected",
+          reasonCode: "local_agent_control.invalid_request",
+          message:
+            parsed.error.issues[0]?.message ??
+            "invalid local agent installation request",
+        } satisfies RuntimeTransportManageLocalAgentInstallationResponse,
+        { status: 400 }
+      );
+    }
+
+    this.reapExpiredLeases(Date.now());
+    const session = this.resolveLocalAgentControlSession({
+      ...parsed.data,
+      capability: "manageInstallations",
+      unsupportedMessage:
+        "Update OpenMeld Service before choosing a local agent installation from OpenMeld Web.",
+      updateRequiredMessage:
+        "Update OpenMeld Service before choosing a local agent installation from OpenMeld Web.",
+    });
+    if (!session.ok) {
+      return Response.json(
+        {
+          status: "rejected",
+          reasonCode: session.reasonCode,
+          message: session.message,
+        } satisfies RuntimeTransportManageLocalAgentInstallationResponse,
+        { status: 409 }
+      );
+    }
+
+    const requestId = crypto.randomUUID();
+    const framePayload =
+      runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema.safeParse(
+        {
+          requestId,
+          payload: parsed.data.request,
+        }
+      );
+    if (!framePayload.success) {
+      return Response.json(
+        {
+          status: "rejected",
+          reasonCode: "local_agent_control.invalid_frame",
+          message:
+            framePayload.error.issues[0]?.message ??
+            "invalid local agent installation frame",
+        } satisfies RuntimeTransportManageLocalAgentInstallationResponse,
+        { status: 500 }
+      );
+    }
+
+    try {
+      const payload = await this.sendLocalAgentControlManageInstallationAndWait(
+        {
+          requestId,
+          session: session.session,
+          payload: framePayload.data,
+        }
+      );
+      if (!payload.accepted) {
+        return Response.json(
+          {
+            status: "rejected",
+            reasonCode:
+              payload.reasonCode ?? "local_agent_control.rejected_by_daemon",
+            message:
+              payload.message ??
+              "OpenMeld Service could not manage this local agent installation.",
+          } satisfies RuntimeTransportManageLocalAgentInstallationResponse,
+          { status: 409 }
+        );
+      }
+      const response: RuntimeTransportManageLocalAgentInstallationResponse = {
+        status: "accepted",
+        payload,
+      };
+      const validated =
+        runtimeTransportManageLocalAgentInstallationResponseSchema.safeParse(
+          response
+        );
+      return Response.json(validated.success ? validated.data : response, {
+        status: 200,
+      });
+    } catch (error) {
+      return Response.json(
+        {
+          status: "rejected",
+          reasonCode: "local_agent_control.timeout",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Timed out waiting for OpenMeld Service.",
+        } satisfies RuntimeTransportManageLocalAgentInstallationResponse,
         { status: 504 }
       );
     }
@@ -16124,7 +16242,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private resolveLocalAgentControlSession(input: {
-    capability: "refreshCatalog" | "setEnabled" | "setProfileWorkspace";
+    capability:
+      | "manageInstallations"
+      | "refreshCatalog"
+      | "setEnabled"
+      | "setProfileWorkspace";
     ownerUserId: string;
     deviceId: string;
     lane: string;
@@ -16193,6 +16315,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       requestId: input.requestId,
       session: input.session,
       timeoutMs: resolveLocalAgentControlResponseTimeoutMs("set_enabled"),
+    });
+  }
+
+  private async sendLocalAgentControlManageInstallationAndWait(input: {
+    requestId: string;
+    session: RuntimeTransportSessionState & { socket: WebSocket };
+    payload: RuntimeTransportLocalAgentControlManageInstallationFramePayload;
+  }): Promise<OpenMeldDaemonManageLocalAgentInstallationPayload> {
+    return await this.sendCurrentDeviceOperationAndWait({
+      code: "daemon.local_agent_control.manage_installation",
+      expectedResponseCode: "daemon.local_agent_control.result",
+      isExpectedPayload: isOpenMeldDaemonManageLocalAgentInstallationPayload,
+      payload: input.payload as unknown as Record<string, unknown>,
+      requestId: input.requestId,
+      session: input.session,
+      timeoutMs: resolveLocalAgentControlResponseTimeoutMs(
+        "manage_installation"
+      ),
     });
   }
 
@@ -16921,6 +17061,15 @@ const isOpenMeldDaemonSetLocalAgentEnabledPayload = (
   payload !== null &&
   "agentId" in payload &&
   "enabled" in payload;
+
+const isOpenMeldDaemonManageLocalAgentInstallationPayload = (
+  payload: unknown
+): payload is OpenMeldDaemonManageLocalAgentInstallationPayload =>
+  typeof payload === "object" &&
+  payload !== null &&
+  "agentId" in payload &&
+  "installations" in payload &&
+  "selectedInstallationId" in payload;
 
 const isOpenMeldDaemonSetProfileWorkspacePayload = (
   payload: unknown

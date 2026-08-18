@@ -3,9 +3,11 @@ import {
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
 import type {
+	CurrentLocalAgentInstallationsResponse,
 	CurrentLocalRuntimeReplyReadinessResponse,
 	LocalRuntimesResponse,
 	RefreshCurrentLocalAgentCatalogResponse,
+	SelectCurrentLocalAgentInstallationResponse,
 	SetCurrentLocalAgentEnabledResponse,
 } from "@openmeld/schemas";
 import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -53,6 +55,31 @@ export async function setCurrentLocalAgentEnabled(input: {
 		return await createCurrentDeviceApi(
 			createWebOpenMeldApiFoundation()
 		).setCurrentLocalAgentEnabled(input);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function readCurrentLocalAgentInstallations(input: {
+	agentId: string;
+}): Promise<CurrentLocalAgentInstallationsResponse> {
+	try {
+		return await createCurrentDeviceApi(
+			createWebOpenMeldApiFoundation()
+		).getCurrentLocalAgentInstallations(input);
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function selectCurrentLocalAgentInstallation(input: {
+	agentId: string;
+	installationId: string;
+}): Promise<SelectCurrentLocalAgentInstallationResponse> {
+	try {
+		return await createCurrentDeviceApi(
+			createWebOpenMeldApiFoundation()
+		).selectCurrentLocalAgentInstallation(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}

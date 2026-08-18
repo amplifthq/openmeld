@@ -17,6 +17,7 @@ export type RuntimeTransportApiPath =
   | "/computer-file-access/read-policy"
   | "/computer-file-access/update-policy"
   | "/local-folder-picker/select-folders"
+  | "/local-agent-control/installations"
   | "/local-agent-control/refresh-catalog"
   | "/local-agent-control/set-enabled"
   | "/local-agent-control/set-profile-workspace"

@@ -22,10 +22,12 @@ describe("api-client current device api", () => {
       "enrollLocalRuntime",
       "forgetComputer",
       "forgetCurrentComputer",
+      "getCurrentLocalAgentInstallations",
       "getCurrentLocalRuntimeReplyReadiness",
       "getCurrentTarget",
       "listLocalRuntimes",
       "refreshCurrentLocalAgentCatalog",
+      "selectCurrentLocalAgentInstallation",
       "setCurrentAgentProfileWorkspace",
       "setCurrentLocalAgentEnabled",
       "setDisplayName",
@@ -678,6 +680,111 @@ describe("api-client current device api", () => {
           headers: {
             "content-type": "application/json",
           },
+        }),
+      })
+    );
+  });
+
+  it("reads and selects a current local agent installation through the canonical current-service route", async () => {
+    const transport = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            agentId: "claude-code",
+            installations: [
+              {
+                details: "Claude Code installed for this account",
+                installationId: "install-local",
+                name: "User installation",
+                selected: true,
+              },
+              {
+                details: "Claude Code installed with Homebrew",
+                installationId: "install-homebrew",
+                name: "Homebrew installation",
+                selected: false,
+              },
+            ],
+            selectedInstallationId: "install-local",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            agentId: "claude-code",
+            changed: true,
+            installations: [
+              {
+                details: "Claude Code installed for this account",
+                installationId: "install-local",
+                name: "User installation",
+                selected: false,
+              },
+              {
+                details: "Claude Code installed with Homebrew",
+                installationId: "install-homebrew",
+                name: "Homebrew installation",
+                selected: true,
+              },
+            ],
+            localRuntimes: {
+              currentDeviceId: "device-macbook-pro",
+              currentRuntimeLane: "prod",
+              localRuntimes: [],
+            },
+            reportSyncStatus: "submitted",
+            selectedInstallationId: "install-homebrew",
+            status: "updated",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
+      );
+    const api = createCurrentDeviceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    const listed = await api.getCurrentLocalAgentInstallations({
+      agentId: "claude-code",
+    });
+    expect(listed.selectedInstallationId).toBe("install-local");
+
+    const selected = await api.selectCurrentLocalAgentInstallation({
+      agentId: "claude-code",
+      installationId: "install-homebrew",
+    });
+    expect(selected).toMatchObject({
+      changed: true,
+      selectedInstallationId: "install-homebrew",
+      status: "updated",
+    });
+    expect(transport).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        url: "https://gateway.openmeld.invalid/v1/local-runtimes/current/local-agents/claude-code/installations",
+        operation: "local_runtime.current.local_agent_installations.read",
+        init: expect.objectContaining({ method: "GET" }),
+      })
+    );
+    expect(transport).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        url: "https://gateway.openmeld.invalid/v1/local-runtimes/current/local-agents/claude-code/installations",
+        operation: "local_runtime.current.local_agent_installation.write",
+        init: expect.objectContaining({
+          body: JSON.stringify({ installationId: "install-homebrew" }),
+          method: "PUT",
         }),
       })
     );

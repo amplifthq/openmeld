@@ -113,6 +113,8 @@ import {
   createSpaceDiagnosticReportBodySchema,
   currentDeviceTargetDeviceIdSchema,
   currentDeviceTargetResponseSchema,
+  currentLocalAgentInstallationsResponseSchema,
+  currentLocalAgentInstallationsRouteParamsSchema,
   currentLocalRuntimeReplyReadinessResponseSchema,
   daemonServiceLaneSchema,
   deleteSpaceAttachmentRecordInputSchema,
@@ -181,6 +183,7 @@ import {
   openCenterAgentDirectMessageSpaceResponseSchema,
   openDirectMessageSpaceResponseSchema,
   openMeldRequestContextSchema,
+  organizationComputersResponseSchema,
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
   organizationMemberOpenMeldServiceStatusesResponseSchema,
@@ -203,6 +206,8 @@ import {
   runtimeReportingRouteParamsSchema,
   saveOrganizationWakeAccessChoiceBodySchema,
   saveOrganizationWakeAccessChoiceResponseSchema,
+  selectCurrentLocalAgentInstallationBodySchema,
+  selectCurrentLocalAgentInstallationResponseSchema,
   setCurrentAgentProfileWorkspaceBodySchema,
   setCurrentAgentProfileWorkspaceResponseSchema,
   setCurrentAgentProfileWorkspaceRouteParamsSchema,
@@ -373,6 +378,7 @@ import type {
   CreateSpaceDiagnosticReportBody,
   CreateSpaceDiagnosticReportResponse,
   CurrentDeviceTargetResponse,
+  CurrentLocalAgentInstallationsResponse,
   CurrentLocalRuntimeReplyReadinessResponse,
   DaemonServiceLane,
   DeleteSpaceAttachmentRecordInput as DeleteSpaceAttachmentRecordInputContract,
@@ -452,6 +458,7 @@ import type {
   OpenDirectMessageSpaceBody,
   OpenDirectMessageSpaceResponse,
   OpenMeldRequestContext,
+  OrganizationComputersResponse,
   OrganizationDirectoryResponse,
   OrganizationInformationProtectionPolicyResponse,
   OrganizationMemberOpenMeldServiceStatusesResponse,
@@ -476,6 +483,8 @@ import type {
   RevokeAgentProfileBindingForOrganizationResponse,
   SaveOrganizationWakeAccessChoiceBody,
   SaveOrganizationWakeAccessChoiceResponse,
+  SelectCurrentLocalAgentInstallationBody,
+  SelectCurrentLocalAgentInstallationResponse,
   SetCurrentAgentProfileWorkspaceBody,
   SetCurrentAgentProfileWorkspaceResponse,
   SetCurrentLocalAgentEnabledBody,
@@ -738,6 +747,7 @@ import {
 import {
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoutesBatch,
+  manageRuntimeTransportLocalAgentInstallation,
   notifyRuntimeTransportRouteCatalogChanged,
   readRuntimeTransportComputerFileAccessPolicy,
   refreshRuntimeTransportLocalAgentCatalog,
@@ -764,6 +774,10 @@ import {
   rpcCenterAgentRecommendOpportunity as centerAgentRecommendOpportunity,
   rpcCenterAgentRespondToOpportunity as centerAgentRespondToOpportunity,
 } from "../opportunities/opportunity-center-agent-rpc";
+import {
+  listOrganizationComputers,
+  type OrganizationComputerLiveSession,
+} from "../organizations/organization-computers-service";
 import {
   readOrganizationAccountIdentityProjection,
   readOrganizationCreatorUserId,
@@ -991,7 +1005,10 @@ import {
   requireCurrentLocalRuntimeServiceTarget,
 } from "./current-local-control-target";
 import { createCoreRpcHttpError } from "./errors";
-import { requireAcceptedLocalAgentControlPayload } from "./local-agent-control-policy";
+import {
+  requireAcceptedLocalAgentControlPayload,
+  requireAcceptedLocalAgentInstallationPayload,
+} from "./local-agent-control-policy";
 import { callRequiredAuthWorkerRpc } from "./required-auth-worker-rpc";
 import {
   isHexSpaceId,
@@ -2065,6 +2082,17 @@ export type SetCurrentLocalAgentEnabledInput =
     context?: CoreRpcContextInput;
   };
 
+export type GetCurrentLocalAgentInstallationsInput = {
+  agentId: string;
+  context?: CoreRpcContextInput;
+};
+
+export type SelectCurrentLocalAgentInstallationInput =
+  SelectCurrentLocalAgentInstallationBody & {
+    agentId: string;
+    context?: CoreRpcContextInput;
+  };
+
 export type SetCurrentAgentProfileWorkspaceInput =
   SetCurrentAgentProfileWorkspaceBody & {
     agentProfileId: string;
@@ -2173,6 +2201,10 @@ export type SaveOrganizationWakeAccessChoiceInput =
   };
 
 export type GetCurrentOrganizationDirectoryInput = {
+  context?: CoreRpcContextInput;
+};
+
+export type GetCurrentOrganizationComputersInput = {
   context?: CoreRpcContextInput;
 };
 
@@ -2953,6 +2985,135 @@ export async function rpcSetCurrentLocalAgentEnabled(
   if (!validated.success) {
     throw new Error(
       `failed to build local agent enabled response: ${validated.error.message}`
+    );
+  }
+  return validated.data;
+}
+
+export async function rpcGetCurrentLocalAgentInstallations(
+  env: CoreBindings,
+  input: GetCurrentLocalAgentInstallationsInput
+): Promise<CurrentLocalAgentInstallationsResponse> {
+  const userId = requireAuthenticatedOwnerUserId(input.context);
+  const routeParams = currentLocalAgentInstallationsRouteParamsSchema.safeParse(
+    {
+      agentId: input.agentId,
+    }
+  );
+  if (!routeParams.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      reason:
+        routeParams.error.issues[0]?.message ??
+        "invalid local agent installation request",
+      code: "invalid_payload",
+    });
+  }
+
+  const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
+    capability: "manageInstallations",
+    env,
+    unsupportedCode: "local_agent_control.unsupported",
+    unsupportedReason:
+      "Update OpenMeld Service before choosing a local agent installation from OpenMeld Web.",
+    userId,
+  });
+  const transportResult = await manageRuntimeTransportLocalAgentInstallation({
+    deviceId: currentTarget.deviceId,
+    env,
+    ownerUserId: userId,
+    request: {
+      agentId: routeParams.data.agentId,
+      operation: "list",
+    },
+    runtimeLane: currentTarget.runtimeLane,
+  });
+  const acceptedPayload =
+    requireAcceptedLocalAgentInstallationPayload(transportResult);
+  const response: CurrentLocalAgentInstallationsResponse = {
+    agentId: acceptedPayload.agentId,
+    installations: acceptedPayload.installations,
+    selectedInstallationId: acceptedPayload.selectedInstallationId,
+  };
+  const validated =
+    currentLocalAgentInstallationsResponseSchema.safeParse(response);
+  if (!validated.success) {
+    throw new Error(
+      `failed to build local agent installations response: ${validated.error.message}`
+    );
+  }
+  return validated.data;
+}
+
+export async function rpcSelectCurrentLocalAgentInstallation(
+  env: CoreBindings,
+  input: SelectCurrentLocalAgentInstallationInput
+): Promise<SelectCurrentLocalAgentInstallationResponse> {
+  const userId = requireAuthenticatedOwnerUserId(input.context);
+  const routeParams = currentLocalAgentInstallationsRouteParamsSchema.safeParse(
+    {
+      agentId: input.agentId,
+    }
+  );
+  const parsedBody = selectCurrentLocalAgentInstallationBodySchema.safeParse({
+    installationId: input.installationId,
+  });
+  if (!(routeParams.success && parsedBody.success)) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      reason:
+        routeParams.error?.issues[0]?.message ??
+        parsedBody.error?.issues[0]?.message ??
+        "invalid local agent installation request",
+      code: "invalid_payload",
+    });
+  }
+
+  const { currentTarget, lookupOwnerServiceForUser } =
+    await resolveCurrentLocalAgentControlTarget({
+      capability: "manageInstallations",
+      env,
+      unsupportedCode: "local_agent_control.unsupported",
+      unsupportedReason:
+        "Update OpenMeld Service before choosing a local agent installation from OpenMeld Web.",
+      userId,
+    });
+  const transportResult = await manageRuntimeTransportLocalAgentInstallation({
+    deviceId: currentTarget.deviceId,
+    env,
+    ownerUserId: userId,
+    request: {
+      agentId: routeParams.data.agentId,
+      installationId: parsedBody.data.installationId,
+      operation: "select",
+    },
+    runtimeLane: currentTarget.runtimeLane,
+  });
+  const acceptedPayload =
+    requireAcceptedLocalAgentInstallationPayload(transportResult);
+  const refreshedLocalRuntimes = await listLocalRuntimesUseCase({
+    connectionIdentityAdoption: "safe_legacy_current",
+    lookupOwnerService: lookupOwnerServiceForUser,
+    store: buildCurrentDeviceTargetStore(env),
+    userId,
+  });
+  const response: SelectCurrentLocalAgentInstallationResponse = {
+    agentId: acceptedPayload.agentId,
+    changed: acceptedPayload.changed,
+    installations: acceptedPayload.installations,
+    localRuntimes: refreshedLocalRuntimes,
+    reportSyncStatus: acceptedPayload.reportSyncStatus,
+    selectedInstallationId: acceptedPayload.selectedInstallationId,
+    status:
+      acceptedPayload.status === "listed"
+        ? "unchanged"
+        : acceptedPayload.status,
+  };
+  const validated =
+    selectCurrentLocalAgentInstallationResponseSchema.safeParse(response);
+  if (!validated.success) {
+    throw new Error(
+      `failed to build selected local agent installation response: ${validated.error.message}`
     );
   }
   return validated.data;
@@ -4559,6 +4720,100 @@ export async function rpcGetCurrentOrganizationMemberOpenMeldServiceStatuses(
     memberUserIds: members.map((member) => member.userId),
     organizationId: activeOrganization.organizationId,
   });
+}
+
+export async function rpcGetCurrentOrganizationComputers(
+  env: CoreBindings,
+  input: GetCurrentOrganizationComputersInput
+): Promise<OrganizationComputersResponse> {
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const generatedAt = new Date().toISOString();
+  const nowMs = Date.parse(generatedAt);
+  const members = await resolveOrganizationDirectoryMembers({
+    authWorker: env.OPENMELD_AUTH_WORKER,
+    organizationId: activeOrganization.organizationId,
+    requestId: context.actorContext.requestId,
+  });
+  const db = localStateDb(env);
+  if (!db) {
+    throw createCoreRpcHttpError({
+      code: "organization_computers.store_unavailable",
+      reason: "Organization computers are temporarily unavailable.",
+      status: 503,
+    });
+  }
+
+  const response = await listOrganizationComputers({
+    generatedAt,
+    lookupMemberComputerInventory: async ({ userId }) => {
+      const [devices, executionTargets] = await Promise.all([
+        listOwnedDeviceRegistryRecords({ db, userId }),
+        listOwnedDeviceExecutionTargetRecords({ db, nowMs, userId }),
+      ]);
+      let liveSessions: Awaited<
+        ReturnType<typeof lookupRuntimeTransportOwnerService>
+      > | null = null;
+      try {
+        liveSessions = await lookupRuntimeTransportOwnerService({
+          blockForgottenDevices: true,
+          env,
+          ownerUserId: userId,
+        });
+      } catch (error) {
+        console.warn("[core.organization.computers_service_lookup_failed]", {
+          error: error instanceof Error ? error.message : String(error),
+          event: "organization.computers_service_lookup_failed",
+          organizationId: activeOrganization.organizationId,
+          userId,
+        });
+      }
+      return {
+        devices,
+        executionTargets,
+        liveSessions: projectOrganizationComputerLiveSessions({
+          generatedAt,
+          liveSessions,
+        }),
+      };
+    },
+    memberUserIds: members.map((member) => member.userId),
+    organizationId: activeOrganization.organizationId,
+  });
+  const validated = organizationComputersResponseSchema.safeParse(response);
+  if (!validated.success) {
+    throw new Error(
+      `failed to build Organization computers response: ${validated.error.message}`
+    );
+  }
+  return validated.data;
+}
+
+function projectOrganizationComputerLiveSessions(input: {
+  generatedAt: string;
+  liveSessions: Awaited<
+    ReturnType<typeof lookupRuntimeTransportOwnerService>
+  > | null;
+}): OrganizationComputerLiveSession[] | null {
+  if (input.liveSessions === null) {
+    return null;
+  }
+  if (!input.liveSessions.online) {
+    return [];
+  }
+  return input.liveSessions.sessions.map((session) => ({
+    deviceId: session.deviceId,
+    executionCompatibility: session.executionCompatibility,
+    serviceUpdateWakeBlocked: resolveLocalComponentUpdateProjection({
+      generatedAt: input.generatedAt,
+      localComponentsStatus: session.capabilities.localComponents ?? null,
+      serviceConnected: true,
+      serviceVersion: session.serviceVersion ?? null,
+    }).service.wakeBlocked,
+  }));
 }
 
 async function buildOrganizationMemberOpenMeldServiceStatusesResponse(input: {

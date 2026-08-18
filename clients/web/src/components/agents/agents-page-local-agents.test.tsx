@@ -4,6 +4,7 @@ import type {
 	LocalRuntimeExecutionTarget,
 } from "@openmeld/schemas/types";
 import type { ComputerReplyReadiness } from "@openmeld/start";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
 	fireEvent,
@@ -20,6 +21,8 @@ import {
 	resolveLocalAgentsCatalogState,
 } from "./agents-page-local-agents";
 
+const HOMEBREW_INSTALLATION_NAME = /Homebrew installation/;
+
 const toastMock = vi.hoisted(() =>
 	Object.assign(vi.fn(), {
 		error: vi.fn(),
@@ -27,6 +30,26 @@ const toastMock = vi.hoisted(() =>
 		warning: vi.fn(),
 	})
 );
+
+const {
+	readCurrentLocalAgentInstallationsMock,
+	selectCurrentLocalAgentInstallationMock,
+} = vi.hoisted(() => ({
+	readCurrentLocalAgentInstallationsMock: vi.fn(),
+	selectCurrentLocalAgentInstallationMock: vi.fn(),
+}));
+
+vi.mock("#/lib/connect/local-runtimes", async () => {
+	const actual = await vi.importActual<
+		typeof import("#/lib/connect/local-runtimes")
+	>("#/lib/connect/local-runtimes");
+	return {
+		...actual,
+		readCurrentLocalAgentInstallations: readCurrentLocalAgentInstallationsMock,
+		selectCurrentLocalAgentInstallation:
+			selectCurrentLocalAgentInstallationMock,
+	};
+});
 
 vi.mock("sonner", () => ({
 	toast: toastMock,
@@ -160,6 +183,97 @@ describe("LocalAgentsCard", () => {
 			});
 		});
 		expect(screen.queryByText("Disable Codex?")).toBeNull();
+	});
+
+	it("lets the computer owner change which verified installation OpenMeld uses", async () => {
+		const refreshAll = vi.fn().mockResolvedValue(undefined);
+		readCurrentLocalAgentInstallationsMock.mockResolvedValue({
+			agentId: "codex",
+			installations: [
+				{
+					details: "Codex installed for this account",
+					installationId: "install-local",
+					name: "User installation",
+					selected: true,
+				},
+				{
+					details: "Codex installed with Homebrew",
+					installationId: "install-homebrew",
+					name: "Homebrew installation",
+					selected: false,
+				},
+			],
+			selectedInstallationId: "install-local",
+		});
+		selectCurrentLocalAgentInstallationMock.mockResolvedValue({
+			agentId: "codex",
+			changed: true,
+			installations: [
+				{
+					details: "Codex installed for this account",
+					installationId: "install-local",
+					name: "User installation",
+					selected: false,
+				},
+				{
+					details: "Codex installed with Homebrew",
+					installationId: "install-homebrew",
+					name: "Homebrew installation",
+					selected: true,
+				},
+			],
+			localRuntimes: {
+				currentDeviceId: "device-macbook-pro",
+				currentRuntimeLane: "dev-local",
+				localRuntimes: [],
+			},
+			reportSyncStatus: "submitted",
+			selectedInstallationId: "install-homebrew",
+			status: "updated",
+		});
+
+		renderLocalAgentsCard({
+			includeAgentControllerInterface: true,
+			installChoiceCount: 2,
+			manageInstallationsSupported: true,
+			refreshAll,
+			setEnabledSupported: true,
+		});
+		const row = screen.getByTestId("settings-local-agent-row-codex");
+		const rowTrigger = within(row)
+			.getByTestId("settings-local-agent-row-trigger")
+			.querySelector("button");
+		expect(rowTrigger).toBeTruthy();
+		fireEvent.click(rowTrigger as HTMLButtonElement);
+
+		expect(
+			screen.getByText("OpenMeld uses one installation on this computer.")
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Change installation" })
+		);
+
+		expect(
+			await screen.findByRole("heading", {
+				name: "Choose a Codex installation",
+			})
+		).toBeTruthy();
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: HOMEBREW_INSTALLATION_NAME,
+			})
+		);
+
+		await waitFor(() => {
+			expect(selectCurrentLocalAgentInstallationMock).toHaveBeenCalledWith({
+				agentId: "codex",
+				installationId: "install-homebrew",
+			});
+			expect(refreshAll).toHaveBeenCalledTimes(1);
+		});
+		expect(toastMock.success).toHaveBeenCalledWith(
+			"Codex installation updated."
+		);
 	});
 
 	it("places setup guidance on the disabled runnable agent row", () => {
@@ -882,11 +996,13 @@ function renderLocalAgentsCard(input: {
 	agentControllerStatus?: AgentControllerInterfaceSnapshot["status"];
 	codexEnabled?: boolean;
 	includeAgentControllerInterface?: boolean;
+	installChoiceCount?: number;
 	openClawEnabled?: boolean;
 	openClawLaunchStatus?: "ready" | "needs_repair" | "not_available";
 	openClawLifecycleStatus?: "active" | "suspended";
 	openClawSelectable?: boolean;
 	localAgentCatalogEntries?: LocalRuntimeExecutionTarget["localAgentCatalog"]["entries"];
+	manageInstallationsSupported?: boolean;
 	refreshAll?: () => Promise<void>;
 	refreshCatalogSupported?: boolean;
 	refreshLocalAgentCatalog?: () => Promise<void>;
@@ -905,7 +1021,9 @@ function renderLocalAgentsCard(input: {
 		agentControllerStatus: input.agentControllerStatus,
 		codexEnabled: input.codexEnabled ?? true,
 		includeAgentControllerInterface: input.includeAgentControllerInterface,
+		installChoiceCount: input.installChoiceCount,
 		localAgentCatalogEntries: input.localAgentCatalogEntries,
+		manageInstallationsSupported: input.manageInstallationsSupported,
 		openClawEnabled: input.openClawEnabled ?? false,
 		openClawLaunchStatus: input.openClawLaunchStatus ?? "not_available",
 		openClawLifecycleStatus: input.openClawLifecycleStatus ?? "active",
@@ -916,24 +1034,31 @@ function renderLocalAgentsCard(input: {
 		status: input.targetStatus ?? "ready",
 	});
 
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
 	render(
-		<LocalAgentsCard
-			computer={buildComputer(executionTarget)}
-			isCurrentComputer={true}
-			recovery={
-				{
-					agentProfiles: [],
-					refreshAll: input.refreshAll ?? vi.fn().mockResolvedValue(undefined),
-					refreshLocalAgentCatalog:
-						input.refreshLocalAgentCatalog ??
-						vi.fn().mockResolvedValue(undefined),
-					selectedExecutionTarget: executionTarget,
-					setLocalAgentEnabled:
-						input.setLocalAgentEnabled ?? vi.fn().mockResolvedValue(undefined),
-				} as unknown as Parameters<typeof LocalAgentsCard>[0]["recovery"]
-			}
-			replyReadiness={input.replyReadiness ?? READY_REPLY_READINESS}
-		/>
+		<QueryClientProvider client={queryClient}>
+			<LocalAgentsCard
+				computer={buildComputer(executionTarget)}
+				isCurrentComputer={true}
+				recovery={
+					{
+						agentProfiles: [],
+						refreshAll:
+							input.refreshAll ?? vi.fn().mockResolvedValue(undefined),
+						refreshLocalAgentCatalog:
+							input.refreshLocalAgentCatalog ??
+							vi.fn().mockResolvedValue(undefined),
+						selectedExecutionTarget: executionTarget,
+						setLocalAgentEnabled:
+							input.setLocalAgentEnabled ??
+							vi.fn().mockResolvedValue(undefined),
+					} as unknown as Parameters<typeof LocalAgentsCard>[0]["recovery"]
+				}
+				replyReadiness={input.replyReadiness ?? READY_REPLY_READINESS}
+			/>
+		</QueryClientProvider>
 	);
 
 	return { executionTarget };
@@ -963,7 +1088,9 @@ function buildExecutionTarget(input: {
 	agentControllerStatus?: AgentControllerInterfaceSnapshot["status"];
 	codexEnabled: boolean;
 	includeAgentControllerInterface?: boolean;
+	installChoiceCount?: number;
 	localAgentCatalogEntries?: LocalRuntimeExecutionTarget["localAgentCatalog"]["entries"];
+	manageInstallationsSupported?: boolean;
 	openClawEnabled?: boolean;
 	openClawLaunchStatus?: "ready" | "needs_repair" | "not_available";
 	openClawLifecycleStatus?: "active" | "suspended";
@@ -1034,7 +1161,7 @@ function buildExecutionTarget(input: {
 							launch: {
 								argsPrefix: [],
 								commandPath: "/opt/homebrew/bin/codex",
-								installChoiceCount: 1,
+								installChoiceCount: input.installChoiceCount ?? 1,
 								status: "ready",
 							},
 							message: input.agentControllerMessage ?? null,
@@ -1066,6 +1193,9 @@ function buildExecutionTarget(input: {
 			totalBuiltins: 2,
 		},
 		localAgentControl: {
+			...(input.manageInstallationsSupported
+				? { manageInstallations: true as const }
+				: {}),
 			refreshCatalog:
 				input.refreshCatalogSupported ?? input.setEnabledSupported,
 			setEnabled: input.setEnabledSupported,

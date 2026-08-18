@@ -2,6 +2,7 @@ import type {
 	CurrentLocalRuntimeReplyReadinessResponse,
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
+	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import {
@@ -32,6 +33,8 @@ const DEFAULT_COMPUTERS_ROUTE_STATE: ComputersRouteState = {
 	computersSetupCompleteRefresh: false,
 };
 const COMPUTER_OPTIONS_NAME_PATTERN = /Computer options/;
+let organizationComputersQueryData: OrganizationComputersResponse;
+let organizationDirectoryQueryData: OrganizationDirectoryResponse;
 const TestComputersRouteStateContext = createContext<ComputersRouteState>(
 	DEFAULT_COMPUTERS_ROUTE_STATE
 );
@@ -440,6 +443,41 @@ function buildOrganizationDirectory(input: {
 	} as unknown as OrganizationDirectoryResponse;
 }
 
+function buildOrganizationComputers(input: {
+	includeOtherMemberComputer?: boolean;
+}): OrganizationComputersResponse {
+	return {
+		computers: input.includeOtherMemberComputer
+			? [
+					{
+						computerId: "device-ashley",
+						deviceDisplayName: "Ashley's Mac Studio",
+						deviceType: "desktop",
+						lastSeenAtMs: 1_775_952_000_000,
+						localAgents: [
+							{
+								agentControllerRef: "builtin:claude-code",
+								enabled: true,
+								status: "ready",
+							},
+							{
+								agentControllerRef: "builtin:codex",
+								enabled: true,
+								status: "ready",
+							},
+						],
+						osVersion: "25.5.0",
+						ownerUserId: "user-ashley",
+						platformFamily: "macOS",
+						serviceState: "connected",
+					},
+				]
+			: [],
+		generatedAt: "2026-08-18T00:00:00.000Z",
+		organizationId: "org-acme",
+	};
+}
+
 describe("ComputersPage", () => {
 	beforeEach(() => {
 		selectedComputerPanelPropsSpy.mockReset();
@@ -447,12 +485,17 @@ describe("ComputersPage", () => {
 			.mockReset()
 			.mockReturnValue("idle");
 		useQueryClientMock.mockReset().mockReturnValue(queryClientStub);
-		useQueryMock.mockReset().mockReturnValue({
-			data: buildOrganizationDirectory({}),
+		organizationDirectoryQueryData = buildOrganizationDirectory({});
+		organizationComputersQueryData = buildOrganizationComputers({});
+		useQueryMock.mockReset().mockImplementation((options) => ({
+			data:
+				options.queryKey.at(-1) === "computers"
+					? organizationComputersQueryData
+					: organizationDirectoryQueryData,
 			error: null,
 			isError: false,
 			isPending: false,
-		});
+		}));
 		useLocalAgentRecoveryControllerMock.mockReset().mockReturnValue(
 			buildRecoveryControllerStub({
 				devices: [CURRENT_COMPUTER, OTHER_COMPUTER],
@@ -542,13 +585,11 @@ describe("ComputersPage", () => {
 	});
 
 	it("groups personal and organization-visible computers by owner", () => {
-		useQueryMock.mockReturnValue({
-			data: buildOrganizationDirectory({
-				includeOtherMemberComputers: true,
-			}),
-			error: null,
-			isError: false,
-			isPending: false,
+		organizationDirectoryQueryData = buildOrganizationDirectory({
+			includeOtherMemberComputers: true,
+		});
+		organizationComputersQueryData = buildOrganizationComputers({
+			includeOtherMemberComputer: true,
 		});
 
 		render(<TestComputersPage />);
@@ -565,15 +606,16 @@ describe("ComputersPage", () => {
 					name: "Open Ashley's Mac Studio details",
 				})
 				.getAttribute("href")
-		).toBe("/o/acme/computers/agent%3Aagent-researcher");
+		).toBe("/o/acme/computers/computer%3Adevice-ashley");
 		const ashleyComputer = screen.getByTestId(
-			"organization-computer-card-agent:agent-researcher"
+			"organization-computer-card-computer:device-ashley"
 		);
-		expect(within(ashleyComputer).getByText("Owned by Ashley")).toBeTruthy();
-		expect(within(ashleyComputer).getByText("2 Agents")).toBeTruthy();
 		expect(
-			within(ashleyComputer).getByText("Researcher and Scout")
+			within(ashleyComputer).getByText(
+				"Desktop · macOS 25.5.0 · Owned by Ashley"
+			)
 		).toBeTruthy();
+		expect(within(ashleyComputer).getByText("2 Local agents")).toBeTruthy();
 		expect(
 			within(ashleyComputer).queryByRole("button", {
 				name: COMPUTER_OPTIONS_NAME_PATTERN,
@@ -582,18 +624,16 @@ describe("ComputersPage", () => {
 	});
 
 	it("shows a read-only detail for another member's computer", () => {
-		useQueryMock.mockReturnValue({
-			data: buildOrganizationDirectory({
-				includeOtherMemberComputers: true,
-			}),
-			error: null,
-			isError: false,
-			isPending: false,
+		organizationDirectoryQueryData = buildOrganizationDirectory({
+			includeOtherMemberComputers: true,
+		});
+		organizationComputersQueryData = buildOrganizationComputers({
+			includeOtherMemberComputer: true,
 		});
 
 		render(
 			<TestComputersRouteStateProvider
-				value={{ computersSelectedDeviceId: "agent:agent-researcher" }}
+				value={{ computersSelectedDeviceId: "computer:device-ashley" }}
 			>
 				<TestComputersPage />
 			</TestComputersRouteStateProvider>
@@ -603,10 +643,15 @@ describe("ComputersPage", () => {
 		expect(
 			screen.getByRole("heading", { level: 1, name: "Ashley's Mac Studio" })
 		).toBeTruthy();
-		expect(screen.getByText("Owned by Ashley")).toBeTruthy();
-		expect(screen.getByRole("heading", { name: "Agents" })).toBeTruthy();
+		expect(
+			screen.getByText("Desktop · macOS 25.5.0 · Owned by Ashley")
+		).toBeTruthy();
+		expect(screen.getByText("Agent Profiles")).toBeTruthy();
 		expect(screen.getByText("Researcher")).toBeTruthy();
 		expect(screen.getByText("Scout")).toBeTruthy();
+		expect(screen.getByText("Claude Code")).toBeTruthy();
+		expect(screen.getByText("Codex", { selector: "p" })).toBeTruthy();
+		expect(screen.getByText("OpenMeld Service is connected.")).toBeTruthy();
 		expect(
 			screen.getByText(
 				"Ashley owns this computer. Ask them to update its connection or settings."

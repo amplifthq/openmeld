@@ -38,6 +38,7 @@ describe("resolve local service capabilities", () => {
       localAgentControl: {
         cancel: true,
         interrupt: true,
+        manageInstallations: true,
         refreshCatalog: true,
         resumeControllerConversation: true,
         setEnabled: true,
@@ -102,6 +103,7 @@ describe("resolve local service capabilities", () => {
       localAgentControl: {
         cancel: true,
         interrupt: true,
+        manageInstallations: true,
         refreshCatalog: true,
         resumeControllerConversation: true,
         setEnabled: true,

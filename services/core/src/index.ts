@@ -116,6 +116,7 @@ import type {
   CreateOrganizationSkillRpcInput,
   CreateSpaceDiagnosticReportResponse,
   CurrentDeviceTargetResponse,
+  CurrentLocalAgentInstallationsResponse,
   CurrentLocalRuntimeReplyReadinessResponse,
   DbFactSnapshot,
   DeleteCenterAgentRoutineResponse,
@@ -218,6 +219,7 @@ import type {
   NotifyAgentProfileRouteCatalogChangedResponse,
   OpenCenterAgentDirectMessageSpaceResponse,
   OpenDirectMessageSpaceResponse,
+  OrganizationComputersResponse,
   OrganizationDirectoryResponse,
   OrganizationDocumentPromptContextResponse,
   OrganizationDocumentPromptContextRpcInput,
@@ -257,6 +259,7 @@ import type {
   RetryCenterAgentTaskRpcInput,
   RevokeAgentProfileBindingForOrganizationResponse,
   SaveOrganizationWakeAccessChoiceResponse,
+  SelectCurrentLocalAgentInstallationResponse,
   SetCurrentAgentProfileWorkspaceResponse,
   SetCurrentLocalAgentEnabledResponse,
   SetOrganizationBindingAuthorizationPreferenceResponse,
@@ -528,7 +531,9 @@ import {
   type GetCenterAgentModelInput,
   type GetCenterAgentOperatingStateInput,
   type GetCurrentDeviceTargetInput,
+  type GetCurrentLocalAgentInstallationsInput,
   type GetCurrentLocalRuntimeReplyReadinessInput,
+  type GetCurrentOrganizationComputersInput,
   type GetCurrentOrganizationDirectoryInput,
   type GetCurrentOrganizationMemberOpenMeldServiceStatusesInput,
   type GetCurrentOrganizationSpaceDirectoryInput,
@@ -703,7 +708,9 @@ import {
   rpcGetCenterAgentModel,
   rpcGetCenterAgentOperatingState,
   rpcGetCurrentDeviceTarget,
+  rpcGetCurrentLocalAgentInstallations,
   rpcGetCurrentLocalRuntimeReplyReadiness,
+  rpcGetCurrentOrganizationComputers,
   rpcGetCurrentOrganizationDirectory,
   rpcGetCurrentOrganizationMemberOpenMeldServiceStatuses,
   rpcGetCurrentOrganizationSpaceDirectory,
@@ -788,6 +795,7 @@ import {
   rpcResumeRoutine,
   rpcRevokeAgentProfileBindingForOrganization,
   rpcSaveOrganizationWakeAccessChoice,
+  rpcSelectCurrentLocalAgentInstallation,
   rpcSelectLocalFolders,
   rpcSetCenterAgentOrganizationMemoryPolicy,
   rpcSetCurrentAgentProfileWorkspace,
@@ -821,6 +829,7 @@ import {
   rpcWriteCurrentDeviceObservedMetadata,
   runSlackInstallationWelcomePreparationTick,
   type SaveOrganizationWakeAccessChoiceInput,
+  type SelectCurrentLocalAgentInstallationInput,
   type SelectLocalFoldersInput,
   type SetCenterAgentOrganizationMemoryPolicyInput,
   type SetCurrentAgentProfileWorkspaceInput,
@@ -1954,6 +1963,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcGetCurrentOrganizationDirectory(this.env, input);
   }
 
+  getCurrentOrganizationComputers(
+    input: GetCurrentOrganizationComputersInput
+  ): Promise<OrganizationComputersResponse> {
+    return rpcGetCurrentOrganizationComputers(this.env, input);
+  }
+
   getCurrentOrganizationMemberOpenMeldServiceStatuses(
     input: GetCurrentOrganizationMemberOpenMeldServiceStatusesInput
   ): Promise<OrganizationMemberOpenMeldServiceStatusesResponse> {
@@ -2651,6 +2666,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: SetCurrentLocalAgentEnabledInput
   ): Promise<SetCurrentLocalAgentEnabledResponse> {
     return rpcSetCurrentLocalAgentEnabled(this.env, input);
+  }
+
+  getCurrentLocalAgentInstallations(
+    input: GetCurrentLocalAgentInstallationsInput
+  ): Promise<CurrentLocalAgentInstallationsResponse> {
+    return rpcGetCurrentLocalAgentInstallations(this.env, input);
+  }
+
+  selectCurrentLocalAgentInstallation(
+    input: SelectCurrentLocalAgentInstallationInput
+  ): Promise<SelectCurrentLocalAgentInstallationResponse> {
+    return rpcSelectCurrentLocalAgentInstallation(this.env, input);
   }
 
   setCurrentAgentProfileWorkspace(
@@ -3364,6 +3391,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.setCurrentLocalAgentEnabled(input);
   }
 
+  getCurrentLocalAgentInstallations(
+    input: GetCurrentLocalAgentInstallationsInput
+  ): Promise<CurrentLocalAgentInstallationsResponse> {
+    return super.getCurrentLocalAgentInstallations(input);
+  }
+
+  selectCurrentLocalAgentInstallation(
+    input: SelectCurrentLocalAgentInstallationInput
+  ): Promise<SelectCurrentLocalAgentInstallationResponse> {
+    return super.selectCurrentLocalAgentInstallation(input);
+  }
+
   setCurrentAgentProfileWorkspace(
     input: SetCurrentAgentProfileWorkspaceInput
   ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
@@ -3561,6 +3600,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetCurrentOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
     return super.getCurrentOrganizationDirectory(input);
+  }
+
+  getCurrentOrganizationComputers(
+    input: GetCurrentOrganizationComputersInput
+  ): Promise<OrganizationComputersResponse> {
+    return super.getCurrentOrganizationComputers(input);
   }
 
   getCurrentOrganizationMemberOpenMeldServiceStatuses(

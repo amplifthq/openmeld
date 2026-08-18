@@ -654,15 +654,24 @@ model is active.
 
 Computers is a first-level product home. The signed-in member's inventory and
 all computer mutations remain account-scoped, but an Organization workspace
-also provides a read-only directory of the computers its visible Agents use.
+also provides a read-only directory from Core's team-safe Organization Computer
+projection, including Service-connected Computers with no Agent Profile yet.
 Cards are grouped by owner just like Agents. Another member's card and detail
-show only the computer display name, owner, and the visible Agents that use it;
-they do not expose platform, operating-system version, Service version,
-last-seen time, local-agent inventory, or mutation controls. Connecting a
+may show computer name, owner, device category, operating-system family/version,
+last-seen time, coarse Service state, team-safe local-agent availability, and
+visible Agents that use it. They do not expose controller accounts or versions,
+executable or installation paths, local policy, credentials, raw errors, or
+mutation controls. Connecting a
 computer, understanding which supported local tools it provides, and repairing
 that execution path are prerequisite product jobs rather than appearance or
 account preferences. Agent readiness remains separate and authoritative; a
 connected Computer must never be presented as proof that an Agent can reply.
+
+On the exact current owned Computer, each enabled reported local agent may show
+**Change installation** when the live Service advertises installation
+management. The dialog lists only locally verified choices, clearly marks the
+current choice, and updates the Service-owned local registry. It loads on
+demand, never blocks setup, and never appears for another member's Computer.
 
 The current Computer detail includes **File access** after **Local agents**.
 It is an optional, account-owned control for OpenMeld-started runs on that

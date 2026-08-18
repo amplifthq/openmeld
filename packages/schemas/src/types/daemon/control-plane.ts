@@ -30,6 +30,12 @@ type OpenMeldDaemonSetLocalAgentEnabledPayloadSchema =
   typeof import("../../schemas/daemon/control-plane")["openMeldDaemonSetLocalAgentEnabledPayloadSchema"];
 type OpenMeldDaemonSetLocalAgentEnabledRequestPayloadSchema =
   typeof import("../../schemas/daemon/control-plane")["openMeldDaemonSetLocalAgentEnabledRequestPayloadSchema"];
+type LocalAgentInstallationOptionSchema =
+  typeof import("../../schemas/daemon/control-plane")["localAgentInstallationOptionSchema"];
+type OpenMeldDaemonManageLocalAgentInstallationPayloadSchema =
+  typeof import("../../schemas/daemon/control-plane")["openMeldDaemonManageLocalAgentInstallationPayloadSchema"];
+type OpenMeldDaemonManageLocalAgentInstallationRequestPayloadSchema =
+  typeof import("../../schemas/daemon/control-plane")["openMeldDaemonManageLocalAgentInstallationRequestPayloadSchema"];
 type OpenMeldDaemonSetProfileWorkspacePayloadSchema =
   typeof import("../../schemas/daemon/control-plane")["openMeldDaemonSetProfileWorkspacePayloadSchema"];
 type OpenMeldDaemonSetProfileWorkspaceRequestPayloadSchema =
@@ -63,6 +69,12 @@ export type OpenMeldDaemonControlPlaneRequest =
   z.infer<OpenMeldDaemonControlPlaneRequestSchema>;
 export type OpenMeldDaemonControlPlaneResponse =
   z.infer<OpenMeldDaemonControlPlaneResponseSchema>;
+export type LocalAgentInstallationOption =
+  z.infer<LocalAgentInstallationOptionSchema>;
+export type OpenMeldDaemonManageLocalAgentInstallationPayload =
+  z.infer<OpenMeldDaemonManageLocalAgentInstallationPayloadSchema>;
+export type OpenMeldDaemonManageLocalAgentInstallationRequestPayload =
+  z.infer<OpenMeldDaemonManageLocalAgentInstallationRequestPayloadSchema>;
 export type OpenMeldDaemonControlPlaneErrorPayload =
   z.infer<OpenMeldDaemonControlPlaneErrorPayloadSchema>;
 export type OpenMeldDaemonConversationExecutionControllerLaunchStatus =

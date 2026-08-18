@@ -1,9 +1,14 @@
 import type {
+	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 	OrganizationMemberOpenMeldServiceStatusesResponse,
 	OrganizationSpaceDirectoryWithMemberCountsResponse,
 } from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
+import {
+	type OrganizationComputersFailure,
+	readCurrentOrganizationComputers,
+} from "#/lib/organizations/organization-computers";
 import {
 	type OrganizationDirectoryFailure,
 	readCurrentOrganizationDirectory,
@@ -32,6 +37,11 @@ export const organizationQueryKeys = {
 			...organizationQueryKeys.organization(organizationId),
 			"directory",
 		] as const,
+	computers: (organizationId: string) =>
+		[
+			...organizationQueryKeys.organization(organizationId),
+			"computers",
+		] as const,
 	invitations: (organizationId: string) =>
 		[
 			...organizationQueryKeys.organization(organizationId),
@@ -56,6 +66,30 @@ export const organizationQueryKeys = {
 	spaces: (organizationId: string) =>
 		[...organizationQueryKeys.organization(organizationId), "spaces"] as const,
 };
+
+export function organizationComputersQueryOptions(input: {
+	enabled: boolean;
+	organizationId: string;
+}) {
+	return queryOptions<
+		OrganizationComputersResponse,
+		OrganizationComputersFailure
+	>({
+		enabled: input.enabled,
+		gcTime: ROUTE_REVISIT_GC_TIME_MS,
+		queryFn: async ({ signal }) =>
+			await readCurrentOrganizationComputers({
+				organizationId: input.organizationId,
+				signal,
+			}),
+		queryKey: organizationQueryKeys.computers(input.organizationId),
+		refetchInterval: 30_000,
+		refetchIntervalInBackground: false,
+		refetchOnWindowFocus: true,
+		retry: baseQueryOptions.retry,
+		staleTime: 10_000,
+	});
+}
 
 export function organizationMemberOpenMeldServiceStatusesQueryOptions(input: {
 	enabled: boolean;

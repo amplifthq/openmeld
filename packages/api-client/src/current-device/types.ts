@@ -1,7 +1,9 @@
 import type {
   CurrentDeviceTargetResponse,
+  CurrentLocalAgentInstallationsResponse,
   LocalRuntimesQuery,
   ObservedDeviceMetadata,
+  SelectCurrentLocalAgentInstallationResponse,
   SetCurrentAgentProfileWorkspaceBody,
   SetCurrentAgentProfileWorkspaceResponse,
   SetCurrentLocalAgentEnabledBody,
@@ -35,6 +37,10 @@ export type SetCurrentLocalAgentEnabledInput =
   SetCurrentLocalAgentEnabledBody & {
     agentId: string;
   };
+export type SelectCurrentLocalAgentInstallationInput = {
+  agentId: string;
+  installationId: string;
+};
 export type SetCurrentAgentProfileWorkspaceInput =
   SetCurrentAgentProfileWorkspaceBody & {
     agentProfileId: string;
@@ -68,6 +74,12 @@ export type CreateCurrentDeviceApi = (
   setCurrentLocalAgentEnabled: (
     input: SetCurrentLocalAgentEnabledInput
   ) => Promise<SetCurrentLocalAgentEnabledResponse>;
+  getCurrentLocalAgentInstallations: (input: {
+    agentId: string;
+  }) => Promise<CurrentLocalAgentInstallationsResponse>;
+  selectCurrentLocalAgentInstallation: (
+    input: SelectCurrentLocalAgentInstallationInput
+  ) => Promise<SelectCurrentLocalAgentInstallationResponse>;
   setCurrentAgentProfileWorkspace: (
     input: SetCurrentAgentProfileWorkspaceInput
   ) => Promise<SetCurrentAgentProfileWorkspaceResponse>;

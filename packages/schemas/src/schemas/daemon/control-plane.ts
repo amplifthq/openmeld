@@ -97,6 +97,26 @@ export const openMeldDaemonSetLocalAgentEnabledRequestPayloadSchema =
     enabled: z.boolean(),
   });
 
+export const localAgentInstallationOptionSchema = z.strictObject({
+  installationId: z.string().trim().min(1).max(256),
+  name: z.string().trim().min(1).max(256),
+  details: z.string().trim().min(1).max(256),
+  selected: z.boolean(),
+});
+
+export const openMeldDaemonManageLocalAgentInstallationRequestPayloadSchema =
+  z.discriminatedUnion("operation", [
+    z.strictObject({
+      agentId: z.string().trim().min(1).max(256),
+      operation: z.literal("list"),
+    }),
+    z.strictObject({
+      agentId: z.string().trim().min(1).max(256),
+      installationId: z.string().trim().min(1).max(256),
+      operation: z.literal("select"),
+    }),
+  ]);
+
 export const openMeldDaemonSetProfileWorkspaceRequestPayloadSchema = z
   .strictObject({
     targetProfileId: agentProfileIdSchema,
@@ -278,6 +298,31 @@ export const openMeldDaemonSetLocalAgentEnabledPayloadSchema = z.strictObject({
   reportSyncStatus: z.enum(["submitted", "skipped", "failed"]),
   status: z.enum(["updated", "unchanged", "rejected"]),
 });
+
+export const openMeldDaemonManageLocalAgentInstallationPayloadSchema =
+  z.discriminatedUnion("accepted", [
+    z.strictObject({
+      accepted: z.literal(true),
+      agentControllerRef: z.string().min(1),
+      agentId: z.string().trim().min(1).max(256),
+      changed: z.boolean(),
+      installations: z.array(localAgentInstallationOptionSchema),
+      reportSyncStatus: z.enum(["submitted", "skipped", "failed"]),
+      selectedInstallationId: z.string().trim().min(1).max(256).nullable(),
+      status: z.enum(["listed", "updated", "unchanged"]),
+    }),
+    z.strictObject({
+      accepted: z.literal(false),
+      agentId: z.string().trim().min(1).max(256),
+      changed: z.literal(false),
+      installations: z.array(localAgentInstallationOptionSchema),
+      message: z.string().min(1).optional(),
+      reasonCode: z.string().min(1).optional(),
+      reportSyncStatus: z.literal("failed"),
+      selectedInstallationId: z.string().trim().min(1).max(256).nullable(),
+      status: z.literal("rejected"),
+    }),
+  ]);
 
 export const openMeldDaemonSetProfileWorkspacePayloadSchema =
   z.discriminatedUnion("accepted", [

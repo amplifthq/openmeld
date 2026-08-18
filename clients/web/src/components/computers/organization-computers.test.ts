@@ -1,5 +1,6 @@
 import type {
 	LocalRuntimeComputer,
+	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
@@ -130,5 +131,48 @@ describe("resolveOrganizationComputerGroups", () => {
 				.flatMap((group) => group.computers)
 				.map((computer) => computer.deviceId)
 		).not.toContain("device-private");
+	});
+
+	it("shows a teammate computer reported by OpenMeld Service before they create an Agent Profile", () => {
+		const directory = {
+			...buildDirectory(),
+			agentProfiles: [],
+		} as unknown as OrganizationDirectoryResponse;
+		const organizationComputers = {
+			computers: [
+				{
+					computerId: "device-ashley-service",
+					deviceDisplayName: "Ashley's MacBook Pro",
+					deviceType: "laptop",
+					lastSeenAtMs: 1_786_980_000_000,
+					localAgents: [],
+					osVersion: "25.5.0",
+					ownerUserId: "user-ashley",
+					platformFamily: "macOS",
+					serviceState: "connected",
+				},
+			],
+			generatedAt: "2026-08-18T00:00:00.000Z",
+			organizationId: "org-1",
+		} satisfies OrganizationComputersResponse;
+
+		const groups = resolveOrganizationComputerGroups({
+			currentUserId: "user-felix",
+			directory,
+			organizationComputers,
+			ownedComputers: [],
+		});
+
+		expect(
+			groups.find((group) => group.ownerUserId === "user-ashley")
+		).toMatchObject({
+			computers: [
+				expect.objectContaining({
+					deviceDisplayName: "Ashley's MacBook Pro",
+					deviceId: "device-ashley-service",
+					isOwnedByCurrentUser: false,
+				}),
+			],
+		});
 	});
 });

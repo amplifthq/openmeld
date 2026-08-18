@@ -939,7 +939,7 @@ function emitSetupComplete(input: {
           value: resolveCurrentDaemonExpectedVersion(),
         },
         {
-          label: "Agents",
+          label: "Local agents",
           value: formatSetupCompleteLocalAgents({
             guideUrl: localAgentsGuideUrl,
             selectedLocalAgentIds: input.selectedLocalAgentIds,
@@ -1181,11 +1181,30 @@ function formatSetupCompleteLocalAgents(input: {
   selectedLocalAgentIds: readonly string[];
 }): string {
   if (input.selectedLocalAgentIds.length === 0) {
-    return `No local agents connected. Install one from the guide: ${input.guideUrl}`;
+    return `None connected. Install one from the guide: ${input.guideUrl}`;
   }
-  return `${input.selectedLocalAgentIds.length} detected: ${input.selectedLocalAgentIds.join(
-    ", "
-  )}`;
+  return `${input.selectedLocalAgentIds.length} connected: ${input.selectedLocalAgentIds
+    .map(formatSetupLocalAgentDisplayName)
+    .join(", ")}`;
+}
+
+function formatSetupLocalAgentDisplayName(agentId: string): string {
+  const knownDisplayNames: Readonly<Record<string, string>> = {
+    "claude-code": "Claude Code",
+    codex: "Codex",
+    cursor: "Cursor",
+    "grok-build": "Grok Build",
+    openclaw: "OpenClaw",
+    opencode: "OpenCode",
+  };
+  return (
+    knownDisplayNames[agentId] ??
+    agentId
+      .split("-")
+      .filter(Boolean)
+      .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+      .join(" ")
+  );
 }
 
 function formatSetupCompleteSpaceSetupHint(input: {

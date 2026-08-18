@@ -1,5 +1,8 @@
 import { z } from "zod/v4";
-import { openMeldDaemonSyncRouteCatalogPayloadSchema } from "../daemon/control-plane";
+import {
+  localAgentInstallationOptionSchema,
+  openMeldDaemonSyncRouteCatalogPayloadSchema,
+} from "../daemon/control-plane";
 import { daemonExecutionCompatibilitySchema } from "../daemon/runtime-transport";
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
 import { localComponentUpdateProjectionSchema } from "../local-components";
@@ -62,6 +65,7 @@ export const localRuntimeExecutionTargetCapabilitySchema = z
   });
 
 export const localRuntimeLocalAgentControlSchema = z.strictObject({
+  manageInstallations: z.boolean().optional(),
   refreshCatalog: z.boolean(),
   setEnabled: z.boolean(),
   setProfileWorkspace: z.boolean().optional(),
@@ -176,6 +180,20 @@ export const setCurrentLocalAgentEnabledBodySchema = z.strictObject({
   enabled: z.boolean(),
 });
 
+export const currentLocalAgentInstallationsRouteParamsSchema = z.strictObject({
+  agentId: z.string().trim().min(1).max(256),
+});
+
+export const selectCurrentLocalAgentInstallationBodySchema = z.strictObject({
+  installationId: z.string().trim().min(1).max(256),
+});
+
+export const currentLocalAgentInstallationsResponseSchema = z.strictObject({
+  agentId: z.string().trim().min(1).max(256),
+  installations: z.array(localAgentInstallationOptionSchema),
+  selectedInstallationId: z.string().trim().min(1).max(256).nullable(),
+});
+
 export const setCurrentAgentProfileWorkspaceRouteParamsSchema = z.strictObject({
   agentProfileId: agentProfileIdSchema,
 });
@@ -211,6 +229,14 @@ export const setCurrentLocalAgentEnabledResponseSchema = z.strictObject({
   reportSyncStatus: z.enum(["submitted", "skipped", "failed"]),
   status: z.enum(["updated", "unchanged"]),
 });
+
+export const selectCurrentLocalAgentInstallationResponseSchema =
+  currentLocalAgentInstallationsResponseSchema.extend({
+    changed: z.boolean(),
+    localRuntimes: localRuntimesResponseSchema,
+    reportSyncStatus: z.enum(["submitted", "skipped", "failed"]),
+    status: z.enum(["updated", "unchanged"]),
+  });
 
 export const setCurrentAgentProfileWorkspaceResponseSchema = z.strictObject({
   agentProfileId: agentProfileIdSchema,

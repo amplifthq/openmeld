@@ -1,7 +1,10 @@
 import { isAbsolute } from "node:path";
 import { buildAgentControllerRef } from "@openmeld/agent-runtime";
 import { compareAgentControllerRefsForDisplay } from "@openmeld/schemas";
-import type { RuntimeAgentControllerLaunchContract } from "@openmeld/schemas/types";
+import type {
+  LocalAgentInstallationOption,
+  RuntimeAgentControllerLaunchContract,
+} from "@openmeld/schemas/types";
 import {
   createDefaultRuntimeAgentControllerSettings,
   getConfiguredDeviceRuntimeState,
@@ -28,6 +31,7 @@ import {
 import {
   type LocalControllerInstallChoice,
   type LocalControllerInstallStatus,
+  listBuiltinControllerInstalledCandidates,
   refreshBuiltinControllerPersistedLaunchContract,
   resolveBuiltinControllerInstallResolution,
 } from "./local-controller-install";
@@ -93,6 +97,16 @@ export type SetAgentRegistrationEnabledResult = {
   displayName: string;
   enabled: boolean;
   status: "updated" | "unchanged";
+};
+
+export type ManageAgentRegistrationInstallationResult = {
+  agentControllerRef: string;
+  agentId: string;
+  changed: boolean;
+  displayName: string;
+  installations: LocalAgentInstallationOption[];
+  selectedInstallationId: string | null;
+  status: "listed" | "updated" | "unchanged";
 };
 
 export type SetupLocalAgentRegistrationReconciliation = {
@@ -293,7 +307,26 @@ function launchContractsEqual(
   left: RuntimeAgentControllerLaunchContract,
   right: RuntimeAgentControllerLaunchContract
 ): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
+  if (left.kind !== right.kind) {
+    return false;
+  }
+  const leftArgs = left.argsPrefix ?? [];
+  const rightArgs = right.argsPrefix ?? [];
+  if (
+    leftArgs.length !== rightArgs.length ||
+    leftArgs.some((arg, index) => arg !== rightArgs[index])
+  ) {
+    return false;
+  }
+  if (left.kind === "executable" && right.kind === "executable") {
+    return left.commandPath === right.commandPath;
+  }
+  return (
+    left.kind === "node_script" &&
+    right.kind === "node_script" &&
+    left.nodePath === right.nodePath &&
+    left.scriptPath === right.scriptPath
+  );
 }
 
 function reconcileAgentRegistrationsForCurrentRegistry(input: {
@@ -849,6 +882,112 @@ export async function setAgentRegistrationEnabled(input: {
     );
   }
   return result;
+}
+
+export async function manageAgentRegistrationInstallation(input: {
+  agentId: string;
+  installationId?: string;
+  operation: "list" | "select";
+}): Promise<ManageAgentRegistrationInstallationResult> {
+  const agentId = normalizeAgentId(input.agentId);
+  if (!agentId) {
+    throw new Error(
+      "agents.invalid_agent_id: provide a non-empty local agent id"
+    );
+  }
+
+  const state = await resolveAgentTargetState(agentId);
+  if (state?.targetKind !== "builtin") {
+    throw new Error(`agents.invalid_agent_id: unknown local agent: ${agentId}`);
+  }
+  if (!state.registration) {
+    throw new Error(
+      `agents.not_registered: ${state.displayName} is not connected on this computer`
+    );
+  }
+
+  const candidatesResult = await listBuiltinControllerInstalledCandidates({
+    agentId: state.agentId,
+    detected: state.detected,
+    displayName: state.displayName,
+    runtimeSupported: state.runtimeSupported,
+  });
+  if (!candidatesResult.ok) {
+    throw new Error(
+      `${candidatesResult.errorCode}: ${candidatesResult.errorMessage}`
+    );
+  }
+
+  const requestedInstallation =
+    input.operation === "select"
+      ? (candidatesResult.candidates.find(
+          (candidate) => candidate.installId === input.installationId
+        ) ?? null)
+      : null;
+  if (input.operation === "select" && !requestedInstallation) {
+    throw new Error(
+      `agents.installation_not_found: the selected ${state.displayName} installation is no longer available`
+    );
+  }
+
+  const currentLaunchContract = state.registration.launchContract ?? null;
+  const nextLaunchContract =
+    requestedInstallation?.launchContract ?? currentLaunchContract;
+  const changed = Boolean(
+    requestedInstallation &&
+      !(
+        currentLaunchContract &&
+        launchContractsEqual(
+          currentLaunchContract,
+          requestedInstallation.launchContract
+        )
+      )
+  );
+
+  if (changed && nextLaunchContract) {
+    await updateAgentRegistrations((current) =>
+      current.map((registration) =>
+        registration.agentId === state.agentId
+          ? {
+              ...registration,
+              launchContract: nextLaunchContract,
+              updatedAt: new Date().toISOString(),
+            }
+          : registration
+      )
+    );
+  }
+
+  const selectedLaunchContract = nextLaunchContract;
+  const installations = candidatesResult.candidates.map((candidate) => ({
+    details: candidate.detail,
+    installationId: candidate.installId,
+    name: candidate.label,
+    selected: Boolean(
+      selectedLaunchContract &&
+        launchContractsEqual(selectedLaunchContract, candidate.launchContract)
+    ),
+  }));
+  const selectedInstallationId =
+    installations.find((installation) => installation.selected)
+      ?.installationId ?? null;
+  let status: ManageAgentRegistrationInstallationResult["status"] = "listed";
+  if (input.operation === "select") {
+    status = changed ? "updated" : "unchanged";
+  }
+
+  return {
+    agentControllerRef: buildAgentControllerRef({
+      kind: "builtin",
+      id: state.agentId,
+    }),
+    agentId: state.agentId,
+    changed,
+    displayName: state.displayName,
+    installations,
+    selectedInstallationId,
+    status,
+  };
 }
 
 function resolveAgentEnableBlockedReason(state: AgentTargetState): string {

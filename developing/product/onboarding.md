@@ -666,6 +666,15 @@ re-running setup never reverses a user's explicit Computers setting. Explicit
 automation may still narrow one setup run via `--local-agent <id>` or
 `--local-agents all|none`.
 
+When more than one verified installation can provide the same controller,
+setup stays non-blocking. It first honors an existing saved choice; otherwise
+it uses the installation resolved first from the user's current terminal PATH
+and saves that launch contract. Setup reports the controller as connected, not
+merely detected. After setup, the computer owner may inspect every currently
+verified installation and change the saved choice from that Computer's Local
+agents section. This is an owner action on one computer; it does not create a
+second Agent Profile or another controller identity.
+
 The Web never selects agents and never drives a step-mirroring session; its only
 handoff is a copyable command
 (optionally carrying a one-time token that the terminal exchanges for the same
@@ -675,8 +684,8 @@ stepper have no successor (see Retired Surfaces).
 
 Setup reports the controllers it enabled, the controllers whose previous Off
 state it preserved, and any per-controller attention still required. One
-controller that needs sign-in, repair, or an install choice must stay unavailable
-and visible without preventing another healthy controller from connecting.
+controller that needs sign-in or repair must stay unavailable and visible
+without preventing another healthy controller from connecting.
 Setup may report connected local agents and local readiness evidence. It does not
 choose a managed welcoming profile, create Agent Profile Binding truth for
 onboarding, or ask which local agent should run an onboarding assistant. Model

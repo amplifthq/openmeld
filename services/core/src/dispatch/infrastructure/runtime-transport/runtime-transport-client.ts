@@ -23,6 +23,8 @@ import {
   runtimeTransportLookupRouteResponseSchema,
   runtimeTransportLookupRoutesBatchRequestSchema,
   runtimeTransportLookupRoutesBatchResponseSchema,
+  runtimeTransportManageLocalAgentInstallationRequestSchema,
+  runtimeTransportManageLocalAgentInstallationResponseSchema,
   runtimeTransportNotifyRouteCatalogChangedRequestSchema,
   runtimeTransportNotifyRouteCatalogChangedResponseSchema,
   runtimeTransportRefreshLocalAgentCatalogRequestSchema,
@@ -56,6 +58,7 @@ import type {
   RuntimeTransportLookupOwnerServiceResponse,
   RuntimeTransportLookupRouteResponse,
   RuntimeTransportLookupRoutesBatchResponse,
+  RuntimeTransportManageLocalAgentInstallationResponse,
   RuntimeTransportNotifyRouteCatalogChangedResponse,
   RuntimeTransportRefreshLocalAgentCatalogResponse,
   RuntimeTransportSetLocalAgentEnabledResponse,
@@ -268,6 +271,55 @@ export const setRuntimeTransportLocalAgentEnabled = async (input: {
       reasonCode: "local_agent_control.invalid_response",
       message:
         "Runtime Transport returned an invalid local agent control response.",
+    };
+  }
+  return parsed.data;
+};
+
+export const manageRuntimeTransportLocalAgentInstallation = async (input: {
+  deviceId: string;
+  env: CoreBindings;
+  ownerUserId: string;
+  request:
+    | { agentId: string; operation: "list" }
+    | { agentId: string; installationId: string; operation: "select" };
+  runtimeLane: DaemonServiceLane;
+}): Promise<RuntimeTransportManageLocalAgentInstallationResponse> => {
+  const parsedRequest =
+    runtimeTransportManageLocalAgentInstallationRequestSchema.safeParse({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      ownerUserId: input.ownerUserId,
+      deviceId: input.deviceId,
+      lane: input.runtimeLane,
+      request: input.request,
+    });
+  if (!parsedRequest.success) {
+    return {
+      status: "rejected",
+      reasonCode: "local_agent_control.invalid_request",
+      message:
+        parsedRequest.error.issues[0]?.message ??
+        "invalid local agent installation request",
+    };
+  }
+
+  const response = await callRuntimeTransportApi({
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/local-agent-control/installations",
+    body: parsedRequest.data,
+  });
+
+  const parsed =
+    runtimeTransportManageLocalAgentInstallationResponseSchema.safeParse(
+      response
+    );
+  if (!parsed.success) {
+    return {
+      status: "rejected",
+      reasonCode: "local_agent_control.invalid_response",
+      message:
+        "Runtime Transport returned an invalid local agent installation response.",
     };
   }
   return parsed.data;

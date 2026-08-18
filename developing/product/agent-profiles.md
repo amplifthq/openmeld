@@ -410,11 +410,13 @@ the profile. Those details must keep product identity separate from local
 execution infrastructure. Local connection facts such as controller conversation
 ID, OpenMeld Service runtime ID, Binding state, and workspace directory are
 owner-self diagnostics. They must not be presented as public Space identity,
-and observer views must not receive them. The computer display name is the one
-bounded exception: a current Organization member may see it only as part of an
-active, ordinary Organization-visible Agent's execution relationship, including
-the read-only Organization Computers directory. That exception grants no local
-diagnostics or computer-management authority.
+and observer views must not receive them. Agent Profile settings may show the
+friendly controller name and Computer currently providing its runtime, followed
+by **Manage on Computer**. Installation selection remains exclusively on that
+Computer; Agent Profile settings must not add a second installation selector.
+The computer display name is the one bounded exception: a current Organization
+member may see it in the read-only Organization Computers directory. That
+exception grants no local diagnostics or computer-management authority.
 
 ## Owner Boundaries
 

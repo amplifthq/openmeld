@@ -512,6 +512,8 @@ export type {
   LocalRuntimeExpectedRouteExclusion,
 } from "./local-runtime-expected-routes";
 export type {
+  CurrentLocalAgentInstallationsResponse,
+  CurrentLocalAgentInstallationsRouteParams,
   CurrentLocalRuntimeReplyReadinessResponse,
   LocalRuntimeComputer,
   LocalRuntimeExecutionTarget,
@@ -521,6 +523,8 @@ export type {
   LocalRuntimesQuery,
   LocalRuntimesResponse,
   RefreshCurrentLocalAgentCatalogResponse,
+  SelectCurrentLocalAgentInstallationBody,
+  SelectCurrentLocalAgentInstallationResponse,
   SetCurrentAgentProfileWorkspaceBody,
   SetCurrentAgentProfileWorkspaceResponse,
   SetCurrentAgentProfileWorkspaceRouteParams,
@@ -560,6 +564,11 @@ export type {
   ObservabilityRuntimeEvidenceStatus,
 } from "./observability-runtime-event";
 export type * from "./opportunities";
+export type {
+  OrganizationComputerLocalAgent,
+  OrganizationComputerRecord,
+  OrganizationComputersResponse,
+} from "./organization-computers";
 export type {
   OrganizationDirectoryAgentProfile,
   OrganizationDirectoryAgentProfileIdentity,

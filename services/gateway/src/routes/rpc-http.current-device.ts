@@ -3,6 +3,8 @@ import {
   computerFileAccessReadRequestSchema,
   computerFileAccessUpdateRequestSchema,
   currentDeviceTargetResponseSchema,
+  currentLocalAgentInstallationsResponseSchema,
+  currentLocalAgentInstallationsRouteParamsSchema,
   currentLocalRuntimeReplyReadinessResponseSchema,
   forgetComputerResponseSchema,
   forgetCurrentComputerResponseSchema,
@@ -13,6 +15,8 @@ import {
   localRuntimesQuerySchema,
   localRuntimesResponseSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
+  selectCurrentLocalAgentInstallationBodySchema,
+  selectCurrentLocalAgentInstallationResponseSchema,
   setCurrentAgentProfileWorkspaceBodySchema,
   setCurrentAgentProfileWorkspaceResponseSchema,
   setCurrentAgentProfileWorkspaceRouteParamsSchema,
@@ -47,6 +51,8 @@ const CURRENT_LOCAL_RUNTIME_OBSERVED_METADATA_ROUTE =
   "/v1/local-runtimes/current/observed-metadata";
 const CURRENT_LOCAL_AGENT_ENABLED_ROUTE =
   "/v1/local-runtimes/current/local-agents/:agentId/enabled";
+const CURRENT_LOCAL_AGENT_INSTALLATIONS_ROUTE =
+  "/v1/local-runtimes/current/local-agents/:agentId/installations";
 const CURRENT_LOCAL_AGENT_CATALOG_REFRESH_ROUTE =
   "/v1/local-runtimes/current/local-agents/refresh-catalog";
 const CURRENT_AGENT_PROFILE_WORKSPACE_ROUTE =
@@ -327,6 +333,15 @@ export function registerCurrentDeviceTargetRoutes(
     async (c) => await handleCurrentLocalAgentEnabledWrite(c)
   );
 
+  app.get(
+    CURRENT_LOCAL_AGENT_INSTALLATIONS_ROUTE,
+    async (c) => await handleCurrentLocalAgentInstallationsRead(c)
+  );
+  app.put(
+    CURRENT_LOCAL_AGENT_INSTALLATIONS_ROUTE,
+    async (c) => await handleCurrentLocalAgentInstallationWrite(c)
+  );
+
   app.put(
     CURRENT_AGENT_PROFILE_WORKSPACE_ROUTE,
     async (c) => await handleCurrentAgentProfileWorkspaceWrite(c)
@@ -509,6 +524,89 @@ async function handleCurrentLocalAgentEnabledWrite(c: Context<HonoBindings>) {
       await c.var.coreRpc.setCurrentLocalAgentEnabled({
         agentId: routeParams.data.agentId,
         enabled: parsedBody.data.enabled,
+        context: buildCoreRpcContext(c),
+      }),
+  });
+}
+
+function handleCurrentLocalAgentInstallationsRead(c: Context<HonoBindings>) {
+  const routeParams = currentLocalAgentInstallationsRouteParamsSchema.safeParse(
+    {
+      agentId: c.req.param("agentId"),
+    }
+  );
+  if (!routeParams.success) {
+    return respondBadRequest({
+      c,
+      route: CURRENT_LOCAL_AGENT_INSTALLATIONS_ROUTE,
+      method: "GET",
+      code: "invalid_payload",
+      message: routeParams.error.issues[0]?.message ?? "Invalid local agent id",
+    });
+  }
+  return executeRpcRoute({
+    c,
+    route: CURRENT_LOCAL_AGENT_INSTALLATIONS_ROUTE,
+    method: "GET",
+    responseSchema: currentLocalAgentInstallationsResponseSchema,
+    execute: async () =>
+      await c.var.coreRpc.getCurrentLocalAgentInstallations({
+        agentId: routeParams.data.agentId,
+        context: buildCoreRpcContext(c),
+      }),
+  });
+}
+
+async function handleCurrentLocalAgentInstallationWrite(
+  c: Context<HonoBindings>
+) {
+  const routeParams = currentLocalAgentInstallationsRouteParamsSchema.safeParse(
+    {
+      agentId: c.req.param("agentId"),
+    }
+  );
+  if (!routeParams.success) {
+    return respondBadRequest({
+      c,
+      route: CURRENT_LOCAL_AGENT_INSTALLATIONS_ROUTE,
+      method: "PUT",
+      code: "invalid_payload",
+      message: routeParams.error.issues[0]?.message ?? "Invalid local agent id",
+    });
+  }
+  const bodyResult = await readJsonRequestBody(c.req.raw);
+  if (!bodyResult.ok) {
+    return respondBadRequest({
+      c,
+      route: CURRENT_LOCAL_AGENT_INSTALLATIONS_ROUTE,
+      method: "PUT",
+      code: "invalid_json",
+      message: bodyResult.message,
+    });
+  }
+  const parsedBody = selectCurrentLocalAgentInstallationBodySchema.safeParse(
+    bodyResult.value
+  );
+  if (!parsedBody.success) {
+    return respondBadRequest({
+      c,
+      route: CURRENT_LOCAL_AGENT_INSTALLATIONS_ROUTE,
+      method: "PUT",
+      code: "invalid_payload",
+      message:
+        parsedBody.error.issues[0]?.message ??
+        "Invalid local agent installation",
+    });
+  }
+  return executeRpcRoute({
+    c,
+    route: CURRENT_LOCAL_AGENT_INSTALLATIONS_ROUTE,
+    method: "PUT",
+    responseSchema: selectCurrentLocalAgentInstallationResponseSchema,
+    execute: async () =>
+      await c.var.coreRpc.selectCurrentLocalAgentInstallation({
+        agentId: routeParams.data.agentId,
+        installationId: parsedBody.data.installationId,
         context: buildCoreRpcContext(c),
       }),
   });
