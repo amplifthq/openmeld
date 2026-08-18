@@ -76,6 +76,15 @@ const INBOX_MESSAGE_CHANNEL_RECEIVER_FIRST_SCOPE_ORDER = [
   "remote-agent",
   "cli",
 ];
+const LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER = [
+  "db",
+  "auth",
+  "web",
+  "gateway",
+  "core",
+  "remote-agent",
+  "cli",
+];
 const REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER = [
   "db",
   "remote-agent",
@@ -93,6 +102,8 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
   "default-auth-receiver-first": SCOPE_ORDER,
   "inbox-message-channel-receiver-first":
     INBOX_MESSAGE_CHANNEL_RECEIVER_FIRST_SCOPE_ORDER,
+  "local-service-runtime-receiver-first":
+    LOCAL_SERVICE_RUNTIME_RECEIVER_FIRST_SCOPE_ORDER,
   "remote-agent-and-inbox-receivers-first":
     REMOTE_AGENT_AND_INBOX_RECEIVERS_FIRST_SCOPE_ORDER,
   "remote-agent-receiver-first": REMOTE_AGENT_RECEIVER_FIRST_SCOPE_ORDER,
@@ -105,6 +116,12 @@ const INBOX_MESSAGE_CHANNEL_WRITER_PATHS = new Set([
   "services/core/src/remote-agent/application/slack-inbox-source-target.ts",
 ]);
 const INBOX_MESSAGE_CHANNEL_REQUIRED_SCOPES = ["web", "gateway", "core"];
+const LOCAL_SERVICE_RUNTIME_TRANSPORT_SCHEMA_PATH =
+  "packages/schemas/src/schemas/daemon/runtime-transport.ts";
+const LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX =
+  "services/core/src/runtime-transport/";
+const LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX =
+  "clients/openmeld-cli/src/local-service/";
 const REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS = new Set([
   "services/remote-agent/.flue/cloudflare.ts",
   "services/remote-agent/flue-adapter/cloudflare-entrypoint.ts",
@@ -394,6 +411,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   const steps = [];
   const changedPaths = input.changedPaths ?? [];
   assertInboxMessageChannelReleaseScopes(scopes, changedPaths);
+  assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(changedPaths);
   const orderedScopes = resolveProductionDeployScopeOrder(scopes, changedPaths);
   for (const scope of orderedScopes) {
@@ -566,7 +584,35 @@ function resolveProductionDeployOrderProfile(changedPaths) {
   if (isCenterAgentCliReceiverFirst) {
     return "center-agent-cli-receiver-first";
   }
+  if (isLocalServiceRuntimeReceiverFirstDiff(changedPaths)) {
+    return "local-service-runtime-receiver-first";
+  }
   return "default-auth-receiver-first";
+}
+
+function isLocalServiceRuntimeReceiverFirstDiff(changedPaths) {
+  return (
+    changedPaths.includes(LOCAL_SERVICE_RUNTIME_TRANSPORT_SCHEMA_PATH) &&
+    changedPaths.some((path) =>
+      path.startsWith(LOCAL_SERVICE_RUNTIME_CORE_RECEIVER_PATH_PREFIX)
+    ) &&
+    changedPaths.some((path) =>
+      path.startsWith(LOCAL_SERVICE_RUNTIME_PRODUCER_PATH_PREFIX)
+    )
+  );
+}
+
+function assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths) {
+  if (
+    !isLocalServiceRuntimeReceiverFirstDiff(changedPaths) ||
+    !scopes.includes("cli") ||
+    scopes.includes("core")
+  ) {
+    return;
+  }
+  throw new Error(
+    "A strict Local Service runtime release requires the Core scope before publishing CLI/Service."
+  );
 }
 
 function isInboxMessageChannelReceiverFirstDiff(changedPaths) {

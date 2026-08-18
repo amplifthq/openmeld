@@ -162,6 +162,17 @@ announcing a CLI version before its artifact exists. The temporary projection
 is a build-time override, not a second runtime variable or mutable release
 ledger.
 
+The planner selects `local-service-runtime-receiver-first` when one diff changes
+the strict Runtime Transport schema, a Core Runtime Transport receiver, and a
+local OpenMeld Service producer together. Within the selected scopes it deploys
+Database, Auth, Web, Gateway, Core, Remote Agent, and finally CLI. When Core and
+CLI are both selected, Core first deploys with the current published CLI
+projection; only after that receiver is healthy may the signed CLI/Service
+release advertise or emit the new strict capability. An explicit scope that
+publishes CLI without Core fails closed. This profile is structural and
+provider-neutral: it protects any strict Service-to-Core protocol addition
+without coupling release order to one Agent Controller or business workflow.
+
 The ordinary `cloud` order installs Auth receivers before Web, then continues
 through Gateway, Core, and Remote Agent. A Web-only release still skips Auth;
 the dependency only orders coordinated releases. Contracts that require a
