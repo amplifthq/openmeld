@@ -8,6 +8,7 @@ import {
   putRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
+import { RemoteAgentToolCallBudgetExceededError } from "../agent-core/tool-progress";
 import { RemoteAgentToolResultTooLargeError } from "../agent-core/tool-result-boundary";
 import { getRemoteAgentOpenMeldToolDefinitions } from "../agent-core/tools";
 import {
@@ -35,17 +36,17 @@ const TOOL_OPTIONS = {
 } satisfies ToolExecutionOptions;
 
 describe("Remote Agent Code Mode", () => {
-  it("keeps Task, Space, and identity actions reachable through Code Mode", async () => {
+  it("keeps the executable catalog fixed without embedding every schema in the prompt", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const definitions = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: {},
       storage,
       submissionId: SUBMISSION_ID,
     });
-    const runtime = createRuntime({
-      execute: async () => ({ result: null }),
-      executorOptions: [],
-    });
+    const runtime: RemoteAgentCodeModeRuntime = {
+      createCodeTool: ({ description }) => ({ description }),
+      createExecutor: () => ({}),
+    };
 
     const tool = await createRemoteAgentCodeModeFlueTool({
       definitions,
@@ -56,9 +57,11 @@ describe("Remote Agent Code Mode", () => {
       submissionId: SUBMISSION_ID,
     });
 
-    expect(tool.description).toContain("openmeld_create_task");
-    expect(tool.description).toContain("openmeld_create_space");
-    expect(tool.description).toContain("openmeld_require_identity_for_action");
+    expect(tool.description).toContain("openmeld_search_capabilities");
+    expect(tool.description).toContain("openmeld_describe_capabilities");
+    expect(tool.description).not.toContain("openmeld_create_task");
+    expect(tool.description).not.toContain("openmeld_create_space");
+    expect(tool.description).not.toContain("declare const codemode");
   });
 
   it("exposes structured Space Reference input in the generated Code Mode catalog", async () => {
@@ -413,6 +416,30 @@ describe("Remote Agent Code Mode", () => {
     expect(serializedPoint).toContain("cloudflare_codemode");
     expect(serializedPoint).not.toContain("secret generated code");
     expect(serializedPoint).not.toContain("isolated execution failed");
+  });
+
+  it("counts outer Code Mode calls toward the submission tool budget", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions: [],
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime: createRuntime({
+        execute: async () => ({ result: null }),
+        executorOptions: [],
+      }),
+      storage,
+      submissionId: SUBMISSION_ID,
+    });
+
+    for (let index = 0; index < 64; index += 1) {
+      await expect(
+        tool.run({ input: { code: "async () => null" } })
+      ).resolves.toEqual({ result: null });
+    }
+    await expect(
+      tool.run({ input: { code: "async () => null" } })
+    ).rejects.toBeInstanceOf(RemoteAgentToolCallBudgetExceededError);
   });
 
   it("keeps inner tool failures out of Work summary", async () => {

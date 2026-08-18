@@ -119,6 +119,24 @@ do next. This is the Agent's current semantic judgment, not a second persisted
 because they advance that goal. Tool availability never turns search, setup,
 delegation, or another capability into the goal by itself.
 
+That situation model keeps three meanings separate: **observed facts** record
+what actually happened with its known time and scope, **current status** says
+what is true now, and **pending plan** says what may happen next. A new status
+may replace an older status without deleting the historical event. A plan is
+not evidence that its action occurred. A scoped statement such as "not yet
+after this checkpoint" must not become "never happened." When compressed
+history conflicts with traceable conversation or tool evidence, the Center
+Agent preserves the scoped conflict and treats the answer as unknown until the
+evidence resolves it. This is a context-compilation invariant, not a second
+state store.
+
+Context compaction mechanically rebuilds a bounded action-evidence projection
+from the active canonical conversation path on every checkpoint. The semantic
+summary may interpret those events, but it cannot replace the fresh projection
+with an older model-authored claim. The projection proves only recorded tool
+calls and their error or non-error results; it does not widen authorization or
+assert an external side effect that the recorded result cannot prove.
+
 Before using a tool, that same Center Agent decides whether the goal and target
 are sufficiently specified. When one required detail is missing and trusted
 current context does not support a safe inference, it asks one concise question
@@ -144,10 +162,40 @@ the model's semantic judgment with a narrow router. Tool and context catalogs
 use progressive disclosure so the same general Agent can remain capable
 without loading every schema or transcript on every turn.
 
+The hosted Center Agent freezes one executable capability catalog at turn
+start. A large catalog gives the model small typed search and describe tools
+plus Code Mode: search returns bounded names and summaries, describe returns
+the selected capabilities' model-visible JSON schemas and descriptions, and
+Code Mode executes only members of the frozen catalog. Runtime validation
+remains authoritative for normalization and custom constraints that JSON
+Schema cannot express. Discovery does not add permissions, mutate the catalog,
+persist a second capability state, or make the model guess an undeclared field. Small
+catalogs may remain directly visible when progressive disclosure would not
+materially reduce context.
+
 All model-visible tools use structured calls and strict structured results.
 Malformed, parallel, incomplete, or unknown tool protocol fails closed inside
 the Agent loop. Raw tool syntax, provider payloads, or orchestration tags must
-never become user-facing text.
+never appear as rendered user-facing prose. A genuine Markdown inline-code or
+fenced-code example may display protocol-shaped text, but it is never treated
+as a call.
+
+Tool activity crosses the publication boundary only as typed runtime events.
+Ordinary assistant prose that renders reserved provider call/result protocol is
+invalid output: OpenMeld stops its stream, publishes one safe explicit failure,
+and retains bounded diagnostic evidence. It never turns text into a real tool
+call, never uses a regular expression to infer that an action occurred, and
+never exposes raw chain-of-thought. Valid typed tool events and provider
+evidence remain available to structured diagnostics and future presentation.
+
+The runtime also enforces bounded progress without becoming a second planner.
+One submission has a durable total tool-call ceiling. Only tools explicitly
+classified as observation-only participate in result-aware stall detection;
+the runtime compares bounded fingerprints of the tool name, input, and result
+and rejects a third unchanged observation, including alternating probe loops.
+It does not inspect keywords, store raw inputs or outputs, or infer that an
+effectful tool is safe to repeat. The Center Agent remains responsible for
+choosing the next useful action and finishing with the evidence it has.
 
 ## Pillar 1 — Organization (Tenancy)
 

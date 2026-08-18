@@ -293,6 +293,24 @@ stable Task conversation identity plus the newly accepted instruction and owns
 its private history and compaction. OpenMeld must not maintain an independent
 summary of that private history while the Remote Agent maintains another one.
 
+The one runtime-owned compaction checkpoint separates **observed facts**,
+**current status**, and **pending plan**. Completed actions retain their time,
+target, and scope after current status changes; pending work never negates an
+earlier completed action; and a plan never proves execution. Later evidence may
+correct a historical fact only explicitly and with its scope preserved.
+Conflicting evidence remains visible as a scoped conflict until traceable
+conversation or tool evidence resolves it. This rule applies equally to
+messages, deploys, invitations, approvals, payments, destructive operations,
+and delegated work.
+
+Each compaction rebuilds one bounded action-evidence projection from the active
+path of that same canonical private conversation. It records only tool names,
+call and result counts, and first and latest timestamps; it does not copy tool
+arguments or results. The runtime removes any older copy before appending the
+fresh projection, so model-authored summary text cannot erase evidence that
+tool work historically occurred. This projection is not a second event log and
+a non-error tool result is not independent proof of an external provider effect.
+
 Task surfaces may show messages, lifecycle events, and privacy-bounded semantic
 Work summaries. They must not expose chain-of-thought, raw reasoning, tool names,
 tool inputs or outputs, commands, paths, credentials, raw errors, internal agent

@@ -155,6 +155,37 @@ describe("Remote Agent SQLite adapter storage", () => {
     ).resolves.toBe(false);
     await expect(storage.get("execution")).resolves.toEqual(cancelled);
   });
+
+  it("atomically replaces an expiring record without dropping its retention", async () => {
+    const database = new DatabaseSync(":memory:");
+    databases.push(database);
+    const storage = createRemoteAgentSqlStorage(
+      createCloudflareSqlHarness(database)
+    );
+    const first = { callCount: 1 };
+    const second = { callCount: 2 };
+
+    await storage.putExpiring("tool-progress", first, 20_000);
+    await expect(
+      storage.compareAndSetExpiring("tool-progress", first, second, 30_000)
+    ).resolves.toBe(true);
+    expect(
+      database
+        .prepare(
+          `SELECT expires_at_ms FROM ${TABLE_NAME} WHERE key = ? LIMIT 1`
+        )
+        .get("tool-progress")
+    ).toEqual({ expires_at_ms: 30_000 });
+    await expect(
+      storage.compareAndSetExpiring(
+        "tool-progress",
+        first,
+        { callCount: 3 },
+        40_000
+      )
+    ).resolves.toBe(false);
+    await expect(storage.get("tool-progress")).resolves.toEqual(second);
+  });
 });
 
 function createCloudflareSqlHarness(database: DatabaseSync) {

@@ -122,6 +122,21 @@ describe("remote agent system prompt", () => {
     );
   });
 
+  it("keeps historical facts, current status, and future plans distinct", () => {
+    expect(OPENMELD_KERNEL_PROMPT).toContain(
+      "Keep observed facts, current status, and pending plans distinct"
+    );
+    expect(OPENMELD_KERNEL_PROMPT).toContain(
+      "a plan is never evidence that its action occurred"
+    );
+    expect(OPENMELD_KERNEL_PROMPT).toContain(
+      "has not happened after one checkpoint never becomes a claim that it has never happened"
+    );
+    expect(OPENMELD_KERNEL_PROMPT).toContain(
+      "until traceable conversation or tool evidence resolves it"
+    );
+  });
+
   it("routes work from live capability signals instead of a fixed organization matrix", () => {
     const prompt = buildTestSystemPrompt();
 

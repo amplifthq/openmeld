@@ -1,5 +1,4 @@
 import { defineTool } from "@flue/runtime";
-import { toJsonSchema } from "@valibot/to-json-schema";
 import { jsonSchema, type ToolExecutionOptions, type ToolSet, tool } from "ai";
 import {
   maxLength,
@@ -26,10 +25,12 @@ import {
   resolveRemoteAgentStreamContext,
 } from "./streaming";
 import {
+  beginRemoteAgentToolExecutionAttempt,
   executeRemoteAgentToolDefinition,
   requireRemoteAgentToolExecutionContext,
   toBoundedRemoteAgentToolResult,
 } from "./tool-execution";
+import { toRemoteAgentToolJsonSchema } from "./tool-json-schema";
 import {
   emitRemoteAgentToolUsage,
   type RemoteAgentToolUsageObservabilityEnv,
@@ -42,10 +43,7 @@ const CODE_MODE_TIMEOUT_MS = 60_000;
 const CODE_MODE_INPUT_MAX_CHARS = 24_000;
 const CODE_MODE_LOG_MAX_COUNT = 10;
 const CODE_MODE_LOG_MAX_CHARS = 1000;
-const CODE_MODE_DESCRIPTION = `Use Code Mode to call the available tools, including simple calls and tasks that benefit from composing several tools, looping over results, filtering data, branching, or shaping one compact result.
-
-Available tools:
-{{types}}
+const CODE_MODE_DESCRIPTION = `Use Code Mode after loading the capabilities you need with openmeld_search_capabilities and openmeld_describe_capabilities. Follow each model-visible input schema and description; runtime validation remains authoritative for normalization and custom constraints. Do not guess capability names or undeclared fields. A described capability named example_tool is available here as codemode.example_tool(input).
 
 Write one async JavaScript arrow function that returns the final result. Do not use TypeScript syntax, named top-level functions, Node.js APIs, process, require, direct fetch, or direct network connections. Generated code can reach external systems only through the typed tools above. Tool authorization, confirmation, identity, and audit rules still apply to every call.`;
 
@@ -128,6 +126,12 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
     input: codeModeInputSchema,
     run: async ({ input: toolInput, signal }) => {
       const context = await requireRemoteAgentToolExecutionContext(input);
+      await beginRemoteAgentToolExecutionAttempt({
+        storage: input.storage,
+        submissionId: input.submissionId,
+        toolInput,
+        toolName: REMOTE_AGENT_CODE_MODE_TOOL_NAME,
+      });
       const startedAtMs = Date.now();
       let innerToolCallCount = 0;
       let output: RemoteAgentCodeModeOutput | undefined;
@@ -254,25 +258,14 @@ function buildCodeModeToolSet(input: {
 }
 
 function toCodeModeInputSchema(schema: RemoteAgentToolInputSchema) {
-  return jsonSchema(
-    toJsonSchema(schema, {
-      // JSON Schema cannot represent runtime-only normalization or custom
-      // predicates. Ignore only the two actions used intentionally by current
-      // tool schemas; every newly unsupported action must fail catalog
-      // construction instead of degrading the model-visible type.
-      errorMode: "throw",
-      ignoreActions: ["check", "trim"],
-      typeMode: "input",
-    }),
-    {
-      validate: (value) => {
-        const result = safeParse(schema, value);
-        return result.success
-          ? { success: true, value: result.output }
-          : { error: new ValiError(result.issues), success: false };
-      },
-    }
-  );
+  return jsonSchema(toRemoteAgentToolJsonSchema(schema), {
+    validate: (value) => {
+      const result = safeParse(schema, value);
+      return result.success
+        ? { success: true, value: result.output }
+        : { error: new ValiError(result.issues), success: false };
+    },
+  });
 }
 
 async function publishCodeModeInnerWorkBestEffort(input: {

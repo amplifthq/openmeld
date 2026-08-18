@@ -120,6 +120,10 @@ import type {
   UpdateCenterAgentRoutineResponse,
 } from "@openmeld/schemas/types";
 import {
+  CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE,
+  inspectAssistantPublicationProtocol,
+} from "./assistant-publication";
+import {
   isRemoteAgentContextWindowExceeded,
   isRemoteAgentToolResultTooLarge,
   normalizeRemoteAgentErrorMessage,
@@ -228,6 +232,12 @@ export type RemoteAgentWritableStorage = {
     key: string,
     expectedValue: T,
     nextValue: T
+  ): Promise<boolean>;
+  compareAndSetExpiring<T>(
+    key: string,
+    expectedValue: T,
+    nextValue: T,
+    expiresAtMs: number
   ): Promise<boolean>;
   delete(key: string): Promise<boolean>;
   deleteExpired(input: {
@@ -1364,6 +1374,48 @@ export async function handleRemoteAgentChatResponse(input: {
 
   const nowMs = input.nowMs?.() ?? Date.now();
   const extractedCompletedText = extractCompletedAssistantText(input.result);
+  const protocolInspection = extractedCompletedText
+    ? inspectAssistantPublicationProtocol(extractedCompletedText)
+    : { status: "publishable" as const };
+  if (protocolInspection.status !== "publishable") {
+    console.warn("[remote_agent.publication.protocol_contamination_blocked]", {
+      marker: protocolInspection.marker,
+      submissionId: context.submissionId,
+    });
+    const updated = await updateRemoteAgentCallbackContext({
+      storage: input.storage,
+      submissionId: context.submissionId,
+      update: (current) => {
+        if (
+          current.callbackStatus === "completed" ||
+          current.callbackStatus === "rejected"
+        ) {
+          return current;
+        }
+        return recordTerminalTurnFailure({
+          code: CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE,
+          context: {
+            ...current,
+            lastUsage: input.result.usage ?? current.lastUsage,
+            modelId: input.result.modelId ?? current.modelId ?? null,
+          },
+          nowMs,
+        });
+      },
+    });
+    if (
+      updated.callbackStatus === "completed" ||
+      updated.callbackStatus === "rejected"
+    ) {
+      return updated;
+    }
+    return attemptRemoteAgentCallbackDelivery({
+      context: updated,
+      coreWorker: input.coreWorker,
+      nowMs,
+      storage: input.storage,
+    });
+  }
   const completedText = extractedCompletedText
     ? sanitizeCenterAgentCompletedTextForPublication(extractedCompletedText)
     : null;
@@ -1474,6 +1526,8 @@ function resolveRemoteAgentResultFailureCode(
 
 function resolveRemoteAgentFailureMessage(code: string): string {
   switch (code) {
+    case CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE:
+      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
     case "remote_agent.turn.context_window_exceeded":
       return CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY;
     case "remote_agent.empty_assistant_response":

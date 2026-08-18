@@ -24,6 +24,22 @@ export class InMemoryDurableObjectStorage
     return Promise.resolve(true);
   }
 
+  compareAndSetExpiring<T>(
+    key: string,
+    expectedValue: T,
+    nextValue: T,
+    expiresAtMs: number
+  ): Promise<boolean> {
+    if (
+      JSON.stringify(this.records.get(key)) !== JSON.stringify(expectedValue)
+    ) {
+      return Promise.resolve(false);
+    }
+    this.records.set(key, nextValue);
+    this.expiresAt.set(key, expiresAtMs);
+    return Promise.resolve(true);
+  }
+
   delete(key: string): Promise<boolean> {
     this.expiresAt.delete(key);
     return Promise.resolve(this.records.delete(key));

@@ -1051,6 +1051,46 @@ export type RemoteAgentOpenMeldToolName =
   | (typeof REMOTE_AGENT_OPENMELD_TOOL_NAMES)[number]
   | (typeof REMOTE_AGENT_EVENT_AUTHORIZED_TOOL_NAMES)[number];
 
+export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
+  "web_search",
+  "web_fetch",
+  "browser_read_page",
+  "browser_get_links",
+  "browser_extract",
+  "browser_scrape",
+  "openmeld_read_organization_directory",
+  "openmeld_read_member_openmeld_service_status",
+  "openmeld_read_slack_workspace_directory",
+  "openmeld_list_slack_channels",
+  "openmeld_read_slack_channel_members",
+  "openmeld_read_slack_channel_history",
+  "openmeld_search_slack_messages",
+  "openmeld_read_org_documents",
+  "openmeld_read_organization_skills",
+  "openmeld_get_organization_invite_link",
+  "openmeld_list_spaces",
+  "openmeld_list_projects",
+  "openmeld_read_agent_activity",
+  "openmeld_read_changelog",
+  "openmeld_list_opportunities",
+  "openmeld_read_center_agent_activity",
+  "openmeld_read_space_context",
+  "openmeld_read_dispatch_history",
+  "openmeld_list_routines",
+  "openmeld_list_feedback_issues",
+  "openmeld_list_agent_tasks",
+  "openmeld_inspect_execution_recovery",
+  "openmeld_list_computers",
+  "openmeld_list_local_agent_connection_candidates",
+  "openmeld_check_agent_profile_readiness",
+  "openmeld_list_connected_apps",
+  "openmeld_list_app_actions",
+  ...REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
+] as const satisfies readonly RemoteAgentOpenMeldToolName[];
+
+const REMOTE_AGENT_OBSERVATION_TOOL_NAME_SET =
+  new Set<RemoteAgentOpenMeldToolName>(REMOTE_AGENT_OBSERVATION_TOOL_NAMES);
+
 export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_install_organization_skill",
   "openmeld_list_opportunities",
@@ -3865,7 +3905,12 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
       (!(organizationMemberSpeaker && "kind" in organizationMemberSpeaker) ||
         CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAME_SET.has(definition.name))
   );
-  const policyEnforcedDefinitions = exposedDefinitions
+  const progressTrackedDefinitions = exposedDefinitions.map((definition) =>
+    REMOTE_AGENT_OBSERVATION_TOOL_NAME_SET.has(definition.name)
+      ? { ...definition, progressTracking: "observation" as const }
+      : definition
+  );
+  const policyEnforcedDefinitions = progressTrackedDefinitions
     .map((definition) =>
       enforceRemoteAgentUnattendedToolPolicyAtExecution({
         definition,

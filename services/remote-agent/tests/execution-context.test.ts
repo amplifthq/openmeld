@@ -7,6 +7,7 @@ import {
 } from "../agent-core/callback-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import { REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES } from "../agent-core/tools";
+import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "../flue-adapter/capability-discovery";
 import {
   getRemoteAgentExecutionSubmissionId,
   REMOTE_AGENT_EXECUTION_INSTRUMENTATION,
@@ -190,6 +191,7 @@ describe("Remote Agent submission execution context", () => {
     );
     expect(toolNames).toEqual([
       ...CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
+      ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
     ]);
   });
