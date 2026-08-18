@@ -31,6 +31,32 @@ describe("organization computers service", () => {
               reasonCode: "daemon.runtime_contract.compatible" as const,
               status: "compatible" as const,
             },
+            openMeldTools: {
+              cli: {
+                installedPackageVersion: "0.3.66",
+                latestPackageVersion: "0.3.66",
+                reasonCodes: [],
+                status: "current" as const,
+                updatePolicy: "ok" as const,
+                wakeBlocked: false,
+              },
+              service: {
+                installedVersion: "0.3.65",
+                latestVersion: "0.3.66",
+                reasonCodes: ["service.update_available"],
+                requiredVersion: "0.3.65",
+                status: "update_available" as const,
+                updatePolicy: "available" as const,
+                wakeBlocked: false,
+              },
+              skills: {
+                reasonCodes: [],
+                status: "current" as const,
+                targetCount: 1,
+                updatePolicy: "ok" as const,
+                wakeBlocked: false,
+              },
+            },
             serviceUpdateWakeBlocked: false,
           },
         ],
@@ -44,13 +70,19 @@ describe("organization computers service", () => {
         computerId: "device-user-fangyuan",
         deviceDisplayName: "Fangyuan's MacBook Pro",
         localAgents: [],
+        openMeldTools: expect.objectContaining({
+          service: expect.objectContaining({
+            installedVersion: "0.3.65",
+            status: "update_available",
+          }),
+        }),
         ownerUserId: "user-fangyuan",
         serviceState: "connected",
       }),
     ]);
   });
 
-  it("projects only team-safe agent state and reports unknown when live lookup is unavailable", async () => {
+  it("projects useful team-safe agent diagnostics without exposing accounts or local paths", async () => {
     const response = await listOrganizationComputers({
       generatedAt: "2026-08-18T05:00:00.000Z",
       lookupMemberComputerInventory: vi.fn(async () => ({
@@ -76,6 +108,67 @@ describe("organization computers service", () => {
             capabilityReasonCodes: [],
             capabilityStatus: "ready" as const,
             deviceId: "device-private",
+            lastObservedAtMs: 100,
+            openMeldServiceRuntimeId: "runtime-without-details",
+            runtimeLane: "prod" as const,
+          },
+          {
+            agentControllerRef: "builtin:claude-code",
+            agentControllerInterface: {
+              agentControllerRef: "builtin:claude-code",
+              auth: {
+                email: "private@example.com",
+                label: "Private account",
+                status: "authenticated" as const,
+                type: "oauth",
+              },
+              capabilities: {
+                approvals: true,
+                cancel: false,
+                interrupt: true,
+                modelSelection: true,
+                nativeEventStream: true,
+                permissionModes: true,
+                structuredUserInput: false,
+              },
+              check: {
+                lastSucceededAt: "2026-08-18T04:59:00.000Z",
+                status: "succeeded" as const,
+              },
+              checkedAt: "2026-08-18T05:00:00.000Z",
+              controllerId: "claude-code",
+              displayName: "Claude Code",
+              launch: {
+                argsPrefix: ["--private-setting"],
+                commandPath: "/Users/fangyuan/.local/bin/claude",
+                installChoiceCount: 2,
+                status: "ready" as const,
+              },
+              message: "Private diagnostic message",
+              models: [{ displayName: "Claude Sonnet", id: "claude-sonnet" }],
+              nativeInterface: "claude-cli" as const,
+              schemaVersion: 1 as const,
+              skills: [
+                {
+                  displayName: "Private company skill",
+                  id: "private-company-skill",
+                },
+              ],
+              status: "ready" as const,
+              version: "2.1.234",
+              versionAdvisory: {
+                checkedAt: "2026-08-18T05:00:00.000Z",
+                currentVersion: "2.1.234",
+                latestVersion: "2.1.234",
+                message: "Private update detail",
+                status: "current" as const,
+                updateCommand: "npm install -g private-package",
+              },
+            },
+            capabilityEnabled: true,
+            capabilityReasonCodes: [],
+            capabilityStatus: "ready" as const,
+            deviceId: "device-private",
             lastObservedAtMs: 200,
             openMeldServiceRuntimeId: "runtime-private",
             runtimeLane: "prod" as const,
@@ -95,6 +188,36 @@ describe("organization computers service", () => {
       localAgents: [
         {
           agentControllerRef: "builtin:claude-code",
+          details: {
+            capabilities: {
+              approvals: true,
+              cancel: false,
+              interrupt: true,
+              modelSelection: true,
+              nativeEventStream: true,
+              permissionModes: true,
+              structuredUserInput: false,
+            },
+            check: {
+              lastSucceededAt: "2026-08-18T04:59:00.000Z",
+              status: "succeeded",
+            },
+            checkedAt: "2026-08-18T05:00:00.000Z",
+            launch: {
+              installChoiceCount: 2,
+              status: "ready",
+            },
+            models: [{ displayName: "Claude Sonnet" }],
+            nativeInterface: "claude-cli",
+            status: "ready",
+            version: "2.1.234",
+            versionAdvisory: {
+              checkedAt: "2026-08-18T05:00:00.000Z",
+              currentVersion: "2.1.234",
+              latestVersion: "2.1.234",
+              status: "current",
+            },
+          },
           enabled: true,
           status: "ready",
         },
@@ -104,8 +227,13 @@ describe("organization computers service", () => {
       platformFamily: "macOS",
       serviceState: "unknown",
     });
-    expect(response.computers[0]).not.toHaveProperty("account");
-    expect(response.computers[0]).not.toHaveProperty("commandPath");
-    expect(response.computers[0]).not.toHaveProperty("installationPath");
+    const serialized = JSON.stringify(response.computers[0]);
+    expect(serialized).not.toContain("private@example.com");
+    expect(serialized).not.toContain("Private account");
+    expect(serialized).not.toContain("/Users/fangyuan");
+    expect(serialized).not.toContain("--private-setting");
+    expect(serialized).not.toContain("Private diagnostic message");
+    expect(serialized).not.toContain("Private company skill");
+    expect(serialized).not.toContain("npm install");
   });
 });

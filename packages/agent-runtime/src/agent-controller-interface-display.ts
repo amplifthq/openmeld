@@ -2,6 +2,7 @@ import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceCapabilities,
   AgentControllerInterfaceSnapshot,
+  OrganizationComputerLocalAgentDetails,
 } from "@openmeld/schemas/types";
 
 export type AgentControllerInterfaceDisplayRow = {
@@ -16,17 +17,13 @@ export type AgentControllerVersionAdvisoryPresentation = {
   updateCommand: string | null;
 };
 
-export function createAgentControllerInterfaceDisplayRows(
-  snapshot: AgentControllerInterfaceSnapshot
+export function createAgentControllerInterfaceOperationalDisplayRows(
+  snapshot: OrganizationComputerLocalAgentDetails
 ): AgentControllerInterfaceDisplayRow[] {
   const rows: AgentControllerInterfaceDisplayRow[] = [
     {
       label: "Controller",
       value: formatAgentControllerStatus(snapshot),
-    },
-    {
-      label: "Account",
-      value: formatAgentControllerAccount(snapshot),
     },
     {
       label: "Native interface",
@@ -42,7 +39,7 @@ export function createAgentControllerInterfaceDisplayRows(
     },
     {
       label: "Launch check",
-      value: formatAgentControllerLaunch(snapshot),
+      value: formatAgentControllerOperationalLaunch(snapshot),
     },
     {
       label: "Models",
@@ -57,24 +54,41 @@ export function createAgentControllerInterfaceDisplayRows(
       value: formatAgentControllerCheckedAt(snapshot.checkedAt),
     },
   ];
+  if (snapshot.check?.status === "failed" && snapshot.check.lastSucceededAt) {
+    rows.splice(rows.length - 1, 0, {
+      label: "Last successful check",
+      value: formatAgentControllerCheckedAt(snapshot.check.lastSucceededAt),
+    });
+  }
+  return rows;
+}
+
+export function formatAgentControllerInterfaceOperationalSummary(
+  snapshot: OrganizationComputerLocalAgentDetails
+): string {
+  return (
+    formatAgentControllerVersion(snapshot.version) ??
+    formatAgentControllerStatus(snapshot)
+  );
+}
+
+export function createAgentControllerInterfaceDisplayRows(
+  snapshot: AgentControllerInterfaceSnapshot
+): AgentControllerInterfaceDisplayRow[] {
+  const rows = createAgentControllerInterfaceOperationalDisplayRows(snapshot);
+  rows.splice(1, 0, {
+    label: "Account",
+    value: formatAgentControllerAccount(snapshot),
+  });
+  const launchRow = rows.find((row) => row.label === "Launch check");
+  if (launchRow) {
+    launchRow.value = formatAgentControllerLaunch(snapshot);
+  }
   if (snapshot.skills.length > 0) {
     rows.splice(7, 0, {
       label: "Skills",
       value: formatAgentControllerSkills(snapshot),
     });
-  }
-  if (snapshot.check?.status === "failed" && snapshot.check.lastSucceededAt) {
-    const lastCheckedRowIndex = rows.findIndex(
-      (row) => row.label === "Last checked"
-    );
-    rows.splice(
-      lastCheckedRowIndex >= 0 ? lastCheckedRowIndex : rows.length,
-      0,
-      {
-        label: "Last successful check",
-        value: formatAgentControllerCheckedAt(snapshot.check.lastSucceededAt),
-      }
-    );
   }
   if (snapshot.message) {
     rows.splice(1, 0, {
@@ -216,9 +230,13 @@ function formatAgentControllerVersion(version: string | null): string | null {
   return version.startsWith("v") ? version : `v${version}`;
 }
 
-function formatAgentControllerVersionAdvisory(
-  snapshot: AgentControllerInterfaceSnapshot
-): string {
+function formatAgentControllerVersionAdvisory(snapshot: {
+  versionAdvisory?: NonNullable<
+    OrganizationComputerLocalAgentDetails["versionAdvisory"]
+  > & {
+    message?: string | null;
+  };
+}): string {
   const advisory = snapshot.versionAdvisory;
   if (!advisory) {
     return "Not checked";
@@ -237,7 +255,7 @@ function formatAgentControllerVersionAdvisory(
 }
 
 function formatAgentControllerStatus(
-  snapshot: AgentControllerInterfaceSnapshot
+  snapshot: Pick<OrganizationComputerLocalAgentDetails, "check" | "status">
 ): string {
   if (snapshot.check?.status === "failed") {
     return "Couldn't check";
@@ -289,7 +307,7 @@ function isGenericAuthenticatedLabel(value: string): boolean {
 }
 
 function formatAgentControllerNativeInterface(
-  value: AgentControllerInterfaceSnapshot["nativeInterface"]
+  value: OrganizationComputerLocalAgentDetails["nativeInterface"]
 ): string {
   switch (value) {
     case "acp":
@@ -310,23 +328,38 @@ function formatAgentControllerNativeInterface(
 function formatAgentControllerLaunch(
   snapshot: AgentControllerInterfaceSnapshot
 ): string {
-  const status = formatLocalAgentLaunchStatus(snapshot.launch.status);
-  const parts = [status];
+  const parts = [formatLocalAgentLaunchStatus(snapshot.launch.status)];
   if (snapshot.launch.commandPath) {
     parts.push(snapshot.launch.commandPath);
   }
-  if (snapshot.launch.installChoiceCount > 0) {
-    parts.push(
-      snapshot.launch.installChoiceCount === 1
-        ? "1 local install found"
-        : `${snapshot.launch.installChoiceCount} local installs found`
-    );
-  }
+  appendLocalInstallCount(parts, snapshot.launch.installChoiceCount);
   return parts.join(" · ");
 }
 
+function formatAgentControllerOperationalLaunch(
+  snapshot: Pick<OrganizationComputerLocalAgentDetails, "launch">
+): string {
+  return formatAgentControllerOperationalLaunchParts(snapshot).join(" · ");
+}
+
+function formatAgentControllerOperationalLaunchParts(
+  snapshot: Pick<OrganizationComputerLocalAgentDetails, "launch">
+): string[] {
+  const parts = [formatLocalAgentLaunchStatus(snapshot.launch.status)];
+  appendLocalInstallCount(parts, snapshot.launch.installChoiceCount);
+  return parts;
+}
+
+function appendLocalInstallCount(parts: string[], count: number): void {
+  if (count > 0) {
+    parts.push(
+      count === 1 ? "1 local install found" : `${count} local installs found`
+    );
+  }
+}
+
 function formatLocalAgentLaunchStatus(
-  status: AgentControllerInterfaceSnapshot["launch"]["status"]
+  status: OrganizationComputerLocalAgentDetails["launch"]["status"]
 ): string {
   switch (status) {
     case "ready":
@@ -341,7 +374,7 @@ function formatLocalAgentLaunchStatus(
 }
 
 function formatAgentControllerModels(
-  snapshot: AgentControllerInterfaceSnapshot
+  snapshot: Pick<OrganizationComputerLocalAgentDetails, "models">
 ): string {
   if (snapshot.models.length === 0) {
     return "No native model list reported";

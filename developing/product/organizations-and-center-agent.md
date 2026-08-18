@@ -2028,16 +2028,25 @@ Other members' groups are read-only and may show the owner, computer display
 name, device category, operating-system family and version, last-seen time,
 coarse Service state, team-safe local-agent availability, and
 Organization-visible Agents using that computer. They never expose controller
-accounts, executable or installation paths, controller versions, local policy,
-raw failure evidence, credentials, or management controls.
+accounts, executable or installation paths, launch arguments, update commands,
+private skills, local policy, raw failure evidence, credentials, or management
+controls. Team-safe local-agent details may include controller state, native
+interface, installed version and update status, launch readiness and install
+count, reported model names, native capabilities, and last-check time.
+Team-safe OpenMeld Tools details may include Service and CLI installed/latest
+versions plus Service, CLI, and skill update state. Setup commands, component
+hashes, and owner-only actions remain private.
 
 The teammate view preserves the same Computer, **OpenMeld Tools**, and **Local
 agents** information architecture used for the owner's Computer. The product
 does not introduce simplified parallel cards for team visibility. Instead, the
 shared Local agents rows name each reported agent, keep its logo, show a
-disabled Switch, and allow team members to expand only safe enabled and
-availability facts. Privacy is enforced by omitting private fields and actions,
-not by replacing useful agent identities with a generic count.
+disabled Switch, and allow team members to expand the same operational detail
+layout with private fields conditionally omitted. Computer summaries use the
+same exact local-agent logo strip, accessible names, and tooltips for owned and
+teammate Computers; they do not add a teammate-only visible name or replace
+identities with a generic count. Privacy is enforced by omitting private fields
+and actions, not by duplicating or simplifying the component hierarchy.
 
 The designated Center Agent may read that same coarse projection for one active
 Organization member through

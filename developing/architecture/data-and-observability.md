@@ -821,13 +821,25 @@ Organization membership with the Core-owned device registry, execution-target
 evidence, and Runtime Transport session liveness, then emits only team-safe
 fields: owner id, opaque computer id, display name, device category,
 operating-system family/version, last-seen time, coarse per-computer Service
-state, and local-agent ref/enabled/readiness status. It never emits controller
-accounts, controller versions, executable or installation paths, local policy,
-credentials, or raw lookup errors. One member's failed live lookup is logged
+state, local-agent ref/enabled/readiness status, and an optional sanitized
+Agent Controller Interface detail projection. That detail projection permits
+controller state, native interface, installed version and update status, launch
+status and install count, model display names, native capability flags, check
+status, and check timestamps. It never emits controller accounts, executable
+or installation paths, launch arguments, update commands, diagnostic messages,
+private skills, local policy, credentials, or raw lookup errors. One member's
+failed live lookup is logged
 with Organization/member correlation and projects `unknown` without hiding
 their registry-backed Computers or failing the remaining batch. The signed-in
 member's complete mutable inventory still comes from the owner-scoped
 local-runtimes contract.
+
+When a matching live Runtime Transport session reports local-component facts,
+the same Organization Computers projection may emit a sanitized OpenMeld Tools
+detail object: Service and CLI installed/latest versions, required Service
+version, component update status/policy, Wake-blocking state, bounded reason
+codes, and managed skill target count. It excludes setup commands, component
+hashes, runtime lanes, credentials, and mutation authority.
 
 The Center Agent single-member reader uses the same Core projection and
 Runtime Transport owner-service authority after Core verifies current
