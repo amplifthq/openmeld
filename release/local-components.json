@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-18T20:39:31.931Z",
+  "updatedAt": "2026-08-18T23:12:42.238Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.73",
+      "packageVersion": "0.3.74",
       "updatePolicy": "available",
-      "reason": "Improves parallel Agent reply coordination while keeping existing Wake work compatible."
+      "reason": "Keeps Center Agent Slack thread replies compatible with the latest OpenMeld cloud services."
     },
     "service": {
-      "bundleHash": "c7d1af8c8c0232a9c2f51b9c26796338a248eb34b0f3067d98e6e33d717e83ed",
-      "bundleVersion": "0.3.73",
+      "bundleHash": "3c1498f81b8c23274674572f82de2bfec24dad50dac852ddee89d4c06ca03b98",
+      "bundleVersion": "0.3.74",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Improves parallel Agent reply coordination while keeping existing Wake work compatible."
+      "reason": "Keeps Center Agent Slack thread replies compatible with the latest OpenMeld cloud services."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Improves parallel Agent reply coordination while keeping existing Wake work compatible."
+      "reason": "Keeps Center Agent Slack thread replies compatible with the latest OpenMeld cloud services."
     }
   }
 }
