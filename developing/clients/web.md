@@ -186,6 +186,12 @@ Organization from Session state. Agent Profile creation is the canonical
 example: creation, Binding, Default Project, and optional Space join all carry
 the one route-resolved Organization id.
 
+Agent Profile creation defaults follow the same boundary. Their query and
+mutation keys include the route-resolved Organization id and canonical Agent
+Controller ref. Web must not recover either value from mutable Session state,
+and changing Local Agent must replace the draft from that controller's own
+validated defaults rather than reuse the previous controller's form state.
+
 When the scoped foundation is constructed from a route slug, that slug remains
 authoritative even if a downstream API method also supplies an actor request
 context containing another Organization id. The transport sends exactly the

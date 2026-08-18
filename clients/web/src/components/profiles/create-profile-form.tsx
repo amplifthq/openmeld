@@ -108,7 +108,10 @@ export function CreateProfileForm(input: {
 	});
 
 	return (
-		<div className="grid w-full gap-4" data-testid="create-profile-panel">
+		<div
+			className="grid w-full min-w-0 gap-4"
+			data-testid="create-profile-panel"
+		>
 			<ProfileKindTabs
 				additionalHumanProfileCreationEnabled={
 					input.additionalHumanProfileCreationEnabled
@@ -116,8 +119,8 @@ export function CreateProfileForm(input: {
 				onSelect={input.onSelectProfileKind}
 				value={input.profileKind}
 			/>
-			<form className="grid gap-4" onSubmit={input.onSubmit}>
-				<div className="grid gap-2">
+			<form className="grid min-w-0 gap-4" onSubmit={input.onSubmit}>
+				<div className="grid min-w-0 gap-2">
 					<Label htmlFor="create-profile-name-input">Profile name</Label>
 					<Input
 						disabled={input.isSubmitting}
@@ -245,7 +248,7 @@ function ProjectFolderField(input: {
 }) {
 	const [manualPathOpen, setManualPathOpen] = useState(false);
 	return (
-		<div className="grid gap-3 border border-border/70 p-3">
+		<div className="grid min-w-0 gap-3 border border-border/70 p-3">
 			<div className="grid gap-1">
 				<p className="font-medium text-sm">Working folder</p>
 				<p className="text-muted-foreground text-xs leading-5">
@@ -284,7 +287,7 @@ function ProjectFolderField(input: {
 				</Button>
 			) : null}
 			{!input.pickerDeviceId || manualPathOpen ? (
-				<div className="grid gap-2">
+				<div className="grid min-w-0 gap-2">
 					<Label htmlFor="create-profile-project-folder-input">
 						Custom working folder path
 					</Label>
@@ -379,7 +382,7 @@ function AgentControllerPermissionModeFields(input: {
 
 	return (
 		<div
-			className="grid gap-2"
+			className="grid min-w-0 gap-2"
 			data-testid="agent-controller-permission-mode-fields"
 		>
 			<Label htmlFor={selectId}>{selectedMetadata.fieldLabel}</Label>
@@ -502,8 +505,8 @@ export function AgentProfileModelSelectionFields(input: {
 	}
 
 	return (
-		<div className="grid gap-3">
-			<div className="grid gap-2">
+		<div className="grid min-w-0 gap-3">
+			<div className="grid min-w-0 gap-2">
 				<Label htmlFor={modelSelectId}>Model</Label>
 				<Select
 					disabled={input.disabled}
@@ -546,7 +549,7 @@ export function AgentProfileModelSelectionFields(input: {
 				)}
 			</div>
 			{supportsIndependentReasoning ? (
-				<div className="grid gap-2">
+				<div className="grid min-w-0 gap-2">
 					<Label htmlFor={reasoningSelectId}>Reasoning effort</Label>
 					<Select
 						disabled={

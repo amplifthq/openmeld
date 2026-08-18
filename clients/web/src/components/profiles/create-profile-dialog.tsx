@@ -25,12 +25,16 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
+import {
+	resolveRememberedAgentProfileCreationDefaults,
+	setAgentProfileCreationDefaults,
+} from "#/lib/profiles/agent-profile-creation-defaults";
 import type {
 	NewProfileErrorState,
 	NewProfileKind,
@@ -53,6 +57,10 @@ import { refreshWebAgentReadinessFacts } from "#/query/agents/execution-readines
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { projectsQueryOptions } from "#/query/organizations/projects";
+import {
+	agentProfileCreationDefaultsQueryKeys,
+	agentProfileCreationDefaultsQueryOptions,
+} from "#/query/profiles/agent-profile-creation-defaults";
 import {
 	organizationBindingAuthorizationPreferenceQueryOptions,
 	organizationBindingAuthorizationQueryKeys,
@@ -147,6 +155,8 @@ export function CreateProfileDialog(input: {
 		fingerprint: string;
 		idempotencyKey: string;
 	} | null>(null);
+	const appliedCreationDefaultsKeyRef = useRef<string | null>(null);
+	const creationDefaultsEditedRef = useRef(false);
 	const { data: modelCatalog = null } = useQuery(modelCatalogQueryOptions());
 	const currentOrgSlug = useOptionalCurrentOrganizationSlug();
 	const orgSlug = input.orgSlug ?? currentOrgSlug;
@@ -156,6 +166,16 @@ export function CreateProfileDialog(input: {
 	const projectsQuery = useQuery(
 		projectsQueryOptions({
 			enabled: Boolean(organizationId),
+			organizationId,
+		})
+	);
+	const agentControllerRef = boundAgentId
+		? buildBuiltinAgentControllerRef(boundAgentId)
+		: "";
+	const creationDefaultsQuery = useQuery(
+		agentProfileCreationDefaultsQueryOptions({
+			agentControllerRef,
+			enabled: Boolean(input.open && organizationId && agentControllerRef),
 			organizationId,
 		})
 	);
@@ -185,9 +205,53 @@ export function CreateProfileDialog(input: {
 		recovery.currentComputer
 	);
 
+	useEffect(() => {
+		if (
+			!boundAgentId ||
+			creationDefaultsEditedRef.current ||
+			!creationDefaultsQuery.data ||
+			!modelCatalog ||
+			projectsQuery.isPending
+		) {
+			return;
+		}
+		const applyKey = `${organizationId}:${agentControllerRef}:${creationDefaultsQuery.data.updatedAt ?? "empty"}`;
+		if (appliedCreationDefaultsKeyRef.current === applyKey) {
+			return;
+		}
+		const remembered = resolveRememberedAgentProfileCreationDefaults({
+			agentId: boundAgentId,
+			defaults: creationDefaultsQuery.data,
+			modelCatalog,
+			projects: projectsQuery.data?.projects ?? [],
+		});
+		setBoundAgentControllerPermissionMode(
+			remembered.agentControllerPermissionMode
+		);
+		setBoundAgentControllerPermissionModeConfirmed(false);
+		setBoundModelId(remembered.modelId ?? "");
+		setBoundOpenCodePermission(remembered.openCodePermission);
+		setBoundReasoningLevel(remembered.reasoningLevel ?? "");
+		setSelectedProjectId(remembered.defaultProjectId ?? "");
+		setSelectedProjectBindingGeneration(null);
+		setProjectFolderPath("");
+		setProjectWorkspaceFallback(remembered.defaultProjectId ? null : "managed");
+		appliedCreationDefaultsKeyRef.current = applyKey;
+	}, [
+		agentControllerRef,
+		boundAgentId,
+		creationDefaultsQuery.data,
+		modelCatalog,
+		organizationId,
+		projectsQuery.data?.projects,
+		projectsQuery.isPending,
+	]);
+
 	const resetForm = () => {
 		submissionInFlightRef.current = false;
 		creationIntentRef.current = null;
+		appliedCreationDefaultsKeyRef.current = null;
+		creationDefaultsEditedRef.current = false;
 		setProfileKind(null);
 		setProfileName("");
 		setBoundAgentId("");
@@ -244,18 +308,37 @@ export function CreateProfileDialog(input: {
 				spaceContext,
 			});
 			const { profile } = creationOutcome;
-			const organizationAuthorization =
-				await applyCreatedProfileOrganizationAuthorization({
-					authorizeForOrganization,
-					autoAuthorizeAgentProfileBindings:
-						organizationAuthorizationPreferenceQuery.data
-							?.autoAuthorizeAgentProfileBindings ?? false,
-					boundAgentId,
-					enableFutureOrganizationAuthorization,
-					organizationAuthorizationContext,
-					profile,
-					queryClient,
-				});
+			const [creationDefaultsUpdateFailed, organizationAuthorization] =
+				await Promise.all([
+					rememberSuccessfulAgentProfileCreationDefaults({
+						agentControllerPermissionMode,
+						agentControllerRef,
+						boundAgentId,
+						defaultProjectId: resolveSelectedDefaultProjectId({
+							selectedProjectBindingGeneration,
+							selectedProjectId,
+						}),
+						followUpIssues: creationOutcome.followUpIssues,
+						modelId: boundModelId || null,
+						openCodePermission: isOpenCodeAgentId(boundAgentId)
+							? boundOpenCodePermission
+							: null,
+						organizationId,
+						queryClient,
+						reasoningLevel: boundReasoningLevel || null,
+					}),
+					applyCreatedProfileOrganizationAuthorization({
+						authorizeForOrganization,
+						autoAuthorizeAgentProfileBindings:
+							organizationAuthorizationPreferenceQuery.data
+								?.autoAuthorizeAgentProfileBindings ?? false,
+						boundAgentId,
+						enableFutureOrganizationAuthorization,
+						organizationAuthorizationContext,
+						profile,
+						queryClient,
+					}),
+				]);
 			refreshCreatedProfileCaches({
 				boundAgentId,
 				createdProfile: profile,
@@ -271,7 +354,12 @@ export function CreateProfileDialog(input: {
 					error
 				);
 			});
-			return { creationOutcome, organizationAuthorization, profile };
+			return {
+				creationDefaultsUpdateFailed,
+				creationOutcome,
+				organizationAuthorization,
+				profile,
+			};
 		},
 		onError: (error) => {
 			const failure = toStructuredApiClientFailure(error);
@@ -284,8 +372,14 @@ export function CreateProfileDialog(input: {
 				setupRefreshAvailable: false,
 			});
 		},
-		onSuccess: ({ creationOutcome, organizationAuthorization, profile }) => {
+		onSuccess: ({
+			creationDefaultsUpdateFailed,
+			creationOutcome,
+			organizationAuthorization,
+			profile,
+		}) => {
 			showCreatedProfileToast({
+				creationDefaultsUpdateFailed,
 				followUpIssues: creationOutcome.followUpIssues,
 				organizationAuthorization,
 				profile,
@@ -339,17 +433,20 @@ export function CreateProfileDialog(input: {
 				disabled={createProfileMutation.isPending}
 				manualPath={projectFolderPath}
 				onConnectionReady={(connection) => {
+					creationDefaultsEditedRef.current = true;
 					setSelectedProjectBindingGeneration(connection.bindingGeneration);
 					setProjectFolderPath(connection.path);
 					setProjectWorkspaceFallback(null);
 					setErrorState(null);
 				}}
 				onManualPathChange={(path) => {
+					creationDefaultsEditedRef.current = true;
 					setProjectWorkspaceFallback("advanced");
 					setProjectFolderPath(path);
 					setErrorState(null);
 				}}
 				onProjectChange={(projectId) => {
+					creationDefaultsEditedRef.current = true;
 					setSelectedProjectId(projectId);
 					setSelectedProjectBindingGeneration(null);
 					setProjectFolderPath("");
@@ -357,11 +454,13 @@ export function CreateProfileDialog(input: {
 					setErrorState(null);
 				}}
 				onUseAdvancedWorkspace={() => {
+					creationDefaultsEditedRef.current = true;
 					setSelectedProjectBindingGeneration(null);
 					setProjectWorkspaceFallback("advanced");
 					setErrorState(null);
 				}}
 				onUseManagedWorkspace={() => {
+					creationDefaultsEditedRef.current = true;
 					setSelectedProjectBindingGeneration(null);
 					setProjectFolderPath("");
 					setProjectWorkspaceFallback("managed");
@@ -389,7 +488,7 @@ export function CreateProfileDialog(input: {
 			}}
 			open={input.open}
 		>
-			<DialogContent className="flex max-h-[min(42rem,calc(100dvh-2rem))] flex-col overflow-hidden sm:max-w-xl">
+			<DialogContent className="flex max-h-[min(42rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-xl">
 				<DialogHeader>
 					<DialogTitle>
 						{additionalHumanProfileCreationEnabled
@@ -403,7 +502,7 @@ export function CreateProfileDialog(input: {
 						})}
 					</DialogDescription>
 				</DialogHeader>
-				<div className="min-h-0 flex-1 overflow-y-auto pr-1">
+				<div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
 					<CreateProfileForm
 						additionalHumanProfileCreationEnabled={
 							additionalHumanProfileCreationEnabled
@@ -428,6 +527,7 @@ export function CreateProfileDialog(input: {
 						onChangeBoundAgentControllerPermissionMode={(
 							nextAgentControllerPermissionMode
 						) => {
+							creationDefaultsEditedRef.current = true;
 							setBoundAgentControllerPermissionMode(
 								resolveAgentControllerPermissionModeForController(
 									nextAgentControllerPermissionMode,
@@ -443,6 +543,8 @@ export function CreateProfileDialog(input: {
 							setBoundAgentControllerPermissionModeConfirmed
 						}
 						onChangeBoundAgentId={(nextAgentId) => {
+							appliedCreationDefaultsKeyRef.current = null;
+							creationDefaultsEditedRef.current = false;
 							setBoundAgentId(nextAgentId);
 							setBoundAgentControllerPermissionMode(
 								DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE
@@ -454,19 +556,22 @@ export function CreateProfileDialog(input: {
 							setProjectFolderPath("");
 							setSelectedProjectId("");
 							setSelectedProjectBindingGeneration(null);
-							setProjectWorkspaceFallback(null);
+							setProjectWorkspaceFallback("managed");
 							setErrorState(null);
 						}}
 						onChangeBoundModelId={(nextModelId) => {
+							creationDefaultsEditedRef.current = true;
 							setBoundModelId(nextModelId);
 							setBoundReasoningLevel("");
 							setErrorState(null);
 						}}
 						onChangeBoundOpenCodePermission={(nextOpenCodePermission) => {
+							creationDefaultsEditedRef.current = true;
 							setBoundOpenCodePermission(nextOpenCodePermission);
 							setErrorState(null);
 						}}
 						onChangeBoundReasoningLevel={(nextReasoningLevel) => {
+							creationDefaultsEditedRef.current = true;
 							setBoundReasoningLevel(nextReasoningLevel);
 							setErrorState(null);
 						}}
@@ -606,6 +711,51 @@ function resolveSelectedDefaultProjectId(input: {
 		: null;
 }
 
+async function rememberSuccessfulAgentProfileCreationDefaults(input: {
+	agentControllerPermissionMode: AgentControllerPermissionMode | null;
+	agentControllerRef: string;
+	boundAgentId: string;
+	defaultProjectId: string | null;
+	followUpIssues: CreatedProfileFollowUpIssue[];
+	modelId: string | null;
+	openCodePermission: AgentProfileBindingOpenCodePermission | null;
+	organizationId: string;
+	queryClient: QueryClient;
+	reasoningLevel: string | null;
+}): Promise<boolean> {
+	if (
+		!(input.boundAgentId && input.agentControllerRef) ||
+		input.followUpIssues.some((issue) => issue.kind === "local_setup")
+	) {
+		return false;
+	}
+	try {
+		const defaults = await setAgentProfileCreationDefaults({
+			agentControllerPermissionMode: input.agentControllerPermissionMode,
+			agentControllerRef: input.agentControllerRef,
+			defaultProjectId: input.defaultProjectId,
+			modelId: input.modelId,
+			openCodePermission: input.openCodePermission,
+			organizationId: input.organizationId,
+			reasoningLevel: input.reasoningLevel,
+		});
+		input.queryClient.setQueryData(
+			agentProfileCreationDefaultsQueryKeys.byController({
+				agentControllerRef: input.agentControllerRef,
+				organizationId: input.organizationId,
+			}),
+			defaults
+		);
+		return false;
+	} catch (error) {
+		console.warn(
+			"OpenMeld created the Agent but could not remember its setup choices.",
+			error
+		);
+		return true;
+	}
+}
+
 type CreatedProfileOrganizationAuthorizationResult =
 	| {
 			organizationId: string;
@@ -724,6 +874,7 @@ async function refreshOrganizationAuthorizationCaches(input: {
 }
 
 function showCreatedProfileToast(input: {
+	creationDefaultsUpdateFailed: boolean;
 	followUpIssues: CreatedProfileFollowUpIssue[];
 	organizationAuthorization: CreatedProfileOrganizationAuthorizationResult;
 	profile: AuthProfileView;
@@ -757,6 +908,12 @@ function showCreatedProfileToast(input: {
 	if (input.organizationAuthorization.status === "failed") {
 		toast.error(
 			`${input.profile.profileName} was created, but OpenMeld couldn't authorize it for ${input.organizationAuthorization.organizationName}. ${input.organizationAuthorization.errorMessage}`
+		);
+		return;
+	}
+	if (input.creationDefaultsUpdateFailed) {
+		toast.warning(
+			`${input.profile.profileName} was created, but OpenMeld couldn't remember these setup choices for next time.`
 		);
 		return;
 	}

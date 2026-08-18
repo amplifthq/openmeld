@@ -135,7 +135,7 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 				profileId: input.profile.openMeldProfileId,
 			});
 			input.onProfileUpdated(updatedProfile);
-			toast.success("OpenMeld-managed workspace selected.");
+			toast.success("OpenMeld will choose the working folder.");
 			closeDialog();
 		} catch (error) {
 			setErrorMessage(formatProjectSettingsError(error));
@@ -316,7 +316,7 @@ function LocalAgentProfileProjectSettingsDialog(input: {
 						type="button"
 						variant="outline"
 					>
-						Use OpenMeld-managed workspace
+						Let OpenMeld choose
 					</Button>
 					<Button
 						disabled={isPending || !defaultProjectId}
@@ -371,7 +371,6 @@ function ProjectSettingsSelectionControls(input: {
 					projects={input.projects}
 					selectedBindingGeneration={null}
 					showProjectSelector={false}
-					showWorkspaceModeChoices={false}
 					workspaceFallbackMode="advanced"
 				/>
 				<Button

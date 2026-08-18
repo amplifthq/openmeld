@@ -116,6 +116,25 @@ describe("Fluid Select", () => {
     expect(listbox.style.maxHeight).toBe("142px");
   });
 
+  it("can keep a long menu exactly as wide as its trigger", async () => {
+    render(
+      <Select defaultValue="alpha">
+        <SelectTrigger aria-label="Working folder" />
+        <SelectContent matchTriggerWidth>
+          <SelectItem index={0} value="alpha">
+            /Users/felix/Desktop/work/openmeld-worktrees/a-very-long-project-path
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    );
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Working folder" }));
+    const listbox = await screen.findByRole("listbox");
+    const positioningFrame = listbox.parentElement?.parentElement;
+
+    expect(positioningFrame?.style.width).toBe("180px");
+  });
+
   it("keeps a bottom-side menu inside the viewport when the trigger is near the bottom", async () => {
     Object.defineProperty(window, "innerHeight", {
       configurable: true,

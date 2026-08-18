@@ -26,6 +26,14 @@ type AgentProfileBindingStateSchema =
   typeof import("../../schemas/http/agent-profile-binding")["agentProfileBindingStateSchema"];
 type AgentProfileBindingWriteModeSchema =
   typeof import("../../schemas/http/agent-profile-binding")["agentProfileBindingWriteModeSchema"];
+type AgentProfileCreationDefaultsSchema =
+  typeof import("../../schemas/http/agent-profile-binding")["agentProfileCreationDefaultsSchema"];
+type GetAgentProfileCreationDefaultsResponseSchema =
+  typeof import("../../schemas/http/agent-profile-binding")["getAgentProfileCreationDefaultsResponseSchema"];
+type SetAgentProfileCreationDefaultsBodySchema =
+  typeof import("../../schemas/http/agent-profile-binding")["setAgentProfileCreationDefaultsBodySchema"];
+type SetAgentProfileCreationDefaultsResponseSchema =
+  typeof import("../../schemas/http/agent-profile-binding")["setAgentProfileCreationDefaultsResponseSchema"];
 type EnsureAgentProfilePrimaryBindingBodySchema =
   typeof import("../../schemas/http/agent-profile-binding")["ensureAgentProfilePrimaryBindingBodySchema"];
 type EnsureAgentProfilePrimaryBindingResponseSchema =
@@ -110,6 +118,14 @@ export type AgentProfileBindingRuntimeId =
 export type AgentProfileBindingState = z.infer<AgentProfileBindingStateSchema>;
 export type AgentProfileBindingWriteMode =
   z.infer<AgentProfileBindingWriteModeSchema>;
+export type AgentProfileCreationDefaults =
+  z.infer<AgentProfileCreationDefaultsSchema>;
+export type GetAgentProfileCreationDefaultsResponse =
+  z.infer<GetAgentProfileCreationDefaultsResponseSchema>;
+export type SetAgentProfileCreationDefaultsBody =
+  z.infer<SetAgentProfileCreationDefaultsBodySchema>;
+export type SetAgentProfileCreationDefaultsResponse =
+  z.infer<SetAgentProfileCreationDefaultsResponseSchema>;
 export type EnsureAgentProfilePrimaryBindingBody =
   z.infer<EnsureAgentProfilePrimaryBindingBodySchema>;
 export type EnsureAgentProfilePrimaryBindingResponse =

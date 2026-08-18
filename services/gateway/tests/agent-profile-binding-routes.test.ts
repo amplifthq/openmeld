@@ -9,11 +9,13 @@ type CoreRpcMock = {
   ensureAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
   getAgentExecutionReadinessBatch: ReturnType<typeof vi.fn>;
   getAgentExecutionReadiness: ReturnType<typeof vi.fn>;
+  getAgentProfileCreationDefaults: ReturnType<typeof vi.fn>;
   getAgentProfilePrimaryBinding: ReturnType<typeof vi.fn>;
   listOrganizationBindingAuthorizationProfiles: ReturnType<typeof vi.fn>;
   listOrganizationBindingAuthorizations: ReturnType<typeof vi.fn>;
   revokeAgentProfileBindingForOrganization: ReturnType<typeof vi.fn>;
   saveOrganizationWakeAccessChoice: ReturnType<typeof vi.fn>;
+  setAgentProfileCreationDefaults: ReturnType<typeof vi.fn>;
   updateAgentProfileDefaultProject: ReturnType<typeof vi.fn>;
   updateAgentProfilePrimaryBindingAgentControllerCollaborationMode: ReturnType<
     typeof vi.fn
@@ -105,6 +107,28 @@ function makeEnv(input?: {
       binding: enabledBindingProjection(),
       grantsClaimSuccess: false,
       status: "found",
+    })),
+    getAgentProfileCreationDefaults: vi.fn(async () => ({
+      agentControllerPermissionMode: "codex:approveForMe",
+      agentControllerRef: "builtin:codex",
+      defaultProjectId: "project-1",
+      modelId: "gpt-5.4-mini",
+      openCodePermission: null,
+      organizationId: "org-1",
+      reasoningLevel: "high",
+      updatedAt: "2026-08-18T12:00:00.000Z",
+      userId: "owner-1",
+    })),
+    setAgentProfileCreationDefaults: vi.fn(async () => ({
+      agentControllerPermissionMode: "codex:approveForMe",
+      agentControllerRef: "builtin:codex",
+      defaultProjectId: "project-1",
+      modelId: "gpt-5.4-mini",
+      openCodePermission: null,
+      organizationId: "org-1",
+      reasoningLevel: "high",
+      updatedAt: "2026-08-18T12:00:00.000Z",
+      userId: "owner-1",
     })),
     listOrganizationBindingAuthorizations: vi.fn(async () => ({
       organizationId: "org-1",
@@ -301,6 +325,57 @@ function readyWakeRouteStatus() {
 }
 
 describe("agent profile binding routes", () => {
+  it("reads and saves Agent Profile creation defaults for one Local Agent", async () => {
+    const { coreRpc, env } = makeEnv();
+    const url =
+      "http://local/v1/organizations/org-1/agent-profile-creation-defaults/builtin%3Acodex";
+
+    const readResponse = await app.fetch(
+      new Request(url),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(readResponse.status).toBe(200);
+    await expect(readResponse.json()).resolves.toMatchObject({
+      agentControllerRef: "builtin:codex",
+      defaultProjectId: "project-1",
+      modelId: "gpt-5.4-mini",
+    });
+
+    const writeResponse = await app.fetch(
+      new Request(url, {
+        body: JSON.stringify({
+          agentControllerPermissionMode: "codex:approveForMe",
+          defaultProjectId: "project-1",
+          modelId: "gpt-5.4-mini",
+          openCodePermission: null,
+          reasoningLevel: "high",
+        }),
+        headers: { "content-type": "application/json" },
+        method: "PUT",
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(writeResponse.status).toBe(200);
+    expect(coreRpc.getAgentProfileCreationDefaults).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentControllerRef: "builtin:codex",
+        organizationId: "org-1",
+      })
+    );
+    expect(coreRpc.setAgentProfileCreationDefaults).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentControllerPermissionMode: "codex:approveForMe",
+        agentControllerRef: "builtin:codex",
+        defaultProjectId: "project-1",
+        modelId: "gpt-5.4-mini",
+        organizationId: "org-1",
+        reasoningLevel: "high",
+      })
+    );
+  });
+
   it("reads primary Binding projection through the canonical Agent Profile route", async () => {
     const { coreRpc, env } = makeEnv();
 
