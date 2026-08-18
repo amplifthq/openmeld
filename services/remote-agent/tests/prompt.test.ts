@@ -71,6 +71,12 @@ describe("remote agent system prompt", () => {
     expect(prompt).toContain(
       "OpenMeld helps people and AI teammates work as one"
     );
+    expect(prompt).toContain(
+      "In an ordinary Space, a human must explicitly Wake the intended Agent Profile"
+    );
+    expect(prompt).toContain(
+      "Never tell a user to reply in an ordinary Space without also telling them how to Wake the Agent"
+    );
     expect(prompt).not.toContain("OpenMeld model in brief:");
   });
 

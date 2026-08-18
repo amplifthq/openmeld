@@ -1423,6 +1423,11 @@ describe("remote agent OpenMeld tool catalog", () => {
         target: { kind: "space", spaceId: SPACE_ID },
         url: `https://openmeld.ai/o/amplift/spaces/${SPACE_ID}`,
       },
+      replyHandoff: {
+        requiresAgentMention: true,
+        userGuidance:
+          "In this ordinary Space, @ mention the Agent you want to respond or act.",
+      },
       spaceId: SPACE_ID,
     });
     await expect(
@@ -1469,6 +1474,9 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     expect(createSpaceTool?.description).toContain(
       "Do not put one-time checklists, tasks, status updates, or messages in the guide"
+    );
+    expect(createSpaceTool?.description).toContain(
+      "include its exact userGuidance"
     );
     expect(postSpaceMessageTool?.description).toContain(
       "Use this for one-time checklists, tasks, updates, notes, and other conversation content"

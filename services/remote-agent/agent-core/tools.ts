@@ -3459,7 +3459,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_create_space",
       description:
-        "Create an OpenMeld Space in the current Organization with optional name, purpose, guide, and access settings. The guide is only for durable room context and stable working rules that future collaborators should keep following. Do not put one-time checklists, tasks, status updates, or messages in the guide; after creation, use openmeld_post_space_message for that conversation content. When a verified requester explicitly asks for a new or dedicated Space as the work surface, call this before adding participants or starting work; never substitute the current Space, a Task, or a plain message. Private, members-only access is the default, so omit access unless the requester explicitly asks for a different access policy. Expose a Space publicly only when the requester explicitly asks; set both access.accessMode and access.visibility to public. Never invent or generate a Space password. Use password-gated access only when the requester supplied the exact password; otherwise ask for it. Treat the returned meta as canonical: never claim the Space is private or public unless meta confirms its visibility and accessMode.",
+        "Create an OpenMeld Space in the current Organization with optional name, purpose, guide, and access settings. The guide is only for durable room context and stable working rules that future collaborators should keep following. Do not put one-time checklists, tasks, status updates, or messages in the guide; after creation, use openmeld_post_space_message for that conversation content. When a verified requester explicitly asks for a new or dedicated Space as the work surface, call this before adding participants or starting work; never substitute the current Space, a Task, or a plain message. The returned replyHandoff describes how a human can continue with an Agent in this ordinary Space; when sending the user there for a reply or action, include its exact userGuidance instead of merely saying to reply there. Private, members-only access is the default, so omit access unless the requester explicitly asks for a different access policy. Expose a Space publicly only when the requester explicitly asks; set both access.accessMode and access.visibility to public. Never invent or generate a Space password. Use password-gated access only when the requester supplied the exact password; otherwise ask for it. Treat the returned meta as canonical: never claim the Space is private or public unless meta confirms its visibility and accessMode.",
       input: createSpaceToolInputSchema,
       execute: async (payload) => {
         const { onBehalfOfProfileId: _ignored, ...untrustedSpaceInput } =
@@ -4123,6 +4123,15 @@ function attachNavigationActionsToToolResult(input: {
         organizationWebUrl,
         target: { kind: "space", spaceId: record.spaceId },
       }),
+      ...(input.toolName === "openmeld_create_space"
+        ? {
+            replyHandoff: {
+              requiresAgentMention: true,
+              userGuidance:
+                "In this ordinary Space, @ mention the Agent you want to respond or act.",
+            },
+          }
+        : {}),
     };
   };
   const withProjectAction = (record: Record<string, unknown>) => {

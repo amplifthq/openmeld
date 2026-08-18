@@ -118,6 +118,16 @@ do next. This is the Agent's current semantic judgment, not a second persisted
 `Situation Snapshot` object or a pre-routing model. It then chooses tools
 because they advance that goal. Tool availability never turns search, setup,
 delegation, or another capability into the goal by itself.
+
+The Kernel also teaches stable interaction mechanics that affect whether the
+user's next step can work. In an ordinary Space, a human must explicitly Wake
+the intended Agent Profile with an `@` mention; only a current one-to-one Agent
+Direct Message auto-dispatches an ordinary human message without a mention. If
+the Center Agent sends a user to an ordinary Space and expects a reply or
+action, its guidance must explain how to Wake the Agent instead of merely
+saying "reply here." This is product self-knowledge, not a routing rule or a
+replacement for the Space addressing contract.
+
 Permissions constrain effects at the execution boundary; they do not replace
 the model's semantic judgment with a narrow router. Tool and context catalogs
 use progressive disclosure so the same general Agent can remain capable
