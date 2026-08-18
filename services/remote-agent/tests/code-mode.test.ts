@@ -8,6 +8,7 @@ import {
   putRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
+import { RemoteAgentToolResultTooLargeError } from "../agent-core/tool-result-boundary";
 import { getRemoteAgentOpenMeldToolDefinitions } from "../agent-core/tools";
 import {
   createRemoteAgentCodeModeFlueTool,
@@ -54,7 +55,6 @@ describe("Remote Agent Code Mode", () => {
         };
       },
       createExecutor: () => ({}),
-      truncateResult: (value) => value,
     };
     const tool = await createRemoteAgentCodeModeFlueTool({
       definitions,
@@ -266,6 +266,90 @@ describe("Remote Agent Code Mode", () => {
     );
   });
 
+  it("preserves a bounded structured inner result without Code Mode truncation", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const boundedResult = {
+      data: {
+        contentSegment: {
+          endOffsetUtf16Exclusive: 24_000,
+          hasMore: true,
+          nextOffsetUtf16: 24_000,
+          startOffsetUtf16: 0,
+          totalUtf16CodeUnits: 48_000,
+        },
+        decoded_content: "A".repeat(24_000),
+      },
+      status: "completed",
+    };
+    const definition = {
+      description: "Read one bounded GitHub file segment.",
+      execute: async () => boundedResult,
+      input: strictObject({}),
+      name: "github_get_file_contents",
+    } satisfies RemoteAgentToolDefinition;
+    const legacyTruncateResult = vi.fn(() => "truncated");
+    const runtime = createRuntime({
+      execute: async (tools) => {
+        const readFile = tools.github_get_file_contents;
+        if (!readFile?.execute) {
+          throw new Error("GitHub file tool is unavailable.");
+        }
+        return {
+          result: await readFile.execute({}, TOOL_OPTIONS),
+        };
+      },
+      executorOptions: [],
+      truncateResult: legacyTruncateResult,
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions: [definition],
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+      storage,
+      submissionId: SUBMISSION_ID,
+    });
+
+    await expect(
+      tool.run({ input: { code: "async () => null" } })
+    ).resolves.toEqual({ result: boundedResult });
+    expect(legacyTruncateResult).not.toHaveBeenCalled();
+  });
+
+  it("fails an oversized inner result through the shared tool boundary", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const definition = {
+      description: "Return an oversized result.",
+      execute: async () => ({ content: "A".repeat(200_000) }),
+      input: strictObject({}),
+      name: "github_list_pull_request_files",
+    } satisfies RemoteAgentToolDefinition;
+    const runtime = createRuntime({
+      execute: async (tools) => {
+        const listFiles = tools.github_list_pull_request_files;
+        if (!listFiles?.execute) {
+          throw new Error("GitHub pull request file tool is unavailable.");
+        }
+        return {
+          result: await listFiles.execute({}, TOOL_OPTIONS),
+        };
+      },
+      executorOptions: [],
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions: [definition],
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+      storage,
+      submissionId: SUBMISSION_ID,
+    });
+
+    await expect(
+      tool.run({ input: { code: "async () => null" } })
+    ).rejects.toBeInstanceOf(RemoteAgentToolResultTooLargeError);
+  });
+
   it("records failures without exposing generated code or tool arguments", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
@@ -459,13 +543,21 @@ describe("Remote Agent Code Mode", () => {
   });
 });
 
+type LegacyCodeModeTruncateResult = (
+  value: unknown,
+  options: { maxChars: number }
+) => unknown;
+
 function createRuntime(input: {
   execute(
     tools: ToolSet,
     code: string
   ): Promise<{ logs?: string[]; result: unknown }>;
   executorOptions: unknown[];
-}): RemoteAgentCodeModeRuntime {
+  truncateResult?: LegacyCodeModeTruncateResult;
+}): RemoteAgentCodeModeRuntime & {
+  truncateResult: LegacyCodeModeTruncateResult;
+} {
   return {
     createCodeTool: ({ tools }) => ({
       description:
@@ -479,7 +571,7 @@ function createRuntime(input: {
       input.executorOptions.push(options);
       return {};
     },
-    truncateResult: (value) => value,
+    truncateResult: input.truncateResult ?? ((value) => value),
   };
 }
 

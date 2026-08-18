@@ -28,7 +28,7 @@ import {
 import {
   executeRemoteAgentToolDefinition,
   requireRemoteAgentToolExecutionContext,
-  toFlueJsonValue,
+  toBoundedRemoteAgentToolResult,
 } from "./tool-execution";
 import {
   emitRemoteAgentToolUsage,
@@ -40,7 +40,6 @@ export const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
 
 const CODE_MODE_TIMEOUT_MS = 60_000;
 const CODE_MODE_INPUT_MAX_CHARS = 24_000;
-const CODE_MODE_OUTPUT_MAX_CHARS = 24_000;
 const CODE_MODE_LOG_MAX_COUNT = 10;
 const CODE_MODE_LOG_MAX_CHARS = 1000;
 const CODE_MODE_DESCRIPTION = `Use Code Mode to call the available tools, including simple calls and tasks that benefit from composing several tools, looping over results, filtering data, branching, or shaping one compact result.
@@ -88,7 +87,6 @@ export type RemoteAgentCodeModeRuntime = {
     tools: ToolSet;
   }): RemoteAgentCodeModeTool;
   createExecutor(options: RemoteAgentCodeModeExecutorOptions): unknown;
-  truncateResult(value: unknown, options: { maxChars: number }): unknown;
 };
 
 export async function createRemoteAgentCodeModeFlueTool(input: {
@@ -167,15 +165,21 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
           );
         }
         output = {
-          result: runtime.truncateResult(rawOutput.result, {
-            maxChars: CODE_MODE_OUTPUT_MAX_CHARS,
-          }),
+          result:
+            toBoundedRemoteAgentToolResult({
+              toolName: REMOTE_AGENT_CODE_MODE_TOOL_NAME,
+              value: rawOutput.result,
+            }) ?? null,
           ...(rawOutput.logs
             ? { logs: boundCodeModeLogs(rawOutput.logs) }
             : {}),
         };
+        const boundedOutput = toBoundedRemoteAgentToolResult({
+          toolName: REMOTE_AGENT_CODE_MODE_TOOL_NAME,
+          value: output,
+        });
         outcome = "succeeded";
-        return toFlueJsonValue(output);
+        return boundedOutput;
       } finally {
         emitRemoteAgentToolUsage(input.env, {
           durationMs: Date.now() - startedAtMs,
@@ -237,7 +241,12 @@ function buildCodeModeToolSet(input: {
             toolInput,
             toolName: definition.name,
           });
-          return toFlueJsonValue(result) ?? null;
+          return (
+            toBoundedRemoteAgentToolResult({
+              toolName: definition.name,
+              value: result,
+            }) ?? null
+          );
         },
       }),
     ])
@@ -316,11 +325,10 @@ async function publishCodeModeInnerWorkBestEffort(input: {
 }
 
 async function loadCloudflareCodeModeRuntime(): Promise<RemoteAgentCodeModeRuntime> {
-  const [{ DynamicWorkerExecutor, truncateResult }, { createCodeTool }] =
-    await Promise.all([
-      import("@cloudflare/codemode"),
-      import("@cloudflare/codemode/ai"),
-    ]);
+  const [{ DynamicWorkerExecutor }, { createCodeTool }] = await Promise.all([
+    import("@cloudflare/codemode"),
+    import("@cloudflare/codemode/ai"),
+  ]);
   return {
     createCodeTool: (input) =>
       createCodeTool({
@@ -329,7 +337,6 @@ async function loadCloudflareCodeModeRuntime(): Promise<RemoteAgentCodeModeRunti
         tools: input.tools,
       }),
     createExecutor: (options) => new DynamicWorkerExecutor(options),
-    truncateResult,
   };
 }
 

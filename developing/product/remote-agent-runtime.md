@@ -1226,7 +1226,8 @@ surface adopts official features where they are free**:
     active for that turn inside an isolated Dynamic Worker. Direct tools remain
     available for simple calls while the direct schema catalog is within its
     provider-payload budget; larger catalogs are exposed through `codemode`
-    alone without removing any inner capability. Generated code receives no
+    plus the fixed generic Connected App tools without removing any inner
+    capability. Generated code receives no
     OpenMeld secrets,
     Worker bindings, Node.js APIs, host filesystem, or unrestricted outbound
     network access, and every inner tool call re-enters the ordinary
