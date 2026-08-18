@@ -75,6 +75,7 @@ export const openMeldProfiles = sqliteTable(
     creatorProfileId: text("creator_profile_id"),
     source: text("source").$type<OpenMeldProfileSource>().notNull(),
     managedRole: text("managed_role").$type<OpenMeldProfileManagedRole>(),
+    creationIdempotencyKey: text("creation_idempotency_key"),
     defaultProjectId: text("default_project_id"),
     lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
@@ -114,6 +115,9 @@ export const openMeldProfiles = sqliteTable(
     uniqueIndex("openmeld_profiles_org_center_agent_uq_idx")
       .on(table.organizationId, table.managedRole)
       .where(sql`"managed_role" = 'center_agent' and "status" = 'active'`),
+    uniqueIndex("openmeld_profiles_owner_creation_idempotency_uq_idx")
+      .on(table.ownerUserId, table.creationIdempotencyKey)
+      .where(sql`"creation_idempotency_key" is not null`),
     index("openmeld_profiles_owner_status_idx").on(
       table.ownerUserId,
       table.status

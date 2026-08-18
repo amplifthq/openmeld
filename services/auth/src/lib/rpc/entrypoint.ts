@@ -217,6 +217,7 @@ type ListProfileLineageRpcResult =
 type CreateAgentProfileRpcInput = ResolveRequestAuthInput & {
   profileName: string;
   creatorProfileId?: string | null;
+  idempotencyKey?: string | null;
 };
 
 type CreateAgentProfileRpcResult =
@@ -235,6 +236,7 @@ type CreateAgentProfileInOrganizationRpcInput = {
   ownerUserId?: string | null;
   createdByUserId?: string | null;
   creatorProfileId?: string | null;
+  idempotencyKey?: string | null;
   profileName: string;
 };
 
@@ -1337,11 +1339,13 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
       if (!activeOrganizationId.ok) {
         return activeOrganizationId;
       }
+      const idempotencyKey = normalizeOptionalText(input.idempotencyKey);
       const profile = await this.getProfileService().createAgentProfile({
         ownerUserId: resolved.userId,
         organizationId: activeOrganizationId.value,
         createdByUserId: resolved.userId,
         creatorProfileId: normalizeOptionalText(input.creatorProfileId),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
         profileName: input.profileName,
       });
 
@@ -1364,6 +1368,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
     const ownerUserId = normalizeOptionalText(input.ownerUserId);
     const createdByUserId =
       normalizeOptionalText(input.createdByUserId) ?? ownerUserId;
+    const idempotencyKey = normalizeOptionalText(input.idempotencyKey);
     if (!(organizationId && ownerUserId && createdByUserId)) {
       return {
         ok: false,
@@ -1379,6 +1384,7 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
         organizationId,
         createdByUserId,
         creatorProfileId: normalizeOptionalText(input.creatorProfileId),
+        ...(idempotencyKey ? { idempotencyKey } : {}),
         profileName: input.profileName,
       });
 

@@ -90,6 +90,14 @@ A successful Agent Profile identity write is the creation commit point. A
 client must never report a later Binding, working-folder, Default Project,
 Organization Wake access, or Space-membership failure as if Profile creation
 failed, because retrying the create would produce a second teammate identity.
+Every interactive creation intent carries one stable idempotency key until
+Auth returns the committed Agent Profile. An exact retry or concurrent replay
+returns that same Profile; it must never create a second identity. Reusing the
+key for a different name, Organization, or creator under the same owner fails
+with an explicit conflict. A client-side in-flight guard improves immediate
+feedback, but Auth's durable idempotency boundary remains authoritative when
+rendering, transport, or network retries overlap.
+
 Creation surfaces return one explicit outcome for the committed Profile and
 each requested follow-up. When creation starts from a Space, the client adds
 the committed Profile to that Space before optional local setup so a temporary

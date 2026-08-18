@@ -92,6 +92,7 @@ type CoreAuthDispatchBindingRpc = {
     ownerUserId?: string | null;
     createdByUserId?: string | null;
     creatorProfileId?: string | null;
+    idempotencyKey?: string | null;
     profileName: string;
   }): Promise<AuthAgentProfileRpcResult>;
   ensureCenterAgentProfileInOrganization?(input: {

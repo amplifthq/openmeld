@@ -82,6 +82,7 @@ export {
 export {
   AdditionalHumanProfileCreationDisabledError,
   PrimaryHumanProfileDeleteForbiddenError,
+  ProfileCreationIdempotencyConflictError,
   ProfileNotFoundError,
   ProfileValidationError,
 } from "./profiles/profile-errors";

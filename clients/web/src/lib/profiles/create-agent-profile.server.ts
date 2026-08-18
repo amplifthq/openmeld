@@ -16,6 +16,7 @@ export async function createStartAgentProfileFromAuth(input: {
 	body: {
 		profileName: string;
 		creatorProfileId?: string;
+		idempotencyKey?: string;
 	};
 	fetchImpl?: typeof fetch;
 }): Promise<AuthProfileView> {
@@ -99,6 +100,7 @@ export async function createStartAgentProfileFromRequest(input: {
 	body: {
 		profileName: string;
 		creatorProfileId?: string;
+		idempotencyKey?: string;
 	};
 	fetchImpl?: typeof fetch;
 	requestHeaders?: Headers;

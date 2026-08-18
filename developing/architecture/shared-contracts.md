@@ -374,6 +374,18 @@ of this contract. Their Web callers require the Organization id before the
 request, send it only through the standard gateway-contract header encoding,
 and keep it unchanged through later Profile configuration.
 
+`packages/schemas/src/schemas/http/profiles.ts` also owns the optional Agent
+Profile creation `idempotencyKey`. A new interactive caller generates one
+opaque key per identity intent and keeps it stable across retries. Auth scopes
+the durable unique claim to the Profile owner, returns the existing committed
+Profile for an exact replay, and rejects reuse for different creation fields.
+The Web submit lock is not a write authority and cannot replace this Auth
+constraint. The field remains optional only for mixed-version compatibility:
+land the additive nullable Auth migration and unique index, deploy Auth, and
+then deploy Web. Old Web continues to work against new Auth. New Web must not
+precede Auth because old Auth rejects the new strict request field. Rollback
+removes the Web sender first and leaves the nullable Auth column in place.
+
 Auth also owns the shared `resolveOrganizationAccountIdentity` RPC projection
 used by Slack and generic Message Channel ingress, identity-link previews, and
 source-bound continuations. Its strict result keeps Organization identity,

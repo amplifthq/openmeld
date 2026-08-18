@@ -113,6 +113,7 @@ export { isPersonalOrganization } from "./organization/personal-organization";
 export {
   AdditionalHumanProfileCreationDisabledError,
   PrimaryHumanProfileDeleteForbiddenError,
+  ProfileCreationIdempotencyConflictError,
   ProfileNotFoundError,
   ProfileValidationError,
 } from "./profiles/profile-errors";

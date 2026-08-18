@@ -1,10 +1,12 @@
 import { resolveAvailableProfileHandle } from "@openmeld/protocol";
+import { AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH } from "@openmeld/schemas";
 import type { OpenMeldProfileManagedRole } from "../db/openmeld-profile.schema";
 import { isProfileHandleUniqueConstraintError } from "../profile-identity/profile-handle-conflict";
 import type { AuthProfileKind } from "../types/auth-claims";
 import {
   AdditionalHumanProfileCreationDisabledError,
   PrimaryHumanProfileDeleteForbiddenError,
+  ProfileCreationIdempotencyConflictError,
   ProfileNotFoundError,
   ProfileValidationError,
 } from "./profile-errors";
@@ -59,6 +61,7 @@ export type CreateAgentProfileInput = {
   profileName: string;
   createdByUserId?: string | null;
   creatorProfileId?: string | null;
+  idempotencyKey?: string | null;
 };
 
 export type EnsureManagedAgentProfileInput = {
@@ -677,10 +680,27 @@ export function createOpenMeldProfileService(
         "organizationId"
       );
       const createdByUserId = normalizeOptionalText(input.createdByUserId);
+      const creationIdempotencyKey =
+        normalizeAgentProfileCreationIdempotencyKey(input.idempotencyKey);
       const creatorProfileId = await resolveAgentCreatorProfileId({
         ownerUserId,
         creatorProfileId: normalizeOptionalText(input.creatorProfileId),
       });
+      const creationIntent = {
+        createdByUserId: createdByUserId ?? ownerUserId,
+        creatorProfileId,
+        organizationId,
+        profileName,
+      };
+      const replayedProfile = await findAgentProfileCreationReplay({
+        repository,
+        ownerUserId,
+        creationIdempotencyKey,
+        creationIntent,
+      });
+      if (replayedProfile) {
+        return replayedProfile;
+      }
       for (const _ of Array.from({ length: MAX_AGENT_PROFILE_ID_ATTEMPTS })) {
         const profileId = normalizeAgentProfileId(
           generateAgentProfileId(),
@@ -700,13 +720,17 @@ export function createOpenMeldProfileService(
           ownerUserId,
           createdByUserId: createdByUserId ?? ownerUserId,
           creatorProfileId,
+          creationIdempotencyKey,
           source: "cli_create",
         });
 
-        const inserted = await repository.findByOwnerAndProfileId(
+        const inserted = await findCommittedAgentProfile({
+          repository,
           ownerUserId,
-          profileId
-        );
+          profileId,
+          creationIdempotencyKey,
+          creationIntent,
+        });
 
         if (inserted) {
           return inserted;
@@ -996,6 +1020,82 @@ export function createOpenMeldProfileService(
       return existing;
     },
   };
+}
+
+type AgentProfileCreationIntent = {
+  createdByUserId: string;
+  creatorProfileId: string;
+  organizationId: string;
+  profileName: string;
+};
+
+function normalizeAgentProfileCreationIdempotencyKey(
+  value: string | null | undefined
+): string | null {
+  const normalized = normalizeOptionalText(value);
+  if (
+    normalized &&
+    normalized.length > AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH
+  ) {
+    throw new ProfileValidationError(
+      `idempotencyKey must be at most ${AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH} characters`
+    );
+  }
+  return normalized;
+}
+
+async function findAgentProfileCreationReplay(input: {
+  repository: OpenMeldProfileRepository;
+  ownerUserId: string;
+  creationIdempotencyKey: string | null;
+  creationIntent: AgentProfileCreationIntent;
+}): Promise<OpenMeldProfileRecord | null> {
+  if (!input.creationIdempotencyKey) {
+    return null;
+  }
+  const existing =
+    await input.repository.findAgentByOwnerAndCreationIdempotencyKey(
+      input.ownerUserId,
+      input.creationIdempotencyKey
+    );
+  return existing
+    ? requireMatchingAgentProfileCreationReplay(existing, input.creationIntent)
+    : null;
+}
+
+async function findCommittedAgentProfile(input: {
+  repository: OpenMeldProfileRepository;
+  ownerUserId: string;
+  profileId: string;
+  creationIdempotencyKey: string | null;
+  creationIntent: AgentProfileCreationIntent;
+}): Promise<OpenMeldProfileRecord | null> {
+  if (input.creationIdempotencyKey) {
+    return await findAgentProfileCreationReplay(input);
+  }
+  return await input.repository.findByOwnerAndProfileId(
+    input.ownerUserId,
+    input.profileId
+  );
+}
+
+function requireMatchingAgentProfileCreationReplay(
+  profile: OpenMeldProfileRecord,
+  expected: AgentProfileCreationIntent
+): OpenMeldProfileRecord {
+  if (
+    profile.profileKind !== "agent" ||
+    profile.managedRole !== null ||
+    profile.organizationId !== expected.organizationId ||
+    profile.profileName !== expected.profileName ||
+    profile.creatorProfileId !== expected.creatorProfileId ||
+    (profile.createdByUserId ?? profile.ownerUserId) !==
+      expected.createdByUserId
+  ) {
+    throw new ProfileCreationIdempotencyConflictError();
+  }
+
+  return profile;
 }
 
 function normalizeRequiredText(value: string, field: string): string {

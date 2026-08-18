@@ -21,6 +21,7 @@ describe("create agent profile for start", () => {
 				JSON.stringify({
 					profileName: "Research Agent",
 					creatorProfileId: "11111111-1111-4111-8111-111111111111",
+					idempotencyKey: "agent-profile-create:request-123",
 				})
 			);
 
@@ -64,6 +65,7 @@ describe("create agent profile for start", () => {
 				body: {
 					profileName: "Research Agent",
 					creatorProfileId: "11111111-1111-4111-8111-111111111111",
+					idempotencyKey: "agent-profile-create:request-123",
 				},
 				fetchImpl: fetchMock,
 			})

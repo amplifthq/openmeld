@@ -29,6 +29,7 @@ type AgentProfileInsertInput = {
   ownerUserId: string;
   createdByUserId?: string | null;
   creatorProfileId?: string | null;
+  creationIdempotencyKey?: string | null;
   managedRole?: OpenMeldProfileManagedRole | null;
   source?: OpenMeldProfileSource;
 };
@@ -48,6 +49,10 @@ export type OpenMeldProfileRepository = {
   findByOwnerAndProfileId: (
     ownerUserId: string,
     profileId: string
+  ) => Promise<OpenMeldProfileRecord | null>;
+  findAgentByOwnerAndCreationIdempotencyKey: (
+    ownerUserId: string,
+    creationIdempotencyKey: string
   ) => Promise<OpenMeldProfileRecord | null>;
   findDefaultHumanByOwner: (
     ownerUserId: string
@@ -110,6 +115,24 @@ export function createDrizzleOpenMeldProfileRepository(
           and(
             eq(openMeldProfiles.ownerUserId, ownerUserId),
             eq(openMeldProfiles.profileId, profileId)
+          )
+        )
+        .limit(1);
+
+      return rows[0] ?? null;
+    },
+    async findAgentByOwnerAndCreationIdempotencyKey(
+      ownerUserId,
+      creationIdempotencyKey
+    ) {
+      const rows = await db
+        .select()
+        .from(openMeldProfiles)
+        .where(
+          and(
+            eq(openMeldProfiles.ownerUserId, ownerUserId),
+            eq(openMeldProfiles.creationIdempotencyKey, creationIdempotencyKey),
+            eq(openMeldProfiles.profileKind, "agent")
           )
         )
         .limit(1);
@@ -250,6 +273,7 @@ export function createDrizzleOpenMeldProfileRepository(
         ownerUserId: input.ownerUserId,
         createdByUserId: input.createdByUserId ?? null,
         creatorProfileId: input.creatorProfileId ?? null,
+        creationIdempotencyKey: input.creationIdempotencyKey ?? null,
         managedRole: input.managedRole ?? null,
         source: input.source ?? "cli_create",
         createdAt: now,

@@ -1,6 +1,7 @@
 import {
   AdditionalHumanProfileCreationDisabledError,
   PrimaryHumanProfileDeleteForbiddenError,
+  ProfileCreationIdempotencyConflictError,
   ProfileNotFoundError,
   ProfileValidationError,
 } from "@openmeld/auth/server";
@@ -28,6 +29,10 @@ export function toProfileRpcErrorResponse(
 ): ProfileRpcErrorResponse {
   if (error instanceof AdditionalHumanProfileCreationDisabledError) {
     return ADDITIONAL_HUMAN_PROFILE_CREATION_DISABLED_RESPONSE;
+  }
+
+  if (error instanceof ProfileCreationIdempotencyConflictError) {
+    return toProfileErrorResponse(error.code, error.message, 409);
   }
 
   if (error instanceof PrimaryHumanProfileDeleteForbiddenError) {

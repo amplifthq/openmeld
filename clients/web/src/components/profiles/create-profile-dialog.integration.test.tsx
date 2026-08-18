@@ -1,5 +1,6 @@
 import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -331,6 +332,16 @@ function buildHumanProfileFixture() {
 	};
 }
 
+function buildAgentProfileFixture() {
+	return {
+		...buildHumanProfileFixture(),
+		openMeldProfileId: NEW_AGENT_ID,
+		profileName: "Research Agent",
+		profileKind: "agent" as const,
+		isDefault: false,
+	};
+}
+
 function renderCreateProfileDialog(
 	overrides: Partial<ComponentProps<typeof CreateProfileDialog>> = {}
 ) {
@@ -387,13 +398,9 @@ describe("CreateProfileDialog", () => {
 			profileName: "Work",
 			isDefault: false,
 		});
-		createStartAgentProfileMock.mockReset().mockResolvedValue({
-			...buildHumanProfileFixture(),
-			openMeldProfileId: NEW_AGENT_ID,
-			profileName: "Research Agent",
-			profileKind: "agent" as const,
-			isDefault: false,
-		});
+		createStartAgentProfileMock
+			.mockReset()
+			.mockResolvedValue(buildAgentProfileFixture());
 		addMembersMock.mockReset().mockResolvedValue({
 			addedMemberIds: [NEW_AGENT_ID],
 			alreadyMemberIds: [],
@@ -536,9 +543,10 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(createStartAgentProfileMock).toHaveBeenCalledWith({
 				data: {
-					profileName: "Research Agent",
 					creatorProfileId: FELIX_ID,
+					idempotencyKey: expect.any(String),
 					organizationId: "organization-123",
+					profileName: "Research Agent",
 				},
 			});
 		});
@@ -546,6 +554,90 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(refreshAllMock).toHaveBeenCalled();
 		});
+	});
+
+	it("turns two same-tick form submits into one Agent Profile creation", async () => {
+		const pendingCreates: Array<
+			(profile: ReturnType<typeof buildAgentProfileFixture>) => void
+		> = [];
+		createStartAgentProfileMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					pendingCreates.push(resolve);
+				})
+		);
+		renderCreateProfileDialog();
+
+		await waitFor(() => {
+			expect(listStartProfilesMock).toHaveBeenCalled();
+		});
+		fireEvent.click(
+			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
+		);
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Research Agent" },
+		});
+		const submitButton = screen.getByRole("button", {
+			name: CREATE_PROFILE_BUTTON_PATTERN,
+		}) as HTMLButtonElement;
+		await waitFor(() => {
+			expect(submitButton.disabled).toBe(false);
+		});
+		const form = submitButton.closest("form");
+		if (!form) {
+			throw new Error("Expected Create profile button inside a form.");
+		}
+
+		act(() => {
+			form.dispatchEvent(
+				new Event("submit", { bubbles: true, cancelable: true })
+			);
+			form.dispatchEvent(
+				new Event("submit", { bubbles: true, cancelable: true })
+			);
+		});
+
+		await waitFor(() => {
+			expect(createStartAgentProfileMock).toHaveBeenCalled();
+		});
+		expect(createStartAgentProfileMock).toHaveBeenCalledTimes(1);
+		for (const resolveCreate of pendingCreates) {
+			resolveCreate(buildAgentProfileFixture());
+		}
+		await waitFor(() => {
+			expect(refreshAllMock).toHaveBeenCalled();
+		});
+	});
+
+	it("reuses the creation idempotency key when the same Agent Profile intent is retried", async () => {
+		createStartAgentProfileMock
+			.mockRejectedValueOnce(new Error("Auth is temporarily unavailable."))
+			.mockResolvedValueOnce(buildAgentProfileFixture());
+		renderCreateProfileDialog();
+
+		await fillProfileForm({
+			kind: AGENT_PROFILE_CARD_PATTERN,
+			name: "Research Agent",
+		});
+
+		await screen.findByText("Auth is temporarily unavailable.");
+		const submitButton = screen.getByRole("button", {
+			name: CREATE_PROFILE_BUTTON_PATTERN,
+		}) as HTMLButtonElement;
+		await waitFor(() => {
+			expect(submitButton.disabled).toBe(false);
+		});
+		fireEvent.click(submitButton);
+
+		await waitFor(() => {
+			expect(createStartAgentProfileMock).toHaveBeenCalledTimes(2);
+		});
+		const firstIdempotencyKey =
+			createStartAgentProfileMock.mock.calls[0]?.[0].data.idempotencyKey;
+		const secondIdempotencyKey =
+			createStartAgentProfileMock.mock.calls[1]?.[0].data.idempotencyKey;
+		expect(firstIdempotencyKey).toEqual(expect.any(String));
+		expect(secondIdempotencyKey).toBe(firstIdempotencyKey);
 	});
 
 	it("joins the new profile into the Space as the acting human and refreshes the members panel", async () => {

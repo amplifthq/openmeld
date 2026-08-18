@@ -484,8 +484,16 @@ describe("http schemas", () => {
         createAgentProfileBodySchema.safeParse({
           profileName: "Research Agent",
           creatorProfileId: SECOND_HUMAN_PROFILE_ID,
+          idempotencyKey: "agent-profile-create:request-123",
         }).success
       ).toBe(true);
+
+      expect(
+        createAgentProfileBodySchema.safeParse({
+          profileName: "Research Agent",
+          idempotencyKey: " ",
+        }).success
+      ).toBe(false);
 
       expect(
         ensureManagedAgentProfileBodySchema.safeParse({
