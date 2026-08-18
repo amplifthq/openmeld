@@ -7,15 +7,63 @@ import {
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   ensureAgentProfilePrimaryBindingBodySchema,
   ensureAgentProfilePrimaryBindingResponseSchema,
+  getAgentProfileCreationDefaultsResponseSchema,
   getAgentProfilePrimaryBindingResponseSchema,
   getOrganizationBindingAuthorizationPreferenceResponseSchema,
   listOrganizationBindingAuthorizationProfilesResponseSchema,
   saveOrganizationWakeAccessChoiceBodySchema,
   saveOrganizationWakeAccessChoiceResponseSchema,
+  setAgentProfileCreationDefaultsBodySchema,
   setOrganizationBindingAuthorizationPreferenceBodySchema,
 } from "../../src/schemas";
 
+const REASONING_REQUIRES_MODEL_PATTERN = /reasoningLevel requires modelId/u;
+
 describe("agent profile binding http schemas", () => {
+  it("keeps remembered creation defaults scoped to one Local Agent", () => {
+    expect(
+      setAgentProfileCreationDefaultsBodySchema.parse({
+        agentControllerPermissionMode: "codex:fullAccess",
+        defaultProjectId: "project-1",
+        modelId: "gpt-5.6-sol",
+        openCodePermission: null,
+        reasoningLevel: "max",
+      })
+    ).toEqual({
+      agentControllerPermissionMode: "codex:fullAccess",
+      defaultProjectId: "project-1",
+      modelId: "gpt-5.6-sol",
+      openCodePermission: null,
+      reasoningLevel: "max",
+    });
+    expect(
+      getAgentProfileCreationDefaultsResponseSchema.parse({
+        agentControllerPermissionMode: "codex:fullAccess",
+        agentControllerRef: "builtin:codex",
+        defaultProjectId: "project-1",
+        modelId: "gpt-5.6-sol",
+        openCodePermission: null,
+        organizationId: "org-1",
+        reasoningLevel: "max",
+        updatedAt: "2026-08-18T12:00:00.000Z",
+        userId: "user-1",
+      })
+    ).toMatchObject({
+      agentControllerRef: "builtin:codex",
+      defaultProjectId: "project-1",
+      modelId: "gpt-5.6-sol",
+    });
+    expect(() =>
+      setAgentProfileCreationDefaultsBodySchema.parse({
+        agentControllerPermissionMode: null,
+        defaultProjectId: null,
+        modelId: null,
+        openCodePermission: null,
+        reasoningLevel: "max",
+      })
+    ).toThrow(REASONING_REQUIRES_MODEL_PATTERN);
+  });
+
   it("accepts read/write Binding payloads without caller-provided owner identity", () => {
     expect(
       agentProfileBindingRouteParamsSchema.parse({

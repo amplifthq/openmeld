@@ -359,9 +359,33 @@ defaultProjectId
 
 If the Project has no usable default connection on that computer, Wake fails
 explicitly. The resolver must not choose another worktree, another Project, or
-the OpenMeld-managed workspace. Choosing **Use OpenMeld-managed workspace** is
-an explicit user action that clears or replaces Project intent through the
-owning product flow; it is never a failure fallback.
+the OpenMeld-managed workspace. Choosing **Let OpenMeld choose** is an explicit
+user action that clears or replaces Project intent through the owning product
+flow; it is never a failure fallback. Product copy must use this plain-language
+label instead of exposing the internal `openmeld_managed` term.
+
+Agent Profile creation presents one **Working folder** selector. Active
+Projects appear first, with the Project name and the current computer's path
+when available. **Let OpenMeld choose** and **Choose a folder on this
+computer…** follow the Project choices. The UI does not designate any of these
+choices as recommended, and it reveals custom-folder controls only after the
+custom choice is selected.
+
+After a local Agent Profile is created and its local Binding setup succeeds,
+OpenMeld remembers that user's selected Default Project, model, reasoning
+effort, and Agent Controller Permission Mode for the same Organization and
+Agent Controller. These creation defaults are keyed by Organization, user, and
+canonical Agent Controller ref; they are not Agent Profile identity or Binding
+truth. The stored Default Project is a cloud Project id, never a local path.
+Custom and OpenMeld-chosen paths therefore save no Default Project id.
+
+The next creation may prefill only values that remain valid in the current
+Project list and current Agent Controller catalog. Missing or archived Projects,
+removed models, unsupported reasoning levels, and unsupported permission modes
+fall back to current defaults rather than leaking stale configuration or a
+different Agent Controller's choices. Failed or cancelled creation does not
+replace the remembered values, and dangerous permission confirmations are
+never remembered as approved.
 
 Changing Default Project or the local default connection applies only to
 future Wakes and new sessions. Product copy must say that the current session

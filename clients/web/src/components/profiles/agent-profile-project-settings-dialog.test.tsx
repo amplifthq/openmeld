@@ -73,7 +73,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", {
-				name: "Use OpenMeld-managed workspace",
+				name: "Let OpenMeld choose",
 			})
 		).toBeTruthy();
 		expect(
@@ -118,7 +118,7 @@ describe("AgentProfileProjectSettingsDialog", () => {
 
 		screen
 			.getByRole("button", {
-				name: "Use OpenMeld-managed workspace",
+				name: "Let OpenMeld choose",
 			})
 			.click();
 
