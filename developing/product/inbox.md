@@ -98,7 +98,19 @@ workspace, channel, thread-root, and published-message ids plus Slack's
 validated canonical permalink. OpenMeld does not claim to observe Slack's read
 state. Activating that Inbox item marks only the OpenMeld item read and opens
 the exact Slack message in a new tab; reading the Slack thread by another route
-cannot clear OpenMeld unread state.
+cannot clear OpenMeld unread state. If permalink lookup or Inbox projection is
+temporarily unavailable, the durable terminal delivery remains the repair
+source: reconciliation retries, creates exactly one item, and stops retrying
+after that projection exists.
+
+The `message_channel` target is durable data, not a presentation-only field.
+All strict readers must accept it before Core starts writing it. Once written,
+the compatible readers stay deployed even if Core stops producing new Slack
+Inbox items; OpenMeld does not delete or rewrite a member's Inbox history to make
+an older reader appear compatible. A Web tab left open across this rollout keeps
+its complete Inbox and uses the prior Center Agent destination for new Slack
+items; after reload, those items open the exact Slack message. It never treats a
+valid new target as a broken item or broken entire Inbox list.
 
 `organizationId + recipientUserId + sourceEventKey` is unique. Replaying the
 same source event updates the existing item rather than creating duplicates.

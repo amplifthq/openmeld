@@ -225,11 +225,40 @@ Web before Core begins emitting it. The historical-data migration rewrites only
 resolved items to the existing Space target shape, so it remains readable by
 old and new strict consumers during the Database-to-Core deployment window.
 
-The additive Slack Message Channel target also rolls out consumer first:
-deploy the shared-schema Gateway and Web consumers before Core emits it. Core
-keeps the existing durable Slack terminal-delivery reconciliation path as the
-repair owner when permalink resolution or Inbox projection fails. Rollback
-stops the Core producer before rolling back Gateway or Web.
+The additive Slack Message Channel target uses the
+`inbox-message-channel-receiver-first` release profile. The persisted-row reader
+inventory is: Core parses `source_target_json` into the shared Inbox item and
+validates the RPC response; Gateway validates that response again; and the Web
+API client validates it before rendering. Inbox access, count, Space-summary,
+document-reconciliation, and urgent-email SQL either inspect only a known target
+kind or do not select source-target JSON, so they do not introduce another
+strict runtime reader. Remote Agent does not read Inbox rows. Core is both the
+first strict reader and the only writer of this new target.
+
+Deploy Web and verify it, then deploy Gateway and verify it, and only then deploy
+Core so it may emit `message_channel`. The guarded release planner adds all three
+scopes automatically and rejects an explicit scope that omits any one of them.
+New receivers continue to accept every older target before the writer changes;
+after Core changes, every deployed strict receiver accepts both old and new
+rows. An already-loaded older Web tab is a separate mixed-version reader: it
+omits `x-openmeld-inbox-source-target-version: 2`, so Gateway first validates
+the current Core response and then projects each `message_channel` target to
+the prior `{ kind: "center_agent" }` navigation contract in list, direct-item,
+and read-mutation responses. The current Web API client sends version `2` on
+all three operations, through the Web proxy allowlist, and receives the exact
+target. This keeps older tabs' complete list, counts, pagination, direct links,
+and mutations compatible until a normal reload installs exact Slack
+navigation; it never rewrites the durable row or weakens the canonical schema.
+Core keeps the durable Slack terminal-delivery reconciliation path as the
+repair owner when permalink resolution or Inbox projection fails.
+
+`message_channel` rows remain in D1 after the producer stops. A normal rollback
+therefore stops emission with a forward Core change that retains the new reader,
+then keeps the new Core, Gateway, and Web readers deployed. It must not restore
+an old Core, Gateway, or Web reader while any new row can remain. A complete
+reader rollback is allowed only after an explicit, verified compatibility
+migration or retention process proves that no persisted row uses the new
+discriminator. Manual D1 rewrites or deletion are not a normal rollback path.
 
 The additive Dismiss method rolls out receiver first: deploy Core, then Gateway,
 then Web. Old clients do not call the new method and remain compatible. During

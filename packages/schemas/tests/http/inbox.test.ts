@@ -55,7 +55,7 @@ describe("Inbox HTTP contracts", () => {
     });
   });
 
-  it("targets an exact Slack message through a validated Message Channel permalink", () => {
+  it("accepts an exact Message Channel target after its receivers are deployed", () => {
     expect(
       inboxItemSchema.parse({
         ...item,
@@ -94,6 +94,39 @@ describe("Inbox HTTP contracts", () => {
         },
       }).success
     ).toBe(false);
+  });
+
+  it("fails closed without throwing for a malformed Message Channel permalink", () => {
+    const parseMalformedPermalink = () =>
+      inboxItemSchema.safeParse({
+        ...item,
+        sourceTarget: {
+          channelId: "C0123456",
+          kind: "message_channel",
+          messageId: "1720000000.000200",
+          permalink: "not a url",
+          provider: "slack",
+          teamId: "T0123456",
+          threadRootMessageId: "1720000000.000100",
+        },
+      });
+
+    expect(parseMalformedPermalink).not.toThrow();
+    expect(parseMalformedPermalink().success).toBe(false);
+  });
+
+  it("keeps legacy Inbox targets readable before the new writer is deployed", () => {
+    expect(
+      inboxItemSchema.safeParse({
+        ...item,
+        kind: "center_agent_update",
+        sourceTarget: {
+          kind: "center_agent",
+          signalId: "signal_1",
+          spaceId: "space_1",
+        },
+      }).success
+    ).toBe(true);
   });
 
   it("rejects unknown fields and unsupported source targets", () => {

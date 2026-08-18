@@ -262,13 +262,28 @@ describe("Slack native delivery Inbox producer", () => {
         reconcileLinkedSlackNativeDeliveryInbox({
           db: harness.db,
           nowMs: 1300,
+          resolveSourceTarget: () =>
+            Promise.reject(
+              new Error("Slack permalink temporarily unavailable")
+            ),
+        })
+      ).resolves.toEqual({ attempted: 1, errors: 1, projected: 0 });
+      expect(
+        harness.queryFirst<{ count: number }>({
+          sql: "SELECT count(*) AS count FROM inbox_items",
+        })
+      ).toEqual({ count: 0 });
+      await expect(
+        reconcileLinkedSlackNativeDeliveryInbox({
+          db: harness.db,
+          nowMs: 1400,
           resolveSourceTarget: async () => SLACK_INBOX_SOURCE_TARGET,
         })
       ).resolves.toEqual({ attempted: 1, errors: 0, projected: 1 });
       await expect(
         reconcileLinkedSlackNativeDeliveryInbox({
           db: harness.db,
-          nowMs: 1400,
+          nowMs: 1500,
           resolveSourceTarget: async () => SLACK_INBOX_SOURCE_TARGET,
         })
       ).resolves.toEqual({ attempted: 0, errors: 0, projected: 0 });

@@ -1,11 +1,11 @@
 import type { InboxItem, InboxSourceTarget } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { buildInboxItemSourcePath } from "./source-target";
+import { buildInboxItemSourceNavigation } from "./source-target";
 
-describe("buildInboxItemSourcePath", () => {
+describe("buildInboxItemSourceNavigation", () => {
 	it("preserves the exact Space signal and thread target", () => {
 		expect(
-			buildInboxItemSourcePath({
+			buildInboxItemSourceNavigation({
 				item: createInboxItem({
 					kind: "space",
 					signalId: "signal-123",
@@ -14,14 +14,15 @@ describe("buildInboxItemSourcePath", () => {
 				}),
 				orgSlug: "Amplift Team",
 			})
-		).toBe(
-			"/o/Amplift%20Team/spaces/space-123?focusSignalId=signal-123&focusThreadRootSignalId=thread-123"
-		);
+		).toEqual({
+			href: "/o/Amplift%20Team/spaces/space-123?focusSignalId=signal-123&focusThreadRootSignalId=thread-123",
+			openInNewTab: false,
+		});
 	});
 
 	it("preserves the exact agent interaction target", () => {
 		expect(
-			buildInboxItemSourcePath({
+			buildInboxItemSourceNavigation({
 				item: createInboxItem({
 					interactionId: "interaction-123",
 					kind: "agent_interaction",
@@ -31,14 +32,15 @@ describe("buildInboxItemSourcePath", () => {
 				}),
 				orgSlug: "amplift",
 			})
-		).toBe(
-			"/o/amplift/spaces/space-123?focusInteractionId=interaction-123&focusSignalId=signal-123"
-		);
+		).toEqual({
+			href: "/o/amplift/spaces/space-123?focusInteractionId=interaction-123&focusSignalId=signal-123",
+			openInNewTab: false,
+		});
 	});
 
 	it("preserves the exact Center Agent reply target", () => {
 		expect(
-			buildInboxItemSourcePath({
+			buildInboxItemSourceNavigation({
 				item: createInboxItem({
 					kind: "center_agent",
 					signalId: "signal-123",
@@ -46,12 +48,15 @@ describe("buildInboxItemSourcePath", () => {
 				}),
 				orgSlug: "amplift",
 			})
-		).toBe("/o/amplift/center-agent/chat?focusSignalId=signal-123");
+		).toEqual({
+			href: "/o/amplift/center-agent/chat?focusSignalId=signal-123",
+			openInNewTab: false,
+		});
 	});
 
 	it("opens the exact Slack message permalink", () => {
 		expect(
-			buildInboxItemSourcePath({
+			buildInboxItemSourceNavigation({
 				item: createInboxItem({
 					channelId: "C0123456",
 					kind: "message_channel",
@@ -64,9 +69,10 @@ describe("buildInboxItemSourcePath", () => {
 				}),
 				orgSlug: "amplift",
 			})
-		).toBe(
-			"https://amplift.slack.com/archives/C0123456/p1720000000000200?thread_ts=1720000000.000100&cid=C0123456"
-		);
+		).toEqual({
+			href: "https://amplift.slack.com/archives/C0123456/p1720000000000200?thread_ts=1720000000.000100&cid=C0123456",
+			openInNewTab: true,
+		});
 	});
 
 	it.each([
@@ -89,11 +95,11 @@ describe("buildInboxItemSourcePath", () => {
 		],
 	])("routes %j to %s", (sourceTarget, expectedPath) => {
 		expect(
-			buildInboxItemSourcePath({
+			buildInboxItemSourceNavigation({
 				item: createInboxItem(sourceTarget),
 				orgSlug: "amplift",
 			})
-		).toBe(expectedPath);
+		).toEqual({ href: expectedPath, openInNewTab: false });
 	});
 });
 

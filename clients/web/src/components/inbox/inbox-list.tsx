@@ -26,7 +26,7 @@ import {
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { MouseEvent, ReactNode } from "react";
-import { buildInboxItemSourcePath } from "#/lib/inbox/source-target";
+import { buildInboxItemSourceNavigation } from "#/lib/inbox/source-target";
 
 const INBOX_SHORT_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	day: "numeric",
@@ -106,7 +106,7 @@ function InboxItemRow(input: {
 		input.item.importance === "urgent" &&
 		(input.item.attention !== "action_required" ||
 			input.item.resolutionStatus === "open");
-	const sourcePath = buildInboxItemSourcePath({
+	const sourceNavigation = buildInboxItemSourceNavigation({
 		item: input.item,
 		orgSlug: input.organizationSlug,
 	});
@@ -140,10 +140,10 @@ function InboxItemRow(input: {
 							? "min-h-16 px-3 py-3"
 							: "min-h-20 px-4 py-4 pe-16 sm:gap-4"
 					)}
-					href={sourcePath}
+					href={sourceNavigation.href}
 					onAuxClick={handleAuxClick}
 					onClick={handleOpen}
-					openInNewTab={input.item.sourceTarget.kind === "message_channel"}
+					openInNewTab={sourceNavigation.openInNewTab}
 					ref={(element) => {
 						input.registerItemElement?.(input.item.id, element);
 					}}
@@ -237,7 +237,7 @@ function InboxItemSourceLink(input: {
 				onAuxClick={input.onAuxClick}
 				onClick={input.onClick}
 				ref={input.ref}
-				rel="noreferrer"
+				rel="noopener noreferrer"
 				target="_blank"
 			>
 				{input.children}

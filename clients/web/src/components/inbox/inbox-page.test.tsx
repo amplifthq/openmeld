@@ -270,7 +270,7 @@ describe("InboxPage", () => {
 			"https://amplift.slack.com/archives/C0123456/p1720000000000200?thread_ts=1720000000.000100&cid=C0123456"
 		);
 		expect(itemLink.getAttribute("target")).toBe("_blank");
-		expect(itemLink.getAttribute("rel")).toBe("noreferrer");
+		expect(itemLink.getAttribute("rel")).toBe("noopener noreferrer");
 
 		fireEvent.click(itemLink);
 

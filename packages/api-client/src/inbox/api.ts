@@ -1,4 +1,8 @@
 import {
+  OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_INBOX_SOURCE_TARGET_VERSION,
+} from "@openmeld/gateway-contract";
+import {
   centerAgentInboxSummaryResponseSchema,
   dismissInboxItemResponseSchema,
   getInboxItemResponseSchema,
@@ -68,6 +72,7 @@ export const createInboxApi: CreateInboxApi = (
     );
     return await client.requestJson({
       ...requestOptions(input),
+      headers: inboxSourceTargetVersionHeaders(),
       invalidMessage: "invalid Inbox item response",
       method: "GET",
       operation: "inbox.item.get",
@@ -87,6 +92,7 @@ export const createInboxApi: CreateInboxApi = (
     );
     return await client.requestJson({
       ...requestOptions(input),
+      headers: inboxSourceTargetVersionHeaders(),
       invalidMessage: "invalid Inbox list response",
       method: "GET",
       operation: "inbox.list",
@@ -117,7 +123,10 @@ export const createInboxApi: CreateInboxApi = (
     return await client.requestJson({
       ...requestOptions(input),
       body: JSON.stringify(body),
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        ...inboxSourceTargetVersionHeaders(),
+      },
       invalidMessage: "invalid Inbox read response",
       method: "PATCH",
       operation: "inbox.item.read",
@@ -210,6 +219,13 @@ export const createInboxApi: CreateInboxApi = (
     });
   },
 });
+
+function inboxSourceTargetVersionHeaders(): Record<string, string> {
+  return {
+    [OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION]:
+      OPENMELD_INBOX_SOURCE_TARGET_VERSION,
+  };
+}
 
 function requestOptions(input: InboxRequestInput): {
   requestContext?: InboxRequestInput["requestContext"];

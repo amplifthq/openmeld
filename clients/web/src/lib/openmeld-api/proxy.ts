@@ -1,4 +1,5 @@
 import {
+	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
 	OPENMELD_HEADER_PROFILE_ID,
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID,
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG,
@@ -38,6 +39,7 @@ const ALLOWED_PROXY_REQUEST_HEADERS = new Set([
 	"origin",
 	"pragma",
 	CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER.toLowerCase(),
+	OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION.toLowerCase(),
 	OPENMELD_HEADER_PROFILE_ID.toLowerCase(),
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID.toLowerCase(),
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG.toLowerCase(),
@@ -92,12 +94,16 @@ export function buildOpenMeldGatewayUpstreamHeaders(input: {
 		const isTaskResponseContractHeader =
 			normalizedHeaderName ===
 			CENTER_AGENT_TASK_RESPONSE_CONTRACT_VERSION_HEADER.toLowerCase();
+		const isInboxSourceTargetVersionHeader =
+			normalizedHeaderName ===
+			OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION.toLowerCase();
 		if (
 			(normalizedHeaderName.startsWith("x-openmeld-") &&
 				!isSpacePasswordHeader &&
 				!isProfileIdHeader &&
 				!isOrganizationSelectorHeader &&
-				!isTaskResponseContractHeader) ||
+				!isTaskResponseContractHeader &&
+				!isInboxSourceTargetVersionHeader) ||
 			normalizedHeaderName.startsWith("x-forwarded-") ||
 			normalizedHeaderName === "authorization" ||
 			!ALLOWED_PROXY_REQUEST_HEADERS.has(normalizedHeaderName)

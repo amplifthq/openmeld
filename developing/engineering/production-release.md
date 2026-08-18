@@ -171,6 +171,48 @@ The planner reports this ordinary order as `default-auth-receiver-first`, which
 names its mixed-version invariant instead of implying that every boundary in
 the cloud graph is consumer-first.
 
+### Inbox Message Channel receiver-first order
+
+The planner selects `inbox-message-channel-receiver-first` when a diff changes
+the strict Inbox source-target schema and the Core Slack Inbox writer together.
+It automatically includes Web, Gateway, and Core, and rejects a manually
+narrowed scope that omits any of those components. Within the selected scopes,
+Web deploys and passes health first, Gateway deploys and passes health second,
+and Core deploys last. If the shared schema also selects the local-component
+release, the existing receiver-first CLI mechanism keeps immutable CLI
+publication last and uses the current production CLI projection for the first
+Core deploy.
+
+If the same release also changes a strict Remote Agent request receiver, the
+planner composes both constraints as
+`remote-agent-and-inbox-receivers-first`: Remote Agent, Web, and Gateway all
+deploy and pass health before Core, and an explicit scope that omits Remote
+Agent fails closed. If it instead changes a strict Remote Agent response
+producer, the Inbox profile already places Web and Gateway before Core and Core
+before Remote Agent. A compound release never silently discards one
+receiver-first dependency in favor of another profile name.
+
+The strict persisted-row readers are Core's D1-to-Inbox mapper and RPC response,
+Gateway's response boundary, and the Web API client. Core is also the only
+writer. The receiver-first window is therefore safe in both directions: the new
+Web and Gateway continue accepting old Core responses, then the new Core writes
+rows that every deployed reader accepts. Already-loaded older Web tabs omit the
+Inbox source-target version header; the new Gateway validates Core's complete
+response, then projects `message_channel` to the prior `center_agent` target in
+list, direct-item, and read-mutation responses. Their items, counts, and cursors
+remain aligned. After reload, the current API client sends version `2` through
+the Web proxy on all three operations and receives exact Slack targets. SQL-only
+Inbox filters and urgent-email delivery do not deserialize
+`source_target_json`; Remote Agent and CLI do not read these rows and are not
+additional receiver stages.
+
+Rollback is forward-only at the reader boundary. First stop new writes with a
+Core change that retains the new schema. Keep the compatible Core, Gateway, and
+Web readers deployed because already-written rows remain durable. Do not deploy
+an old reader, manually rewrite D1, or delete Inbox rows as a rollback shortcut.
+A full reader rollback is permitted only after an explicit migration or
+retention process verifies that no persisted `message_channel` target remains.
+
 ### Organization Skills first-launch order
 
 The first Organization Skills release is a consumer-first exception to the

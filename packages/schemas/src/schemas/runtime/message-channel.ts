@@ -37,19 +37,25 @@ const timestampMsSchema = z
 export const slackMessagePermalinkSchema = z
   .url()
   .max(2048)
-  .refine(
-    (value) => {
-      const url = new URL(value);
-      const hostname = url.hostname.toLowerCase();
-      return (
-        url.protocol === "https:" &&
-        !url.username &&
-        !url.password &&
-        (hostname === "slack.com" || hostname.endsWith(".slack.com"))
-      );
-    },
-    { message: "Slack permalinks must use an HTTPS slack.com host." }
+  .refine(isSlackMessagePermalink, {
+    message: "Slack permalinks must use an HTTPS slack.com host.",
+  });
+
+function isSlackMessagePermalink(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  const hostname = url.hostname.toLowerCase();
+  return (
+    url.protocol === "https:" &&
+    !url.username &&
+    !url.password &&
+    (hostname === "slack.com" || hostname.endsWith(".slack.com"))
   );
+}
 
 export const messageChannelProviderSchema = z.enum(MESSAGE_CHANNEL_PROVIDERS);
 export const messageChannelParticipantIdentitySchema = z.strictObject({
