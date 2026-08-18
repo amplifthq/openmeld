@@ -364,6 +364,16 @@ context. A selector that does not resolve to a current membership returns
 `organization.membership_required`; it must never fall back to the Session
 Organization.
 
+Organization-owned Auth HTTP mutations use this same selector and the same
+Auth membership resolver even when they do not pass through Gateway. The
+explicit request selector wins over Better Auth Session
+`activeOrganizationId`; Session fallback exists only for older callers that
+send no selector and must not be reintroduced into an Organization-route Web
+flow. Auth Agent Profile creation and managed-Profile ensure are current users
+of this contract. Their Web callers require the Organization id before the
+request, send it only through the standard gateway-contract header encoding,
+and keep it unchanged through later Profile configuration.
+
 Auth also owns the shared `resolveOrganizationAccountIdentity` RPC projection
 used by Slack and generic Message Channel ingress, identity-link previews, and
 source-bound continuations. Its strict result keeps Organization identity,

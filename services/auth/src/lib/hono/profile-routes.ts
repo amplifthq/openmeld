@@ -3,10 +3,13 @@ import type {
   OpenMeldProfileManagedRole,
 } from "@openmeld/auth/server";
 import { ProfileValidationError } from "@openmeld/auth/server";
+import { readOpenMeldRequestedOrganizationSelector } from "@openmeld/gateway-contract";
+import type { OpenMeldRequestedOrganizationSelector } from "@openmeld/schemas/types";
 import type { Context, Hono } from "hono";
 import { refreshAuthSessionCookie } from "../better-auth/refresh-session-cookie";
 import type { AppContext } from "../context";
 import { requireTrustedCookieOrigin } from "../middlewares/trusted-origin";
+import { resolveAuthenticatedOrganizationContext } from "../organization/authenticated-organization-context";
 import { reconcileDeletedAgentProfileMemberships } from "../profiles/deleted-profile-reconcile";
 import { toProfileHttpErrorResponse } from "../profiles/profile-error-response";
 import { toProfileView } from "../profiles/profile-view";
@@ -138,7 +141,12 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       const body = parseCreateAgentProfileRequestBody(await readJsonBody(c));
       const profile = await c.var.profileService.createAgentProfile({
         ownerUserId: String(authenticated.user.id),
-        organizationId: requireActiveOrganizationId(c),
+        organizationId: await resolveAgentProfileOrganizationId({
+          db: c.env.OPENMELD_DB,
+          headers: c.req.raw.headers,
+          sessionActiveOrganizationId: readSessionActiveOrganizationId(c),
+          userId: String(authenticated.user.id),
+        }),
         createdByUserId: String(authenticated.user.id),
         creatorProfileId: body.creatorProfileId,
         profileName: body.profileName,
@@ -171,7 +179,12 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       );
       const profile = await c.var.profileService.ensureManagedAgentProfile({
         ownerUserId: String(authenticated.user.id),
-        organizationId: requireActiveOrganizationId(c),
+        organizationId: await resolveAgentProfileOrganizationId({
+          db: c.env.OPENMELD_DB,
+          headers: c.req.raw.headers,
+          sessionActiveOrganizationId: readSessionActiveOrganizationId(c),
+          userId: String(authenticated.user.id),
+        }),
         createdByUserId: String(authenticated.user.id),
         creatorProfileId: body.creatorProfileId,
         managedRole: body.managedRole,
@@ -467,13 +480,48 @@ function readOptionalProfileKind(
   );
 }
 
-function requireActiveOrganizationId(c: Context<AppContext>): string {
+export async function resolveAgentProfileOrganizationId(input: {
+  db: D1Database;
+  headers: Headers;
+  sessionActiveOrganizationId: unknown;
+  userId: string;
+}): Promise<string> {
+  let requestedOrganization: OpenMeldRequestedOrganizationSelector | null;
+  try {
+    requestedOrganization = readOpenMeldRequestedOrganizationSelector(
+      input.headers
+    );
+  } catch {
+    throw new ProfileValidationError(
+      "Choose a valid organization.",
+      "organization.context_invalid"
+    );
+  }
+  const organizationContext = await resolveAuthenticatedOrganizationContext({
+    db: input.db,
+    requestedOrganization,
+    sessionActiveOrganizationId: input.sessionActiveOrganizationId,
+    userId: input.userId,
+  });
+  if (!organizationContext.ok) {
+    throw new ProfileValidationError(
+      organizationContext.message,
+      organizationContext.code
+    );
+  }
   const activeOrganizationId = normalizeOptionalText(
-    (c.var.session as { activeOrganizationId?: unknown } | null)
-      ?.activeOrganizationId
+    organizationContext.activeOrganizationId
   );
   if (!activeOrganizationId) {
-    throw new ProfileValidationError("active organization is required");
+    throw new ProfileValidationError(
+      "Choose an organization before creating an Agent Profile.",
+      "organization.context_required"
+    );
   }
   return activeOrganizationId;
+}
+
+function readSessionActiveOrganizationId(c: Context<AppContext>): unknown {
+  return (c.var.session as { activeOrganizationId?: unknown } | null)
+    ?.activeOrganizationId;
 }

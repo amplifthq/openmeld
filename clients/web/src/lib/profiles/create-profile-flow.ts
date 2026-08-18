@@ -54,7 +54,7 @@ export type NewStartProfileInput = {
 	defaultProjectId?: string | null;
 	modelId?: string | null;
 	openCodePermission?: AgentProfileBindingOpenCodePermission | null;
-	organizationId?: string | null;
+	organizationId: string | null;
 	projectFolderPath?: string | null;
 	profileKind: NewProfileKind | null;
 	profileName: string;
@@ -134,11 +134,15 @@ async function createStartAgentProfileWithLocalSetup(input: {
 	runtimeLane: DaemonServiceLane | null;
 	selectedHumanProfileId: string | null;
 }): Promise<AuthProfileView> {
+	const organizationId = requireNewAgentProfileOrganizationId(
+		input.organizationId
+	);
 	const agentControllerRef =
 		input.boundAgentId.length > 0 ? `builtin:${input.boundAgentId}` : null;
 
 	const profile = await createStartAgentProfile({
 		data: {
+			organizationId,
 			profileName: input.profileName,
 			...(input.selectedHumanProfileId
 				? { creatorProfileId: input.selectedHumanProfileId }
@@ -174,15 +178,25 @@ async function createStartAgentProfileWithLocalSetup(input: {
 		projectFolderPath: input.projectFolderPath,
 		selectedHumanProfileId: input.selectedHumanProfileId,
 	});
-	if (!(input.defaultProjectId && input.organizationId)) {
+	if (!input.defaultProjectId) {
 		return profile;
 	}
 	return await updateAgentProfileDefaultProject({
 		actorProfileId: input.selectedHumanProfileId,
 		defaultProjectId: input.defaultProjectId,
-		organizationId: input.organizationId,
+		organizationId,
 		profileId: profile.openMeldProfileId,
 	});
+}
+
+function requireNewAgentProfileOrganizationId(
+	organizationId: string | null
+): string {
+	const normalizedOrganizationId = organizationId?.trim() ?? "";
+	if (!normalizedOrganizationId) {
+		throw new Error("Choose an organization before creating an Agent Profile.");
+	}
+	return normalizedOrganizationId;
 }
 
 async function bindNewAgentProfileToLocalAgent(input: {

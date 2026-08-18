@@ -14,6 +14,9 @@ describe("create agent profile for start", () => {
 			expect(init?.headers).toBeInstanceOf(Headers);
 			const headers = init?.headers as Headers | undefined;
 			expect(headers?.get("cookie")).toBe("session=abc");
+			expect(headers?.get("x-openmeld-requested-organization-id")).toBe(
+				"organization-amplift"
+			);
 			expect(init?.body).toBe(
 				JSON.stringify({
 					profileName: "Research Agent",
@@ -57,6 +60,7 @@ describe("create agent profile for start", () => {
 					cookie: "session=abc",
 				}),
 				authBaseUrl: "https://auth.openmeld.test",
+				organizationId: "organization-amplift",
 				body: {
 					profileName: "Research Agent",
 					creatorProfileId: "11111111-1111-4111-8111-111111111111",
@@ -109,6 +113,7 @@ describe("create agent profile for start", () => {
 				cookie: "session=abc",
 			}),
 			authBaseUrl: "https://auth.openmeld.test",
+			organizationId: "organization-amplift",
 			body: {
 				profileName: "Research Agent",
 				creatorProfileId: "11111111-1111-4111-8111-111111111111",
@@ -158,6 +163,7 @@ describe("create agent profile for start", () => {
 			createStartAgentProfileFromAuth({
 				requestHeaders: new Headers(),
 				authBaseUrl: "https://auth.openmeld.test",
+				organizationId: "organization-amplift",
 				body: {
 					profileName: "Research Agent",
 				},
@@ -210,6 +216,7 @@ describe("create agent profile for start", () => {
 			createStartAgentProfileFromAuth({
 				requestHeaders: new Headers(),
 				authBaseUrl: "https://auth.openmeld.test",
+				organizationId: "organization-amplift",
 				body: {
 					profileName: "Research Agent",
 				},
@@ -221,5 +228,37 @@ describe("create agent profile for start", () => {
 				profileKind: "agent",
 			})
 		);
+	});
+
+	it("preserves the Auth Organization error when profile creation is rejected", async () => {
+		const fetchMock = vi.fn<typeof fetch>(() =>
+			Promise.resolve(
+				new Response(
+					JSON.stringify({
+						ok: false,
+						code: "organization.membership_required",
+						message: "You do not have access to this organization.",
+					}),
+					{
+						status: 400,
+						headers: { "content-type": "application/json" },
+					}
+				)
+			)
+		);
+
+		await expect(
+			createStartAgentProfileFromAuth({
+				requestHeaders: new Headers(),
+				authBaseUrl: "https://auth.openmeld.test",
+				organizationId: "organization-amplift",
+				body: { profileName: "Research Agent" },
+				fetchImpl: fetchMock,
+			})
+		).rejects.toMatchObject({
+			message: "You do not have access to this organization.",
+			status: 400,
+			upstreamCode: "organization.membership_required",
+		});
 	});
 });

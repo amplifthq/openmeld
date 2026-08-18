@@ -86,14 +86,15 @@ const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 // Standalone, route-free Create Profile dialog. Reused from Profiles, legacy
 // agent redirects, and Spaces — the only difference is `spaceContext`: when
 // present, the freshly created profile is also joined to that Space (always as a
-// human acting profile); when absent, it is created on the account only. Carries zero
-// dependency on retired start pages or route intents.
+// human acting profile); when absent, it is created in the selected Organization
+// without Space membership. Carries zero dependency on retired start pages or
+// route intents.
 export function CreateProfileDialog(input: {
 	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
 	onOpenChange: (open: boolean) => void;
 	onProfileCreated?: (profile: AuthProfileView) => void;
 	open: boolean;
-	organizationId?: string;
+	organizationId: string;
 	organizationAuthorizationContext?: CreateProfileOrganizationAuthorizationContext;
 	orgSlug?: string;
 	recovery: RecoveryController;
@@ -150,10 +151,7 @@ export function CreateProfileDialog(input: {
 	const orgSlug = input.orgSlug ?? currentOrgSlug;
 	const organizationAuthorizationContext =
 		input.organizationAuthorizationContext;
-	const organizationId =
-		input.organizationId ??
-		organizationAuthorizationContext?.organizationId ??
-		"";
+	const organizationId = input.organizationId;
 	const projectsQuery = useQuery(
 		projectsQueryOptions({
 			enabled: Boolean(organizationId),

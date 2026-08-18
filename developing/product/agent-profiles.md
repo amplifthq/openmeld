@@ -77,6 +77,15 @@ profile's Binding, model, Agent Controller, or Wake health. Ordinary Agent
 Profile creation and profile execution management still require explicit user or
 assistant intent.
 
+An ordinary or managed Agent Profile created from an Organization surface
+belongs to that explicitly selected Organization. The route Organization is
+part of the creation command; it must not be inferred from a mutable Better
+Auth Session selection. Auth verifies that the signed-in account is currently a
+member before it writes the Profile. Later Binding, working-folder, Default
+Project, Organization Wake access, and Space-membership steps must keep that
+same Organization id. A mismatch fails before the Profile write instead of
+creating an identity in one Organization and configuring it through another.
+
 Human Profiles and the Center Agent use deterministic Dither artwork derived
 from their stable Profile kind and Profile ID. A Human Profile's uploaded image
 remains authoritative. The Center Agent always uses its Dither identity instead
