@@ -100,8 +100,11 @@ state. Activating that Inbox item marks only the OpenMeld item read and opens
 the exact Slack message in a new tab; reading the Slack thread by another route
 cannot clear OpenMeld unread state. If permalink lookup or Inbox projection is
 temporarily unavailable, the durable terminal delivery remains the repair
-source: reconciliation retries, creates exactly one item, and stops retrying
-after that projection exists.
+source. Reconciliation retries, creates exactly one item, and upgrades legacy
+Slack items from the former Center Agent target to the exact provider target
+without resetting read, action-resolution, or dismissal state. A durable
+last-attempt timestamp keeps one unavailable Slack message from starving later
+repairs; reconciliation stops selecting an item after its exact target exists.
 
 The `message_channel` target is durable data, not a presentation-only field.
 All strict readers must accept it before Core starts writing it. Once written,

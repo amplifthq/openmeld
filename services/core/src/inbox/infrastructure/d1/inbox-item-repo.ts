@@ -1,7 +1,11 @@
-import { inboxSourceCandidateSchema } from "@openmeld/schemas";
+import {
+  inboxSourceCandidateSchema,
+  inboxSourceTargetSchema,
+} from "@openmeld/schemas";
 import type {
   InboxSourceCandidate,
   InboxSourceKind,
+  InboxSourceTarget,
 } from "@openmeld/schemas/types";
 
 export type InboxItemRecord = {
@@ -307,6 +311,62 @@ export async function readInboxItemBySource(input: {
     )
     .first<InboxItemRow>();
   return row ? mapInboxItemRow(row) : null;
+}
+
+export async function replaceInboxSourceTargetsIfCurrent(input: {
+  currentSourceTarget: InboxSourceTarget;
+  db: D1Database;
+  nextSourceTarget: InboxSourceTarget;
+  organizationId: string;
+  recipientUserId: string;
+  sourceKeys: readonly string[];
+  sourceKind: InboxSourceKind;
+  updatedAtMs: number;
+}): Promise<number> {
+  if (!(Number.isSafeInteger(input.updatedAtMs) && input.updatedAtMs >= 0)) {
+    throw new TypeError("updatedAtMs must be a non-negative safe integer");
+  }
+  const sourceKeys = [...new Set(input.sourceKeys.map((key) => key.trim()))];
+  if (
+    !(input.organizationId.trim() && input.recipientUserId.trim()) ||
+    sourceKeys.length === 0 ||
+    sourceKeys.length > 10 ||
+    sourceKeys.some((key) => !key || key.length > 256)
+  ) {
+    throw new TypeError("Inbox source-target replacement scope is invalid");
+  }
+  const currentSourceTarget = inboxSourceTargetSchema.parse(
+    input.currentSourceTarget
+  );
+  const nextSourceTarget = inboxSourceTargetSchema.parse(
+    input.nextSourceTarget
+  );
+  const placeholders = sourceKeys.map(() => "?").join(", ");
+  const result = await input.db
+    .prepare(
+      `
+        UPDATE inbox_items
+        SET
+          source_target_json = ?,
+          updated_at_ms = max(updated_at_ms, ?)
+        WHERE organization_id = ?
+          AND recipient_user_id = ?
+          AND source_kind = ?
+          AND source_key IN (${placeholders})
+          AND source_target_json = ?
+      `
+    )
+    .bind(
+      JSON.stringify(nextSourceTarget),
+      input.updatedAtMs,
+      input.organizationId,
+      input.recipientUserId,
+      input.sourceKind,
+      ...sourceKeys,
+      JSON.stringify(currentSourceTarget)
+    )
+    .run();
+  return Math.max(0, Math.trunc(Number(result.meta.changes ?? 0)));
 }
 
 export async function listOpenOrganizationDocumentDraftInboxTargets(input: {

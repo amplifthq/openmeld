@@ -177,8 +177,11 @@ The planner selects `inbox-message-channel-receiver-first` when a diff changes
 the strict Inbox source-target schema and the Core Slack Inbox writer together.
 It automatically includes Web, Gateway, and Core, and rejects a manually
 narrowed scope that omits any of those components. Within the selected scopes,
-Web deploys and passes health first, Gateway deploys and passes health second,
-and Core deploys last. If the shared schema also selects the local-component
+Database migration `0127_handy_speed_demon` applies first when selected, Web
+deploys and passes health next, Gateway deploys and passes health after Web, and
+Core deploys last. The nullable migration records fair Inbox repair attempts;
+old Core ignores it, so applying it before the receiver rollout does not start
+new writes. If the shared schema also selects the local-component
 release, the existing receiver-first CLI mechanism keeps immutable CLI
 publication last and uses the current production CLI projection for the first
 Core deploy.
@@ -204,7 +207,10 @@ remain aligned. After reload, the current API client sends version `2` through
 the Web proxy on all three operations and receives exact Slack targets. SQL-only
 Inbox filters and urgent-email delivery do not deserialize
 `source_target_json`; Remote Agent and CLI do not read these rows and are not
-additional receiver stages.
+additional receiver stages. After Core is active, its bounded ledger-driven
+repair upgrades pre-release Slack targets in place while preserving item id,
+read time, action resolution, and dismissal. The nullable last-attempt field
+makes repeated permalink failures rotate behind never-attempted repairs.
 
 Rollback is forward-only at the reader boundary. First stop new writes with a
 Core change that retains the new schema. Keep the compatible Core, Gateway, and
@@ -212,6 +218,7 @@ Web readers deployed because already-written rows remain durable. Do not deploy
 an old reader, manually rewrite D1, or delete Inbox rows as a rollback shortcut.
 A full reader rollback is permitted only after an explicit migration or
 retention process verifies that no persisted `message_channel` target remains.
+The additive nullable migration remains applied during rollback.
 
 ### Organization Skills first-launch order
 

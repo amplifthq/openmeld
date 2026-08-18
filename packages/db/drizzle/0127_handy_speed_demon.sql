@@ -1,0 +1,2 @@
+ALTER TABLE `openMeldRemoteAgent_native_delivery_ledger` ADD `inbox_projection_attempted_at_ms` integer;--> statement-breakpoint
+CREATE INDEX `idx_openMeldRemoteAgent_native_delivery_inbox_projection` ON `openMeldRemoteAgent_native_delivery_ledger` (`inbox_projection_attempted_at_ms`);

@@ -249,8 +249,14 @@ all three operations, through the Web proxy allowlist, and receives the exact
 target. This keeps older tabs' complete list, counts, pagination, direct links,
 and mutations compatible until a normal reload installs exact Slack
 navigation; it never rewrites the durable row or weakens the canonical schema.
-Core keeps the durable Slack terminal-delivery reconciliation path as the
-repair owner when permalink resolution or Inbox projection fails.
+Core keeps the durable Slack terminal-delivery ledger as the repair owner when
+permalink resolution or Inbox projection fails. The same bounded repair detects
+legacy Slack rows whose source identity still points to the former
+`{ kind: "center_agent" }` target and replaces only `source_target_json`; item
+identity, read time, action resolution, dismissal, and occurrence remain
+unchanged. Migration `0127_handy_speed_demon` adds the nullable last-attempt
+field and index used to rotate a failed provider lookup behind never-attempted
+repairs rather than starving the bounded batch.
 
 `message_channel` rows remain in D1 after the producer stops. A normal rollback
 therefore stops emission with a forward Core change that retains the new reader,

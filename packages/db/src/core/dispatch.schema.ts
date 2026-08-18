@@ -424,6 +424,7 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     ),
     inboxProjectionSuppressedReason: text("inbox_projection_suppressed_reason"),
     inboxProjectionSuppressedAtMs: integer("inbox_projection_suppressed_at_ms"),
+    inboxProjectionAttemptedAtMs: integer("inbox_projection_attempted_at_ms"),
     publishedSignalId: text("published_signal_id"),
     executionEvidenceAtMs: integer("execution_evidence_at_ms"),
     executionEvidenceSequence: integer("execution_evidence_sequence"),
@@ -481,6 +482,9 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     index(
       "idx_openMeldRemoteAgent_native_delivery_task_terminal_projection"
     ).on(table.centerAgentTaskTerminalProjectionAttemptedAtMs),
+    index("idx_openMeldRemoteAgent_native_delivery_inbox_projection").on(
+      table.inboxProjectionAttemptedAtMs
+    ),
     index("idx_openMeldRemoteAgent_native_delivery_routine_recovery").on(
       table.status,
       table.deadlineProbeEnqueuedAtMs,

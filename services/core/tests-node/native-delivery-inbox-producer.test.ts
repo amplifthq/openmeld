@@ -303,6 +303,193 @@ describe("Slack native delivery Inbox producer", () => {
     }
   });
 
+  it("upgrades a legacy Slack target without resetting the user's Inbox state", async () => {
+    const harness = createInboxHarness({ nativeDeliveryLedger: true });
+    try {
+      insertTerminalSlackDelivery(harness, {
+        deliveryId: "delivery_legacy_target",
+        recipientUserId: "user_two",
+        updatedAtMs: 1000,
+      });
+      harness.run({
+        params: [
+          "legacy_item",
+          "delivery_legacy_target:terminal",
+          JSON.stringify({ kind: "center_agent" }),
+        ],
+        sql: `
+          INSERT INTO inbox_items (
+            id,
+            organization_id,
+            recipient_user_id,
+            kind,
+            attention,
+            importance,
+            title,
+            preview,
+            context_label,
+            source_kind,
+            source_key,
+            source_target_json,
+            resolution_status,
+            read_at_ms,
+            cleared_at_ms,
+            resolved_at_ms,
+            occurred_at_ms,
+            created_at_ms,
+            updated_at_ms
+          ) VALUES (
+            ?, 'org_one', 'user_two', 'center_agent_update', 'update',
+            'normal', 'Center Agent replied in Slack',
+            'The Center Agent posted a reply in Slack.',
+            'Center Agent · Slack', 'remote_agent_native_delivery', ?, ?,
+            'not_applicable', 1100, 1200, NULL, 1000, 1000, 1200
+          )
+        `,
+      });
+      harness.run({
+        params: [
+          "legacy_action_item",
+          "delivery_legacy_target:publication_unknown",
+          JSON.stringify({ kind: "center_agent" }),
+        ],
+        sql: `
+          INSERT INTO inbox_items (
+            id,
+            organization_id,
+            recipient_user_id,
+            kind,
+            attention,
+            importance,
+            title,
+            preview,
+            context_label,
+            source_kind,
+            source_key,
+            source_target_json,
+            resolution_status,
+            read_at_ms,
+            cleared_at_ms,
+            resolved_at_ms,
+            occurred_at_ms,
+            created_at_ms,
+            updated_at_ms
+          ) VALUES (
+            ?, 'org_one', 'user_two', 'center_agent_update',
+            'action_required', 'normal', 'Check the Center Agent reply in Slack',
+            'Check the Slack thread before trying again.',
+            'Center Agent · Slack', 'remote_agent_native_delivery', ?, ?,
+            'resolved', 1100, 1200, 1150, 1000, 1000, 1200
+          )
+        `,
+      });
+
+      await expect(
+        reconcileLinkedSlackNativeDeliveryInbox({
+          db: harness.db,
+          nowMs: 2000,
+          resolveSourceTarget: async () => SLACK_INBOX_SOURCE_TARGET,
+        })
+      ).resolves.toEqual({ attempted: 1, errors: 0, projected: 1 });
+      expect(
+        harness.queryAll<{
+          cleared_at_ms: number | null;
+          id: string;
+          read_at_ms: number | null;
+          resolved_at_ms: number | null;
+          resolution_status: string;
+          source_key: string;
+          source_target_json: string;
+        }>({
+          sql: `
+            SELECT
+              id,
+              source_key,
+              source_target_json,
+              resolution_status,
+              resolved_at_ms,
+              read_at_ms,
+              cleared_at_ms
+            FROM inbox_items
+            ORDER BY source_key
+          `,
+        })
+      ).toEqual([
+        {
+          cleared_at_ms: 1200,
+          id: "legacy_action_item",
+          read_at_ms: 1100,
+          resolved_at_ms: 1150,
+          resolution_status: "resolved",
+          source_key: "delivery_legacy_target:publication_unknown",
+          source_target_json: JSON.stringify(SLACK_INBOX_SOURCE_TARGET),
+        },
+        {
+          cleared_at_ms: 1200,
+          id: "legacy_item",
+          read_at_ms: 1100,
+          resolved_at_ms: null,
+          resolution_status: "not_applicable",
+          source_key: "delivery_legacy_target:terminal",
+          source_target_json: JSON.stringify(SLACK_INBOX_SOURCE_TARGET),
+        },
+      ]);
+      await expect(
+        reconcileLinkedSlackNativeDeliveryInbox({
+          db: harness.db,
+          nowMs: 3000,
+          resolveSourceTarget: async () => SLACK_INBOX_SOURCE_TARGET,
+        })
+      ).resolves.toEqual({ attempted: 0, errors: 0, projected: 0 });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("moves a failed permalink repair behind unattempted deliveries", async () => {
+    const harness = createInboxHarness({ nativeDeliveryLedger: true });
+    try {
+      insertTerminalSlackDelivery(harness, {
+        deliveryId: "delivery_permanent_failure",
+        recipientUserId: "user_two",
+        updatedAtMs: 1000,
+      });
+      insertTerminalSlackDelivery(harness, {
+        deliveryId: "delivery_after_failure",
+        recipientUserId: "user_two",
+        updatedAtMs: 2000,
+      });
+
+      const resolveSourceTarget = (delivery: { deliveryId: string }) =>
+        delivery.deliveryId === "delivery_permanent_failure"
+          ? Promise.reject(new Error("Slack message is no longer available"))
+          : Promise.resolve(SLACK_INBOX_SOURCE_TARGET);
+      await expect(
+        reconcileLinkedSlackNativeDeliveryInbox({
+          db: harness.db,
+          limit: 1,
+          nowMs: 3000,
+          resolveSourceTarget,
+        })
+      ).resolves.toEqual({ attempted: 1, errors: 1, projected: 0 });
+      await expect(
+        reconcileLinkedSlackNativeDeliveryInbox({
+          db: harness.db,
+          limit: 1,
+          nowMs: 4000,
+          resolveSourceTarget,
+        })
+      ).resolves.toEqual({ attempted: 1, errors: 0, projected: 1 });
+      expect(
+        harness.queryFirst<{ source_key: string }>({
+          sql: "SELECT source_key FROM inbox_items",
+        })
+      ).toEqual({ source_key: "delivery_after_failure:terminal" });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("suppresses permanently missing recipients without starving later deliveries", async () => {
     const harness = createInboxHarness({ nativeDeliveryLedger: true });
     try {

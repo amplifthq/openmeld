@@ -170,6 +170,7 @@ import {
   listRemoteAgentNativeDeliveriesMissingAcceptedProbe,
   listTerminalRemoteAgentNativeDeliveriesWithRetainedPayload,
   markCenterAgentTaskTerminalProjectionAttempted,
+  markLinkedSlackNativeDeliveryInboxProjectionAttempted,
   markRemoteAgentAcceptedDeliveryProbeScheduled,
   markRemoteAgentCallbackPublishFailure,
   markRemoteAgentCallbackRejected,
@@ -12262,6 +12263,11 @@ export async function reconcileLinkedSlackNativeDeliveryInbox(
       ) {
         continue;
       }
+      await markLinkedSlackNativeDeliveryInboxProjectionAttempted({
+        db: input.db,
+        deliveryId: delivery.deliveryId,
+        nowMs: input.nowMs,
+      });
       const outcome = buildNativeDeliveryTerminalOutcome(delivery);
       const sourceTarget = await (input.resolveSourceTarget
         ? input.resolveSourceTarget(delivery)
