@@ -190,9 +190,10 @@ export async function runUpgrade(input: {
   }
 
   if (input.check) {
-    presenter.data({
-      code: "upgrade.check",
-      payload: upgradeStatus,
+    emitUpgradeCheckStatus({
+      presenter,
+      resolvedView: runtime.resolvedView,
+      upgradeStatus,
     });
     return;
   }
@@ -254,6 +255,49 @@ export async function runUpgrade(input: {
     currentVersion,
     presenter,
   });
+}
+
+function emitUpgradeCheckStatus(input: {
+  presenter: ReturnType<typeof createPresenter>;
+  resolvedView: "human" | "agent";
+  upgradeStatus: UpgradeStatus;
+}): void {
+  if (input.resolvedView === "agent") {
+    input.presenter.data({
+      code: "upgrade.check",
+      payload: input.upgradeStatus,
+    });
+    return;
+  }
+
+  switch (input.upgradeStatus.status) {
+    case "up_to_date":
+    case "downgrade_blocked":
+      emitTerminalUpgradeStatus(input);
+      return;
+    case "outdated":
+      input.presenter.line({
+        code: "upgrade.update_available",
+        text: formatInlineOpenMeldCliCommands(
+          `OpenMeld CLI ${input.upgradeStatus.latestVersion} is available (current ${input.upgradeStatus.currentVersion}). Run \`openmeld upgrade\` to install it.`
+        ),
+      });
+      return;
+    case "check_failed":
+      input.presenter.line({
+        code: "upgrade.check_failed",
+        text: formatInlineOpenMeldCliCommands(
+          "OpenMeld couldn't check for CLI updates. Check your internet connection, then run `openmeld upgrade --check` again."
+        ),
+      });
+      return;
+    default: {
+      const exhaustiveStatus: never = input.upgradeStatus;
+      throw new Error(
+        `unsupported upgrade status: ${String(exhaustiveStatus)}`
+      );
+    }
+  }
 }
 
 function emitTerminalUpgradeStatus(input: {
