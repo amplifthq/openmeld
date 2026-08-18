@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-18T11:13:53.721Z",
+  "updatedAt": "2026-08-18T11:59:10.297Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.69",
+      "packageVersion": "0.3.70",
       "updatePolicy": "available",
-      "reason": "Fixes an OpenMeld Service update that could stop setup after your local agents were found."
+      "reason": "Prevents retried Agent creation from producing duplicate Agent Profiles."
     },
     "service": {
-      "bundleHash": "d27d23ccabc5e660c9c5326f4a22f03c1b1141c90e797110f46fbcb2a06db2f4",
-      "bundleVersion": "0.3.69",
+      "bundleHash": "3d1b0ae31a361ca1d0dec020d832bbca91db7dfc813b07bfa0f1559497a30175",
+      "bundleVersion": "0.3.70",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Fixes an OpenMeld Service update that could stop setup after your local agents were found."
+      "reason": "Prevents retried Agent creation from producing duplicate Agent Profiles."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
