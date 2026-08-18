@@ -1,11 +1,19 @@
 import type { OnboardingPlan } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { ProgressiveBlur } from "@openmeld/ui/components/progressive-blur";
+import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { cardPickerCardClassName } from "@openmeld/ui/lib/card-picker-contract";
 import { resolveStatusToneIconClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
-import { LaptopIcon, RobotIcon, XIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import {
+	ArrowRightIcon,
+	LaptopIcon,
+	RobotIcon,
+	XIcon,
+} from "@phosphor-icons/react";
+import { type ReactNode, useId } from "react";
 import { SpaceCreateProfileButton } from "#/components/profiles/space-create-profile-button";
+import { resolveOnboardingSetupActionVisibility } from "#/components/spaces/onboarding-setup-presentation";
 
 const SETUP_BLUR_FADE_HEIGHT = "2rem";
 
@@ -34,13 +42,6 @@ export type OnboardingSetupBannerProps = {
 	onDismiss: (id: OnboardingDecisionId) => void;
 };
 
-function findDecision(
-	plan: OnboardingPlan,
-	id: OnboardingDecisionId
-): OnboardingDecision | null {
-	return plan.decisions.find((decision) => decision.id === id) ?? null;
-}
-
 /**
  * In-Space onboarding guidance. A "Get set up" container of dismissible CTA
  * rows for the coarse next actions: connect this computer and bring agents.
@@ -54,24 +55,13 @@ function findDecision(
  * this banner never says an agent "can be woken".
  */
 export function OnboardingSetupBanner(props: OnboardingSetupBannerProps) {
-	const connect = findDecision(props.plan, "connect_this_computer");
-	const bringAgents = findDecision(props.plan, "bring_agents");
 	const onAddAgents = props.onAddAgents;
-
-	const showConnect =
-		connect?.status === "available" &&
-		!props.dismissedIds.has("connect_this_computer");
-	// A joined account with no agent yet is bring_agents "blocked"
-	// ("agents.none_yet") — a real first-run gap, not silence. Surface it as an
-	// actionable "add your first agent" row (distinct CTA: create, not add). The
-	// planner keeps the honest "blocked" fact; the banner presents it as guidance.
-	const bringAgentsFirstAgent =
-		bringAgents?.status === "blocked" &&
-		bringAgents.reason === "agents.none_yet";
-	const showBringAgents =
-		typeof onAddAgents === "function" &&
-		(bringAgents?.status === "available" || bringAgentsFirstAgent) &&
-		!props.dismissedIds.has("bring_agents");
+	const { bringAgentsFirstAgent, showBringAgents, showConnect } =
+		resolveOnboardingSetupActionVisibility({
+			canAddAgents: typeof onAddAgents === "function",
+			dismissedIds: props.dismissedIds,
+			plan: props.plan,
+		});
 
 	if (!(showConnect || showBringAgents)) {
 		return null;
@@ -120,6 +110,110 @@ export function OnboardingSetupBanner(props: OnboardingSetupBannerProps) {
 				</div>
 			</div>
 		</section>
+	);
+}
+
+export type OnboardingSetupEmptyStateActionsProps = Pick<
+	OnboardingSetupBannerProps,
+	"onAddAgents" | "onConnect" | "plan"
+>;
+
+/**
+ * Setup entry points for an ordinary Space with no messages. The cards use the
+ * same planner interpretation and action handlers as the banner; only their
+ * presentation changes. FluidCard owns the single shared hover/focus
+ * background, including its reduced-motion behavior.
+ */
+export function OnboardingSetupEmptyStateActions(
+	props: OnboardingSetupEmptyStateActionsProps
+) {
+	const { showBringAgents, showConnect } =
+		resolveOnboardingSetupActionVisibility({
+			canAddAgents: typeof props.onAddAgents === "function",
+			plan: props.plan,
+		});
+
+	if (!(showConnect || showBringAgents)) {
+		return null;
+	}
+
+	return (
+		<FluidCardGroup
+			aria-label="Set up this Space"
+			className={cn(
+				"grid w-full gap-3",
+				showConnect && showBringAgents ? "sm:grid-cols-2" : "mx-auto max-w-sm"
+			)}
+			role="group"
+		>
+			{showConnect ? (
+				<EmptyStateSetupActionCard
+					description="Bring Codex, Claude Code, or another local agent into OpenMeld. Then add it to this Space."
+					icon={<LaptopIcon aria-hidden="true" className="size-5" />}
+					itemId="connect-this-computer"
+					onClick={props.onConnect}
+					title="Connect this computer"
+				/>
+			) : null}
+
+			{showBringAgents && props.onAddAgents ? (
+				<EmptyStateSetupActionCard
+					description="Choose an available agent—or create one—and add it to this Space."
+					icon={<RobotIcon aria-hidden="true" className="size-5" />}
+					itemId="add-agents"
+					onClick={props.onAddAgents}
+					title="Add agents"
+				/>
+			) : null}
+		</FluidCardGroup>
+	);
+}
+
+function EmptyStateSetupActionCard(input: {
+	description: string;
+	icon: ReactNode;
+	itemId: string;
+	onClick: () => void;
+	title: string;
+}) {
+	const accessibleId = useId();
+	const descriptionId = `${accessibleId}-description`;
+	const titleId = `${accessibleId}-title`;
+
+	return (
+		<FluidCardItem className="bg-transparent" itemId={input.itemId}>
+			<button
+				aria-describedby={descriptionId}
+				aria-labelledby={titleId}
+				className={cn(
+					cardPickerCardClassName(),
+					"min-h-36 justify-between gap-5 bg-transparent p-4 hover:bg-transparent focus-visible:ring-inset"
+				)}
+				onClick={input.onClick}
+				type="button"
+			>
+				<span className="flex w-full items-start justify-between gap-4">
+					<span className="grid size-9 shrink-0 place-items-center rounded-md border border-border bg-background text-foreground">
+						{input.icon}
+					</span>
+					<ArrowRightIcon
+						aria-hidden="true"
+						className="mt-1 size-4 shrink-0 text-muted-foreground"
+					/>
+				</span>
+				<span className="grid gap-1.5">
+					<span className="font-medium text-foreground text-sm" id={titleId}>
+						{input.title}
+					</span>
+					<span
+						className="text-muted-foreground text-xs leading-5"
+						id={descriptionId}
+					>
+						{input.description}
+					</span>
+				</span>
+			</button>
+		</FluidCardItem>
 	);
 }
 

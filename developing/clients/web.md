@@ -2439,14 +2439,19 @@ remaining panel without a duplicate composer, while the existing browser-side
 draft, attachments, and reply target stay intact for the user's return to
 Messages.
 
-Available contextual setup guidance also renders only in **Messages**. It sits
-in the conversation scroller's shared top-overlay stack with earlier-history
-loading, reuses `@openmeld/ui` `ProgressiveBlur`, and does not consume timeline
-layout height or add an opaque banner background or structural divider. Its
-interactive content remains above the blur while messages remain visible
-behind it. When **Graph** is active and setup remains available, the Space
-header shows **Get set up**; activating it returns to **Messages** and recalls
-the guidance without changing planner or setup truth.
+Available contextual setup guidance also renders only in **Messages**. In an
+ordinary Space with no messages, Web centers the Space explanation and the
+planner's available setup actions in the conversation canvas. Those actions use
+`@openmeld/ui` `FluidCardGroup` / `FluidCardItem`, with transparent card content
+so one shared layout background moves between hovered or focused cards. Once a
+recorded message exists, remaining guidance sits in the conversation scroller's
+shared top-overlay stack with earlier-history loading, reuses `ProgressiveBlur`,
+and does not consume timeline layout height or add an opaque banner background
+or structural divider. Its interactive content remains above the blur while
+messages remain visible behind it. Both presentations consume the same planner
+decisions and handlers. When **Graph** is active and setup remains available,
+the Space header shows **Get set up**; activating it returns to **Messages** and
+recalls the guidance without changing planner or setup truth.
 
 Current Direct Messages never render `bring_agents` setup guidance. A DM with
 the current account's own local Agent Profile may render only

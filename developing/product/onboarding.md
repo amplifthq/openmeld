@@ -35,8 +35,9 @@ OpenMeld has two complementary onboarding layers:
    OpenMeld useful in that scope.
 2. **Contextual setup guidance** remains a permanent, fact-driven answer to
    "what is the most useful next action on this surface right now?" The
-   in-Space banner and CLI setup/doctor surfaces consume the existing pure
-   planner and do not depend on Setup Studio completion.
+   in-Space empty-state cards, in-Space banner, and CLI setup/doctor surfaces
+   consume the existing pure planner and do not depend on Setup Studio
+   completion.
 
 Setup Studio is not a tutorial simulation. Every action reads or writes the
 same owning data used by the rest of the product. Its right-hand demonstrations
@@ -281,12 +282,12 @@ current facts — progressive disclosure, never a disabled action):
   planner does not emit an action and let renderers grey it out; absent
   prerequisites mean the action is not in the list (or is `blocked` only when
   the user would otherwise look for it and be confused by its absence).
-- Zero Agent Profiles: do not emit `bring_agents` — there is nothing to
-  bring. The meaningful action is getting a first agent, which is the
-  `connect_this_computer` decision. (Renderers adapt that decision's copy by
-  fact: a zero-agent user is told they are setting up their first agent; a
-  user who already has agents is told to connect this computer so they reply.
-  Same decision id, fact-driven copy — never two ids.)
+- Zero Agent Profiles: emit `bring_agents` as blocked with
+  `agents.none_yet`. This preserves the real missing membership step without
+  pretending an existing Agent Profile can be selected. Web may route that
+  decision into the existing Members flow, where the user can create an Agent
+  Profile, while `connect_this_computer` remains the independent computer
+  setup action whenever it is also needed.
 - Has Agent Profiles, this computer not connected: `bring_agents` and
   `connect_this_computer` are both meaningful and independent; emit both,
   neither blocking the other.
@@ -436,15 +437,17 @@ and empty states. It is not part of Setup Studio and does not gate product
 entry. It continues to reuse the existing create/join Space paths and the
 single membership owner.
 
-## Web: In-Space Setup Guidance (the banner)
+## Web: In-Space Setup Guidance
 
 Placement: the right column of the Space view is the Members drawer (a
-toggleable panel), and onboarding guidance does NOT live there. Setup
-guidance is a dismissible banner at the top of the conversation area (the
-main conversation), shown whenever the plan returns a non-done setup
-decision for this user in this Space. It is never a full-screen takeover or
-an empty-state that blocks the conversation: a Space used purely as a human
-chat room must be one dismissal away from a clean conversation (Invariant 6).
+toggleable panel), and onboarding guidance does NOT live there. An ordinary
+Space with no messages presents the plan's available setup actions as centered
+Fluid action cards in the conversation canvas, directly below a plain-language
+explanation of what a Space is. The composer remains available, so the cards
+never gate a human-only conversation. Once the Space has a recorded message,
+any remaining setup actions move to the existing dismissible banner at the top
+of the conversation area. Empty-state cards and the banner are two renderings
+of the same planner decisions and action handlers, never separate setup state.
 
 The banner is plan-driven (one engine, Invariant 5), a container of per-row
 dismissible CTAs (each row's × hides just that row; dismiss the last visible
@@ -462,8 +465,8 @@ Behavior).
 
 Two facts, two homes (Invariant 3 + the role rule, Invariant 8):
 
-- The ordinary Space banner carries the coarse, act-now onboarding decisions.
-  `bring_agents` acts in place (opens the Members panel);
+- The ordinary Space guidance carries the coarse, act-now onboarding
+  decisions. `bring_agents` acts in place (opens the Members panel);
   `connect_this_computer` routes to the centralized setup page. The banner
   never restates the connect command itself. The Center Agent Direct Message
   inline workflow is a separate host of the shared Connect flow, not an
@@ -481,6 +484,25 @@ show only `connect_this_computer` when this computer is not connected, because
 that action repairs the already-selected agent's execution path without
 changing membership. The managed Center Agent counts as an agent for ordinary
 Space setup completion, but its DM remains outside this local-computer rule.
+
+Empty-Space action cards:
+
+- The centered introduction is `A Space is where people and agents work
+  together.` followed by `You and your teammates can give agents work. Agents
+  can ask other agents for help. Everyone can see the results here.`
+- `Connect this computer` explains `Bring Codex, Claude Code, or another local
+  agent into OpenMeld. Then add it to this Space.`
+- `Add agents` explains `Choose an available agent—or create one—and add it to
+  this Space.` It opens the existing Members panel and expands its Add members
+  card; when no Agent Profile exists, that existing flow supplies Create Agent.
+  The empty state never builds a second selector or agent-creation workflow.
+- Both actions render when both planner decisions remain meaningful. Completing
+  either action leaves the other available; after the first recorded message,
+  that remaining action is presented by the dismissible banner.
+- The cards use the shared `FluidCardGroup` / `FluidCardItem` primitive. Their
+  content stays transparent so the single shared hover and delegated-focus
+  background can move between cards, including the primitive's reduced-motion
+  behavior.
 
 Banner content by decision:
 
@@ -507,12 +529,13 @@ Banner content by decision:
   the drawer badge; a member agent whose computer is offline shows Offline
   there, and the banner must not contradict that.
 - `bring_agents` blocked (`agents.none_yet`) — the account has no agent yet;
-  the meaningful action is `connect_this_computer` (its first agent is created
-  by running `openmeld setup` on a connected computer). Do not show a dead "bring
-  agents" affordance.
+  show `Add your first agent` with the existing Create Agent launcher. In the
+  empty Space presentation, `Add agents` opens the Members flow instead, where
+  the same creation path is available. Neither presentation shows a dead
+  selector.
 
 Replaces the old recovery split: coarse cases (no computer connected / no
-agent) live in the plan-driven Get-set-up banner, acting in place. Fine-grained
+agent) live in plan-driven Space setup guidance, acting in place. Fine-grained
 per-agent recovery (a specific member agent whose controller is unchosen, off,
 or disconnected) stays at the per-agent scope and can deep-link to the Agents
 page when the fix belongs there.
@@ -542,6 +565,9 @@ navigation/display only — no liveness, readiness, or Wake routing fact changes
 
 Behavior:
 
+- Empty Space: action cards are not dismissible and do not obscure the composer.
+  Sending the first message replaces them with the conversation timeline and
+  moves any remaining setup decision into the banner.
 - Dismiss/recall: each row's × hides just that row for the session; dismissing
   the last visible row closes the panel. Dismissal is never persisted, so a
   refresh re-derives the plan and the rows return (Invariant 4/6). Within a
@@ -564,6 +590,10 @@ drift):
 
 | Element | Copy |
 | --- | --- |
+| Empty Space title | `A Space is where people and agents work together.` |
+| Empty Space description | `You and your teammates can give agents work. Agents can ask other agents for help. Everyone can see the results here.` |
+| Empty Space connect action | `Connect this computer` / `Bring Codex, Claude Code, or another local agent into OpenMeld. Then add it to this Space.` |
+| Empty Space add action | `Add agents` / `Choose an available agent—or create one—and add it to this Space.` |
 | Banner heading | `Get set up` / `Optional. Dismiss anytime.` |
 | Connect (banner) | `Connect this computer` / `So your local agents can reply when you mention them` / button `Connect OpenMeld Service` (routes to the setup page) |
 | Waiting status (setup page) | `Waiting for this computer…` |

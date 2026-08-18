@@ -272,10 +272,13 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("places setup guidance over the Messages scroller instead of above it", () => {
+		const renderSetupGuidance = vi.fn(
+			(presentation: "banner" | "empty-state") => (
+				<section aria-label="Get set up">{presentation}</section>
+			)
+		);
 		renderSpaceConversationPanel({
-			localAgentRecoveryBanner: (
-				<section aria-label="Get set up">Setup guidance</section>
-			),
+			renderSetupGuidance,
 			timelineItems: [createTimelineItem()],
 		});
 
@@ -290,11 +293,43 @@ describe("SpaceConversationPanel", () => {
 		expect(messageScroller).not.toBeNull();
 		expect(messageScroller?.contains(setupGuidance)).toBe(true);
 		expect(conversationLog.contains(setupGuidance)).toBe(false);
+		expect(renderSetupGuidance).toHaveBeenCalledWith("banner");
+	});
+
+	it("places setup guidance in the centered conversation empty state until a message exists", () => {
+		const renderSetupGuidance = vi.fn(
+			(presentation: "banner" | "empty-state") => (
+				<section aria-label="Space setup actions">{presentation}</section>
+			)
+		);
+		renderSpaceConversationPanel({
+			emptyStateDescription: "People and agents can work together here.",
+			emptyStateTitle: "Start working together.",
+			renderSetupGuidance,
+			timelineItems: [],
+		});
+
+		const conversationLog = screen.getByRole("log", {
+			name: "Conversation history",
+		});
+		const setupActions = screen.getByRole("region", {
+			name: "Space setup actions",
+		});
+		const emptyItem = setupActions.closest(
+			"[data-slot='message-scroller-item']"
+		);
+
+		expect(renderSetupGuidance).toHaveBeenCalledWith("empty-state");
+		expect(conversationLog.contains(setupActions)).toBe(true);
+		expect(emptyItem?.getAttribute("data-message-id")).toBe(
+			"space-conversation-empty"
+		);
+		expect(screen.queryByRole("region", { name: "Get set up" })).toBeNull();
 	});
 
 	it("keeps sticky date pills below the conversation overlay", () => {
 		renderSpaceConversationPanel({
-			localAgentRecoveryBanner: (
+			renderSetupGuidance: () => (
 				<section aria-label="Get set up">Setup guidance</section>
 			),
 			timelineItems: [createTimelineItem()],
@@ -346,7 +381,7 @@ describe("SpaceConversationPanel", () => {
 		vi.setSystemTime(new Date(2026, 7, 10, 12));
 
 		renderSpaceConversationPanel({
-			localAgentRecoveryBanner: (
+			renderSetupGuidance: () => (
 				<section aria-label="Get set up">Setup guidance</section>
 			),
 			timelineItems: [
