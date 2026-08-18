@@ -252,7 +252,7 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
-  it("keeps a recovered multi-channel introduction working across submission ticks", async () => {
+  it("keeps a recovered mixed-version multi-channel introduction working across submission ticks", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
@@ -333,6 +333,16 @@ describe("Remote Agent Slack signal service", () => {
           nowMs: 1200,
         })
       ).resolves.toEqual({ failed: 0, outcomeUnknown: 0, submitted: 1 });
+      harness.run({
+        params: [
+          "slack-channel-introduction:T123:V_CHANNELS_RECOVERED:C_PRODUCT",
+        ],
+        sql: `
+          UPDATE openMeldRemoteAgent_native_delivery_ledger
+          SET slack_working_status_turn_id = NULL
+          WHERE idempotency_key = ?
+        `,
+      });
       await expect(
         runSlackChannelIntroductionTick({
           db: harness.db,

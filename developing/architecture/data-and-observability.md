@@ -1574,13 +1574,16 @@ terminal coordination must not reconstruct it from Dispatch Ledger. The ledger
 exists so trace and diagnostics cover native delivery with the same
 deterministic-evidence rule as wakes.
 
-For legacy Slack result surfaces, the ledger also records the stable
+For legacy Slack result surfaces, the ledger also records an optional shared
 Working-status turn identity used only to derive provider presentation. One
-ordinary delivery uses its idempotency identity; multiple deliveries that are
-intentional fan-out from one user turn share an explicit identity across
-recovery. This field groups lifecycle evidence but does not own execution,
-conversation, task, or authorization truth. Older nullable rows remain readable
-as single-delivery turns during rollout.
+ordinary delivery derives its effective identity from its idempotency key and
+leaves this override null. Multiple deliveries that are intentional fan-out
+from one user turn share an explicit override across recovery. When a new Core
+replays or continues a fan-out admitted by an older Core, it compare-and-sets
+nullable siblings under the same exact Slack trigger and conversation scope to
+that shared identity. This field groups lifecycle evidence but does not own
+execution, conversation, task, or authorization truth. Older nullable rows
+remain replayable and readable as single-delivery turns during rollout.
 
 `openMeldRemoteAgent_conversation_generations` is the Core-owned routing
 projection from one Organization-scoped logical Center Agent conversation to

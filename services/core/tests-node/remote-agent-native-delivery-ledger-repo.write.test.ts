@@ -46,6 +46,38 @@ describe("Remote Agent native delivery ledger repo", () => {
     }
   });
 
+  it("replays a Slack admission created with a legacy null working-status turn identity", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentLedgerMigration(harness);
+    try {
+      const input = buildImmutableAdmissionInput({
+        db: harness.db,
+        surface: "slack",
+      });
+      await upsertRemoteAgentNativeDeliveryRecord(input);
+      harness.run({
+        params: [input.idempotencyKey],
+        sql: `
+          UPDATE openMeldRemoteAgent_native_delivery_ledger
+          SET slack_working_status_turn_id = NULL
+          WHERE idempotency_key = ?
+        `,
+      });
+
+      await expect(
+        upsertRemoteAgentNativeDeliveryRecord({
+          ...input,
+          nowMs: 2000,
+        })
+      ).resolves.toMatchObject({
+        idempotencyKey: input.idempotencyKey,
+        slackWorkingStatusTurnId: null,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it.each([
     ["organizationId", { organizationId: "org_other" }],
     ["profileId", { profileId: "profile_agent_other" }],

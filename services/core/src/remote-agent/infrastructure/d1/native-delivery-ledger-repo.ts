@@ -460,7 +460,7 @@ export async function isLatestRemoteAgentNativeDeliveryActiveForSlackThread(inpu
             slack_channel_id,
             slack_thread_ts,
             trigger_message_id,
-            COALESCE(slack_working_status_turn_id, delivery_id)
+            COALESCE(slack_working_status_turn_id, idempotency_key)
               AS slack_working_status_turn_id,
             created_at_ms
           FROM openMeldRemoteAgent_native_delivery_ledger
@@ -483,7 +483,7 @@ export async function isLatestRemoteAgentNativeDeliveryActiveForSlackThread(inpu
             AND latest_turn.trigger_message_id = deliveries.trigger_message_id
             AND latest_turn.slack_working_status_turn_id = COALESCE(
               deliveries.slack_working_status_turn_id,
-              deliveries.delivery_id
+              deliveries.idempotency_key
             )
           WHERE deliveries.conversation_kind = 'slack'
             AND deliveries.status IN ('submitted', 'accepted', 'retry_observed')
@@ -671,9 +671,8 @@ function resolveControllerNormalizationStorage(
   return snapshot;
 }
 
-function resolveSlackWorkingStatusTurnId(input: {
+function resolveStoredSlackWorkingStatusTurnId(input: {
   conversationKind: RemoteAgentNativeDeliveryConversationKind;
-  idempotencyKey: string;
   slackWorkingStatusTurnId?: string | null;
 }): string | null {
   if (input.conversationKind !== "slack") {
@@ -684,14 +683,54 @@ function resolveSlackWorkingStatusTurnId(input: {
     }
     return null;
   }
-  if (input.slackWorkingStatusTurnId === null) {
-    return input.idempotencyKey;
+  if (input.slackWorkingStatusTurnId == null) {
+    return null;
   }
   const explicitTurnId = input.slackWorkingStatusTurnId?.trim();
   if (input.slackWorkingStatusTurnId !== undefined && !explicitTurnId) {
     throw new Error("Slack working-status turn identity cannot be empty");
   }
-  return explicitTurnId ?? input.idempotencyKey;
+  return explicitTurnId ?? null;
+}
+
+async function backfillSharedSlackWorkingStatusTurnId(input: {
+  db: D1Database;
+  record: RemoteAgentNativeDeliveryRecord;
+  slackWorkingStatusTurnId: string;
+}): Promise<void> {
+  if (
+    input.record.conversationKind !== "slack" ||
+    input.record.slackTeamId === null ||
+    input.record.slackChannelId === null ||
+    input.record.slackThreadTs === null
+  ) {
+    throw new Error(
+      "Shared Slack working-status turn identity requires a complete Slack conversation locator"
+    );
+  }
+  await input.db
+    .prepare(
+      `
+        UPDATE openMeldRemoteAgent_native_delivery_ledger
+        SET slack_working_status_turn_id = ?
+        WHERE conversation_kind = 'slack'
+          AND organization_id = ?
+          AND slack_team_id = ?
+          AND slack_channel_id = ?
+          AND slack_thread_ts = ?
+          AND trigger_message_id = ?
+          AND slack_working_status_turn_id IS NULL
+      `
+    )
+    .bind(
+      input.slackWorkingStatusTurnId,
+      input.record.organizationId,
+      input.record.slackTeamId,
+      input.record.slackChannelId,
+      input.record.slackThreadTs,
+      input.record.triggerMessageId
+    )
+    .run();
 }
 
 export async function upsertRemoteAgentNativeDeliveryRecord(input: {
@@ -727,9 +766,8 @@ export async function upsertRemoteAgentNativeDeliveryRecord(input: {
 }): Promise<RemoteAgentNativeDeliveryRecord> {
   const threadContextJson = serializeThreadContext(input.threadContext ?? null);
   const conversationKind = input.conversationKind ?? "space";
-  const slackWorkingStatusTurnId = resolveSlackWorkingStatusTurnId({
+  const slackWorkingStatusTurnId = resolveStoredSlackWorkingStatusTurnId({
     conversationKind,
-    idempotencyKey: input.idempotencyKey,
     slackWorkingStatusTurnId: input.slackWorkingStatusTurnId,
   });
   const messageChannelStorage = resolveMessageChannelStorage({
@@ -825,20 +863,67 @@ export async function upsertRemoteAgentNativeDeliveryRecord(input: {
     )
     .run();
 
-  const record = await readRemoteAgentNativeDeliveryByIdempotencyKey({
-    db: input.db,
-    idempotencyKey: input.idempotencyKey,
+  return await readAndReconcileRemoteAgentNativeDeliveryAdmission({
+    admissionInput: input,
+    controllerNormalizationStorage,
+    conversationKind,
+    messageChannelStorage,
+    slackWorkingStatusTurnId,
+    threadContextJson,
+  });
+}
+
+async function readAndReconcileRemoteAgentNativeDeliveryAdmission(input: {
+  admissionInput: Parameters<typeof upsertRemoteAgentNativeDeliveryRecord>[0];
+  controllerNormalizationStorage: ReturnType<
+    typeof resolveControllerNormalizationStorage
+  >;
+  conversationKind: RemoteAgentNativeDeliveryConversationKind;
+  messageChannelStorage: ReturnType<typeof resolveMessageChannelStorage>;
+  slackWorkingStatusTurnId: string | null;
+  threadContextJson: string | null;
+}): Promise<RemoteAgentNativeDeliveryRecord> {
+  let record = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.admissionInput.db,
+    idempotencyKey: input.admissionInput.idempotencyKey,
   });
   if (!record) {
     throw new Error("Remote Agent native delivery write did not produce a row");
   }
   assertImmutableNativeDeliveryAdmission({
-    controllerNormalizationStorage,
-    conversationKind,
-    input,
-    messageChannelStorage,
+    allowLegacyNullSlackWorkingStatusTurnId:
+      input.slackWorkingStatusTurnId !== null,
+    controllerNormalizationStorage: input.controllerNormalizationStorage,
+    conversationKind: input.conversationKind,
+    input: input.admissionInput,
+    messageChannelStorage: input.messageChannelStorage,
     record,
-    threadContextJson,
+    threadContextJson: input.threadContextJson,
+  });
+  if (input.slackWorkingStatusTurnId === null) {
+    return record;
+  }
+  await backfillSharedSlackWorkingStatusTurnId({
+    db: input.admissionInput.db,
+    record,
+    slackWorkingStatusTurnId: input.slackWorkingStatusTurnId,
+  });
+  record = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.admissionInput.db,
+    idempotencyKey: input.admissionInput.idempotencyKey,
+  });
+  if (!record) {
+    throw new Error(
+      "Remote Agent native delivery disappeared during Slack turn identity reconciliation"
+    );
+  }
+  assertImmutableNativeDeliveryAdmission({
+    controllerNormalizationStorage: input.controllerNormalizationStorage,
+    conversationKind: input.conversationKind,
+    input: input.admissionInput,
+    messageChannelStorage: input.messageChannelStorage,
+    record,
+    threadContextJson: input.threadContextJson,
   });
   return record;
 }
@@ -851,6 +936,7 @@ function resolveRemoteAgentNativeDeliverySubmittedAtMs(
 }
 
 function assertImmutableNativeDeliveryAdmission(input: {
+  allowLegacyNullSlackWorkingStatusTurnId?: boolean;
   controllerNormalizationStorage: ReturnType<
     typeof resolveControllerNormalizationStorage
   >;
@@ -894,9 +980,8 @@ function assertImmutableNativeDeliveryAdmission(input: {
     slackChannelId: input.input.slackChannelId ?? null,
     slackTeamId: input.input.slackTeamId ?? null,
     slackThreadTs: input.input.slackThreadTs ?? null,
-    slackWorkingStatusTurnId: resolveSlackWorkingStatusTurnId({
+    slackWorkingStatusTurnId: resolveStoredSlackWorkingStatusTurnId({
       conversationKind: input.conversationKind,
-      idempotencyKey: input.input.idempotencyKey,
       slackWorkingStatusTurnId: input.input.slackWorkingStatusTurnId,
     }),
     sourceClientMessageId: input.input.sourceClientMessageId ?? null,
@@ -938,11 +1023,20 @@ function assertImmutableNativeDeliveryAdmission(input: {
     triggerMessageId: input.record.triggerMessageId,
     triggerText: input.record.triggerText,
   };
-  const mismatchedFields = Object.keys(expected).filter(
-    (field) =>
+  const mismatchedFields = Object.keys(expected).filter((field) => {
+    if (
+      field === "slackWorkingStatusTurnId" &&
+      input.allowLegacyNullSlackWorkingStatusTurnId === true &&
+      actual.slackWorkingStatusTurnId === null &&
+      expected.slackWorkingStatusTurnId !== null
+    ) {
+      return false;
+    }
+    return (
       stableJson(actual[field as keyof typeof actual]) !==
       stableJson(expected[field as keyof typeof expected])
-  );
+    );
+  });
   if (
     input.input.deliveryId !== undefined &&
     input.record.deliveryId !== input.input.deliveryId
