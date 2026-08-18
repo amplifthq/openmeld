@@ -43,7 +43,7 @@ export function SpaceWindowHeader(input: {
 			className={cn(
 				"grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-4",
 				hasSecondaryRow
-					? "grid-rows-[minmax(0,2.5rem)_minmax(0,1.8125rem)]"
+					? "grid-rows-[minmax(0,2.5rem)_minmax(0,var(--space-conversation-navigation-height))]"
 					: "grid-rows-1",
 				input.contentClassName
 			)}

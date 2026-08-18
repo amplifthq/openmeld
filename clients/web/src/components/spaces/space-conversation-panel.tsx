@@ -1032,7 +1032,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 									topOverlayElement={conversationTopOverlayElement}
 								/>
 								<MessageScrollerContent
-									className="w-full gap-0"
+									className="w-full gap-0 pt-[var(--space-conversation-top-overlay-height,0px)]"
 									data-space-conversation-content-width=""
 								>
 									{conversationBody}

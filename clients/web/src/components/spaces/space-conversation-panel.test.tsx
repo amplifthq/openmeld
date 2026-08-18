@@ -296,6 +296,23 @@ describe("SpaceConversationPanel", () => {
 		expect(renderSetupGuidance).toHaveBeenCalledWith("banner");
 	});
 
+	it("reserves the measured conversation overlay height before messages", () => {
+		renderSpaceConversationPanel({
+			renderSetupGuidance: () => (
+				<section aria-label="Get set up">Setup guidance</section>
+			),
+			timelineItems: [createTimelineItem()],
+		});
+
+		const content = document.querySelector<HTMLElement>(
+			"[data-slot='message-scroller-content']"
+		);
+
+		expect(content?.className).toContain(
+			"pt-[var(--space-conversation-top-overlay-height,0px)]"
+		);
+	});
+
 	it("places setup guidance in the centered conversation empty state until a message exists", () => {
 		const renderSetupGuidance = vi.fn(
 			(presentation: "banner" | "empty-state") => (
