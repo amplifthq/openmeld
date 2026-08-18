@@ -5312,7 +5312,7 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
-  it("does not let an older terminal delivery clear a newer turn's Slack working status", async () => {
+  it("does not let a later-admitted older Slack message clear the newer turn's working status", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     const oldProbe = createDeadlineProbe();
@@ -5346,19 +5346,11 @@ describe("Remote Agent Slack signal service", () => {
     try {
       await createAcceptedSlackDelivery({
         db: harness.db,
-        idempotencyKey: oldProbe.idempotencyKey,
-        submissionId: oldProbe.submissionId,
-      });
-      await completeRemoteAgentNativeDelivery(
-        env,
-        createCompletedCallbackBody()
-      );
-      await createAcceptedSlackDelivery({
-        db: harness.db,
         dispatchId: newProbe.dispatchId,
         idempotencyKey: newProbe.idempotencyKey,
-        nowMs: 2000,
+        nowMs: 1000,
         submissionId: newProbe.submissionId,
+        triggerMessageId: "1710000002.000200",
       });
       await processRemoteAgentNativeDeliveryDeadlineProbe({
         db: harness.db,
@@ -5366,13 +5358,19 @@ describe("Remote Agent Slack signal service", () => {
         nowMs: newProbe.deadlineAtMs,
         probe: newProbe,
       });
-
-      await processRemoteAgentNativeDeliveryDeadlineProbe({
+      await createAcceptedSlackDelivery({
         db: harness.db,
-        env,
-        nowMs: newProbe.deadlineAtMs + 1,
-        probe: oldProbe,
+        idempotencyKey: oldProbe.idempotencyKey,
+        nowMs: 2000,
+        submissionId: oldProbe.submissionId,
+        triggerMessageId: "1710000001.000100",
       });
+      await completeRemoteAgentNativeDelivery(
+        env,
+        createCompletedCallbackBody({
+          triggerMessageId: "1710000001.000100",
+        })
+      );
 
       expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
         status: "is working on your request…",
@@ -6428,6 +6426,7 @@ async function createAcceptedSlackDelivery(input: {
   idempotencyKey: string;
   nowMs?: number;
   submissionId: string;
+  triggerMessageId?: string;
 }) {
   const nowMs = input.nowMs ?? 1000;
   await upsertRemoteAgentNativeDeliveryRecord({
@@ -6438,7 +6437,7 @@ async function createAcceptedSlackDelivery(input: {
     spaceId: CONVERSATION_ID,
     profileId: AGENT_PROFILE_ID,
     bindingId: "binding_1",
-    triggerMessageId: CONVERSATION_ID,
+    triggerMessageId: input.triggerMessageId ?? CONVERSATION_ID,
     dispatchId: input.dispatchId ?? "remote-agent-slack:Ev123",
     attemptId: null,
     idempotencyKey: input.idempotencyKey,
@@ -6548,10 +6547,9 @@ function createDeferred<T>(value: T): {
   };
 }
 
-function createCompletedCallbackBody(): Extract<
-  RemoteAgentCoreCallbackBody,
-  { text: string }
-> {
+function createCompletedCallbackBody(
+  input: { triggerMessageId?: string } = {}
+): Extract<RemoteAgentCoreCallbackBody, { text: string }> {
   return {
     agentProfileId: AGENT_PROFILE_ID,
     bindingId: "binding_1",
@@ -6562,7 +6560,7 @@ function createCompletedCallbackBody(): Extract<
     status: "completed",
     submissionId: "sub_slack_1",
     text: COMPLETED_SLACK_MARKDOWN,
-    triggerMessageId: CONVERSATION_ID,
+    triggerMessageId: input.triggerMessageId ?? CONVERSATION_ID,
   };
 }
 

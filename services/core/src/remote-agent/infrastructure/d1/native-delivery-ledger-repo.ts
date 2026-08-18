@@ -463,7 +463,7 @@ export async function isLatestRemoteAgentNativeDeliveryActiveForSlackThread(inpu
           AND slack_team_id = ?
           AND slack_channel_id = ?
           AND slack_thread_ts = ?
-        ORDER BY created_at_ms DESC, trigger_message_id DESC, delivery_id DESC
+        ORDER BY trigger_message_id DESC, created_at_ms DESC, delivery_id DESC
         LIMIT 1
       `
     )
