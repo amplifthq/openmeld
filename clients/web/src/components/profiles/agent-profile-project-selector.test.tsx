@@ -5,10 +5,13 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { selectLocalFolders } from "#/lib/connect/local-folder-picker";
 import { AgentProfileProjectSelector } from "./agent-profile-project-selector";
+
+const RECOMMENDED_COPY_PATTERN = /Recommended/u;
 
 const { connectCandidate, connectPath, discoveryController } = vi.hoisted(
 	() => ({
@@ -68,9 +71,71 @@ vi.mock("#/lib/organizations/local-project-control", async (importOriginal) => {
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
+	discoveryController.projectView.mockImplementation(() => ({
+		connections: [],
+		discovery: {
+			candidates: [
+				{
+					candidateId: "candidate-1",
+					candidateKind: "repository",
+					canonicalPath: "/work/openmeld",
+					repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+				},
+			],
+			connections: [],
+			projectId: "project-1",
+			status: "found",
+		},
+		errorMessage: null,
+		status: "ready",
+	}));
 });
 
 describe("AgentProfileProjectSelector folder moves", () => {
+	it("puts Project paths first in one Working folder selector", async () => {
+		discoveryController.projectView.mockReturnValue({
+			connections: [
+				{
+					bindingGeneration: "binding-openmeld",
+					isDefault: true,
+					path: "/Users/felix/Desktop/work/openmeld",
+					status: "available",
+				},
+			],
+			discovery: null,
+			errorMessage: null,
+			status: "ready",
+		});
+		render(
+			<AgentProfileProjectSelector
+				disabled={false}
+				manualPath=""
+				onConnectionReady={vi.fn()}
+				onManualPathChange={vi.fn()}
+				onProjectChange={vi.fn()}
+				onUseAdvancedWorkspace={vi.fn()}
+				onUseManagedWorkspace={vi.fn()}
+				organizationId="org-1"
+				projectId=""
+				projects={[project()]}
+				selectedBindingGeneration={null}
+				workspaceFallbackMode="managed"
+			/>
+		);
+
+		fireEvent.click(screen.getByRole("combobox", { name: "Working folder" }));
+		const options = within(await screen.findByRole("listbox")).getAllByRole(
+			"option"
+		);
+
+		expect(options.map((option) => option.textContent)).toEqual([
+			"OpenMeld/Users/felix/Desktop/work/openmeld",
+			"Let OpenMeld choose",
+			"Choose a folder on this computer…",
+		]);
+		expect(screen.queryByText(RECOMMENDED_COPY_PATTERN)).toBeNull();
+	});
+
 	it("fills a Project working folder from the native picker before connecting it", async () => {
 		vi.mocked(selectLocalFolders).mockResolvedValue({
 			deviceId: "device-current",

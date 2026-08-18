@@ -50,6 +50,9 @@ const bulkAuthorizeAgentProfileBindingsForOrganizationMock = vi.hoisted(() =>
 const setOrganizationBindingAuthorizationPreferenceMock = vi.hoisted(() =>
 	vi.fn()
 );
+const getAgentProfileCreationDefaultsMock = vi.hoisted(() => vi.fn());
+const setAgentProfileCreationDefaultsMock = vi.hoisted(() => vi.fn());
+const listProjectsMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
 
@@ -143,6 +146,33 @@ vi.mock("#/lib/profiles/organization-binding-authorizations", () => ({
 			typeof setOrganizationBindingAuthorizationPreferenceMock
 		>
 	) => setOrganizationBindingAuthorizationPreferenceMock(...args),
+}));
+
+vi.mock(
+	"#/lib/profiles/agent-profile-creation-defaults",
+	async (importOriginal) => {
+		const actual =
+			await importOriginal<
+				typeof import("#/lib/profiles/agent-profile-creation-defaults")
+			>();
+		return {
+			...actual,
+			getAgentProfileCreationDefaults: (
+				...args: Parameters<typeof getAgentProfileCreationDefaultsMock>
+			) => getAgentProfileCreationDefaultsMock(...args),
+			setAgentProfileCreationDefaults: (
+				...args: Parameters<typeof setAgentProfileCreationDefaultsMock>
+			) => setAgentProfileCreationDefaultsMock(...args),
+		};
+	}
+);
+
+vi.mock("#/query/organizations/projects", () => ({
+	projectsQueryOptions: (input: { organizationId: string }) => ({
+		queryFn: async () => await listProjectsMock(input),
+		queryKey: ["organizations", input.organizationId, "projects"],
+		staleTime: Number.POSITIVE_INFINITY,
+	}),
 }));
 
 vi.mock("#/query/config/model-catalog", () => ({
@@ -342,6 +372,23 @@ function buildAgentProfileFixture() {
 	};
 }
 
+function buildProjectFixture() {
+	return {
+		archivedAtMs: null,
+		canArchive: true,
+		canManage: true,
+		createdAtMs: 1,
+		createdByUserId: "user-123",
+		id: "project-1",
+		name: "OpenMeld",
+		organizationId: "organization-123",
+		repositoryFingerprint: null,
+		repositoryUrl: null,
+		slug: "openmeld",
+		updatedAtMs: 1,
+	};
+}
+
 function renderCreateProfileDialog(
 	overrides: Partial<ComponentProps<typeof CreateProfileDialog>> = {}
 ) {
@@ -455,6 +502,27 @@ describe("CreateProfileDialog", () => {
 			.mockResolvedValue({
 				autoAuthorizeAgentProfileBindings: true,
 			});
+		listProjectsMock.mockReset().mockResolvedValue({ projects: [] });
+		getAgentProfileCreationDefaultsMock
+			.mockReset()
+			.mockImplementation(async ({ agentControllerRef, organizationId }) => ({
+				agentControllerPermissionMode: null,
+				agentControllerRef,
+				defaultProjectId: null,
+				modelId: null,
+				openCodePermission: null,
+				organizationId,
+				reasoningLevel: null,
+				updatedAt: null,
+				userId: "user-123",
+			}));
+		setAgentProfileCreationDefaultsMock
+			.mockReset()
+			.mockImplementation(async (defaults) => ({
+				...defaults,
+				updatedAt: "2026-08-18T12:00:00.000Z",
+				userId: "user-123",
+			}));
 		toastErrorMock.mockReset();
 		toastWarningMock.mockReset();
 	});
@@ -1201,8 +1269,11 @@ describe("CreateProfileDialog", () => {
 		});
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
 		await waitFor(() => {
-			expect(screen.getByLabelText("Custom working folder path")).toBeTruthy();
+			expect(
+				screen.getByRole("combobox", { name: "Working folder" }).textContent
+			).toContain("Let OpenMeld choose");
 		});
+		expect(screen.queryByLabelText("Custom working folder path")).toBeNull();
 
 		fireEvent.click(
 			screen.getByRole("button", { name: CREATE_PROFILE_BUTTON_PATTERN })
@@ -1237,6 +1308,12 @@ describe("CreateProfileDialog", () => {
 			target: { value: "Research Agent" },
 		});
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Working folder" }));
+		fireEvent.click(
+			await screen.findByRole("option", {
+				name: "Choose a folder on this computer…",
+			})
+		);
 		await waitFor(() => {
 			expect(screen.getByLabelText("Custom working folder path")).toBeTruthy();
 		});
@@ -1319,6 +1396,86 @@ describe("CreateProfileDialog", () => {
 					reasoningLevel: "max",
 				})
 			);
+		});
+		await waitFor(() => {
+			expect(setAgentProfileCreationDefaultsMock).toHaveBeenCalledWith({
+				agentControllerPermissionMode: null,
+				agentControllerRef: "builtin:opencode",
+				defaultProjectId: null,
+				modelId: "opencode/deepseek-v4-flash-free",
+				openCodePermission: { bash: "deny", edit: "ask" },
+				organizationId: "organization-123",
+				reasoningLevel: "max",
+			});
+		});
+	});
+
+	it("restores creation choices per Local Agent without leaking them when the Agent changes", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		getAgentProfileCreationDefaultsMock.mockImplementation(
+			async ({ agentControllerRef, organizationId }) => ({
+				agentControllerPermissionMode:
+					agentControllerRef === "builtin:codex" ? "codex:approveForMe" : null,
+				agentControllerRef,
+				defaultProjectId:
+					agentControllerRef === "builtin:codex" ? "project-1" : null,
+				modelId: agentControllerRef === "builtin:codex" ? "gpt-5.4-mini" : null,
+				openCodePermission: null,
+				organizationId,
+				reasoningLevel: agentControllerRef === "builtin:codex" ? "high" : null,
+				updatedAt: "2026-08-18T12:00:00.000Z",
+				userId: "user-123",
+			})
+		);
+		renderCreateProfileDialog({
+			recovery: buildFakeRecovery([
+				buildCatalogEntry({
+					agentId: "codex",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+				buildCatalogEntry({
+					agentId: "claude-code",
+					displayName: "Claude Code",
+					launchStatus: "ready",
+					selectable: true,
+				}),
+			]),
+		});
+
+		fireEvent.click(
+			await screen.findByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
+		);
+		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
+		await waitFor(() => {
+			expect(
+				screen.getByRole("combobox", { name: "Codex permissions mode" })
+					.textContent
+			).toContain("Approve for me");
+			expect(
+				screen.getByRole("combobox", { name: "Model" }).textContent
+			).toContain("GPT-5.4 Mini");
+			expect(
+				screen.getByRole("combobox", { name: "Reasoning effort" }).textContent
+			).toContain("High");
+			expect(
+				screen.getByRole("combobox", { name: "Working folder" }).textContent
+			).toContain("OpenMeld");
+		});
+
+		fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }));
+		await waitFor(() => {
+			expect(
+				screen.getByRole("combobox", {
+					name: "Claude Code permissions mode",
+				}).textContent
+			).toContain("Ask permissions");
+			expect(
+				screen.getByRole("combobox", { name: "Model" }).textContent
+			).toContain("Use controller default");
+			expect(
+				screen.getByRole("combobox", { name: "Working folder" }).textContent
+			).toContain("Let OpenMeld choose");
 		});
 	});
 
