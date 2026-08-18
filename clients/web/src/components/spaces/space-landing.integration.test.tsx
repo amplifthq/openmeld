@@ -15304,6 +15304,30 @@ function mockSpaceQueries(input: {
 			}
 			if (
 				Array.isArray(options.queryKey) &&
+				options.queryKey[0] === "agent-profile" &&
+				options.queryKey[1] === "creation-defaults"
+			) {
+				const organizationId = String(options.queryKey[2] ?? "");
+				const agentControllerRef = String(options.queryKey[3] ?? "");
+				return createQueryResult({
+					isSuccess: Boolean(agentControllerRef),
+					data: agentControllerRef
+						? {
+								agentControllerPermissionMode: null,
+								agentControllerRef,
+								defaultProjectId: null,
+								modelId: null,
+								openCodePermission: null,
+								organizationId,
+								reasoningLevel: null,
+								updatedAt: null,
+								userId: "user-mira",
+							}
+						: undefined,
+				});
+			}
+			if (
+				Array.isArray(options.queryKey) &&
 				options.queryKey[0] === "projects"
 			) {
 				// CreateProfileDialog now loads active Projects so a new agent can choose
