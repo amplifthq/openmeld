@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { isLocalAgentCheckStillRunningError } from "./agents-page-formatters";
 import {
 	LocalAgentsCard,
+	type LocalAgentsCardOwnerProps,
 	resolveLocalAgentsCatalogState,
 } from "./agents-page-local-agents";
 
@@ -425,7 +426,7 @@ describe("LocalAgentsCard", () => {
 			recovery: {
 				agentProfiles: [],
 				selectedExecutionTarget: executionTarget,
-			} as unknown as Parameters<typeof LocalAgentsCard>[0]["recovery"],
+			} as unknown as LocalAgentsCardOwnerProps["recovery"],
 			replyReadiness: SERVICE_UPDATE_REPLY_READINESS,
 		});
 
@@ -483,7 +484,7 @@ describe("LocalAgentsCard", () => {
 			recovery: {
 				agentProfiles: [],
 				selectedExecutionTarget: executionTarget,
-			} as unknown as Parameters<typeof LocalAgentsCard>[0]["recovery"],
+			} as unknown as LocalAgentsCardOwnerProps["recovery"],
 			replyReadiness: SERVICE_NOT_CONNECTED_REPLY_READINESS,
 		});
 
@@ -1054,7 +1055,7 @@ function renderLocalAgentsCard(input: {
 						setLocalAgentEnabled:
 							input.setLocalAgentEnabled ??
 							vi.fn().mockResolvedValue(undefined),
-					} as unknown as Parameters<typeof LocalAgentsCard>[0]["recovery"]
+					} as unknown as LocalAgentsCardOwnerProps["recovery"]
 				}
 				replyReadiness={input.replyReadiness ?? READY_REPLY_READINESS}
 			/>

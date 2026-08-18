@@ -65,6 +65,22 @@ export function formatOrganizationComputerLastSeen(
 	return `Last seen ${COMPUTER_LAST_SEEN_FORMATTER.format(new Date(lastSeenAtMs))}`;
 }
 
+export function formatOrganizationComputerPlatform(
+	computer: OrganizationComputer
+): string {
+	const deviceType =
+		computer.deviceType === "unknown"
+			? null
+			: `${computer.deviceType.slice(0, 1).toUpperCase()}${computer.deviceType.slice(1)}`;
+	const operatingSystem =
+		computer.platformFamily === "Unknown"
+			? null
+			: [computer.platformFamily, computer.osVersion].filter(Boolean).join(" ");
+	return [deviceType, operatingSystem, `Owned by ${computer.ownerLabel}`]
+		.filter(Boolean)
+		.join(" · ");
+}
+
 export function resolveOrganizationComputerGroups(input: {
 	currentUserId: string;
 	directory: OrganizationDirectoryResponse | null;

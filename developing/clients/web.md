@@ -661,11 +661,23 @@ may show computer name, owner, device category, operating-system family/version,
 last-seen time, coarse Service state, team-safe local-agent availability, and
 visible Agents that use it. They do not expose controller accounts or versions,
 executable or installation paths, local policy, credentials, raw errors, or
-mutation controls. Connecting a
-computer, understanding which supported local tools it provides, and repairing
-that execution path are prerequisite product jobs rather than appearance or
-account preferences. Agent readiness remains separate and authoritative; a
-connected Computer must never be presented as proof that an Agent can reply.
+mutation controls.
+
+Owned and teammate Computers reuse the same Computer summary, **OpenMeld
+Tools**, and **Local agents** presentation components. Web applies visibility
+and capability conditions to those shared components instead of maintaining a
+second teammate-only card hierarchy. A teammate Computer summary names the
+reported local agents rather than replacing their identities with a count. Its
+Local agents rows retain the same logo, disabled Switch, and expandable layout,
+but expansion is limited to team-safe enabled and availability states. Accounts,
+versions, installation choices and paths, owner-only actions, and Agent Profile
+lists remain absent.
+
+Connecting a computer, understanding which supported local tools it provides,
+and repairing that execution path are prerequisite product jobs rather than
+appearance or account preferences. Agent readiness remains separate and
+authoritative; a connected Computer must never be presented as proof that an
+Agent can reply.
 
 On the exact current owned Computer, each enabled reported local agent may show
 **Change installation** when the live Service advertises installation

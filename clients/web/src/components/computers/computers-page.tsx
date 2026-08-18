@@ -25,7 +25,7 @@ import {
 import { ComputersPicker } from "./computers-picker";
 import { OrganizationComputerDetail } from "./organization-computer-card";
 import {
-	formatAgentCount,
+	formatOrganizationComputerPlatform,
 	type OrganizationComputer,
 	type OrganizationComputerGroup,
 	resolveOrganizationComputerGroups,
@@ -47,9 +47,9 @@ const COMPUTERS_SERVICE_STATUS_REFETCH_INTERVAL_MS = 10_000;
  *
  * This reuses the same `useLocalAgentRecoveryController` hook, the same device
  * list / current-device sources, and the same
- * `ComputerSummaryCardContent`, `ComputerActionsDialog`, and
- * `SelectedComputerPanel`. The detail here is the OpenMeld Service card + the local
- * agents card only. Another member's detail is a separate read-only summary.
+ * `ComputerSummaryCardContent`, `ComputerActionsDialog`, and the same OpenMeld
+ * Tools and local-agent cards. Another member's detail keeps those shared cards
+ * read-only and conditionally omits private facts and owner-only controls.
  * While this status surface is visible, it periodically reconciles the
  * Core-owned Service liveness projection so an explicit local stop or restart
  * does not leave a persisted Connected result on screen.
@@ -336,7 +336,9 @@ function resolveComputersSectionDescription(input: {
 		return formatComputerTabPlatform(input.selectedComputer);
 	}
 	if (input.selectedOrganizationComputer) {
-		return `Owned by ${input.selectedOrganizationComputer.ownerLabel} · ${formatAgentCount(input.selectedOrganizationComputer.agents.length)}`;
+		return formatOrganizationComputerPlatform(
+			input.selectedOrganizationComputer
+		);
 	}
 	return "This computer is no longer available in this workspace.";
 }
