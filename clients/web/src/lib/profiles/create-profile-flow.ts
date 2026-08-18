@@ -43,6 +43,7 @@ export class NewProfileLocalSetupError extends Error {
 }
 
 export type NewProfileCreationInput = {
+	idempotencyKey?: string | null;
 	organizationId: string | null;
 	profileKind: NewProfileKind | null;
 	profileName: string;
@@ -87,6 +88,7 @@ export async function createNewProfile(
 	);
 	return await createStartAgentProfile({
 		data: {
+			...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
 			organizationId,
 			profileName: normalizedProfileName,
 			...(input.selectedHumanProfileId

@@ -7,6 +7,11 @@ export const ADDITIONAL_HUMAN_PROFILE_CREATION_DISABLED_CODE =
   "profile.additional_human_profile_creation_disabled";
 export const ADDITIONAL_HUMAN_PROFILE_CREATION_DISABLED_MESSAGE =
   "Creating additional Human Profiles is currently unavailable. Use your default Human Profile, or create an Agent Profile.";
+export const AGENT_PROFILE_CREATION_IDEMPOTENCY_CONFLICT_CODE =
+  "profile.creation_idempotency_conflict";
+export const AGENT_PROFILE_CREATION_IDEMPOTENCY_CONFLICT_MESSAGE =
+  "This Agent Profile creation request was already used for a different profile. Close this dialog and try again.";
+export const AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH = 512;
 
 export const profileErrorStatusSchema = z.union([
   z.literal(400),
@@ -108,6 +113,12 @@ export const createHumanProfileBodySchema = z.strictObject({
 export const createAgentProfileBodySchema = z.strictObject({
   profileName: z.string().trim().min(1),
   creatorProfileId: z.string().min(1).optional(),
+  idempotencyKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH)
+    .optional(),
 });
 
 export const ensureManagedAgentProfileBodySchema = z.strictObject({

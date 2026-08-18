@@ -1,0 +1,2 @@
+ALTER TABLE `openmeld_profiles` ADD `creation_idempotency_key` text;--> statement-breakpoint
+CREATE UNIQUE INDEX `openmeld_profiles_owner_creation_idempotency_uq_idx` ON `openmeld_profiles` (`owner_user_id`,`creation_idempotency_key`) WHERE "creation_idempotency_key" is not null;

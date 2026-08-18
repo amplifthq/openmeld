@@ -28,6 +28,7 @@ type CreateProfileRequestBody = {
 type CreateAgentProfileRequestBody = {
   profileName: string;
   creatorProfileId?: string;
+  idempotencyKey?: string;
 };
 
 type EnsureManagedAgentProfileRequestBody = {
@@ -51,6 +52,7 @@ const PROFILE_NAME_REQUEST_BODY_KEYS = new Set([
 const AGENT_PROFILE_REQUEST_BODY_KEYS = new Set([
   "profileName",
   "creatorProfileId",
+  "idempotencyKey",
 ]);
 const MANAGED_AGENT_PROFILE_REQUEST_BODY_KEYS = new Set([
   "profileName",
@@ -149,6 +151,7 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
         }),
         createdByUserId: String(authenticated.user.id),
         creatorProfileId: body.creatorProfileId,
+        ...(body.idempotencyKey ? { idempotencyKey: body.idempotencyKey } : {}),
         profileName: body.profileName,
       });
 
@@ -364,9 +367,11 @@ function parseCreateAgentProfileRequestBody(
     record,
     "creatorProfileId"
   );
+  const idempotencyKey = readOptionalNonEmptyString(record, "idempotencyKey");
   return {
     profileName: readRequiredNonEmptyString(record, "profileName"),
     ...(creatorProfileId ? { creatorProfileId } : {}),
+    ...(idempotencyKey ? { idempotencyKey } : {}),
   };
 }
 

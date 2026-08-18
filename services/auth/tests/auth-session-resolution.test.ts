@@ -55,6 +55,8 @@ vi.mock("@openmeld/auth/server", async () => {
       profileErrorsActual.AdditionalHumanProfileCreationDisabledError,
     PrimaryHumanProfileDeleteForbiddenError:
       profileErrorsActual.PrimaryHumanProfileDeleteForbiddenError,
+    ProfileCreationIdempotencyConflictError:
+      profileErrorsActual.ProfileCreationIdempotencyConflictError,
     ProfileNotFoundError: profileErrorsActual.ProfileNotFoundError,
     ProfileValidationError: profileErrorsActual.ProfileValidationError,
     createUnauthenticatedClaims: (requestId: string) => ({
@@ -572,7 +574,10 @@ describe("auth session resolution", () => {
           "content-type": "application/json",
           "x-openmeld-requested-organization-id": "organization-amplift",
         },
-        body: JSON.stringify({ profileName: "Research Agent" }),
+        body: JSON.stringify({
+          idempotencyKey: "agent-profile-create:request-123",
+          profileName: "Research Agent",
+        }),
       }),
       TEST_ENV,
       TEST_EXECUTION_CONTEXT
@@ -588,6 +593,7 @@ describe("auth session resolution", () => {
       organizationId: "organization-amplift",
       createdByUserId: "user-123",
       creatorProfileId: undefined,
+      idempotencyKey: "agent-profile-create:request-123",
       profileName: "Research Agent",
     });
   });

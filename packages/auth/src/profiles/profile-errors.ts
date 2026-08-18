@@ -1,6 +1,8 @@
 import {
   ADDITIONAL_HUMAN_PROFILE_CREATION_DISABLED_CODE,
   ADDITIONAL_HUMAN_PROFILE_CREATION_DISABLED_MESSAGE,
+  AGENT_PROFILE_CREATION_IDEMPOTENCY_CONFLICT_CODE,
+  AGENT_PROFILE_CREATION_IDEMPOTENCY_CONFLICT_MESSAGE,
 } from "@openmeld/schemas";
 
 export class ProfileNotFoundError extends Error {
@@ -19,6 +21,15 @@ export class ProfileValidationError extends Error {
     super(message);
     this.code = code;
     this.name = "ProfileValidationError";
+  }
+}
+
+export class ProfileCreationIdempotencyConflictError extends Error {
+  readonly code = AGENT_PROFILE_CREATION_IDEMPOTENCY_CONFLICT_CODE;
+
+  constructor(message = AGENT_PROFILE_CREATION_IDEMPOTENCY_CONFLICT_MESSAGE) {
+    super(message);
+    this.name = "ProfileCreationIdempotencyConflictError";
   }
 }
 

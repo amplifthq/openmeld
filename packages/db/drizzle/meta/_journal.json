@@ -876,6 +876,13 @@
       "when": 1786976291363,
       "tag": "0124_gray_diamondback",
       "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "6",
+      "when": 1787051984707,
+      "tag": "0125_sturdy_enchantress",
+      "breakpoints": true
     }
   ]
 }

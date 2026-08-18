@@ -42,6 +42,7 @@ export async function createProfileWithFollowUps(input: {
 	currentServiceCanSetProfileWorkspace: boolean;
 	defaultProjectId: string | null;
 	deviceId: string | null;
+	idempotencyKey: string;
 	modelId: string | null;
 	openCodePermission: AgentProfileBindingOpenCodePermission | null;
 	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
@@ -65,6 +66,7 @@ export async function createProfileWithFollowUps(input: {
 		: null;
 
 	let profile = await createNewProfile({
+		idempotencyKey: input.idempotencyKey,
 		organizationId: input.organizationId,
 		profileKind: input.profileKind,
 		profileName: input.profileName,

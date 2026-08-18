@@ -25,7 +25,7 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
@@ -142,6 +142,11 @@ export function CreateProfileDialog(input: {
 	const [errorState, setErrorState] = useState<NewProfileErrorState | null>(
 		null
 	);
+	const submissionInFlightRef = useRef(false);
+	const creationIntentRef = useRef<{
+		fingerprint: string;
+		idempotencyKey: string;
+	} | null>(null);
 	const { data: modelCatalog = null } = useQuery(modelCatalogQueryOptions());
 	const currentOrgSlug = useOptionalCurrentOrganizationSlug();
 	const orgSlug = input.orgSlug ?? currentOrgSlug;
@@ -181,6 +186,8 @@ export function CreateProfileDialog(input: {
 	);
 
 	const resetForm = () => {
+		submissionInFlightRef.current = false;
+		creationIntentRef.current = null;
 		setProfileKind(null);
 		setProfileName("");
 		setBoundAgentId("");
@@ -201,7 +208,7 @@ export function CreateProfileDialog(input: {
 	};
 
 	const createProfileMutation = useMutation({
-		mutationFn: async () => {
+		mutationFn: async (submission: { idempotencyKey: string }) => {
 			const agentControllerPermissionMode =
 				resolveCreateAgentControllerPermissionMode({
 					boundAgentControllerPermissionMode,
@@ -215,6 +222,7 @@ export function CreateProfileDialog(input: {
 				currentServiceCanSetProfileWorkspace:
 					bindingTarget?.localAgentControl.setProfileWorkspace === true,
 				deviceId: bindingTarget?.deviceId ?? recovery.deviceId,
+				idempotencyKey: submission.idempotencyKey,
 				modelId: boundAgentId ? boundModelId : null,
 				defaultProjectId: resolveSelectedDefaultProjectId({
 					selectedProjectBindingGeneration,
@@ -286,6 +294,9 @@ export function CreateProfileDialog(input: {
 			input.onProfileCreated?.(profile);
 			resetForm();
 			input.onOpenChange(false);
+		},
+		onSettled: () => {
+			submissionInFlightRef.current = false;
 		},
 	});
 	const organizationWakeAccessSlot = organizationAuthorizationContext ? (
@@ -493,8 +504,26 @@ export function CreateProfileDialog(input: {
 						}}
 						onSubmit={(event) => {
 							event.preventDefault();
+							if (submissionInFlightRef.current) {
+								return;
+							}
+							submissionInFlightRef.current = true;
+							const fingerprint = JSON.stringify([
+								organizationId,
+								selectableProfileKind,
+								profileName.trim(),
+								selectedHumanProfile?.openMeldProfileId ?? null,
+							]);
+							if (creationIntentRef.current?.fingerprint !== fingerprint) {
+								creationIntentRef.current = {
+									fingerprint,
+									idempotencyKey: crypto.randomUUID(),
+								};
+							}
 							setErrorState(null);
-							createProfileMutation.mutate();
+							createProfileMutation.mutate({
+								idempotencyKey: creationIntentRef.current.idempotencyKey,
+							});
 						}}
 						organizationWakeAccessSlot={organizationWakeAccessSlot}
 						profileKind={selectableProfileKind}

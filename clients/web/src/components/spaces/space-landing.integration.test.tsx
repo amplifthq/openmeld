@@ -1514,6 +1514,7 @@ describe("SpaceLanding", () => {
 		expect(createStartAgentProfileMock).toHaveBeenCalledWith({
 			data: {
 				creatorProfileId: DEFAULT_SPACE_PROFILE_ID,
+				idempotencyKey: expect.any(String),
 				organizationId: "org-acme",
 				profileName: "Scout",
 			},
