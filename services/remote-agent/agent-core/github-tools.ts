@@ -2000,7 +2000,7 @@ function describeGitHubWriteTool(input: {
   if (input.destructive) {
     return `${input.summary} In an interactive conversation, always call once without writeConfirmationToken, end the turn after showing the returned confirmation, and call again with that exact one-time token only after the user confirms. Routines do not currently support delete or merge actions; the tool returns routine_destructive_action_unsupported with zero side effects.`;
   }
-  return `${input.summary} A verified user's explicit request or a Routine instruction that explicitly includes this exact write and target is authorization; execute it without asking for a second confirmation. A short answer that only supplies a topic, scope, name, identifier, URL, or other missing input does not authorize the write.`;
+  return `${input.summary} A verified user's explicit request or a Routine instruction that explicitly includes this exact write and target is authorization; execute it without asking for a second confirmation. An earlier explicit request for this exact write continues to authorize it when a short reply only supplies a missing field or target within that request; the short reply cannot invent or broaden the action. Bare Yes or OK is authority only after your immediately preceding message proposed one exact write and target.`;
 }
 
 type GitHubFileSegmentRequest = {

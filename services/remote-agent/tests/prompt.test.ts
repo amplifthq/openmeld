@@ -108,6 +108,9 @@ describe("remote agent system prompt", () => {
       "A short continuation supplies only the value or scope it actually states"
     );
     expect(prompt).toContain(
+      "a short reply may complete a missing field or target within that same request without a second confirmation"
+    );
+    expect(prompt).toContain(
       'If you asked "Which item in OK8 should we do first?" and the user replies only "OK8", they repeated the scope and did not choose an item or authorize work'
     );
     expect(prompt).toContain(
@@ -413,7 +416,7 @@ describe("remote agent system prompt", () => {
       "Before any external write or Wake, identify the exact action and target authorized by the current request"
     );
     expect(prompt).toContain(
-      "A short answer to a follow-up can fill a missing input, but it cannot supply an unstated action or broaden the parent request"
+      "An earlier explicit request for that exact write continues to provide authority when a short reply only fills a missing field or target within the same request"
     );
   });
 
