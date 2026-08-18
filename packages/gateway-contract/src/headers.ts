@@ -45,6 +45,9 @@ export const OPENMELD_HEADER_VISITED_PROFILE_IDS =
 export const OPENMELD_HEADER_VISITED_PROFILE_IDS_HASH =
   "x-openmeld-visited-profile-ids-hash";
 export const OPENMELD_HEADER_FORWARDED_BY = "x-openmeld-forwarded-by";
+export const OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION =
+  "x-openmeld-inbox-source-target-version";
+export const OPENMELD_INBOX_SOURCE_TARGET_VERSION = "2";
 export const OPENMELD_EXPECTED_FORWARDED_BY = "openmeld-gateway";
 
 const MAX_HEADER_LENGTH = 128;

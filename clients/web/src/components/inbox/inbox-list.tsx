@@ -26,7 +26,7 @@ import {
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { MouseEvent, ReactNode } from "react";
-import { buildInboxItemSourcePath } from "#/lib/inbox/source-target";
+import { buildInboxItemSourceNavigation } from "#/lib/inbox/source-target";
 
 const INBOX_SHORT_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	day: "numeric",
@@ -106,7 +106,7 @@ function InboxItemRow(input: {
 		input.item.importance === "urgent" &&
 		(input.item.attention !== "action_required" ||
 			input.item.resolutionStatus === "open");
-	const sourcePath = buildInboxItemSourcePath({
+	const sourceNavigation = buildInboxItemSourceNavigation({
 		item: input.item,
 		orgSlug: input.organizationSlug,
 	});
@@ -133,19 +133,20 @@ function InboxItemRow(input: {
 				data-inbox-read-state={unread ? "unread" : "read"}
 				itemId={input.item.id}
 			>
-				<Link
+				<InboxItemSourceLink
 					className={cn(
 						"flex min-w-0 items-start gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
 						input.density === "compact"
 							? "min-h-16 px-3 py-3"
 							: "min-h-20 px-4 py-4 pe-16 sm:gap-4"
 					)}
+					href={sourceNavigation.href}
 					onAuxClick={handleAuxClick}
 					onClick={handleOpen}
+					openInNewTab={sourceNavigation.openInNewTab}
 					ref={(element) => {
 						input.registerItemElement?.(input.item.id, element);
 					}}
-					to={sourcePath}
 				>
 					<span
 						className={cn(
@@ -204,7 +205,7 @@ function InboxItemRow(input: {
 							<InboxTimestamp occurredAt={input.item.occurredAt} />
 						</span>
 					</span>
-				</Link>
+				</InboxItemSourceLink>
 
 				{input.showItemActions ? (
 					<InboxItemActions
@@ -216,6 +217,43 @@ function InboxItemRow(input: {
 				) : null}
 			</SharedLayoutItem>
 		</li>
+	);
+}
+
+function InboxItemSourceLink(input: {
+	children: ReactNode;
+	className: string;
+	href: string;
+	onAuxClick: (event: MouseEvent<HTMLAnchorElement>) => void;
+	onClick: () => void;
+	openInNewTab: boolean;
+	ref: (element: HTMLAnchorElement | null) => void;
+}) {
+	if (input.openInNewTab) {
+		return (
+			<a
+				className={input.className}
+				href={input.href}
+				onAuxClick={input.onAuxClick}
+				onClick={input.onClick}
+				ref={input.ref}
+				rel="noopener noreferrer"
+				target="_blank"
+			>
+				{input.children}
+			</a>
+		);
+	}
+	return (
+		<Link
+			className={input.className}
+			onAuxClick={input.onAuxClick}
+			onClick={input.onClick}
+			ref={input.ref}
+			to={input.href}
+		>
+			{input.children}
+		</Link>
 	);
 }
 

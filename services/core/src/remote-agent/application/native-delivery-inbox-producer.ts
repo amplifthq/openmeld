@@ -3,7 +3,11 @@ import {
   ensureInboxItem,
   resolveInboxItemsBySource,
 } from "../../inbox/application/inbox-item-service";
-import { readInboxItemBySource } from "../../inbox/infrastructure/d1/inbox-item-repo";
+import {
+  readInboxItemBySource,
+  replaceInboxSourceTargetsIfCurrent,
+} from "../../inbox/infrastructure/d1/inbox-item-repo";
+import type { SlackInboxSourceTarget } from "./slack-inbox-source-target";
 
 type SlackTerminalStatus = AgentTaskTerminalOutcome["status"];
 
@@ -16,6 +20,7 @@ export async function projectLinkedSlackNativeDeliveryInboxItem(input: {
     organizationId: string;
   };
   occurredAtMs: number;
+  sourceTarget: SlackInboxSourceTarget;
   status: SlackTerminalStatus;
 }): Promise<void> {
   const recipientUserId = input.delivery.onBehalfOfUserId?.trim() ?? "";
@@ -36,6 +41,16 @@ export async function projectLinkedSlackNativeDeliveryInboxItem(input: {
     input.delivery.deliveryId,
     "terminal"
   );
+  await replaceInboxSourceTargetsIfCurrent({
+    currentSourceTarget: { kind: "center_agent" },
+    db: input.db,
+    nextSourceTarget: input.sourceTarget,
+    organizationId: source.organizationId,
+    recipientUserId,
+    sourceKeys: [unknownSourceKey, terminalSourceKey],
+    sourceKind: source.sourceKind,
+    updatedAtMs: input.occurredAtMs,
+  });
   if (presentation.attention === "action_required") {
     const terminal = await readInboxItemBySource({
       db: input.db,
@@ -71,7 +86,7 @@ export async function projectLinkedSlackNativeDeliveryInboxItem(input: {
           ? unknownSourceKey
           : terminalSourceKey,
       sourceKind: source.sourceKind,
-      sourceTarget: { kind: "center_agent" },
+      sourceTarget: input.sourceTarget,
       title: presentation.title,
     },
     db: input.db,

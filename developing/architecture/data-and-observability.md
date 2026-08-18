@@ -1574,6 +1574,20 @@ terminal coordination must not reconstruct it from Dispatch Ledger. The ledger
 exists so trace and diagnostics cover native delivery with the same
 deterministic-evidence rule as wakes.
 
+For legacy Slack result surfaces, the ledger also records an optional shared
+Working-status turn identity used only to derive provider presentation. One
+ordinary delivery derives its effective identity from its idempotency key and
+leaves this override null. Multiple deliveries that are intentional fan-out
+from one user turn share an explicit override across recovery. When a new Core
+replays or continues a fan-out admitted by an older Core, it compare-and-sets
+nullable siblings under the same exact Slack trigger, conversation scope, and
+explicit idempotency-parent lineage to that shared identity. A late legacy row
+that remains nullable derives the same effective identity only when exactly one
+explicit parent lineage matches; conflicting parent lineages fail closed. This
+field groups lifecycle evidence but does not own execution, conversation, task,
+or authorization truth. Older nullable rows remain replayable and readable as
+single-delivery turns during rollout.
+
 `openMeldRemoteAgent_conversation_generations` is the Core-owned routing
 projection from one Organization-scoped logical Center Agent conversation to
 its active Remote Agent runtime generation. Core is its only writer and uses a
@@ -1802,11 +1816,13 @@ first-enqueued timestamp is immutable audit evidence, not proof that a Queue
 message still exists. Core's minute scheduler scans null or expired due times
 and conditionally moves one row to a bounded lease before sending compensation,
 so overlapping scheduler invocations cannot enqueue the same recovery
-concurrently. A send failure releases only that exact lease, while a process
-failure is recovered after lease expiry. Cloudflare Queue's finite retry budget
-therefore cannot permanently strand an accepted delivery. This due time and
-lease remain reconciliation projections; neither owns execution or authorizes a
-terminal outcome.
+concurrently. A send failure releases only that exact lease when Core knows the
+preceding operation stopped. If a reconciliation RPC timed out, send failure
+keeps the processing lease until expiry because the underlying RPC may still be
+running. A process failure is likewise recovered after lease expiry.
+Cloudflare Queue's finite retry budget therefore cannot permanently strand an
+accepted delivery. This due time and lease remain reconciliation projections;
+neither owns execution or authorizes a terminal outcome.
 
 Core also owns `openMeldRemoteAgent_daily_admissions`, with one row per
 `organizationId + dayUtc`, and the native-delivery ledger's

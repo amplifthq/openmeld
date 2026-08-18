@@ -173,6 +173,7 @@ export type RemoteAgentNativeDeliveryRecord = {
   slackTeamId: string | null;
   slackChannelId: string | null;
   slackThreadTs: string | null;
+  slackWorkingStatusTurnId: string | null;
   messageChannelLocator: MessageChannelConversationLocator | null;
   providerPublicationIdempotencyKey: string | null;
   providerPublicationResultId: string | null;
@@ -257,6 +258,7 @@ type RemoteAgentNativeDeliveryRow = {
   slack_team_id: string | null;
   slack_channel_id: string | null;
   slack_thread_ts: string | null;
+  slack_working_status_turn_id: string | null;
   message_channel_provider: string | null;
   message_channel_connection_id: string | null;
   message_channel_locator_json: string | null;
@@ -336,6 +338,7 @@ const REMOTE_AGENT_NATIVE_DELIVERY_SELECT = `
     slack_team_id,
     slack_channel_id,
     slack_thread_ts,
+    slack_working_status_turn_id,
     message_channel_provider,
     message_channel_connection_id,
     message_channel_locator_json,
@@ -438,6 +441,110 @@ export async function listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceByS
     const evidence = parseActiveRemoteAgentNativeDeliveryWakeProgressRow(row);
     return evidence ? [evidence] : [];
   });
+}
+
+export async function isLatestRemoteAgentNativeDeliveryActiveForSlackThread(input: {
+  channelId: string;
+  db: D1Database;
+  organizationId: string;
+  teamId: string;
+  threadTs: string;
+}): Promise<boolean> {
+  const row = await input.db
+    .prepare(
+      `
+        WITH scoped_deliveries AS (
+          SELECT
+            delivery_id,
+            idempotency_key,
+            trigger_message_id,
+            slack_working_status_turn_id,
+            status,
+            final_publication_state,
+            created_at_ms
+          FROM openMeldRemoteAgent_native_delivery_ledger
+          WHERE conversation_kind = 'slack'
+            AND organization_id = ?
+            AND slack_team_id = ?
+            AND slack_channel_id = ?
+            AND slack_thread_ts = ?
+        ),
+        lineage_candidates AS (
+          SELECT
+            deliveries.delivery_id,
+            shared.slack_working_status_turn_id AS inherited_turn_id
+          FROM scoped_deliveries AS deliveries
+          INNER JOIN scoped_deliveries AS shared
+            ON shared.trigger_message_id = deliveries.trigger_message_id
+            AND shared.slack_working_status_turn_id IS NOT NULL
+            AND substr(
+              deliveries.idempotency_key,
+              1,
+              length(shared.slack_working_status_turn_id) + 1
+            ) = shared.slack_working_status_turn_id || ':'
+        ),
+        effective_deliveries AS (
+          SELECT
+            deliveries.delivery_id,
+            deliveries.idempotency_key,
+            deliveries.trigger_message_id,
+            deliveries.status,
+            deliveries.final_publication_state,
+            deliveries.created_at_ms,
+            CASE
+              WHEN deliveries.slack_working_status_turn_id IS NOT NULL
+                THEN deliveries.slack_working_status_turn_id
+              WHEN COUNT(DISTINCT lineage.inherited_turn_id) = 1
+                THEN MIN(lineage.inherited_turn_id)
+              WHEN COUNT(DISTINCT lineage.inherited_turn_id) = 0
+                THEN deliveries.idempotency_key
+              ELSE NULL
+            END AS effective_turn_id,
+            COUNT(DISTINCT lineage.inherited_turn_id) AS inherited_turn_count
+          FROM scoped_deliveries AS deliveries
+          LEFT JOIN lineage_candidates AS lineage
+            ON lineage.delivery_id = deliveries.delivery_id
+          GROUP BY
+            deliveries.delivery_id,
+            deliveries.idempotency_key,
+            deliveries.trigger_message_id,
+            deliveries.slack_working_status_turn_id,
+            deliveries.status,
+            deliveries.final_publication_state,
+            deliveries.created_at_ms
+        ),
+        latest_turn AS (
+          SELECT trigger_message_id, effective_turn_id
+          FROM effective_deliveries
+          ORDER BY trigger_message_id DESC, created_at_ms DESC, delivery_id DESC
+          LIMIT 1
+        )
+        SELECT CASE WHEN EXISTS (
+          SELECT 1
+          FROM effective_deliveries AS deliveries
+          INNER JOIN latest_turn
+            ON latest_turn.trigger_message_id = deliveries.trigger_message_id
+            AND latest_turn.effective_turn_id = deliveries.effective_turn_id
+          WHERE deliveries.status IN ('submitted', 'accepted', 'retry_observed')
+            AND deliveries.final_publication_state IS NULL
+        ) THEN 1 ELSE 0 END AS active,
+        CASE WHEN EXISTS (
+          SELECT 1
+          FROM effective_deliveries AS deliveries
+          INNER JOIN latest_turn
+            ON latest_turn.trigger_message_id = deliveries.trigger_message_id
+          WHERE deliveries.inherited_turn_count > 1
+        ) THEN 1 ELSE 0 END AS ambiguous
+      `
+    )
+    .bind(input.organizationId, input.teamId, input.channelId, input.threadTs)
+    .first<{ active: number; ambiguous: number }>();
+  if (row?.ambiguous === 1) {
+    throw new Error(
+      "Slack working-status turn lineage is ambiguous for the latest trigger"
+    );
+  }
+  return row?.active === 1;
 }
 
 // Keeps every chunked statement within D1's bound-parameter limit (100):
@@ -554,14 +661,54 @@ export async function listLinkedSlackNativeDeliveriesNeedingInboxProjection(inpu
                 )
               )
             )
+            OR EXISTS (
+              SELECT 1
+              FROM inbox_items
+              WHERE inbox_items.organization_id = openMeldRemoteAgent_native_delivery_ledger.organization_id
+                AND inbox_items.recipient_user_id = openMeldRemoteAgent_native_delivery_ledger.on_behalf_of_user_id
+                AND inbox_items.source_kind = 'remote_agent_native_delivery'
+                AND inbox_items.source_key IN (
+                  openMeldRemoteAgent_native_delivery_ledger.delivery_id || ':publication_unknown',
+                  openMeldRemoteAgent_native_delivery_ledger.delivery_id || ':terminal'
+                )
+                AND inbox_items.source_target_json = ?
+            )
           )
-        ORDER BY updated_at_ms ASC, delivery_id ASC
+        ORDER BY
+          inbox_projection_attempted_at_ms ASC,
+          updated_at_ms ASC,
+          delivery_id ASC
         LIMIT ?
       `
     )
-    .bind(limit)
+    .bind(JSON.stringify({ kind: "center_agent" }), limit)
     .all<RemoteAgentNativeDeliveryRow>();
   return rows.results.map(mapNativeDeliveryRow);
+}
+
+export async function markLinkedSlackNativeDeliveryInboxProjectionAttempted(input: {
+  db: D1Database;
+  deliveryId: string;
+  nowMs: number;
+}): Promise<void> {
+  if (!(Number.isSafeInteger(input.nowMs) && input.nowMs >= 0)) {
+    throw new TypeError("nowMs must be a non-negative safe integer");
+  }
+  if (!input.deliveryId.trim()) {
+    throw new TypeError("deliveryId must be a non-empty identifier");
+  }
+  await input.db
+    .prepare(
+      `
+        UPDATE openMeldRemoteAgent_native_delivery_ledger
+        SET inbox_projection_attempted_at_ms = ?
+        WHERE delivery_id = ?
+          AND conversation_kind = 'slack'
+          AND inbox_projection_suppressed_at_ms IS NULL
+      `
+    )
+    .bind(input.nowMs, input.deliveryId)
+    .run();
 }
 
 export async function suppressLinkedSlackNativeDeliveryInboxProjectionIfRecipientMissing(input: {
@@ -615,6 +762,77 @@ function resolveControllerNormalizationStorage(
   return snapshot;
 }
 
+function resolveStoredSlackWorkingStatusTurnId(input: {
+  conversationKind: RemoteAgentNativeDeliveryConversationKind;
+  idempotencyKey: string;
+  slackWorkingStatusTurnId?: string | null;
+}): string | null {
+  if (input.conversationKind !== "slack") {
+    if (input.slackWorkingStatusTurnId !== undefined) {
+      throw new Error(
+        "Slack working-status turn identity requires a Slack delivery"
+      );
+    }
+    return null;
+  }
+  if (input.slackWorkingStatusTurnId == null) {
+    return null;
+  }
+  const explicitTurnId = input.slackWorkingStatusTurnId?.trim();
+  if (input.slackWorkingStatusTurnId !== undefined && !explicitTurnId) {
+    throw new Error("Slack working-status turn identity cannot be empty");
+  }
+  if (!input.idempotencyKey.startsWith(`${explicitTurnId}:`)) {
+    throw new Error(
+      "Shared Slack working-status turn identity must be the parent of its delivery idempotency key"
+    );
+  }
+  return explicitTurnId ?? null;
+}
+
+async function backfillSharedSlackWorkingStatusTurnId(input: {
+  db: D1Database;
+  record: RemoteAgentNativeDeliveryRecord;
+  slackWorkingStatusTurnId: string;
+}): Promise<void> {
+  if (
+    input.record.conversationKind !== "slack" ||
+    input.record.slackTeamId === null ||
+    input.record.slackChannelId === null ||
+    input.record.slackThreadTs === null
+  ) {
+    throw new Error(
+      "Shared Slack working-status turn identity requires a complete Slack conversation locator"
+    );
+  }
+  await input.db
+    .prepare(
+      `
+        UPDATE openMeldRemoteAgent_native_delivery_ledger
+        SET slack_working_status_turn_id = ?
+        WHERE conversation_kind = 'slack'
+          AND organization_id = ?
+          AND slack_team_id = ?
+          AND slack_channel_id = ?
+          AND slack_thread_ts = ?
+          AND trigger_message_id = ?
+          AND substr(idempotency_key, 1, length(?) + 1) = ? || ':'
+          AND slack_working_status_turn_id IS NULL
+      `
+    )
+    .bind(
+      input.slackWorkingStatusTurnId,
+      input.record.organizationId,
+      input.record.slackTeamId,
+      input.record.slackChannelId,
+      input.record.slackThreadTs,
+      input.record.triggerMessageId,
+      input.slackWorkingStatusTurnId,
+      input.slackWorkingStatusTurnId
+    )
+    .run();
+}
+
 export async function upsertRemoteAgentNativeDeliveryRecord(input: {
   db: D1Database;
   deliveryId?: string;
@@ -642,11 +860,17 @@ export async function upsertRemoteAgentNativeDeliveryRecord(input: {
   slackTeamId?: string | null;
   slackChannelId?: string | null;
   slackThreadTs?: string | null;
+  slackWorkingStatusTurnId?: string | null;
   messageChannelLocator?: MessageChannelConversationLocator | null;
   providerPublicationIdempotencyKey?: string | null;
 }): Promise<RemoteAgentNativeDeliveryRecord> {
   const threadContextJson = serializeThreadContext(input.threadContext ?? null);
   const conversationKind = input.conversationKind ?? "space";
+  const slackWorkingStatusTurnId = resolveStoredSlackWorkingStatusTurnId({
+    conversationKind,
+    idempotencyKey: input.idempotencyKey,
+    slackWorkingStatusTurnId: input.slackWorkingStatusTurnId,
+  });
   const messageChannelStorage = resolveMessageChannelStorage({
     conversationKind,
     locator: input.messageChannelLocator ?? null,
@@ -689,6 +913,7 @@ export async function upsertRemoteAgentNativeDeliveryRecord(input: {
           slack_team_id,
           slack_channel_id,
           slack_thread_ts,
+          slack_working_status_turn_id,
           message_channel_provider,
           message_channel_connection_id,
           message_channel_locator_json,
@@ -697,7 +922,7 @@ export async function upsertRemoteAgentNativeDeliveryRecord(input: {
           updated_at_ms,
           submitted_at_ms
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(idempotency_key) DO NOTHING
       `
     )
@@ -728,6 +953,7 @@ export async function upsertRemoteAgentNativeDeliveryRecord(input: {
       input.slackTeamId ?? null,
       input.slackChannelId ?? null,
       input.slackThreadTs ?? null,
+      slackWorkingStatusTurnId,
       messageChannelStorage.provider,
       messageChannelStorage.connectionId,
       messageChannelStorage.locatorJson,
@@ -738,20 +964,67 @@ export async function upsertRemoteAgentNativeDeliveryRecord(input: {
     )
     .run();
 
-  const record = await readRemoteAgentNativeDeliveryByIdempotencyKey({
-    db: input.db,
-    idempotencyKey: input.idempotencyKey,
+  return await readAndReconcileRemoteAgentNativeDeliveryAdmission({
+    admissionInput: input,
+    controllerNormalizationStorage,
+    conversationKind,
+    messageChannelStorage,
+    slackWorkingStatusTurnId,
+    threadContextJson,
+  });
+}
+
+async function readAndReconcileRemoteAgentNativeDeliveryAdmission(input: {
+  admissionInput: Parameters<typeof upsertRemoteAgentNativeDeliveryRecord>[0];
+  controllerNormalizationStorage: ReturnType<
+    typeof resolveControllerNormalizationStorage
+  >;
+  conversationKind: RemoteAgentNativeDeliveryConversationKind;
+  messageChannelStorage: ReturnType<typeof resolveMessageChannelStorage>;
+  slackWorkingStatusTurnId: string | null;
+  threadContextJson: string | null;
+}): Promise<RemoteAgentNativeDeliveryRecord> {
+  let record = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.admissionInput.db,
+    idempotencyKey: input.admissionInput.idempotencyKey,
   });
   if (!record) {
     throw new Error("Remote Agent native delivery write did not produce a row");
   }
   assertImmutableNativeDeliveryAdmission({
-    controllerNormalizationStorage,
-    conversationKind,
-    input,
-    messageChannelStorage,
+    allowLegacyNullSlackWorkingStatusTurnId:
+      input.slackWorkingStatusTurnId !== null,
+    controllerNormalizationStorage: input.controllerNormalizationStorage,
+    conversationKind: input.conversationKind,
+    input: input.admissionInput,
+    messageChannelStorage: input.messageChannelStorage,
     record,
-    threadContextJson,
+    threadContextJson: input.threadContextJson,
+  });
+  if (input.slackWorkingStatusTurnId === null) {
+    return record;
+  }
+  await backfillSharedSlackWorkingStatusTurnId({
+    db: input.admissionInput.db,
+    record,
+    slackWorkingStatusTurnId: input.slackWorkingStatusTurnId,
+  });
+  record = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+    db: input.admissionInput.db,
+    idempotencyKey: input.admissionInput.idempotencyKey,
+  });
+  if (!record) {
+    throw new Error(
+      "Remote Agent native delivery disappeared during Slack turn identity reconciliation"
+    );
+  }
+  assertImmutableNativeDeliveryAdmission({
+    controllerNormalizationStorage: input.controllerNormalizationStorage,
+    conversationKind: input.conversationKind,
+    input: input.admissionInput,
+    messageChannelStorage: input.messageChannelStorage,
+    record,
+    threadContextJson: input.threadContextJson,
   });
   return record;
 }
@@ -764,6 +1037,7 @@ function resolveRemoteAgentNativeDeliverySubmittedAtMs(
 }
 
 function assertImmutableNativeDeliveryAdmission(input: {
+  allowLegacyNullSlackWorkingStatusTurnId?: boolean;
   controllerNormalizationStorage: ReturnType<
     typeof resolveControllerNormalizationStorage
   >;
@@ -807,6 +1081,11 @@ function assertImmutableNativeDeliveryAdmission(input: {
     slackChannelId: input.input.slackChannelId ?? null,
     slackTeamId: input.input.slackTeamId ?? null,
     slackThreadTs: input.input.slackThreadTs ?? null,
+    slackWorkingStatusTurnId: resolveStoredSlackWorkingStatusTurnId({
+      conversationKind: input.conversationKind,
+      idempotencyKey: input.input.idempotencyKey,
+      slackWorkingStatusTurnId: input.input.slackWorkingStatusTurnId,
+    }),
     sourceClientMessageId: input.input.sourceClientMessageId ?? null,
     spaceId: input.input.spaceId,
     threadContext:
@@ -839,17 +1118,27 @@ function assertImmutableNativeDeliveryAdmission(input: {
     slackChannelId: input.record.slackChannelId,
     slackTeamId: input.record.slackTeamId,
     slackThreadTs: input.record.slackThreadTs,
+    slackWorkingStatusTurnId: input.record.slackWorkingStatusTurnId,
     sourceClientMessageId: input.record.sourceClientMessageId,
     spaceId: input.record.spaceId,
     threadContext: input.record.threadContext,
     triggerMessageId: input.record.triggerMessageId,
     triggerText: input.record.triggerText,
   };
-  const mismatchedFields = Object.keys(expected).filter(
-    (field) =>
+  const mismatchedFields = Object.keys(expected).filter((field) => {
+    if (
+      field === "slackWorkingStatusTurnId" &&
+      input.allowLegacyNullSlackWorkingStatusTurnId === true &&
+      actual.slackWorkingStatusTurnId === null &&
+      expected.slackWorkingStatusTurnId !== null
+    ) {
+      return false;
+    }
+    return (
       stableJson(actual[field as keyof typeof actual]) !==
       stableJson(expected[field as keyof typeof expected])
-  );
+    );
+  });
   if (
     input.input.deliveryId !== undefined &&
     input.record.deliveryId !== input.input.deliveryId
@@ -1886,14 +2175,18 @@ export async function markRemoteAgentNativeDeliveryDeadlineProbeEnqueued(input: 
 
 export async function markRemoteAgentAcceptedDeliveryProbeScheduled(input: {
   db: D1Database;
+  expectedCurrentDueAtMs?: number;
   idempotencyKey: string;
   nextDueAtMs: number;
   nowMs: number;
   submissionId: string;
 }): Promise<RemoteAgentNativeDeliveryRecord | null> {
-  await input.db
-    .prepare(
-      `
+  const expectedLeaseClause =
+    input.expectedCurrentDueAtMs === undefined
+      ? ""
+      : "AND accepted_probe_next_due_at_ms = ?";
+  const statement = input.db.prepare(
+    `
         UPDATE openMeldRemoteAgent_native_delivery_ledger
         SET
           accepted_probe_next_due_at_ms = ?,
@@ -1905,16 +2198,21 @@ export async function markRemoteAgentAcceptedDeliveryProbeScheduled(input: {
         WHERE idempotency_key = ?
           AND submission_id = ?
           AND status IN ('accepted', 'retry_observed')
+          AND final_publication_state IS NULL
+          ${expectedLeaseClause}
       `
-    )
-    .bind(
-      input.nextDueAtMs,
-      input.nowMs,
-      input.nowMs,
-      input.idempotencyKey,
-      input.submissionId
-    )
-    .run();
+  );
+  const bindings = [
+    input.nextDueAtMs,
+    input.nowMs,
+    input.nowMs,
+    input.idempotencyKey,
+    input.submissionId,
+    ...(input.expectedCurrentDueAtMs === undefined
+      ? []
+      : [input.expectedCurrentDueAtMs]),
+  ];
+  await statement.bind(...bindings).run();
   return await readRemoteAgentNativeDeliveryByIdempotencyKey({
     db: input.db,
     idempotencyKey: input.idempotencyKey,
@@ -1941,6 +2239,7 @@ export async function claimRemoteAgentAcceptedDeliveryProbeSchedule(input: {
         WHERE idempotency_key = ?
           AND submission_id = ?
           AND status IN ('accepted', 'retry_observed')
+          AND final_publication_state IS NULL
           AND (
             accepted_probe_next_due_at_ms IS NULL
             OR accepted_probe_next_due_at_ms <= ?
@@ -2007,6 +2306,7 @@ export async function listRemoteAgentNativeDeliveriesMissingAcceptedProbe(input:
         FROM openMeldRemoteAgent_native_delivery_ledger
         WHERE status IN ('accepted', 'retry_observed')
           AND submission_id IS NOT NULL
+          AND final_publication_state IS NULL
           AND (
             accepted_probe_next_due_at_ms IS NULL
             OR accepted_probe_next_due_at_ms <= ?
@@ -4981,6 +5281,7 @@ function mapNativeDeliveryRow(
     slackTeamId: row.slack_team_id,
     slackChannelId: row.slack_channel_id,
     slackThreadTs: row.slack_thread_ts,
+    slackWorkingStatusTurnId: row.slack_working_status_turn_id,
     messageChannelLocator,
     providerPublicationIdempotencyKey: row.provider_publication_idempotency_key,
     providerPublicationResultId: row.provider_publication_result_id,

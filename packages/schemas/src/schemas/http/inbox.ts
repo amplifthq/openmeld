@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
+import { slackMessagePermalinkSchema } from "../runtime/message-channel";
 
 export const INBOX_TITLE_MAX_CHARS = 160;
 export const INBOX_PREVIEW_MAX_CHARS = 500;
@@ -91,6 +92,16 @@ const centerAgentInboxSourceTargetSchema = z
     }
   });
 
+export const slackInboxSourceTargetSchema = z.strictObject({
+  channelId: identifierSchema,
+  kind: z.literal("message_channel"),
+  messageId: identifierSchema,
+  permalink: slackMessagePermalinkSchema,
+  provider: z.literal("slack"),
+  teamId: identifierSchema,
+  threadRootMessageId: identifierSchema,
+});
+
 export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("space"),
@@ -113,6 +124,7 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
     kind: z.literal("center_agent_task"),
     taskId: identifierSchema,
   }),
+  slackInboxSourceTargetSchema,
   centerAgentInboxSourceTargetSchema,
   z.strictObject({
     kind: z.literal("settings"),

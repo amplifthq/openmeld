@@ -93,6 +93,28 @@ but resolved history must still navigate after RuntimeCoordinator retires the
 transient interaction state. Older targets without the additive signal remain
 valid during mixed-version rollout.
 
+A linked Slack delivery uses a `message_channel` target containing the exact
+workspace, channel, thread-root, and published-message ids plus Slack's
+validated canonical permalink. OpenMeld does not claim to observe Slack's read
+state. Activating that Inbox item marks only the OpenMeld item read and opens
+the exact Slack message in a new tab; reading the Slack thread by another route
+cannot clear OpenMeld unread state. If permalink lookup or Inbox projection is
+temporarily unavailable, the durable terminal delivery remains the repair
+source. Reconciliation retries, creates exactly one item, and upgrades legacy
+Slack items from the former Center Agent target to the exact provider target
+without resetting read, action-resolution, or dismissal state. A durable
+last-attempt timestamp keeps one unavailable Slack message from starving later
+repairs; reconciliation stops selecting an item after its exact target exists.
+
+The `message_channel` target is durable data, not a presentation-only field.
+All strict readers must accept it before Core starts writing it. Once written,
+the compatible readers stay deployed even if Core stops producing new Slack
+Inbox items; OpenMeld does not delete or rewrite a member's Inbox history to make
+an older reader appear compatible. A Web tab left open across this rollout keeps
+its complete Inbox and uses the prior Center Agent destination for new Slack
+items; after reload, those items open the exact Slack message. It never treats a
+valid new target as a broken item or broken entire Inbox list.
+
 `organizationId + recipientUserId + sourceEventKey` is unique. Replaying the
 same source event updates the existing item rather than creating duplicates.
 Source content must be bounded and must not copy transcripts, credentials,
@@ -206,6 +228,11 @@ Opening an Inbox item marks that item read as part of navigating to its source.
 Keyboard activation behaves the same way. Merely scrolling an item into the
 viewport, hovering it, or focusing the browser does not mark it read. Members
 can mark an item unread and can mark all accessible Inbox items read.
+
+For an external Message Channel source, the same activation contract runs
+before the validated provider permalink opens. Provider read receipts are not
+Inbox truth and are never inferred or polled when the provider does not expose
+an authoritative per-member read contract.
 
 Members can also Dismiss any item they no longer want in Inbox. Dismiss
 immediately removes the item from **All**, **Unread**, **Needs action**, and the

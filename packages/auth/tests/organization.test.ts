@@ -51,6 +51,23 @@ afterEach(() => {
 });
 
 describe("organization identity foundation", () => {
+  it("rejects cookieless cross-origin magic-link email requests", async () => {
+    const { auth, sentEmails } = createTestAuth({ enforceOriginCheck: true });
+    const response = await auth.handler(
+      new Request(`${AUTH_BASE_URL}/api/auth/sign-in/magic-link`, {
+        body: JSON.stringify({ email: "attacker@example.com" }),
+        headers: {
+          "content-type": "application/json",
+          origin: "https://attacker.invalid",
+        },
+        method: "POST",
+      })
+    );
+
+    expect(response.status).toBe(403);
+    expect(sentEmails).toEqual([]);
+  });
+
   it("creates a personal organization and stores it as the active session organization", async () => {
     const { auth, harness, sentEmails } = createTestAuth();
 
@@ -68,10 +85,14 @@ describe("organization identity foundation", () => {
       )
     ).toBe(true);
 
-    const user = requireRow<{ id: string }>(
+    const user = requireRow<{ id: string; normalizedEmail: string }>(
       harness.queryFirst({
         params: ["owner@example.com"],
-        sql: "select id from users where email = ?",
+        sql: `
+          select id, normalized_email as normalizedEmail
+          from users
+          where email = ?
+        `,
       }),
       "Expected signed-up user"
     );
@@ -98,6 +119,7 @@ describe("organization identity foundation", () => {
     );
 
     expect(organization.name).toBe("Owner Example");
+    expect(user.normalizedEmail).toBe("owner@example.com");
     expect(organization.slug).toMatch(OWNER_PERSONAL_ORGANIZATION_SLUG_PATTERN);
     expect(parseOrganizationMetadata(organization.metadata)).toEqual({
       personal: true,
@@ -1207,6 +1229,7 @@ describe("organization identity foundation", () => {
 function createTestAuth(
   input: {
     centerAgentRemovalGuardDatabase?: "bound" | "query_failure" | "unbound";
+    enforceOriginCheck?: boolean;
     sender?: CloudflareEmailSender;
   } = {}
 ): {
@@ -1226,7 +1249,9 @@ function createTestAuth(
     AUTH_EMAIL: sender,
     AUTH_FROM_EMAIL: "OpenMeld <noreply@openmeld.invalid>",
     AUTH_MAGIC_LINK_EXPIRES_IN_SECONDS: "300",
-    AUTH_WORKER_NODE_ENV: "development",
+    AUTH_WORKER_NODE_ENV: input.enforceOriginCheck
+      ? "production"
+      : "development",
     BETTER_AUTH_OPENMELD_SECRET: validSecret,
     BETTER_AUTH_URL: AUTH_BASE_URL,
     PASSKEY_RP_ID: "localhost",
@@ -1240,13 +1265,22 @@ function createTestAuth(
     ...authConfigInput,
     OPENMELD_DB: guardDatabase,
   });
-  const authConfig =
+  const baseAuthConfig =
     input.centerAgentRemovalGuardDatabase === "unbound"
       ? {
           ...createAuthConfig(authConfigInput),
           database: databaseConfig.database,
         }
       : databaseConfig;
+  const authConfig = input.enforceOriginCheck
+    ? {
+        ...baseAuthConfig,
+        advanced: {
+          ...baseAuthConfig.advanced,
+          disableOriginCheck: false,
+        },
+      }
+    : baseAuthConfig;
   const auth = betterAuth(authConfig);
 
   return { auth, harness, sentEmails: fakeEmailSender.sentEmails };

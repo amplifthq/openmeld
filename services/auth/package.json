@@ -43,7 +43,7 @@
     "@openmeld/db": "workspace:*",
     "@openmeld/gateway-contract": "workspace:*",
     "@openmeld/schemas": "workspace:*",
-    "better-auth": "^1.6.23",
+    "better-auth": "1.6.30",
     "hono": "^4.11.7"
   },
   "devDependencies": {
