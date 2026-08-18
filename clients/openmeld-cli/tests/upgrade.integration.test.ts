@@ -170,6 +170,75 @@ describe("openmeld upgrade", () => {
     });
   });
 
+  it("renders the check result as product copy in human view", async () => {
+    await withTempHome(async (home) => {
+      await seedVersionState(home);
+      const fetchMock = vi.mocked(fetch);
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ version: packageJson.version }), {
+          status: 200,
+        })
+      );
+
+      const { stdout } = await withCapturedStdio(async () => {
+        await runUpgrade({
+          view: "human",
+          check: true,
+        });
+      });
+
+      expect(stdout).toContain(
+        `OpenMeld CLI is already up to date (${packageJson.version}).`
+      );
+      expect(stdout).not.toContain('"status":"up_to_date"');
+    });
+  });
+
+  it("gives human users one clear action when an update is available", async () => {
+    await withTempHome(async (home) => {
+      await seedVersionState(home);
+      const fetchMock = vi.mocked(fetch);
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ version: "9.9.9" }), {
+          status: 200,
+        })
+      );
+
+      const { stdout } = await withCapturedStdio(async () => {
+        await runUpgrade({
+          view: "human",
+          check: true,
+        });
+      });
+
+      expect(stdout).toContain(
+        `OpenMeld CLI 9.9.9 is available (current ${packageJson.version}). Run \`openmeld upgrade\` to install it.`
+      );
+      expect(stdout).not.toContain('"status":"outdated"');
+    });
+  });
+
+  it("gives human users one retry action when the update check fails", async () => {
+    await withTempHome(async (home) => {
+      await seedVersionState(home);
+      const fetchMock = vi.mocked(fetch);
+      fetchMock.mockRejectedValueOnce(new Error("network down"));
+
+      const { stdout } = await withCapturedStdio(async () => {
+        await runUpgrade({
+          view: "human",
+          check: true,
+        });
+      });
+
+      expect(stdout).toContain(
+        "OpenMeld couldn't check for CLI updates. Check your internet connection, then run `openmeld upgrade --check` again."
+      );
+      expect(stdout).not.toContain('"status":"check_failed"');
+      expect(stdout).not.toContain("network down");
+    });
+  });
+
   it("clears a malformed cached floor when upgrade refreshes version metadata", async () => {
     await withTempHome(async (home) => {
       const openMeldDir = join(home, ".openmeld");
