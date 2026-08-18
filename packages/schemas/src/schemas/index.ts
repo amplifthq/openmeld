@@ -895,6 +895,7 @@ export {
   centerAgentOperatingStateSchema,
   centerAgentPostSlackChannelMessageBodySchema,
   centerAgentPostSlackChannelMessageResponseSchema,
+  centerAgentPostSlackThreadMessageBodySchema,
   centerAgentPostSpaceMessageBodySchema,
   centerAgentPostSpaceMessageResponseSchema,
   centerAgentProductOperationStepNameSchema,

@@ -162,6 +162,7 @@ import {
   picklist,
   pipe,
   record,
+  regex,
   safeParse as safeParseValibot,
   strictObject,
   string,
@@ -541,6 +542,12 @@ const slackChannelNameSchema = pipe(
   minLength(1),
   maxLength(80)
 );
+const slackMessageTimestampSchema = pipe(
+  string(),
+  trim(),
+  regex(/^\d+\.\d+$/),
+  maxLength(32)
+);
 const slackUserIdSchema = pipe(string(), trim(), minLength(1), maxLength(32));
 const slackTeammateInvitationToolInputSchema = strictObject({
   targetSlackUserIds: pipe(
@@ -562,6 +569,7 @@ const slackChannelMessageToolInputSchema = strictObject({
     }),
   ]),
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+  threadTs: optional(slackMessageTimestampSchema),
 });
 const openCodePermissionSchema = optional(record(string(), unknownSchema()));
 const collaborationModeSchema = optional(
@@ -3137,7 +3145,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_post_slack_channel_message",
       description:
-        "Post a top-level message in the main conversation of a named Slack channel connected to the current Organization. Use only when the user explicitly asks to publish in that channel; ordinary Slack replies belong in the originating thread. Set publicationSource to current_turn for a one-off message produced by this task. When publishing an approved Organization document, set publicationSource to organization_document with the exact documentId so one document revision cannot be posted twice to the same channel. To notify people, first call openmeld_read_slack_workspace_directory, then pass its exact slackUserId values through mentionSlackUserIds. Never type @Display Name or raw <@USER_ID> tokens into text. Write ordinary Markdown. Do not put clickable links, Slack mentions, or channel references inside inline code or fenced code blocks.",
+        "Post a message in a named Slack channel connected to the current Organization. Omit threadTs for a top-level message. Pass threadTs only when the user explicitly asks to reply to that exact existing thread, publicationSource is current_turn, and the exact root timestamp comes from the user's Slack link or trusted Slack evidence; never invent it. Organization document and Routine publications remain top-level. Use only when the user explicitly asks to publish in that channel; ordinary Slack replies belong in the originating thread. Set publicationSource to current_turn for a one-off message produced by this task. When publishing an approved Organization document, set publicationSource to organization_document with the exact documentId so one document revision cannot be posted twice to the same channel. To notify people, first call openmeld_read_slack_workspace_directory, then pass its exact slackUserId values through mentionSlackUserIds. Never type @Display Name or raw <@USER_ID> tokens into text. Write ordinary Markdown. Do not put clickable links, Slack mentions, or channel references inside inline code or fenced code blocks.",
       input: slackChannelMessageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -3149,6 +3157,15 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           submissionId: input.submissionId,
           toolName: "openmeld_post_slack_channel_message",
         });
+        if (
+          request.threadTs &&
+          (request.publicationSource.kind !== "current_turn" ||
+            toolContext.turnEnvelope?.trigger.source === "routine")
+        ) {
+          throw new Error(
+            "Slack thread publication requires an explicitly requested interactive current turn."
+          );
+        }
         const externalWriteBlock = resolveRemoteAgentRoutineExternalWriteBlock(
           toolContext,
           "slack.publish_channel_report"
@@ -3170,9 +3187,14 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
             "Slack channel publication requires a verified human member speaker."
           );
         }
+        const rpcName = request.threadTs
+          ? "centerAgentPostSlackThreadMessage"
+          : "centerAgentPostSlackChannelMessage";
         const rpc = requireCoreRpc(
-          input.coreWorker.centerAgentPostSlackChannelMessage,
-          "centerAgentPostSlackChannelMessage"
+          request.threadTs
+            ? input.coreWorker.centerAgentPostSlackThreadMessage
+            : input.coreWorker.centerAgentPostSlackChannelMessage,
+          rpcName
         );
         return parseCoreToolResponse(
           centerAgentPostSlackChannelMessageResponseSchema,
@@ -3186,8 +3208,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
             }),
             speakerMember,
             text,
+            ...(request.threadTs ? { threadTs: request.threadTs } : {}),
           }),
-          "centerAgentPostSlackChannelMessage",
+          rpcName,
           "Slack channel message response"
         );
       },

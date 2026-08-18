@@ -1097,6 +1097,41 @@ describe("Slack channel messages", () => {
     });
   });
 
+  it("posts to an exact existing Slack thread", async () => {
+    const fetchMock = createSlackApiFetchMock({
+      channels: [
+        {
+          id: "C_OK8",
+          is_archived: false,
+          is_member: true,
+          is_private: false,
+          name: "ok8-okok",
+        },
+      ],
+      messageTs: "1787091616.564859",
+    });
+
+    await expect(
+      postSlackChannelMessageByName({
+        botToken: "xoxb-test",
+        channelName: "ok8-okok",
+        fetchImpl: fetchMock,
+        text: "Here is the proposed next step.",
+        threadTs: "1786979718.343639",
+      })
+    ).resolves.toMatchObject({
+      channelId: "C_OK8",
+      joinedChannel: false,
+      messageTs: "1787091616.564859",
+    });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      channel: "C_OK8",
+      text: "Here is the proposed next step.",
+      thread_ts: "1786979718.343639",
+    });
+  });
+
   it("classifies a channel join failure as definitely not published", async () => {
     const fetchMock = vi.fn<typeof fetch>((request) => {
       const pathname = new URL(String(request)).pathname;

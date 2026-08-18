@@ -2093,31 +2093,43 @@ sets must continue excluding these durable action rows.
 
 ### Slack Channel Publication Contracts
 
-`packages/schemas` owns the private Core RPC request and response for explicit
-Center Agent top-level Slack channel publication. The model-visible tool
-accepts only `current_turn` or `organization_document` with an exact document
-id. Remote Agent converts `current_turn` to the system-owned submission id, or
-to the trusted Run id from a Routine envelope. It never accepts a
-model-authored internal execution id, Run id, or arbitrary publication id.
+`packages/schemas` owns the private Core RPC requests and shared response for
+explicit Center Agent Slack publication. Top-level channel messages use
+`centerAgentPostSlackChannelMessage`; exact existing threads use the additive
+`centerAgentPostSlackThreadMessage` receiver. The model-visible tool accepts only
+`current_turn` or `organization_document` with an exact document id. It may add
+an exact Slack root message timestamp only for an explicitly requested
+interactive `current_turn`; Organization document and Routine publications
+remain top-level. Remote Agent converts `current_turn` to the system-owned
+submission id, or to the trusted Run id from a Routine envelope. It never
+accepts a model-authored internal execution id, Run id, arbitrary publication
+id, or invented thread target.
 
 Core validates a Remote Agent execution against the current request context, a
 Routine Run against its native-delivery row, and an Organization document
-against current Organization access. It then derives the document revision
-from the approved artifact. The ledger scope binds that source to the
-Organization, designated Center Agent, and resolved Slack channel id; the
-request signature binds the represented user and final text. An exact
-completed retry returns the stored strict response. Changed input conflicts,
-an active claim stays in progress, and `outcome_unknown` fails closed. Only a
-provider-confirmed non-publication may retry the same source revision.
+against current Organization access. For an exact thread, Core also requires
+the current active native-delivery row to match the represented member and to
+have no Routine Run; a caller-provided source kind is never sufficient proof.
+It then derives the document revision from the approved artifact. The ledger
+scope binds that source to the
+Organization, designated Center Agent, and resolved Slack destination. A
+top-level destination is the channel id; an exact thread destination is the
+channel id plus root message timestamp. The request signature binds the
+represented user and final text. An exact completed retry returns the stored
+strict response. Changed input conflicts, an active claim stays in progress,
+and `outcome_unknown` fails closed. Only a provider-confirmed non-publication
+may retry the same source revision.
 
-The shared Core request keeps `publicationSource` rollout-optional only so an
+The top-level Core request keeps `publicationSource` rollout-optional only so an
 already-running older Remote Agent can call a newly deployed Core. Omission
-uses the legacy direct path and must not be emitted by the current tool.
-Migration `0067_damp_mariko_yashida` must precede the Core ledger writer. The
-rollout is receiver-first: apply the migration, deploy Core with the optional
-field and ledger path, then deploy Remote Agent with the required model-visible
-field. Rollback removes the Remote Agent producer before Core. The response
-shape is unchanged, so older response consumers remain compatible.
+uses the legacy direct path and must not be emitted by the current tool. The
+thread receiver is receiver-first: deploy Core before Remote Agent. Old Remote
+Agent never calls it and continues sending top-level publications to new Core;
+new Remote Agent cannot find the method on old Core, so it fails before any
+Slack write instead of silently losing the thread target. Rollback removes the
+Remote Agent caller before the Core receiver. Migration
+`0067_damp_mariko_yashida` still owns the existing ledger; no database migration
+or response-shape change is required.
 
 ### Slack Search Authorization And Result Contracts
 

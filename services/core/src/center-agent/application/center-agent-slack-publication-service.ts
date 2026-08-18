@@ -40,19 +40,24 @@ export async function executeCenterAgentSlackPublication(input: {
   sourceNativeDeliveryId: string | null;
   target: SlackChannelMessageTarget;
   text: string;
+  threadTs?: string;
 }): Promise<CenterAgentPostSlackChannelMessageResponse> {
+  const destinationId = input.threadTs
+    ? `${input.target.channelId}:${input.threadTs}`
+    : input.target.channelId;
   if (!input.publicationSource) {
     const attribution = await writeCenterAgentAuditEntry({
       action: "post_slack_channel_message",
       authorization: input.authorization,
       onBehalfOfProfileId: input.representedHuman.profileId,
-      resource: { type: "slack_channel", id: input.target.channelId },
+      resource: { type: "slack_channel", id: destinationId },
       sourceNativeDeliveryId: input.sourceNativeDeliveryId,
     });
     const publication = await postSlackChannelMessage({
       ...buildSlackFinalReplyPresentation(input.text),
       botToken: input.botToken,
       target: input.target,
+      ...(input.threadTs ? { threadTs: input.threadTs } : {}),
     });
     return buildCenterAgentSlackChannelMessageResponse({
       attribution,
@@ -76,7 +81,7 @@ export async function executeCenterAgentSlackPublication(input: {
   const claim = await beginCenterAgentPublicationOperation({
     actorProfileId: input.authorization.actorProfileId,
     db: input.authorization.db,
-    destinationId: input.target.channelId,
+    destinationId,
     destinationKind: "slack_channel",
     nowMs: Date.now(),
     organizationId: input.authorization.activeOrganization.organizationId,
@@ -113,7 +118,7 @@ export async function executeCenterAgentSlackPublication(input: {
     action: "post_slack_channel_message",
     authorization: input.authorization,
     onBehalfOfProfileId: input.representedHuman.profileId,
-    resource: { type: "slack_channel", id: input.target.channelId },
+    resource: { type: "slack_channel", id: destinationId },
     sourceNativeDeliveryId: input.sourceNativeDeliveryId,
   }).catch(async (error) => {
     await recordCenterAgentPublicationFailure({
@@ -132,6 +137,7 @@ export async function executeCenterAgentSlackPublication(input: {
       ...buildSlackFinalReplyPresentation(input.text),
       botToken: input.botToken,
       target: input.target,
+      ...(input.threadTs ? { threadTs: input.threadTs } : {}),
     });
   } catch (error) {
     await recordCenterAgentPublicationFailure({

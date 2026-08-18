@@ -696,28 +696,44 @@ export const centerAgentPostSpaceMessageBodySchema = z.strictObject({
   text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
 });
 
+const centerAgentRemoteAgentExecutionPublicationSourceSchema = z.strictObject({
+  executionId: trimmedNonEmptyStringSchema.max(512),
+  kind: z.literal("remote_agent_execution"),
+});
+
 export const centerAgentPublicationSourceSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     documentId: trimmedNonEmptyStringSchema.max(256),
     kind: z.literal("organization_document"),
   }),
-  z.strictObject({
-    executionId: trimmedNonEmptyStringSchema.max(512),
-    kind: z.literal("remote_agent_execution"),
-  }),
+  centerAgentRemoteAgentExecutionPublicationSourceSchema,
   z.strictObject({
     kind: z.literal("routine_run"),
     runId: trimmedNonEmptyStringSchema.max(256),
   }),
 ]);
 
-export const centerAgentPostSlackChannelMessageBodySchema = z.strictObject({
+const centerAgentSlackMessageBodyFields = {
   channelName: trimmedNonEmptyStringSchema.max(80),
-  // Optional only for the mixed Core-first rollout. The current Remote Agent
-  // always sends a system-bound source before this becomes required.
-  publicationSource: centerAgentPublicationSourceSchema.optional(),
   speakerMember: centerAgentToolSpeakerSchema,
   text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
+};
+
+export const centerAgentPostSlackChannelMessageBodySchema = z.strictObject({
+  ...centerAgentSlackMessageBodyFields,
+  // Optional only for the existing top-level publication rollout. The current
+  // Remote Agent always sends a system-bound source.
+  publicationSource: centerAgentPublicationSourceSchema.optional(),
+});
+
+export const centerAgentPostSlackThreadMessageBodySchema = z.strictObject({
+  ...centerAgentSlackMessageBodyFields,
+  publicationSource: centerAgentRemoteAgentExecutionPublicationSourceSchema,
+  threadTs: z
+    .string()
+    .trim()
+    .regex(/^\d+\.\d+$/)
+    .max(32),
 });
 
 export const centerAgentSearchSlackMessagesBodySchema = z.strictObject({

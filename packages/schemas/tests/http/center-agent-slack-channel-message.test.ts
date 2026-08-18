@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   centerAgentPostSlackChannelMessageBodySchema,
   centerAgentPostSlackChannelMessageResponseSchema,
+  centerAgentPostSlackThreadMessageBodySchema,
   listCenterAgentAuditJournalQuerySchema,
 } from "../../src";
 
@@ -64,6 +65,50 @@ describe("Center Agent Slack channel message contracts", () => {
           runId: "routine_run_daily_journal",
         },
       }).success
+    ).toBe(false);
+  });
+
+  it("keeps exact Slack thread publication on a receiver-first contract", () => {
+    const request = {
+      channelName: "ok8-okok",
+      publicationSource: {
+        executionId: "remote_agent_submission_123",
+        kind: "remote_agent_execution" as const,
+      },
+      speakerMember: { memberId: "member_123", userId: "user_123" },
+      text: "Here is the proposed next step.",
+      threadTs: "1786979718.343639",
+    };
+
+    expect(centerAgentPostSlackThreadMessageBodySchema.parse(request)).toEqual(
+      request
+    );
+    expect(
+      centerAgentPostSlackThreadMessageBodySchema.safeParse({
+        ...request,
+        threadTs: "not-a-slack-timestamp",
+      }).success
+    ).toBe(false);
+    expect(
+      centerAgentPostSlackThreadMessageBodySchema.safeParse({
+        ...request,
+        publicationSource: {
+          documentId: "document_release_notes",
+          kind: "organization_document",
+        },
+      }).success
+    ).toBe(false);
+    expect(
+      centerAgentPostSlackThreadMessageBodySchema.safeParse({
+        ...request,
+        publicationSource: {
+          kind: "routine_run",
+          runId: "routine_run_daily_journal",
+        },
+      }).success
+    ).toBe(false);
+    expect(
+      centerAgentPostSlackChannelMessageBodySchema.safeParse(request).success
     ).toBe(false);
   });
 

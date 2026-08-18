@@ -465,6 +465,7 @@ import {
   type CenterAgentListOpportunitiesInput,
   type CenterAgentListSlackChannelsInput,
   type CenterAgentPostSlackChannelMessageInput,
+  type CenterAgentPostSlackThreadMessageInput,
   type CenterAgentPostSpaceMessageInput,
   type CenterAgentReadAgentActivityInput,
   type CenterAgentReadChangelogInput,
@@ -644,6 +645,7 @@ import {
   rpcCenterAgentListOpportunities,
   rpcCenterAgentListSlackChannels,
   rpcCenterAgentPostSlackChannelMessage,
+  rpcCenterAgentPostSlackThreadMessage,
   rpcCenterAgentPostSpaceMessage,
   rpcCenterAgentReadAgentActivity,
   rpcCenterAgentReadChangelog,
@@ -2567,6 +2569,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentPostSlackChannelMessage(this.env, input);
   }
 
+  centerAgentPostSlackThreadMessage(
+    input: CenterAgentPostSlackThreadMessageInput
+  ): Promise<CenterAgentPostSlackChannelMessageResponse> {
+    return rpcCenterAgentPostSlackThreadMessage(this.env, input);
+  }
+
   centerAgentRecordConnectorActionAudit(
     input: CenterAgentRecordConnectorActionAuditInput
   ): Promise<CenterAgentRecordConnectorActionAuditResponse> {
@@ -3999,6 +4007,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentPostSlackChannelMessageInput
   ): Promise<CenterAgentPostSlackChannelMessageResponse> {
     return super.centerAgentPostSlackChannelMessage(input);
+  }
+
+  centerAgentPostSlackThreadMessage(
+    input: CenterAgentPostSlackThreadMessageInput
+  ): Promise<CenterAgentPostSlackChannelMessageResponse> {
+    return super.centerAgentPostSlackThreadMessage(input);
   }
 
   centerAgentRecordConnectorActionAudit(
