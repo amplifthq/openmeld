@@ -114,6 +114,7 @@ type AppOuterRailAccount = {
 type AppRailDestination = {
 	attentionCount?: number;
 	centerAgentUnreadCount?: number;
+	compactLabel?: string;
 	icon: ReactNode;
 	id: AppOuterRailDestination;
 	label: string;
@@ -189,6 +190,7 @@ function buildAppRailGroups(input: {
 					),
 				},
 				{
+					compactLabel: "DMs",
 					id: "directMessages",
 					label: "Direct Messages",
 					to: buildOrganizationDirectMessagesPath(input.orgSlug),
@@ -1064,6 +1066,8 @@ function AppRailDestinationLabel(input: {
 	if (input.tier === "collapsed") {
 		return null;
 	}
+	const compactLabel =
+		input.tier === "compact" ? input.destination.compactLabel : undefined;
 	return (
 		<span
 			className={cn(
@@ -1071,10 +1075,14 @@ function AppRailDestinationLabel(input: {
 				input.tier === "full" && "flex-1"
 			)}
 		>
-			<CenterTruncatedText
-				className={cn(input.tier === "compact" && "text-center text-[11px]")}
-				text={input.destination.label}
-			/>
+			{compactLabel ? (
+				<span className="text-center text-[11px]">{compactLabel}</span>
+			) : (
+				<CenterTruncatedText
+					className={cn(input.tier === "compact" && "text-center text-[11px]")}
+					text={input.destination.label}
+				/>
+			)}
 			{input.statusIndicator && input.tier === "full" ? (
 				<AppRailStatusDot
 					indicator={input.statusIndicator}

@@ -80,8 +80,8 @@ describe("sidebar-width-cookie", () => {
 		expect(parseSidebarStateCookieValue(null, "outer")).toEqual(
 			OUTER_SIDEBAR_DEFAULT_STATE
 		);
-		// New users default the outer rail to the compact tier, not collapsed.
-		expect(parseSidebarStateCookieValue(null, "outer").tier).toBe("compact");
+		// New users get the most informative outer rail until they choose otherwise.
+		expect(parseSidebarStateCookieValue(null, "outer").tier).toBe("full");
 		expect(parseSidebarStateCookieValue("garbage")).toEqual({
 			tier: "full",
 			width: SIDEBAR_DEFAULT_WIDTH,

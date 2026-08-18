@@ -381,6 +381,10 @@ The outer rail remains one browser-wide preference:
 
 - outer rail: `openmeld_sidebar_outer`
 
+Without that cookie, Web defaults the outer rail to the full tier so a new
+user sees every destination label. Once the user changes tiers, Web restores
+that browser-wide choice without resetting it for a different account.
+
 Inner contextual sidebars persist independently by stable route family. A
 family shares one width across its child routes, selected records, and
 Organizations; persistence must not derive keys from a full pathname,

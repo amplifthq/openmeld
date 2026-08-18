@@ -66,7 +66,7 @@ export const SIDEBAR_DEFAULT_STATE: SidebarPersistedState = {
 
 export const OUTER_SIDEBAR_DEFAULT_STATE: SidebarPersistedState = {
 	width: OUTER_SIDEBAR_DEFAULT_WIDTH,
-	tier: "compact",
+	tier: "full",
 };
 
 export type AppSidebarPersistedStates = {

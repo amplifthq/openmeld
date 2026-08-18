@@ -331,10 +331,10 @@ describe("AppOuterRail", () => {
 	it("center-truncates destination labels when the full rail is narrow", () => {
 		renderRail({ tier: "full", width: "9rem" });
 
-		const directMessagesLink = screen.getByRole("link", {
-			name: "Direct Messages",
+		const agentActivityLink = screen.getByRole("link", {
+			name: "Agent Activity",
 		});
-		const centerTruncatedLabel = directMessagesLink.querySelector<HTMLElement>(
+		const centerTruncatedLabel = agentActivityLink.querySelector<HTMLElement>(
 			'[data-slot="center-truncated-text"]'
 		);
 
@@ -343,13 +343,13 @@ describe("AppOuterRail", () => {
 			centerTruncatedLabel?.querySelector(
 				'[data-slot="center-truncated-text-start"]'
 			)?.textContent
-		).toBe("Direct M");
+		).toBe("Agent A");
 		expect(
 			centerTruncatedLabel?.querySelector(
 				'[data-slot="center-truncated-text-end"]'
 			)?.textContent
-		).toBe("essages");
-		expect(directMessagesLink.querySelector("span.truncate")).toBeNull();
+		).toBe("ctivity");
+		expect(agentActivityLink.querySelector("span.truncate")).toBeNull();
 	});
 
 	it("renders the collapsed organization selector without selector or avatar borders", () => {
@@ -423,7 +423,6 @@ describe("AppOuterRail", () => {
 
 			for (const label of [
 				"Spaces",
-				"Direct Messages",
 				"People",
 				"Agents",
 				"Computers",
@@ -439,6 +438,19 @@ describe("AppOuterRail", () => {
 					link.querySelector('[data-slot="center-truncated-text"]')
 				).toBeTruthy();
 			}
+		});
+
+		it("shows DMs visually while preserving the Direct Messages link name", () => {
+			renderCompactRail();
+
+			const directMessagesLink = screen.getByRole("link", {
+				name: "Direct Messages",
+			});
+			expect(directMessagesLink.textContent).toContain("DMs");
+			expect(directMessagesLink.textContent).not.toContain("Direct Messages");
+			expect(
+				directMessagesLink.querySelector('[data-slot="center-truncated-text"]')
+			).toBeNull();
 		});
 
 		it("keeps compact active labels away from the highlighter edges", () => {
