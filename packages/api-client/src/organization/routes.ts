@@ -87,6 +87,13 @@ export function buildOrganizationBindingAuthorizationPreferencePath(
   return `/v1/organizations/${encodeURIComponent(organizationId)}/binding-authorization-preference`;
 }
 
+export function buildAgentProfileCreationDefaultsPath(
+  organizationId: string,
+  agentControllerRef: string
+): string {
+  return `/v1/organizations/${encodeURIComponent(organizationId)}/agent-profile-creation-defaults/${encodeURIComponent(agentControllerRef)}`;
+}
+
 export function buildOrganizationWakeAccessChoicePath(
   organizationId: string
 ): string {

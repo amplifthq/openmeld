@@ -144,6 +144,7 @@ import type {
   GetActiveSpaceWakeProgressResponse,
   GetAgentExecutionReadinessBatchResponse,
   GetAgentExecutionReadinessResponse,
+  GetAgentProfileCreationDefaultsResponse,
   GetAgentProfilePrimaryBindingResponse,
   GetCenterAgentDesignationResponse,
   GetCenterAgentDirectMessageSpaceProjectionResponse,
@@ -258,6 +259,7 @@ import type {
   RevokeAgentProfileBindingForOrganizationResponse,
   SaveOrganizationWakeAccessChoiceResponse,
   SelectCurrentLocalAgentInstallationResponse,
+  SetAgentProfileCreationDefaultsResponse,
   SetCurrentAgentProfileWorkspaceResponse,
   SetCurrentLocalAgentEnabledResponse,
   SetOrganizationBindingAuthorizationPreferenceResponse,
@@ -523,6 +525,7 @@ import {
   type GetActiveSpaceWakeProgressInput,
   type GetAgentExecutionReadinessBatchInput,
   type GetAgentExecutionReadinessInput,
+  type GetAgentProfileCreationDefaultsInput,
   type GetAgentProfilePrimaryBindingInput,
   type GetCenterAgentDesignationInput,
   type GetCenterAgentDirectMessageSpaceProjectionInput,
@@ -699,6 +702,7 @@ import {
   rpcGetActiveSpaceWakeProgress,
   rpcGetAgentExecutionReadiness,
   rpcGetAgentExecutionReadinessBatch,
+  rpcGetAgentProfileCreationDefaults,
   rpcGetAgentProfilePrimaryBinding,
   rpcGetCenterAgentDesignation,
   rpcGetCenterAgentDirectMessageSpaceProjection,
@@ -794,6 +798,7 @@ import {
   rpcSaveOrganizationWakeAccessChoice,
   rpcSelectCurrentLocalAgentInstallation,
   rpcSelectLocalFolders,
+  rpcSetAgentProfileCreationDefaults,
   rpcSetCenterAgentOrganizationMemoryPolicy,
   rpcSetCurrentAgentProfileWorkspace,
   rpcSetCurrentLocalAgentEnabled,
@@ -828,6 +833,7 @@ import {
   type SaveOrganizationWakeAccessChoiceInput,
   type SelectCurrentLocalAgentInstallationInput,
   type SelectLocalFoldersInput,
+  type SetAgentProfileCreationDefaultsInput,
   type SetCenterAgentOrganizationMemoryPolicyInput,
   type SetCurrentAgentProfileWorkspaceInput,
   type SetCurrentLocalAgentEnabledInput,
@@ -1946,6 +1952,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetOrganizationBindingAuthorizationPreferenceInput
   ): Promise<GetOrganizationBindingAuthorizationPreferenceResponse> {
     return rpcGetOrganizationBindingAuthorizationPreference(this.env, input);
+  }
+
+  getAgentProfileCreationDefaults(
+    input: GetAgentProfileCreationDefaultsInput
+  ): Promise<GetAgentProfileCreationDefaultsResponse> {
+    return rpcGetAgentProfileCreationDefaults(this.env, input);
+  }
+
+  setAgentProfileCreationDefaults(
+    input: SetAgentProfileCreationDefaultsInput
+  ): Promise<SetAgentProfileCreationDefaultsResponse> {
+    return rpcSetAgentProfileCreationDefaults(this.env, input);
   }
 
   setOrganizationBindingAuthorizationPreference(
@@ -3579,6 +3597,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetOrganizationBindingAuthorizationPreferenceInput
   ): Promise<GetOrganizationBindingAuthorizationPreferenceResponse> {
     return super.getOrganizationBindingAuthorizationPreference(input);
+  }
+
+  getAgentProfileCreationDefaults(
+    input: GetAgentProfileCreationDefaultsInput
+  ): Promise<GetAgentProfileCreationDefaultsResponse> {
+    return super.getAgentProfileCreationDefaults(input);
+  }
+
+  setAgentProfileCreationDefaults(
+    input: SetAgentProfileCreationDefaultsInput
+  ): Promise<SetAgentProfileCreationDefaultsResponse> {
+    return super.setAgentProfileCreationDefaults(input);
   }
 
   setOrganizationBindingAuthorizationPreference(

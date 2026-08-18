@@ -72,6 +72,7 @@ type SelectContentProps = {
   align?: SelectContentAlign;
   children: ReactNode;
   className?: string;
+  matchTriggerWidth?: boolean;
   side?: SelectContentSide;
 };
 
@@ -231,7 +232,7 @@ const SelectTrigger = forwardRef<HTMLButtonElement, SelectTriggerProps>(
         : value || undefined);
 
     return (
-      <div className="flex flex-col gap-1">
+      <div className="flex min-w-0 flex-col gap-1">
         <button
           {...props}
           aria-controls={listboxId}
@@ -239,7 +240,7 @@ const SelectTrigger = forwardRef<HTMLButtonElement, SelectTriggerProps>(
           aria-haspopup="listbox"
           aria-invalid={error ? true : undefined}
           className={cn(
-            "group inline-flex h-8 min-w-40 cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-1 text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
+            "group inline-flex h-8 min-w-40 max-w-full cursor-pointer items-center justify-between gap-2 rounded-md px-2.5 py-1 text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
             variant === "bordered"
               ? "border border-input bg-transparent text-foreground hover:bg-muted/40 dark:bg-input/30 dark:hover:bg-input/50"
               : "border border-transparent bg-transparent text-foreground hover:bg-muted/40",
@@ -318,7 +319,10 @@ const SelectTrigger = forwardRef<HTMLButtonElement, SelectTriggerProps>(
 SelectTrigger.displayName = "SelectTrigger";
 
 const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
-  ({ align = "start", children, className, side }, ref) => {
+  (
+    { align = "start", children, className, matchTriggerWidth = false, side },
+    ref
+  ) => {
     const { listboxId, open, setOpen, triggerRef, value } = useSelectContext();
     const containerRef = useRef<HTMLDivElement>(null);
     const [triggerRect, setTriggerRect] = useState<DOMRect | null>(null);
@@ -494,6 +498,7 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
     const contentPlacement = resolveSelectContentPlacement({
       align,
       allowCollisionFlip: side === undefined,
+      matchTriggerWidth,
       preferredSide: side ?? "bottom",
       triggerRect,
     });
@@ -659,6 +664,7 @@ SelectContent.displayName = "SelectContent";
 function resolveSelectContentPlacement(input: {
   align: SelectContentAlign;
   allowCollisionFlip: boolean;
+  matchTriggerWidth: boolean;
   preferredSide: SelectContentSide;
   triggerRect: DOMRect;
 }) {
@@ -703,7 +709,9 @@ function resolveSelectContentPlacement(input: {
     positionStyle: {
       ...horizontalStyle,
       ...verticalStyle,
-      minWidth: input.triggerRect.width,
+      ...(input.matchTriggerWidth
+        ? { width: input.triggerRect.width }
+        : { minWidth: input.triggerRect.width }),
       position: "fixed" as const,
       zIndex: 50,
     },

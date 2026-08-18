@@ -195,6 +195,76 @@ describe("api-client organization api", () => {
     );
   });
 
+  it("reads and saves Agent Profile creation defaults per Local Agent", async () => {
+    const defaults = {
+      agentControllerPermissionMode: "codex:approveForMe" as const,
+      agentControllerRef: "builtin:codex",
+      defaultProjectId: "project-1",
+      modelId: "gpt-5.4-mini",
+      openCodePermission: null,
+      organizationId: "org-1",
+      reasoningLevel: "high",
+      updatedAt: "2026-08-18T12:00:00.000Z",
+      userId: "user-1",
+    };
+    const transport = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(defaults))
+      .mockResolvedValueOnce(jsonResponse(defaults));
+    const api = createOrganizationApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.getAgentProfileCreationDefaults({
+        agentControllerRef: "builtin:codex",
+        organizationId: "org-1",
+        requestContext: REQUEST_CONTEXT,
+      })
+    ).resolves.toEqual(defaults);
+    await expect(
+      api.setAgentProfileCreationDefaults({
+        agentControllerPermissionMode: "codex:approveForMe",
+        agentControllerRef: "builtin:codex",
+        defaultProjectId: "project-1",
+        modelId: "gpt-5.4-mini",
+        openCodePermission: null,
+        organizationId: "org-1",
+        reasoningLevel: "high",
+        requestContext: REQUEST_CONTEXT,
+      })
+    ).resolves.toEqual(defaults);
+
+    expect(transport).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        init: expect.objectContaining({ method: "GET" }),
+        operation: "agent_profile.creation_defaults.read",
+        url: "https://gateway.openmeld.invalid/v1/organizations/org-1/agent-profile-creation-defaults/builtin%3Acodex",
+      })
+    );
+    expect(transport).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        init: expect.objectContaining({
+          body: JSON.stringify({
+            agentControllerPermissionMode: "codex:approveForMe",
+            defaultProjectId: "project-1",
+            modelId: "gpt-5.4-mini",
+            openCodePermission: null,
+            reasoningLevel: "high",
+          }),
+          method: "PUT",
+        }),
+        operation: "agent_profile.creation_defaults.write",
+        url: "https://gateway.openmeld.invalid/v1/organizations/org-1/agent-profile-creation-defaults/builtin%3Acodex",
+      })
+    );
+  });
+
   it("lists active Lark-platform setup separately from connections", async () => {
     const transport = vi.fn(() =>
       Promise.resolve(

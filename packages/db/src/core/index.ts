@@ -9,6 +9,7 @@ export {
 } from "./agent-activity.schema.ts";
 export { openMeldDaemonAgentExecutionReadinessImpacts } from "./agent-execution-readiness-impact.schema.ts";
 export { openMeldDaemonAgentProfileBindings } from "./agent-profile-binding.schema.ts";
+export { agentProfileCreationDefaults } from "./agent-profile-creation-defaults.schema.ts";
 export {
   centerAgentAttentionRequests,
   centerAgentAuditJournal,

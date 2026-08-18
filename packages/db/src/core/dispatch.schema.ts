@@ -18,6 +18,7 @@ import {
 } from "./agent-activity.schema.ts";
 import { openMeldDaemonAgentExecutionReadinessImpacts } from "./agent-execution-readiness-impact.schema.ts";
 import { openMeldDaemonAgentProfileBindings } from "./agent-profile-binding.schema.ts";
+import { agentProfileCreationDefaults } from "./agent-profile-creation-defaults.schema.ts";
 import {
   agentControllerTaskLifecycleEvents,
   agentControllerTasks,
@@ -1588,6 +1589,7 @@ export const coreSchema = {
   githubAppInstallationStates,
   evalReports,
   openMeldDaemonAgentProfileBindings,
+  agentProfileCreationDefaults,
   organizationBindingAuthorizations,
   organizationBindingAuthorizationPreferences,
   organizationDocuments,
