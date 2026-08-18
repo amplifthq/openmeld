@@ -4,7 +4,7 @@ import {
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
 import type { OrganizationMemberOpenMeldServiceStatusesResponse } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type OrganizationMemberOpenMeldServiceStatusesFailure =
 	StructuredApiClientFailure;
@@ -15,7 +15,7 @@ export async function readCurrentOrganizationMemberOpenMeldServiceStatuses(input
 }): Promise<OrganizationMemberOpenMeldServiceStatusesResponse> {
 	try {
 		const response = await createOrganizationApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).getCurrentMemberOpenMeldServiceStatuses({ signal: input.signal });

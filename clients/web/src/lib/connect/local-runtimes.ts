@@ -10,12 +10,12 @@ import type {
 	SelectCurrentLocalAgentInstallationResponse,
 	SetCurrentLocalAgentEnabledResponse,
 } from "@openmeld/schemas";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export async function readLocalRuntimes(): Promise<LocalRuntimesResponse> {
 	try {
 		return await createCurrentDeviceApi(
-			createWebOpenMeldApiFoundation()
+			createUnscopedWebOpenMeldApiFoundation()
 		).listLocalRuntimes({
 			connectionIdentityAdoption: "safe_legacy_current",
 		});
@@ -27,7 +27,7 @@ export async function readLocalRuntimes(): Promise<LocalRuntimesResponse> {
 export async function readCurrentLocalRuntimeReplyReadiness(): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
 	try {
 		return await createCurrentDeviceApi(
-			createWebOpenMeldApiFoundation()
+			createUnscopedWebOpenMeldApiFoundation()
 		).getCurrentLocalRuntimeReplyReadiness();
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
@@ -40,7 +40,7 @@ export async function setLocalRuntimeDisplayName(input: {
 }): Promise<LocalRuntimesResponse> {
 	try {
 		return await createCurrentDeviceApi(
-			createWebOpenMeldApiFoundation()
+			createUnscopedWebOpenMeldApiFoundation()
 		).setDisplayName(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
@@ -53,7 +53,7 @@ export async function setCurrentLocalAgentEnabled(input: {
 }): Promise<SetCurrentLocalAgentEnabledResponse> {
 	try {
 		return await createCurrentDeviceApi(
-			createWebOpenMeldApiFoundation()
+			createUnscopedWebOpenMeldApiFoundation()
 		).setCurrentLocalAgentEnabled(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
@@ -65,7 +65,7 @@ export async function readCurrentLocalAgentInstallations(input: {
 }): Promise<CurrentLocalAgentInstallationsResponse> {
 	try {
 		return await createCurrentDeviceApi(
-			createWebOpenMeldApiFoundation()
+			createUnscopedWebOpenMeldApiFoundation()
 		).getCurrentLocalAgentInstallations(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
@@ -78,7 +78,7 @@ export async function selectCurrentLocalAgentInstallation(input: {
 }): Promise<SelectCurrentLocalAgentInstallationResponse> {
 	try {
 		return await createCurrentDeviceApi(
-			createWebOpenMeldApiFoundation()
+			createUnscopedWebOpenMeldApiFoundation()
 		).selectCurrentLocalAgentInstallation(input);
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
@@ -88,7 +88,7 @@ export async function selectCurrentLocalAgentInstallation(input: {
 export async function refreshCurrentLocalAgentCatalog(): Promise<RefreshCurrentLocalAgentCatalogResponse> {
 	try {
 		return await createCurrentDeviceApi(
-			createWebOpenMeldApiFoundation()
+			createUnscopedWebOpenMeldApiFoundation()
 		).refreshCurrentLocalAgentCatalog();
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);

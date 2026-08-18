@@ -1,6 +1,6 @@
 import { createOrganizationApi } from "@openmeld/api-client";
 import type { OrganizationLogoMimeType } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export async function updateCurrentOrganizationLogo(input: {
 	bytes: ArrayBuffer | Blob | Uint8Array;
@@ -9,7 +9,7 @@ export async function updateCurrentOrganizationLogo(input: {
 }) {
 	const { organizationId, ...request } = input;
 	return await createOrganizationApi(
-		createWebOpenMeldApiFoundation({ organizationId })
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
 	).updateCurrentLogo(request);
 }
 
@@ -17,6 +17,8 @@ export async function removeCurrentOrganizationLogo(input: {
 	organizationId: string;
 }) {
 	return await createOrganizationApi(
-		createWebOpenMeldApiFoundation({ organizationId: input.organizationId })
+		createOrganizationScopedWebOpenMeldApiFoundation({
+			organizationId: input.organizationId,
+		})
 	).removeCurrentLogo();
 }

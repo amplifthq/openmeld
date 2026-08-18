@@ -22,7 +22,7 @@ import type {
 } from "#/lib/auth-client-types";
 import { getAuthErrorMessage } from "#/lib/auth-errors";
 import { requestAuthEndpoint, resolveClientResult } from "#/lib/auth-transport";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import {
 	isSessionExpiredError,
 	SessionExpiredError,
@@ -210,7 +210,7 @@ export async function updateUserName(
 	}
 
 	try {
-		return await createWebOpenMeldApiFoundation().requestJson({
+		return await createUnscopedWebOpenMeldApiFoundation().requestJson({
 			body: JSON.stringify(parsedBody.data),
 			headers: {
 				"content-type": "application/json",
@@ -238,7 +238,7 @@ export async function updateAccountAvatar(input: {
 	}
 
 	try {
-		return await createWebOpenMeldApiFoundation().requestJson({
+		return await createUnscopedWebOpenMeldApiFoundation().requestJson({
 			body,
 			headers: { "content-type": mimeType },
 			invalidMessage: "Invalid Account avatar response.",
@@ -254,7 +254,7 @@ export async function updateAccountAvatar(input: {
 
 export async function getAccountAvatar(): Promise<AccountAvatarResponse> {
 	try {
-		return await createWebOpenMeldApiFoundation().requestJson({
+		return await createUnscopedWebOpenMeldApiFoundation().requestJson({
 			invalidMessage: "Invalid Account avatar response.",
 			method: "GET",
 			operation: "account.avatar.read",
@@ -268,7 +268,7 @@ export async function getAccountAvatar(): Promise<AccountAvatarResponse> {
 
 export async function removeAccountAvatar(): Promise<AccountAvatarResponse> {
 	try {
-		return await createWebOpenMeldApiFoundation().requestJson({
+		return await createUnscopedWebOpenMeldApiFoundation().requestJson({
 			invalidMessage: "Invalid Account avatar response.",
 			method: "DELETE",
 			operation: "account.avatar.remove",

@@ -1,6 +1,7 @@
 import { openMeldRequestContextSchema } from "@openmeld/schemas";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { agentActivityDb, type CoreBindings } from "../lib/bindings";
+import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import { parseProjectPayload } from "./project-rpc-contract";
@@ -49,6 +50,22 @@ export async function prepareHumanProjectRequest(
     },
     service: createProjectService({ db }),
   };
+}
+
+export async function prepareExpectedHumanProjectRequest(
+  env: CoreBindings,
+  input: {
+    context: OpenMeldRequestContext | undefined;
+    expectedOrganizationId: string;
+  }
+) {
+  const prepared = await prepareHumanProjectRequest(env, input.context);
+  requireExpectedOrganizationContext({
+    actualOrganizationId: prepared.authority.organizationId,
+    errorCode: "project.organization_context_changed",
+    expectedOrganizationId: input.expectedOrganizationId,
+  });
+  return prepared;
 }
 
 async function requireHumanProfileAuthority(input: {

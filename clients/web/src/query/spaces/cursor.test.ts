@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const requestJsonMock = vi.fn();
 
 vi.mock("#/lib/openmeld-api/client", () => ({
-	createWebOpenMeldApiFoundation: () => ({
+	createUnscopedWebOpenMeldApiFoundation: () => ({
 		requestJson: requestJsonMock,
 		requestResponse: vi.fn(),
 		requestText: vi.fn(),

@@ -5,7 +5,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getRequiredServerEnv } from "#/env";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { proxyOpenMeldGatewayRequest } from "#/lib/openmeld-api/proxy";
 
 type CenterAgentDirectMessageWebBoundaryInput = {
@@ -43,7 +43,7 @@ function createCenterAgentDirectMessageApiAtWebBoundary(
 		});
 	};
 	return createCenterAgentApi(
-		createWebOpenMeldApiFoundation({
+		createOrganizationScopedWebOpenMeldApiFoundation({
 			baseUrl: input.webAppUrl,
 			fetchImpl: proxyFetch,
 			organizationId: input.organizationId,

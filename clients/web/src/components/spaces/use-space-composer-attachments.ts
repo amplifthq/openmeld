@@ -6,7 +6,7 @@ import type {
 } from "@openmeld/schemas/types";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerAttachment } from "#/lib/spaces/composer-attachment";
 import { resolveSpaceImageUploadFailure } from "#/lib/spaces/errors";
 import { prepareSpaceImageAttachment } from "#/lib/spaces/image-attachment";
@@ -156,7 +156,7 @@ async function processPendingAttachment(input: {
 		}));
 
 		uploadStarted = true;
-		const descriptor = await createWebSpaceApi({
+		const descriptor = await createOrganizationScopedWebSpaceApi({
 			organizationSlug: input.organizationSlug,
 			openMeldProfileId: input.profileId,
 		}).uploadAttachment({

@@ -10,15 +10,22 @@ import {
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID,
 	OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG,
 } from "@openmeld/gateway-contract";
+import { openMeldRequestedOrganizationSelectorSchema } from "@openmeld/schemas";
+import type { OpenMeldRequestedOrganizationSelector } from "@openmeld/schemas/types";
 
 type CreateWebOpenMeldApiFoundationInput = {
 	openMeldProfileId?: string;
-	organizationId?: string;
-	organizationSlug?: string;
 	baseUrl?: string;
 	defaultTimeoutMs?: number;
 	fetchImpl?: typeof fetch;
 };
+
+export type WebOrganizationSelector =
+	| ({ organizationId: string } & { organizationSlug?: never })
+	| ({ organizationId?: never } & { organizationSlug: string });
+
+type CreateOrganizationScopedWebOpenMeldApiFoundationInput =
+	CreateWebOpenMeldApiFoundationInput & WebOrganizationSelector;
 
 export function resolveWebOpenMeldApiBaseUrl(): string {
 	if (typeof window === "undefined") {
@@ -27,12 +34,11 @@ export function resolveWebOpenMeldApiBaseUrl(): string {
 	return window.location.origin;
 }
 
-export function createCredentialedOpenMeldFetch(
+function createCredentialedOpenMeldFetch(
 	fetchImpl: typeof fetch = fetch,
 	input: {
 		openMeldProfileId?: string;
-		organizationId?: string;
-		organizationSlug?: string;
+		organization?: OpenMeldRequestedOrganizationSelector;
 	} = {}
 ): typeof fetch {
 	return async (resource, init) => {
@@ -48,12 +54,17 @@ export function createCredentialedOpenMeldFetch(
 		);
 		headers.delete(OPENMELD_HEADER_ACTIVE_ORGANIZATION_ID);
 
-		const requestedOrganizationId =
-			normalizeOptionalText(input.organizationId) ??
-			requestContextOrganizationId;
-		const requestedOrganizationSlug = normalizeOptionalText(
-			input.organizationSlug
-		);
+		const organization = input.organization;
+		let requestedOrganizationId = requestContextOrganizationId;
+		let requestedOrganizationSlug: string | null = null;
+		if (organization) {
+			requestedOrganizationId =
+				"organizationId" in organization ? organization.organizationId : null;
+			requestedOrganizationSlug =
+				"organizationSlug" in organization
+					? organization.organizationSlug
+					: null;
+		}
 		headers.delete(OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID);
 		headers.delete(OPENMELD_HEADER_REQUESTED_ORGANIZATION_SLUG);
 		if (requestedOrganizationId) {
@@ -76,15 +87,28 @@ export function createCredentialedOpenMeldFetch(
 	};
 }
 
-export function createWebOpenMeldApiFoundation(
+export function createOrganizationScopedWebOpenMeldApiFoundation(
+	input: CreateOrganizationScopedWebOpenMeldApiFoundationInput
+): OpenMeldApiClientFoundation {
+	const organization = parseRequestedOrganization(input);
+	return createWebOpenMeldApiFoundation(input, organization);
+}
+
+export function createUnscopedWebOpenMeldApiFoundation(
 	input: CreateWebOpenMeldApiFoundationInput = {}
+): OpenMeldApiClientFoundation {
+	return createWebOpenMeldApiFoundation(input);
+}
+
+function createWebOpenMeldApiFoundation(
+	input: CreateWebOpenMeldApiFoundationInput,
+	organization?: OpenMeldRequestedOrganizationSelector
 ): OpenMeldApiClientFoundation {
 	return createOpenMeldApiClient({
 		baseUrl: input.baseUrl ?? resolveWebOpenMeldApiBaseUrl(),
 		transport: createFetchTransport({
 			fetch: createCredentialedOpenMeldFetch(input.fetchImpl, {
-				organizationId: input.organizationId,
-				organizationSlug: input.organizationSlug,
+				...(organization === undefined ? {} : { organization }),
 				openMeldProfileId: input.openMeldProfileId,
 			}),
 			...(input.defaultTimeoutMs === undefined
@@ -102,4 +126,33 @@ export function createWebOpenMeldApiFoundation(
 function normalizeOptionalText(value: unknown): string | null {
 	const normalized = String(value ?? "").trim();
 	return normalized.length > 0 ? normalized : null;
+}
+
+function parseRequestedOrganization(
+	input: WebOrganizationSelector
+): OpenMeldRequestedOrganizationSelector {
+	return openMeldRequestedOrganizationSelectorSchema.parse({
+		...(input.organizationId === undefined
+			? {}
+			: { organizationId: input.organizationId }),
+		...(input.organizationSlug === undefined
+			? {}
+			: { organizationSlug: input.organizationSlug }),
+	});
+}
+
+export function resolveWebOrganizationSelector(input: {
+	organizationId?: string | null;
+	organizationSlug: string;
+}): WebOrganizationSelector {
+	const organizationId = normalizeOptionalText(input.organizationId);
+	if (organizationId) {
+		return { organizationId };
+	}
+	const organization = openMeldRequestedOrganizationSelectorSchema.parse({
+		organizationSlug: input.organizationSlug,
+	});
+	return "organizationSlug" in organization
+		? { organizationSlug: organization.organizationSlug }
+		: { organizationId: organization.organizationId };
 }

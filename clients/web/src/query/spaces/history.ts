@@ -9,7 +9,7 @@ import {
 	queryOptions,
 	replaceEqualDeep,
 } from "@tanstack/react-query";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { mergeSpaceTimelineEnvelopes } from "#/lib/spaces/timeline";
 import { ROUTE_REVISIT_GC_TIME_MS } from "#/query/query-config";
 import { shouldRetrySpaceQuery } from "./retry";
@@ -157,7 +157,7 @@ async function readAnchoredSpaceHistory(input: {
 	signal?: AbortSignal;
 }): Promise<SpaceHistorySnapshot> {
 	try {
-		return await createWebSpaceApi({
+		return await createUnscopedWebSpaceApi({
 			...(input.openMeldProfileId === undefined
 				? {}
 				: { openMeldProfileId: input.openMeldProfileId }),
@@ -208,7 +208,7 @@ export async function readSpaceUpdates(input: {
 	signal?: AbortSignal;
 }): Promise<GetSpaceUpdatesResponse> {
 	try {
-		return await createWebSpaceApi({
+		return await createUnscopedWebSpaceApi({
 			...(input.openMeldProfileId === undefined
 				? {}
 				: { openMeldProfileId: input.openMeldProfileId }),

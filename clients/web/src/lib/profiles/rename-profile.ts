@@ -3,7 +3,7 @@ import {
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
 import type { AuthProfileView } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export async function renameOpenMeldProfile(input: {
 	actorProfileId?: string | null;
@@ -12,7 +12,7 @@ export async function renameOpenMeldProfile(input: {
 }): Promise<AuthProfileView> {
 	try {
 		const response = await createProfilesApi(
-			createWebOpenMeldApiFoundation({
+			createUnscopedWebOpenMeldApiFoundation({
 				...(input.actorProfileId
 					? { openMeldProfileId: input.actorProfileId }
 					: {}),

@@ -4,7 +4,7 @@ import {
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
 import type { OpenDirectMessageSpaceResponse } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type DirectMessageOpenFailure = StructuredApiClientFailure;
 
@@ -14,7 +14,7 @@ export async function openCurrentDirectMessageSpace(input: {
 }): Promise<OpenDirectMessageSpaceResponse> {
 	try {
 		return await createDirectMessageApi(
-			createWebOpenMeldApiFoundation({
+			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
 		).openSpace({

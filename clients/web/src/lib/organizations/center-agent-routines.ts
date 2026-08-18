@@ -17,12 +17,14 @@ import type {
 	ResumeCenterAgentRoutineResponse,
 	UpdateCenterAgentRoutineResponse,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type CenterAgentRoutinesFailure = StructuredApiClientFailure;
 
 function createWebRoutinesApi(organizationId: string) {
-	return createRoutinesApi(createWebOpenMeldApiFoundation({ organizationId }));
+	return createRoutinesApi(
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
+	);
 }
 
 export async function listCurrentCenterAgentRoutines(input: {

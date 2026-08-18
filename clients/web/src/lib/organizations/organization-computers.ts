@@ -4,7 +4,7 @@ import {
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
 import type { OrganizationComputersResponse } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type OrganizationComputersFailure = StructuredApiClientFailure;
 
@@ -14,7 +14,9 @@ export async function readCurrentOrganizationComputers(input: {
 }): Promise<OrganizationComputersResponse> {
 	try {
 		const response = await createOrganizationApi(
-			createWebOpenMeldApiFoundation({ organizationId: input.organizationId })
+			createOrganizationScopedWebOpenMeldApiFoundation({
+				organizationId: input.organizationId,
+			})
 		).getCurrentComputers({ signal: input.signal });
 		if (response.organizationId !== input.organizationId) {
 			throw new Error("Organization computers response organization mismatch.");

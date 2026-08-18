@@ -9,13 +9,13 @@ import type {
 	AgentActivityStatsQuery,
 	AgentActivityStatsResponse,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type AgentActivityFailure = StructuredApiClientFailure;
 
 function createWebAgentActivityApi(organizationId: string) {
 	return createAgentActivityApi(
-		createWebOpenMeldApiFoundation({ organizationId })
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
 	);
 }
 

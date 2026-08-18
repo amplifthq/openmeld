@@ -18,12 +18,14 @@ import type {
 	SpaceInboxSummaryResponse,
 	UpdateInboxNotificationPreferencesBody,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type InboxFailure = StructuredApiClientFailure;
 
 function createWebInboxApi(organizationId: string) {
-	return createInboxApi(createWebOpenMeldApiFoundation({ organizationId }));
+	return createInboxApi(
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
+	);
 }
 
 export async function dismissCurrentInboxItem(input: {

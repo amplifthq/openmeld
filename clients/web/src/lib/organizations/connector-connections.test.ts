@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const requestJsonMock = vi.hoisted(() => vi.fn());
 
 vi.mock("#/lib/openmeld-api/client", () => ({
-	createWebOpenMeldApiFoundation: () => ({
+	createOrganizationScopedWebOpenMeldApiFoundation: () => ({
 		requestJson: requestJsonMock,
 	}),
 }));
@@ -119,7 +119,7 @@ describe("connector connection Web API helpers", () => {
 			upstreamCode: "connector.organization_context_changed",
 		});
 		expect(resolveConnectorConnectionErrorMessage(error, "Linear")).toBe(
-			"Your active Organization changed in another tab. Refresh this page before updating Linear."
+			"OpenMeld couldn't confirm that this request belongs to this Organization. Refresh the page and try again."
 		);
 	});
 

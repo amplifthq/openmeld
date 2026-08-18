@@ -5,18 +5,21 @@ import {
 	toStructuredApiClientFailure,
 	type UpdateProjectInput,
 } from "@openmeld/api-client";
+import { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "@openmeld/schemas";
 import type {
 	ArchiveProjectResponse,
 	CreateProjectResponse,
 	ListProjectsResponse,
 	UpdateProjectResponse,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type ProjectFailure = StructuredApiClientFailure;
 
 function createWebProjectsApi(organizationId: string) {
-	return createProjectsApi(createWebOpenMeldApiFoundation({ organizationId }));
+	return createProjectsApi(
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
+	);
 }
 
 export async function listCurrentProjects(input: {
@@ -98,7 +101,7 @@ export function resolveProjectErrorMessage(
 		case "project.conflict":
 			return "This Project changed in another session. Refresh and try again.";
 		case "project.organization_context_changed":
-			return "Your active Organization changed in another tab. Refresh this page before trying again.";
+			return ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE;
 		default:
 			return action === "list"
 				? "OpenMeld could not load Projects. Try again."
