@@ -19,6 +19,14 @@ on:
         required: false
         type: string
         default: ""
+      deployment_mode:
+        description: "Deploy the checked-in projection or recover the current stable CLI projection"
+        required: true
+        type: choice
+        default: standard
+        options:
+          - standard
+          - current-stable-cli-projection
   workflow_call:
     inputs:
       deploy_environment:
@@ -31,6 +39,11 @@ on:
         required: false
         type: string
         default: ""
+      deployment_mode:
+        description: "Core deployment mode"
+        required: false
+        type: string
+        default: standard
 
 jobs:
   deploy:
@@ -47,6 +60,8 @@ jobs:
     steps:
       - name: Validate production target
         shell: bash
+        env:
+          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
         run: |
           set -euo pipefail
           if [ "${{ inputs.deploy_environment || 'production' }}" != "production" ]; then
@@ -57,11 +72,19 @@ jobs:
             echo "::error::Production deploys must run from main. Current ref: ${GITHUB_REF}"
             exit 1
           fi
+          case "$DEPLOYMENT_MODE" in
+            standard|current-stable-cli-projection) ;;
+            *)
+              echo "::error::Unsupported Core deployment mode: $DEPLOYMENT_MODE"
+              exit 1
+              ;;
+          esac
 
       - name: Checkout release commit
         uses: actions/checkout@v5
         with:
-          fetch-depth: 2
+          fetch-depth: 0
+          fetch-tags: true
           ref: ${{ inputs.release_sha || github.sha }}
 
       - name: Setup repository toolchain
@@ -73,8 +96,17 @@ jobs:
       - name: Capture Core bundle evidence
         run: pnpm run evidence:bundle:core
 
+      - name: Fetch immutable CLI release tags
+        if: inputs.deployment_mode == 'current-stable-cli-projection'
+        run: git fetch --tags
+
       - name: Deploy Core Worker
+        if: inputs.deployment_mode == 'standard'
         run: pnpm -C services/core run sync:config:prod
+
+      - name: Recover Core with the current stable CLI projection
+        if: inputs.deployment_mode == 'current-stable-cli-projection'
+        run: node scripts/release/deploy-core-current-cli-projection.mjs
 
       - name: Verify Core deployment is visible
         run: pnpm exec wrangler deployments list --config services/core/wrangler.jsonc --env prod --json > /dev/null
