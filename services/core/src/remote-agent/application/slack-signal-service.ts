@@ -880,7 +880,7 @@ async function submitClaimedSlackChannelIntroduction(input: {
           memberId: memberResolution.member.memberId,
           userId: memberResolution.member.userId,
         },
-        triggerMessageId: `slack-interaction:${input.claim.run.interactionId}:${input.claim.slackChannelId}`,
+        triggerMessageId: input.claim.run.acknowledgementTs,
         turnEnvelope,
       },
     });

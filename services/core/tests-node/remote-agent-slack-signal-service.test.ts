@@ -205,6 +205,103 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
+  it("keeps a newer DM turn working when an older channel introduction finishes", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(
+      async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
+        accepted: true,
+        createdAt: 1_710_000_001,
+        requestId: `req_${request.idempotencyKey}`,
+        status: "pending" as const,
+        submissionId: `sub_${request.idempotencyKey}`,
+      })
+    );
+    const fetchMock = stubSlackFetch({
+      conversationsListResponse: {
+        channels: [
+          {
+            id: "C_PRODUCT",
+            is_member: true,
+            is_private: false,
+            name: "product",
+          },
+        ],
+        ok: true,
+        response_metadata: { next_cursor: "" },
+      },
+      email: "ari@example.test",
+    });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await submitRemoteAgentSlackChannelIntroduction({
+        env: buildEnv(harness.db, { workerSubmit }),
+        interactionId: "V_CHANNEL_THEN_DM",
+        organizationInviteUrl: "https://openmeld.ai/join/openmeld-test",
+        slackTeamId: "T123",
+        slackUserId: "U123",
+        targetSlackChannelIds: ["C_PRODUCT"],
+      });
+
+      expect(workerSubmit).toHaveBeenCalledOnce();
+      const introductionRequest = workerSubmit.mock.calls[0]?.[0];
+      expect(introductionRequest).toBeDefined();
+      if (!introductionRequest) {
+        throw new Error("Expected the channel introduction to be submitted");
+      }
+
+      const newerTriggerMessageId = "1710000002.000300";
+      await upsertRemoteAgentNativeDeliveryRecord({
+        attemptId: null,
+        bindingId: introductionRequest.bindingId,
+        conversationKind: "slack",
+        db: harness.db,
+        dispatchId: "remote-agent-slack:EvAfterIntroduction",
+        idempotencyKey: "remote-agent-slack:T123:EvAfterIntroduction",
+        nowMs: 2000,
+        organizationId: introductionRequest.organizationId,
+        profileId: introductionRequest.agentProfileId,
+        slackChannelId: "D_OPENMELD",
+        slackTeamId: "T123",
+        slackThreadTs: "1710000001.000200",
+        spaceId: introductionRequest.spaceId,
+        status: "submitted",
+        triggerMessageId: newerTriggerMessageId,
+      });
+      await markRemoteAgentNativeDeliveryAck({
+        accepted: true,
+        db: harness.db,
+        idempotencyKey: "remote-agent-slack:T123:EvAfterIntroduction",
+        nowMs: 2100,
+        submissionId: "sub_after_introduction",
+        workerRequestId: "req_after_introduction",
+      });
+
+      await expect(
+        completeRemoteAgentNativeDelivery(
+          buildEnv(harness.db, { workerSubmit }),
+          createCompletedCallbackForSubmittedRequest({
+            request: introductionRequest,
+            submissionId: `sub_${introductionRequest.idempotencyKey}`,
+          })
+        )
+      ).resolves.toMatchObject({ status: "accepted" });
+
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "is working on your request…",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("continues channel introductions when the first acknowledgement checkpoint write fails", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
