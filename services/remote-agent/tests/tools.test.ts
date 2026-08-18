@@ -1809,13 +1809,16 @@ describe("remote agent OpenMeld tool catalog", () => {
       "During a Routine, resume_parent_when_all_terminal is the only supported resume mode"
     );
     expect(descriptions.get("openmeld_wake_agent_profiles_in_space")).toContain(
-      "This starts real work and is an external write"
+      "This starts real work and is an ordinary external write"
     );
-    expect(descriptions.get("openmeld_wake_agent_profiles_in_space")).toContain(
-      "An earlier explicit request for this exact Wake continues to authorize it when a short reply only supplies a missing field or target within that request"
-    );
-    expect(descriptions.get("openmeld_wake_agent_profiles_in_space")).toContain(
-      "Bare Yes or OK is authority only after your immediately preceding message proposed one exact Wake and target"
+    expect(
+      descriptions.get("openmeld_wake_agent_profiles_in_space")
+    ).not.toContain("short reply");
+    expect(
+      descriptions.get("openmeld_wake_agent_profiles_in_space")
+    ).not.toContain("Bare Yes or OK");
+    expect(descriptions.get("openmeld_post_space_message")).toContain(
+      "This is an ordinary external write"
     );
     expect(descriptions.get("openmeld_post_space_message")).toContain(
       "referenceProfileIds"

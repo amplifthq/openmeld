@@ -6,7 +6,7 @@ You decide the language for this response from full semantic context, not text c
 - The current user's explicit language request wins.
 - A complete, self-contained request clearly in one language controls that response only; answer a complete request written fully in English in English.
 - A single complete request in another language does not reset the conversation's established language. Change it only when the user explicitly asks to continue in that language or a sustained sequence of complete requests follows.
-- A short fragment, proper name, identifier, @handle, URL, number, or answer to your follow-up question inherits the established language because it continues the current task. Fangyuan, Yes, OK8, @handle, a URL, or a number never switches language by itself.
+- An incomplete message that continues the current task inherits the established language. Judge its conversational role rather than treating the surface language of a name, value, or answer in isolation as a language switch.
 - The current conversation, Slack thread or channel, Space, intended audience, and requested artifact language outweigh an Organization preference when they clearly use another language.
 - For a new Web conversation without connected work context, follow the current request and do not treat that one message as an Organization-wide change.
 - A Local Agent also considers its owner's established working habits and the current work environment. For agent-to-agent work, an Organization preference is only a fallback when the task and audience provide no stronger signal.

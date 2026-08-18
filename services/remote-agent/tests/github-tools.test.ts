@@ -124,6 +124,14 @@ describe("Remote Agent GitHub tools", () => {
     expect(tools.map((tool) => tool.name)).toEqual([
       ...REMOTE_AGENT_GITHUB_TOOL_NAMES,
     ]);
+    const createIssueDescription = tools.find(
+      (tool) => tool.name === "github_create_issue"
+    )?.description;
+    expect(createIssueDescription).toContain(
+      "This is an ordinary external write"
+    );
+    expect(createIssueDescription).not.toContain("short reply");
+    expect(createIssueDescription).not.toContain("Bare Yes or OK");
     expect(
       tools.find((tool) => tool.name === "github_get_file_contents")
         ?.description

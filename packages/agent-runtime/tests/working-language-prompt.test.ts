@@ -18,15 +18,24 @@ describe("working language prompt", () => {
   it("inherits the established conversation language for follow-up fragments", () => {
     const prompt = renderWorkingLanguagePrompt();
 
-    expect(prompt).toContain("short fragment");
-    expect(prompt).toContain("proper name");
-    expect(prompt).toContain("answer to your follow-up question");
-    expect(prompt).toContain("Fangyuan");
-    expect(prompt).toContain("Yes");
-    expect(prompt).toContain("OK8");
-    expect(prompt).toContain("@handle");
-    expect(prompt).toContain("URL");
-    expect(prompt).toContain("number");
+    expect(prompt).toContain(
+      "An incomplete message that continues the current task"
+    );
+    expect(prompt).toContain("inherits the established language");
+    expect(prompt).toContain("Judge its conversational role");
+    expect(prompt).toContain(
+      "rather than treating the surface language of a name, value, or answer in isolation as a language switch"
+    );
+    for (const incidentExample of [
+      "Fangyuan",
+      "Yes",
+      "OK8",
+      "@handle",
+      "https://example.com",
+      "429",
+    ]) {
+      expect(prompt).not.toContain(incidentExample);
+    }
   });
 
   it("separates a one-response language choice from a durable language change", () => {
