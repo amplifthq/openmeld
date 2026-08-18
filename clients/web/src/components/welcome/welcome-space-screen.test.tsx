@@ -16,6 +16,7 @@ const CREATE_CHOICE = /Create a Space/;
 const JOIN_CHOICE = /Join a Space/;
 const CONNECT_COMPUTER_CHOICE = /Connect Computer/;
 const CREATE_SUBMIT = /^Create$/;
+const MEMBERS_ONLY_MODE_LABEL_TEXT = /Members only/;
 const PUBLIC_VISIBILITY_LABEL = /Public/;
 const SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT = /Anyone can view, password to join/;
 const SHARE_PROTECTED_MODE_LABEL_TEXT = /Password protected/;
@@ -144,7 +145,7 @@ describe("WelcomeSpaceScreen", () => {
 		expect(screen.getByPlaceholderText("Design review")).toBeTruthy();
 	});
 
-	it("creates a private organization Space with public access by default", () => {
+	it("creates a private organization Space with members-only access by default", () => {
 		const onCreate = vi.fn();
 		renderScreen({ onCreate });
 
@@ -160,9 +161,35 @@ describe("WelcomeSpaceScreen", () => {
 		expect(screen.getByRole("radio", { name: "Public" }).className).toContain(
 			"py-2.5"
 		);
+		const membersOnlyAccessRadio = screen.getByRole("radio", {
+			name: MEMBERS_ONLY_MODE_LABEL_TEXT,
+		});
 		const publicAccessRadio = screen.getByRole("radio", {
 			name: "Anyone can view and join",
 		});
+		expect(membersOnlyAccessRadio.getAttribute("aria-checked")).toBe("true");
+		expect(publicAccessRadio.getAttribute("aria-checked")).toBe("false");
+		expect(screen.queryByLabelText("Set Space password")).toBeNull();
+		fireEvent.change(screen.getByPlaceholderText("Design review"), {
+			target: { value: "Private room" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: CREATE_SUBMIT }));
+
+		expect(onCreate).toHaveBeenCalledWith({
+			accessMode: "members_only",
+			name: "Private room",
+			visibility: "private",
+		});
+	});
+
+	it("warns when public link access is explicitly selected", () => {
+		renderScreen();
+
+		fireEvent.click(screen.getByRole("button", { name: CREATE_CHOICE }));
+		const publicAccessRadio = screen.getByRole("radio", {
+			name: "Anyone can view and join",
+		});
+		fireEvent.click(publicAccessRadio);
 		const publicAccessLabels = within(publicAccessRadio).getAllByText(
 			"Anyone can view and join"
 		);
@@ -183,16 +210,6 @@ describe("WelcomeSpaceScreen", () => {
 			"text-muted-foreground"
 		);
 		expect(publicAccessDescription.className).not.toContain("text-amber-600");
-		fireEvent.change(screen.getByPlaceholderText("Design review"), {
-			target: { value: "Open room" },
-		});
-		fireEvent.click(screen.getByRole("button", { name: CREATE_SUBMIT }));
-
-		expect(onCreate).toHaveBeenCalledWith({
-			accessMode: "public",
-			name: "Open room",
-			visibility: "private",
-		});
 	});
 
 	it("creates a public organization Space when Public visibility is selected", () => {
@@ -209,7 +226,7 @@ describe("WelcomeSpaceScreen", () => {
 		fireEvent.click(screen.getByRole("button", { name: CREATE_SUBMIT }));
 
 		expect(onCreate).toHaveBeenCalledWith({
-			accessMode: "public",
+			accessMode: "members_only",
 			name: "Team room",
 			visibility: "public",
 		});
@@ -257,7 +274,7 @@ describe("WelcomeSpaceScreen", () => {
 		fireEvent.click(screen.getByRole("button", { name: CREATE_SUBMIT }));
 
 		expect(onCreate).toHaveBeenCalledWith({
-			accessMode: "public",
+			accessMode: "members_only",
 			name: "Solo room",
 			visibility: "private",
 		});

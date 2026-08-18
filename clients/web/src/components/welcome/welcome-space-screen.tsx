@@ -1,4 +1,7 @@
-import { normalizeSpacePasswordText } from "@openmeld/schemas";
+import {
+	normalizeSpacePasswordText,
+	spaceAccessModeUsesPassword,
+} from "@openmeld/schemas";
 import type {
 	SpaceAccessMode,
 	SpaceOrganizationVisibility,
@@ -215,12 +218,12 @@ function CreateSpaceForm(props: {
 }) {
 	const createStartedRef = useRef(false);
 	const [name, setName] = useState("");
-	const [accessMode, setAccessMode] = useState<SpaceAccessMode>("public");
+	const [accessMode, setAccessMode] = useState<SpaceAccessMode>("members_only");
 	const [visibility, setVisibility] =
 		useState<SpaceOrganizationVisibility>("private");
 	const [password, setPassword] = useState("");
 	const trimmedName = name.trim();
-	const selectedModeNeedsPassword = accessMode !== "public";
+	const selectedModeNeedsPassword = spaceAccessModeUsesPassword(accessMode);
 	const normalizedPassword = normalizeSpacePasswordText(password);
 	const canCreate =
 		trimmedName.length > 0 &&
@@ -307,7 +310,7 @@ function CreateSpaceForm(props: {
 					disabled={props.isPending}
 					onChange={(nextAccessMode) => {
 						setAccessMode(nextAccessMode);
-						if (nextAccessMode === "public") {
+						if (!spaceAccessModeUsesPassword(nextAccessMode)) {
 							setPassword("");
 						}
 					}}
