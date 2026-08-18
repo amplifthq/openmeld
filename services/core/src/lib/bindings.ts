@@ -145,11 +145,6 @@ type CoreAuthDispatchBindingRpc = {
 };
 
 export type RemoteAgentWorkerBindingRpc = {
-  resolveTransientSlackContext?(
-    input: import("@openmeld/schemas/types").RemoteAgentTransientSlackContextRequest
-  ): Promise<
-    import("@openmeld/schemas/types").RemoteAgentTransientSlackContextResponse
-  >;
   cancelExecution?(
     input: import("@openmeld/schemas/types").RemoteAgentWorkerCancellationRequest
   ): Promise<

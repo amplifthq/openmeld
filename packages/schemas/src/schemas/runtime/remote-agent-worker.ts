@@ -1,7 +1,6 @@
 import { z } from "zod/v4";
 import { openMeldNavigationTargetSchema } from "../../navigation-action";
 import { DISPATCH_ERROR_SUMMARY_MAX_LENGTH } from "../../public-agent-failure-reason";
-import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import {
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillRuntimeReleaseSelectionSchema,
@@ -26,10 +25,7 @@ import {
   spaceMessageAttachmentsSchema,
 } from "../protocol/space-attachment";
 import { centerAgentModelRouteSchema } from "./center-agent-model";
-import {
-  remoteAgentSlackSearchAuthorizationSchema,
-  remoteAgentTurnEnvelopeSchema,
-} from "./remote-agent-turn-envelope";
+import { remoteAgentTurnEnvelopeSchema } from "./remote-agent-turn-envelope";
 
 const nonEmptyStringSchema = z.string().trim().min(1);
 const optionalNonEmptyStringSchema = nonEmptyStringSchema.optional();
@@ -299,34 +295,6 @@ export const remoteAgentWorkerSubmitTurnResponseSchema = z.union([
   remoteAgentWorkerSubmitMessagesResultSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
 ]);
-
-export const remoteAgentTransientSlackContextRequestSchema = z.strictObject({
-  modelRoute: centerAgentModelRouteSchema,
-  organizationId: nonEmptyStringSchema.max(256),
-  requestContext: openMeldRequestContextSchema,
-  requestText: nonEmptyStringSchema.max(4000),
-  requester: z.strictObject({
-    displayName: nonEmptyStringSchema.max(256),
-    memberId: nonEmptyStringSchema.max(256),
-    slackUserId: nonEmptyStringSchema.max(256),
-    userId: nonEmptyStringSchema.max(256),
-  }),
-  searchAuthorization: remoteAgentSlackSearchAuthorizationSchema,
-  v: z.literal(1),
-});
-
-export const remoteAgentTransientSlackContextResponseSchema =
-  z.discriminatedUnion("outcome", [
-    z.strictObject({
-      outcome: z.literal("pass_through"),
-      v: z.literal(1),
-    }),
-    z.strictObject({
-      outcome: z.literal("answered"),
-      text: nonEmptyStringSchema.max(MAX_TEXT_LENGTH),
-      v: z.literal(1),
-    }),
-  ]);
 
 export const remoteAgentWorkerInputAttachmentSchema =
   spaceMessageAttachmentSchema.extend({

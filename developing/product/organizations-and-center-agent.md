@@ -88,6 +88,56 @@ The three pillars interlock: Organization is the container, the Center Agent
 is the brain, and Agent Activity is the perception. They ship container first,
 then brain, then perception (see Implementation Order).
 
+### OpenMeld Kernel and Center Agent intelligence contract
+
+**OpenMeld Kernel** is the canonical name for the small, stable,
+model-visible contract that teaches every Center Agent turn what OpenMeld is,
+the value it should create, the core product objects and authority boundaries,
+and what counts as a completed user outcome. It is part of the Center Agent's
+system prompt. It is not another context store, planner, router, workflow
+engine, or source of runtime truth. Ordinary user-facing replies explain the
+relevant product idea in natural language; they do not make users learn the
+internal `OpenMeld Kernel` label.
+
+One user task has one answer owner: the ordinary Center Agent turn that sees
+the verified requester, current message, relevant conversation history,
+Organization context, and tool results together. Context assembly, tool
+discovery, Slack search, policy checks, and delegated work may supply evidence
+or enforce an action boundary, but none may independently reinterpret the task
+or seize its answer ownership. A delegated Agent reports directly only when the
+Center Agent explicitly chooses `child_reports_directly` because that result
+fully satisfies the request and no parent continuation remains. Otherwise only
+the Center Agent turn closes the task; Core publishes that one result or an
+explicit execution failure.
+
+The Center Agent first forms a situation model from the admitted turn envelope,
+relevant conversation history, and current tool results: what the user is
+trying to achieve, what earlier question or action the current message
+completes, which facts are trusted, what remains unknown, and what OpenMeld can
+do next. This is the Agent's current semantic judgment, not a second persisted
+`Situation Snapshot` object or a pre-routing model. It then chooses tools
+because they advance that goal. Tool availability never turns search, setup,
+delegation, or another capability into the goal by itself.
+
+The Kernel also teaches stable interaction mechanics that affect whether the
+user's next step can work. In an ordinary Space, a human must explicitly Wake
+the intended Agent Profile with an `@` mention; only a current one-to-one Agent
+Direct Message auto-dispatches an ordinary human message without a mention. If
+the Center Agent sends a user to an ordinary Space and expects a reply or
+action, its guidance must explain how to Wake the Agent instead of merely
+saying "reply here." This is product self-knowledge, not a routing rule or a
+replacement for the Space addressing contract.
+
+Permissions constrain effects at the execution boundary; they do not replace
+the model's semantic judgment with a narrow router. Tool and context catalogs
+use progressive disclosure so the same general Agent can remain capable
+without loading every schema or transcript on every turn.
+
+All model-visible tools use structured calls and strict structured results.
+Malformed, parallel, incomplete, or unknown tool protocol fails closed inside
+the Agent loop. Raw tool syntax, provider payloads, or orchestration tags must
+never become user-facing text.
+
 ## Pillar 1 — Organization (Tenancy)
 
 ### Mechanics: Vercel-style, single container type
@@ -376,13 +426,21 @@ run keyword rules, a text-language detector, or a second judge model. The order
 is intentionally contextual rather than a rigid scoring algorithm:
 
 1. An explicit language instruction from the current user wins.
-2. A current request clearly written in one language uses that language. In
-   particular, a fully English request receives an English answer unless the
-   user explicitly asks otherwise.
-3. The current conversation, Slack thread or channel, Space, intended audience,
+2. A complete, self-contained current request clearly written in one language
+   uses that language for that response. A fully English request therefore
+   receives an English answer unless the user explicitly asks otherwise, but
+   one such message does not reset the conversation's established language.
+3. A short fragment, proper name, identifier, `@handle`, URL, number, or answer
+   to the Agent's follow-up inherits the established conversation language.
+   `Fangyuan`, `Yes`, and `OK8` complete the existing task; they are not new
+   English-language requests.
+4. The established conversation language changes only when the user explicitly
+   asks to continue in another language or a sustained sequence of complete
+   requests establishes a new language context.
+5. The current conversation, Slack thread or channel, Space, intended audience,
    requested artifact, and a Local Agent owner's established habits outweigh
    the Organization hint when they clearly point elsewhere.
-4. The Organization preference is a fallback for ambiguous work, including
+6. The Organization preference is a fallback for ambiguous work, including
    agent-to-agent collaboration. Genuinely unclear cases use English.
 
 A new Web conversation without connected work context follows the current
@@ -1569,15 +1627,24 @@ directory using exact normalized email. Someone who is already a member is
 skipped, receives no redundant join message or onboarding, and the requester
 gets one short no-action confirmation.
 
-In an ordinary verified Slack conversation, the Center Agent may also use
-Slack Real-time Search to answer a question such as "what have you learned
-about how I work?" from public workspace messages without first joining those
-channels. The reply speaks as the Center Agent in first person, says concretely
-what it searched, separates verified observations from gaps, and links useful
-claims back to Slack. This is a transient answer, not an automatic Profile
-Report or Memory write. A request to create or update durable knowledge passes
-to the separately governed member-research, Profile Report, Document, or Memory
-flow instead of silently saving Real-time Search evidence.
+Conversational invitations preserve the one-answer-owner contract. Core sends
+the target DMs and returns strict per-target outcomes such as `delivered`,
+`already_member`, `manual_invite_required`, `failed`, or `outcome_unknown` to
+the same Center Agent turn. Core does not separately message the requester;
+the Center Agent interprets those outcomes in its one final reply. A native
+modal submission still receives one Core-authored requester summary because no
+Agent turn owns that modal interaction.
+
+In an ordinary verified Slack conversation, the same Center Agent turn may use
+Slack Real-time Search as a bounded evidence tool, including for a question
+such as "what have you learned about how I work?" Public search does not require
+the App to join those channels. Search never becomes a separate answering
+Agent: the Center Agent evaluates the returned messages with the request and
+conversation history, continues any requested OpenMeld action, separates
+verified observations from gaps, and links useful claims back to Slack. Search
+evidence remains current-conversation context and is not automatically promoted
+to a Profile Report, Memory, Organization Document, or Computer file. Durable
+knowledge still uses the separately governed owning flow.
 
 A channel
 introduction starts in direct message: a native picker accepts at most five

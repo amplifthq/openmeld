@@ -8,12 +8,6 @@ type RemoteAgentSlackEventsApiPayloadSchema =
   typeof import("../../schemas/runtime/remote-agent-slack")["remoteAgentSlackEventsApiPayloadSchema"];
 type RemoteAgentSlackEventQueueMessageSchema =
   typeof import("../../schemas/runtime/remote-agent-slack")["remoteAgentSlackEventQueueMessageSchema"];
-type RemoteAgentTransientSlackMessageSchema =
-  typeof import("../../schemas/runtime/remote-agent-slack")["remoteAgentTransientSlackMessageSchema"];
-type RemoteAgentTransientSlackSearchRequestSchema =
-  typeof import("../../schemas/runtime/remote-agent-slack")["remoteAgentTransientSlackSearchRequestSchema"];
-type RemoteAgentTransientSlackSearchResponseSchema =
-  typeof import("../../schemas/runtime/remote-agent-slack")["remoteAgentTransientSlackSearchResponseSchema"];
 type RemoteAgentSlackUrlVerificationPayloadSchema =
   typeof import("../../schemas/runtime/remote-agent-slack")["remoteAgentSlackUrlVerificationPayloadSchema"];
 
@@ -31,9 +25,3 @@ export type RemoteAgentSlackEventQueueMessage =
   z.infer<RemoteAgentSlackEventQueueMessageSchema>;
 export type RemoteAgentSlackUrlVerificationPayload =
   z.infer<RemoteAgentSlackUrlVerificationPayloadSchema>;
-export type RemoteAgentTransientSlackMessage =
-  z.infer<RemoteAgentTransientSlackMessageSchema>;
-export type RemoteAgentTransientSlackSearchRequest =
-  z.infer<RemoteAgentTransientSlackSearchRequestSchema>;
-export type RemoteAgentTransientSlackSearchResponse =
-  z.infer<RemoteAgentTransientSlackSearchResponseSchema>;

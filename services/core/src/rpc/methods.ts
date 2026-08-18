@@ -33,6 +33,7 @@ import {
   buildAgentTaskKey,
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
+  CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
   centerAgentAddAgentProfilesToSpaceBodySchema,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
   centerAgentAddMembersToSpaceBodySchema,
@@ -197,8 +198,6 @@ import {
   profileSpaceHistoryGatewayHostSchema,
   recordSpaceAttachmentPayloadSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
-  remoteAgentTransientSlackSearchRequestSchema,
-  remoteAgentTransientSlackSearchResponseSchema,
   resolvedSpaceMemberProfileSchema,
   resolveSpaceAttachmentForDownloadPayloadSchema,
   respondToSpaceAgentInteractionInputSchema,
@@ -473,8 +472,6 @@ import type {
   PutSpaceContractBody,
   RecordSpaceAttachmentPayload,
   RefreshCurrentLocalAgentCatalogResponse,
-  RemoteAgentTransientSlackSearchRequest,
-  RemoteAgentTransientSlackSearchResponse,
   RemoveSpaceMembersResponse,
   ResolvedSpaceMemberProfile,
   ResolveSpaceAttachmentForDownloadPayload,
@@ -656,10 +653,7 @@ import {
   projectCenterAgentLocalAgentConnectionCandidates,
   updateAgentProfileRuntimeSettingsOperation,
 } from "../center-agent/application/product-operations";
-import {
-  prepareCenterAgentRepresentedMemberRequest,
-  type VerifiedCenterAgentRepresentedMember,
-} from "../center-agent/application/represented-member-request";
+import { prepareCenterAgentRepresentedMemberRequest } from "../center-agent/application/represented-member-request";
 import { shouldWriteDestinationNeutralTaskContinuations } from "../center-agent/application/task-continuation-rollout";
 import {
   resolveCenterAgentAuditAttribution,
@@ -834,7 +828,6 @@ import {
   listSlackChannelMemberIds,
   listSlackChannels,
   listSlackWorkspaceMembers,
-  postSlackEphemeralMessage,
   readSlackChannelHistory,
   readSlackUserIdentity,
   resolveSlackChannelMessageTarget,
@@ -852,7 +845,6 @@ import {
   createSlackOAuthState,
 } from "../remote-agent/application/slack-oauth-state";
 import { decryptSlackSearchAuthorization } from "../remote-agent/application/slack-search-authorization";
-import { buildSlackSearchPresentation } from "../remote-agent/application/slack-search-presentation";
 import { readRemoteAgentLarkPlatformChannelConnection } from "../remote-agent/infrastructure/d1/lark-platform-channel-connection-repo";
 import { readRemoteAgentLarkPlatformIdentityLink } from "../remote-agent/infrastructure/d1/lark-platform-identity-link-repo";
 import {
@@ -886,7 +878,6 @@ import {
 import {
   createRemoteAgentSlackWorkspaceBinding,
   deleteRemoteAgentSlackWorkspaceBindingByOrganization,
-  type RemoteAgentSlackWorkspaceBindingRecord,
   readRemoteAgentSlackWorkspaceBinding,
   readRemoteAgentSlackWorkspaceBindingByOrganization,
 } from "../remote-agent/infrastructure/d1/slack-workspace-binding-repo";
@@ -10115,7 +10106,8 @@ export async function rpcCenterAgentSearchSlackMessages(
       actionToken: decryptedAuthorization.actionToken,
       botToken,
       includeBots: parsed.data.includeBots ?? false,
-      limit: 5,
+      includeContextMessages: true,
+      limit: CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
       query: parsed.data.query,
       signal: AbortSignal.timeout(10_000),
     });
@@ -10130,276 +10122,13 @@ export async function rpcCenterAgentSearchSlackMessages(
       organizationId,
     });
   }
-  const presentation = buildSlackSearchPresentation({
+  const response: CenterAgentSearchSlackMessagesResponse = {
     messages: search.messages,
     moreResultsAvailable: search.moreResultsAvailable,
-    query: parsed.data.query,
-  });
-  try {
-    const presentationDeadline = AbortSignal.timeout(10_000);
-    await postSlackEphemeralMessage({
-      ...presentation,
-      botToken,
-      channelId: decryptedAuthorization.sourceChannelId,
-      signal: presentationDeadline,
-      threadTs: decryptedAuthorization.sourceThreadTs,
-      userId: decryptedAuthorization.slackUserId,
-    });
-  } catch (error) {
-    console.warn("[core.center_agent.slack_search.presentation_unavailable]", {
-      error: error instanceof Error ? error.message : String(error),
-      organizationId,
-      slackTeamId: binding.slackTeamId,
-    });
-    return buildCenterAgentSlackSearchPresentationFailure({
-      error,
-      organizationId,
-    });
-  }
-  const response: CenterAgentSearchSlackMessagesResponse = {
     organizationId,
-    status: "presented",
+    status: "found",
   };
   return centerAgentSearchSlackMessagesResponseSchema.parse(response);
-}
-
-export async function rpcCenterAgentReadTransientSlackSearch(
-  env: CoreBindings,
-  input: RemoteAgentTransientSlackSearchRequest
-): Promise<RemoteAgentTransientSlackSearchResponse> {
-  const parsed = remoteAgentTransientSlackSearchRequestSchema.safeParse(input);
-  if (!parsed.success) {
-    throw createCoreRpcHttpError({
-      code: "invalid_payload",
-      reason:
-        parsed.error.issues[0]?.message ??
-        "invalid transient Slack search payload",
-      status: 400,
-    });
-  }
-  const preparation = await prepareTransientSlackSearchRequest(
-    env,
-    parsed.data
-  );
-  if (preparation.status === "failed") {
-    return preparation.response;
-  }
-  try {
-    const search = await searchSlackPublicMessages({
-      actionToken: preparation.slackAuthorization.actionToken,
-      botToken: preparation.botToken,
-      includeBots: parsed.data.includeBots,
-      includeContextMessages: true,
-      limit: 8,
-      query: parsed.data.query,
-      signal: AbortSignal.timeout(10_000),
-    });
-    await writeCenterAgentAuditEntry({
-      action: "search_slack_messages",
-      authorization: preparation.centerAgentAuthorization,
-      onBehalfOfProfileId: preparation.representedHuman.profileId,
-      resource: {
-        id: preparation.binding.slackTeamId,
-        type: "slack_workspace",
-      },
-      sourceNativeDeliveryId: null,
-    });
-    console.info("[core.center_agent.slack_search.transient_completed]", {
-      contextMessageCount: search.messages.reduce(
-        (count, message) => count + message.contextMessages.length,
-        0
-      ),
-      messageCount: search.messages.length,
-      organizationId: parsed.data.organizationId,
-    });
-    return remoteAgentTransientSlackSearchResponseSchema.parse({
-      messages: search.messages,
-      moreResultsAvailable: search.moreResultsAvailable,
-      status: "found",
-      v: 1,
-    });
-  } catch (error) {
-    return buildTransientSlackSearchProviderFailure({
-      error,
-      organizationId: parsed.data.organizationId,
-    });
-  }
-}
-
-type PreparedTransientSlackSearchRequest =
-  | {
-      response: RemoteAgentTransientSlackSearchResponse;
-      status: "failed";
-    }
-  | {
-      binding: RemoteAgentSlackWorkspaceBindingRecord;
-      botToken: string;
-      centerAgentAuthorization: CurrentDesignatedCenterAgentAuthorization;
-      representedHuman: VerifiedCenterAgentRepresentedMember;
-      slackAuthorization: Awaited<
-        ReturnType<typeof decryptSlackSearchAuthorization>
-      >;
-      status: "ready";
-    };
-
-async function prepareTransientSlackSearchRequest(
-  env: CoreBindings,
-  input: RemoteAgentTransientSlackSearchRequest
-): Promise<PreparedTransientSlackSearchRequest> {
-  const slackDb = localStateDb(env);
-  const memberDb = identityDb(env);
-  if (!(slackDb && memberDb)) {
-    return transientSlackSearchPreparationFailure(
-      "Slack connection state is unavailable. Try again later."
-    );
-  }
-  const { authorization: centerAgentAuthorization, representedHuman } =
-    await prepareCenterAgentRepresentedMemberRequest(
-      env,
-      input.requestContext,
-      input.requester,
-      {
-        code: "center_agent.slack_search_speaker_required",
-        reason:
-          "Slack search requires a verified active human Organization member.",
-      }
-    );
-  if (
-    centerAgentAuthorization.activeOrganization.organizationId !==
-    input.organizationId
-  ) {
-    return transientSlackSearchPreparationFailure(
-      "This Slack search request does not belong to the active Organization.",
-      "forbidden"
-    );
-  }
-  const binding = await readRemoteAgentSlackWorkspaceBindingByOrganization({
-    db: slackDb,
-    organizationId: input.organizationId,
-  });
-  if (!binding) {
-    return transientSlackSearchPreparationFailure(
-      "Connect this Organization to Slack, then send a new message and try again."
-    );
-  }
-  const cryptoKey = String(env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY ?? "").trim();
-  if (!cryptoKey) {
-    return transientSlackSearchPreparationFailure(
-      "Slack search authorization is unavailable. Try again later."
-    );
-  }
-  let slackAuthorization: Awaited<
-    ReturnType<typeof decryptSlackSearchAuthorization>
-  >;
-  try {
-    slackAuthorization = await decryptSlackSearchAuthorization({
-      cryptoKey,
-      encryptedAuthorization: input.searchAuthorization.encryptedAuthorization,
-    });
-  } catch {
-    return transientSlackSearchPreparationFailure(
-      "Slack search authorization expired. Send a new Slack message and try again.",
-      "authorization_expired"
-    );
-  }
-  if (
-    !transientSlackSearchAuthorizationMatchesRequest({
-      authorization: slackAuthorization,
-      memberId: representedHuman.memberId,
-      openMeldUserId: representedHuman.userId,
-      organizationId: input.organizationId,
-      slackTeamId: binding.slackTeamId,
-      slackUserId: input.requester.slackUserId,
-    })
-  ) {
-    return transientSlackSearchPreparationFailure(
-      "This Slack search authorization does not belong to the current requester or workspace.",
-      "forbidden"
-    );
-  }
-  let botToken: string;
-  try {
-    botToken = await resolveSlackBotToken({
-      cryptoKey: env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
-      db: slackDb,
-      fallbackBotToken: env.SLACK_OPENMELD_BOT_TOKEN,
-      slackTeamId: binding.slackTeamId,
-    });
-  } catch {
-    return transientSlackSearchPreparationFailure(
-      "Slack search is unavailable right now. Try again later."
-    );
-  }
-  return {
-    binding,
-    botToken,
-    centerAgentAuthorization,
-    representedHuman,
-    slackAuthorization,
-    status: "ready",
-  };
-}
-
-function transientSlackSearchPreparationFailure(
-  reason: string,
-  status: Exclude<
-    RemoteAgentTransientSlackSearchResponse["status"],
-    "found"
-  > = "unavailable"
-): PreparedTransientSlackSearchRequest {
-  return {
-    response: buildTransientSlackSearchFailure(reason, status),
-    status: "failed",
-  };
-}
-
-function buildTransientSlackSearchProviderFailure(input: {
-  error: unknown;
-  organizationId: string;
-}): RemoteAgentTransientSlackSearchResponse {
-  if (input.error instanceof SlackApiError) {
-    if (
-      input.error.errorCode === "invalid_action_token" ||
-      input.error.errorCode === "token_expired"
-    ) {
-      return buildTransientSlackSearchFailure(
-        "Slack search authorization expired. Send a new Slack message and try again.",
-        "authorization_expired"
-      );
-    }
-    if (isSlackRateLimitError(input.error)) {
-      return buildTransientSlackSearchFailure(
-        "Slack search is temporarily rate limited. Try again in a moment.",
-        "rate_limited"
-      );
-    }
-    if (isSlackPermissionError(input.error)) {
-      return buildTransientSlackSearchFailure(
-        "The connected Slack app does not have permission to search these messages.",
-        "forbidden"
-      );
-    }
-  }
-  console.warn("[core.center_agent.slack_search.transient_failed]", {
-    error:
-      input.error instanceof Error ? input.error.message : String(input.error),
-    organizationId: input.organizationId,
-  });
-  return buildTransientSlackSearchFailure(
-    "Slack search is unavailable right now. Try again later.",
-    "unavailable"
-  );
-}
-
-function buildTransientSlackSearchFailure(
-  reason: string,
-  status: Exclude<RemoteAgentTransientSlackSearchResponse["status"], "found">
-): RemoteAgentTransientSlackSearchResponse {
-  return remoteAgentTransientSlackSearchResponseSchema.parse({
-    reason,
-    status,
-    v: 1,
-  });
 }
 
 function slackSearchAuthorizationMatchesRequest(input: {
@@ -10414,20 +10143,6 @@ function slackSearchAuthorizationMatchesRequest(input: {
     input.authorization.slackTeamId === input.slackTeamId &&
     input.authorization.memberId === input.memberId &&
     input.authorization.openMeldUserId === input.openMeldUserId
-  );
-}
-
-function transientSlackSearchAuthorizationMatchesRequest(input: {
-  authorization: Awaited<ReturnType<typeof decryptSlackSearchAuthorization>>;
-  memberId: string;
-  openMeldUserId: string;
-  organizationId: string;
-  slackTeamId: string;
-  slackUserId: string;
-}): boolean {
-  return (
-    slackSearchAuthorizationMatchesRequest(input) &&
-    input.authorization.slackUserId === input.slackUserId
   );
 }
 
@@ -10479,39 +10194,6 @@ function buildCenterAgentSlackSearchProviderFailure(input: {
   });
 }
 
-function buildCenterAgentSlackSearchPresentationFailure(input: {
-  error: unknown;
-  organizationId: string;
-}): CenterAgentSearchSlackMessagesResponse {
-  if (input.error instanceof SlackApiError) {
-    if (isSlackRateLimitError(input.error)) {
-      return buildCenterAgentSlackSearchFailure({
-        organizationId: input.organizationId,
-        reason:
-          "Slack temporarily rate limited the private search results. Wait before trying again.",
-        ...(input.error.retryAfterSeconds === null
-          ? {}
-          : { retryAfterSeconds: input.error.retryAfterSeconds }),
-        status: "rate_limited",
-      });
-    }
-    if (isSlackPermissionError(input.error)) {
-      return buildCenterAgentSlackSearchFailure({
-        organizationId: input.organizationId,
-        reason:
-          "The connected Slack app cannot privately present search results to this requester.",
-        status: "forbidden",
-      });
-    }
-  }
-  return buildCenterAgentSlackSearchFailure({
-    organizationId: input.organizationId,
-    reason:
-      "Slack search results could not be presented privately. Try again later.",
-    status: "unavailable",
-  });
-}
-
 function isSlackPermissionError(error: SlackApiError): boolean {
   return [
     "access_denied",
@@ -10536,7 +10218,7 @@ function buildCenterAgentSlackSearchFailure(
     {
       status: Exclude<
         CenterAgentSearchSlackMessagesResponse["status"],
-        "presented"
+        "found"
       >;
     }
   >
