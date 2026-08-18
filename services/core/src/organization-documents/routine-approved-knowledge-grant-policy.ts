@@ -1,4 +1,4 @@
-import { memberRoleHasOrganizationPermission } from "@openmeld/auth";
+import { memberRoleHasOrganizationPermission } from "@openmeld/auth/organization-policy";
 import type { CenterAgentRoutineAuthorizedAction } from "@openmeld/schemas/types";
 
 import { createCoreRpcHttpError } from "../rpc/errors";

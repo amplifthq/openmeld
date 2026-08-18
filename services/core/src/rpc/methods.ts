@@ -10,7 +10,7 @@ import {
 import {
   memberRoleHasOrganizationPermission,
   type OrganizationPermissionCheck,
-} from "@openmeld/auth";
+} from "@openmeld/auth/organization-policy";
 import type {
   Profile,
   SignalEnvelope,

@@ -12,7 +12,6 @@ import {
   organization,
   username,
 } from "better-auth/plugins";
-import { emailHarmony } from "better-auth-harmony";
 import { createD1Db } from "../db";
 import { schema } from "../db/schema";
 import {
@@ -36,6 +35,7 @@ import {
   resolvePersonalOrganizationName,
   resolveUserDisplayName,
 } from "../organization/personal-organization";
+import { createOpenMeldEmailIdentityPlugin } from "../plugins/openmeld-email-identity";
 import { createDrizzleOpenMeldProfileRepository } from "../profiles/profile-repository";
 import { createOpenMeldProfileService } from "../profiles/profile-service";
 import { validateAuthEmailAddress } from "../utils/auth-email-validation";
@@ -960,7 +960,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
         rpName: `${validated.AUTH_BRAND_NAME} Passkey`,
         rpID: passkeyRpId,
       }),
-      emailHarmony({
+      createOpenMeldEmailIdentityPlugin({
         validator: validateAuthEmailAddress,
       }),
       lastLoginMethod({
