@@ -41,6 +41,7 @@
   "dependencies": {
     "@openmeld/auth": "workspace:*",
     "@openmeld/db": "workspace:*",
+    "@openmeld/gateway-contract": "workspace:*",
     "@openmeld/schemas": "workspace:*",
     "better-auth": "^1.6.23",
     "hono": "^4.11.7"

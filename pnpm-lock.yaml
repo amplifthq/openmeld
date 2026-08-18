@@ -1160,6 +1160,9 @@ importers:
       '@openmeld/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@openmeld/gateway-contract':
+        specifier: workspace:*
+        version: link:../../packages/gateway-contract
       '@openmeld/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas

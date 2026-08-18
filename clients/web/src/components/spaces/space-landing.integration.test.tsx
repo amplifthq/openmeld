@@ -1505,6 +1505,7 @@ describe("SpaceLanding", () => {
 		expect(createStartAgentProfileMock).toHaveBeenCalledWith({
 			data: {
 				creatorProfileId: DEFAULT_SPACE_PROFILE_ID,
+				organizationId: "org-acme",
 				profileName: "Scout",
 			},
 		});

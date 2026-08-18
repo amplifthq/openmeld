@@ -39,9 +39,8 @@ const localAuthUserStoreMock = {
   hasUserById: vi.fn(),
 };
 
-// D1Database shape: db.prepare(sql).bind(...values).first<T>(). Only the
-// Center Agent Organization-name lookup exercises this mock; every other
-// test in this file never touches OPENMELD_DB.
+// D1Database shape: db.prepare(sql).bind(...values).first<T>(). Organization
+// membership and Center Agent Organization-name lookups exercise this mock.
 const dbMock = {
   prepare: vi.fn(),
 };
@@ -529,6 +528,68 @@ describe("auth session resolution", () => {
       message: "auth upstream unavailable",
     });
     expect(profileServiceMock.createAgentProfile).not.toHaveBeenCalled();
+  });
+
+  it("creates an Agent Profile in the requested Organization when Session points elsewhere", async () => {
+    authMock.api.getSession.mockResolvedValue({
+      session: {
+        id: "session-123",
+        activeOrganizationId: "organization-personal",
+      },
+      user: {
+        id: "user-123",
+        name: "Felix",
+        email: "felix@openmeld.invalid",
+      },
+    });
+    const membershipFirst = vi.fn().mockResolvedValue({
+      organization_id: "organization-amplift",
+    });
+    const membershipBind = vi.fn(() => ({ first: membershipFirst }));
+    dbMock.prepare.mockReturnValue({ bind: membershipBind });
+    profileServiceMock.createAgentProfile.mockResolvedValue({
+      profileId: "agt_11111111-1111-4111-8111-111111111111",
+      profileName: "Research Agent",
+      profileHandle: "research-agent",
+      profileKind: "agent",
+      isDefault: false,
+      status: "active",
+      ownerUserId: "user-123",
+      createdByUserId: "user-123",
+      source: "manual",
+      managedRole: null,
+      creatorProfileId: null,
+      lastUsedAt: null,
+      createdAt: new Date("2026-08-18T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-18T00:00:00.000Z"),
+    });
+    const app = createHonoApp();
+
+    const response = await app.fetch(
+      new Request("http://local/v1/profiles/agents", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-openmeld-requested-organization-id": "organization-amplift",
+        },
+        body: JSON.stringify({ profileName: "Research Agent" }),
+      }),
+      TEST_ENV,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(201);
+    expect(membershipBind).toHaveBeenCalledWith(
+      "user-123",
+      "organization-amplift"
+    );
+    expect(profileServiceMock.createAgentProfile).toHaveBeenCalledWith({
+      ownerUserId: "user-123",
+      organizationId: "organization-amplift",
+      createdByUserId: "user-123",
+      creatorProfileId: undefined,
+      profileName: "Research Agent",
+    });
   });
 
   it("does not resolve sessions on non-profile routes", async () => {

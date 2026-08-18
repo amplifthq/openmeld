@@ -333,6 +333,7 @@ function renderCreateProfileDialog(
 					<CreateProfileDialog
 						onOpenChange={onOpenChange}
 						open={true}
+						organizationId="organization-123"
 						recovery={buildFakeRecovery()}
 						{...overrides}
 					/>
@@ -522,7 +523,11 @@ describe("CreateProfileDialog", () => {
 
 		await waitFor(() => {
 			expect(createStartAgentProfileMock).toHaveBeenCalledWith({
-				data: { profileName: "Research Agent", creatorProfileId: FELIX_ID },
+				data: {
+					profileName: "Research Agent",
+					creatorProfileId: FELIX_ID,
+					organizationId: "organization-123",
+				},
 			});
 		});
 		expect(addMembersMock).not.toHaveBeenCalled();
