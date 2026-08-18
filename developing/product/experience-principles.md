@@ -192,8 +192,12 @@ state.
   optional details expand only when the user chooses to edit them.
 - Applied: a top-level Slack direct message starts one request thread so the
   member sees the same Working lifecycle as a channel mention. Status, answer,
-  visible failure, and recovery stay in that thread; channel replies remain
-  threaded to avoid noise.
+  visible failure, and recovery stay in that thread. The final answer or
+  failure for that top-level direct-message request is also broadcast into the
+  main DM timeline so the member does not have to rediscover a hidden reply;
+  this is one Slack publication with two native views, not a duplicate answer.
+  Channel replies and follow-ups already inside a DM thread remain threaded to
+  avoid noise.
 - Violation looks like: opening onboarding with "What do you want AI to do for
   your organization?", teaching Center Agent vocabulary before it has useful
   context, or using a paragraph where one labeled outcome and animation would

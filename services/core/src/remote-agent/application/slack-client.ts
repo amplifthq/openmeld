@@ -561,6 +561,7 @@ export async function postSlackThreadMessage(input: {
     eventPayload: Record<string, string>;
     eventType: string;
   };
+  replyBroadcast?: boolean;
   signal?: AbortSignal;
   text: string;
   threadTs: string;
@@ -1040,6 +1041,7 @@ async function postSlackMessage(input: {
     eventPayload: Record<string, string>;
     eventType: string;
   };
+  replyBroadcast?: boolean;
   signal?: AbortSignal;
   text: string;
   threadTs?: string;
@@ -1066,6 +1068,7 @@ async function postSlackMessageOnce(input: {
     eventPayload: Record<string, string>;
     eventType: string;
   };
+  replyBroadcast?: boolean;
   signal?: AbortSignal;
   text: string;
   threadTs?: string;
@@ -1086,6 +1089,7 @@ async function postSlackMessageOnce(input: {
                 },
               }
             : {}),
+          ...(input.replyBroadcast ? { reply_broadcast: true } : {}),
           text: input.text,
           ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
         }),
