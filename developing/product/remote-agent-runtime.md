@@ -480,25 +480,12 @@ becoming a second authorization or context channel.
 
 Every interactive carrier frames the current user-authored request separately
 from bounded conversation continuity and the authoritative turn-time block.
-At the shared provider boundary, the Remote Agent classifies only that current
-request when it names the canonical Task or Space surfaces. An explicit request
-for a new or dedicated Task or Space pins the first model step to the matching
-create tool before large tool catalogs are compacted into Code Mode. That
-already-resolved create step preserves the frozen model route, including its
-reasoning policy; the provider may require that policy even when the first tool
-is deterministic. The created Task or Space keeps the Organization's normal
-reasoning policy for its actual work. The rule
-does not infer a new work surface from task complexity, does not inspect earlier
-conversation history as current intent, and does not run again after the create
-tool returns. A self-contained Space request may also include one immediately
-requested checklist, note, update, or other message. That bounded path
-materializes only Space creation and plain Space-message publication: it creates
-the Space first, keeps one-time content out of the durable guide, may publish
-the one requested message to the returned Space, and then closes the tool
-surface. Participant lookup, membership changes, and any other follow-up keep
-the ordinary full execution path. Classification failure preserves the
-ordinary Center Agent turn and emits structured diagnostics; the main Center
-Agent instruction remains a second, independent behavioral guardrail.
+The worker then gives the complete admitted turn to the frozen primary Center
+Agent model. That one Agent judges how the current request relates to earlier
+conversation, whether it asks for guidance or action, and which Task, Space,
+identity, or other tools advance the goal. Large tool catalogs may compact
+schemas into Code Mode, but compaction does not change the semantic owner,
+reasoning policy, tool authorization, or available inner capabilities.
 
 The Local Agent bridge has a separate progressive read contract. It may request
 a bounded Context Manifest containing recent user-visible text Signals from the
@@ -955,15 +942,18 @@ The complete authorized direct-tool catalog remains the single source for both
 direct execution and Code Mode. For a bounded catalog of at most 64 direct
 tool schemas, the provider receives those direct tools plus `codemode`. Above
 that threshold, the provider receives `codemode`, the three generic Connected
-App discovery and execution tools, and the dedicated GitHub tools. Keeping
-those bounded direct sequences available prevents generic App discovery from
-being mistaken for a requested provider outcome and lets an explicit GitHub
-request verify its own connection through the matching GitHub action; it does
-not add a second action surface. The generic connected-Apps result explicitly
-reports GitHub as `not_checked` and directs the model to the matching dedicated
-GitHub action. It must never let the absence of GitHub from the ordinary Apps
-list be interpreted as missing GitHub access. The required direct subset must
-itself remain within the same 64-schema limit and fails fast if it exceeds that
+App discovery and execution tools. The three generic tools remain direct so a
+simple Connected App request can discover and execute one matching action
+without generated orchestration. Dedicated GitHub tools remain fully available
+inside the exact same Code Mode catalog instead of duplicating all of their
+descriptions and schemas at the provider boundary. This keeps GitHub capability
+and authorization unchanged while avoiding a large repeated prompt on every
+model step. The generic connected-Apps result explicitly reports GitHub as
+`not_checked` and directs the model to the matching dedicated GitHub action;
+the model calls that action through Code Mode when the large catalog is
+compacted. It must never let the absence of GitHub from the ordinary Apps list
+be interpreted as missing GitHub access. The required direct subset must itself
+remain within the same 64-schema limit and fails fast if it exceeds that
 boundary.
 The generated Code Mode catalog still contains every active direct tool,
 including that subset, and every direct or inner call re-enters the same
@@ -973,41 +963,26 @@ tool policy. A large catalog without exactly one valid `codemode` tool fails
 fast instead of silently dropping tools. The source tool list is never mutated,
 so retries and diagnostics retain the admitted capability evidence.
 
-An explicit, verified request for a new Task or Space has one bounded
-lightweight binding path. Before Flue execution, an auxiliary classifier reads
-only the current request and may select that path only when the request is
-self-contained and requires exactly one canonical creation action. Earlier
-conversation, attachments, participant lookup or membership changes, multiple
-actions, an unverified speaker, and an existing Task conversation all require
-the complete runtime path.
+Every Task or Space request stays inside the ordinary Center Agent loop. The
+same frozen primary model sees the admitted requester, current request,
+relevant conversation history, OpenMeld Kernel, Organization context, and tool
+results together. It decides whether the user is asking for advice or
+authorizing a mutation, then calls the canonical tool only when that advances
+the actual goal. No pre-agent classifier, auxiliary completion model, binding
+marker, forced tool choice, reduced context path, or abbreviated
+acknowledgement may become a second semantic or answer owner.
 
-The lightweight path persists only the typed surface decision in the existing
-durable callback context. It does not store request text or create another
-conversation state. It skips Organization Documents, Organization Skills, and
-Computer materialization; exposes only the matching canonical create tool;
-and sends the auxiliary provider only the current request plus authoritative
-turn time. The same worker-owned auxiliary model that classifies this bounded
-request fills the one forced create-tool call and the short result
-acknowledgement. It is not the member's selected primary model and is not an
-automatic fallback after a primary-model failure. The created Task or Space
-uses the frozen selected primary model for its substantive work. This keeps the
-mechanical binding step bounded without changing the Organization's model
-choice. The tool keeps its existing schema, execution wrapper, Core
-authorization, idempotency, audit, result, callback, and publication paths.
-After the create result, the provider receives no tools, which prevents a
-second mutation. Classifier failure, timeout, insufficient context, or any
-unsupported request falls back to the complete runtime path. Keyword rules do
-not grant this binding.
-
-When the same self-contained Task or Space request comes from an unlinked
-connected Message Channel member, the classifier may identify the requested
-surface but must not expose the unavailable create tool or let the model explain
-the missing catalog. The worker instead forces the existing identity-boundary
-tool, preserves the selected model's valid reasoning contract, and records the
-private account connection action. The visible reply says that account
-connection is needed and points to the private message in ordinary user
-language. Internal tool, catalog, session, route, and permission vocabulary is
-never a user-facing recovery instruction.
+An explicit request to create a Task or Space remains binding, while a question
+about whether, what, or how to create one remains advice. The primary Agent
+makes that distinction from the complete context. Core still owns
+authorization, audit, mutation truth, and publication. The Agent must preserve
+and use a successful equivalent tool result already present in the conversation
+instead of repeating the write. An unlinked
+connected Message Channel member stays in the same main loop; when a requested
+effect truly requires personal OpenMeld access, the Agent uses the existing
+identity-boundary and private continuation tools under their normal contracts.
+The visible reply uses ordinary product language and never exposes tool,
+catalog, session, route, or permission infrastructure.
 
 ### Conversation compaction and runtime rollover
 
@@ -1221,7 +1196,8 @@ surface adopts official features where they are free**:
     active for that turn inside an isolated Dynamic Worker. Direct tools remain
     available for simple calls while the direct schema catalog is within its
     provider-payload budget; larger catalogs are exposed through `codemode`
-    alone without removing any inner capability. Generated code receives no
+    plus the fixed generic Connected App tools without removing any inner
+    capability. Generated code receives no
     OpenMeld secrets,
     Worker bindings, Node.js APIs, host filesystem, or unrestricted outbound
     network access, and every inner tool call re-enters the ordinary

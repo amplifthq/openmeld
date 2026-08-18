@@ -92,6 +92,20 @@ describe("remote agent system prompt", () => {
     expect(prompt).not.toContain("OpenMeld model in brief:");
   });
 
+  it("keeps advice questions separate from authorization to change Organization state", () => {
+    const prompt = buildTestSystemPrompt();
+
+    expect(prompt).toContain(
+      "A question about what to do, what comes next, or how to proceed asks for guidance; it does not authorize an external write."
+    );
+    expect(prompt).toContain(
+      "Conversation context may resolve what the user is asking about, but it cannot turn that question into permission to execute a proposed action."
+    );
+    expect(prompt).toContain(
+      "Only execute an ordinary write when the current request or a clear answer to one exact action proposal authorizes that effect."
+    );
+  });
+
   it("routes work from live capability signals instead of a fixed organization matrix", () => {
     const prompt = buildTestSystemPrompt();
 
@@ -343,8 +357,20 @@ describe("remote agent system prompt", () => {
       "GitHub is not included in openmeld_list_connected_apps"
     );
     expect(prompt).toContain(
-      "call the matching direct github_* tool before concluding that GitHub is unavailable"
+      "when that matching GitHub tool is not exposed directly, call it through Code Mode"
     );
+    expect(prompt).toContain(
+      "when the tool needed to complete the request is not exposed directly"
+    );
+  });
+
+  it("does not repeat an equivalent write that already succeeded", () => {
+    const prompt = buildTestSystemPrompt();
+
+    expect(prompt).toContain(
+      "Before executing a write, inspect successful tool results already present in this conversation"
+    );
+    expect(prompt).toContain("use that result and do not repeat the write");
   });
 
   it("uses one low-friction authorization policy across tools", () => {

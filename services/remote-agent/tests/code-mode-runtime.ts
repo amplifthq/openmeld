@@ -10,5 +10,4 @@ export const TEST_CODE_MODE_RUNTIME: RemoteAgentCodeModeRuntime = {
     execute: async () => ({ result: null }),
   }),
   createExecutor: () => ({}),
-  truncateResult: (value) => value,
 };

@@ -49,12 +49,12 @@ that choice is binding even for short work: the Center Agent creates the Task
 before doing the work and does not silently substitute Chat or a Space. This
 rule is identical across Web, OpenMeld Spaces, Slack, the OpenMeld CLI, and
 other contracted Message Channels. The shared Remote Agent admission and
-provider-execution path enforces this choice; a prompt reminder or one
-carrier-specific intent rule is not sufficient. A verified request that is
-both self-contained and exactly one explicit Task creation may use the bounded
-lightweight binding path, but it still executes the canonical Task tool and
-Core mutation. Requests that require earlier conversation, attachments,
-participant lookup, or another action use the complete runtime context.
+provider-execution path preserves this choice inside the ordinary Center Agent
+loop: the same primary Agent sees the complete admitted context, decides that
+the explicit Task choice is binding, and calls the canonical Task tool. Core
+then authorizes and records the mutation. No carrier-specific keyword rule,
+pre-agent classifier, auxiliary model, forced tool choice, or abbreviated
+acknowledgement may reinterpret or complete this request outside that loop.
 
 ## Canonical Vocabulary
 

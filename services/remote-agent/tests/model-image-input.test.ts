@@ -2,7 +2,6 @@ import { stream as streamOpenAICompletions } from "@earendil-works/pi-ai/api/ope
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
 import { describe, expect, it, vi } from "vitest";
 import { REMOTE_AGENT_GITHUB_TOOL_NAMES } from "../agent-core/github-tools";
-import { REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER } from "../agent-core/work-surface-routing";
 import {
   declareRemoteAgentModelImageInput,
   declareRemoteAgentModelReasoning,
@@ -173,7 +172,7 @@ describe("Remote Agent model reasoning", () => {
     );
   });
 
-  it("keeps connected App and GitHub actions direct alongside Code Mode for a large tool surface", async () => {
+  it("keeps large GitHub capability available through Code Mode without duplicating every action in the provider payload", async () => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
       {},
@@ -213,14 +212,15 @@ describe("Remote Agent model reasoning", () => {
       TEXT_ONLY_MODEL
     );
 
-    expect(payload).toMatchObject({
-      tools: [...connectedAppTools, ...githubTools, codemode],
+    expect(payload).toMatchObject({ tools: [...connectedAppTools, codemode] });
+    expect(payload).not.toMatchObject({
+      tools: expect.arrayContaining(githubTools),
     });
     expect(tools).toHaveLength(66 + githubTools.length);
     expect(reportStage).toHaveBeenCalledWith(
       expect.objectContaining({
         messageCount: 1,
-        toolCount: 4 + githubTools.length,
+        toolCount: 4,
       })
     );
   });
@@ -276,16 +276,8 @@ describe("Remote Agent model reasoning", () => {
     );
   });
 
-  it("forces an explicitly requested Task before compacting the tool surface", async () => {
-    const classifyWorkSurface = vi.fn().mockResolvedValue({
-      context: "self_contained",
-      surface: "new_task",
-    });
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      undefined,
-      classifyWorkSurface
-    );
+  it("keeps an explicitly requested Task with the primary Agent while compacting the tool surface", async () => {
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
     const createTask = {
       function: { name: "openmeld_create_task" },
       type: "function",
@@ -323,158 +315,83 @@ describe("Remote Agent model reasoning", () => {
       TEXT_ONLY_MODEL
     );
 
-    expect(classifyWorkSurface).toHaveBeenCalledWith(
-      "Create a dedicated Task for this investigation."
-    );
     expect(payload).toMatchObject({
-      parallel_tool_calls: false,
       reasoning: { effort: "high" },
-      tool_choice: {
-        function: { name: "openmeld_create_task" },
-        type: "function",
-      },
-      tools: [createTask],
-    });
-  });
-
-  it("drops old conversation history for a preclassified lightweight binding", async () => {
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
-    const createTask = {
-      function: { name: "openmeld_create_task" },
-      type: "function",
-    };
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [
-          {
-            content: `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_task`,
-            role: "system",
-          },
-          { content: "very large old conversation", role: "user" },
-          { content: "old reply", role: "assistant" },
-          {
-            content: [
-              "[OpenMeld conversation continuity]",
-              "This is deliberately large prior context.",
-              "[Current verified request]",
-              "Create a dedicated Task to research competitor onboarding.",
-              "",
-              "[OpenMeld turn context]",
-              "Authoritative UTC time for this turn: 2026-08-12T00:00:00.000Z",
-            ].join("\n"),
-            role: "user",
-          },
-        ],
-        reasoning: { effort: "high" },
-        tools: [
-          createTask,
-          {
-            function: { name: "openmeld_create_space" },
-            type: "function",
-          },
-        ],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(JSON.stringify(payload)).not.toContain(
-      "very large old conversation"
-    );
-    expect(payload).toMatchObject({
-      max_tokens: 2048,
-      messages: [
-        {
-          content: `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_task`,
-          role: "system",
-        },
-        {
-          content:
-            "Create a dedicated Task to research competitor onboarding.\n\n[OpenMeld turn context]\nAuthoritative UTC time for this turn: 2026-08-12T00:00:00.000Z",
-          role: "user",
-        },
-      ],
-      reasoning: { effort: "high" },
-      tool_choice: {
-        function: { name: "openmeld_create_task" },
-        type: "function",
-      },
-      tools: [createTask],
-    });
-    expect(JSON.stringify(payload)).not.toContain(
-      "deliberately large prior context"
-    );
-  });
-
-  it("disables every tool after the lightweight binding tool returns", async () => {
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
-    const payload = await options.onPayload?.(
-      {
-        messages: [
-          {
-            content: `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_task`,
-            role: "system",
-          },
-          { content: "old request", role: "user" },
-          { content: "old response", role: "assistant" },
-          {
-            content:
-              "Create a dedicated Task to research competitor onboarding.",
-            role: "user",
-          },
-          {
-            role: "assistant",
-            tool_calls: [
-              {
-                function: {
-                  arguments:
-                    '{"goal":"Research competitor onboarding.","operationId":"op_1","title":"Competitor onboarding research"}',
-                  name: "openmeld_create_task",
-                },
-                id: "call_1",
-                type: "function",
-              },
-            ],
-          },
-          {
-            content: '{"task":{"id":"task_1"}}',
-            role: "tool",
-            tool_call_id: "call_1",
-          },
-        ],
-        reasoning: { effort: "high" },
-        tools: [
-          {
-            function: { name: "openmeld_create_task" },
-            type: "function",
-          },
-        ],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(JSON.stringify(payload)).not.toContain("old request");
-    expect(payload).toMatchObject({
-      max_tokens: 160,
-      parallel_tool_calls: false,
-      reasoning: { effort: "high" },
-      tools: [],
+      tools: [codemode],
     });
     expect(payload).not.toHaveProperty("tool_choice");
   });
 
-  it("forces an explicitly requested Space through the same provider boundary", async () => {
-    const classifyWorkSurface = vi.fn().mockResolvedValue({
-      context: "self_contained",
-      surface: "new_space",
-    });
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      undefined,
-      classifyWorkSurface
+  it("preserves a successful legacy Space result for the primary Agent without forcing another write", async () => {
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
+    const codemode = {
+      function: { name: "codemode" },
+      type: "function",
+    };
+    const messages = [
+      {
+        content: ["[OpenMeld work-surface binding]", "Surface: new_space"].join(
+          "\n"
+        ),
+        role: "system",
+      },
+      {
+        content: "请建一个 Space，专门做 OK8 的产品规划。",
+        role: "user",
+      },
+      {
+        content: null,
+        role: "assistant",
+        tool_calls: [
+          {
+            function: {
+              arguments: '{"name":"OK8 Product Planning"}',
+              name: "openmeld_create_space",
+            },
+            id: "legacy-create-space-call",
+            type: "function",
+          },
+        ],
+      },
+      {
+        content: JSON.stringify({
+          name: "OK8 Product Planning",
+          spaceId: "space_existing",
+        }),
+        role: "tool",
+        tool_call_id: "legacy-create-space-call",
+      },
+    ];
+    const tools = [
+      {
+        function: { name: "openmeld_create_space" },
+        type: "function",
+      },
+      ...Array.from({ length: 65 }, (_, index) => ({
+        function: { name: `tool_${String(index)}` },
+        type: "function",
+      })),
+      codemode,
+    ];
+
+    const payload = await options.onPayload?.(
+      { messages, reasoning: { effort: "high" }, tools },
+      TEXT_ONLY_MODEL
     );
-    const createSpace = {
-      function: { name: "openmeld_create_space" },
+
+    expect(payload).toMatchObject({
+      messages,
+      reasoning: { effort: "high" },
+      tools: [codemode],
+    });
+    expect(JSON.stringify(payload)).toContain("space_existing");
+    expect(payload).not.toHaveProperty("tool_choice");
+  });
+
+  it("keeps an explicitly requested Space with the primary Agent", async () => {
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
+    const codemode = {
+      function: { name: "codemode" },
       type: "function",
     };
 
@@ -493,7 +410,15 @@ describe("Remote Agent model reasoning", () => {
             function: { name: "openmeld_create_task" },
             type: "function",
           },
-          createSpace,
+          {
+            function: { name: "openmeld_create_space" },
+            type: "function",
+          },
+          ...Array.from({ length: 65 }, (_, index) => ({
+            function: { name: `tool_${String(index)}` },
+            type: "function",
+          })),
+          codemode,
         ],
       },
       TEXT_ONLY_MODEL
@@ -501,81 +426,13 @@ describe("Remote Agent model reasoning", () => {
 
     expect(payload).toMatchObject({
       reasoning: { effort: "high" },
-      tool_choice: {
-        function: { name: "openmeld_create_space" },
-        type: "function",
-      },
-      tools: [createSpace],
-    });
-  });
-
-  it("allows one requested Space message after the bound Space is created", async () => {
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
-    const createSpace = {
-      function: { name: "openmeld_create_space" },
-      type: "function",
-    };
-    const postSpaceMessage = {
-      function: { name: "openmeld_post_space_message" },
-      type: "function",
-    };
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [
-          {
-            content: `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_space`,
-            role: "system",
-          },
-          {
-            content:
-              "Create a private Space named Launch Room and add a three-item launch checklist.",
-            role: "user",
-          },
-          {
-            role: "assistant",
-            tool_calls: [
-              {
-                function: {
-                  arguments: '{"name":"Launch Room"}',
-                  name: "openmeld_create_space",
-                },
-                id: "call_create",
-                type: "function",
-              },
-            ],
-          },
-          {
-            content: '{"space":{"id":"space_1"}}',
-            role: "tool",
-            tool_call_id: "call_create",
-          },
-        ],
-        reasoning: { effort: "high" },
-        tools: [createSpace, postSpaceMessage],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(payload).toMatchObject({
-      max_tokens: 2048,
-      parallel_tool_calls: false,
-      reasoning: { effort: "high" },
-      tools: [postSpaceMessage],
+      tools: [codemode],
     });
     expect(payload).not.toHaveProperty("tool_choice");
   });
 
   it("keeps a Space-context request with other work on the full execution path", async () => {
-    const classifyWorkSurface = vi.fn().mockResolvedValue({
-      context: "conversation_required",
-      surface: "new_space",
-    });
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      undefined,
-      classifyWorkSurface
-    );
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
     const tools = [
       {
         function: { name: "openmeld_create_space" },
@@ -604,9 +461,6 @@ describe("Remote Agent model reasoning", () => {
       TEXT_ONLY_MODEL
     );
 
-    expect(classifyWorkSurface).toHaveBeenCalledWith(
-      "Space production smoke after deploy. Use the Organization GitHub App to read amplifthq/openmeld. Reply exactly SPACE_FINAL_SMOKE_OK main."
-    );
     expect(payload).toMatchObject({
       reasoning: { effort: "high" },
       tools,
@@ -614,94 +468,10 @@ describe("Remote Agent model reasoning", () => {
     expect(payload).not.toHaveProperty("tool_choice");
   });
 
-  it("closes the lightweight Space tool surface after the initial message", async () => {
+  it("keeps an unlinked Slack member's Space request with the primary Agent", async () => {
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
-    const payload = await options.onPayload?.(
-      {
-        messages: [
-          {
-            content: `${REMOTE_AGENT_WORK_SURFACE_BINDING_MARKER}\nSurface: new_space`,
-            role: "system",
-          },
-          {
-            content:
-              "Create a private Space named Launch Room and add a three-item launch checklist.",
-            role: "user",
-          },
-          {
-            role: "assistant",
-            tool_calls: [
-              {
-                function: {
-                  arguments: '{"name":"Launch Room"}',
-                  name: "openmeld_create_space",
-                },
-                id: "call_create",
-                type: "function",
-              },
-            ],
-          },
-          {
-            content: '{"space":{"id":"space_1"}}',
-            role: "tool",
-            tool_call_id: "call_create",
-          },
-          {
-            role: "assistant",
-            tool_calls: [
-              {
-                function: {
-                  arguments:
-                    '{"content":"- Confirm Web\n- Confirm CLI\n- Confirm Center Agent","referenceProfileIds":[],"spaceId":"space_1"}',
-                  name: "openmeld_post_space_message",
-                },
-                id: "call_post",
-                type: "function",
-              },
-            ],
-          },
-          {
-            content: '{"message":{"id":"message_1"}}',
-            role: "tool",
-            tool_call_id: "call_post",
-          },
-        ],
-        reasoning: { effort: "high" },
-        tools: [
-          {
-            function: { name: "openmeld_create_space" },
-            type: "function",
-          },
-          {
-            function: { name: "openmeld_post_space_message" },
-            type: "function",
-          },
-        ],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(payload).toMatchObject({
-      max_tokens: 160,
-      parallel_tool_calls: false,
-      reasoning: { effort: "high" },
-      tools: [],
-    });
-    expect(payload).not.toHaveProperty("tool_choice");
-  });
-
-  it("routes an unlinked Slack member's Space request to account connection", async () => {
-    const classifyWorkSurface = vi.fn().mockResolvedValue({
-      context: "self_contained",
-      surface: "new_space",
-    });
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      undefined,
-      classifyWorkSurface
-    );
-    const requireIdentity = {
-      function: { name: "openmeld_require_identity_for_action" },
+    const codemode = {
+      function: { name: "codemode" },
       type: "function",
     };
 
@@ -721,142 +491,29 @@ describe("Remote Agent model reasoning", () => {
         ],
         reasoning: { effort: "high" },
         tools: [
-          requireIdentity,
+          {
+            function: { name: "openmeld_require_identity_for_action" },
+            type: "function",
+          },
           {
             function: { name: "openmeld_get_navigation_action" },
             type: "function",
           },
-          {
-            function: { name: "openmeld_read_organization_directory" },
+          ...Array.from({ length: 65 }, (_, index) => ({
+            function: { name: `tool_${String(index)}` },
             type: "function",
-          },
+          })),
+          codemode,
         ],
       },
       TEXT_ONLY_MODEL
     );
 
-    expect(classifyWorkSurface).toHaveBeenCalledWith(
-      "Create a Space for the production smoke test."
-    );
     expect(payload).toMatchObject({
-      parallel_tool_calls: false,
       reasoning: { effort: "high" },
-      tool_choice: {
-        function: { name: "openmeld_require_identity_for_action" },
-        type: "function",
-      },
-      tools: [requireIdentity],
+      tools: [codemode],
     });
+    expect(payload).not.toHaveProperty("tool_choice");
     expect(JSON.stringify(payload)).not.toContain("tool catalog");
-  });
-
-  it("does not treat a Task mention in conversation continuity as current intent", async () => {
-    const classifyWorkSurface = vi.fn().mockResolvedValue({
-      context: "self_contained",
-      surface: "new_task",
-    });
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      undefined,
-      classifyWorkSurface
-    );
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [
-          {
-            content: [
-              "[Runtime conversation continuity]",
-              '{"text":"Create a Task for the old request."}',
-              "[End runtime conversation continuity]",
-              "",
-              "[Current verified request]",
-              "What is the current status?",
-            ].join("\n"),
-            role: "user",
-          },
-        ],
-        tools: [
-          {
-            function: { name: "openmeld_create_task" },
-            type: "function",
-          },
-        ],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(classifyWorkSurface).not.toHaveBeenCalled();
-    expect(payload).not.toHaveProperty("tool_choice");
-  });
-
-  it("does not reclassify a tool continuation", async () => {
-    const classifyWorkSurface = vi.fn().mockResolvedValue({
-      context: "self_contained",
-      surface: "new_space",
-    });
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      undefined,
-      classifyWorkSurface
-    );
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [
-          { content: "Create a Space.", role: "user" },
-          { content: "created", role: "tool", tool_call_id: "call_1" },
-        ],
-        reasoning: { effort: "high" },
-        tools: [
-          {
-            function: { name: "openmeld_create_space" },
-            type: "function",
-          },
-        ],
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(classifyWorkSurface).not.toHaveBeenCalled();
-    expect(payload).not.toHaveProperty("tool_choice");
-    expect(payload).toMatchObject({ reasoning: { effort: "high" } });
-  });
-
-  it("keeps the main Agent available when work-surface classification fails", async () => {
-    const classifyWorkSurface = vi
-      .fn()
-      .mockRejectedValue(new Error("classifier unavailable"));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
-      {},
-      undefined,
-      classifyWorkSurface
-    );
-    const tools = [
-      {
-        function: { name: "openmeld_create_task" },
-        type: "function",
-      },
-    ];
-
-    const payload = await options.onPayload?.(
-      {
-        messages: [{ content: "Create a new Task for this.", role: "user" }],
-        tools,
-      },
-      TEXT_ONLY_MODEL
-    );
-
-    expect(payload).toMatchObject({ tools });
-    expect(payload).not.toHaveProperty("tool_choice");
-    expect(warn).toHaveBeenCalledWith(
-      "[remote_agent.work_surface.classification_failed]",
-      expect.objectContaining({
-        error: "classifier unavailable",
-        submissionId: null,
-      })
-    );
-    warn.mockRestore();
   });
 });

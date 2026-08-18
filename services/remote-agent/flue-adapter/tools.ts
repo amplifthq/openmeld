@@ -23,7 +23,6 @@ import {
 
 export async function getRemoteAgentFlueTools(input: {
   agentActivityReadEnabled?: boolean;
-  allowedToolNames?: readonly string[] | null;
   codeModeRuntime?: RemoteAgentCodeModeRuntime;
   connectorExecution?: RemoteAgentConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
@@ -39,23 +38,10 @@ export async function getRemoteAgentFlueTools(input: {
   const unverifiedMember =
     input.turnEnvelope?.sender.kind === "member" &&
     !input.turnEnvelope.sender.verified;
-  const availableDefinitions = [
+  const definitions = [
     ...getRemoteAgentOpenMeldToolDefinitions(input),
     ...(unverifiedMember ? [] : (input.sandboxDefinitions ?? [])),
   ];
-  const allowedToolNames = input.allowedToolNames
-    ? new Set(input.allowedToolNames)
-    : null;
-  const definitions = allowedToolNames
-    ? availableDefinitions.filter((definition) =>
-        allowedToolNames.has(definition.name)
-      )
-    : availableDefinitions;
-  if (allowedToolNames && definitions.length !== allowedToolNames.size) {
-    throw new Error(
-      "Remote Agent lightweight binding requires every allowed tool to be available."
-    );
-  }
   const directTools = definitions.map((definition) =>
     toFlueTool({
       definition,
@@ -63,9 +49,6 @@ export async function getRemoteAgentFlueTools(input: {
       submissionId: input.submissionId,
     })
   );
-  if (allowedToolNames) {
-    return directTools;
-  }
   if (!input.env?.LOADER) {
     throw new Error("Remote Agent Code Mode Worker Loader is unavailable.");
   }
