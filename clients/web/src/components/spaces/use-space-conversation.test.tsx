@@ -11,7 +11,7 @@ import { useSpaceConversation } from "./use-space-conversation";
 const requestJsonMock = vi.hoisted(() => vi.fn());
 
 vi.mock("#/lib/openmeld-api/client", () => ({
-	createWebOpenMeldApiFoundation: vi.fn(() => ({
+	createUnscopedWebOpenMeldApiFoundation: vi.fn(() => ({
 		requestJson: requestJsonMock,
 	})),
 }));

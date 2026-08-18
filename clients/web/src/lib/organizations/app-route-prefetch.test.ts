@@ -58,7 +58,7 @@ vi.mock("#/lib/organizations/connector-connections", () => ({
 }));
 
 vi.mock("#/lib/spaces/api", () => ({
-	createWebSpaceApi: createWebSpaceApiMock,
+	createUnscopedWebSpaceApi: createWebSpaceApiMock,
 }));
 
 vi.mock("#/lib/organizations/center-agent", async () => {

@@ -4,8 +4,8 @@ import { fileURLToPath } from "node:url";
 import { currentDeviceTargetResponseSchema } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-	createCredentialedOpenMeldFetch,
-	createWebOpenMeldApiFoundation,
+	createOrganizationScopedWebOpenMeldApiFoundation,
+	createUnscopedWebOpenMeldApiFoundation,
 	resolveWebOpenMeldApiBaseUrl,
 } from "./client";
 
@@ -31,7 +31,7 @@ describe("web OpenMeld API foundation", () => {
 			);
 		});
 
-		const foundation = createWebOpenMeldApiFoundation({
+		const foundation = createUnscopedWebOpenMeldApiFoundation({
 			fetchImpl: fetchMock,
 		});
 		const result = await foundation.requestJson({
@@ -65,7 +65,7 @@ describe("web OpenMeld API foundation", () => {
 			);
 		});
 
-		const foundation = createWebOpenMeldApiFoundation({
+		const foundation = createUnscopedWebOpenMeldApiFoundation({
 			fetchImpl: fetchMock,
 			openMeldProfileId: "profile-123",
 		});
@@ -109,7 +109,7 @@ describe("web OpenMeld API foundation", () => {
 			);
 		});
 
-		const foundation = createWebOpenMeldApiFoundation({
+		const foundation = createUnscopedWebOpenMeldApiFoundation({
 			fetchImpl: fetchMock,
 		});
 
@@ -146,7 +146,7 @@ describe("web OpenMeld API foundation", () => {
 				})
 			)
 		);
-		const foundation = createWebOpenMeldApiFoundation({
+		const foundation = createOrganizationScopedWebOpenMeldApiFoundation({
 			fetchImpl: fetchMock,
 			organizationId: "org-openmeld",
 		});
@@ -168,23 +168,26 @@ describe("web OpenMeld API foundation", () => {
 		).toBeNull();
 	});
 
-	it("replaces stale Organization selectors with exactly one explicit selector", async () => {
+	it("sends exactly one explicit Organization selector", async () => {
 		const fetchMock = vi.fn<typeof fetch>(() =>
-			Promise.resolve(new Response(null, { status: 204 }))
+			Promise.resolve(
+				new Response(JSON.stringify({ availability: "missing" }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				})
+			)
 		);
-		const credentialedFetch = createCredentialedOpenMeldFetch(fetchMock, {
+		const foundation = createOrganizationScopedWebOpenMeldApiFoundation({
+			fetchImpl: fetchMock,
 			organizationSlug: "openmeld",
 		});
 
-		await credentialedFetch(
-			`${window.location.origin}/v1/organizations/current`,
-			{
-				headers: {
-					"x-openmeld-requested-organization-id": "org-stale",
-					"x-openmeld-requested-organization-slug": "stale",
-				},
-			}
-		);
+		await foundation.requestJson({
+			invalidMessage: "Invalid current device target response",
+			operation: "get current device target",
+			schema: currentDeviceTargetResponseSchema,
+			url: "/v1/devices/current",
+		});
 
 		const headers = fetchMock.mock.calls[0]?.[1]?.headers;
 		expect(headers).toBeInstanceOf(Headers);
@@ -196,9 +199,60 @@ describe("web OpenMeld API foundation", () => {
 		).toBe("openmeld");
 	});
 
+	it("keeps an explicit route slug authoritative over request-context state", async () => {
+		const fetchMock = vi.fn<typeof fetch>(() =>
+			Promise.resolve(
+				new Response(JSON.stringify({ availability: "missing" }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				})
+			)
+		);
+		const foundation = createOrganizationScopedWebOpenMeldApiFoundation({
+			fetchImpl: fetchMock,
+			organizationSlug: "route-organization",
+		});
+
+		await foundation.requestJson({
+			invalidMessage: "Invalid current device target response",
+			operation: "get current device target",
+			requestContext: {
+				activeOrganizationId: "session-organization",
+				actorContext: {
+					openMeldProfileId: "human-1",
+					profileKind: "human",
+					profileName: "Mira",
+					requestId: "request-1",
+				},
+			},
+			schema: currentDeviceTargetResponseSchema,
+			url: "/v1/devices/current",
+		});
+
+		const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+		expect(headers.get("x-openmeld-requested-organization-id")).toBeNull();
+		expect(headers.get("x-openmeld-requested-organization-slug")).toBe(
+			"route-organization"
+		);
+	});
+
+	it("fails before fetch when an Organization-scoped client has no valid selector", () => {
+		expect(() =>
+			createOrganizationScopedWebOpenMeldApiFoundation({
+				organizationId: "",
+			})
+		).toThrow();
+		expect(() =>
+			createOrganizationScopedWebOpenMeldApiFoundation({
+				organizationId: "org-1",
+				organizationSlug: "openmeld",
+			} as never)
+		).toThrow();
+	});
+
 	it("rejects path-prefixed baseUrl workarounds", () => {
 		expect(() =>
-			createWebOpenMeldApiFoundation({
+			createUnscopedWebOpenMeldApiFoundation({
 				baseUrl: "https://openmeld.test/proxy",
 			})
 		).toThrow("baseUrl must be origin-only");

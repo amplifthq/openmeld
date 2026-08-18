@@ -13,7 +13,7 @@ import type {
 	PrepareSessionWithTokenResponse,
 } from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { baseQueryOptions } from "#/query/query-config";
 import { startQueryKeys } from "#/query/query-keys";
 
@@ -24,7 +24,7 @@ export async function createPrepareSession(
 ): Promise<PrepareSessionWithTokenResponse> {
 	try {
 		const body = requireValidCreatePrepareSessionRequest(input);
-		return await createWebOpenMeldApiFoundation().requestJson({
+		return await createUnscopedWebOpenMeldApiFoundation().requestJson({
 			url: PREPARE_SESSIONS_PATH,
 			operation: "prepare.session.create",
 			method: "POST",
@@ -44,7 +44,7 @@ export async function readPrepareSession(input: {
 	prepareSessionId: string;
 }): Promise<PrepareSessionResponse> {
 	try {
-		return await createWebOpenMeldApiFoundation().requestJson({
+		return await createUnscopedWebOpenMeldApiFoundation().requestJson({
 			url: buildPrepareSessionPath(input.prepareSessionId),
 			operation: "prepare.session.read",
 			method: "GET",
@@ -83,7 +83,7 @@ export async function mintPrepareSessionToken(input: {
 	prepareSessionId: string;
 }): Promise<PrepareSessionWithTokenResponse> {
 	try {
-		return await createWebOpenMeldApiFoundation().requestJson({
+		return await createUnscopedWebOpenMeldApiFoundation().requestJson({
 			url: `${buildPrepareSessionPath(input.prepareSessionId)}/token`,
 			operation: "prepare.session.token.mint",
 			method: "POST",

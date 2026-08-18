@@ -6,7 +6,7 @@ import type {
 	AgentExecutionReadinessTargetRuntime,
 	GetAgentExecutionReadinessBatchResponse,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export const AGENT_EXECUTION_READINESS_REQUEST_BATCH_SIZE = 100;
 export const AGENT_EXECUTION_READINESS_UI_BATCH_SIZE = 12;
@@ -27,7 +27,9 @@ export async function readAgentExecutionReadinessBatch(input: {
 	targetRuntime?: AgentExecutionReadinessTargetRuntime;
 }): Promise<GetAgentExecutionReadinessBatchResponse> {
 	try {
-		const api = createAgentProfileBindingApi(createWebOpenMeldApiFoundation());
+		const api = createAgentProfileBindingApi(
+			createUnscopedWebOpenMeldApiFoundation()
+		);
 		const responses: GetAgentExecutionReadinessBatchResponse[] = [];
 		for (const agentProfileIds of chunkAgentExecutionReadinessProfileIds(
 			input.agentProfileIds
@@ -54,7 +56,9 @@ export async function notifyAgentExecutionReadinessRefresh(input: {
 	agentProfileIds: readonly string[];
 }): Promise<void> {
 	try {
-		const api = createAgentProfileBindingApi(createWebOpenMeldApiFoundation());
+		const api = createAgentProfileBindingApi(
+			createUnscopedWebOpenMeldApiFoundation()
+		);
 		const uniqueProfileIds = [...new Set(input.agentProfileIds)];
 		if (uniqueProfileIds.length === 0) {
 			return;

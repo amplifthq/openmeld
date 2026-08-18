@@ -3,7 +3,7 @@ import {
 	selectLastSelectedOrganizationResponseSchema,
 } from "@openmeld/schemas";
 import type { SelectLastSelectedOrganizationResponse } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export const ACCOUNT_LAST_SELECTED_ORGANIZATION_PATH =
 	"/v1/account/last-selected-organization" as const;
@@ -14,7 +14,7 @@ export async function selectLastSelectedOrganization(
 	const body = selectLastSelectedOrganizationBodySchema.parse({
 		organizationId,
 	});
-	return await createWebOpenMeldApiFoundation().requestJson({
+	return await createUnscopedWebOpenMeldApiFoundation().requestJson({
 		body: JSON.stringify(body),
 		headers: { "content-type": "application/json" },
 		invalidMessage: "Invalid Organization selection response.",

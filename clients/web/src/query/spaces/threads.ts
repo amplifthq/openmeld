@@ -5,7 +5,7 @@ import type {
 	ListSpaceThreadsResponse,
 } from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { baseQueryOptions } from "#/query/query-config";
 import { shouldRetrySpaceQuery } from "./retry";
 import { SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS, spaceQueryKeys } from "./status";
@@ -15,7 +15,7 @@ export async function readSpaceThreads(input: {
 	openMeldProfileId?: string;
 }): Promise<ListSpaceThreadsResponse> {
 	try {
-		return await createWebSpaceApi({
+		return await createUnscopedWebSpaceApi({
 			...(input.openMeldProfileId === undefined
 				? {}
 				: { openMeldProfileId: input.openMeldProfileId }),
@@ -33,7 +33,7 @@ export async function readSpaceThreadSignals(input: {
 	openMeldProfileId?: string;
 }): Promise<ListSpaceThreadSignalsResponse> {
 	try {
-		return await createWebSpaceApi({
+		return await createUnscopedWebSpaceApi({
 			...(input.openMeldProfileId === undefined
 				? {}
 				: { openMeldProfileId: input.openMeldProfileId }),

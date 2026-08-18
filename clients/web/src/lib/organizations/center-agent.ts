@@ -22,7 +22,10 @@ import type {
 } from "@openmeld/schemas/types";
 import { createIsomorphicFn } from "@tanstack/react-start";
 import { getRequiredServerEnv } from "#/env";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import {
+	createOrganizationScopedWebOpenMeldApiFoundation,
+	createUnscopedWebOpenMeldApiFoundation,
+} from "#/lib/openmeld-api/client";
 
 export type CenterAgentFailure = StructuredApiClientFailure;
 
@@ -440,10 +443,10 @@ function appendCenterAgentDiagnostics(
 
 function createWebCenterAgentApi(organizationId: string) {
 	return createCenterAgentApi(
-		createWebOpenMeldApiFoundation({ organizationId })
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
 	);
 }
 
 function createUnscopedWebCenterAgentApi() {
-	return createCenterAgentApi(createWebOpenMeldApiFoundation());
+	return createCenterAgentApi(createUnscopedWebOpenMeldApiFoundation());
 }

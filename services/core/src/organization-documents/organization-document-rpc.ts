@@ -77,6 +77,7 @@ import {
   requireCenterAgentMemberResearchDraftTarget,
 } from "../center-agent-member-research/member-research-repository";
 import { type CoreBindings, organizationDocumentsDb } from "../lib/bindings";
+import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import {
   readOrganizationPersonalClassification,
   resolveActiveOrganizationMembership,
@@ -780,14 +781,10 @@ function requireExpectedOrganization(
   activeOrganizationId: string,
   expectedOrganizationId: string
 ): void {
-  if (activeOrganizationId === expectedOrganizationId) {
-    return;
-  }
-  throw createCoreRpcHttpError({
-    code: "organization_document.organization_context_changed",
-    reason:
-      "The active Organization changed before this document request was applied.",
-    status: 409,
+  requireExpectedOrganizationContext({
+    actualOrganizationId: activeOrganizationId,
+    errorCode: "organization_document.organization_context_changed",
+    expectedOrganizationId,
   });
 }
 

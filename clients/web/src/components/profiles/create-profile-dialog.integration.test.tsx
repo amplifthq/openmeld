@@ -89,7 +89,7 @@ vi.mock("#/lib/profiles/create-agent-profile", () => ({
 }));
 
 vi.mock("#/lib/spaces/api", () => ({
-	createWebSpaceApi: () => ({
+	createOrganizationScopedWebSpaceApi: () => ({
 		addMembers: addMembersMock,
 	}),
 }));
@@ -535,6 +535,7 @@ describe("CreateProfileDialog", () => {
 		const onAfterJoin = vi.fn().mockResolvedValue(undefined);
 		renderCreateProfileDialog({
 			onAfterJoin,
+			organizationId: "organization-123",
 			spaceContext: { spaceId: "space-123", spaceName: "Design Room" },
 		});
 
@@ -579,6 +580,7 @@ describe("CreateProfileDialog", () => {
 	it("does not create an orphan agent when the account has no human profile in a Space", async () => {
 		listStartProfilesMock.mockReset().mockResolvedValue([]);
 		renderCreateProfileDialog({
+			organizationId: "organization-123",
 			spaceContext: { spaceId: "space-123", spaceName: "Design Room" },
 		});
 

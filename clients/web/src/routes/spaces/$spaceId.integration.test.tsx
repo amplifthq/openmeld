@@ -103,7 +103,7 @@ vi.mock("#/lib/auth-session", () => ({
 }));
 
 vi.mock("#/lib/spaces/api", () => ({
-	createWebSpaceApi: createWebSpaceApiMock,
+	createUnscopedWebSpaceApi: createWebSpaceApiMock,
 }));
 
 vi.mock("#/lib/spaces/protected-space-access", () => ({

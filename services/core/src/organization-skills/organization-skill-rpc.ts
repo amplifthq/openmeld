@@ -49,6 +49,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
 import { type CoreBindings, organizationSkillsDb } from "../lib/bindings";
+import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
@@ -398,14 +399,10 @@ function requireExpectedOrganization(
   activeOrganizationId: string,
   expectedOrganizationId: string
 ): void {
-  if (activeOrganizationId === expectedOrganizationId) {
-    return;
-  }
-  throw createCoreRpcHttpError({
-    code: "organization_skill.organization_context_changed",
-    reason:
-      "The active Organization changed before this Skill request was applied.",
-    status: 409,
+  requireExpectedOrganizationContext({
+    actualOrganizationId: activeOrganizationId,
+    errorCode: "organization_skill.organization_context_changed",
+    expectedOrganizationId,
   });
 }
 

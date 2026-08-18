@@ -50,7 +50,10 @@ import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveConnectedRuntimeTarget } from "#/lib/connect/connected-runtime";
 import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
 import { recordProfileSpaceHistory } from "#/lib/onboarding/record-profile-space-history";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import {
+	createOrganizationScopedWebOpenMeldApiFoundation,
+	resolveWebOrganizationSelector,
+} from "#/lib/openmeld-api/client";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationSpacePath,
@@ -60,7 +63,7 @@ import { buildProfileRequestContext } from "#/lib/profiles/human-profiles";
 import { resolveProfileBindingCatalogExecutionTarget } from "#/lib/profiles/profile-binding-target";
 import { listActiveProfilesByKind } from "#/lib/profiles/profiles";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
 import {
 	applySpaceMemberRemovalToCache,
 	applySpaceMembersResponseToCache,
@@ -2068,12 +2071,12 @@ function useSpaceAddProfilesHandler(input: {
 				);
 			}
 
-			const addMembersResult = await createWebSpaceApi({
+			const addMembersResult = await createOrganizationScopedWebSpaceApi({
 				openMeldProfileId: controller.profileId,
-				organizationSlug: input.organizationSlug,
-				...(input.organizationId === null
-					? {}
-					: { organizationId: input.organizationId }),
+				...resolveWebOrganizationSelector({
+					organizationId: input.organizationId,
+					organizationSlug: input.organizationSlug,
+				}),
 			}).addMembers({
 				memberProfileIds,
 				requestContext: buildProfileRequestContext(actingProfile),
@@ -2185,12 +2188,12 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 					"OpenMeld cannot add Organization Directory profiles until this Space is ready."
 				);
 			}
-			const addMembersResult = await createWebSpaceApi({
+			const addMembersResult = await createOrganizationScopedWebSpaceApi({
 				openMeldProfileId: controller.profileId,
-				organizationSlug: input.organizationSlug,
-				...(input.organizationId === null
-					? {}
-					: { organizationId: input.organizationId }),
+				...resolveWebOrganizationSelector({
+					organizationId: input.organizationId,
+					organizationSlug: input.organizationSlug,
+				}),
 			}).addOrganizationDirectoryProfilesToSpace({
 				directoryProfileIds,
 				...(selection.expectedCenterAgentProfileId
@@ -2265,7 +2268,7 @@ function useConvertDirectMessageToSpaceHandler(input: {
 				);
 			}
 			const result = await createDirectMessageApi(
-				createWebOpenMeldApiFoundation({
+				createOrganizationScopedWebOpenMeldApiFoundation({
 					organizationSlug: input.orgSlug,
 					openMeldProfileId: controller.profileId,
 				})
@@ -2435,12 +2438,12 @@ function useSpaceRemoveMemberHandler(input: {
 
 			let removeMembersResult: RemoveSpaceMembersResponse;
 			try {
-				removeMembersResult = await createWebSpaceApi({
+				removeMembersResult = await createOrganizationScopedWebSpaceApi({
 					openMeldProfileId: controller.profileId,
-					organizationSlug: input.organizationSlug,
-					...(input.organizationId === null
-						? {}
-						: { organizationId: input.organizationId }),
+					...resolveWebOrganizationSelector({
+						organizationId: input.organizationId,
+						organizationSlug: input.organizationSlug,
+					}),
 				}).removeMembers({
 					memberProfileIds,
 					requestContext: buildProfileRequestContext(actingProfile),

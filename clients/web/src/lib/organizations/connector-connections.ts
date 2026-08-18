@@ -10,6 +10,7 @@ import {
 	connectorConnectionListResponseSchema,
 	connectorCredentialConnectResponseSchema,
 	connectorDisconnectResponseSchema,
+	ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE,
 } from "@openmeld/schemas";
 import type {
 	ConnectorAppCatalogResponse,
@@ -23,7 +24,7 @@ import type {
 	ConnectorService,
 	CreateConnectorAppRequestBody,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 const CONNECTOR_ORGANIZATION_CONTEXT_CHANGED_CODE =
 	"connector.organization_context_changed";
@@ -228,7 +229,7 @@ export function resolveConnectorConnectionErrorMessage(
 		(failure.upstreamCode ?? failure.code) ===
 		CONNECTOR_ORGANIZATION_CONTEXT_CHANGED_CODE
 	) {
-		return `Your active Organization changed in another tab. Refresh this page before updating ${appName}.`;
+		return ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE;
 	}
 	if (failure.status !== null && failure.status >= 500) {
 		return `OpenMeld could not finish ${appName} setup. Try again.`;
@@ -447,5 +448,5 @@ function requireUserId(userId: string | undefined): string {
 function createConnectorApiFoundation(
 	organizationId: string
 ): OpenMeldApiClientFoundation {
-	return createWebOpenMeldApiFoundation({ organizationId });
+	return createOrganizationScopedWebOpenMeldApiFoundation({ organizationId });
 }
