@@ -16,6 +16,7 @@ import {
 	type SidebarPersistedState,
 	writeInnerSidebarStateCookie,
 } from "#/lib/sidebar-width-cookie";
+import { AppSidebarGroupStateProvider } from "./app-sidebar-group";
 import { CenterTruncatedText } from "./center-truncated-text";
 
 type AppInnerSidebarProps = {
@@ -36,16 +37,25 @@ function AppInnerSidebarState(input: AppInnerSidebarProps) {
 			input.initialState ?? SIDEBAR_DEFAULT_STATE
 		)
 	);
+	const persistState = useCallback(
+		(next: SidebarPersistedState) => {
+			writeInnerSidebarStateCookie(input.preferenceKey, next);
+			return next;
+		},
+		[input.preferenceKey]
+	);
 
 	const handleWidthChange = useCallback(
 		(width: string) => {
-			setState((current) => {
-				const next = { ...current, width };
-				writeInnerSidebarStateCookie(input.preferenceKey, next);
-				return next;
-			});
+			setState((current) => persistState({ ...current, width }));
 		},
-		[input.preferenceKey]
+		[persistState]
+	);
+	const handleCollapsedGroupIdsChange = useCallback(
+		(collapsedGroupIds: readonly string[]) => {
+			setState((current) => persistState({ ...current, collapsedGroupIds }));
+		},
+		[persistState]
 	);
 
 	return (
@@ -58,7 +68,12 @@ function AppInnerSidebarState(input: AppInnerSidebarProps) {
 			width={state.width}
 		>
 			<Sidebar className="bg-background">
-				{input.children}
+				<AppSidebarGroupStateProvider
+					collapsedGroupIds={state.collapsedGroupIds}
+					onCollapsedGroupIdsChange={handleCollapsedGroupIdsChange}
+				>
+					{input.children}
+				</AppSidebarGroupStateProvider>
 				<SidebarRail
 					enableToggle={false}
 					nested

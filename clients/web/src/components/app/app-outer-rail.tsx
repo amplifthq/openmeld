@@ -6,7 +6,6 @@ import {
 	SidebarFooter,
 	SidebarGroup,
 	SidebarGroupContent,
-	SidebarGroupLabel,
 	SidebarHeader,
 	SidebarRail,
 	SidebarTrigger,
@@ -67,6 +66,10 @@ import {
 	APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 } from "#/components/app/app-nav-item-style";
 import { AppOuterRailFrame } from "#/components/app/app-outer-rail-frame";
+import {
+	AppSidebarGroup,
+	AppSidebarGroupStateProvider,
+} from "#/components/app/app-sidebar-group";
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
 import {
 	type AppOuterRailDestination,
@@ -124,6 +127,7 @@ type AppRailDestination = {
 
 type AppRailGroup = {
 	destinations: readonly AppRailDestination[];
+	id: string;
 	label: string | null;
 };
 
@@ -156,6 +160,7 @@ function buildAppRailGroups(input: {
 }): readonly AppRailGroup[] {
 	return [
 		{
+			id: "home",
 			label: null,
 			destinations: [
 				{
@@ -167,6 +172,7 @@ function buildAppRailGroups(input: {
 			],
 		},
 		{
+			id: "work",
 			label: "Work",
 			destinations: [
 				{
@@ -199,6 +205,7 @@ function buildAppRailGroups(input: {
 			],
 		},
 		{
+			id: "team",
 			label: "Team",
 			destinations: [
 				{
@@ -222,6 +229,7 @@ function buildAppRailGroups(input: {
 			],
 		},
 		{
+			id: "resources",
 			label: "Resources",
 			destinations: [
 				{
@@ -332,6 +340,12 @@ export function AppOuterRail({
 		},
 		[persistState]
 	);
+	const handleCollapsedGroupIdsChange = useCallback(
+		(collapsedGroupIds: readonly string[]) => {
+			setState((current) => persistState({ ...current, collapsedGroupIds }));
+		},
+		[persistState]
+	);
 	// Cmd/Ctrl+B and the drag handle's plain click both cycle forward through
 	// all three tiers in the same fixed order.
 	const cycleTier = useCallback(() => {
@@ -355,66 +369,71 @@ export function AppOuterRail({
 	}, [cycleTier]);
 
 	return (
-		<AppOuterRailFrame
-			onCompactChange={handleCompactChange}
-			onOpenChange={handleOpenChange}
-			onWidthChange={handleWidthChange}
-			state={state}
+		<AppSidebarGroupStateProvider
+			collapsedGroupIds={state.collapsedGroupIds}
+			onCollapsedGroupIdsChange={handleCollapsedGroupIdsChange}
 		>
-			<SidebarHeader className="shrink-0 overflow-hidden border-b-0 p-2 pt-3">
-				<OrganizationSwitcher
-					account={{ ...account, image: accountAvatarImage }}
-					humanProfileAvatar={humanProfileAvatar}
-					tier={state.tier}
-				/>
-			</SidebarHeader>
-			<SidebarContent
-				className={cn(
-					"overflow-hidden py-2",
-					state.tier === "full" ? "px-3" : "px-2"
-				)}
+			<AppOuterRailFrame
+				onCompactChange={handleCompactChange}
+				onOpenChange={handleOpenChange}
+				onWidthChange={handleWidthChange}
+				state={state}
 			>
-				{buildAppRailGroups({
-					orgSlug,
-					centerAgentUnreadCount,
-					prefetchCenterAgentConversation,
-				}).map((group, index) => (
-					<AppRailNavigationGroup
-						activeDestination={activeDestination}
-						computerAttentionTone={computerAttentionTone}
-						group={group}
-						key={group.label ?? "home"}
-						position={index}
+				<SidebarHeader className="shrink-0 overflow-hidden border-b-0 p-2 pt-3">
+					<OrganizationSwitcher
+						account={{ ...account, image: accountAvatarImage }}
+						humanProfileAvatar={humanProfileAvatar}
 						tier={state.tier}
 					/>
-				))}
-			</SidebarContent>
-			<SidebarFooter className="gap-1 border-t-0 p-2 pb-3">
-				<AppRailTrigger tier={state.tier} />
-				<FluidNavMenu
-					activeIndicatorClassName="bg-sidebar-accent"
-					activeValue={activeDestination}
-					aria-label="App utilities"
-					focusIndicatorClassName="border-sidebar-ring"
-					hoverIndicatorClassName="bg-sidebar-accent"
+				</SidebarHeader>
+				<SidebarContent
+					className={cn(
+						"overflow-hidden py-2",
+						state.tier === "full" ? "px-3" : "px-2"
+					)}
 				>
-					<AppRailLink
-						active={activeDestination === "settings"}
-						computerAttentionTone={computerAttentionTone}
-						destination={buildSettingsRailItem({
-							orgSlug,
-						})}
-						index={0}
-						tier={state.tier}
-					/>
-				</FluidNavMenu>
-			</SidebarFooter>
-			<SidebarRail
-				autoCollapse
-				className="after:top-2 after:bottom-9"
-				separatorLabel="Resize app rail"
-			/>
-		</AppOuterRailFrame>
+					{buildAppRailGroups({
+						orgSlug,
+						centerAgentUnreadCount,
+						prefetchCenterAgentConversation,
+					}).map((group, index) => (
+						<AppRailNavigationGroup
+							activeDestination={activeDestination}
+							computerAttentionTone={computerAttentionTone}
+							group={group}
+							key={group.id}
+							position={index}
+							tier={state.tier}
+						/>
+					))}
+				</SidebarContent>
+				<SidebarFooter className="gap-1 border-t-0 p-2 pb-3">
+					<AppRailTrigger tier={state.tier} />
+					<FluidNavMenu
+						activeIndicatorClassName="bg-sidebar-accent"
+						activeValue={activeDestination}
+						aria-label="App utilities"
+						focusIndicatorClassName="border-sidebar-ring"
+						hoverIndicatorClassName="bg-sidebar-accent"
+					>
+						<AppRailLink
+							active={activeDestination === "settings"}
+							computerAttentionTone={computerAttentionTone}
+							destination={buildSettingsRailItem({
+								orgSlug,
+							})}
+							index={0}
+							tier={state.tier}
+						/>
+					</FluidNavMenu>
+				</SidebarFooter>
+				<SidebarRail
+					autoCollapse
+					className="after:top-2 after:bottom-9"
+					separatorLabel="Resize app rail"
+				/>
+			</AppOuterRailFrame>
+		</AppSidebarGroupStateProvider>
 	);
 }
 
@@ -425,39 +444,49 @@ function AppRailNavigationGroup(input: {
 	computerAttentionTone: SettingsAttentionTone | null;
 	tier: SidebarTier;
 }) {
-	return (
-		<SidebarGroup
-			className={cn(
-				APP_NAV_GROUP_CLASS_NAME,
-				input.position > 0 &&
-					(input.tier === "full" ? APP_NAV_GROUP_SPACING_CLASS_NAME : "mt-2")
-			)}
+	const navigation = (
+		<FluidNavMenu
+			activeIndicatorClassName="bg-sidebar-accent"
+			activeValue={input.activeDestination}
+			aria-label={input.group.label ?? "Home"}
+			focusIndicatorClassName="border-sidebar-ring"
+			hoverIndicatorClassName="bg-sidebar-accent"
 		>
-			{input.tier === "full" && input.group.label ? (
-				<SidebarGroupLabel className={APP_NAV_GROUP_LABEL_CLASS_NAME}>
-					{input.group.label}
-				</SidebarGroupLabel>
-			) : null}
-			<SidebarGroupContent>
-				<FluidNavMenu
-					activeIndicatorClassName="bg-sidebar-accent"
-					activeValue={input.activeDestination}
-					aria-label={input.group.label ?? "Home"}
-					focusIndicatorClassName="border-sidebar-ring"
-					hoverIndicatorClassName="bg-sidebar-accent"
-				>
-					{input.group.destinations.map((destination, index) => (
-						<AppRailLink
-							active={destination.id === input.activeDestination}
-							computerAttentionTone={input.computerAttentionTone}
-							destination={destination}
-							index={index}
-							key={destination.id}
-							tier={input.tier}
-						/>
-					))}
-				</FluidNavMenu>
-			</SidebarGroupContent>
+			{input.group.destinations.map((destination, index) => (
+				<AppRailLink
+					active={destination.id === input.activeDestination}
+					computerAttentionTone={input.computerAttentionTone}
+					destination={destination}
+					index={index}
+					key={destination.id}
+					tier={input.tier}
+				/>
+			))}
+		</FluidNavMenu>
+	);
+	const groupClassName = cn(
+		APP_NAV_GROUP_CLASS_NAME,
+		input.position > 0 &&
+			(input.tier === "full" ? APP_NAV_GROUP_SPACING_CLASS_NAME : "mt-2")
+	);
+
+	if (input.tier === "full" && input.group.label) {
+		return (
+			<AppSidebarGroup
+				groupClassName={groupClassName}
+				groupId={input.group.id}
+				label={input.group.label}
+				labelClassName={APP_NAV_GROUP_LABEL_CLASS_NAME}
+				labelText={input.group.label}
+			>
+				{navigation}
+			</AppSidebarGroup>
+		);
+	}
+
+	return (
+		<SidebarGroup className={groupClassName}>
+			<SidebarGroupContent>{navigation}</SidebarGroupContent>
 		</SidebarGroup>
 	);
 }

@@ -103,6 +103,46 @@ describe("AppContextualSidebarNav", () => {
 		).toBeTruthy();
 	});
 
+	it("collapses a labeled group through an accessible disclosure trigger", () => {
+		render(
+			<AppContextualSidebarNav
+				activeItemId="chat"
+				ariaLabel="Center Agent"
+				groups={[
+					{
+						ariaLabel: "Center Agent work",
+						id: "work",
+						items: [
+							{
+								icon: MonitorIcon,
+								id: "chat",
+								label: "Chat",
+								to: "/o/acme/center-agent/chat",
+							},
+						],
+						label: "Work",
+					},
+				]}
+				title="Center Agent"
+			/>
+		);
+
+		const trigger = screen.getByRole("button", { name: "Work" });
+		const caret = trigger.querySelector('[data-slot="sidebar-group-caret"]');
+
+		expect(trigger.className).toContain("inline-flex");
+		expect(trigger.className).not.toContain("flex-1");
+		expect(trigger.className).toContain("gap-1.5");
+		expect(caret).toBe(trigger.lastElementChild);
+		expect(trigger.getAttribute("aria-expanded")).toBe("true");
+		expect(screen.getByRole("link", { name: "Chat" })).toBeTruthy();
+
+		fireEvent.click(trigger);
+
+		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		expect(screen.queryByRole("link", { name: "Chat" })).toBeNull();
+	});
+
 	it("renders warning-status nav items in amber", () => {
 		render(
 			<AppContextualSidebarNav

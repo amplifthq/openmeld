@@ -55,6 +55,8 @@ export type SidebarScope = keyof typeof SIDEBAR_STATE_COOKIE_NAMES;
 export type SidebarTier = "full" | "compact" | "collapsed";
 
 export type SidebarPersistedState = {
+	/** Stable machine ids for labeled groups the user has explicitly collapsed. */
+	collapsedGroupIds?: readonly string[];
 	width: string;
 	tier: SidebarTier;
 };
@@ -157,6 +159,30 @@ const SIDEBAR_TOKEN_TIER: Record<string, SidebarTier> = {
 	"1": "collapsed",
 	"2": "compact",
 };
+// Keep the encoded preference comfortably below the common 4 KB per-cookie
+// limit even when future user-defined Space groups use UUID-like ids.
+const MAX_COLLAPSED_SIDEBAR_GROUPS = 48;
+const SIDEBAR_GROUP_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9:_-]{0,63}$/;
+
+function normalizeCollapsedGroupIds(
+	groupIds: readonly string[] | undefined
+): string[] {
+	if (!groupIds) {
+		return [];
+	}
+
+	const uniqueIds = new Set<string>();
+	for (const groupId of groupIds) {
+		if (
+			uniqueIds.size >= MAX_COLLAPSED_SIDEBAR_GROUPS ||
+			!SIDEBAR_GROUP_ID_PATTERN.test(groupId)
+		) {
+			continue;
+		}
+		uniqueIds.add(groupId);
+	}
+	return Array.from(uniqueIds);
+}
 
 /**
  * Parse the persisted `width|tier` cookie value into clamped state. Any
@@ -171,22 +197,33 @@ export function parseSidebarStateCookieValue(
 	if (!raw) {
 		return APP_SIDEBAR_DEFAULT_STATES[scope];
 	}
-	const [widthPart, tierPart] = raw.split("|");
+	const [widthPart, tierPart, collapsedGroupIdsPart] = raw.split("|");
 	const width = widthPart?.trim()
 		? clampSidebarWidth(widthPart.trim(), scope)
 		: metrics.defaultWidth;
-	return {
+	const collapsedGroupIds = normalizeCollapsedGroupIds(
+		collapsedGroupIdsPart?.split(",")
+	);
+	const state: SidebarPersistedState = {
 		tier: SIDEBAR_TOKEN_TIER[tierPart?.trim() ?? ""] ?? "full",
 		width,
 	};
+	if (collapsedGroupIds.length > 0) {
+		state.collapsedGroupIds = collapsedGroupIds;
+	}
+	return state;
 }
 
-/** Serialize state into the compact `width|tier` cookie value. */
+/** Serialize state into the compact `width|tier|collapsed-groups` cookie value. */
 export function serializeSidebarStateCookieValue(
 	state: SidebarPersistedState,
 	scope: SidebarScope = "inner"
 ): string {
-	return `${clampSidebarWidth(state.width, scope)}|${SIDEBAR_TIER_TOKEN[state.tier]}`;
+	const baseValue = `${clampSidebarWidth(state.width, scope)}|${SIDEBAR_TIER_TOKEN[state.tier]}`;
+	const collapsedGroupIds = normalizeCollapsedGroupIds(state.collapsedGroupIds);
+	return collapsedGroupIds.length > 0
+		? `${baseValue}|${collapsedGroupIds.join(",")}`
+		: baseValue;
 }
 
 /** Read + parse the sidebar state from a raw `Cookie:` header (SSR-safe,
@@ -342,6 +379,7 @@ export function writeInnerSidebarStateCookie(
 		return;
 	}
 	clientInnerSidebarStateMemory[preferenceKey] = {
+		...withCollapsedGroupIds(state.collapsedGroupIds),
 		tier: state.tier,
 		width: clampSidebarWidth(state.width, "inner"),
 	};
@@ -377,9 +415,17 @@ export function rememberClientSidebarState(
 		return;
 	}
 	clientSidebarStateMemory[scope] = {
+		...withCollapsedGroupIds(state.collapsedGroupIds),
 		tier: state.tier,
 		width: clampSidebarWidth(state.width, scope),
 	};
+}
+
+function withCollapsedGroupIds(
+	groupIds: readonly string[] | undefined
+): Pick<SidebarPersistedState, "collapsedGroupIds"> {
+	const collapsedGroupIds = normalizeCollapsedGroupIds(groupIds);
+	return collapsedGroupIds.length > 0 ? { collapsedGroupIds } : {};
 }
 
 export function resolveClientSidebarInitialState(

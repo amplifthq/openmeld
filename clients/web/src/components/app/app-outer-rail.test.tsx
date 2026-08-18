@@ -607,7 +607,7 @@ describe("AppOuterRail", () => {
 		);
 	});
 
-	it("groups destinations under stable non-collapsible labels", () => {
+	it("collapses destinations under stable group labels", () => {
 		renderRail();
 
 		const railContent = screen
@@ -659,15 +659,50 @@ describe("AppOuterRail", () => {
 		expect(
 			within(railContent).getByRole("navigation", { name: "Resources" })
 		).toBeTruthy();
+		const workTrigger = within(railContent).getByRole("button", {
+			name: "Work",
+		});
+		expect(workTrigger.getAttribute("aria-expanded")).toBe("true");
 		expect(
-			within(railContent).queryByRole("button", { name: "Work" })
+			within(railContent).getByRole("button", { name: "Team" })
+		).toBeTruthy();
+		expect(
+			within(railContent).getByRole("button", { name: "Resources" })
+		).toBeTruthy();
+
+		fireEvent.click(workTrigger);
+
+		expect(workTrigger.getAttribute("aria-expanded")).toBe("false");
+		expect(
+			within(railContent).queryByRole("link", { name: "Center Agent" })
 		).toBeNull();
 		expect(
-			within(railContent).queryByRole("button", { name: "Team" })
+			within(railContent).queryByRole("link", { name: "Spaces" })
 		).toBeNull();
 		expect(
-			within(railContent).queryByRole("button", { name: "Resources" })
+			within(railContent).queryByRole("link", { name: "Direct Messages" })
 		).toBeNull();
+		expect(
+			within(railContent).getByRole("link", { name: "People" })
+		).toBeTruthy();
+	});
+
+	it("keeps every destination visible in compact mode even when a full-mode group is persisted as collapsed", () => {
+		rememberClientSidebarState("outer", {
+			collapsedGroupIds: ["work"],
+			tier: "compact",
+			width: "9rem",
+		});
+		renderRail({
+			collapsedGroupIds: ["work"],
+			tier: "compact",
+			width: "9rem",
+		});
+
+		expect(screen.getByRole("link", { name: "Center Agent" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Direct Messages" })).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
 	});
 
 	it("renders the fixed primary rail order", () => {
@@ -1677,6 +1712,7 @@ describe("AppOuterRail", () => {
 function renderRail(
 	input: {
 		account?: typeof TEST_ACCOUNT;
+		collapsedGroupIds?: readonly string[];
 		computerAttentionTone?: "warning" | "danger" | null;
 		tier?: SidebarTier;
 		width?: string;
@@ -1688,12 +1724,14 @@ function renderRail(
 function buildRailElement(
 	input: {
 		account?: typeof TEST_ACCOUNT;
+		collapsedGroupIds?: readonly string[];
 		computerAttentionTone?: "warning" | "danger" | null;
 		tier?: SidebarTier;
 		width?: string;
 	} = {}
 ) {
 	const initialState = {
+		collapsedGroupIds: input.collapsedGroupIds,
 		tier: input.tier ?? "full",
 		width: input.width ?? "9rem",
 	};
