@@ -450,21 +450,35 @@ export async function isLatestRemoteAgentNativeDeliveryActiveForSlackThread(inpu
   const row = await input.db
     .prepare(
       `
-        SELECT
-          CASE
-            WHEN status IN ('submitted', 'accepted', 'retry_observed')
-              AND final_publication_state IS NULL
-              THEN 1
-            ELSE 0
-          END AS active
-        FROM openMeldRemoteAgent_native_delivery_ledger
-        WHERE conversation_kind = 'slack'
-          AND organization_id = ?
-          AND slack_team_id = ?
-          AND slack_channel_id = ?
-          AND slack_thread_ts = ?
-        ORDER BY trigger_message_id DESC, created_at_ms DESC, delivery_id DESC
-        LIMIT 1
+        WITH latest_turn AS (
+          SELECT
+            organization_id,
+            slack_team_id,
+            slack_channel_id,
+            slack_thread_ts,
+            trigger_message_id
+          FROM openMeldRemoteAgent_native_delivery_ledger
+          WHERE conversation_kind = 'slack'
+            AND organization_id = ?
+            AND slack_team_id = ?
+            AND slack_channel_id = ?
+            AND slack_thread_ts = ?
+          ORDER BY trigger_message_id DESC, created_at_ms DESC, delivery_id DESC
+          LIMIT 1
+        )
+        SELECT CASE WHEN EXISTS (
+          SELECT 1
+          FROM openMeldRemoteAgent_native_delivery_ledger AS deliveries
+          INNER JOIN latest_turn
+            ON latest_turn.organization_id = deliveries.organization_id
+            AND latest_turn.slack_team_id = deliveries.slack_team_id
+            AND latest_turn.slack_channel_id = deliveries.slack_channel_id
+            AND latest_turn.slack_thread_ts = deliveries.slack_thread_ts
+            AND latest_turn.trigger_message_id = deliveries.trigger_message_id
+          WHERE deliveries.conversation_kind = 'slack'
+            AND deliveries.status IN ('submitted', 'accepted', 'retry_observed')
+            AND deliveries.final_publication_state IS NULL
+        ) THEN 1 ELSE 0 END AS active
       `
     )
     .bind(input.organizationId, input.teamId, input.channelId, input.threadTs)

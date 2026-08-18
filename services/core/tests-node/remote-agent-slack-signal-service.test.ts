@@ -85,7 +85,7 @@ afterEach(() => {
 });
 
 describe("Remote Agent Slack signal service", () => {
-  it("checkpoints every selected channel as its own contextual Center Agent introduction", async () => {
+  it("keeps a multi-channel introduction working until every delivery finishes", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
@@ -127,9 +127,10 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
+      const env = buildEnv(harness.db, { workerSubmit });
       await expect(
         submitRemoteAgentSlackChannelIntroduction({
-          env: buildEnv(harness.db, { workerSubmit }),
+          env,
           interactionId: "V_CHANNELS",
           organizationInviteUrl: "https://openmeld.ai/join/openmeld-test",
           slackTeamId: "T123",
@@ -200,6 +201,48 @@ describe("Remote Agent Slack signal service", () => {
           text: expect.stringContaining("#product and #design work"),
         })
       );
+
+      const [firstDelivery, secondDelivery] = harness.queryAll<{
+        idempotency_key: string;
+      }>({
+        sql: `SELECT idempotency_key
+          FROM openMeldRemoteAgent_native_delivery_ledger
+          WHERE idempotency_key LIKE 'slack-channel-introduction:T123:V_CHANNELS:%'
+          ORDER BY delivery_id DESC`,
+      });
+      const firstRequest = submissions.find(
+        (request) => request.idempotencyKey === firstDelivery?.idempotency_key
+      );
+      const secondRequest = submissions.find(
+        (request) => request.idempotencyKey === secondDelivery?.idempotency_key
+      );
+      expect(firstRequest).toBeDefined();
+      expect(secondRequest).toBeDefined();
+      if (!(firstRequest && secondRequest)) {
+        throw new Error("Expected both channel introduction deliveries");
+      }
+
+      await completeRemoteAgentNativeDelivery(
+        env,
+        createCompletedCallbackForSubmittedRequest({
+          request: firstRequest,
+          submissionId: `sub_${firstRequest.idempotencyKey}`,
+        })
+      );
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "is working on your request…",
+      });
+
+      await completeRemoteAgentNativeDelivery(
+        env,
+        createCompletedCallbackForSubmittedRequest({
+          request: secondRequest,
+          submissionId: `sub_${secondRequest.idempotencyKey}`,
+        })
+      );
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "",
+      });
     } finally {
       harness.close();
     }
