@@ -138,7 +138,7 @@ export async function prepareEnsureInboxItemStatements(input: {
           END,
           preview = excluded.preview,
           context_label = excluded.context_label,
-          updated_at_ms = excluded.updated_at_ms
+          updated_at_ms = max(inbox_items.updated_at_ms, excluded.updated_at_ms)
       `
     )
     .bind(

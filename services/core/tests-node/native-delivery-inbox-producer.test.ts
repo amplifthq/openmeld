@@ -400,6 +400,7 @@ describe("Slack native delivery Inbox producer", () => {
           resolution_status: string;
           source_key: string;
           source_target_json: string;
+          updated_at_ms: number;
         }>({
           sql: `
             SELECT
@@ -409,7 +410,8 @@ describe("Slack native delivery Inbox producer", () => {
               resolution_status,
               resolved_at_ms,
               read_at_ms,
-              cleared_at_ms
+              cleared_at_ms,
+              updated_at_ms
             FROM inbox_items
             ORDER BY source_key
           `,
@@ -423,6 +425,7 @@ describe("Slack native delivery Inbox producer", () => {
           resolution_status: "resolved",
           source_key: "delivery_legacy_target:publication_unknown",
           source_target_json: JSON.stringify(SLACK_INBOX_SOURCE_TARGET),
+          updated_at_ms: 1200,
         },
         {
           cleared_at_ms: 1200,
@@ -432,6 +435,7 @@ describe("Slack native delivery Inbox producer", () => {
           resolution_status: "not_applicable",
           source_key: "delivery_legacy_target:terminal",
           source_target_json: JSON.stringify(SLACK_INBOX_SOURCE_TARGET),
+          updated_at_ms: 1200,
         },
       ]);
       await expect(
