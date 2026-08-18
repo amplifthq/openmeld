@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-17T15:21:23.531Z",
+  "updatedAt": "2026-08-18T06:39:49.803Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.64",
-      "updatePolicy": "available",
-      "reason": "Ship the latest additive shared contracts for Center Agent language and Opportunity support."
+      "packageVersion": "0.3.65",
+      "updatePolicy": "required",
+      "reason": "Require the corrected nonblocking local-agent setup and installation management contract."
     },
     "service": {
-      "bundleHash": "d5020515b61a763429bc29676115fd70c560b6c4d6838b2bad08c9203d3a7447",
-      "bundleVersion": "0.3.64",
+      "bundleHash": "53ece5101dcf525db57e66c38372a9525f286697bad6fd41ad42d6518937e2c4",
+      "bundleVersion": "0.3.65",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
-      "updatePolicy": "available",
-      "reason": "Ship the latest additive shared contracts for Center Agent language and Opportunity support."
+      "updatePolicy": "required",
+      "reason": "Require the corrected nonblocking local-agent setup and installation management contract."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Ship the latest additive shared contracts for Center Agent language and Opportunity support."
+      "reason": "Require the corrected nonblocking local-agent setup and installation management contract."
     }
   }
 }
