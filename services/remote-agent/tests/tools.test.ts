@@ -1808,6 +1808,12 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(descriptions.get("openmeld_wake_agent_profiles_in_space")).toContain(
       "During a Routine, resume_parent_when_all_terminal is the only supported resume mode"
     );
+    expect(descriptions.get("openmeld_wake_agent_profiles_in_space")).toContain(
+      "This starts real work and is an external write"
+    );
+    expect(descriptions.get("openmeld_wake_agent_profiles_in_space")).toContain(
+      "A topic, scope, name, identifier, URL, or answer that merely fills a missing input does not authorize a Wake"
+    );
     expect(descriptions.get("openmeld_post_space_message")).toContain(
       "referenceProfileIds"
     );
