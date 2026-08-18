@@ -4220,8 +4220,8 @@ describe("organization Core RPC", () => {
           channel_types: ["public_channel"],
           content_types: ["messages"],
           include_bots: false,
-          include_context_messages: false,
-          limit: 5,
+          include_context_messages: true,
+          limit: 8,
           query: "project gizmo status",
         });
         return Promise.resolve(
@@ -4245,42 +4245,6 @@ describe("organization Core RPC", () => {
               ],
             },
           })
-        );
-      }
-      if (pathname === "/api/chat.postEphemeral") {
-        expect(JSON.parse(String(init?.body))).toEqual({
-          blocks: [
-            {
-              text: {
-                text: "Slack search results",
-                type: "plain_text",
-              },
-              type: "header",
-            },
-            {
-              elements: [
-                {
-                  text: "Public messages matching `project gizmo status`",
-                  type: "mrkdwn",
-                },
-              ],
-              type: "context",
-            },
-            {
-              text: {
-                text: "*Ava in #release*\nThe Gizmo release is ready.\n<https://example.slack.com/archives/C_RELEASE/p1710000000001|Open source>",
-                type: "mrkdwn",
-              },
-              type: "section",
-            },
-          ],
-          channel: "C_ORIGIN",
-          text: 'Slack search results for "project gizmo status":\n\nAva in #release\nThe Gizmo release is ready.\nhttps://example.slack.com/archives/C_RELEASE/p1710000000001',
-          thread_ts: "1710000000.000100",
-          user: "U123",
-        });
-        return Promise.resolve(
-          Response.json({ message_ts: "1710000000.002", ok: true })
         );
       }
       throw new Error(`Unexpected Slack API request: ${pathname}`);
@@ -4308,9 +4272,25 @@ describe("organization Core RPC", () => {
         speakerMember: { memberId: "member-a", userId: "user-a" },
       })
     ).resolves.toEqual({
+      messages: [
+        {
+          authorName: "Ava",
+          authorUserId: "U_AVA",
+          channelId: "C_RELEASE",
+          channelName: "release",
+          content: "The Gizmo release is ready.",
+          contextMessages: [],
+          isAuthorBot: false,
+          messageTs: "1710000000.001",
+          permalink:
+            "https://example.slack.com/archives/C_RELEASE/p1710000000001",
+        },
+      ],
+      moreResultsAvailable: false,
       organizationId: "org-a",
-      status: "presented",
+      status: "found",
     });
+    expect(slackFetch).toHaveBeenCalledTimes(1);
     expect(db.centerAgentAuditRows).toEqual([
       expect.objectContaining({
         action: "search_slack_messages",
@@ -4465,7 +4445,7 @@ describe("organization Core RPC", () => {
     );
   });
 
-  it("distinguishes private Slack presentation permission failures from search failures", async () => {
+  it("returns empty evidence without publishing a second Slack response", async () => {
     const cryptoKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
     const db = createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
@@ -4495,11 +4475,6 @@ describe("organization Core RPC", () => {
             response_metadata: { next_cursor: "" },
             results: { messages: [] },
           })
-        );
-      }
-      if (pathname === "/api/chat.postEphemeral") {
-        return Promise.resolve(
-          Response.json({ error: "missing_scope", ok: false })
         );
       }
       throw new Error(`Unexpected Slack API request: ${pathname}`);
@@ -4538,12 +4513,12 @@ describe("organization Core RPC", () => {
         speakerMember: { memberId: "member-a", userId: "user-a" },
       })
     ).resolves.toEqual({
+      messages: [],
+      moreResultsAvailable: false,
       organizationId: "org-a",
-      reason:
-        "The connected Slack app cannot privately present search results to this requester.",
-      status: "forbidden",
+      status: "found",
     });
-    expect(slackFetch).toHaveBeenCalledTimes(2);
+    expect(slackFetch).toHaveBeenCalledTimes(1);
   });
 
   it("records attributed connector write attempts and outcomes in Core", async () => {

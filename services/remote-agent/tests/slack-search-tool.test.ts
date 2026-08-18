@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
+  type RemoteAgentCoreWorkerBinding,
 } from "../agent-core/callback-context";
 import {
   getRemoteAgentOpenMeldToolDefinitions,
@@ -47,10 +48,7 @@ describe("Remote Agent Slack search tool", () => {
 
   it("supplies the encrypted authorization outside model-controlled input", async () => {
     const request = createSlackSearchRequest();
-    const response = {
-      organizationId: request.organizationId,
-      status: "presented" as const,
-    };
+    const response = slackSearchResponse(request.organizationId);
     const centerAgentSearchSlackMessages = vi.fn(async () => response);
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: { centerAgentSearchSlackMessages },
@@ -91,13 +89,12 @@ describe("Remote Agent Slack search tool", () => {
     });
   });
 
-  it("allows only one Slack search attempt per user-initiated turn", async () => {
+  it("labels the exact legacy Core presentation acknowledgement during rollout", async () => {
     const request = createSlackSearchRequest();
-    const response = {
+    const centerAgentSearchSlackMessages = vi.fn(async () => ({
       organizationId: request.organizationId,
       status: "presented" as const,
-    };
-    const centerAgentSearchSlackMessages = vi.fn(async () => response);
+    })) as unknown as RemoteAgentCoreWorkerBinding["centerAgentSearchSlackMessages"];
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: { centerAgentSearchSlackMessages },
       storage: await createStorage(request),
@@ -109,17 +106,104 @@ describe("Remote Agent Slack search tool", () => {
       executeTool(tools, "openmeld_search_slack_messages", {
         query: "project gizmo status",
       })
-    ).resolves.toEqual(response);
+    ).resolves.toEqual({
+      organizationId: request.organizationId,
+      status: "legacy_core_presented",
+    });
+  });
+
+  it("lets the same Center Agent refine its Slack evidence in one turn", async () => {
+    const request = createSlackSearchRequest();
+    const response = slackSearchResponse(request.organizationId);
+    const centerAgentSearchSlackMessages = vi.fn(async () => response);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentSearchSlackMessages },
+      storage: await createStorage(request),
+      submissionId: ACK.submissionId,
+      turnEnvelope: request.turnEnvelope,
+    });
+
+    for (const query of [
+      "project gizmo status",
+      "project gizmo blockers",
+      "project gizmo owner",
+    ]) {
+      await expect(
+        executeTool(tools, "openmeld_search_slack_messages", { query })
+      ).resolves.toEqual(response);
+    }
+    expect(centerAgentSearchSlackMessages).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps concurrent search calls on the same structured evidence path", async () => {
+    const request = createSlackSearchRequest();
+    const response = slackSearchResponse(request.organizationId);
+    const centerAgentSearchSlackMessages = vi.fn(async () => response);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentSearchSlackMessages },
+      storage: await createStorage(request),
+      submissionId: ACK.submissionId,
+      turnEnvelope: request.turnEnvelope,
+    });
+
+    const results = await Promise.allSettled(
+      ["status", "blockers", "owner", "timeline"].map((query) =>
+        executeTool(tools, "openmeld_search_slack_messages", { query })
+      )
+    );
+
+    expect(results).toEqual([
+      expect.objectContaining({ status: "fulfilled" }),
+      expect.objectContaining({ status: "fulfilled" }),
+      expect.objectContaining({ status: "fulfilled" }),
+      expect.objectContaining({ status: "fulfilled" }),
+    ]);
+    expect(centerAgentSearchSlackMessages).toHaveBeenCalledTimes(4);
+  });
+
+  it("fails closed when Core returns text or malformed search protocol", async () => {
+    const request = createSlackSearchRequest();
+    const centerAgentSearchSlackMessages = vi.fn(async () => ({
+      organizationId: request.organizationId,
+      status: "found",
+      text: "<0/search_slack_messages><query>from:@Fangyuan</query>",
+    })) as unknown as RemoteAgentCoreWorkerBinding["centerAgentSearchSlackMessages"];
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentSearchSlackMessages },
+      storage: await createStorage(request),
+      submissionId: ACK.submissionId,
+      turnEnvelope: request.turnEnvelope,
+    });
+
     await expect(
       executeTool(tools, "openmeld_search_slack_messages", {
-        query: "project gizmo blockers",
+        query: "project gizmo status",
       })
-    ).rejects.toThrow(
-      "Slack search was already attempted for this user-initiated turn. Ask the user to send a new Slack message before searching again."
-    );
-    expect(centerAgentSearchSlackMessages).toHaveBeenCalledTimes(1);
+    ).rejects.toThrow();
   });
 });
+
+function slackSearchResponse(organizationId: string) {
+  return {
+    messages: [
+      {
+        authorName: "Ava",
+        authorUserId: "U_AVA",
+        channelId: "C_RELEASE",
+        channelName: "release",
+        content: "The Gizmo release is ready.",
+        contextMessages: [],
+        isAuthorBot: false,
+        messageTs: "1710000000.001",
+        permalink:
+          "https://example.slack.com/archives/C_RELEASE/p1710000000001",
+      },
+    ],
+    moreResultsAvailable: false,
+    organizationId,
+    status: "found" as const,
+  };
+}
 
 function createSlackSearchRequest() {
   const base = createSubmitTurnRequest();

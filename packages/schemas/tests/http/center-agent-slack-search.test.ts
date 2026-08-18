@@ -31,28 +31,77 @@ describe("Center Agent Slack message search contract", () => {
     });
   });
 
-  it("returns presentation status without copying Slack results into the tool response", () => {
+  it("returns bounded Slack evidence to the Center Agent that owns the turn", () => {
     expect(
       centerAgentSearchSlackMessagesResponseSchema.parse({
+        messages: [
+          {
+            authorName: "Jennifer Hynes",
+            authorUserId: "U_JENNIFER",
+            channelId: "C_PRODUCT",
+            channelName: "product",
+            content: "The Gizmo launch is scheduled for Friday.",
+            contextMessages: [],
+            isAuthorBot: false,
+            messageTs: "1710000000.000100",
+            permalink:
+              "https://example.slack.com/archives/C_PRODUCT/p1710000000000100",
+          },
+        ],
+        moreResultsAvailable: false,
         organizationId: "org_1",
-        status: "presented",
+        status: "found",
       })
     ).toEqual({
+      messages: [
+        {
+          authorName: "Jennifer Hynes",
+          authorUserId: "U_JENNIFER",
+          channelId: "C_PRODUCT",
+          channelName: "product",
+          content: "The Gizmo launch is scheduled for Friday.",
+          contextMessages: [],
+          isAuthorBot: false,
+          messageTs: "1710000000.000100",
+          permalink:
+            "https://example.slack.com/archives/C_PRODUCT/p1710000000000100",
+        },
+      ],
+      moreResultsAvailable: false,
       organizationId: "org_1",
-      status: "presented",
+      status: "found",
     });
+    expect(
+      centerAgentSearchSlackMessagesResponseSchema.safeParse({
+        messages: [],
+        moreResultsAvailable: false,
+        organizationId: "org_1",
+        status: "found",
+        text: "unstructured answer must never cross the tool boundary",
+      }).success
+    ).toBe(false);
+    const nearbyMessage = {
+      authorName: "Morgan Lee",
+      authorUserId: "U_MORGAN",
+      channelId: "C_PRODUCT",
+      channelName: "product",
+      content: "Nearby context.",
+      isAuthorBot: false,
+      messageTs: "1710000000.000090",
+      permalink:
+        "https://example.slack.com/archives/C_PRODUCT/p1710000000000090",
+    };
     expect(
       centerAgentSearchSlackMessagesResponseSchema.safeParse({
         messages: [
           {
-            authorName: "Jennifer Hynes",
-            content: "The Gizmo launch is scheduled for Friday.",
-            permalink:
-              "https://example.slack.com/archives/C0123456/p1234567890",
+            ...nearbyMessage,
+            contextMessages: [nearbyMessage, nearbyMessage, nearbyMessage],
           },
         ],
+        moreResultsAvailable: false,
         organizationId: "org_1",
-        status: "presented",
+        status: "found",
       }).success
     ).toBe(false);
   });

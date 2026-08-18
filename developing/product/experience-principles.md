@@ -190,9 +190,10 @@ state.
   lets the user continue without composing a message to Center Agent.
 - Applied: a recommendation pairs one primary action with a programmatic demo;
   optional details expand only when the user chooses to edit them.
-- Applied: Center Agent replies to a top-level Slack direct message in the main
-  conversation like a normal chat. It uses a thread only when the person is
-  already talking in that thread; channel replies stay threaded to avoid noise.
+- Applied: a top-level Slack direct message starts one request thread so the
+  member sees the same Working lifecycle as a channel mention. Status, answer,
+  visible failure, and recovery stay in that thread; channel replies remain
+  threaded to avoid noise.
 - Violation looks like: opening onboarding with "What do you want AI to do for
   your organization?", teaching Center Agent vocabulary before it has useful
   context, or using a paragraph where one labeled outcome and animation would

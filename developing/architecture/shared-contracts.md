@@ -1909,11 +1909,13 @@ contract as `app_mention`, with the strict human `message.im` subtype. Bot
 messages and messages with a Slack subtype fail parsing, preventing the Center
 Agent from replying to itself or treating edits and other message variants as
 new human turns. Core writes the Slack trigger's optional `replyPlacement` into
-the strict Remote Agent turn envelope: a top-level App Home direct message uses
-`conversation`, an existing direct-message thread and every channel mention use
-`thread`. The stored worker request preserves that decision across final
-publication and recovery. Older stored requests without the optional field
-continue to use the legacy thread placement.
+the strict Remote Agent turn envelope. Current ingress always writes `thread`:
+a top-level App Home direct message starts one request thread, an existing
+direct-message thread stays there, and a channel mention uses its originating
+thread. Working status, final publication, visible failure, and recovery share
+that locator. The stored worker request preserves the decision. Older stored
+requests with `conversation` remain publishable for recovery; requests without
+the optional field continue to use the legacy thread placement.
 
 This additive field rolls out Remote Agent receiver first. The guarded
 production planner recognizes the shared turn-envelope owner, Slack Core
@@ -2056,58 +2058,69 @@ member, OpenMeld user, source channel, and source thread. Core rejects mixed
 requester or workspace identity. Neither the ciphertext nor plaintext token is
 rendered into a model prompt or exposed as a model-controlled argument.
 
-`remoteAgentTransientSlackContextRequestSchema` owns the stateless
-Core-to-Remote-Agent request. It carries the selected model route, exact
-Organization, designated Center Agent `OpenMeldRequestContext`, verified member
-and Slack user identity, current request text, and encrypted authorization.
-Its strict response is either `pass_through` or one bounded `answered` text.
-This RPC bypasses Flue conversation admission and has no durable execution or
-conversation record.
+`remoteAgentTurnEnvelopeSchema` owns the optional encrypted authorization as a
+trusted Slack-trigger field. Core admits that envelope, bounded Slack history,
+and the current verified request into the ordinary durable Center Agent turn.
+There is no stateless pre-answer RPC and no second model that may settle the
+task before conversation admission.
 
-`remoteAgentTransientSlackSearchRequestSchema` owns each internal
-Remote-Agent-to-Core search. It carries one bounded query, bot inclusion flag,
-the copied trusted request context and verified member identity, and the same
-encrypted authorization. Core reauthorizes the currently designated hosted
-Center Agent and represented active human, decrypts the event grant, and
-revalidates every Organization, workspace, member, user, and Slack identity
-before one `assistant.search.context` call. The strict response returns at most
-eight normalized public-message matches, up to four normalized context
-messages per match, and `moreResultsAvailable`; failures remain distinct
+`centerAgentSearchSlackMessagesBodySchema` owns one model-requested bounded
+query and bot-inclusion choice. The encrypted authorization and verified
+speaker are supplied outside model-controlled input. Core reauthorizes the
+currently designated hosted Center Agent and represented active human,
+decrypts the event grant, and revalidates the Organization, workspace, member,
+and user before one `assistant.search.context` call.
+
+`centerAgentSearchSlackMessagesResponseSchema` is a strict discriminated union.
+A `found` result contains at most eight normalized public messages, at most two
+normalized context messages per result, at most 2,000 characters per evidence
+item, `moreResultsAvailable`, and the Organization id. Failures remain distinct
 `authorization_expired`, `forbidden`, `rate_limited`, or `unavailable`
-outcomes. Provider failure never becomes empty success.
+outcomes. Extra free-form text and malformed
+provider fields fail schema validation; provider failure never becomes empty
+success.
 
-The transient Remote Agent may make at most six searches, deduplicates by
-permalink, and admits at most sixteen total message and context items. Its
-model chooses the queries and reads the returned evidence only within the
-in-memory RPC loop. It returns `pass_through` before searching when the request
-does not need public Slack evidence or asks for a durable action. Otherwise its
-first-person final answer may cite the returned Slack permalinks. The current
-Core passes `searchAuthorization: null` to the ordinary durable turn; the
-optional legacy envelope field and `actionSet=v7` tool remain compatible with
-already-running mixed-version workers but are not the current producer path.
+The ordinary Center Agent may refine search when the current evidence is
+insufficient. Search stays inside the existing durable Agent loop and respects
+Slack's provider rate-limit outcome instead of adding a second search-specific
+counter or router. Each call still has strict input and result bounds.
+Concurrent and malformed calls follow the same schema-validated tool path.
+Returned messages are untrusted evidence in the same Agent loop. The Agent may
+cite permalinks and continue with another tool, but the search tool cannot
+answer, publish, save, or terminate the task. Normalized results remain in
+current conversation history for durable reasoning and recovery; no automatic
+Memory, Organization Document, Profile Report, or Computer-file write follows.
 
-No generated query, result message, context message, permalink list, cursor,
-plaintext action token, provider response, transient prompt, or transient answer
-may enter D1, Flue storage, Center Agent Memory, Organization Documents,
-Computer files, logs, diagnostics, or audit rows. Cloudflare AI Gateway logging
-and payload logging are disabled and caching is bypassed for the transient model
-call. The OpenRouter payload sets `store=false` and requires both
-`provider.data_collection=deny` and `provider.zdr=true`. After a successful
-provider read, the audit journal records only the search action, designated
-Center Agent, represented requester, and Slack workspace identifier.
+No plaintext action token, raw provider response, query text, or message
+content enters audit rows or diagnostics. After a successful provider read,
+the audit journal records only the search action, designated Center Agent,
+represented requester, and Slack workspace identifier.
 
 The final Slack publication carries deterministic metadata derived from the
 event idempotency key. Core skips metadata history lookup on a first delivery.
 Only a Queue or Slack retry reconciles the exact top-level or thread message;
 if found, it returns `replied` without another model call or publication.
 
-Deploy the Remote Agent schema consumer and optional stateless RPC first. An
-older Core never calls it. Then deploy Core with both the transient-search RPC
-receiver and the new producer; a missing Remote Agent method safely falls
-through to the ordinary durable turn during rollout. Rollback stops the Core
-producer first, then removes the Remote Agent consumer. This additive hosted
-runtime contract does not change CLI, OpenMeld Service, daemon, Prepare,
-RuntimeCoordinator, or local-component versions.
+Roll out the Remote Agent consumer before Core returns the new evidence shape,
+then deploy Core ingress with the trusted event grant. During that short window
+the new consumer accepts only the exact old `{organizationId, status:
+"presented"}` acknowledgement and labels it `legacy_core_presented`; arbitrary
+extra text or fields still fail closed. Core no longer calls or exposes the
+removed transient resolver. Rollback stops the Core producer first, then rolls
+back the Remote Agent consumer. This hosted runtime contract does not change
+CLI, OpenMeld Service, daemon, Prepare, RuntimeCoordinator, or local-component
+versions.
+
+`centerAgentInviteSlackTeammatesRpcResponseSchema` separately owns strict
+per-target conversational invitation outcomes. Core sends target DMs and
+returns `delivered`, `already_member`, `manual_invite_required`, `failed`,
+`outcome_unknown`, `already_claimed`, or `not_found` to the same Center Agent
+turn. It does not also publish a requester summary. The native modal contract
+keeps its Core-authored summary because no Agent turn owns that interaction.
+The same Remote-Agent-first rollout accepts and labels only the exact legacy
+`{handled: true}` acknowledgement until Core emits structured outcomes; deploy
+Core immediately afterward. Rollback restores Core first, then the old Remote
+Agent consumer.
 
 ### Channel Context Contracts
 

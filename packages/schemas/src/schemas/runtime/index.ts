@@ -103,16 +103,12 @@ export {
   aiGatewayResultInfoSchema,
 } from "./remote-agent-metering";
 export {
-  REMOTE_AGENT_TRANSIENT_SLACK_CONTENT_MAX_CHARS,
   remoteAgentSlackAppMentionEventSchema,
   remoteAgentSlackDirectMessageEventSchema,
   remoteAgentSlackEventCallbackPayloadSchema,
   remoteAgentSlackEventQueueMessageSchema,
   remoteAgentSlackEventsApiPayloadSchema,
   remoteAgentSlackUrlVerificationPayloadSchema,
-  remoteAgentTransientSlackMessageSchema,
-  remoteAgentTransientSlackSearchRequestSchema,
-  remoteAgentTransientSlackSearchResponseSchema,
 } from "./remote-agent-slack";
 export {
   centerAgentContextHandlingSchema,
@@ -159,8 +155,6 @@ export {
   remoteAgentStreamDeltaCallbackBodySchema,
   remoteAgentStreamDeltaCallbackResponseSchema,
   remoteAgentStreamPartCallbackBodySchema,
-  remoteAgentTransientSlackContextRequestSchema,
-  remoteAgentTransientSlackContextResponseSchema,
   remoteAgentWorkerAdmissionRejectedResponseSchema,
   remoteAgentWorkerAdmissionRejectionCodeSchema,
   remoteAgentWorkerAuthorContextSchema,

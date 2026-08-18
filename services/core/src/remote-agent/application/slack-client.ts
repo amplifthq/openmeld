@@ -1,4 +1,7 @@
-import { REMOTE_AGENT_TRANSIENT_SLACK_CONTENT_MAX_CHARS } from "@openmeld/schemas";
+import {
+  CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS,
+  CENTER_AGENT_SLACK_SEARCH_CONTEXT_MESSAGES_MAX,
+} from "@openmeld/schemas";
 import { toSlackMrkdwn } from "./slack-mrkdwn";
 
 type FetchLike = typeof fetch;
@@ -442,7 +445,7 @@ export async function searchSlackPublicMessages(input: {
               });
               return context ? [context] : [];
             })
-            .slice(0, 4),
+            .slice(0, CENTER_AGENT_SLACK_SEARCH_CONTEXT_MESSAGES_MAX),
         },
       ];
     }),
@@ -1479,13 +1482,13 @@ function normalizeSlackSearchContent(value: unknown): string | null {
   const normalized = normalizeOptionalText(value);
   if (
     !normalized ||
-    normalized.length <= REMOTE_AGENT_TRANSIENT_SLACK_CONTENT_MAX_CHARS
+    normalized.length <= CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS
   ) {
     return normalized;
   }
   const body = normalized.slice(
     0,
-    REMOTE_AGENT_TRANSIENT_SLACK_CONTENT_MAX_CHARS - 1
+    CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS - 1
   );
   const safeBody = SLACK_SEARCH_TRUNCATED_HIGH_SURROGATE_PATTERN.test(body)
     ? body.slice(0, -1)
