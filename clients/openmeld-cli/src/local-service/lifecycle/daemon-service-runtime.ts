@@ -44,7 +44,10 @@ export async function readCurrentObservedDaemonRuntimeStatus(): Promise<DaemonSe
 
 export async function clearDaemonRuntimeStateIfDefinitelyStopped(): Promise<DaemonRuntimeCleanupDecision> {
   const context = await readCurrentDaemonRuntimeContext();
-  if (context.effectiveRuntimeStatus !== "not_running") {
+  const isDefinitelyStopped =
+    context.effectiveRuntimeStatus === "not_running" ||
+    (await isStoppedSystemServiceSnapshot(context));
+  if (!isDefinitelyStopped) {
     return {
       context,
       cleared: false,
@@ -55,6 +58,23 @@ export async function clearDaemonRuntimeStateIfDefinitelyStopped(): Promise<Daem
     context,
     cleared: true,
   };
+}
+
+async function isStoppedSystemServiceSnapshot(
+  context: CurrentDaemonRuntimeContext
+): Promise<boolean> {
+  if (
+    context.runtimeStatus.status !== "stale" ||
+    !context.runtimeStatus.managedBySystemService ||
+    context.serviceManagerStatus?.running !== false
+  ) {
+    return false;
+  }
+
+  const ownedProcesses = await listDaemonOwnedProcesses({
+    ignoreProcessIds: [process.pid, process.ppid],
+  });
+  return ownedProcesses.length === 0;
 }
 
 export async function readCurrentDaemonRuntimeContext(

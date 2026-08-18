@@ -116,6 +116,14 @@ const VERIFIED_ROLLBACK_UNTRUSTED_ANOMALIES = new Set<DaemonServiceAnomalyCode>(
     "service_manager_path_drift",
   ]
 );
+const STOPPED_LIFECYCLE_RUNTIME_SNAPSHOT_ANOMALIES =
+  new Set<DaemonServiceAnomalyCode>([
+    "runtime_stale",
+    "runtime_bundle_mismatch",
+    "runtime_contract_missing",
+    "runtime_contract_mismatch",
+    "runtime_contract_unavailable",
+  ]);
 
 export type DaemonServiceLifecycleOperation =
   | "upgrade_reconcile"
@@ -2071,16 +2079,39 @@ function verifyLifecycleInventoryStaticRequirements(input: {
 
 function verifyLifecycleInventoryDecision(input: {
   inventory: DaemonServiceInventory;
+  shouldStartAfterLifecycle: boolean;
   target: ReturnType<typeof buildDaemonServiceTargetSpec>;
 }): string | null {
+  const inventory = buildLifecycleAlignmentInventory(input);
   const decision = resolveDaemonServiceAlignmentDecision({
-    inventory: input.inventory,
+    inventory,
     target: input.target,
   });
   if (decision.status === "already_aligned") {
     return null;
   }
   return `Lifecycle verification failed because the service is still ${decision.status}. reasons=${decision.reasonCodes.join(",") || "none"}`;
+}
+
+function buildLifecycleAlignmentInventory(input: {
+  inventory: DaemonServiceInventory;
+  shouldStartAfterLifecycle: boolean;
+}): DaemonServiceInventory {
+  if (
+    input.shouldStartAfterLifecycle ||
+    input.inventory.serviceManagerStatus?.running !== false ||
+    input.inventory.ownedProcesses.length > 0
+  ) {
+    return input.inventory;
+  }
+
+  return {
+    ...input.inventory,
+    anomalies: input.inventory.anomalies.filter(
+      (anomaly) =>
+        !STOPPED_LIFECYCLE_RUNTIME_SNAPSHOT_ANOMALIES.has(anomaly.code)
+    ),
+  };
 }
 
 function verifyLifecycleInventoryContractState(input: {

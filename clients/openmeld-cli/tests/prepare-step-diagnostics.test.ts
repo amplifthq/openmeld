@@ -113,6 +113,8 @@ describe("collectPrepareStepDiagnostics", () => {
                 jobDiagnostics: { controller: "launchd", runs: 0 },
                 durationMs: 2000,
                 reason: "startup_timeout",
+                failureStage: "verify_final_inventory",
+                reasonCodes: ["runtime_stale", "runtime_bundle_mismatch"],
                 controller: "launchd",
                 pendedNondemandSpawn: "speculative",
                 index: 7,
@@ -138,6 +140,8 @@ describe("collectPrepareStepDiagnostics", () => {
       jobDiagnostics: { controller: "launchd", runs: 0 },
       durationMs: 2000,
       reason: "startup_timeout",
+      failureStage: "verify_final_inventory",
+      reasonCodes: ["runtime_stale", "runtime_bundle_mismatch"],
     });
     expect(metadata).not.toHaveProperty("controller");
     expect(metadata).not.toHaveProperty("pendedNondemandSpawn");
