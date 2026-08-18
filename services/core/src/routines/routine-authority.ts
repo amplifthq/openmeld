@@ -1,4 +1,4 @@
-import { memberRoleHasOrganizationPermission } from "@openmeld/auth";
+import { memberRoleHasOrganizationPermission } from "@openmeld/auth/organization-policy";
 
 import { createCoreRpcHttpError } from "../rpc/errors";
 

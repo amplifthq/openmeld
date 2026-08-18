@@ -1,0 +1,65 @@
+name: Recover Core CLI Projection
+run-name: Recover Core CLI Projection @ ${{ inputs.release_sha }}
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: "Exact main commit containing the reviewed Core recovery"
+        required: true
+        type: string
+
+concurrency:
+  group: cli-production-release
+  cancel-in-progress: false
+
+jobs:
+  reject_non_main:
+    name: Reject Non-Main Core Recovery
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require main
+        run: |
+          echo "::error::Core recovery must run from main. Current ref: ${GITHUB_REF}"
+          exit 1
+
+  validate_release_source:
+    name: Validate Immutable Main Recovery Source
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Require release SHA from main first-parent history
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          if ! validation_error="$(node scripts/release/require-mainline-release-sha.mjs \
+            "$RELEASE_SHA" refs/remotes/origin/main 2>&1)"; then
+            echo "::error::$validation_error"
+            exit 1
+          fi
+
+  recover_core:
+    name: Recover Current Stable CLI Projection
+    needs: validate_release_source
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      needs.validate_release_source.result == 'success'
+    uses: ./.github/workflows/deploy-core-worker.yml
+    with:
+      deploy_environment: production
+      deployment_mode: current-stable-cli-projection
+      release_sha: ${{ inputs.release_sha }}
+    secrets: inherit

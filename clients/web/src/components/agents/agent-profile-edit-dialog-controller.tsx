@@ -24,10 +24,10 @@ import {
 	updateAgentProfileOpenCodePermission,
 } from "./agent-profile-edit-actions";
 import {
-	AgentProfileEditDialog,
 	resolveAgentProfileControllerChangeOptions,
 	resolveAgentProfileEditState,
-} from "./agents-page-agent-profiles-card";
+} from "./agent-profile-edit-state";
+import { AgentProfileEditDialog } from "./agents-page-agent-profiles-card";
 import { formatMutationError } from "./agents-page-formatters";
 
 export type AgentProfileEditDialogContext = Omit<

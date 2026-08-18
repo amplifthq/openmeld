@@ -6,6 +6,7 @@ import process from "node:process";
 import { gunzipSync } from "node:zlib";
 
 import { fetchCliChannelManifest } from "./cli-channel-sync.mjs";
+import { deriveCoreProjectionTag } from "./core-projection-tag.mjs";
 import {
   decideChannelAlignmentStage,
   decideCliBinaryStage,
@@ -88,12 +89,10 @@ export function resolveCoreProjectionTag(input = {}) {
     encoding: "utf8",
   }).trim();
   const manifest = readFileSync(join(cwd, "release/local-components.json"));
-  const digest = createHash("sha256")
-    .update(headSha)
-    .update("\0")
-    .update(manifest)
-    .digest("hex");
-  return `openmeld-release-${digest.slice(0, 40)}`;
+  return deriveCoreProjectionTag({
+    commitSha: headSha,
+    releaseManifestSource: manifest,
+  });
 }
 
 export async function probeCliReleaseStages(input) {

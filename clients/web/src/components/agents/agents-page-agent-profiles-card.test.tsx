@@ -15,14 +15,15 @@ import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { startQueryKeys } from "#/query/query-keys";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
+import { resolveAgentProfileEditState } from "./agent-profile-edit-state";
 import {
 	AgentProfileEditDialog,
 	AgentProfilesCard,
-	resolveAgentProfileEditState,
 } from "./agents-page-agent-profiles-card";
 
 const AGENT_PROFILE_ID = "agt-codex";
@@ -35,6 +36,7 @@ const readPrimaryBindingMock = vi.hoisted(() => vi.fn());
 const refreshReadinessFactsMock = vi.hoisted(() => vi.fn());
 const refreshReadinessSharedCachesMock = vi.hoisted(() => vi.fn());
 const renameOpenMeldProfileMock = vi.hoisted(() => vi.fn());
+const deleteStartAgentProfileMock = vi.hoisted(() => vi.fn());
 const listOrganizationBindingAuthorizationProfilesMock = vi.hoisted(() =>
 	vi.fn()
 );
@@ -109,6 +111,12 @@ vi.mock("#/lib/profiles/rename-profile", () => ({
 	renameOpenMeldProfile: (
 		...args: Parameters<typeof renameOpenMeldProfileMock>
 	) => renameOpenMeldProfileMock(...args),
+}));
+
+vi.mock("#/lib/profiles/delete-agent-profile", () => ({
+	deleteStartAgentProfile: (
+		...args: Parameters<typeof deleteStartAgentProfileMock>
+	) => deleteStartAgentProfileMock(...args),
 }));
 
 vi.mock("#/lib/spaces/direct-message", () => ({
@@ -246,6 +254,9 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 				updatedAt: "2026-06-18T00:01:00.000Z",
 			})
 		);
+		deleteStartAgentProfileMock
+			.mockReset()
+			.mockResolvedValue(createAgentProfile());
 		updatePrimaryBindingAgentControllerPermissionModeMock
 			.mockReset()
 			.mockImplementation(async (input) =>
@@ -292,6 +303,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
+		vi.restoreAllMocks();
 	});
 
 	it("shows Agent Controller Permission Mode on the card and profile details", async () => {
@@ -381,6 +393,89 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.getByRole("button", { name: "Remove profile" })).toBeTruthy();
 		expect(screen.queryByText("Direct Message")).toBeNull();
 		expect(screen.queryByText("Edit Agent")).toBeNull();
+	});
+
+	it("closes the confirmation and removes the Agent from the list cache before deletion settles", async () => {
+		let resolveDelete!: (profile: AuthProfileView) => void;
+		deleteStartAgentProfileMock.mockImplementation(
+			() =>
+				new Promise<AuthProfileView>((resolve) => {
+					resolveDelete = resolve;
+				})
+		);
+		const profile = createAgentProfile();
+		const { queryClient } = renderAgentProfilesCard();
+		const profilesQueryKey =
+			startQueryKeys.profilesForStorageScope("test-scope");
+		queryClient.setQueryData(profilesQueryKey, [profile]);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
+		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
+
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("heading", { name: "Remove Agent?" })
+			).toBeNull();
+			expect(screen.queryByText("Research Agent")).toBeNull();
+			expect(queryClient.getQueryData(profilesQueryKey)).toEqual([]);
+		});
+		expect(deleteStartAgentProfileMock).toHaveBeenCalledWith({
+			data: AGENT_PROFILE_ID,
+		});
+		resolveDelete(profile);
+		await waitFor(() => {
+			expect(toastMock.success).toHaveBeenCalledWith(
+				"Research Agent was removed from Local Agents."
+			);
+			expect(queryClient.getQueryState(profilesQueryKey)?.isInvalidated).toBe(
+				true
+			);
+			expect(refreshReadinessSharedCachesMock).toHaveBeenCalledWith({
+				agentProfileIds: [AGENT_PROFILE_ID],
+				queryClient,
+				storageScope: "test-scope",
+			});
+		});
+	});
+
+	it("restores the Agent list cache when deletion fails", async () => {
+		const removeError = new Error("Failed to remove agent profile: 500");
+		const consoleErrorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		deleteStartAgentProfileMock.mockRejectedValue(removeError);
+		const profile = createAgentProfile();
+		const { queryClient } = renderAgentProfilesCard();
+		const profilesQueryKey =
+			startQueryKeys.profilesForStorageScope("test-scope");
+		queryClient.setQueryData(profilesQueryKey, [profile]);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
+		fireEvent.click(screen.getByRole("button", { name: "Remove profile" }));
+
+		await waitFor(() => {
+			expect(queryClient.getQueryData(profilesQueryKey)).toEqual([profile]);
+			expect(screen.getByText("Research Agent")).toBeTruthy();
+			expect(toastMock.error).toHaveBeenCalledWith(
+				"OpenMeld could not remove Research Agent. The Agent was restored to Local Agents."
+			);
+		});
+		expect(screen.queryByRole("heading", { name: "Remove Agent?" })).toBeNull();
+		expect(consoleErrorSpy).toHaveBeenCalledWith(
+			"Failed to remove Agent Profile. The optimistic cache update was rolled back.",
+			removeError
+		);
+		expect(refreshReadinessSharedCachesMock).not.toHaveBeenCalled();
 	});
 
 	it("opens an Agent conversation in the dedicated Direct Messages route", async () => {

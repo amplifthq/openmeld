@@ -469,6 +469,28 @@ the same resumable release command at the exact original `release_sha`:
 - Always provide the original `release_sha`; a release tag or Core projection
   from another commit is a hard failure, not a recovery target.
 
+When R2, npm, and the immutable release tag are already complete but the Core
+projection alone failed Cloudflare startup validation, do not rerun the CLI
+publisher. Merge the reviewed Core startup fix first, then dispatch
+`.github/workflows/recover-core-cli-projection.yml` from `main` with that exact
+new main commit:
+
+```sh
+gh workflow run recover-core-cli-projection.yml \
+  --ref main \
+  --field release_sha="<exact-reviewed-main-commit>"
+```
+
+This Core-only recovery reads `channels.stable.version`, loads that version's
+`release/local-components.json` and commit identity from its immutable Git tag,
+derives the expected Core Worker tag from those exact bytes, and injects both
+the tagged manifest and Worker tag into the new Core build. It then verifies
+deployment visibility and performs the read-only R2/npm/Core alignment probe.
+It never moves the release tag, republishes npm or R2, or deploys Auth, Web,
+Gateway, or Remote Agent. The GitHub CLI release and this recovery share the
+Core deployment lock so those GitHub lanes cannot change the stable channel
+while recovery is building or deploying its projection.
+
 ## Resumable Execution
 
 The guarded local executor is safe to rerun after interruption. Completion
