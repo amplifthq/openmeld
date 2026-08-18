@@ -1,5 +1,7 @@
 import {
 	createAgentControllerInterfaceDisplayRows,
+	createAgentControllerInterfaceOperationalDisplayRows,
+	formatAgentControllerInterfaceOperationalSummary,
 	formatAgentControllerInterfaceSummary,
 	getAgentControllerVersionAdvisoryPresentation,
 	resolveAgentControllerInterfaceDescription,
@@ -12,6 +14,7 @@ import type {
 	LocalAgentInstallationOption,
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
+	OrganizationComputerLocalAgentDetails,
 } from "@openmeld/schemas/types";
 import type { ComputerReplyReadiness } from "@openmeld/start";
 import { Badge } from "@openmeld/ui/components/badge";
@@ -103,6 +106,7 @@ export type LocalAgentsCardOwnerProps = {
 
 type TeamLocalAgent = {
 	agentId: string;
+	details?: OrganizationComputerLocalAgentDetails | null;
 	displayName: string;
 	enabled: boolean;
 	status: "not_ready" | "ready" | "stale" | "unknown";
@@ -144,6 +148,15 @@ function TeamLocalAgentsCard(input: {
 
 function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 	const description = resolveTeamLocalAgentDescription(agent);
+	const detailRows = agent.details
+		? createAgentControllerInterfaceOperationalDisplayRows(agent.details)
+		: [
+				{
+					label: "Controller",
+					value: agent.enabled ? "Enabled" : "Off",
+				},
+				{ label: "Status", value: description },
+			];
 	return {
 		control: (
 			<Switch
@@ -153,20 +166,13 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 			/>
 		),
 		description,
-		detail: (
-			<SettingsDetailList
-				rows={[
-					{
-						label: "Controller",
-						value: agent.enabled ? "Enabled" : "Off",
-					},
-					{ label: "Status", value: description },
-				]}
-			/>
-		),
+		detail: <SettingsDetailList rows={detailRows} />,
 		displayName: agent.displayName,
 		id: agent.agentId,
 		logoAgentId: agent.agentId,
+		summaryMeta: agent.details
+			? formatAgentControllerInterfaceOperationalSummary(agent.details)
+			: null,
 	};
 }
 

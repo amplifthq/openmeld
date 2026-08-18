@@ -46,12 +46,50 @@ describe("Slack interactivity route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(handleSlackWelcomeInteraction).toHaveBeenCalledWith({
-      action: "open_teammate_invite_modal",
-      slackTeamId: "T123",
-      slackUserId: "U_INSTALLER",
-      triggerId: "trigger-1",
+    expect(handleSlackWelcomeInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "open_teammate_invite_modal",
+        gatewayRequestId: expect.any(String),
+        interactionReceivedAtMs: expect.any(Number),
+        slackTeamId: "T123",
+        slackUserId: "U_INSTALLER",
+        triggerId: "trigger-1",
+      })
+    );
+  });
+
+  it("acknowledges a modal action before Core finishes opening it", async () => {
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const executionContext = {
+      ...TEST_EXECUTION_CONTEXT,
+      waitUntil: (promise: Promise<unknown>) => {
+        waitUntilPromises.push(promise);
+      },
+    } as unknown as ExecutionContext;
+    let resolveCore: ((value: { handled: true }) => void) | undefined;
+    const coreWork = new Promise<{ handled: true }>((resolve) => {
+      resolveCore = resolve;
     });
+    const handleSlackWelcomeInteraction = vi.fn(() => coreWork);
+    const body = buildInteractiveBody({ actionId: "invite_teammates" });
+
+    const responseOutcome = await Promise.race([
+      Promise.resolve(
+        app.fetch(
+          buildSlackInteractiveRequest(body),
+          buildEnv(handleSlackWelcomeInteraction),
+          executionContext
+        )
+      ).then((response) => response.status),
+      new Promise<"timed_out">((resolve) => {
+        setTimeout(() => resolve("timed_out"), 100);
+      }),
+    ]);
+
+    expect(responseOutcome).toBe(200);
+    expect(waitUntilPromises).toHaveLength(1);
+    resolveCore?.({ handled: true });
+    await Promise.all(waitUntilPromises);
   });
 
   it("acks a teammate selection and hands it to Core once", async () => {
@@ -160,12 +198,16 @@ describe("Slack interactivity route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(handleSlackWelcomeInteraction).toHaveBeenCalledWith({
-      action: "open_channel_introduction_modal",
-      slackTeamId: "T123",
-      slackUserId: "U_INSTALLER",
-      triggerId: "trigger-1",
-    });
+    expect(handleSlackWelcomeInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "open_channel_introduction_modal",
+        gatewayRequestId: expect.any(String),
+        interactionReceivedAtMs: expect.any(Number),
+        slackTeamId: "T123",
+        slackUserId: "U_INSTALLER",
+        triggerId: "trigger-1",
+      })
+    );
   });
 
   it("acks selected channels and starts one contextual introduction run", async () => {

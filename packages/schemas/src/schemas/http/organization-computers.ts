@@ -1,5 +1,17 @@
 import { z } from "zod/v4";
 import {
+  localComponentUpdatePolicySchema,
+  localComponentUpdateStatusSchema,
+} from "../local-components";
+import {
+  agentControllerInterfaceCapabilitiesSchema,
+  agentControllerInterfaceCheckSnapshotSchema,
+  agentControllerInterfaceNativeInterfaceSchema,
+  agentControllerInterfaceStatusSchema,
+  agentControllerInterfaceVersionAdvisoryStatusSchema,
+} from "../runtime/agent-controller-interface";
+import { localAgentCatalogLaunchStatusSchema } from "../runtime/local-agent-catalog";
+import {
   localRuntimeDeviceTypeSchema,
   localRuntimePlatformFamilySchema,
 } from "./local-runtimes";
@@ -7,9 +19,66 @@ import { organizationMemberOpenMeldServiceStateSchema } from "./organization-mem
 
 const BOUNDED_ID_SCHEMA = z.string().trim().min(1).max(256);
 const ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
+const REASON_CODES_SCHEMA = z.array(BOUNDED_ID_SCHEMA).max(64);
+
+export const organizationComputerOpenMeldToolsSchema = z.strictObject({
+  cli: z.strictObject({
+    installedPackageVersion: BOUNDED_ID_SCHEMA.nullable(),
+    latestPackageVersion: BOUNDED_ID_SCHEMA.nullable(),
+    reasonCodes: REASON_CODES_SCHEMA,
+    status: localComponentUpdateStatusSchema,
+    updatePolicy: localComponentUpdatePolicySchema,
+    wakeBlocked: z.boolean(),
+  }),
+  service: z.strictObject({
+    installedVersion: BOUNDED_ID_SCHEMA.nullable(),
+    latestVersion: BOUNDED_ID_SCHEMA.nullable(),
+    reasonCodes: REASON_CODES_SCHEMA,
+    requiredVersion: BOUNDED_ID_SCHEMA.nullable(),
+    status: localComponentUpdateStatusSchema,
+    updatePolicy: localComponentUpdatePolicySchema,
+    wakeBlocked: z.boolean(),
+  }),
+  skills: z.strictObject({
+    reasonCodes: REASON_CODES_SCHEMA,
+    status: localComponentUpdateStatusSchema,
+    targetCount: z.number().int().nonnegative().nullable(),
+    updatePolicy: localComponentUpdatePolicySchema,
+    wakeBlocked: z.boolean(),
+  }),
+});
+
+export const organizationComputerLocalAgentDetailsSchema = z.strictObject({
+  capabilities: agentControllerInterfaceCapabilitiesSchema,
+  check: agentControllerInterfaceCheckSnapshotSchema.optional(),
+  checkedAt: ISO_DATE_TIME_SCHEMA,
+  launch: z.strictObject({
+    installChoiceCount: z.number().int().nonnegative(),
+    status: localAgentCatalogLaunchStatusSchema,
+  }),
+  models: z
+    .array(
+      z.strictObject({
+        displayName: z.string().trim().min(1).max(256),
+      })
+    )
+    .max(256),
+  nativeInterface: agentControllerInterfaceNativeInterfaceSchema,
+  status: agentControllerInterfaceStatusSchema,
+  version: BOUNDED_ID_SCHEMA.nullable(),
+  versionAdvisory: z
+    .strictObject({
+      checkedAt: ISO_DATE_TIME_SCHEMA.nullable(),
+      currentVersion: BOUNDED_ID_SCHEMA.nullable(),
+      latestVersion: BOUNDED_ID_SCHEMA.nullable(),
+      status: agentControllerInterfaceVersionAdvisoryStatusSchema,
+    })
+    .optional(),
+});
 
 export const organizationComputerLocalAgentSchema = z.strictObject({
   agentControllerRef: BOUNDED_ID_SCHEMA,
+  details: organizationComputerLocalAgentDetailsSchema.nullable().optional(),
   enabled: z.boolean(),
   status: z.enum(["ready", "not_ready", "stale", "unknown"]),
 });
@@ -20,6 +89,7 @@ export const organizationComputerSchema = z.strictObject({
   deviceType: localRuntimeDeviceTypeSchema,
   lastSeenAtMs: z.number().int().nonnegative().nullable(),
   localAgents: z.array(organizationComputerLocalAgentSchema),
+  openMeldTools: organizationComputerOpenMeldToolsSchema.nullable().optional(),
   osVersion: z.string().trim().min(1).max(120).nullable(),
   ownerUserId: BOUNDED_ID_SCHEMA,
   platformFamily: localRuntimePlatformFamilySchema,

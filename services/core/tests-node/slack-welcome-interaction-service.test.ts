@@ -103,8 +103,285 @@ describe("Slack welcome teammate invitations", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     harness.close();
+  });
+
+  it.each([
+    {
+      action: "open_teammate_invite_modal" as const,
+      readyElementType: "multi_users_select",
+    },
+    {
+      action: "open_channel_introduction_modal" as const,
+      readyElementType: "multi_channels_select",
+    },
+  ])("opens a safe checking modal before membership verification for $action", async ({
+    action,
+    readyElementType,
+  }) => {
+    const activeMembership = {
+      account: {
+        defaultHumanProfile: null,
+        displayName: "Alex",
+        email: "alex@example.com",
+        membership: { memberId: "member-actor", role: "member" as const },
+        userId: "user-actor",
+      },
+      ok: true as const,
+      organization: {
+        id: "org-1",
+        memberCount: 2,
+        name: "Ampli Lift",
+        personal: false,
+        slug: "ampli-lift",
+      },
+    };
+    let resolveMembership!: (value: typeof activeMembership) => void;
+    const membership = new Promise<typeof activeMembership>((resolve) => {
+      resolveMembership = resolve;
+    });
+    const resolveOrganizationAccountIdentity = vi.fn(() => membership);
+    let markModalOpened!: () => void;
+    const modalOpened = new Promise<void>((resolve) => {
+      markModalOpened = resolve;
+    });
+    slackFetch.mockImplementation((url: string) => {
+      if (url === "https://slack.com/api/views.open") {
+        markModalOpened();
+        return Response.json({
+          ok: true,
+          view: { hash: "view-hash-1", id: "V_LOADING" },
+        });
+      }
+      if (url === "https://slack.com/api/views.update") {
+        return Response.json({
+          ok: true,
+          view: { hash: "view-hash-2", id: "V_LOADING" },
+        });
+      }
+      throw new Error(`Unexpected Slack request: ${url}`);
+    });
+
+    const handling = handleSlackWelcomeInteraction(
+      buildEnv({
+        db: harness.db,
+        ensureOrganizationJoinLinkOnBehalfOf: vi.fn(),
+        resolveOrganizationAccountIdentity,
+      }),
+      {
+        action,
+        gatewayRequestId: "dbf560cc-4d2c-4d8a-ae9a-27affd7e41e8",
+        interactionReceivedAtMs: Date.now(),
+        slackTeamId: "T1",
+        slackUserId: "U_ACTOR",
+        triggerId: "trigger-1",
+      }
+    );
+    const openedBeforeMembership = await Promise.race([
+      modalOpened.then(() => true),
+      new Promise<false>((resolve) => {
+        setTimeout(() => resolve(false), 50);
+      }),
+    ]);
+    resolveMembership(activeMembership);
+    await expect(handling).resolves.toEqual({ handled: true });
+
+    expect(openedBeforeMembership).toBe(true);
+    const modalRequests = slackFetch.mock.calls.map(([, request]) =>
+      JSON.parse(String(request?.body))
+    );
+    expect(modalRequests).toHaveLength(2);
+    expect(modalRequests[0]).toEqual({
+      trigger_id: "trigger-1",
+      view: expect.objectContaining({
+        blocks: [
+          expect.objectContaining({
+            text: expect.objectContaining({
+              text: "Checking your OpenMeld access…",
+            }),
+          }),
+        ],
+        type: "modal",
+      }),
+    });
+    expect(JSON.stringify(modalRequests[0])).not.toContain('"type":"input"');
+    expect(modalRequests[1]).toEqual(
+      expect.objectContaining({
+        hash: "view-hash-1",
+        view: expect.objectContaining({ type: "modal" }),
+        view_id: "V_LOADING",
+      })
+    );
+    expect(JSON.stringify(modalRequests[1])).toContain(
+      `"type":"${readyElementType}"`
+    );
+  });
+
+  it("replaces the checking modal with a private access failure", async () => {
+    const resolveOrganizationAccountIdentity = vi.fn(async () => ({
+      account: {
+        defaultHumanProfile: null,
+        displayName: "Alex",
+        email: "alex@example.com",
+        membership: null,
+        userId: "user-actor",
+      },
+      ok: true as const,
+      organization: {
+        id: "org-1",
+        memberCount: 1,
+        name: "Ampli Lift",
+        personal: false,
+        slug: "ampli-lift",
+      },
+    }));
+    slackFetch.mockImplementation((url: string) => {
+      if (url === "https://slack.com/api/views.open") {
+        return Response.json({
+          ok: true,
+          view: { hash: "view-hash-1", id: "V_LOADING" },
+        });
+      }
+      if (url === "https://slack.com/api/views.update") {
+        return Response.json({
+          ok: true,
+          view: { hash: "view-hash-2", id: "V_LOADING" },
+        });
+      }
+      throw new Error(`Unexpected Slack request: ${url}`);
+    });
+
+    await expect(
+      handleSlackWelcomeInteraction(
+        buildEnv({
+          db: harness.db,
+          ensureOrganizationJoinLinkOnBehalfOf: vi.fn(),
+          resolveOrganizationAccountIdentity,
+        }),
+        {
+          action: "open_teammate_invite_modal",
+          interactionReceivedAtMs: Date.now(),
+          slackTeamId: "T1",
+          slackUserId: "U_ACTOR",
+          triggerId: "trigger-1",
+        }
+      )
+    ).resolves.toEqual({ handled: true });
+
+    const updateBody = JSON.parse(String(slackFetch.mock.calls[1]?.[1]?.body));
+    expect(JSON.stringify(updateBody)).toContain(
+      "you’re no longer a member of this OpenMeld Organization"
+    );
+    expect(JSON.stringify(updateBody)).not.toContain("multi_users_select");
+  });
+
+  it("does not leave the checking modal open when membership verification stalls", async () => {
+    vi.useFakeTimers();
+    const activeMembership = {
+      account: {
+        defaultHumanProfile: null,
+        displayName: "Alex",
+        email: "alex@example.com",
+        membership: { memberId: "member-actor", role: "member" as const },
+        userId: "user-actor",
+      },
+      ok: true as const,
+      organization: {
+        id: "org-1",
+        memberCount: 2,
+        name: "Ampli Lift",
+        personal: false,
+        slug: "ampli-lift",
+      },
+    };
+    let resolveMembership!: (value: typeof activeMembership) => void;
+    const membership = new Promise<typeof activeMembership>((resolve) => {
+      resolveMembership = resolve;
+    });
+    let markModalOpened!: () => void;
+    const modalOpened = new Promise<void>((resolve) => {
+      markModalOpened = resolve;
+    });
+    slackFetch.mockImplementation((url: string) => {
+      if (url === "https://slack.com/api/views.open") {
+        markModalOpened();
+        return Response.json({
+          ok: true,
+          view: { hash: "view-hash-1", id: "V_LOADING" },
+        });
+      }
+      if (url === "https://slack.com/api/views.update") {
+        return Response.json({
+          ok: true,
+          view: { hash: "view-hash-2", id: "V_LOADING" },
+        });
+      }
+      throw new Error(`Unexpected Slack request: ${url}`);
+    });
+
+    const handling = handleSlackWelcomeInteraction(
+      buildEnv({
+        db: harness.db,
+        ensureOrganizationJoinLinkOnBehalfOf: vi.fn(),
+        resolveOrganizationAccountIdentity: vi.fn(() => membership),
+      }),
+      {
+        action: "open_teammate_invite_modal",
+        interactionReceivedAtMs: Date.now(),
+        slackTeamId: "T1",
+        slackUserId: "U_ACTOR",
+        triggerId: "trigger-1",
+      }
+    );
+    await modalOpened;
+    await vi.advanceTimersByTimeAsync(8000);
+    vi.useRealTimers();
+    const settledAfterBudget = await Promise.race([
+      handling.then(() => true),
+      new Promise<false>((resolve) => {
+        setTimeout(() => resolve(false), 100);
+      }),
+    ]);
+    resolveMembership(activeMembership);
+    await handling;
+
+    expect(settledAfterBudget).toBe(true);
+    const updateBody = JSON.parse(String(slackFetch.mock.calls[1]?.[1]?.body));
+    expect(JSON.stringify(updateBody)).toContain(
+      "OpenMeld couldn’t verify your access"
+    );
+    expect(JSON.stringify(updateBody)).not.toContain("multi_users_select");
+  });
+
+  it("does not exchange a Slack trigger after its presentation budget", async () => {
+    await expect(
+      handleSlackWelcomeInteraction(
+        buildEnv({
+          db: harness.db,
+          ensureOrganizationJoinLinkOnBehalfOf: vi.fn(),
+        }),
+        {
+          action: "open_teammate_invite_modal",
+          interactionReceivedAtMs: Date.now() - 3000,
+          slackTeamId: "T1",
+          slackUserId: "U_ACTOR",
+          triggerId: "expired-trigger",
+        }
+      )
+    ).resolves.toEqual({ handled: true });
+
+    expect(
+      slackFetch.mock.calls.filter(
+        ([url]) => url === "https://slack.com/api/views.open"
+      )
+    ).toHaveLength(0);
+    expect(
+      slackFetch.mock.calls.filter(
+        ([url]) => url === "https://slack.com/api/chat.postMessage"
+      )
+    ).toHaveLength(1);
   });
 
   it("lets a verified member share an existing Organization invite link", async () => {

@@ -4797,16 +4797,45 @@ function projectOrganizationComputerLiveSessions(input: {
   if (!input.liveSessions.online) {
     return [];
   }
-  return input.liveSessions.sessions.map((session) => ({
-    deviceId: session.deviceId,
-    executionCompatibility: session.executionCompatibility,
-    serviceUpdateWakeBlocked: resolveLocalComponentUpdateProjection({
+  return input.liveSessions.sessions.map((session) => {
+    const localComponents = resolveLocalComponentUpdateProjection({
       generatedAt: input.generatedAt,
       localComponentsStatus: session.capabilities.localComponents ?? null,
       serviceConnected: true,
       serviceVersion: session.serviceVersion ?? null,
-    }).service.wakeBlocked,
-  }));
+    });
+    return {
+      deviceId: session.deviceId,
+      executionCompatibility: session.executionCompatibility,
+      openMeldTools: {
+        cli: {
+          installedPackageVersion: localComponents.cli.installedPackageVersion,
+          latestPackageVersion: localComponents.cli.latestPackageVersion,
+          reasonCodes: localComponents.cli.reasonCodes,
+          status: localComponents.cli.status,
+          updatePolicy: localComponents.cli.updatePolicy,
+          wakeBlocked: localComponents.cli.wakeBlocked,
+        },
+        service: {
+          installedVersion: localComponents.service.installedVersion,
+          latestVersion: localComponents.service.latestVersion,
+          reasonCodes: localComponents.service.reasonCodes,
+          requiredVersion: localComponents.service.requiredVersion,
+          status: localComponents.service.status,
+          updatePolicy: localComponents.service.updatePolicy,
+          wakeBlocked: localComponents.service.wakeBlocked,
+        },
+        skills: {
+          reasonCodes: localComponents.skills.reasonCodes,
+          status: localComponents.skills.status,
+          targetCount: localComponents.skills.targetCount,
+          updatePolicy: localComponents.skills.updatePolicy,
+          wakeBlocked: localComponents.skills.wakeBlocked,
+        },
+      },
+      serviceUpdateWakeBlocked: localComponents.service.wakeBlocked,
+    };
+  });
 }
 
 async function buildOrganizationMemberOpenMeldServiceStatusesResponse(input: {

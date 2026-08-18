@@ -581,10 +581,30 @@ projection. Core authorizes the active Organization, resolves its current
 members, and projects their registry-backed Computers independently of Agent
 Profile creation. The contract permits only opaque Computer identity, owner,
 display/platform/last-seen metadata, coarse per-computer Service state, and
-bounded local-agent availability. Controller accounts, versions, launch paths,
-installation paths, local policy, credentials, and raw lookup failures are not
+bounded local-agent availability. Its optional local-agent `details` object is
+a sanitized projection of canonical Agent Controller Interface evidence and
+permits controller state, native interface, installed version and update
+status, launch status and install count, model display names, native capability
+flags, check status, and check timestamps. Controller accounts, executable or
+installation paths, launch arguments, update commands, diagnostic messages,
+private skills, local policy, credentials, and raw lookup failures are not
 members of this schema. Owner-scoped local runtimes remain authoritative for
 the signed-in member's complete inventory and controls.
+
+Its optional `openMeldTools` object is also a sanitized live-session
+projection. It permits component installed/latest versions, required Service
+version, update status/policy, Wake-blocking state, bounded reason codes, and
+managed skill target count. Setup commands, component hashes, runtime lanes,
+credentials, and actions are not members of the Organization schema.
+
+Both `details` and `openMeldTools` are additive optional response fields. Web
+and Gateway receivers that use the strict Organization Computer schema must be
+deployed before Core begins writing them. New receivers accept the old Core
+projection; old receivers reject the expanded projection instead of silently
+dropping fields. Rollback reverses that order: roll back Core before Gateway
+or Web. CLI and local Service wire contracts do not change; Core only projects
+existing canonical registry and live-session evidence into the team-safe read
+model.
 
 These Auth methods and schemas are additive private contracts. Deploy Auth
 before Core, and roll back Core before Auth. New Core against old Auth exposes

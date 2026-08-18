@@ -681,19 +681,27 @@ projection, including Service-connected Computers with no Agent Profile yet.
 Cards are grouped by owner just like Agents. Another member's card and detail
 may show computer name, owner, device category, operating-system family/version,
 last-seen time, coarse Service state, team-safe local-agent availability, and
-visible Agents that use it. They do not expose controller accounts or versions,
-executable or installation paths, local policy, credentials, raw errors, or
-mutation controls.
+visible Agents that use it. A reported local agent may also expose operational
+details that help teammates understand compatibility: controller state, native
+interface, installed version and update status, launch readiness and install
+count, reported model names, native capabilities, and last-check time. It does
+not expose controller accounts, executable or installation paths, launch
+arguments, update commands, private skills, local policy, credentials, raw
+errors, or mutation controls. A live Service may expose team-safe OpenMeld
+Tools component versions and update states; setup commands, hashes, and
+owner-only controls remain private.
 
 Owned and teammate Computers reuse the same Computer summary, **OpenMeld
 Tools**, and **Local agents** presentation components. Web applies visibility
 and capability conditions to those shared components instead of maintaining a
 second teammate-only card hierarchy. A teammate Computer summary names the
-reported local agents rather than replacing their identities with a count. Its
-Local agents rows retain the same logo, disabled Switch, and expandable layout,
-but expansion is limited to team-safe enabled and availability states. Accounts,
-versions, installation choices and paths, owner-only actions, and Agent Profile
-lists remain absent.
+reported local agents through the same exact logo strip, accessible names, and
+tooltips used by an owned Computer rather than a teammate-only text label or a
+generic count. Its Local agents rows retain the same logo, disabled Switch, and
+expandable detail layout. The expansion reuses the owner's operational detail
+rows and conditionally omits private fields. Accounts, executable or
+installation paths, launch arguments, update commands, private skills,
+owner-only actions, and Agent Profile lists remain absent.
 
 Connecting a computer, understanding which supported local tools it provides,
 and repairing that execution path are prerequisite product jobs rather than

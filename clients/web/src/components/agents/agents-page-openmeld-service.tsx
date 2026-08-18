@@ -5,6 +5,7 @@ import type {
 	LocalComponentUpdateStatus,
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
+	OrganizationComputerOpenMeldTools,
 } from "@openmeld/schemas/types";
 import type { ComputerReplyReadiness } from "@openmeld/start";
 import { Badge } from "@openmeld/ui/components/badge";
@@ -100,6 +101,7 @@ export type OpenMeldServiceCardOwnerProps = {
 type TeamOpenMeldServiceCardProps = {
 	computer: {
 		deviceDisplayName: string;
+		openMeldTools?: OrganizationComputerOpenMeldTools | null;
 		ownerLabel: string;
 		serviceState:
 			| "connected"
@@ -124,6 +126,27 @@ function TeamOpenMeldServiceCard(input: {
 	computer: TeamOpenMeldServiceCardProps["computer"];
 }) {
 	const status = resolveTeamOpenMeldToolsStatus(input.computer);
+	const serviceConnected =
+		input.computer.serviceState === "connected" ||
+		input.computer.serviceState === "needs_attention";
+	const componentDetails = input.computer.openMeldTools
+		? buildOpenMeldToolsComponentDetails({
+				canManage: false,
+				cliUpdate: input.computer.openMeldTools.cli,
+				serviceConnected,
+				serviceUpdate: input.computer.openMeldTools.service,
+				serviceVersionDescription: formatOpenMeldServiceVersionDescription({
+					expectedServiceVersion: null,
+					serviceUpdate: input.computer.openMeldTools.service,
+				}),
+				serviceVersionValue: formatOpenMeldServiceVersionValue({
+					expectedServiceVersion: null,
+					serviceConnected,
+					serviceUpdate: input.computer.openMeldTools.service,
+				}),
+				skillsUpdate: input.computer.openMeldTools.skills,
+			})
+		: null;
 	return (
 		<OpenMeldToolsCardFrame
 			description={`Keeps OpenMeld Service connected and local agent tools ready on ${input.computer.deviceDisplayName}.`}
@@ -148,6 +171,9 @@ function TeamOpenMeldServiceCard(input: {
 					{status.description}
 				</p>
 			</div>
+			{componentDetails ? (
+				<OpenMeldToolsComponentDetails items={componentDetails} />
+			) : null}
 		</OpenMeldToolsCardFrame>
 	);
 }
@@ -583,15 +609,16 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		skillsUpdate,
 	});
 	const serviceVersionValue = formatOpenMeldServiceVersionValue({
-		currentLocalRuntimeReplyReadiness: input.currentLocalRuntimeReplyReadiness,
 		expectedServiceVersion: input.expectedServiceVersion,
 		serviceConnected,
+		serviceUpdate,
 	});
 	const serviceVersionDescription = formatOpenMeldServiceVersionDescription({
-		currentLocalRuntimeReplyReadiness: input.currentLocalRuntimeReplyReadiness,
 		expectedServiceVersion: input.expectedServiceVersion,
+		serviceUpdate,
 	});
 	const componentDetails = buildOpenMeldToolsComponentDetails({
+		canManage: true,
 		cliUpdate,
 		serviceConnected,
 		serviceUpdate,
@@ -856,8 +883,9 @@ function buildOpenMeldToolsCliUpdateAction(
 
 type OpenMeldToolsProjection =
 	CurrentLocalRuntimeReplyReadinessResponse["localComponents"];
-type OpenMeldToolsCliUpdate = OpenMeldToolsProjection["cli"];
-type OpenMeldToolsSkillsUpdate = OpenMeldToolsProjection["skills"];
+type OpenMeldToolsCliUpdate = OrganizationComputerOpenMeldTools["cli"];
+type OpenMeldToolsServiceUpdate = OrganizationComputerOpenMeldTools["service"];
+type OpenMeldToolsSkillsUpdate = OrganizationComputerOpenMeldTools["skills"];
 type OpenMeldRuntimeLane =
 	CurrentLocalRuntimeReplyReadinessResponse["runtime"]["runtimeLane"];
 
@@ -891,12 +919,11 @@ function resolveOpenMeldToolsSkillsUpdate(
 }
 
 function formatOpenMeldServiceVersionValue(input: {
-	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	expectedServiceVersion: string | null;
 	serviceConnected: boolean;
+	serviceUpdate: OpenMeldToolsServiceUpdate | null;
 }): string {
-	const serviceUpdate =
-		input.currentLocalRuntimeReplyReadiness?.localComponents.service ?? null;
+	const serviceUpdate = input.serviceUpdate;
 	if (serviceUpdate?.installedVersion) {
 		return `Installed v${serviceUpdate.installedVersion}`;
 	}
@@ -913,11 +940,10 @@ function formatOpenMeldServiceVersionValue(input: {
 }
 
 function formatOpenMeldServiceVersionDescription(input: {
-	currentLocalRuntimeReplyReadiness: CurrentLocalRuntimeReplyReadinessResponse | null;
 	expectedServiceVersion: string | null;
+	serviceUpdate: OpenMeldToolsServiceUpdate | null;
 }): string | undefined {
-	const serviceUpdate =
-		input.currentLocalRuntimeReplyReadiness?.localComponents.service ?? null;
+	const serviceUpdate = input.serviceUpdate;
 	if (!serviceUpdate) {
 		return input.expectedServiceVersion
 			? `Latest available: v${input.expectedServiceVersion}.`
@@ -1135,11 +1161,10 @@ type OpenMeldToolsAction =
 	  };
 
 function buildOpenMeldToolsComponentDetails(input: {
+	canManage: boolean;
 	cliUpdate: OpenMeldToolsCliUpdate | null;
 	serviceConnected: boolean;
-	serviceUpdate:
-		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["service"]
-		| null;
+	serviceUpdate: OpenMeldToolsServiceUpdate | null;
 	serviceVersionDescription?: ReactNode;
 	serviceVersionValue: ReactNode;
 	skillsUpdate: OpenMeldToolsSkillsUpdate | null;
@@ -1161,7 +1186,10 @@ function buildOpenMeldToolsComponentDetails(input: {
 			value: formatOpenMeldCliVersionValue(input.cliUpdate),
 		},
 		{
-			description: formatOpenMeldSkillsDescription(input.skillsUpdate),
+			description: formatOpenMeldSkillsDescription({
+				canManage: input.canManage,
+				update: input.skillsUpdate,
+			}),
 			help: {
 				ariaLabel: "OpenMeld skill help",
 				content: <OpenMeldSkillHelpTooltipContent />,
@@ -1272,9 +1300,11 @@ function formatOpenMeldSkillsValue(
 	return "Installed";
 }
 
-function formatOpenMeldSkillsDescription(
-	update: OpenMeldToolsSkillsUpdate | null
-): string | undefined {
+function formatOpenMeldSkillsDescription(input: {
+	canManage: boolean;
+	update: OpenMeldToolsSkillsUpdate | null;
+}): string | undefined {
+	const update = input.update;
 	if (!update) {
 		return "OpenMeld has not received OpenMeld skill facts from this computer.";
 	}
@@ -1282,7 +1312,9 @@ function formatOpenMeldSkillsDescription(
 		return "OpenMeld has not received OpenMeld skill facts from this computer.";
 	}
 	if (update.status === "update_required") {
-		return "Run Update OpenMeld skills to refresh the OpenMeld skill.";
+		return input.canManage
+			? "Run Update OpenMeld skills to refresh the OpenMeld skill."
+			: "The computer owner needs to update the OpenMeld skill.";
 	}
 	if (update.status === "update_available") {
 		return "A newer OpenMeld skill is available.";
@@ -1303,9 +1335,7 @@ function hasNoOpenMeldSkillInstallTarget(
 
 function resolveOpenMeldServiceComponentTone(input: {
 	serviceConnected: boolean;
-	serviceUpdate:
-		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["service"]
-		| null;
+	serviceUpdate: OpenMeldToolsServiceUpdate | null;
 }): OpenMeldServiceVisualTone {
 	if (
 		input.serviceUpdate?.wakeBlocked ||

@@ -35,8 +35,10 @@ import {
   listSlackWorkspaceMembers,
   openSlackModal,
   postSlackDirectMessage,
+  SlackApiError,
   SlackMessagePublicationError,
   type SlackWorkspaceMember,
+  updateSlackModal,
 } from "./slack-client";
 import {
   buildSlackTeammateInvitationDeliveryId,
@@ -48,6 +50,20 @@ const INVITE_MODAL_CALLBACK_ID = "openmeld_invite_teammates";
 const CHANNEL_INTRODUCTION_MODAL_CALLBACK_ID = "openmeld_introduce_in_channels";
 const WHITESPACE_PATTERN = /\s+/u;
 const RPC_ERROR_CODE_PATTERN = /"code"\s*:\s*"([^"]+)"/u;
+const SLACK_MODAL_MEMBERSHIP_CHECK_BUDGET_MS = 8000;
+const SLACK_TRIGGER_PRESENTATION_BUDGET_MS = 2500;
+type SlackWelcomeModalInput = Extract<
+  SlackWelcomeInteractionRpcInput,
+  {
+    action: "open_channel_introduction_modal" | "open_teammate_invite_modal";
+  }
+>;
+type SlackWelcomeActorResult =
+  | {
+      context: Awaited<ReturnType<typeof resolveVerifiedSlackActor>>;
+      ok: true;
+    }
+  | { error: unknown; ok: false };
 
 export async function handleCenterAgentSlackTeammateInvitations(
   env: CoreBindings,
@@ -194,20 +210,15 @@ async function handleVerifiedSlackWelcomeInteraction(
   env: CoreBindings,
   input: SlackWelcomeInteractionRpcInput
 ): Promise<void> {
+  if (
+    input.action === "open_teammate_invite_modal" ||
+    input.action === "open_channel_introduction_modal"
+  ) {
+    await presentSlackWelcomeModal({ env, input });
+    return;
+  }
   const context = await resolveVerifiedSlackActor({ env, input });
-  if (input.action === "open_teammate_invite_modal") {
-    await openSlackModal({
-      botToken: context.botToken,
-      triggerId: input.triggerId,
-      view: buildTeammateInviteModal(),
-    });
-  } else if (input.action === "open_channel_introduction_modal") {
-    await openSlackModal({
-      botToken: context.botToken,
-      triggerId: input.triggerId,
-      view: buildChannelIntroductionModal(),
-    });
-  } else if (input.action === "submit_channel_introductions") {
+  if (input.action === "submit_channel_introductions") {
     const organizationInviteUrl = await resolveOptionalOrganizationInviteUrl({
       actorUserId: context.actorUserId,
       db: context.db,
@@ -231,24 +242,188 @@ async function handleVerifiedSlackWelcomeInteraction(
   }
 }
 
+async function presentSlackWelcomeModal(input: {
+  env: CoreBindings;
+  input: SlackWelcomeModalInput;
+}): Promise<void> {
+  const gatewayRequestId = input.input.gatewayRequestId ?? crypto.randomUUID();
+  const startedAtMs = Date.now();
+  const connectionPromise = resolveSlackWelcomeConnection(input);
+  const actorResultPromise: Promise<SlackWelcomeActorResult> = connectionPromise
+    .then(
+      async (connection) =>
+        await resolveVerifiedSlackActor({ ...input, connection })
+    )
+    .then(
+      (context) => ({ context, ok: true as const }),
+      (error: unknown) => ({ error, ok: false as const })
+    );
+  const connection = await connectionPromise;
+  const opened = await openSlackModal({
+    botToken: connection.botToken,
+    signal: buildSlackTriggerPresentationSignal(input.input),
+    triggerId: input.input.triggerId,
+    view: buildSlackWelcomeCheckingModal(),
+  });
+  console.info("[core.slack_welcome_modal.opened]", {
+    action: input.input.action,
+    elapsedMs: Date.now() - startedAtMs,
+    gatewayRequestId,
+    slackTeamId: input.input.slackTeamId,
+    slackUserId: input.input.slackUserId,
+  });
+
+  const actorResult = await waitForSlackWelcomeActor(actorResultPromise);
+  if (!actorResult.ok) {
+    const failureCode = readSlackWelcomeInteractionErrorCode(actorResult.error);
+    const outcome =
+      failureCode === "organization.membership_required"
+        ? "access_denied"
+        : "access_unavailable";
+    console.warn("[core.slack_welcome_modal.access_failed]", {
+      failureCode,
+      gatewayRequestId,
+      outcome,
+    });
+    await updateSlackWelcomeModalOrIgnoreClosed({
+      botToken: connection.botToken,
+      gatewayRequestId,
+      hash: opened.hash,
+      outcome,
+      view: buildSlackWelcomeAccessFailureModal(actorResult.error),
+      viewId: opened.viewId,
+    });
+    return;
+  }
+
+  await updateSlackWelcomeModalOrIgnoreClosed({
+    botToken: actorResult.context.botToken,
+    gatewayRequestId,
+    hash: opened.hash,
+    outcome: "ready",
+    view:
+      input.input.action === "open_teammate_invite_modal"
+        ? buildTeammateInviteModal()
+        : buildChannelIntroductionModal(),
+    viewId: opened.viewId,
+  });
+}
+
+async function waitForSlackWelcomeActor(
+  actorResultPromise: Promise<SlackWelcomeActorResult>
+): Promise<SlackWelcomeActorResult> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutResult = new Promise<SlackWelcomeActorResult>((resolve) => {
+    timeoutId = setTimeout(() => {
+      resolve({
+        error: createCoreRpcHttpError({
+          code: "organization.membership_verification_unavailable",
+          reason:
+            "OpenMeld couldn’t verify your Organization membership. Try again. If it still doesn’t work, reconnect Slack in OpenMeld.",
+          status: 503,
+        }),
+        ok: false,
+      });
+    }, SLACK_MODAL_MEMBERSHIP_CHECK_BUDGET_MS);
+  });
+  try {
+    return await Promise.race([actorResultPromise, timeoutResult]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+async function updateSlackWelcomeModalOrIgnoreClosed(input: {
+  botToken: string;
+  gatewayRequestId: string;
+  hash: string;
+  outcome: "access_denied" | "access_unavailable" | "ready";
+  view: Record<string, unknown>;
+  viewId: string;
+}): Promise<void> {
+  try {
+    await updateSlackModal(input);
+    console.info("[core.slack_welcome_modal.updated]", {
+      gatewayRequestId: input.gatewayRequestId,
+      outcome: input.outcome,
+    });
+  } catch (error) {
+    if (error instanceof SlackApiError && error.errorCode === "not_found") {
+      console.info("[core.slack_welcome_modal.closed]", {
+        gatewayRequestId: input.gatewayRequestId,
+        outcome: input.outcome,
+      });
+      return;
+    }
+    throw error;
+  }
+}
+
+function buildSlackTriggerPresentationSignal(
+  input: SlackWelcomeModalInput
+): AbortSignal {
+  const receivedAtMs = input.interactionReceivedAtMs ?? Date.now();
+  const remainingMs = Math.min(
+    SLACK_TRIGGER_PRESENTATION_BUDGET_MS,
+    receivedAtMs + SLACK_TRIGGER_PRESENTATION_BUDGET_MS - Date.now()
+  );
+  if (remainingMs <= 0) {
+    throw new Error(
+      "Slack interaction trigger expired before OpenMeld could present the modal"
+    );
+  }
+  return AbortSignal.timeout(Math.max(1, Math.floor(remainingMs)));
+}
+
+function buildSlackWelcomeCheckingModal(): Record<string, unknown> {
+  return {
+    blocks: [
+      {
+        text: {
+          text: "Checking your OpenMeld access…",
+          type: "plain_text",
+        },
+        type: "section",
+      },
+    ],
+    close: { text: "Cancel", type: "plain_text" },
+    title: { text: "OpenMeld", type: "plain_text" },
+    type: "modal",
+  };
+}
+
+function buildSlackWelcomeAccessFailureModal(
+  error: unknown
+): Record<string, unknown> {
+  const text =
+    readSlackWelcomeInteractionErrorCode(error) ===
+    "organization.membership_required"
+      ? "This action isn’t available because you’re no longer a member of this OpenMeld Organization. Ask an Organization owner or admin to add you again."
+      : "OpenMeld couldn’t verify your access. Try again. If it still doesn’t work, reconnect Slack in OpenMeld.";
+  return {
+    blocks: [
+      {
+        text: { text, type: "mrkdwn" },
+        type: "section",
+      },
+    ],
+    close: { text: "Close", type: "plain_text" },
+    title: { text: "OpenMeld", type: "plain_text" },
+    type: "modal",
+  };
+}
+
 async function notifySlackWelcomeInteractionFailure(input: {
   env: CoreBindings;
   error: unknown;
   input: SlackWelcomeInteractionRpcInput;
 }): Promise<void> {
   try {
-    const db = localStateDb(input.env);
-    if (!db) {
-      throw new Error("Slack connection state is unavailable.");
-    }
-    const botToken = await resolveSlackBotToken({
-      cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
-      db,
-      fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
-      slackTeamId: input.input.slackTeamId,
-    });
+    const connection = await resolveSlackWelcomeConnection(input);
     await postSlackDirectMessage({
-      botToken,
+      botToken: connection.botToken,
       recipientUserId: input.input.slackUserId,
       text: buildSlackWelcomeInteractionFailureMessage(input.error),
     });
@@ -421,15 +596,16 @@ async function resolveOrganizationInvitation(input: {
   throw new Error(result.message);
 }
 
-async function resolveVerifiedSlackActor(input: {
-  env: CoreBindings;
-  input: SlackWelcomeInteractionRpcInput;
-}): Promise<{
-  actorUserId: string;
+type SlackWelcomeConnection = {
   botToken: string;
   db: D1Database;
   organizationId: string;
-}> {
+};
+
+async function resolveSlackWelcomeConnection(input: {
+  env: CoreBindings;
+  input: SlackWelcomeInteractionRpcInput;
+}): Promise<SlackWelcomeConnection> {
   const db = localStateDb(input.env);
   if (!db) {
     throw new Error("Slack connection state is unavailable.");
@@ -441,12 +617,37 @@ async function resolveVerifiedSlackActor(input: {
   if (!binding) {
     throw new Error("This Slack workspace is not connected to OpenMeld.");
   }
-  const identity = await readSlackUserIdentityLink({
+  return {
+    botToken: await resolveSlackBotToken({
+      cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+      db,
+      expectedOrganizationId: binding.organizationId,
+      fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
+      slackTeamId: input.input.slackTeamId,
+    }),
     db,
+    organizationId: binding.organizationId,
+  };
+}
+
+async function resolveVerifiedSlackActor(input: {
+  connection?: SlackWelcomeConnection;
+  env: CoreBindings;
+  input: SlackWelcomeInteractionRpcInput;
+}): Promise<{
+  actorUserId: string;
+  botToken: string;
+  db: D1Database;
+  organizationId: string;
+}> {
+  const connection =
+    input.connection ?? (await resolveSlackWelcomeConnection(input));
+  const identity = await readSlackUserIdentityLink({
+    db: connection.db,
     slackTeamId: input.input.slackTeamId,
     slackUserId: input.input.slackUserId,
   });
-  if (!identity || identity.organizationId !== binding.organizationId) {
+  if (!identity || identity.organizationId !== connection.organizationId) {
     throw new Error(
       "Link your Slack account to OpenMeld before inviting teammates."
     );
@@ -454,7 +655,7 @@ async function resolveVerifiedSlackActor(input: {
   const membership = await readOrganizationAccountIdentityProjection({
     account: { kind: "user_id", userId: identity.openmeldUserId },
     authWorker: input.env.OPENMELD_AUTH_WORKER,
-    organizationId: binding.organizationId,
+    organizationId: connection.organizationId,
   });
   if (!membership?.ok) {
     throw createCoreRpcHttpError({
@@ -474,14 +675,7 @@ async function resolveVerifiedSlackActor(input: {
   }
   return {
     actorUserId: identity.openmeldUserId,
-    botToken: await resolveSlackBotToken({
-      cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
-      db,
-      fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
-      slackTeamId: input.input.slackTeamId,
-    }),
-    db,
-    organizationId: binding.organizationId,
+    ...connection,
   };
 }
 

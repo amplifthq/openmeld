@@ -38,6 +38,7 @@ export function OrganizationComputerPickerCard(input: {
 				})}
 			>
 				<SettingsComputerSummaryCardContent
+					activeLabel="OpenMeld Service is connected"
 					lastSeenLabel={formatOrganizationComputerLastSeen(
 						input.computer.lastSeenAtMs
 					)}
@@ -45,7 +46,9 @@ export function OrganizationComputerPickerCard(input: {
 					localAgentsSummaryLabel={formatLocalAgentSummaryLabel(localAgents)}
 					name={input.computer.deviceDisplayName}
 					platformLabel={formatOrganizationComputerPlatform(input.computer)}
-					showLocalAgentNames
+					serviceConnectionStatus={resolveServiceConnectionStatus(
+						input.computer.serviceState
+					)}
 				/>
 			</Link>
 		</div>
@@ -63,6 +66,7 @@ export function OrganizationComputerDetail(input: {
 			<OpenMeldServiceCard
 				computer={{
 					deviceDisplayName: input.computer.deviceDisplayName,
+					openMeldTools: input.computer.openMeldTools,
 					ownerLabel: input.computer.ownerLabel,
 					serviceState: input.computer.serviceState,
 				}}
@@ -75,6 +79,7 @@ export function OrganizationComputerDetail(input: {
 						const parsed = parseAgentControllerRef(agent.agentControllerRef);
 						return {
 							agentId: parsed?.id ?? agent.agentControllerRef,
+							details: agent.details,
 							displayName: formatAgentControllerName(agent.agentControllerRef),
 							enabled: agent.enabled,
 							status: agent.status,
@@ -85,6 +90,20 @@ export function OrganizationComputerDetail(input: {
 			/>
 		</div>
 	);
+}
+
+function resolveServiceConnectionStatus(
+	serviceState: OrganizationComputer["serviceState"]
+): "connected" | "not_connected" | null {
+	switch (serviceState) {
+		case "connected":
+		case "needs_attention":
+			return "connected";
+		case "not_connected":
+			return "not_connected";
+		default:
+			return null;
+	}
 }
 
 function formatOrganizationComputerLocalAgents(

@@ -10,6 +10,8 @@ export {
   type AgentControllerInterfaceDisplayRow,
   type AgentControllerVersionAdvisoryPresentation,
   createAgentControllerInterfaceDisplayRows,
+  createAgentControllerInterfaceOperationalDisplayRows,
+  formatAgentControllerInterfaceOperationalSummary,
   formatAgentControllerInterfaceSummary,
   getAgentControllerVersionAdvisoryPresentation,
   resolveAgentControllerInterfaceDescription,
