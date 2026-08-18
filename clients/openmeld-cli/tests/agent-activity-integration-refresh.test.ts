@@ -2,7 +2,10 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { refreshManagedAgentActivityIntegrations } from "../src/agent-activity/integration-refresh";
+import {
+  createManagedAgentActivityIntegrationRefreshScheduler,
+  refreshManagedAgentActivityIntegrations,
+} from "../src/agent-activity/integration-refresh";
 import { bindProject } from "../src/agent-activity/project-bindings";
 
 let root: string | null = null;
@@ -87,4 +90,46 @@ describe("managed Agent integration refresh", () => {
       },
     });
   });
+
+  it("coalesces connection signals and reports each completed refresh", async () => {
+    let releaseFirstRefresh: (() => void) | undefined;
+    const refreshResult = {
+      reason: "no_project_bindings",
+      status: "skipped",
+    } as const;
+    const refresh = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<typeof refreshResult>((resolve) => {
+            releaseFirstRefresh = () => resolve(refreshResult);
+          })
+      )
+      .mockResolvedValueOnce(refreshResult);
+    const onResult = vi.fn();
+    const scheduler = createManagedAgentActivityIntegrationRefreshScheduler({
+      onResult,
+      refresh,
+    });
+
+    scheduler.request();
+    scheduler.request();
+    await flushPendingPromises();
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    scheduler.request();
+    scheduler.request();
+    releaseFirstRefresh?.();
+    await flushPendingPromises();
+
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(onResult).toHaveBeenCalledTimes(2);
+    await scheduler.stop();
+  });
 });
+
+async function flushPendingPromises(count = 20): Promise<void> {
+  for (let index = 0; index < count; index += 1) {
+    await Promise.resolve();
+  }
+}

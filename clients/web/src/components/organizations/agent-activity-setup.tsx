@@ -13,6 +13,7 @@ import {
 	createCurrentProject,
 	resolveProjectErrorMessage,
 } from "#/lib/organizations/projects";
+import { AgentActivityEmptySetup } from "./agent-activity-empty-setup";
 import { useAgentActivityData } from "./agent-activity-page";
 
 export function AgentActivityNoProjectsSetup(input: { canManage: boolean }) {
@@ -101,14 +102,8 @@ export function AgentActivityNoProjectsSetup(input: { canManage: boolean }) {
 export function AgentActivityAwaitingFirstSession() {
 	return (
 		<Card className="rounded-md py-0">
-			<CardContent className="grid gap-1 py-4">
-				<p className="font-medium text-sm leading-6">
-					Waiting for the first reported session.
-				</p>
-				<p className="text-muted-foreground text-sm leading-6">
-					Check this Project in Manage Projects to confirm its connection on
-					this computer.
-				</p>
+			<CardContent className="py-4 text-center text-muted-foreground text-sm leading-6">
+				<AgentActivityEmptySetup setupState="awaiting_first_session" />
 			</CardContent>
 		</Card>
 	);

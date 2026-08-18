@@ -50,6 +50,22 @@ export function AgentActivitySessions(input: {
 	const isTruncated =
 		data.snapshotQuery.data?.sessionsTruncated === true ||
 		data.snapshotQuery.data?.digestsTruncated === true;
+	const hasFilters =
+		input.filters.memberUserId !== null ||
+		input.filters.provider !== null ||
+		input.filters.status !== null;
+	const emptyMessage = resolveSessionsEmptyMessage({
+		clearFilters: () =>
+			input.onFiltersChange({
+				memberUserId: null,
+				provider: null,
+				status: null,
+			}),
+		hasFilters,
+		isError: data.snapshotQuery.isError,
+		isPending: data.snapshotQuery.isPending,
+		setupState: view?.setupState ?? null,
+	});
 	return (
 		<section
 			aria-labelledby="agent-activity-sessions-heading"
@@ -141,13 +157,7 @@ export function AgentActivitySessions(input: {
 						) : null}
 					</div>
 					<AgentActivitySessionTable
-						emptyMessage={
-							data.snapshotQuery.isSuccess ? (
-								<AgentActivityEmptySetup />
-							) : (
-								"No sessions match these filters."
-							)
-						}
+						emptyMessage={emptyMessage}
 						membersByUserId={data.membersByUserId}
 						mode="all"
 						nowMs={data.currentTimeMs}
@@ -157,6 +167,37 @@ export function AgentActivitySessions(input: {
 				</CardContent>
 			</Card>
 		</section>
+	);
+}
+
+function resolveSessionsEmptyMessage(input: {
+	clearFilters: () => void;
+	hasFilters: boolean;
+	isError: boolean;
+	isPending: boolean;
+	setupState: "active" | "awaiting_first_session" | "no_projects" | null;
+}) {
+	if (input.isPending) {
+		return "Loading sessions…";
+	}
+	if (input.isError) {
+		return "Sessions are unavailable.";
+	}
+	if (
+		input.setupState === "no_projects" ||
+		input.setupState === "awaiting_first_session"
+	) {
+		return <AgentActivityEmptySetup setupState={input.setupState} />;
+	}
+	return (
+		<span className="inline-flex flex-col items-center gap-3 py-2">
+			<span>No sessions match these filters.</span>
+			{input.hasFilters ? (
+				<Button onClick={input.clearFilters} size="sm" variant="outline">
+					Clear filters
+				</Button>
+			) : null}
+		</span>
 	);
 }
 

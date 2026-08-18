@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { refreshManagedAgentActivityIntegrations } from "../src/agent-activity/integration-refresh";
+import type {
+  createManagedAgentActivityIntegrationRefreshScheduler,
+  refreshManagedAgentActivityIntegrations,
+} from "../src/agent-activity/integration-refresh";
 import type { startLocalAgentActivitySyncLoop } from "../src/agent-activity/local-sync";
 import type { StoredAuthSession } from "../src/config/auth-session";
 import { runDaemonServiceLoop } from "../src/local-service/carrier/service-runner";
@@ -31,6 +34,7 @@ const {
   buildRequestAuthHeadersMock,
   clearDaemonServiceRuntimeStateMock,
   connectWebSocketMock,
+  createManagedAgentActivityIntegrationRefreshSchedulerMock,
   createLocalAdapterContainerMock,
   createLocalAdapterEntriesMock,
   emitDaemonLifecycleEventMock,
@@ -43,6 +47,8 @@ const {
   readDaemonRouteCatalogCacheMock,
   readDaemonActiveBundleStateMock,
   readDaemonServiceContractMock,
+  requestLocalAgentActivitySyncMock,
+  requestManagedAgentActivityIntegrationRefreshMock,
   resolveRecentDaemonSignalStopCauseMock,
   resolveSystemLocalFolderPickerHelperMock,
   refreshManagedAgentActivityIntegrationsMock,
@@ -56,6 +62,7 @@ const {
   startLocalAgentActivitySyncLoopMock,
   startLocalDaemonControlPlaneServerMock,
   stopLocalAgentActivitySyncLoopMock,
+  stopManagedAgentActivityIntegrationRefreshSchedulerMock,
   syncDeviceRuntimeStateProjectionMock,
   syncLocalServiceRuntimeAgentControllerReportsMock,
   writeDaemonRouteCatalogCacheMock,
@@ -65,6 +72,8 @@ const {
   buildRequestAuthHeadersMock: vi.fn(),
   clearDaemonServiceRuntimeStateMock: vi.fn(),
   connectWebSocketMock: vi.fn(),
+  createManagedAgentActivityIntegrationRefreshSchedulerMock:
+    vi.fn<typeof createManagedAgentActivityIntegrationRefreshScheduler>(),
   createLocalAdapterContainerMock: vi.fn(),
   createLocalAdapterEntriesMock: vi.fn(),
   emitDaemonLifecycleEventMock: vi.fn(),
@@ -77,6 +86,8 @@ const {
   readDaemonRouteCatalogCacheMock: vi.fn(),
   readDaemonActiveBundleStateMock: vi.fn(),
   readDaemonServiceContractMock: vi.fn(),
+  requestLocalAgentActivitySyncMock: vi.fn(),
+  requestManagedAgentActivityIntegrationRefreshMock: vi.fn(),
   resolveRecentDaemonSignalStopCauseMock: vi.fn(),
   resolveSystemLocalFolderPickerHelperMock: vi.fn(),
   refreshManagedAgentActivityIntegrationsMock:
@@ -92,6 +103,7 @@ const {
     vi.fn<typeof startLocalAgentActivitySyncLoop>(),
   startLocalDaemonControlPlaneServerMock: vi.fn(),
   stopLocalAgentActivitySyncLoopMock: vi.fn(),
+  stopManagedAgentActivityIntegrationRefreshSchedulerMock: vi.fn(),
   syncDeviceRuntimeStateProjectionMock: vi.fn(),
   syncLocalServiceRuntimeAgentControllerReportsMock: vi.fn(),
   writeDaemonRouteCatalogCacheMock: vi.fn(),
@@ -99,6 +111,8 @@ const {
 }));
 
 vi.mock("../src/agent-activity/integration-refresh", () => ({
+  createManagedAgentActivityIntegrationRefreshScheduler:
+    createManagedAgentActivityIntegrationRefreshSchedulerMock,
   refreshManagedAgentActivityIntegrations:
     refreshManagedAgentActivityIntegrationsMock,
 }));
@@ -389,15 +403,28 @@ describe("local service runner dual-write", () => {
     });
     setDaemonServiceRuntimeStateMock.mockReset().mockResolvedValue(undefined);
     stopLocalAgentActivitySyncLoopMock.mockReset().mockResolvedValue(undefined);
-    startLocalAgentActivitySyncLoopMock
+    startLocalAgentActivitySyncLoopMock.mockReset().mockReturnValue({
+      requestSync: requestLocalAgentActivitySyncMock,
+      stop: stopLocalAgentActivitySyncLoopMock,
+    });
+    requestLocalAgentActivitySyncMock.mockReset();
+    stopManagedAgentActivityIntegrationRefreshSchedulerMock
       .mockReset()
-      .mockReturnValue(stopLocalAgentActivitySyncLoopMock);
+      .mockResolvedValue(undefined);
+    createManagedAgentActivityIntegrationRefreshSchedulerMock
+      .mockReset()
+      .mockReturnValue({
+        request: requestManagedAgentActivityIntegrationRefreshMock,
+        stop: stopManagedAgentActivityIntegrationRefreshSchedulerMock,
+      });
+    requestManagedAgentActivityIntegrationRefreshMock.mockReset();
     startLocalDaemonControlPlaneServerMock.mockReset().mockResolvedValue({
       close: vi.fn().mockResolvedValue(undefined),
     });
     writeDaemonRuntimeLeaseMock.mockReset().mockResolvedValue(undefined);
     clearDaemonServiceRuntimeStateMock.mockReset().mockResolvedValue(undefined);
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
+      input.onLocalProjectConnected?.();
       await input.touchRuntimeState(
         {
           heartbeatAt: "2026-03-14T00:00:05.000Z",
@@ -445,6 +472,13 @@ describe("local service runner dual-write", () => {
     // in-session sync resolves the real catalog.
     expect(loadDaemonRouteCatalogMock).not.toHaveBeenCalled();
     const sessionInput = runDaemonSocketSessionMock.mock.calls[0]?.[0];
+    expect(
+      requestManagedAgentActivityIntegrationRefreshMock
+    ).toHaveBeenCalledTimes(1);
+    expect(requestLocalAgentActivitySyncMock).toHaveBeenCalledWith({
+      reconcile: true,
+      refreshContext: true,
+    });
     expect(sessionInput?.routeCatalogState?.profileIds).toEqual([]);
     expect(typeof sessionInput?.loadRouteCatalog).toBe("function");
     expect(sessionInput?.isRouteCatalogResolved?.()).toBe(false);

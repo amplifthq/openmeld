@@ -44,7 +44,6 @@ const SINCE_DATE_PATTERN = /since Jan 2, 2026/iu;
 const TILDE_VALUE_PATTERN = /^~/u;
 const COPY_PATTERN = /Copy/iu;
 const STARTED_A_SESSION_PATTERN = /started a session/iu;
-const NO_SESSIONS_SETUP_PATTERN = /No sessions yet —/iu;
 const NO_PROJECTS_SETUP_PATTERN = /Create your first Project/iu;
 const AWAITING_FIRST_SESSION_PATTERN =
 	/Waiting for the first reported session/iu;
@@ -254,7 +253,7 @@ describe("Agent Activity pages", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Check this Project in Manage Projects to confirm its connection on this computer."
+				"Confirm a folder is connected in Manage Projects, then start or continue a coding-agent session in that folder."
 			)
 		).toBeTruthy();
 		expect(
@@ -285,7 +284,7 @@ describe("Agent Activity pages", () => {
 		expect(screen.queryByText(AWAITING_FIRST_SESSION_PATTERN)).toBeNull();
 	});
 
-	it("links empty Sessions and Changes to canonical Project setup", async () => {
+	it("links empty Sessions and Changes to canonical Project setup when no Project exists", async () => {
 		const sessionsPage = renderPage("sessions");
 		const sessionsLink = await screen.findByRole("link", {
 			name: "Create Project",
@@ -298,6 +297,96 @@ describe("Agent Activity pages", () => {
 			name: "Create Project",
 		});
 		expect(changesLink.getAttribute("href")).toBe("/o/acme/projects");
+	});
+
+	it("sends Sessions and Changes to Manage Projects while waiting for the first report", async () => {
+		const projects = [project({ id: "project-awaiting" })];
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects,
+		});
+		readSnapshot.mockResolvedValue(snapshot({ projects }));
+
+		const sessionsPage = renderPage("sessions");
+		expect(
+			await screen.findByText(AWAITING_FIRST_SESSION_PATTERN)
+		).toBeTruthy();
+		expect(screen.queryByRole("link", { name: "Create Project" })).toBeNull();
+		expect(
+			screen
+				.getAllByRole("link", { name: "Manage Projects" })
+				.every((link) => link.getAttribute("href") === "/o/acme/projects")
+		).toBe(true);
+		expect(
+			screen.getAllByRole("link", { name: "Manage Projects" })
+		).toHaveLength(2);
+
+		sessionsPage.unmount();
+		renderPage("changes");
+		expect(
+			await screen.findByText(AWAITING_FIRST_SESSION_PATTERN)
+		).toBeTruthy();
+		expect(screen.queryByRole("link", { name: "Create Project" })).toBeNull();
+		expect(
+			screen
+				.getAllByRole("link", { name: "Manage Projects" })
+				.every((link) => link.getAttribute("href") === "/o/acme/projects")
+		).toBe(true);
+		expect(
+			screen.getAllByRole("link", { name: "Manage Projects" })
+		).toHaveLength(2);
+	});
+
+	it("offers to clear Session filters when recorded sessions do not match", async () => {
+		const projects = [project({ id: "project-active" })];
+		const onSessionFiltersChange = vi.fn();
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects,
+		});
+		readSnapshot.mockResolvedValue(
+			snapshot({ projects, sessions: [session({ provider: "codex" })] })
+		);
+
+		renderPage("sessions", {
+			onSessionFiltersChange,
+			sessionFilters: {
+				memberUserId: null,
+				provider: "claude-code",
+				status: null,
+			},
+		});
+
+		expect(
+			await screen.findByText("No sessions match these filters.")
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+		expect(onSessionFiltersChange).toHaveBeenCalledWith({
+			memberUserId: null,
+			provider: null,
+			status: null,
+		});
+	});
+
+	it("explains an empty Changes window after session reporting is active", async () => {
+		const projects = [project({ id: "project-active" })];
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects,
+		});
+		readSnapshot.mockResolvedValue(
+			snapshot({ projects, sessions: [session()] })
+		);
+
+		renderPage("changes");
+
+		expect(
+			await screen.findByText("No state changes in the last 4 hours.")
+		).toBeTruthy();
+		expect(screen.queryByRole("link", { name: "Create Project" })).toBeNull();
+		expect(
+			screen.getAllByRole("link", { name: "Manage Projects" })
+		).toHaveLength(1);
 	});
 
 	it("uses one URL-backed Project scope across Monitor pages and aggregate stats", async () => {
@@ -695,7 +784,6 @@ describe("Agent Activity pages", () => {
 		expect(await screen.findByText(REFRESH_FAILURE_PATTERN)).toBeTruthy();
 		expect(screen.queryByText(NO_PROJECTS_SETUP_PATTERN)).toBeNull();
 		expect(screen.queryByText(AWAITING_FIRST_SESSION_PATTERN)).toBeNull();
-		expect(screen.queryByText(NO_SESSIONS_SETUP_PATTERN)).toBeNull();
 	});
 
 	it("removes expired activity on the next refresh while retaining stale failure evidence", async () => {
@@ -840,8 +928,10 @@ function renderPage(
 	section: ActivityTestSection,
 	options: {
 		canManage?: boolean;
+		onSessionFiltersChange?: (filters: AgentActivitySessionsFilters) => void;
 		onUrlUpdate?: (event: { queryString: string }) => void;
 		searchParams?: string;
+		sessionFilters?: AgentActivitySessionsFilters;
 	} = {}
 ) {
 	const queryClient = new QueryClient({
@@ -858,8 +948,10 @@ function renderPageTree(
 	section: ActivityTestSection,
 	options: {
 		canManage?: boolean;
+		onSessionFiltersChange?: (filters: AgentActivitySessionsFilters) => void;
 		onUrlUpdate?: (event: { queryString: string }) => void;
 		searchParams?: string;
+		sessionFilters?: AgentActivitySessionsFilters;
 	} = {}
 ) {
 	return (
@@ -870,7 +962,7 @@ function renderPageTree(
 		>
 			<QueryClientProvider client={queryClient}>
 				<AgentActivityContent>
-					{renderSection(section, options.canManage ?? true)}
+					{renderSection(section, options.canManage ?? true, options)}
 				</AgentActivityContent>
 			</QueryClientProvider>
 		</NuqsTestingAdapter>
@@ -893,7 +985,14 @@ function renderHomeActivity(options: { searchParams?: string } = {}) {
 	);
 }
 
-function renderSection(section: ActivityTestSection, canManage: boolean) {
+function renderSection(
+	section: ActivityTestSection,
+	canManage: boolean,
+	options: {
+		onSessionFiltersChange?: (filters: AgentActivitySessionsFilters) => void;
+		sessionFilters?: AgentActivitySessionsFilters;
+	} = {}
+) {
 	if (section === "overview") {
 		return (
 			<AgentActivityOverview
@@ -905,12 +1004,17 @@ function renderSection(section: ActivityTestSection, canManage: boolean) {
 	if (section === "changes") {
 		return <AgentActivityChanges />;
 	}
-	const filters: AgentActivitySessionsFilters = {
+	const filters: AgentActivitySessionsFilters = options.sessionFilters ?? {
 		memberUserId: null,
 		provider: null,
 		status: null,
 	};
-	return <AgentActivitySessions filters={filters} onFiltersChange={vi.fn()} />;
+	return (
+		<AgentActivitySessions
+			filters={filters}
+			onFiltersChange={options.onSessionFiltersChange ?? vi.fn()}
+		/>
+	);
 }
 
 function snapshot(

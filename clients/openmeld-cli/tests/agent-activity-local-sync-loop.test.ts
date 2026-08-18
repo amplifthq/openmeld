@@ -122,7 +122,7 @@ describe("Agent Activity local sync loop", () => {
     const onError = vi.fn();
     const onResult = vi.fn();
 
-    const stop = startLocalAgentActivitySyncLoop({
+    const loop = startLocalAgentActivitySyncLoop({
       intervalMs: 1000,
       onError,
       onResult,
@@ -134,7 +134,7 @@ describe("Agent Activity local sync loop", () => {
     expect(mocks.scanLocalAgentActivity).toHaveBeenCalledTimes(1);
 
     let stopped = false;
-    const stopping = stop().then(() => {
+    const stopping = loop.stop().then(() => {
       stopped = true;
     });
     await flushPendingPromises();
@@ -161,7 +161,49 @@ describe("Agent Activity local sync loop", () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(mocks.scanLocalAgentActivity).toHaveBeenCalledTimes(1);
   });
+
+  it("runs a requested full sync immediately after the current sync finishes", async () => {
+    let releaseFirstScan:
+      | ((result: {
+          changedFileCount: number;
+          driftCount: number;
+          observedCount: number;
+          queuedCount: number;
+        }) => void)
+      | undefined;
+    mocks.scanLocalAgentActivity
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseFirstScan = resolve;
+          })
+      )
+      .mockResolvedValueOnce(emptyObserverResult());
+
+    const loop = startLocalAgentActivitySyncLoop({ intervalMs: 60_000 });
+    await flushPendingPromises();
+    expect(mocks.scanLocalAgentActivity).toHaveBeenCalledTimes(1);
+
+    loop.requestSync({ reconcile: true, refreshContext: true });
+    loop.requestSync({ reconcile: true, refreshContext: true });
+    expect(mocks.scanLocalAgentActivity).toHaveBeenCalledTimes(1);
+
+    releaseFirstScan?.(emptyObserverResult());
+    await flushPendingPromises();
+
+    expect(mocks.scanLocalAgentActivity).toHaveBeenCalledTimes(2);
+    await loop.stop();
+  });
 });
+
+function emptyObserverResult() {
+  return {
+    changedFileCount: 0,
+    driftCount: 0,
+    observedCount: 0,
+    queuedCount: 0,
+  };
+}
 
 async function flushPendingPromises(count = 20): Promise<void> {
   for (let index = 0; index < count; index += 1) {
