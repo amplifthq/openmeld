@@ -303,6 +303,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
+		vi.restoreAllMocks();
 	});
 
 	it("shows Agent Controller Permission Mode on the card and profile details", async () => {
@@ -443,9 +444,11 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 	});
 
 	it("restores the Agent list cache when deletion fails", async () => {
-		deleteStartAgentProfileMock.mockRejectedValue(
-			new Error("Failed to remove agent profile: 500")
-		);
+		const removeError = new Error("Failed to remove agent profile: 500");
+		const consoleErrorSpy = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		deleteStartAgentProfileMock.mockRejectedValue(removeError);
 		const profile = createAgentProfile();
 		const { queryClient } = renderAgentProfilesCard();
 		const profilesQueryKey =
@@ -468,6 +471,10 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			);
 		});
 		expect(screen.queryByRole("heading", { name: "Remove Agent?" })).toBeNull();
+		expect(consoleErrorSpy).toHaveBeenCalledWith(
+			"Failed to remove Agent Profile. The optimistic cache update was rolled back.",
+			removeError
+		);
 		expect(refreshReadinessSharedCachesMock).not.toHaveBeenCalled();
 	});
 

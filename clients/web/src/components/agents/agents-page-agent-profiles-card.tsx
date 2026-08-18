@@ -1246,6 +1246,10 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 				);
 			} else {
 				restoreAgentProfileListCaches(input.queryClient, cacheSnapshot);
+				console.error(
+					"Failed to remove Agent Profile. The optimistic cache update was rolled back.",
+					error
+				);
 				toast.error(
 					`OpenMeld could not remove ${profile.profileName}. The Agent was restored to Local Agents.`
 				);
