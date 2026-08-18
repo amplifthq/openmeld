@@ -205,9 +205,14 @@ not authorize it to query Auth-private `users` or `members` tables.
 
 Web, future Desktop, and future Mobile clients consume the same list, direct
 item, count, preference, and mutation contracts. The source target is a
-discriminated, structured locator rather than a Web URL. Each client maps only
-supported targets to its canonical navigation surface. Unknown target kinds
-fail closed and remain visible without creating an arbitrary URL.
+discriminated, structured locator rather than an arbitrary or Web-only URL.
+Each client maps only supported targets to its canonical navigation surface.
+Unknown target kinds fail closed and remain visible without creating an
+arbitrary URL. A Slack `message_channel` target is the bounded exception for an
+external canonical source: it carries exact provider ids and a permalink that
+the shared schema restricts to HTTPS `slack.com` hosts. Core resolves that link
+through Slack `chat.getPermalink`; clients never construct or accept a
+recipient-authored external URL.
 An Agent Interaction target carries the stable source Space signal when known,
 so resolved interaction history remains navigable after transient interaction
 state is retired. Readers remain compatible with older targets that do not yet
@@ -219,6 +224,12 @@ The additive Agent Interaction signal locator rolls out consumer first: deploy
 Web before Core begins emitting it. The historical-data migration rewrites only
 resolved items to the existing Space target shape, so it remains readable by
 old and new strict consumers during the Database-to-Core deployment window.
+
+The additive Slack Message Channel target also rolls out consumer first:
+deploy the shared-schema Gateway and Web consumers before Core emits it. Core
+keeps the existing durable Slack terminal-delivery reconciliation path as the
+repair owner when permalink resolution or Inbox projection fails. Rollback
+stops the Core producer before rolling back Gateway or Web.
 
 The additive Dismiss method rolls out receiver first: deploy Core, then Gateway,
 then Web. Old clients do not call the new method and remain compatible. During

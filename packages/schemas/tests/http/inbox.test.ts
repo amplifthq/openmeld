@@ -55,6 +55,47 @@ describe("Inbox HTTP contracts", () => {
     });
   });
 
+  it("targets an exact Slack message through a validated Message Channel permalink", () => {
+    expect(
+      inboxItemSchema.parse({
+        ...item,
+        sourceTarget: {
+          channelId: "C0123456",
+          kind: "message_channel",
+          messageId: "1720000000.000200",
+          permalink:
+            "https://amplift.slack.com/archives/C0123456/p1720000000000200?thread_ts=1720000000.000100&cid=C0123456",
+          provider: "slack",
+          teamId: "T0123456",
+          threadRootMessageId: "1720000000.000100",
+        },
+      })
+    ).toMatchObject({
+      sourceTarget: {
+        kind: "message_channel",
+        messageId: "1720000000.000200",
+        provider: "slack",
+      },
+    });
+  });
+
+  it("rejects an unsafe Message Channel permalink", () => {
+    expect(
+      inboxItemSchema.safeParse({
+        ...item,
+        sourceTarget: {
+          channelId: "C0123456",
+          kind: "message_channel",
+          messageId: "1720000000.000200",
+          permalink: "https://evil.test/pretend-slack-message",
+          provider: "slack",
+          teamId: "T0123456",
+          threadRootMessageId: "1720000000.000100",
+        },
+      }).success
+    ).toBe(false);
+  });
+
   it("rejects unknown fields and unsupported source targets", () => {
     expect(
       inboxItemSchema.safeParse({ ...item, arbitraryUrl: "https://evil.test" })

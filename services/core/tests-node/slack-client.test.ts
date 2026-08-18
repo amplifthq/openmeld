@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   findSlackThreadMessageByMetadata,
+  getSlackMessagePermalink,
   listSlackChannelMemberIds,
   listSlackChannels,
   listSlackWorkspaceMembers,
@@ -869,6 +870,64 @@ describe("Slack thread messages", () => {
       name: "SlackMessagePublicationError",
       publicationOutcome: "unknown",
     });
+  });
+});
+
+describe("Slack message permalinks", () => {
+  // Mirrors Slack's documented chat.getPermalink success response:
+  // https://docs.slack.dev/reference/methods/chat.getPermalink/
+  it("resolves the canonical permalink for the exact message timestamp", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        Response.json({
+          channel: "C0123456",
+          ok: true,
+          permalink:
+            "https://amplift.slack.com/archives/C0123456/p1720000000000200?thread_ts=1720000000.000100&cid=C0123456",
+        })
+      )
+    );
+
+    await expect(
+      getSlackMessagePermalink({
+        botToken: "xoxb-test",
+        channelId: "C0123456",
+        fetchImpl: fetchMock,
+        messageTs: "1720000000.000200",
+      })
+    ).resolves.toBe(
+      "https://amplift.slack.com/archives/C0123456/p1720000000000200?thread_ts=1720000000.000100&cid=C0123456"
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://slack.com/api/chat.getPermalink?channel=C0123456&message_ts=1720000000.000200",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          authorization: "Bearer xoxb-test",
+        }),
+        method: "GET",
+      })
+    );
+  });
+
+  it("fails closed when Slack returns an unsafe permalink", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(
+        Response.json({
+          channel: "C0123456",
+          ok: true,
+          permalink: "https://evil.test/pretend-slack-message",
+        })
+      )
+    );
+
+    await expect(
+      getSlackMessagePermalink({
+        botToken: "xoxb-test",
+        channelId: "C0123456",
+        fetchImpl: fetchMock,
+        messageTs: "1720000000.000200",
+      })
+    ).rejects.toThrow("Slack chat.getPermalink returned an invalid permalink");
   });
 });
 

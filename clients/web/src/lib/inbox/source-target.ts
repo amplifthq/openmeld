@@ -46,6 +46,8 @@ export function buildInboxItemSourcePath(input: {
 				orgSlug: input.orgSlug,
 				taskId: target.taskId,
 			});
+		case "message_channel":
+			return target.permalink;
 		case "settings":
 			return target.section === "computers"
 				? buildOrganizationComputersPath(input.orgSlug)

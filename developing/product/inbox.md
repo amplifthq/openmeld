@@ -93,6 +93,13 @@ but resolved history must still navigate after RuntimeCoordinator retires the
 transient interaction state. Older targets without the additive signal remain
 valid during mixed-version rollout.
 
+A linked Slack delivery uses a `message_channel` target containing the exact
+workspace, channel, thread-root, and published-message ids plus Slack's
+validated canonical permalink. OpenMeld does not claim to observe Slack's read
+state. Activating that Inbox item marks only the OpenMeld item read and opens
+the exact Slack message in a new tab; reading the Slack thread by another route
+cannot clear OpenMeld unread state.
+
 `organizationId + recipientUserId + sourceEventKey` is unique. Replaying the
 same source event updates the existing item rather than creating duplicates.
 Source content must be bounded and must not copy transcripts, credentials,
@@ -206,6 +213,11 @@ Opening an Inbox item marks that item read as part of navigating to its source.
 Keyboard activation behaves the same way. Merely scrolling an item into the
 viewport, hovering it, or focusing the browser does not mark it read. Members
 can mark an item unread and can mark all accessible Inbox items read.
+
+For an external Message Channel source, the same activation contract runs
+before the validated provider permalink opens. Provider read receipts are not
+Inbox truth and are never inferred or polled when the provider does not expose
+an authoritative per-member read contract.
 
 Members can also Dismiss any item they no longer want in Inbox. Dismiss
 immediately removes the item from **All**, **Unread**, **Needs action**, and the

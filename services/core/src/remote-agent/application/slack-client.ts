@@ -1,6 +1,7 @@
 import {
   CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS,
   CENTER_AGENT_SLACK_SEARCH_CONTEXT_MESSAGES_MAX,
+  slackMessagePermalinkSchema,
 } from "@openmeld/schemas";
 import { toSlackMrkdwn } from "./slack-mrkdwn";
 
@@ -66,6 +67,7 @@ type SlackApiResponse = {
       }
   > | null;
   ok?: boolean;
+  permalink?: string | null;
   response_metadata?: {
     next_cursor?: string | null;
   } | null;
@@ -187,6 +189,34 @@ export type SlackWorkspaceMember = {
   slackUserId: string;
   title: string | null;
 };
+
+export async function getSlackMessagePermalink(input: {
+  botToken: string;
+  channelId: string;
+  fetchImpl?: FetchLike;
+  messageTs: string;
+  signal?: AbortSignal;
+}): Promise<string> {
+  const params = new URLSearchParams({
+    channel: input.channelId,
+    message_ts: input.messageTs,
+  });
+  const response = await (input.fetchImpl ?? fetch)(
+    `${SLACK_API_BASE_URL}/chat.getPermalink?${params.toString()}`,
+    {
+      headers: buildSlackHeaders(input.botToken),
+      method: "GET",
+      signal: input.signal,
+    }
+  );
+  const data = await readSlackApiResponse(response);
+  assertSlackOk(response, data, "chat.getPermalink");
+  const permalink = slackMessagePermalinkSchema.safeParse(data.permalink);
+  if (!permalink.success) {
+    throw new Error("Slack chat.getPermalink returned an invalid permalink");
+  }
+  return permalink.data;
+}
 
 export class SlackMessagePublicationError extends Error {
   readonly errorCode: string | null;
@@ -1505,19 +1535,8 @@ function normalizeSlackPermalink(value: unknown): string | null {
   if (!normalized) {
     return null;
   }
-  try {
-    const url = new URL(normalized);
-    const hostname = url.hostname.toLowerCase();
-    if (
-      url.protocol !== "https:" ||
-      (hostname !== "slack.com" && !hostname.endsWith(".slack.com"))
-    ) {
-      return null;
-    }
-    return url.toString();
-  } catch {
-    return null;
-  }
+  const parsed = slackMessagePermalinkSchema.safeParse(normalized);
+  return parsed.success ? parsed.data : null;
 }
 
 function normalizeSlackChannelName(value: string): string {

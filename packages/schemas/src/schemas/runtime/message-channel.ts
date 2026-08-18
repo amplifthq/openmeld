@@ -34,6 +34,23 @@ const timestampMsSchema = z
   .nonnegative()
   .max(Number.MAX_SAFE_INTEGER);
 
+export const slackMessagePermalinkSchema = z
+  .url()
+  .max(2048)
+  .refine(
+    (value) => {
+      const url = new URL(value);
+      const hostname = url.hostname.toLowerCase();
+      return (
+        url.protocol === "https:" &&
+        !url.username &&
+        !url.password &&
+        (hostname === "slack.com" || hostname.endsWith(".slack.com"))
+      );
+    },
+    { message: "Slack permalinks must use an HTTPS slack.com host." }
+  );
+
 export const messageChannelProviderSchema = z.enum(MESSAGE_CHANNEL_PROVIDERS);
 export const messageChannelParticipantIdentitySchema = z.strictObject({
   connectionId: providerIdSchema,

@@ -281,6 +281,10 @@ import {
   digestSlackIdentityLinkToken,
   SLACK_IDENTITY_LINK_TOKEN_TTL_MS,
 } from "./slack-identity-link-token";
+import {
+  resolveSlackInboxSourceTarget,
+  type SlackInboxSourceTarget,
+} from "./slack-inbox-source-target";
 import { buildRemoteAgentStreamId } from "./stream-callback-target";
 import { closeRemoteAgentStreamProjection } from "./stream-delta-service";
 import {
@@ -12191,10 +12195,15 @@ async function tryProjectLinkedSlackNativeDeliveryInboxItem(input: {
     throw new Error("remote_agent.inbox_projection_store_unavailable");
   }
   try {
+    const sourceTarget = await resolveLinkedSlackInboxSourceTarget({
+      delivery: input.delivery,
+      env: input.env,
+    });
     await projectLinkedSlackNativeDeliveryInboxItem({
       db: ownerInboxDb,
       delivery: input.delivery,
       occurredAtMs: input.outcome.occurredAtMs,
+      sourceTarget,
       status: input.outcome.status,
     });
   } catch (error) {
@@ -12210,11 +12219,26 @@ async function tryProjectLinkedSlackNativeDeliveryInboxItem(input: {
   }
 }
 
-export async function reconcileLinkedSlackNativeDeliveryInbox(input: {
-  db: D1Database;
-  limit?: number;
-  nowMs: number;
-}): Promise<{ attempted: number; errors: number; projected: number }> {
+type ResolveLinkedSlackInboxSourceTarget = (
+  delivery: RemoteAgentNativeDeliveryRecord
+) => Promise<SlackInboxSourceTarget>;
+
+export async function reconcileLinkedSlackNativeDeliveryInbox(
+  input: {
+    db: D1Database;
+    limit?: number;
+    nowMs: number;
+  } & (
+    | {
+        env: CoreBindings;
+        resolveSourceTarget?: never;
+      }
+    | {
+        env?: never;
+        resolveSourceTarget: ResolveLinkedSlackInboxSourceTarget;
+      }
+  )
+): Promise<{ attempted: number; errors: number; projected: number }> {
   const deliveries =
     await listLinkedSlackNativeDeliveriesNeedingInboxProjection({
       db: input.db,
@@ -12239,10 +12263,17 @@ export async function reconcileLinkedSlackNativeDeliveryInbox(input: {
         continue;
       }
       const outcome = buildNativeDeliveryTerminalOutcome(delivery);
+      const sourceTarget = await (input.resolveSourceTarget
+        ? input.resolveSourceTarget(delivery)
+        : resolveLinkedSlackInboxSourceTarget({
+            delivery,
+            env: input.env,
+          }));
       await projectLinkedSlackNativeDeliveryInboxItem({
         db: input.db,
         delivery,
         occurredAtMs: outcome.occurredAtMs,
+        sourceTarget,
         status: outcome.status,
       });
       projected += 1;
@@ -12260,6 +12291,28 @@ export async function reconcileLinkedSlackNativeDeliveryInbox(input: {
     }
   }
   return { attempted: deliveries.length, errors, projected };
+}
+
+async function resolveLinkedSlackInboxSourceTarget(input: {
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+}): Promise<SlackInboxSourceTarget> {
+  const tokenDb = localStateDb(input.env);
+  const slackTeamId = input.delivery.slackTeamId?.trim() ?? "";
+  if (!(tokenDb && slackTeamId)) {
+    throw new Error("remote_agent.inbox_slack_source_unavailable");
+  }
+  const botToken = await resolveSlackBotToken({
+    cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+    db: tokenDb,
+    expectedOrganizationId: input.delivery.organizationId,
+    fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
+    slackTeamId,
+  });
+  return await resolveSlackInboxSourceTarget({
+    botToken,
+    delivery: input.delivery,
+  });
 }
 
 async function shouldProjectRoutineRunTerminal(input: {

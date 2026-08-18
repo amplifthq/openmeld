@@ -31,6 +31,7 @@ const DEEP_LINKED_APPROVAL_NAME_PATTERN = /Deep-linked approval/;
 const INBOX_ITEM_UNAVAILABLE_NAME_PATTERN = /Inbox item isn't available/;
 const NEEDS_ATTENTION_SUMMARY_NAME_PATTERN = /2 items need your attention/;
 const NEW_SPACE_MESSAGE_LINK_NAME_PATTERN = /New Space message/;
+const SLACK_REPLY_LINK_NAME_PATTERN = /Center Agent replied in Slack/;
 const APPROVAL_COMMAND_LINK_NAME_PATTERN = /Approve the production command/;
 const ALREADY_READ_UPDATE_LINK_NAME_PATTERN = /Already-read update/;
 const APPROVAL_REQUIRED_LINK_NAME_PATTERN = /Approval required/;
@@ -236,6 +237,46 @@ describe("InboxPage", () => {
 		await waitFor(() => {
 			expect(markCurrentInboxItemReadMock).toHaveBeenCalledWith({
 				itemId: "source-item",
+				organizationId: "organization-123",
+				read: true,
+			});
+		});
+	});
+
+	it("marks a Slack item read and opens its exact message in a new tab", async () => {
+		const item = createInboxItem({
+			id: "slack-source-item",
+			sourceTarget: {
+				channelId: "C0123456",
+				kind: "message_channel",
+				messageId: "1720000000.000200",
+				permalink:
+					"https://amplift.slack.com/archives/C0123456/p1720000000000200?thread_ts=1720000000.000100&cid=C0123456",
+				provider: "slack",
+				teamId: "T0123456",
+				threadRootMessageId: "1720000000.000100",
+			},
+			title: "Center Agent replied in Slack",
+		});
+		markCurrentInboxItemReadMock.mockResolvedValue({
+			item: { ...item, readAt: "2026-08-04T02:00:00.000Z" },
+		});
+
+		renderInboxPage({ items: [item] });
+		const itemLink = screen.getByRole("link", {
+			name: SLACK_REPLY_LINK_NAME_PATTERN,
+		});
+		expect(itemLink.getAttribute("href")).toBe(
+			"https://amplift.slack.com/archives/C0123456/p1720000000000200?thread_ts=1720000000.000100&cid=C0123456"
+		);
+		expect(itemLink.getAttribute("target")).toBe("_blank");
+		expect(itemLink.getAttribute("rel")).toBe("noreferrer");
+
+		fireEvent.click(itemLink);
+
+		await waitFor(() => {
+			expect(markCurrentInboxItemReadMock).toHaveBeenCalledWith({
+				itemId: "slack-source-item",
 				organizationId: "organization-123",
 				read: true,
 			});

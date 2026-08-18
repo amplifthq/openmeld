@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { projectLinkedSlackNativeDeliveryInboxItem } from "../src/remote-agent/application/native-delivery-inbox-producer";
 import { reconcileLinkedSlackNativeDeliveryInbox } from "../src/remote-agent/application/native-delivery-service";
+import { resolveSlackInboxSourceTarget } from "../src/remote-agent/application/slack-inbox-source-target";
 import {
   markRemoteAgentNativeDeliveryAck,
   markRemoteAgentNativeDeliveryCompleted,
@@ -12,7 +13,61 @@ import {
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
 
+const SLACK_INBOX_SOURCE_TARGET = {
+  channelId: "channel_one",
+  kind: "message_channel",
+  messageId: "1000.0002",
+  permalink: "https://amplift.slack.com/archives/channel_one/p10000002",
+  provider: "slack",
+  teamId: "team_one",
+  threadRootMessageId: "1000.0001",
+} as const;
+
 describe("Slack native delivery Inbox producer", () => {
+  it("uses the published Slack reply as the exact source and falls back to the thread root", async () => {
+    const requestedMessageIds: string[] = [];
+    const fetchImpl = (input: RequestInfo | URL) => {
+      const requestUrl = new URL(String(input));
+      const messageId = requestUrl.searchParams.get("message_ts") ?? "";
+      requestedMessageIds.push(messageId);
+      return Promise.resolve(
+        Response.json({
+          ok: true,
+          permalink: `https://amplift.slack.com/archives/channel_one/p${messageId.replace(".", "")}`,
+        })
+      );
+    };
+    const sourceDelivery = {
+      publishedSignalId: "1000.0002",
+      slackChannelId: "channel_one",
+      slackTeamId: "team_one",
+      slackThreadTs: "1000.0001",
+    };
+
+    await expect(
+      resolveSlackInboxSourceTarget({
+        botToken: "xoxb-test",
+        delivery: sourceDelivery,
+        fetchImpl,
+      })
+    ).resolves.toMatchObject({
+      messageId: "1000.0002",
+      permalink: "https://amplift.slack.com/archives/channel_one/p10000002",
+      threadRootMessageId: "1000.0001",
+    });
+    await expect(
+      resolveSlackInboxSourceTarget({
+        botToken: "xoxb-test",
+        delivery: { ...sourceDelivery, publishedSignalId: null },
+        fetchImpl,
+      })
+    ).resolves.toMatchObject({
+      messageId: "1000.0001",
+      threadRootMessageId: "1000.0001",
+    });
+    expect(requestedMessageIds).toEqual(["1000.0002", "1000.0001"]);
+  });
+
   it("delivers to the exact linked user without requiring an Auth directory lookup", async () => {
     const harness = createInboxHarness();
     try {
@@ -27,12 +82,14 @@ describe("Slack native delivery Inbox producer", () => {
         db: harness.db,
         delivery,
         occurredAtMs: 2000,
+        sourceTarget: SLACK_INBOX_SOURCE_TARGET,
         status: "succeeded",
       });
       await projectLinkedSlackNativeDeliveryInboxItem({
         db: harness.db,
         delivery,
         occurredAtMs: 2000,
+        sourceTarget: SLACK_INBOX_SOURCE_TARGET,
         status: "succeeded",
       });
 
@@ -40,10 +97,11 @@ describe("Slack native delivery Inbox producer", () => {
         harness.queryAll<{
           recipient_user_id: string;
           source_key: string;
+          source_target_json: string;
           title: string;
         }>({
           sql: `
-            SELECT recipient_user_id, source_key, title
+            SELECT recipient_user_id, source_key, source_target_json, title
             FROM inbox_items
           `,
         })
@@ -51,6 +109,7 @@ describe("Slack native delivery Inbox producer", () => {
         {
           recipient_user_id: "user_two",
           source_key: "delivery_slack_1:terminal",
+          source_target_json: JSON.stringify(SLACK_INBOX_SOURCE_TARGET),
           title: "Center Agent replied in Slack",
         },
       ]);
@@ -71,6 +130,7 @@ describe("Slack native delivery Inbox producer", () => {
           organizationId: "org_one",
         },
         occurredAtMs: 2000,
+        sourceTarget: SLACK_INBOX_SOURCE_TARGET,
         status: "succeeded",
       });
       await projectLinkedSlackNativeDeliveryInboxItem({
@@ -82,6 +142,7 @@ describe("Slack native delivery Inbox producer", () => {
           organizationId: "org_one",
         },
         occurredAtMs: 2000,
+        sourceTarget: SLACK_INBOX_SOURCE_TARGET,
         status: "succeeded",
       });
 
@@ -108,18 +169,21 @@ describe("Slack native delivery Inbox producer", () => {
         db: harness.db,
         delivery,
         occurredAtMs: 2000,
+        sourceTarget: SLACK_INBOX_SOURCE_TARGET,
         status: "publication_failed",
       });
       await projectLinkedSlackNativeDeliveryInboxItem({
         db: harness.db,
         delivery,
         occurredAtMs: 3000,
+        sourceTarget: SLACK_INBOX_SOURCE_TARGET,
         status: "succeeded",
       });
       await projectLinkedSlackNativeDeliveryInboxItem({
         db: harness.db,
         delivery,
         occurredAtMs: 4000,
+        sourceTarget: SLACK_INBOX_SOURCE_TARGET,
         status: "publication_failed",
       });
 
@@ -198,12 +262,14 @@ describe("Slack native delivery Inbox producer", () => {
         reconcileLinkedSlackNativeDeliveryInbox({
           db: harness.db,
           nowMs: 1300,
+          resolveSourceTarget: async () => SLACK_INBOX_SOURCE_TARGET,
         })
       ).resolves.toEqual({ attempted: 1, errors: 0, projected: 1 });
       await expect(
         reconcileLinkedSlackNativeDeliveryInbox({
           db: harness.db,
           nowMs: 1400,
+          resolveSourceTarget: async () => SLACK_INBOX_SOURCE_TARGET,
         })
       ).resolves.toEqual({ attempted: 0, errors: 0, projected: 0 });
       expect(
@@ -242,6 +308,7 @@ describe("Slack native delivery Inbox producer", () => {
         reconcileLinkedSlackNativeDeliveryInbox({
           db: harness.db,
           nowMs: 3000,
+          resolveSourceTarget: async () => SLACK_INBOX_SOURCE_TARGET,
         })
       ).resolves.toEqual({
         attempted: 100,
@@ -269,6 +336,7 @@ describe("Slack native delivery Inbox producer", () => {
         reconcileLinkedSlackNativeDeliveryInbox({
           db: harness.db,
           nowMs: 4000,
+          resolveSourceTarget: async () => SLACK_INBOX_SOURCE_TARGET,
         })
       ).resolves.toEqual({
         attempted: 1,

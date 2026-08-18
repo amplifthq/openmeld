@@ -133,19 +133,20 @@ function InboxItemRow(input: {
 				data-inbox-read-state={unread ? "unread" : "read"}
 				itemId={input.item.id}
 			>
-				<Link
+				<InboxItemSourceLink
 					className={cn(
 						"flex min-w-0 items-start gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
 						input.density === "compact"
 							? "min-h-16 px-3 py-3"
 							: "min-h-20 px-4 py-4 pe-16 sm:gap-4"
 					)}
+					href={sourcePath}
 					onAuxClick={handleAuxClick}
 					onClick={handleOpen}
+					openInNewTab={input.item.sourceTarget.kind === "message_channel"}
 					ref={(element) => {
 						input.registerItemElement?.(input.item.id, element);
 					}}
-					to={sourcePath}
 				>
 					<span
 						className={cn(
@@ -204,7 +205,7 @@ function InboxItemRow(input: {
 							<InboxTimestamp occurredAt={input.item.occurredAt} />
 						</span>
 					</span>
-				</Link>
+				</InboxItemSourceLink>
 
 				{input.showItemActions ? (
 					<InboxItemActions
@@ -216,6 +217,43 @@ function InboxItemRow(input: {
 				) : null}
 			</SharedLayoutItem>
 		</li>
+	);
+}
+
+function InboxItemSourceLink(input: {
+	children: ReactNode;
+	className: string;
+	href: string;
+	onAuxClick: (event: MouseEvent<HTMLAnchorElement>) => void;
+	onClick: () => void;
+	openInNewTab: boolean;
+	ref: (element: HTMLAnchorElement | null) => void;
+}) {
+	if (input.openInNewTab) {
+		return (
+			<a
+				className={input.className}
+				href={input.href}
+				onAuxClick={input.onAuxClick}
+				onClick={input.onClick}
+				ref={input.ref}
+				rel="noreferrer"
+				target="_blank"
+			>
+				{input.children}
+			</a>
+		);
+	}
+	return (
+		<Link
+			className={input.className}
+			onAuxClick={input.onAuxClick}
+			onClick={input.onClick}
+			ref={input.ref}
+			to={input.href}
+		>
+			{input.children}
+		</Link>
 	);
 }
 

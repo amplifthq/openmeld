@@ -49,6 +49,26 @@ describe("buildInboxItemSourcePath", () => {
 		).toBe("/o/amplift/center-agent/chat?focusSignalId=signal-123");
 	});
 
+	it("opens the exact Slack message permalink", () => {
+		expect(
+			buildInboxItemSourcePath({
+				item: createInboxItem({
+					channelId: "C0123456",
+					kind: "message_channel",
+					messageId: "1720000000.000200",
+					permalink:
+						"https://amplift.slack.com/archives/C0123456/p1720000000000200?thread_ts=1720000000.000100&cid=C0123456",
+					provider: "slack",
+					teamId: "T0123456",
+					threadRootMessageId: "1720000000.000100",
+				}),
+				orgSlug: "amplift",
+			})
+		).toBe(
+			"https://amplift.slack.com/archives/C0123456/p1720000000000200?thread_ts=1720000000.000100&cid=C0123456"
+		);
+	});
+
 	it.each([
 		[
 			{ kind: "center_agent_task", taskId: "task/with spaces" } as const,

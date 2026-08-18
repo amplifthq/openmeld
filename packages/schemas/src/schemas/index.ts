@@ -2444,6 +2444,7 @@ export {
   remoteAgentWorkerSubmitTurnResponseSchema,
   remoteAgentWorkerTurnMessageSchema,
   routineWorkflowContinuationEventPayloadSchema,
+  slackMessagePermalinkSchema,
   slackWelcomeInteractionRpcInputSchema,
   slackWelcomeInteractionRpcResponseSchema,
   spaceWakeAgentTaskHandleSchema,
