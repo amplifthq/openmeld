@@ -119,6 +119,17 @@ do next. This is the Agent's current semantic judgment, not a second persisted
 because they advance that goal. Tool availability never turns search, setup,
 delegation, or another capability into the goal by itself.
 
+Before using a tool, that same Center Agent decides whether the goal and target
+are sufficiently specified. When one required detail is missing and trusted
+current context does not support a safe inference, it asks one concise question
+instead of searching to guess or enumerate possible targets. It starts with the
+current conversation and the smallest likely-sufficient evidence source,
+broadens only after material insufficiency or conflict, does not repeat an
+equivalent read or query without new scope, and stops once the evidence supports
+the requested decision or outcome. Latency and tool cost are part of that
+judgment. This is an intelligence contract, not a keyword classifier, fixed
+search budget, second model, or pre-agent gate.
+
 The Kernel also teaches stable interaction mechanics that affect whether the
 user's next step can work. In an ordinary Space, a human must explicitly Wake
 the intended Agent Profile with an `@` mention; only a current one-to-one Agent

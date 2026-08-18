@@ -69,6 +69,18 @@ describe("remote agent system prompt", () => {
       "Choose a tool only when it advances the user's actual goal"
     );
     expect(prompt).toContain(
+      "Before using a tool, decide whether the goal and target are sufficiently specified."
+    );
+    expect(prompt).toContain(
+      "do not search merely to guess or enumerate possible targets"
+    );
+    expect(prompt).toContain(
+      "never repeat an equivalent read or query without new scope"
+    );
+    expect(prompt).toContain(
+      "stop when the evidence supports the requested decision or outcome"
+    );
+    expect(prompt).toContain(
       "OpenMeld helps people and AI teammates work as one"
     );
     expect(prompt).toContain(
