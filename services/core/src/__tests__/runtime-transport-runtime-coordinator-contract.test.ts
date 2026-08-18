@@ -14754,6 +14754,71 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toHaveLength(0);
   });
 
+  it("finalizes an accepted Agent reply from the same command without publishing it twice", async () => {
+    const {
+      appliedFinalizationCommands,
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    const session = state.sessionsById.get("daemon-session-1");
+    if (!session) {
+      throw new Error("test session missing");
+    }
+    session.capabilities.agentReplyContextReview = true;
+    sentFrames.length = 0;
+
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        taskResult: buildSuccessfulPostMessageTaskResult(),
+      })
+    );
+    await Promise.all(waitUntilTasks.splice(0));
+
+    expect(sentFrames).toContainEqual(
+      expect.objectContaining({
+        code: "daemon.dispatch.accepted",
+        payload: expect.objectContaining({
+          ok: true,
+          status: "accepted",
+        }),
+      })
+    );
+    expect(appliedFinalizationCommands).toHaveLength(1);
+    expect(
+      recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+    ).toMatchObject({ status: "reply_published" });
+    expect(recordingD1.inboxRows.get("dispatch-1::attempt-1")).toMatchObject({
+      published_signal_id: "signal-final-1",
+      publish_state: "reply_published",
+    });
+    expect(
+      (storageRecords.get(
+        RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
+      ) as unknown[] | undefined) ?? []
+    ).toHaveLength(0);
+  });
+
   it("keeps a token-valid accepted result retryable until the finalization command is durable", async () => {
     const {
       appliedFinalizationCommands,

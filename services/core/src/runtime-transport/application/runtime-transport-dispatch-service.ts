@@ -4,6 +4,8 @@ import type {
   DaemonExecutionCompatibility,
   OpenMeldDaemonTaskResultEnvelope,
   OpenMeldRequestContext,
+  RuntimeCoordinatorFinalizationCommand,
+  RuntimeCoordinatorFinalizationOutcome,
   RuntimeTransportDeliverDispatchRequest,
   RuntimeTransportDeliverDispatchResponse,
   RuntimeTransportDispatchLifecycleRequest,
@@ -83,6 +85,11 @@ type DurableDispatchResultAcceptance = DispatchResultAcceptance & {
 
 type AcceptedResultStatus = "accepted" | "already_accepted";
 
+type SettledDurableDispatchFinalization = {
+  command: RuntimeCoordinatorFinalizationCommand;
+  outcome: RuntimeCoordinatorFinalizationOutcome;
+};
+
 type RuntimeCoordinatorAcceptedResultPointer = {
   executionTokenFingerprint: string;
   executionTokenRunId: string;
@@ -114,6 +121,7 @@ type AcceptDispatchResult = (result: DispatchResultAcceptance) => Promise<
 type FinalizeDurableDispatchResult = (
   result: DurableDispatchResultAcceptance & {
     acceptedResultStatus: AcceptedResultStatus;
+    settledFinalization?: SettledDurableDispatchFinalization | null;
   }
 ) => Promise<
   | {
@@ -129,7 +137,10 @@ type FinalizeDurableDispatchResult = (
 type SettleDurableDispatchResult = (
   result: DurableDispatchResultAcceptance
 ) => Promise<
-  | { ok: true }
+  | {
+      ok: true;
+      settledFinalization: SettledDurableDispatchFinalization | null;
+    }
   | {
       ok: false;
       status: "review_required";
@@ -708,6 +719,7 @@ export const handleSubmitTaskResult = async (
     finalizationRequired: true,
     spaceId: pending.spaceId,
   };
+  let settledFinalization: SettledDurableDispatchFinalization | null = null;
   if (
     deps.settleDurableDispatchResult &&
     state.sessionsById.get(request.daemonSessionId)?.capabilities
@@ -720,6 +732,7 @@ export const handleSubmitTaskResult = async (
     if (!settlement.ok) {
       return settlement;
     }
+    settledFinalization = settlement.settledFinalization;
   }
   const inboxAcceptance = await deps.acceptDispatchResult(resultAcceptance);
   if (!inboxAcceptance.ok) {
@@ -729,6 +742,7 @@ export const handleSubmitTaskResult = async (
     const finalization = await deps.finalizeDurableDispatchResult({
       ...durableResultAcceptance,
       acceptedResultStatus: inboxAcceptance.status,
+      settledFinalization,
     });
     if (!finalization.ok) {
       return finalization;
