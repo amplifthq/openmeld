@@ -3,6 +3,7 @@ import type {
   BulkAuthorizeAgentProfileBindingsForOrganizationResponse,
   CenterAgentOrganizationMemoryPolicyResponse,
   CenterAgentWipeMemberMemoryResponse,
+  GetAgentProfileCreationDefaultsResponse,
   GetOrganizationBindingAuthorizationPreferenceResponse,
   LarkPlatformActiveRegistrationListResponse,
   LarkPlatformProvider,
@@ -25,6 +26,8 @@ import type {
   OrganizationSpaceDirectoryWithMemberCountsResponse,
   SaveOrganizationWakeAccessChoiceBody,
   SaveOrganizationWakeAccessChoiceResponse,
+  SetAgentProfileCreationDefaultsBody,
+  SetAgentProfileCreationDefaultsResponse,
   SetOrganizationBindingAuthorizationPreferenceBody,
   SetOrganizationBindingAuthorizationPreferenceResponse,
   UpdateCenterAgentOrganizationMemoryPolicyBody,
@@ -53,6 +56,13 @@ export type BulkAuthorizeAgentProfileBindingsForOrganizationInput =
 export type SetOrganizationBindingAuthorizationPreferenceInput =
   OrganizationRouteInput & SetOrganizationBindingAuthorizationPreferenceBody;
 
+export type AgentProfileCreationDefaultsRouteInput = OrganizationRouteInput & {
+  agentControllerRef: string;
+};
+
+export type SetAgentProfileCreationDefaultsInput =
+  AgentProfileCreationDefaultsRouteInput & SetAgentProfileCreationDefaultsBody;
+
 export type SaveOrganizationWakeAccessChoiceInput = OrganizationRouteInput &
   SaveOrganizationWakeAccessChoiceBody;
 
@@ -79,6 +89,9 @@ export type MessageChannelIdentityLinkConsumeInput = OrganizationRequestInput &
   MessageChannelIdentityLinkConsumeBody;
 
 export type OrganizationApi = {
+  getAgentProfileCreationDefaults: (
+    input: AgentProfileCreationDefaultsRouteInput
+  ) => Promise<GetAgentProfileCreationDefaultsResponse>;
   updateCurrentLogo: (
     input: UpdateCurrentOrganizationLogoInput
   ) => Promise<OrganizationLogoResponse>;
@@ -148,6 +161,9 @@ export type OrganizationApi = {
   setBindingAuthorizationPreference: (
     input: SetOrganizationBindingAuthorizationPreferenceInput
   ) => Promise<SetOrganizationBindingAuthorizationPreferenceResponse>;
+  setAgentProfileCreationDefaults: (
+    input: SetAgentProfileCreationDefaultsInput
+  ) => Promise<SetAgentProfileCreationDefaultsResponse>;
   saveWakeAccessChoice: (
     input: SaveOrganizationWakeAccessChoiceInput
   ) => Promise<SaveOrganizationWakeAccessChoiceResponse>;

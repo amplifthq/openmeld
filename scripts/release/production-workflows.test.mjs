@@ -273,7 +273,9 @@ test("keeps one fast PR gate and makes exhaustive confidence manual", () => {
     ".github/actions/setup-fast-pr-plan/action.yml"
   );
   const planJob = prChecks.split("\n  plan:")[1]?.split("\n  static:")[0];
-  const checkJob = prChecks.split("\n  check:")[1]?.split("\n  unit-test-shards:")[0];
+  const checkJob = prChecks
+    .split("\n  check:")[1]
+    ?.split("\n  unit-test-shards:")[0];
 
   assert.equal(prChecks.match(/^ {4}name: Fast PR$/gmu)?.length, 1);
   assert.ok(prChecks.includes("  plan:"));
@@ -679,6 +681,32 @@ test("shows the exact release SHA in recoverable workflow run titles", () => {
   const cliRelease = readRepoFile(".github/workflows/cli-release.yml");
   assert.ok(cliRelease.includes("run-name:"));
   assert.ok(cliRelease.includes("inputs.release_sha || github.sha"));
+});
+
+test("routes stable CLI projection recovery through the guarded Core workflow", () => {
+  const recovery = readRepoFile(
+    ".github/workflows/recover-core-cli-projection.yml"
+  );
+  const core = readRepoFile(".github/workflows/deploy-core-worker.yml");
+  const cli = readRepoFile(".github/workflows/cli-release.yml");
+
+  assert.match(recovery, SCOPED_RELEASE_SHA_INPUT);
+  assert.ok(recovery.includes("require-mainline-release-sha.mjs"));
+  assert.ok(
+    recovery.includes("uses: ./.github/workflows/deploy-core-worker.yml")
+  );
+  assert.ok(
+    recovery.includes("deployment_mode: current-stable-cli-projection")
+  );
+  assert.ok(!recovery.includes("deploy-auth-worker.yml"));
+  assert.ok(!recovery.includes("deploy-web.yml"));
+  assert.ok(
+    core.includes("node scripts/release/deploy-core-current-cli-projection.mjs")
+  );
+  assert.ok(
+    core.includes("inputs.deployment_mode == 'current-stable-cli-projection'")
+  );
+  assert.ok(cli.includes("group: deploy-core-worker-production"));
 });
 
 test("orders Gateway checks after the Auth contract build they import", () => {

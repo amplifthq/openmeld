@@ -10,7 +10,7 @@ import {
 import {
   memberRoleHasOrganizationPermission,
   type OrganizationPermissionCheck,
-} from "@openmeld/auth";
+} from "@openmeld/auth/organization-policy";
 import type {
   Profile,
   SignalEnvelope,
@@ -34,6 +34,7 @@ import {
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
+  canonicalizeAgentControllerRef,
   centerAgentAddAgentProfilesToSpaceBodySchema,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
   centerAgentAddMembersToSpaceBodySchema,
@@ -135,6 +136,7 @@ import {
   getAgentExecutionReadinessBatchBodySchema,
   getAgentExecutionReadinessBatchResponseSchema,
   getAgentExecutionReadinessResponseSchema,
+  getAgentProfileCreationDefaultsResponseSchema,
   getAgentProfilePrimaryBindingResponseSchema,
   getCenterAgentDesignationResponseSchema,
   getCenterAgentDirectMessageSpaceProjectionResponseSchema,
@@ -207,6 +209,8 @@ import {
   saveOrganizationWakeAccessChoiceResponseSchema,
   selectCurrentLocalAgentInstallationBodySchema,
   selectCurrentLocalAgentInstallationResponseSchema,
+  setAgentProfileCreationDefaultsBodySchema,
+  setAgentProfileCreationDefaultsResponseSchema,
   setCurrentAgentProfileWorkspaceBodySchema,
   setCurrentAgentProfileWorkspaceResponseSchema,
   setCurrentAgentProfileWorkspaceRouteParamsSchema,
@@ -261,7 +265,9 @@ import type {
   AddOrganizationDirectoryProfilesToSpaceBody,
   AgentActivitySnapshotRpcInput,
   AgentActivityStatsRpcInput,
+  AgentControllerPermissionMode,
   AgentExecutionReadinessTargetRuntime,
+  AgentProfileBindingOpenCodePermission,
   AgentProfileBindingProjection,
   AgentStreamToolPart,
   AgentTaskCompletionCondition,
@@ -397,6 +403,7 @@ import type {
   GetAgentExecutionReadinessBatchBody,
   GetAgentExecutionReadinessBatchResponse,
   GetAgentExecutionReadinessResponse,
+  GetAgentProfileCreationDefaultsResponse,
   GetAgentProfilePrimaryBindingResponse,
   GetCenterAgentDesignationResponse,
   GetCenterAgentDirectMessageSpaceProjectionResponse,
@@ -482,6 +489,8 @@ import type {
   SaveOrganizationWakeAccessChoiceResponse,
   SelectCurrentLocalAgentInstallationBody,
   SelectCurrentLocalAgentInstallationResponse,
+  SetAgentProfileCreationDefaultsBody,
+  SetAgentProfileCreationDefaultsResponse,
   SetCurrentAgentProfileWorkspaceBody,
   SetCurrentAgentProfileWorkspaceResponse,
   SetCurrentLocalAgentEnabledBody,
@@ -587,6 +596,10 @@ import {
   readPrimaryAgentProfileBindingRecord,
   reconnectPrimaryAgentProfileBindingRecord,
 } from "../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
+import {
+  readAgentProfileCreationDefaultsRecord,
+  upsertAgentProfileCreationDefaultsRecord,
+} from "../agent-profile-binding/infrastructure/d1/agent-profile-creation-defaults-repo";
 import {
   deleteOrganizationBindingAuthorizationRecord,
   ensureOrganizationBindingAuthorizationRecord,
@@ -797,6 +810,7 @@ import {
   buildCanonicalLocalProjectDiscoveryRequest,
   createLocalProjectControlRpc,
 } from "../projects/local-project-control-rpc";
+import { readProjectRecord } from "../projects/project-repository";
 import { prepareExpectedHumanProjectRequest } from "../projects/project-request-preparation";
 import {
   rpcArchiveProject as archiveProject,
@@ -2171,6 +2185,19 @@ export type GetOrganizationBindingAuthorizationPreferenceInput = {
   context?: CoreRpcContextInput;
   organizationId: string;
 };
+
+export type GetAgentProfileCreationDefaultsInput = {
+  agentControllerRef: string;
+  context?: CoreRpcContextInput;
+  organizationId: string;
+};
+
+export type SetAgentProfileCreationDefaultsInput =
+  SetAgentProfileCreationDefaultsBody & {
+    agentControllerRef: string;
+    context?: CoreRpcContextInput;
+    organizationId: string;
+  };
 
 export type SetOrganizationBindingAuthorizationPreferenceInput =
   SetOrganizationBindingAuthorizationPreferenceBody & {
@@ -4533,6 +4560,100 @@ export async function rpcGetOrganizationBindingAuthorizationPreference(
     organizationId,
     updatedAtMs: preference?.updatedAtMs ?? null,
     userId: membership.userId,
+  });
+}
+
+export async function rpcGetAgentProfileCreationDefaults(
+  env: CoreBindings,
+  input: GetAgentProfileCreationDefaultsInput
+): Promise<GetAgentProfileCreationDefaultsResponse> {
+  const context = requireRpcContext(input.context);
+  const organizationId = requireOrganizationId(input.organizationId);
+  const agentControllerRef = requireCanonicalAgentControllerRef(
+    input.agentControllerRef
+  );
+  const membership = await requireOrganizationMembershipOrThrow({
+    context,
+    env,
+    organizationId,
+  });
+  const preference = await readAgentProfileCreationDefaultsRecord({
+    agentControllerRef,
+    db: requireAgentProfileBindingDb(env),
+    organizationId,
+    userId: membership.userId,
+  });
+
+  return buildAgentProfileCreationDefaultsResponse({
+    agentControllerPermissionMode:
+      preference?.agentControllerPermissionMode ?? null,
+    agentControllerRef,
+    defaultProjectId: preference?.defaultProjectId ?? null,
+    modelId: preference?.modelId ?? null,
+    openCodePermission: preference?.openCodePermission ?? null,
+    organizationId,
+    reasoningLevel: preference?.reasoningLevel ?? null,
+    updatedAtMs: preference?.updatedAtMs ?? null,
+    userId: membership.userId,
+  });
+}
+
+export async function rpcSetAgentProfileCreationDefaults(
+  env: CoreBindings,
+  input: SetAgentProfileCreationDefaultsInput
+): Promise<SetAgentProfileCreationDefaultsResponse> {
+  const context = requireRpcContext(input.context);
+  const organizationId = requireOrganizationId(input.organizationId);
+  const agentControllerRef = requireCanonicalAgentControllerRef(
+    input.agentControllerRef
+  );
+  const body = setAgentProfileCreationDefaultsBodySchema.safeParse({
+    agentControllerPermissionMode: input.agentControllerPermissionMode,
+    defaultProjectId: input.defaultProjectId,
+    modelId: input.modelId,
+    openCodePermission: input.openCodePermission,
+    reasoningLevel: input.reasoningLevel,
+  });
+  if (!body.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason:
+        body.error.issues[0]?.message ??
+        "invalid Agent Profile creation defaults payload",
+      status: 400,
+    });
+  }
+  const membership = await requireOrganizationMembershipOrThrow({
+    context,
+    env,
+    organizationId,
+  });
+  const db = requireAgentProfileBindingDb(env);
+  if (body.data.defaultProjectId) {
+    const project = await readProjectRecord({
+      db,
+      organizationId,
+      projectId: body.data.defaultProjectId,
+    });
+    if (!project || project.archivedAtMs !== null) {
+      throw createCoreRpcHttpError({
+        code: "invalid_project",
+        reason: "The selected Project is not active in this Organization.",
+        status: 400,
+      });
+    }
+  }
+  const preference = await upsertAgentProfileCreationDefaultsRecord({
+    ...body.data,
+    agentControllerRef,
+    db,
+    nowMs: Date.now(),
+    organizationId,
+    userId: membership.userId,
+  });
+
+  return buildAgentProfileCreationDefaultsResponse({
+    ...preference,
   });
 }
 
@@ -17988,6 +18109,59 @@ function buildOrganizationBindingAuthorizationPreferenceResponse(input: {
   if (!setValidated.success) {
     throw new Error(
       `failed to build Organization Binding authorization preference set response: ${setValidated.error.message}`
+    );
+  }
+  return validated.data;
+}
+
+function requireCanonicalAgentControllerRef(value: string): string {
+  const canonical = canonicalizeAgentControllerRef(value);
+  if (!canonical) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "agentControllerRef is invalid",
+      status: 400,
+    });
+  }
+  return canonical;
+}
+
+function buildAgentProfileCreationDefaultsResponse(input: {
+  agentControllerPermissionMode: AgentControllerPermissionMode | null;
+  agentControllerRef: string;
+  defaultProjectId: string | null;
+  modelId: string | null;
+  openCodePermission: AgentProfileBindingOpenCodePermission | null;
+  organizationId: string;
+  reasoningLevel: string | null;
+  updatedAtMs: number | null;
+  userId: string;
+}): GetAgentProfileCreationDefaultsResponse {
+  const response = {
+    agentControllerPermissionMode: input.agentControllerPermissionMode,
+    agentControllerRef: input.agentControllerRef,
+    defaultProjectId: input.defaultProjectId,
+    modelId: input.modelId,
+    openCodePermission: input.openCodePermission,
+    organizationId: input.organizationId,
+    reasoningLevel: input.reasoningLevel,
+    updatedAt:
+      input.updatedAtMs === null ? null : toIsoDateTime(input.updatedAtMs),
+    userId: input.userId,
+  };
+  const validated =
+    getAgentProfileCreationDefaultsResponseSchema.safeParse(response);
+  if (!validated.success) {
+    throw new Error(
+      `failed to build Agent Profile creation defaults response: ${validated.error.message}`
+    );
+  }
+  const setValidated = setAgentProfileCreationDefaultsResponseSchema.safeParse(
+    validated.data
+  );
+  if (!setValidated.success) {
+    throw new Error(
+      `failed to build Agent Profile creation defaults set response: ${setValidated.error.message}`
     );
   }
   return validated.data;

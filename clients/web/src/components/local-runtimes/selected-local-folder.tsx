@@ -1,14 +1,14 @@
 export function SelectedLocalFolder(input: { path: string; testId?: string }) {
 	return (
 		<div
-			className="grid gap-1 rounded-md border border-border/70 bg-muted/20 p-3"
+			className="grid min-w-0 gap-1 rounded-md border border-border/70 bg-muted/20 p-3"
 			data-testid={input.testId}
 		>
 			<p className="font-medium text-xs">Selected folder</p>
 			<p className="font-medium text-sm">
 				{resolveLocalFolderName(input.path)}
 			</p>
-			<p className="break-all font-mono text-muted-foreground text-xs">
+			<p className="max-w-full overflow-x-auto whitespace-nowrap font-mono text-muted-foreground text-xs">
 				{input.path}
 			</p>
 		</div>

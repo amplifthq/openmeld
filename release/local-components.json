@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-18T13:27:32.808Z",
+  "updatedAt": "2026-08-18T16:49:29.389Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.71",
+      "packageVersion": "0.3.72",
       "updatePolicy": "available",
       "reason": "Keeps CLI update checks clear for people while preserving structured Agent View diagnostics."
     },
     "service": {
-      "bundleHash": "b91afa5d57a9133291908a0e584e3cd88042590daf9a098c0f868ddf92c70b9d",
-      "bundleVersion": "0.3.71",
+      "bundleHash": "ca93af78ef7df84c33acca73eb21651b8d3a00d7138d0ffa938132c24a128ff8",
+      "bundleVersion": "0.3.72",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",

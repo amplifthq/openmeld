@@ -3,6 +3,7 @@ import {
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   centerAgentOrganizationMemoryPolicyResponseSchema,
   centerAgentWipeMemberMemoryResponseSchema,
+  getAgentProfileCreationDefaultsResponseSchema,
   getOrganizationBindingAuthorizationPreferenceResponseSchema,
   larkPlatformActiveRegistrationListResponseSchema,
   larkPlatformProviderSchema,
@@ -26,6 +27,8 @@ import {
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   saveOrganizationWakeAccessChoiceBodySchema,
   saveOrganizationWakeAccessChoiceResponseSchema,
+  setAgentProfileCreationDefaultsBodySchema,
+  setAgentProfileCreationDefaultsResponseSchema,
   setOrganizationBindingAuthorizationPreferenceBodySchema,
   setOrganizationBindingAuthorizationPreferenceResponseSchema,
   updateCenterAgentOrganizationMemoryPolicyBodySchema,
@@ -33,6 +36,7 @@ import {
 } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
 import {
+  buildAgentProfileCreationDefaultsPath,
   buildCurrentOrganizationCenterAgentMemoryPolicyPath,
   buildCurrentOrganizationCenterAgentMemoryWipeSelfPath,
   buildCurrentOrganizationComputersPath,
@@ -59,6 +63,20 @@ import type { CreateOrganizationApi } from "./types";
 export const createOrganizationApi: CreateOrganizationApi = (
   client: OpenMeldApiClientFoundation
 ) => ({
+  getAgentProfileCreationDefaults: async (input) =>
+    await client.requestJson({
+      url: buildAgentProfileCreationDefaultsPath(
+        input.organizationId,
+        input.agentControllerRef
+      ),
+      operation: "agent_profile.creation_defaults.read",
+      method: "GET",
+      requestContext: input.requestContext,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      schema: getAgentProfileCreationDefaultsResponseSchema,
+      invalidMessage: "invalid Agent Profile creation defaults response",
+    }),
   updateCurrentLogo: async (input) => {
     const mimeType = organizationLogoMimeTypeSchema.parse(input.mimeType);
     const body = toOrganizationLogoBody(input.bytes);
@@ -397,6 +415,30 @@ export const createOrganizationApi: CreateOrganizationApi = (
       schema: setOrganizationBindingAuthorizationPreferenceResponseSchema,
       invalidMessage:
         "invalid Organization Binding authorization preference response",
+    });
+  },
+  setAgentProfileCreationDefaults: async (input) => {
+    const body = setAgentProfileCreationDefaultsBodySchema.parse({
+      agentControllerPermissionMode: input.agentControllerPermissionMode,
+      defaultProjectId: input.defaultProjectId,
+      modelId: input.modelId,
+      openCodePermission: input.openCodePermission,
+      reasoningLevel: input.reasoningLevel,
+    });
+    return await client.requestJson({
+      url: buildAgentProfileCreationDefaultsPath(
+        input.organizationId,
+        input.agentControllerRef
+      ),
+      operation: "agent_profile.creation_defaults.write",
+      method: "PUT",
+      requestContext: input.requestContext,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      schema: setAgentProfileCreationDefaultsResponseSchema,
+      invalidMessage: "invalid Agent Profile creation defaults response",
     });
   },
   saveWakeAccessChoice: async (input) => {

@@ -5,6 +5,7 @@ import {
   centerAgentOrganizationMemoryPolicyResponseSchema,
   centerAgentWipeMemberMemoryResponseSchema,
   feedbackReportingPolicyResponseSchema,
+  getAgentProfileCreationDefaultsResponseSchema,
   getOrganizationBindingAuthorizationPreferenceResponseSchema,
   listOrganizationBindingAuthorizationProfilesResponseSchema,
   organizationComputersResponseSchema,
@@ -15,6 +16,8 @@ import {
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   saveOrganizationWakeAccessChoiceBodySchema,
   saveOrganizationWakeAccessChoiceResponseSchema,
+  setAgentProfileCreationDefaultsBodySchema,
+  setAgentProfileCreationDefaultsResponseSchema,
   setOrganizationBindingAuthorizationPreferenceBodySchema,
   setOrganizationBindingAuthorizationPreferenceResponseSchema,
   updateCenterAgentOrganizationMemoryPolicyBodySchema,
@@ -54,6 +57,8 @@ const ORGANIZATION_BINDING_AUTHORIZATION_PROFILES_ROUTE =
   "/v1/organizations/:organizationId/binding-authorizations/profiles";
 const ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE =
   "/v1/organizations/:organizationId/binding-authorization-preference";
+const AGENT_PROFILE_CREATION_DEFAULTS_ROUTE =
+  "/v1/organizations/:organizationId/agent-profile-creation-defaults/:agentControllerRef";
 const ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE =
   "/v1/organizations/:organizationId/wake-access-choice";
 
@@ -407,6 +412,83 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
           organizationId,
           context: buildCoreRpcContext(c),
         }),
+    });
+  });
+
+  app.get(AGENT_PROFILE_CREATION_DEFAULTS_ROUTE, (c) => {
+    const organizationId = c.req.param("organizationId")?.trim();
+    const agentControllerRef = c.req.param("agentControllerRef")?.trim();
+    if (!(organizationId && agentControllerRef)) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message: "organizationId and agentControllerRef are required",
+        method: "GET",
+        route: AGENT_PROFILE_CREATION_DEFAULTS_ROUTE,
+      });
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.getAgentProfileCreationDefaults({
+          agentControllerRef,
+          context: buildCoreRpcContext(c),
+          organizationId,
+        }),
+      method: "GET",
+      responseSchema: getAgentProfileCreationDefaultsResponseSchema,
+      route: AGENT_PROFILE_CREATION_DEFAULTS_ROUTE,
+    });
+  });
+
+  app.put(AGENT_PROFILE_CREATION_DEFAULTS_ROUTE, async (c) => {
+    const organizationId = c.req.param("organizationId")?.trim();
+    const agentControllerRef = c.req.param("agentControllerRef")?.trim();
+    if (!(organizationId && agentControllerRef)) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message: "organizationId and agentControllerRef are required",
+        method: "PUT",
+        route: AGENT_PROFILE_CREATION_DEFAULTS_ROUTE,
+      });
+    }
+    const bodyResult = await readJsonRequestBody(c.req.raw);
+    if (!bodyResult.ok) {
+      return respondBadRequest({
+        c,
+        code: "invalid_json",
+        message: bodyResult.message,
+        method: "PUT",
+        route: AGENT_PROFILE_CREATION_DEFAULTS_ROUTE,
+      });
+    }
+    const body = setAgentProfileCreationDefaultsBodySchema.safeParse(
+      bodyResult.value
+    );
+    if (!body.success) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message:
+          body.error.issues[0]?.message ??
+          "Invalid Agent Profile creation defaults payload.",
+        method: "PUT",
+        route: AGENT_PROFILE_CREATION_DEFAULTS_ROUTE,
+      });
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.setAgentProfileCreationDefaults({
+          ...body.data,
+          agentControllerRef,
+          context: buildCoreRpcContext(c),
+          organizationId,
+        }),
+      method: "PUT",
+      responseSchema: setAgentProfileCreationDefaultsResponseSchema,
+      route: AGENT_PROFILE_CREATION_DEFAULTS_ROUTE,
     });
   });
 
