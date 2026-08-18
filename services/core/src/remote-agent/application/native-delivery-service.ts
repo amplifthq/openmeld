@@ -282,7 +282,10 @@ import {
   digestSlackIdentityLinkToken,
   SLACK_IDENTITY_LINK_TOKEN_TTL_MS,
 } from "./slack-identity-link-token";
-import { setRemoteAgentSlackThreadWorkingStatus } from "./slack-working-status";
+import {
+  clearRemoteAgentSlackThreadWorkingStatus,
+  setRemoteAgentSlackThreadWorkingStatus,
+} from "./slack-working-status";
 import { buildRemoteAgentStreamId } from "./stream-callback-target";
 import { closeRemoteAgentStreamProjection } from "./stream-delta-service";
 import {
@@ -470,6 +473,9 @@ const REMOTE_AGENT_EXECUTION_CANCELLED_FAILURE_CODE =
   "remote_agent.execution_cancelled";
 const REMOTE_AGENT_EXECUTION_IDENTITY_MISMATCH_FAILURE_CODE =
   "remote_agent.execution_identity_mismatch";
+const REMOTE_AGENT_EXECUTION_RECONCILIATION_RPC_TIMEOUT_MS = 30_000;
+export const REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS =
+  5 * 60_000;
 export const REMOTE_AGENT_ROUTINE_SUBMISSION_RECOVERY_MIN_AGE_MS = 60_000;
 
 export class RemoteAgentSlackSubmissionOutcomeUnknownError extends Error {
@@ -7325,6 +7331,7 @@ function readSignalText(signal: SignalEnvelope): string | null {
 }
 
 async function requeueRemoteAgentNativeDeliveryDeadlineProbe(input: {
+  acceptedProbeProcessingLeaseDueAtMs?: number;
   db: D1Database;
   env: CoreBindings;
   nowMs: number;
@@ -7365,7 +7372,8 @@ async function requeueRemoteAgentNativeDeliveryDeadlineProbe(input: {
       await releaseRemoteAgentAcceptedDeliveryProbeSchedule({
         db: input.db,
         idempotencyKey: input.probe.idempotencyKey,
-        leaseDueAtMs: input.runAtMs,
+        leaseDueAtMs:
+          input.acceptedProbeProcessingLeaseDueAtMs ?? input.runAtMs,
         nowMs: input.nowMs,
         submissionId: input.probe.submissionId,
       });
@@ -7386,6 +7394,11 @@ async function requeueRemoteAgentNativeDeliveryDeadlineProbe(input: {
   try {
     const marked = await markRemoteAgentAcceptedDeliveryProbeScheduled({
       db: input.db,
+      ...(input.acceptedProbeProcessingLeaseDueAtMs === undefined
+        ? {}
+        : {
+            expectedCurrentDueAtMs: input.acceptedProbeProcessingLeaseDueAtMs,
+          }),
       idempotencyKey: input.probe.idempotencyKey,
       nextDueAtMs: input.runAtMs,
       nowMs: input.nowMs,
@@ -9466,6 +9479,7 @@ async function resolveRemoteAgentDeadlineProbePublication(input: {
     return null;
   }
   await refreshRemoteAgentSlackThreadWorkingStatus({
+    db: input.db,
     delivery,
     env: input.env,
   });
@@ -9492,7 +9506,8 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
 }> {
   const reconciliationDelayMs =
     resolveAcceptedDeliveryProbeDelaySeconds(input.delivery) * 1000;
-  const processingLeaseDueAtMs = input.nowMs + reconciliationDelayMs;
+  const processingLeaseDueAtMs =
+    input.nowMs + REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS;
   const lease = await claimRemoteAgentAcceptedDeliveryProbeSchedule({
     db: input.db,
     idempotencyKey: input.delivery.idempotencyKey,
@@ -9502,8 +9517,7 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
   });
   const leasedDelivery = lease.delivery;
   const isActiveAcceptedDelivery =
-    leasedDelivery?.status === "accepted" ||
-    leasedDelivery?.status === "retry_observed";
+    isRemoteAgentAcceptedDeliveryAwaitingFinalPublication(leasedDelivery);
   if (!(lease.claimed && isActiveAcceptedDelivery)) {
     if (leasedDelivery && !isActiveAcceptedDelivery) {
       await projectRemoteAgentNativeDeliveryTerminalEffects({
@@ -9521,6 +9535,7 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
     };
   }
   await refreshRemoteAgentSlackThreadWorkingStatus({
+    db: input.db,
     delivery: leasedDelivery,
     env: input.env,
   });
@@ -9543,14 +9558,16 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
     if (!worker) {
       throw new Error("Remote Agent worker binding is unavailable.");
     }
-    const response = await worker.reconcileExecution?.({
-      v: 1,
-      idempotencyKey: leasedDelivery.idempotencyKey,
-      organizationId: leasedDelivery.organizationId,
-      spaceId: leasedDelivery.spaceId,
-      submissionId: input.probe.submissionId,
-      ...(conversationId ? { conversationId } : {}),
-    });
+    const response = await withRemoteAgentExecutionReconciliationTimeout(
+      worker.reconcileExecution?.({
+        v: 1,
+        idempotencyKey: leasedDelivery.idempotencyKey,
+        organizationId: leasedDelivery.organizationId,
+        spaceId: leasedDelivery.spaceId,
+        submissionId: input.probe.submissionId,
+        ...(conversationId ? { conversationId } : {}),
+      })
+    );
     if (response === undefined) {
       throw new Error(
         "Remote Agent worker does not expose execution reconciliation."
@@ -9570,6 +9587,7 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
       }
     );
     await requeueRemoteAgentNativeDeliveryDeadlineProbe({
+      acceptedProbeProcessingLeaseDueAtMs: processingLeaseDueAtMs,
       db: input.db,
       env: input.env,
       nowMs: input.nowMs,
@@ -9597,7 +9615,29 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
     reconciledDelivery,
     reconciliation,
     reconciliationDelayMs,
+    processingLeaseDueAtMs,
   });
+}
+
+async function withRemoteAgentExecutionReconciliationTimeout<T>(
+  promise: Promise<T> | undefined
+): Promise<T | undefined> {
+  if (!promise) {
+    return undefined;
+  }
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error("Remote Agent execution reconciliation timed out."));
+    }, REMOTE_AGENT_EXECUTION_RECONCILIATION_RPC_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
 }
 
 async function settleReconciledAcceptedRemoteAgentNativeDelivery(input: {
@@ -9607,6 +9647,7 @@ async function settleReconciledAcceptedRemoteAgentNativeDelivery(input: {
   messageChannelProviderRegistry?: MessageChannelProviderRegistry;
   nowMs: number;
   probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage;
+  processingLeaseDueAtMs: number;
   reconciledDelivery: RemoteAgentNativeDeliveryRecord | null;
   reconciliation: ReturnType<
     typeof remoteAgentWorkerExecutionQueryResponseSchema.parse
@@ -9635,6 +9676,7 @@ async function settleReconciledAcceptedRemoteAgentNativeDelivery(input: {
 
   if (input.reconciliation.status === "identity_mismatch") {
     return await publishExecutionIdentityMismatchFailure({
+      acceptedProbeProcessingLeaseDueAtMs: input.processingLeaseDueAtMs,
       db: input.db,
       delivery: input.leasedDelivery,
       env: input.env,
@@ -9645,6 +9687,7 @@ async function settleReconciledAcceptedRemoteAgentNativeDelivery(input: {
   }
 
   await requeueRemoteAgentNativeDeliveryDeadlineProbe({
+    acceptedProbeProcessingLeaseDueAtMs: input.processingLeaseDueAtMs,
     db: input.db,
     env: input.env,
     nowMs: input.nowMs,
@@ -9661,42 +9704,42 @@ async function settleReconciledAcceptedRemoteAgentNativeDelivery(input: {
 }
 
 async function refreshRemoteAgentSlackThreadWorkingStatus(input: {
+  db: D1Database;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
 }): Promise<void> {
   if (input.delivery.conversationKind !== "slack") {
     return;
   }
-  const channelId = normalizeOptionalText(input.delivery.slackChannelId);
-  const slackTeamId = normalizeOptionalText(input.delivery.slackTeamId);
-  const threadTs = normalizeOptionalText(input.delivery.slackThreadTs);
-  const db = localStateDb(input.env);
-  if (!(channelId && db && slackTeamId && threadTs)) {
-    console.warn(
-      "[core.remote_agent.slack_thread_status.refresh_unavailable]",
-      {
-        deliveryId: input.delivery.deliveryId,
-        dispatchId: input.delivery.dispatchId,
-        event: CORE_LOG_EVENTS.coreInternalError,
-        reason: "slack_target_incomplete",
-        submissionId: input.delivery.submissionId,
-      }
-    );
+  const submissionId = normalizeOptionalText(input.delivery.submissionId);
+  if (!submissionId) {
     return;
   }
   try {
-    const botToken = await resolveSlackBotToken({
-      cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
-      db,
-      expectedOrganizationId: input.delivery.organizationId,
-      fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
-      slackTeamId,
+    const current = await readRemoteAgentNativeDeliveryBySubmissionId({
+      db: input.db,
+      submissionId,
     });
+    if (!isRemoteAgentAcceptedDeliveryAwaitingFinalPublication(current)) {
+      return;
+    }
+    const target = await resolveRemoteAgentSlackThreadStatusTarget(input);
     await setRemoteAgentSlackThreadWorkingStatus({
-      botToken,
-      channelId,
-      threadTs,
+      botToken: target.botToken,
+      channelId: target.channelId,
+      threadTs: target.threadTs,
     });
+    const afterSet = await readRemoteAgentNativeDeliveryBySubmissionId({
+      db: input.db,
+      submissionId,
+    });
+    if (!isRemoteAgentAcceptedDeliveryAwaitingFinalPublication(afterSet)) {
+      await clearRemoteAgentSlackThreadWorkingStatus({
+        botToken: target.botToken,
+        channelId: target.channelId,
+        threadTs: target.threadTs,
+      });
+    }
   } catch (error) {
     console.warn(
       "[core.remote_agent.slack_thread_status.refresh_unavailable]",
@@ -9705,11 +9748,77 @@ async function refreshRemoteAgentSlackThreadWorkingStatus(input: {
         dispatchId: input.delivery.dispatchId,
         error: toErrorMessage(error),
         event: CORE_LOG_EVENTS.coreInternalError,
-        slackTeamId,
+        slackTeamId: input.delivery.slackTeamId,
         submissionId: input.delivery.submissionId,
       }
     );
   }
+}
+
+async function clearRemoteAgentSlackThreadWorkingStatusForDelivery(input: {
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+}): Promise<void> {
+  if (input.delivery.conversationKind !== "slack") {
+    return;
+  }
+  try {
+    const target = await resolveRemoteAgentSlackThreadStatusTarget(input);
+    await clearRemoteAgentSlackThreadWorkingStatus({
+      botToken: target.botToken,
+      channelId: target.channelId,
+      threadTs: target.threadTs,
+    });
+  } catch (error) {
+    console.warn("[core.remote_agent.slack_thread_status.clear_unavailable]", {
+      deliveryId: input.delivery.deliveryId,
+      dispatchId: input.delivery.dispatchId,
+      error: toErrorMessage(error),
+      event: CORE_LOG_EVENTS.coreInternalError,
+      slackTeamId: input.delivery.slackTeamId,
+      submissionId: input.delivery.submissionId,
+    });
+  }
+}
+
+async function resolveRemoteAgentSlackThreadStatusTarget(input: {
+  delivery: RemoteAgentNativeDeliveryRecord;
+  env: CoreBindings;
+}): Promise<{
+  botToken: string;
+  channelId: string;
+  threadTs: string;
+}> {
+  const channelId = normalizeOptionalText(input.delivery.slackChannelId);
+  const slackTeamId = normalizeOptionalText(input.delivery.slackTeamId);
+  const threadTs = normalizeOptionalText(input.delivery.slackThreadTs);
+  const db = localStateDb(input.env);
+  if (!(channelId && db && slackTeamId && threadTs)) {
+    throw new Error("Slack thread status target is incomplete");
+  }
+  return {
+    botToken: await resolveSlackBotToken({
+      cryptoKey: input.env.SLACK_OPENMELD_TOKEN_CRYPTO_KEY,
+      db,
+      expectedOrganizationId: input.delivery.organizationId,
+      fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
+      slackTeamId,
+    }),
+    channelId,
+    threadTs,
+  };
+}
+
+function isRemoteAgentAcceptedDeliveryAwaitingFinalPublication(
+  delivery: RemoteAgentNativeDeliveryRecord | null
+): delivery is RemoteAgentNativeDeliveryRecord {
+  return Boolean(
+    delivery &&
+      (delivery.status === "accepted" ||
+        delivery.status === "retry_observed") &&
+      delivery.finalPublicationState === null &&
+      delivery.publishedSignalId === null
+  );
 }
 
 function hasRetainedExecutionIdentityMismatchFailure(
@@ -9725,6 +9834,7 @@ function hasRetainedExecutionIdentityMismatchFailure(
 }
 
 async function publishExecutionIdentityMismatchFailure(input: {
+  acceptedProbeProcessingLeaseDueAtMs?: number;
   db: D1Database;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
@@ -9797,6 +9907,12 @@ async function publishExecutionIdentityMismatchFailure(input: {
       current.finalPublicationState === "claimed")
   ) {
     await requeueRemoteAgentNativeDeliveryDeadlineProbe({
+      ...(input.acceptedProbeProcessingLeaseDueAtMs === undefined
+        ? {}
+        : {
+            acceptedProbeProcessingLeaseDueAtMs:
+              input.acceptedProbeProcessingLeaseDueAtMs,
+          }),
       db: input.db,
       env: input.env,
       nowMs: input.nowMs,
@@ -11928,6 +12044,10 @@ async function projectRemoteAgentNativeDeliveryTerminalEffects(input: {
   ) {
     return;
   }
+  await clearRemoteAgentSlackThreadWorkingStatusForDelivery({
+    delivery: input.delivery,
+    env: input.env,
+  });
   const centerAgentTaskIdentity = await resolveCenterAgentTaskTerminalIdentity({
     delivery: input.delivery,
     env: input.env,

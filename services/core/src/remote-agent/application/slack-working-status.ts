@@ -18,3 +18,17 @@ export async function setRemoteAgentSlackThreadWorkingStatus(input: {
     threadTs: input.threadTs,
   });
 }
+
+export async function clearRemoteAgentSlackThreadWorkingStatus(input: {
+  botToken: string;
+  channelId: string;
+  threadTs: string;
+}): Promise<void> {
+  await setSlackThreadStatus({
+    botToken: input.botToken,
+    channelId: input.channelId,
+    signal: AbortSignal.timeout(SLACK_THREAD_STATUS_TIMEOUT_MS),
+    status: "",
+    threadTs: input.threadTs,
+  });
+}

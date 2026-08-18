@@ -333,7 +333,10 @@ the connected provider API.
    and model admission. The status and final answer use the same thread on App
    Home direct messages and channel mentions. Slack clears the status when the
    reply publishes; an admission or execution failure produces one visible
-   failure in that same thread.
+   failure in that same thread. Working-status refresh is best-effort
+   presentation driven by the accepted delivery lifecycle. It does not own
+   execution truth, and its refresh cadence must not shorten the reconciliation
+   processing lease.
    Lark and Feishu are the next Message Channel producers. They reuse the same
    connected-member-or-external-participant resolution, ordinary-member
    Organization and shared-App capability, Center Agent designation, daily

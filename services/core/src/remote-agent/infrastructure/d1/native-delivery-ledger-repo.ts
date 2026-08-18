@@ -1886,14 +1886,18 @@ export async function markRemoteAgentNativeDeliveryDeadlineProbeEnqueued(input: 
 
 export async function markRemoteAgentAcceptedDeliveryProbeScheduled(input: {
   db: D1Database;
+  expectedCurrentDueAtMs?: number;
   idempotencyKey: string;
   nextDueAtMs: number;
   nowMs: number;
   submissionId: string;
 }): Promise<RemoteAgentNativeDeliveryRecord | null> {
-  await input.db
-    .prepare(
-      `
+  const expectedLeaseClause =
+    input.expectedCurrentDueAtMs === undefined
+      ? ""
+      : "AND accepted_probe_next_due_at_ms = ?";
+  const statement = input.db.prepare(
+    `
         UPDATE openMeldRemoteAgent_native_delivery_ledger
         SET
           accepted_probe_next_due_at_ms = ?,
@@ -1905,16 +1909,21 @@ export async function markRemoteAgentAcceptedDeliveryProbeScheduled(input: {
         WHERE idempotency_key = ?
           AND submission_id = ?
           AND status IN ('accepted', 'retry_observed')
+          AND final_publication_state IS NULL
+          ${expectedLeaseClause}
       `
-    )
-    .bind(
-      input.nextDueAtMs,
-      input.nowMs,
-      input.nowMs,
-      input.idempotencyKey,
-      input.submissionId
-    )
-    .run();
+  );
+  const bindings = [
+    input.nextDueAtMs,
+    input.nowMs,
+    input.nowMs,
+    input.idempotencyKey,
+    input.submissionId,
+    ...(input.expectedCurrentDueAtMs === undefined
+      ? []
+      : [input.expectedCurrentDueAtMs]),
+  ];
+  await statement.bind(...bindings).run();
   return await readRemoteAgentNativeDeliveryByIdempotencyKey({
     db: input.db,
     idempotencyKey: input.idempotencyKey,
@@ -1941,6 +1950,7 @@ export async function claimRemoteAgentAcceptedDeliveryProbeSchedule(input: {
         WHERE idempotency_key = ?
           AND submission_id = ?
           AND status IN ('accepted', 'retry_observed')
+          AND final_publication_state IS NULL
           AND (
             accepted_probe_next_due_at_ms IS NULL
             OR accepted_probe_next_due_at_ms <= ?
@@ -2007,6 +2017,7 @@ export async function listRemoteAgentNativeDeliveriesMissingAcceptedProbe(input:
         FROM openMeldRemoteAgent_native_delivery_ledger
         WHERE status IN ('accepted', 'retry_observed')
           AND submission_id IS NOT NULL
+          AND final_publication_state IS NULL
           AND (
             accepted_probe_next_due_at_ms IS NULL
             OR accepted_probe_next_due_at_ms <= ?
