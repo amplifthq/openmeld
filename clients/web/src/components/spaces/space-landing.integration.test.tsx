@@ -394,7 +394,7 @@ const READY_WORD_PATTERN = /\bReady\b/u;
 const WAITING_FOR_OPENMELD_SERVICE_PATTERN = /Waiting for OpenMeld Service/;
 const SHOW_ME_AROUND_BUTTON_NAME_PATTERN = /Show me around/;
 const START_SOMETHING_NEW_BUTTON_NAME_PATTERN = /Start something new/;
-const ADD_AGENTS_BUTTON_NAME_PATTERN = /^Add agents/;
+const ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN = /^Add people or agents/;
 const CONNECT_THIS_COMPUTER_BUTTON_NAME_PATTERN = /^Connect this computer/;
 type TestAgentExecutionReadiness = ReturnType<
 	typeof createSpaceMemberAgentExecutionReadiness
@@ -4407,13 +4407,13 @@ describe("SpaceLanding", () => {
 		).toBeTruthy();
 		expect(
 			within(setupActions).getByRole("button", {
-				name: ADD_AGENTS_BUTTON_NAME_PATTERN,
+				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
 			})
 		).toBeTruthy();
 
 		fireEvent.click(
 			within(setupActions).getByRole("button", {
-				name: ADD_AGENTS_BUTTON_NAME_PATTERN,
+				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
 			})
 		);
 		const membersPanel = screen.getByRole("dialog", { name: "Members" });
@@ -4673,7 +4673,9 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByText("Bring your agents")).toBeNull();
 		expect(screen.queryByText("Add your first agent")).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: ADD_AGENTS_BUTTON_NAME_PATTERN })
+			screen.queryByRole("button", {
+				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
+			})
 		).toBeNull();
 	});
 
@@ -4742,7 +4744,9 @@ describe("SpaceLanding", () => {
 		expect(screen.queryByRole("region", { name: "Get set up" })).toBeNull();
 		expect(screen.queryByText("Connect this computer")).toBeNull();
 		expect(
-			screen.queryByRole("button", { name: ADD_AGENTS_BUTTON_NAME_PATTERN })
+			screen.queryByRole("button", {
+				name: ADD_PEOPLE_OR_AGENTS_BUTTON_NAME_PATTERN,
+			})
 		).toBeNull();
 	});
 

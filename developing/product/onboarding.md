@@ -490,12 +490,13 @@ Empty-Space action cards:
 - The centered introduction is `A Space is where people and agents work
   together.` followed by `You and your teammates can give agents work. Agents
   can ask other agents for help. Everyone can see the results here.`
-- `Connect this computer` explains `Bring Codex, Claude Code, or another local
-  agent into OpenMeld. Then add it to this Space.`
-- `Add agents` explains `Choose an available agent—or create one—and add it to
-  this Space.` It opens the existing Members panel and expands its Add members
-  card; when no Agent Profile exists, that existing flow supplies Create Agent.
-  The empty state never builds a second selector or agent-creation workflow.
+- `Connect this computer` explains `Make Codex, Claude Code, or another local
+  agent available in OpenMeld.`
+- `Add people or agents` explains `Choose people or agents for this Space, or
+  create a new agent.` It opens the existing Members panel and expands its Add
+  members card; when no Agent Profile exists, that existing flow supplies
+  Create Agent. The empty state never builds a second selector or
+  agent-creation workflow.
 - Both actions render when both planner decisions remain meaningful. Completing
   either action leaves the other available; after the first recorded message,
   that remaining action is presented by the dismissible banner.
@@ -530,9 +531,9 @@ Banner content by decision:
   there, and the banner must not contradict that.
 - `bring_agents` blocked (`agents.none_yet`) — the account has no agent yet;
   show `Add your first agent` with the existing Create Agent launcher. In the
-  empty Space presentation, `Add agents` opens the Members flow instead, where
-  the same creation path is available. Neither presentation shows a dead
-  selector.
+  empty Space presentation, `Add people or agents` opens the Members flow
+  instead, where the same creation path is available. Neither presentation
+  shows a dead selector.
 
 Replaces the old recovery split: coarse cases (no computer connected / no
 agent) live in plan-driven Space setup guidance, acting in place. Fine-grained
@@ -592,8 +593,8 @@ drift):
 | --- | --- |
 | Empty Space title | `A Space is where people and agents work together.` |
 | Empty Space description | `You and your teammates can give agents work. Agents can ask other agents for help. Everyone can see the results here.` |
-| Empty Space connect action | `Connect this computer` / `Bring Codex, Claude Code, or another local agent into OpenMeld. Then add it to this Space.` |
-| Empty Space add action | `Add agents` / `Choose an available agent—or create one—and add it to this Space.` |
+| Empty Space connect action | `Connect this computer` / `Make Codex, Claude Code, or another local agent available in OpenMeld.` |
+| Empty Space add action | `Add people or agents` / `Choose people or agents for this Space, or create a new agent.` |
 | Banner heading | `Get set up` / `Optional. Dismiss anytime.` |
 | Connect (banner) | `Connect this computer` / `So your local agents can reply when you mention them` / button `Connect OpenMeld Service` (routes to the setup page) |
 | Waiting status (setup page) | `Waiting for this computer…` |
