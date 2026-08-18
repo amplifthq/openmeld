@@ -151,11 +151,15 @@ describe("Remote Agent GitHub tools", () => {
     expect(
       tools.find((tool) => tool.name === "github_create_pull_request")
         ?.description
-    ).toContain("without asking for a second confirmation");
+    ).not.toContain("without asking for a second confirmation");
     expect(
       tools.find((tool) => tool.name === "github_create_issue_batch")
         ?.description
-    ).toContain("do not ask for a second confirmation");
+    ).toContain("ordinary external write");
+    expect(
+      tools.find((tool) => tool.name === "github_create_issue_batch")
+        ?.description
+    ).not.toContain("do not ask for a second confirmation");
     expect(
       tools.find((tool) => tool.name === "github_get_repository")?.description
     ).toContain("Choose githubActor");

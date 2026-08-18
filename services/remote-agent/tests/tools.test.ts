@@ -2925,9 +2925,7 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     expect(tool?.description).toContain("read-only");
     expect(tool?.description).toContain("join as a member");
-    expect(tool?.description).toContain(
-      "When the verified requester asks for it, return it without a second confirmation"
-    );
+    expect(tool?.description).not.toContain("second confirmation");
     expect(tool?.description).toContain("never sends email invitations");
     expect(tool?.description).toContain(
       "Settings → their Organization name (marked with an Org badge) → General"
@@ -2947,9 +2945,8 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     expect(tool?.description).toContain("owner or admin");
     expect(tool?.description).toContain("returns the existing active link");
-    expect(tool?.description).toContain(
-      "When the verified owner or admin asks for it, execute without a second confirmation"
-    );
+    expect(tool?.description).toContain("ordinary external write");
+    expect(tool?.description).not.toContain("second confirmation");
     expect(tool?.description).toContain("never resets or revokes");
     expect(tool?.description).toContain("never sends email invitations");
   });

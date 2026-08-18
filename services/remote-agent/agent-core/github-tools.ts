@@ -1039,7 +1039,7 @@ function githubIssueBatchToolDefinition(input: {
 }): RemoteAgentGitHubToolDefinition {
   return {
     name: "github_create_issue_batch",
-    description: `${GITHUB_ACTOR_GUIDANCE} Create multiple GitHub issues as one durable OpenMeld operation. Use this tool whenever one authorized user request or Routine instruction creates more than one issue; do not ask for a second confirmation. If the user asks to add issues to a GitHub Project, supply projectV2; if the user asks for assignment, supply assignees. OpenMeld will fail closed before any GitHub write unless Project V2 capability and Organization identity mapping are verified. The manifest is checkpointed after every issue and resumes without intentionally duplicating completed items.`,
+    description: `${GITHUB_ACTOR_GUIDANCE} Create multiple GitHub issues as one durable ordinary external write. Use this tool whenever the current task creates more than one issue. If the user asks to add issues to a GitHub Project, supply projectV2; if the user asks for assignment, supply assignees. OpenMeld will fail closed before any GitHub write unless Project V2 capability and Organization identity mapping are verified. The manifest is checkpointed after every issue and resumes without intentionally duplicating completed items.`,
     input: withGitHubActor(
       object({
         assignees: optional(array(nonEmptyStringSchema)),
@@ -1998,9 +1998,9 @@ function describeGitHubWriteTool(input: {
   summary: string;
 }): string {
   if (input.destructive) {
-    return `${input.summary} In an interactive conversation, always call once without writeConfirmationToken, end the turn after showing the returned confirmation, and call again with that exact one-time token only after the user confirms. Routines do not currently support delete or merge actions; the tool returns routine_destructive_action_unsupported with zero side effects.`;
+    return `${input.summary} This is a destructive external write. In an interactive conversation, the first call without writeConfirmationToken returns the required confirmation; after the user confirms, call again with that exact one-time token and unchanged input. Routines do not currently support delete or merge actions; the tool returns routine_destructive_action_unsupported with zero side effects.`;
   }
-  return `${input.summary} This is an ordinary external write. Apply the unified authorization policy; once authorized, execute it without asking for a second confirmation.`;
+  return `${input.summary} This is an ordinary external write.`;
 }
 
 type GitHubFileSegmentRequest = {
