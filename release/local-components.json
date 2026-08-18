@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-18T16:49:29.389Z",
+  "updatedAt": "2026-08-18T20:39:31.931Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.72",
+      "packageVersion": "0.3.73",
       "updatePolicy": "available",
-      "reason": "Keeps CLI update checks clear for people while preserving structured Agent View diagnostics."
+      "reason": "Improves parallel Agent reply coordination while keeping existing Wake work compatible."
     },
     "service": {
-      "bundleHash": "ca93af78ef7df84c33acca73eb21651b8d3a00d7138d0ffa938132c24a128ff8",
-      "bundleVersion": "0.3.72",
+      "bundleHash": "c7d1af8c8c0232a9c2f51b9c26796338a248eb34b0f3067d98e6e33d717e83ed",
+      "bundleVersion": "0.3.73",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Keeps CLI update checks clear for people while preserving structured Agent View diagnostics."
+      "reason": "Improves parallel Agent reply coordination while keeping existing Wake work compatible."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Fixes an OpenMeld Service update that could stop setup after your local agents were found."
+      "reason": "Improves parallel Agent reply coordination while keeping existing Wake work compatible."
     }
   }
 }
