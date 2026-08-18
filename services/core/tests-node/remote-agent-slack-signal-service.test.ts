@@ -20,7 +20,6 @@ import { REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS } from "../src/remote-age
 import {
   completeRemoteAgentNativeDelivery,
   processRemoteAgentNativeDeliveryDeadlineProbe,
-  REMOTE_AGENT_EXECUTION_RECONCILIATION_DELAY_MS,
   REMOTE_AGENT_SLACK_FINAL_PUBLICATION_CLAIM_LEASE_MS,
   REMOTE_AGENT_SLACK_FINAL_PUBLICATION_TIMEOUT_MS,
   retryMissingRemoteAgentAcceptedDeliveryProbes,
@@ -37,6 +36,7 @@ import {
   runSlackChannelIntroductionTick,
   submitRemoteAgentSlackChannelIntroduction,
 } from "../src/remote-agent/application/slack-signal-service";
+import { REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS } from "../src/remote-agent/application/slack-working-status";
 import {
   markRemoteAgentNativeDeliveryAck,
   readRemoteAgentNativeDeliveryByDeliveryId,
@@ -1079,6 +1079,16 @@ describe("Remote Agent Slack signal service", () => {
           submissionId: "admission_watchdog:remote-agent-slack:T123:Ev123",
         }),
         { delaySeconds: REMOTE_AGENT_ADMISSION_WATCHDOG_DELAY_SECONDS }
+      );
+      expect(queueSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          dispatchId: "remote-agent-slack:Ev123",
+          submissionId: "sub_slack_1",
+        }),
+        {
+          delaySeconds:
+            REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS,
+        }
       );
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining("users.info"),
@@ -4953,13 +4963,21 @@ describe("Remote Agent Slack signal service", () => {
       });
       expect(workerReconcile).toHaveBeenCalledOnce();
       expect(queueSend).toHaveBeenCalledOnce();
+      expect(readSlackThreadStatusBodies(fetchMock)).toEqual([
+        {
+          channel_id: "C123",
+          status: "is working on your request…",
+          thread_ts: "1710000000.000100",
+        },
+      ]);
 
       await expect(
         processRemoteAgentNativeDeliveryDeadlineProbe({
           db: harness.db,
           env,
           nowMs:
-            probe.deadlineAtMs + REMOTE_AGENT_EXECUTION_RECONCILIATION_DELAY_MS,
+            probe.deadlineAtMs +
+            REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS * 1000,
           probe,
         })
       ).resolves.toEqual({
@@ -4976,8 +4994,10 @@ describe("Remote Agent Slack signal service", () => {
       });
       expect(queueSend).toHaveBeenCalledTimes(2);
       expect(queueSend).toHaveBeenLastCalledWith(probe, {
-        delaySeconds: 300,
+        delaySeconds:
+          REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS,
       });
+      expect(readSlackThreadStatusBodies(fetchMock)).toHaveLength(2);
       await expect(
         readRemoteAgentNativeDeliveryByIdempotencyKey({
           db: harness.db,

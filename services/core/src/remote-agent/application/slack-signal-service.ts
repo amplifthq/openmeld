@@ -79,7 +79,6 @@ import {
   readSlackUserIdentity,
   type SlackChannel,
   SlackMessagePublicationError,
-  setSlackThreadStatus,
 } from "./slack-client";
 import { buildRemoteAgentSlackConversationId } from "./slack-conversation-id";
 import {
@@ -91,6 +90,7 @@ import {
   commitSlackThreadContextCursor,
   resolveSlackThreadContext,
 } from "./slack-thread-context";
+import { setRemoteAgentSlackThreadWorkingStatus } from "./slack-working-status";
 
 const REMOTE_AGENT_SLACK_WORKSPACE_NOT_CONNECTED_TEXT =
   "This Slack workspace is not connected to an OpenMeld organization yet.";
@@ -98,9 +98,7 @@ const REMOTE_AGENT_SLACK_EVENT_PROCESSING_FAILURE_CODE =
   "remote_agent.slack_event_processing_failed";
 const REMOTE_AGENT_SLACK_EVENT_PROCESSING_FAILURE_TEXT =
   "I couldn't complete that request. Please try again. If it keeps happening, open OpenMeld diagnostics.";
-const REMOTE_AGENT_SLACK_WORKING_STATUS = "is working on your request…";
 const SLACK_CONVERSATION_INFO_LOOKUP_TIMEOUT_MS = 500;
-const SLACK_THREAD_STATUS_TIMEOUT_MS = 500;
 const REMOTE_AGENT_SLACK_EVENT_CLAIM_LEASE_MS = 5 * 60_000;
 const STALE_CHANNEL_INTRODUCTION_ACKNOWLEDGEMENT_MS = 5 * 60_000;
 const SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_MAX_ATTEMPTS = 3;
@@ -1441,11 +1439,9 @@ async function showRemoteAgentSlackThreadWorkingStatus(input: {
   threadTs: string;
 }): Promise<void> {
   try {
-    await setSlackThreadStatus({
+    await setRemoteAgentSlackThreadWorkingStatus({
       botToken: input.botToken,
       channelId: input.channelId,
-      signal: AbortSignal.timeout(SLACK_THREAD_STATUS_TIMEOUT_MS),
-      status: REMOTE_AGENT_SLACK_WORKING_STATUS,
       threadTs: input.threadTs,
     });
   } catch (error) {

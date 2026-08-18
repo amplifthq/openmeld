@@ -10,6 +10,7 @@ import {
   enqueueRemoteAgentAcceptedDeliveryProbe,
   REMOTE_AGENT_ACCEPTED_DELIVERY_PROBE_DELAY_SECONDS,
 } from "./native-delivery-admission-watchdog";
+import { REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS } from "./slack-working-status";
 
 export async function markRemoteAgentNativeDeliveryAckWithProbe(input: {
   accepted: boolean;
@@ -66,8 +67,8 @@ export async function ensureRemoteAgentAcceptedDeliveryProbe(input: {
     );
   }
 
-  const nextDueAtMs =
-    input.nowMs + REMOTE_AGENT_ACCEPTED_DELIVERY_PROBE_DELAY_SECONDS * 1000;
+  const delaySeconds = resolveAcceptedDeliveryProbeDelaySeconds(input.delivery);
+  const nextDueAtMs = input.nowMs + delaySeconds * 1000;
   const claim = await claimRemoteAgentAcceptedDeliveryProbeSchedule({
     db: input.db,
     idempotencyKey: input.delivery.idempotencyKey,
@@ -85,6 +86,7 @@ export async function ensureRemoteAgentAcceptedDeliveryProbe(input: {
   try {
     const enqueued = await enqueueRemoteAgentAcceptedDeliveryProbe({
       ack: { submissionId },
+      delaySeconds,
       env: input.env,
       nowMs: input.nowMs,
       target: {
@@ -122,4 +124,12 @@ export async function ensureRemoteAgentAcceptedDeliveryProbe(input: {
     );
   }
   return { delivery, enqueued: true };
+}
+
+export function resolveAcceptedDeliveryProbeDelaySeconds(
+  delivery: Pick<RemoteAgentNativeDeliveryRecord, "conversationKind">
+): number {
+  return delivery.conversationKind === "slack"
+    ? REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS
+    : REMOTE_AGENT_ACCEPTED_DELIVERY_PROBE_DELAY_SECONDS;
 }
