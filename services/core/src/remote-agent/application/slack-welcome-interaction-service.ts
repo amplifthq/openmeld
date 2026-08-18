@@ -100,13 +100,11 @@ export async function handleCenterAgentSlackTeammateInvitations(
       status: 403,
     });
   }
-  await sendSelectedTeammateInvitations({
+  return await sendSelectedTeammateInvitations({
     ...context,
     env,
     input: interaction,
-  });
-  return centerAgentInviteSlackTeammatesRpcResponseSchema.parse({
-    handled: true,
+    publishRequesterSummary: false,
   });
 }
 
@@ -227,6 +225,7 @@ async function handleVerifiedSlackWelcomeInteraction(
       ...context,
       env,
       input,
+      publishRequesterSummary: true,
     });
   }
 }
@@ -495,7 +494,8 @@ async function sendSelectedTeammateInvitations(input: {
     { action: "submit_teammate_invites" }
   >;
   organizationId: string;
-}): Promise<void> {
+  publishRequesterSummary: boolean;
+}): Promise<CenterAgentInviteSlackTeammatesRpcResponse> {
   const invitation = await resolveOrganizationInvitation({
     actorUserId: input.actorUserId,
     db: input.db,
@@ -503,12 +503,19 @@ async function sendSelectedTeammateInvitations(input: {
     organizationId: input.organizationId,
   });
   if (!invitation) {
-    await postSlackDirectMessage({
-      botToken: input.botToken,
-      recipientUserId: input.input.slackUserId,
-      text: "This Organization doesn’t have an invite link yet. Ask an owner or admin to create one in OpenMeld, then open Invite teammates here again.",
+    const reason =
+      "This Organization doesn’t have an invite link yet. Ask an owner or admin to create one in OpenMeld, then try again.";
+    if (input.publishRequesterSummary) {
+      await postSlackDirectMessage({
+        botToken: input.botToken,
+        recipientUserId: input.input.slackUserId,
+        text: reason,
+      });
+    }
+    return centerAgentInviteSlackTeammatesRpcResponseSchema.parse({
+      reason,
+      status: "unavailable",
     });
-    return;
   }
   const memberById = await listSlackWorkspaceMembersUntilTargetsResolved({
     botToken: input.botToken,
@@ -523,14 +530,6 @@ async function sendSelectedTeammateInvitations(input: {
     const member = memberById.get(slackUserId);
     return member && slackUserId !== input.input.slackUserId ? [member] : [];
   });
-  if (targets.length === 0) {
-    await postSlackDirectMessage({
-      botToken: input.botToken,
-      recipientUserId: input.input.slackUserId,
-      text: "I couldn’t find an active teammate in that selection. Try opening Invite teammates again.",
-    });
-    return;
-  }
   const organizationMembers = await resolveOrganizationDirectoryMembers({
     authWorker: input.env.OPENMELD_AUTH_WORKER,
     organizationId: input.organizationId,
@@ -540,19 +539,37 @@ async function sendSelectedTeammateInvitations(input: {
     organizationMembers.map((member) => normalizeEmail(member.user.email))
   );
 
-  const alreadyMembers: string[] = [];
-  const delivered: string[] = [];
-  const failed: string[] = [];
-  const needsManualInvite: string[] = [];
-  const uncertain: string[] = [];
-  let claimedCount = 0;
+  type InvitationOutcome = Extract<
+    CenterAgentInviteSlackTeammatesRpcResponse,
+    { status: "completed" }
+  >["outcomes"][number];
+  const outcomes: InvitationOutcome[] = input.input.targetSlackUserIds.flatMap(
+    (targetSlackUserId) =>
+      targets.some((target) => target.slackUserId === targetSlackUserId)
+        ? []
+        : [
+            {
+              displayName: null,
+              status: "not_found" as const,
+              targetSlackUserId,
+            },
+          ]
+  );
   for (const target of targets) {
     if (!target.email?.trim()) {
-      needsManualInvite.push(target.displayName);
+      outcomes.push({
+        displayName: target.displayName,
+        status: "manual_invite_required",
+        targetSlackUserId: target.slackUserId,
+      });
       continue;
     }
     if (organizationMemberEmails.has(normalizeEmail(target.email))) {
-      alreadyMembers.push(target.displayName);
+      outcomes.push({
+        displayName: target.displayName,
+        status: "already_member",
+        targetSlackUserId: target.slackUserId,
+      });
       continue;
     }
     const outcome = await deliverPrivateTeammateInvitation({
@@ -568,38 +585,37 @@ async function sendSelectedTeammateInvitations(input: {
       targetEmail: target.email,
       target,
     });
-    if (outcome === "already_claimed") {
-      continue;
-    }
-    claimedCount += 1;
-    if (outcome === "delivered") {
-      delivered.push(target.displayName);
-    } else if (outcome === "outcome_unknown") {
-      uncertain.push(target.displayName);
-    } else {
-      failed.push(target.displayName);
-    }
+    outcomes.push({
+      displayName: target.displayName,
+      status: outcome,
+      targetSlackUserId: target.slackUserId,
+    });
   }
-  if (
-    claimedCount === 0 &&
-    needsManualInvite.length === 0 &&
-    alreadyMembers.length === 0
-  ) {
-    return;
-  }
-  await postSlackDirectMessage({
-    botToken: input.botToken,
-    recipientUserId: input.input.slackUserId,
-    text: buildInvitationSummary({
-      alreadyMembers,
-      delivered,
-      failed,
-      inviteUrl: invitation.url,
-      needsManualInvite,
-      organizationName: invitation.organizationName,
-      uncertain,
-    }),
+  const response = centerAgentInviteSlackTeammatesRpcResponseSchema.parse({
+    manualInviteUrl: outcomes.some(
+      (outcome) => outcome.status === "manual_invite_required"
+    )
+      ? invitation.url
+      : null,
+    organizationName: invitation.organizationName,
+    outcomes,
+    status: "completed",
   });
+  if (
+    input.publishRequesterSummary &&
+    outcomes.some((outcome) => outcome.status !== "already_claimed")
+  ) {
+    await postSlackDirectMessage({
+      botToken: input.botToken,
+      recipientUserId: input.input.slackUserId,
+      text: buildInvitationSummaryFromOutcomes({
+        inviteUrl: invitation.url,
+        organizationName: invitation.organizationName,
+        outcomes,
+      }),
+    });
+  }
+  return response;
 }
 
 async function deliverPrivateTeammateInvitation(input: {
@@ -839,6 +855,47 @@ function buildInvitationSummary(input: {
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+function buildInvitationSummaryFromOutcomes(input: {
+  inviteUrl: string;
+  organizationName: string;
+  outcomes: Extract<
+    CenterAgentInviteSlackTeammatesRpcResponse,
+    { status: "completed" }
+  >["outcomes"];
+}): string {
+  const namesFor = (
+    status: (typeof input.outcomes)[number]["status"]
+  ): string[] =>
+    input.outcomes.flatMap((outcome) =>
+      outcome.status === status && outcome.displayName
+        ? [outcome.displayName]
+        : []
+    );
+  const notFoundCount = input.outcomes.filter(
+    (outcome) => outcome.status === "not_found"
+  ).length;
+  const summarizableOutcomeCount = input.outcomes.filter(
+    (outcome) =>
+      outcome.status !== "already_claimed" && outcome.status !== "not_found"
+  ).length;
+  const notFoundNote = notFoundCount
+    ? `I couldn’t find ${notFoundCount === 1 ? "one selected teammate" : `${notFoundCount} selected teammates`} in the active Slack roster.`
+    : "";
+  if (summarizableOutcomeCount === 0) {
+    return `${notFoundNote} Open Invite teammates and choose them again.`;
+  }
+  const summary = buildInvitationSummary({
+    alreadyMembers: namesFor("already_member"),
+    delivered: namesFor("delivered"),
+    failed: namesFor("failed"),
+    inviteUrl: input.inviteUrl,
+    needsManualInvite: namesFor("manual_invite_required"),
+    organizationName: input.organizationName,
+    uncertain: namesFor("outcome_unknown"),
+  });
+  return [summary, notFoundNote].filter(Boolean).join(" ");
 }
 
 function buildAlreadyMemberInvitationNote(input: {

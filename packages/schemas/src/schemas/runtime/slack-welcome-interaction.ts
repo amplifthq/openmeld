@@ -61,5 +61,33 @@ export const centerAgentInviteSlackTeammatesRpcInputSchema = z.strictObject({
     .transform((values) => [...new Set(values)]),
 });
 
+const centerAgentSlackTeammateInvitationOutcomeSchema = z.strictObject({
+  displayName: z.string().trim().min(1).max(256).nullable(),
+  status: z.enum([
+    "already_claimed",
+    "already_member",
+    "delivered",
+    "failed",
+    "manual_invite_required",
+    "not_found",
+    "outcome_unknown",
+  ]),
+  targetSlackUserId: slackIdSchema,
+});
+
 export const centerAgentInviteSlackTeammatesRpcResponseSchema =
-  slackWelcomeInteractionRpcResponseSchema;
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      manualInviteUrl: z.url().max(2048).nullable(),
+      organizationName: z.string().trim().min(1).max(256),
+      outcomes: z
+        .array(centerAgentSlackTeammateInvitationOutcomeSchema)
+        .min(1)
+        .max(10),
+      status: z.literal("completed"),
+    }),
+    z.strictObject({
+      reason: z.string().trim().min(1).max(500),
+      status: z.literal("unavailable"),
+    }),
+  ]);

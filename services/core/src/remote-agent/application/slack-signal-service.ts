@@ -11,8 +11,6 @@ import type {
   ChannelContext,
   RemoteAgentSlackAppMentionEvent,
   RemoteAgentSlackDirectMessageEvent,
-  RemoteAgentTransientSlackContextRequest,
-  RemoteAgentTransientSlackContextResponse,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
 import { readPrimaryAgentProfileBindingRecord } from "../../agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
@@ -69,7 +67,6 @@ import {
 } from "./native-delivery-service";
 import { resolveSlackBotToken } from "./slack-bot-token";
 import {
-  findSlackThreadMessageByMetadata,
   findSlackTopLevelMessageByMetadata,
   isSlackFullWorkspaceMember,
   joinSlackPublicChannel,
@@ -105,10 +102,6 @@ const REMOTE_AGENT_SLACK_WORKING_STATUS = "is working on your request…";
 const SLACK_CONVERSATION_INFO_LOOKUP_TIMEOUT_MS = 500;
 const SLACK_THREAD_STATUS_TIMEOUT_MS = 500;
 const REMOTE_AGENT_SLACK_EVENT_CLAIM_LEASE_MS = 5 * 60_000;
-const TRANSIENT_SLACK_CONTEXT_METADATA = {
-  eventPayloadKey: "slack_event_key",
-  eventType: "openmeld_transient_slack_context",
-} as const;
 const STALE_CHANNEL_INTRODUCTION_ACKNOWLEDGEMENT_MS = 5 * 60_000;
 const SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_MAX_ATTEMPTS = 3;
 const SLACK_CHANNEL_INTRODUCTION_RECOVERY_NOTICE_TEXT =
@@ -275,8 +268,6 @@ export async function processRemoteAgentSlackEvent(
       eventId,
       failureContext,
       idempotencyKey,
-      reconcilePublishedReply:
-        (context.queueAttempts ?? 1) > 1 || (context.slackRetryNum ?? 0) > 0,
       replyPlacement,
       slackTeamId,
       threadTs,
@@ -1138,7 +1129,6 @@ async function processRemoteAgentSlackAppMention(input: {
   eventId?: string | null;
   failureContext: SlackEventFailureContext;
   idempotencyKey: string;
-  reconcilePublishedReply: boolean;
   replyPlacement: SlackReplyPlacement;
   slackTeamId: string;
   threadTs: string;
@@ -1227,6 +1217,13 @@ async function processRemoteAgentSlackAppMention(input: {
     });
     return { status: "replied" };
   }
+  await showRemoteAgentSlackThreadWorkingStatus({
+    botToken,
+    channelId: event.channel,
+    eventId: input.eventId ?? null,
+    slackTeamId,
+    threadTs,
+  });
 
   const dispatchId = buildSlackDispatchId({
     channelId: event.channel,
@@ -1273,53 +1270,6 @@ async function processRemoteAgentSlackAppMention(input: {
     slackTeamId,
     threadTs,
   });
-  const transientSlackContext = await resolveTransientSlackContext({
-    botToken,
-    env,
-    eventKey: idempotencyKey,
-    modelRoute: centerAgent.modelRoute,
-    organizationId: organization.organizationId,
-    participant,
-    reconcilePublishedReply: input.reconcilePublishedReply,
-    requestContext: {
-      activeOrganizationId: organization.organizationId,
-      actorContext: {
-        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-        callerPrincipalId: centerAgent.ownerUserId,
-        openMeldProfileId: centerAgent.agentProfileId,
-        ownerUserId: centerAgent.ownerUserId,
-        profileHandle: centerAgent.profileHandle,
-        profileKind: "agent",
-        profileName: centerAgent.profileName,
-        requestId: `${idempotencyKey}:transient-slack-context`,
-      },
-    },
-    replyPlacement,
-    requestText: sourceText,
-    searchAuthorization,
-    slackChannelId: event.channel,
-    slackUserId: event.user,
-    threadTs,
-  });
-  if (transientSlackContext === "already_published") {
-    return { status: "replied" };
-  }
-  if (transientSlackContext?.outcome === "answered") {
-    await postSlackConversationReply({
-      botToken,
-      channelId: event.channel,
-      metadata: {
-        eventPayload: {
-          [TRANSIENT_SLACK_CONTEXT_METADATA.eventPayloadKey]: idempotencyKey,
-        },
-        eventType: TRANSIENT_SLACK_CONTEXT_METADATA.eventType,
-      },
-      replyPlacement,
-      text: transientSlackContext.text,
-      threadTs,
-    });
-    return { status: "replied" };
-  }
   const threadContext = await resolveSlackThreadContext({
     botToken,
     connectionCreatedAtMs: workspaceBinding.createdAtMs,
@@ -1348,7 +1298,7 @@ async function processRemoteAgentSlackAppMention(input: {
       replyPlacement,
       slackTeamId,
       slackUserId: event.user,
-      searchAuthorization: null,
+      searchAuthorization,
       threadTs,
       webAppUrl: env.WEB_APP_URL,
     }),
@@ -1395,15 +1345,6 @@ async function processRemoteAgentSlackAppMention(input: {
     request: deliveryRequest,
   });
   failureContext.ledgerStarted = true;
-  if (replyPlacement === "thread") {
-    await showRemoteAgentSlackThreadWorkingStatus({
-      botToken,
-      channelId: event.channel,
-      eventId: input.eventId ?? null,
-      slackTeamId,
-      threadTs,
-    });
-  }
   const submission = await submitRemoteAgentSlackNativeDelivery({
     db: stateDb,
     env,
@@ -1477,79 +1418,6 @@ async function resolveSlackParticipantSearchAuthorization(input: {
     sourceThreadTs: input.threadTs,
     openMeldUserId: input.participant.member.userId,
   });
-}
-
-async function resolveTransientSlackContext(input: {
-  botToken: string;
-  env: CoreBindings;
-  eventKey: string;
-  modelRoute: CenterAgentModelRoute;
-  organizationId: string;
-  participant: SlackTurnParticipant;
-  reconcilePublishedReply: boolean;
-  requestContext: RemoteAgentTransientSlackContextRequest["requestContext"];
-  replyPlacement: SlackReplyPlacement;
-  requestText: string;
-  searchAuthorization: { encryptedAuthorization: string } | null;
-  slackChannelId: string;
-  slackUserId: string;
-  threadTs: string;
-}): Promise<
-  RemoteAgentTransientSlackContextResponse | "already_published" | null
-> {
-  if (!(input.participant.kind === "member" && input.searchAuthorization)) {
-    return null;
-  }
-  const resolver =
-    input.env.OPENMELD_REMOTE_AGENT_WORKER?.resolveTransientSlackContext;
-  if (typeof resolver !== "function") {
-    return null;
-  }
-  if (input.reconcilePublishedReply) {
-    const existing =
-      input.replyPlacement === "conversation"
-        ? await findSlackTopLevelMessageByMetadata({
-            botToken: input.botToken,
-            channelId: input.slackChannelId,
-            eventPayloadKey: TRANSIENT_SLACK_CONTEXT_METADATA.eventPayloadKey,
-            eventPayloadValue: input.eventKey,
-            eventType: TRANSIENT_SLACK_CONTEXT_METADATA.eventType,
-          })
-        : await findSlackThreadMessageByMetadata({
-            botToken: input.botToken,
-            channelId: input.slackChannelId,
-            eventPayloadKey: TRANSIENT_SLACK_CONTEXT_METADATA.eventPayloadKey,
-            eventPayloadValue: input.eventKey,
-            eventType: TRANSIENT_SLACK_CONTEXT_METADATA.eventType,
-            threadTs: input.threadTs,
-          });
-    if (existing) {
-      return "already_published";
-    }
-  }
-  try {
-    return await resolver({
-      modelRoute: input.modelRoute,
-      organizationId: input.organizationId,
-      requestContext: input.requestContext,
-      requester: {
-        displayName: input.participant.member.userDisplayName,
-        memberId: input.participant.member.memberId,
-        slackUserId: input.slackUserId,
-        userId: input.participant.member.userId,
-      },
-      requestText: input.requestText,
-      searchAuthorization: input.searchAuthorization,
-      v: 1,
-    });
-  } catch (error) {
-    console.warn("[core.remote_agent.slack_context.transient_unavailable]", {
-      error: toErrorMessage(error),
-      event: CORE_LOG_EVENTS.coreInternalError,
-      organizationId: input.organizationId,
-    });
-    return null;
-  }
 }
 
 async function showRemoteAgentSlackThreadWorkingStatus(input: {
@@ -2001,11 +1869,9 @@ function buildSlackTurnEnvelope(input: {
 }
 
 function resolveSlackReplyPlacement(
-  event: RemoteAgentSlackConversationEvent
+  _event: RemoteAgentSlackConversationEvent
 ): SlackReplyPlacement {
-  return event.type === "message" && !event.thread_ts
-    ? "conversation"
-    : "thread";
+  return "thread";
 }
 
 async function postSlackConversationReply(input: {

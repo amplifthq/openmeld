@@ -844,6 +844,7 @@ export {
 export { catchupResponseSchema } from "./http/catchup-response";
 export {
   CENTER_AGENT_DELEGATION_COMPLETION_MODES,
+  CENTER_AGENT_SLACK_SEARCH_CONTENT_MAX_CHARS,
   centerAgentActionSchema,
   centerAgentAddAgentProfilesToSpaceBodySchema,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
@@ -2377,7 +2378,6 @@ export {
   REMOTE_AGENT_RUNTIME_EVIDENCE_EVENTS,
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
   REMOTE_AGENT_STREAM_DELTA_MAX_CHARS,
-  REMOTE_AGENT_TRANSIENT_SLACK_CONTENT_MAX_CHARS,
   REMOTE_AGENT_TRIGGER_TEXT_MAX_CHARS,
   REMOTE_AGENT_TURN_ENVELOPE_MEMORY_ITEM_TEXT_MAX_CHARS,
   remoteAgentAdmissionStageOperationSchema,
@@ -2402,11 +2402,6 @@ export {
   remoteAgentStreamDeltaCallbackBodySchema,
   remoteAgentStreamDeltaCallbackResponseSchema,
   remoteAgentStreamPartCallbackBodySchema,
-  remoteAgentTransientSlackContextRequestSchema,
-  remoteAgentTransientSlackContextResponseSchema,
-  remoteAgentTransientSlackMessageSchema,
-  remoteAgentTransientSlackSearchRequestSchema,
-  remoteAgentTransientSlackSearchResponseSchema,
   remoteAgentTurnEnvelopeMemoryItemSchema,
   remoteAgentTurnEnvelopeMemorySchema,
   remoteAgentTurnEnvelopeMemorySourceSchema,
