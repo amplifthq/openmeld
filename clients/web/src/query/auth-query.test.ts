@@ -12,7 +12,7 @@ vi.mock("#/lib/auth-client", () => ({
 }));
 
 vi.mock("#/lib/openmeld-api/client", () => ({
-	createWebOpenMeldApiFoundation: () => ({
+	createUnscopedWebOpenMeldApiFoundation: () => ({
 		requestJson: requestJsonMock,
 	}),
 }));

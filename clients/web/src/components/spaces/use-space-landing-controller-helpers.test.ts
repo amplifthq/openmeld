@@ -9,7 +9,7 @@ import {
 	OPENMELD_WELCOMING_SPACE_PURPOSE,
 } from "@openmeld/space";
 import { describe, expect, it, vi } from "vitest";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import {
 	createStatusAndMembersRefreshDedupe,
 	listPendingWakeProgressClientMessageIds,
@@ -21,10 +21,10 @@ import {
 } from "./use-space-landing-controller-helpers";
 
 vi.mock("#/lib/spaces/api", () => ({
-	createWebSpaceApi: vi.fn(),
+	createUnscopedWebSpaceApi: vi.fn(),
 }));
 
-const createWebSpaceApiMock = vi.mocked(createWebSpaceApi);
+const createWebSpaceApiMock = vi.mocked(createUnscopedWebSpaceApi);
 
 const AGENT_PROFILE_ID = "agent-profile-1";
 const HUMAN_PROFILE_ID = "human-profile-1";
@@ -376,7 +376,7 @@ describe("pollWakeProgress", () => {
 		const onItems = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			getWakeProgress,
-		} as unknown as ReturnType<typeof createWebSpaceApi>);
+		} as unknown as ReturnType<typeof createUnscopedWebSpaceApi>);
 
 		await pollWakeProgress({
 			openMeldProfileId: "human-profile-1",
@@ -404,7 +404,7 @@ describe("pollWakeProgress", () => {
 		const onItems = vi.fn();
 		createWebSpaceApiMock.mockReturnValue({
 			getWakeProgress,
-		} as unknown as ReturnType<typeof createWebSpaceApi>);
+		} as unknown as ReturnType<typeof createUnscopedWebSpaceApi>);
 
 		await pollWakeProgress({
 			openMeldProfileId: "human-profile-1",

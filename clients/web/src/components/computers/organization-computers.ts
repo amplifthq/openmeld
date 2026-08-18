@@ -18,6 +18,7 @@ export type OrganizationComputer = {
 	isOwnedByCurrentUser: boolean;
 	lastSeenAtMs: number | null;
 	localAgents: OrganizationComputerRecord["localAgents"];
+	openMeldTools: OrganizationComputerRecord["openMeldTools"];
 	osVersion: string | null;
 	ownedComputer: LocalRuntimeComputer | null;
 	ownerLabel: string;
@@ -142,6 +143,7 @@ function resolveOwnedComputerGroup(input: {
 			isOwnedByCurrentUser: true,
 			lastSeenAtMs: computer.lastObservedAtMs,
 			localAgents: [],
+			openMeldTools: null,
 			osVersion: computer.osVersion,
 			ownedComputer: computer,
 			ownerLabel: input.ownerLabel,
@@ -243,6 +245,7 @@ function resolveReportedMemberComputers(input: {
 		isOwnedByCurrentUser: false,
 		lastSeenAtMs: computer.lastSeenAtMs,
 		localAgents: computer.localAgents,
+		openMeldTools: computer.openMeldTools ?? null,
 		osVersion: computer.osVersion,
 		ownedComputer: null,
 		ownerLabel: input.ownerLabel,
@@ -302,6 +305,7 @@ function resolveMemberComputers(input: {
 			isOwnedByCurrentUser: false,
 			lastSeenAtMs: null,
 			localAgents: [],
+			openMeldTools: null,
 			osVersion: null,
 			ownedComputer: null,
 			ownerLabel: input.ownerLabel,

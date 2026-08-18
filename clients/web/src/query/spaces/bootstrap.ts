@@ -3,7 +3,7 @@ import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import { parseEnvelope } from "@openmeld/protocol";
 import type { SpaceBootstrapResponse } from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { ROUTE_REVISIT_GC_TIME_MS } from "#/query/query-config";
 import {
 	SPACE_HISTORY_SIGNAL_KINDS,
@@ -29,7 +29,7 @@ export async function readSpaceBootstrap(input: {
 	signal?: AbortSignal;
 }): Promise<SpaceBootstrapSnapshot> {
 	try {
-		const response = await createWebSpaceApi({
+		const response = await createUnscopedWebSpaceApi({
 			...(input.openMeldProfileId === undefined
 				? {}
 				: { openMeldProfileId: input.openMeldProfileId }),

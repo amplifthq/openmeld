@@ -16,6 +16,7 @@ import {
   resolveCenterAgentAttribution,
 } from "../center-agent/center-agent-repository";
 import { type CoreBindings, localStateDb } from "../lib/bindings";
+import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import { resolveActiveOrganizationMembership } from "../organizations/organization-context";
 import {
   type RemoteAgentMemberResearchDeliveryInput,
@@ -68,13 +69,11 @@ export async function startCenterAgentMemberResearch(
       status: membership.status,
     });
   }
-  if (membership.organizationId !== request.expectedOrganizationId) {
-    throw createCoreRpcHttpError({
-      code: "organization.context_mismatch",
-      reason: "The active Organization changed. Refresh and try again.",
-      status: 409,
-    });
-  }
+  requireExpectedOrganizationContext({
+    actualOrganizationId: membership.organizationId,
+    errorCode: "organization.context_mismatch",
+    expectedOrganizationId: request.expectedOrganizationId,
+  });
   if (request.context.actorContext.profileKind !== "human") {
     throw createCoreRpcHttpError({
       code: "center_agent_member_research.human_actor_required",

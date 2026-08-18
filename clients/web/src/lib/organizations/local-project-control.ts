@@ -17,7 +17,7 @@ import type {
 	LocalProjectControlRemoveMissingConnectionsResponse,
 	LocalProjectControlSetDefaultConnectionResponse,
 } from "@openmeld/schemas/types";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 export type LocalProjectControlFailure = StructuredApiClientFailure;
 
@@ -51,7 +51,7 @@ const LOCAL_PROJECT_CONTROL_ERROR_CODES = new Set<string>([
 
 function createWebLocalProjectControlApi(organizationId: string) {
 	return createLocalProjectControlApi(
-		createWebOpenMeldApiFoundation({ organizationId })
+		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
 	);
 }
 

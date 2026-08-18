@@ -5,6 +5,8 @@ import { verifySlackRequestSignature } from "../lib/slack-request-signature";
 
 export function registerSlackInteractiveRoute(app: Hono<HonoBindings>): void {
   app.post("/slack/interactive", async (c) => {
+    const gatewayRequestId = crypto.randomUUID();
+    const interactionReceivedAtMs = Date.now();
     const body = new TextDecoder().decode(await c.req.arrayBuffer());
     const verified = await verifySlackRequestSignature({
       body,
@@ -21,7 +23,10 @@ export function registerSlackInteractiveRoute(app: Hono<HonoBindings>): void {
     if (!payload) {
       return c.text("Invalid Slack interaction", 400);
     }
-    return await handleVerifiedSlackInteraction(c, payload);
+    return handleVerifiedSlackInteraction(c, payload, {
+      gatewayRequestId,
+      interactionReceivedAtMs,
+    });
   });
 }
 
@@ -62,12 +67,23 @@ function parseInteractivePayload(body: string): SlackInteractivePayload | null {
   }
 }
 
-async function handleVerifiedSlackInteraction(
+function handleVerifiedSlackInteraction(
   c: Context<HonoBindings>,
-  payload: SlackInteractivePayload
-): Promise<Response> {
+  payload: SlackInteractivePayload,
+  presentationContext: {
+    gatewayRequestId: string;
+    interactionReceivedAtMs: number;
+  }
+): Response {
   if (payload.type === "block_actions") {
-    await handleSlackBlockAction(c, payload);
+    handleSlackBlockAction(c, payload, presentationContext);
+    console.info("[gateway.slack_interaction.acknowledged]", {
+      actionId: payload.actions?.[0]?.action_id,
+      gatewayRequestId: presentationContext.gatewayRequestId,
+      latencyMs: Date.now() - presentationContext.interactionReceivedAtMs,
+      slackTeamId: payload.team?.id,
+      slackUserId: payload.user?.id,
+    });
     return c.body(null, 200);
   }
   if (isTeammateInviteSubmission(payload)) {
@@ -161,35 +177,45 @@ async function observeSlackWelcomeInteraction(
   }
 }
 
-async function handleSlackBlockAction(
+function handleSlackBlockAction(
   c: Context<HonoBindings>,
-  payload: SlackInteractivePayload
-): Promise<void> {
+  payload: SlackInteractivePayload,
+  presentationContext: {
+    gatewayRequestId: string;
+    interactionReceivedAtMs: number;
+  }
+): void {
   const actionId = payload.actions?.[0]?.action_id;
   const slackTeamId = payload.team?.id;
   const slackUserId = payload.user?.id;
   if (!(slackTeamId && slackUserId)) {
     return;
   }
-  if (actionId === "invite_teammates" && payload.trigger_id) {
-    const input = slackWelcomeInteractionRpcInputSchema.parse({
-      action: "open_teammate_invite_modal",
-      slackTeamId,
-      slackUserId,
-      triggerId: payload.trigger_id,
-    });
-    await c.env.OPENMELD_CORE_WORKER.handleSlackWelcomeInteraction(input);
+  let action:
+    | "open_channel_introduction_modal"
+    | "open_teammate_invite_modal"
+    | null = null;
+  if (actionId === "invite_teammates") {
+    action = "open_teammate_invite_modal";
+  } else if (actionId === "start_channel_introduction") {
+    action = "open_channel_introduction_modal";
+  }
+  if (!(action && payload.trigger_id)) {
     return;
   }
-  if (actionId === "start_channel_introduction" && payload.trigger_id) {
-    const input = slackWelcomeInteractionRpcInputSchema.parse({
-      action: "open_channel_introduction_modal",
-      slackTeamId,
-      slackUserId,
-      triggerId: payload.trigger_id,
-    });
-    await c.env.OPENMELD_CORE_WORKER.handleSlackWelcomeInteraction(input);
-  }
+  const input = slackWelcomeInteractionRpcInputSchema.parse({
+    action,
+    ...presentationContext,
+    slackTeamId,
+    slackUserId,
+    triggerId: payload.trigger_id,
+  });
+  c.executionCtx.waitUntil(
+    observeSlackWelcomeInteraction(
+      c.env.OPENMELD_CORE_WORKER.handleSlackWelcomeInteraction(input),
+      input
+    )
+  );
 }
 
 function isChannelIntroductionSubmission(

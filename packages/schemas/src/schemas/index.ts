@@ -1403,7 +1403,9 @@ export {
 } from "./http/observability-runtime-event";
 export * from "./http/opportunities";
 export {
+  organizationComputerLocalAgentDetailsSchema,
   organizationComputerLocalAgentSchema,
+  organizationComputerOpenMeldToolsSchema,
   organizationComputerSchema,
   organizationComputersResponseSchema,
 } from "./http/organization-computers";

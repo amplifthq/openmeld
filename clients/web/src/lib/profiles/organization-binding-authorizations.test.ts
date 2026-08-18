@@ -25,7 +25,8 @@ vi.mock("@openmeld/api-client", () => ({
 }));
 
 vi.mock("#/lib/openmeld-api/client", () => ({
-	createWebOpenMeldApiFoundation: () => foundationMock,
+	createOrganizationScopedWebOpenMeldApiFoundation: () => foundationMock,
+	createUnscopedWebOpenMeldApiFoundation: () => foundationMock,
 }));
 
 import {

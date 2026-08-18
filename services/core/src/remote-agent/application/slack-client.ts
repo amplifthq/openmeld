@@ -69,6 +69,10 @@ type SlackApiResponse = {
   response_metadata?: {
     next_cursor?: string | null;
   } | null;
+  view?: {
+    hash?: string | null;
+    id?: string | null;
+  } | null;
   results?: {
     messages?: Array<{
       author_name?: string | null;
@@ -812,7 +816,7 @@ export async function openSlackModal(input: {
   signal?: AbortSignal;
   triggerId: string;
   view: Record<string, unknown>;
-}): Promise<void> {
+}): Promise<{ hash: string; viewId: string }> {
   const response = await (input.fetchImpl ?? fetch)(
     `${SLACK_API_BASE_URL}/views.open`,
     {
@@ -827,6 +831,59 @@ export async function openSlackModal(input: {
   );
   const data = await readSlackApiResponse(response);
   assertSlackOk(response, data, "views.open");
+  return readSlackModalIdentity(response, data, "views.open");
+}
+
+export async function updateSlackModal(input: {
+  botToken: string;
+  fetchImpl?: FetchLike;
+  hash: string;
+  signal?: AbortSignal;
+  view: Record<string, unknown>;
+  viewId: string;
+}): Promise<{ hash: string }> {
+  const response = await (input.fetchImpl ?? fetch)(
+    `${SLACK_API_BASE_URL}/views.update`,
+    {
+      body: JSON.stringify({
+        hash: input.hash,
+        view: input.view,
+        view_id: input.viewId,
+      }),
+      headers: buildSlackHeaders(input.botToken),
+      method: "POST",
+      signal: input.signal,
+    }
+  );
+  const data = await readSlackApiResponse(response);
+  assertSlackOk(response, data, "views.update");
+  return {
+    hash: readSlackModalIdentity(response, data, "views.update").hash,
+  };
+}
+
+function readSlackModalIdentity(
+  response: Response,
+  data: SlackApiResponse,
+  methodName: "views.open" | "views.update"
+): { hash: string; viewId: string } {
+  const viewId = normalizeOptionalText(data.view?.id);
+  if (!viewId) {
+    throw new SlackApiError({
+      errorCode: "missing_view_id",
+      methodName,
+      status: response.status,
+    });
+  }
+  const hash = normalizeOptionalText(data.view?.hash);
+  if (!hash) {
+    throw new SlackApiError({
+      errorCode: "missing_view_hash",
+      methodName,
+      status: response.status,
+    });
+  }
+  return { hash, viewId };
 }
 
 export async function setSlackThreadStatus(input: {

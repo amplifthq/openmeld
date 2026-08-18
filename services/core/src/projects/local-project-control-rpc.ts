@@ -33,7 +33,7 @@ import {
 } from "../dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
-import { prepareHumanProjectRequest } from "./project-request-preparation";
+import { prepareExpectedHumanProjectRequest } from "./project-request-preparation";
 
 type LocalProjectControlCapability =
   | "connectCandidate"
@@ -317,18 +317,13 @@ async function prepareRequest(input: {
   env: CoreBindings;
   expectedOrganizationId: string;
 }): Promise<{ projects: Project[]; userId: string }> {
-  const { authority, service } = await prepareHumanProjectRequest(
+  const { authority, service } = await prepareExpectedHumanProjectRequest(
     input.env,
-    input.context
+    {
+      context: input.context,
+      expectedOrganizationId: input.expectedOrganizationId,
+    }
   );
-  if (authority.organizationId !== input.expectedOrganizationId) {
-    throw createCoreRpcHttpError({
-      code: "project.organization_context_changed",
-      reason:
-        "The active Organization changed before this Project request was applied.",
-      status: 409,
-    });
-  }
   const response = await service.list(authority);
   return { projects: response.projects, userId: authority.userId };
 }

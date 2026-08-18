@@ -1,16 +1,16 @@
 import type { PostSpaceWakeStopResponse } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import {
 	invalidateSpaceWakeStopQueries,
 	postWebSpaceWakeStop,
 } from "./wake-stop";
 
 vi.mock("#/lib/spaces/api", () => ({
-	createWebSpaceApi: vi.fn(),
+	createUnscopedWebSpaceApi: vi.fn(),
 }));
 
-const createWebSpaceApiMock = vi.mocked(createWebSpaceApi);
+const createWebSpaceApiMock = vi.mocked(createUnscopedWebSpaceApi);
 
 describe("postWebSpaceWakeStop", () => {
 	it("posts only the shared Wake Stop selector body through the Space API", async () => {
@@ -18,7 +18,7 @@ describe("postWebSpaceWakeStop", () => {
 		const postWakeStop = vi.fn().mockResolvedValue(response);
 		createWebSpaceApiMock.mockReturnValue({
 			postWakeStop,
-		} as unknown as ReturnType<typeof createWebSpaceApi>);
+		} as unknown as ReturnType<typeof createUnscopedWebSpaceApi>);
 
 		const body = {
 			reason: "User requested Stop from Web.",

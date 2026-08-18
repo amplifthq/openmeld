@@ -328,6 +328,25 @@ query or mutation. A generic Web API client must not infer that selector from
 requests can run while another URL is visible. `packages/api-client` reserves
 both headers so an individual call cannot override the owning request context.
 
+Web exposes separate Organization-scoped and explicitly unscoped API
+foundations. The Organization-scoped foundation requires the shared
+exactly-one selector at construction time and validates it before fetch. The
+unscoped foundation is reserved for account, device, public-link, or
+resource-identity entry points that do not take their Organization from an
+explicit `/o/{orgSlug}` route. Do not add an optional Organization parameter
+back to one generic foundation: every caller must make the scope decision
+explicit so a new Organization route cannot silently fall back to Session
+state.
+
+An explicit requested-Organization selector is authoritative over any
+`activeOrganizationId` carried by an API method's request context. In
+particular, a route slug must not be replaced by a Session-derived or actor
+request-context Organization id. Core compares any request-body
+`expectedOrganizationId` with the verified request Organization through the
+shared expected-Organization guard. Domain-specific error codes remain stable,
+while the mismatch meaning and user-facing reason are maintained once through
+`ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE` in `packages/schemas`.
+
 The Web proxy may forward those requested-selector headers, but it must strip
 browser-supplied trusted request-context headers, including
 `x-openmeld-active-organization-id`. Gateway parses the headers into the shared
@@ -552,10 +571,30 @@ projection. Core authorizes the active Organization, resolves its current
 members, and projects their registry-backed Computers independently of Agent
 Profile creation. The contract permits only opaque Computer identity, owner,
 display/platform/last-seen metadata, coarse per-computer Service state, and
-bounded local-agent availability. Controller accounts, versions, launch paths,
-installation paths, local policy, credentials, and raw lookup failures are not
+bounded local-agent availability. Its optional local-agent `details` object is
+a sanitized projection of canonical Agent Controller Interface evidence and
+permits controller state, native interface, installed version and update
+status, launch status and install count, model display names, native capability
+flags, check status, and check timestamps. Controller accounts, executable or
+installation paths, launch arguments, update commands, diagnostic messages,
+private skills, local policy, credentials, and raw lookup failures are not
 members of this schema. Owner-scoped local runtimes remain authoritative for
 the signed-in member's complete inventory and controls.
+
+Its optional `openMeldTools` object is also a sanitized live-session
+projection. It permits component installed/latest versions, required Service
+version, update status/policy, Wake-blocking state, bounded reason codes, and
+managed skill target count. Setup commands, component hashes, runtime lanes,
+credentials, and actions are not members of the Organization schema.
+
+Both `details` and `openMeldTools` are additive optional response fields. Web
+and Gateway receivers that use the strict Organization Computer schema must be
+deployed before Core begins writing them. New receivers accept the old Core
+projection; old receivers reject the expanded projection instead of silently
+dropping fields. Rollback reverses that order: roll back Core before Gateway
+or Web. CLI and local Service wire contracts do not change; Core only projects
+existing canonical registry and live-session evidence into the team-safe read
+model.
 
 These Auth methods and schemas are additive private contracts. Deploy Auth
 before Core, and roll back Core before Auth. New Core against old Auth exposes

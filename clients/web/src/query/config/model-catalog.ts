@@ -4,13 +4,13 @@ import {
 } from "@openmeld/api-client";
 import type { GetModelCatalogResponse } from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import { baseQueryOptions } from "#/query/query-config";
 import { configQueryKeys } from "#/query/query-keys";
 
 export async function readWebModelCatalog(): Promise<GetModelCatalogResponse> {
 	return await createConfigApi(
-		createWebOpenMeldApiFoundation()
+		createUnscopedWebOpenMeldApiFoundation()
 	).getModelCatalog();
 }
 

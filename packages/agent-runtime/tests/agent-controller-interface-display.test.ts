@@ -2,6 +2,7 @@ import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
   createAgentControllerInterfaceDisplayRows,
+  createAgentControllerInterfaceOperationalDisplayRows,
   formatAgentControllerInterfaceSummary,
   getAgentControllerVersionAdvisoryPresentation,
   resolveAgentControllerInterfaceDescription,
@@ -9,6 +10,62 @@ import {
 } from "../src/agent-controller-interface-display";
 
 describe("agent controller interface display", () => {
+  it("reuses operational detail rows without private owner fields", () => {
+    const snapshot = agentControllerInterfaceSnapshot({
+      message: "Private diagnostic message",
+      skills: [{ displayName: "Private skill", id: "private-skill" }],
+      versionAdvisory: {
+        checkedAt: "2026-06-28T12:01:00.000Z",
+        currentVersion: "0.38.0",
+        latestVersion: "0.39.0",
+        message: "Private update message",
+        status: "behind_latest",
+        updateCommand: "npm install -g @openai/codex@latest",
+      },
+    });
+
+    const rows = createAgentControllerInterfaceOperationalDisplayRows({
+      capabilities: snapshot.capabilities,
+      checkedAt: snapshot.checkedAt,
+      launch: {
+        installChoiceCount: snapshot.launch.installChoiceCount,
+        status: snapshot.launch.status,
+      },
+      models: snapshot.models.map((model) => ({
+        displayName: model.displayName,
+      })),
+      nativeInterface: snapshot.nativeInterface,
+      status: snapshot.status,
+      version: snapshot.version,
+      versionAdvisory: {
+        checkedAt: snapshot.versionAdvisory?.checkedAt ?? null,
+        currentVersion: snapshot.versionAdvisory?.currentVersion ?? null,
+        latestVersion: snapshot.versionAdvisory?.latestVersion ?? null,
+        status: snapshot.versionAdvisory?.status ?? "unknown",
+      },
+    });
+
+    expect(rows).toContainEqual({
+      label: "Launch check",
+      value: "Can launch · 1 local install found",
+    });
+    expect(rows.map((row) => row.label)).toEqual([
+      "Controller",
+      "Native interface",
+      "Version",
+      "Version status",
+      "Launch check",
+      "Models",
+      "Capabilities",
+      "Last checked",
+    ]);
+    expect(JSON.stringify(rows)).not.toContain("felix@example.com");
+    expect(JSON.stringify(rows)).not.toContain("/opt/homebrew/bin/codex");
+    expect(JSON.stringify(rows)).not.toContain("npm install");
+    expect(JSON.stringify(rows)).not.toContain("Private skill");
+    expect(JSON.stringify(rows)).not.toContain("Private diagnostic message");
+  });
+
   it("creates a stable summary and details for a ready controller", () => {
     const snapshot = agentControllerInterfaceSnapshot();
 

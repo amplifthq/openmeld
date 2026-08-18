@@ -59,7 +59,7 @@ import {
 import { listStartProfiles } from "#/lib/profiles/existing-profiles";
 import { buildProfileRequestContext } from "#/lib/profiles/human-profiles";
 import { listActiveProfilesByKind } from "#/lib/profiles/profiles";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { isProtectedSpaceFailure } from "#/lib/spaces/errors";
 import { rememberProtectedSpaceAccess } from "#/lib/spaces/protected-space-access";
 import { buildSpaceTimelineItems } from "#/lib/spaces/timeline";
@@ -141,7 +141,7 @@ export function PublicSpacePage(input: {
 		enabled: browserQueriesEnabled,
 		queryKey: publicSpaceQueryKey(input.spaceId, "status"),
 		queryFn: async () =>
-			await createWebSpaceApi().getStatus({ spaceId: input.spaceId }),
+			await createUnscopedWebSpaceApi().getStatus({ spaceId: input.spaceId }),
 		gcTime: baseQueryOptions.gcTime,
 		retry: shouldRetryPublicSpaceQuery,
 		staleTime: baseQueryOptions.staleTime,
@@ -151,7 +151,7 @@ export function PublicSpacePage(input: {
 		enabled: browserQueriesEnabled,
 		queryKey: publicSpaceQueryKey(input.spaceId, "signals"),
 		queryFn: async () =>
-			await createWebSpaceApi().listSignalEnvelopes({
+			await createUnscopedWebSpaceApi().listSignalEnvelopes({
 				spaceId: input.spaceId,
 				query: { limit: PUBLIC_SIGNAL_LIMIT, recent: true },
 			}),
@@ -164,7 +164,7 @@ export function PublicSpacePage(input: {
 		enabled: browserQueriesEnabled,
 		queryKey: publicSpaceQueryKey(input.spaceId, "threads"),
 		queryFn: async () =>
-			await createWebSpaceApi().listThreads({ spaceId: input.spaceId }),
+			await createUnscopedWebSpaceApi().listThreads({ spaceId: input.spaceId }),
 		gcTime: baseQueryOptions.gcTime,
 		retry: shouldRetryPublicSpaceQuery,
 		staleTime: baseQueryOptions.staleTime,
@@ -175,7 +175,9 @@ export function PublicSpacePage(input: {
 			browserQueriesEnabled && input.isAuthenticated && statusQuery.isSuccess,
 		queryKey: publicSpaceQueryKey(input.spaceId, "viewer-membership"),
 		queryFn: async () =>
-			await createWebSpaceApi().getViewerMembership({ spaceId: input.spaceId }),
+			await createUnscopedWebSpaceApi().getViewerMembership({
+				spaceId: input.spaceId,
+			}),
 		gcTime: baseQueryOptions.gcTime,
 		retry: shouldRetryPublicSpaceQuery,
 		staleTime: baseQueryOptions.staleTime,
@@ -191,7 +193,7 @@ export function PublicSpacePage(input: {
 			selectedThreadId,
 		],
 		queryFn: async () =>
-			await createWebSpaceApi().listThreadSignals({
+			await createUnscopedWebSpaceApi().listThreadSignals({
 				spaceId: input.spaceId,
 				threadId: selectedThreadId ?? "",
 			}),
@@ -735,7 +737,7 @@ function PublicSpaceJoinAction(input: {
 			password?: string;
 		}) => {
 			const { humanProfile } = joinInput;
-			await createWebSpaceApi({
+			await createUnscopedWebSpaceApi({
 				openMeldProfileId: humanProfile.openMeldProfileId,
 			}).addMembers({
 				memberProfileIds: [humanProfile.openMeldProfileId],

@@ -6,12 +6,12 @@ import type {
 } from "@openmeld/schemas";
 import { createIsomorphicFn } from "@tanstack/react-start";
 import { getRequiredServerEnv } from "#/env";
-import { createWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 const resolveCurrentDeviceTargetImpl = createIsomorphicFn()
 	.client(async (): Promise<CurrentDeviceTargetResponse> => {
 		return await createCurrentDeviceApi(
-			createWebOpenMeldApiFoundation()
+			createUnscopedWebOpenMeldApiFoundation()
 		).getCurrentTarget();
 	})
 	.server(async (): Promise<CurrentDeviceTargetResponse> => {
@@ -30,7 +30,7 @@ export async function resolveCurrentDeviceTarget() {
 
 export async function forgetCurrentComputer(): Promise<ForgetCurrentComputerResponse> {
 	return await createCurrentDeviceApi(
-		createWebOpenMeldApiFoundation()
+		createUnscopedWebOpenMeldApiFoundation()
 	).forgetCurrentComputer();
 }
 
@@ -38,6 +38,6 @@ export async function forgetComputer(input: {
 	deviceId: string;
 }): Promise<ForgetComputerResponse> {
 	return await createCurrentDeviceApi(
-		createWebOpenMeldApiFoundation()
+		createUnscopedWebOpenMeldApiFoundation()
 	).forgetComputer(input);
 }

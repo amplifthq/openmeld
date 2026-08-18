@@ -618,6 +618,12 @@ async function createProfileAndMaybeJoinSpace(input: {
 	) {
 		throw new Error(SPACE_JOIN_REQUIRES_HUMAN_MESSAGE);
 	}
+	const spaceJoinContext = input.spaceContext
+		? {
+				organizationId: requireSpaceOrganizationId(input.organizationId),
+				spaceContext: input.spaceContext,
+			}
+		: null;
 
 	const profile = await createNewStartProfile({
 		...(input.agentControllerPermissionMode
@@ -639,18 +645,28 @@ async function createProfileAndMaybeJoinSpace(input: {
 		selectedHumanProfileId: input.selectedHumanProfileId,
 	});
 
-	if (input.spaceContext) {
+	if (spaceJoinContext) {
 		await joinCreatedProfileToSpace({
 			boundAgentId: input.boundAgentId,
 			onAfterJoin: input.onAfterJoin,
+			organizationId: spaceJoinContext.organizationId,
 			profile,
 			queryClient: input.queryClient,
 			selectedHumanProfile: input.selectedHumanProfile,
-			spaceContext: input.spaceContext,
+			spaceContext: spaceJoinContext.spaceContext,
 		});
 	}
 
 	return profile;
+}
+
+function requireSpaceOrganizationId(organizationId: string | null): string {
+	if (organizationId) {
+		return organizationId;
+	}
+	throw new Error(
+		"OpenMeld could not confirm the Organization for this Space. Refresh the page and try again."
+	);
 }
 
 type CreatedProfileOrganizationAuthorizationResult =
@@ -915,6 +931,7 @@ function buildBuiltinAgentControllerRef(agentId: string): string {
 async function joinCreatedProfileToSpace(input: {
 	boundAgentId: string;
 	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
+	organizationId: string;
 	profile: AuthProfileView;
 	queryClient: QueryClient;
 	selectedHumanProfile: AuthProfileView | null | undefined;
@@ -934,6 +951,7 @@ async function joinCreatedProfileToSpace(input: {
 	await joinProfileToSpace({
 		actingHumanProfile,
 		memberProfileIds: [input.profile.openMeldProfileId],
+		organizationId: input.organizationId,
 		pendingWakeReadinessProfileIds: shouldDeferMembersRefresh
 			? [input.profile.openMeldProfileId]
 			: [],

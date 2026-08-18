@@ -9,8 +9,9 @@ const getStatusMock = vi.hoisted(() => vi.fn());
 const createWebSpaceApiMock = vi.hoisted(() => vi.fn());
 
 vi.mock("#/lib/spaces/api", () => ({
-	createWebSpaceApi: (...args: Parameters<typeof createWebSpaceApiMock>) =>
-		createWebSpaceApiMock(...args),
+	createUnscopedWebSpaceApi: (
+		...args: Parameters<typeof createWebSpaceApiMock>
+	) => createWebSpaceApiMock(...args),
 }));
 
 describe("spaceStatusQueryOptions", () => {

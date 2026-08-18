@@ -42,11 +42,11 @@ vi.mock("#/lib/organizations/connector-connections", async (importOriginal) => {
 		listCurrentOrganizationConnectorConnections: listConnectionsMock,
 		resolveConnectorConnectionErrorMessage: (
 			error: unknown,
-			appName = "App"
+			_appName = "App"
 		) =>
 			(error as { upstreamCode?: string }).upstreamCode ===
 			"connector.organization_context_changed"
-				? `Your active Organization changed in another tab. Refresh this page before updating ${appName}.`
+				? "OpenMeld couldn't confirm that this request belongs to this Organization. Refresh the page and try again."
 				: String(error),
 		startCurrentMemberConnectorAuthorization: startMemberAuthorizationMock,
 		startCurrentOrganizationSharedConnectorAuthorization: vi.fn(),
@@ -775,7 +775,7 @@ describe("CenterAgentAppConnectionCard", () => {
 
 		expect(
 			await screen.findByText(
-				"Your active Organization changed in another tab. Refresh this page before updating Linear."
+				"OpenMeld couldn't confirm that this request belongs to this Organization. Refresh the page and try again."
 			)
 		).toBeTruthy();
 		expect(screen.queryByText("Waiting for authorization…")).toBeNull();
@@ -829,7 +829,7 @@ describe("CenterAgentAppConnectionCard", () => {
 
 		expect(
 			await screen.findByText(
-				"Your active Organization changed in another tab. Refresh this page before updating Linear.",
+				"OpenMeld couldn't confirm that this request belongs to this Organization. Refresh the page and try again.",
 				undefined,
 				{ timeout: 3000 }
 			)
@@ -1110,7 +1110,7 @@ describe("CenterAgentAppConnectionCard", () => {
 
 		expect(
 			await screen.findByText(
-				"Your active Organization changed in another tab. Refresh this page before updating Linear."
+				"OpenMeld couldn't confirm that this request belongs to this Organization. Refresh the page and try again."
 			)
 		).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();

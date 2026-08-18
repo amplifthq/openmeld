@@ -52,7 +52,10 @@ import {
 	ensureWebAgentProfileRuntimeBinding,
 	formatWebAgentProfileRuntimeBindingFailure,
 } from "#/lib/profiles/agent-profile-runtime-binding";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import {
+	createOrganizationScopedWebSpaceApi,
+	createUnscopedWebSpaceApi,
+} from "#/lib/spaces/api";
 import {
 	isSpaceComposerAttachmentInProgress,
 	type SpaceComposerAttachment,
@@ -1458,7 +1461,7 @@ export function useSpaceLandingController(input: {
 		}
 
 		let cancelled = false;
-		createWebSpaceApi({ openMeldProfileId: input.profileId })
+		createUnscopedWebSpaceApi({ openMeldProfileId: input.profileId })
 			.getActiveWakeProgress({
 				includeTiming: true,
 				includeWakeStopEligibility: true,
@@ -1563,7 +1566,7 @@ export function useSpaceLandingController(input: {
 			);
 
 			try {
-				const report = await createWebSpaceApi({
+				const report = await createUnscopedWebSpaceApi({
 					openMeldProfileId: input.profileId,
 				}).createDiagnosticReport({
 					spaceId: input.spaceId,
@@ -1662,7 +1665,7 @@ export function useSpaceLandingController(input: {
 	const handleAgentInteractionResponse = useCallback(
 		async (body: RespondToSpaceAgentInteractionBody): Promise<void> => {
 			try {
-				const response = await createWebSpaceApi({
+				const response = await createUnscopedWebSpaceApi({
 					openMeldProfileId: input.profileId,
 				}).respondToAgentInteraction({
 					body,
@@ -2133,7 +2136,7 @@ export function useSpaceLandingController(input: {
 				})
 			);
 
-			const spaceApi = createWebSpaceApi({
+			const spaceApi = createOrganizationScopedWebSpaceApi({
 				organizationSlug: input.orgSlug,
 				openMeldProfileId: input.profileId,
 			});
@@ -2265,7 +2268,7 @@ export function useSpaceLandingController(input: {
 	async function handleRecoverExecution(
 		recoveryInput: SpaceExecutionRecoveryAttempt
 	): Promise<SpaceExecutionRecoveryResolution> {
-		const spaceApi = createWebSpaceApi({
+		const spaceApi = createUnscopedWebSpaceApi({
 			openMeldProfileId: input.profileId,
 		});
 		try {
@@ -2383,7 +2386,7 @@ export function useSpaceLandingController(input: {
 		setLeaveSpaceErrorMessage(null);
 
 		try {
-			const response = await createWebSpaceApi({
+			const response = await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			}).leaveSpace({
 				spaceId: input.spaceId,
@@ -2445,7 +2448,7 @@ export function useSpaceLandingController(input: {
 		setAccessModeErrorMessage(null);
 
 		try {
-			await createWebSpaceApi({
+			await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			}).setAccessMode({
 				spaceId: input.spaceId,
@@ -2499,7 +2502,7 @@ export function useSpaceLandingController(input: {
 					]);
 				},
 				updateMeta: async () =>
-					await createWebSpaceApi({
+					await createUnscopedWebSpaceApi({
 						openMeldProfileId: input.profileId,
 					}).updateMeta({
 						spaceId: input.spaceId,
@@ -2520,7 +2523,7 @@ export function useSpaceLandingController(input: {
 		setDeleteSpaceErrorMessage(null);
 
 		try {
-			await createWebSpaceApi({
+			await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			}).deleteSpace({
 				spaceId: input.spaceId,
@@ -2809,7 +2812,7 @@ function useSpaceThreadController(input: {
 		setComposerErrorMessage(null);
 
 		try {
-			const response = await createWebSpaceApi({
+			const response = await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			}).createThread({
 				spaceId: input.spaceId,
@@ -3028,7 +3031,7 @@ function useSpaceThreadController(input: {
 			};
 			const response = await postSpaceMessageWithIdempotentRetry(
 				async () =>
-					await createWebSpaceApi({
+					await createUnscopedWebSpaceApi({
 						openMeldProfileId: input.profileId,
 					}).postThreadSignal(postInput)
 			);
@@ -3239,7 +3242,9 @@ async function refreshWakeStopAfterResponse(input: {
 		);
 	} else if (input.targetProfileId) {
 		refreshes.push(
-			createWebSpaceApi({ openMeldProfileId: input.openMeldProfileId })
+			createUnscopedWebSpaceApi({
+				openMeldProfileId: input.openMeldProfileId,
+			})
 				.getActiveWakeProgress({
 					includeTiming: true,
 					includeWakeStopEligibility: true,

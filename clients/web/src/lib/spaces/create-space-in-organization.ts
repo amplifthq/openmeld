@@ -5,7 +5,7 @@ import type {
 	SpaceOrganizationVisibility,
 } from "@openmeld/schemas/types";
 import { buildProfileRequestContext } from "#/lib/profiles/human-profiles";
-import { createWebSpaceApi } from "./api";
+import { createOrganizationScopedWebSpaceApi } from "./api";
 
 export const ORGANIZATION_SPACE_SCOPE_ERROR_MESSAGE =
 	"OpenMeld couldn't verify that the Space was created in this Organization. Return to Spaces and refresh before trying again.";
@@ -33,7 +33,7 @@ export async function createSpaceInOrganization(input: {
 		visibility: SpaceOrganizationVisibility;
 	};
 }): Promise<CreateSpaceResponse> {
-	const response = await createWebSpaceApi({
+	const response = await createOrganizationScopedWebSpaceApi({
 		organizationId: input.organizationId,
 		openMeldProfileId: input.actingProfile.openMeldProfileId,
 	}).createSpace({

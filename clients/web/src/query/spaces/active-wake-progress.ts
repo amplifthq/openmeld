@@ -5,7 +5,7 @@ import type {
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import { type QueryClient, queryOptions } from "@tanstack/react-query";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { SPACE_WAKE_PROGRESS_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import { ROUTE_REVISIT_GC_TIME_MS } from "#/query/query-config";
 import { spaceQueryKeys } from "./status";
@@ -25,7 +25,7 @@ export function spaceActiveWakeProgressSummaryQueryOptions(input: {
 		),
 		queryFn: async () => {
 			try {
-				return await createWebSpaceApi({
+				return await createUnscopedWebSpaceApi({
 					openMeldProfileId: input.openMeldProfileId,
 				}).getActiveWakeProgress({
 					includeTiming: true,

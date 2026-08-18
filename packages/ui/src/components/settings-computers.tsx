@@ -51,7 +51,6 @@ export type SettingsComputerSummaryCardContentProps = {
   lastSeenLabel: string;
   localAgents?: readonly SettingsComputerLocalAgentIcon[];
   localAgentsSummaryLabel?: string;
-  showLocalAgentNames?: boolean;
   name: string;
   platformLabel: string;
   recordBadgeLabel?: string | null;
@@ -73,7 +72,6 @@ export function SettingsComputerSummaryCardContent({
   platformLabel,
   recordBadgeLabel,
   serviceConnectionStatus,
-  showLocalAgentNames = false,
 }: SettingsComputerSummaryCardContentProps) {
   const shouldRenderStatusIndicator =
     serviceConnectionStatus === undefined
@@ -145,7 +143,6 @@ export function SettingsComputerSummaryCardContent({
         <span className="min-w-0 text-muted-foreground">{lastSeenLabel}</span>
         <SettingsComputerLocalAgentSummary
           icons={localAgents}
-          showNames={showLocalAgentNames}
           summaryLabel={localAgentsSummaryLabel}
         />
       </div>
@@ -216,11 +213,9 @@ export function SettingsAddComputerCardContent({
 
 function SettingsComputerLocalAgentSummary({
   icons,
-  showNames,
   summaryLabel,
 }: {
   icons: readonly SettingsComputerLocalAgentIcon[];
-  showNames: boolean;
   summaryLabel?: string;
 }) {
   const visibleIcons = icons.filter((icon) => hasLocalAgentLogo(icon.agentId));
@@ -232,9 +227,9 @@ function SettingsComputerLocalAgentSummary({
 
   return (
     <span className="flex shrink-0 items-center justify-end gap-2">
-      <span className={showNames ? "text-muted-foreground" : "sr-only"}>
+      <span className="sr-only">
         {visibleIcons.map((icon) => icon.displayName).join(", ")}
-        {showNames ? null : " local agents"}
+        {" local agents"}
       </span>
       {visibleIcons.map((icon) => (
         <Tooltip key={icon.agentId}>

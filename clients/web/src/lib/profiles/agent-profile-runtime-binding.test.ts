@@ -32,7 +32,7 @@ vi.mock("@openmeld/api-client", async () => {
 });
 
 vi.mock("#/lib/openmeld-api/client", () => ({
-	createWebOpenMeldApiFoundation: createWebOpenMeldApiFoundationMock,
+	createUnscopedWebOpenMeldApiFoundation: createWebOpenMeldApiFoundationMock,
 }));
 
 describe("ensureWebAgentProfileRuntimeBinding", () => {

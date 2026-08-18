@@ -239,7 +239,10 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("#/lib/spaces/api", () => ({
-	createWebSpaceApi: (...args: unknown[]) => ({
+	createOrganizationScopedWebSpaceApi: (...args: unknown[]) => ({
+		...createWebSpaceApiMock(...args),
+	}),
+	createUnscopedWebSpaceApi: (...args: unknown[]) => ({
 		getActiveWakeProgress: async () => ({
 			items: [],
 			query: {
@@ -1151,7 +1154,6 @@ describe("SpaceLanding", () => {
 		await waitFor(() => {
 			expect(createWebSpaceApiMock).toHaveBeenCalledWith({
 				organizationId: "org-acme",
-				organizationSlug: "acme",
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			});
 			expect(addOrganizationDirectoryProfilesToSpaceMock).toHaveBeenCalledWith({

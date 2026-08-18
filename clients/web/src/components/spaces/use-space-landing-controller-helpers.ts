@@ -24,7 +24,7 @@ import {
 } from "@openmeld/space";
 import type { useQueryClient } from "@tanstack/react-query";
 import { isSessionExpiredError } from "#/lib/session-expired";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { SPACE_WAKE_PROGRESS_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { spaceQueryKeys } from "#/query/spaces/status";
@@ -503,7 +503,7 @@ export async function pollWakeProgress(input: {
 	spaceId: string;
 }): Promise<void> {
 	try {
-		const api = createWebSpaceApi({
+		const api = createUnscopedWebSpaceApi({
 			openMeldProfileId: input.openMeldProfileId,
 		});
 		const results = await Promise.allSettled(

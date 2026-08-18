@@ -768,6 +768,7 @@ import {
   rpcCenterAgentRecommendOpportunity as centerAgentRecommendOpportunity,
   rpcCenterAgentRespondToOpportunity as centerAgentRespondToOpportunity,
 } from "../opportunities/opportunity-center-agent-rpc";
+import { requireExpectedOrganizationContext } from "../organizations/expected-organization-context";
 import {
   listOrganizationComputers,
   type OrganizationComputerLiveSession,
@@ -796,7 +797,7 @@ import {
   buildCanonicalLocalProjectDiscoveryRequest,
   createLocalProjectControlRpc,
 } from "../projects/local-project-control-rpc";
-import { prepareHumanProjectRequest } from "../projects/project-request-preparation";
+import { prepareExpectedHumanProjectRequest } from "../projects/project-request-preparation";
 import {
   rpcArchiveProject as archiveProject,
   rpcCreateProject as createProject,
@@ -1089,18 +1090,10 @@ export async function rpcUpdateAgentProfileDefaultProject(
     });
   }
   const request = parsedRequest.data;
-  const { authority, service } = await prepareHumanProjectRequest(
-    env,
-    request.context
-  );
-  if (authority.organizationId !== request.expectedOrganizationId) {
-    throw createCoreRpcHttpError({
-      code: "project.organization_context_changed",
-      reason:
-        "The active Organization changed before this Agent Profile request was applied.",
-      status: 409,
-    });
-  }
+  const { authority, service } = await prepareExpectedHumanProjectRequest(env, {
+    context: request.context,
+    expectedOrganizationId: request.expectedOrganizationId,
+  });
   return await updateAgentProfileDefaultProjectForAuthority({
     agentProfileId: request.agentProfileId,
     authority,
@@ -4795,16 +4788,45 @@ function projectOrganizationComputerLiveSessions(input: {
   if (!input.liveSessions.online) {
     return [];
   }
-  return input.liveSessions.sessions.map((session) => ({
-    deviceId: session.deviceId,
-    executionCompatibility: session.executionCompatibility,
-    serviceUpdateWakeBlocked: resolveLocalComponentUpdateProjection({
+  return input.liveSessions.sessions.map((session) => {
+    const localComponents = resolveLocalComponentUpdateProjection({
       generatedAt: input.generatedAt,
       localComponentsStatus: session.capabilities.localComponents ?? null,
       serviceConnected: true,
       serviceVersion: session.serviceVersion ?? null,
-    }).service.wakeBlocked,
-  }));
+    });
+    return {
+      deviceId: session.deviceId,
+      executionCompatibility: session.executionCompatibility,
+      openMeldTools: {
+        cli: {
+          installedPackageVersion: localComponents.cli.installedPackageVersion,
+          latestPackageVersion: localComponents.cli.latestPackageVersion,
+          reasonCodes: localComponents.cli.reasonCodes,
+          status: localComponents.cli.status,
+          updatePolicy: localComponents.cli.updatePolicy,
+          wakeBlocked: localComponents.cli.wakeBlocked,
+        },
+        service: {
+          installedVersion: localComponents.service.installedVersion,
+          latestVersion: localComponents.service.latestVersion,
+          reasonCodes: localComponents.service.reasonCodes,
+          requiredVersion: localComponents.service.requiredVersion,
+          status: localComponents.service.status,
+          updatePolicy: localComponents.service.updatePolicy,
+          wakeBlocked: localComponents.service.wakeBlocked,
+        },
+        skills: {
+          reasonCodes: localComponents.skills.reasonCodes,
+          status: localComponents.skills.status,
+          targetCount: localComponents.skills.targetCount,
+          updatePolicy: localComponents.skills.updatePolicy,
+          wakeBlocked: localComponents.skills.wakeBlocked,
+        },
+      },
+      serviceUpdateWakeBlocked: localComponents.service.wakeBlocked,
+    };
+  });
 }
 
 async function buildOrganizationMemberOpenMeldServiceStatusesResponse(input: {
@@ -5639,14 +5661,11 @@ function requireExpectedConnectorOrganization(input: {
       status: 400,
     });
   }
-  if (expectedOrganizationId !== input.activeOrganizationId) {
-    throw createCoreRpcHttpError({
-      code: "connector.organization_context_changed",
-      reason:
-        "The active Organization changed before this GitHub request was applied.",
-      status: 409,
-    });
-  }
+  requireExpectedOrganizationContext({
+    actualOrganizationId: input.activeOrganizationId,
+    errorCode: "connector.organization_context_changed",
+    expectedOrganizationId,
+  });
 }
 
 async function resolveConnectorConnectionUnavailableReason(input: {

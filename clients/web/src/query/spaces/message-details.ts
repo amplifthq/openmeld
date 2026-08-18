@@ -2,7 +2,7 @@ import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type { GetSpaceMessageDetailsResponse } from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
-import { createWebSpaceApi } from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { baseQueryOptions } from "#/query/query-config";
 import { shouldRetrySpaceQuery } from "./retry";
 import { spaceQueryKeys } from "./status";
@@ -14,7 +14,7 @@ export async function readSpaceMessageDetails(input: {
 	spacePassword?: string;
 }): Promise<GetSpaceMessageDetailsResponse> {
 	try {
-		return await createWebSpaceApi({
+		return await createUnscopedWebSpaceApi({
 			...(input.openMeldProfileId === undefined
 				? {}
 				: { openMeldProfileId: input.openMeldProfileId }),
