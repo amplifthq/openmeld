@@ -5103,6 +5103,126 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
+  it("keeps a timed-out reconciliation lease when its recovery enqueue fails", async () => {
+    vi.useFakeTimers();
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    const probe = createDeadlineProbe();
+    const firstReconciliation = createDeferred({
+      execution: {
+        acceptedAtMs: 1100,
+        cancellationReason: null,
+        completedAtMs: null,
+        idempotencyKey: probe.idempotencyKey,
+        lastProgressAtMs: probe.deadlineAtMs,
+        lastProgressKind: "tool_started" as const,
+        organizationId: probe.organizationId,
+        spaceId: probe.spaceId,
+        status: "running" as const,
+        submissionId: probe.submissionId,
+        v: 1 as const,
+      },
+      status: "found" as const,
+    });
+    const reconciliationStarted = createDeferred(undefined);
+    const workerReconcile = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        reconciliationStarted.resolve();
+        return firstReconciliation.promise;
+      })
+      .mockResolvedValueOnce({
+        execution: {
+          acceptedAtMs: 1100,
+          cancellationReason: null,
+          completedAtMs: null,
+          idempotencyKey: probe.idempotencyKey,
+          lastProgressAtMs:
+            probe.deadlineAtMs +
+            REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS,
+          lastProgressKind: "tool_started" as const,
+          organizationId: probe.organizationId,
+          spaceId: probe.spaceId,
+          status: "running" as const,
+          submissionId: probe.submissionId,
+          v: 1 as const,
+        },
+        status: "found" as const,
+      });
+    const queueSend = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("queue unavailable"))
+      .mockResolvedValueOnce(undefined);
+    stubSlackFetch({ email: "ari@example.test" });
+
+    try {
+      await createAcceptedSlackDelivery({
+        db: harness.db,
+        idempotencyKey: probe.idempotencyKey,
+        submissionId: probe.submissionId,
+      });
+      const env = buildEnv(harness.db, { queueSend, workerReconcile });
+      const firstProbe = processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env,
+        nowMs: probe.deadlineAtMs,
+        probe,
+      });
+      const firstProbeFailure = firstProbe.catch((error: unknown) => error);
+      await reconciliationStarted.promise;
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await firstProbeFailure).toEqual(
+        expect.objectContaining({ message: "queue unavailable" })
+      );
+      await expect(
+        readRemoteAgentNativeDeliveryByIdempotencyKey({
+          db: harness.db,
+          idempotencyKey: probe.idempotencyKey,
+        })
+      ).resolves.toMatchObject({
+        acceptedProbeNextDueAtMs:
+          probe.deadlineAtMs +
+          REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS,
+      });
+
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs:
+            probe.deadlineAtMs +
+            REMOTE_AGENT_SLACK_WORKING_STATUS_REFRESH_INTERVAL_SECONDS * 1000,
+          probe,
+        })
+      ).resolves.toEqual({
+        reasonCode: "remote_agent.execution_reconciliation_already_claimed",
+        status: "skipped",
+      });
+      expect(workerReconcile).toHaveBeenCalledOnce();
+
+      await expect(
+        processRemoteAgentNativeDeliveryDeadlineProbe({
+          db: harness.db,
+          env,
+          nowMs:
+            probe.deadlineAtMs +
+            REMOTE_AGENT_EXECUTION_RECONCILIATION_PROCESSING_LEASE_MS,
+          probe,
+        })
+      ).resolves.toEqual({
+        reasonCode: "remote_agent.execution_reconciliation_scheduled",
+        status: "skipped",
+      });
+      expect(workerReconcile).toHaveBeenCalledTimes(2);
+      expect(queueSend).toHaveBeenCalledTimes(2);
+    } finally {
+      firstReconciliation.resolve();
+      harness.close();
+      vi.useRealTimers();
+    }
+  });
+
   it("clears a late Slack working-status refresh after the final reply wins", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
@@ -5259,6 +5379,119 @@ describe("Remote Agent Slack signal service", () => {
       });
       expect(workerReconcile).toHaveBeenCalledOnce();
     } finally {
+      harness.close();
+    }
+  });
+
+  it("converges a stale Slack status correction after a newer turn starts", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    const oldProbe = createDeadlineProbe();
+    const newProbe = {
+      ...oldProbe,
+      dispatchId: "remote-agent-slack:Ev124",
+      idempotencyKey: "remote-agent-slack:T123:Ev124",
+      submissionId: "sub_slack_2",
+    };
+    const delayedWorkingStatus = createDeferred({ ok: true });
+    const delayedClearStatus = createDeferred({ ok: true });
+    let heldWorkingStatus = false;
+    let heldClearStatus = false;
+    const fetchMock = stubSlackFetch({
+      email: "ari@example.test",
+      threadStatusResponse: (body) => {
+        if (body.status !== "" && !heldWorkingStatus) {
+          heldWorkingStatus = true;
+          return delayedWorkingStatus.promise;
+        }
+        if (body.status === "" && !heldClearStatus) {
+          heldClearStatus = true;
+          return delayedClearStatus.promise;
+        }
+        return { ok: true };
+      },
+    });
+    const reconciliation = createDeferred({
+      execution: {
+        acceptedAtMs: 1100,
+        cancellationReason: null,
+        completedAtMs: null,
+        idempotencyKey: oldProbe.idempotencyKey,
+        lastProgressAtMs: oldProbe.deadlineAtMs,
+        lastProgressKind: "tool_started" as const,
+        organizationId: oldProbe.organizationId,
+        spaceId: oldProbe.spaceId,
+        status: "running" as const,
+        submissionId: oldProbe.submissionId,
+        v: 1 as const,
+      },
+      status: "found" as const,
+    });
+    const reconciliationStarted = createDeferred(undefined);
+    const workerReconcile = vi.fn(() => {
+      reconciliationStarted.resolve();
+      return reconciliation.promise;
+    });
+    let refreshProbe: ReturnType<
+      typeof processRemoteAgentNativeDeliveryDeadlineProbe
+    > | null = null;
+
+    try {
+      await createAcceptedSlackDelivery({
+        db: harness.db,
+        idempotencyKey: oldProbe.idempotencyKey,
+        submissionId: oldProbe.submissionId,
+      });
+      refreshProbe = processRemoteAgentNativeDeliveryDeadlineProbe({
+        db: harness.db,
+        env: buildEnv(harness.db, { workerReconcile }),
+        nowMs: oldProbe.deadlineAtMs,
+        probe: oldProbe,
+      });
+      await vi.waitFor(() =>
+        expect(readSlackThreadStatusBodies(fetchMock)).toEqual([
+          expect.objectContaining({ status: "is working on your request…" }),
+        ])
+      );
+
+      harness.run({
+        params: [oldProbe.idempotencyKey],
+        sql: `
+          UPDATE openMeldRemoteAgent_native_delivery_ledger
+          SET
+            final_publication_state = 'published',
+            published_signal_id = '1710000001.000200',
+            status = 'completed',
+            updated_at_ms = 1500
+          WHERE idempotency_key = ?
+        `,
+      });
+      delayedWorkingStatus.resolve();
+      await vi.waitFor(() =>
+        expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+          status: "",
+        })
+      );
+
+      await createAcceptedSlackDelivery({
+        db: harness.db,
+        dispatchId: newProbe.dispatchId,
+        idempotencyKey: newProbe.idempotencyKey,
+        nowMs: 2000,
+        submissionId: newProbe.submissionId,
+      });
+      delayedClearStatus.resolve();
+      await reconciliationStarted.promise;
+
+      expect(readSlackThreadStatusBodies(fetchMock).at(-1)).toMatchObject({
+        status: "is working on your request…",
+      });
+      reconciliation.resolve();
+      await refreshProbe;
+      refreshProbe = null;
+    } finally {
+      reconciliation.resolve();
+      await refreshProbe?.catch(() => undefined);
       harness.close();
     }
   });

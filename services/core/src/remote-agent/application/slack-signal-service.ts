@@ -64,6 +64,7 @@ import {
   publishRemoteAgentSlackAdmissionFailure,
   RemoteAgentSlackSubmissionOutcomeUnknownError,
   submitRemoteAgentSlackNativeDelivery,
+  synchronizeRemoteAgentSlackThreadWorkingStatus,
 } from "./native-delivery-service";
 import { resolveSlackBotToken } from "./slack-bot-token";
 import {
@@ -90,7 +91,6 @@ import {
   commitSlackThreadContextCursor,
   resolveSlackThreadContext,
 } from "./slack-thread-context";
-import { setRemoteAgentSlackThreadWorkingStatus } from "./slack-working-status";
 
 const REMOTE_AGENT_SLACK_WORKSPACE_NOT_CONNECTED_TEXT =
   "This Slack workspace is not connected to an OpenMeld organization yet.";
@@ -1298,7 +1298,7 @@ async function processRemoteAgentSlackAppMention(input: {
     sourceText,
     triggerMessageId: event.ts,
   };
-  await admitRemoteAgentSlackNativeDelivery({
+  const admittedDelivery = await admitRemoteAgentSlackNativeDelivery({
     db: stateDb,
     env,
     nowMs: Date.now(),
@@ -1306,8 +1306,10 @@ async function processRemoteAgentSlackAppMention(input: {
   });
   failureContext.ledgerStarted = true;
   await showRemoteAgentSlackThreadWorkingStatus({
-    botToken,
     channelId: event.channel,
+    db: stateDb,
+    delivery: admittedDelivery,
+    env,
     eventId: input.eventId ?? null,
     slackTeamId,
     threadTs,
@@ -1434,17 +1436,19 @@ async function resolveSlackParticipantSearchAuthorization(input: {
 }
 
 async function showRemoteAgentSlackThreadWorkingStatus(input: {
-  botToken: string;
   channelId: string;
+  db: D1Database;
+  delivery: Awaited<ReturnType<typeof admitRemoteAgentSlackNativeDelivery>>;
+  env: CoreBindings;
   eventId: string | null;
   slackTeamId: string;
   threadTs: string;
 }): Promise<void> {
   try {
-    await setRemoteAgentSlackThreadWorkingStatus({
-      botToken: input.botToken,
-      channelId: input.channelId,
-      threadTs: input.threadTs,
+    await synchronizeRemoteAgentSlackThreadWorkingStatus({
+      db: input.db,
+      delivery: input.delivery,
+      env: input.env,
     });
   } catch (error) {
     console.warn("[core.remote_agent.slack_thread_status.unavailable]", {

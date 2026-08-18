@@ -336,11 +336,12 @@ the connected provider API.
    failure in that same thread. Working-status refresh is best-effort
    presentation derived from the latest delivery lifecycle in that Slack
    thread. An older terminal delivery cannot clear the status of a newer active
-   turn. This
-   presentation does not own execution truth, and its refresh cadence must not
-   shorten the reconciliation processing lease. A timed-out reconciliation
-   keeps its processing lease because stopping the caller's wait does not prove
-   that the underlying RPC stopped.
+   turn. Every status write is followed by a fresh lifecycle read and corrected
+   until the provider status matches the latest turn. This presentation does
+   not own execution truth, and its refresh cadence must not shorten the
+   reconciliation processing lease. A timed-out reconciliation keeps its
+   processing lease even when recovery enqueue fails because stopping the
+   caller's wait does not prove that the underlying RPC stopped.
    Lark and Feishu are the next Message Channel producers. They reuse the same
    connected-member-or-external-participant resolution, ordinary-member
    Organization and shared-App capability, Center Agent designation, daily

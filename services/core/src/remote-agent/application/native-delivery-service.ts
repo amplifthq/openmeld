@@ -7360,6 +7360,7 @@ async function requeueRemoteAgentNativeDeliveryDeadlineProbe(input: {
   db: D1Database;
   env: CoreBindings;
   nowMs: number;
+  preserveProcessingLeaseOnEnqueueFailure?: boolean;
   probe: RemoteAgentNativeDeliveryDeadlineProbeQueueMessage;
   runAtMs: number;
 }): Promise<void> {
@@ -7393,26 +7394,28 @@ async function requeueRemoteAgentNativeDeliveryDeadlineProbe(input: {
         submissionId: input.probe.submissionId,
       }
     );
-    try {
-      await releaseRemoteAgentAcceptedDeliveryProbeSchedule({
-        db: input.db,
-        idempotencyKey: input.probe.idempotencyKey,
-        leaseDueAtMs:
-          input.acceptedProbeProcessingLeaseDueAtMs ?? input.runAtMs,
-        nowMs: input.nowMs,
-        submissionId: input.probe.submissionId,
-      });
-    } catch (releaseError) {
-      console.warn(
-        "[core.remote_agent.native_delivery.deadline_probe_recovery_release_failed]",
-        {
-          event: CORE_LOG_EVENTS.coreInternalError,
-          dispatchId: input.probe.dispatchId,
-          enqueueError: toErrorMessage(error),
-          releaseError: toErrorMessage(releaseError),
+    if (!input.preserveProcessingLeaseOnEnqueueFailure) {
+      try {
+        await releaseRemoteAgentAcceptedDeliveryProbeSchedule({
+          db: input.db,
+          idempotencyKey: input.probe.idempotencyKey,
+          leaseDueAtMs:
+            input.acceptedProbeProcessingLeaseDueAtMs ?? input.runAtMs,
+          nowMs: input.nowMs,
           submissionId: input.probe.submissionId,
-        }
-      );
+        });
+      } catch (releaseError) {
+        console.warn(
+          "[core.remote_agent.native_delivery.deadline_probe_recovery_release_failed]",
+          {
+            event: CORE_LOG_EVENTS.coreInternalError,
+            dispatchId: input.probe.dispatchId,
+            enqueueError: toErrorMessage(error),
+            releaseError: toErrorMessage(releaseError),
+            submissionId: input.probe.submissionId,
+          }
+        );
+      }
     }
     throw error;
   }
@@ -9611,16 +9614,18 @@ async function reconcileAcceptedRemoteAgentNativeDelivery(input: {
         targetProfileId: leasedDelivery.profileId,
       }
     );
+    const reconciliationTimedOut =
+      error instanceof RemoteAgentExecutionReconciliationTimeoutError;
     await requeueRemoteAgentNativeDeliveryDeadlineProbe({
       acceptedProbeProcessingLeaseDueAtMs: processingLeaseDueAtMs,
       db: input.db,
       env: input.env,
       nowMs: input.nowMs,
+      preserveProcessingLeaseOnEnqueueFailure: reconciliationTimedOut,
       probe: input.probe,
-      runAtMs:
-        error instanceof RemoteAgentExecutionReconciliationTimeoutError
-          ? processingLeaseDueAtMs
-          : input.nowMs + reconciliationDelayMs,
+      runAtMs: reconciliationTimedOut
+        ? processingLeaseDueAtMs
+        : input.nowMs + reconciliationDelayMs,
     });
     return {
       reasonCode: "remote_agent.execution_reconciliation_unavailable",
@@ -9782,25 +9787,24 @@ async function synchronizeRemoteAgentSlackThreadWorkingStatusForDelivery(input: 
   }
 }
 
-async function synchronizeRemoteAgentSlackThreadWorkingStatus(input: {
+export async function synchronizeRemoteAgentSlackThreadWorkingStatus(input: {
   db: D1Database;
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
 }): Promise<void> {
   const target = await resolveRemoteAgentSlackThreadStatusTarget(input);
-  const initialWorking =
-    await isRemoteAgentSlackThreadWorkingStatusDesired(input);
-  await applyRemoteAgentSlackThreadWorkingStatus({
-    ...target,
-    working: initialWorking,
-  });
-  const currentWorking =
-    await isRemoteAgentSlackThreadWorkingStatusDesired(input);
-  if (currentWorking !== initialWorking) {
+  let working = await isRemoteAgentSlackThreadWorkingStatusDesired(input);
+  while (true) {
     await applyRemoteAgentSlackThreadWorkingStatus({
       ...target,
-      working: currentWorking,
+      working,
     });
+    const currentWorking =
+      await isRemoteAgentSlackThreadWorkingStatusDesired(input);
+    if (currentWorking === working) {
+      return;
+    }
+    working = currentWorking;
   }
 }
 
