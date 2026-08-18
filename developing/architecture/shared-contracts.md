@@ -1130,9 +1130,12 @@ server-authored staleness display marker.
 The current local producer performs bounded pre-publication observations: each
 read returns at most 20 relevant public signals after its cursor in the same
 main timeline or thread. A non-empty delta may continue the exact controller
-conversation to replace only its final Space action, then read again. The
-producer allows at most two such replacement turns and chooses `stay_silent`
-when the room still has not stabilized. The replacement keeps the new cursor; a
+conversation to replace only its final Space action, then read again. There is
+no fixed replacement-turn limit: every review advances from the latest cursor,
+and each delta remains bounded independently. The Agent may choose
+`stay_silent` only when its own current judgment finds that no distinct, useful
+contribution remains; the harness must not force that outcome because a room
+changed an arbitrary number of times. The replacement keeps the new cursor; a
 read failure keeps the prior cursor so Space remains the fail-closed authority.
 Consumers must not infer task ownership, Agent ordering, or delegation topology
 from the cursor.
