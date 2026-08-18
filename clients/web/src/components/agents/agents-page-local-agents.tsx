@@ -93,12 +93,100 @@ const SLOW_LOCAL_AGENT_CHECK_RECONCILE_INTERVAL_MS = 750;
 const SLOW_LOCAL_AGENT_CHECK_RECONCILE_TIMEOUT_MS = 12_000;
 const LOCAL_AGENT_CHECK_COMPLETE_MESSAGE = "Local agent check complete.";
 
-export function LocalAgentsCard(input: {
+export type LocalAgentsCardOwnerProps = {
 	computer: LocalRuntimeComputer;
 	isCurrentComputer: boolean;
 	recovery: AgentsPageController;
 	replyReadiness: ComputerReplyReadiness | null;
+	view?: "owner";
+};
+
+type TeamLocalAgent = {
+	agentId: string;
+	displayName: string;
+	enabled: boolean;
+	status: "not_ready" | "ready" | "stale" | "unknown";
+};
+
+type TeamLocalAgentsCardProps = {
+	computer: {
+		deviceDisplayName: string;
+		localAgents: readonly TeamLocalAgent[];
+	};
+	view: "team";
+};
+
+export function LocalAgentsCard(
+	input: LocalAgentsCardOwnerProps | TeamLocalAgentsCardProps
+) {
+	if (input.view === "team") {
+		return <TeamLocalAgentsCard computer={input.computer} />;
+	}
+	return <OwnedLocalAgentsCard {...input} />;
+}
+
+function TeamLocalAgentsCard(input: {
+	computer: TeamLocalAgentsCardProps["computer"];
 }) {
+	const rows = input.computer.localAgents.map(buildTeamLocalAgentRow);
+	return (
+		<LocalAgentsCardFrame description="See which local agents are available on this computer. Only the computer owner can change these settings.">
+			{rows.length > 0 ? (
+				<SettingsLocalAgentRows rows={rows} />
+			) : (
+				<p className="text-muted-foreground text-sm">
+					No local agents have been reported from this computer yet.
+				</p>
+			)}
+		</LocalAgentsCardFrame>
+	);
+}
+
+function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
+	const description = resolveTeamLocalAgentDescription(agent);
+	return {
+		control: (
+			<Switch
+				aria-label={`${agent.displayName} local agent`}
+				checked={agent.enabled}
+				disabled
+			/>
+		),
+		description,
+		detail: (
+			<SettingsDetailList
+				rows={[
+					{
+						label: "Controller",
+						value: agent.enabled ? "Enabled" : "Off",
+					},
+					{ label: "Status", value: description },
+				]}
+			/>
+		),
+		displayName: agent.displayName,
+		id: agent.agentId,
+		logoAgentId: agent.agentId,
+	};
+}
+
+function resolveTeamLocalAgentDescription(agent: TeamLocalAgent): string {
+	if (!agent.enabled) {
+		return "Off on this computer";
+	}
+	switch (agent.status) {
+		case "ready":
+			return "Available on this computer";
+		case "not_ready":
+			return "Needs attention from the computer owner";
+		case "stale":
+			return "Needs a fresh check from this computer";
+		default:
+			return "Status not confirmed";
+	}
+}
+
+function OwnedLocalAgentsCard(input: LocalAgentsCardOwnerProps) {
 	const orgSlug = useCurrentOrganizationSlug();
 	const [isCheckingAgents, setIsCheckingAgents] = useState(false);
 	const recoveryRef = useRef(input.recovery);
@@ -178,44 +266,59 @@ export function LocalAgentsCard(input: {
 	) : null;
 
 	return (
+		<LocalAgentsCardFrame
+			action={
+				setupAction || localAgentsAction ? (
+					<div className="flex items-center gap-2">
+						{setupAction}
+						{localAgentsAction}
+					</div>
+				) : null
+			}
+			description={cardDescription}
+		>
+			{catalogState.notice ? (
+				<LocalAgentsCatalogNotice notice={catalogState.notice} />
+			) : null}
+			<LocalAgentCatalogList
+				capabilities={{
+					manageInstallations: catalogState.canManageInstallations,
+					refreshCatalog: canRefreshCatalog,
+					setEnabled: catalogState.canSetEnabled,
+				}}
+				entries={catalogState.entries}
+				isCheckingAgents={isCheckingAgents}
+				muted={catalogState.rowsMuted}
+				onCheckAgents={checkLocalAgents}
+				onInstallationsChanged={input.recovery.refreshAll}
+				onSetEnabled={input.recovery.setLocalAgentEnabled}
+				showInstallGuideLink={shouldShowLocalAgentInstallGuideLink(
+					catalogState.entries
+				)}
+				target={catalogState.target}
+				targetStatus={catalogState.targetStatus}
+			/>
+		</LocalAgentsCardFrame>
+	);
+}
+
+function LocalAgentsCardFrame(input: {
+	action?: ReactNode;
+	children: ReactNode;
+	description: string;
+}) {
+	return (
 		<Card>
 			<CardHeader>
 				<CardTitle className="flex items-center gap-2">
 					<RobotIcon className="h-5 w-5" />
 					Local agents
 				</CardTitle>
-				<CardDescription>{cardDescription}</CardDescription>
-				{setupAction || localAgentsAction ? (
-					<CardAction>
-						<div className="flex items-center gap-2">
-							{setupAction}
-							{localAgentsAction}
-						</div>
-					</CardAction>
-				) : null}
+				<CardDescription>{input.description}</CardDescription>
+				{input.action ? <CardAction>{input.action}</CardAction> : null}
 			</CardHeader>
 			<CardContent className="flex flex-col gap-4">
-				{catalogState.notice ? (
-					<LocalAgentsCatalogNotice notice={catalogState.notice} />
-				) : null}
-				<LocalAgentCatalogList
-					capabilities={{
-						manageInstallations: catalogState.canManageInstallations,
-						refreshCatalog: canRefreshCatalog,
-						setEnabled: catalogState.canSetEnabled,
-					}}
-					entries={catalogState.entries}
-					isCheckingAgents={isCheckingAgents}
-					muted={catalogState.rowsMuted}
-					onCheckAgents={checkLocalAgents}
-					onInstallationsChanged={input.recovery.refreshAll}
-					onSetEnabled={input.recovery.setLocalAgentEnabled}
-					showInstallGuideLink={shouldShowLocalAgentInstallGuideLink(
-						catalogState.entries
-					)}
-					target={catalogState.target}
-					targetStatus={catalogState.targetStatus}
-				/>
+				{input.children}
 			</CardContent>
 		</Card>
 	);

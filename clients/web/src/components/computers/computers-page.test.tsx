@@ -615,7 +615,14 @@ describe("ComputersPage", () => {
 				"Desktop · macOS 25.5.0 · Owned by Ashley"
 			)
 		).toBeTruthy();
-		expect(within(ashleyComputer).getByText("2 Local agents")).toBeTruthy();
+		expect(within(ashleyComputer).getByText("Claude Code, Codex")).toBeTruthy();
+		expect(within(ashleyComputer).queryByText("2 Local agents")).toBeNull();
+		expect(
+			within(ashleyComputer).getByTestId("local-agent-logo-claude-code")
+		).toBeTruthy();
+		expect(
+			within(ashleyComputer).getByTestId("local-agent-logo-codex")
+		).toBeTruthy();
 		expect(
 			within(ashleyComputer).queryByRole("button", {
 				name: COMPUTER_OPTIONS_NAME_PATTERN,
@@ -646,17 +653,41 @@ describe("ComputersPage", () => {
 		expect(
 			screen.getByText("Desktop · macOS 25.5.0 · Owned by Ashley")
 		).toBeTruthy();
-		expect(screen.getByText("Agent Profiles")).toBeTruthy();
-		expect(screen.getByText("Researcher")).toBeTruthy();
-		expect(screen.getByText("Scout")).toBeTruthy();
-		expect(screen.getByText("Claude Code")).toBeTruthy();
-		expect(screen.getByText("Codex", { selector: "p" })).toBeTruthy();
-		expect(screen.getByText("OpenMeld Service is connected.")).toBeTruthy();
+		expect(screen.getAllByText("Ashley's Mac Studio")).toHaveLength(1);
+		expect(screen.getByText("OpenMeld Tools")).toBeTruthy();
+		expect(screen.getByText("OpenMeld Tools are ready")).toBeTruthy();
+		expect(screen.getByText("Local agents")).toBeTruthy();
+		const claudeCodeSwitch = screen.getByRole("switch", {
+			name: "Claude Code local agent",
+		});
+		const codexSwitch = screen.getByRole("switch", {
+			name: "Codex local agent",
+		});
+		expect(claudeCodeSwitch.getAttribute("aria-checked")).toBe("true");
+		expect(claudeCodeSwitch.hasAttribute("data-disabled")).toBe(true);
+		expect(codexSwitch.getAttribute("aria-checked")).toBe("true");
+		expect(codexSwitch.hasAttribute("data-disabled")).toBe(true);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Claude Code details" })
+		);
+		expect(screen.getByText("Controller")).toBeTruthy();
+		expect(screen.getByText("Enabled")).toBeTruthy();
+		expect(screen.getByText("Status")).toBeTruthy();
 		expect(
-			screen.getByText(
+			screen.getAllByText("Available on this computer").length
+		).toBeGreaterThan(0);
+		expect(screen.queryByText("Account")).toBeNull();
+		expect(screen.queryByText("Version")).toBeNull();
+		expect(screen.queryByText("Installation")).toBeNull();
+		expect(screen.queryByText("Agent Profiles")).toBeNull();
+		expect(screen.queryByText("Researcher")).toBeNull();
+		expect(screen.queryByText("Scout")).toBeNull();
+		expect(
+			screen.queryByText(
 				"Ashley owns this computer. Ask them to update its connection or settings."
 			)
-		).toBeTruthy();
+		).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: COMPUTER_OPTIONS_NAME_PATTERN })
 		).toBeNull();
