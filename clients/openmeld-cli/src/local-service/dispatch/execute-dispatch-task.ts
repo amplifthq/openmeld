@@ -1451,6 +1451,10 @@ export async function handleDispatchDeliverFrame(input: {
         agentControllerConversationOverride,
       })
     );
+    const controllerTurnCompletion = runtimeExecutionPromise.then(
+      () => undefined,
+      () => undefined
+    );
     let runtimeResult = await resolveRuntimeResultFromRuntimeOrCliSpaceAction({
       contextIdForDispatch,
       dispatchSpaceActionContext,
@@ -1484,6 +1488,8 @@ export async function handleDispatchDeliverFrame(input: {
     const structuredSpaceActionOutcome =
       await resolveRuntimeResultStructuredSpaceAction({
         computerFileAccessBoundary,
+        controllerTurnCompletion,
+        inflightTaskControlRegistry: input.inflightTaskControlRegistry,
         ledgerIo,
         ledgerPaths: input.ledgerPaths,
         instructionPrompt: runtimePromptPlan,
@@ -1659,6 +1665,8 @@ export async function handleDispatchDeliverFrame(input: {
         const reconsidered = await resolveRuntimeResultStructuredSpaceAction({
           agentReplyObservationCursor,
           computerFileAccessBoundary,
+          controllerTurnCompletion,
+          inflightTaskControlRegistry: input.inflightTaskControlRegistry,
           ledgerIo: completedLedgerIo,
           ledgerPaths: input.ledgerPaths,
           instructionPrompt: completedRuntimePromptPlan,
@@ -3119,7 +3127,9 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
   allowConcurrentReplyReconsideration?: boolean;
   cliEntry?: string | null;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
+  controllerTurnCompletion: Promise<void>;
   dispatchSpaceActionContext: DispatchSpaceActionContext | null;
+  inflightTaskControlRegistry: InflightTaskControlRegistry;
   ledgerIo: ReturnType<typeof createLedgerIo>;
   ledgerPaths: LedgerPaths;
   instructionPrompt?: AdapterInstructionPrompt;
@@ -3349,7 +3359,9 @@ async function coordinateConcurrentAgentReply(input: {
   agentReplyObservationCursor?: string | null;
   cliEntry?: string | null;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
+  controllerTurnCompletion: Promise<void>;
   dispatchSpaceActionContext: DispatchSpaceActionContext | null;
+  inflightTaskControlRegistry: InflightTaskControlRegistry;
   ledgerIo: ReturnType<typeof createLedgerIo>;
   ledgerPaths: LedgerPaths;
   instructionPrompt?: AdapterInstructionPrompt;
@@ -3448,6 +3460,21 @@ async function coordinateConcurrentAgentReply(input: {
           code: "dispatch.agent_reply_reconsideration.conversation_unavailable",
           message:
             "The Space changed, but the exact Agent conversation is unavailable for reply reconsideration.",
+        });
+      }
+      await input.controllerTurnCompletion;
+      const activeTask = input.inflightTaskControlRegistry.getTask(
+        input.parsedTask.taskId
+      );
+      if (
+        activeTask?.dispatchId !== input.parsedTask.dispatchId ||
+        activeTask.runtimeCoordinatorExecutionId !==
+          input.parsedTask.runtimeCoordinatorExecutionId
+      ) {
+        throw new DaemonServiceRunError({
+          code: "dispatch.agent_reply_reconsideration.execution_inactive",
+          message:
+            "The Wake stopped before the Agent could reconsider its reply.",
         });
       }
       if (input.dispatchSpaceActionContext) {
