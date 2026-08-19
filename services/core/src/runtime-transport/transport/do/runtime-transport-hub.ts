@@ -452,6 +452,7 @@ import {
   resolveRouteCatalogReconciliationThrottleMs,
 } from "../../application/runtime-transport-reconciliation-throttle";
 import {
+  compareRuntimeTransportSessionsByFreshness,
   detachSocket,
   handleHeartbeat,
   handleRegisterSession,
@@ -15928,7 +15929,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           session.deviceId === input.deviceId &&
           session.lane === input.lane
       )
-      .sort((left, right) => right.lastHeartbeatMs - left.lastHeartbeatMs);
+      .sort(compareRuntimeTransportSessionsByFreshness);
     const latestSession = matchingSessions[0] ?? null;
     if (!latestSession?.socket) {
       return {
@@ -16094,7 +16095,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           session.deviceId === input.deviceId &&
           session.lane === input.lane
       )
-      .sort((left, right) => right.lastHeartbeatMs - left.lastHeartbeatMs);
+      .sort(compareRuntimeTransportSessionsByFreshness);
     const latestSession = matchingSessions[0] ?? null;
     if (!latestSession?.socket) {
       return {
@@ -16275,7 +16276,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           session.deviceId === input.deviceId &&
           session.lane === input.lane
       )
-      .sort((left, right) => right.lastHeartbeatMs - left.lastHeartbeatMs);
+      .sort(compareRuntimeTransportSessionsByFreshness);
     const latestSession = matchingSessions[0] ?? null;
     if (!latestSession?.socket) {
       return {
@@ -16590,7 +16591,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           session.deviceId === input.deviceId &&
           session.lane === input.lane
       )
-      .sort((left, right) => right.lastHeartbeatMs - left.lastHeartbeatMs);
+      .sort(compareRuntimeTransportSessionsByFreshness);
     const latestSession = matchingSessions[0] ?? null;
     if (!latestSession?.socket) {
       return {
