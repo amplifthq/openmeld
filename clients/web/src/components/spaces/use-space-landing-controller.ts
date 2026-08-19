@@ -119,6 +119,7 @@ import {
 	postWebSpaceWakeStop,
 } from "#/query/spaces/wake-stop";
 import { persistSpaceNameUpdate } from "./space-name-update";
+import { usePublishSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import type {
 	SpaceExecutionRecoveryAttempt,
 	SpaceExecutionRecoveryResolution,
@@ -1564,6 +1565,7 @@ export function useSpaceLandingController(input: {
 			wakeProgressItems,
 		]
 	);
+	usePublishSpaceWakeProgressVisibleProjection(presentedWakeProgressItems);
 
 	useWakeProgressPolling({
 		enabled: statusReady,

@@ -196,6 +196,8 @@ export {
   clearWakeProgressItemsForSignal,
   createWakeProgressItem,
   filterVisibleWakeProgressItems,
+  hasVisibleActiveWakeProgress,
+  isActiveWakeProgressItem,
   isWakeClosingSystemNoticeType,
   isWakeProgressSourceSignalRecoverable,
   mergeWakeProgressItems,

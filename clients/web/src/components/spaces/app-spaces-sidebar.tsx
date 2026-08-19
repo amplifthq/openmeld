@@ -1,5 +1,9 @@
 "use client";
 
+import {
+	hasVisibleActiveWakeProgress,
+	mergeWakeProgressItems,
+} from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
@@ -52,11 +56,16 @@ import {
 	useUsableAccountSpaceActiveWakeSummaryItems,
 } from "#/query/spaces/account-spaces";
 import {
+	spaceActiveWakeProgressSummaryQueryOptions,
+	spaceWakeProgressPresentationQueryOptions,
+} from "#/query/spaces/active-wake-progress";
+import {
 	type SpaceUnreadById,
 	selectAccountSpaceSidebarSections,
 	sortAccountSpaceItems,
 } from "./account-space-sidebar-sections";
 import { SpaceAgentOrb } from "./space-agent-orb";
+import { useSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import {
 	type SpaceConversationIntentPrefetch,
 	useSpaceConversationIntentPrefetch,
@@ -170,9 +179,42 @@ export function AppSpacesSidebar(input: {
 			data: activeWakeSummaryQuery.data,
 			isError: activeWakeSummaryQuery.isError,
 		});
-	const activeWakeSpaceIds: ReadonlySet<string> = new Set(
-		usableActiveWakeSummaryItems.map((item) => item.spaceId)
+	const currentSpaceWakeProgressPresentationQuery = useQuery(
+		spaceWakeProgressPresentationQueryOptions({
+			openMeldProfileId: input.currentProfileId,
+			spaceId: input.currentSpaceId,
+		})
 	);
+	const currentSpaceActiveWakeProgressSummaryQuery = useQuery(
+		spaceActiveWakeProgressSummaryQueryOptions({
+			enabled: false,
+			openMeldProfileId: input.currentProfileId,
+			spaceId: input.currentSpaceId,
+		})
+	);
+	const currentSpaceWakeProgressVisibleProjection =
+		useSpaceWakeProgressVisibleProjection();
+	const activeWakeSpaceIds = new Set<string>();
+	for (const item of usableActiveWakeSummaryItems) {
+		if (item.spaceId !== input.currentSpaceId) {
+			activeWakeSpaceIds.add(item.spaceId);
+		}
+	}
+	const currentSpaceWakeProgressItems =
+		currentSpaceWakeProgressVisibleProjection ??
+		mergeWakeProgressItems({
+			currentItems:
+				currentSpaceActiveWakeProgressSummaryQuery.data?.items ?? [],
+			incomingItems: currentSpaceWakeProgressPresentationQuery.data ?? [],
+		});
+	if (
+		input.currentSpaceId.trim().length > 0 &&
+		hasVisibleActiveWakeProgress({
+			items: currentSpaceWakeProgressItems,
+		})
+	) {
+		activeWakeSpaceIds.add(input.currentSpaceId);
+	}
 	const pinMutation = useMutation({
 		mutationFn: async (variables: SpacePinMutationInput) =>
 			await setAccountSpaceItemPinned({

@@ -14,6 +14,7 @@ import type {
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
 import {
+	isActiveWakeProgressItem,
 	isAgentDirectConversationSpace,
 	isDirectMessageSpace,
 	resolveSpaceMemberAgentOwnerWakeDiagnosticsView,
@@ -152,17 +153,6 @@ const EMPTY_ACCOUNT_PROFILES: readonly AuthProfileView[] = [];
 const EMPTY_SPACE_DESCRIPTION =
 	"You and your teammates can give agents work. Agents can ask other agents for help. Everyone can see the results here.";
 const EMPTY_SPACE_TITLE = "A Space is where people and agents work together.";
-const ACTIVE_WAKE_DISPLAY_PHASES = new Set<WakeProgressItem["phase"]>([
-	"sending",
-	"request_sent",
-	"queued",
-	"connecting",
-	"running",
-	"writing",
-	"publishing",
-	"retrying",
-]);
-
 type WakeFinalOutcomeFactsRefreshInput = {
 	agentProfileIds: readonly string[];
 	signalIds: readonly string[];
@@ -2739,7 +2729,7 @@ function resolveActiveWakeDisplayTargetProfileIds(
 	const targetProfileIds = new Set<string>();
 	for (const itemGroup of itemGroups) {
 		for (const item of itemGroup) {
-			if (!item.terminal && ACTIVE_WAKE_DISPLAY_PHASES.has(item.phase)) {
+			if (isActiveWakeProgressItem(item)) {
 				targetProfileIds.add(item.targetProfileId);
 			}
 		}

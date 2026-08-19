@@ -22,6 +22,16 @@ const WAKE_PROGRESS_TERMINAL_EXPIRY_MS = 180_000;
 const WAKE_PROGRESS_WAITING_ACTIVE_EXPIRY_MS = 480_000;
 const WAKE_PROGRESS_WORKING_ACTIVE_EXPIRY_MS = 1_800_000;
 const WAKE_PROGRESS_NO_RESPONSE_MESSAGE = "The agent didn't respond in time.";
+const ACTIVE_WAKE_PROGRESS_PHASES = new Set<WakeProgressPhase>([
+  "sending",
+  "request_sent",
+  "queued",
+  "connecting",
+  "running",
+  "writing",
+  "publishing",
+  "retrying",
+]);
 
 const WAKE_PROGRESS_PHASE_RANK: Record<WakeProgressPhase, number> = {
   sending: 0,
@@ -272,6 +282,17 @@ export function filterVisibleWakeProgressItems(input: {
   return input.items
     .map((item) => projectWakeProgressItemForPresentation({ item, nowMs }))
     .filter((item) => shouldKeepWakeProgressItem({ item, nowMs }));
+}
+
+export function isActiveWakeProgressItem(item: WakeProgressItem): boolean {
+  return !item.terminal && ACTIVE_WAKE_PROGRESS_PHASES.has(item.phase);
+}
+
+export function hasVisibleActiveWakeProgress(input: {
+  items: readonly WakeProgressItem[];
+  nowMs?: number;
+}): boolean {
+  return filterVisibleWakeProgressItems(input).some(isActiveWakeProgressItem);
 }
 
 export function isWakeProgressSourceSignalRecoverable(input: {

@@ -4,7 +4,10 @@ import type {
 	WakeProgressItem,
 	WakeStopEligibilityReadModel,
 } from "@openmeld/schemas/types";
-import { isWakeClosingSystemNoticeType } from "@openmeld/space";
+import {
+	isActiveWakeProgressItem,
+	isWakeClosingSystemNoticeType,
+} from "@openmeld/space";
 import type { SpaceTimelineItem } from "./timeline";
 
 export type SpaceWakeStopSelector = PostSpaceWakeStopBody["target"];
@@ -73,16 +76,6 @@ export type SpaceWakeOutcomeIndex = {
 	}) => boolean;
 };
 
-const ACTIVE_WAKE_STOP_PHASES = new Set<WakeProgressItem["phase"]>([
-	"sending",
-	"request_sent",
-	"queued",
-	"connecting",
-	"running",
-	"writing",
-	"publishing",
-	"retrying",
-]);
 const WAKE_STOP_INTENT_SOURCE_RECENCY_MS = 5 * 60 * 1000;
 const WHITESPACE_CHARACTER_PATTERN = /\s/u;
 const WHITESPACE_SEQUENCE_PATTERN = /\s+/gu;
@@ -198,7 +191,7 @@ export function resolveSpaceMessageWakeStopTargets(
 	);
 	const activeTargets = resolveWakeStopTargetsForProgressItems({
 		items: matchingItems,
-		predicate: isActiveWakeStopProgressItem,
+		predicate: isActiveWakeProgressItem,
 		sourceItem: input.item,
 		stopRequestStatusBySelectorKey: input.stopRequestStatusBySelectorKey,
 		targetProfileIds: activeTargetProfileIds,
@@ -803,14 +796,10 @@ function resolveWakeStopUiStatus(input: {
 	if (input.item.phase === "stopped") {
 		return "stopped";
 	}
-	if (isActiveWakeStopProgressItem(input.item)) {
+	if (isActiveWakeProgressItem(input.item)) {
 		return "active";
 	}
 	return "not_stoppable";
-}
-
-function isActiveWakeStopProgressItem(item: WakeProgressItem): boolean {
-	return !item.terminal && ACTIVE_WAKE_STOP_PHASES.has(item.phase);
 }
 
 function isWakeStopEligible(
