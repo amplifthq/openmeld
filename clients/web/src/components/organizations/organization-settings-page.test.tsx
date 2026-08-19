@@ -174,8 +174,8 @@ vi.mock("#/components/app/app-shell-account", () => ({
 	}),
 }));
 
-vi.mock("#/components/app/use-settings-attention-tone", () => ({
-	useSettingsAttentionTone: () => null,
+vi.mock("#/components/app/use-computer-attention-tone", () => ({
+	useComputerAttentionTone: () => null,
 }));
 
 vi.mock("#/query/persistence/app-query-persistence", () => ({

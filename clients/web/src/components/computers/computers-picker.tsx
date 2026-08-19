@@ -20,15 +20,14 @@ import {
 	DirectoryCardItem,
 	DirectoryOwnerGroup,
 } from "#/components/directory/directory-card-grid";
+import {
+	resolveCurrentLocalRuntimeComputerSummaryStatus,
+	resolveCurrentLocalRuntimeComputerSummaryStatusDeviceId,
+	resolveCurrentLocalRuntimeSubjectDeviceId,
+} from "#/lib/computer-summary-status";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveConnectedLocalRuntime } from "#/lib/connect/connected-runtime";
 import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
-import {
-	resolveCurrentLocalRuntimeServiceConnectionStatus,
-	resolveCurrentLocalRuntimeSettingsAttention,
-	resolveCurrentLocalRuntimeSettingsAttentionDeviceId,
-	resolveCurrentLocalRuntimeSubjectDeviceId,
-} from "#/lib/settings-attention";
 import { OrganizationComputerPickerCard } from "./organization-computer-card";
 import {
 	formatComputerCount,
@@ -61,21 +60,24 @@ export function ComputersPicker(input: {
 		);
 	}
 
-	const currentReadiness = input.isReconcilingCurrentToolsStatus
-		? null
-		: (input.recovery.currentLocalRuntimeReplyReadinessQuery.data ?? null);
+	const currentReadiness =
+		input.recovery.currentLocalRuntimeReplyReadinessQuery.data ?? null;
 	const currentRuntimeSubjectDeviceId =
 		resolveCurrentLocalRuntimeSubjectDeviceId(currentReadiness) ??
 		resolveConnectedLocalRuntime(input.recovery)?.deviceId ??
 		input.recovery.localRuntimesQuery.data?.currentDeviceId ??
 		null;
-	const settingsAttention =
-		resolveCurrentLocalRuntimeSettingsAttention(currentReadiness);
-	const settingsAttentionDeviceId =
-		resolveCurrentLocalRuntimeSettingsAttentionDeviceId(currentReadiness) ??
-		(settingsAttention ? currentRuntimeSubjectDeviceId : null);
-	const serviceConnectionStatus =
-		resolveCurrentLocalRuntimeServiceConnectionStatus(currentReadiness);
+	const currentComputerStatus = resolveCurrentLocalRuntimeComputerSummaryStatus(
+		{
+			isReconcilingStatus: input.isReconcilingCurrentToolsStatus,
+			readiness: currentReadiness,
+		}
+	);
+	const currentComputerStatusDeviceId =
+		resolveCurrentLocalRuntimeComputerSummaryStatusDeviceId({
+			isReconcilingStatus: input.isReconcilingCurrentToolsStatus,
+			readiness: currentReadiness,
+		}) ?? (currentComputerStatus ? currentRuntimeSubjectDeviceId : null);
 	const currentUserGroup = input.computerGroups.find(
 		(group) => group.isCurrentUser
 	);
@@ -105,18 +107,13 @@ export function ComputersPicker(input: {
 				return (
 					<DirectoryCardItem itemId={computer.routeId} key={computer.routeId}>
 						<ComputerPickerCard
-							attention={
-								device.deviceId === settingsAttentionDeviceId
-									? settingsAttention
-									: null
-							}
 							device={device}
 							devices={ownedComputers}
 							orgSlug={input.orgSlug}
 							recovery={input.recovery}
-							serviceConnectionStatus={
-								device.deviceId === currentRuntimeSubjectDeviceId
-									? serviceConnectionStatus
+							status={
+								device.deviceId === currentComputerStatusDeviceId
+									? currentComputerStatus
 									: null
 							}
 						/>
@@ -188,14 +185,11 @@ function AddComputerPickerCard(input: { orgSlug: string }) {
 }
 
 function ComputerPickerCard(input: {
-	attention: Parameters<typeof ComputerSummaryCardContent>[0]["attention"];
 	device: Parameters<typeof ComputerSummaryCardContent>[0]["device"];
 	devices: Parameters<typeof resolveComputerRecordState>[0]["devices"];
 	orgSlug: string;
 	recovery: LocalAgentRecoveryController;
-	serviceConnectionStatus: Parameters<
-		typeof ComputerSummaryCardContent
-	>[0]["serviceConnectionStatus"];
+	status: Parameters<typeof ComputerSummaryCardContent>[0]["status"];
 }) {
 	const recordState = resolveComputerRecordState({
 		device: input.device,
@@ -220,10 +214,9 @@ function ComputerPickerCard(input: {
 				})}
 			>
 				<ComputerSummaryCardContent
-					attention={input.attention}
 					device={input.device}
 					recordState={recordState}
-					serviceConnectionStatus={input.serviceConnectionStatus}
+					status={input.status}
 				/>
 			</Link>
 			<div className="absolute top-3 right-3 z-20 flex items-center gap-2">

@@ -28,7 +28,7 @@ import { AppMainContent } from "#/components/app/app-main-content";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import { useSettingsAttentionTone } from "#/components/app/use-settings-attention-tone";
+import { useComputerAttentionTone } from "#/components/app/use-computer-attention-tone";
 import { WelcomeLayout } from "#/components/welcome/welcome-layout";
 import { createOrganization } from "#/lib/organizations/auth-organizations";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -49,6 +49,11 @@ import { organizationScopeQueryKeys } from "#/query/organizations/organization-s
 
 type OrganizationSetupStep = "creating_organization" | "opening_organization";
 
+type AsyncActionState<TInput> =
+	| { error: null; status: "idle"; variables: null }
+	| { error: null; status: "pending" | "success"; variables: TInput }
+	| { error: Error; status: "error"; variables: TInput };
+
 export function OrganizationEntryPage(
 	input: { intent?: OrganizationEntryIntent } = {}
 ) {
@@ -67,7 +72,7 @@ function OrganizationEntryPageContent(input: {
 }) {
 	const account = useAppShellAccount();
 	const { currentOrganization, organizations } = useAppOrganization();
-	const computerAttentionTone = useSettingsAttentionTone();
+	const computerAttentionTone = useComputerAttentionTone();
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const [organizationName, setOrganizationName] = useState("");
@@ -80,32 +85,27 @@ function OrganizationEntryPageContent(input: {
 	const isSlackInstallIntent = input.intent === SLACK_INSTALL_INTENT;
 	const intentSearch = input.intent ? { intent: input.intent } : {};
 	const createOrganizationMutation = useMutation({
-		mutationFn: async (input: { name: string }) => {
-			setSetupStep("creating_organization");
-			return await createOrganization(input);
-		},
+		mutationFn: (organizationInput: { name: string }) =>
+			createOrganization(organizationInput),
 		onSuccess: async () => {
 			await queryClient.invalidateQueries({
 				queryKey: organizationScopeQueryKeys.all,
 			});
 		},
 	});
-	const openCreatedOrganizationMutation = useMutation({
-		mutationFn: async (organization: OrganizationSummary) => {
-			setSetupStep("opening_organization");
+	const openCreatedOrganizationAction = useAsyncAction(
+		async (organization: OrganizationSummary) => {
 			await prepareOrganizationDestination({
 				organizationId: organization.id,
 				queryClient,
 			});
 			await openOrganization(organization);
-		},
-	});
-	const openOrganizationMutation = useMutation({
-		mutationFn: openOrganization,
-	});
+		}
+	);
+	const openOrganizationAction = useAsyncAction(openOrganization);
 	const organizationSetupIsPending =
 		createOrganizationMutation.isPending ||
-		openCreatedOrganizationMutation.isPending;
+		openCreatedOrganizationAction.isPending;
 	async function openOrganization(organization: OrganizationSummary) {
 		await navigate({
 			to: isSlackInstallIntent
@@ -139,16 +139,18 @@ function OrganizationEntryPageContent(input: {
 		if (!createdOrganization) {
 			createOrganizationMutation.reset();
 		}
-		openCreatedOrganizationMutation.reset();
+		openCreatedOrganizationAction.reset();
 		let organization = createdOrganization;
 		try {
 			if (!organization) {
+				setSetupStep("creating_organization");
 				organization = await createOrganizationMutation.mutateAsync({
 					name: normalizedName,
 				});
 				setCreatedOrganization(organization);
 			}
-			await openCreatedOrganizationMutation.mutateAsync(organization);
+			setSetupStep("opening_organization");
+			await openCreatedOrganizationAction.run(organization);
 		} catch (error) {
 			// The mutation owns visible error state.
 			console.error("Organization setup did not finish.", {
@@ -172,7 +174,7 @@ function OrganizationEntryPageContent(input: {
 	if (createOrganizationMutation.isError) {
 		setupErrorTitle = "OpenMeld could not create this organization.";
 		setupErrorMessage = createOrganizationMutation.error.message;
-	} else if (openCreatedOrganizationMutation.isError) {
+	} else if (openCreatedOrganizationAction.isError) {
 		setupErrorTitle =
 			"OpenMeld created this organization but could not open it.";
 		setupErrorMessage =
@@ -200,19 +202,13 @@ function OrganizationEntryPageContent(input: {
 						createOrganizationPath={buildOrganizationNewOrganizationPath(
 							currentOrganization.slug
 						)}
-						errorMessage={
-							openOrganizationMutation.isError
-								? openOrganizationMutation.error.message
-								: null
-						}
+						errorMessage={openOrganizationAction.error?.message ?? null}
 						intent={input.intent}
-						isOpeningOrganization={openOrganizationMutation.isPending}
+						isOpeningOrganization={openOrganizationAction.isPending}
 						onOpenOrganization={(organization) => {
-							openOrganizationMutation.mutate(organization);
+							openOrganizationAction.run(organization).catch(() => undefined);
 						}}
-						openingOrganizationId={
-							openOrganizationMutation.variables?.id ?? null
-						}
+						openingOrganizationId={openOrganizationAction.variables?.id ?? null}
 						organizations={selectableOrganizations}
 					/>
 				) : (
@@ -460,4 +456,46 @@ function getOrganizationSetupStepLabel(input: {
 		default:
 			return "Creating organization";
 	}
+}
+
+function useAsyncAction<TInput, TResult>(
+	action: (input: TInput) => Promise<TResult>
+) {
+	const [state, setState] = useState<AsyncActionState<TInput>>({
+		error: null,
+		status: "idle",
+		variables: null,
+	});
+
+	const run = async (variables: TInput): Promise<TResult> => {
+		setState({ error: null, status: "pending", variables });
+		try {
+			const result = await action(variables);
+			setState({ error: null, status: "success", variables });
+			return result;
+		} catch (error) {
+			setState({
+				error:
+					error instanceof Error
+						? error
+						: new Error("OpenMeld could not complete this action.", {
+								cause: error,
+							}),
+				status: "error",
+				variables,
+			});
+			throw error;
+		}
+	};
+
+	return {
+		error: state.error,
+		isError: state.status === "error",
+		isPending: state.status === "pending",
+		reset: () => {
+			setState({ error: null, status: "idle", variables: null });
+		},
+		run,
+		variables: state.variables,
+	};
 }

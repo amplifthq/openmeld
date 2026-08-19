@@ -78,6 +78,7 @@ import {
 import { useCenterAgentConversationIntentPrefetch } from "#/components/organizations/use-center-agent-conversation-intent-prefetch";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { useAccountAvatar } from "#/hooks/account.hooks";
+import type { ComputerAttentionTone } from "#/lib/computer-summary-status";
 import { selectLastSelectedOrganization } from "#/lib/organizations/account-organization-preference";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -98,7 +99,6 @@ import {
 } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
-import type { SettingsAttentionTone } from "#/lib/settings-attention";
 import {
 	OUTER_SIDEBAR_DEFAULT_STATE,
 	resolveClientSidebarInitialState,
@@ -140,7 +140,7 @@ type HumanProfileAvatarIdentity = {
 type AppOuterRailProps = {
 	account: AppOuterRailAccount;
 	initialState?: SidebarPersistedState;
-	computerAttentionTone?: SettingsAttentionTone | null;
+	computerAttentionTone?: ComputerAttentionTone | null;
 };
 
 function resolveNextRailTier(tier: SidebarTier): SidebarTier {
@@ -441,7 +441,7 @@ function AppRailNavigationGroup(input: {
 	activeDestination: AppOuterRailDestination | null;
 	group: AppRailGroup;
 	position: number;
-	computerAttentionTone: SettingsAttentionTone | null;
+	computerAttentionTone: ComputerAttentionTone | null;
 	tier: SidebarTier;
 }) {
 	const navigation = (
@@ -971,7 +971,7 @@ function AppRailLink(input: {
 	active: boolean;
 	destination: AppRailDestination;
 	index: number;
-	computerAttentionTone: SettingsAttentionTone | null;
+	computerAttentionTone: ComputerAttentionTone | null;
 	tier: SidebarTier;
 }) {
 	const isIcon = input.tier === "collapsed";
@@ -1155,7 +1155,7 @@ type AppRailStatusIndicatorKind = "center-agent-unread" | "computer-attention";
 
 type AppRailStatusIndicator = {
 	kind: AppRailStatusIndicatorKind;
-	tone: SettingsAttentionTone;
+	tone: ComputerAttentionTone;
 };
 
 function AppRailStatusDot(input: {
@@ -1179,7 +1179,7 @@ function AppRailStatusDot(input: {
 function buildAppRailAccessibleLabel(input: {
 	attentionCount: number;
 	centerAgentUnreadCount: number;
-	computerAttentionTone: SettingsAttentionTone | null;
+	computerAttentionTone: ComputerAttentionTone | null;
 	label: string;
 }): string {
 	if (input.centerAgentUnreadCount > 0) {

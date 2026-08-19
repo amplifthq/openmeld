@@ -20,13 +20,10 @@ import { SettingsComputerSummaryCardContent } from "@openmeld/ui/components/sett
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { cn } from "@openmeld/ui/lib/utils";
 import { DotsThreeIcon, PencilSimpleIcon } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ForgetThisComputerAction } from "#/components/agents/forget-this-computer-action";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
-import type {
-	CurrentLocalRuntimeServiceConnectionStatus,
-	SettingsAttention,
-} from "#/lib/settings-attention";
+import type { ComputerSummaryStatus } from "#/lib/computer-summary-status";
 import {
 	type ComputerRecordState,
 	formatComputerDialogDevice,
@@ -95,6 +92,7 @@ export function ComputerTabs(input: {
 								<ComputerSummaryCardContent
 									device={device}
 									recordState={recordState}
+									status={null}
 								/>
 							</TabsSubtleItem>
 							<div className="absolute top-3 right-3 z-20 flex items-center gap-2">
@@ -113,24 +111,15 @@ export function ComputerTabs(input: {
 }
 
 export function ComputerSummaryCardContent(input: {
-	attention?: SettingsAttention | null;
-	serviceConnectionStatus?: CurrentLocalRuntimeServiceConnectionStatus | null;
-	openMeldToolsUpdateAvailable?: boolean;
 	device: LocalRuntimeComputer;
 	recordState: ComputerRecordState;
+	status: ComputerSummaryStatus | null;
 }) {
 	const executionTarget = resolveCurrentExecutionTarget(input.device);
 	const localAgentIcons = resolveComputerTabLocalAgentIcons(executionTarget);
-	const advisoryLabel =
-		input.attention?.label ??
-		(input.openMeldToolsUpdateAvailable ? "Update available" : null);
 
 	return (
 		<SettingsComputerSummaryCardContent
-			active={input.device.isCurrent}
-			activeIndicatorTestId={`active-computer-dot-${input.device.deviceId}`}
-			advisoryLabel={advisoryLabel}
-			advisoryTone={input.attention?.tone ?? "warning"}
 			lastSeenLabel={formatComputerTabLastSeen({
 				recordState: input.recordState,
 				value: input.device.lastObservedAtMs,
@@ -144,7 +133,8 @@ export function ComputerSummaryCardContent(input: {
 					? "Older record"
 					: null
 			}
-			serviceConnectionStatus={input.serviceConnectionStatus}
+			status={input.status}
+			statusIndicatorTestId={`computer-status-dot-${input.device.deviceId}`}
 		/>
 	);
 }
@@ -161,12 +151,16 @@ function resolveComputerTabLocalAgentIcons(
 		return [];
 	}
 
-	return executionTarget.localAgentCatalog.entries
-		.filter(isComputerTabLocalAgentIconEntry)
-		.map((entry) => ({
-			agentId: entry.agentId,
-			displayName: entry.displayName,
-		}));
+	const icons: ComputerTabLocalAgentIcon[] = [];
+	for (const entry of executionTarget.localAgentCatalog.entries) {
+		if (isComputerTabLocalAgentIconEntry(entry)) {
+			icons.push({
+				agentId: entry.agentId,
+				displayName: entry.displayName,
+			});
+		}
+	}
+	return icons;
 }
 
 function isComputerTabLocalAgentIconEntry(
@@ -189,12 +183,6 @@ export function ComputerActionsDialog(input: {
 	const [draftName, setDraftName] = useState(input.computer.deviceDisplayName);
 	const [message, setMessage] = useState<string | null>(null);
 	const [isSavingName, setIsSavingName] = useState(false);
-
-	useEffect(() => {
-		setDraftName(input.computer.deviceDisplayName);
-		setMessage(null);
-		setIsRenaming(false);
-	}, [input.computer.deviceDisplayName]);
 
 	const saveName = async (displayName: string | null) => {
 		const trimmedName = displayName?.trim() ?? null;
@@ -225,7 +213,16 @@ export function ComputerActionsDialog(input: {
 	};
 
 	return (
-		<Dialog>
+		<Dialog
+			onOpenChange={(open) => {
+				if (!open) {
+					return;
+				}
+				setDraftName(input.computer.deviceDisplayName);
+				setMessage(null);
+				setIsRenaming(false);
+			}}
+		>
 			<DialogTrigger
 				render={
 					<Button

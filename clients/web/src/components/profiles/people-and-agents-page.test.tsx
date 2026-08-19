@@ -84,8 +84,8 @@ vi.mock("#/components/app/app-global-controls", () => ({
 	AppGlobalControls: () => <div data-testid="global-controls" />,
 }));
 
-vi.mock("#/components/app/use-settings-attention-tone", () => ({
-	useSettingsAttentionTone: computerAttentionToneMock,
+vi.mock("#/components/app/use-computer-attention-tone", () => ({
+	useComputerAttentionTone: computerAttentionToneMock,
 }));
 
 vi.mock("#/components/app/app-inner-sidebar", () => ({

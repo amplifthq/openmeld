@@ -60,7 +60,7 @@ import {
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { motion, useReducedMotion } from "framer-motion";
+import { domAnimation, LazyMotion, m, useReducedMotion } from "motion/react";
 import {
 	type KeyboardEvent,
 	type MouseEvent,
@@ -83,7 +83,7 @@ import {
 	formatMutationError,
 	isLocalAgentCheckStillRunningError,
 } from "./agents-page-formatters";
-import { resolveCurrentLocalRuntimeServiceActionLabel } from "./agents-page-openmeld-service";
+import { resolveCurrentLocalRuntimeServiceActionLabel } from "./agents-page-service-action";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 type DeviceAgentCatalogEntry =
@@ -447,7 +447,7 @@ type LocalAgentsCatalogState = {
 	targetStatus: LocalRuntimeExecutionTarget["status"] | null;
 };
 
-export function resolveLocalAgentsCatalogState(input: {
+function resolveLocalAgentsCatalogState(input: {
 	computer: LocalRuntimeComputer;
 	isCurrentComputer: boolean;
 	recovery: AgentsPageController;
@@ -1483,34 +1483,36 @@ function AgentControllerAccountEmail(input: {
 	};
 
 	return (
-		<motion.span
-			animate={{
-				filter: input.revealed ? "blur(0px)" : "blur(3px)",
-				opacity: input.revealed ? 1 : 0.62,
-			}}
-			aria-label={interactive ? "Reveal signed-in account email" : undefined}
-			className={cn(
-				"rounded-md align-baseline",
-				interactive
-					? "cursor-pointer select-none text-foreground/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-					: "text-current"
-			)}
-			data-revealed={input.revealed ? "true" : "false"}
-			data-testid={`agent-controller-account-email-${input.agentId}-${input.location}`}
-			initial={false}
-			onClick={interactive ? handleClick : undefined}
-			onKeyDown={interactive ? handleKeyDown : undefined}
-			role={interactive ? "button" : undefined}
-			tabIndex={interactive ? 0 : undefined}
-			title={interactive ? "Reveal signed-in account email" : undefined}
-			transition={
-				prefersReducedMotion
-					? { duration: 0 }
-					: { duration: 0.18, ease: "easeOut" }
-			}
-		>
-			{input.email}
-		</motion.span>
+		<LazyMotion features={domAnimation} strict>
+			<m.span
+				animate={{
+					filter: input.revealed ? "blur(0px)" : "blur(3px)",
+					opacity: input.revealed ? 1 : 0.62,
+				}}
+				aria-label={interactive ? "Reveal signed-in account email" : undefined}
+				className={cn(
+					"rounded-md align-baseline",
+					interactive
+						? "cursor-pointer select-none text-foreground/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+						: "text-current"
+				)}
+				data-revealed={input.revealed ? "true" : "false"}
+				data-testid={`agent-controller-account-email-${input.agentId}-${input.location}`}
+				initial={false}
+				onClick={interactive ? handleClick : undefined}
+				onKeyDown={interactive ? handleKeyDown : undefined}
+				role={interactive ? "button" : undefined}
+				tabIndex={interactive ? 0 : undefined}
+				title={interactive ? "Reveal signed-in account email" : undefined}
+				transition={
+					prefersReducedMotion
+						? { duration: 0 }
+						: { duration: 0.18, ease: "easeOut" }
+				}
+			>
+				{input.email}
+			</m.span>
+		</LazyMotion>
 	);
 }
 

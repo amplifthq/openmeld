@@ -23,7 +23,7 @@ import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { AppOuterRailFrame } from "#/components/app/app-outer-rail-frame";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import { useSettingsAttentionTone } from "#/components/app/use-settings-attention-tone";
+import { useComputerAttentionTone } from "#/components/app/use-computer-attention-tone";
 import type { CenterAgentSectionId } from "#/lib/organizations/center-agent-navigation";
 import {
 	buildOrganizationAppsPath,
@@ -49,7 +49,7 @@ export function CenterAgentLayout(input: {
 	organizationSlug: string;
 }) {
 	const account = useAppShellAccount();
-	const computerAttentionTone = useSettingsAttentionTone();
+	const computerAttentionTone = useComputerAttentionTone();
 
 	return (
 		<AppSurfaceLayout

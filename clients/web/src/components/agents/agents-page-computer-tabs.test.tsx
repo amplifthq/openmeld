@@ -36,6 +36,7 @@ describe("ComputerSummaryCardContent", () => {
 					})
 				)}
 				recordState={{ kind: "normal" }}
+				status={null}
 			/>
 		);
 

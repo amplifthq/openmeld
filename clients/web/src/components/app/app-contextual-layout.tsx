@@ -7,7 +7,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import type { Icon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { MouseEvent, PointerEvent, ReactElement, ReactNode } from "react";
-import type { SettingsAttentionTone } from "#/lib/settings-attention";
+import type { ComputerAttentionTone } from "#/lib/computer-summary-status";
 import { AppInnerSidebarHeader } from "./app-inner-sidebar";
 import { AppMainContent } from "./app-main-content";
 import {
@@ -26,7 +26,7 @@ export type AppContextualNavItem<ItemId extends string = string> = {
 	icon: Icon;
 	label: string;
 	preserveSearch?: boolean;
-	statusTone?: SettingsAttentionTone;
+	statusTone?: ComputerAttentionTone;
 	to?: string;
 };
 
@@ -225,7 +225,7 @@ function isModifiedActivation(event: MouseEvent | PointerEvent): boolean {
 }
 
 function resolveContextualNavStatusClassName(
-	tone: SettingsAttentionTone | undefined
+	tone: ComputerAttentionTone | undefined
 ): string | null {
 	return tone ? resolveStatusToneInteractiveTextClassName(tone) : null;
 }

@@ -6,7 +6,7 @@ import { AppInnerSidebar } from "#/components/app/app-inner-sidebar";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import { useSettingsAttentionTone } from "#/components/app/use-settings-attention-tone";
+import { useComputerAttentionTone } from "#/components/app/use-computer-attention-tone";
 import { AppDirectMessagesSidebar } from "#/components/spaces/app-direct-messages-sidebar";
 import { AppSpacesSidebar } from "#/components/spaces/app-spaces-sidebar";
 import type {
@@ -24,7 +24,7 @@ export function SpaceWindowShell(input: {
 	sidebarPreferenceKey: InnerSidebarPreferenceKey;
 }) {
 	const account = useAppShellAccount();
-	const computerAttentionTone = useSettingsAttentionTone();
+	const computerAttentionTone = useComputerAttentionTone();
 
 	return (
 		<SpaceWindowFrame

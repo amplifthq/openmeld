@@ -57,6 +57,11 @@ import { type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { copyCliEntryCommand } from "#/lib/cli-entry-command";
+import {
+	type ComputerSummaryStatus,
+	resolveCurrentLocalRuntimeComputerSummaryStatus,
+	resolveOrganizationComputerSummaryStatus,
+} from "#/lib/computer-summary-status";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { buildExecutionTargetLabel } from "#/lib/connect/local-runtime-display";
 import {
@@ -74,6 +79,7 @@ import {
 	formatObservedAt,
 	formatRuntimeLane,
 } from "./agents-page-formatters";
+import { resolveCurrentLocalRuntimeServiceActionLabel } from "./agents-page-service-action";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 
@@ -125,7 +131,12 @@ export function OpenMeldServiceCard(
 function TeamOpenMeldServiceCard(input: {
 	computer: TeamOpenMeldServiceCardProps["computer"];
 }) {
-	const status = resolveTeamOpenMeldToolsStatus(input.computer);
+	const status = resolveOrganizationComputerSummaryStatus(
+		input.computer.serviceState
+	);
+	const statusDescription = resolveTeamOpenMeldToolsStatusDescription(
+		input.computer
+	);
 	const serviceConnected =
 		input.computer.serviceState === "connected" ||
 		input.computer.serviceState === "needs_attention";
@@ -168,7 +179,7 @@ function TeamOpenMeldServiceCard(input: {
 					{status.label}
 				</p>
 				<p className="max-w-2xl text-muted-foreground text-xs leading-5">
-					{status.description}
+					{statusDescription}
 				</p>
 			</div>
 			{componentDetails ? (
@@ -178,39 +189,18 @@ function TeamOpenMeldServiceCard(input: {
 	);
 }
 
-function resolveTeamOpenMeldToolsStatus(
+function resolveTeamOpenMeldToolsStatusDescription(
 	computer: TeamOpenMeldServiceCardProps["computer"]
-): {
-	description: string;
-	label: string;
-	tone: "danger" | "muted" | "ready" | "warning";
-} {
+): string {
 	switch (computer.serviceState) {
 		case "connected":
-			return {
-				description: "OpenMeld Tools are ready on this computer.",
-				label: "OpenMeld Tools are ready",
-				tone: "ready",
-			};
+			return "OpenMeld Tools are ready on this computer.";
 		case "needs_attention":
-			return {
-				description: `${computer.ownerLabel} needs to update OpenMeld Tools on this computer.`,
-				label: "OpenMeld Tools need an update",
-				tone: "warning",
-			};
+			return `${computer.ownerLabel} needs to update OpenMeld Tools on this computer.`;
 		case "not_connected":
-			return {
-				description: `${computer.ownerLabel} needs to reconnect OpenMeld Service on this computer.`,
-				label: "OpenMeld Tools are not connected",
-				tone: "danger",
-			};
+			return `${computer.ownerLabel} needs to reconnect OpenMeld Service on this computer.`;
 		default:
-			return {
-				description:
-					"OpenMeld is waiting for a current status from this computer.",
-				label: "OpenMeld Tools status unavailable",
-				tone: "muted",
-			};
+			return "OpenMeld is waiting for a current status from this computer.";
 	}
 }
 
@@ -588,12 +578,17 @@ function CurrentLocalRuntimeServiceFacts(input: {
 	const cliUpdate = resolveOpenMeldToolsCliUpdate(localComponents);
 	const skillsUpdate = resolveOpenMeldToolsSkillsUpdate(localComponents);
 	const requiredServiceUpdate =
-		isOpenMeldToolsComponentUpdateRequired(serviceUpdate) ||
-		input.replyReadiness.reasonCode === "background_helper.update_required";
+		isOpenMeldToolsComponentUpdateRequired(serviceUpdate);
 	const setupCompleteRefreshChecking =
 		input.setupCompleteRefreshPending && requiredServiceUpdate;
+	const computerSummaryStatus = resolveCurrentLocalRuntimeComputerSummaryStatus(
+		{
+			readiness: input.currentLocalRuntimeReplyReadiness,
+		}
+	);
 	const display = resolveCurrentLocalRuntimeServiceDisplay({
 		cliUpdate,
+		computerSummaryStatus,
 		isCheckingStatus: input.isCheckingStatus,
 		replyReadiness: input.replyReadiness,
 		requiredServiceUpdate,
@@ -688,6 +683,7 @@ type CurrentLocalRuntimeServiceDisplay = {
 
 type CurrentLocalRuntimeServiceDisplayInput = {
 	cliUpdate: OpenMeldToolsCliUpdate | null;
+	computerSummaryStatus: ComputerSummaryStatus | null;
 	isCheckingStatus: boolean;
 	replyReadiness: ComputerReplyReadiness;
 	requiredServiceUpdate: boolean;
@@ -729,18 +725,6 @@ function resolveOpenMeldToolsServiceBoundaryDisplay(
 		};
 	}
 
-	if (input.requiredServiceUpdate) {
-		return {
-			description:
-				"An update is required to keep local agents ready on this computer.",
-			descriptionTone: "muted",
-			hideVersionDetails: false,
-			primaryAction: buildOpenMeldToolsLinkAction(input.serviceUpdatePath),
-			statusLabel: "OpenMeld Tools need an update",
-			tone: "danger",
-		};
-	}
-
 	if (input.serviceDisconnected) {
 		return {
 			description:
@@ -756,15 +740,32 @@ function resolveOpenMeldToolsServiceBoundaryDisplay(
 			tone: "danger",
 		};
 	}
+
+	if (
+		input.requiredServiceUpdate &&
+		input.computerSummaryStatus?.reason === "openmeld_tools_update"
+	) {
+		return {
+			description:
+				"An update is required to keep local agents ready on this computer.",
+			descriptionTone: "muted",
+			hideVersionDetails: false,
+			primaryAction: buildOpenMeldToolsLinkAction(input.serviceUpdatePath),
+			statusLabel: "OpenMeld Tools need an update",
+			tone: "danger",
+		};
+	}
+
 	return null;
 }
 
 function resolveOpenMeldToolsUpdateDisplay(
 	input: CurrentLocalRuntimeServiceDisplayInput
 ): CurrentLocalRuntimeServiceDisplay | null {
-	const hasRequiredToolsUpdate =
-		isOpenMeldToolsComponentUpdateRequired(input.cliUpdate) ||
-		isOpenMeldToolsComponentUpdateRequired(input.skillsUpdate);
+	if (input.computerSummaryStatus?.reason !== "openmeld_tools_update") {
+		return null;
+	}
+	const hasRequiredToolsUpdate = input.computerSummaryStatus.tone === "danger";
 	const hasServiceOrSkillsUpdate =
 		isOpenMeldToolsComponentUpdateActionable(input.serviceUpdate) ||
 		isOpenMeldToolsComponentUpdateActionable(input.skillsUpdate);
@@ -792,7 +793,7 @@ function resolveOpenMeldToolsUpdateDisplay(
 		statusLabel: hasRequiredToolsUpdate
 			? "OpenMeld Tools need an update"
 			: "OpenMeld Tools update available",
-		tone: hasRequiredToolsUpdate ? "danger" : "warning",
+		tone: input.computerSummaryStatus.tone,
 	};
 }
 
@@ -958,34 +959,6 @@ function formatOpenMeldServiceVersionDescription(input: {
 			: null,
 	].filter((value): value is string => Boolean(value));
 	return details.length > 0 ? details.join(" ") : undefined;
-}
-
-export function resolveCurrentLocalRuntimeServiceActionLabel(
-	replyReadiness: ComputerReplyReadiness
-): string | null {
-	switch (replyReadiness.reasonCode) {
-		case "background_helper.update_required":
-		case "background_helper.installed_outdated":
-			return formatLocalSetupActionLabel("update_service");
-		case "background_helper.not_installed":
-			return formatLocalSetupActionLabel("connect_service");
-		case "background_helper.not_running":
-		case "device_reply_readiness.blocked":
-		case "device_reply_readiness.degraded":
-		case "execution_target.stale":
-		case "execution_target.unknown":
-			return formatLocalSetupActionLabel("reconnect_service");
-		case "current_device.missing":
-		case "device_projection.missing":
-			return formatLocalSetupActionLabel("connect_service");
-		case "execution_target.partial":
-		case "execution_target.not_ready":
-		case "local_agent_preparation.not_found":
-		case "local_agent_preparation.not_enabled":
-			return formatLocalSetupActionLabel("connect_local_agent");
-		default:
-			return null;
-	}
 }
 
 function resolveOpenMeldServiceActionLabel(input: {
