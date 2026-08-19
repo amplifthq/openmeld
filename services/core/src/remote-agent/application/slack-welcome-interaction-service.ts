@@ -112,7 +112,7 @@ export async function handleCenterAgentSlackTeammateInvitations(
     throw createCoreRpcHttpError({
       code: "center_agent.slack_invitation_actor_mismatch",
       reason:
-        "The active private Slack requester no longer matches this invitation request.",
+        "The active Slack requester no longer matches this invitation request.",
       status: 403,
     });
   }
@@ -163,16 +163,21 @@ export function requireRemoteAgentSlackTeammateInvitationDeliveryEvidence(input:
   const interactionEnvironment =
     envelope?.interactionEnvironment ??
     envelope?.contextScopePlan?.interactionEnvironment;
+  const hasAuthorizedSlackConversation =
+    interactionEnvironment === "requester_private"
+      ? delivery?.slackChannelId?.startsWith("D") === true
+      : interactionEnvironment === "organization_shared" &&
+        Boolean(delivery?.slackChannelId) &&
+        delivery?.slackChannelId?.startsWith("D") === false;
   if (
     !(
       input.sourceNativeDeliveryId &&
       delivery?.deliveryId === input.sourceNativeDeliveryId &&
       delivery.conversationKind === "slack" &&
       delivery.slackTeamId === input.slackTeamId &&
-      delivery.slackChannelId?.startsWith("D") &&
+      hasAuthorizedSlackConversation &&
       envelope?.trigger.source === "slack" &&
       envelope.trigger.teamId === input.slackTeamId &&
-      interactionEnvironment === "requester_private" &&
       sender?.kind === "member" &&
       sender.verified === true &&
       sender.ownerUserId === input.representedHuman.userId &&
@@ -183,9 +188,9 @@ export function requireRemoteAgentSlackTeammateInvitationDeliveryEvidence(input:
     )
   ) {
     throw createCoreRpcHttpError({
-      code: "center_agent.slack_invitation_private_delivery_required",
+      code: "center_agent.slack_invitation_verified_delivery_required",
       reason:
-        "Slack teammate invitations require the active private Slack delivery for this verified requester.",
+        "Slack teammate invitations require the active Slack delivery for this verified requester.",
       status: 403,
     });
   }

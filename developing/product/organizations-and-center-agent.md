@@ -163,15 +163,22 @@ use progressive disclosure so the same general Agent can remain capable
 without loading every schema or transcript on every turn.
 
 The hosted Center Agent freezes one executable capability catalog at turn
-start. A large catalog gives the model small typed search and describe tools
-plus Code Mode: search returns bounded names and summaries, describe returns
-the selected capabilities' model-visible JSON schemas and descriptions, and
-Code Mode executes only members of the frozen catalog. Runtime validation
-remains authoritative for normalization and custom constraints that JSON
-Schema cannot express. Discovery does not add permissions, mutate the catalog,
-persist a second capability state, or make the model guess an undeclared field. Small
-catalogs may remain directly visible when progressive disclosure would not
-materially reduce context.
+start. A large catalog gives the model one small goal-relevant direct slice,
+typed search and describe tools, and Code Mode. The direct slice and search use
+the same code-owned capability catalog, stable namespaces, multilingual search
+aliases, and deterministic ranking; a selected capability's declared
+prerequisites are included with it. Search returns bounded names, namespaces,
+and summaries, describe returns the selected capabilities' model-visible JSON
+schemas and descriptions, and Code Mode executes only members of the frozen
+catalog. A catalog match proves only that the capability exists in this turn.
+The capability owner still decides current authorization, eligibility, and the
+execution outcome. Runtime validation remains authoritative for normalization
+and custom constraints that JSON Schema cannot express. Discovery does not add
+permissions, mutate the catalog, persist a second capability state, or make the
+model guess an undeclared field. The ranking layer narrows presentation only;
+it never interprets authority or becomes a second task router. Small catalogs
+may remain directly visible when progressive disclosure would not materially
+reduce context.
 
 All model-visible tools use structured calls and strict structured results.
 Malformed, parallel, incomplete, or unknown tool protocol fails closed inside
@@ -1618,9 +1625,11 @@ text. It rejects display-name mentions and guessed IDs.
 Core records the exact bot scopes returned by Slack for every OAuth installation.
 `im:history`, `im:read`, and `im:write` are all required before Web presents
 Slack direct messages as ready. `im:read` lets Core ask Slack for the
-conversation facts that prove an App Home message is requester-private; without
-that proof, private invitation tools fail closed. Older installations without
-recorded grants remain connected for their existing capabilities but show
+conversation facts that prove an App Home message is requester-private. A
+DM-originating private invitation fails closed without that proof; a
+shared-channel request instead requires its own active Core-authored Slack
+delivery evidence. Older installations without recorded grants remain
+connected for their existing capabilities but show
 **Reconnect required** with one OAuth action for an owner or admin. Reconnecting
 refreshes the same workspace installation and does not ask the user to
 disconnect it first.
@@ -1670,26 +1679,33 @@ rechecks the linked member. No Organization data, join link, selection control,
 or submission action appears before that check succeeds. Core then replaces the
 same modal through Slack's returned view id and hash with either the authorized
 picker or one private next step; closing the checking modal is a normal outcome.
-The same private-invitation action is available in ordinary Slack DM
-conversation: the Center Agent reads the live workspace directory, resolves
-only exact named people, and sends their returned Slack user ids through the
-same Core interaction and delivery contract. An ambiguous or missing name
-produces one short clarification; the model never guesses an id. The execution
-boundary also requires `requester_private`; a public-channel mention cannot
-invoke the private invitation action. Every welcome button, conversational
-invitation, and modal submission rechecks the linked person's current
-Auth-owned Organization membership before it exposes a join link or
-performs an action; a removed member cannot keep using an old Slack identity
-link. A current member may share an existing active Organization join link;
-only an owner or admin may create that link when none exists. If a member asks
-to invite teammates before an owner or admin has created a link, the modal
-submission closes and the Center Agent immediately sends that member one
-private next step instead of failing silently in background work. It never
-posts those private invitations to a channel. When Slack does not expose a
-selected teammate's email, Core does not send a targeted invitation that it
-cannot safely correlate after joining. The Center Agent instead tells the
-requester what happened and returns the same join link for manual sharing as
-the lowest-cost safe next step. Before claiming any private invitation, Core
+The same private-invitation action is available in any current Slack
+conversation initiated by a verified OpenMeld Organization member. The Center
+Agent reads the live workspace directory, resolves only exact named people,
+and sends their returned Slack user ids through the same Core interaction and
+delivery contract. An ambiguous or missing name produces one short
+clarification; the model never guesses an id. Core binds execution to the exact
+active Slack delivery, workspace, requester identity, and Organization member.
+A shared-channel request authorizes only the named target DMs; it does not
+authorize a channel post, widen the audience, or expose the Organization join
+link to that conversation. Every welcome button, conversational invitation,
+and modal submission rechecks the linked person's current Auth-owned
+Organization membership before it exposes a join link or performs an action;
+a removed member cannot keep using an old Slack identity link. A current member
+may explicitly share an existing active Organization join link through the
+separate link action; only an owner or admin may create that link when none
+exists. A named-target private invitation never converts a failed target DM
+into an unrequested channel post. If a member asks to invite teammates before
+an owner or admin has created a link, the modal submission closes and the
+Center Agent immediately sends that member one private next step instead of
+failing silently in background work. It never posts those private invitations
+to a channel. When Slack does not expose a selected teammate's email, Core does
+not send a targeted invitation that it cannot safely correlate after joining.
+In a private conversation, the Center Agent returns the same join link for
+manual sharing as the lowest-cost safe next step. In a shared conversation,
+Remote Agent removes that link from the model-visible result and asks the
+requester to continue in a private Slack conversation. Before claiming any
+private invitation, Core
 also compares the selected Slack email with the current Auth-owned Organization
 directory using exact normalized email. Someone who is already a member is
 skipped, receives no redundant join message or onboarding, and the requester

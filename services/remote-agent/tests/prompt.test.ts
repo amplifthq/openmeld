@@ -176,6 +176,16 @@ describe("remote agent system prompt", () => {
     );
   });
 
+  it("requires capability discovery before claiming that a hidden tool is unavailable", () => {
+    const prompt = buildTestSystemPrompt();
+
+    expect(prompt).toContain(
+      "Never infer that a capability is missing merely because its schema is not directly visible"
+    );
+    expect(prompt).toContain("openmeld_search_capabilities");
+    expect(prompt).toContain("explicit authorization or availability result");
+  });
+
   it("uses the same execution routing protocol for interactive and Routine turns", () => {
     const interactivePrompt = buildTestSystemPrompt({
       turnEnvelope: createSubmitTurnRequest().turnEnvelope,

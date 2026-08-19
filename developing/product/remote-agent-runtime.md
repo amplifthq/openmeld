@@ -2362,10 +2362,11 @@ Remaining expansion still requires its own design and ticket pass:
 2. **Additional connectors** — external integrations wired per organization.
 3. **Deep customization** — per-organization instructions and configuration, toward
    a general-purpose Remote Agent each org shapes into its own hub.
-4. **Durable Code Mode runtime and progressive tool discovery** — history,
-   snippets, search/describe, approval replay, and durable state require an
-   explicit product contract before they can become another lifecycle beside
-   Flue conversation state and Core-owned confirmation.
+4. **Durable Code Mode runtime** — the current frozen-catalog search/describe
+   discovery and stateless Code Mode do not own history. Snippets, approval
+   replay, and durable state require an explicit product contract before they
+   can become another lifecycle beside Flue conversation state and Core-owned
+   confirmation.
 
 The current platform provides the Binding-kind routing
 seam, per-conversation agent sessions, the single-result-surface reply rule,

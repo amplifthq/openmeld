@@ -255,6 +255,77 @@ describe("Remote Agent model reasoning", () => {
     );
   });
 
+  it("loads the exact Slack invitation capabilities for a Chinese user goal", async () => {
+    const reportStage = vi.fn();
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
+      {},
+      reportStage
+    );
+    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
+      (name) => ({ function: { name }, type: "function" })
+    );
+    const slackDirectory = {
+      function: {
+        description: "Read the live Slack workspace directory.",
+        name: "openmeld_read_slack_workspace_directory",
+      },
+      type: "function",
+    };
+    const slackInvitation = {
+      function: {
+        description: "Send private OpenMeld invitations to Slack teammates.",
+        name: "openmeld_invite_slack_teammates",
+      },
+      type: "function",
+    };
+    const unrelatedTools = Array.from({ length: 65 }, (_, index) => ({
+      function: {
+        description: "Manage one unrelated test resource.",
+        name: `tool_${String(index)}`,
+      },
+      type: "function",
+    }));
+    const codemode = {
+      function: {
+        description: "The frozen active capability catalog.",
+        name: "codemode",
+      },
+      type: "function",
+    };
+
+    const payload = await options.onPayload?.(
+      {
+        messages: [
+          {
+            content: "你能私信 Monica，把组织邀请链接发给她吗？",
+            role: "user",
+          },
+        ],
+        tools: [
+          ...unrelatedTools,
+          ...discoveryTools,
+          slackDirectory,
+          slackInvitation,
+          codemode,
+        ],
+      },
+      TEXT_ONLY_MODEL
+    );
+
+    expect(payload).toMatchObject({
+      tools: [...discoveryTools, slackDirectory, slackInvitation, codemode],
+    });
+    expect(payload).not.toMatchObject({
+      tools: expect.arrayContaining(unrelatedTools),
+    });
+    expect(reportStage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageCount: 1,
+        toolCount: 5,
+      })
+    );
+  });
+
   it("fails fast when a large tool surface has no Code Mode capability catalog", async () => {
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
     const directTools = Array.from({ length: 65 }, (_, index) => ({
@@ -313,7 +384,7 @@ describe("Remote Agent model reasoning", () => {
 
     expect(payload).toMatchObject({
       reasoning: { effort: "high" },
-      tools: [codemode],
+      tools: [createTask, codemode],
     });
     expect(payload).not.toHaveProperty("tool_choice");
   });
@@ -378,7 +449,13 @@ describe("Remote Agent model reasoning", () => {
     expect(payload).toMatchObject({
       messages,
       reasoning: { effort: "high" },
-      tools: [codemode],
+      tools: [
+        {
+          function: { name: "openmeld_create_space" },
+          type: "function",
+        },
+        codemode,
+      ],
     });
     expect(JSON.stringify(payload)).toContain("space_existing");
     expect(payload).not.toHaveProperty("tool_choice");
@@ -386,6 +463,10 @@ describe("Remote Agent model reasoning", () => {
 
   it("keeps an explicitly requested Space with the primary Agent", async () => {
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity({});
+    const createSpace = {
+      function: { name: "openmeld_create_space" },
+      type: "function",
+    };
     const codemode = {
       function: { name: "codemode" },
       type: "function",
@@ -406,10 +487,7 @@ describe("Remote Agent model reasoning", () => {
             function: { name: "openmeld_create_task" },
             type: "function",
           },
-          {
-            function: { name: "openmeld_create_space" },
-            type: "function",
-          },
+          createSpace,
           ...Array.from({ length: 65 }, (_, index) => ({
             function: { name: `tool_${String(index)}` },
             type: "function",
@@ -422,7 +500,7 @@ describe("Remote Agent model reasoning", () => {
 
     expect(payload).toMatchObject({
       reasoning: { effort: "high" },
-      tools: [codemode],
+      tools: [createSpace, codemode],
     });
     expect(payload).not.toHaveProperty("tool_choice");
   });

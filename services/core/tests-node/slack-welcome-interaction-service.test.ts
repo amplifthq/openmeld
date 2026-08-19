@@ -42,7 +42,7 @@ describe("Slack welcome teammate invitations", () => {
     vi.stubGlobal("fetch", slackFetch);
   });
 
-  it("accepts teammate invitation authority only from the matching private Slack delivery", () => {
+  it("accepts teammate invitation authority only from the matching current Slack delivery", () => {
     const privateDelivery = {
       conversationKind: "slack",
       deliveryId: "delivery-1",
@@ -83,6 +83,7 @@ describe("Slack welcome teammate invitations", () => {
       requireRemoteAgentSlackTeammateInvitationDeliveryEvidence({
         delivery: {
           ...privateDelivery,
+          slackChannelId: "C_TEAM",
           workerSubmitRequest: {
             ...privateDelivery.workerSubmitRequest,
             turnEnvelope: {
@@ -99,7 +100,28 @@ describe("Slack welcome teammate invitations", () => {
         slackUserId: "U_ACTOR",
         sourceNativeDeliveryId: "delivery-1",
       })
-    ).toThrow("active private Slack delivery");
+    ).not.toThrow();
+    expect(() =>
+      requireRemoteAgentSlackTeammateInvitationDeliveryEvidence({
+        delivery: {
+          ...privateDelivery,
+          workerSubmitRequest: {
+            ...privateDelivery.workerSubmitRequest,
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              interactionEnvironment: "organization_shared",
+            },
+          },
+        },
+        representedHuman: {
+          profileId: "profile-actor",
+          userId: "user-actor",
+        },
+        slackTeamId: "T1",
+        slackUserId: "U_ACTOR",
+        sourceNativeDeliveryId: "delivery-1",
+      })
+    ).toThrow("active Slack delivery");
   });
 
   afterEach(() => {

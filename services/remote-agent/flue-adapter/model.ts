@@ -18,6 +18,10 @@ import {
   resolveRemoteAgentOpenRouterModelId,
 } from "../agent-core/model";
 import { REMOTE_AGENT_OPENROUTER_PROVIDER_ROUTING } from "../agent-core/openrouter-provider-routing";
+import {
+  expandRemoteAgentCapabilityDependencies,
+  rankRemoteAgentCapabilities,
+} from "./capability-catalog";
 import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "./capability-discovery";
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
 import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
@@ -686,7 +690,8 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
         ? resolvedPayload.tools.length
         : 0;
       const compactedTools = compactRemoteAgentProviderTools(
-        resolvedPayload.tools
+        resolvedPayload.tools,
+        resolvedPayload.messages
       );
       const preparedPayload =
         compactedTools === resolvedPayload.tools
@@ -761,11 +766,15 @@ export function withRemoteAgentProviderObservabilityAndSessionAffinity(
 
 const REMOTE_AGENT_DIRECT_TOOL_SCHEMA_LIMIT = 64;
 const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
+const REMOTE_AGENT_RELEVANT_DIRECT_TOOL_LIMIT = 8;
 const REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET = new Set<string>([
   ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
 ]);
 
-function compactRemoteAgentProviderTools(tools: unknown): unknown {
+function compactRemoteAgentProviderTools(
+  tools: unknown,
+  messages: unknown
+): unknown {
   if (!Array.isArray(tools)) {
     return tools;
   }
@@ -792,7 +801,80 @@ function compactRemoteAgentProviderTools(tools: unknown): unknown {
       "The required direct Remote Agent tool surface exceeds the provider schema limit."
     );
   }
-  return [...alwaysDirectTools, ...codeModeTools];
+  const latestUserText = readLatestRemoteAgentUserText(messages);
+  const candidateTools = tools.flatMap((tool) => {
+    const summary = readRemoteAgentProviderToolSummary(tool);
+    return summary &&
+      !REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET.has(summary.name) &&
+      summary.name !== REMOTE_AGENT_CODE_MODE_TOOL_NAME
+      ? [{ summary, tool }]
+      : [];
+  });
+  const rankedCapabilities = rankRemoteAgentCapabilities(
+    candidateTools.map(({ summary }) => summary),
+    latestUserText
+  );
+  const strongestScore = rankedCapabilities[0]?.score ?? 0;
+  const relevantNames = expandRemoteAgentCapabilityDependencies(
+    new Set(
+      rankedCapabilities
+        .filter(({ score }) => score >= strongestScore * 0.6)
+        .slice(0, REMOTE_AGENT_RELEVANT_DIRECT_TOOL_LIMIT)
+        .map(({ capability }) => capability.name)
+    )
+  );
+  const relevantTools = candidateTools
+    .filter(({ summary }) => relevantNames.has(summary.name))
+    .map(({ tool }) => tool);
+  return [...alwaysDirectTools, ...relevantTools, ...codeModeTools];
+}
+
+function readRemoteAgentProviderToolSummary(
+  tool: unknown
+): { description: string; name: string } | null {
+  if (
+    !isRecord(tool) ||
+    tool.type !== "function" ||
+    !isRecord(tool.function) ||
+    typeof tool.function.name !== "string"
+  ) {
+    return null;
+  }
+  return {
+    description:
+      typeof tool.function.description === "string"
+        ? tool.function.description
+        : "",
+    name: tool.function.name,
+  };
+}
+
+function readLatestRemoteAgentUserText(messages: unknown): string {
+  if (!Array.isArray(messages)) {
+    return "";
+  }
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!(isRecord(message) && message.role === "user")) {
+      continue;
+    }
+    if (typeof message.content === "string") {
+      return message.content;
+    }
+    if (!Array.isArray(message.content)) {
+      return "";
+    }
+    return message.content
+      .flatMap((part) =>
+        isRecord(part) &&
+        (part.type === "text" || part.type === "input_text") &&
+        typeof part.text === "string"
+          ? [part.text]
+          : []
+      )
+      .join("\n");
+  }
+  return "";
 }
 
 function isRemoteAgentCodeModeProviderTool(tool: unknown): boolean {
