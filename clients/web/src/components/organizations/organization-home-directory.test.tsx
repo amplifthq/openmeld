@@ -13,6 +13,7 @@ import { startQueryKeys } from "#/query/query-keys";
 import { OrganizationHomeDirectory } from "./organization-home-directory";
 
 const readCurrentOrganizationDirectoryMock = vi.hoisted(() => vi.fn());
+const readCurrentOrganizationComputersMock = vi.hoisted(() => vi.fn());
 const readLocalRuntimesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-router", () => ({
@@ -56,6 +57,14 @@ vi.mock(
 	})
 );
 
+vi.mock(
+	"#/lib/organizations/organization-computers",
+	async (importOriginal) => ({
+		...(await importOriginal()),
+		readCurrentOrganizationComputers: readCurrentOrganizationComputersMock,
+	})
+);
+
 vi.mock("#/lib/connect/local-runtimes", async (importOriginal) => ({
 	...(await importOriginal()),
 	readLocalRuntimes: readLocalRuntimesMock,
@@ -66,6 +75,9 @@ describe("OrganizationHomeDirectory", () => {
 		readCurrentOrganizationDirectoryMock
 			.mockReset()
 			.mockResolvedValue(createDirectory());
+		readCurrentOrganizationComputersMock
+			.mockReset()
+			.mockResolvedValue(createOrganizationComputers());
 		readLocalRuntimesMock.mockReset().mockResolvedValue(createLocalRuntimes());
 	});
 
@@ -124,6 +136,13 @@ describe("OrganizationHomeDirectory", () => {
 			expect(screen.queryByText("Team details may be out of date.")).toBeNull()
 		);
 	});
+
+	it("shows a teammate Computer even when it has no Agent Profile", async () => {
+		renderDirectory();
+
+		const teammateComputer = await screen.findByText("Maya’s Mac");
+		expect(teammateComputer.closest("a")?.textContent).toContain("Maya Chen");
+	});
 });
 
 function renderDirectory() {
@@ -169,7 +188,39 @@ function createDirectory() {
 				},
 				userId: "user-1",
 			},
+			{
+				humanProfile: { profileId: "human-2" },
+				memberId: "member-2",
+				role: "member",
+				user: {
+					email: "maya@example.com",
+					id: "user-2",
+					image: null,
+					name: "Maya Chen",
+				},
+				userId: "user-2",
+			},
 		],
+		organizationId: "organization-1",
+	};
+}
+
+function createOrganizationComputers() {
+	return {
+		computers: [
+			{
+				computerId: "device-2",
+				deviceDisplayName: "Maya’s Mac",
+				deviceType: "laptop",
+				lastSeenAtMs: 1_786_320_000_000,
+				localAgents: [],
+				osVersion: "15.6",
+				ownerUserId: "user-2",
+				platformFamily: "macOS",
+				serviceState: "connected",
+			},
+		],
+		generatedAt: "2026-08-10T00:00:00.000Z",
 		organizationId: "organization-1",
 	};
 }

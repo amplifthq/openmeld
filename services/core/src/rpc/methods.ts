@@ -67,6 +67,8 @@ import {
   centerAgentReadConnectorActionOperationResponseSchema,
   centerAgentReadDispatchHistoryBodySchema,
   centerAgentReadDispatchHistoryResponseSchema,
+  centerAgentReadMemberComputersBodySchema,
+  centerAgentReadMemberComputersResponseSchema,
   centerAgentReadMemberOpenMeldServiceStatusBodySchema,
   centerAgentReadMemberOpenMeldServiceStatusResponseSchema,
   centerAgentReadSlackChannelHistoryBodySchema,
@@ -193,6 +195,7 @@ import {
   organizationMemberOpenMeldServiceStatusesResponseSchema,
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
+  ownerComputerDiagnosticsSchema,
   patchSpaceContractBodySchema,
   patchSpaceMetaBodySchema,
   pendingGitHubAppInstallationSchema,
@@ -244,6 +247,7 @@ import {
   submitRuntimeProviderConversationProofsResponseSchema,
   submitRuntimeRegistrationBodySchema,
   submitRuntimeRegistrationResponseSchema,
+  summarizeComputerFileAccessPolicy,
   updateAgentProfileDefaultProjectRpcInputSchema,
   updateAgentProfilePrimaryBindingAgentControllerCollaborationModeBodySchema,
   updateAgentProfilePrimaryBindingAgentControllerPermissionModeBodySchema,
@@ -321,6 +325,8 @@ import type {
   CenterAgentReadConnectorActionOperationResponse,
   CenterAgentReadDispatchHistoryBody,
   CenterAgentReadDispatchHistoryResponse,
+  CenterAgentReadMemberComputersBody,
+  CenterAgentReadMemberComputersResponse,
   CenterAgentReadMemberOpenMeldServiceStatusBody,
   CenterAgentReadMemberOpenMeldServiceStatusResponse,
   CenterAgentReadSlackChannelHistoryBody,
@@ -473,6 +479,7 @@ import type {
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
   OrganizationUsageOverviewRpcInput,
+  OwnerComputerDiagnostics,
   PatchSpaceContractBody,
   PendingGitHubAppInstallation,
   PostSpaceMembersResponse,
@@ -2640,6 +2647,12 @@ export type CenterAgentReadMemberOpenMeldServiceStatusInput =
     speakerMember?: CenterAgentToolSpeaker;
   };
 
+export type CenterAgentReadMemberComputersInput =
+  CenterAgentReadMemberComputersBody & {
+    context?: CoreRpcContextInput;
+    speakerMember?: CenterAgentToolSpeaker;
+  };
+
 export type CenterAgentReadOrganizationSpaceDirectoryInput = {
   context?: CoreRpcContextInput;
   speakerMember?: CenterAgentToolSpeaker;
@@ -2788,15 +2801,25 @@ export async function rpcGetCurrentLocalRuntimeReplyReadiness(
   input: GetCurrentLocalRuntimeReplyReadinessInput
 ): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
   const userId = requireAuthenticatedOwnerUserId(input.context);
+  return await getCurrentLocalRuntimeReplyReadinessForOwnerUser({
+    env,
+    userId,
+  });
+}
+
+async function getCurrentLocalRuntimeReplyReadinessForOwnerUser(input: {
+  env: CoreBindings;
+  userId: string;
+}): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
   const response = await getCurrentLocalRuntimeReplyReadinessUseCase({
     lookupOwnerService: async ({ ownerUserId }) =>
       await lookupRuntimeTransportOwnerService({
         blockForgottenDevices: true,
-        env,
+        env: input.env,
         ownerUserId,
       }),
-    store: buildCurrentDeviceTargetStore(env),
-    userId,
+    store: buildCurrentDeviceTargetStore(input.env),
+    userId: input.userId,
   });
   const validated =
     currentLocalRuntimeReplyReadinessResponseSchema.safeParse(response);
@@ -2807,6 +2830,101 @@ export async function rpcGetCurrentLocalRuntimeReplyReadiness(
   }
 
   return validated.data;
+}
+
+async function buildOwnerComputerDiagnostics(input: {
+  env: CoreBindings;
+  localRuntimes: LocalRuntimesResponse;
+  userId: string;
+}): Promise<OwnerComputerDiagnostics> {
+  const [currentLocalRuntimeReplyReadiness, currentComputerFileAccess] =
+    await Promise.all([
+      getCurrentLocalRuntimeReplyReadinessForOwnerUser({
+        env: input.env,
+        userId: input.userId,
+      }),
+      readOwnerCurrentComputerFileAccessSummary(input),
+    ]);
+  return ownerComputerDiagnosticsSchema.parse({
+    currentComputerFileAccess,
+    currentLocalRuntimeReplyReadiness,
+    localRuntimes: input.localRuntimes,
+  });
+}
+
+async function readOwnerCurrentComputerFileAccessSummary(input: {
+  env: CoreBindings;
+  localRuntimes: LocalRuntimesResponse;
+  userId: string;
+}): Promise<OwnerComputerDiagnostics["currentComputerFileAccess"]> {
+  const currentComputer = input.localRuntimes.localRuntimes.find(
+    (computer) =>
+      computer.isCurrent ||
+      computer.deviceId === input.localRuntimes.currentDeviceId
+  );
+  if (
+    !(
+      currentComputer &&
+      input.localRuntimes.currentDeviceId &&
+      input.localRuntimes.currentRuntimeLane
+    )
+  ) {
+    return {
+      code: "computer.current_missing",
+      message: "No current Computer is connected to this account.",
+      status: "unavailable",
+    };
+  }
+  if (currentComputer.computerFileAccess?.readPolicy !== true) {
+    return { status: "unsupported" };
+  }
+
+  try {
+    const ownerService = await lookupRuntimeTransportOwnerService({
+      blockForgottenDevices: true,
+      env: input.env,
+      ownerUserId: input.userId,
+    });
+    const target = requireCurrentLocalRuntimeServiceTarget({
+      bindingTarget: {
+        availability: "resolved",
+        deviceId: input.localRuntimes.currentDeviceId,
+        runtimeLane: input.localRuntimes.currentRuntimeLane,
+      },
+      offlineError: {
+        code: "computer.file_access.service_offline",
+        reason: "This computer isn't reachable for OpenMeld right now.",
+        status: 503,
+      },
+      ownerService,
+    });
+    const response = await readRuntimeTransportComputerFileAccessPolicy({
+      ...target,
+      env: input.env,
+      ownerUserId: input.userId,
+      request: { expectedDeviceId: target.deviceId },
+    });
+    if (!("policy" in response)) {
+      return {
+        code: response.code,
+        message: response.message,
+        status: "unavailable",
+      };
+    }
+    return summarizeComputerFileAccessPolicy(response);
+  } catch (error) {
+    console.warn("[core.computers.owner_file_access_diagnostics_failed]", {
+      deviceId: currentComputer.deviceId,
+      error: error instanceof Error ? error.message : String(error),
+      event: "computers.owner_file_access_diagnostics_failed",
+      ownerUserId: input.userId,
+    });
+    return {
+      code: "computer.file_access.unavailable",
+      message: "File Access details are temporarily unavailable.",
+      status: "unavailable",
+    };
+  }
 }
 
 type LookupOwnerServiceForUser = (input: {
@@ -4847,12 +4965,27 @@ export async function rpcGetCurrentOrganizationComputers(
     env,
   });
   const generatedAt = new Date().toISOString();
-  const nowMs = Date.parse(generatedAt);
   const members = await resolveOrganizationDirectoryMembers({
     authWorker: env.OPENMELD_AUTH_WORKER,
     organizationId: activeOrganization.organizationId,
     requestId: context.actorContext.requestId,
   });
+  return await buildOrganizationComputersResponse({
+    env,
+    generatedAt,
+    memberUserIds: members.map((member) => member.userId),
+    organizationId: activeOrganization.organizationId,
+  });
+}
+
+async function buildOrganizationComputersResponse(input: {
+  env: CoreBindings;
+  generatedAt: string;
+  memberUserIds: string[];
+  organizationId: string;
+}): Promise<OrganizationComputersResponse> {
+  const { env, generatedAt, memberUserIds, organizationId } = input;
+  const nowMs = Date.parse(generatedAt);
   const db = localStateDb(env);
   if (!db) {
     throw createCoreRpcHttpError({
@@ -4882,7 +5015,7 @@ export async function rpcGetCurrentOrganizationComputers(
         console.warn("[core.organization.computers_service_lookup_failed]", {
           error: error instanceof Error ? error.message : String(error),
           event: "organization.computers_service_lookup_failed",
-          organizationId: activeOrganization.organizationId,
+          organizationId,
           userId,
         });
       }
@@ -4895,8 +5028,8 @@ export async function rpcGetCurrentOrganizationComputers(
         }),
       };
     },
-    memberUserIds: members.map((member) => member.userId),
-    organizationId: activeOrganization.organizationId,
+    memberUserIds,
+    organizationId,
   });
   const validated = organizationComputersResponseSchema.safeParse(response);
   if (!validated.success) {
@@ -8350,6 +8483,9 @@ export async function rpcListCenterAgentAuditJournal(
   const memberServiceStatusActions: readonly CenterAgentAction[] = [
     "read_member_openmeld_service_status",
   ];
+  const memberComputerActions: readonly CenterAgentAction[] = [
+    "read_member_computers",
+  ];
   const slackChannelReadActions: readonly CenterAgentAction[] = [
     "list_slack_channels",
     "read_slack_channel_members",
@@ -8390,6 +8526,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v3") {
     excludedActions = [
@@ -8402,6 +8539,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v4") {
     excludedActions = [
@@ -8412,6 +8550,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v5") {
     excludedActions = [
@@ -8421,6 +8560,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v6") {
     excludedActions = [
@@ -8429,6 +8569,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v7") {
     excludedActions = [
@@ -8436,26 +8577,40 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v8") {
     excludedActions = [
       ...slackChannelReadActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v9") {
     excludedActions = [
       ...slackChannelReadActions,
       ...taskReadActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v10") {
     excludedActions = [
       ...slackChannelReadActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v11") {
-    excludedActions = memberServiceStatusActions;
+    excludedActions = [...memberServiceStatusActions, ...memberComputerActions];
+  } else if (
+    parsed.data.actionSet === "v12" ||
+    parsed.data.actionSet === "v13" ||
+    parsed.data.actionSet === "v14" ||
+    parsed.data.actionSet === "v15" ||
+    parsed.data.actionSet === "v16" ||
+    parsed.data.actionSet === "v17" ||
+    parsed.data.actionSet === "v18"
+  ) {
+    excludedActions = memberComputerActions;
   } else if (!isCurrentCenterAgentAuditActionSet(parsed.data.actionSet)) {
     excludedActions = [
       "post_slack_channel_message",
@@ -8469,6 +8624,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   }
   excludedActions = applyCenterAgentAuditOperatingStateCompatibility({
@@ -8489,13 +8645,15 @@ export async function rpcListCenterAgentAuditJournal(
         includeContextDetails:
           parsed.data.actionSet === "v16" ||
           parsed.data.actionSet === "v17" ||
-          parsed.data.actionSet === "v18",
+          parsed.data.actionSet === "v18" ||
+          parsed.data.actionSet === "v19",
         includeInteractionSource:
           parsed.data.actionSet === "v14" ||
           parsed.data.actionSet === "v15" ||
           parsed.data.actionSet === "v16" ||
           parsed.data.actionSet === "v17" ||
-          parsed.data.actionSet === "v18",
+          parsed.data.actionSet === "v18" ||
+          parsed.data.actionSet === "v19",
       })
     ),
   };
@@ -8519,7 +8677,8 @@ function isCurrentCenterAgentAuditActionSet(
     actionSet === "v15" ||
     actionSet === "v16" ||
     actionSet === "v17" ||
-    actionSet === "v18"
+    actionSet === "v18" ||
+    actionSet === "v19"
   );
 }
 
@@ -8533,28 +8692,33 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v15" ||
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
-    input.actionSet === "v18"
+    input.actionSet === "v18" ||
+    input.actionSet === "v19"
       ? []
       : ["receive_local_agent_request"];
   const contextCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v15" ||
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
-    input.actionSet === "v18"
+    input.actionSet === "v18" ||
+    input.actionSet === "v19"
       ? []
       : ["read_center_agent_context"];
   const contextLoadCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
-    input.actionSet === "v18"
+    input.actionSet === "v18" ||
+    input.actionSet === "v19"
       ? []
       : ["load_center_agent_context"];
   const routineCompatibilityActions: readonly CenterAgentAction[] =
-    input.actionSet === "v17" || input.actionSet === "v18"
+    input.actionSet === "v17" ||
+    input.actionSet === "v18" ||
+    input.actionSet === "v19"
       ? []
       : input.routineActions;
   const workingLanguageCompatibilityActions: readonly CenterAgentAction[] =
-    input.actionSet === "v18"
+    input.actionSet === "v18" || input.actionSet === "v19"
       ? []
       : ["set_working_language", "observe_working_language"];
   if (
@@ -8563,9 +8727,11 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v15" ||
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
-    input.actionSet === "v18"
+    input.actionSet === "v18" ||
+    input.actionSet === "v19"
   ) {
     return [
+      ...(input.excludedActions ?? []),
       ...localAgentCompatibilityActions,
       ...contextCompatibilityActions,
       ...contextLoadCompatibilityActions,
@@ -8625,6 +8791,9 @@ export async function rpcCenterAgentListComputers(
   input: CenterAgentListComputersInput
 ): Promise<CenterAgentListComputersResponse> {
   const parsed = centerAgentListComputersBodySchema.safeParse({
+    ...(input.includeDiagnostics === undefined
+      ? {}
+      : { includeDiagnostics: input.includeDiagnostics }),
     speakerMember: input.speakerMember,
   });
   if (!parsed.success) {
@@ -8651,8 +8820,16 @@ export async function rpcCenterAgentListComputers(
     env,
     userId: representedHuman.userId,
   });
+  const diagnostics = parsed.data.includeDiagnostics
+    ? await buildOwnerComputerDiagnostics({
+        env,
+        localRuntimes,
+        userId: representedHuman.userId,
+      })
+    : undefined;
   const validated = centerAgentListComputersResponseSchema.safeParse({
     computers: projectCenterAgentComputerSetupOptions(localRuntimes),
+    ...(diagnostics === undefined ? {} : { diagnostics }),
     organizationId: authorization.activeOrganization.organizationId,
   });
   if (!validated.success) {
@@ -9524,6 +9701,73 @@ export async function rpcCenterAgentGetOrganizationDirectory(
     resource: {
       type: "organization",
       id: authorization.activeOrganization.organizationId,
+    },
+    sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+  });
+  return response;
+}
+
+export async function rpcCenterAgentReadMemberComputers(
+  env: CoreBindings,
+  input: CenterAgentReadMemberComputersInput
+): Promise<CenterAgentReadMemberComputersResponse> {
+  const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
+  const { authorization } = prepared;
+  const {
+    context: _context,
+    speakerMember: _speakerMember,
+    ...requestBody
+  } = input;
+  const parsed =
+    centerAgentReadMemberComputersBodySchema.safeParse(requestBody);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      reason:
+        parsed.error.issues[0]?.message ??
+        "invalid Organization member Computers payload",
+      code: "invalid_payload",
+    });
+  }
+  const targetMembership = await resolveOrganizationMembershipById({
+    env,
+    organizationId: authorization.activeOrganization.organizationId,
+    requestId: authorization.context.actorContext.requestId,
+    userId: parsed.data.memberUserId,
+  });
+  if (!targetMembership.ok) {
+    if (targetMembership.code === "organization.context_unavailable") {
+      throw createCoreRpcHttpError({
+        status: targetMembership.status,
+        reason: targetMembership.message,
+        code: targetMembership.code,
+      });
+    }
+    throw createCoreRpcHttpError({
+      status: 404,
+      reason: "Member was not found in the current Organization.",
+      code: "center_agent.member_not_found",
+    });
+  }
+
+  const generatedAt = new Date().toISOString();
+  const computers = await buildOrganizationComputersResponse({
+    env,
+    generatedAt,
+    memberUserIds: [targetMembership.userId],
+    organizationId: targetMembership.organizationId,
+  });
+  const response = centerAgentReadMemberComputersResponseSchema.parse({
+    ...computers,
+    memberUserId: targetMembership.userId,
+  });
+  await writeCenterAgentAuditEntry({
+    action: "read_member_computers",
+    authorization,
+    onBehalfOfProfileId: null,
+    resource: {
+      type: "organization_member",
+      id: targetMembership.userId,
     },
     sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
   });

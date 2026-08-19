@@ -905,6 +905,8 @@ export {
   centerAgentReadDispatchHistoryBodySchema,
   centerAgentReadDispatchHistoryResponseSchema,
   centerAgentReadinessBlockerSchema,
+  centerAgentReadMemberComputersBodySchema,
+  centerAgentReadMemberComputersResponseSchema,
   centerAgentReadSpaceContextBodySchema,
   centerAgentReadSpaceContextResponseSchema,
   centerAgentRecordConnectorActionAuditBodySchema,
@@ -1624,6 +1626,11 @@ export {
   organizationWorkingLanguagePreferenceResponseSchema,
   setOrganizationWorkingLanguagePreferenceBodySchema,
 } from "./http/organization-working-language";
+export {
+  computerFileAccessSummarySchema,
+  ownerComputerDiagnosticsSchema,
+  summarizeComputerFileAccessPolicy,
+} from "./http/owner-computer-diagnostics";
 export {
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,

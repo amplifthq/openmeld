@@ -503,6 +503,12 @@ leftover `?project=` search parameter because Home exposes no Project filter or
 scope label; Project-scoped Activity belongs only on the canonical Agent
 Activity pages where that scope is explicit.
 
+Home's Computers preview reads the same Organization Computer projection as the
+first-level Computers home and groups it with the current Directory. It must not
+derive Computers only from Agent Profiles: a teammate Computer with no Agent
+Profile is still relevant and must appear. Query loading, failure, retry, and
+staleness cover the Directory and Organization Computer projection together.
+
 ### Inbox
 
 The canonical route is `/o/{orgSlug}/inbox`. The bare authorized Organization

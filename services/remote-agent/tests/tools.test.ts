@@ -483,6 +483,26 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentReadMemberOpenMeldServiceStatus).not.toHaveBeenCalled();
   });
 
+  it("reads one teammate's Computers through the team-safe Core projection", async () => {
+    const request = createSubmitTurnRequest();
+    const centerAgentReadMemberComputers = vi.fn(async () =>
+      memberComputersResponse()
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentReadMemberComputers },
+      storage: await createStorageWithPendingContext(request),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_read_member_computers", {
+        memberUserId: "user_1",
+      })
+    ).resolves.toEqual(memberComputersResponse());
+    expect(centerAgentReadMemberComputers).toHaveBeenCalledWith(
+      expect.objectContaining({ memberUserId: "user_1" })
+    );
+  });
+
   it("lists Slack channels and reads joined-channel members and history through Core", async () => {
     const request = createSubmitTurnRequest();
     const centerAgentListSlackChannels = vi.fn(async () =>
@@ -1505,6 +1525,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
     expect(centerAgentListComputers).toHaveBeenCalledWith(
       expect.objectContaining({
+        includeDiagnostics: true,
         speakerMember: { memberId: "member_123", userId: "user_1" },
       })
     );
@@ -4180,6 +4201,13 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: { memberUserId: "user_1" },
       input: { memberUserId: "user_1" },
+      response: memberComputersResponse(),
+      rpcName: "centerAgentReadMemberComputers",
+      toolName: "openmeld_read_member_computers",
+    },
+    {
+      expectedPayload: { memberUserId: "user_1" },
+      input: { memberUserId: "user_1" },
       response: memberOpenMeldServiceStatusResponse(),
       rpcName: "centerAgentReadMemberOpenMeldServiceStatus",
       toolName: "openmeld_read_member_openmeld_service_status",
@@ -4609,6 +4637,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     },
     {
       expectedPayload: {
+        includeDiagnostics: true,
         speakerMember: { memberId: "member_123", userId: "user_1" },
       },
       input: {},
@@ -4891,6 +4920,15 @@ function memberOpenMeldServiceStatusResponse() {
       state: "connected" as const,
       userId: "user_1",
     },
+    organizationId: "org_123",
+  };
+}
+
+function memberComputersResponse() {
+  return {
+    computers: [],
+    generatedAt: ISO_NOW,
+    memberUserId: "user_1",
     organizationId: "org_123",
   };
 }

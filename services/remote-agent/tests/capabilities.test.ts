@@ -236,6 +236,7 @@ describe("remote agent Flue capability inventory", () => {
       "openmeld_post_space_message",
       "openmeld_wake_agent_profiles_in_space",
       "openmeld_create_space",
+      "openmeld_read_member_computers",
       "openmeld_read_member_openmeld_service_status",
       "openmeld_list_projects",
       "openmeld_create_agent_profile",

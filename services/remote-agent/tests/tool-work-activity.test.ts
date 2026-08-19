@@ -66,6 +66,17 @@ describe("Remote Agent user-visible work semantics", () => {
     });
   });
 
+  it("describes a member Computer read precisely", () => {
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_read_member_computers", {
+        memberUserId: "user_1",
+      })
+    ).toEqual({
+      v: 1,
+      key: "organization.member_computers.read",
+    });
+  });
+
   it("reuses bounded documentation-read work for the Changelog", () => {
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_read_changelog", {})

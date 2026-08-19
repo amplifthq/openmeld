@@ -359,6 +359,11 @@ const AGENT_WORK_COPY = {
 		"Started learning about you",
 		"Couldn't start learning about you"
 	),
+	"organization.member_computers.read": workCopy(
+		"Checking a member's Computers…",
+		"Checked a member's Computers",
+		"Couldn't check the member's Computers"
+	),
 	"organization.member_service_status.read": workCopy(
 		"Checking member OpenMeld Service status…",
 		"Checked member OpenMeld Service status",

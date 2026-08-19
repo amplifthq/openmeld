@@ -13,6 +13,7 @@ import {
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
   centerAgentModelConfigurationResponseSchema,
   centerAgentReadConnectorActionOperationResponseSchema,
+  centerAgentReadMemberComputersResponseSchema,
   centerAgentReadSpaceContextBodySchema,
   centerAgentReadSpaceContextResponseSchema,
   centerAgentRemoteRuntimeAvailabilityReasonCodeSchema,
@@ -126,9 +127,11 @@ describe("Center Agent HTTP schemas", () => {
   it("keeps computer setup context isolated from the strict candidate RPC", () => {
     expect(
       centerAgentListComputersBodySchema.parse({
+        includeDiagnostics: true,
         speakerMember: { memberId: "member_1", userId: "user_1" },
       })
     ).toEqual({
+      includeDiagnostics: true,
       speakerMember: { memberId: "member_1", userId: "user_1" },
     });
     expect(centerAgentListComputersBodySchema.safeParse({}).success).toBe(
@@ -141,6 +144,22 @@ describe("Center Agent HTTP schemas", () => {
         organizationId: "org_1",
       }).success
     ).toBe(false);
+  });
+
+  it("keeps teammate Computer reads on the strict team-safe projection", () => {
+    expect(
+      centerAgentReadMemberComputersResponseSchema.parse({
+        computers: [],
+        generatedAt: "2026-08-19T00:00:00.000Z",
+        memberUserId: "user_2",
+        organizationId: "org_1",
+      })
+    ).toEqual({
+      computers: [],
+      generatedAt: "2026-08-19T00:00:00.000Z",
+      memberUserId: "user_2",
+      organizationId: "org_1",
+    });
   });
 
   it("keeps connector replay attribution tied to the frozen execution connection", () => {
@@ -328,6 +347,15 @@ describe("Center Agent HTTP schemas", () => {
     expect(
       listCenterAgentAuditJournalQuerySchema.parse({ actionSet: "v3" })
     ).toEqual({ actionSet: "v3" });
+  });
+
+  it("versions member Computer reads behind the v19 action set", () => {
+    expect(centerAgentActionSchema.parse("read_member_computers")).toBe(
+      "read_member_computers"
+    );
+    expect(
+      listCenterAgentAuditJournalQuerySchema.parse({ actionSet: "v19" })
+    ).toEqual({ actionSet: "v19" });
   });
 
   it("accepts the Center Agent Project audit actions", () => {

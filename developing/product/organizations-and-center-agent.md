@@ -597,13 +597,22 @@ Before recommending one of those actions, it reads the Core-owned current
 computer projection through `openmeld_list_computers`. The projection returns
 the exact `connectedComputerId` used by Connect, a coarse status, current-device
 identity, reason codes, and one recommended mode: `setup`, `reconnect`, or
-`update_service`. Core binds that read to the turn's verified represented human
-member and fails closed before reading inventory when the speaker identity is
-missing, mismatched, inactive, or outside the Organization. The read must not
-adopt or mutate local-runtime identity. The Center Agent must use that exact
-mode and connected computer id when building the trusted action. It must not
-infer update state from conversation text, substitute a device id, or expose
-another member's computer context.
+`update_service`. On an explicit owner-level read, the same tool also returns
+the represented member's complete Local Runtimes, current-computer reply
+diagnostics, OpenMeld Tools versions and update state, Local Agent details, and
+a path-free File Access summary. File Access exposes only mode, revision,
+updated time, and selected-folder count; local folder paths never enter the
+Center Agent result.
+
+Core binds that private read to the turn's verified represented human member
+and fails closed before reading inventory when the speaker identity is missing,
+mismatched, inactive, or outside the Organization. Owner-level diagnostics are
+read on demand; they are not automatically injected into model context. The
+read must not adopt or mutate local-runtime identity. The Center Agent must use
+the exact recommended mode and connected computer id when building the trusted
+action. It must not infer update state from conversation text, substitute a
+device id, treat current-computer diagnostics as Agent Profile readiness, or
+expose another member's private computer context.
 
 Presentation follows the conversation host:
 
@@ -2191,6 +2200,15 @@ the current Organization before any Service lookup. The tool returns only the
 member id and one of the four coarse states above, records an
 `organization_member` audit entry, and never grants device management or
 exposes device details.
+
+When the request genuinely requires another member's Computer details, the
+designated Center Agent may instead call `openmeld_read_member_computers` with
+the exact directory `userId`. Core reuses the same strict team-safe Organization
+Computer projection shown to teammates, filters it to that current member, and
+records an `organization_member` audit entry. This tool never upgrades to the
+owner projection, even when the target happens to match the requester; private
+File Access, paths, commands, accounts, policies, and management controls stay
+absent.
 
 **Profile Report** is the stable product term for this document so it does not
 collide with Agent Profile or Human Profile identity. The persisted document

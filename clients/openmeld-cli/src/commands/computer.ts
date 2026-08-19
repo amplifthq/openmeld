@@ -1,10 +1,17 @@
 import {
   type CreateCurrentDeviceApi,
+  createComputerFileAccessApi,
   createCurrentDeviceApi,
+  toStructuredApiClientFailure,
 } from "@openmeld/api-client";
+import {
+  ownerComputerDiagnosticsSchema,
+  summarizeComputerFileAccessPolicy,
+} from "@openmeld/schemas";
 import type {
   LocalRuntimeComputer,
   LocalRuntimesResponse,
+  OwnerComputerDiagnostics,
 } from "@openmeld/schemas/types";
 import { resolveBaseUrl } from "../config/base-url";
 import { readCurrentLocalDeviceId } from "../local-service/state/current-device-identity";
@@ -85,9 +92,8 @@ export async function runComputerCurrent(
   }
 
   const gatewayUrl = await resolveBaseUrl();
-  const currentDeviceApi = createCurrentDeviceApi(
-    createCliApiClientFoundation(gatewayUrl)
-  );
+  const apiClient = createCliApiClientFoundation(gatewayUrl);
+  const currentDeviceApi = createCurrentDeviceApi(apiClient);
 
   await syncCurrentComputerObservation({
     currentDeviceApi,
@@ -99,11 +105,18 @@ export async function runComputerCurrent(
   const currentComputer = findLocalRuntime(response, deviceId);
 
   if (presenter.view === "agent") {
+    const diagnostics = await readCurrentComputerDiagnostics({
+      apiClient,
+      currentComputer,
+      currentDeviceApi,
+      localRuntimes: response,
+    });
     presenter.data({
       code: "computer.current.completed",
       payload: {
         computer: currentComputer,
         currentDeviceId: response.currentDeviceId,
+        diagnostics,
       },
     });
     return;
@@ -113,6 +126,53 @@ export async function runComputerCurrent(
     code: "computer.current.completed",
     text: formatComputerHumanLine(currentComputer),
   });
+}
+
+async function readCurrentComputerDiagnostics(input: {
+  apiClient: ReturnType<typeof createCliApiClientFoundation>;
+  currentComputer: LocalRuntimeComputer;
+  currentDeviceApi: CurrentDeviceApi;
+  localRuntimes: LocalRuntimesResponse;
+}): Promise<OwnerComputerDiagnostics> {
+  const [currentLocalRuntimeReplyReadiness, currentComputerFileAccess] =
+    await Promise.all([
+      input.currentDeviceApi.getCurrentLocalRuntimeReplyReadiness(),
+      readCurrentComputerFileAccessSummary({
+        apiClient: input.apiClient,
+        currentComputer: input.currentComputer,
+      }),
+    ]);
+  return ownerComputerDiagnosticsSchema.parse({
+    currentComputerFileAccess,
+    currentLocalRuntimeReplyReadiness,
+    localRuntimes: input.localRuntimes,
+  });
+}
+
+async function readCurrentComputerFileAccessSummary(input: {
+  apiClient: ReturnType<typeof createCliApiClientFoundation>;
+  currentComputer: LocalRuntimeComputer;
+}): Promise<OwnerComputerDiagnostics["currentComputerFileAccess"]> {
+  if (input.currentComputer.computerFileAccess?.readPolicy !== true) {
+    return { status: "unsupported" };
+  }
+
+  try {
+    const response = await createComputerFileAccessApi(
+      input.apiClient
+    ).readPolicy({ expectedDeviceId: input.currentComputer.deviceId });
+    return summarizeComputerFileAccessPolicy(response);
+  } catch (error) {
+    const failure = toStructuredApiClientFailure(error);
+    return {
+      code:
+        failure.upstreamCode ??
+        failure.code ??
+        "computer.file_access.unavailable",
+      message: failure.message,
+      status: "unavailable",
+    };
+  }
 }
 
 export async function runComputerRename(
