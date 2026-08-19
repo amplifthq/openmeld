@@ -2384,12 +2384,17 @@ Report subjects are current organization members. Web and Gateway consume this
 hierarchy as a projection; neither owns a parallel folder tree.
 
 Approved content and draft content are separate fields with separate mutation
-paths. Approval is the only operation that copies a pending draft into approved
-content; discard clears only the draft. A separately authorized direct-save path
-may create or update approved ordinary knowledge, but it cannot target a
-document while a draft is pending. Prompt context reads approved content only.
-Neither Gateway, Web, nor the Remote Agent worker owns a second document store or
-may infer approval from a draft timestamp.
+paths. For Organization Brief and knowledge documents, approval is the only
+operation that copies a pending draft into approved content; discard clears only
+the draft. A Profile Report is the deliberate exception: a version-fenced human
+content save accepts the visible provisional body and clears its draft fields,
+including when the body was not edited. The same successful mutation resolves
+the matching Inbox projection; reconciliation is recovery rather than the
+normal resolution path. A separately authorized direct-save path may create or
+update approved ordinary knowledge, but it cannot target a document while a
+draft is pending. Prompt context reads approved content only. Neither Gateway,
+Web, nor the Remote Agent worker owns a second document store or may infer
+approval from a draft timestamp.
 
 The Center Agent Computer may contain a read-only, versioned projection of all
 approved Organization Documents. Core produces the complete snapshot and its

@@ -128,6 +128,7 @@ import {
   isRemoteAgentToolResultTooLarge,
   normalizeRemoteAgentErrorMessage,
 } from "./error-message";
+import { extractSlackThreadPublicationTargetKeys } from "./slack-thread-publication-evidence";
 import type { RemoteAgentTurnUsage, RemoteAgentUsageRecord } from "./usage";
 
 export type RemoteAgentCallbackStatus =
@@ -210,6 +211,7 @@ export type RemoteAgentCallbackContext = {
   organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
   requestId?: string;
   sourceClientMessageId: string | null;
+  trustedSlackThreadPublicationTargetKeys?: string[];
   spaceId: string;
   submissionCreatedAt: number;
   submissionId: string;
@@ -557,6 +559,10 @@ export function createRemoteAgentCallbackContext(input: {
       })) ?? [],
     requestId: input.ack.requestId,
     sourceClientMessageId: input.request.sourceClientMessageId ?? null,
+    trustedSlackThreadPublicationTargetKeys:
+      extractSlackThreadPublicationTargetKeys(
+        input.request.messages.map((message) => message.content)
+      ),
     spaceId: input.request.spaceId,
     submissionCreatedAt: input.ack.createdAt,
     submissionId: input.ack.submissionId,

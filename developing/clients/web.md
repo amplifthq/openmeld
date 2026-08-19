@@ -1356,7 +1356,9 @@ an explicit view toggle and must remain unchanged until approval; draft text
 becomes approved content only through approval. A Profile Report is the
 deliberate exception in presentation: the browser does not add a Draft warning,
 and its detail page shows the latest provisional result under **What I've
-learned so far** without approve, discard, or review instructions.
+learned so far** without approve or discard controls. When that visible version
+still needs to be saved, the explanation says so directly and the existing
+**Save changes** action is available without requiring a text edit.
 
 The Documents root includes one compact, non-technical sharing explanation:
 approved Documents are available on the Center Agent Computer, and its proposed
@@ -1384,8 +1386,9 @@ amber review bar owns the draft/approved view toggle and the approve and
 discard actions for Organization Brief and knowledge drafts. A provisional
 Profile Report opens directly in the same editable Plate editor for the person
 it describes. Saving turns that visible starting point into the member's
-current content without an approval, correction, or discard chore; the calm
-explanation only says that the Center Agent will keep learning.
+current content and resolves its Inbox attention without an approval-specific
+button, correction flow, or discard chore. The calm explanation names review
+and save as the one next action only while a provisional version is pending.
 Documents introduces no upload surface.
 
 People cards link only to a Profile Report that already exists. They never open

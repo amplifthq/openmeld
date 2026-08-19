@@ -3555,6 +3555,15 @@ describe("organization Core RPC", () => {
     const postedBodies: unknown[] = [];
     const slackFetch = vi.fn<typeof fetch>((request, init) => {
       const pathname = new URL(String(request)).pathname;
+      if (pathname === "/api/chat.getPermalink") {
+        return Promise.resolve(
+          Response.json({
+            ok: true,
+            permalink:
+              "https://openmeld.slack.com/archives/C123/p1786979718999999?thread_ts=1786979718.343639&cid=C123",
+          })
+        );
+      }
       if (pathname === "/api/conversations.list") {
         return Promise.resolve(
           Response.json({
@@ -3603,18 +3612,30 @@ describe("organization Core RPC", () => {
     await expect(
       rpcCenterAgentPostSlackThreadMessage(env, {
         ...request,
-        threadTs: "1786979718.343639",
+        threadPermalink:
+          "https://openmeld.slack.com/archives/C123/p1786979718999999",
       })
     ).resolves.toMatchObject({ messageTs: "1787091616.1" });
     await expect(
       rpcCenterAgentPostSlackThreadMessage(env, {
         ...request,
-        threadTs: "1786979718.343639",
+        threadPermalink:
+          "https://openmeld.slack.com/archives/C123/p1786979718999999",
       })
     ).resolves.toMatchObject({ messageTs: "1787091616.1" });
     await expect(
       rpcCenterAgentPostSlackChannelMessage(env, request)
     ).resolves.toMatchObject({ messageTs: "1787091616.2" });
+    await expect(
+      rpcCenterAgentPostSlackThreadMessage(env, {
+        ...request,
+        threadPermalink:
+          "https://other.slack.com/archives/C_OTHER/p1786979718999999",
+      })
+    ).rejects.toMatchObject({
+      code: "center_agent.slack_thread_target_invalid",
+      status: 409,
+    });
 
     expect(postedBodies).toEqual([
       expect.objectContaining({

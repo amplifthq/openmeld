@@ -28,6 +28,10 @@ import {
   centerAgentModelPreferenceSchema,
   centerAgentModelSummarySchema,
 } from "../runtime/center-agent-model";
+import {
+  slackMessagePermalinkSchema,
+  slackThreadPublicationPermalinkSchema,
+} from "../runtime/message-channel";
 import { remoteAgentSlackSearchAuthorizationSchema } from "../runtime/remote-agent-turn-envelope";
 import { spaceThreadContextSchema } from "../space-mesh/space-thread";
 import { getAgentExecutionReadinessResponseSchema } from "./agent-execution-readiness";
@@ -717,28 +721,39 @@ export const centerAgentPublicationSourceSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-const centerAgentSlackMessageBodyFields = {
-  channelName: trimmedNonEmptyStringSchema.max(80),
+const centerAgentSlackMessageCommonBodyFields = {
   speakerMember: centerAgentToolSpeakerSchema,
   text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
 };
 
 export const centerAgentPostSlackChannelMessageBodySchema = z.strictObject({
-  ...centerAgentSlackMessageBodyFields,
+  ...centerAgentSlackMessageCommonBodyFields,
+  channelName: trimmedNonEmptyStringSchema.max(80),
   // Optional only for the existing top-level publication rollout. The current
   // Remote Agent always sends a system-bound source.
   publicationSource: centerAgentPublicationSourceSchema.optional(),
 });
 
-export const centerAgentPostSlackThreadMessageBodySchema = z.strictObject({
-  ...centerAgentSlackMessageBodyFields,
-  publicationSource: centerAgentRemoteAgentExecutionPublicationSourceSchema,
-  threadTs: z
-    .string()
-    .trim()
-    .regex(/^\d+\.\d+$/)
-    .max(32),
-});
+export const centerAgentPostSlackThreadMessageBodySchema = z.union([
+  z.strictObject({
+    ...centerAgentSlackMessageCommonBodyFields,
+    publicationSource: centerAgentRemoteAgentExecutionPublicationSourceSchema,
+    threadPermalink: slackThreadPublicationPermalinkSchema,
+  }),
+  // Compatibility receiver for an already-running older Remote Agent. The
+  // current caller sends a trusted permalink and never sends a model-authored
+  // channel/timestamp pair.
+  z.strictObject({
+    ...centerAgentSlackMessageCommonBodyFields,
+    channelName: trimmedNonEmptyStringSchema.max(80),
+    publicationSource: centerAgentRemoteAgentExecutionPublicationSourceSchema,
+    threadTs: z
+      .string()
+      .trim()
+      .regex(/^\d+\.\d+$/)
+      .max(32),
+  }),
+]);
 
 export const centerAgentSearchSlackMessagesBodySchema = z.strictObject({
   includeBots: z.boolean().optional(),
@@ -1350,7 +1365,7 @@ const centerAgentSlackSearchEvidenceItemSchema = z.strictObject({
   ),
   isAuthorBot: z.boolean(),
   messageTs: trimmedNonEmptyStringSchema.max(64),
-  permalink: z.url().max(2048),
+  permalink: slackMessagePermalinkSchema,
 });
 
 export const centerAgentSlackSearchMessageSchema =
