@@ -1416,6 +1416,7 @@ export {
   organizationComputerOpenMeldToolsSchema,
   organizationComputerSchema,
   organizationComputersResponseSchema,
+  projectOrganizationComputerLocalAgentDetails,
 } from "./http/organization-computers";
 export {
   organizationDirectoryAgentProfileIdentitySchema,
@@ -1630,6 +1631,8 @@ export {
 export {
   computerFileAccessSummarySchema,
   ownerComputerDiagnosticsSchema,
+  ownerComputerLocalRuntimesSchema,
+  projectOwnerComputerLocalRuntimes,
   summarizeComputerFileAccessPolicy,
 } from "./http/owner-computer-diagnostics";
 export {

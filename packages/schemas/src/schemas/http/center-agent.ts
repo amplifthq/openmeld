@@ -1027,9 +1027,21 @@ export const centerAgentReadMemberComputersBodySchema = z.strictObject({
 });
 
 export const centerAgentReadMemberComputersResponseSchema =
-  organizationComputersResponseSchema.extend({
-    memberUserId: trimmedNonEmptyStringSchema,
-  });
+  organizationComputersResponseSchema
+    .extend({
+      memberUserId: trimmedNonEmptyStringSchema,
+    })
+    .superRefine((value, context) => {
+      value.computers.forEach((computer, index) => {
+        if (computer.ownerUserId !== value.memberUserId) {
+          context.addIssue({
+            code: "custom",
+            message: "computer ownerUserId must match memberUserId",
+            path: ["computers", index, "ownerUserId"],
+          });
+        }
+      });
+    });
 
 export const centerAgentConnectAgentProfileToLocalAgentBodySchema =
   z.strictObject({

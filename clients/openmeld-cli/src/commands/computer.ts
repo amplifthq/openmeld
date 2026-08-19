@@ -6,6 +6,7 @@ import {
 } from "@openmeld/api-client";
 import {
   ownerComputerDiagnosticsSchema,
+  projectOwnerComputerLocalRuntimes,
   summarizeComputerFileAccessPolicy,
 } from "@openmeld/schemas";
 import type {
@@ -145,7 +146,7 @@ async function readCurrentComputerDiagnostics(input: {
   return ownerComputerDiagnosticsSchema.parse({
     currentComputerFileAccess,
     currentLocalRuntimeReplyReadiness,
-    localRuntimes: input.localRuntimes,
+    localRuntimes: projectOwnerComputerLocalRuntimes(input.localRuntimes),
   });
 }
 

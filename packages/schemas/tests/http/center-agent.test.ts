@@ -162,6 +162,29 @@ describe("Center Agent HTTP schemas", () => {
     });
   });
 
+  it("rejects teammate Computer rows owned by a different member", () => {
+    expect(
+      centerAgentReadMemberComputersResponseSchema.safeParse({
+        computers: [
+          {
+            computerId: "computer_1",
+            deviceDisplayName: "Someone else's MacBook",
+            deviceType: "laptop",
+            lastSeenAtMs: 1,
+            localAgents: [],
+            osVersion: "15.6",
+            ownerUserId: "user_3",
+            platformFamily: "macOS",
+            serviceState: "connected",
+          },
+        ],
+        generatedAt: "2026-08-19T00:00:00.000Z",
+        memberUserId: "user_2",
+        organizationId: "org_1",
+      }).success
+    ).toBe(false);
+  });
+
   it("keeps connector replay attribution tied to the frozen execution connection", () => {
     const response = {
       operation: {

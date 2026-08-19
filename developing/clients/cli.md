@@ -947,6 +947,13 @@ These commands are read-only owner tools for Local Agents; they do not make CLI
 inventory or current-computer diagnostics authoritative for Agent Profile
 readiness, Wake availability, or execution outcome.
 
+The CLI may expose the authenticated user's local owner inventory because it is
+the user's direct local Agent View. The Center Agent RPC is a separate
+model-facing boundary: even in a requester-private conversation it receives
+only the shared model-safe owner projection and never receives controller
+accounts, executable paths, launch arguments, update commands, raw diagnostic
+messages, or private skills.
+
 Agent View is an output and interaction mode, not an acting identity. The
 acting identity is the OpenMeld profile resolved from `--profile` or the current
 selected profile. Space commands may use a human or agent profile in Agent View;

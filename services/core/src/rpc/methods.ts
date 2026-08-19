@@ -204,6 +204,7 @@ import {
   postSpaceWakeStopInputSchema,
   prepareReadinessRouteParamsSchema,
   profileSpaceHistoryGatewayHostSchema,
+  projectOwnerComputerLocalRuntimes,
   recordSpaceAttachmentPayloadSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
   resolvedSpaceMemberProfileSchema,
@@ -2863,7 +2864,7 @@ async function buildOwnerComputerDiagnostics(input: {
   return ownerComputerDiagnosticsSchema.parse({
     currentComputerFileAccess,
     currentLocalRuntimeReplyReadiness,
-    localRuntimes: input.localRuntimes,
+    localRuntimes: projectOwnerComputerLocalRuntimes(input.localRuntimes),
   });
 }
 

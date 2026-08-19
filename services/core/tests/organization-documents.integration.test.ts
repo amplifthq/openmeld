@@ -5,10 +5,7 @@ import {
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
-import {
-  prepareCenterAgentOrganizationMemberRequest,
-  rpcCenterAgentAuthorizeAnonymousMemberTool,
-} from "../src/center-agent/application/anonymous-member-request";
+import { rpcCenterAgentAuthorizeAnonymousMemberTool } from "../src/center-agent/application/anonymous-member-request";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   beginCenterAgentOrganizationDocumentOperation,
@@ -40,6 +37,8 @@ import {
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
   rpcCenterAgentGetOrganizationDirectory,
+  rpcCenterAgentListComputers,
+  rpcCenterAgentReadMemberComputers,
   rpcListCenterAgentAuditJournal,
 } from "../src/rpc/methods";
 
@@ -2105,19 +2104,52 @@ describe("Organization documents", () => {
     ).resolves.toMatchObject({
       organizationId: fixture.organizationId,
     });
+    await expect(
+      rpcCenterAgentAuthorizeAnonymousMemberTool(coreEnv, {
+        context,
+        speakerMember,
+        toolName: "openmeld_read_member_computers",
+      })
+    ).resolves.toEqual({
+      authorized: true,
+      sourceNativeDeliveryId: delivery.deliveryId,
+    });
+    await expect(
+      rpcCenterAgentReadMemberComputers(coreEnv, {
+        context,
+        memberUserId: fixture.owner.userId,
+        speakerMember,
+      })
+    ).resolves.toMatchObject({
+      computers: expect.any(Array),
+      memberUserId: fixture.owner.userId,
+      organizationId: fixture.organizationId,
+    });
+    await expect(
+      rpcCenterAgentListComputers(coreEnv, {
+        context,
+        includeDiagnostics: true,
+        speakerMember,
+      })
+    ).rejects.toMatchObject({
+      cause: {
+        code: "center_agent.openmeld_identity_required",
+        status: 403,
+      },
+    });
 
     await expect(
-      prepareCenterAgentOrganizationMemberRequest(
-        { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings,
+      rpcCenterAgentReadMemberComputers(coreEnv, {
         context,
-        {
+        memberUserId: fixture.owner.userId,
+        speakerMember: {
           ...speakerMember,
           messageChannelIdentity: {
             ...speakerMember.messageChannelIdentity,
             providerUserId: "U_OTHER",
           },
-        }
-      )
+        },
+      })
     ).rejects.toMatchObject({
       cause: {
         code: "center_agent.anonymous_member_delivery_mismatch",
@@ -2178,14 +2210,11 @@ describe("Organization documents", () => {
       submissionId: delivery.submissionId,
     });
     await expect(
-      rpcCenterAgentAuthorizeAnonymousMemberTool(
-        { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings,
-        {
-          context,
-          speakerMember,
-          toolName: "openmeld_read_org_documents",
-        }
-      )
+      rpcCenterAgentReadMemberComputers(coreEnv, {
+        context,
+        memberUserId: fixture.owner.userId,
+        speakerMember,
+      })
     ).rejects.toMatchObject({
       cause: {
         code: "center_agent.anonymous_member_delivery_inactive",

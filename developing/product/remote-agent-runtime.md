@@ -1731,8 +1731,12 @@ existing team-safe Organization Computer projection rather than the coarse
 Service state. The model must first use the Directory `userId`; Core rechecks
 membership, filters the projection to that member, and records the read. The
 verified requester's separate `openmeld_list_computers` tool may request the
-owner diagnostics projection on demand. That private result is never automatic
-context and its File Access summary cannot contain local paths.
+model-safe owner diagnostics projection on demand, but only in a
+requester-private conversation. A shared Space, channel, or thread fails closed
+before Core receives the private read. That result is never automatic context;
+its Local Agent details exclude accounts, executable paths, launch arguments,
+update commands, raw diagnostic messages, and private skills, and its File
+Access summary cannot contain local paths.
 
 This is an additive shared-schema, Agent work-activity, and private Service
 Binding rollout. Deploy Core, then Web, then Remote Agent. The new Remote Agent

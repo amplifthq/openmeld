@@ -1307,7 +1307,12 @@ describe("organization Core RPC", () => {
         },
         currentLocalRuntimeReplyReadiness:
           createMissingCurrentComputerReadiness(),
-        localRuntimes,
+        localRuntimes: {
+          currentConnectedComputerId: null,
+          currentDeviceId: null,
+          currentRuntimeLane: null,
+          localRuntimes: [],
+        },
       },
       organizationId: "org-a",
     });
@@ -1469,6 +1474,43 @@ describe("organization Core RPC", () => {
       status: 404,
     });
     expect(lookupOwnerService).not.toHaveBeenCalled();
+    expect(db.centerAgentAuditRows).toEqual([]);
+  });
+
+  it("fails closed before reading Computers for a user outside the current Organization", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const env = buildEnv({ db });
+    const listComputers = vi.spyOn(
+      organizationComputersService,
+      "listOrganizationComputers"
+    );
+
+    await expect(
+      rpcCenterAgentReadMemberComputers(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+        memberUserId: "user-outside-org",
+      })
+    ).rejects.toMatchObject({
+      code: "center_agent.member_not_found",
+      status: 404,
+    });
+    expect(listComputers).not.toHaveBeenCalled();
     expect(db.centerAgentAuditRows).toEqual([]);
   });
 

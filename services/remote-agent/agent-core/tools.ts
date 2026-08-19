@@ -1,3 +1,4 @@
+import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
 import {
   agentActivitySnapshotResponseSchema,
   agentControllerCollaborationModeSchema,
@@ -3700,13 +3701,16 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         "Read the verified requester's own Computer information, including every connected Computer, OpenMeld Tools versions and updates, local agent status and versions, current reply diagnostics, and a path-free File Access summary. Use this before offering computer setup, recovery, or deciding whether a local agent is usable. This is private owner-level data and requires a verified requester. It does not make current-computer diagnostics the authority for any Agent Profile's readiness. When setup is required, OpenMeld automatically attaches the exact recommended navigation action to this result; do not request a second computer navigation action.",
       input: object({}),
       execute: async () => {
-        const toolContext = await buildVerifiedMemberToolContext({
-          missingSpeakerMessage:
-            "Computer setup requires a verified human Organization member speaker.",
-          storage: input.storage,
-          submissionId: input.submissionId,
-          toolName: "openmeld_list_computers",
-        });
+        const toolContext =
+          await buildRequesterPrivateVerifiedMemberToolContext({
+            missingSpeakerMessage:
+              "Computer setup requires a verified human Organization member speaker.",
+            sharedAudienceMessage:
+              "Private Computer diagnostics are available only in your direct conversation with the Center Agent.",
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_list_computers",
+          });
         const rpc = requireCoreRpc(
           input.coreWorker.centerAgentListComputers,
           "centerAgentListComputers"
@@ -4626,6 +4630,33 @@ async function buildVerifiedMemberToolContext(input: {
       input.missingSpeakerMessage ??
         "Routine management tools require a verified human member speaker."
     );
+  }
+  return { context: toolContext.context, speakerMember };
+}
+
+async function buildRequesterPrivateVerifiedMemberToolContext(input: {
+  missingSpeakerMessage: string;
+  sharedAudienceMessage: string;
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+  toolName: RemoteAgentOpenMeldToolName;
+}): Promise<{
+  context: OpenMeldRequestContext;
+  speakerMember: { memberId: string; userId: string };
+}> {
+  const toolContext = await buildOpenMeldToolContext(input);
+  if (
+    !toolContext.turnEnvelope ||
+    resolveCenterAgentContextScopePlan(toolContext.turnEnvelope)
+      .interactionEnvironment !== "requester_private"
+  ) {
+    throw new Error(input.sharedAudienceMessage);
+  }
+  const speakerMember = resolveVerifiedTurnEnvelopeSpeaker(
+    toolContext.turnEnvelope
+  );
+  if (!speakerMember) {
+    throw new Error(input.missingSpeakerMessage);
   }
   return { context: toolContext.context, speakerMember };
 }

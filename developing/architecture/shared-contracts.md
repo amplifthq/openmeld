@@ -2451,17 +2451,24 @@ this is a read projection, it must not request legacy connection identity
 adoption or otherwise write local-runtime identity state. Core projects
 computer identity, status, reason codes, and recommended setup mode from that
 current Local Runtimes response. Remote Agent exposes the projection through
-`openmeld_list_computers` and fails closed when the new Core receiver is absent.
+`openmeld_list_computers` only in a requester-private conversation and fails
+closed when the audience is shared, the verified member is absent, or the new
+Core receiver is absent.
 This read contract does not grant computer management authority or change
 OpenMeld Service, daemon, Prepare Session, RuntimeCoordinator, or local
 component contracts.
 
 The optional `includeDiagnostics` request flag expands only this verified-owner
 read. Its optional `diagnostics` response uses
-`owner-computer-diagnostics.ts` to compose the existing Local Runtimes response,
-current-local-runtime reply-readiness response, and a File Access summary. It
-creates no persisted fact and does not replace Core-owned Agent execution
-readiness. The File Access summary intentionally cannot represent folder paths.
+`owner-computer-diagnostics.ts` to compose a model-safe projection of the
+existing Local Runtimes response, current-local-runtime reply-readiness
+response, and a File Access summary. The Local Runtime projection preserves
+Computer state plus Local Agent status, installed version, update state,
+capabilities, model display names, and check evidence. It excludes controller
+accounts, executable paths, launch arguments, update commands, raw diagnostic
+messages, private skills, and local policy. It creates no persisted fact and
+does not replace Core-owned Agent execution readiness. The File Access summary
+intentionally cannot represent folder paths.
 
 This optional pair is the mixed-version fence: new Remote Agent requests
 diagnostics explicitly; old Remote Agent omits the flag, so new Core omits the
