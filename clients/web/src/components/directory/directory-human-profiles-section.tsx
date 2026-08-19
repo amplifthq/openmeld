@@ -6,6 +6,14 @@ import type {
 } from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@openmeld/ui/components/dialog";
+import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
@@ -17,14 +25,12 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
-import {
-	resolveStatusToneCompactBadgeClassName,
-	resolveStatusToneIndicatorClassName,
-	resolveStatusToneTextClassName,
-} from "@openmeld/ui/lib/status-tone";
+import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
+	CheckIcon,
+	DesktopTowerIcon,
 	DotsThreeIcon,
 	FileTextIcon,
 	InfoIcon,
@@ -32,6 +38,7 @@ import {
 	PlusIcon,
 	UserFocusIcon,
 	UserIcon,
+	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -40,8 +47,9 @@ import {
 	DirectoryCardItem,
 } from "#/components/directory/directory-card-grid";
 import type {
+	DirectoryConnectableAccount,
+	DirectoryConnectedAccount,
 	DirectoryHumanProfileRow,
-	DirectoryMemberOpenMeldServiceDisplayState,
 } from "#/components/directory/directory-human-profile-model";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { HumanProfileEditDialog } from "#/components/profiles/human-profile-edit-dialog";
@@ -79,6 +87,7 @@ export function DirectoryHumanProfilesSection(input: {
 	onCreateProfile: () => void;
 	onFocusConsumed?: () => void;
 	onOpenDirectMessage: (profileId: string) => Promise<void>;
+	onDisconnectConnectedAccount: (identityLinkId: string) => void;
 	onResearch: (subjectUserId: string) => void;
 	onResearchAll: () => void;
 	pendingResearch: DirectoryMemberResearchRequest | undefined;
@@ -141,6 +150,7 @@ export function DirectoryHumanProfilesSection(input: {
 							latestTasks={latestTasks}
 							member={member}
 							memberResearchError={input.memberResearchError}
+							onDisconnectConnectedAccount={input.onDisconnectConnectedAccount}
 							onOpenDirectMessage={input.onOpenDirectMessage}
 							onResearch={input.onResearch}
 							pendingResearch={input.pendingResearch}
@@ -215,12 +225,17 @@ function DirectoryHumanProfileCard(input: {
 	latestTasks: readonly CenterAgentMemberResearchTask[];
 	member: DirectoryHumanProfileRow;
 	memberResearchError: { message: string; subjectUserId: string } | null;
+	onDisconnectConnectedAccount: (identityLinkId: string) => void;
 	onOpenDirectMessage: (profileId: string) => Promise<void>;
 	onResearch: (subjectUserId: string) => void;
 	pendingResearch: DirectoryMemberResearchRequest | undefined;
 	rowRef: (node: HTMLElement | null) => void;
 	state: DirectoryHumanProfileCardState;
 }) {
+	const [connectableAccount, setConnectableAccount] =
+		useState<DirectoryConnectableAccount | null>(null);
+	const [connectedAccount, setConnectedAccount] =
+		useState<DirectoryConnectedAccount | null>(null);
 	const task = input.latestTasks.find(
 		(candidate) => candidate.subjectUserId === input.member.userId
 	);
@@ -233,98 +248,159 @@ function DirectoryHumanProfileCard(input: {
 			? input.memberResearchError.message
 			: null;
 	return (
-		<ProfileCard
-			actions={
-				<HumanProfileReportContent
-					member={input.member}
-					memberResearchError={memberResearchError}
-				/>
-			}
-			className={cn(
-				"min-h-40",
-				input.state.highlight === "highlighted"
-					? "border-ring bg-muted/30 ring-1 ring-ring/60"
-					: null
-			)}
-			footerLeft={input.member.footerDetail}
-			footerRight={<HumanProfileMemberBadges member={input.member} />}
-			icon={<HumanProfileIcon member={input.member} />}
-			menu={
-				<HumanProfileCardActions
-					activeBatch={input.activeBatch}
-					directMessageIsPending={input.state.directMessage === "pending"}
-					isResearchPending={input.state.research === "pending"}
-					isStarting={isStarting}
-					member={input.member}
-					memberResearchError={memberResearchError}
-					onOpenDirectMessage={async () => {
-						await input.onOpenDirectMessage(input.member.id);
-					}}
-					onResearch={input.onResearch}
-					task={task}
-				/>
-			}
-			rowRef={input.rowRef}
-			secondarySubtitle={
-				<span className="flex flex-col items-start">
-					<span>{input.member.email}</span>
-					{input.member.openMeldServiceState ? (
-						<MemberOpenMeldServiceStatus
-							state={input.member.openMeldServiceState}
-						/>
-					) : null}
-				</span>
-			}
-			subtitle={
-				input.member.profileHandle
-					? `Handle ${input.member.profileHandle}`
-					: "Human Profile not connected"
-			}
-			testId={
-				input.state.context === "organization"
-					? "organization-human-profile-row"
-					: "human-profile-row"
-			}
-			title={input.member.name}
-		/>
+		<>
+			<ProfileCard
+				actions={
+					<HumanProfileConnections
+						member={input.member}
+						memberResearchError={memberResearchError}
+						onConnectAccount={setConnectableAccount}
+						onManageAccount={setConnectedAccount}
+					/>
+				}
+				className={cn(
+					"min-h-40",
+					input.state.highlight === "highlighted"
+						? "border-ring bg-muted/30 ring-1 ring-ring/60"
+						: null
+				)}
+				icon={<HumanProfileIcon member={input.member} />}
+				menu={
+					<HumanProfileCardActions
+						activeBatch={input.activeBatch}
+						directMessageIsPending={input.state.directMessage === "pending"}
+						isResearchPending={input.state.research === "pending"}
+						isStarting={isStarting}
+						member={input.member}
+						memberResearchError={memberResearchError}
+						onOpenDirectMessage={async () => {
+							await input.onOpenDirectMessage(input.member.id);
+						}}
+						onResearch={input.onResearch}
+						task={task}
+					/>
+				}
+				rowRef={input.rowRef}
+				secondarySubtitle={
+					input.member.profileStatus === "disabled" ? "Disabled" : null
+				}
+				subtitle={input.member.email}
+				testId={
+					input.state.context === "organization"
+						? "organization-human-profile-row"
+						: "human-profile-row"
+				}
+				title={input.member.name}
+				titleAction={<HumanProfileRoleBadge member={input.member} />}
+			/>
+			<ConnectChannelAccountDialog
+				account={connectableAccount}
+				onOpenChange={(open) => {
+					if (!open) {
+						setConnectableAccount(null);
+					}
+				}}
+			/>
+			<ManageChannelAccountDialog
+				account={connectedAccount}
+				onDisconnect={() => {
+					if (connectedAccount) {
+						input.onDisconnectConnectedAccount(connectedAccount.id);
+						setConnectedAccount(null);
+					}
+				}}
+				onOpenChange={(open) => {
+					if (!open) {
+						setConnectedAccount(null);
+					}
+				}}
+			/>
+		</>
 	);
 }
 
-function HumanProfileReportContent(input: {
+function HumanProfileConnections(input: {
 	member: DirectoryHumanProfileRow;
 	memberResearchError: string | null;
+	onConnectAccount: (account: DirectoryConnectableAccount) => void;
+	onManageAccount: (account: DirectoryConnectedAccount) => void;
 }) {
-	const reportActionClassName = buttonVariants({
-		size: "sm",
-		variant: "ghost",
-	});
-
 	return (
-		<div className="space-y-2">
-			{input.member.reportAction.kind === "link" ? (
-				<Link
-					className={reportActionClassName}
-					to={input.member.reportAction.path}
-				>
-					<FileTextIcon aria-hidden="true" data-icon="inline-start" />
-					Profile Report
-				</Link>
-			) : (
-				<Button
-					aria-label="Report unavailable"
-					disabled={true}
-					size="sm"
-					type="button"
-					variant="ghost"
-				>
-					<FileTextIcon aria-hidden="true" data-icon="inline-start" />
-					Report
-				</Button>
-			)}
-			{input.member.reportAction.kind === "unavailable" ? (
-				<p className="text-muted-foreground text-xs leading-5">
-					{input.member.reportAction.reason}
+		<div className="space-y-3">
+			{input.member.notice ? (
+				<p className="text-muted-foreground text-sm leading-6">
+					{input.member.notice}
 				</p>
+			) : null}
+			<HumanProfileComputerSummary member={input.member} />
+			{input.member.connectedAccounts.length > 0 ||
+			input.member.connectableAccounts.length > 0 ? (
+				<div className="space-y-1.5 border-border/70 border-t pt-3">
+					<p className="font-medium text-muted-foreground text-xs">
+						Connected accounts
+					</p>
+					{input.member.connectedAccounts.map((account) => (
+						<div
+							className="flex min-w-0 items-center justify-between gap-3 text-sm"
+							key={account.id}
+						>
+							<span className="flex min-w-0 items-center gap-2">
+								{account.state === "connected" ? (
+									<CheckIcon
+										aria-hidden="true"
+										className="size-3.5 shrink-0 text-emerald-500"
+									/>
+								) : (
+									<WarningCircleIcon
+										aria-hidden="true"
+										className="size-3.5 shrink-0 text-amber-500"
+									/>
+								)}
+								<span className="truncate">
+									{formatConnectedAccountLabel(account)}
+								</span>
+							</span>
+							<span className="flex shrink-0 items-center gap-2">
+								<span
+									className={cn(
+										"text-xs",
+										account.state === "connected"
+											? "text-muted-foreground"
+											: "text-amber-600 dark:text-amber-400"
+									)}
+								>
+									{account.state === "connected" ? "Connected" : "Unavailable"}
+								</span>
+								{account.canDisconnect ? (
+									<Button
+										onClick={() => input.onManageAccount(account)}
+										size="xs"
+										type="button"
+										variant="ghost"
+									>
+										Manage
+									</Button>
+								) : null}
+							</span>
+						</div>
+					))}
+					{input.member.connectableAccounts.map((account) => (
+						<div
+							className="flex items-center justify-between gap-3 text-sm"
+							key={account.provider}
+						>
+							<span>{account.providerLabel}</span>
+							<Button
+								onClick={() => input.onConnectAccount(account)}
+								size="xs"
+								type="button"
+								variant="outline"
+							>
+								Connect
+							</Button>
+						</div>
+					))}
+				</div>
 			) : null}
 			{input.memberResearchError ? (
 				<p className="text-destructive text-xs leading-5">
@@ -332,6 +408,200 @@ function HumanProfileReportContent(input: {
 				</p>
 			) : null}
 		</div>
+	);
+}
+
+function HumanProfileComputerSummary(input: {
+	member: DirectoryHumanProfileRow;
+}) {
+	const content = (
+		<>
+			<DesktopTowerIcon
+				aria-hidden="true"
+				className={cn(
+					"size-4 shrink-0",
+					resolveComputerToneClassName(input.member.computer.state)
+				)}
+			/>
+			<span>{input.member.computer.label}</span>
+		</>
+	);
+	if (!input.member.computer.path) {
+		return (
+			<div className="flex items-center gap-2 text-muted-foreground text-sm">
+				{content}
+			</div>
+		);
+	}
+	return (
+		<Link
+			className="inline-flex items-center gap-2 text-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+			to={input.member.computer.path}
+		>
+			{content}
+		</Link>
+	);
+}
+
+function HumanProfileComputerAction(input: {
+	member: DirectoryHumanProfileRow;
+}) {
+	const label = `${input.member.name}: ${input.member.computer.label}`;
+	const icon = (
+		<DesktopTowerIcon
+			aria-hidden="true"
+			className={cn(
+				"size-5",
+				resolveComputerToneClassName(input.member.computer.state)
+			)}
+		/>
+	);
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					input.member.computer.path ? (
+						<Link
+							aria-label={label}
+							className={buttonVariants({ size: "icon", variant: "ghost" })}
+							to={input.member.computer.path}
+						/>
+					) : (
+						<span
+							aria-label={label}
+							className="inline-flex size-8 items-center justify-center"
+							role="img"
+						/>
+					)
+				}
+			>
+				{icon}
+			</TooltipTrigger>
+			<TooltipContent side="bottom">
+				{input.member.computer.label}
+			</TooltipContent>
+		</Tooltip>
+	);
+}
+
+function resolveComputerToneClassName(
+	state: DirectoryHumanProfileRow["computer"]["state"]
+): string {
+	switch (state) {
+		case "connected":
+			return resolveStatusToneTextClassName("ready");
+		case "needs_attention":
+			return resolveStatusToneTextClassName("warning");
+		case "checking":
+			return resolveStatusToneTextClassName("checking");
+		default:
+			return resolveStatusToneTextClassName("muted");
+	}
+}
+
+function formatConnectedAccountLabel(
+	account: DirectoryConnectedAccount
+): string {
+	return account.providerAccountName
+		? `${account.providerLabel} · ${account.providerAccountName}`
+		: `${account.providerLabel} account`;
+}
+
+function ConnectChannelAccountDialog(input: {
+	account: DirectoryConnectableAccount | null;
+	onOpenChange: (open: boolean) => void;
+}) {
+	const [copied, setCopied] = useState(false);
+	const providerLabel = input.account?.providerLabel ?? "Channel";
+	const requestText = `Connect this ${providerLabel} account to my OpenMeld profile`;
+	return (
+		<Dialog
+			onOpenChange={(open) => {
+				if (!open) {
+					setCopied(false);
+				}
+				input.onOpenChange(open);
+			}}
+			open={input.account !== null}
+		>
+			<DialogContent className="sm:max-w-md">
+				<DialogHeader>
+					<DialogTitle>Connect your {providerLabel} account</DialogTitle>
+					<DialogDescription>
+						Open {providerLabel}, send the Center Agent the message below, then
+						use the private connection button it sends you. You will review both
+						accounts before anything changes.
+					</DialogDescription>
+				</DialogHeader>
+				<div className="rounded-md border border-border bg-muted/30 px-3 py-2 font-medium text-sm">
+					{requestText}
+				</div>
+				<DialogFooter className="sm:justify-between">
+					{input.account ? (
+						<Link
+							className={buttonVariants({ size: "sm", variant: "ghost" })}
+							to={input.account.channelsPath}
+						>
+							View Channels
+						</Link>
+					) : null}
+					<Button
+						onClick={() => {
+							navigator.clipboard
+								.writeText(requestText)
+								.then(() => setCopied(true))
+								.catch((error: unknown) => {
+									console.error(
+										"Could not copy the Message Channel account connection request.",
+										error
+									);
+								});
+						}}
+						size="sm"
+						type="button"
+					>
+						{copied ? "Copied" : "Copy message"}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function ManageChannelAccountDialog(input: {
+	account: DirectoryConnectedAccount | null;
+	onDisconnect: () => void;
+	onOpenChange: (open: boolean) => void;
+}) {
+	return (
+		<Dialog onOpenChange={input.onOpenChange} open={input.account !== null}>
+			<DialogContent className="sm:max-w-md">
+				<DialogHeader>
+					<DialogTitle>Manage connected account</DialogTitle>
+					<DialogDescription>
+						{input.account
+							? `${formatConnectedAccountLabel(input.account)} is connected to this OpenMeld profile.`
+							: "This account is connected to this OpenMeld profile."}
+					</DialogDescription>
+				</DialogHeader>
+				<p className="text-muted-foreground text-sm leading-6">
+					If this is the wrong account, disconnect it here. Then prove the
+					correct account from that channel to connect again. This does not
+					disconnect the Organization's{" "}
+					{input.account?.providerLabel ?? "Channel"}
+					connection.
+				</p>
+				<DialogFooter>
+					<Button
+						onClick={input.onDisconnect}
+						type="button"
+						variant="destructive"
+					>
+						Disconnect account
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -358,32 +628,66 @@ function HumanProfileCardActions(input: {
 	const learnActionDescription = `Learn about ${input.member.name} and update their Profile Report.`;
 	const canOpenDirectMessage =
 		input.member.profileStatus === "active" && !input.member.isCurrentUser;
+	let profileKnowledgeAction: ReactNode = null;
+	if (input.member.reportAction.kind === "link") {
+		const profileReportActionLabel = input.member.hasDraft
+			? `Open ${input.member.name}'s Profile Report — updates to review and save`
+			: `Open ${input.member.name}'s Profile Report`;
+		profileKnowledgeAction = (
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<Link
+							aria-label={profileReportActionLabel}
+							className={cn(
+								buttonVariants({ size: "icon", variant: "ghost" }),
+								input.member.hasDraft ? "text-amber-500" : null
+							)}
+							to={input.member.reportAction.path}
+						/>
+					}
+				>
+					<FileTextIcon aria-hidden="true" />
+				</TooltipTrigger>
+				<TooltipContent side="bottom">
+					{input.member.hasDraft
+						? "Profile Report has updates to review and save"
+						: "Profile Report"}
+				</TooltipContent>
+			</Tooltip>
+		);
+	} else if (input.member.reportAction.kind === "learn") {
+		profileKnowledgeAction = (
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<Button
+							aria-description={learnActionDescription}
+							aria-label={learnActionLabel}
+							disabled={
+								!input.member.userId ||
+								Boolean(input.activeBatch) ||
+								input.isResearchPending
+							}
+							onClick={() => input.onResearch(input.member.userId)}
+							size="icon"
+							type="button"
+							variant="ghost"
+						>
+							<UserFocusIcon aria-hidden="true" />
+						</Button>
+					}
+				/>
+				<TooltipContent side="bottom">{learnActionLabel}</TooltipContent>
+			</Tooltip>
+		);
+	}
 
 	return (
 		<>
 			<div className="flex items-center justify-end gap-1">
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							<Button
-								aria-description={learnActionDescription}
-								aria-label={learnActionLabel}
-								disabled={
-									!input.member.userId ||
-									Boolean(input.activeBatch) ||
-									input.isResearchPending
-								}
-								onClick={() => input.onResearch(input.member.userId)}
-								size="icon"
-								type="button"
-								variant="ghost"
-							>
-								<UserFocusIcon aria-hidden="true" />
-							</Button>
-						}
-					/>
-					<TooltipContent side="bottom">{learnActionLabel}</TooltipContent>
-				</Tooltip>
+				<HumanProfileComputerAction member={input.member} />
+				{profileKnowledgeAction}
 				{canOpenDirectMessage ? (
 					<Tooltip>
 						<TooltipTrigger
@@ -489,52 +793,6 @@ function HumanProfileCardActions(input: {
 	);
 }
 
-function MemberOpenMeldServiceStatus(input: {
-	state: DirectoryMemberOpenMeldServiceDisplayState;
-}) {
-	const presentation = resolveMemberOpenMeldServicePresentation(input.state);
-	return (
-		<span
-			className={cn(
-				"inline-flex items-center gap-1.5 whitespace-nowrap",
-				resolveStatusToneTextClassName(presentation.tone)
-			)}
-		>
-			<span
-				aria-hidden="true"
-				className={cn(
-					"size-1.5 shrink-0 rounded-full",
-					resolveStatusToneIndicatorClassName(presentation.tone, "quiet")
-				)}
-			/>
-			{presentation.label}
-		</span>
-	);
-}
-
-function resolveMemberOpenMeldServicePresentation(
-	state: DirectoryMemberOpenMeldServiceDisplayState
-): { label: string; tone: "checking" | "muted" | "ready" | "warning" } {
-	switch (state) {
-		case "connected":
-			return { label: "OpenMeld Service connected", tone: "ready" };
-		case "needs_attention":
-			return {
-				label: "OpenMeld Service needs attention",
-				tone: "warning",
-			};
-		case "not_connected":
-			return { label: "OpenMeld Service not connected", tone: "muted" };
-		case "checking":
-			return { label: "Checking OpenMeld Service…", tone: "checking" };
-		default:
-			return {
-				label: "OpenMeld Service status unavailable",
-				tone: "muted",
-			};
-	}
-}
-
 function resolveLearnActionLabel(input: {
 	displayName: string;
 	hasDraft: boolean;
@@ -571,27 +829,13 @@ function resolveLearnAllActionLabel(input: {
 	}
 	return "Learn about all members";
 }
-function HumanProfileMemberBadges(input: { member: DirectoryHumanProfileRow }) {
+function HumanProfileRoleBadge(input: { member: DirectoryHumanProfileRow }) {
+	if (input.member.role === "member" || input.member.role === "unknown") {
+		return null;
+	}
 	return (
-		<span className="flex flex-wrap items-center justify-end gap-2">
-			{input.member.isDefault ? (
-				<span
-					className={cn(
-						"rounded-sm border px-2 py-0.5 font-medium text-[0.7rem]",
-						resolveStatusToneCompactBadgeClassName("ready")
-					)}
-				>
-					Default
-				</span>
-			) : null}
-			{input.member.profileStatus ? (
-				<span className="rounded-sm border border-border bg-background px-2 py-0.5 text-[0.7rem] text-muted-foreground">
-					{resolveHumanProfileStatusLabel(input.member.profileStatus)}
-				</span>
-			) : null}
-			<span className="rounded-sm border border-border bg-background px-2 py-0.5 text-[0.7rem] text-muted-foreground">
-				{resolveDirectoryHumanProfileRoleLabel(input.member.role)}
-			</span>
+		<span className="rounded-sm border border-border bg-background px-1.5 py-0.5 font-medium text-[0.65rem] text-muted-foreground uppercase tracking-wide">
+			{resolveDirectoryHumanProfileRoleLabel(input.member.role)}
 		</span>
 	);
 }
@@ -609,10 +853,6 @@ function resolveDirectoryHumanProfileRoleLabel(
 		default:
 			return "Unknown role";
 	}
-}
-
-function resolveHumanProfileStatusLabel(status: "active" | "disabled"): string {
-	return status === "active" ? "Active" : "Disabled";
 }
 
 function HumanProfileIcon(input: { member: DirectoryHumanProfileRow }) {

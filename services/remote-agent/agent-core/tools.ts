@@ -1,3 +1,4 @@
+import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
 import {
   agentActivitySnapshotResponseSchema,
   agentControllerCollaborationModeSchema,
@@ -54,6 +55,8 @@ import {
   centerAgentPostSpaceMessageResponseSchema,
   centerAgentPrepareRemoveProjectToolResponseSchema,
   centerAgentReadDispatchHistoryResponseSchema,
+  centerAgentReadMemberComputersBodySchema,
+  centerAgentReadMemberComputersResponseSchema,
   centerAgentReadMemberOpenMeldServiceStatusBodySchema,
   centerAgentReadMemberOpenMeldServiceStatusResponseSchema,
   centerAgentReadOrganizationDocumentsResponseSchema,
@@ -147,6 +150,7 @@ import type {
 import {
   array,
   boolean,
+  check,
   description,
   integer,
   literal,
@@ -162,7 +166,6 @@ import {
   picklist,
   pipe,
   record,
-  regex,
   safeParse as safeParseValibot,
   strictObject,
   string,
@@ -215,6 +218,10 @@ import {
   type RemoteAgentConnectorExecutionConfig,
 } from "./github-tools";
 import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "./slack-member-research-state";
+import {
+  extractSlackSearchThreadPublicationTargetKeys,
+  parseSlackThreadPublicationTargetKey,
+} from "./slack-thread-publication-evidence";
 import {
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
@@ -523,6 +530,8 @@ const SLACK_DISPLAY_NAME_MENTION_PATTERN =
 const SLACK_MENTION_DIRECTORY_KEY_PREFIX =
   "remote-agent:slack-mention-directory:";
 const SLACK_MENTION_DIRECTORY_RETENTION_MS = 60 * 60 * 1000;
+const SLACK_THREAD_PUBLICATION_EVIDENCE_KEY_PREFIX =
+  "remote-agent:slack-thread-publication-evidence:";
 const SLACK_MEMBER_RESEARCH_CHANNEL_INSPECTION_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}channel-inspection:`;
 const SLACK_MEMBER_RESEARCH_CHANNEL_ELIGIBILITY_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}channel-eligibility:`;
 const SLACK_MEMBER_RESEARCH_HISTORY_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}history:`;
@@ -542,12 +551,6 @@ const slackChannelNameSchema = pipe(
   minLength(1),
   maxLength(80)
 );
-const slackMessageTimestampSchema = pipe(
-  string(),
-  trim(),
-  regex(/^\d+\.\d+$/),
-  maxLength(32)
-);
 const slackUserIdSchema = pipe(string(), trim(), minLength(1), maxLength(32));
 const slackTeammateInvitationToolInputSchema = strictObject({
   targetSlackUserIds: pipe(
@@ -556,21 +559,36 @@ const slackTeammateInvitationToolInputSchema = strictObject({
     maxLength(10)
   ),
 });
-const slackChannelMessageToolInputSchema = strictObject({
-  channelName: slackChannelNameSchema,
+const slackChannelMessagePublicationSourceToolInputSchema = union([
+  strictObject({
+    kind: literal("current_turn"),
+  }),
+  strictObject({
+    documentId: pipe(string(), trim(), minLength(1), maxLength(256)),
+    kind: literal("organization_document"),
+  }),
+]);
+const slackChannelMessageCommonToolInputFields = {
   mentionSlackUserIds: optional(pipe(array(slackUserIdSchema), maxLength(50))),
-  publicationSource: union([
-    strictObject({
-      kind: literal("current_turn"),
-    }),
-    strictObject({
-      documentId: pipe(string(), trim(), minLength(1), maxLength(256)),
-      kind: literal("organization_document"),
-    }),
-  ]),
+  publicationSource: slackChannelMessagePublicationSourceToolInputSchema,
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
-  threadTs: optional(slackMessageTimestampSchema),
-});
+};
+const slackChannelMessageToolInputSchema = pipe(
+  strictObject({
+    ...slackChannelMessageCommonToolInputFields,
+    channelName: optional(slackChannelNameSchema),
+    threadPermalink: optional(
+      pipe(string(), trim(), minLength(1), maxLength(2048))
+    ),
+  }),
+  check(
+    (input) =>
+      Number(input.channelName !== undefined) +
+        Number(input.threadPermalink !== undefined) ===
+      1,
+    "Provide exactly one Slack destination: channelName for a top-level message or threadPermalink for a thread reply."
+  )
+);
 const openCodePermissionSchema = optional(record(string(), unknownSchema()));
 const collaborationModeSchema = optional(
   pipe(
@@ -983,6 +1001,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_require_identity_for_action",
   "openmeld_get_navigation_action",
   "openmeld_read_organization_directory",
+  "openmeld_read_member_computers",
   "openmeld_read_member_openmeld_service_status",
   "openmeld_read_slack_workspace_directory",
   "openmeld_invite_slack_teammates",
@@ -1067,6 +1086,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "browser_extract",
   "browser_scrape",
   "openmeld_read_organization_directory",
+  "openmeld_read_member_computers",
   "openmeld_read_member_openmeld_service_status",
   "openmeld_read_slack_workspace_directory",
   "openmeld_list_slack_channels",
@@ -1170,6 +1190,9 @@ const slackWorkspaceDirectoryToolInputSchema = strictObject({
   limit: optional(pipe(number(), integer(), minValue(1), maxValue(200))),
 });
 const memberOpenMeldServiceStatusToolInputSchema = strictObject({
+  memberUserId: pipe(string(), trim(), minLength(1), maxLength(256)),
+});
+const memberComputersToolInputSchema = strictObject({
   memberUserId: pipe(string(), trim(), minLength(1), maxLength(256)),
 });
 const slackChannelListToolInputSchema = strictObject({
@@ -1377,6 +1400,32 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         );
         return organizationDirectoryResponseSchema.parse(
           await rpc(toolContext)
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_read_member_computers",
+      description:
+        "Read one active member's Computers through the current Organization's team-safe projection. First use openmeld_read_organization_directory and pass its exact member userId; never guess an ID. Returns the same OpenMeld Tools, local agent, platform, version, update, and connection details that OpenMeld exposes to teammates. It never exposes File Access folders, local paths, commands, account policy, private skills, or Agent Profile readiness.",
+      input: memberComputersToolInputSchema,
+      execute: async (payload) => {
+        const request = centerAgentReadMemberComputersBodySchema.parse(
+          parseValibot(memberComputersToolInputSchema, payload)
+        );
+        const toolContext =
+          await buildAnonymousCompatibleOrganizationReadToolContext({
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_read_member_computers",
+          });
+        return centerAgentReadMemberComputersResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentReadMemberComputers",
+            { ...request, ...toolContext },
+            (binding, rpcInput) =>
+              binding.centerAgentReadMemberComputers?.(rpcInput)
+          )
         );
       },
     }),
@@ -1758,7 +1807,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           (binding, rpcInput) =>
             binding.centerAgentSearchSlackMessages?.(rpcInput)
         );
-        return parseSlackSearchResponse(response);
+        const parsedResponse = parseSlackSearchResponse(response);
+        await rememberSlackThreadPublicationEvidence({
+          response: parsedResponse,
+          storage: input.storage,
+          submissionId: input.submissionId,
+        });
+        return parsedResponse;
       },
     }),
     toolDefinition({
@@ -3150,7 +3205,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_post_slack_channel_message",
       description:
-        "Post a message in a named Slack channel connected to the current Organization. Omit threadTs for a top-level message. Pass threadTs only when the user explicitly asks to reply to that exact existing thread, publicationSource is current_turn, and the exact root timestamp comes from the user's Slack link or trusted Slack evidence; never invent it. Organization document and Routine publications remain top-level. Use only when the user explicitly asks to publish in that channel; ordinary Slack replies belong in the originating thread. Set publicationSource to current_turn for a one-off message produced by this task. When publishing an approved Organization document, set publicationSource to organization_document with the exact documentId so one document revision cannot be posted twice to the same channel. To notify people, first call openmeld_read_slack_workspace_directory, then pass its exact slackUserId values through mentionSlackUserIds. Never type @Display Name or raw <@USER_ID> tokens into text. Write ordinary Markdown. Do not put clickable links, Slack mentions, or channel references inside inline code or fenced code blocks.",
+        "Post a top-level message in a named Slack channel connected to the current Organization, or reply to one exact existing thread. For a top-level message, pass channelName. For a thread reply, pass only the exact threadPermalink from the user's request or Slack evidence returned in this turn; never invent or reconstruct it. Thread replies require publicationSource current_turn. Organization document and Routine publications remain top-level. Use only when the user explicitly asks to publish there; ordinary Slack replies belong in the originating thread. Set publicationSource to current_turn for a one-off message produced by this task. When publishing an approved Organization document, set publicationSource to organization_document with the exact documentId so one document revision cannot be posted twice to the same channel. To notify people, first call openmeld_read_slack_workspace_directory, then pass its exact slackUserId values through mentionSlackUserIds. Never type @Display Name or raw <@USER_ID> tokens into text. Write ordinary Markdown. Do not put clickable links, Slack mentions, or channel references inside inline code or fenced code blocks.",
       input: slackChannelMessageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -3162,14 +3217,39 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           submissionId: input.submissionId,
           toolName: "openmeld_post_slack_channel_message",
         });
+        const publicationTarget = (() => {
+          if (request.threadPermalink !== undefined) {
+            return {
+              kind: "thread",
+              threadPermalink: request.threadPermalink,
+            } as const;
+          }
+          if (request.channelName !== undefined) {
+            return {
+              channelName: request.channelName,
+              kind: "channel",
+            } as const;
+          }
+          throw new Error(
+            "Slack publication requires exactly one destination."
+          );
+        })();
+        const isThreadPublication = publicationTarget.kind === "thread";
         if (
-          request.threadTs &&
+          isThreadPublication &&
           (request.publicationSource.kind !== "current_turn" ||
             toolContext.turnEnvelope?.trigger.source === "routine")
         ) {
           throw new Error(
             "Slack thread publication requires an explicitly requested interactive current turn."
           );
+        }
+        if (isThreadPublication) {
+          await requireTrustedSlackThreadPublicationTarget({
+            permalink: publicationTarget.threadPermalink,
+            storage: input.storage,
+            submissionId: input.submissionId,
+          });
         }
         const externalWriteBlock = resolveRemoteAgentRoutineExternalWriteBlock(
           toolContext,
@@ -3192,11 +3272,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
             "Slack channel publication requires a verified human member speaker."
           );
         }
-        const rpcName = request.threadTs
+        const rpcName = isThreadPublication
           ? "centerAgentPostSlackThreadMessage"
           : "centerAgentPostSlackChannelMessage";
         const rpc = requireCoreRpc(
-          request.threadTs
+          isThreadPublication
             ? input.coreWorker.centerAgentPostSlackThreadMessage
             : input.coreWorker.centerAgentPostSlackChannelMessage,
           rpcName
@@ -3204,7 +3284,6 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         return parseCoreToolResponse(
           centerAgentPostSlackChannelMessageResponseSchema,
           await rpc({
-            channelName: normalizeSlackChannelName(request.channelName),
             context: toolContext.context,
             publicationSource: resolveSlackChannelPublicationSource({
               publicationSource: request.publicationSource,
@@ -3213,7 +3292,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
             }),
             speakerMember,
             text,
-            ...(request.threadTs ? { threadTs: request.threadTs } : {}),
+            ...(isThreadPublication
+              ? { threadPermalink: publicationTarget.threadPermalink }
+              : {
+                  channelName: normalizeSlackChannelName(
+                    publicationTarget.channelName
+                  ),
+                }),
           }),
           rpcName,
           "Slack channel message response"
@@ -3618,22 +3703,25 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_list_computers",
       description:
-        "List computers connected to the verified requester's OpenMeld account, including the exact connectedComputerId, current status, reason codes, and the recommended setup, reconnect, or OpenMeld Service update mode. Use this before offering computer setup or recovery. When setup is required, OpenMeld automatically attaches the exact recommended navigation action to this result; do not request a second computer navigation action.",
+        "Read the verified requester's own Computer information, including every connected Computer, OpenMeld Tools versions and updates, local agent status and versions, current reply diagnostics, and a path-free File Access summary. Use this before offering computer setup, recovery, or deciding whether a local agent is usable. This is private owner-level data and requires a verified requester. It does not make current-computer diagnostics the authority for any Agent Profile's readiness. When setup is required, OpenMeld automatically attaches the exact recommended navigation action to this result; do not request a second computer navigation action.",
       input: object({}),
       execute: async () => {
-        const toolContext = await buildVerifiedMemberToolContext({
-          missingSpeakerMessage:
-            "Computer setup requires a verified human Organization member speaker.",
-          storage: input.storage,
-          submissionId: input.submissionId,
-          toolName: "openmeld_list_computers",
-        });
+        const toolContext =
+          await buildRequesterPrivateVerifiedMemberToolContext({
+            missingSpeakerMessage:
+              "Computer setup requires a verified human Organization member speaker.",
+            sharedAudienceMessage:
+              "Private Computer diagnostics are available only in your direct conversation with the Center Agent.",
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_list_computers",
+          });
         const rpc = requireCoreRpc(
           input.coreWorker.centerAgentListComputers,
           "centerAgentListComputers"
         );
         return centerAgentListComputersResponseSchema.parse(
-          await rpc(toolContext)
+          await rpc({ ...toolContext, includeDiagnostics: true })
         );
       },
     }),
@@ -4551,6 +4639,33 @@ async function buildVerifiedMemberToolContext(input: {
   return { context: toolContext.context, speakerMember };
 }
 
+async function buildRequesterPrivateVerifiedMemberToolContext(input: {
+  missingSpeakerMessage: string;
+  sharedAudienceMessage: string;
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+  toolName: RemoteAgentOpenMeldToolName;
+}): Promise<{
+  context: OpenMeldRequestContext;
+  speakerMember: { memberId: string; userId: string };
+}> {
+  const toolContext = await buildOpenMeldToolContext(input);
+  if (
+    !toolContext.turnEnvelope ||
+    resolveCenterAgentContextScopePlan(toolContext.turnEnvelope)
+      .interactionEnvironment !== "requester_private"
+  ) {
+    throw new Error(input.sharedAudienceMessage);
+  }
+  const speakerMember = resolveVerifiedTurnEnvelopeSpeaker(
+    toolContext.turnEnvelope
+  );
+  if (!speakerMember) {
+    throw new Error(input.missingSpeakerMessage);
+  }
+  return { context: toolContext.context, speakerMember };
+}
+
 async function buildRepresentedMemberAttributionToolContext(input: {
   storage: RemoteAgentReadableStorage;
   submissionId: string;
@@ -4945,6 +5060,55 @@ async function rememberSlackMentionDirectory(input: {
     returnedIds,
     Date.now() + SLACK_MENTION_DIRECTORY_RETENTION_MS
   );
+}
+
+async function rememberSlackThreadPublicationEvidence(input: {
+  response: unknown;
+  storage: RemoteAgentStorage;
+  submissionId: string;
+}): Promise<void> {
+  const returnedTargetKeys = extractSlackSearchThreadPublicationTargetKeys(
+    input.response
+  );
+  if (returnedTargetKeys.length === 0) {
+    return;
+  }
+  const key = `${SLACK_THREAD_PUBLICATION_EVIDENCE_KEY_PREFIX}${input.submissionId}`;
+  const previousTargetKeys = (await input.storage.get<string[]>(key)) ?? [];
+  await input.storage.putExpiring(
+    key,
+    [...new Set([...previousTargetKeys, ...returnedTargetKeys])],
+    Date.now() + SLACK_MENTION_DIRECTORY_RETENTION_MS
+  );
+}
+
+async function requireTrustedSlackThreadPublicationTarget(input: {
+  permalink: string;
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+}): Promise<void> {
+  const targetKey = parseSlackThreadPublicationTargetKey(input.permalink);
+  const callbackContext = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.submissionId
+  );
+  const returnedTargetKeys =
+    (await input.storage.get<string[]>(
+      `${SLACK_THREAD_PUBLICATION_EVIDENCE_KEY_PREFIX}${input.submissionId}`
+    )) ?? [];
+  if (
+    !(
+      targetKey &&
+      new Set([
+        ...(callbackContext?.trustedSlackThreadPublicationTargetKeys ?? []),
+        ...returnedTargetKeys,
+      ]).has(targetKey)
+    )
+  ) {
+    throw new Error(
+      "Use a Slack thread permalink supplied by the user or returned by Slack evidence in this turn."
+    );
+  }
 }
 
 async function rememberSlackMemberResearchSubjectMatches(input: {

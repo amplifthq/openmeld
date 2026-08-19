@@ -11777,7 +11777,19 @@ async function issueRemoteAgentSlackIdentityNavigationAction(input: {
     }
 > {
   const purpose = resolveRemoteAgentSlackIdentityGuidancePurpose(input.body);
-  const speaker = input.delivery.anonymousMemberSpeaker;
+  const anonymousSpeaker = input.delivery.anonymousMemberSpeaker;
+  const turnSender =
+    input.delivery.executionRecoverySubmitRequest?.turnEnvelope.sender;
+  const verifiedMemberSpeaker =
+    turnSender?.kind === "member" &&
+    turnSender.verified &&
+    turnSender.messageChannelIdentity
+      ? {
+          displayName: turnSender.displayName,
+          messageChannelIdentity: turnSender.messageChannelIdentity,
+        }
+      : undefined;
+  const speaker = anonymousSpeaker ?? verifiedMemberSpeaker;
   const slackTeamId = normalizeOptionalText(input.delivery.slackTeamId);
   if (
     !(
@@ -11785,11 +11797,12 @@ async function issueRemoteAgentSlackIdentityNavigationAction(input: {
       input.delivery.conversationKind === "slack" &&
       slackTeamId &&
       speaker?.messageChannelIdentity.provider === "slack" &&
-      speaker.messageChannelIdentity.connectionId === slackTeamId
+      speaker.messageChannelIdentity.connectionId === slackTeamId &&
+      (purpose === "optional_setup" || Boolean(anonymousSpeaker))
     )
   ) {
     throw new Error(
-      "A Slack identity-link action requires the exact anonymous Slack delivery."
+      "A Slack identity-link action requires the exact private Slack delivery."
     );
   }
   const db = identityDb(input.env);
@@ -11801,6 +11814,7 @@ async function issueRemoteAgentSlackIdentityNavigationAction(input: {
   const navigationTarget =
     "navigationTarget" in input.body ? input.body.navigationTarget : undefined;
   const connectToUserId =
+    purpose === "continue_request" &&
     navigationTarget?.kind === "message_channel_identity_link"
       ? navigationTarget.connectToUserId
       : undefined;

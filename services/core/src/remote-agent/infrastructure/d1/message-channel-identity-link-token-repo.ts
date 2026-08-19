@@ -284,14 +284,6 @@ export async function consumeRemoteAgentMessageChannelIdentityLinkToken(input: {
               AND connection.organization_id = ?
               AND connection.status = 'connected'
           )
-          AND NOT EXISTS (
-            SELECT 1
-            FROM openMeldRemoteAgent_lark_platform_identity_links AS link
-            WHERE link.provider = ?
-              AND link.connection_id = ?
-              AND link.provider_user_id = ?
-              AND link.openmeld_user_id <> ?
-          )
       `
     )
     .bind(
@@ -305,11 +297,7 @@ export async function consumeRemoteAgentMessageChannelIdentityLinkToken(input: {
       input.nowMs,
       input.token.connectionId,
       input.token.provider,
-      input.token.organizationId,
-      input.token.provider,
-      input.token.connectionId,
-      input.token.providerUserId,
-      input.openmeldUserId
+      input.token.organizationId
     );
   const link = input.db
     .prepare(
@@ -327,7 +315,11 @@ export async function consumeRemoteAgentMessageChannelIdentityLinkToken(input: {
         FROM openMeldRemoteAgent_message_channel_identity_link_tokens
         WHERE token_hash = ?
           AND consumed_at_ms = ?
-        ON CONFLICT(provider, connection_id, provider_user_id) DO NOTHING
+        ON CONFLICT(provider, connection_id, provider_user_id) DO UPDATE SET
+          organization_id = excluded.organization_id,
+          openmeld_user_id = excluded.openmeld_user_id,
+          resolution_source = excluded.resolution_source,
+          created_at_ms = excluded.created_at_ms
       `
     )
     .bind(

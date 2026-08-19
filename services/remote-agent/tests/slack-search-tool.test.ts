@@ -135,6 +135,51 @@ describe("Remote Agent Slack search tool", () => {
     expect(centerAgentSearchSlackMessages).toHaveBeenCalledTimes(3);
   });
 
+  it("allows an exact thread reply only after Slack returned that target in this turn", async () => {
+    const request = createSlackSearchRequest();
+    const response = slackSearchResponse(request.organizationId);
+    const centerAgentSearchSlackMessages = vi.fn(async () => response);
+    const centerAgentPostSlackThreadMessage = vi.fn(async () => ({
+      attribution: {
+        actorProfileId: request.agentProfileId,
+        onBehalfOf: {
+          displayName: "Felix",
+          profileId: "22222222-2222-4222-8222-222222222222",
+          userId: request.agentProfileOwnerUserId,
+        },
+      },
+      channelName: "release",
+      joinedChannel: false,
+      messageTs: "1710000001.001",
+      organizationId: request.organizationId,
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentPostSlackThreadMessage,
+        centerAgentSearchSlackMessages,
+      },
+      storage: await createStorage(request),
+      submissionId: ACK.submissionId,
+      turnEnvelope: request.turnEnvelope,
+    });
+
+    await executeTool(tools, "openmeld_search_slack_messages", {
+      query: "project gizmo status",
+    });
+    await expect(
+      executeTool(tools, "openmeld_post_slack_channel_message", {
+        publicationSource: { kind: "current_turn" },
+        text: "The release is ready.",
+        threadPermalink: response.messages[0]?.permalink,
+      })
+    ).resolves.toMatchObject({ messageTs: "1710000001.001" });
+    expect(centerAgentPostSlackThreadMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadPermalink: response.messages[0]?.permalink,
+      })
+    );
+  });
+
   it("keeps concurrent search calls on the same structured evidence path", async () => {
     const request = createSlackSearchRequest();
     const response = slackSearchResponse(request.organizationId);

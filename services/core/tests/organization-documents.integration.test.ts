@@ -5,10 +5,7 @@ import {
   remoteAgentWorkerSubmitTurnRequestSchema,
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
-import {
-  prepareCenterAgentOrganizationMemberRequest,
-  rpcCenterAgentAuthorizeAnonymousMemberTool,
-} from "../src/center-agent/application/anonymous-member-request";
+import { rpcCenterAgentAuthorizeAnonymousMemberTool } from "../src/center-agent/application/anonymous-member-request";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   beginCenterAgentOrganizationDocumentOperation,
@@ -40,6 +37,8 @@ import {
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
   rpcCenterAgentGetOrganizationDirectory,
+  rpcCenterAgentListComputers,
+  rpcCenterAgentReadMemberComputers,
   rpcListCenterAgentAuditJournal,
 } from "../src/rpc/methods";
 
@@ -113,6 +112,13 @@ describe("Organization documents", () => {
     expect(rows.every((row) => !row.preview.includes("Private proposal"))).toBe(
       true
     );
+    expect(
+      rows.every(
+        (row) =>
+          row.preview ===
+          "The Center Agent prepared a document update for review."
+      )
+    ).toBe(true);
     expect(
       rows.some((row) => row.recipient_user_id === fixture.member.userId)
     ).toBe(false);
@@ -736,7 +742,12 @@ describe("Organization documents", () => {
       kind: "member_profile",
       subjectUserId: fixture.member.userId,
     });
-    await service.draft(
+    const draftedAtMs = Date.parse(profile.updatedAt) + 1000;
+    const draftingService = createOrganizationDocumentService({
+      db: env.OPENMELD_DB,
+      now: () => draftedAtMs,
+    });
+    await draftingService.draft(
       fixture.organizationId,
       {
         documentId: profile.id,
@@ -745,18 +756,34 @@ describe("Organization documents", () => {
       documentReviewerUserIds(fixture)
     );
     const pending = await service.get(fixture.member, profile.id);
+    expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual([
+      expect.objectContaining({
+        recipient_user_id: fixture.admin.userId,
+        resolution_status: "open",
+        source_key: `${profile.id}:${draftedAtMs}`,
+      }),
+      expect.objectContaining({
+        recipient_user_id: fixture.owner.userId,
+        resolution_status: "open",
+        source_key: `${profile.id}:${draftedAtMs}`,
+      }),
+    ]);
 
     await expect(
       service.update(fixture.member, profile.id, {
-        content: "What Morgan and the Center Agent learned together",
+        content: pending.draftContent as string,
         ...humanDocumentVersion(pending),
       })
     ).resolves.toMatchObject({
-      content: "What Morgan and the Center Agent learned together",
+      content: "What the Center Agent learned",
       draftContent: null,
       draftCreatedAt: null,
       draftCreatedBy: null,
     });
+    expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual([
+      expect.objectContaining({ resolution_status: "resolved" }),
+      expect.objectContaining({ resolution_status: "resolved" }),
+    ]);
   });
 
   it("keeps a newer Profile Report draft when an older editor tries to save", async () => {
@@ -2077,19 +2104,52 @@ describe("Organization documents", () => {
     ).resolves.toMatchObject({
       organizationId: fixture.organizationId,
     });
+    await expect(
+      rpcCenterAgentAuthorizeAnonymousMemberTool(coreEnv, {
+        context,
+        speakerMember,
+        toolName: "openmeld_read_member_computers",
+      })
+    ).resolves.toEqual({
+      authorized: true,
+      sourceNativeDeliveryId: delivery.deliveryId,
+    });
+    await expect(
+      rpcCenterAgentReadMemberComputers(coreEnv, {
+        context,
+        memberUserId: fixture.owner.userId,
+        speakerMember,
+      })
+    ).resolves.toMatchObject({
+      computers: expect.any(Array),
+      memberUserId: fixture.owner.userId,
+      organizationId: fixture.organizationId,
+    });
+    await expect(
+      rpcCenterAgentListComputers(coreEnv, {
+        context,
+        includeDiagnostics: true,
+        speakerMember,
+      })
+    ).rejects.toMatchObject({
+      cause: {
+        code: "center_agent.openmeld_identity_required",
+        status: 403,
+      },
+    });
 
     await expect(
-      prepareCenterAgentOrganizationMemberRequest(
-        { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings,
+      rpcCenterAgentReadMemberComputers(coreEnv, {
         context,
-        {
+        memberUserId: fixture.owner.userId,
+        speakerMember: {
           ...speakerMember,
           messageChannelIdentity: {
             ...speakerMember.messageChannelIdentity,
             providerUserId: "U_OTHER",
           },
-        }
-      )
+        },
+      })
     ).rejects.toMatchObject({
       cause: {
         code: "center_agent.anonymous_member_delivery_mismatch",
@@ -2150,14 +2210,11 @@ describe("Organization documents", () => {
       submissionId: delivery.submissionId,
     });
     await expect(
-      rpcCenterAgentAuthorizeAnonymousMemberTool(
-        { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings,
-        {
-          context,
-          speakerMember,
-          toolName: "openmeld_read_org_documents",
-        }
-      )
+      rpcCenterAgentReadMemberComputers(coreEnv, {
+        context,
+        memberUserId: fixture.owner.userId,
+        speakerMember,
+      })
     ).rejects.toMatchObject({
       cause: {
         code: "center_agent.anonymous_member_delivery_inactive",

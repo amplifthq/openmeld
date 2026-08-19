@@ -264,7 +264,7 @@ export async function listCurrentCenterAgentAuditJournal(input: {
 	try {
 		return await createWebCenterAgentApi(input.organizationId).listAuditJournal(
 			{
-				actionSet: "v18",
+				actionSet: "v19",
 				...(input.limit === undefined ? {} : { limit: input.limit }),
 				...(input.signal === undefined ? {} : { signal: input.signal }),
 			}

@@ -22,6 +22,12 @@ export function buildCurrentOrganizationMessageChannelsPath(): string {
   return "/v1/organizations/current/message-channels";
 }
 
+export function buildCurrentOrganizationMessageChannelIdentityLinkPath(
+  identityLinkId: string
+): string {
+  return `${buildCurrentOrganizationMessageChannelsPath()}/identity-links/${encodeURIComponent(identityLinkId)}`;
+}
+
 export function buildCurrentOrganizationMessageChannelRegistrationsPath(): string {
   return `${buildCurrentOrganizationMessageChannelsPath()}/registrations`;
 }

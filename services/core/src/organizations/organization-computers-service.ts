@@ -1,3 +1,4 @@
+import { projectOrganizationComputerLocalAgentDetails } from "@openmeld/schemas";
 import type {
   DaemonExecutionCompatibility,
   OrganizationComputerRecord,
@@ -174,31 +175,7 @@ function projectTeamSafeLocalAgentDetails(
   ) {
     return null;
   }
-  return {
-    capabilities: snapshot.capabilities,
-    ...(snapshot.check ? { check: snapshot.check } : {}),
-    checkedAt: snapshot.checkedAt,
-    launch: {
-      installChoiceCount: snapshot.launch.installChoiceCount,
-      status: snapshot.launch.status,
-    },
-    models: snapshot.models.map((model) => ({
-      displayName: model.displayName,
-    })),
-    nativeInterface: snapshot.nativeInterface,
-    status: snapshot.status,
-    version: snapshot.version,
-    ...(snapshot.versionAdvisory
-      ? {
-          versionAdvisory: {
-            checkedAt: snapshot.versionAdvisory.checkedAt,
-            currentVersion: snapshot.versionAdvisory.currentVersion,
-            latestVersion: snapshot.versionAdvisory.latestVersion,
-            status: snapshot.versionAdvisory.status,
-          },
-        }
-      : {}),
-  };
+  return projectOrganizationComputerLocalAgentDetails(snapshot);
 }
 
 function compareLocalAgentEvidence(

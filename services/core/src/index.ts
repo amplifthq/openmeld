@@ -60,6 +60,7 @@ import type {
   CenterAgentPrepareRemoveProjectToolRpcInput,
   CenterAgentReadConnectorActionOperationResponse,
   CenterAgentReadDispatchHistoryResponse,
+  CenterAgentReadMemberComputersResponse,
   CenterAgentReadMemberOpenMeldServiceStatusResponse,
   CenterAgentReadOrganizationDocumentsResponse,
   CenterAgentReadOrganizationDocumentsRpcInput,
@@ -471,6 +472,7 @@ import {
   type CenterAgentReadChangelogInput,
   type CenterAgentReadConnectorActionOperationInput,
   type CenterAgentReadDispatchHistoryInput,
+  type CenterAgentReadMemberComputersInput,
   type CenterAgentReadMemberOpenMeldServiceStatusInput,
   type CenterAgentReadOrganizationDirectoryInput,
   type CenterAgentReadOrganizationSpaceDirectoryInput,
@@ -518,6 +520,7 @@ import {
   type DisableAgentProfilePrimaryBindingInput,
   type DisconnectCenterAgentSlackWorkspaceInput,
   type DisconnectLarkPlatformRegistrationInput,
+  type DisconnectMessageChannelIdentityLinkInput,
   type DiscoverProjectsInput,
   type EnrollLocalRuntimeInput,
   type EnsureAgentProfilePrimaryBindingInput,
@@ -651,6 +654,7 @@ import {
   rpcCenterAgentReadChangelog,
   rpcCenterAgentReadConnectorActionOperation,
   rpcCenterAgentReadDispatchHistory,
+  rpcCenterAgentReadMemberComputers,
   rpcCenterAgentReadMemberOpenMeldServiceStatus,
   rpcCenterAgentReadSlackChannelHistory,
   rpcCenterAgentReadSlackChannelMembers,
@@ -695,6 +699,7 @@ import {
   rpcDisableAgentProfilePrimaryBinding,
   rpcDisconnectCenterAgentSlackWorkspace,
   rpcDisconnectLarkPlatformRegistration,
+  rpcDisconnectMessageChannelIdentityLink,
   rpcDiscoverProjects,
   rpcEnrollLocalRuntime,
   rpcEnsureAgentProfilePrimaryBinding,
@@ -2169,6 +2174,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcDisconnectLarkPlatformRegistration(this.env, input);
   }
 
+  disconnectMessageChannelIdentityLink(
+    input: DisconnectMessageChannelIdentityLinkInput
+  ): Promise<MessageChannelConnectionListResponse> {
+    return rpcDisconnectMessageChannelIdentityLink(this.env, input);
+  }
+
   getCenterAgentDirectMessageSpaceProjection(
     input: GetCenterAgentDirectMessageSpaceProjectionInput
   ): Promise<GetCenterAgentDirectMessageSpaceProjectionResponse> {
@@ -2491,6 +2502,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: CenterAgentReadOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
     return rpcCenterAgentGetOrganizationDirectory(this.env, input);
+  }
+
+  centerAgentReadMemberComputers(
+    input: CenterAgentReadMemberComputersInput
+  ): Promise<CenterAgentReadMemberComputersResponse> {
+    return rpcCenterAgentReadMemberComputers(this.env, input);
   }
 
   centerAgentReadMemberOpenMeldServiceStatus(
@@ -3733,6 +3750,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.disconnectLarkPlatformRegistration(input);
   }
 
+  disconnectMessageChannelIdentityLink(
+    input: DisconnectMessageChannelIdentityLinkInput
+  ): Promise<MessageChannelConnectionListResponse> {
+    return super.disconnectMessageChannelIdentityLink(input);
+  }
+
   getCenterAgentDirectMessageSpaceProjection(
     input: GetCenterAgentDirectMessageSpaceProjectionInput
   ): Promise<GetCenterAgentDirectMessageSpaceProjectionResponse> {
@@ -3941,6 +3964,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentReadOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
     return super.centerAgentGetOrganizationDirectory(input);
+  }
+
+  centerAgentReadMemberComputers(
+    input: CenterAgentReadMemberComputersInput
+  ): Promise<CenterAgentReadMemberComputersResponse> {
+    return super.centerAgentReadMemberComputers(input);
   }
 
   centerAgentReadMemberOpenMeldServiceStatus(

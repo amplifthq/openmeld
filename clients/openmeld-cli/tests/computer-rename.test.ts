@@ -8,28 +8,35 @@ import {
 const {
   collectObservedDeviceMetadataMock,
   createCliApiClientFoundationMock,
+  createComputerFileAccessApiMock,
   createCurrentDeviceApiMock,
   createPresenterMock,
   readCurrentLocalDeviceIdMock,
   resolveBaseUrlMock,
   resolveRuntimeContextMock,
   listLocalRuntimesMock,
+  getCurrentLocalRuntimeReplyReadinessMock,
+  readFileAccessPolicyMock,
   setDisplayNameMock,
   writeObservedMetadataMock,
 } = vi.hoisted(() => ({
   collectObservedDeviceMetadataMock: vi.fn(),
   createCliApiClientFoundationMock: vi.fn(),
+  createComputerFileAccessApiMock: vi.fn(),
   createCurrentDeviceApiMock: vi.fn(),
   createPresenterMock: vi.fn(),
   readCurrentLocalDeviceIdMock: vi.fn(),
   resolveBaseUrlMock: vi.fn(),
   resolveRuntimeContextMock: vi.fn(),
   listLocalRuntimesMock: vi.fn(),
+  getCurrentLocalRuntimeReplyReadinessMock: vi.fn(),
+  readFileAccessPolicyMock: vi.fn(),
   setDisplayNameMock: vi.fn(),
   writeObservedMetadataMock: vi.fn(),
 }));
 
 vi.mock("@openmeld/api-client", () => ({
+  createComputerFileAccessApi: createComputerFileAccessApiMock,
   createCurrentDeviceApi: createCurrentDeviceApiMock,
 }));
 
@@ -78,9 +85,14 @@ describe("openmeld computer rename", () => {
       baseUrl: "http://localhost:8080",
     });
     createCurrentDeviceApiMock.mockReturnValue({
+      getCurrentLocalRuntimeReplyReadiness:
+        getCurrentLocalRuntimeReplyReadinessMock,
       listLocalRuntimes: listLocalRuntimesMock,
       setDisplayName: setDisplayNameMock,
       writeObservedMetadata: writeObservedMetadataMock,
+    });
+    createComputerFileAccessApiMock.mockReturnValue({
+      readPolicy: readFileAccessPolicyMock,
     });
     readCurrentLocalDeviceIdMock.mockResolvedValue("dev_local_123");
     collectObservedDeviceMetadataMock.mockResolvedValue({
@@ -108,6 +120,18 @@ describe("openmeld computer rename", () => {
       ],
     });
     listLocalRuntimesMock.mockResolvedValue(buildLocalRuntimesResponse());
+    getCurrentLocalRuntimeReplyReadinessMock.mockResolvedValue(
+      buildCurrentReplyReadiness()
+    );
+    readFileAccessPolicyMock.mockResolvedValue({
+      deviceId: "dev_local_123",
+      policy: {
+        folders: ["/Users/felix/Code", "/Users/felix/Documents"],
+        mode: "only_selected_folders",
+        revision: 3,
+        updatedAtMs: 1_777_777_777,
+      },
+    });
   });
 
   it("renames the current computer after syncing observed metadata", async () => {
@@ -292,6 +316,47 @@ describe("openmeld computer rename", () => {
     expect(output).not.toContain("dev_local_123");
   });
 
+  it("returns owner diagnostics without local folder paths in Agent View", async () => {
+    const agentPresenter = {
+      data: vi.fn(),
+      event: vi.fn(),
+      line: vi.fn(),
+      view: "agent" as const,
+    };
+    createPresenterMock.mockReturnValueOnce(agentPresenter);
+    resolveRuntimeContextMock.mockResolvedValueOnce({
+      interactive: false,
+      resolvedView: "agent",
+      viewMode: "agent",
+    });
+
+    await runComputerCurrent({ view: "agent" });
+
+    expect(readFileAccessPolicyMock).toHaveBeenCalledWith({
+      expectedDeviceId: "dev_local_123",
+    });
+    const output = agentPresenter.data.mock.calls[0]?.[0];
+    expect(output).toMatchObject({
+      code: "computer.current.completed",
+      payload: {
+        currentDeviceId: "dev_local_123",
+        diagnostics: {
+          currentComputerFileAccess: {
+            deviceId: "dev_local_123",
+            folderCount: 2,
+            mode: "only_selected_folders",
+            revision: 3,
+            status: "available",
+          },
+          currentLocalRuntimeReplyReadiness: {
+            canReplyFromThisComputer: true,
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(output)).not.toContain("/Users/felix");
+  });
+
   it("fails current when the CLI cannot identify this computer", async () => {
     readCurrentLocalDeviceIdMock.mockResolvedValueOnce(null);
 
@@ -307,23 +372,27 @@ function buildLocalRuntimesResponse(): LocalRuntimesResponseFixture {
     currentRuntimeLane: "dev-local",
     localRuntimes: [
       {
+        computerFileAccess: { readPolicy: true, updatePolicy: true },
         deviceDisplayName: "Office MacBook",
         deviceDisplayNameSource: "user",
         deviceId: "dev_local_123",
         deviceType: "laptop",
         firstSeenAtMs: 1_700_000_000_000,
         isCurrent: true,
+        executionTargets: [],
         lastObservedAtMs: 1_777_777_777,
         osVersion: "25.4.0",
         platformFamily: "macOS",
       },
       {
+        computerFileAccess: { readPolicy: false, updatePolicy: false },
         deviceDisplayName: "Home PC",
         deviceDisplayNameSource: "observed",
         deviceId: "dev_home_456",
         deviceType: "desktop",
         firstSeenAtMs: 1_700_000_000_100,
         isCurrent: false,
+        executionTargets: [],
         lastObservedAtMs: 1_777_777_000,
         osVersion: "11",
         platformFamily: "Windows",
@@ -336,14 +405,91 @@ type LocalRuntimesResponseFixture = {
   currentDeviceId: string;
   currentRuntimeLane: "dev-local";
   localRuntimes: Array<{
+    computerFileAccess: { readPolicy: boolean; updatePolicy: boolean };
     deviceDisplayName: string;
     deviceDisplayNameSource: "observed" | "placeholder" | "user";
     deviceId: string;
     deviceType: "desktop" | "laptop" | "server" | "unknown";
     firstSeenAtMs: number;
     isCurrent: boolean;
+    executionTargets: [];
     lastObservedAtMs: number;
     osVersion: string | null;
     platformFamily: "Linux" | "macOS" | "Unknown" | "Windows";
   }>;
 };
+
+function buildCurrentReplyReadiness() {
+  return {
+    canReplyFromThisComputer: true,
+    currentTarget: {
+      availability: "resolved" as const,
+      deviceId: "dev_local_123",
+      runtimeLane: "dev-local" as const,
+    },
+    generatedAt: "2026-08-19T00:00:00.000Z",
+    localComponents: {
+      agentSetupCommand: "openmeld setup --view agent",
+      cli: {
+        commandContractVersion: "contract-v1",
+        installedPackageVersion: "1.0.0",
+        latestPackageVersion: "1.0.0",
+        reasonCodes: [],
+        requiredCommandContractVersion: null,
+        status: "current" as const,
+        updatePolicy: "ok" as const,
+        wakeBlocked: false,
+      },
+      generatedAt: "2026-08-19T00:00:00.000Z",
+      humanSetupCommand: "openmeld setup",
+      schemaVersion: 1 as const,
+      service: {
+        installedVersion: "1.0.0",
+        latestVersion: "1.0.0",
+        reasonCodes: [],
+        requiredVersion: null,
+        status: "current" as const,
+        updatePolicy: "ok" as const,
+        wakeBlocked: false,
+      },
+      setupAction: "none" as const,
+      setupActionDescription: "OpenMeld local components are aligned.",
+      setupActionLabel: "Everything is up to date",
+      skills: {
+        expectedBundleHash: null,
+        expectedTargetCount: 1,
+        installedBundleHash: null,
+        reasonCodes: [],
+        skillContractVersion: "skills-v1",
+        status: "current" as const,
+        targetCount: 1,
+        updatePolicy: "ok" as const,
+        wakeBlocked: false,
+      },
+    },
+    message: "This computer can reply in Spaces.",
+    nextAction: "none" as const,
+    primaryBlocker: "none" as const,
+    runtime: {
+      deviceDisplayName: "Office MacBook",
+      deviceId: "dev_local_123",
+      executionTargetStatus: "ready" as const,
+      lastObservedAtMs: 1_777_777_777,
+      openMeldServiceRuntimeId: {
+        source: "runtime_registry_authority" as const,
+        value: "runtime_123",
+      },
+      reasonCodes: [],
+      runtimeLane: "dev-local" as const,
+    },
+    service: {
+      connected: true,
+      executionCompatibility: null,
+      matchingCurrentRuntime: true,
+      reasonCodes: [],
+      sessionDeviceId: "dev_local_123",
+      sessionLane: "dev-local" as const,
+    },
+    status: "ready" as const,
+  };
+}

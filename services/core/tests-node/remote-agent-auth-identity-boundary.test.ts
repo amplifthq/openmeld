@@ -26,13 +26,13 @@ function readFunctionRange(
 }
 
 describe("Remote Agent Auth identity ownership boundary", () => {
-  it("routes Slack event member identity through the Auth projection", () => {
+  it("routes linked Slack event member identity through the Auth projection", () => {
     const source = readSource(
       "remote-agent/application/slack-signal-service.ts"
     );
     const identityBoundary = readFunctionRange(
       source,
-      "async function readSlackMemberByEmail",
+      "async function resolveSlackMemberIdentity",
       "async function readSlackCenterAgentTarget"
     );
 

@@ -48,7 +48,7 @@ const isRuntimeTransportSessionExplicitlyStopped = (
 ): boolean =>
   session.acceptingDispatches === false && session.stopCause === "user_stop";
 
-const compareOwnerServiceSessionsByFreshness = (
+export const compareRuntimeTransportSessionsByFreshness = (
   left: RuntimeTransportSessionState,
   right: RuntimeTransportSessionState
 ): number => {
@@ -781,7 +781,7 @@ const resolveFreshOwnerServiceForPendingFirstReport = (input: {
             createMissingDaemonExecutionCompatibility()
         )
     )
-    .sort(compareOwnerServiceSessionsByFreshness)[0];
+    .sort(compareRuntimeTransportSessionsByFreshness)[0];
   if (!session) {
     return null;
   }
@@ -840,7 +840,7 @@ export const lookupOwnerService = (
         isRuntimeTransportSessionFresh(session, nowMs) &&
         !isRuntimeTransportSessionExplicitlyStopped(session)
     )
-    .sort(compareOwnerServiceSessionsByFreshness)
+    .sort(compareRuntimeTransportSessionsByFreshness)
     .map((session) => ({
       daemonSessionId: session.daemonSessionId,
       deviceId: session.deviceId,
@@ -895,7 +895,7 @@ const findProfileRouteRegistrationFacts = (input: {
 } | null => {
   const sessions = [...input.state.sessionsById.values()]
     .filter((session) => session.ownerUserId === input.ownerUserId)
-    .sort((left, right) => right.lastHeartbeatMs - left.lastHeartbeatMs);
+    .sort(compareRuntimeTransportSessionsByFreshness);
 
   for (const session of sessions) {
     const rejectedProfileRegistration =

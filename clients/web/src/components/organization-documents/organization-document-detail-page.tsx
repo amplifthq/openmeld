@@ -39,6 +39,7 @@ import {
 	updateCurrentOrganizationDocument,
 } from "#/lib/organizations/organization-documents";
 import { buildOrganizationDocumentsPath } from "#/lib/organizations/organization-routes";
+import { invalidateInboxFacts } from "#/query/organizations/inbox";
 import {
 	organizationDocumentQueryKeys,
 	organizationDocumentQueryOptions,
@@ -76,6 +77,10 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 			}),
 			queryClient.invalidateQueries({
 				queryKey: organizationDocumentQueryKeys.list(currentOrganization.id),
+			}),
+			invalidateInboxFacts({
+				organizationId: currentOrganization.id,
+				queryClient,
 			}),
 		]);
 	};
@@ -161,13 +166,14 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 		deleteMutation.isPending;
 	const hasDraft = document !== undefined && document.draftContent !== null;
 	const isProfileReport = document?.kind === "member_profile";
+	const profileReportNeedsSave = isPendingProfileReportSave(document);
 	const showingDraft = resolveShowingDraft({
 		hasDraft: hasDraft && !isProfileReport,
 		reviewView,
 	});
 	const editFormPresentation = resolveDocumentEditFormPresentation(
 		document,
-		isProfileReport,
+		profileReportNeedsSave,
 		editorEpoch
 	);
 
@@ -274,6 +280,9 @@ export function OrganizationDocumentDetailPage(input: { documentId: string }) {
 						setErrorMessage(null);
 						await saveMutation.mutateAsync(payload);
 					}}
+					requiresInitialSave={
+						editFormPresentation?.requiresInitialSave ?? false
+					}
 					saving={saveMutation.isPending}
 				/>
 			</div>
@@ -332,6 +341,7 @@ function DocumentEditForm(input: {
 	document: OrganizationDocument;
 	initialContent: string;
 	onSave: (payload: { content: string; title?: string }) => Promise<void>;
+	requiresInitialSave: boolean;
 	saving: boolean;
 }) {
 	const { document } = input;
@@ -340,14 +350,18 @@ function DocumentEditForm(input: {
 	const [content, setContent] = useState(input.initialContent);
 	const [savedTitle, setSavedTitle] = useState(document.title);
 	const [savedContent, setSavedContent] = useState(input.initialContent);
+	const [requiresInitialSave, setRequiresInitialSave] = useState(
+		input.requiresInitialSave
+	);
 	const contentOverLimit =
 		content.length > ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS;
 	const unchanged = content === savedContent && title === savedTitle;
+	const hasUnsavedChanges = requiresInitialSave || !unchanged;
 	const save = async (): Promise<boolean> => {
 		if (
 			input.disabled ||
 			input.saving ||
-			unchanged ||
+			!hasUnsavedChanges ||
 			contentOverLimit ||
 			(canEditTitle && title.trim().length === 0)
 		) {
@@ -360,6 +374,7 @@ function DocumentEditForm(input: {
 			});
 			setSavedContent(content);
 			setSavedTitle(title);
+			setRequiresInitialSave(false);
 			return true;
 		} catch {
 			return false;
@@ -370,7 +385,7 @@ function DocumentEditForm(input: {
 		<div className="grid gap-6">
 			<UnsavedChangesGuard
 				description="Your changes to this document haven't been saved."
-				hasUnsavedChanges={!unchanged}
+				hasUnsavedChanges={hasUnsavedChanges}
 				onSave={save}
 				saving={input.saving}
 			/>
@@ -398,7 +413,7 @@ function DocumentEditForm(input: {
 						disabled={
 							input.disabled ||
 							input.saving ||
-							unchanged ||
+							!hasUnsavedChanges ||
 							contentOverLimit ||
 							(canEditTitle && title.trim().length === 0)
 						}
@@ -414,22 +429,28 @@ function DocumentEditForm(input: {
 
 function resolveDocumentEditFormPresentation(
 	document: OrganizationDocument | undefined,
-	isProfileReport: boolean,
+	profileReportNeedsSave: boolean,
 	editorEpoch: number
-): { initialContent: string; key: string } | null {
+): {
+	initialContent: string;
+	key: string;
+	requiresInitialSave: boolean;
+} | null {
 	if (!document) {
 		return null;
 	}
 	const initialContent =
-		isProfileReport && document.draftContent !== null
+		profileReportNeedsSave && document.draftContent !== null
 			? document.draftContent
 			: document.content;
-	const version = isProfileReport
-		? (document.draftCreatedAt ?? document.updatedAt)
-		: document.updatedAt;
+	const version =
+		document.kind === "member_profile"
+			? (document.draftCreatedAt ?? document.updatedAt)
+			: document.updatedAt;
 	return {
 		initialContent,
 		key: `${document.id}:${editorEpoch}:${version}`,
+		requiresInitialSave: profileReportNeedsSave,
 	};
 }
 
@@ -462,6 +483,12 @@ function resolveShowingDraft(input: {
 	return input.hasDraft && input.reviewView === "draft";
 }
 
+function isPendingProfileReportSave(
+	document: OrganizationDocument | undefined
+): boolean {
+	return document?.kind === "member_profile" && document.draftContent !== null;
+}
+
 function DocumentDraftStatusBadge(input: {
 	hasDraft: boolean;
 	isProfileReport: boolean;
@@ -486,7 +513,7 @@ function DocumentDraftPresentation(input: {
 	showingDraft: boolean;
 }) {
 	if (input.document.kind === "member_profile") {
-		return <ProfileReportLearningNote />;
+		return <ProfileReportLearningNote needsSave={input.hasDraft} />;
 	}
 	if (!input.hasDraft) {
 		return null;
@@ -503,7 +530,7 @@ function DocumentDraftPresentation(input: {
 	);
 }
 
-function ProfileReportLearningNote() {
+function ProfileReportLearningNote(input: { needsSave: boolean }) {
 	return (
 		<section
 			aria-labelledby="profile-report-learning-heading"
@@ -513,8 +540,9 @@ function ProfileReportLearningNote() {
 				What your Center Agent has learned so far
 			</h2>
 			<p className="mt-1 text-muted-foreground text-sm">
-				Your Center Agent will update this Profile Report as it learns more
-				about your work. If anything feels off, tell your Center Agent.
+				{input.needsSave
+					? "Your Center Agent updated this Profile Report. Review it, make any changes you need, then save it."
+					: "Your Center Agent will update this Profile Report as it learns more about your work. If anything feels off, tell your Center Agent."}
 			</p>
 		</section>
 	);

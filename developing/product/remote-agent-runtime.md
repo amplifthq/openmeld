@@ -180,10 +180,14 @@ the connected provider API.
    available only when the user is a verified current human member and
    explicitly asks the Center Agent to publish a top-level message in a named
    channel or reply to an exact existing thread. A thread target is valid only
-   for the current interactive execution and must come from the user's Slack
-   link or trusted Slack evidence; it is never inferred. A Routine or approved
-   Organization document publication remains top-level. A Routine may use the
-   action only when its stored structured grant explicitly contains
+   for the current interactive execution and must come from an exact Slack
+   message permalink in the user's request or from Slack evidence returned in
+   that turn; it is never inferred from a model-authored channel name or raw
+   timestamp. Remote Agent retains only the bounded target selector needed for
+   that execution, and Core verifies the permalink against the connected Slack
+workspace before freezing the canonical channel and root thread. A Routine
+or approved Organization document publication remains top-level. A Routine may
+use the action only when its stored structured grant explicitly contains
    `slack.publish_channel_report`; Core rechecks that canonical Routine grant
    independently before provider I/O. The model selects either the current turn,
    the authorized Routine Run, or an exact approved Organization document as the
@@ -215,9 +219,12 @@ the connected provider API.
    shared connections. Core reauthorizes every call against the exact
    Core-authored native delivery.
 
-   Personal memory, member Apps, Local Agents or Computers, role-restricted
-   actions, destructive confirmation, and member-owned mutations remain
-   unavailable. Public research and Organization-shared reads run before any
+   Personal memory, member Apps, owner-level Local Agent or Computer details,
+   role-restricted actions, destructive confirmation, and member-owned
+   mutations remain unavailable. The strict team-safe Organization Computer
+   projection remains an ordinary shared read; it never upgrades into the
+   owner's File Access, paths, accounts, commands, policies, or controls. Public
+   research and Organization-shared reads run before any
    setup suggestion. The registered `write` effect is the ordinary-member
    policy for non-GitHub shared Apps; unknown or destructive effects fail
    closed. GitHub ordinary writes may run only with
@@ -1719,12 +1726,26 @@ device id, operating system, Service version, last-seen timestamp, or raw lookup
 error. Interactive and Routine turns inherit the tool through the normal
 catalog. Unattended member-research turns do not receive it.
 
+The member Computer read follows the same exact-member flow but returns the
+existing team-safe Organization Computer projection rather than the coarse
+Service state. The model must first use the Directory `userId`; Core rechecks
+membership, filters the projection to that member, and records the read. The
+verified requester's separate `openmeld_list_computers` tool may request the
+model-safe owner diagnostics projection on demand, but only in a
+requester-private conversation. A shared Space, channel, or thread fails closed
+before Core receives the private read. That result is never automatic context;
+its Local Agent details exclude accounts, executable paths, launch arguments,
+update commands, raw diagnostic messages, and private skills, and its File
+Access summary cannot contain local paths.
+
 This is an additive shared-schema, Agent work-activity, and private Service
 Binding rollout. Deploy Core, then Web, then Remote Agent. The new Remote Agent
 fails closed when the Core method is absent, while the old Remote Agent remains
 compatible with the new Core; Web understands the new work key before Remote
 Agent emits it. Audit action set `v12` lets current readers accept the new
 `read_member_openmeld_service_status` row; older frozen action sets omit it.
+The later member Computer read uses action set `v19`; action sets through `v18`
+exclude `read_member_computers` so older strict readers remain compatible.
 Rollback removes Remote Agent before Web or Core. The change does not affect
 Gateway, Auth, CLI, OpenMeld Service, daemon, Prepare, RuntimeCoordinator, or
 local-component contract versions.

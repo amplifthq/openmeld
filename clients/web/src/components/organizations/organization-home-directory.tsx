@@ -14,7 +14,10 @@ import {
 	buildOrganizationPeoplePath,
 } from "#/lib/organizations/organization-routes";
 import { localRuntimesQueryOptions } from "#/query/connect/local-runtimes";
-import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import {
+	organizationComputersQueryOptions,
+	organizationDirectoryQueryOptions,
+} from "#/query/organizations/organization-directory";
 import {
 	OrganizationHomeEmpty,
 	OrganizationHomeError,
@@ -39,14 +42,27 @@ export function OrganizationHomeDirectory() {
 	const localRuntimesQuery = useQuery(
 		localRuntimesQueryOptions({ enabled: true, storageScope })
 	);
+	const organizationComputersQuery = useQuery(
+		organizationComputersQueryOptions({
+			enabled: true,
+			organizationId: currentOrganization.id,
+		})
+	);
 	const directoryDataIsStale =
 		directoryQuery.isError && Boolean(directoryQuery.data);
 	const runtimeDataIsStale =
 		localRuntimesQuery.isError && Boolean(localRuntimesQuery.data);
-	const detailsAreStale = directoryDataIsStale || runtimeDataIsStale;
+	const organizationComputersDataIsStale =
+		organizationComputersQuery.isError &&
+		Boolean(organizationComputersQuery.data);
+	const detailsAreStale =
+		directoryDataIsStale ||
+		runtimeDataIsStale ||
+		organizationComputersDataIsStale;
 	const computers = resolveOrganizationComputerGroups({
 		currentUserId,
 		directory: directoryQuery.data ?? null,
+		organizationComputers: organizationComputersQuery.data ?? null,
 		ownedComputers: localRuntimesQuery.data?.localRuntimes ?? [],
 	})
 		.flatMap((group) => group.computers)
@@ -62,6 +78,7 @@ export function OrganizationHomeDirectory() {
 						Promise.all([
 							directoryQuery.refetch(),
 							localRuntimesQuery.refetch(),
+							organizationComputersQuery.refetch(),
 						])
 					}
 				/>
@@ -87,14 +104,25 @@ export function OrganizationHomeDirectory() {
 					computers={computers}
 					isError={
 						(directoryQuery.isError && !directoryQuery.data) ||
-						(localRuntimesQuery.isError && !localRuntimesQuery.data)
+						(localRuntimesQuery.isError && !localRuntimesQuery.data) ||
+						(organizationComputersQuery.isError &&
+							!organizationComputersQuery.data)
 					}
-					isPending={directoryQuery.isPending || localRuntimesQuery.isPending}
-					isStale={directoryDataIsStale || runtimeDataIsStale}
+					isPending={
+						directoryQuery.isPending ||
+						localRuntimesQuery.isPending ||
+						organizationComputersQuery.isPending
+					}
+					isStale={
+						directoryDataIsStale ||
+						runtimeDataIsStale ||
+						organizationComputersDataIsStale
+					}
 					onRetry={() =>
 						Promise.all([
 							directoryQuery.refetch(),
 							localRuntimesQuery.refetch(),
+							organizationComputersQuery.refetch(),
 						])
 					}
 					organizationSlug={currentOrganization.slug}

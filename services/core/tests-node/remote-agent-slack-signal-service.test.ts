@@ -132,6 +132,15 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
+      await insertSlackUserIdentityLinkIfAbsent({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserId: "U123",
+        source: "explicit",
+        openmeldUserId: "user_member",
+      });
       const env = buildEnv(harness.db, { workerSubmit });
       await expect(
         submitRemoteAgentSlackChannelIntroduction({
@@ -257,6 +266,7 @@ describe("Remote Agent Slack signal service", () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -424,6 +434,7 @@ describe("Remote Agent Slack signal service", () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -521,6 +532,7 @@ describe("Remote Agent Slack signal service", () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -600,6 +612,7 @@ describe("Remote Agent Slack signal service", () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -688,6 +701,7 @@ describe("Remote Agent Slack signal service", () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(
       async (request: RemoteAgentWorkerSubmitTurnRequest) => ({
         accepted: true,
@@ -798,6 +812,7 @@ describe("Remote Agent Slack signal service", () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn();
     stubSlackFetch({
       conversationsListResponse: {
@@ -917,6 +932,7 @@ describe("Remote Agent Slack signal service", () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn();
     stubSlackFetch({
       conversationsListResponse: {
@@ -1028,6 +1044,7 @@ describe("Remote Agent Slack signal service", () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn();
     stubSlackFetch({
       conversationsListResponse: {
@@ -1158,6 +1175,7 @@ describe("Remote Agent Slack signal service", () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn();
     stubSlackFetch({
       conversationsListResponse: {
@@ -1345,6 +1363,15 @@ describe("Remote Agent Slack signal service", () => {
         organizationId: "org_1",
         slackTeamId: "T123",
       });
+      await insertSlackUserIdentityLinkIfAbsent({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserId: "U123",
+        source: "explicit",
+        openmeldUserId: "user_member",
+      });
 
       await expect(
         processRemoteAgentSlackEvent(
@@ -1447,7 +1474,7 @@ describe("Remote Agent Slack signal service", () => {
         })
       ).resolves.toMatchObject({
         organizationId: "org_1",
-        source: "email_auto",
+        source: "explicit",
         openmeldUserId: "user_member",
       });
 
@@ -1568,6 +1595,7 @@ describe("Remote Agent Slack signal service", () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(async () => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -1890,6 +1918,7 @@ describe("Remote Agent Slack signal service", () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
+    seedSlackIdentityLink(harness);
     const workerSubmit = vi.fn(async (_request: unknown) => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -2739,7 +2768,7 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
-  it("admits an unmatched Slack workspace member as an anonymous member", async () => {
+  it("keeps an unlinked same-email Slack workspace member anonymous", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
@@ -2752,7 +2781,7 @@ describe("Remote Agent Slack signal service", () => {
     }));
     const fetchMock = stubSlackFetch({
       displayName: "Workspace member",
-      email: "outsider@example.test",
+      email: "ari@example.test",
     });
 
     try {
@@ -2808,6 +2837,13 @@ describe("Remote Agent Slack signal service", () => {
         onBehalfOfProfileId: null,
         onBehalfOfUserId: null,
       });
+      await expect(
+        readSlackUserIdentityLink({
+          db: harness.db,
+          slackTeamId: "T123",
+          slackUserId: "U123",
+        })
+      ).resolves.toBeNull();
     } finally {
       harness.close();
     }
@@ -2988,6 +3024,87 @@ describe("Remote Agent Slack signal service", () => {
           String(request).includes("/users.info")
         )
       ).toHaveLength(1);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("lets a verified Slack member request a fresh account-connection action", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const workerSubmit = vi.fn(async () => ({
+      accepted: true,
+      createdAt: 1_710_000_001,
+      requestId: "req_slack_1",
+      status: "pending" as const,
+      submissionId: "sub_slack_1",
+    }));
+    const fetchMock = stubSlackFetch({ email: "wrong@example.test" });
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await insertSlackUserIdentityLinkIfAbsent({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserId: "U123",
+        source: "explicit",
+        openmeldUserId: "user_member",
+      });
+      await expect(
+        processRemoteAgentSlackEvent(
+          buildEnv(harness.db, { workerSubmit }),
+          createAppMentionPayload()
+        )
+      ).resolves.toEqual({ status: "processed" });
+
+      await expect(
+        completeRemoteAgentNativeDelivery(buildEnv(harness.db), {
+          ...createCompletedCallbackBody(),
+          navigationTarget: {
+            kind: "message_channel_identity_link",
+            purpose: "optional_setup",
+          },
+          text: "You can manage your connected Slack account from your profile.",
+          triggerMessageId: "1710000000.000100",
+        })
+      ).resolves.toEqual({
+        status: "accepted",
+        publishedSignalId: "1710000001.000200",
+      });
+
+      const postBodies = readSlackPostBodies(fetchMock) as {
+        blocks?: { elements?: { url?: string }[] }[];
+        channel?: string;
+      }[];
+      expect(postBodies).toHaveLength(2);
+      expect(postBodies[0]).toMatchObject({ channel: "C123" });
+      expect(postBodies[1]).toMatchObject({ channel: "U123" });
+      const linkUrl = postBodies[1]?.blocks?.[1]?.elements?.[0]?.url;
+      expect(linkUrl).toMatch(SLACK_IDENTITY_LINK_URL_PATTERN);
+      const token = new URL(linkUrl ?? "").searchParams.get("token");
+      await expect(
+        harness.db
+          .prepare(
+            `
+              SELECT claimed_by_user_id, source_delivery_id
+              FROM slack_user_identity_link_tokens
+              WHERE token_hash = ?
+            `
+          )
+          .bind(await digestSlackIdentityLinkToken(token ?? ""))
+          .first()
+      ).resolves.toEqual({
+        claimed_by_user_id: null,
+        source_delivery_id: null,
+      });
     } finally {
       harness.close();
     }
@@ -3308,6 +3425,84 @@ describe("Remote Agent Slack signal service", () => {
           openmeldUserId: "user_2",
         })
       ).resolves.toBeNull();
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("moves a Slack account after the Slack user proves control with a private token", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    applyMigrationForTable(harness, "center_agent_audit_journal");
+    seedSlackOrganization(harness);
+    stubSlackFetch({ email: "ari@example.test" });
+    const token = `slacklink_${"5".repeat(64)}`;
+    const nowMs = Date.now();
+    try {
+      harness.run({
+        params: ["user_old", "Old member", "old@example.test", 1, 100, 100],
+        sql: `
+          INSERT INTO users (id, name, email, email_verified, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `,
+      });
+      harness.run({
+        params: ["member_old", "org_1", "user_old", "member", 100],
+        sql: `
+          INSERT INTO members (id, organization_id, user_id, role, created_at)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      });
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await insertSlackUserIdentityLinkIfAbsent({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserId: "U123",
+        source: "explicit",
+        openmeldUserId: "user_old",
+      });
+      await insertSlackIdentityLinkToken({
+        db: harness.db,
+        deliveryScope: "slack_ephemeral",
+        expiresAtMs: nowMs + 60_000,
+        issuedAtMs: nowMs - 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserDisplayName: "Slack Ari",
+        slackUserId: "U123",
+        tokenHash: await digestSlackIdentityLinkToken(token),
+      });
+
+      await expect(
+        rpcPreviewSlackIdentityLink(buildEnv(harness.db), {
+          context: buildHumanContext(),
+          token,
+        })
+      ).resolves.toMatchObject({ replacesExistingLink: true });
+      await expect(
+        rpcConsumeSlackIdentityLink(buildEnv(harness.db), {
+          context: buildHumanContext(),
+          token,
+        })
+      ).resolves.toMatchObject({
+        linked: true,
+        replacedExistingLink: true,
+        openMeldUserId: "user_member",
+      });
+      await expect(
+        readSlackUserIdentityLink({
+          db: harness.db,
+          slackTeamId: "T123",
+          slackUserId: "U123",
+        })
+      ).resolves.toMatchObject({ openmeldUserId: "user_member" });
     } finally {
       harness.close();
     }
@@ -6045,6 +6240,25 @@ function seedNonMemberUser(
         email_verified,
         created_at,
         updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?)
+    `,
+  });
+}
+
+function seedSlackIdentityLink(
+  input: Parameters<typeof applyMigrationForTable>[0]
+) {
+  input.run({
+    params: ["org_1", "T123", "U123", "user_member", "explicit", 100],
+    sql: `
+      INSERT INTO slack_user_identity_links (
+        organization_id,
+        slack_team_id,
+        slack_user_id,
+        openmeld_user_id,
+        source,
+        created_at_ms
       )
       VALUES (?, ?, ?, ?, ?, ?)
     `,

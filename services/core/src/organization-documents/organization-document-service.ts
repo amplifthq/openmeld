@@ -651,10 +651,7 @@ export function createOrganizationDocumentService(
             organizationId,
           });
       const draftCreatedAtMs = result.draftCreatedAtMs;
-      if (
-        draftCreatedAtMs !== null &&
-        result.document.kind !== "member_profile"
-      ) {
+      if (draftCreatedAtMs !== null) {
         await runBestEffortDraftInboxProjection(
           {
             documentId: result.document.id,
@@ -817,7 +814,12 @@ export function createOrganizationDocumentService(
         input,
       });
       const version = requireHumanDocumentUpdateVersion(input);
-      const update = buildDocumentUpdate(existing, input, now());
+      const updatedAtMs = now();
+      const resolvedDraftCreatedAtMs =
+        existing.kind === "member_profile" && input.content !== undefined
+          ? existing.draft_created_at
+          : null;
+      const update = buildDocumentUpdate(existing, input, updatedAtMs);
       const result = await dependencies.db
         .prepare(
           `
@@ -846,6 +848,24 @@ export function createOrganizationDocumentService(
           documentId
         );
         throw workingCopyConflictError();
+      }
+      if (resolvedDraftCreatedAtMs !== null) {
+        await runBestEffortDraftInboxProjection(
+          {
+            documentId,
+            operation: "resolve",
+            organizationId: actor.organizationId,
+          },
+          async () => {
+            await resolveOrganizationDocumentDraftReview({
+              db: dependencies.db,
+              documentId,
+              draftCreatedAtMs: resolvedDraftCreatedAtMs,
+              organizationId: actor.organizationId,
+              resolvedAtMs: updatedAtMs,
+            });
+          }
+        );
       }
       return await getDocument(dependencies.db, actor, documentId);
     },

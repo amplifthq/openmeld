@@ -51,6 +51,8 @@ import type {
   CenterAgentReadChangelogToolRpcInput,
   CenterAgentReadConnectorActionOperationBody,
   CenterAgentReadConnectorActionOperationResponse,
+  CenterAgentReadMemberComputersBody,
+  CenterAgentReadMemberComputersResponse,
   CenterAgentReadMemberOpenMeldServiceStatusBody,
   CenterAgentReadMemberOpenMeldServiceStatusResponse,
   CenterAgentReadOrganizationDocumentsResponse,
@@ -128,6 +130,7 @@ import {
   isRemoteAgentToolResultTooLarge,
   normalizeRemoteAgentErrorMessage,
 } from "./error-message";
+import { extractSlackThreadPublicationTargetKeys } from "./slack-thread-publication-evidence";
 import type { RemoteAgentTurnUsage, RemoteAgentUsageRecord } from "./usage";
 
 export type RemoteAgentCallbackStatus =
@@ -210,6 +213,7 @@ export type RemoteAgentCallbackContext = {
   organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
   requestId?: string;
   sourceClientMessageId: string | null;
+  trustedSlackThreadPublicationTargetKeys?: string[];
   spaceId: string;
   submissionCreatedAt: number;
   submissionId: string;
@@ -371,6 +375,11 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentResolveConnectorConnection?(input: unknown): Promise<unknown>;
   centerAgentEnableAgentProfile?(input: unknown): Promise<unknown>;
   centerAgentGetOrganizationDirectory?(input: unknown): Promise<unknown>;
+  centerAgentReadMemberComputers?(
+    input: CenterAgentReadMemberComputersBody & {
+      context: OpenMeldRequestContext;
+    }
+  ): Promise<CenterAgentReadMemberComputersResponse>;
   centerAgentReadMemberOpenMeldServiceStatus?(
     input: CenterAgentReadMemberOpenMeldServiceStatusBody & {
       context: OpenMeldRequestContext;
@@ -557,6 +566,10 @@ export function createRemoteAgentCallbackContext(input: {
       })) ?? [],
     requestId: input.ack.requestId,
     sourceClientMessageId: input.request.sourceClientMessageId ?? null,
+    trustedSlackThreadPublicationTargetKeys:
+      extractSlackThreadPublicationTargetKeys(
+        input.request.messages.map((message) => message.content)
+      ),
     spaceId: input.request.spaceId,
     submissionCreatedAt: input.ack.createdAt,
     submissionId: input.ack.submissionId,

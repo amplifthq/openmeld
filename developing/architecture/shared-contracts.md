@@ -649,6 +649,13 @@ private skills, local policy, credentials, and raw lookup failures are not
 members of this schema. Owner-scoped local runtimes remain authoritative for
 the signed-in member's complete inventory and controls.
 
+The Center Agent single-member Computer read reuses this exact response schema
+and adds only the requested `memberUserId`. Core first verifies that exact user
+is a current member, then builds the same filtered team-safe projection; it
+does not introduce another Computer query, state store, or visibility policy.
+The RPC is additive and audited behind Center Agent audit action set `v19`, so
+older strict audit readers exclude the new action row.
+
 Its optional `openMeldTools` object is also a sanitized live-session
 projection. It permits component installed/latest versions, required Service
 version, update status/policy, Wake-blocking state, bounded reason codes, and
@@ -2032,12 +2039,14 @@ users, bots, and app users, and consumes OpenMeld Organization membership
 through the centralized Organization directory RPC. Core first resolves an
 exact Slack identity link scoped to the current Organization and Slack
 workspace. The linked OpenMeld user must still be a current Organization
-member. If no valid link exists, an exact normalized email match is the only
-fallback that proves membership. The response reports whether the match came
-from `identity_link` or `email`. Without either match, an available nonmatching
-email means `not_member`; no Slack email means `unknown`. Display names and
-profile fields are untrusted provider data and cannot upgrade either result.
-The contract grants no roster persistence, invitation, or messaging authority.
+member. If no valid link exists, an exact normalized email match may classify
+that directory row for the current response only. The response reports whether
+the classification came from `identity_link` or `email`; `email` never creates
+a link, represents a Slack sender, or grants member-owned authority. Without
+either match, an available nonmatching email means `not_member`; no Slack email
+means `unknown`. Display names and profile fields are untrusted provider data
+and cannot upgrade either result. The contract grants no roster persistence,
+invitation, identity-link, or messaging authority.
 
 This rollout is receiver-first because old Core rejects the new `actionSet=v6`
 query and does not implement the directory RPC. Deploy Core's RPC receiver and
@@ -2097,21 +2106,27 @@ sets must continue excluding these durable action rows.
 explicit Center Agent Slack publication. Top-level channel messages use
 `centerAgentPostSlackChannelMessage`; exact existing threads use the additive
 `centerAgentPostSlackThreadMessage` receiver. The model-visible tool accepts only
-`current_turn` or `organization_document` with an exact document id. It may add
-an exact Slack root message timestamp only for an explicitly requested
-interactive `current_turn`; Organization document and Routine publications
-remain top-level. Remote Agent converts `current_turn` to the system-owned
-submission id, or to the trusted Run id from a Routine envelope. It never
-accepts a model-authored internal execution id, Run id, arbitrary publication
-id, or invented thread target.
+`current_turn` or `organization_document` with an exact document id. A top-level
+publication uses an exact channel name. An explicitly requested interactive
+thread publication instead uses one exact Slack message permalink from the
+user's request or from Slack search evidence returned in that turn;
+Organization document and Routine publications remain top-level. Remote Agent
+retains only bounded parsed target selectors for the current submission and
+converts `current_turn` to the system-owned submission id, or to the trusted Run
+id from a Routine envelope. It never accepts a model-authored internal execution
+id, Run id, arbitrary publication id, raw thread timestamp, or invented thread
+target.
 
 Core validates a Remote Agent execution against the current request context, a
 Routine Run against its native-delivery row, and an Organization document
 against current Organization access. For an exact thread, Core also requires
 the current active native-delivery row to match the represented member and to
 have no Routine Run; a caller-provided source kind is never sufficient proof.
-It then derives the document revision from the approved artifact. The ledger
-scope binds that source to the
+Core resolves the supplied permalink through the connected Slack workspace,
+rejects a workspace or channel mismatch, and freezes the provider-confirmed
+channel id plus canonical root message timestamp before publication. It then
+derives the document revision from the approved artifact. The ledger scope
+binds that source to the
 Organization, designated Center Agent, and resolved Slack destination. A
 top-level destination is the channel id; an exact thread destination is the
 channel id plus root message timestamp. The request signature binds the
@@ -2124,10 +2139,12 @@ The top-level Core request keeps `publicationSource` rollout-optional only so an
 already-running older Remote Agent can call a newly deployed Core. Omission
 uses the legacy direct path and must not be emitted by the current tool. The
 thread receiver is receiver-first: deploy Core before Remote Agent. Old Remote
-Agent never calls it and continues sending top-level publications to new Core;
-new Remote Agent cannot find the method on old Core, so it fails before any
-Slack write instead of silently losing the thread target. Rollback removes the
-Remote Agent caller before the Core receiver. Migration
+Agent may still call its legacy `channelName` plus `threadTs` request and
+continues sending top-level publications to new Core; new Remote Agent sends
+the permalink request, which old Core rejects before any Slack write. Rollback
+removes the Remote Agent caller before the Core receiver. The legacy receiver
+shape is rollout compatibility only and must not return to the model-visible
+tool. Migration
 `0067_damp_mariko_yashida` still owns the existing ledger; no database migration
 or response-shape change is required.
 
@@ -2434,10 +2451,31 @@ this is a read projection, it must not request legacy connection identity
 adoption or otherwise write local-runtime identity state. Core projects
 computer identity, status, reason codes, and recommended setup mode from that
 current Local Runtimes response. Remote Agent exposes the projection through
-`openmeld_list_computers` and fails closed when the new Core receiver is absent.
+`openmeld_list_computers` only in a requester-private conversation and fails
+closed when the audience is shared, the verified member is absent, or the new
+Core receiver is absent.
 This read contract does not grant computer management authority or change
 OpenMeld Service, daemon, Prepare Session, RuntimeCoordinator, or local
 component contracts.
+
+The optional `includeDiagnostics` request flag expands only this verified-owner
+read. Its optional `diagnostics` response uses
+`owner-computer-diagnostics.ts` to compose a model-safe projection of the
+existing Local Runtimes response, current-local-runtime reply-readiness
+response, and a File Access summary. The Local Runtime projection preserves
+Computer state plus Local Agent status, installed version, update state,
+capabilities, model display names, and check evidence. It excludes controller
+accounts, executable paths, launch arguments, update commands, raw diagnostic
+messages, private skills, and local policy. It creates no persisted fact and
+does not replace Core-owned Agent execution readiness. The File Access summary
+intentionally cannot represent folder paths.
+
+This optional pair is the mixed-version fence: new Remote Agent requests
+diagnostics explicitly; old Remote Agent omits the flag, so new Core omits the
+extra strict response field. New Remote Agent accepts an old Core response with
+no optional diagnostics. Deploy Core before Remote Agent. The separate
+`centerAgentReadMemberComputers` RPC must follow the same Core-before-Remote
+order; a new caller against an old Core fails closed as unavailable.
 
 The Organization Web projection remains an additive strict
 Core-to-Remote-Agent cloud contract: deploy the Remote Agent consumer that
@@ -2871,7 +2909,9 @@ link but cannot claim automatic continuation. Core atomically claims one
 private token for the signed-in OpenMeld user before Auth may add Organization
 membership. Core then rechecks the current workspace Binding and signed-in
 Organization membership while consuming the claimed token and writing the link
-in one atomic D1 batch. A competing OpenMeld user fails before Auth enrollment.
+in one atomic D1 batch. If that exact Slack account points to another member,
+the same Slack-private proof atomically replaces the canonical mapping; it never
+creates two mappings. A competing OpenMeld user fails before Auth enrollment.
 The same user may retry a claim left unconsumed by a failed Auth enrollment.
 Issuing a fresh private setup action atomically expires all earlier unconsumed
 tokens for the same Slack identity before inserting the replacement, so an
@@ -2879,12 +2919,13 @@ abandoned claim cannot fence a later setup action until expiry.
 A non-continuing action narrows that replacement to older non-continuing
 actions and cannot invalidate a source-bound continuation for another request.
 
-The strict preview response adds `alreadyMember`; the strict consume response
-adds `joinedOrganization`, `continued`, and `continuationRetryable`. Their
-consumer schemas supply rollout defaults for an older Core producer: an omitted
-`alreadyMember` means `true`, because the previous flow admitted only current
-members, while omitted `joinedOrganization`, `continued`, and
-`continuationRetryable` mean `false`. Auth is the only
+The strict preview response adds `alreadyMember` and
+`replacesExistingLink`; the strict consume response adds
+`joinedOrganization`, `continued`, `continuationRetryable`, and
+`replacedExistingLink`. Their consumer schemas supply rollout defaults for an
+older Core producer: an omitted `alreadyMember` means `true`, because the
+previous flow admitted only current members, while the other omitted fields
+mean `false`. Auth is the only
 Organization membership writer: it may add a verified signed-in account as an
 ordinary member of the non-personal Organization only after Core claims the
 private token for that account and before Core consumes it. Core then reads the
@@ -2917,6 +2958,28 @@ continuation failure advances the token generation before the same user may
 retry. Consumed tokens remain readable only through the exact provider identity
 link for that OpenMeld user until expiry; they never become native-delivery or
 tool authority.
+
+The Message Channel connection-list response may include the Core-owned
+`identityLinks` projection. Each row exposes only an opaque link id, provider,
+mapped OpenMeld user id, provider-account display name, and connection time; it
+never exposes the provider user id or token. The opaque id is stable for the
+provider, connection, and provider user tuple and is the only Web deletion
+target. Deletion authorizes either the mapped signed-in member or an
+Organization role with Channel-disconnect permission, re-resolves the target
+inside the active Organization, removes only the exact mapping, and returns the
+refreshed strict connection-list response. It never disconnects the provider
+Channel, assigns a replacement member, or mutates Auth membership.
+
+This additive HTTP/RPC rollout is receiver-first: deploy the new Web schema and
+UI, then Gateway, then Core. New consumers default omitted `identityLinks`,
+`replacesExistingLink`, and `replacedExistingLink` to empty or false, so they
+remain compatible with old Core. Old strict consumers may reject those new
+fields, so Core must not emit them before Web and Gateway are ready. Before the
+Core step, the new Web sees no mappings and therefore exposes no deletion
+caller. No Auth, D1 migration, CLI, OpenMeld Service, Runtime Transport,
+Prepare, Wake, Space Action, status, trace, diagnostic, or self-rescue contract
+changes; existing local components continue without an update. Rollback removes
+the Web caller before rolling Gateway or Core back.
 
 The agent-assisted account-connection increment stays inside the existing
 provider-neutral handoff contract. `messageChannelParticipantIdentitySchema`

@@ -8,10 +8,8 @@ import {
 describe("Profile Details snapshot", () => {
   it("builds Human Profile details without inventing account or Organization facts", () => {
     const snapshot = buildProfileDetailsSnapshotFromHumanProfile({
-      profileHandle: "grace",
       profileId: "human-grace",
       profileName: "Grace Hopper",
-      profileStatus: "active",
       viewerScope: "observer",
     });
 
@@ -29,8 +27,8 @@ describe("Profile Details snapshot", () => {
     expect(findRowValue(snapshot, "profile", "Profile type")).toBe(
       "Human Profile"
     );
-    expect(findRowValue(snapshot, "profile", "Handle")).toBe("grace");
-    expect(findRowValue(snapshot, "profile", "Status")).toBe("Active");
+    expect(findRowValue(snapshot, "profile", "Handle")).toBeNull();
+    expect(findRowValue(snapshot, "profile", "Status")).toBeNull();
     expect(findRowValue(snapshot, "advanced", "Profile ID")).toBe(
       "human-grace"
     );

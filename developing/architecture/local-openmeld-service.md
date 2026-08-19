@@ -680,6 +680,15 @@ current-device operations. A request must fail closed when the intended
 current Service is offline, stale, incompatible, or identity-mismatched. Web
 must not synthesize local connection state or report success from a cloud write.
 
+Multiple live-looking transport sessions for one owner, device, and lane are
+replacement history, not a capability union. Runtime Transport's canonical
+freshness order selects exactly one current session, and both the
+`listLocalRuntimes` capability projection and RuntimeTransportHub command
+routing use that same selection. If that current session omits or cannot serve
+a current-device capability, the operation is unsupported or fails closed even
+when an older session advertised it. This rule applies equally to Local Folder
+Picker, Computer file access, Project control, and Agent Controller control.
+
 Web derives current Project-operation eligibility from the current local-runtime
 target and its `localProjectControl` capabilities. Space reply-readiness is a
 different product contract and must not gate Project discovery. If the

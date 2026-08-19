@@ -905,6 +905,8 @@ export {
   centerAgentReadDispatchHistoryBodySchema,
   centerAgentReadDispatchHistoryResponseSchema,
   centerAgentReadinessBlockerSchema,
+  centerAgentReadMemberComputersBodySchema,
+  centerAgentReadMemberComputersResponseSchema,
   centerAgentReadSpaceContextBodySchema,
   centerAgentReadSpaceContextResponseSchema,
   centerAgentRecordConnectorActionAuditBodySchema,
@@ -1376,6 +1378,7 @@ export {
   messageChannelConnectionStatusSchema,
   messageChannelIdentityLinkConsumeBodySchema,
   messageChannelIdentityLinkConsumeResponseSchema,
+  messageChannelIdentityLinkIdSchema,
   messageChannelIdentityLinkPreviewBodySchema,
   messageChannelIdentityLinkPreviewResponseSchema,
   messageChannelIdentityLinkTokenSchema,
@@ -1413,6 +1416,7 @@ export {
   organizationComputerOpenMeldToolsSchema,
   organizationComputerSchema,
   organizationComputersResponseSchema,
+  projectOrganizationComputerLocalAgentDetails,
 } from "./http/organization-computers";
 export {
   organizationDirectoryAgentProfileIdentitySchema,
@@ -1624,6 +1628,13 @@ export {
   organizationWorkingLanguagePreferenceResponseSchema,
   setOrganizationWorkingLanguagePreferenceBodySchema,
 } from "./http/organization-working-language";
+export {
+  computerFileAccessSummarySchema,
+  ownerComputerDiagnosticsSchema,
+  ownerComputerLocalRuntimesSchema,
+  projectOwnerComputerLocalRuntimes,
+  summarizeComputerFileAccessPolicy,
+} from "./http/owner-computer-diagnostics";
 export {
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,
@@ -2382,6 +2393,7 @@ export {
   openConnectorRuntimeActionSearchResultSchema,
   openConnectorRuntimeActionSuccessEnvelopeSchema,
   organizationWorkingLanguageModeSchema,
+  parseSlackThreadPublicationPermalink,
   REMOTE_AGENT_ADMISSION_STAGE_OPERATIONS,
   REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
   REMOTE_AGENT_CONVERSATION_CONTINUITY_ENTRY_TEXT_MAX_CHARS,
@@ -2451,6 +2463,7 @@ export {
   remoteAgentWorkerTurnMessageSchema,
   routineWorkflowContinuationEventPayloadSchema,
   slackMessagePermalinkSchema,
+  slackThreadPublicationPermalinkSchema,
   slackWelcomeInteractionRpcInputSchema,
   slackWelcomeInteractionRpcResponseSchema,
   spaceWakeAgentTaskHandleSchema,

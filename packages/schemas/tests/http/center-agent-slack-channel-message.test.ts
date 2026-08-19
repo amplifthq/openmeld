@@ -69,14 +69,22 @@ describe("Center Agent Slack channel message contracts", () => {
   });
 
   it("keeps exact Slack thread publication on a receiver-first contract", () => {
-    const request = {
-      channelName: "ok8-okok",
+    const source = {
       publicationSource: {
         executionId: "remote_agent_submission_123",
         kind: "remote_agent_execution" as const,
       },
       speakerMember: { memberId: "member_123", userId: "user_123" },
       text: "Here is the proposed next step.",
+    };
+    const request = {
+      ...source,
+      threadPermalink:
+        "https://openmeld.slack.com/archives/C123/p1786979718343639",
+    };
+    const legacyRequest = {
+      ...source,
+      channelName: "ok8-okok",
       threadTs: "1786979718.343639",
     };
 
@@ -84,9 +92,18 @@ describe("Center Agent Slack channel message contracts", () => {
       request
     );
     expect(
+      centerAgentPostSlackThreadMessageBodySchema.parse(legacyRequest)
+    ).toEqual(legacyRequest);
+    expect(
+      centerAgentPostSlackThreadMessageBodySchema.safeParse({
+        ...legacyRequest,
+        threadTs: "not-a-slack-timestamp",
+      }).success
+    ).toBe(false);
+    expect(
       centerAgentPostSlackThreadMessageBodySchema.safeParse({
         ...request,
-        threadTs: "not-a-slack-timestamp",
+        threadPermalink: "https://example.com/not-slack",
       }).success
     ).toBe(false);
     expect(

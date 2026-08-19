@@ -67,6 +67,8 @@ import {
   centerAgentReadConnectorActionOperationResponseSchema,
   centerAgentReadDispatchHistoryBodySchema,
   centerAgentReadDispatchHistoryResponseSchema,
+  centerAgentReadMemberComputersBodySchema,
+  centerAgentReadMemberComputersResponseSchema,
   centerAgentReadMemberOpenMeldServiceStatusBodySchema,
   centerAgentReadMemberOpenMeldServiceStatusResponseSchema,
   centerAgentReadSlackChannelHistoryBodySchema,
@@ -177,6 +179,7 @@ import {
   messageChannelConnectionListResponseSchema,
   messageChannelIdentityLinkConsumeBodySchema,
   messageChannelIdentityLinkConsumeResponseSchema,
+  messageChannelIdentityLinkIdSchema,
   messageChannelIdentityLinkPreviewBodySchema,
   messageChannelIdentityLinkPreviewResponseSchema,
   normalizeSpaceCursorPatch,
@@ -193,12 +196,15 @@ import {
   organizationMemberOpenMeldServiceStatusesResponseSchema,
   organizationSpaceDirectoryResponseSchema,
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
+  ownerComputerDiagnosticsSchema,
+  parseSlackThreadPublicationPermalink,
   patchSpaceContractBodySchema,
   patchSpaceMetaBodySchema,
   pendingGitHubAppInstallationSchema,
   postSpaceWakeStopInputSchema,
   prepareReadinessRouteParamsSchema,
   profileSpaceHistoryGatewayHostSchema,
+  projectOwnerComputerLocalRuntimes,
   recordSpaceAttachmentPayloadSchema,
   refreshCurrentLocalAgentCatalogResponseSchema,
   resolvedSpaceMemberProfileSchema,
@@ -244,6 +250,7 @@ import {
   submitRuntimeProviderConversationProofsResponseSchema,
   submitRuntimeRegistrationBodySchema,
   submitRuntimeRegistrationResponseSchema,
+  summarizeComputerFileAccessPolicy,
   updateAgentProfileDefaultProjectRpcInputSchema,
   updateAgentProfilePrimaryBindingAgentControllerCollaborationModeBodySchema,
   updateAgentProfilePrimaryBindingAgentControllerPermissionModeBodySchema,
@@ -321,6 +328,8 @@ import type {
   CenterAgentReadConnectorActionOperationResponse,
   CenterAgentReadDispatchHistoryBody,
   CenterAgentReadDispatchHistoryResponse,
+  CenterAgentReadMemberComputersBody,
+  CenterAgentReadMemberComputersResponse,
   CenterAgentReadMemberOpenMeldServiceStatusBody,
   CenterAgentReadMemberOpenMeldServiceStatusResponse,
   CenterAgentReadSlackChannelHistoryBody,
@@ -473,6 +482,7 @@ import type {
   OrganizationSpaceDirectoryResponse,
   OrganizationSpaceDirectoryWithMemberCountsResponse,
   OrganizationUsageOverviewRpcInput,
+  OwnerComputerDiagnostics,
   PatchSpaceContractBody,
   PendingGitHubAppInstallation,
   PostSpaceMembersResponse,
@@ -831,7 +841,13 @@ import {
   listRemoteAgentActiveLarkPlatformRegistrations,
   pollRemoteAgentLarkPlatformRegistration,
 } from "../remote-agent/application/lark-platform-registration-service";
-import { listRemoteAgentMessageChannelConnectionProjections } from "../remote-agent/application/message-channel-connection-projection";
+import {
+  buildMessageChannelIdentityLinkId,
+  deleteRemoteAgentMessageChannelIdentityLinkTarget,
+  findRemoteAgentMessageChannelIdentityLinkTarget,
+  listRemoteAgentMessageChannelConnectionProjections,
+  listRemoteAgentMessageChannelIdentityLinkProjections,
+} from "../remote-agent/application/message-channel-connection-projection";
 import { digestMessageChannelIdentityLinkToken } from "../remote-agent/application/message-channel-identity-link-token";
 import { continueMessageChannelIdentityOnboardingRequest } from "../remote-agent/application/message-channel-native-delivery-service";
 import { createConfiguredMessageChannelProviderRegistry } from "../remote-agent/application/message-channel-provider-runtime";
@@ -843,6 +859,7 @@ import {
 } from "../remote-agent/application/remote-agent-runtime-policy";
 import { resolveSlackBotToken } from "../remote-agent/application/slack-bot-token";
 import {
+  getSlackMessagePermalink,
   isSlackFullWorkspaceMember,
   listSlackChannelMemberIds,
   listSlackChannels,
@@ -891,6 +908,7 @@ import {
   consumeSlackIdentityLinkTokenAndUpsertUserLink,
   readActiveSlackIdentityLinkToken,
   readSlackIdentityLinkTokenForUser,
+  readSlackUserIdentityLink,
   readSlackUserIdentityLinksForUsers,
   type SlackUserIdentityLinkRecord,
 } from "../remote-agent/infrastructure/d1/slack-user-identity-link-repo";
@@ -2370,6 +2388,11 @@ export type PollLarkPlatformRegistrationInput =
 export type DisconnectLarkPlatformRegistrationInput =
   BeginLarkPlatformRegistrationInput;
 
+export type DisconnectMessageChannelIdentityLinkInput = {
+  context?: CoreRpcContextInput;
+  identityLinkId: string;
+};
+
 export type GetCenterAgentDirectMessageSpaceProjectionInput = {
   context?: CoreRpcContextInput;
 };
@@ -2640,6 +2663,12 @@ export type CenterAgentReadMemberOpenMeldServiceStatusInput =
     speakerMember?: CenterAgentToolSpeaker;
   };
 
+export type CenterAgentReadMemberComputersInput =
+  CenterAgentReadMemberComputersBody & {
+    context?: CoreRpcContextInput;
+    speakerMember?: CenterAgentToolSpeaker;
+  };
+
 export type CenterAgentReadOrganizationSpaceDirectoryInput = {
   context?: CoreRpcContextInput;
   speakerMember?: CenterAgentToolSpeaker;
@@ -2788,15 +2817,25 @@ export async function rpcGetCurrentLocalRuntimeReplyReadiness(
   input: GetCurrentLocalRuntimeReplyReadinessInput
 ): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
   const userId = requireAuthenticatedOwnerUserId(input.context);
+  return await getCurrentLocalRuntimeReplyReadinessForOwnerUser({
+    env,
+    userId,
+  });
+}
+
+async function getCurrentLocalRuntimeReplyReadinessForOwnerUser(input: {
+  env: CoreBindings;
+  userId: string;
+}): Promise<CurrentLocalRuntimeReplyReadinessResponse> {
   const response = await getCurrentLocalRuntimeReplyReadinessUseCase({
     lookupOwnerService: async ({ ownerUserId }) =>
       await lookupRuntimeTransportOwnerService({
         blockForgottenDevices: true,
-        env,
+        env: input.env,
         ownerUserId,
       }),
-    store: buildCurrentDeviceTargetStore(env),
-    userId,
+    store: buildCurrentDeviceTargetStore(input.env),
+    userId: input.userId,
   });
   const validated =
     currentLocalRuntimeReplyReadinessResponseSchema.safeParse(response);
@@ -2807,6 +2846,101 @@ export async function rpcGetCurrentLocalRuntimeReplyReadiness(
   }
 
   return validated.data;
+}
+
+async function buildOwnerComputerDiagnostics(input: {
+  env: CoreBindings;
+  localRuntimes: LocalRuntimesResponse;
+  userId: string;
+}): Promise<OwnerComputerDiagnostics> {
+  const [currentLocalRuntimeReplyReadiness, currentComputerFileAccess] =
+    await Promise.all([
+      getCurrentLocalRuntimeReplyReadinessForOwnerUser({
+        env: input.env,
+        userId: input.userId,
+      }),
+      readOwnerCurrentComputerFileAccessSummary(input),
+    ]);
+  return ownerComputerDiagnosticsSchema.parse({
+    currentComputerFileAccess,
+    currentLocalRuntimeReplyReadiness,
+    localRuntimes: projectOwnerComputerLocalRuntimes(input.localRuntimes),
+  });
+}
+
+async function readOwnerCurrentComputerFileAccessSummary(input: {
+  env: CoreBindings;
+  localRuntimes: LocalRuntimesResponse;
+  userId: string;
+}): Promise<OwnerComputerDiagnostics["currentComputerFileAccess"]> {
+  const currentComputer = input.localRuntimes.localRuntimes.find(
+    (computer) =>
+      computer.isCurrent ||
+      computer.deviceId === input.localRuntimes.currentDeviceId
+  );
+  if (
+    !(
+      currentComputer &&
+      input.localRuntimes.currentDeviceId &&
+      input.localRuntimes.currentRuntimeLane
+    )
+  ) {
+    return {
+      code: "computer.current_missing",
+      message: "No current Computer is connected to this account.",
+      status: "unavailable",
+    };
+  }
+  if (currentComputer.computerFileAccess?.readPolicy !== true) {
+    return { status: "unsupported" };
+  }
+
+  try {
+    const ownerService = await lookupRuntimeTransportOwnerService({
+      blockForgottenDevices: true,
+      env: input.env,
+      ownerUserId: input.userId,
+    });
+    const target = requireCurrentLocalRuntimeServiceTarget({
+      bindingTarget: {
+        availability: "resolved",
+        deviceId: input.localRuntimes.currentDeviceId,
+        runtimeLane: input.localRuntimes.currentRuntimeLane,
+      },
+      offlineError: {
+        code: "computer.file_access.service_offline",
+        reason: "This computer isn't reachable for OpenMeld right now.",
+        status: 503,
+      },
+      ownerService,
+    });
+    const response = await readRuntimeTransportComputerFileAccessPolicy({
+      ...target,
+      env: input.env,
+      ownerUserId: input.userId,
+      request: { expectedDeviceId: target.deviceId },
+    });
+    if (!("policy" in response)) {
+      return {
+        code: response.code,
+        message: response.message,
+        status: "unavailable",
+      };
+    }
+    return summarizeComputerFileAccessPolicy(response);
+  } catch (error) {
+    console.warn("[core.computers.owner_file_access_diagnostics_failed]", {
+      deviceId: currentComputer.deviceId,
+      error: error instanceof Error ? error.message : String(error),
+      event: "computers.owner_file_access_diagnostics_failed",
+      ownerUserId: input.userId,
+    });
+    return {
+      code: "computer.file_access.unavailable",
+      message: "File Access details are temporarily unavailable.",
+      status: "unavailable",
+    };
+  }
 }
 
 type LookupOwnerServiceForUser = (input: {
@@ -4847,12 +4981,27 @@ export async function rpcGetCurrentOrganizationComputers(
     env,
   });
   const generatedAt = new Date().toISOString();
-  const nowMs = Date.parse(generatedAt);
   const members = await resolveOrganizationDirectoryMembers({
     authWorker: env.OPENMELD_AUTH_WORKER,
     organizationId: activeOrganization.organizationId,
     requestId: context.actorContext.requestId,
   });
+  return await buildOrganizationComputersResponse({
+    env,
+    generatedAt,
+    memberUserIds: members.map((member) => member.userId),
+    organizationId: activeOrganization.organizationId,
+  });
+}
+
+async function buildOrganizationComputersResponse(input: {
+  env: CoreBindings;
+  generatedAt: string;
+  memberUserIds: string[];
+  organizationId: string;
+}): Promise<OrganizationComputersResponse> {
+  const { env, generatedAt, memberUserIds, organizationId } = input;
+  const nowMs = Date.parse(generatedAt);
   const db = localStateDb(env);
   if (!db) {
     throw createCoreRpcHttpError({
@@ -4882,7 +5031,7 @@ export async function rpcGetCurrentOrganizationComputers(
         console.warn("[core.organization.computers_service_lookup_failed]", {
           error: error instanceof Error ? error.message : String(error),
           event: "organization.computers_service_lookup_failed",
-          organizationId: activeOrganization.organizationId,
+          organizationId,
           userId,
         });
       }
@@ -4895,8 +5044,8 @@ export async function rpcGetCurrentOrganizationComputers(
         }),
       };
     },
-    memberUserIds: members.map((member) => member.userId),
-    organizationId: activeOrganization.organizationId,
+    memberUserIds,
+    organizationId,
   });
   const validated = organizationComputersResponseSchema.safeParse(response);
   if (!validated.success) {
@@ -6036,13 +6185,113 @@ export async function rpcListMessageChannelConnections(
       status: 503,
     });
   }
+  const connections = await listRemoteAgentMessageChannelConnectionProjections({
+    identityDb: identityDatabase,
+    organizationId: activeOrganization.organizationId,
+    stateDb: stateDatabase,
+  });
   return messageChannelConnectionListResponseSchema.parse({
     availableLarkPlatformProviders:
       listLarkPlatformProvidersEnabledForOrganization({
         env,
         organizationId: activeOrganization.organizationId,
       }),
-    connections: await listRemoteAgentMessageChannelConnectionProjections({
+    connections,
+    identityLinks: await listRemoteAgentMessageChannelIdentityLinkProjections({
+      connections,
+      identityDb: identityDatabase,
+      organizationId: activeOrganization.organizationId,
+      stateDb: stateDatabase,
+    }),
+    organizationId: activeOrganization.organizationId,
+  });
+}
+
+export async function rpcDisconnectMessageChannelIdentityLink(
+  env: CoreBindings,
+  input: DisconnectMessageChannelIdentityLinkInput
+): Promise<MessageChannelConnectionListResponse> {
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const identityLinkId = normalizeOptionalText(input.identityLinkId);
+  if (
+    !(
+      identityLinkId &&
+      messageChannelIdentityLinkIdSchema.safeParse(identityLinkId).success
+    )
+  ) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "The connected account reference is invalid.",
+      status: 400,
+    });
+  }
+  const identityDatabase = requireIdentityDb(env);
+  const stateDatabase = localStateDb(env);
+  if (!stateDatabase) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.store_unavailable",
+      reason: "Message Channel connection state is unavailable.",
+      status: 503,
+    });
+  }
+  const connections = await listRemoteAgentMessageChannelConnectionProjections({
+    identityDb: identityDatabase,
+    organizationId: activeOrganization.organizationId,
+    stateDb: stateDatabase,
+  });
+  const target = await findRemoteAgentMessageChannelIdentityLinkTarget({
+    connections,
+    identityDb: identityDatabase,
+    identityLinkId,
+    organizationId: activeOrganization.organizationId,
+    stateDb: stateDatabase,
+  });
+  if (!target) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.identity_link_not_found",
+      reason: "This connected account no longer exists.",
+      status: 404,
+    });
+  }
+  const disconnectingOwnAccount =
+    target.openMeldUserId === activeOrganization.userId;
+  const canManageOrganizationChannels = memberRoleHasOrganizationPermission(
+    activeOrganization.role,
+    { channel: ["disconnect"] }
+  );
+  if (!(disconnectingOwnAccount || canManageOrganizationChannels)) {
+    throw createCoreRpcHttpError({
+      code: "forbidden",
+      reason: "You can disconnect only accounts connected to your profile.",
+      status: 403,
+    });
+  }
+  await deleteRemoteAgentMessageChannelIdentityLinkTarget({
+    identityDb: identityDatabase,
+    organizationId: activeOrganization.organizationId,
+    stateDb: stateDatabase,
+    target,
+  });
+  await writeCenterAgentHumanAuditEntry({
+    action: "disconnect_message_channel_identity_link",
+    context,
+    db: identityDatabase,
+    organizationId: activeOrganization.organizationId,
+    resource: { id: target.id, type: "message_channel_identity_link" },
+  });
+  return messageChannelConnectionListResponseSchema.parse({
+    availableLarkPlatformProviders:
+      listLarkPlatformProvidersEnabledForOrganization({
+        env,
+        organizationId: activeOrganization.organizationId,
+      }),
+    connections,
+    identityLinks: await listRemoteAgentMessageChannelIdentityLinkProjections({
+      connections,
       identityDb: identityDatabase,
       organizationId: activeOrganization.organizationId,
       stateDb: stateDatabase,
@@ -6113,6 +6362,12 @@ export async function rpcPreviewMessageChannelIdentityLink(
     nowMs: Date.now(),
     token: parsed.data.token,
   });
+  const existingLink = await readRemoteAgentLarkPlatformIdentityLink({
+    connectionId: linkContext.token.connectionId,
+    db: linkContext.stateDb,
+    provider: linkContext.token.provider,
+    providerUserId: linkContext.token.providerUserId,
+  });
   return messageChannelIdentityLinkPreviewResponseSchema.parse({
     alreadyMember: Boolean(linkContext.membership.role),
     continuesRequest: linkContext.token.linkPurpose === "continue_request",
@@ -6123,6 +6378,10 @@ export async function rpcPreviewMessageChannelIdentityLink(
     providerUserDisplayName: linkContext.token.providerUserDisplayName,
     providerUserId: linkContext.token.providerUserId,
     openMeldAccountEmail: linkContext.membership.userEmail,
+    replacesExistingLink: Boolean(
+      existingLink &&
+        existingLink.openmeldUserId !== linkContext.membership.userId
+    ),
   });
 }
 
@@ -6150,18 +6409,10 @@ export async function rpcConsumeMessageChannelIdentityLink(
     provider: linkContext.token.provider,
     providerUserId: linkContext.token.providerUserId,
   });
-  if (
+  const replacesExistingLink = Boolean(
     existingLink &&
-    existingLink.openmeldUserId !== linkContext.membership.userId
-  ) {
-    throw createCoreRpcHttpError({
-      code: "message_channel.identity_already_linked",
-      reason: `This ${providerLabel(
-        linkContext.token.provider
-      )} account is already linked to another OpenMeld member.`,
-      status: 409,
-    });
-  }
+      existingLink.openmeldUserId !== linkContext.membership.userId
+  );
   const claimedToken = linkContext.token.consumedAtMs
     ? linkContext.token
     : await claimRemoteAgentMessageChannelIdentityLinkToken({
@@ -6191,6 +6442,22 @@ export async function rpcConsumeMessageChannelIdentityLink(
   });
   if (!consumed) {
     throw createMessageChannelIdentityLinkTokenInvalidError();
+  }
+  if (replacesExistingLink) {
+    await writeCenterAgentHumanAuditEntry({
+      action: "replace_message_channel_identity_link",
+      context,
+      db: requireIdentityDb(env),
+      organizationId: ensuredMembership.membership.organizationId,
+      resource: {
+        id: await buildMessageChannelIdentityLinkId({
+          connectionId: linkContext.token.connectionId,
+          provider: linkContext.token.provider,
+          providerUserId: linkContext.token.providerUserId,
+        }),
+        type: "message_channel_identity_link",
+      },
+    });
   }
   let continuationStatus: "not_requested" | "retryable_failure" | "submitted" =
     "not_requested";
@@ -6240,6 +6507,7 @@ export async function rpcConsumeMessageChannelIdentityLink(
     provider: linkContext.token.provider,
     providerUserDisplayName: linkContext.token.providerUserDisplayName,
     providerUserId: linkContext.token.providerUserId,
+    replacedExistingLink: replacesExistingLink,
     openMeldUserId: ensuredMembership.membership.userId,
   });
 }
@@ -8142,6 +8410,11 @@ export async function rpcPreviewSlackIdentityLink(
     nowMs: Date.now(),
     token: parsed.data.token,
   });
+  const existingLink = await readSlackUserIdentityLink({
+    db,
+    slackTeamId: linkContext.token.slackTeamId,
+    slackUserId: linkContext.token.slackUserId,
+  });
   const response: SlackIdentityLinkPreviewResponse = {
     alreadyMember: Boolean(linkContext.membership.role),
     continuesRequest: Boolean(linkContext.token.sourceDeliveryId),
@@ -8156,6 +8429,10 @@ export async function rpcPreviewSlackIdentityLink(
       workspaceName: linkContext.workspace.workspaceName,
     }),
     openMeldAccountEmail: linkContext.membership.userEmail,
+    replacesExistingLink: Boolean(
+      existingLink &&
+        existingLink.openmeldUserId !== linkContext.membership.userId
+    ),
   };
   const validated = slackIdentityLinkPreviewResponseSchema.safeParse(response);
   if (!validated.success) {
@@ -8186,6 +8463,15 @@ export async function rpcConsumeSlackIdentityLink(
     nowMs,
     token: parsed.data.token,
   });
+  const existingLink = await readSlackUserIdentityLink({
+    db,
+    slackTeamId: linkContext.token.slackTeamId,
+    slackUserId: linkContext.token.slackUserId,
+  });
+  const replacesExistingLink = Boolean(
+    existingLink &&
+      existingLink.openmeldUserId !== linkContext.membership.userId
+  );
   const claimResult = await claimSlackIdentityLinkTokenForUser({
     claimedAtMs: nowMs,
     db,
@@ -8195,14 +8481,6 @@ export async function rpcConsumeSlackIdentityLink(
     tokenHash: linkContext.token.tokenHash,
     openmeldUserId: linkContext.membership.userId,
   });
-  if (claimResult.status === "already_linked") {
-    throw createCoreRpcHttpError({
-      status: 409,
-      reason:
-        "This Slack account is already linked to another OpenMeld member.",
-      code: "slack.identity_already_linked",
-    });
-  }
   if (claimResult.status === "invalid") {
     throw createSlackIdentityLinkTokenInvalidError();
   }
@@ -8226,16 +8504,24 @@ export async function rpcConsumeSlackIdentityLink(
     tokenHash: linkContext.token.tokenHash,
     openmeldUserId: ensuredMembership.membership.userId,
   });
-  if (consumeResult.status === "already_linked") {
-    throw createCoreRpcHttpError({
-      status: 409,
-      reason:
-        "This Slack account is already linked to another OpenMeld member.",
-      code: "slack.identity_already_linked",
-    });
-  }
   if (consumeResult.status === "invalid") {
     throw createSlackIdentityLinkTokenInvalidError();
+  }
+  if (replacesExistingLink) {
+    await writeCenterAgentHumanAuditEntry({
+      action: "replace_message_channel_identity_link",
+      context,
+      db,
+      organizationId: ensuredMembership.membership.organizationId,
+      resource: {
+        id: await buildMessageChannelIdentityLinkId({
+          connectionId: `slack:${linkContext.token.slackTeamId}`,
+          provider: "slack",
+          providerUserId: linkContext.token.slackUserId,
+        }),
+        type: "message_channel_identity_link",
+      },
+    });
   }
   let continuationStatus: "legacy" | "retryable_failure" | "submitted";
   try {
@@ -8275,6 +8561,7 @@ export async function rpcConsumeSlackIdentityLink(
     slackDisplayName: linkContext.token.slackUserDisplayName,
     slackTeamId: linkContext.token.slackTeamId,
     slackUserId: linkContext.token.slackUserId,
+    replacedExistingLink: replacesExistingLink,
     openMeldUserId: ensuredMembership.membership.userId,
   };
   const validated = slackIdentityLinkConsumeResponseSchema.safeParse(response);
@@ -8350,6 +8637,9 @@ export async function rpcListCenterAgentAuditJournal(
   const memberServiceStatusActions: readonly CenterAgentAction[] = [
     "read_member_openmeld_service_status",
   ];
+  const memberComputerActions: readonly CenterAgentAction[] = [
+    "read_member_computers",
+  ];
   const slackChannelReadActions: readonly CenterAgentAction[] = [
     "list_slack_channels",
     "read_slack_channel_members",
@@ -8390,6 +8680,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v3") {
     excludedActions = [
@@ -8402,6 +8693,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v4") {
     excludedActions = [
@@ -8412,6 +8704,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v5") {
     excludedActions = [
@@ -8421,6 +8714,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v6") {
     excludedActions = [
@@ -8429,6 +8723,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v7") {
     excludedActions = [
@@ -8436,26 +8731,40 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v8") {
     excludedActions = [
       ...slackChannelReadActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v9") {
     excludedActions = [
       ...slackChannelReadActions,
       ...taskReadActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v10") {
     excludedActions = [
       ...slackChannelReadActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   } else if (parsed.data.actionSet === "v11") {
-    excludedActions = memberServiceStatusActions;
+    excludedActions = [...memberServiceStatusActions, ...memberComputerActions];
+  } else if (
+    parsed.data.actionSet === "v12" ||
+    parsed.data.actionSet === "v13" ||
+    parsed.data.actionSet === "v14" ||
+    parsed.data.actionSet === "v15" ||
+    parsed.data.actionSet === "v16" ||
+    parsed.data.actionSet === "v17" ||
+    parsed.data.actionSet === "v18"
+  ) {
+    excludedActions = memberComputerActions;
   } else if (!isCurrentCenterAgentAuditActionSet(parsed.data.actionSet)) {
     excludedActions = [
       "post_slack_channel_message",
@@ -8469,6 +8778,7 @@ export async function rpcListCenterAgentAuditJournal(
       ...projectActions,
       ...taskCoordinationActions,
       ...memberServiceStatusActions,
+      ...memberComputerActions,
     ];
   }
   excludedActions = applyCenterAgentAuditOperatingStateCompatibility({
@@ -8489,13 +8799,15 @@ export async function rpcListCenterAgentAuditJournal(
         includeContextDetails:
           parsed.data.actionSet === "v16" ||
           parsed.data.actionSet === "v17" ||
-          parsed.data.actionSet === "v18",
+          parsed.data.actionSet === "v18" ||
+          parsed.data.actionSet === "v19",
         includeInteractionSource:
           parsed.data.actionSet === "v14" ||
           parsed.data.actionSet === "v15" ||
           parsed.data.actionSet === "v16" ||
           parsed.data.actionSet === "v17" ||
-          parsed.data.actionSet === "v18",
+          parsed.data.actionSet === "v18" ||
+          parsed.data.actionSet === "v19",
       })
     ),
   };
@@ -8519,7 +8831,8 @@ function isCurrentCenterAgentAuditActionSet(
     actionSet === "v15" ||
     actionSet === "v16" ||
     actionSet === "v17" ||
-    actionSet === "v18"
+    actionSet === "v18" ||
+    actionSet === "v19"
   );
 }
 
@@ -8533,28 +8846,33 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v15" ||
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
-    input.actionSet === "v18"
+    input.actionSet === "v18" ||
+    input.actionSet === "v19"
       ? []
       : ["receive_local_agent_request"];
   const contextCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v15" ||
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
-    input.actionSet === "v18"
+    input.actionSet === "v18" ||
+    input.actionSet === "v19"
       ? []
       : ["read_center_agent_context"];
   const contextLoadCompatibilityActions: readonly CenterAgentAction[] =
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
-    input.actionSet === "v18"
+    input.actionSet === "v18" ||
+    input.actionSet === "v19"
       ? []
       : ["load_center_agent_context"];
   const routineCompatibilityActions: readonly CenterAgentAction[] =
-    input.actionSet === "v17" || input.actionSet === "v18"
+    input.actionSet === "v17" ||
+    input.actionSet === "v18" ||
+    input.actionSet === "v19"
       ? []
       : input.routineActions;
   const workingLanguageCompatibilityActions: readonly CenterAgentAction[] =
-    input.actionSet === "v18"
+    input.actionSet === "v18" || input.actionSet === "v19"
       ? []
       : ["set_working_language", "observe_working_language"];
   if (
@@ -8563,9 +8881,11 @@ function applyCenterAgentAuditOperatingStateCompatibility(input: {
     input.actionSet === "v15" ||
     input.actionSet === "v16" ||
     input.actionSet === "v17" ||
-    input.actionSet === "v18"
+    input.actionSet === "v18" ||
+    input.actionSet === "v19"
   ) {
     return [
+      ...(input.excludedActions ?? []),
       ...localAgentCompatibilityActions,
       ...contextCompatibilityActions,
       ...contextLoadCompatibilityActions,
@@ -8625,6 +8945,9 @@ export async function rpcCenterAgentListComputers(
   input: CenterAgentListComputersInput
 ): Promise<CenterAgentListComputersResponse> {
   const parsed = centerAgentListComputersBodySchema.safeParse({
+    ...(input.includeDiagnostics === undefined
+      ? {}
+      : { includeDiagnostics: input.includeDiagnostics }),
     speakerMember: input.speakerMember,
   });
   if (!parsed.success) {
@@ -8651,8 +8974,16 @@ export async function rpcCenterAgentListComputers(
     env,
     userId: representedHuman.userId,
   });
+  const diagnostics = parsed.data.includeDiagnostics
+    ? await buildOwnerComputerDiagnostics({
+        env,
+        localRuntimes,
+        userId: representedHuman.userId,
+      })
+    : undefined;
   const validated = centerAgentListComputersResponseSchema.safeParse({
     computers: projectCenterAgentComputerSetupOptions(localRuntimes),
+    ...(diagnostics === undefined ? {} : { diagnostics }),
     organizationId: authorization.activeOrganization.organizationId,
   });
   if (!validated.success) {
@@ -9524,6 +9855,73 @@ export async function rpcCenterAgentGetOrganizationDirectory(
     resource: {
       type: "organization",
       id: authorization.activeOrganization.organizationId,
+    },
+    sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
+  });
+  return response;
+}
+
+export async function rpcCenterAgentReadMemberComputers(
+  env: CoreBindings,
+  input: CenterAgentReadMemberComputersInput
+): Promise<CenterAgentReadMemberComputersResponse> {
+  const prepared = await prepareCenterAgentOrganizationMemberRead(env, input);
+  const { authorization } = prepared;
+  const {
+    context: _context,
+    speakerMember: _speakerMember,
+    ...requestBody
+  } = input;
+  const parsed =
+    centerAgentReadMemberComputersBodySchema.safeParse(requestBody);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      reason:
+        parsed.error.issues[0]?.message ??
+        "invalid Organization member Computers payload",
+      code: "invalid_payload",
+    });
+  }
+  const targetMembership = await resolveOrganizationMembershipById({
+    env,
+    organizationId: authorization.activeOrganization.organizationId,
+    requestId: authorization.context.actorContext.requestId,
+    userId: parsed.data.memberUserId,
+  });
+  if (!targetMembership.ok) {
+    if (targetMembership.code === "organization.context_unavailable") {
+      throw createCoreRpcHttpError({
+        status: targetMembership.status,
+        reason: targetMembership.message,
+        code: targetMembership.code,
+      });
+    }
+    throw createCoreRpcHttpError({
+      status: 404,
+      reason: "Member was not found in the current Organization.",
+      code: "center_agent.member_not_found",
+    });
+  }
+
+  const generatedAt = new Date().toISOString();
+  const computers = await buildOrganizationComputersResponse({
+    env,
+    generatedAt,
+    memberUserIds: [targetMembership.userId],
+    organizationId: targetMembership.organizationId,
+  });
+  const response = centerAgentReadMemberComputersResponseSchema.parse({
+    ...computers,
+    memberUserId: targetMembership.userId,
+  });
+  await writeCenterAgentAuditEntry({
+    action: "read_member_computers",
+    authorization,
+    onBehalfOfProfileId: null,
+    resource: {
+      type: "organization_member",
+      id: targetMembership.userId,
     },
     sourceNativeDeliveryId: prepared.sourceNativeDeliveryId,
   });
@@ -10922,13 +11320,16 @@ export async function rpcCenterAgentPostSlackThreadMessage(
   env: CoreBindings,
   input: CenterAgentPostSlackThreadMessageInput
 ): Promise<CenterAgentPostSlackChannelMessageResponse> {
-  const channelName = normalizeSlackChannelNameForRpc(input.channelName);
   const parsed = centerAgentPostSlackThreadMessageBodySchema.safeParse({
-    channelName,
     publicationSource: input.publicationSource,
     speakerMember: input.speakerMember,
     text: input.text,
-    threadTs: input.threadTs,
+    ...(input && "threadPermalink" in input
+      ? { threadPermalink: input.threadPermalink }
+      : {
+          channelName: normalizeSlackChannelNameForRpc(input.channelName),
+          threadTs: input.threadTs,
+        }),
   });
   if (!parsed.success) {
     throw createCoreRpcHttpError({
@@ -10965,7 +11366,7 @@ async function executeRpcCenterAgentSlackPublication(input: {
       }
     );
 
-  if ("threadTs" in input.input) {
+  if ("threadTs" in input.input || "threadPermalink" in input.input) {
     await requireInteractiveSlackThreadPublicationProvenance({
       authorization,
       env: input.env,
@@ -11002,10 +11403,49 @@ async function executeRpcCenterAgentSlackPublication(input: {
     fallbackBotToken: input.env.SLACK_OPENMELD_BOT_TOKEN,
     slackTeamId: binding.slackTeamId,
   });
+  let trustedThreadTarget =
+    "threadPermalink" in input.input
+      ? parseSlackThreadPublicationPermalink(input.input.threadPermalink)
+      : null;
+  if ("threadPermalink" in input.input && !trustedThreadTarget) {
+    throw createCoreRpcHttpError({
+      status: 400,
+      reason: "Slack thread publication requires an exact message permalink.",
+      code: "invalid_payload",
+    });
+  }
+  if (trustedThreadTarget) {
+    // Slack itself confirms that the permalink resolves to a real root message
+    // in the Organization's connected workspace before Core freezes the write.
+    const canonicalPermalink = await getSlackMessagePermalink({
+      botToken,
+      channelId: trustedThreadTarget.channelId,
+      messageTs: trustedThreadTarget.threadTs,
+    });
+    const canonicalTarget =
+      parseSlackThreadPublicationPermalink(canonicalPermalink);
+    if (
+      !canonicalTarget ||
+      canonicalTarget.channelId !== trustedThreadTarget.channelId
+    ) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        reason:
+          "Slack could not verify the exact thread in the connected workspace.",
+        code: "center_agent.slack_thread_target_invalid",
+      });
+    }
+    trustedThreadTarget = canonicalTarget;
+  }
   const target = await resolveSlackChannelMessageTarget({
     botToken,
-    channelName: input.input.channelName,
+    channelName:
+      trustedThreadTarget?.channelId ??
+      ("channelName" in input.input ? input.input.channelName : ""),
   });
+  const threadTs =
+    trustedThreadTarget?.threadTs ??
+    ("threadTs" in input.input ? input.input.threadTs : undefined);
   return await executeCenterAgentSlackPublication({
     authorization,
     botToken,
@@ -11014,7 +11454,7 @@ async function executeRpcCenterAgentSlackPublication(input: {
     sourceNativeDeliveryId,
     target,
     text: input.input.text,
-    ...("threadTs" in input.input ? { threadTs: input.input.threadTs } : {}),
+    ...(threadTs ? { threadTs } : {}),
   });
 }
 

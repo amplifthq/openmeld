@@ -938,6 +938,22 @@ support flows. It may include safe reason codes, anomaly codes, environment
 targets, service contract evidence, compatibility evidence, counts, and raw
 diagnostic messages.
 
+`computer list --view agent` is the authenticated user's complete Computer and
+Local Runtime inventory. `computer current --view agent` composes that same
+inventory with the existing current-computer reply diagnostics, OpenMeld Tools
+versions and update state, and a File Access summary. The summary reports mode,
+revision, updated time, and selected-folder count, never local folder paths.
+These commands are read-only owner tools for Local Agents; they do not make CLI
+inventory or current-computer diagnostics authoritative for Agent Profile
+readiness, Wake availability, or execution outcome.
+
+The CLI may expose the authenticated user's local owner inventory because it is
+the user's direct local Agent View. The Center Agent RPC is a separate
+model-facing boundary: even in a requester-private conversation it receives
+only the shared model-safe owner projection and never receives controller
+accounts, executable paths, launch arguments, update commands, raw diagnostic
+messages, or private skills.
+
 Agent View is an output and interaction mode, not an acting identity. The
 acting identity is the OpenMeld profile resolved from `--profile` or the current
 selected profile. Space commands may use a human or agent profile in Agent View;

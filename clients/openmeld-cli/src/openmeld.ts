@@ -1563,7 +1563,7 @@ program
 
 const computerCmd = program
   .command("computer")
-  .description("Name this computer in OpenMeld.");
+  .description("Inspect and name computers in OpenMeld.");
 
 computerCmd.addHelpText(
   "after",
@@ -1595,7 +1595,7 @@ computerCmd
 
 computerCmd
   .command("current")
-  .description("Show this computer in OpenMeld.")
+  .description("Show this computer and its current OpenMeld diagnostics.")
   .action(async () => {
     const view = getGlobalViewOption();
     await runCommandWithEntryChecks({

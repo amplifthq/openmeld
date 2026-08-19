@@ -604,13 +604,27 @@ Before recommending one of those actions, it reads the Core-owned current
 computer projection through `openmeld_list_computers`. The projection returns
 the exact `connectedComputerId` used by Connect, a coarse status, current-device
 identity, reason codes, and one recommended mode: `setup`, `reconnect`, or
-`update_service`. Core binds that read to the turn's verified represented human
-member and fails closed before reading inventory when the speaker identity is
-missing, mismatched, inactive, or outside the Organization. The read must not
-adopt or mutate local-runtime identity. The Center Agent must use that exact
-mode and connected computer id when building the trusted action. It must not
-infer update state from conversation text, substitute a device id, or expose
-another member's computer context.
+`update_service`. On an explicit owner-level read in a requester-private
+conversation, the same tool also returns the represented member's model-safe
+Local Runtime inventory, current-computer reply diagnostics, OpenMeld Tools
+versions and update state, Local Agent status, installed version, update state,
+capabilities, model display names, check evidence, and a path-free File Access
+summary. Controller accounts, executable paths, launch arguments, update
+commands, raw diagnostic messages, private skills, and local policy never enter
+the Center Agent result. File Access exposes only mode, revision, updated time,
+and selected-folder count; local folder paths never enter the Center Agent
+result.
+
+Core binds that private read to the turn's verified represented human member
+and requester-only audience, and fails closed before reading inventory when the
+speaker identity or private audience is missing, mismatched, inactive, or
+outside the Organization. Owner-level diagnostics are read on demand; they are
+not automatically injected into model context. The
+read must not adopt or mutate local-runtime identity. The Center Agent must use
+the exact recommended mode and connected computer id when building the trusted
+action. It must not infer update state from conversation text, substitute a
+device id, treat current-computer diagnostics as Agent Profile readiness, or
+expose another member's private computer context.
 
 Presentation follows the conversation host:
 
@@ -1297,16 +1311,18 @@ returns only the existing public snapshot, which excludes paths, prompts,
 transcripts, and private provider metadata. Project mutations and member-owned
 Activity or local context remain identity-gated.
 
-Personal memory, member Apps, Local Agents or Computers, role-restricted
-actions, destructive confirmation, durable member-owned mutations, and any
-action whose owner requires one specific OpenMeld human remain unavailable
-until identity is linked. The Center Agent completes every independent safe
-part first, names only the concrete blocked action, and attaches the one-time
-setup action. It does not stop at an account-status explanation, tell the person
-to find an administrator, expose a reusable Organization join link, or ask them
-to repeat the request. A verified link never upgrades the already admitted
-unlinked turn; Core creates one new deterministic linked-member turn for the
-original request after setup succeeds.
+Personal memory, member Apps, owner-level Local Agent or Computer details,
+role-restricted actions, destructive confirmation, durable member-owned
+mutations, and any action whose owner requires one specific OpenMeld human
+remain unavailable until identity is linked. The strict team-safe Organization
+Computer projection remains available as an ordinary shared read and never
+upgrades into owner diagnostics. The Center Agent completes every independent
+safe part first, names only the concrete blocked action, and attaches the
+one-time setup action. It does not stop at an account-status explanation, tell
+the person to find an administrator, expose a reusable Organization join link,
+or ask them to repeat the request. A verified link never upgrades the already
+admitted unlinked turn; Core creates one new deterministic linked-member turn
+for the original request after setup succeeds.
 
 For a connected Message Channel member, a blocking **Join {Organization name}
 on OpenMeld and continue** action appears only after the same Remote Agent
@@ -1385,6 +1401,19 @@ provider identity belongs to the same person. Core creates one new verified-
 member continuation turn for the original task. The source turn is never
 retroactively upgraded.
 
+That link is a replaceable relationship, not an irreversible merge. One
+provider account maps to at most one OpenMeld member at a time, while one member
+may connect independent Slack, Lark, and Feishu accounts. If a provider account
+is linked to the wrong member, the person proves control from that exact
+provider-private account and confirms while signed in to the intended OpenMeld
+account; Core atomically moves the canonical link instead of creating a second
+mapping. The linked member may disconnect their own link, and an Organization
+owner or admin with Channel-disconnect authority may detach a wrong link from
+People. An administrator cannot assign a provider identity to a member without
+fresh provider-private proof. Detaching an account never disconnects the
+Organization's Channel connection, changes membership, or deletes provider
+history.
+
 For example, `Mina Yu` uses `minayu@acme.example` in Slack while the current
 Organization directory contains one member named `Mina Yu` with
 `minayu.ai@example.net`. If Mina asks Center Agent to use her personal Computer,
@@ -1458,12 +1487,14 @@ conversation and general model knowledge, but receives no Organization tools,
 private Organization context, sandbox, connected Apps, or Local Agents. Slack
 guests (`is_restricted` or `is_ultra_restricted`) and Slack Connect external
 participants (`is_stranger`) are also excluded from Slack self-enrollment.
-Current Slack participant status is checked before an explicit identity link or
-email match may represent the sender, so an existing OpenMeld membership never
-bypasses that provider boundary. They receive one concrete next action: use a
-full member account from the connected Slack workspace. The current product has
-no access-request or administrator-notification workflow, so the Center Agent
-must never claim that it sent one.
+Current Slack participant status is checked before any stored identity link may
+represent the sender, so an existing OpenMeld membership or matching email
+never bypasses that provider boundary. New requests require a current identity
+link; email equality may support a private matching suggestion but never
+creates the link or grants represented-member authority. They receive one concrete next action: use a full
+member account from the connected Slack workspace. The current product has no
+access-request or administrator-notification workflow, so the Center Agent must
+never claim that it sent one.
 
 Lark and Feishu share one internal Lark-platform implementation, but remain
 distinct provider identities because their domains, consoles, tenant
@@ -1609,14 +1640,16 @@ tools with Core authorization may use those scopes. The shipped read-only
 workspace-directory action uses `users:read` and `users:read.email` to fetch one
 bounded live page of active human Slack members. Core first resolves an exact
 Organization- and workspace-scoped Slack identity link to a current OpenMeld
-Organization member, then falls back to an exact normalized email match. A
-valid identity link or email match proves current membership. Without either
-match, a different available email means not a current member and a missing
-email remains unknown. Names, titles, and other Slack profile fields are
-untrusted evidence and never establish identity. The action is audited after a
-successful read and does not persist a Slack roster, invite anyone, or contact
-anyone. When a verified member explicitly asks to notify a directory result on
-Slack, the model may use that result's exact Slack user ID for a real
+Organization member. Without a link, an exact normalized email may classify
+the directory row as a likely current member for this read only. That hint does
+not create an identity link, represent the Slack sender, or authorize a
+member-owned action. A different available email means not a current member for
+that directory response and a missing email remains unknown. Names, titles, and
+other Slack profile fields are untrusted evidence and never establish identity.
+The action is audited after a successful read and does not persist a Slack
+roster, invite anyone, or contact anyone. When a verified member explicitly
+asks to notify a directory result on Slack, the model may use that result's
+exact Slack user ID for a real
 `<@USER_ID>` mention. For explicit channel publication, the posting tool accepts
 those IDs through a structured field, verifies that the same turn's directory
 read returned them, and constructs the mention tokens outside model-authored
@@ -1776,14 +1809,16 @@ or sending a false research-failure welcome.
 
 An invited Slack user receives the Organization join link and a simple account
 of what will happen after joining; OpenMeld does not claim to know that person
-before Organization membership exists. After an exact normalized Slack email
-matches a joined Organization member with an active Human Profile, Core links
-that same Slack identity, atomically claims at most one onboarding across all
-delivered invitations for that Organization, workspace, and Slack user, runs
-member research for the new member, writes the Profile Report to the Center
-Agent Computer, and sends a second private welcome with one evidence-backed
-observation or an honest insufficient-context state. Duplicate invitations are
-closed without starting another research task or sending another welcome.
+before Organization membership exists. After the joined Organization member
+uses the universal provider-private proof flow to connect that exact Slack
+identity to an active Human Profile, Core atomically claims at most one
+onboarding across all delivered invitations for that Organization, workspace,
+and Slack user, runs member research for the new member, writes the Profile
+Report to the Center Agent Computer, and sends a second private welcome with one
+evidence-backed observation or an honest insufficient-context state. Matching
+email remains comparison context and never starts onboarding or writes the
+identity link. Duplicate invitations are closed without starting another
+research task or sending another welcome.
 The second welcome has its own durable publication claim. A confirmed Slack
 rejection may retry, a confirmed delivery is recovered by its recorded message
 id, and a lost or ambiguous outcome never triggers a blind second message.
@@ -2078,12 +2113,15 @@ The Center Agent normally creates or replaces the single pending draft for a
 document. Ordinary Organization Brief and knowledge drafts use an explicit
 human review flow. A Profile Report starts as a provisional working report, but
 Web presents the latest report as **What I've learned so far** in the normal
-editable Document surface without assigning approval, correction, or discard
-work. Saving any human edit turns that version into the current Document content
-and clears its internal provisional fields; the person can also simply tell the
+editable Document surface without a separate approval, correction, or discard
+control. While that version is provisional, the surface explains that it needs
+to be reviewed and saved, and the existing **Save changes** action remains
+available even when the human makes no text edit. Saving accepts the visible
+version as current Document content, clears its internal provisional fields,
+and resolves its Inbox attention item; the person can also simply tell the
 Center Agent when something feels off. Welcome preparation reads the current
-visible report body, whether it is still provisional or was already saved, so a
-fast human save cannot stall onboarding. When several reports share a date,
+visible report body, whether it is still provisional or was already saved, so
+a fast human save cannot stall onboarding. When several reports share a date,
 Directory treats the later-created learning run as latest; editing an older
 report never makes it replace a newer run. When a verified owner/admin explicitly asks
 for a direct save in the current accepted turn, or explicitly grants a Routine
@@ -2122,19 +2160,25 @@ with non-empty approved content are discoverable by title and readable through
 the audited document tool; their bodies are never injected wholesale. A
 draft-only document does not place its proposed title into the system prompt.
 
-People represents every current human member with one **Human Profile**
-card, including an explicit not-connected state when that member has no Human
-Profile identity yet. The card owns the member's email, organization role,
-**Report**, and **Learn about {member}** actions; People must not duplicate
-the same people in a separate Members card. Invitation controls remain separate, and
-**Learn about all members** belongs to the Human Profiles section header. An
-existing Profile Report remains readable from its member card, but a
-missing document exposes a creation link only when the document projection says
-the current actor can manage Organization documents; otherwise the card
-explains that owners and admins must create it. A single-member learning start
-failure stays on that member's card with its retry action. **Learn about** asks
-the designated Center Agent to process one member at a time and create one new
-dated Profile Report. The all-members operation is
+People represents every current human member with one **Human Profile** card,
+including an explicit missing-profile state when that member has no Human
+Profile identity yet. The card owns the member's name, email, exceptional
+profile state, Organization role when it is meaningful, Computer summary,
+Connected accounts, and one contextual **Profile Report** or **Learn about
+{member}** action. It never exposes the internal profile Handle or slug, a
+generic **Active** badge, or an undefined recent-activity field. People must not
+duplicate the same people in a separate Members card. Invitation controls
+remain separate, and **Learn about all members** belongs to the Human Profiles
+section header.
+
+An existing Profile Report opens from a top-right document icon. Amber means
+the report has updates to review and save. When the current Documents projection
+proves that no report exists, that exact action slot becomes **Learn about {member}**;
+it never opens a blank document. While Documents are loading or unavailable,
+People shows neither action because it cannot safely choose between them. A
+single-member learning start failure stays on that member's card with its retry
+action. **Learn about** asks the designated Center Agent to process one member
+at a time and create one new dated Profile Report. The all-members operation is
 serial: one task reaches a terminal outcome before Core starts the next, and
 one failure is recorded without stopping the remaining members. Research never
 writes approved document content directly.
@@ -2150,25 +2194,39 @@ plans and proactive opt-in prompts for organization-wide automatic learning are
 future extensions of this same workflow, not alternate document writers.
 
 Human Profile cards use the same top-right action model as Agent Profile cards.
-The icon row owns **Learn about {member}**, **Direct Message** for another active
-Human Profile, **Edit Human Profile** for the signed-in member's own active
-default Human Profile, and an overflow menu whose **About profile** item opens
-the shared profile-details surface. The **Profile Report** action remains in
-the card's content area and opens the latest report without a warning-style
-review state. It is document content, not profile chrome. Self-Direct Messages are unavailable,
-and owners or admins do not receive an edit action for another member's Human
+The icon row owns the Computer shortcut, the contextual **Profile Report** or
+**Learn about {member}** action, **Direct Message** for another active Human
+Profile, **Edit Human Profile** for the signed-in member's own active default
+Human Profile, and an overflow menu whose **About profile** item opens the
+shared profile-details surface. Self-Direct Messages are unavailable, and
+owners or admins do not receive an edit action for another member's Human
 Profile. Editing the current member's default Human Profile reuses the paired
 Account Display Name mutation rather than introducing a second identity writer.
 
 In an Organization workspace, each Human Profile card also shows one coarse
-**OpenMeld Service** state for that member: **connected**, **needs attention**,
-**not connected**, or **status unavailable**. This answers only whether at
-least one current OpenMeld Service session for the member can carry Wake work;
-it does not claim that any Agent Profile is ready. Every current Organization
-member may see this coarse state. The surface never exposes another member's
-computer name, device id, operating system, Service version, last-seen time, or
-lookup failure detail, and it offers no action that would let one member manage
-another member's computer.
+**Computer** summary: the number connected, needs attention, none connected, or
+status unavailable. The same state colors one top-right Computer icon: green
+for connected, amber for attention, and muted otherwise, with no separate
+status dot. A member with one Computer opens that Computer directly; multiple
+Computers open the Computers home. A signed-in member with none sees **Connect a
+computer** and reaches the normal setup path, while another member sees only
+**No computer connected**. This answers only whether at least one current
+OpenMeld Service session for the member can carry Wake work; it does not claim
+that any Agent Profile is ready. Every current Organization member may see this
+coarse state. The card never exposes another member's device id, executable
+paths, credentials, private setup instructions, or management controls.
+
+**Connected accounts** appears only when the Organization currently has at
+least one Slack, Lark, or Feishu Channel connection or a preserved link whose
+Channel needs repair. Each row names the provider account and whether its
+Channel is available. A missing provider row appears only on the signed-in
+member's own card and only for a currently connected provider; **Connect**
+explains how to ask that provider's Center Agent for the private proof action.
+Other members do not see connect controls. The linked member may manage and
+disconnect their own row; owners and admins may manage another member's wrong
+link without gaining the ability to assign a replacement. If the Organization
+has no Slack, Lark, or Feishu connection, People omits the entire section
+instead of advertising unavailable providers.
 
 The first-level **Computers** home is a separate Organization member surface,
 not an expansion of this coarse Human Profile status. It groups Core's
@@ -2207,6 +2265,15 @@ the current Organization before any Service lookup. The tool returns only the
 member id and one of the four coarse states above, records an
 `organization_member` audit entry, and never grants device management or
 exposes device details.
+
+When the request genuinely requires another member's Computer details, the
+designated Center Agent may instead call `openmeld_read_member_computers` with
+the exact directory `userId`. Core reuses the same strict team-safe Organization
+Computer projection shown to teammates, filters it to that current member, and
+records an `organization_member` audit entry. This tool never upgrades to the
+owner projection, even when the target happens to match the requester; private
+File Access, paths, commands, accounts, policies, and management controls stay
+absent.
 
 **Profile Report** is the stable product term for this document so it does not
 collide with Agent Profile or Human Profile identity. The persisted document
