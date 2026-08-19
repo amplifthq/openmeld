@@ -29,6 +29,9 @@ export const MESSAGE_CHANNEL_IDENTITY_LINK_PREVIEW_ROUTE =
   "/v1/message-channels/identity-link/preview";
 export const MESSAGE_CHANNEL_IDENTITY_LINK_CONSUME_ROUTE =
   "/v1/message-channels/identity-link/consume";
+export const MESSAGE_CHANNEL_IDENTITY_LINK_ROUTE = `${MESSAGE_CHANNEL_CONNECTIONS_ROUTE}/identity-links/:identityLinkId`;
+const MESSAGE_CHANNEL_IDENTITY_LINK_ID_PATTERN =
+  /^channel_identity_[0-9a-f]{64}$/u;
 
 export function registerMessageChannelRoutes(app: Hono<HonoBindings>): void {
   app.get(MESSAGE_CHANNEL_CONNECTIONS_ROUTE, (c) =>
@@ -43,6 +46,28 @@ export function registerMessageChannelRoutes(app: Hono<HonoBindings>): void {
       route: MESSAGE_CHANNEL_CONNECTIONS_ROUTE,
     })
   );
+  app.delete(MESSAGE_CHANNEL_IDENTITY_LINK_ROUTE, (c) => {
+    const identityLinkId = c.req.param("identityLinkId").trim();
+    if (!MESSAGE_CHANNEL_IDENTITY_LINK_ID_PATTERN.test(identityLinkId)) {
+      return respondBadRequest({
+        c,
+        message: "The connected account reference is invalid.",
+        method: "DELETE",
+        route: MESSAGE_CHANNEL_IDENTITY_LINK_ROUTE,
+      });
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.disconnectMessageChannelIdentityLink({
+          context: buildCoreRpcContext(c),
+          identityLinkId,
+        }),
+      method: "DELETE",
+      responseSchema: messageChannelConnectionListResponseSchema,
+      route: MESSAGE_CHANNEL_IDENTITY_LINK_ROUTE,
+    });
+  });
   app.get(LARK_PLATFORM_ACTIVE_REGISTRATIONS_ROUTE, (c) =>
     executeRpcRoute({
       c,

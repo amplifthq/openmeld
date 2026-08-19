@@ -32,10 +32,8 @@ export type ProfileDetailsSpaceMemberInput = {
 };
 
 export type HumanProfileDetailsInput = {
-  profileHandle: string | null;
   profileId: string;
   profileName: string;
-  profileStatus: AuthProfileView["status"];
   viewerScope: ProfileDetailsViewerScope;
 };
 
@@ -61,19 +59,6 @@ export function buildProfileDetailsSnapshotFromHumanProfile(
           label: "Profile type",
           source: "profile_identity",
           value: formatProfileKind("human"),
-        }),
-        textRow({
-          id: "handle",
-          label: "Handle",
-          source: "profile_identity",
-          value: input.profileHandle,
-        }),
-        textRow({
-          id: "status",
-          label: "Status",
-          source: "profile_identity",
-          value: formatProfileStatus(input.profileStatus),
-          valueKind: "status",
         }),
       ]),
       buildAdvancedDetailsSection({ profileId: input.profileId }),

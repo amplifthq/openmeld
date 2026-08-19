@@ -44,6 +44,7 @@ import {
   buildCurrentOrganizationInformationProtectionPath,
   buildCurrentOrganizationLogoPath,
   buildCurrentOrganizationMemberOpenMeldServiceStatusesPath,
+  buildCurrentOrganizationMessageChannelIdentityLinkPath,
   buildCurrentOrganizationMessageChannelPath,
   buildCurrentOrganizationMessageChannelRegistrationPath,
   buildCurrentOrganizationMessageChannelRegistrationPollPath,
@@ -224,6 +225,20 @@ export const createOrganizationApi: CreateOrganizationApi = (
       timeoutMs: input.timeoutMs,
       schema: messageChannelConnectionListResponseSchema,
       invalidMessage: "invalid Organization Message Channels response",
+    }),
+  disconnectMessageChannelIdentityLink: async (input) =>
+    await client.requestJson({
+      url: buildCurrentOrganizationMessageChannelIdentityLinkPath(
+        input.identityLinkId
+      ),
+      operation: "organization.message_channel.identity_link.disconnect",
+      method: "DELETE",
+      requestContext: input.requestContext,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      schema: messageChannelConnectionListResponseSchema,
+      invalidMessage:
+        "invalid Message Channel identity link disconnect response",
     }),
   listCurrentLarkPlatformRegistrations: async (input = {}) =>
     await client.requestJson({

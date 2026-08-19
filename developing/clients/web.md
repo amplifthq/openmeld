@@ -1171,6 +1171,12 @@ automatic continuation was unavailable. Missing, expired, or pre-private-
 delivery token copy asks only for a new setup button in the original thread and
 explicitly says the request need not be repeated.
 
+When that Slack account is already mapped to another OpenMeld member, the same
+preview explicitly says the confirmation will move the account. Only the exact
+Slack-private token plus the intended signed-in OpenMeld account can replace
+the mapping. Web never offers an administrator-only force assignment or uses
+matching email as confirmation.
+
 `/link-message-channel?token=...` is the provider-neutral counterpart currently
 used by Lark and Feishu. It preserves the same authenticated-account preview,
 one-account claim fence, existing-member **Connect and continue**, new-member
@@ -1201,6 +1207,9 @@ Success says that the provider account is connected and that Center Agent is
 continuing the original request. Expired, conflicted, membership-lost,
 connection-changed, wrong-account, or already-linked states show one truthful
 next action and never fall back to linking a different signed-in account.
+If the provider account currently belongs to another member, preview says that
+the action will move it and successful consumption reports that replacement;
+the provider-private proof remains the authority.
 
 ### Center Agent App connections
 
@@ -1379,44 +1388,56 @@ current content without an approval, correction, or discard chore; the calm
 explanation only says that the Center Agent will keep learning.
 Documents introduces no upload surface.
 
-People rows link to the existing Profile Report, or to the new
-Profile Report route prefilled with that member.
+People cards link only to a Profile Report that already exists. They never open
+a prefilled blank document as a substitute for learning about the member.
 **Center Agent → Center Agent settings** links to the existing Organization
 Brief, or to a prefilled Brief creation route, and does not duplicate the
 editor in Settings. Organization switching preserves the Documents route
 family while replacing all document data with the target Organization's scope.
 
-Each People card keeps the Profile Report action in its content area and places
-profile controls in a top-right icon row: **Learn about {member}**, **Direct
-Message** for another active Human Profile, **Edit Human Profile** for the
-signed-in member's own active default Human Profile, and **More → About
-profile**. The About surface uses the shared profile-details snapshot. Members
-without an active Human Profile have no Direct Message or About action, and the
-signed-in member cannot Direct Message themself. People admits only one pending
-Direct Message open intent at a time so competing responses cannot navigate to
-an earlier selection. The Human Profiles header includes
+Each People card places profile controls in a top-right icon row: a Computer
+shortcut, the contextual **Profile Report** or **Learn about {member}** action,
+**Direct Message** for another active Human Profile, **Edit Human Profile** for
+the signed-in member's own active default Human Profile, and **More → About
+profile**. The About surface uses the shared profile-details snapshot but omits
+the internal Handle. Cards likewise omit undefined recent activity and the
+ubiquitous **Active** state; only an exceptional disabled state is visible.
+Members without an active Human Profile have no Direct Message or About action,
+and the signed-in member cannot Direct Message themself. People admits only one
+pending Direct Message open intent at a time so competing responses cannot
+navigate to an earlier selection. The Human Profiles header includes
 **Learn about all members** and shows processed progress such as `3/8` while
 Core runs the serial batch. A member currently queued or running shows
 **Learning…**; other starts stay disabled until the batch is terminal.
 People polls the Core-owned status and document list while work is active.
-When a Profile Report has pending Center Agent content, its People row keeps a
-plain **Profile Report** action in the content area instead of turning the
-Center Agent's work into a warning or approval chore. The Documents list also
-omits a Draft badge for Profile Reports. **Profile Report** is the user-facing
-document term; the persisted `member_profile` kind and
-member-research orchestration names remain compatibility contracts.
+When a Profile Report exists, the document icon opens the latest report; amber
+indicates that it has updates to review. Only a successful Documents read that
+contains no report may replace that icon with **Learn about {member}**. Loading
+or failed evidence shows neither action. **Profile Report** is the user-facing
+document term; the persisted `member_profile` kind and member-research
+orchestration names remain compatibility contracts.
 
-In an Organization workspace, People independently reads
-`GET /v1/organizations/current/member-openmeld-service-statuses` and shows one
-compact line on every Human Profile card: **OpenMeld Service connected**,
-**OpenMeld Service needs attention**, **OpenMeld Service not connected**, or
-**OpenMeld Service status unavailable**. While the first read is in flight it
-shows **Checking OpenMeld Service…**. Web refreshes this projection every 30
-seconds only while the page is mounted and refreshes again on window focus. A
-failed or incomplete status response never blanks People or changes a
-member's identity; missing and failed evidence stays unavailable rather than
-being presented as not connected. Personal workspaces do not request or show
-this Organization-member projection.
+In an Organization workspace, People reads the Organization Computer
+projection and shows a concrete summary on every Human Profile card: **1
+computer connected**, **2 computers connected**, **1 computer needs
+attention**, **No computer connected**, or **Computer status unavailable**.
+The top-right Computer icon uses the same state without a separate dot: green
+for connected, amber for attention, and muted otherwise. One Computer opens its
+detail; multiple Computers open the Computers home. The signed-in member with
+none receives **Connect a computer** and the normal setup route; teammates have
+no setup or management action. A failed or incomplete response never blanks
+People or changes a member's identity; missing evidence stays unavailable
+rather than being presented as not connected.
+
+People reads Message Channel connections and their Core-owned identity-link
+projection together. **Connected accounts** is absent when the Organization has
+no Slack, Lark, or Feishu Channel. Otherwise it lists existing mappings on the
+mapped member's card, exposes **Connect** only for a currently connected
+provider missing from the signed-in member's own card, and keeps a mapped row
+visible as unavailable when that provider connection needs repair. Self and
+Channel managers may disconnect a wrong mapping; replacement still requires a
+private provider proof and confirmation by the intended signed-in account.
+Disconnecting this relationship never disconnects the Organization Channel.
 
 ### Projects
 

@@ -109,6 +109,8 @@ export const centerAgentActionSchema = z.enum([
   "connect_slack_workspace",
   "move_slack_workspace",
   "disconnect_slack_workspace",
+  "disconnect_message_channel_identity_link",
+  "replace_message_channel_identity_link",
   "start_shared_app_authorization",
   "disconnect_shared_app",
   "add_members_to_space",
@@ -386,6 +388,7 @@ export const slackIdentityLinkPreviewResponseSchema = z.strictObject({
   slackUserId: trimmedNonEmptyStringSchema,
   slackWorkspaceLabel: trimmedNonEmptyStringSchema,
   openMeldAccountEmail: trimmedNonEmptyStringSchema,
+  replacesExistingLink: z.boolean().default(false),
 });
 
 export const slackIdentityLinkConsumeBodySchema = z.strictObject({
@@ -402,6 +405,7 @@ export const slackIdentityLinkConsumeResponseSchema = z.strictObject({
   slackDisplayName: trimmedNonEmptyStringSchema,
   slackTeamId: trimmedNonEmptyStringSchema,
   slackUserId: trimmedNonEmptyStringSchema,
+  replacedExistingLink: z.boolean().default(false),
   openMeldUserId: trimmedNonEmptyStringSchema,
 });
 

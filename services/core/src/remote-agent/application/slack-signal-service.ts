@@ -47,7 +47,6 @@ import {
 } from "../infrastructure/d1/slack-event-ingress-repo";
 import {
   deleteSlackUserIdentityLinkIfMatches,
-  insertSlackUserIdentityLinkIfAbsent,
   readSlackUserIdentityLink,
   upsertSlackUserIdentityLinkForSameUser,
 } from "../infrastructure/d1/slack-user-identity-link-repo";
@@ -358,7 +357,7 @@ export async function submitRemoteAgentSlackChannelIntroduction(input: {
     });
     if (!memberResolution.member) {
       throw new Error(
-        "I can’t match this Slack account to an OpenMeld member yet. Open OpenMeld with the same email, then try again."
+        "This Slack account is not connected to an OpenMeld member yet. In a direct message with the Center Agent, ask to connect your account, then try again."
       );
     }
     const organization = await readSlackOrganizationIdentity({
@@ -1626,44 +1625,12 @@ async function resolveSlackMemberIdentity(input: {
     }
   }
 
-  const member = slackIdentity.email
-    ? await readSlackMemberByEmail({
-        authWorker: input.authWorker,
-        email: slackIdentity.email,
-        organizationId: input.organizationId,
-      })
-    : null;
-  if (member) {
-    await insertSlackUserIdentityLinkIfAbsent({
-      db: input.db,
-      nowMs: Date.now(),
-      organizationId: input.organizationId,
-      slackTeamId: input.slackTeamId,
-      slackUserId: input.slackUserId,
-      source: "email_auto",
-      openmeldUserId: member.userId,
-    });
-  }
-
   return {
     belongsToSlackWorkspace: true,
-    member,
+    member: null,
     slackDisplayName,
     slackEmail: slackIdentity.email,
   };
-}
-
-async function readSlackMemberByEmail(input: {
-  authWorker: CoreBindings["OPENMELD_AUTH_WORKER"];
-  email: string;
-  organizationId: string;
-}): Promise<SlackMemberIdentity | null> {
-  const projection = await readOrganizationAccountIdentityProjection({
-    account: { email: input.email, kind: "email" },
-    authWorker: input.authWorker,
-    organizationId: input.organizationId,
-  });
-  return projection?.ok ? mapSlackMemberIdentityProjection(projection) : null;
 }
 
 async function readSlackOrganizationIdentity(input: {

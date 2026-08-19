@@ -1,7 +1,9 @@
 import { organizationDirectoryResponseSchema } from "@openmeld/schemas";
 import type {
 	AuthProfileView,
+	MessageChannelConnectionProjection,
 	OpenDirectMessageSpaceResponse,
+	OrganizationComputerRecord,
 } from "@openmeld/schemas/types";
 import {
 	act,
@@ -30,8 +32,10 @@ const inviteOrganizationMemberMock = vi.hoisted(() => vi.fn());
 const getActiveOrganizationMemberRoleMock = vi.hoisted(() => vi.fn());
 const getOrganizationJoinLinkMock = vi.hoisted(() => vi.fn());
 const listCurrentOrganizationDocumentsMock = vi.hoisted(() => vi.fn());
-const readCurrentOrganizationMemberOpenMeldServiceStatusesMock = vi.hoisted(
-	() => vi.fn()
+const readCurrentOrganizationComputersMock = vi.hoisted(() => vi.fn());
+const listCurrentOrganizationMessageChannelsMock = vi.hoisted(() => vi.fn());
+const disconnectCurrentMessageChannelIdentityLinkMock = vi.hoisted(() =>
+	vi.fn()
 );
 const getCurrentCenterAgentMemberResearchStatusMock = vi.hoisted(() => vi.fn());
 const startCurrentCenterAgentMemberResearchMock = vi.hoisted(() => vi.fn());
@@ -44,19 +48,24 @@ const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
 const CURRENT_HUMAN_PROFILE_ID = "22222222-2222-4222-8222-222222222222";
 const INVITE_BUTTON_LABEL = "Send invitation";
-const LAST_ACTIVE_LABEL_PATTERN = /^Last active /;
+const HANDLE_PATTERN = /Handle/u;
+const PROFILE_REPORT_PATTERN = /Profile Report/u;
+const RECENT_ACTIVITY_PATTERN = /recent activity/u;
+const REPORT_UNAVAILABLE_PATTERN = /Report unavailable/u;
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
 		children,
 		className,
 		to,
+		...props
 	}: {
 		children: ReactNode;
 		className?: string;
 		to: string;
+		[key: string]: unknown;
 	}) => (
-		<a className={className} href={to}>
+		<a {...props} className={className} href={to}>
 			{children}
 		</a>
 	),
@@ -102,6 +111,19 @@ vi.mock("#/query/organizations/organization-directory", async () => {
 	>("#/query/organizations/organization-directory");
 	return {
 		...actual,
+		organizationComputersQueryOptions: (input: {
+			enabled: boolean;
+			organizationId: string;
+		}) => ({
+			enabled: input.enabled,
+			queryFn: () =>
+				readCurrentOrganizationComputersMock({
+					organizationId: input.organizationId,
+				}),
+			queryKey: actual.organizationQueryKeys.computers(input.organizationId),
+			retry: false,
+			staleTime: 10_000,
+		}),
 		organizationMemberRoleQueryOptions: (input: {
 			enabled: boolean;
 			organizationId: string;
@@ -115,6 +137,24 @@ vi.mock("#/query/organizations/organization-directory", async () => {
 			),
 			retry: false,
 			staleTime: 60_000,
+		}),
+	};
+});
+
+vi.mock("#/query/organizations/message-channels", async () => {
+	const actual = await vi.importActual<
+		typeof import("#/query/organizations/message-channels")
+	>("#/query/organizations/message-channels");
+	return {
+		...actual,
+		messageChannelListQueryOptions: (input: { organizationId: string }) => ({
+			queryFn: () =>
+				listCurrentOrganizationMessageChannelsMock({
+					organizationId: input.organizationId,
+				}),
+			queryKey: actual.messageChannelQueryKeys.list(input.organizationId),
+			retry: false,
+			staleTime: 10_000,
 		}),
 	};
 });
@@ -137,13 +177,23 @@ vi.mock(
 	}
 );
 
-vi.mock(
-	"#/lib/organizations/organization-member-openmeld-service-statuses",
-	() => ({
-		readCurrentOrganizationMemberOpenMeldServiceStatuses:
-			readCurrentOrganizationMemberOpenMeldServiceStatusesMock,
-	})
-);
+vi.mock("#/lib/organizations/organization-computers", () => ({
+	readCurrentOrganizationComputers: readCurrentOrganizationComputersMock,
+}));
+
+vi.mock("#/lib/organizations/message-channels", async (importOriginal) => {
+	const original =
+		await importOriginal<
+			typeof import("#/lib/organizations/message-channels")
+		>();
+	return {
+		...original,
+		disconnectCurrentMessageChannelIdentityLink:
+			disconnectCurrentMessageChannelIdentityLinkMock,
+		listCurrentOrganizationMessageChannels:
+			listCurrentOrganizationMessageChannelsMock,
+	};
+});
 
 describe("DirectoryMembersOverview", () => {
 	beforeEach(() => {
@@ -161,16 +211,34 @@ describe("DirectoryMembersOverview", () => {
 				latestBatch: null,
 				organizationId: "org-acme",
 			});
-		readCurrentOrganizationMemberOpenMeldServiceStatusesMock
-			.mockReset()
-			.mockResolvedValue({
-				generatedAt: "2026-07-16T00:00:00.000Z",
-				members: [
-					{ state: "connected", userId: "user-ada" },
-					{ state: "needs_attention", userId: "user-grace" },
-				],
-				organizationId: "org-acme",
-			});
+		readCurrentOrganizationComputersMock.mockReset().mockResolvedValue({
+			computers: [
+				buildComputer({
+					computerId: "computer-ada",
+					ownerUserId: "user-ada",
+					serviceState: "connected",
+				}),
+				buildComputer({
+					computerId: "computer-grace",
+					ownerUserId: "user-grace",
+					serviceState: "needs_attention",
+				}),
+				buildComputer({
+					computerId: "computer-felix",
+					ownerUserId: "user-current",
+					serviceState: "connected",
+				}),
+			],
+			generatedAt: "2026-07-16T00:00:00.000Z",
+			organizationId: "org-acme",
+		});
+		listCurrentOrganizationMessageChannelsMock.mockReset().mockResolvedValue({
+			availableLarkPlatformProviders: ["lark"],
+			connections: [],
+			identityLinks: [],
+			organizationId: "org-acme",
+		});
+		disconnectCurrentMessageChannelIdentityLinkMock.mockReset();
 		startCurrentCenterAgentMemberResearchMock.mockReset();
 		openCurrentDirectMessageSpaceMock.mockReset().mockResolvedValue({
 			memberProfileId: CURRENT_HUMAN_PROFILE_ID,
@@ -192,7 +260,7 @@ describe("DirectoryMembersOverview", () => {
 
 	afterEach(cleanup);
 
-	it("shows the current member with a Report link and links collaboration guidance to organization creation", async () => {
+	it("shows the current member without inventing a Profile Report and links collaboration guidance to organization creation", async () => {
 		listCurrentOrganizationDocumentsMock.mockResolvedValue({
 			canManage: true,
 			currentUserId: "user-felix",
@@ -201,7 +269,7 @@ describe("DirectoryMembersOverview", () => {
 		});
 		renderOverview({ isPersonal: true });
 
-		expect(screen.getByText("Felix")).toBeTruthy();
+		expect(await screen.findByText("Felix")).toBeTruthy();
 		expect(screen.getByText("felix@example.com")).toBeTruthy();
 		expect(screen.getByText("Owner")).toBeTruthy();
 		expect(screen.getByText("Invite members")).toBeTruthy();
@@ -216,18 +284,22 @@ describe("DirectoryMembersOverview", () => {
 				.getAttribute("href")
 		).toBe("/o/felix/new-organization");
 		expect(
+			screen.queryByRole("link", { name: PROFILE_REPORT_PATTERN })
+		).toBeNull();
+		expect(
+			await screen.findByRole("button", { name: "Learn about Felix" })
+		).toBeTruthy();
+		expect(
 			(
-				await screen.findByRole("link", { name: "Profile Report" })
+				await screen.findByRole("link", {
+					name: "Felix: 1 computer connected",
+				})
 			).getAttribute("href")
-		).toBe(
-			"/o/felix/documents/new?kind=member_profile&subjectUserId=user-felix"
-		);
+		).toBe("/o/felix/computers/computer-felix");
 		expect(getActiveOrganizationMemberRoleMock).not.toHaveBeenCalled();
 		expect(getOrganizationJoinLinkMock).not.toHaveBeenCalled();
 		expect(inviteOrganizationMemberMock).not.toHaveBeenCalled();
-		expect(
-			readCurrentOrganizationMemberOpenMeldServiceStatusesMock
-		).not.toHaveBeenCalled();
+		expect(listCurrentOrganizationMessageChannelsMock).not.toHaveBeenCalled();
 	});
 
 	it("explains how to create the first Human Profile in a personal workspace", async () => {
@@ -274,7 +346,7 @@ describe("DirectoryMembersOverview", () => {
 		expect(getOrganizationJoinLinkMock).not.toHaveBeenCalled();
 	});
 
-	it("marks Report actions unavailable when Documents failed to load", async () => {
+	it("does not guess between Learn and Report when Documents fail to load", async () => {
 		listCurrentOrganizationDocumentsMock.mockRejectedValue(
 			new Error("Documents unavailable")
 		);
@@ -291,12 +363,12 @@ describe("DirectoryMembersOverview", () => {
 		if (!adaCard) {
 			throw new Error("Expected Ada's Human Profile card.");
 		}
+		expect(within(adaCard).queryByText(REPORT_UNAVAILABLE_PATTERN)).toBeNull();
 		expect(
-			await within(adaCard).findByText(
-				"Report unavailable because Documents could not be loaded."
-			)
-		).toBeTruthy();
-		expect(within(adaCard).queryByText("Report access is loading.")).toBeNull();
+			within(adaCard).queryByRole("button", {
+				name: "Learn about Ada Lovelace",
+			})
+		).toBeNull();
 	});
 
 	it("consolidates member actions and roles into Human Profile cards", async () => {
@@ -324,34 +396,18 @@ describe("DirectoryMembersOverview", () => {
 		expect(within(adaCard).getByText("Ada Lovelace")).toBeTruthy();
 		expect(within(adaCard).getByText("ada@example.com")).toBeTruthy();
 		expect(
-			within(adaCard).getByText("Human Profile not connected")
+			await within(adaCard).findByText("1 computer connected")
 		).toBeTruthy();
-		expect(within(adaCard).getByText("No recent activity")).toBeTruthy();
+		expect(within(adaCard).queryByText(HANDLE_PATTERN)).toBeNull();
+		expect(within(adaCard).queryByText(RECENT_ACTIVITY_PATTERN)).toBeNull();
+		expect(within(adaCard).queryByText("Active")).toBeNull();
 		expect(
-			within(adaCard).queryByRole("link", { name: "Profile Report" })
+			within(adaCard).queryByRole("link", { name: PROFILE_REPORT_PATTERN })
 		).toBeNull();
-		expect(
-			(
-				within(adaCard).getByRole("button", {
-					name: "Report unavailable",
-				}) as HTMLButtonElement
-			).disabled
-		).toBe(true);
-		expect(
-			await within(adaCard).findByText(
-				"Only organization owners and admins can create this report."
-			)
-		).toBeTruthy();
-		const unavailableReportAction = within(adaCard).getByRole("button", {
-			name: "Report unavailable",
-		});
 		const learnAction = within(adaCard).getByRole("button", {
 			name: "Learn about Ada Lovelace",
 		});
-		expect(unavailableReportAction.querySelector("svg")).toBeTruthy();
 		expect(learnAction.querySelector("svg")).toBeTruthy();
-		expect(unavailableReportAction.className).toContain("border-transparent");
-		expect(unavailableReportAction.className).toContain("hover:bg-muted");
 		expect(learnAction.className).toContain("border-transparent");
 		expect(learnAction.className).toContain("hover:bg-muted");
 		expect(learnAction.getAttribute("aria-description")).toBe(
@@ -367,9 +423,11 @@ describe("DirectoryMembersOverview", () => {
 		if (!graceCard) {
 			throw new Error("Expected Grace's Human Profile card.");
 		}
-		expect(within(graceCard).getByText(LAST_ACTIVE_LABEL_PATTERN)).toBeTruthy();
-		expect(within(graceCard).getByText("Handle grace")).toBeTruthy();
-		expect(within(graceCard).getByText("Active")).toBeTruthy();
+		expect(
+			await within(graceCard).findByText("1 computer needs attention")
+		).toBeTruthy();
+		expect(within(graceCard).queryByText(HANDLE_PATTERN)).toBeNull();
+		expect(within(graceCard).queryByText("Active")).toBeNull();
 		expect(within(graceCard).getByText("Admin")).toBeTruthy();
 		expect(
 			within(graceCard)
@@ -596,7 +654,7 @@ describe("DirectoryMembersOverview", () => {
 		).toBeTruthy();
 	});
 
-	it("shows each organization member's OpenMeld Service state", async () => {
+	it("shows each member's Computer state with a matching icon and destination", async () => {
 		renderOverview({ isPersonal: false });
 
 		const [adaCard, graceCard] = await screen.findAllByTestId(
@@ -606,24 +664,29 @@ describe("DirectoryMembersOverview", () => {
 			throw new Error("Expected both Organization Human Profile cards.");
 		}
 		const connectedStatus = await within(adaCard).findByText(
-			"OpenMeld Service connected"
+			"1 computer connected"
 		);
 		const needsAttentionStatus = await within(graceCard).findByText(
-			"OpenMeld Service needs attention"
+			"1 computer needs attention"
 		);
-		expect(connectedStatus.classList.contains("whitespace-nowrap")).toBe(true);
-		expect(needsAttentionStatus.classList.contains("whitespace-nowrap")).toBe(
-			true
+		expect(connectedStatus).toBeTruthy();
+		expect(needsAttentionStatus).toBeTruthy();
+		const computerLink = within(adaCard).getByRole("link", {
+			name: "Ada Lovelace: 1 computer connected",
+		});
+		expect(computerLink.getAttribute("href")).toBe(
+			"/o/acme/computers/computer%3Acomputer-ada"
 		);
-		expect(
-			readCurrentOrganizationMemberOpenMeldServiceStatusesMock
-		).toHaveBeenCalledWith(
+		expect(computerLink.querySelector("svg")?.className.baseVal).toContain(
+			"text-emerald"
+		);
+		expect(readCurrentOrganizationComputersMock).toHaveBeenCalledWith(
 			expect.objectContaining({ organizationId: "org-acme" })
 		);
 	});
 
-	it("keeps Human Profile cards visible when member service status is unavailable", async () => {
-		readCurrentOrganizationMemberOpenMeldServiceStatusesMock.mockRejectedValue(
+	it("keeps Human Profile cards visible when Computer status is unavailable", async () => {
+		readCurrentOrganizationComputersMock.mockRejectedValue(
 			new Error("Runtime Transport lookup failed")
 		);
 		renderOverview({ isPersonal: false });
@@ -635,51 +698,235 @@ describe("DirectoryMembersOverview", () => {
 		expect(screen.getByText("Ada Lovelace")).toBeTruthy();
 		expect(screen.getByText("Grace Hopper")).toBeTruthy();
 		expect(
-			await screen.findAllByText("OpenMeld Service status unavailable")
+			await screen.findAllByText("Computer status unavailable")
 		).toHaveLength(2);
 	});
 
-	it("stops showing cached member service status after a refresh fails", async () => {
+	it("stops showing cached Computer status after a refresh fails", async () => {
 		const queryClient = createTestQueryClient();
 		renderOverview({ isPersonal: false }, queryClient);
 
-		expect(await screen.findByText("OpenMeld Service connected")).toBeTruthy();
-		readCurrentOrganizationMemberOpenMeldServiceStatusesMock.mockRejectedValue(
+		expect(await screen.findByText("1 computer connected")).toBeTruthy();
+		readCurrentOrganizationComputersMock.mockRejectedValue(
 			new Error("Runtime Transport refresh failed")
 		);
 
 		await act(async () => {
 			await queryClient.refetchQueries({
-				queryKey:
-					organizationQueryKeys.memberOpenMeldServiceStatuses("org-acme"),
+				queryKey: organizationQueryKeys.computers("org-acme"),
 			});
 		});
 
 		await waitFor(() => {
-			expect(screen.queryByText("OpenMeld Service connected")).toBeNull();
+			expect(screen.queryByText("1 computer connected")).toBeNull();
 		});
 		expect(
-			await screen.findAllByText("OpenMeld Service status unavailable")
+			await screen.findAllByText("Computer status unavailable")
 		).toHaveLength(2);
 	});
 
-	it("keeps not-connected and unknown member service states distinct", async () => {
-		readCurrentOrganizationMemberOpenMeldServiceStatusesMock.mockResolvedValue({
-			generatedAt: "2026-07-16T00:00:00.000Z",
-			members: [
-				{ state: "not_connected", userId: "user-ada" },
-				{ state: "unknown", userId: "user-grace" },
+	it("keeps not-connected and unknown Computer states distinct", async () => {
+		readCurrentOrganizationComputersMock.mockResolvedValue({
+			computers: [
+				buildComputer({
+					computerId: "computer-ada",
+					ownerUserId: "user-ada",
+					serviceState: "not_connected",
+				}),
+				buildComputer({
+					computerId: "computer-grace",
+					ownerUserId: "user-grace",
+					serviceState: "unknown",
+				}),
 			],
+			generatedAt: "2026-07-16T00:00:00.000Z",
 			organizationId: "org-acme",
 		});
 		renderOverview({ isPersonal: false });
 
+		expect(await screen.findAllByText("No computer connected")).toHaveLength(2);
+		const profileCards = await screen.findAllByTestId(
+			"organization-human-profile-row"
+		);
+		const graceCard = profileCards[1];
+		if (!graceCard) {
+			throw new Error("Expected Grace's Human Profile card.");
+		}
 		expect(
-			await screen.findByText("OpenMeld Service not connected")
+			within(graceCard).getByRole("link", {
+				name: "Grace Hopper: No computer connected",
+			})
 		).toBeTruthy();
+	});
+
+	it("gives the current member a direct path to connect their first Computer", async () => {
+		readCurrentOrganizationComputersMock.mockResolvedValue({
+			computers: [],
+			generatedAt: "2026-07-16T00:00:00.000Z",
+			organizationId: "org-acme",
+		});
+		renderOverview({ currentUserProfile: true, isPersonal: false });
+
+		const currentCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		)[0];
+		if (!currentCard) {
+			throw new Error("Expected the current member's Human Profile card.");
+		}
 		expect(
-			await screen.findByText("OpenMeld Service status unavailable")
+			(
+				await within(currentCard).findByRole("link", {
+					name: "Felix: Connect a computer",
+				})
+			).getAttribute("href")
+		).toBe("/o/acme/connect?session=fresh");
+		expect(
+			within(currentCard)
+				.getByRole("link", { name: "Connect a computer" })
+				.getAttribute("href")
+		).toBe("/o/acme/connect?session=fresh");
+	});
+
+	it("shows only Organization-connected providers and lets a member manage their own account", async () => {
+		const identityLinkId = `channel_identity_${"a".repeat(64)}`;
+		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
+			availableLarkPlatformProviders: ["lark"],
+			connections: [
+				buildChannelConnection({ id: "slack:T123", provider: "slack" }),
+				buildChannelConnection({ id: "lark-connection", provider: "lark" }),
+			],
+			identityLinks: [
+				{
+					connectedAt: "2026-07-16T00:00:00.000Z",
+					id: identityLinkId,
+					openMeldUserId: "user-current",
+					provider: "slack",
+					providerAccountName: "@felix",
+				},
+			],
+			organizationId: "org-acme",
+		});
+		disconnectCurrentMessageChannelIdentityLinkMock.mockResolvedValue({
+			availableLarkPlatformProviders: ["lark"],
+			connections: [
+				buildChannelConnection({ id: "slack:T123", provider: "slack" }),
+				buildChannelConnection({ id: "lark-connection", provider: "lark" }),
+			],
+			identityLinks: [],
+			organizationId: "org-acme",
+		});
+		renderOverview({ currentUserProfile: true, isPersonal: false });
+
+		const currentCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		)[0];
+		if (!currentCard) {
+			throw new Error("Expected the current member's Human Profile card.");
+		}
+		expect(
+			await within(currentCard).findByText("Connected accounts")
 		).toBeTruthy();
+		expect(within(currentCard).getByText("Slack · @felix")).toBeTruthy();
+		expect(within(currentCard).getByText("Lark")).toBeTruthy();
+		fireEvent.click(
+			within(currentCard).getByRole("button", { name: "Connect" })
+		);
+		expect(
+			await screen.findByRole("dialog", {
+				name: "Connect your Lark account",
+			})
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		fireEvent.click(
+			within(currentCard).getByRole("button", { name: "Manage" })
+		);
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Disconnect account" })
+		);
+
+		await waitFor(() => {
+			expect(
+				disconnectCurrentMessageChannelIdentityLinkMock
+			).toHaveBeenCalledWith({
+				identityLinkId,
+				organizationId: "org-acme",
+			});
+		});
+		expect(toastSuccessMock).toHaveBeenCalledWith(
+			"Connected account disconnected."
+		);
+	});
+
+	it("offers the current member a connection when another member owns that provider account", async () => {
+		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
+			availableLarkPlatformProviders: ["lark"],
+			connections: [
+				buildChannelConnection({ id: "slack:T123", provider: "slack" }),
+			],
+			identityLinks: [
+				{
+					connectedAt: "2026-07-16T00:00:00.000Z",
+					id: `channel_identity_${"b".repeat(64)}`,
+					openMeldUserId: "user-grace",
+					provider: "slack",
+					providerAccountName: "@grace",
+				},
+			],
+			organizationId: "org-acme",
+		});
+		renderOverview({ currentUserProfile: true, isPersonal: false });
+
+		const currentCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		)[0];
+		if (!currentCard) {
+			throw new Error("Expected the current member's Human Profile card.");
+		}
+		expect(await within(currentCard).findByText("Slack")).toBeTruthy();
+		expect(
+			within(currentCard).getByRole("button", { name: "Connect" })
+		).toBeTruthy();
+		expect(within(currentCard).queryByText("Slack · @grace")).toBeNull();
+	});
+
+	it("lets an Organization owner manage another member's connected account", async () => {
+		getActiveOrganizationMemberRoleMock.mockResolvedValue("owner");
+		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
+			availableLarkPlatformProviders: ["lark"],
+			connections: [
+				buildChannelConnection({ id: "slack:T123", provider: "slack" }),
+			],
+			identityLinks: [
+				{
+					connectedAt: "2026-07-16T00:00:00.000Z",
+					id: `channel_identity_${"c".repeat(64)}`,
+					openMeldUserId: "user-grace",
+					provider: "slack",
+					providerAccountName: "@grace",
+				},
+			],
+			organizationId: "org-acme",
+		});
+		renderOverview({ currentUserProfile: true, isPersonal: false });
+
+		const graceCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		)[1];
+		if (!graceCard) {
+			throw new Error("Expected Grace's Human Profile card.");
+		}
+		expect(await within(graceCard).findByText("Slack · @grace")).toBeTruthy();
+		expect(
+			within(graceCard).getByRole("button", { name: "Manage" })
+		).toBeTruthy();
+	});
+
+	it("does not show Connected accounts when the Organization has no connected provider", async () => {
+		renderOverview({ currentUserProfile: true, isPersonal: false });
+
+		expect(await screen.findByText("Felix")).toBeTruthy();
+		expect(screen.queryByText("Connected accounts")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
 	});
 
 	it("hides Human Profile creation when Auth disables the capability", async () => {
@@ -716,7 +963,7 @@ describe("DirectoryMembersOverview", () => {
 		});
 	});
 
-	it("links each member to an existing profile or a prefilled new profile", async () => {
+	it("shows only Profile Reports that already exist", async () => {
 		listCurrentOrganizationDocumentsMock.mockResolvedValue({
 			canManage: true,
 			currentUserId: "user-owner",
@@ -757,13 +1004,20 @@ describe("DirectoryMembersOverview", () => {
 		renderOverview({ isPersonal: false });
 
 		expect(
-			(await screen.findAllByRole("link", { name: "Profile Report" })).map(
-				(link) => link.getAttribute("href")
-			)
-		).toEqual([
-			"/o/acme/documents/document-ada-latest",
-			"/o/acme/documents/new?kind=member_profile&subjectUserId=user-grace",
-		]);
+			(
+				await screen.findByRole("link", {
+					name: "Open Ada Lovelace's Profile Report",
+				})
+			).getAttribute("href")
+		).toBe("/o/acme/documents/document-ada-latest");
+		expect(
+			screen.queryByRole("link", {
+				name: "Open Grace Hopper's Profile Report",
+			})
+		).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Learn about Grace Hopper" })
+		).toBeTruthy();
 	});
 
 	it("keeps the newest same-day Profile Report selected after an older report is edited", async () => {
@@ -808,7 +1062,9 @@ describe("DirectoryMembersOverview", () => {
 
 		expect(
 			(
-				await screen.findAllByRole("link", { name: "Profile Report" })
+				await screen.findAllByRole("link", {
+					name: "Open Ada Lovelace's Profile Report",
+				})
 			)[0]?.getAttribute("href")
 		).toBe("/o/acme/documents/document-ada-newer");
 	});
@@ -837,11 +1093,15 @@ describe("DirectoryMembersOverview", () => {
 
 		expect(
 			(
-				await screen.findByRole("link", { name: "Profile Report" })
+				await screen.findByRole("link", {
+					name: "Open Ada Lovelace's Profile Report",
+				})
 			).getAttribute("href")
 		).toBe("/o/acme/documents/document-ada");
 		expect(
-			screen.getAllByRole("link", { name: "Profile Report" })
+			screen.getAllByRole("link", {
+				name: "Open Ada Lovelace's Profile Report",
+			})
 		).toHaveLength(1);
 		const graceCard = (
 			await screen.findAllByTestId("organization-human-profile-row")
@@ -850,12 +1110,10 @@ describe("DirectoryMembersOverview", () => {
 			throw new Error("Expected Grace's Human Profile card.");
 		}
 		expect(
-			(
-				within(graceCard).getByRole("button", {
-					name: "Report unavailable",
-				}) as HTMLButtonElement
-			).disabled
-		).toBe(true);
+			within(graceCard).getByRole("button", {
+				name: "Learn about Grace Hopper",
+			})
+		).toBeTruthy();
 	});
 
 	it("starts one member research task from that member's row", async () => {
@@ -893,7 +1151,9 @@ describe("DirectoryMembersOverview", () => {
 			throw new Error("Expected Ada's Human Profile card.");
 		}
 		fireEvent.click(
-			within(adaCard).getByRole("button", { name: "Learn about Ada Lovelace" })
+			await within(adaCard).findByRole("button", {
+				name: "Learn about Ada Lovelace",
+			})
 		);
 
 		expect(
@@ -1020,21 +1280,19 @@ describe("DirectoryMembersOverview", () => {
 			throw new Error("Expected Ada's Human Profile card.");
 		}
 		const profileReportAction = within(adaCard).getByRole("link", {
-			name: "Profile Report",
+			name: "Open Ada Lovelace's Profile Report",
 		});
 		expect(profileReportAction.className).toContain("border-transparent");
 		expect(profileReportAction.className).toContain("hover:bg-muted");
 		expect(profileReportAction.className).not.toContain("border-amber-");
-		expect(profileReportAction.className).not.toContain("text-amber-");
+		expect(profileReportAction.className).toContain("text-amber-");
 		expect(profileReportAction.querySelector("svg")).toBeTruthy();
-		expect(adaCard.firstElementChild?.contains(profileReportAction)).toBe(
-			false
-		);
+		expect(adaCard.firstElementChild?.contains(profileReportAction)).toBe(true);
 		expect(within(adaCard).queryByText("Draft available")).toBeNull();
 		expect(within(adaCard).queryByText("Draft ready")).toBeNull();
 		expect(
-			within(adaCard).getByRole("button", { name: "Finishing…" })
-		).toBeTruthy();
+			within(adaCard).queryByRole("button", { name: "Finishing…" })
+		).toBeNull();
 	});
 
 	it("toasts once when research observed on this page reaches a terminal result", async () => {
@@ -1256,5 +1514,41 @@ function buildHumanProfile(): AuthProfileView {
 		status: "active",
 		updatedAt: "2026-07-15T00:00:00.000Z",
 		openMeldProfileId: "human-felix",
+	};
+}
+
+function buildComputer(
+	input: Pick<
+		OrganizationComputerRecord,
+		"computerId" | "ownerUserId" | "serviceState"
+	>
+): OrganizationComputerRecord {
+	return {
+		...input,
+		deviceDisplayName: input.computerId,
+		deviceType: "laptop",
+		lastSeenAtMs: 1_755_000_000_000,
+		localAgents: [],
+		openMeldTools: null,
+		osVersion: "26.0",
+		platformFamily: "macOS",
+	};
+}
+
+function buildChannelConnection(input: {
+	id: string;
+	provider: MessageChannelConnectionProjection["provider"];
+}): MessageChannelConnectionProjection {
+	return {
+		externalAccountId: input.id,
+		externalAccountName: null,
+		grantedCapabilityGroups: [],
+		id: input.id,
+		lastVerifiedAt: "2026-07-16T00:00:00.000Z",
+		permissionBundleVersion: null,
+		provider: input.provider,
+		reasonCode: null,
+		status: "connected",
+		transport: "webhook",
 	};
 }

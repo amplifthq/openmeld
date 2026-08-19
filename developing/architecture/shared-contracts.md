@@ -2032,12 +2032,14 @@ users, bots, and app users, and consumes OpenMeld Organization membership
 through the centralized Organization directory RPC. Core first resolves an
 exact Slack identity link scoped to the current Organization and Slack
 workspace. The linked OpenMeld user must still be a current Organization
-member. If no valid link exists, an exact normalized email match is the only
-fallback that proves membership. The response reports whether the match came
-from `identity_link` or `email`. Without either match, an available nonmatching
-email means `not_member`; no Slack email means `unknown`. Display names and
-profile fields are untrusted provider data and cannot upgrade either result.
-The contract grants no roster persistence, invitation, or messaging authority.
+member. If no valid link exists, an exact normalized email match may classify
+that directory row for the current response only. The response reports whether
+the classification came from `identity_link` or `email`; `email` never creates
+a link, represents a Slack sender, or grants member-owned authority. Without
+either match, an available nonmatching email means `not_member`; no Slack email
+means `unknown`. Display names and profile fields are untrusted provider data
+and cannot upgrade either result. The contract grants no roster persistence,
+invitation, identity-link, or messaging authority.
 
 This rollout is receiver-first because old Core rejects the new `actionSet=v6`
 query and does not implement the directory RPC. Deploy Core's RPC receiver and
@@ -2871,7 +2873,9 @@ link but cannot claim automatic continuation. Core atomically claims one
 private token for the signed-in OpenMeld user before Auth may add Organization
 membership. Core then rechecks the current workspace Binding and signed-in
 Organization membership while consuming the claimed token and writing the link
-in one atomic D1 batch. A competing OpenMeld user fails before Auth enrollment.
+in one atomic D1 batch. If that exact Slack account points to another member,
+the same Slack-private proof atomically replaces the canonical mapping; it never
+creates two mappings. A competing OpenMeld user fails before Auth enrollment.
 The same user may retry a claim left unconsumed by a failed Auth enrollment.
 Issuing a fresh private setup action atomically expires all earlier unconsumed
 tokens for the same Slack identity before inserting the replacement, so an
@@ -2879,12 +2883,13 @@ abandoned claim cannot fence a later setup action until expiry.
 A non-continuing action narrows that replacement to older non-continuing
 actions and cannot invalidate a source-bound continuation for another request.
 
-The strict preview response adds `alreadyMember`; the strict consume response
-adds `joinedOrganization`, `continued`, and `continuationRetryable`. Their
-consumer schemas supply rollout defaults for an older Core producer: an omitted
-`alreadyMember` means `true`, because the previous flow admitted only current
-members, while omitted `joinedOrganization`, `continued`, and
-`continuationRetryable` mean `false`. Auth is the only
+The strict preview response adds `alreadyMember` and
+`replacesExistingLink`; the strict consume response adds
+`joinedOrganization`, `continued`, `continuationRetryable`, and
+`replacedExistingLink`. Their consumer schemas supply rollout defaults for an
+older Core producer: an omitted `alreadyMember` means `true`, because the
+previous flow admitted only current members, while the other omitted fields
+mean `false`. Auth is the only
 Organization membership writer: it may add a verified signed-in account as an
 ordinary member of the non-personal Organization only after Core claims the
 private token for that account and before Core consumes it. Core then reads the
@@ -2917,6 +2922,28 @@ continuation failure advances the token generation before the same user may
 retry. Consumed tokens remain readable only through the exact provider identity
 link for that OpenMeld user until expiry; they never become native-delivery or
 tool authority.
+
+The Message Channel connection-list response may include the Core-owned
+`identityLinks` projection. Each row exposes only an opaque link id, provider,
+mapped OpenMeld user id, provider-account display name, and connection time; it
+never exposes the provider user id or token. The opaque id is stable for the
+provider, connection, and provider user tuple and is the only Web deletion
+target. Deletion authorizes either the mapped signed-in member or an
+Organization role with Channel-disconnect permission, re-resolves the target
+inside the active Organization, removes only the exact mapping, and returns the
+refreshed strict connection-list response. It never disconnects the provider
+Channel, assigns a replacement member, or mutates Auth membership.
+
+This additive HTTP/RPC rollout is receiver-first: deploy the new Web schema and
+UI, then Gateway, then Core. New consumers default omitted `identityLinks`,
+`replacesExistingLink`, and `replacedExistingLink` to empty or false, so they
+remain compatible with old Core. Old strict consumers may reject those new
+fields, so Core must not emit them before Web and Gateway are ready. Before the
+Core step, the new Web sees no mappings and therefore exposes no deletion
+caller. No Auth, D1 migration, CLI, OpenMeld Service, Runtime Transport,
+Prepare, Wake, Space Action, status, trace, diagnostic, or self-rescue contract
+changes; existing local components continue without an update. Rollback removes
+the Web caller before rolling Gateway or Core back.
 
 The agent-assisted account-connection increment stays inside the existing
 provider-neutral handoff contract. `messageChannelParticipantIdentitySchema`

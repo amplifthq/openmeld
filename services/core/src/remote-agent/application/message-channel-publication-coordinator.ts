@@ -536,7 +536,7 @@ async function publishMessageChannelIdentityLink(input: {
   }
   const purpose = input.body.navigationTarget.purpose;
   const connectToUserId = input.body.navigationTarget.connectToUserId;
-  const speaker = input.delivery.anonymousMemberSpeaker;
+  const { anonymous, speaker } = resolveIdentityLinkSpeaker(input.delivery);
   const identity = speaker?.messageChannelIdentity;
   const organizationName =
     input.delivery.executionRecoverySubmitRequest?.turnEnvelope.organization
@@ -548,7 +548,8 @@ async function publishMessageChannelIdentityLink(input: {
       organizationName &&
       webAppUrl &&
       identity.provider === input.target.locator.provider &&
-      identity.connectionId === input.target.locator.connectionId
+      identity.connectionId === input.target.locator.connectionId &&
+      (purpose === "optional_setup" || anonymous)
     )
   ) {
     return handleMessageChannelIdentityLinkFailure({
@@ -557,7 +558,9 @@ async function publishMessageChannelIdentityLink(input: {
     });
   }
 
-  if (connectToUserId) {
+  const claimedByUserId =
+    purpose === "continue_request" ? connectToUserId : undefined;
+  if (claimedByUserId) {
     if (!input.env) {
       return handleMessageChannelIdentityLinkFailure({
         purpose,
@@ -565,7 +568,7 @@ async function publishMessageChannelIdentityLink(input: {
       });
     }
     const projection = await readOrganizationAccountIdentityProjection({
-      account: { kind: "user_id", userId: connectToUserId },
+      account: { kind: "user_id", userId: claimedByUserId },
       authWorker: input.env.OPENMELD_AUTH_WORKER,
       organizationId: input.delivery.organizationId,
       requestId: input.body.submissionId,
@@ -587,7 +590,7 @@ async function publishMessageChannelIdentityLink(input: {
   const issuedAtMs = input.clock();
   const token = createMessageChannelIdentityLinkToken();
   await insertRemoteAgentMessageChannelIdentityLinkToken({
-    ...(connectToUserId ? { claimedByUserId: connectToUserId } : {}),
+    ...(claimedByUserId ? { claimedByUserId } : {}),
     connectionId: identity.connectionId,
     db: input.db,
     expiresAtMs: issuedAtMs + MESSAGE_CHANNEL_IDENTITY_LINK_TOKEN_TTL_MS,
@@ -627,6 +630,42 @@ async function publishMessageChannelIdentityLink(input: {
       ? { retryAfterMs: publication.retryAfterMs }
       : {}),
   });
+}
+
+function resolveIdentityLinkSpeaker(
+  delivery: Pick<
+    RemoteAgentNativeDeliveryRecord,
+    "anonymousMemberSpeaker" | "executionRecoverySubmitRequest"
+  >
+): {
+  anonymous: boolean;
+  speaker:
+    | {
+        displayName: string;
+        messageChannelIdentity: NonNullable<
+          RemoteAgentNativeDeliveryRecord["anonymousMemberSpeaker"]
+        >["messageChannelIdentity"];
+      }
+    | undefined;
+} {
+  if (delivery.anonymousMemberSpeaker) {
+    return { anonymous: true, speaker: delivery.anonymousMemberSpeaker };
+  }
+  const sender = delivery.executionRecoverySubmitRequest?.turnEnvelope.sender;
+  if (
+    sender?.kind !== "member" ||
+    !sender.verified ||
+    !sender.messageChannelIdentity
+  ) {
+    return { anonymous: false, speaker: undefined };
+  }
+  return {
+    anonymous: false,
+    speaker: {
+      displayName: sender.displayName,
+      messageChannelIdentity: sender.messageChannelIdentity,
+    },
+  };
 }
 
 function handleMessageChannelIdentityLinkFailure(input: {

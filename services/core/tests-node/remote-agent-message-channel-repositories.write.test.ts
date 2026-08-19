@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  deleteRemoteAgentMessageChannelIdentityLinkTarget,
+  findRemoteAgentMessageChannelIdentityLinkTarget,
+  listRemoteAgentMessageChannelIdentityLinkProjections,
+  projectRemoteAgentLarkPlatformConnection,
+} from "../src/remote-agent/application/message-channel-connection-projection";
+import {
   readRemoteAgentLarkPlatformChannelConnection,
   readRemoteAgentLarkPlatformChannelCredentials,
   setRemoteAgentLarkPlatformChannelConnectionStatus,
@@ -42,6 +48,9 @@ import {
   applyDrizzleMigrationForTable as applyMigrationForTable,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
+
+const MESSAGE_CHANNEL_IDENTITY_LINK_ID_PATTERN =
+  /^channel_identity_[0-9a-f]{64}$/u;
 
 describe("Remote Agent Message Channel repositories", () => {
   it("persists QR credentials before resumable configuration can complete", async () => {
@@ -585,6 +594,59 @@ describe("Remote Agent Message Channel repositories", () => {
           openmeldUserId: "user_2",
         })
       ).rejects.toThrow("Organization member");
+
+      const connection = await readRemoteAgentLarkPlatformChannelConnection({
+        connectionId: "connection_lark_1",
+        db: harness.db,
+      });
+      if (!connection) {
+        throw new Error("expected a connected Lark channel");
+      }
+      const identityLinks =
+        await listRemoteAgentMessageChannelIdentityLinkProjections({
+          connections: [projectRemoteAgentLarkPlatformConnection(connection)],
+          identityDb: harness.db,
+          organizationId: "org_1",
+          stateDb: harness.db,
+        });
+      expect(identityLinks).toContainEqual({
+        connectedAt: "1970-01-01T00:00:03.000Z",
+        id: expect.stringMatching(MESSAGE_CHANNEL_IDENTITY_LINK_ID_PATTERN),
+        openMeldUserId: "user_1",
+        provider: "lark",
+        providerAccountName: null,
+      });
+      const identityLinkId = identityLinks.find(
+        (identityLink) =>
+          identityLink.connectedAt === "1970-01-01T00:00:03.000Z"
+      )?.id;
+      if (!identityLinkId) {
+        throw new Error("expected an opaque identity-link id");
+      }
+      const target = await findRemoteAgentMessageChannelIdentityLinkTarget({
+        connections: [projectRemoteAgentLarkPlatformConnection(connection)],
+        identityDb: harness.db,
+        identityLinkId,
+        organizationId: "org_1",
+        stateDb: harness.db,
+      });
+      if (!target) {
+        throw new Error("expected the identity-link deletion target");
+      }
+      await deleteRemoteAgentMessageChannelIdentityLinkTarget({
+        identityDb: harness.db,
+        organizationId: "org_1",
+        stateDb: harness.db,
+        target,
+      });
+      await expect(
+        readRemoteAgentLarkPlatformIdentityLink({
+          connectionId: "connection_lark_1",
+          db: harness.db,
+          provider: "lark",
+          providerUserId: "ou_user_1",
+        })
+      ).resolves.toBeNull();
     } finally {
       harness.close();
     }
@@ -769,6 +831,68 @@ describe("Remote Agent Message Channel repositories", () => {
           tokenHash: conflictingToken.tokenHash,
         })
       ).resolves.toEqual(conflictingToken);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("moves a Message Channel account after the provider user proves control with a claimed token", async () => {
+    const harness = createSqliteD1Harness();
+    applyLarkPlatformMigrations(harness);
+    try {
+      await seedConnectedRegistration(harness);
+      await insertRemoteAgentLarkPlatformIdentityLinkIfAbsent({
+        connectionId: "connection_lark_1",
+        db: harness.db,
+        nowMs: 3000,
+        organizationId: "org_1",
+        provider: "lark",
+        providerUserId: "ou_user_1",
+        resolutionSource: "explicit",
+        openmeldUserId: "user_1",
+      });
+      const token = await insertRemoteAgentMessageChannelIdentityLinkToken({
+        connectionId: "connection_lark_1",
+        db: harness.db,
+        expiresAtMs: 10_000,
+        issuedAtMs: 4000,
+        organizationId: "org_1",
+        provider: "lark",
+        providerUserDisplayName: "Ada",
+        providerUserId: "ou_user_1",
+        tokenHash: "replacement-token-hash",
+      });
+      const claimedToken =
+        await claimRemoteAgentMessageChannelIdentityLinkToken({
+          claimedAtMs: 4100,
+          db: harness.db,
+          token,
+          openmeldUserId: "user_2",
+        });
+      if (!claimedToken) {
+        throw new Error("expected the replacement token to be claimed");
+      }
+
+      await expect(
+        consumeRemoteAgentMessageChannelIdentityLinkToken({
+          db: harness.db,
+          nowMs: 4200,
+          token: claimedToken,
+          openmeldUserId: "user_2",
+        })
+      ).resolves.toBe(true);
+      await expect(
+        readRemoteAgentLarkPlatformIdentityLink({
+          connectionId: "connection_lark_1",
+          db: harness.db,
+          provider: "lark",
+          providerUserId: "ou_user_1",
+        })
+      ).resolves.toMatchObject({
+        organizationId: "org_1",
+        resolutionSource: "explicit",
+        openmeldUserId: "user_2",
+      });
     } finally {
       harness.close();
     }
