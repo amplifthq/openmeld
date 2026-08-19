@@ -7,13 +7,17 @@ describe("OpenMeldSystemIcon", () => {
 		cleanup();
 	});
 
-	it("uses the bounded favicon artwork instead of the oversized text logo", () => {
+	it("renders a bounded static O mark instead of image or text artwork", () => {
 		const { container } = render(<OpenMeldSystemIcon />);
 		const icon = screen.getByTestId("openmeld-system-icon");
 
-		expect(icon.getAttribute("src")).toBe("/favicon-32x32.png");
+		expect(icon.tagName).toBe("svg");
+		expect(icon.getAttribute("aria-hidden")).toBe("true");
+		expect(icon.getAttribute("viewBox")).toBe("0 0 16 16");
 		expect(icon.getAttribute("width")).toBe("16");
 		expect(icon.getAttribute("height")).toBe("16");
+		expect(icon.querySelector('path[fill="currentColor"]')).not.toBeNull();
+		expect(container.querySelector("img")).toBeNull();
 		expect(container.querySelector("pre")).toBeNull();
 	});
 });
