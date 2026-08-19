@@ -3,6 +3,7 @@ import {
   buildMessageChannelConversationId,
   messageChannelConversationLocatorSchema,
   messageChannelIngressEnvelopeSchema,
+  parseSlackThreadPublicationPermalink,
 } from "../../src/index";
 
 describe("Message Channel runtime contracts", () => {
@@ -120,5 +121,34 @@ describe("Message Channel runtime contracts", () => {
         rawPayload: { token: "provider-secret" },
       }).success
     ).toBe(false);
+  });
+
+  it("derives an exact Slack thread target only from a real message permalink", () => {
+    expect(
+      parseSlackThreadPublicationPermalink(
+        "https://openmeld.slack.com/archives/C_RELEASE/p1786979718343639"
+      )
+    ).toEqual({
+      channelId: "C_RELEASE",
+      threadTs: "1786979718.343639",
+    });
+    expect(
+      parseSlackThreadPublicationPermalink(
+        "https://openmeld.slack.com/archives/C_RELEASE/p1786979718999999?thread_ts=1786979718.343639&cid=C_RELEASE"
+      )
+    ).toEqual({
+      channelId: "C_RELEASE",
+      threadTs: "1786979718.343639",
+    });
+    expect(
+      parseSlackThreadPublicationPermalink(
+        "https://openmeld.slack.com/archives/C_RELEASE/p1786979718343639?cid=C_OTHER"
+      )
+    ).toBeNull();
+    expect(
+      parseSlackThreadPublicationPermalink(
+        "https://example.com/archives/C_RELEASE/p1786979718343639"
+      )
+    ).toBeNull();
   });
 });

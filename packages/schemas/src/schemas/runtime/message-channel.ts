@@ -28,6 +28,9 @@ export const MESSAGE_CHANNEL_MAX_RESOURCES = 10;
 
 const nonEmptyStringSchema = z.string().trim().min(1);
 const providerIdSchema = nonEmptyStringSchema.max(512);
+const SLACK_MESSAGE_TIMESTAMP_PATTERN = /^\d+\.\d+$/u;
+const SLACK_THREAD_PERMALINK_PATH_PATTERN =
+  /^\/archives\/([A-Za-z0-9_-]+)\/p(\d{10})(\d{1,6})\/?$/u;
 const timestampMsSchema = z
   .number()
   .int()
@@ -40,6 +43,47 @@ export const slackMessagePermalinkSchema = z
   .refine(isSlackMessagePermalink, {
     message: "Slack permalinks must use an HTTPS slack.com host.",
   });
+
+export const slackThreadPublicationPermalinkSchema =
+  slackMessagePermalinkSchema.refine(
+    (value) => parseSlackThreadPublicationPermalink(value) !== null,
+    {
+      message:
+        "Slack thread permalinks must identify an exact Slack channel message.",
+    }
+  );
+
+export function parseSlackThreadPublicationPermalink(value: string): {
+  channelId: string;
+  threadTs: string;
+} | null {
+  if (!slackMessagePermalinkSchema.safeParse(value).success) {
+    return null;
+  }
+  const url = new URL(value);
+  const pathMatch = SLACK_THREAD_PERMALINK_PATH_PATTERN.exec(url.pathname);
+  if (!pathMatch) {
+    return null;
+  }
+  const channelId = pathMatch[1];
+  const seconds = pathMatch[2];
+  const fractional = pathMatch[3];
+  if (!(channelId && seconds && fractional)) {
+    return null;
+  }
+  const queryChannelId = url.searchParams.get("cid");
+  if (queryChannelId && queryChannelId !== channelId) {
+    return null;
+  }
+  const queryThreadTs = url.searchParams.get("thread_ts");
+  if (queryThreadTs && !SLACK_MESSAGE_TIMESTAMP_PATTERN.test(queryThreadTs)) {
+    return null;
+  }
+  return {
+    channelId,
+    threadTs: queryThreadTs ?? `${seconds}.${fractional}`,
+  };
+}
 
 function isSlackMessagePermalink(value: string): boolean {
   let url: URL;
