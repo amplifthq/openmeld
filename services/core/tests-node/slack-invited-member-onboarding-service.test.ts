@@ -17,6 +17,7 @@ describe("Slack invited member onboarding", () => {
     harness = createSqliteD1Harness();
     createTables(harness);
     seedWaitingInvitation(harness);
+    seedExplicitIdentityLink(harness);
     slackFetch = vi.fn(async () =>
       Response.json({ channel: "D_MAYA", ok: true, ts: "1723.0002" })
     );
@@ -59,6 +60,10 @@ describe("Slack invited member onboarding", () => {
   });
 
   it("learns a joined Slack invitee, sends one trust-first DM, and completes exactly once", async () => {
+    harness.run({
+      sql: `UPDATE slack_teammate_invitation_deliveries
+        SET target_email = 'different-from-member@example.com'`,
+    });
     const startResearch = vi.fn(async () => ({ taskId: "research-task-1" }));
     const env = buildOnboardingEnv();
 
@@ -102,7 +107,7 @@ describe("Slack invited member onboarding", () => {
       organization_id: "org-1",
       slack_team_id: "T123",
       slack_user_id: "U_MAYA",
-      source: "email_auto",
+      source: "explicit",
     });
     expect(slackFetch).not.toHaveBeenCalled();
 
@@ -177,6 +182,35 @@ describe("Slack invited member onboarding", () => {
     expect(slackFetch).toHaveBeenCalledOnce();
   });
 
+  it("does not turn a matching invitation email into identity authority", async () => {
+    harness.run({ sql: "DELETE FROM slack_user_identity_links" });
+    const startResearch = vi.fn(async () => ({ taskId: "research-task-1" }));
+
+    await runSlackInvitedMemberOnboardingTick({
+      db: harness.db,
+      env: buildOnboardingEnv() as never,
+      nowMs: 2000,
+      startResearch,
+    });
+
+    expect(startResearch).not.toHaveBeenCalled();
+    expect(
+      harness.queryFirst({
+        sql: `SELECT onboarding_status, joined_user_id, joined_profile_id
+          FROM slack_teammate_invitation_deliveries`,
+      })
+    ).toEqual({
+      joined_profile_id: null,
+      joined_user_id: null,
+      onboarding_status: "waiting_for_join",
+    });
+    expect(
+      harness.queryFirst({
+        sql: "SELECT openmeld_user_id FROM slack_user_identity_links",
+      })
+    ).toBeNull();
+  });
+
   it("reconciles a confirmed private invitation before starting joined-member onboarding", async () => {
     harness.run({
       sql: `UPDATE slack_teammate_invitation_deliveries
@@ -232,7 +266,8 @@ describe("Slack invited member onboarding", () => {
     ).toHaveLength(0);
   });
 
-  it("does not start onboarding when the Slack identity belongs to another OpenMeld user", async () => {
+  it("waits when the Slack identity does not map to a current Organization member", async () => {
+    harness.run({ sql: "DELETE FROM slack_user_identity_links" });
     harness.run({
       sql: `
         INSERT INTO slack_user_identity_links (
@@ -263,8 +298,8 @@ describe("Slack invited member onboarding", () => {
     ).toEqual({
       joined_profile_id: null,
       joined_user_id: null,
-      onboarding_failure_code: "identity_link_mismatch",
-      onboarding_status: "failed",
+      onboarding_failure_code: null,
+      onboarding_status: "waiting_for_join",
     });
     expect(
       harness.queryFirst({
@@ -275,47 +310,6 @@ describe("Slack invited member onboarding", () => {
         `,
       })
     ).toEqual({ openmeld_user_id: "user-someone-else" });
-  });
-
-  it("keeps onboarding inactive when the identity link write fails", async () => {
-    harness.run({
-      sql: `
-        CREATE TRIGGER reject_slack_identity_link
-        BEFORE INSERT ON slack_user_identity_links
-        BEGIN
-          SELECT RAISE(ABORT, 'identity link unavailable');
-        END
-      `,
-    });
-    const startResearch = vi.fn(async () => ({ taskId: "research-task-1" }));
-
-    await expect(
-      runSlackInvitedMemberOnboardingTick({
-        db: harness.db,
-        env: buildOnboardingEnv() as never,
-        nowMs: 2000,
-        startResearch,
-      })
-    ).rejects.toThrow("identity link unavailable");
-
-    expect(startResearch).not.toHaveBeenCalled();
-    expect(
-      harness.queryFirst({
-        sql: `
-          SELECT onboarding_status, joined_user_id, joined_profile_id
-          FROM slack_teammate_invitation_deliveries
-        `,
-      })
-    ).toEqual({
-      joined_profile_id: null,
-      joined_user_id: null,
-      onboarding_status: "waiting_for_join",
-    });
-    expect(
-      harness.queryFirst({
-        sql: "SELECT openmeld_user_id FROM slack_user_identity_links",
-      })
-    ).toBeNull();
   });
 
   it("fails before publication when the report action cannot get a valid Web app URL", () => {
@@ -771,6 +765,24 @@ function seedWaitingInvitation(
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'delivered', '1723.0001', NULL,
         'waiting_for_join', NULL, NULL, NULL, NULL, NULL, ?, ?)
+    `,
+  });
+}
+
+function seedExplicitIdentityLink(
+  harness: ReturnType<typeof createSqliteD1Harness>
+): void {
+  harness.run({
+    sql: `
+      INSERT INTO slack_user_identity_links (
+        organization_id,
+        slack_team_id,
+        slack_user_id,
+        openmeld_user_id,
+        source,
+        created_at_ms
+      )
+      VALUES ('org-1', 'T123', 'U_MAYA', 'user-maya', 'explicit', 900)
     `,
   });
 }

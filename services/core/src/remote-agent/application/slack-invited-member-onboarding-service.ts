@@ -184,18 +184,24 @@ async function claimJoinedMembersForOrganization(input: {
     input.db
       .prepare(
         `
-          SELECT interaction_id, target_slack_user_id, target_email
-          FROM slack_teammate_invitation_deliveries
-          WHERE organization_id = ?
-            AND status = 'delivered'
-            AND onboarding_status = 'waiting_for_join'
-            AND target_email IS NOT NULL
+          SELECT
+            invitation.interaction_id,
+            invitation.target_slack_user_id,
+            identity_link.openmeld_user_id
+          FROM slack_teammate_invitation_deliveries AS invitation
+          INNER JOIN slack_user_identity_links AS identity_link
+            ON identity_link.organization_id = invitation.organization_id
+            AND identity_link.slack_team_id = invitation.slack_team_id
+            AND identity_link.slack_user_id = invitation.target_slack_user_id
+          WHERE invitation.organization_id = ?
+            AND invitation.status = 'delivered'
+            AND invitation.onboarding_status = 'waiting_for_join'
         `
       )
       .bind(input.organizationId)
       .all<{
         interaction_id: string;
-        target_email: string;
+        openmeld_user_id: string;
         target_slack_user_id: string;
       }>(),
     resolveOrganizationDirectoryMembers({
@@ -203,13 +209,11 @@ async function claimJoinedMembersForOrganization(input: {
       organizationId: input.organizationId,
     }),
   ]);
-  const memberByEmail = new Map(
-    members.map(
-      (member) => [normalizeEmail(member.user.email), member] as const
-    )
+  const memberByUserId = new Map(
+    members.map((member) => [member.userId, member] as const)
   );
   const candidates = invitations.results.flatMap((invitation) => {
-    const member = memberByEmail.get(normalizeEmail(invitation.target_email));
+    const member = memberByUserId.get(invitation.openmeld_user_id);
     const profile = member?.humanProfile;
     return member && profile?.status === "active"
       ? [
@@ -574,8 +578,4 @@ async function deliverResearchUnavailableWelcome(input: {
       return publication.id;
     },
   });
-}
-
-function normalizeEmail(value: string): string {
-  return value.trim().toLowerCase();
 }

@@ -630,12 +630,15 @@ function HumanProfileCardActions(input: {
 		input.member.profileStatus === "active" && !input.member.isCurrentUser;
 	let profileKnowledgeAction: ReactNode = null;
 	if (input.member.reportAction.kind === "link") {
+		const profileReportActionLabel = input.member.hasDraft
+			? `Open ${input.member.name}'s Profile Report — updates to review and save`
+			: `Open ${input.member.name}'s Profile Report`;
 		profileKnowledgeAction = (
 			<Tooltip>
 				<TooltipTrigger
 					render={
 						<Link
-							aria-label={`Open ${input.member.name}'s Profile Report`}
+							aria-label={profileReportActionLabel}
 							className={cn(
 								buttonVariants({ size: "icon", variant: "ghost" }),
 								input.member.hasDraft ? "text-amber-500" : null
@@ -648,7 +651,7 @@ function HumanProfileCardActions(input: {
 				</TooltipTrigger>
 				<TooltipContent side="bottom">
 					{input.member.hasDraft
-						? "Profile Report has updates to review"
+						? "Profile Report has updates to review and save"
 						: "Profile Report"}
 				</TooltipContent>
 			</Tooltip>

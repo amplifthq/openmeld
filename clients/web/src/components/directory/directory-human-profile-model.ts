@@ -118,6 +118,7 @@ export function buildOrganizationHumanProfileRows(input: {
 			connectableAccounts: resolveConnectableAccounts({
 				isCurrentUser,
 				messageChannels: input.messageChannels,
+				messageChannelsStatus: input.messageChannelsStatus,
 				orgSlug: input.orgSlug,
 				userId: member.user.id,
 			}),
@@ -453,10 +454,14 @@ function resolveConnectedAccounts(input: {
 function resolveConnectableAccounts(input: {
 	isCurrentUser: boolean;
 	messageChannels: MessageChannelConnectionListResponse | null;
+	messageChannelsStatus: DirectoryProjectionStatus;
 	orgSlug: string;
 	userId: string;
 }): DirectoryConnectableAccount[] {
-	if (!(input.isCurrentUser && input.messageChannels)) {
+	if (
+		input.messageChannelsStatus !== "ready" ||
+		!(input.isCurrentUser && input.messageChannels)
+	) {
 		return [];
 	}
 	const linkedProviders = new Set<

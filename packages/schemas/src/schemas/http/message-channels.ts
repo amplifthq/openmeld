@@ -46,6 +46,9 @@ const reasonCodeSchema = nonEmptyStringSchema
 export const messageChannelConnectionStatusSchema = z.enum(
   MESSAGE_CHANNEL_CONNECTION_STATUSES
 );
+export const messageChannelIdentityLinkIdSchema = nonEmptyStringSchema
+  .max(82)
+  .regex(/^channel_identity_[0-9a-f]{64}$/u);
 export const larkPlatformProviderSchema = z.enum(["lark", "feishu"]);
 export const larkPlatformRegistrationBeginModeSchema = z.enum([
   "resume",
@@ -81,7 +84,7 @@ export const messageChannelConnectionProjectionSchema = z
 
 const messageChannelIdentityLinkProjectionSchema = z.strictObject({
   connectedAt: z.iso.datetime({ offset: true }),
-  id: nonEmptyStringSchema.max(128),
+  id: messageChannelIdentityLinkIdSchema,
   openMeldUserId: nonEmptyStringSchema.max(256),
   provider: messageChannelProviderSchema,
   providerAccountName: nonEmptyStringSchema.max(256).nullable(),

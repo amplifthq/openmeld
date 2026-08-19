@@ -17,6 +17,7 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { centerAgentMemberResearchQueryKeys } from "#/query/organizations/center-agent-member-research";
+import { messageChannelQueryKeys } from "#/query/organizations/message-channels";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { startQueryKeys } from "#/query/query-keys";
 import {
@@ -889,6 +890,47 @@ describe("DirectoryMembersOverview", () => {
 		expect(within(currentCard).queryByText("Slack · @grace")).toBeNull();
 	});
 
+	it("stops offering a cached Channel connection after its refresh fails", async () => {
+		const queryClient = createTestQueryClient();
+		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
+			availableLarkPlatformProviders: ["lark"],
+			connections: [
+				buildChannelConnection({ id: "slack:T123", provider: "slack" }),
+			],
+			identityLinks: [],
+			organizationId: "org-acme",
+		});
+		renderOverview(
+			{ currentUserProfile: true, isPersonal: false },
+			queryClient
+		);
+
+		const currentCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		)[0];
+		if (!currentCard) {
+			throw new Error("Expected the current member's Human Profile card.");
+		}
+		expect(
+			await within(currentCard).findByRole("button", { name: "Connect" })
+		).toBeTruthy();
+		listCurrentOrganizationMessageChannelsMock.mockRejectedValue(
+			new Error("Message Channels refresh failed")
+		);
+
+		await act(async () => {
+			await queryClient.refetchQueries({
+				queryKey: messageChannelQueryKeys.list("org-acme"),
+			});
+		});
+
+		await waitFor(() => {
+			expect(
+				within(currentCard).queryByRole("button", { name: "Connect" })
+			).toBeNull();
+		});
+	});
+
 	it("lets an Organization owner manage another member's connected account", async () => {
 		getActiveOrganizationMemberRoleMock.mockResolvedValue("owner");
 		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
@@ -1280,7 +1322,7 @@ describe("DirectoryMembersOverview", () => {
 			throw new Error("Expected Ada's Human Profile card.");
 		}
 		const profileReportAction = within(adaCard).getByRole("link", {
-			name: "Open Ada Lovelace's Profile Report",
+			name: "Open Ada Lovelace's Profile Report — updates to review and save",
 		});
 		expect(profileReportAction.className).toContain("border-transparent");
 		expect(profileReportAction.className).toContain("hover:bg-muted");

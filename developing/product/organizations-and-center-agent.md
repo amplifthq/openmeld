@@ -1777,14 +1777,16 @@ or sending a false research-failure welcome.
 
 An invited Slack user receives the Organization join link and a simple account
 of what will happen after joining; OpenMeld does not claim to know that person
-before Organization membership exists. After an exact normalized Slack email
-matches a joined Organization member with an active Human Profile, Core links
-that same Slack identity, atomically claims at most one onboarding across all
-delivered invitations for that Organization, workspace, and Slack user, runs
-member research for the new member, writes the Profile Report to the Center
-Agent Computer, and sends a second private welcome with one evidence-backed
-observation or an honest insufficient-context state. Duplicate invitations are
-closed without starting another research task or sending another welcome.
+before Organization membership exists. After the joined Organization member
+uses the universal provider-private proof flow to connect that exact Slack
+identity to an active Human Profile, Core atomically claims at most one
+onboarding across all delivered invitations for that Organization, workspace,
+and Slack user, runs member research for the new member, writes the Profile
+Report to the Center Agent Computer, and sends a second private welcome with one
+evidence-backed observation or an honest insufficient-context state. Matching
+email remains comparison context and never starts onboarding or writes the
+identity link. Duplicate invitations are closed without starting another
+research task or sending another welcome.
 The second welcome has its own durable publication claim. A confirmed Slack
 rejection may retry, a confirmed delivery is recovered by its recorded message
 id, and a lost or ambiguous outcome never triggers a blind second message.
@@ -2138,8 +2140,8 @@ remain separate, and **Learn about all members** belongs to the Human Profiles
 section header.
 
 An existing Profile Report opens from a top-right document icon. Amber means
-the report has updates to review. When the current Documents projection proves
-that no report exists, that exact action slot becomes **Learn about {member}**;
+the report has updates to review and save. When the current Documents projection
+proves that no report exists, that exact action slot becomes **Learn about {member}**;
 it never opens a blank document. While Documents are loading or unavailable,
 People shows neither action because it cannot safely choose between them. A
 single-member learning start failure stays on that member's card with its retry

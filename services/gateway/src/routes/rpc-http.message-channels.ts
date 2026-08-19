@@ -7,6 +7,7 @@ import {
   messageChannelConnectionListResponseSchema,
   messageChannelIdentityLinkConsumeBodySchema,
   messageChannelIdentityLinkConsumeResponseSchema,
+  messageChannelIdentityLinkIdSchema,
   messageChannelIdentityLinkPreviewBodySchema,
   messageChannelIdentityLinkPreviewResponseSchema,
 } from "@openmeld/schemas";
@@ -30,8 +31,6 @@ export const MESSAGE_CHANNEL_IDENTITY_LINK_PREVIEW_ROUTE =
 export const MESSAGE_CHANNEL_IDENTITY_LINK_CONSUME_ROUTE =
   "/v1/message-channels/identity-link/consume";
 export const MESSAGE_CHANNEL_IDENTITY_LINK_ROUTE = `${MESSAGE_CHANNEL_CONNECTIONS_ROUTE}/identity-links/:identityLinkId`;
-const MESSAGE_CHANNEL_IDENTITY_LINK_ID_PATTERN =
-  /^channel_identity_[0-9a-f]{64}$/u;
 
 export function registerMessageChannelRoutes(app: Hono<HonoBindings>): void {
   app.get(MESSAGE_CHANNEL_CONNECTIONS_ROUTE, (c) =>
@@ -48,7 +47,7 @@ export function registerMessageChannelRoutes(app: Hono<HonoBindings>): void {
   );
   app.delete(MESSAGE_CHANNEL_IDENTITY_LINK_ROUTE, (c) => {
     const identityLinkId = c.req.param("identityLinkId").trim();
-    if (!MESSAGE_CHANNEL_IDENTITY_LINK_ID_PATTERN.test(identityLinkId)) {
+    if (!messageChannelIdentityLinkIdSchema.safeParse(identityLinkId).success) {
       return respondBadRequest({
         c,
         message: "The connected account reference is invalid.",

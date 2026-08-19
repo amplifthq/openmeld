@@ -177,6 +177,7 @@ import {
   messageChannelConnectionListResponseSchema,
   messageChannelIdentityLinkConsumeBodySchema,
   messageChannelIdentityLinkConsumeResponseSchema,
+  messageChannelIdentityLinkIdSchema,
   messageChannelIdentityLinkPreviewBodySchema,
   messageChannelIdentityLinkPreviewResponseSchema,
   normalizeSpaceCursorPatch,
@@ -1560,8 +1561,6 @@ type RequiredAuthWorkerRpc = Required<
 const ORGANIZATION_SPACE_DIRECTORY_LIMIT = 500;
 const CENTER_AGENT_AUDIT_JOURNAL_DEFAULT_LIMIT = 100;
 const CENTER_AGENT_DISPATCH_HISTORY_DEFAULT_LIMIT = 10;
-const MESSAGE_CHANNEL_IDENTITY_LINK_ID_PATTERN =
-  /^channel_identity_[0-9a-f]{64}$/u;
 const CENTER_AGENT_DIRECT_MESSAGE_WELCOME_PURPOSE =
   "center_agent_dm_welcome" as const;
 const CENTER_AGENT_MANAGED_ROLE = "center_agent" as const;
@@ -6087,7 +6086,7 @@ export async function rpcDisconnectMessageChannelIdentityLink(
   if (
     !(
       identityLinkId &&
-      MESSAGE_CHANNEL_IDENTITY_LINK_ID_PATTERN.test(identityLinkId)
+      messageChannelIdentityLinkIdSchema.safeParse(identityLinkId).success
     )
   ) {
     throw createCoreRpcHttpError({

@@ -1376,6 +1376,7 @@ export {
   messageChannelConnectionStatusSchema,
   messageChannelIdentityLinkConsumeBodySchema,
   messageChannelIdentityLinkConsumeResponseSchema,
+  messageChannelIdentityLinkIdSchema,
   messageChannelIdentityLinkPreviewBodySchema,
   messageChannelIdentityLinkPreviewResponseSchema,
   messageChannelIdentityLinkTokenSchema,

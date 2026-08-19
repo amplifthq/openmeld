@@ -1414,7 +1414,7 @@ Core runs the serial batch. A member currently queued or running shows
 **Learning…**; other starts stay disabled until the batch is terminal.
 People polls the Core-owned status and document list while work is active.
 When a Profile Report exists, the document icon opens the latest report; amber
-indicates that it has updates to review. Only a successful Documents read that
+indicates that it has updates to review and save. Only a successful Documents read that
 contains no report may replace that icon with **Learn about {member}**. Loading
 or failed evidence shows neither action. **Profile Report** is the user-facing
 document term; the persisted `member_profile` kind and member-research
