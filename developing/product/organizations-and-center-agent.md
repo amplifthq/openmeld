@@ -2062,12 +2062,15 @@ The Center Agent normally creates or replaces the single pending draft for a
 document. Ordinary Organization Brief and knowledge drafts use an explicit
 human review flow. A Profile Report starts as a provisional working report, but
 Web presents the latest report as **What I've learned so far** in the normal
-editable Document surface without assigning approval, correction, or discard
-work. Saving any human edit turns that version into the current Document content
-and clears its internal provisional fields; the person can also simply tell the
+editable Document surface without a separate approval, correction, or discard
+control. While that version is provisional, the surface explains that it needs
+to be reviewed and saved, and the existing **Save changes** action remains
+available even when the human makes no text edit. Saving accepts the visible
+version as current Document content, clears its internal provisional fields,
+and resolves its Inbox attention item; the person can also simply tell the
 Center Agent when something feels off. Welcome preparation reads the current
-visible report body, whether it is still provisional or was already saved, so a
-fast human save cannot stall onboarding. When several reports share a date,
+visible report body, whether it is still provisional or was already saved, so
+a fast human save cannot stall onboarding. When several reports share a date,
 Directory treats the later-created learning run as latest; editing an older
 report never makes it replace a newer run. When a verified owner/admin explicitly asks
 for a direct save in the current accepted turn, or explicitly grants a Routine

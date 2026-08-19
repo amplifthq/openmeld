@@ -155,9 +155,12 @@ The first release creates items for these explicit user-visible events:
 6. A Center Agent Task that requests the recipient's action, produces a final
    result intended for them, or reaches a material failure or visible stopped
    outcome that requires their attention.
-7. A Center Agent document draft awaiting human review. It is sent only to
-   current owners and admins who can perform that review; one approval,
-   discard, or replacement resolves the corresponding items for every reviewer.
+7. A Center Agent document update awaiting human review. It is sent only to
+   current owners and admins who can perform that review. Organization Brief
+   and knowledge updates resolve through approval, discard, or replacement. A
+   Profile Report update resolves when a human saves the visible report through
+   the normal Document editor, even when no text edit was needed; it never adds
+   a separate approval action.
 8. A concrete system problem only after its owner defines a stable event id,
    exact recipient, safe summary, supported recovery destination, and clear
    condition. Phase 1 provides the typed adapter but does not synthesize items

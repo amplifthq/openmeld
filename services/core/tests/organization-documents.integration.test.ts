@@ -114,6 +114,13 @@ describe("Organization documents", () => {
       true
     );
     expect(
+      rows.every(
+        (row) =>
+          row.preview ===
+          "The Center Agent prepared a document update for review."
+      )
+    ).toBe(true);
+    expect(
       rows.some((row) => row.recipient_user_id === fixture.member.userId)
     ).toBe(false);
 
@@ -736,7 +743,12 @@ describe("Organization documents", () => {
       kind: "member_profile",
       subjectUserId: fixture.member.userId,
     });
-    await service.draft(
+    const draftedAtMs = Date.parse(profile.updatedAt) + 1000;
+    const draftingService = createOrganizationDocumentService({
+      db: env.OPENMELD_DB,
+      now: () => draftedAtMs,
+    });
+    await draftingService.draft(
       fixture.organizationId,
       {
         documentId: profile.id,
@@ -745,18 +757,34 @@ describe("Organization documents", () => {
       documentReviewerUserIds(fixture)
     );
     const pending = await service.get(fixture.member, profile.id);
+    expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual([
+      expect.objectContaining({
+        recipient_user_id: fixture.admin.userId,
+        resolution_status: "open",
+        source_key: `${profile.id}:${draftedAtMs}`,
+      }),
+      expect.objectContaining({
+        recipient_user_id: fixture.owner.userId,
+        resolution_status: "open",
+        source_key: `${profile.id}:${draftedAtMs}`,
+      }),
+    ]);
 
     await expect(
       service.update(fixture.member, profile.id, {
-        content: "What Morgan and the Center Agent learned together",
+        content: pending.draftContent as string,
         ...humanDocumentVersion(pending),
       })
     ).resolves.toMatchObject({
-      content: "What Morgan and the Center Agent learned together",
+      content: "What the Center Agent learned",
       draftContent: null,
       draftCreatedAt: null,
       draftCreatedBy: null,
     });
+    expect(await readDocumentReviewInboxRows(fixture.organizationId)).toEqual([
+      expect.objectContaining({ resolution_status: "resolved" }),
+      expect.objectContaining({ resolution_status: "resolved" }),
+    ]);
   });
 
   it("keeps a newer Profile Report draft when an older editor tries to save", async () => {
