@@ -59,10 +59,12 @@ describe("Remote Agent capability discovery", () => {
         {
           description: "Discover the actions available for one connected App.",
           name: "openmeld_list_app_actions",
+          namespace: "connected_apps",
         },
         {
           description: "Execute one discovered connected App action.",
           name: "openmeld_execute_app_action",
+          namespace: "connected_apps",
         },
       ],
       matchingCount: 2,
@@ -96,6 +98,7 @@ describe("Remote Agent capability discovery", () => {
             type: "object",
           },
           name: "openmeld_list_app_actions",
+          namespace: "connected_apps",
           usage:
             "Call codemode.openmeld_list_app_actions(input) inside the Code Mode async function.",
         },
@@ -156,12 +159,59 @@ describe("Remote Agent capability discovery", () => {
         {
           description: "Search messages in Slack without changing them.",
           name: "slack_search_messages",
+          namespace: "slack",
         },
         {
           description: "Send one message to a Slack conversation.",
           name: "slack_send_message",
+          namespace: "slack",
         },
       ],
+      matchingCount: 2,
+      truncated: false,
+    });
+  });
+
+  it("finds the Slack invitation workflow from a Chinese goal", async () => {
+    const invitationDefinitions: RemoteAgentToolDefinition[] = [
+      {
+        description: "Read the live Slack workspace directory.",
+        execute: () => Promise.resolve({ members: [] }),
+        input: object({}),
+        name: "openmeld_read_slack_workspace_directory",
+      },
+      {
+        description: "Send private OpenMeld invitations to Slack teammates.",
+        execute: () => Promise.resolve({ status: "completed" }),
+        input: object({}),
+        name: "openmeld_invite_slack_teammates",
+      },
+    ];
+    const definitions = createRemoteAgentCapabilityDiscoveryDefinitions([
+      ...DEFINITIONS,
+      ...invitationDefinitions,
+    ]);
+    const search = definitions.find(
+      (definition) =>
+        definition.name === REMOTE_AGENT_CAPABILITY_SEARCH_TOOL_NAME
+    );
+    if (!search) {
+      throw new Error("Capability search is unavailable.");
+    }
+
+    await expect(
+      search.execute({ query: "你能私信 Monica，把组织邀请链接发给她吗？" })
+    ).resolves.toMatchObject({
+      capabilities: expect.arrayContaining([
+        expect.objectContaining({
+          name: "openmeld_invite_slack_teammates",
+          namespace: "people_and_invitations",
+        }),
+        expect.objectContaining({
+          name: "openmeld_read_slack_workspace_directory",
+          namespace: "people_and_invitations",
+        }),
+      ]),
       matchingCount: 2,
       truncated: false,
     });

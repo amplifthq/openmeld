@@ -42,7 +42,7 @@ describe("Slack welcome teammate invitations", () => {
     vi.stubGlobal("fetch", slackFetch);
   });
 
-  it("accepts teammate invitation authority only from the matching private Slack delivery", () => {
+  it("accepts teammate invitation authority only from the matching current Slack delivery", () => {
     const privateDelivery = {
       conversationKind: "slack",
       deliveryId: "delivery-1",
@@ -66,10 +66,37 @@ describe("Slack welcome teammate invitations", () => {
         },
       },
     };
+    const matchingEvidence = {
+      delivery: privateDelivery,
+      representedHuman: {
+        profileId: "profile-actor",
+        userId: "user-actor",
+      },
+      slackTeamId: "T1",
+      slackUserId: "U_ACTOR",
+      sourceNativeDeliveryId: "delivery-1",
+    } satisfies Parameters<
+      typeof requireRemoteAgentSlackTeammateInvitationDeliveryEvidence
+    >[0];
 
     expect(() =>
+      requireRemoteAgentSlackTeammateInvitationDeliveryEvidence(
+        matchingEvidence
+      )
+    ).not.toThrow();
+    expect(() =>
       requireRemoteAgentSlackTeammateInvitationDeliveryEvidence({
-        delivery: privateDelivery,
+        delivery: {
+          ...privateDelivery,
+          slackChannelId: "C_TEAM",
+          workerSubmitRequest: {
+            ...privateDelivery.workerSubmitRequest,
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              interactionEnvironment: "organization_shared",
+            },
+          },
+        },
         representedHuman: {
           profileId: "profile-actor",
           userId: "user-actor",
@@ -99,7 +126,110 @@ describe("Slack welcome teammate invitations", () => {
         slackUserId: "U_ACTOR",
         sourceNativeDeliveryId: "delivery-1",
       })
-    ).toThrow("active private Slack delivery");
+    ).toThrow("active Slack delivery");
+
+    const invalidEvidence = [
+      {
+        ...matchingEvidence,
+        sourceNativeDeliveryId: "model-invented-delivery",
+      },
+      {
+        ...matchingEvidence,
+        delivery: { ...privateDelivery, conversationKind: "lark" },
+      },
+      {
+        ...matchingEvidence,
+        delivery: { ...privateDelivery, slackTeamId: "T_OTHER" },
+      },
+      {
+        ...matchingEvidence,
+        delivery: {
+          ...privateDelivery,
+          workerSubmitRequest: {
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              trigger: { source: "message_channel", teamId: "T1" },
+            },
+          },
+        },
+      },
+      {
+        ...matchingEvidence,
+        delivery: {
+          ...privateDelivery,
+          workerSubmitRequest: {
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              sender: {
+                ...privateDelivery.workerSubmitRequest.turnEnvelope.sender,
+                verified: false,
+              },
+            },
+          },
+        },
+      },
+      {
+        ...matchingEvidence,
+        delivery: {
+          ...privateDelivery,
+          workerSubmitRequest: {
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              sender: {
+                ...privateDelivery.workerSubmitRequest.turnEnvelope.sender,
+                ownerUserId: "user-other",
+              },
+            },
+          },
+        },
+      },
+      {
+        ...matchingEvidence,
+        delivery: {
+          ...privateDelivery,
+          workerSubmitRequest: {
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              sender: {
+                ...privateDelivery.workerSubmitRequest.turnEnvelope.sender,
+                messageChannelIdentity: {
+                  connectionId: "T1",
+                  provider: "lark",
+                  providerUserId: "U_ACTOR",
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        ...matchingEvidence,
+        delivery: {
+          ...privateDelivery,
+          workerSubmitRequest: {
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              sender: {
+                ...privateDelivery.workerSubmitRequest.turnEnvelope.sender,
+                messageChannelIdentity: {
+                  connectionId: "T1",
+                  provider: "slack",
+                  providerUserId: "U_OTHER",
+                },
+              },
+            },
+          },
+        },
+      },
+    ] satisfies Parameters<
+      typeof requireRemoteAgentSlackTeammateInvitationDeliveryEvidence
+    >[0][];
+
+    for (const evidence of invalidEvidence) {
+      expect(() =>
+        requireRemoteAgentSlackTeammateInvitationDeliveryEvidence(evidence)
+      ).toThrow("active Slack delivery");
+    }
   });
 
   afterEach(() => {

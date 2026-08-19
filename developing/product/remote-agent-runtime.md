@@ -978,23 +978,23 @@ sequence. These stages must not run concurrently: each can temporarily hold a
 large provider or schema object, and overlapping them raises peak isolate
 memory without improving the resulting prompt or capability set.
 
-The complete authorized direct-tool catalog remains the single source for both
-direct execution and Code Mode. For a bounded catalog of at most 64 direct
-tool schemas, the provider receives those direct tools plus `codemode`. Above
-that threshold, the provider receives `codemode`, the three generic Connected
-App discovery and execution tools. The three generic tools remain direct so a
-simple Connected App request can discover and execute one matching action
-without generated orchestration. Dedicated GitHub tools remain fully available
-inside the exact same Code Mode catalog instead of duplicating all of their
-descriptions and schemas at the provider boundary. This keeps GitHub capability
-and authorization unchanged while avoiding a large repeated prompt on every
-model step. The generic connected-Apps result explicitly reports GitHub as
-`not_checked` and directs the model to the matching dedicated GitHub action;
-the model calls that action through Code Mode when the large catalog is
-compacted. It must never let the absence of GitHub from the ordinary Apps list
-be interpreted as missing GitHub access. The required direct subset must itself
-remain within the same 64-schema limit and fails fast if it exceeds that
-boundary.
+The complete authorized direct-tool catalog remains the single source for
+direct execution, capability discovery, and Code Mode. For a bounded catalog
+of at most 64 direct tool schemas, the provider receives those direct tools
+plus `codemode`. Above that threshold, the provider receives `codemode`, the
+always-direct capability search and describe tools, the three generic Connected
+App bootstrap tools, and a bounded direct slice ranked against the latest user
+request. The generic tools remain direct because a provider-specific request
+such as Gmail may not name OpenMeld's Apps vocabulary before discovery begins.
+The slice expands every selected capability's declared prerequisites, so a
+goal-relevant action is never exposed without the exact lookup or discovery
+capability required to supply its input. Dedicated GitHub and all other
+capabilities remain fully available inside the exact same Code Mode catalog
+instead of duplicating all descriptions and schemas at the provider boundary.
+Capability search and describe report only the frozen catalog's existence,
+schemas, dependencies, and authorization hints; they do not grant authority or
+bypass execution-time policy. The required direct subset must itself remain
+within the same 64-schema limit and fails fast if it exceeds that boundary.
 The generated Code Mode catalog still contains every active direct tool,
 including that subset, and every direct or inner call re-enters the same
 cancellation, authorization, confirmation, audit, usage, and result-bounding
@@ -1235,16 +1235,17 @@ surface adopts official features where they are free**:
     `codemode` tool that can compose the exact capability definitions already
     active for that turn inside an isolated Dynamic Worker. Direct tools remain
     available for simple calls while the direct schema catalog is within its
-    provider-payload budget; larger catalogs are exposed through `codemode`
-    plus the fixed generic Connected App tools without removing any inner
-    capability. Generated code receives no
+    provider-payload budget; larger catalogs keep capability search, describe,
+    and the three generic Connected App bootstrap tools direct, add a bounded
+    goal-relevant direct slice with declared prerequisites, and retain every
+    other capability through `codemode`.
+    Generated code receives no
     OpenMeld secrets,
     Worker bindings, Node.js APIs, host filesystem, or unrestricted outbound
     network access, and every inner tool call re-enters the ordinary
     submission-context, cancellation, authorization, destructive-confirmation,
     audit, and usage paths. This increment does not add the durable Code Mode
-    runtime, history, snippets, tool search/describe, approval replay, or a
-    second scheduler.
+    runtime, history, snippets, approval replay, or a second scheduler.
     Code Mode projects each direct tool's authoritative Valibot input schema
     into model-visible JSON Schema and attaches the same Valibot parser as the
     runtime validator. Non-representable input transforms such as `trim` remain
@@ -1783,7 +1784,7 @@ Current hosted capability inventory:
 | Cloudflare Sandbox (removed)                  | Cloudflare Sandbox SDK plus Flue Cloudflare adapter                     | Removed                       | Fully superseded by the computer's container backend                                                      | None (class deleted via `v6_retire_sandbox`)                 | Dependency removed; no `SANDBOX` binding or `Sandbox` class remains                                               |
 | Browser Live View and retained sessions       | Browser Run Live View and CDP session APIs                              | No                            | Headless one-shot execution covers the current product need                                               | Human takeover and retained-session lifecycle                | No Live View URL, browser session state, or takeover surface exists                                               |
 | Stateless Code Mode                           | Cloudflare Code Mode `createCodeTool` plus `DynamicWorkerExecutor`      | Yes                           | Composes the exact active turn tools for dependent calls, loops, filtering, branching, and result shaping | Generated-code execution and multiplied inner tool calls     | Capability-parity, execution-context, prompt, binding, build, and real localhost composition tests                |
-| Durable Code Mode runtime                     | Cloudflare Code Mode durable runtime                                    | No                            | Stateless composition is sufficient for the first increment                                               | A second history, approval, snippet, and discovery lifecycle | No durable runtime export, Code Mode storage, snippet catalog, search/describe surface, or approval replay exists |
+| Durable Code Mode runtime                     | Cloudflare Code Mode durable runtime                                    | No                            | Stateless composition is sufficient for the first increment                                               | A second history, approval, snippet, and discovery lifecycle | No durable runtime export, Code Mode storage, snippet catalog, or approval replay exists                         |
 
 The implementation report must use this inventory table for every default or
 configured Flue capability:
@@ -2383,10 +2384,11 @@ Remaining expansion still requires its own design and ticket pass:
 2. **Additional connectors** — external integrations wired per organization.
 3. **Deep customization** — per-organization instructions and configuration, toward
    a general-purpose Remote Agent each org shapes into its own hub.
-4. **Durable Code Mode runtime and progressive tool discovery** — history,
-   snippets, search/describe, approval replay, and durable state require an
-   explicit product contract before they can become another lifecycle beside
-   Flue conversation state and Core-owned confirmation.
+4. **Durable Code Mode runtime** — the current frozen-catalog search/describe
+   discovery and stateless Code Mode do not own history. Snippets, approval
+   replay, and durable state require an explicit product contract before they
+   can become another lifecycle beside Flue conversation state and Core-owned
+   confirmation.
 
 The current platform provides the Binding-kind routing
 seam, per-conversation agent sessions, the single-result-surface reply rule,

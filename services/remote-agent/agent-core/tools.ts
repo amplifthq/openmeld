@@ -1519,7 +1519,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_invite_slack_teammates",
       description:
-        "Send private OpenMeld invitations to up to ten Slack teammates the user explicitly named in this direct-message conversation. First call openmeld_read_slack_workspace_directory, match each person exactly, and pass only the returned slackUserId values. If a name is ambiguous or missing, ask one short clarifying question instead of guessing. This sends the invitations immediately and returns structured per-target outcomes for you to report in your one final reply; do not call it merely to preview an invite.",
+        "Send private OpenMeld invitations to up to ten Slack teammates a verified member explicitly named in the current Slack conversation. First call openmeld_read_slack_workspace_directory, match each person exactly, and pass only the returned slackUserId values. If a name is ambiguous or missing, ask one short clarifying question instead of guessing. This sends the invitations immediately and returns structured per-target outcomes for you to report in your one final reply; do not call it merely to preview an invite.",
       input: slackTeammateInvitationToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -1532,18 +1532,20 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           toolName: "openmeld_invite_slack_teammates",
         });
         const turnEnvelope = toolContext.turnEnvelope;
+        const interactionEnvironment =
+          turnEnvelope?.interactionEnvironment ??
+          turnEnvelope?.contextScopePlan?.interactionEnvironment;
         if (
           turnEnvelope?.trigger.source !== "slack" ||
-          (turnEnvelope.interactionEnvironment ??
-            turnEnvelope.contextScopePlan?.interactionEnvironment) !==
-            "requester_private" ||
+          (interactionEnvironment !== "requester_private" &&
+            interactionEnvironment !== "organization_shared") ||
           turnEnvelope.sender.kind !== "member" ||
           !turnEnvelope.sender.verified ||
           turnEnvelope.sender.messageChannelIdentity?.provider !== "slack" ||
           !turnEnvelope.sender.messageChannelIdentity.providerUserId
         ) {
           throw new Error(
-            "Private Slack invitations are available only in a direct conversation with a verified OpenMeld member."
+            "Private Slack invitations require the current Slack conversation and a verified OpenMeld member."
           );
         }
         const targetSlackUserIds = [...new Set(request.targetSlackUserIds)];
@@ -1569,7 +1571,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           speakerMember,
           targetSlackUserIds,
         });
-        return parseSlackTeammateInvitationResponse(
+        const invitationResponse = parseSlackTeammateInvitationResponse(
           await callCoreRpc(
             input.coreWorker,
             "centerAgentInviteSlackTeammates",
@@ -1578,6 +1580,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
               binding.centerAgentInviteSlackTeammates?.(interaction)
           )
         );
+        return interactionEnvironment === "organization_shared"
+          ? protectSharedSlackInvitationResult(invitationResponse)
+          : invitationResponse;
       },
     }),
     toolDefinition({
@@ -5010,6 +5015,24 @@ function parseSlackTeammateInvitationResponse(response: unknown): unknown {
     return { status: "legacy_core_handled" as const };
   }
   return centerAgentInviteSlackTeammatesRpcResponseSchema.parse(response);
+}
+
+function protectSharedSlackInvitationResult(response: unknown): unknown {
+  const parsed =
+    centerAgentInviteSlackTeammatesRpcResponseSchema.safeParse(response);
+  if (
+    !(
+      parsed.success &&
+      parsed.data.status === "completed" &&
+      parsed.data.manualInviteUrl
+    )
+  ) {
+    return response;
+  }
+  return {
+    ...parsed.data,
+    manualInviteUrl: null,
+  };
 }
 
 function normalizeSlackChannelName(value: unknown): string {

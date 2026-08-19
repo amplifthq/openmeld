@@ -312,6 +312,12 @@ describe("remote agent OpenMeld tool catalog", () => {
     await executeTool(tools, "openmeld_read_slack_workspace_directory", {});
     await expect(
       executeTool(tools, "openmeld_invite_slack_teammates", {
+        targetSlackUserIds: ["Morgan"],
+      })
+    ).rejects.toThrow("use only the returned Slack user IDs");
+    expect(centerAgentInviteSlackTeammates).not.toHaveBeenCalled();
+    await expect(
+      executeTool(tools, "openmeld_invite_slack_teammates", {
         targetSlackUserIds: ["U_MORGAN"],
       })
     ).resolves.toEqual(invitationResult);
@@ -328,7 +334,177 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
-  it("rejects private Slack teammate invitations from a shared channel", async () => {
+  it.each([
+    "member",
+    "owner",
+  ] as const)("invites exact Slack teammates from a verified shared-channel %s request", async (role) => {
+    const baseRequest = createSubmitTurnRequest();
+    if (baseRequest.turnEnvelope.sender.kind !== "member") {
+      throw new Error("Expected a member sender fixture.");
+    }
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...baseRequest.turnEnvelope,
+        interactionEnvironment: "organization_shared",
+        sender: {
+          ...baseRequest.turnEnvelope.sender,
+          messageChannelIdentity: {
+            connectionId: "T123",
+            provider: "slack",
+            providerUserId: "U_INSTALLER",
+          },
+          role,
+        },
+        trigger: { source: "slack", teamId: "T123" },
+      },
+    });
+    const invitationResult = {
+      manualInviteUrl: null,
+      organizationName: "Ampli Lift",
+      outcomes: [
+        {
+          displayName: "Morgan",
+          status: "delivered" as const,
+          targetSlackUserId: "U_MORGAN",
+        },
+      ],
+      status: "completed" as const,
+    };
+    const centerAgentInviteSlackTeammates = vi.fn(async () => invitationResult);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentInviteSlackTeammates,
+        centerAgentReadSlackWorkspaceDirectory: vi.fn(async () =>
+          slackWorkspaceDirectoryResponse()
+        ),
+      },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+    });
+
+    await executeTool(tools, "openmeld_read_slack_workspace_directory", {});
+    await expect(
+      executeTool(tools, "openmeld_invite_slack_teammates", {
+        targetSlackUserIds: ["U_MORGAN"],
+      })
+    ).resolves.toEqual(invitationResult);
+    expect(centerAgentInviteSlackTeammates).toHaveBeenCalledWith({
+      context: expectedHostedCenterAgentContext(
+        request,
+        "openmeld_invite_slack_teammates"
+      ),
+      interactionId: "remote-agent:flue_submission_123",
+      slackTeamId: "T123",
+      slackUserId: "U_INSTALLER",
+      speakerMember: { memberId: "member_123", userId: "user_1" },
+      targetSlackUserIds: ["U_MORGAN"],
+    });
+  });
+
+  it("fails closed for unlinked members, OpenMeld Spaces, and non-Slack providers", async () => {
+    const baseRequest = createSubmitTurnRequest();
+    if (baseRequest.turnEnvelope.sender.kind !== "member") {
+      throw new Error("Expected a member sender fixture.");
+    }
+    const cases = [
+      {
+        exposed: false,
+        label: "unlinked Slack member",
+        turnEnvelope: {
+          ...baseRequest.turnEnvelope,
+          interactionEnvironment: "organization_shared" as const,
+          sender: {
+            displayName: "Ashley",
+            id: "slack:T123:U_UNLINKED",
+            kind: "member" as const,
+            messageChannelIdentity: {
+              connectionId: "T123",
+              provider: "slack" as const,
+              providerUserId: "U_UNLINKED",
+            },
+            verified: false,
+          },
+          trigger: { source: "slack" as const, teamId: "T123" },
+        },
+      },
+      {
+        exposed: true,
+        label: "shared OpenMeld Space",
+        turnEnvelope: {
+          ...baseRequest.turnEnvelope,
+          interactionEnvironment: "organization_shared" as const,
+          space: {
+            ...baseRequest.turnEnvelope.space,
+            isCenterAgentDm: false,
+            kind: "space" as const,
+          },
+          trigger: { source: "space_wake" as const },
+        },
+      },
+      {
+        exposed: true,
+        label: "private OpenMeld Direct Message",
+        turnEnvelope: {
+          ...baseRequest.turnEnvelope,
+          interactionEnvironment: "requester_private" as const,
+          trigger: { source: "web_dm" as const },
+        },
+      },
+      {
+        exposed: true,
+        label: "Lark conversation",
+        turnEnvelope: {
+          ...baseRequest.turnEnvelope,
+          interactionEnvironment: "organization_shared" as const,
+          sender: {
+            ...baseRequest.turnEnvelope.sender,
+            messageChannelIdentity: {
+              connectionId: "lark-connection-one",
+              provider: "lark" as const,
+              providerUserId: "ou_requester",
+            },
+          },
+          trigger: {
+            connectionId: "lark-connection-one",
+            conversationId: "lark:lark-connection-one:chat-one:message-one",
+            provider: "lark" as const,
+            source: "message_channel" as const,
+          },
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const request = createSubmitTurnRequest({
+        turnEnvelope: testCase.turnEnvelope,
+      });
+      const centerAgentInviteSlackTeammates = vi.fn();
+      const tools = getRemoteAgentOpenMeldToolDefinitions({
+        coreWorker: { centerAgentInviteSlackTeammates },
+        storage: await createStorageWithPendingContext(request),
+        turnEnvelope: request.turnEnvelope,
+      });
+
+      const invitationTool = tools.find(
+        (tool) => tool.name === "openmeld_invite_slack_teammates"
+      );
+      expect(Boolean(invitationTool), testCase.label).toBe(testCase.exposed);
+      if (invitationTool) {
+        await expect(
+          invitationTool.execute({ targetSlackUserIds: ["U_MORGAN"] }),
+          testCase.label
+        ).rejects.toThrow(
+          "Private Slack invitations require the current Slack conversation and a verified OpenMeld member."
+        );
+      }
+      expect(
+        centerAgentInviteSlackTeammates,
+        testCase.label
+      ).not.toHaveBeenCalled();
+    }
+  });
+
+  it("keeps a manual Slack invite link out of a shared-channel result", async () => {
     const baseRequest = createSubmitTurnRequest();
     if (baseRequest.turnEnvelope.sender.kind !== "member") {
       throw new Error("Expected a member sender fixture.");
@@ -348,19 +524,39 @@ describe("remote agent OpenMeld tool catalog", () => {
         trigger: { source: "slack", teamId: "T123" },
       },
     });
-    const centerAgentInviteSlackTeammates = vi.fn();
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentInviteSlackTeammates },
+      coreWorker: {
+        centerAgentInviteSlackTeammates: vi.fn(async () => ({
+          manualInviteUrl: "https://openmeld.ai/join-organization?secret",
+          organizationName: "Ampli Lift",
+          outcomes: [
+            {
+              displayName: "Morgan",
+              status: "manual_invite_required" as const,
+              targetSlackUserId: "U_MORGAN",
+            },
+          ],
+          status: "completed" as const,
+        })),
+        centerAgentReadSlackWorkspaceDirectory: vi.fn(async () =>
+          slackWorkspaceDirectoryResponse()
+        ),
+      },
       storage: await createStorageWithPendingContext(request),
       turnEnvelope: request.turnEnvelope,
     });
 
-    await expect(
-      executeTool(tools, "openmeld_invite_slack_teammates", {
-        targetSlackUserIds: ["U_MORGAN"],
-      })
-    ).rejects.toThrow("only in a direct conversation");
-    expect(centerAgentInviteSlackTeammates).not.toHaveBeenCalled();
+    await executeTool(tools, "openmeld_read_slack_workspace_directory", {});
+    const result = await executeTool(tools, "openmeld_invite_slack_teammates", {
+      targetSlackUserIds: ["U_MORGAN"],
+    });
+
+    expect(result).toMatchObject({
+      manualInviteUrl: null,
+      outcomes: [expect.objectContaining({ status: "manual_invite_required" })],
+      status: "completed",
+    });
+    expect(JSON.stringify(result)).not.toContain("join-organization");
   });
 
   it("labels the exact legacy Core invitation acknowledgement during rollout", async () => {
