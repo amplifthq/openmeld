@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-18T23:12:42.238Z",
+  "updatedAt": "2026-08-19T07:11:22.931Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.74",
+      "packageVersion": "0.3.75",
       "updatePolicy": "available",
-      "reason": "Keeps Center Agent Slack thread replies compatible with the latest OpenMeld cloud services."
+      "reason": "Adds reliable same-conversation reply review and upstream working-language guidance to the bundled OpenMeld Service."
     },
     "service": {
-      "bundleHash": "3c1498f81b8c23274674572f82de2bfec24dad50dac852ddee89d4c06ca03b98",
-      "bundleVersion": "0.3.74",
+      "bundleHash": "80973695ad81416ad035516fa98d7b5172ad7b8577ad1d2d301332a1c9b27de2",
+      "bundleVersion": "0.3.75",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Keeps Center Agent Slack thread replies compatible with the latest OpenMeld cloud services."
+      "reason": "Adds reliable same-conversation reply review and upstream working-language guidance to the bundled OpenMeld Service."
     },
     "skills": {
       "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
