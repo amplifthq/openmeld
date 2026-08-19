@@ -4,6 +4,8 @@ title: Open exact Slack messages from Inbox
 kind: fixed
 areas: ["inbox", "slack", "center-agent"]
 audiences: ["members"]
+publishedAt: 2026-08-19
+evidence: ["pr:124", "commit:03339b2fad85e6bb2834ee9085ad0ddbdef59f88", "workflow:32190997197", "workflow:32197280409", "workflow:32198069001", "workflow:32198451108"]
 ---
 
 Inbox now links Center Agent Slack updates to the exact Slack message. Opening
