@@ -1489,6 +1489,7 @@ export async function handleDispatchDeliverFrame(input: {
       await resolveRuntimeResultStructuredSpaceAction({
         computerFileAccessBoundary,
         controllerTurnCompletion,
+        inflightTaskControlRegistry: input.inflightTaskControlRegistry,
         ledgerIo,
         ledgerPaths: input.ledgerPaths,
         instructionPrompt: runtimePromptPlan,
@@ -1665,6 +1666,7 @@ export async function handleDispatchDeliverFrame(input: {
           agentReplyObservationCursor,
           computerFileAccessBoundary,
           controllerTurnCompletion,
+          inflightTaskControlRegistry: input.inflightTaskControlRegistry,
           ledgerIo: completedLedgerIo,
           ledgerPaths: input.ledgerPaths,
           instructionPrompt: completedRuntimePromptPlan,
@@ -3127,6 +3129,7 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
   controllerTurnCompletion: Promise<void>;
   dispatchSpaceActionContext: DispatchSpaceActionContext | null;
+  inflightTaskControlRegistry: InflightTaskControlRegistry;
   ledgerIo: ReturnType<typeof createLedgerIo>;
   ledgerPaths: LedgerPaths;
   instructionPrompt?: AdapterInstructionPrompt;
@@ -3358,6 +3361,7 @@ async function coordinateConcurrentAgentReply(input: {
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
   controllerTurnCompletion: Promise<void>;
   dispatchSpaceActionContext: DispatchSpaceActionContext | null;
+  inflightTaskControlRegistry: InflightTaskControlRegistry;
   ledgerIo: ReturnType<typeof createLedgerIo>;
   ledgerPaths: LedgerPaths;
   instructionPrompt?: AdapterInstructionPrompt;
@@ -3459,6 +3463,20 @@ async function coordinateConcurrentAgentReply(input: {
         });
       }
       await input.controllerTurnCompletion;
+      const activeTask = input.inflightTaskControlRegistry.getTask(
+        input.parsedTask.taskId
+      );
+      if (
+        activeTask?.dispatchId !== input.parsedTask.dispatchId ||
+        activeTask.runtimeCoordinatorExecutionId !==
+          input.parsedTask.runtimeCoordinatorExecutionId
+      ) {
+        throw new DaemonServiceRunError({
+          code: "dispatch.agent_reply_reconsideration.execution_inactive",
+          message:
+            "The Wake stopped before the Agent could reconsider its reply.",
+        });
+      }
       if (input.dispatchSpaceActionContext) {
         supersedeDispatchSpaceActionRecordForReconsideration({
           context: input.dispatchSpaceActionContext,

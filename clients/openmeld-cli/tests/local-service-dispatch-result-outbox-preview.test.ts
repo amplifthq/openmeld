@@ -16,6 +16,7 @@ import {
 } from "@openmeld/schemas";
 import type { RuntimeTransportDeliverDispatchRequest } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { handleLocalControlPlaneCancel } from "../src/local-service/carrier/local-control-handlers";
 import type {
   CurrentDaemonSocketRef,
   LedgerPaths,
@@ -771,7 +772,7 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("waits for the active controller turn before reviewing a sibling Agent reply", async () => {
+  it("waits for the active controller turn before reviewing a sibling Agent reply after an ordinary runtime failure", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
       const presenter = createPresenter();
@@ -795,11 +796,19 @@ describe("dispatch result outbox around preview teardown", () => {
         profileId: siblingProfileId,
       });
       let firstTurnActive = true;
-      let completeFirstTurn: (result: RuntimeTaskResult) => void = () => {
-        throw new Error("first controller turn completion was not registered");
+      let rejectFirstTurn: (error: Error) => void = () => {
+        throw new Error("first controller turn rejection was not registered");
       };
-      const firstTurnCompletion = new Promise<RuntimeTaskResult>((resolve) => {
-        completeFirstTurn = resolve;
+      const firstTurnCompletion = new Promise<RuntimeTaskResult>(
+        (_resolve, reject) => {
+          rejectFirstTurn = reject;
+        }
+      );
+      let reportSiblingReviewRequired: () => void = () => {
+        throw new Error("sibling review signal was not registered");
+      };
+      const siblingReviewRequired = new Promise<void>((resolve) => {
+        reportSiblingReviewRequired = resolve;
       });
 
       resolveProfileWorkspaceRuntimeMock.mockResolvedValue({
@@ -813,14 +822,7 @@ describe("dispatch result outbox around preview teardown", () => {
       });
       fetchSpaceUpdatesMock
         .mockImplementationOnce(() => {
-          setTimeout(() => {
-            firstTurnActive = false;
-            completeFirstTurn(
-              createRuntimeResult({
-                output: "Original controller turn completed.",
-              })
-            );
-          }, 0);
+          reportSiblingReviewRequired();
           return Promise.resolve({ signals: [siblingReply] });
         })
         .mockResolvedValue({ signals: [] });
@@ -870,7 +872,7 @@ describe("dispatch result outbox around preview teardown", () => {
         referenceTargets: [],
         text: "please reply",
       };
-      const result = await handleDispatchDeliverFrame({
+      const resultPromise = handleDispatchDeliverFrame({
         computerFileAccessStorePath:
           "/tmp/openmeld-test-missing-computer-file-access-policy.json",
         contextStore: new Map(),
@@ -892,6 +894,10 @@ describe("dispatch result outbox around preview teardown", () => {
         routeByProfileId: new Map(),
         socket,
       });
+      await siblingReviewRequired;
+      firstTurnActive = false;
+      rejectFirstTurn(new Error("ordinary controller cleanup failure"));
+      const result = await resultPromise;
 
       stdoutSpy.mockRestore();
       expect(result).toEqual({
@@ -911,6 +917,177 @@ describe("dispatch result outbox around preview teardown", () => {
           type: "post_message",
         },
         status: "success",
+      });
+    });
+  });
+
+  it("does not review a sibling Agent reply after the matching Wake is cancelled", async () => {
+    await withTempHome(async () => {
+      const ledgerPaths = createLedgerPaths();
+      const presenter = createPresenter();
+      const settlementSocket = createAcceptedSettlementSocket({
+        ledgerPaths,
+        presenter,
+      });
+      const socket = settlementSocket as never;
+      const currentSocketRef: CurrentDaemonSocketRef = {
+        connectionGeneration: 1,
+        socket,
+      };
+      const runtimeContext = {
+        providerRuntimeWorkingDirectory: process.cwd(),
+      };
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(() => true);
+      const siblingProfileId = "agent-profile-2";
+      const siblingReply = createSiblingReplySignal({
+        profileId: siblingProfileId,
+      });
+      const inflightTaskControlRegistry = createInflightTaskControlRegistry();
+      let rejectFirstTurn: (error: Error) => void = () => {
+        throw new Error("first controller turn rejection was not registered");
+      };
+      const firstTurnCompletion = new Promise<RuntimeTaskResult>(
+        (_resolve, reject) => {
+          rejectFirstTurn = reject;
+        }
+      );
+      let reportSiblingReviewRequired: () => void = () => {
+        throw new Error("sibling review signal was not registered");
+      };
+      const siblingReviewRequired = new Promise<void>((resolve) => {
+        reportSiblingReviewRequired = resolve;
+      });
+      const cancel = vi.fn(async () => ({
+        accepted: true,
+        deliveryPath: "cancel" as const,
+        reasonCode: "accepted" as const,
+        signalDelivery: "sent" as const,
+        taskId: "task-1",
+      }));
+      const localAdapterContainer = {
+        getAdapter: () => ({
+          adapter: { cancel },
+        }),
+      } as never;
+
+      resolveProfileWorkspaceRuntimeMock.mockResolvedValue({
+        runtimeContext,
+        status: "ready",
+      });
+      prepareProviderRuntimeMock.mockResolvedValue({
+        envOverrides: undefined,
+        preparationDetails: { kind: "none" },
+        runtimeContext,
+      });
+      fetchSpaceUpdatesMock
+        .mockImplementationOnce(() => {
+          reportSiblingReviewRequired();
+          return Promise.resolve({ signals: [siblingReply] });
+        })
+        .mockResolvedValue({ signals: [] });
+      runRuntimeTaskMock
+        .mockImplementationOnce((input) => {
+          const previousContextPath =
+            process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
+          const actionContextPath =
+            input.route.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
+          process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV] =
+            actionContextPath;
+          try {
+            runSpaceActionReply({
+              messageParts: ["Proposal recorded before the Wake Stop."],
+            });
+          } finally {
+            if (previousContextPath === undefined) {
+              delete process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
+            } else {
+              process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV] =
+                previousContextPath;
+            }
+          }
+          return firstTurnCompletion;
+        })
+        .mockResolvedValueOnce(
+          createRuntimeResult({
+            output: "This review must not run after Wake Stop.",
+            spaceAction: {
+              messageEnvelope: {
+                activationTargets: [],
+                referenceTargets: [],
+                text: "This review must not run after Wake Stop.",
+              },
+              type: "post_message",
+            },
+            spaceActionProvenance: "direct",
+          })
+        );
+
+      const deliverRequest = createDeliverRequest();
+      deliverRequest.payload.sourceMessageEnvelope = {
+        activationTargets: ["agent-profile-1", siblingProfileId],
+        referenceTargets: [],
+        text: "please reply",
+      };
+      const resultPromise = handleDispatchDeliverFrame({
+        computerFileAccessStorePath:
+          "/tmp/openmeld-test-missing-computer-file-access-policy.json",
+        contextStore: new Map(),
+        currentSocketRef,
+        daemonSessionId: "daemon-session-1",
+        deliverRequest,
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry,
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: new Map(),
+        socket,
+      });
+
+      await siblingReviewRequired;
+      const cancelResult = await handleLocalControlPlaneCancel({
+        localAdapterContainer,
+        payload: {
+          reason: "wake.stop",
+          runtimeCoordinatorExecutionId:
+            deliverRequest.payload.runtimeCoordinatorExecutionId,
+          target: {
+            by: "task",
+            taskId: deliverRequest.payload.taskId,
+          },
+        },
+        presenter,
+        registry: inflightTaskControlRegistry,
+      });
+      rejectFirstTurn(new Error("controller turn cancelled by Wake Stop"));
+      const result = await resultPromise;
+
+      stdoutSpy.mockRestore();
+      expect(cancelResult).toMatchObject({
+        accepted: true,
+        reasonCode: "adapter.cancel.accepted",
+        resolvedRuntimeCoordinatorExecutionId:
+          deliverRequest.payload.runtimeCoordinatorExecutionId,
+        resolvedTaskId: deliverRequest.payload.taskId,
+      });
+      expect(runRuntimeTaskMock).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({
+        errorCode: "dispatch.agent_reply_reconsideration.execution_inactive",
+        errorMessage: expect.stringContaining(
+          "dispatch.agent_reply_reconsideration.execution_inactive"
+        ),
+        result: "failed",
+      });
+      expect(readSentTaskResultPayload(settlementSocket)).toMatchObject({
+        errorCode: "dispatch.agent_reply_reconsideration.execution_inactive",
+        status: "failed",
       });
     });
   });

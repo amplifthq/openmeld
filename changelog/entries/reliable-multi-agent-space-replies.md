@@ -9,4 +9,5 @@ audiences: ["members"]
 Multiple Agent Profiles can now answer the same Space message without a
 follow-up review colliding with an Agent's still-running controller turn.
 Agents continue working in parallel; only an Agent revisiting its own
-conversation waits for that turn to finish.
+conversation waits for that turn to finish. If the Wake is stopped during that
+wait, the stopped outcome remains final and no review turn starts.
