@@ -83,6 +83,7 @@ describe("LinkMessageChannelCard", () => {
 			providerUserDisplayName: "Ari Chen",
 			providerUserId: "ou_ari",
 			openMeldAccountEmail: "ari@example.test",
+			replacesExistingLink: false,
 		});
 		consumeMessageChannelIdentityLinkMock.mockReset().mockResolvedValue({
 			continuationRetryable: false,
@@ -95,6 +96,7 @@ describe("LinkMessageChannelCard", () => {
 			provider: "lark",
 			providerUserDisplayName: "Ari Chen",
 			providerUserId: "ou_ari",
+			replacedExistingLink: false,
 			openMeldUserId: "user_member",
 		});
 		useAuthSessionMock.mockReturnValue({
@@ -160,5 +162,55 @@ describe("LinkMessageChannelCard", () => {
 			)
 		).toBeTruthy();
 		expect(previewMessageChannelIdentityLinkMock).not.toHaveBeenCalled();
+	});
+
+	it("clearly confirms before moving a channel account from another profile", async () => {
+		previewMessageChannelIdentityLinkMock.mockResolvedValueOnce({
+			alreadyMember: true,
+			continuesRequest: false,
+			expiresAt: "2026-07-19T12:15:00.000Z",
+			organizationId: "org_1",
+			organizationName: "OpenMeld Labs",
+			provider: "lark",
+			providerUserDisplayName: "Ari Chen",
+			providerUserId: "ou_ari",
+			openMeldAccountEmail: "ari@example.test",
+			replacesExistingLink: true,
+		});
+		consumeMessageChannelIdentityLinkMock.mockResolvedValueOnce({
+			continuationRetryable: false,
+			continued: false,
+			continuesRequest: false,
+			joinedOrganization: false,
+			linked: true,
+			organizationId: "org_1",
+			organizationName: "OpenMeld Labs",
+			provider: "lark",
+			providerUserDisplayName: "Ari Chen",
+			providerUserId: "ou_ari",
+			replacedExistingLink: true,
+			openMeldUserId: "user_member",
+		});
+
+		render(
+			<TestQueryClientProvider>
+				<LinkMessageChannelCard
+					token={`messagechannellink_${"b".repeat(64)}`}
+				/>
+			</TestQueryClientProvider>
+		);
+
+		expect(await screen.findByText("Move your Lark account")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Ari Chen on Lark is connected to another OpenMeld profile. Continue to move it to ari@example.test; the previous profile will lose this connection."
+			)
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Move to my account" }));
+		expect(
+			await screen.findByText(
+				"Your account was moved and is now connected here. You can return to Lark now."
+			)
+		).toBeTruthy();
 	});
 });

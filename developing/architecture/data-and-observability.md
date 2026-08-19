@@ -394,10 +394,11 @@ Organization documents.
 Auth remains the source of truth for current OpenMeld Organization membership.
 Core compares Slack email with the centralized Organization directory
 projection only for the current response. An exact normalized email match is
-positive evidence; a nonmatching available email is negative evidence for that
-read; a missing email is unknown. Names, titles, guest/admin flags, and Slack
-user ids are untrusted provider metadata and must not become an identity
-authority or a durable membership projection.
+positive directory-classification evidence; a nonmatching available email is
+negative evidence for that read; a missing email is unknown. This comparison
+does not create an identity link, represent the Slack sender, or grant any
+member-owned authority. Names, titles, guest/admin flags, Slack user ids, and
+email equality are not durable identity authority or a membership writer.
 
 After a successful provider read and response validation, Core records only the
 audited directory-read action and Slack workspace resource identifier. It does
@@ -414,7 +415,7 @@ channel and fails closed unless the App is already a member; reads never call
 `conversations.join`, publish a message, or change provider state.
 
 Channel members reuse the live active-human workspace profile normalization and
-the same exact-email OpenMeld membership classification. Channel history is a
+the same directory-only OpenMeld membership classification. Channel history is a
 bounded newest-first page; Core resolves human display names when available and
 labels all provider text as untrusted. Neither response is written to D1,
 Remote Agent storage, Center Agent memory, Organization documents, logs, or
@@ -1048,10 +1049,12 @@ source-bound action that is still waiting to continue another request. Final
 consumption rechecks the current workspace Binding and signed-in Organization
 membership in the same D1
 transaction that consumes the claimed token and writes the explicit identity
-link. If the workspace moves or membership disappears during that operation,
-neither the token nor the identity link changes. Token plaintext appears only
-in the private direct-message action delivered to the exact Slack user and must not
-enter public messages, logs, or diagnostics.
+link. If that exact Slack account is mapped to another member, the same
+Slack-private proof atomically replaces the canonical mapping. If the workspace
+moves or membership disappears during that operation, neither the token nor the
+identity link changes. Token plaintext appears only in the private direct-message
+action delivered to the exact Slack user and must not enter public messages,
+logs, or diagnostics.
 
 For post-result Slack guidance, an active source-bound token is also the durable
 at-most-once publication fence. A callback replay never creates a second
@@ -1081,6 +1084,15 @@ Migration `0097_last_squirrel_girl` adds the frozen membership requirement to
 both Slack and provider-neutral tokens. Existing rows are `allow_enrollment`;
 only a newly agent-selected current-member target is written as
 `current_member`.
+
+The Organization Message Channel connection projection is also the read owner
+for People account mappings. It projects each canonical link with an opaque
+derived id, provider, mapped OpenMeld user, provider display name, and connected
+time; raw provider user ids and link-token material do not cross the HTTP
+boundary. A self or Channel-manager disconnect re-resolves that opaque id under
+the active Organization, deletes only the exact mapping, records the human
+audit action, and returns the refreshed projection. It never writes Auth
+membership or provider connection state.
 
 ### Agent-assisted account-connection evidence
 
@@ -2012,9 +2024,13 @@ available for a safe replay.
 
 Provider user identity is application-scoped. Every link key includes provider,
 connection id, and provider user id before mapping to one current Organization
-member. Display names never establish identity. An exact provider email may
-link only under a current grant to an exact current member email in the same
-Organization; missing or mismatched identity remains unlinked.
+member. Display names and matching email addresses never establish identity.
+Only a current provider-private proof token, consumed by the intended signed-in
+OpenMeld account, may create or move a link. One provider identity maps to at
+most one OpenMeld member at a time. Self-service or Channel-manager detachment
+deletes only that canonical relationship; it does not mutate the provider
+connection or Auth membership. Historical `email_auto` source values remain
+readable compatibility data but are never written as new identity authority.
 
 Development and production credentials and connections are disjoint. A
 development registration or callback host may not be written into a production

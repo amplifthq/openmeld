@@ -168,6 +168,7 @@ describe("api-client organization api", () => {
               transport: "webhook",
             },
           ],
+          identityLinks: [],
           organizationId: "org-1",
         })
       )
@@ -184,6 +185,7 @@ describe("api-client organization api", () => {
     ).resolves.toMatchObject({
       availableLarkPlatformProviders: ["lark"],
       connections: [{ provider: "lark", status: "connected" }],
+      identityLinks: [],
       organizationId: "org-1",
     });
     expect(transport).toHaveBeenCalledWith(
@@ -191,6 +193,43 @@ describe("api-client organization api", () => {
         init: expect.objectContaining({ method: "GET" }),
         operation: "organization.message_channels.list",
         url: "https://gateway.openmeld.invalid/v1/organizations/current/message-channels",
+      })
+    );
+  });
+
+  it("disconnects a Message Channel account identity", async () => {
+    const identityLinkId = `channel_identity_${"a".repeat(64)}`;
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          availableLarkPlatformProviders: ["lark"],
+          connections: [],
+          identityLinks: [],
+          organizationId: "org-1",
+        })
+      )
+    );
+    const api = createOrganizationApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.disconnectMessageChannelIdentityLink({
+        identityLinkId,
+        requestContext: REQUEST_CONTEXT,
+      })
+    ).resolves.toMatchObject({
+      identityLinks: [],
+      organizationId: "org-1",
+    });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        init: expect.objectContaining({ method: "DELETE" }),
+        operation: "organization.message_channel.identity_link.disconnect",
+        url: `https://gateway.openmeld.invalid/v1/organizations/current/message-channels/identity-links/${identityLinkId}`,
       })
     );
   });
@@ -365,6 +404,7 @@ describe("api-client organization api", () => {
     ).resolves.toEqual({
       availableLarkPlatformProviders: ["lark"],
       connections: [],
+      identityLinks: [],
       organizationId: "org-1",
     });
 

@@ -411,6 +411,11 @@ describe("Slack welcome teammate invitations", () => {
       },
       text: expect.stringContaining("Center Agent for *Ampli Lift*"),
     });
+    expect(publications[0]?.text).toEqual(
+      expect.stringContaining(
+        "open your Human Profile in People and connect this Slack account"
+      )
+    );
     expect(JSON.stringify(publications[0]?.blocks)).toContain(
       "https://openmeld.test/join-organization?token=join-token-1"
     );

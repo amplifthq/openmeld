@@ -10,6 +10,7 @@ export type RemoteAgentLarkPlatformIdentityLinkRecord = {
   createdAtMs: number;
   organizationId: string;
   provider: RemoteAgentLarkPlatformProvider;
+  providerUserDisplayName?: string | null;
   providerUserId: string;
   resolutionSource: RemoteAgentLarkPlatformIdentityLinkSource;
   openmeldUserId: string;
@@ -20,10 +21,49 @@ type RemoteAgentLarkPlatformIdentityLinkRow = {
   created_at_ms: number;
   organization_id: string;
   provider: RemoteAgentLarkPlatformProvider;
+  provider_user_display_name?: string | null;
   provider_user_id: string;
   resolution_source: RemoteAgentLarkPlatformIdentityLinkSource;
   openmeld_user_id: string;
 };
+
+export async function listRemoteAgentLarkPlatformIdentityLinks(input: {
+  connectionId: string;
+  db: D1Database;
+  organizationId: string;
+  provider: RemoteAgentLarkPlatformProvider;
+}): Promise<RemoteAgentLarkPlatformIdentityLinkRecord[]> {
+  const result = await input.db
+    .prepare(
+      `
+        SELECT
+          identity_link.provider,
+          identity_link.connection_id,
+          identity_link.provider_user_id,
+          identity_link.organization_id,
+          identity_link.openmeld_user_id,
+          identity_link.resolution_source,
+          identity_link.created_at_ms,
+          (
+            SELECT token.provider_user_display_name
+            FROM openMeldRemoteAgent_message_channel_identity_link_tokens AS token
+            WHERE token.provider = identity_link.provider
+              AND token.connection_id = identity_link.connection_id
+              AND token.provider_user_id = identity_link.provider_user_id
+            ORDER BY token.issued_at_ms DESC
+            LIMIT 1
+          ) AS provider_user_display_name
+        FROM openMeldRemoteAgent_lark_platform_identity_links AS identity_link
+        WHERE identity_link.organization_id = ?
+          AND identity_link.provider = ?
+          AND identity_link.connection_id = ?
+        ORDER BY identity_link.created_at_ms ASC, identity_link.provider_user_id ASC
+      `
+    )
+    .bind(input.organizationId, input.provider, input.connectionId)
+    .all<RemoteAgentLarkPlatformIdentityLinkRow>();
+  return result.results.map(mapIdentityLinkRow);
+}
 
 export async function readRemoteAgentLarkPlatformIdentityLink(input: {
   connectionId: string;
@@ -187,6 +227,7 @@ function mapIdentityLinkRow(
     createdAtMs: row.created_at_ms,
     organizationId: row.organization_id,
     provider: row.provider,
+    providerUserDisplayName: row.provider_user_display_name ?? null,
     providerUserId: row.provider_user_id,
     resolutionSource: row.resolution_source,
     openmeldUserId: row.openmeld_user_id,

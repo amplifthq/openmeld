@@ -7,6 +7,7 @@ export type SlackIdentityLinkDeliveryScope =
 export type SlackUserIdentityLinkRecord = {
   createdAtMs: number;
   organizationId: string;
+  providerUserDisplayName?: string | null;
   slackTeamId: string;
   slackUserId: string;
   source: SlackUserIdentityLinkSource;
@@ -34,10 +35,6 @@ export type SlackIdentityLinkTokenRecord = {
 export type SlackIdentityLinkConsumeResult =
   | {
       link: SlackUserIdentityLinkRecord;
-      status: "already_linked";
-    }
-  | {
-      link: SlackUserIdentityLinkRecord;
       status: "linked";
     }
   | {
@@ -54,21 +51,52 @@ export type SlackIdentityLinkClaimResult =
       token: SlackIdentityLinkTokenRecord;
     }
   | {
-      link: SlackUserIdentityLinkRecord;
-      status: "already_linked";
-    }
-  | {
       status: "invalid";
     };
 
 type SlackUserIdentityLinkRow = {
   created_at_ms: number;
   organization_id: string;
+  provider_user_display_name?: string | null;
   slack_team_id: string;
   slack_user_id: string;
   source: SlackUserIdentityLinkSource;
   openmeld_user_id: string;
 };
+
+export async function readSlackUserIdentityLinksForOrganization(input: {
+  db: D1Database;
+  organizationId: string;
+  slackTeamId: string;
+}): Promise<SlackUserIdentityLinkRecord[]> {
+  const result = await input.db
+    .prepare(
+      `
+        SELECT
+          identity_link.organization_id,
+          identity_link.slack_team_id,
+          identity_link.slack_user_id,
+          identity_link.openmeld_user_id,
+          identity_link.source,
+          identity_link.created_at_ms,
+          (
+            SELECT token.slack_user_display_name
+            FROM slack_user_identity_link_tokens AS token
+            WHERE token.slack_team_id = identity_link.slack_team_id
+              AND token.slack_user_id = identity_link.slack_user_id
+            ORDER BY token.issued_at_ms DESC
+            LIMIT 1
+          ) AS provider_user_display_name
+        FROM slack_user_identity_links AS identity_link
+        WHERE identity_link.organization_id = ?
+          AND identity_link.slack_team_id = ?
+        ORDER BY identity_link.created_at_ms ASC, identity_link.slack_user_id ASC
+      `
+    )
+    .bind(input.organizationId, input.slackTeamId)
+    .all<SlackUserIdentityLinkRow>();
+  return result.results.map(mapSlackUserIdentityLinkRow);
+}
 
 type SlackIdentityLinkTokenRow = {
   claimed_at_ms: number | null;
@@ -298,8 +326,8 @@ export async function deleteSlackUserIdentityLinkIfMatches(input: {
   slackTeamId: string;
   slackUserId: string;
   openmeldUserId: string;
-}): Promise<void> {
-  await input.db
+}): Promise<boolean> {
+  const result = await input.db
     .prepare(
       `
         DELETE FROM slack_user_identity_links
@@ -316,6 +344,7 @@ export async function deleteSlackUserIdentityLinkIfMatches(input: {
       input.openmeldUserId
     )
     .run();
+  return Number(result.meta?.changes ?? 0) === 1;
 }
 
 export function prepareReconcileSlackUserIdentityLinksForWorkspaceMoveStatements(input: {
@@ -657,13 +686,6 @@ export async function claimSlackIdentityLinkTokenForUser(input: {
           )
           AND NOT EXISTS (
             SELECT 1
-            FROM slack_user_identity_links
-            WHERE slack_team_id = ?
-              AND slack_user_id = ?
-              AND openmeld_user_id <> ?
-          )
-          AND NOT EXISTS (
-            SELECT 1
             FROM slack_user_identity_link_tokens AS claimed_token
             WHERE claimed_token.slack_team_id = ?
               AND claimed_token.slack_user_id = ?
@@ -686,9 +708,6 @@ export async function claimSlackIdentityLinkTokenForUser(input: {
       input.organizationId,
       input.slackTeamId,
       input.slackUserId,
-      input.openmeldUserId,
-      input.slackTeamId,
-      input.slackUserId,
       input.tokenHash,
       input.openmeldUserId,
       input.claimedAtMs
@@ -707,14 +726,6 @@ export async function claimSlackIdentityLinkTokenForUser(input: {
     return { status: "claimed", token };
   }
 
-  const existingLink = await readSlackUserIdentityLink({
-    db: input.db,
-    slackTeamId: input.slackTeamId,
-    slackUserId: input.slackUserId,
-  });
-  if (existingLink && existingLink.openmeldUserId !== input.openmeldUserId) {
-    return { link: existingLink, status: "already_linked" };
-  }
   const replayToken = await readSlackIdentityLinkTokenForUser({
     db: input.db,
     nowMs: input.claimedAtMs,
@@ -764,13 +775,6 @@ export async function consumeSlackIdentityLinkTokenAndUpsertUserLink(input: {
             WHERE organization_id = ?
               AND user_id = ?
           )
-          AND NOT EXISTS (
-            SELECT 1
-            FROM slack_user_identity_links
-            WHERE slack_team_id = ?
-              AND slack_user_id = ?
-              AND openmeld_user_id <> ?
-          )
       `
     )
     .bind(
@@ -786,9 +790,6 @@ export async function consumeSlackIdentityLinkTokenAndUpsertUserLink(input: {
       input.slackTeamId,
       input.organizationId,
       input.organizationId,
-      input.openmeldUserId,
-      input.slackTeamId,
-      input.slackUserId,
       input.openmeldUserId
     );
   const upsertLink = input.db
@@ -832,8 +833,8 @@ export async function consumeSlackIdentityLinkTokenAndUpsertUserLink(input: {
         ON CONFLICT(slack_team_id, slack_user_id) DO UPDATE SET
           organization_id = excluded.organization_id,
           openmeld_user_id = excluded.openmeld_user_id,
-          source = excluded.source
-        WHERE slack_user_identity_links.openmeld_user_id = excluded.openmeld_user_id
+          source = excluded.source,
+          created_at_ms = excluded.created_at_ms
       `
     )
     .bind(
@@ -863,9 +864,7 @@ export async function consumeSlackIdentityLinkTokenAndUpsertUserLink(input: {
       slackUserId: input.slackUserId,
     });
     if (existingLink?.openmeldUserId !== input.openmeldUserId) {
-      return existingLink
-        ? { link: existingLink, status: "already_linked" }
-        : { status: "invalid" };
+      return { status: "invalid" };
     }
     const replayToken = await readSlackIdentityLinkTokenForUser({
       db: input.db,
@@ -947,6 +946,7 @@ function mapSlackUserIdentityLinkRow(
   return {
     createdAtMs: row.created_at_ms,
     organizationId: row.organization_id,
+    providerUserDisplayName: row.provider_user_display_name ?? null,
     slackTeamId: row.slack_team_id,
     slackUserId: row.slack_user_id,
     source: row.source,

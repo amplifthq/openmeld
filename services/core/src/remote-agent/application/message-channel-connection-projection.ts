@@ -8,9 +8,41 @@ import {
   type RemoteAgentLarkPlatformChannelConnectionRecord,
 } from "../infrastructure/d1/lark-platform-channel-connection-repo";
 import {
+  deleteRemoteAgentLarkPlatformIdentityLinkIfMatches,
+  listRemoteAgentLarkPlatformIdentityLinks,
+} from "../infrastructure/d1/lark-platform-identity-link-repo";
+import {
+  deleteSlackUserIdentityLinkIfMatches,
+  readSlackUserIdentityLinksForOrganization,
+} from "../infrastructure/d1/slack-user-identity-link-repo";
+import {
   type RemoteAgentSlackWorkspaceBindingRecord,
   readRemoteAgentSlackWorkspaceBindingByOrganization,
 } from "../infrastructure/d1/slack-workspace-binding-repo";
+
+export type MessageChannelIdentityLinkProjection = {
+  connectedAt: string;
+  id: string;
+  openMeldUserId: string;
+  provider: MessageChannelConnectionProjection["provider"];
+  providerAccountName: string | null;
+};
+
+export type MessageChannelIdentityLinkTarget =
+  | {
+      connectionId: string;
+      id: string;
+      openMeldUserId: string;
+      provider: "feishu" | "lark";
+      providerUserId: string;
+    }
+  | {
+      id: string;
+      openMeldUserId: string;
+      provider: "slack";
+      providerUserId: string;
+      slackTeamId: string;
+    };
 
 export type MessageChannelConnectionProjectionDependencies = {
   listLarkPlatformConnections(input: {
@@ -62,6 +94,181 @@ export async function listRemoteAgentMessageChannelConnectionProjections(
     (left, right) =>
       providerOrder(left.provider) - providerOrder(right.provider)
   );
+}
+
+export async function listRemoteAgentMessageChannelIdentityLinkProjections(input: {
+  connections: readonly MessageChannelConnectionProjection[];
+  identityDb: D1Database;
+  organizationId: string;
+  stateDb: D1Database;
+}): Promise<MessageChannelIdentityLinkProjection[]> {
+  const records = await Promise.all(
+    input.connections.map(async (connection) => {
+      if (connection.provider === "slack") {
+        const slackTeamId = connection.externalAccountId;
+        if (!slackTeamId) {
+          throw new Error(
+            "Connected Slack projection is missing its workspace ID"
+          );
+        }
+        const links = await readSlackUserIdentityLinksForOrganization({
+          db: input.identityDb,
+          organizationId: input.organizationId,
+          slackTeamId,
+        });
+        return await Promise.all(
+          links.map(async (link) => ({
+            connectedAt: new Date(link.createdAtMs).toISOString(),
+            id: await buildMessageChannelIdentityLinkId({
+              connectionId: connection.id,
+              provider: connection.provider,
+              providerUserId: link.slackUserId,
+            }),
+            openMeldUserId: link.openmeldUserId,
+            provider: connection.provider,
+            providerAccountName: link.providerUserDisplayName ?? null,
+          }))
+        );
+      }
+      const links = await listRemoteAgentLarkPlatformIdentityLinks({
+        connectionId: connection.id,
+        db: input.stateDb,
+        organizationId: input.organizationId,
+        provider: connection.provider,
+      });
+      return await Promise.all(
+        links.map(async (link) => ({
+          connectedAt: new Date(link.createdAtMs).toISOString(),
+          id: await buildMessageChannelIdentityLinkId({
+            connectionId: connection.id,
+            provider: connection.provider,
+            providerUserId: link.providerUserId,
+          }),
+          openMeldUserId: link.openmeldUserId,
+          provider: connection.provider,
+          providerAccountName: link.providerUserDisplayName ?? null,
+        }))
+      );
+    })
+  );
+  return records.flat().sort((left, right) => {
+    const providerComparison =
+      providerOrder(left.provider) - providerOrder(right.provider);
+    return providerComparison === 0
+      ? left.connectedAt.localeCompare(right.connectedAt) ||
+          left.id.localeCompare(right.id)
+      : providerComparison;
+  });
+}
+
+export async function findRemoteAgentMessageChannelIdentityLinkTarget(input: {
+  connections: readonly MessageChannelConnectionProjection[];
+  identityDb: D1Database;
+  identityLinkId: string;
+  organizationId: string;
+  stateDb: D1Database;
+}): Promise<MessageChannelIdentityLinkTarget | null> {
+  for (const connection of input.connections) {
+    if (connection.provider === "slack") {
+      const slackTeamId = connection.externalAccountId;
+      if (!slackTeamId) {
+        throw new Error(
+          "Connected Slack projection is missing its workspace ID"
+        );
+      }
+      const links = await readSlackUserIdentityLinksForOrganization({
+        db: input.identityDb,
+        organizationId: input.organizationId,
+        slackTeamId,
+      });
+      for (const link of links) {
+        const id = await buildMessageChannelIdentityLinkId({
+          connectionId: connection.id,
+          provider: connection.provider,
+          providerUserId: link.slackUserId,
+        });
+        if (id === input.identityLinkId) {
+          return {
+            id,
+            openMeldUserId: link.openmeldUserId,
+            provider: "slack",
+            providerUserId: link.slackUserId,
+            slackTeamId,
+          };
+        }
+      }
+      continue;
+    }
+    const links = await listRemoteAgentLarkPlatformIdentityLinks({
+      connectionId: connection.id,
+      db: input.stateDb,
+      organizationId: input.organizationId,
+      provider: connection.provider,
+    });
+    for (const link of links) {
+      const id = await buildMessageChannelIdentityLinkId({
+        connectionId: connection.id,
+        provider: connection.provider,
+        providerUserId: link.providerUserId,
+      });
+      if (id === input.identityLinkId) {
+        return {
+          connectionId: connection.id,
+          id,
+          openMeldUserId: link.openmeldUserId,
+          provider: connection.provider,
+          providerUserId: link.providerUserId,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+export async function deleteRemoteAgentMessageChannelIdentityLinkTarget(input: {
+  identityDb: D1Database;
+  organizationId: string;
+  stateDb: D1Database;
+  target: MessageChannelIdentityLinkTarget;
+}): Promise<void> {
+  if (input.target.provider === "slack") {
+    const deleted = await deleteSlackUserIdentityLinkIfMatches({
+      db: input.identityDb,
+      openmeldUserId: input.target.openMeldUserId,
+      organizationId: input.organizationId,
+      slackTeamId: input.target.slackTeamId,
+      slackUserId: input.target.providerUserId,
+    });
+    if (!deleted) {
+      throw new Error("Message Channel identity link changed before deletion");
+    }
+    return;
+  }
+  const deleted = await deleteRemoteAgentLarkPlatformIdentityLinkIfMatches({
+    connectionId: input.target.connectionId,
+    db: input.stateDb,
+    openmeldUserId: input.target.openMeldUserId,
+    organizationId: input.organizationId,
+    provider: input.target.provider,
+    providerUserId: input.target.providerUserId,
+  });
+  if (!deleted) {
+    throw new Error("Message Channel identity link changed before deletion");
+  }
+}
+
+export async function buildMessageChannelIdentityLinkId(input: {
+  connectionId: string;
+  provider: MessageChannelConnectionProjection["provider"];
+  providerUserId: string;
+}): Promise<string> {
+  const value = new TextEncoder().encode(
+    `${input.provider}\u0000${input.connectionId}\u0000${input.providerUserId}`
+  );
+  const digest = await crypto.subtle.digest("SHA-256", value);
+  return `channel_identity_${Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("")}`;
 }
 
 function projectSlackConnection(

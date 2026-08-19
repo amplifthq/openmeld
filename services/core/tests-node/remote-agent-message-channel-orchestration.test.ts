@@ -450,6 +450,7 @@ describe("Remote Agent Message Channel orchestration", () => {
         providerUserDisplayName: "Ari Lark",
         providerUserId: "ou_member_1",
         openMeldAccountEmail: "ari@example.test",
+        replacesExistingLink: false,
       });
       await expect(
         rpcConsumeMessageChannelIdentityLink(buildIdentityLinkEnv(harness.db), {
