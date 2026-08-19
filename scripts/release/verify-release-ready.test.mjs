@@ -101,6 +101,41 @@ test("normalizes and filters release-ready paths", () => {
   );
 });
 
+test("working-language prompt changes trigger deferred local-component evidence", () => {
+  const workingLanguagePromptPath =
+    "packages/agent-runtime/src/working-language-prompt.ts";
+  const releaseReadyPaths = selectReleaseReadyPaths([
+    workingLanguagePromptPath,
+    "clients/web/src/routes/index.tsx",
+  ]);
+  const result = evaluateDeferredReleaseState({
+    baseManifest: BASE_MANIFEST,
+    basePackageJson: { version: "1.2.3" },
+    currentManifest: structuredClone(BASE_MANIFEST),
+    currentPackageJson: { version: "1.2.3" },
+    facts: {
+      cli: { commandContractVersion: "cli-v1", packageVersion: "1.2.3" },
+      service: {
+        bundleHash: "working-language-service-hash",
+        bundleVersion: "1.2.3",
+        runtimeContractEpoch: "runtime-v1",
+        serviceContractVersion: "service-v1",
+      },
+      skills: {
+        bundleHash: "base-skills-hash",
+        skillContractVersion: "skills-v1",
+        skillIds: ["openmeld-cli"],
+      },
+    },
+  });
+
+  assert.deepEqual(releaseReadyPaths, [workingLanguagePromptPath]);
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.pendingReleaseImpacts, [
+    "service.bundleHash: base=base-service-hash feature=working-language-service-hash",
+  ]);
+});
+
 test("the pre-install path selector runs without loading repository dependencies", () => {
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
   const result = spawnSync(

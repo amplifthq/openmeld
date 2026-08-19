@@ -502,6 +502,15 @@ is intentionally contextual rather than a rigid scoring algorithm:
 6. The Organization preference is a fallback for ambiguous work, including
    agent-to-agent collaboration. Genuinely unclear cases use English.
 
+When an Agent authors the first message, handoff, or delegation for a new work
+surface, it decides the language from the upstream user request, established
+conversation, intended audience, and requested artifact before writing. Its own
+generated text is an outcome of that decision, not new language evidence. If
+the upstream signals remain unclear, the Organization preference remains
+advisory input, and the receiving Agent judges again from its full semantic
+context. This rule does not create language state on a Space, Task, Routine, or
+document.
+
 A new Web conversation without connected work context follows the current
 request and never turns that one message into Organization state. Ordinary
 messages on any surface cannot mutate the preference. Product terms, code,

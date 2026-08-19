@@ -64,6 +64,21 @@ describe("working language prompt", () => {
     expect(prompt).toContain("Do not force it");
   });
 
+  it("decides the first message language from upstream evidence before authoring it", () => {
+    const prompt = renderWorkingLanguagePrompt();
+
+    expect(prompt).toContain(
+      "Before writing a new work surface's first message, handoff, or delegation"
+    );
+    expect(prompt).toContain(
+      "choose its language from the upstream user request and established context"
+    );
+    expect(prompt).toContain("Self-generated text is an outcome, not evidence");
+    expect(prompt).toContain(
+      "the receiving Agent judges again from full semantic context"
+    );
+  });
+
   it("keeps the stable decision policy separate from the per-turn hint", () => {
     const plan = buildWorkingLanguagePromptPlan({
       workingLanguage: { languageTag: "fr", mode: "automatic" },

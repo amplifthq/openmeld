@@ -4,6 +4,7 @@ const PRE_PUSH_RELEASE_GATE_CONTROL_PATHS = new Set([
   "package.json",
 ]);
 const PRE_PUSH_RELEASE_GATE_CONTROL_PATH_PREFIXES = ["scripts/release/"];
+const CLI_AND_SERVICE_RELEASE_PATH_PREFIXES = ["packages/agent-runtime/src/"];
 const CLI_RELEASE_PATH_PREFIXES = ["clients/openmeld-cli/src/"];
 const CLI_RELEASE_PATHS = new Set(["clients/openmeld-cli/package.json"]);
 const RUNTIME_ADAPTER_RELEASE_PATH_RE =
@@ -29,6 +30,7 @@ export function isCliReleasePath(path) {
   return (
     CLI_RELEASE_PATHS.has(normalized) ||
     RUNTIME_ADAPTER_RELEASE_PATH_RE.test(normalized) ||
+    isCliAndServiceReleasePath(normalized) ||
     CLI_RELEASE_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix))
   );
 }
@@ -42,6 +44,7 @@ export function isServiceReleasePath(path) {
   return (
     SERVICE_RELEASE_PATHS.has(normalized) ||
     RUNTIME_ADAPTER_RELEASE_PATH_RE.test(normalized) ||
+    isCliAndServiceReleasePath(normalized) ||
     SERVICE_RELEASE_PATH_PREFIXES.some((prefix) =>
       normalized.startsWith(prefix)
     )
@@ -78,6 +81,12 @@ function isPrePushReleaseGateControlPath(path) {
     PRE_PUSH_RELEASE_GATE_CONTROL_PATH_PREFIXES.some((prefix) =>
       path.startsWith(prefix)
     )
+  );
+}
+
+function isCliAndServiceReleasePath(path) {
+  return CLI_AND_SERVICE_RELEASE_PATH_PREFIXES.some((prefix) =>
+    path.startsWith(prefix)
   );
 }
 
