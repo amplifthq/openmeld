@@ -321,6 +321,36 @@ test("verification requires policy intent for changed local component artifacts"
   );
 });
 
+test("working-language prompt changes require CLI and Service release intent", () => {
+  const facts = createFacts();
+  const manifest = buildReleasePolicyManifest({
+    facts,
+    now: "2026-05-31T00:00:00.000Z",
+    policies: { cli: "ok", service: "ok", skills: "ok" },
+  });
+
+  const errors = resolveReleasePolicyVerificationErrors({
+    baseCommandContractVersion: "cli-contract-v1",
+    baseRuntimeContractEpoch: "daemon-epoch-v1",
+    baseServiceContractVersion: "daemon-epoch-v1",
+    baseSkillContractVersion: "skills-contract-v1",
+    changedPaths: ["packages/agent-runtime/src/working-language-prompt.ts"],
+    facts,
+    manifest,
+  });
+
+  assert.ok(
+    errors.includes(
+      "OpenMeld CLI package files changed, so cli.updatePolicy must be available or required."
+    )
+  );
+  assert.ok(
+    errors.includes(
+      "OpenMeld Service carrier files changed, so service.updatePolicy must be available or required."
+    )
+  );
+});
+
 test("stamp refuses to preserve ok policy when changed paths require policy intent", async () => {
   const repoRoot = await createFixtureRepo();
   try {
