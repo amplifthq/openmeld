@@ -65,6 +65,7 @@ import {
 	sortAccountSpaceItems,
 } from "./account-space-sidebar-sections";
 import { SpaceAgentOrb } from "./space-agent-orb";
+import { useSpaceWakeProgressVisibleProjection } from "./space-wake-progress-visible-projection";
 import {
 	type SpaceConversationIntentPrefetch,
 	useSpaceConversationIntentPrefetch,
@@ -191,16 +192,21 @@ export function AppSpacesSidebar(input: {
 			spaceId: input.currentSpaceId,
 		})
 	);
+	const currentSpaceWakeProgressVisibleProjection =
+		useSpaceWakeProgressVisibleProjection();
 	const activeWakeSpaceIds = new Set<string>();
 	for (const item of usableActiveWakeSummaryItems) {
 		if (item.spaceId !== input.currentSpaceId) {
 			activeWakeSpaceIds.add(item.spaceId);
 		}
 	}
-	const currentSpaceWakeProgressItems = mergeWakeProgressItems({
-		currentItems: currentSpaceActiveWakeProgressSummaryQuery.data?.items ?? [],
-		incomingItems: currentSpaceWakeProgressPresentationQuery.data ?? [],
-	});
+	const currentSpaceWakeProgressItems =
+		currentSpaceWakeProgressVisibleProjection ??
+		mergeWakeProgressItems({
+			currentItems:
+				currentSpaceActiveWakeProgressSummaryQuery.data?.items ?? [],
+			incomingItems: currentSpaceWakeProgressPresentationQuery.data ?? [],
+		});
 	if (
 		input.currentSpaceId.trim().length > 0 &&
 		hasVisibleActiveWakeProgress({

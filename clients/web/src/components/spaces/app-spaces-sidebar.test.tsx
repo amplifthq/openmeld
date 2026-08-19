@@ -1,3 +1,4 @@
+import type { WakeProgressItem } from "@openmeld/schemas/types";
 import {
 	createWakeProgressItem,
 	OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
@@ -15,14 +16,26 @@ import type { ReactElement, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { OPENMELD_WELCOMING_SPACE_PURPOSE } from "#/lib/spaces/welcoming-space";
+import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	setSpaceWakeProgressPresentationItems,
 	spaceActiveWakeProgressSummaryQueryOptions,
 } from "#/query/spaces/active-wake-progress";
 import { AppSpacesSidebar } from "./app-spaces-sidebar";
+import {
+	SpaceWakeProgressVisibleProjectionProvider,
+	usePublishSpaceWakeProgressVisibleProjection,
+} from "./space-wake-progress-visible-projection";
 
 const OTHER_JOINED_PROFILE_TEXT = /Other joined profile/;
 const BROWSE_SPACES_TEXT = /Browse Spaces/;
+
+function WakeProgressProjectionPublisher(input: {
+	items: readonly WakeProgressItem[];
+}) {
+	usePublishSpaceWakeProgressVisibleProjection(input.items);
+	return null;
+}
 
 type AppOrganizationMock = {
 	activeOrganization: OrganizationSummary | null;
@@ -850,6 +863,78 @@ describe("AppSpacesSidebar", () => {
 		).toHaveLength(1);
 	});
 
+	it("clears the current Space orb when a final reply resolves the visible projection", async () => {
+		const queryClient = createSidebarQueryClient();
+		seedCurrentSpaceWakeRace(queryClient);
+		const runningItems = [
+			createWakeProgressItem({
+				clientMessageId: "client-message-alpha",
+				dispatchId: "dispatch-alpha",
+				phase: "running",
+				sourceSignalId: "signal-alpha",
+				targetLabel: "Runner",
+				targetProfileId: "agent-alpha",
+				updatedAtMs: Date.now(),
+			}),
+		];
+		const view = renderSidebar(
+			<SpaceWakeProgressVisibleProjectionProvider>
+				<WakeProgressProjectionPublisher items={runningItems} />
+				<AppSpacesSidebar
+					currentProfileId="human-1"
+					currentSpaceId="space-alpha"
+				/>
+			</SpaceWakeProgressVisibleProjectionProvider>,
+			queryClient
+		);
+
+		expect(
+			await screen.findByRole("button", { name: "Alpha, agent working" })
+		).toBeTruthy();
+
+		view.rerender(
+			<SpaceWakeProgressVisibleProjectionProvider>
+				<WakeProgressProjectionPublisher items={[]} />
+				<AppSpacesSidebar
+					currentProfileId="human-1"
+					currentSpaceId="space-alpha"
+				/>
+			</SpaceWakeProgressVisibleProjectionProvider>
+		);
+
+		expect(screen.getByRole("button", { name: "Alpha" })).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Beta, agent working" })
+		).toBeTruthy();
+		expect(
+			document.querySelectorAll('[data-space-active-wake-orb="true"]')
+		).toHaveLength(1);
+	});
+
+	it("uses an already-final projection on the first Space shell paint", () => {
+		const queryClient = createSidebarQueryClient();
+		seedCurrentSpaceWakeRace(queryClient);
+
+		renderSidebar(
+			<SpaceWakeProgressVisibleProjectionProvider>
+				<WakeProgressProjectionPublisher items={[]} />
+				<AppSpacesSidebar
+					currentProfileId="human-1"
+					currentSpaceId="space-alpha"
+				/>
+			</SpaceWakeProgressVisibleProjectionProvider>,
+			queryClient
+		);
+
+		expect(screen.getByRole("button", { name: "Alpha" })).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Beta, agent working" })
+		).toBeTruthy();
+		expect(
+			document.querySelectorAll('[data-space-active-wake-orb="true"]')
+		).toHaveLength(1);
+	});
+
 	it("does not render a working orb from an expired cached summary", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
@@ -1401,15 +1486,79 @@ function createSidebarQueryClient(): QueryClient {
 	});
 }
 
+function seedCurrentSpaceWakeRace(queryClient: QueryClient): void {
+	const accountSpaces = {
+		pinnedItems: [
+			createAccountSpaceItem({
+				pinnedAt: "2026-04-29T01:00:00.000Z",
+				spaceId: "space-alpha",
+				spaceName: "Alpha",
+			}),
+			createAccountSpaceItem({
+				pinnedAt: "2026-04-29T02:00:00.000Z",
+				spaceId: "space-beta",
+				spaceName: "Beta",
+			}),
+		],
+		spaceItems: [],
+	};
+	const accountWakeSummary = {
+		generatedAtMs: Date.now(),
+		items: [
+			{ activeWakeCount: 1, spaceId: "space-alpha" },
+			{ activeWakeCount: 1, spaceId: "space-beta" },
+		],
+	};
+	listAccountSpaceItemsMock.mockResolvedValue(accountSpaces);
+	getAccountSpaceActiveWakeSummaryMock.mockResolvedValue(accountWakeSummary);
+	queryClient.setQueryData(
+		accountSpaceQueryKeys.items("human-1", "account"),
+		accountSpaces
+	);
+	queryClient.setQueryData(
+		accountSpaceQueryKeys.activeWakeSummary("human-1"),
+		accountWakeSummary
+	);
+	const currentSpaceSummaryOptions = spaceActiveWakeProgressSummaryQueryOptions(
+		{
+			enabled: false,
+			openMeldProfileId: "human-1",
+			spaceId: "space-alpha",
+		}
+	);
+	queryClient.setQueryData(currentSpaceSummaryOptions.queryKey, {
+		items: [
+			createWakeProgressItem({
+				clientMessageId: "client-message-alpha",
+				dispatchId: "dispatch-alpha",
+				phase: "running",
+				sourceSignalId: "signal-alpha",
+				targetLabel: "Runner",
+				targetProfileId: "agent-alpha",
+				updatedAtMs: Date.now(),
+			}),
+		],
+		query: {
+			spaceId: "space-alpha",
+			targetProfileId: null,
+		},
+	});
+}
+
 function renderSidebar(
 	element: ReactElement,
 	queryClient = createSidebarQueryClient()
 ) {
-	return render(
+	const wrap = (ui: ReactElement) => (
 		<QueryClientProvider client={queryClient}>
-			<TooltipProvider>{element}</TooltipProvider>
+			<TooltipProvider>{ui}</TooltipProvider>
 		</QueryClientProvider>
 	);
+	const view = render(wrap(element));
+	return {
+		...view,
+		rerender: (ui: ReactElement) => view.rerender(wrap(ui)),
+	};
 }
 
 function createAccountSpaceItem(input: {

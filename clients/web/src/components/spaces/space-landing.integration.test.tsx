@@ -49,6 +49,10 @@ import {
 	SPACE_LIVE_RECONNECTING_LABEL,
 	SPACE_LIVE_STALE_LABEL,
 } from "./space-header";
+import {
+	SpaceWakeProgressVisibleProjectionProvider,
+	useSpaceWakeProgressVisibleProjection,
+} from "./space-wake-progress-visible-projection";
 import { SPACE_WAKE_STATUS_AUTO_REFRESH_ATTEMPTS } from "./space-wake-status-refresh";
 
 type SpaceMemberAgentAgentWakeAvailability = NonNullable<
@@ -403,6 +407,17 @@ type TestAgentExecutionReadiness = ReturnType<
 	typeof createSpaceMemberAgentExecutionReadiness
 >;
 
+function WakeProgressVisibleProjectionProbe() {
+	const items = useSpaceWakeProgressVisibleProjection();
+	return (
+		<output data-testid="wake-progress-visible-projection">
+			{items === null
+				? "unpublished"
+				: items.map((item) => item.phase).join(",") || "none"}
+		</output>
+	);
+}
+
 function renderSpaceLanding(
 	input: {
 		accountProfiles?: readonly AuthProfileView[];
@@ -421,6 +436,7 @@ function renderSpaceLanding(
 		profileId?: string;
 		queryClient?: QueryClient;
 		spaceId?: string;
+		observeVisibleWakeProgress?: boolean;
 	} = {}
 ) {
 	// SpaceLanding's Slack-discovery header state always mounts two real
@@ -429,8 +445,20 @@ function renderSpaceLanding(
 	// useQuery/useQueryClient stay fully mocked above and never read this
 	// client, but useMutation does.
 	const queryClient = input.queryClient ?? createTestQueryClient();
-	const view = render(
+	const profileId = input.profileId ?? DEFAULT_SPACE_PROFILE_ID;
+	const spaceId = input.spaceId ?? "space-123";
+	const wrap = (ui: ReactNode) => (
 		<TestQueryClientProvider queryClient={queryClient}>
+			<SpaceWakeProgressVisibleProjectionProvider>
+				{input.observeVisibleWakeProgress ? (
+					<WakeProgressVisibleProjectionProbe />
+				) : null}
+				{ui}
+			</SpaceWakeProgressVisibleProjectionProvider>
+		</TestQueryClientProvider>
+	);
+	const view = render(
+		wrap(
 			<SpaceLanding
 				accountProfiles={input.accountProfiles}
 				currentUserAvatarImageUrl={input.currentUserAvatarImageUrl}
@@ -442,10 +470,10 @@ function renderSpaceLanding(
 				onInitialPendingMessageConsumed={input.onInitialPendingMessageConsumed}
 				orgSlug="acme"
 				presentation={input.presentation}
-				profileId={input.profileId ?? DEFAULT_SPACE_PROFILE_ID}
-				spaceId={input.spaceId ?? "space-123"}
+				profileId={profileId}
+				spaceId={spaceId}
 			/>
-		</TestQueryClientProvider>
+		)
 	);
 	return {
 		...view,
@@ -454,11 +482,7 @@ function renderSpaceLanding(
 		// and crashing the same Slack-discovery useMutation hooks. Re-wrap
 		// every rerender the same way the initial render is wrapped.
 		rerender: (ui: Parameters<typeof view.rerender>[0]) =>
-			view.rerender(
-				<TestQueryClientProvider queryClient={queryClient}>
-					{ui}
-				</TestQueryClientProvider>
-			),
+			view.rerender(wrap(ui)),
 	};
 }
 
@@ -3023,7 +3047,7 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding();
+		renderSpaceLanding({ observeVisibleWakeProgress: true });
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
@@ -3037,6 +3061,9 @@ describe("SpaceLanding", () => {
 		expect(screen.getByText("Done.")).toBeTruthy();
 		expect(screen.queryByText("Runner replied")).toBeNull();
 		expect(screen.queryByText("Agent is working")).toBeNull();
+		expect(
+			screen.getByTestId("wake-progress-visible-projection").textContent
+		).toBe("none");
 	});
 
 	it("does not offer local agent repair for non-owned failed Wake progress", async () => {

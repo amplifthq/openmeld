@@ -9,6 +9,7 @@ import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
 import { useComputerAttentionTone } from "#/components/app/use-computer-attention-tone";
 import { AppDirectMessagesSidebar } from "#/components/spaces/app-direct-messages-sidebar";
 import { AppSpacesSidebar } from "#/components/spaces/app-spaces-sidebar";
+import { SpaceWakeProgressVisibleProjectionProvider } from "#/components/spaces/space-wake-progress-visible-projection";
 import type {
 	InnerSidebarPreferenceKey,
 	SidebarPersistedState,
@@ -101,23 +102,27 @@ type AppSpaceShellProps = AppSpaceShellBaseProps &
 
 export function AppSpaceShell(input: AppSpaceShellProps) {
 	return (
-		<SpaceWindowShell
-			initialOuterSidebarState={input.initialOuterSidebarState}
-			initialSidebarState={input.initialSidebarState}
-			sidebar={
-				input.showSpacesSidebar === false ? undefined : (
-					<AppSpacesSidebar
-						browseSpacesActive={input.browseSpacesActive}
-						currentProfileId={input.currentProfileId}
-						currentSpaceId={input.currentSpaceId}
-					/>
-				)
-			}
-			sidebarPreferenceKey="spaces"
-			sidebarSeparatorLabel="Resize the Spaces sidebar"
+		<SpaceWakeProgressVisibleProjectionProvider
+			key={`${input.currentProfileId ?? ""}:${input.currentSpaceId ?? ""}`}
 		>
-			{input.children}
-		</SpaceWindowShell>
+			<SpaceWindowShell
+				initialOuterSidebarState={input.initialOuterSidebarState}
+				initialSidebarState={input.initialSidebarState}
+				sidebar={
+					input.showSpacesSidebar === false ? undefined : (
+						<AppSpacesSidebar
+							browseSpacesActive={input.browseSpacesActive}
+							currentProfileId={input.currentProfileId}
+							currentSpaceId={input.currentSpaceId}
+						/>
+					)
+				}
+				sidebarPreferenceKey="spaces"
+				sidebarSeparatorLabel="Resize the Spaces sidebar"
+			>
+				{input.children}
+			</SpaceWindowShell>
+		</SpaceWakeProgressVisibleProjectionProvider>
 	);
 }
 

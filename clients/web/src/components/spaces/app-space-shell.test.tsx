@@ -1,3 +1,4 @@
+import { createWakeProgressItem } from "@openmeld/space";
 import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +7,10 @@ import {
 	AppSpaceShell,
 	SpaceWindowShell,
 } from "./app-space-shell";
+import {
+	usePublishSpaceWakeProgressVisibleProjection,
+	useSpaceWakeProgressVisibleProjection,
+} from "./space-wake-progress-visible-projection";
 
 const appOuterRailSpy = vi.hoisted(() => vi.fn());
 const appInnerSidebarSpy = vi.hoisted(() => vi.fn());
@@ -48,6 +53,28 @@ vi.mock("#/components/spaces/app-direct-messages-sidebar", () => ({
 		<nav data-testid="direct-messages-sidebar">Direct Messages</nav>
 	),
 }));
+
+const RUNNING_WAKE_PROGRESS_ITEMS = [
+	createWakeProgressItem({
+		clientMessageId: "client-message-1",
+		dispatchId: "dispatch-1",
+		phase: "running",
+		sourceSignalId: "signal-1",
+		targetLabel: "Runner",
+		targetProfileId: "agent-1",
+		updatedAtMs: 1,
+	}),
+];
+
+function WakeProgressProjectionTestSurface() {
+	usePublishSpaceWakeProgressVisibleProjection(RUNNING_WAKE_PROGRESS_ITEMS);
+	const items = useSpaceWakeProgressVisibleProjection();
+	return (
+		<output data-testid="visible-wake-progress-count">
+			{items?.length ?? 0}
+		</output>
+	);
+}
 
 afterEach(() => {
 	cleanup();
@@ -137,6 +164,18 @@ describe("AppSpaceShell", () => {
 
 		expect(appInnerSidebarSpy).toHaveBeenCalledWith(
 			expect.objectContaining({ preferenceKey: "spaces" })
+		);
+	});
+
+	it("owns the visible Wake progress projection shared by the conversation and sidebar", () => {
+		render(
+			<AppSpaceShell currentProfileId="human-1" currentSpaceId="space-1">
+				<WakeProgressProjectionTestSurface />
+			</AppSpaceShell>
+		);
+
+		expect(screen.getByTestId("visible-wake-progress-count").textContent).toBe(
+			"1"
 		);
 	});
 });
