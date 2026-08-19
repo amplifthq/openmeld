@@ -7,6 +7,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { LocalAgentsCard } from "#/components/agents/agents-page-local-agents";
 import { OpenMeldServiceCard } from "#/components/agents/agents-page-openmeld-service";
+import { resolveOrganizationComputerSummaryStatus } from "#/lib/computer-summary-status";
 import { buildOrganizationComputerPath } from "#/lib/organizations/organization-routes";
 import {
 	formatOrganizationComputerLastSeen,
@@ -38,7 +39,6 @@ export function OrganizationComputerPickerCard(input: {
 				})}
 			>
 				<SettingsComputerSummaryCardContent
-					activeLabel="OpenMeld Service is connected"
 					lastSeenLabel={formatOrganizationComputerLastSeen(
 						input.computer.lastSeenAtMs
 					)}
@@ -46,9 +46,10 @@ export function OrganizationComputerPickerCard(input: {
 					localAgentsSummaryLabel={formatLocalAgentSummaryLabel(localAgents)}
 					name={input.computer.deviceDisplayName}
 					platformLabel={formatOrganizationComputerPlatform(input.computer)}
-					serviceConnectionStatus={resolveServiceConnectionStatus(
+					status={resolveOrganizationComputerSummaryStatus(
 						input.computer.serviceState
 					)}
+					statusIndicatorTestId={`computer-status-dot-${input.computer.routeId}`}
 				/>
 			</Link>
 		</div>
@@ -90,20 +91,6 @@ export function OrganizationComputerDetail(input: {
 			/>
 		</div>
 	);
-}
-
-function resolveServiceConnectionStatus(
-	serviceState: OrganizationComputer["serviceState"]
-): "connected" | "not_connected" | null {
-	switch (serviceState) {
-		case "connected":
-		case "needs_attention":
-			return "connected";
-		case "not_connected":
-			return "not_connected";
-		default:
-			return null;
-	}
 }
 
 function formatOrganizationComputerLocalAgents(

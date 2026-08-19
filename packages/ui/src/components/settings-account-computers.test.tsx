@@ -138,13 +138,10 @@ describe("Settings Computers shared components", () => {
     expect(container.querySelector(".rounded-md")).toBeTruthy();
   });
 
-  it("renders a computer summary with active state, record badge, and local agent icons", () => {
+  it("renders one warning status consistently in the computer summary", () => {
     render(
       <div className="group">
         <SettingsComputerSummaryCardContent
-          active
-          activeIndicatorTestId="active-computer-dot"
-          advisoryLabel="Update available"
           lastSeenLabel="Last seen Jun 23, 2:37 PM"
           localAgents={[
             { agentId: "claude-code", displayName: "Claude Code" },
@@ -155,7 +152,12 @@ describe("Settings Computers shared components", () => {
           name="Felix's MacBook Pro"
           platformLabel="Laptop · macOS 15.5.0 · Dev"
           recordBadgeLabel="Older record"
-          serviceConnectionStatus="connected"
+          status={{
+            label: "Update available",
+            showLabel: true,
+            tone: "warning",
+          }}
+          statusIndicatorTestId="computer-status-dot"
         />
       </div>
     );
@@ -163,13 +165,12 @@ describe("Settings Computers shared components", () => {
     expect(screen.getByText("Felix's MacBook Pro")).toBeTruthy();
     expect(screen.getByText("Laptop · macOS 15.5.0 · Dev")).toBeTruthy();
     expect(screen.getByText("Older record")).toBeTruthy();
-    expect(screen.getByText("Active computer")).toBeTruthy();
     expect(screen.getByText("Update available").className).toContain(
       "text-amber"
     );
-    expect(screen.getByTestId("active-computer-dot")).toBeTruthy();
-    expect(screen.getByTestId("active-computer-dot").className).toContain(
-      "bg-emerald"
+    expect(screen.getByTestId("computer-status-dot")).toBeTruthy();
+    expect(screen.getByTestId("computer-status-dot").className).toContain(
+      "bg-amber"
     );
     expect(screen.getByTestId("local-agent-logo-claude-code")).toBeTruthy();
     expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
@@ -180,19 +181,22 @@ describe("Settings Computers shared components", () => {
   it("renders the computer status dot as destructive when OpenMeld Service is not connected", () => {
     render(
       <SettingsComputerSummaryCardContent
-        activeIndicatorTestId="active-computer-dot"
-        advisoryLabel="OpenMeld Service is not connected"
         lastSeenLabel="Last seen Jun 23, 2:37 PM"
         name="Felix's MacBook Pro"
         platformLabel="Laptop · macOS 15.5.0"
-        serviceConnectionStatus="not_connected"
+        status={{
+          label: "OpenMeld Service is not connected",
+          showLabel: true,
+          tone: "danger",
+        }}
+        statusIndicatorTestId="computer-status-dot"
       />
     );
 
     expect(
       screen.getAllByText("OpenMeld Service is not connected").length
     ).toBeGreaterThan(0);
-    expect(screen.getByTestId("active-computer-dot").className).toContain(
+    expect(screen.getByTestId("computer-status-dot").className).toContain(
       "bg-destructive"
     );
   });

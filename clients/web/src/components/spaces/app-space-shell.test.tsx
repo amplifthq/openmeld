@@ -9,7 +9,7 @@ import {
 
 const appOuterRailSpy = vi.hoisted(() => vi.fn());
 const appInnerSidebarSpy = vi.hoisted(() => vi.fn());
-const useSettingsAttentionToneMock = vi.hoisted(() => vi.fn());
+const useComputerAttentionToneMock = vi.hoisted(() => vi.fn());
 
 vi.mock("#/components/app/app-inner-sidebar", () => ({
 	AppInnerSidebar: (props: { children: ReactNode; preferenceKey?: string }) => {
@@ -35,8 +35,8 @@ vi.mock("#/components/app/app-shell-account", () => ({
 	}),
 }));
 
-vi.mock("#/components/app/use-settings-attention-tone", () => ({
-	useSettingsAttentionTone: useSettingsAttentionToneMock,
+vi.mock("#/components/app/use-computer-attention-tone", () => ({
+	useComputerAttentionTone: useComputerAttentionToneMock,
 }));
 
 vi.mock("#/components/spaces/app-spaces-sidebar", () => ({
@@ -57,7 +57,7 @@ describe("SpaceWindowShell", () => {
 	beforeEach(() => {
 		appInnerSidebarSpy.mockReset();
 		appOuterRailSpy.mockReset();
-		useSettingsAttentionToneMock.mockReset().mockReturnValue(null);
+		useComputerAttentionToneMock.mockReset().mockReturnValue(null);
 	});
 
 	it("keeps the main pane as a flex height container", () => {
@@ -79,8 +79,8 @@ describe("SpaceWindowShell", () => {
 		expect(screen.getByTestId("space-window-frame")).toBeTruthy();
 	});
 
-	it("keeps the Settings attention marker visible from Spaces", () => {
-		useSettingsAttentionToneMock.mockReturnValue("danger");
+	it("keeps the Computers attention marker visible from Spaces", () => {
+		useComputerAttentionToneMock.mockReturnValue("danger");
 
 		render(
 			<SpaceWindowShell
@@ -101,7 +101,7 @@ describe("AppSpaceShell", () => {
 	beforeEach(() => {
 		appInnerSidebarSpy.mockReset();
 		appOuterRailSpy.mockReset();
-		useSettingsAttentionToneMock.mockReset().mockReturnValue(null);
+		useComputerAttentionToneMock.mockReset().mockReturnValue(null);
 	});
 
 	it("does not mount the inner Spaces sidebar when no Spaces should be shown", () => {

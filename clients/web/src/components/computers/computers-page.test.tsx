@@ -667,8 +667,13 @@ describe("ComputersPage", () => {
 		expect(within(ashleyComputer).queryByText("Claude Code, Codex")).toBeNull();
 		expect(within(ashleyComputer).queryByText("2 Local agents")).toBeNull();
 		expect(
-			within(ashleyComputer).getByText("OpenMeld Service is connected")
+			within(ashleyComputer).getByText("OpenMeld Tools need an update")
 		).toBeTruthy();
+		expect(
+			within(ashleyComputer).getByTestId(
+				"computer-status-dot-computer:device-ashley"
+			).className
+		).toContain("bg-amber");
 		expect(
 			within(ashleyComputer).getByTestId("local-agent-logo-claude-code")
 		).toBeTruthy();
@@ -787,6 +792,11 @@ describe("ComputersPage", () => {
 			within(currentComputerCard).getByText("Update available");
 		expect(updateLabel.className).toContain("text-amber");
 		expect(
+			within(currentComputerCard).getByTestId(
+				"computer-status-dot-device-current"
+			).className
+		).toContain("bg-amber");
+		expect(
 			within(
 				screen.getByTestId("computer-picker-card-device-office")
 			).queryByText("Update available")
@@ -816,6 +826,11 @@ describe("ComputersPage", () => {
 		expect(
 			within(currentComputerCard).queryByText("Update available")
 		).toBeNull();
+		expect(
+			within(currentComputerCard).getByTestId(
+				"computer-status-dot-device-current"
+			).className
+		).toContain("bg-sky");
 	});
 
 	it("marks the current computer card when OpenMeld Service is not connected", () => {
@@ -846,7 +861,7 @@ describe("ComputersPage", () => {
 		).toBeGreaterThan(0);
 		expect(
 			within(currentComputerCard).getByTestId(
-				"active-computer-dot-device-current"
+				"computer-status-dot-device-current"
 			).className
 		).toContain("bg-destructive");
 		expect(
@@ -883,9 +898,9 @@ describe("ComputersPage", () => {
 		expect(setupLabel.className).toContain("text-destructive");
 		expect(
 			within(currentComputerCard).getByTestId(
-				"active-computer-dot-device-current"
+				"computer-status-dot-device-current"
 			).className
-		).toContain("bg-emerald");
+		).toContain("bg-destructive");
 		expect(
 			within(currentComputerCard).queryByText(
 				"OpenMeld Service is not connected"
@@ -893,7 +908,7 @@ describe("ComputersPage", () => {
 		).toBeNull();
 	});
 
-	it("keeps a connected computer out of setup while a local agent check retries", () => {
+	it("shows status unavailable while a connected computer retries a local agent check", () => {
 		useLocalAgentRecoveryControllerMock.mockReturnValue(
 			buildRecoveryControllerStub({
 				currentReadiness: buildCurrentRuntimeReadiness({
@@ -919,10 +934,14 @@ describe("ComputersPage", () => {
 			within(currentComputerCard).queryByText("Local agents need repair")
 		).toBeNull();
 		expect(
+			within(currentComputerCard).getByText("OpenMeld Tools status unavailable")
+				.className
+		).toContain("text-muted-foreground");
+		expect(
 			within(currentComputerCard).getByTestId(
-				"active-computer-dot-device-current"
+				"computer-status-dot-device-current"
 			).className
-		).toContain("bg-emerald");
+		).toContain("bg-muted-foreground");
 	});
 
 	it("opens the reused computer actions dialog from the picker card", () => {

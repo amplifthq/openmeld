@@ -19,7 +19,6 @@ import { isLocalAgentCheckStillRunningError } from "./agents-page-formatters";
 import {
 	LocalAgentsCard,
 	type LocalAgentsCardOwnerProps,
-	resolveLocalAgentsCatalogState,
 } from "./agents-page-local-agents";
 
 const HOMEBREW_INSTALLATION_NAME = /Homebrew installation/;
@@ -414,32 +413,6 @@ describe("LocalAgentsCard", () => {
 		).toBeTruthy();
 	});
 
-	it("keeps service update action out of Local agents when a disabled agent also needs connection", () => {
-		const executionTarget = buildExecutionTarget({
-			codexEnabled: false,
-			setEnabledSupported: true,
-		});
-
-		const state = resolveLocalAgentsCatalogState({
-			computer: buildComputer(executionTarget),
-			isCurrentComputer: true,
-			recovery: {
-				agentProfiles: [],
-				selectedExecutionTarget: executionTarget,
-			} as unknown as LocalAgentsCardOwnerProps["recovery"],
-			replyReadiness: SERVICE_UPDATE_REPLY_READINESS,
-		});
-
-		expect(state.notice?.variant).toBe("inline");
-		expect(state.notice?.description).toBe(
-			"Local agents will refresh after OpenMeld Service is updated."
-		);
-		expect(state.primaryActionLabel).toBeNull();
-		expect(state.canRefreshCatalog).toBe(false);
-		expect(state.canSetEnabled).toBe(false);
-		expect(state.rowsMuted).toBe(true);
-	});
-
 	it("shows service update dependency as a quiet Local agents note", () => {
 		renderLocalAgentsCard({
 			replyReadiness: SERVICE_UPDATE_REPLY_READINESS,
@@ -470,32 +443,6 @@ describe("LocalAgentsCard", () => {
 		expect(
 			within(row).getByTestId("local-agent-logo-codex").parentElement?.className
 		).toContain("opacity-50");
-	});
-
-	it("keeps service reconnect action out of Local agents when the service is not connected", () => {
-		const executionTarget = buildExecutionTarget({
-			codexEnabled: true,
-			setEnabledSupported: true,
-		});
-
-		const state = resolveLocalAgentsCatalogState({
-			computer: buildComputer(executionTarget),
-			isCurrentComputer: true,
-			recovery: {
-				agentProfiles: [],
-				selectedExecutionTarget: executionTarget,
-			} as unknown as LocalAgentsCardOwnerProps["recovery"],
-			replyReadiness: SERVICE_NOT_CONNECTED_REPLY_READINESS,
-		});
-
-		expect(state.notice?.variant).toBe("inline");
-		expect(state.notice?.description).toBe(
-			"Local agents will refresh after OpenMeld Service is reconnected."
-		);
-		expect(state.primaryActionLabel).toBeNull();
-		expect(state.canRefreshCatalog).toBe(false);
-		expect(state.canSetEnabled).toBe(false);
-		expect(state.rowsMuted).toBe(true);
 	});
 
 	it("shows service reconnect dependency as a quiet Local agents note", () => {

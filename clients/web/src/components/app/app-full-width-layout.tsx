@@ -9,7 +9,7 @@ import { AppMainContent } from "#/components/app/app-main-content";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import { useSettingsAttentionTone } from "#/components/app/use-settings-attention-tone";
+import { useComputerAttentionTone } from "#/components/app/use-computer-attention-tone";
 import type { SidebarPersistedState } from "#/lib/sidebar-width-cookie";
 
 export function AppFullWidthLayout(input: {
@@ -18,7 +18,7 @@ export function AppFullWidthLayout(input: {
 	initialOuterSidebarState?: SidebarPersistedState;
 }) {
 	const account = useAppShellAccount();
-	const computerAttentionTone = useSettingsAttentionTone();
+	const computerAttentionTone = useComputerAttentionTone();
 
 	return (
 		<AppSurfaceLayout

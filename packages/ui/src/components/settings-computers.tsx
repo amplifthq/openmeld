@@ -37,15 +37,16 @@ export type SettingsComputerLocalAgentIcon = {
   displayName: string;
 };
 
+export type SettingsComputerSummaryStatus = {
+  label: string;
+  showLabel: boolean;
+  tone: "checking" | "danger" | "muted" | "ready" | "warning";
+};
+
 const EMPTY_COMPUTER_LOCAL_AGENT_ICONS =
   [] as const satisfies readonly SettingsComputerLocalAgentIcon[];
 
 export type SettingsComputerSummaryCardContentProps = {
-  active?: boolean;
-  activeIndicatorTestId?: string;
-  activeLabel?: string;
-  advisoryLabel?: string | null;
-  advisoryTone?: "warning" | "danger";
   className?: string;
   icon?: ReactNode;
   lastSeenLabel: string;
@@ -54,15 +55,11 @@ export type SettingsComputerSummaryCardContentProps = {
   name: string;
   platformLabel: string;
   recordBadgeLabel?: string | null;
-  serviceConnectionStatus?: "connected" | "not_connected" | null;
+  status: SettingsComputerSummaryStatus | null;
+  statusIndicatorTestId?: string;
 };
 
 export function SettingsComputerSummaryCardContent({
-  active = false,
-  activeIndicatorTestId,
-  activeLabel = "Active computer",
-  advisoryLabel,
-  advisoryTone = "warning",
   className,
   icon,
   lastSeenLabel,
@@ -71,17 +68,9 @@ export function SettingsComputerSummaryCardContent({
   name,
   platformLabel,
   recordBadgeLabel,
-  serviceConnectionStatus,
+  status,
+  statusIndicatorTestId,
 }: SettingsComputerSummaryCardContentProps) {
-  const shouldRenderStatusIndicator =
-    serviceConnectionStatus === undefined
-      ? active
-      : serviceConnectionStatus !== null;
-  const statusIndicatorLabel =
-    serviceConnectionStatus === "not_connected"
-      ? "OpenMeld Service is not connected"
-      : activeLabel;
-
   return (
     <div
       className={cn(
@@ -106,29 +95,29 @@ export function SettingsComputerSummaryCardContent({
                   {recordBadgeLabel}
                 </Badge>
               ) : null}
-              {shouldRenderStatusIndicator ? (
+              {status ? (
                 <span className="inline-flex shrink-0 items-center">
                   <span
                     aria-hidden="true"
                     className={cn(
                       "h-2 w-2 rounded-full ring-2",
-                      resolveServiceConnectionIndicatorClassName(
-                        serviceConnectionStatus ?? "connected"
-                      )
+                      resolveStatusToneRingIndicatorClassName(status.tone)
                     )}
-                    data-testid={activeIndicatorTestId}
+                    data-testid={statusIndicatorTestId}
                   />
-                  <span className="sr-only">{statusIndicatorLabel}</span>
+                  {status.showLabel ? null : (
+                    <span className="sr-only">{status.label}</span>
+                  )}
                 </span>
               ) : null}
-              {advisoryLabel ? (
+              {status?.showLabel ? (
                 <span
                   className={cn(
                     "shrink-0 font-medium text-xs",
-                    resolveComputerAdvisoryClassName(advisoryTone)
+                    resolveStatusToneStrongTextClassName(status.tone)
                   )}
                 >
-                  {advisoryLabel}
+                  {status.label}
                 </span>
               ) : null}
             </span>
@@ -148,25 +137,6 @@ export function SettingsComputerSummaryCardContent({
       </div>
     </div>
   );
-}
-
-function resolveComputerAdvisoryClassName(
-  tone: NonNullable<SettingsComputerSummaryCardContentProps["advisoryTone"]>
-): string {
-  return resolveStatusToneStrongTextClassName(tone);
-}
-
-function resolveServiceConnectionIndicatorClassName(
-  status: NonNullable<
-    SettingsComputerSummaryCardContentProps["serviceConnectionStatus"]
-  >
-): string {
-  switch (status) {
-    case "not_connected":
-      return resolveStatusToneRingIndicatorClassName("danger");
-    default:
-      return resolveStatusToneRingIndicatorClassName("ready");
-  }
 }
 
 export function SettingsAddComputerCardContent({
