@@ -1,5 +1,6 @@
 "use client";
 
+import { hasVisibleActiveWakeProgress } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
@@ -51,6 +52,10 @@ import {
 	accountSpaceQueryKeys,
 	useUsableAccountSpaceActiveWakeSummaryItems,
 } from "#/query/spaces/account-spaces";
+import {
+	spaceActiveWakeProgressSummaryQueryOptions,
+	spaceWakeProgressPresentationQueryOptions,
+} from "#/query/spaces/active-wake-progress";
 import {
 	type SpaceUnreadById,
 	selectAccountSpaceSidebarSections,
@@ -170,9 +175,33 @@ export function AppSpacesSidebar(input: {
 			data: activeWakeSummaryQuery.data,
 			isError: activeWakeSummaryQuery.isError,
 		});
-	const activeWakeSpaceIds: ReadonlySet<string> = new Set(
+	const currentSpaceWakeProgressPresentationQuery = useQuery(
+		spaceWakeProgressPresentationQueryOptions({
+			openMeldProfileId: input.currentProfileId,
+			spaceId: input.currentSpaceId,
+		})
+	);
+	const currentSpaceActiveWakeProgressSummaryQuery = useQuery(
+		spaceActiveWakeProgressSummaryQueryOptions({
+			enabled: false,
+			openMeldProfileId: input.currentProfileId,
+			spaceId: input.currentSpaceId,
+		})
+	);
+	const activeWakeSpaceIds = new Set(
 		usableActiveWakeSummaryItems.map((item) => item.spaceId)
 	);
+	if (
+		input.currentSpaceId.trim().length > 0 &&
+		hasVisibleActiveWakeProgress({
+			items: [
+				...(currentSpaceWakeProgressPresentationQuery.data ?? []),
+				...(currentSpaceActiveWakeProgressSummaryQuery.data?.items ?? []),
+			],
+		})
+	) {
+		activeWakeSpaceIds.add(input.currentSpaceId);
+	}
 	const pinMutation = useMutation({
 		mutationFn: async (variables: SpacePinMutationInput) =>
 			await setAccountSpaceItemPinned({

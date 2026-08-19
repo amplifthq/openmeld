@@ -12,6 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyWakeProgressSignals,
   createWakeProgressItem,
+  hasVisibleActiveWakeProgress,
+  isActiveWakeProgressItem,
   isWakeProgressSourceSignalRecoverable,
   mergeWakeProgressItems,
 } from "../src";
@@ -27,6 +29,64 @@ describe("Wake progress projection", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it.each([
+    "sending",
+    "request_sent",
+    "queued",
+    "connecting",
+    "running",
+    "writing",
+    "publishing",
+    "retrying",
+  ] as const)("classifies visible %s progress as active", (phase) => {
+    const item = createWakeProgressItem({
+      clientMessageId: "client-message-1",
+      dispatchId: "dispatch-1",
+      phase,
+      sourceSignalId: "sig-source-1",
+      targetLabel: "Codex",
+      targetProfileId: TARGET_PROFILE_ID,
+      updatedAtMs: 1000,
+    });
+
+    expect(isActiveWakeProgressItem(item)).toBe(true);
+    expect(hasVisibleActiveWakeProgress({ items: [item], nowMs: 1000 })).toBe(
+      true
+    );
+  });
+
+  it("does not classify terminal or locally expired progress as active", () => {
+    const terminalItem = createWakeProgressItem({
+      clientMessageId: "client-message-terminal",
+      dispatchId: "dispatch-terminal",
+      phase: "failed",
+      sourceSignalId: "sig-source-terminal",
+      targetLabel: "Codex",
+      targetProfileId: TARGET_PROFILE_ID,
+      updatedAtMs: 1000,
+    });
+    const expiredItem = createWakeProgressItem({
+      clientMessageId: "client-message-expired",
+      dispatchId: "dispatch-expired",
+      phase: "running",
+      sourceSignalId: "sig-source-expired",
+      targetLabel: "Codex",
+      targetProfileId: TARGET_PROFILE_ID,
+      updatedAtMs: 1000,
+    });
+
+    expect(isActiveWakeProgressItem(terminalItem)).toBe(false);
+    expect(
+      hasVisibleActiveWakeProgress({ items: [terminalItem], nowMs: 1000 })
+    ).toBe(false);
+    expect(
+      hasVisibleActiveWakeProgress({
+        items: [expiredItem],
+        nowMs: 1_801_001,
+      })
+    ).toBe(false);
   });
 
   it("projects Wake progress from local send through final reply cleanup", () => {
