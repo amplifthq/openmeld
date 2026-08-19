@@ -180,10 +180,14 @@ the connected provider API.
    available only when the user is a verified current human member and
    explicitly asks the Center Agent to publish a top-level message in a named
    channel or reply to an exact existing thread. A thread target is valid only
-   for the current interactive execution and must come from the user's Slack
-   link or trusted Slack evidence; it is never inferred. A Routine or approved
-   Organization document publication remains top-level. A Routine may use the
-   action only when its stored structured grant explicitly contains
+   for the current interactive execution and must come from an exact Slack
+   message permalink in the user's request or from Slack evidence returned in
+   that turn; it is never inferred from a model-authored channel name or raw
+   timestamp. Remote Agent retains only the bounded target selector needed for
+   that execution, and Core verifies the permalink against the connected Slack
+workspace before freezing the canonical channel and root thread. A Routine
+or approved Organization document publication remains top-level. A Routine may
+use the action only when its stored structured grant explicitly contains
    `slack.publish_channel_report`; Core rechecks that canonical Routine grant
    independently before provider I/O. The model selects either the current turn,
    the authorized Routine Run, or an exact approved Organization document as the

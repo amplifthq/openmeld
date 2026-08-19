@@ -439,6 +439,113 @@ describe("current device target service", () => {
     expect(legacyResult.localRuntimes[0]?.localFolderPicker).toBeUndefined();
   });
 
+  it("projects current-device capabilities only from the freshest Service session", async () => {
+    const store = createInMemoryCurrentDeviceTargetStore({
+      executionTargetsByUserId: {
+        "owner-1": [
+          {
+            agentControllerRef: "builtin:codex",
+            capabilityReasonCodes: [],
+            capabilityStatus: "ready",
+            deviceId: "device-owner-1",
+            lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+            runtimeLane: "dev-local",
+          },
+        ],
+      },
+      ownedDevicesByUserId: {
+        "owner-1": [
+          createOwnedDeviceRecord({
+            deviceId: "device-owner-1",
+            ownerUserId: "owner-1",
+          }),
+        ],
+      },
+    });
+    await seedCurrentDeviceTarget({
+      deviceId: "device-owner-1",
+      runtimeLane: "dev-local",
+      store,
+      userId: "owner-1",
+    });
+
+    const result = await listLocalRuntimesUseCase({
+      lookupOwnerService: () =>
+        Promise.resolve({
+          online: true as const,
+          sessions: [
+            {
+              capabilities: {},
+              connectionGeneration: 2,
+              daemonSessionId: "daemon-session-current",
+              deviceId: "device-owner-1",
+              executionCompatibility: COMPATIBLE_SERVICE,
+              lane: "dev-local" as const,
+              lastHeartbeatMs: Date.parse("2026-04-10T00:06:00.000Z"),
+              serviceVersion: "999.0.0",
+            },
+            {
+              capabilities: {
+                computerFileAccess: {
+                  readPolicy: true,
+                  updatePolicy: true,
+                },
+                localAgentControl: {
+                  manageInstallations: true,
+                  refreshCatalog: true,
+                  setEnabled: true,
+                  setProfileWorkspace: true,
+                },
+                localFolderPicker: { selectFolders: true },
+                localProjectControl: {
+                  connectCandidate: true,
+                  connectDeclaredPath: true,
+                  discoverProjects: true,
+                  moveConnection: true,
+                  removeConnection: true,
+                  removeMissingConnections: true,
+                  setDefaultConnection: true,
+                },
+              },
+              connectionGeneration: 1,
+              daemonSessionId: "daemon-session-stale",
+              deviceId: "device-owner-1",
+              executionCompatibility: COMPATIBLE_SERVICE,
+              lane: "dev-local" as const,
+              lastHeartbeatMs: Date.parse("2026-04-10T00:05:00.000Z"),
+              serviceVersion: "998.0.0",
+            },
+          ],
+        }),
+      store,
+      userId: "owner-1",
+    });
+
+    expect(result.localRuntimes[0]).toMatchObject({
+      executionTargets: [
+        {
+          localAgentControl: {
+            refreshCatalog: false,
+            setEnabled: false,
+            setProfileWorkspace: false,
+          },
+          localProjectControl: {
+            connectCandidate: false,
+            connectDeclaredPath: false,
+            discoverProjects: false,
+            moveConnection: false,
+            removeConnection: false,
+            removeMissingConnections: false,
+            setDefaultConnection: false,
+          },
+        },
+      ],
+    });
+    expect(result.localRuntimes[0]?.computerFileAccess).toBeUndefined();
+    expect(result.localRuntimes[0]?.localFolderPicker).toBeUndefined();
+  });
+
   it("projects connected computers as cards while keeping unmapped device rows as legacy evidence", async () => {
     const store = createInMemoryCurrentDeviceTargetStore({
       executionTargetsByUserId: {
