@@ -1451,6 +1451,10 @@ export async function handleDispatchDeliverFrame(input: {
         agentControllerConversationOverride,
       })
     );
+    const controllerTurnCompletion = runtimeExecutionPromise.then(
+      () => undefined,
+      () => undefined
+    );
     let runtimeResult = await resolveRuntimeResultFromRuntimeOrCliSpaceAction({
       contextIdForDispatch,
       dispatchSpaceActionContext,
@@ -1484,6 +1488,7 @@ export async function handleDispatchDeliverFrame(input: {
     const structuredSpaceActionOutcome =
       await resolveRuntimeResultStructuredSpaceAction({
         computerFileAccessBoundary,
+        controllerTurnCompletion,
         ledgerIo,
         ledgerPaths: input.ledgerPaths,
         instructionPrompt: runtimePromptPlan,
@@ -1659,6 +1664,7 @@ export async function handleDispatchDeliverFrame(input: {
         const reconsidered = await resolveRuntimeResultStructuredSpaceAction({
           agentReplyObservationCursor,
           computerFileAccessBoundary,
+          controllerTurnCompletion,
           ledgerIo: completedLedgerIo,
           ledgerPaths: input.ledgerPaths,
           instructionPrompt: completedRuntimePromptPlan,
@@ -3119,6 +3125,7 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
   allowConcurrentReplyReconsideration?: boolean;
   cliEntry?: string | null;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
+  controllerTurnCompletion: Promise<void>;
   dispatchSpaceActionContext: DispatchSpaceActionContext | null;
   ledgerIo: ReturnType<typeof createLedgerIo>;
   ledgerPaths: LedgerPaths;
@@ -3349,6 +3356,7 @@ async function coordinateConcurrentAgentReply(input: {
   agentReplyObservationCursor?: string | null;
   cliEntry?: string | null;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
+  controllerTurnCompletion: Promise<void>;
   dispatchSpaceActionContext: DispatchSpaceActionContext | null;
   ledgerIo: ReturnType<typeof createLedgerIo>;
   ledgerPaths: LedgerPaths;
@@ -3450,6 +3458,7 @@ async function coordinateConcurrentAgentReply(input: {
             "The Space changed, but the exact Agent conversation is unavailable for reply reconsideration.",
         });
       }
+      await input.controllerTurnCompletion;
       if (input.dispatchSpaceActionContext) {
         supersedeDispatchSpaceActionRecordForReconsideration({
           context: input.dispatchSpaceActionContext,
