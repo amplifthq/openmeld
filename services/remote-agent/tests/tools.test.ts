@@ -932,8 +932,17 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
-  it("passes an exact Slack thread target for an interactive current turn", async () => {
-    const request = createSubmitTurnRequest();
+  it("passes an exact user-linked Slack thread target for an interactive current turn", async () => {
+    const threadPermalink =
+      "https://openmeld.slack.com/archives/C123/p1786979718343639";
+    const request = createSubmitTurnRequest({
+      messages: [
+        {
+          content: `Reply to this exact thread: ${threadPermalink}`,
+          role: "user",
+        },
+      ],
+    });
     const centerAgentPostSlackChannelMessage = vi.fn(async () =>
       slackChannelMessageResponse()
     );
@@ -950,15 +959,13 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(tools, "openmeld_post_slack_channel_message", {
-        channelName: "ok8-okok",
         publicationSource: { kind: "current_turn" },
         text: "Here is the proposed next step.",
-        threadTs: "1786979718.343639",
+        threadPermalink,
       })
     ).resolves.toEqual(slackChannelMessageResponse());
 
     expect(centerAgentPostSlackThreadMessage).toHaveBeenCalledWith({
-      channelName: "ok8-okok",
       context: expectedHostedCenterAgentContext(
         request,
         "openmeld_post_slack_channel_message"
@@ -972,13 +979,72 @@ describe("remote agent OpenMeld tool catalog", () => {
         userId: "user_1",
       },
       text: "Here is the proposed next step.",
-      threadTs: "1786979718.343639",
+      threadPermalink,
     });
     expect(centerAgentPostSlackChannelMessage).not.toHaveBeenCalled();
   });
 
-  it("fails closed when Core does not support exact Slack thread publication", async () => {
+  it("rejects a model-invented Slack thread target before calling Core", async () => {
     const request = createSubmitTurnRequest();
+    const centerAgentPostSlackThreadMessage = vi.fn(async () =>
+      slackChannelMessageResponse()
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentPostSlackThreadMessage },
+      storage: await createStorageWithPendingContext(request),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_post_slack_channel_message", {
+        publicationSource: { kind: "current_turn" },
+        text: "Here is the proposed next step.",
+        threadPermalink:
+          "https://openmeld.slack.com/archives/C123/p1786979718343639",
+      })
+    ).rejects.toThrow(
+      "Use a Slack thread permalink supplied by the user or returned by Slack evidence in this turn."
+    );
+    expect(centerAgentPostSlackThreadMessage).not.toHaveBeenCalled();
+  });
+
+  it("requires exactly one top-level Slack tool destination", async () => {
+    const request = createSubmitTurnRequest();
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      storage: await createStorageWithPendingContext(request),
+    });
+    const tool = tools.find(
+      (candidate) => candidate.name === "openmeld_post_slack_channel_message"
+    );
+
+    expect(
+      safeParse(tool?.input as never, {
+        publicationSource: { kind: "current_turn" },
+        text: "Missing destination.",
+      }).success
+    ).toBe(false);
+    expect(
+      safeParse(tool?.input as never, {
+        channelName: "release",
+        publicationSource: { kind: "current_turn" },
+        text: "Ambiguous destination.",
+        threadPermalink:
+          "https://openmeld.slack.com/archives/C123/p1786979718343639",
+      }).success
+    ).toBe(false);
+  });
+
+  it("fails closed when Core does not support exact Slack thread publication", async () => {
+    const threadPermalink =
+      "https://openmeld.slack.com/archives/C123/p1786979718343639";
+    const request = createSubmitTurnRequest({
+      messages: [
+        {
+          content: `Reply to this exact thread: ${threadPermalink}`,
+          role: "user",
+        },
+      ],
+    });
     const centerAgentPostSlackChannelMessage = vi.fn(async () =>
       slackChannelMessageResponse()
     );
@@ -989,10 +1055,9 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(tools, "openmeld_post_slack_channel_message", {
-        channelName: "ok8-okok",
         publicationSource: { kind: "current_turn" },
         text: "Here is the proposed next step.",
-        threadTs: "1786979718.343639",
+        threadPermalink,
       })
     ).rejects.toThrow(
       "OpenMeld Core RPC centerAgentPostSlackThreadMessage is unavailable."
@@ -1012,22 +1077,21 @@ describe("remote agent OpenMeld tool catalog", () => {
 
     await expect(
       executeTool(interactiveTools, "openmeld_post_slack_channel_message", {
-        channelName: "ok8-okok",
         publicationSource: { kind: "current_turn" },
         text: "Here is the proposed next step.",
-        threadTs: "not-a-slack-timestamp",
+        threadPermalink: "not-a-slack-permalink",
       })
     ).rejects.toThrow();
 
     await expect(
       executeTool(interactiveTools, "openmeld_post_slack_channel_message", {
-        channelName: "ok8-okok",
         publicationSource: {
           documentId: "document_release_notes",
           kind: "organization_document",
         },
         text: "Here is the approved release note.",
-        threadTs: "1786979718.343639",
+        threadPermalink:
+          "https://openmeld.slack.com/archives/C123/p1786979718343639",
       })
     ).rejects.toThrow(
       "Slack thread publication requires an explicitly requested interactive current turn."
@@ -1045,10 +1109,10 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
     await expect(
       executeTool(routineTools, "openmeld_post_slack_channel_message", {
-        channelName: "ok8-okok",
         publicationSource: { kind: "current_turn" },
         text: "Here is the Routine report.",
-        threadTs: "1786979718.343639",
+        threadPermalink:
+          "https://openmeld.slack.com/archives/C123/p1786979718343639",
       })
     ).rejects.toThrow(
       "Slack thread publication requires an explicitly requested interactive current turn."
@@ -1972,7 +2036,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       "Do not put clickable links, Slack mentions, or channel references inside inline code or fenced code blocks."
     );
     expect(descriptions.get("openmeld_post_slack_channel_message")).toContain(
-      "Pass threadTs only when the user explicitly asks to reply to that exact existing thread"
+      "pass only the exact threadPermalink from the user's request or Slack evidence returned in this turn"
     );
     expect(descriptions.get("openmeld_read_dispatch_history")).toContain(
       "historical dispatch evidence"

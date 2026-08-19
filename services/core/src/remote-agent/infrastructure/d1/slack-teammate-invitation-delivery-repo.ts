@@ -184,42 +184,6 @@ export async function claimJoinedSlackInvitedMembers(input: {
 }): Promise<SlackInvitedMemberOnboarding[]> {
   const claimed: SlackInvitedMemberOnboarding[] = [];
   for (const candidate of input.candidates) {
-    const identityLink = input.db
-      .prepare(
-        `
-          INSERT INTO slack_user_identity_links (
-            organization_id,
-            slack_team_id,
-            slack_user_id,
-            openmeld_user_id,
-            source,
-            created_at_ms
-          )
-          SELECT
-            organization_id,
-            slack_team_id,
-            target_slack_user_id,
-            ?,
-            'email_auto',
-            ?
-          FROM slack_teammate_invitation_deliveries
-          WHERE interaction_id = ?
-            AND target_slack_user_id = ?
-            AND status = 'delivered'
-            AND onboarding_status = 'waiting_for_join'
-          ON CONFLICT(slack_team_id, slack_user_id) DO UPDATE SET
-            organization_id = excluded.organization_id,
-            openmeld_user_id = excluded.openmeld_user_id,
-            source = excluded.source
-          WHERE slack_user_identity_links.openmeld_user_id = excluded.openmeld_user_id
-        `
-      )
-      .bind(
-        candidate.joinedUserId,
-        input.nowMs,
-        candidate.interactionId,
-        candidate.targetSlackUserId
-      );
     const onboardingClaim = input.db
       .prepare(
         `
@@ -264,10 +228,7 @@ export async function claimJoinedSlackInvitedMembers(input: {
         candidate.targetSlackUserId,
         candidate.joinedUserId
       );
-    const [, claimResult] = await input.db.batch([
-      identityLink,
-      onboardingClaim,
-    ]);
+    const claimResult = await onboardingClaim.run();
     if (Number(claimResult?.meta.changes ?? 0) === 1) {
       const row = await input.db
         .prepare(

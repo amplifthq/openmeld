@@ -520,6 +520,7 @@ import {
   type DisableAgentProfilePrimaryBindingInput,
   type DisconnectCenterAgentSlackWorkspaceInput,
   type DisconnectLarkPlatformRegistrationInput,
+  type DisconnectMessageChannelIdentityLinkInput,
   type DiscoverProjectsInput,
   type EnrollLocalRuntimeInput,
   type EnsureAgentProfilePrimaryBindingInput,
@@ -698,6 +699,7 @@ import {
   rpcDisableAgentProfilePrimaryBinding,
   rpcDisconnectCenterAgentSlackWorkspace,
   rpcDisconnectLarkPlatformRegistration,
+  rpcDisconnectMessageChannelIdentityLink,
   rpcDiscoverProjects,
   rpcEnrollLocalRuntime,
   rpcEnsureAgentProfilePrimaryBinding,
@@ -2170,6 +2172,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: DisconnectLarkPlatformRegistrationInput
   ): Promise<MessageChannelConnectionListResponse> {
     return rpcDisconnectLarkPlatformRegistration(this.env, input);
+  }
+
+  disconnectMessageChannelIdentityLink(
+    input: DisconnectMessageChannelIdentityLinkInput
+  ): Promise<MessageChannelConnectionListResponse> {
+    return rpcDisconnectMessageChannelIdentityLink(this.env, input);
   }
 
   getCenterAgentDirectMessageSpaceProjection(
@@ -3740,6 +3748,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: DisconnectLarkPlatformRegistrationInput
   ): Promise<MessageChannelConnectionListResponse> {
     return super.disconnectLarkPlatformRegistration(input);
+  }
+
+  disconnectMessageChannelIdentityLink(
+    input: DisconnectMessageChannelIdentityLinkInput
+  ): Promise<MessageChannelConnectionListResponse> {
+    return super.disconnectMessageChannelIdentityLink(input);
   }
 
   getCenterAgentDirectMessageSpaceProjection(

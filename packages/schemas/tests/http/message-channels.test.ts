@@ -8,6 +8,7 @@ import {
   MESSAGE_CHANNEL_ERROR_CODES,
   messageChannelConnectionListResponseSchema,
   messageChannelConnectionProjectionSchema,
+  messageChannelIdentityLinkIdSchema,
 } from "../../src/index";
 
 describe("Message Channel HTTP contracts", () => {
@@ -67,6 +68,18 @@ describe("Message Channel HTTP contracts", () => {
       availableLarkPlatformProviders: ["lark"],
       connections: [{ provider: "lark" }, { provider: "slack" }],
     });
+  });
+
+  it("keeps one canonical opaque identity-link reference", () => {
+    expect(
+      messageChannelIdentityLinkIdSchema.safeParse(
+        `channel_identity_${"a".repeat(64)}`
+      ).success
+    ).toBe(true);
+    expect(
+      messageChannelIdentityLinkIdSchema.safeParse("channel_identity_short")
+        .success
+    ).toBe(false);
   });
 
   it("rejects duplicate lifecycle facts, secrets, raw scopes, and invalid timestamps", () => {

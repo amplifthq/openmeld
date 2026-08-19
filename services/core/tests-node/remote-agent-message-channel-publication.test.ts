@@ -13,6 +13,7 @@ import {
   createMessageChannelProviderRegistry,
   type MessageChannelProviderAdapter,
 } from "../src/remote-agent/application/message-channel-adapters";
+import { digestMessageChannelIdentityLinkToken } from "../src/remote-agent/application/message-channel-identity-link-token";
 import {
   publishRemoteAgentMessageChannelCallback,
   REMOTE_AGENT_LARK_PLATFORM_REPLY_DEDUPLICATION_WINDOW_MS,
@@ -36,11 +37,13 @@ import {
 } from "../src/remote-agent/infrastructure/d1/message-channel-provider-progress-repo";
 import {
   markRemoteAgentNativeDeliveryAck,
+  persistRemoteAgentWorkerSubmitRequest,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   upsertRemoteAgentNativeDeliveryRecord,
 } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
   applyDrizzleMigrationForTable,
+  applyDrizzleMigrationsForTables,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
 
@@ -262,6 +265,82 @@ describe("Remote Agent Message Channel publication", () => {
           text: "I need your OpenMeld account before I can continue. OpenMeld will send you a private message with a “Connect my account and continue” button. After you connect, I’ll continue this request automatically.",
         })
       );
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("lets a verified Message Channel member request a fresh account-connection action", async () => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelPublicationMigrations(harness);
+    seedConnection(harness, "connected");
+    const publishIdentityLinkGuidance = vi.fn<
+      MessageChannelProviderAdapter["publishIdentityLinkGuidance"]
+    >(async () => ({
+      resultId: "message_identity_guidance_lark_1",
+      status: "published" as const,
+    }));
+    const adapter = createAdapter("lark", {
+      publishIdentityLinkGuidance,
+      publishReply: vi.fn(async () => ({
+        resultId: "message_result_lark_1",
+        status: "published" as const,
+      })),
+    });
+    try {
+      await createSubmittedMessageChannelDelivery(harness.db);
+      await persistRemoteAgentWorkerSubmitRequest({
+        db: harness.db,
+        idempotencyKey: IDEMPOTENCY_KEY,
+        nowMs: 1050,
+        workerSubmitRequest: createVerifiedMessageChannelWorkerRequest(),
+      });
+      await acceptMessageChannelDelivery(harness.db);
+
+      await expect(
+        completeRemoteAgentNativeDelivery(
+          buildEnv(harness.db),
+          {
+            ...createCompletedCallback(),
+            navigationTarget: {
+              kind: "message_channel_identity_link",
+              purpose: "optional_setup",
+            },
+          },
+          {
+            messageChannelNowMs: () => 2000,
+            messageChannelProviderRegistry:
+              createMessageChannelProviderRegistry([adapter]),
+          }
+        )
+      ).resolves.toEqual({
+        publishedSignalId: "message_result_lark_1",
+        status: "accepted",
+      });
+
+      expect(publishIdentityLinkGuidance).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerUserId: "open_user_1",
+          purpose: "optional_setup",
+        })
+      );
+      const linkUrl = publishIdentityLinkGuidance.mock.calls[0]?.[0].linkUrl;
+      const token = new URL(linkUrl ?? "").searchParams.get("token");
+      await expect(
+        harness.db
+          .prepare(
+            `
+              SELECT claimed_by_user_id, link_purpose
+              FROM openMeldRemoteAgent_message_channel_identity_link_tokens
+              WHERE token_hash = ?
+            `
+          )
+          .bind(await digestMessageChannelIdentityLinkToken(token ?? ""))
+          .first()
+      ).resolves.toEqual({
+        claimed_by_user_id: null,
+        link_purpose: "optional_setup",
+      });
     } finally {
       harness.close();
     }
@@ -1891,14 +1970,11 @@ function applyMessageChannelPublicationMigrations(
   harness.run({
     sql: "INSERT INTO organizations (id) VALUES ('org_1')",
   });
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_native_delivery_ledger"
-  );
-  applyDrizzleMigrationForTable(
-    harness,
-    "openMeldRemoteAgent_lark_platform_channel_connections"
-  );
+  applyDrizzleMigrationsForTables(harness, [
+    "openMeldRemoteAgent_native_delivery_ledger",
+    "openMeldRemoteAgent_lark_platform_channel_connections",
+    "openMeldRemoteAgent_message_channel_identity_link_tokens",
+  ]);
   applyDrizzleMigrationForTable(harness, "agent_delegation_children");
   applyDrizzleMigrationForTable(harness, "agent_delegations");
   applyDrizzleMigrationForTable(harness, "agent_task_completion_subscriptions");
@@ -2204,6 +2280,78 @@ function createCompletedCallback(): Exclude<
   };
 }
 
+function createVerifiedMessageChannelWorkerRequest() {
+  return {
+    agentProfileId: AGENT_PROFILE_ID,
+    agentProfileOwnerUserId: "user_owner",
+    author: {
+      displayName: "Ari",
+      profileId: "22222222-2222-4222-8222-222222222222",
+      profileKind: "human" as const,
+    },
+    bindingId: "binding_1",
+    dispatchId: "dispatch_message_channel_1",
+    idempotencyKey: IDEMPOTENCY_KEY,
+    messages: [
+      { content: "Please prepare the launch plan.", role: "user" as const },
+    ],
+    onBehalfOf: {
+      displayName: "Ari",
+      profileId: "22222222-2222-4222-8222-222222222222",
+      profileKind: "human" as const,
+    },
+    organizationId: "org_1",
+    spaceId: CONVERSATION_ID,
+    triggerMessageId: "message_trigger_1",
+    turnEnvelope: {
+      centerAgent: {
+        profileHandle: "center-agent",
+        profileName: "Center Agent",
+      },
+      channelContext: {
+        conversationId: CONVERSATION_ID,
+        currentMessageId: "message_trigger_1",
+        messages: [],
+        provider: "lark" as const,
+        sync: { mode: "snapshot" as const, status: "complete" as const },
+      },
+      organization: {
+        id: "org_1",
+        memberCount: 2,
+        name: "OpenMeld Labs",
+        personal: false,
+      },
+      sender: {
+        displayName: "Ari",
+        id: "member_1",
+        kind: "member" as const,
+        messageChannelIdentity: {
+          connectionId: "connection_lark_1",
+          provider: "lark" as const,
+          providerUserId: "open_user_1",
+        },
+        ownerUserId: "user_1",
+        profileId: "22222222-2222-4222-8222-222222222222",
+        role: "member" as const,
+        verified: true,
+      },
+      space: {
+        id: CONVERSATION_ID,
+        isCenterAgentDm: false,
+        kind: "space" as const,
+        name: "Launch planning",
+      },
+      trigger: {
+        connectionId: "connection_lark_1",
+        conversationId: CONVERSATION_ID,
+        provider: "lark" as const,
+        source: "message_channel" as const,
+      },
+    },
+    v: 1 as const,
+  };
+}
+
 function createImageAttachment() {
   return {
     id: "attachment_generated_1",
@@ -2241,5 +2389,6 @@ function buildEnv(
     OPENMELD_SPACES: {
       get: spacesGet,
     } as unknown as CoreBindings["OPENMELD_SPACES"],
+    WEB_APP_URL: "https://openmeld.ai",
   } as CoreBindings;
 }

@@ -37,7 +37,7 @@ export async function projectOrganizationDocumentDraftReview(input: {
         kind: "document_review",
         occurredAtMs: input.draft.draftCreatedAtMs,
         organizationId: input.draft.organizationId,
-        preview: "The Center Agent prepared a document update for approval.",
+        preview: "The Center Agent prepared a document update for review.",
         recipientUserId,
         sourceKey,
         sourceKind: ORGANIZATION_DOCUMENT_DRAFT_SOURCE_KIND,

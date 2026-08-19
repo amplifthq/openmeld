@@ -36,6 +36,9 @@ function resolveSlackSetupTitle(
 	if (!preview) {
 		return "Join OpenMeld";
 	}
+	if (preview.replacesExistingLink) {
+		return "Move your Slack account";
+	}
 	if (preview.alreadyMember) {
 		return "Connect your Slack account";
 	}
@@ -47,6 +50,12 @@ function resolveSlackSetupSummary(
 	accountEmail: string | null
 ): string {
 	const openMeldAccount = accountEmail ?? "this OpenMeld account";
+	if (preview.replacesExistingLink) {
+		const continuation = preview.continuesRequest
+			? " OpenMeld will then continue your original request automatically."
+			: "";
+		return `Slack account @${preview.slackDisplayName} is connected to another OpenMeld profile. Continue to move it to ${openMeldAccount}; the previous profile will lose this connection.${continuation}`;
+	}
 	if (preview.alreadyMember) {
 		return preview.continuesRequest
 			? `Connect Slack account @${preview.slackDisplayName} to ${openMeldAccount} and continue your request.`
@@ -61,9 +70,15 @@ function resolveSlackSetupButtonLabel(input: {
 	alreadyMember: boolean;
 	continuesRequest: boolean;
 	pending: boolean;
+	replacesExistingLink: boolean;
 }): string {
 	if (input.pending) {
 		return "Setting you up...";
+	}
+	if (input.replacesExistingLink) {
+		return input.continuesRequest
+			? "Move to my account and continue"
+			: "Move to my account";
 	}
 	if (!input.continuesRequest) {
 		return input.alreadyMember ? "Connect my account" : "Join and connect";
@@ -73,14 +88,24 @@ function resolveSlackSetupButtonLabel(input: {
 		: "Join and continue";
 }
 
-function resolveSlackSetupCompletionMessage(result: SlackSetupResult): string {
+function resolveSlackSetupCompletionMessage(
+	result: SlackSetupResult,
+	continuesRequest: boolean
+): string {
+	if (!continuesRequest) {
+		return result.replacedExistingLink
+			? "Your Slack account was moved and is now connected here. You can return to Slack now."
+			: "Your Slack account is connected. You can return to Slack now.";
+	}
 	if (result.continued) {
 		return "I'm continuing your original request in the same Slack thread now.";
 	}
 	if (result.continuationRetryable) {
 		return "Your Slack account is connected, but I couldn't continue the request yet. Try continuing again.";
 	}
-	return "Your Slack account is connected. This older setup link cannot continue the request. Return to the original Slack thread and ask for a new setup button—you do not need to repeat your request.";
+	return result.replacedExistingLink
+		? "Your Slack account was moved and is now connected here. Return to Slack now."
+		: "Your Slack account is connected. This older setup link cannot continue the request. Return to the original Slack thread and ask for a new setup button—you do not need to repeat your request.";
 }
 
 function SlackSetupCompleted(input: {
@@ -94,9 +119,10 @@ function SlackSetupCompleted(input: {
 		<div className="space-y-3">
 			<p className="font-medium text-foreground text-sm">You're ready.</p>
 			<p className="text-muted-foreground text-sm">
-				{input.continuesRequest
-					? resolveSlackSetupCompletionMessage(input.result)
-					: "Your Slack account is connected. You can return to Slack now."}
+				{resolveSlackSetupCompletionMessage(
+					input.result,
+					input.continuesRequest
+				)}
 			</p>
 			{input.error ? (
 				<p className="text-destructive text-sm">
@@ -261,6 +287,7 @@ export function LinkSlackCard(input: { token: string | null }) {
 								alreadyMember: preview.alreadyMember,
 								continuesRequest: preview.continuesRequest,
 								pending: consumeMutation.isPending,
+								replacesExistingLink: preview.replacesExistingLink,
 							})}
 						</Button>
 					</div>

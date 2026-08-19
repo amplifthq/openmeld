@@ -22,6 +22,7 @@ export const MESSAGE_CHANNEL_ERROR_CODES = [
   "message_channel.identity_already_linked",
   "message_channel.identity_link_account_required",
   "message_channel.identity_link_membership_required",
+  "message_channel.identity_link_not_found",
   "message_channel.identity_link_token_invalid",
   "message_channel.organization_required",
   "message_channel.provider_disabled",
@@ -45,6 +46,9 @@ const reasonCodeSchema = nonEmptyStringSchema
 export const messageChannelConnectionStatusSchema = z.enum(
   MESSAGE_CHANNEL_CONNECTION_STATUSES
 );
+export const messageChannelIdentityLinkIdSchema = nonEmptyStringSchema
+  .max(82)
+  .regex(/^channel_identity_[0-9a-f]{64}$/u);
 export const larkPlatformProviderSchema = z.enum(["lark", "feishu"]);
 export const larkPlatformRegistrationBeginModeSchema = z.enum([
   "resume",
@@ -78,6 +82,14 @@ export const messageChannelConnectionProjectionSchema = z
     }
   });
 
+const messageChannelIdentityLinkProjectionSchema = z.strictObject({
+  connectedAt: z.iso.datetime({ offset: true }),
+  id: messageChannelIdentityLinkIdSchema,
+  openMeldUserId: nonEmptyStringSchema.max(256),
+  provider: messageChannelProviderSchema,
+  providerAccountName: nonEmptyStringSchema.max(256).nullable(),
+});
+
 export const messageChannelConnectionListResponseSchema = z
   .strictObject({
     organizationId: nonEmptyStringSchema.max(256),
@@ -85,6 +97,10 @@ export const messageChannelConnectionListResponseSchema = z
     connections: z
       .array(messageChannelConnectionProjectionSchema)
       .max(MESSAGE_CHANNEL_PROVIDERS.length),
+    identityLinks: z
+      .array(messageChannelIdentityLinkProjectionSchema)
+      .max(10_000)
+      .default([]),
   })
   .superRefine((response, context) => {
     if (
@@ -260,6 +276,7 @@ export const messageChannelIdentityLinkPreviewResponseSchema = z.strictObject({
   providerUserDisplayName: nonEmptyStringSchema.max(256),
   providerUserId: nonEmptyStringSchema.max(512),
   openMeldAccountEmail: nonEmptyStringSchema.max(320),
+  replacesExistingLink: z.boolean().default(false),
 });
 
 export const messageChannelIdentityLinkConsumeBodySchema = z.strictObject({
@@ -277,5 +294,6 @@ export const messageChannelIdentityLinkConsumeResponseSchema = z.strictObject({
   provider: larkPlatformProviderSchema,
   providerUserDisplayName: nonEmptyStringSchema.max(256),
   providerUserId: nonEmptyStringSchema.max(512),
+  replacedExistingLink: z.boolean().default(false),
   openMeldUserId: nonEmptyStringSchema.max(256),
 });

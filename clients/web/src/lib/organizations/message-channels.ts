@@ -32,6 +32,23 @@ export async function listCurrentOrganizationMessageChannels(input: {
 	}
 }
 
+export async function disconnectCurrentMessageChannelIdentityLink(input: {
+	identityLinkId: string;
+	organizationId: string;
+	signal?: AbortSignal;
+}): Promise<MessageChannelConnectionListResponse> {
+	try {
+		return await createMessageChannelApi(
+			input.organizationId
+		).disconnectMessageChannelIdentityLink({
+			identityLinkId: input.identityLinkId,
+			signal: input.signal,
+		});
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
 export async function listCurrentOrganizationLarkPlatformRegistrations(input: {
 	organizationId: string;
 	signal?: AbortSignal;
@@ -144,6 +161,8 @@ export function resolveMessageChannelErrorMessage(
 			return "You signed in with a different OpenMeld account. Sign out, sign in to your own OpenMeld account, then open the button again.";
 		case "message_channel.identity_link_membership_required":
 			return "This OpenMeld account is no longer a member of the Organization connected to this channel. Return to Lark or Feishu and ask the Center Agent for a new connection button.";
+		case "message_channel.identity_link_not_found":
+			return "This connected account no longer exists. Refresh People to see the latest accounts.";
 		case "message_channel.identity_link_token_invalid":
 			return "This link has expired. Ask the Center Agent again in Lark or Feishu.";
 		case "message_channel.provider_disabled":

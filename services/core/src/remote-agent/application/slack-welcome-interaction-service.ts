@@ -975,7 +975,7 @@ export function buildPrivateTeammateInvitationMessage(input: {
 
 OpenMeld is a place where people and agents work as one team. I help keep useful context together and move work to the right person or agent.
 
-Once you join, I’ll start getting to know your role and current work from the context your team has connected. I’ll make a first Profile Report and show you what I found. You can talk to me right here anytime.`;
+After you join, open your Human Profile in People and connect this Slack account. Then I’ll start getting to know your role and current work from the context your team has connected. I’ll make a first Profile Report and show you what I found. You can talk to me right here anytime.`;
 }
 
 function buildPrivateTeammateInvitationBlocks(input: {

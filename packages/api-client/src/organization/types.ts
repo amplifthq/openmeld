@@ -88,6 +88,11 @@ export type MessageChannelIdentityLinkPreviewInput = OrganizationRequestInput &
 export type MessageChannelIdentityLinkConsumeInput = OrganizationRequestInput &
   MessageChannelIdentityLinkConsumeBody;
 
+export type DisconnectMessageChannelIdentityLinkInput =
+  OrganizationRequestInput & {
+    identityLinkId: string;
+  };
+
 export type OrganizationApi = {
   getAgentProfileCreationDefaults: (
     input: AgentProfileCreationDefaultsRouteInput
@@ -142,6 +147,9 @@ export type OrganizationApi = {
   ) => Promise<LarkPlatformRegistrationResponse>;
   disconnectLarkPlatform: (
     input: BeginLarkPlatformRegistrationInput
+  ) => Promise<MessageChannelConnectionListResponse>;
+  disconnectMessageChannelIdentityLink: (
+    input: DisconnectMessageChannelIdentityLinkInput
   ) => Promise<MessageChannelConnectionListResponse>;
   wipeCurrentMemberCenterAgentMemory: (
     input?: OrganizationRequestInput

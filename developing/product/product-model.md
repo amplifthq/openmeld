@@ -47,7 +47,11 @@ or most privileged participant nearby. Center Agent may compare an unlinked
 internal participant's provider account with current Organization members, but
 that comparison grants no authority. Only the intended member's authenticated,
 explicit account connection can change a future request into a verified-member
-request.
+request. Matching email addresses are never account-connection authority. One
+provider account maps to at most one current OpenMeld member at a time; a new
+provider-private proof may move that account to a different member, while the
+linked member or an Organization Channel manager may explicitly disconnect a
+wrong link.
 
 OpenMeld connects that cloud collaboration room to local execution through OpenMeld
 Service. The user should experience one reliable collaboration loop, not a set

@@ -94,6 +94,7 @@ describe("LinkSlackCard", () => {
 			slackUserId: "U123",
 			slackWorkspaceLabel: "Acme HQ",
 			openMeldAccountEmail: "ari@example.test",
+			replacesExistingLink: false,
 		});
 		consumeSlackIdentityLinkMock.mockReset().mockResolvedValue({
 			continuationRetryable: false,
@@ -105,6 +106,7 @@ describe("LinkSlackCard", () => {
 			slackDisplayName: "ari",
 			slackTeamId: "T123",
 			slackUserId: "U123",
+			replacedExistingLink: false,
 			openMeldUserId: "user_member",
 		});
 		useAuthSessionMock.mockReturnValue({
@@ -159,6 +161,7 @@ describe("LinkSlackCard", () => {
 			slackUserId: "U123",
 			slackWorkspaceLabel: "Acme HQ",
 			openMeldAccountEmail: "ari@example.test",
+			replacesExistingLink: false,
 		});
 
 		render(
@@ -189,6 +192,7 @@ describe("LinkSlackCard", () => {
 			slackDisplayName: "ari",
 			slackTeamId: "T123",
 			slackUserId: "U123",
+			replacedExistingLink: false,
 			openMeldUserId: "user_member",
 		});
 
@@ -220,6 +224,7 @@ describe("LinkSlackCard", () => {
 				slackDisplayName: "ari",
 				slackTeamId: "T123",
 				slackUserId: "U123",
+				replacedExistingLink: false,
 				openMeldUserId: "user_member",
 			})
 			.mockResolvedValueOnce({
@@ -232,6 +237,7 @@ describe("LinkSlackCard", () => {
 				slackDisplayName: "ari",
 				slackTeamId: "T123",
 				slackUserId: "U123",
+				replacedExistingLink: false,
 				openMeldUserId: "user_member",
 			});
 
@@ -274,5 +280,53 @@ describe("LinkSlackCard", () => {
 			)
 		).toBeTruthy();
 		expect(previewSlackIdentityLinkMock).not.toHaveBeenCalled();
+	});
+
+	it("clearly confirms before moving Slack from another profile", async () => {
+		previewSlackIdentityLinkMock.mockResolvedValueOnce({
+			alreadyMember: true,
+			continuesRequest: false,
+			expiresAt: "2026-07-09T12:15:00.000Z",
+			organizationId: "org_1",
+			organizationName: "OpenMeld Labs",
+			slackDisplayName: "ari",
+			slackTeamId: "T123",
+			slackUserId: "U123",
+			slackWorkspaceLabel: "Acme HQ",
+			openMeldAccountEmail: "ari@example.test",
+			replacesExistingLink: true,
+		});
+		consumeSlackIdentityLinkMock.mockResolvedValueOnce({
+			continuationRetryable: false,
+			continued: false,
+			joinedOrganization: false,
+			linked: true,
+			organizationId: "org_1",
+			organizationName: "OpenMeld Labs",
+			slackDisplayName: "ari",
+			slackTeamId: "T123",
+			slackUserId: "U123",
+			replacedExistingLink: true,
+			openMeldUserId: "user_member",
+		});
+
+		render(
+			<TestQueryClientProvider>
+				<LinkSlackCard token={`slacklink_${"e".repeat(64)}`} />
+			</TestQueryClientProvider>
+		);
+
+		expect(await screen.findByText("Move your Slack account")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Slack account @ari is connected to another OpenMeld profile. Continue to move it to ari@example.test; the previous profile will lose this connection."
+			)
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Move to my account" }));
+		expect(
+			await screen.findByText(
+				"Your Slack account was moved and is now connected here. You can return to Slack now."
+			)
+		).toBeTruthy();
 	});
 });

@@ -105,6 +105,10 @@ type LocalFolderPickerByDeviceLane = ReadonlyMap<
   string,
   NonNullable<LocalRuntimeComputer["localFolderPicker"]>
 >;
+type LiveOwnerServiceSession = Extract<
+  RuntimeTransportLookupOwnerServiceResponse,
+  { online: true }
+>["sessions"][number];
 
 type ConnectCurrentDeviceIdentityResult =
   | {
@@ -1238,12 +1242,13 @@ function buildLocalAgentControlByDeviceLane(
   if (ownerService?.online !== true) {
     return controls;
   }
-  for (const session of ownerService.sessions) {
+  for (const session of selectCurrentOwnerServiceSessionsByDeviceLane(
+    ownerService
+  )) {
     const key = buildDeviceLaneKey({
       deviceId: session.deviceId,
       runtimeLane: session.lane,
     });
-    const previous = controls.get(key);
     const setEnabled =
       session.executionCompatibility.status === "compatible" &&
       session.capabilities.localAgentControl?.setEnabled === true;
@@ -1257,13 +1262,10 @@ function buildLocalAgentControlByDeviceLane(
       session.executionCompatibility.status === "compatible" &&
       session.capabilities.localAgentControl?.setProfileWorkspace === true;
     controls.set(key, {
-      ...(previous?.manageInstallations === true || manageInstallations
-        ? { manageInstallations: true }
-        : {}),
-      refreshCatalog: previous?.refreshCatalog === true || refreshCatalog,
-      setEnabled: previous?.setEnabled === true || setEnabled,
-      setProfileWorkspace:
-        previous?.setProfileWorkspace === true || setProfileWorkspace,
+      ...(manageInstallations ? { manageInstallations: true } : {}),
+      refreshCatalog,
+      setEnabled,
+      setProfileWorkspace,
     });
   }
   return controls;
@@ -1279,36 +1281,26 @@ function buildLocalProjectControlByDeviceLane(
   if (ownerService?.online !== true) {
     return controls;
   }
-  for (const session of ownerService.sessions) {
+  for (const session of selectCurrentOwnerServiceSessionsByDeviceLane(
+    ownerService
+  )) {
     const key = buildDeviceLaneKey({
       deviceId: session.deviceId,
       runtimeLane: session.lane,
     });
-    const previous = controls.get(key);
     const compatible = session.executionCompatibility.status === "compatible";
     const capabilities = session.capabilities.localProjectControl;
     controls.set(key, {
-      connectCandidate:
-        previous?.connectCandidate === true ||
-        (compatible && capabilities?.connectCandidate === true),
+      connectCandidate: compatible && capabilities?.connectCandidate === true,
       connectDeclaredPath:
-        previous?.connectDeclaredPath === true ||
-        (compatible && capabilities?.connectDeclaredPath === true),
-      discoverProjects:
-        previous?.discoverProjects === true ||
-        (compatible && capabilities?.discoverProjects === true),
-      moveConnection:
-        previous?.moveConnection === true ||
-        (compatible && capabilities?.moveConnection === true),
-      removeConnection:
-        previous?.removeConnection === true ||
-        (compatible && capabilities?.removeConnection === true),
+        compatible && capabilities?.connectDeclaredPath === true,
+      discoverProjects: compatible && capabilities?.discoverProjects === true,
+      moveConnection: compatible && capabilities?.moveConnection === true,
+      removeConnection: compatible && capabilities?.removeConnection === true,
       removeMissingConnections:
-        previous?.removeMissingConnections === true ||
-        (compatible && capabilities?.removeMissingConnections === true),
+        compatible && capabilities?.removeMissingConnections === true,
       setDefaultConnection:
-        previous?.setDefaultConnection === true ||
-        (compatible && capabilities?.setDefaultConnection === true),
+        compatible && capabilities?.setDefaultConnection === true,
     });
   }
   return controls;
@@ -1324,7 +1316,9 @@ function buildComputerFileAccessByDeviceLane(
   if (ownerService?.online !== true) {
     return controls;
   }
-  for (const session of ownerService.sessions) {
+  for (const session of selectCurrentOwnerServiceSessionsByDeviceLane(
+    ownerService
+  )) {
     if (
       session.executionCompatibility.status !== "compatible" ||
       session.capabilities.computerFileAccess?.readPolicy !== true ||
@@ -1353,7 +1347,9 @@ function buildLocalFolderPickerByDeviceLane(
   if (ownerService?.online !== true) {
     return controls;
   }
-  for (const session of ownerService.sessions) {
+  for (const session of selectCurrentOwnerServiceSessionsByDeviceLane(
+    ownerService
+  )) {
     if (
       session.executionCompatibility.status !== "compatible" ||
       session.capabilities.localFolderPicker?.selectFolders !== true
@@ -1369,6 +1365,29 @@ function buildLocalFolderPickerByDeviceLane(
     );
   }
   return controls;
+}
+
+function selectCurrentOwnerServiceSessionsByDeviceLane(
+  ownerService: Extract<
+    RuntimeTransportLookupOwnerServiceResponse,
+    { online: true }
+  >
+): LiveOwnerServiceSession[] {
+  const currentSessions = new Map<string, LiveOwnerServiceSession>();
+  // RuntimeTransport is the session authority and returns sessions in the same
+  // freshness order used by RuntimeTransportHub for current-device commands.
+  // Keep only its first session per device/lane; combining older capabilities
+  // would advertise an action the Hub will refuse on the current session.
+  for (const session of ownerService.sessions) {
+    const key = buildDeviceLaneKey({
+      deviceId: session.deviceId,
+      runtimeLane: session.lane,
+    });
+    if (!currentSessions.has(key)) {
+      currentSessions.set(key, session);
+    }
+  }
+  return [...currentSessions.values()];
 }
 
 function buildDeviceLaneKey(input: {

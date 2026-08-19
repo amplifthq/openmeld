@@ -30,7 +30,7 @@ import {
 	buildOrganizationHumanProfileRows,
 	buildPersonalHumanProfileRows,
 	type DirectoryDocumentsStatus,
-	type DirectoryMemberOpenMeldServiceDisplayState,
+	type DirectoryProjectionStatus,
 	resolveMissingPersonalHumanProfileMessage,
 } from "#/components/directory/directory-human-profile-model";
 import {
@@ -44,6 +44,10 @@ import {
 	inviteOrganizationMember,
 	type OrganizationInviteRole,
 } from "#/lib/organizations/auth-organizations";
+import {
+	disconnectCurrentMessageChannelIdentityLink,
+	resolveMessageChannelErrorMessage,
+} from "#/lib/organizations/message-channels";
 import {
 	resolveOrganizationDocumentErrorMessage,
 	startCurrentCenterAgentMemberResearch,
@@ -64,7 +68,11 @@ import {
 	centerAgentMemberResearchStatusQueryOptions,
 } from "#/query/organizations/center-agent-member-research";
 import {
-	organizationMemberOpenMeldServiceStatusesQueryOptions,
+	messageChannelListQueryOptions,
+	messageChannelQueryKeys,
+} from "#/query/organizations/message-channels";
+import {
+	organizationComputersQueryOptions,
 	organizationMemberRoleQueryOptions,
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
@@ -236,6 +244,9 @@ export function DirectoryMembersOverview(input: {
 	const canInvite = canManageOrganizationArea(roleQuery.data, {
 		invitation: ["create"],
 	});
+	const canManageConnectedAccounts = canManageOrganizationArea(roleQuery.data, {
+		channel: ["disconnect"],
+	});
 	const directMessageMutation = useMutation({
 		mutationFn: async (intent: HumanDirectMessageIntent) =>
 			await openCurrentDirectMessageSpace({
@@ -275,12 +286,41 @@ export function DirectoryMembersOverview(input: {
 			directMessageIntentInFlightRef.current = false;
 		}
 	};
-	const memberOpenMeldServiceStatusesQuery = useQuery(
-		organizationMemberOpenMeldServiceStatusesQueryOptions({
-			enabled: !isPersonalWorkspace,
+	const computersQuery = useQuery(
+		organizationComputersQueryOptions({
+			enabled: true,
 			organizationId: input.currentOrganization.id,
 		})
 	);
+	const messageChannelsQuery = useQuery({
+		...messageChannelListQueryOptions({
+			organizationId: input.currentOrganization.id,
+		}),
+		enabled: !isPersonalWorkspace,
+	});
+	const disconnectConnectedAccountMutation = useMutation({
+		mutationFn: async (identityLinkId: string) =>
+			await disconnectCurrentMessageChannelIdentityLink({
+				identityLinkId,
+				organizationId: input.currentOrganization.id,
+			}),
+		onError: (error) => {
+			console.error("Failed to disconnect Message Channel account.", error);
+			toast.error(
+				resolveMessageChannelErrorMessage(
+					error,
+					"OpenMeld could not disconnect this account. Try again."
+				)
+			);
+		},
+		onSuccess: (response) => {
+			queryClient.setQueryData(
+				messageChannelQueryKeys.list(input.currentOrganization.id),
+				response
+			);
+			toast.success("Connected account disconnected.");
+		},
+	});
 	const {
 		activeResearchBatch,
 		documentsQuery,
@@ -308,36 +348,30 @@ export function DirectoryMembersOverview(input: {
 		isError: documentsQuery.isError,
 		isSuccess: documentsQuery.isSuccess,
 	});
-	const currentMemberOpenMeldServiceStatuses =
-		memberOpenMeldServiceStatusesQuery.isError
-			? []
-			: (memberOpenMeldServiceStatusesQuery.data?.members ?? []);
-	const memberOpenMeldServiceStatesByUserId = new Map(
-		currentMemberOpenMeldServiceStatuses.map((member) => [
-			member.userId,
-			member.state,
-		])
-	);
-	const memberOpenMeldServiceFallbackState: DirectoryMemberOpenMeldServiceDisplayState =
-		memberOpenMeldServiceStatusesQuery.isPending ? "checking" : "unknown";
+	const computersStatus = resolveDirectoryProjectionStatus(computersQuery);
+	const messageChannelsStatus =
+		resolveDirectoryProjectionStatus(messageChannelsQuery);
 	const memberRows = isPersonalWorkspace
 		? buildPersonalHumanProfileRows({
 				account: input.account,
 				canCreateHumanProfile,
-				canCreateProfiles: documentsQuery.data?.canManage ?? false,
+				computers: computersQuery.data ?? null,
+				computersStatus,
 				documents: documentsQuery.data?.documents ?? [],
 				documentsStatus,
 				orgSlug: input.currentOrganization.slug,
 				profiles: personalHumanProfiles,
-				subjectUserId: documentsQuery.data?.currentUserId ?? "",
+				subjectUserId: input.currentUserId,
 			})
 		: buildOrganizationHumanProfileRows({
-				canCreateProfiles: documentsQuery.data?.canManage ?? false,
+				canManageConnectedAccounts,
+				computers: computersQuery.data ?? null,
+				computersStatus,
 				currentUserId: input.currentUserId,
 				documents: documentsQuery.data?.documents ?? [],
 				documentsStatus,
-				memberOpenMeldServiceFallbackState,
-				memberOpenMeldServiceStatesByUserId,
+				messageChannels: messageChannelsQuery.data ?? null,
+				messageChannelsStatus,
 				members: input.directoryQuery.data?.members ?? [],
 				orgSlug: input.currentOrganization.slug,
 			});
@@ -370,6 +404,9 @@ export function DirectoryMembersOverview(input: {
 			memberResearchError={researchErrors.member}
 			members={memberRows}
 			onCreateProfile={input.onCreateProfile}
+			onDisconnectConnectedAccount={(identityLinkId) =>
+				disconnectConnectedAccountMutation.mutate(identityLinkId)
+			}
 			onFocusConsumed={input.onFocusConsumed}
 			onOpenDirectMessage={openHumanDirectMessage}
 			onResearch={(subjectUserId) =>
@@ -413,6 +450,16 @@ export function DirectoryMembersOverview(input: {
 			{profilesSection}
 		</div>
 	);
+}
+
+function resolveDirectoryProjectionStatus(input: {
+	isError: boolean;
+	isPending: boolean;
+}): DirectoryProjectionStatus {
+	if (input.isPending) {
+		return "loading";
+	}
+	return input.isError ? "failed" : "ready";
 }
 
 function DirectoryInvitePanel(input: {

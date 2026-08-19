@@ -227,6 +227,9 @@ function resolveSetupTitle(
 	preview: MessageChannelSetupPreview,
 	providerName: "Feishu" | "Lark" | null
 ): string {
+	if (preview.replacesExistingLink) {
+		return `Move your ${providerName ?? "Message Channel"} account`;
+	}
 	if (preview.alreadyMember) {
 		return `Connect your ${providerName ?? "Message Channel"} account`;
 	}
@@ -243,6 +246,9 @@ function resolveSetupSummary(input: {
 	const continuation = input.preview.continuesRequest
 		? " OpenMeld will then continue your original request automatically."
 		: "";
+	if (input.preview.replacesExistingLink) {
+		return `${input.preview.providerUserDisplayName} on ${providerName} is connected to another OpenMeld profile. Continue to move it to ${account}; the previous profile will lose this connection.${continuation}`;
+	}
 	if (input.preview.alreadyMember) {
 		return `Connect ${input.preview.providerUserDisplayName} on ${providerName} to ${account}.${continuation}`;
 	}
@@ -250,6 +256,11 @@ function resolveSetupSummary(input: {
 }
 
 function resolveSetupButtonLabel(preview: MessageChannelSetupPreview): string {
+	if (preview.replacesExistingLink) {
+		return preview.continuesRequest
+			? "Move to my account and continue"
+			: "Move to my account";
+	}
 	if (!preview.continuesRequest) {
 		return preview.alreadyMember ? "Connect my account" : "Join and connect";
 	}
@@ -265,7 +276,9 @@ function resolveSetupCompletionMessage(input: {
 }): string {
 	const providerName = input.providerName ?? "your Message Channel";
 	if (!input.continuesRequest) {
-		return `Your account is connected. You can return to ${providerName} now.`;
+		return input.result.replacedExistingLink
+			? `Your account was moved and is now connected here. You can return to ${providerName} now.`
+			: `Your account is connected. You can return to ${providerName} now.`;
 	}
 	if (input.result.continued) {
 		return `The Center Agent is continuing your original request in ${providerName} now.`;

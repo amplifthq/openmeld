@@ -149,6 +149,7 @@ import type {
 import {
   array,
   boolean,
+  check,
   description,
   integer,
   literal,
@@ -164,7 +165,6 @@ import {
   picklist,
   pipe,
   record,
-  regex,
   safeParse as safeParseValibot,
   strictObject,
   string,
@@ -217,6 +217,10 @@ import {
   type RemoteAgentConnectorExecutionConfig,
 } from "./github-tools";
 import { REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX } from "./slack-member-research-state";
+import {
+  extractSlackSearchThreadPublicationTargetKeys,
+  parseSlackThreadPublicationTargetKey,
+} from "./slack-thread-publication-evidence";
 import {
   buildRemoteAgentToolContext,
   resolveOrganizationMemberTurnEnvelopeSpeaker,
@@ -525,6 +529,8 @@ const SLACK_DISPLAY_NAME_MENTION_PATTERN =
 const SLACK_MENTION_DIRECTORY_KEY_PREFIX =
   "remote-agent:slack-mention-directory:";
 const SLACK_MENTION_DIRECTORY_RETENTION_MS = 60 * 60 * 1000;
+const SLACK_THREAD_PUBLICATION_EVIDENCE_KEY_PREFIX =
+  "remote-agent:slack-thread-publication-evidence:";
 const SLACK_MEMBER_RESEARCH_CHANNEL_INSPECTION_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}channel-inspection:`;
 const SLACK_MEMBER_RESEARCH_CHANNEL_ELIGIBILITY_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}channel-eligibility:`;
 const SLACK_MEMBER_RESEARCH_HISTORY_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}history:`;
@@ -544,12 +550,6 @@ const slackChannelNameSchema = pipe(
   minLength(1),
   maxLength(80)
 );
-const slackMessageTimestampSchema = pipe(
-  string(),
-  trim(),
-  regex(/^\d+\.\d+$/),
-  maxLength(32)
-);
 const slackUserIdSchema = pipe(string(), trim(), minLength(1), maxLength(32));
 const slackTeammateInvitationToolInputSchema = strictObject({
   targetSlackUserIds: pipe(
@@ -558,21 +558,36 @@ const slackTeammateInvitationToolInputSchema = strictObject({
     maxLength(10)
   ),
 });
-const slackChannelMessageToolInputSchema = strictObject({
-  channelName: slackChannelNameSchema,
+const slackChannelMessagePublicationSourceToolInputSchema = union([
+  strictObject({
+    kind: literal("current_turn"),
+  }),
+  strictObject({
+    documentId: pipe(string(), trim(), minLength(1), maxLength(256)),
+    kind: literal("organization_document"),
+  }),
+]);
+const slackChannelMessageCommonToolInputFields = {
   mentionSlackUserIds: optional(pipe(array(slackUserIdSchema), maxLength(50))),
-  publicationSource: union([
-    strictObject({
-      kind: literal("current_turn"),
-    }),
-    strictObject({
-      documentId: pipe(string(), trim(), minLength(1), maxLength(256)),
-      kind: literal("organization_document"),
-    }),
-  ]),
+  publicationSource: slackChannelMessagePublicationSourceToolInputSchema,
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
-  threadTs: optional(slackMessageTimestampSchema),
-});
+};
+const slackChannelMessageToolInputSchema = pipe(
+  strictObject({
+    ...slackChannelMessageCommonToolInputFields,
+    channelName: optional(slackChannelNameSchema),
+    threadPermalink: optional(
+      pipe(string(), trim(), minLength(1), maxLength(2048))
+    ),
+  }),
+  check(
+    (input) =>
+      Number(input.channelName !== undefined) +
+        Number(input.threadPermalink !== undefined) ===
+      1,
+    "Provide exactly one Slack destination: channelName for a top-level message or threadPermalink for a thread reply."
+  )
+);
 const openCodePermissionSchema = optional(record(string(), unknownSchema()));
 const collaborationModeSchema = optional(
   pipe(
@@ -1786,7 +1801,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           (binding, rpcInput) =>
             binding.centerAgentSearchSlackMessages?.(rpcInput)
         );
-        return parseSlackSearchResponse(response);
+        const parsedResponse = parseSlackSearchResponse(response);
+        await rememberSlackThreadPublicationEvidence({
+          response: parsedResponse,
+          storage: input.storage,
+          submissionId: input.submissionId,
+        });
+        return parsedResponse;
       },
     }),
     toolDefinition({
@@ -3178,7 +3199,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_post_slack_channel_message",
       description:
-        "Post a message in a named Slack channel connected to the current Organization. Omit threadTs for a top-level message. Pass threadTs only when the user explicitly asks to reply to that exact existing thread, publicationSource is current_turn, and the exact root timestamp comes from the user's Slack link or trusted Slack evidence; never invent it. Organization document and Routine publications remain top-level. Use only when the user explicitly asks to publish in that channel; ordinary Slack replies belong in the originating thread. Set publicationSource to current_turn for a one-off message produced by this task. When publishing an approved Organization document, set publicationSource to organization_document with the exact documentId so one document revision cannot be posted twice to the same channel. To notify people, first call openmeld_read_slack_workspace_directory, then pass its exact slackUserId values through mentionSlackUserIds. Never type @Display Name or raw <@USER_ID> tokens into text. Write ordinary Markdown. Do not put clickable links, Slack mentions, or channel references inside inline code or fenced code blocks.",
+        "Post a top-level message in a named Slack channel connected to the current Organization, or reply to one exact existing thread. For a top-level message, pass channelName. For a thread reply, pass only the exact threadPermalink from the user's request or Slack evidence returned in this turn; never invent or reconstruct it. Thread replies require publicationSource current_turn. Organization document and Routine publications remain top-level. Use only when the user explicitly asks to publish there; ordinary Slack replies belong in the originating thread. Set publicationSource to current_turn for a one-off message produced by this task. When publishing an approved Organization document, set publicationSource to organization_document with the exact documentId so one document revision cannot be posted twice to the same channel. To notify people, first call openmeld_read_slack_workspace_directory, then pass its exact slackUserId values through mentionSlackUserIds. Never type @Display Name or raw <@USER_ID> tokens into text. Write ordinary Markdown. Do not put clickable links, Slack mentions, or channel references inside inline code or fenced code blocks.",
       input: slackChannelMessageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(
@@ -3190,14 +3211,39 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           submissionId: input.submissionId,
           toolName: "openmeld_post_slack_channel_message",
         });
+        const publicationTarget = (() => {
+          if (request.threadPermalink !== undefined) {
+            return {
+              kind: "thread",
+              threadPermalink: request.threadPermalink,
+            } as const;
+          }
+          if (request.channelName !== undefined) {
+            return {
+              channelName: request.channelName,
+              kind: "channel",
+            } as const;
+          }
+          throw new Error(
+            "Slack publication requires exactly one destination."
+          );
+        })();
+        const isThreadPublication = publicationTarget.kind === "thread";
         if (
-          request.threadTs &&
+          isThreadPublication &&
           (request.publicationSource.kind !== "current_turn" ||
             toolContext.turnEnvelope?.trigger.source === "routine")
         ) {
           throw new Error(
             "Slack thread publication requires an explicitly requested interactive current turn."
           );
+        }
+        if (isThreadPublication) {
+          await requireTrustedSlackThreadPublicationTarget({
+            permalink: publicationTarget.threadPermalink,
+            storage: input.storage,
+            submissionId: input.submissionId,
+          });
         }
         const externalWriteBlock = resolveRemoteAgentRoutineExternalWriteBlock(
           toolContext,
@@ -3220,11 +3266,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
             "Slack channel publication requires a verified human member speaker."
           );
         }
-        const rpcName = request.threadTs
+        const rpcName = isThreadPublication
           ? "centerAgentPostSlackThreadMessage"
           : "centerAgentPostSlackChannelMessage";
         const rpc = requireCoreRpc(
-          request.threadTs
+          isThreadPublication
             ? input.coreWorker.centerAgentPostSlackThreadMessage
             : input.coreWorker.centerAgentPostSlackChannelMessage,
           rpcName
@@ -3232,7 +3278,6 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         return parseCoreToolResponse(
           centerAgentPostSlackChannelMessageResponseSchema,
           await rpc({
-            channelName: normalizeSlackChannelName(request.channelName),
             context: toolContext.context,
             publicationSource: resolveSlackChannelPublicationSource({
               publicationSource: request.publicationSource,
@@ -3241,7 +3286,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
             }),
             speakerMember,
             text,
-            ...(request.threadTs ? { threadTs: request.threadTs } : {}),
+            ...(isThreadPublication
+              ? { threadPermalink: publicationTarget.threadPermalink }
+              : {
+                  channelName: normalizeSlackChannelName(
+                    publicationTarget.channelName
+                  ),
+                }),
           }),
           rpcName,
           "Slack channel message response"
@@ -4955,6 +5006,55 @@ async function rememberSlackMentionDirectory(input: {
     returnedIds,
     Date.now() + SLACK_MENTION_DIRECTORY_RETENTION_MS
   );
+}
+
+async function rememberSlackThreadPublicationEvidence(input: {
+  response: unknown;
+  storage: RemoteAgentStorage;
+  submissionId: string;
+}): Promise<void> {
+  const returnedTargetKeys = extractSlackSearchThreadPublicationTargetKeys(
+    input.response
+  );
+  if (returnedTargetKeys.length === 0) {
+    return;
+  }
+  const key = `${SLACK_THREAD_PUBLICATION_EVIDENCE_KEY_PREFIX}${input.submissionId}`;
+  const previousTargetKeys = (await input.storage.get<string[]>(key)) ?? [];
+  await input.storage.putExpiring(
+    key,
+    [...new Set([...previousTargetKeys, ...returnedTargetKeys])],
+    Date.now() + SLACK_MENTION_DIRECTORY_RETENTION_MS
+  );
+}
+
+async function requireTrustedSlackThreadPublicationTarget(input: {
+  permalink: string;
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+}): Promise<void> {
+  const targetKey = parseSlackThreadPublicationTargetKey(input.permalink);
+  const callbackContext = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.submissionId
+  );
+  const returnedTargetKeys =
+    (await input.storage.get<string[]>(
+      `${SLACK_THREAD_PUBLICATION_EVIDENCE_KEY_PREFIX}${input.submissionId}`
+    )) ?? [];
+  if (
+    !(
+      targetKey &&
+      new Set([
+        ...(callbackContext?.trustedSlackThreadPublicationTargetKeys ?? []),
+        ...returnedTargetKeys,
+      ]).has(targetKey)
+    )
+  ) {
+    throw new Error(
+      "Use a Slack thread permalink supplied by the user or returned by Slack evidence in this turn."
+    );
+  }
 }
 
 async function rememberSlackMemberResearchSubjectMatches(input: {

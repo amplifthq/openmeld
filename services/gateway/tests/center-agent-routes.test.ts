@@ -13,6 +13,7 @@ type CoreRpcMock = {
   createCenterAgentContextManifest: ReturnType<typeof vi.fn>;
   designateCenterAgent: ReturnType<typeof vi.fn>;
   disconnectLarkPlatformRegistration: ReturnType<typeof vi.fn>;
+  disconnectMessageChannelIdentityLink: ReturnType<typeof vi.fn>;
   getCenterAgentModel: ReturnType<typeof vi.fn>;
   getCenterAgentOperatingState: ReturnType<typeof vi.fn>;
   listCenterAgentAuditJournal: ReturnType<typeof vi.fn>;
@@ -105,6 +106,12 @@ function makeEnv(input?: {
       connections: [],
       organizationId: "org-1",
     })),
+    disconnectMessageChannelIdentityLink: vi.fn(async () => ({
+      availableLarkPlatformProviders: ["lark", "feishu"],
+      connections: [],
+      identityLinks: [],
+      organizationId: "org-1",
+    })),
     getCenterAgentModel: vi.fn(async () => centerAgentModelConfiguration()),
     getCenterAgentOperatingState: vi.fn(async () => ({
       canChangeOperatingState: true,
@@ -168,6 +175,7 @@ function makeEnv(input?: {
           transport: "webhook",
         },
       ],
+      identityLinks: [],
       organizationId: "org-1",
     })),
     openCenterAgentDirectMessageSpace: vi.fn(async () => ({
@@ -312,6 +320,7 @@ describe("Center Agent routes", () => {
         { provider: "slack", status: "connected" },
         { provider: "lark", status: "connected" },
       ],
+      identityLinks: [],
       organizationId: "org-1",
     });
     expect(coreRpc.listMessageChannelConnections).toHaveBeenCalledWith({
@@ -322,6 +331,26 @@ describe("Center Agent routes", () => {
           openMeldProfileId: HUMAN_PROFILE_ID,
         }),
       }),
+    });
+  });
+
+  it("disconnects one Message Channel account identity", async () => {
+    const { coreRpc, env } = makeEnv();
+    const identityLinkId = `channel_identity_${"a".repeat(64)}`;
+
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/organizations/current/message-channels/identity-links/${identityLinkId}`,
+        { method: "DELETE" }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    expect(coreRpc.disconnectMessageChannelIdentityLink).toHaveBeenCalledWith({
+      context: expect.objectContaining({ activeOrganizationId: "org-1" }),
+      identityLinkId,
     });
   });
 
