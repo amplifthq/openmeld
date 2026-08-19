@@ -134,8 +134,9 @@ sentence.
   continue** action. It never asks the participant to find a session with the
   right tool catalog or enable internal tools.
 - Applied: the first Profile Report says **What I've learned so far** and shows
-  the result. It does not turn the Center Agent's work into an approval chore
-  with **review**, **correct**, or **discard** instructions.
+  the result. When the visible version still needs to be saved, the same surface
+  gives one concrete **Save changes** action. It does not add an approval-only
+  button or a second **correct** or **discard** ritual.
 - Violation looks like: `agent_profile_binding.primary_conflict` as the
   headline of a user-facing failure, telling a beginner that a tool catalog is
   unavailable, or copy that hedges because the developer was unsure.
@@ -176,8 +177,10 @@ proposal before executing it.
   The signed-in person still sees both accounts and explicitly connects them.
   Model confidence or a reply such as "yes" never becomes authority.
 - Applied: member research produces a provisional Profile Report and presents
-  it immediately. The person can simply tell the Center Agent when something
-  feels off; showing the result does not require a second approval ritual.
+  it immediately. Saving the visible report accepts that version through the
+  ordinary Document editor, even when no text edit was needed. The person can
+  simply tell the Center Agent when something feels off; there is no second
+  approval ritual.
 - Violation looks like: treating a tool's ability to write as a reason to ask
   again after the user already asked for that write, making an unattended
   Routine impossible because no one is present to repeat its instruction, or

@@ -21,6 +21,7 @@ const approveCurrentOrganizationDocumentDraftMock = vi.hoisted(() => vi.fn());
 const discardCurrentOrganizationDocumentDraftMock = vi.hoisted(() => vi.fn());
 const updateCurrentOrganizationDocumentMock = vi.hoisted(() => vi.fn());
 const deleteCurrentOrganizationDocumentMock = vi.hoisted(() => vi.fn());
+const invalidateInboxFactsMock = vi.hoisted(() => vi.fn());
 const APPROVE_DRAFT_BUTTON_NAME = /Approve draft/;
 
 vi.mock("#/lib/organizations/organization-context", () => ({
@@ -80,6 +81,15 @@ vi.mock(
 	}
 );
 
+vi.mock("#/query/organizations/inbox", async (importOriginal) => {
+	const original =
+		await importOriginal<typeof import("#/query/organizations/inbox")>();
+	return {
+		...original,
+		invalidateInboxFacts: invalidateInboxFactsMock,
+	};
+});
+
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
@@ -138,7 +148,7 @@ describe("OrganizationDocumentDetailPage", () => {
 		expect(screen.queryByLabelText("Center Agent draft content")).toBeNull();
 	});
 
-	it("presents a Profile Report as a helpful first look without approval pressure", async () => {
+	it("presents a pending Profile Report update as ready to review and save", async () => {
 		getCurrentOrganizationDocumentMock.mockResolvedValue(
 			response({
 				draftContent: "What the Center Agent learned",
@@ -163,7 +173,7 @@ describe("OrganizationDocumentDetailPage", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Your Center Agent will update this Profile Report as it learns more about your work. If anything feels off, tell your Center Agent."
+				"Your Center Agent updated this Profile Report. Review it, make any changes you need, then save it."
 			)
 		).toBeTruthy();
 		expect(screen.queryByText("Draft waiting for review")).toBeNull();
@@ -173,20 +183,23 @@ describe("OrganizationDocumentDetailPage", () => {
 		).toBeNull();
 		expect(screen.queryByRole("button", { name: "View approved" })).toBeNull();
 
-		fireEvent.change(report, {
-			target: { value: "What Ada and the Center Agent learned together" },
-		});
-		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		const saveButton = screen.getByRole("button", { name: "Save changes" });
+		expect((saveButton as HTMLButtonElement).disabled).toBe(false);
+		fireEvent.click(saveButton);
 
 		await waitFor(() =>
 			expect(updateCurrentOrganizationDocumentMock).toHaveBeenCalledWith({
-				content: "What Ada and the Center Agent learned together",
+				content: "What the Center Agent learned",
 				documentId: "document-1",
 				expectedDocumentUpdatedAt: "2026-07-15T00:00:00.000Z",
 				expectedDraftCreatedAt: "2026-07-15T01:00:00.000Z",
 				expectedOrganizationId: "org-acme",
 			})
 		);
+		expect(invalidateInboxFactsMock).toHaveBeenCalledWith({
+			organizationId: "org-acme",
+			queryClient: expect.anything(),
+		});
 	});
 
 	it("discards the reviewed Center Agent draft without changing approved content", async () => {
