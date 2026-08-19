@@ -366,7 +366,7 @@ describe("api-client Center Agent api", () => {
     );
 
     const result = await api.listAuditJournal({
-      actionSet: "v18",
+      actionSet: "v19",
       limit: 25,
       requestContext: REQUEST_CONTEXT,
     });
@@ -376,7 +376,7 @@ describe("api-client Center Agent api", () => {
       expect.objectContaining({
         init: expect.objectContaining({ method: "GET" }),
         operation: "center_agent.audit_journal.list",
-        url: "https://gateway.openmeld.invalid/v1/organizations/current/center-agent/audit-journal?limit=25&actionSet=v18",
+        url: "https://gateway.openmeld.invalid/v1/organizations/current/center-agent/audit-journal?limit=25&actionSet=v19",
       })
     );
 

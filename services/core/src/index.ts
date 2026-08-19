@@ -60,6 +60,7 @@ import type {
   CenterAgentPrepareRemoveProjectToolRpcInput,
   CenterAgentReadConnectorActionOperationResponse,
   CenterAgentReadDispatchHistoryResponse,
+  CenterAgentReadMemberComputersResponse,
   CenterAgentReadMemberOpenMeldServiceStatusResponse,
   CenterAgentReadOrganizationDocumentsResponse,
   CenterAgentReadOrganizationDocumentsRpcInput,
@@ -471,6 +472,7 @@ import {
   type CenterAgentReadChangelogInput,
   type CenterAgentReadConnectorActionOperationInput,
   type CenterAgentReadDispatchHistoryInput,
+  type CenterAgentReadMemberComputersInput,
   type CenterAgentReadMemberOpenMeldServiceStatusInput,
   type CenterAgentReadOrganizationDirectoryInput,
   type CenterAgentReadOrganizationSpaceDirectoryInput,
@@ -652,6 +654,7 @@ import {
   rpcCenterAgentReadChangelog,
   rpcCenterAgentReadConnectorActionOperation,
   rpcCenterAgentReadDispatchHistory,
+  rpcCenterAgentReadMemberComputers,
   rpcCenterAgentReadMemberOpenMeldServiceStatus,
   rpcCenterAgentReadSlackChannelHistory,
   rpcCenterAgentReadSlackChannelMembers,
@@ -2501,6 +2504,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcCenterAgentGetOrganizationDirectory(this.env, input);
   }
 
+  centerAgentReadMemberComputers(
+    input: CenterAgentReadMemberComputersInput
+  ): Promise<CenterAgentReadMemberComputersResponse> {
+    return rpcCenterAgentReadMemberComputers(this.env, input);
+  }
+
   centerAgentReadMemberOpenMeldServiceStatus(
     input: CenterAgentReadMemberOpenMeldServiceStatusInput
   ): Promise<CenterAgentReadMemberOpenMeldServiceStatusResponse> {
@@ -3955,6 +3964,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: CenterAgentReadOrganizationDirectoryInput
   ): Promise<OrganizationDirectoryResponse> {
     return super.centerAgentGetOrganizationDirectory(input);
+  }
+
+  centerAgentReadMemberComputers(
+    input: CenterAgentReadMemberComputersInput
+  ): Promise<CenterAgentReadMemberComputersResponse> {
+    return super.centerAgentReadMemberComputers(input);
   }
 
   centerAgentReadMemberOpenMeldServiceStatus(

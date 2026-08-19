@@ -206,6 +206,8 @@ export type {
   CenterAgentReadConnectorActionOperationResponse,
   CenterAgentReadDispatchHistoryBody,
   CenterAgentReadDispatchHistoryResponse,
+  CenterAgentReadMemberComputersBody,
+  CenterAgentReadMemberComputersResponse,
   CenterAgentReadSpaceContextBody,
   CenterAgentReadSpaceContextResponse,
   CenterAgentRecordConnectorActionAuditBody,
@@ -731,6 +733,10 @@ export type {
   OrganizationUsageOverviewRpcInput,
 } from "./organization-usage";
 export type * from "./organization-working-language";
+export type {
+  ComputerFileAccessSummary,
+  OwnerComputerDiagnostics,
+} from "./owner-computer-diagnostics";
 export type {
   GetPrepareReadinessQuery,
   GetPrepareReadinessResponse,

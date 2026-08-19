@@ -449,6 +449,21 @@ openmeld agents repair --agent <agent-id> --view agent
 openmeld agents show <agent-id> --view agent
 ```
 
+Inspect every Computer connected to the current user's account, then read the
+current Computer's owner-only diagnostics:
+
+```bash
+openmeld computer list --view agent
+openmeld computer current --view agent
+```
+
+`computer list` returns the user's full Computer inventory and Local Agent
+snapshots. `computer current` adds current reply diagnostics, OpenMeld Tools
+versions and update state, and a File Access summary. The File Access summary
+contains the mode and selected-folder count, never local folder paths. These
+current-Computer diagnostics help explain whether a Local Agent is usable, but
+they do not replace an Agent Profile's authoritative readiness result.
+
 What setup means:
 
 - It makes this computer available to run local agents.

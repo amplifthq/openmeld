@@ -51,6 +51,8 @@ import type {
   CenterAgentReadChangelogToolRpcInput,
   CenterAgentReadConnectorActionOperationBody,
   CenterAgentReadConnectorActionOperationResponse,
+  CenterAgentReadMemberComputersBody,
+  CenterAgentReadMemberComputersResponse,
   CenterAgentReadMemberOpenMeldServiceStatusBody,
   CenterAgentReadMemberOpenMeldServiceStatusResponse,
   CenterAgentReadOrganizationDocumentsResponse,
@@ -373,6 +375,11 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentResolveConnectorConnection?(input: unknown): Promise<unknown>;
   centerAgentEnableAgentProfile?(input: unknown): Promise<unknown>;
   centerAgentGetOrganizationDirectory?(input: unknown): Promise<unknown>;
+  centerAgentReadMemberComputers?(
+    input: CenterAgentReadMemberComputersBody & {
+      context: OpenMeldRequestContext;
+    }
+  ): Promise<CenterAgentReadMemberComputersResponse>;
   centerAgentReadMemberOpenMeldServiceStatus?(
     input: CenterAgentReadMemberOpenMeldServiceStatusBody & {
       context: OpenMeldRequestContext;

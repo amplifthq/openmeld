@@ -597,13 +597,27 @@ Before recommending one of those actions, it reads the Core-owned current
 computer projection through `openmeld_list_computers`. The projection returns
 the exact `connectedComputerId` used by Connect, a coarse status, current-device
 identity, reason codes, and one recommended mode: `setup`, `reconnect`, or
-`update_service`. Core binds that read to the turn's verified represented human
-member and fails closed before reading inventory when the speaker identity is
-missing, mismatched, inactive, or outside the Organization. The read must not
-adopt or mutate local-runtime identity. The Center Agent must use that exact
-mode and connected computer id when building the trusted action. It must not
-infer update state from conversation text, substitute a device id, or expose
-another member's computer context.
+`update_service`. On an explicit owner-level read in a requester-private
+conversation, the same tool also returns the represented member's model-safe
+Local Runtime inventory, current-computer reply diagnostics, OpenMeld Tools
+versions and update state, Local Agent status, installed version, update state,
+capabilities, model display names, check evidence, and a path-free File Access
+summary. Controller accounts, executable paths, launch arguments, update
+commands, raw diagnostic messages, private skills, and local policy never enter
+the Center Agent result. File Access exposes only mode, revision, updated time,
+and selected-folder count; local folder paths never enter the Center Agent
+result.
+
+Core binds that private read to the turn's verified represented human member
+and requester-only audience, and fails closed before reading inventory when the
+speaker identity or private audience is missing, mismatched, inactive, or
+outside the Organization. Owner-level diagnostics are read on demand; they are
+not automatically injected into model context. The
+read must not adopt or mutate local-runtime identity. The Center Agent must use
+the exact recommended mode and connected computer id when building the trusted
+action. It must not infer update state from conversation text, substitute a
+device id, treat current-computer diagnostics as Agent Profile readiness, or
+expose another member's private computer context.
 
 Presentation follows the conversation host:
 
@@ -1290,16 +1304,18 @@ returns only the existing public snapshot, which excludes paths, prompts,
 transcripts, and private provider metadata. Project mutations and member-owned
 Activity or local context remain identity-gated.
 
-Personal memory, member Apps, Local Agents or Computers, role-restricted
-actions, destructive confirmation, durable member-owned mutations, and any
-action whose owner requires one specific OpenMeld human remain unavailable
-until identity is linked. The Center Agent completes every independent safe
-part first, names only the concrete blocked action, and attaches the one-time
-setup action. It does not stop at an account-status explanation, tell the person
-to find an administrator, expose a reusable Organization join link, or ask them
-to repeat the request. A verified link never upgrades the already admitted
-unlinked turn; Core creates one new deterministic linked-member turn for the
-original request after setup succeeds.
+Personal memory, member Apps, owner-level Local Agent or Computer details,
+role-restricted actions, destructive confirmation, durable member-owned
+mutations, and any action whose owner requires one specific OpenMeld human
+remain unavailable until identity is linked. The strict team-safe Organization
+Computer projection remains available as an ordinary shared read and never
+upgrades into owner diagnostics. The Center Agent completes every independent
+safe part first, names only the concrete blocked action, and attaches the
+one-time setup action. It does not stop at an account-status explanation, tell
+the person to find an administrator, expose a reusable Organization join link,
+or ask them to repeat the request. A verified link never upgrades the already
+admitted unlinked turn; Core creates one new deterministic linked-member turn
+for the original request after setup succeeds.
 
 For a connected Message Channel member, a blocking **Join {Organization name}
 on OpenMeld and continue** action appears only after the same Remote Agent
@@ -2233,6 +2249,15 @@ the current Organization before any Service lookup. The tool returns only the
 member id and one of the four coarse states above, records an
 `organization_member` audit entry, and never grants device management or
 exposes device details.
+
+When the request genuinely requires another member's Computer details, the
+designated Center Agent may instead call `openmeld_read_member_computers` with
+the exact directory `userId`. Core reuses the same strict team-safe Organization
+Computer projection shown to teammates, filters it to that current member, and
+records an `organization_member` audit entry. This tool never upgrades to the
+owner projection, even when the target happens to match the requester; private
+File Access, paths, commands, accounts, policies, and management controls stay
+absent.
 
 **Profile Report** is the stable product term for this document so it does not
 collide with Agent Profile or Human Profile identity. The persisted document

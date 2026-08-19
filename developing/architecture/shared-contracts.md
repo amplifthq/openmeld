@@ -649,6 +649,13 @@ private skills, local policy, credentials, and raw lookup failures are not
 members of this schema. Owner-scoped local runtimes remain authoritative for
 the signed-in member's complete inventory and controls.
 
+The Center Agent single-member Computer read reuses this exact response schema
+and adds only the requested `memberUserId`. Core first verifies that exact user
+is a current member, then builds the same filtered team-safe projection; it
+does not introduce another Computer query, state store, or visibility policy.
+The RPC is additive and audited behind Center Agent audit action set `v19`, so
+older strict audit readers exclude the new action row.
+
 Its optional `openMeldTools` object is also a sanitized live-session
 projection. It permits component installed/latest versions, required Service
 version, update status/policy, Wake-blocking state, bounded reason codes, and
@@ -2444,10 +2451,31 @@ this is a read projection, it must not request legacy connection identity
 adoption or otherwise write local-runtime identity state. Core projects
 computer identity, status, reason codes, and recommended setup mode from that
 current Local Runtimes response. Remote Agent exposes the projection through
-`openmeld_list_computers` and fails closed when the new Core receiver is absent.
+`openmeld_list_computers` only in a requester-private conversation and fails
+closed when the audience is shared, the verified member is absent, or the new
+Core receiver is absent.
 This read contract does not grant computer management authority or change
 OpenMeld Service, daemon, Prepare Session, RuntimeCoordinator, or local
 component contracts.
+
+The optional `includeDiagnostics` request flag expands only this verified-owner
+read. Its optional `diagnostics` response uses
+`owner-computer-diagnostics.ts` to compose a model-safe projection of the
+existing Local Runtimes response, current-local-runtime reply-readiness
+response, and a File Access summary. The Local Runtime projection preserves
+Computer state plus Local Agent status, installed version, update state,
+capabilities, model display names, and check evidence. It excludes controller
+accounts, executable paths, launch arguments, update commands, raw diagnostic
+messages, private skills, and local policy. It creates no persisted fact and
+does not replace Core-owned Agent execution readiness. The File Access summary
+intentionally cannot represent folder paths.
+
+This optional pair is the mixed-version fence: new Remote Agent requests
+diagnostics explicitly; old Remote Agent omits the flag, so new Core omits the
+extra strict response field. New Remote Agent accepts an old Core response with
+no optional diagnostics. Deploy Core before Remote Agent. The separate
+`centerAgentReadMemberComputers` RPC must follow the same Core-before-Remote
+order; a new caller against an old Core fails closed as unavailable.
 
 The Organization Web projection remains an additive strict
 Core-to-Remote-Agent cloud contract: deploy the Remote Agent consumer that

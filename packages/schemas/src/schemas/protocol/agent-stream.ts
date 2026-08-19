@@ -105,6 +105,7 @@ const agentWorkActivityKeySchema = z.enum([
   "organization.documents.read",
   "organization.invite.create",
   "organization.invite.read",
+  "organization.member_computers.read",
   "organization.member_research.start",
   "organization.member_service_status.read",
   "organization.members.read",

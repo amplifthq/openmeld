@@ -48,6 +48,8 @@ import {
   connectorServiceSchema,
 } from "./connector-connections";
 import { setCurrentAgentProfileWorkspaceResponseSchema } from "./local-runtimes";
+import { organizationComputersResponseSchema } from "./organization-computers";
+import { ownerComputerDiagnosticsSchema } from "./owner-computer-diagnostics";
 import { prepareReadinessRuntimeIdSchema } from "./prepare-readiness";
 import { authProfileViewSchema } from "./profiles";
 import { agentControllerTaskLifecycleEventSourceSchema } from "./runtime-reporting";
@@ -127,6 +129,7 @@ export const centerAgentActionSchema = z.enum([
   "post_space_message",
   "remove_agent_profiles_from_space",
   "read_org_directory",
+  "read_member_computers",
   "read_member_openmeld_service_status",
   "read_slack_workspace_directory",
   "read_org_documents",
@@ -567,6 +570,7 @@ export const listCenterAgentAuditJournalQuerySchema = z.strictObject({
       "v16",
       "v17",
       "v18",
+      "v19",
     ])
     .optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -1008,13 +1012,36 @@ export const centerAgentListLocalAgentConnectionCandidatesResponseSchema =
   });
 
 export const centerAgentListComputersBodySchema = z.strictObject({
+  includeDiagnostics: z.boolean().optional(),
   speakerMember: centerAgentToolSpeakerSchema,
 });
 
 export const centerAgentListComputersResponseSchema = z.strictObject({
   computers: z.array(centerAgentComputerSetupOptionSchema),
+  diagnostics: ownerComputerDiagnosticsSchema.optional(),
   organizationId: trimmedNonEmptyStringSchema,
 });
+
+export const centerAgentReadMemberComputersBodySchema = z.strictObject({
+  memberUserId: trimmedNonEmptyStringSchema,
+});
+
+export const centerAgentReadMemberComputersResponseSchema =
+  organizationComputersResponseSchema
+    .extend({
+      memberUserId: trimmedNonEmptyStringSchema,
+    })
+    .superRefine((value, context) => {
+      value.computers.forEach((computer, index) => {
+        if (computer.ownerUserId !== value.memberUserId) {
+          context.addIssue({
+            code: "custom",
+            message: "computer ownerUserId must match memberUserId",
+            path: ["computers", index, "ownerUserId"],
+          });
+        }
+      });
+    });
 
 export const centerAgentConnectAgentProfileToLocalAgentBodySchema =
   z.strictObject({

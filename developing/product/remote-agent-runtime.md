@@ -219,9 +219,12 @@ use the action only when its stored structured grant explicitly contains
    shared connections. Core reauthorizes every call against the exact
    Core-authored native delivery.
 
-   Personal memory, member Apps, Local Agents or Computers, role-restricted
-   actions, destructive confirmation, and member-owned mutations remain
-   unavailable. Public research and Organization-shared reads run before any
+   Personal memory, member Apps, owner-level Local Agent or Computer details,
+   role-restricted actions, destructive confirmation, and member-owned
+   mutations remain unavailable. The strict team-safe Organization Computer
+   projection remains an ordinary shared read; it never upgrades into the
+   owner's File Access, paths, accounts, commands, policies, or controls. Public
+   research and Organization-shared reads run before any
    setup suggestion. The registered `write` effect is the ordinary-member
    policy for non-GitHub shared Apps; unknown or destructive effects fail
    closed. GitHub ordinary writes may run only with
@@ -1723,12 +1726,26 @@ device id, operating system, Service version, last-seen timestamp, or raw lookup
 error. Interactive and Routine turns inherit the tool through the normal
 catalog. Unattended member-research turns do not receive it.
 
+The member Computer read follows the same exact-member flow but returns the
+existing team-safe Organization Computer projection rather than the coarse
+Service state. The model must first use the Directory `userId`; Core rechecks
+membership, filters the projection to that member, and records the read. The
+verified requester's separate `openmeld_list_computers` tool may request the
+model-safe owner diagnostics projection on demand, but only in a
+requester-private conversation. A shared Space, channel, or thread fails closed
+before Core receives the private read. That result is never automatic context;
+its Local Agent details exclude accounts, executable paths, launch arguments,
+update commands, raw diagnostic messages, and private skills, and its File
+Access summary cannot contain local paths.
+
 This is an additive shared-schema, Agent work-activity, and private Service
 Binding rollout. Deploy Core, then Web, then Remote Agent. The new Remote Agent
 fails closed when the Core method is absent, while the old Remote Agent remains
 compatible with the new Core; Web understands the new work key before Remote
 Agent emits it. Audit action set `v12` lets current readers accept the new
 `read_member_openmeld_service_status` row; older frozen action sets omit it.
+The later member Computer read uses action set `v19`; action sets through `v18`
+exclude `read_member_computers` so older strict readers remain compatible.
 Rollback removes Remote Agent before Web or Core. The change does not affect
 Gateway, Auth, CLI, OpenMeld Service, daemon, Prepare, RuntimeCoordinator, or
 local-component contract versions.

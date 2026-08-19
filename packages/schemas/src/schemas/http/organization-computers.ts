@@ -7,6 +7,7 @@ import {
   agentControllerInterfaceCapabilitiesSchema,
   agentControllerInterfaceCheckSnapshotSchema,
   agentControllerInterfaceNativeInterfaceSchema,
+  type agentControllerInterfaceSnapshotSchema,
   agentControllerInterfaceStatusSchema,
   agentControllerInterfaceVersionAdvisoryStatusSchema,
 } from "../runtime/agent-controller-interface";
@@ -75,6 +76,36 @@ export const organizationComputerLocalAgentDetailsSchema = z.strictObject({
     })
     .optional(),
 });
+
+export function projectOrganizationComputerLocalAgentDetails(
+  snapshot: z.infer<typeof agentControllerInterfaceSnapshotSchema>
+): z.infer<typeof organizationComputerLocalAgentDetailsSchema> {
+  return {
+    capabilities: snapshot.capabilities,
+    ...(snapshot.check ? { check: snapshot.check } : {}),
+    checkedAt: snapshot.checkedAt,
+    launch: {
+      installChoiceCount: snapshot.launch.installChoiceCount,
+      status: snapshot.launch.status,
+    },
+    models: snapshot.models.map((model) => ({
+      displayName: model.displayName,
+    })),
+    nativeInterface: snapshot.nativeInterface,
+    status: snapshot.status,
+    version: snapshot.version,
+    ...(snapshot.versionAdvisory
+      ? {
+          versionAdvisory: {
+            checkedAt: snapshot.versionAdvisory.checkedAt,
+            currentVersion: snapshot.versionAdvisory.currentVersion,
+            latestVersion: snapshot.versionAdvisory.latestVersion,
+            status: snapshot.versionAdvisory.status,
+          },
+        }
+      : {}),
+  };
+}
 
 export const organizationComputerLocalAgentSchema = z.strictObject({
   agentControllerRef: BOUNDED_ID_SCHEMA,

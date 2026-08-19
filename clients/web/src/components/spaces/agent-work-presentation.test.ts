@@ -128,6 +128,30 @@ describe("Agent work presentation", () => {
 		).toBe("Couldn't check member OpenMeld Service status");
 	});
 
+	it("describes member Computer reads precisely", () => {
+		expect(
+			resolveAgentWorkPresentation(
+				{ v: 1, key: "organization.member_computers.read" },
+				"input-available",
+				true
+			).text
+		).toBe("Checking a member's Computers…");
+		expect(
+			resolveAgentWorkPresentation(
+				{ v: 1, key: "organization.member_computers.read" },
+				"output-available",
+				false
+			).text
+		).toBe("Checked a member's Computers");
+		expect(
+			resolveAgentWorkPresentation(
+				{ v: 1, key: "organization.member_computers.read" },
+				"output-error",
+				false
+			).text
+		).toBe("Couldn't check the member's Computers");
+	});
+
 	it("describes starting the current member's learning run without claiming it finished", () => {
 		expect(
 			resolveAgentWorkPresentation(

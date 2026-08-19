@@ -1,3 +1,4 @@
+import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
 import {
   agentActivitySnapshotResponseSchema,
   agentControllerCollaborationModeSchema,
@@ -54,6 +55,8 @@ import {
   centerAgentPostSpaceMessageResponseSchema,
   centerAgentPrepareRemoveProjectToolResponseSchema,
   centerAgentReadDispatchHistoryResponseSchema,
+  centerAgentReadMemberComputersBodySchema,
+  centerAgentReadMemberComputersResponseSchema,
   centerAgentReadMemberOpenMeldServiceStatusBodySchema,
   centerAgentReadMemberOpenMeldServiceStatusResponseSchema,
   centerAgentReadOrganizationDocumentsResponseSchema,
@@ -998,6 +1001,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_require_identity_for_action",
   "openmeld_get_navigation_action",
   "openmeld_read_organization_directory",
+  "openmeld_read_member_computers",
   "openmeld_read_member_openmeld_service_status",
   "openmeld_read_slack_workspace_directory",
   "openmeld_invite_slack_teammates",
@@ -1082,6 +1086,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "browser_extract",
   "browser_scrape",
   "openmeld_read_organization_directory",
+  "openmeld_read_member_computers",
   "openmeld_read_member_openmeld_service_status",
   "openmeld_read_slack_workspace_directory",
   "openmeld_list_slack_channels",
@@ -1185,6 +1190,9 @@ const slackWorkspaceDirectoryToolInputSchema = strictObject({
   limit: optional(pipe(number(), integer(), minValue(1), maxValue(200))),
 });
 const memberOpenMeldServiceStatusToolInputSchema = strictObject({
+  memberUserId: pipe(string(), trim(), minLength(1), maxLength(256)),
+});
+const memberComputersToolInputSchema = strictObject({
   memberUserId: pipe(string(), trim(), minLength(1), maxLength(256)),
 });
 const slackChannelListToolInputSchema = strictObject({
@@ -1392,6 +1400,32 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         );
         return organizationDirectoryResponseSchema.parse(
           await rpc(toolContext)
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_read_member_computers",
+      description:
+        "Read one active member's Computers through the current Organization's team-safe projection. First use openmeld_read_organization_directory and pass its exact member userId; never guess an ID. Returns the same OpenMeld Tools, local agent, platform, version, update, and connection details that OpenMeld exposes to teammates. It never exposes File Access folders, local paths, commands, account policy, private skills, or Agent Profile readiness.",
+      input: memberComputersToolInputSchema,
+      execute: async (payload) => {
+        const request = centerAgentReadMemberComputersBodySchema.parse(
+          parseValibot(memberComputersToolInputSchema, payload)
+        );
+        const toolContext =
+          await buildAnonymousCompatibleOrganizationReadToolContext({
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_read_member_computers",
+          });
+        return centerAgentReadMemberComputersResponseSchema.parse(
+          await callCoreRpc(
+            input.coreWorker,
+            "centerAgentReadMemberComputers",
+            { ...request, ...toolContext },
+            (binding, rpcInput) =>
+              binding.centerAgentReadMemberComputers?.(rpcInput)
+          )
         );
       },
     }),
@@ -3664,22 +3698,25 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_list_computers",
       description:
-        "List computers connected to the verified requester's OpenMeld account, including the exact connectedComputerId, current status, reason codes, and the recommended setup, reconnect, or OpenMeld Service update mode. Use this before offering computer setup or recovery. When setup is required, OpenMeld automatically attaches the exact recommended navigation action to this result; do not request a second computer navigation action.",
+        "Read the verified requester's own Computer information, including every connected Computer, OpenMeld Tools versions and updates, local agent status and versions, current reply diagnostics, and a path-free File Access summary. Use this before offering computer setup, recovery, or deciding whether a local agent is usable. This is private owner-level data and requires a verified requester. It does not make current-computer diagnostics the authority for any Agent Profile's readiness. When setup is required, OpenMeld automatically attaches the exact recommended navigation action to this result; do not request a second computer navigation action.",
       input: object({}),
       execute: async () => {
-        const toolContext = await buildVerifiedMemberToolContext({
-          missingSpeakerMessage:
-            "Computer setup requires a verified human Organization member speaker.",
-          storage: input.storage,
-          submissionId: input.submissionId,
-          toolName: "openmeld_list_computers",
-        });
+        const toolContext =
+          await buildRequesterPrivateVerifiedMemberToolContext({
+            missingSpeakerMessage:
+              "Computer setup requires a verified human Organization member speaker.",
+            sharedAudienceMessage:
+              "Private Computer diagnostics are available only in your direct conversation with the Center Agent.",
+            storage: input.storage,
+            submissionId: input.submissionId,
+            toolName: "openmeld_list_computers",
+          });
         const rpc = requireCoreRpc(
           input.coreWorker.centerAgentListComputers,
           "centerAgentListComputers"
         );
         return centerAgentListComputersResponseSchema.parse(
-          await rpc(toolContext)
+          await rpc({ ...toolContext, includeDiagnostics: true })
         );
       },
     }),
@@ -4593,6 +4630,33 @@ async function buildVerifiedMemberToolContext(input: {
       input.missingSpeakerMessage ??
         "Routine management tools require a verified human member speaker."
     );
+  }
+  return { context: toolContext.context, speakerMember };
+}
+
+async function buildRequesterPrivateVerifiedMemberToolContext(input: {
+  missingSpeakerMessage: string;
+  sharedAudienceMessage: string;
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+  toolName: RemoteAgentOpenMeldToolName;
+}): Promise<{
+  context: OpenMeldRequestContext;
+  speakerMember: { memberId: string; userId: string };
+}> {
+  const toolContext = await buildOpenMeldToolContext(input);
+  if (
+    !toolContext.turnEnvelope ||
+    resolveCenterAgentContextScopePlan(toolContext.turnEnvelope)
+      .interactionEnvironment !== "requester_private"
+  ) {
+    throw new Error(input.sharedAudienceMessage);
+  }
+  const speakerMember = resolveVerifiedTurnEnvelopeSpeaker(
+    toolContext.turnEnvelope
+  );
+  if (!speakerMember) {
+    throw new Error(input.missingSpeakerMessage);
   }
   return { context: toolContext.context, speakerMember };
 }

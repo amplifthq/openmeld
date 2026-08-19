@@ -24,6 +24,8 @@ import type { CenterAgentWakePublicationRecord } from "../src/center-agent/infra
 // biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM export used by the RPC orchestration module.
 import * as runtimeTransportClient from "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client";
 import type { CoreBindings } from "../src/lib/bindings";
+// biome-ignore lint/performance/noNamespaceImport: Vitest must spy on the live ESM export used by the RPC orchestration module.
+import * as organizationComputersService from "../src/organizations/organization-computers-service";
 import { encryptSlackSearchAuthorization } from "../src/remote-agent/application/slack-search-authorization";
 import {
   rpcAddCenterAgentToSpace,
@@ -41,6 +43,7 @@ import {
   rpcCenterAgentPostSlackThreadMessage,
   rpcCenterAgentPostSpaceMessage,
   rpcCenterAgentReadDispatchHistory,
+  rpcCenterAgentReadMemberComputers,
   rpcCenterAgentReadMemberOpenMeldServiceStatus,
   rpcCenterAgentReadSlackChannelHistory,
   rpcCenterAgentReadSlackChannelMembers,
@@ -1250,6 +1253,154 @@ describe("organization Core RPC", () => {
     );
   });
 
+  it("includes owner-only Computer diagnostics only when the verified requester asks for them", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "owner"),
+        memberRow("member-b", "org-a", "user-b"),
+      ],
+    });
+    const env = buildEnv({ db });
+    const localRuntimes = {
+      currentConnectedComputerId: null,
+      currentDeviceId: null,
+      currentRuntimeLane: null,
+      legacyDeviceEvidence: [],
+      localRuntimes: [],
+    };
+    vi.spyOn(
+      currentDeviceTargetService,
+      "listLocalRuntimesUseCase"
+    ).mockResolvedValue(localRuntimes);
+    vi.spyOn(
+      currentDeviceTargetService,
+      "getCurrentLocalRuntimeReplyReadinessUseCase"
+    ).mockResolvedValue(createMissingCurrentComputerReadiness());
+
+    await expect(
+      rpcCenterAgentListComputers(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+        includeDiagnostics: true,
+        speakerMember: { memberId: "member-b", userId: "user-b" },
+      })
+    ).resolves.toEqual({
+      computers: [],
+      diagnostics: {
+        currentComputerFileAccess: {
+          code: "computer.current_missing",
+          message: "No current Computer is connected to this account.",
+          status: "unavailable",
+        },
+        currentLocalRuntimeReplyReadiness:
+          createMissingCurrentComputerReadiness(),
+        localRuntimes: {
+          currentConnectedComputerId: null,
+          currentDeviceId: null,
+          currentRuntimeLane: null,
+          localRuntimes: [],
+        },
+      },
+      organizationId: "org-a",
+    });
+  });
+
+  it("reads one teammate's Computers through the existing team-safe projection", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "owner"),
+        memberRow("member-b", "org-a", "user-b"),
+      ],
+    });
+    const env = buildEnv({ db });
+    const listComputers = vi
+      .spyOn(organizationComputersService, "listOrganizationComputers")
+      .mockResolvedValue({
+        computers: [
+          {
+            computerId: "computer-b",
+            deviceDisplayName: "Maya’s Mac",
+            deviceType: "laptop",
+            lastSeenAtMs: 1000,
+            localAgents: [],
+            osVersion: "15.6",
+            ownerUserId: "user-b",
+            platformFamily: "macOS",
+            serviceState: "connected",
+          },
+        ],
+        generatedAt: "2026-08-19T00:00:00.000Z",
+        organizationId: "org-a",
+      });
+
+    await expect(
+      rpcCenterAgentReadMemberComputers(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+        memberUserId: "user-b",
+      })
+    ).resolves.toMatchObject({
+      computers: [expect.objectContaining({ ownerUserId: "user-b" })],
+      memberUserId: "user-b",
+      organizationId: "org-a",
+    });
+    expect(listComputers).toHaveBeenCalledWith(
+      expect.objectContaining({ memberUserIds: ["user-b"] })
+    );
+    expect(db.centerAgentAuditRows).toEqual([
+      expect.objectContaining({
+        action: "read_member_computers",
+        resourceId: "user-b",
+        resourceType: "organization_member",
+      }),
+    ]);
+    const memberContext = buildContext({
+      activeOrganizationId: "org-a",
+      userId: "user-a",
+    });
+    await expect(
+      rpcListCenterAgentAuditJournal(env, {
+        actionSet: "v18",
+        context: memberContext,
+      })
+    ).resolves.toEqual({ entries: [], organizationId: "org-a" });
+    await expect(
+      rpcListCenterAgentAuditJournal(env, {
+        actionSet: "v19",
+        context: memberContext,
+      })
+    ).resolves.toMatchObject({
+      entries: [expect.objectContaining({ action: "read_member_computers" })],
+      organizationId: "org-a",
+    });
+  });
+
   it("fails closed before listing computers for an unverified represented member", async () => {
     const db = createOrganizationRpcDb({
       agentProfiles: [managedCenterAgentProfileRow()],
@@ -1323,6 +1474,43 @@ describe("organization Core RPC", () => {
       status: 404,
     });
     expect(lookupOwnerService).not.toHaveBeenCalled();
+    expect(db.centerAgentAuditRows).toEqual([]);
+  });
+
+  it("fails closed before reading Computers for a user outside the current Organization", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const env = buildEnv({ db });
+    const listComputers = vi.spyOn(
+      organizationComputersService,
+      "listOrganizationComputers"
+    );
+
+    await expect(
+      rpcCenterAgentReadMemberComputers(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+        memberUserId: "user-outside-org",
+      })
+    ).rejects.toMatchObject({
+      code: "center_agent.member_not_found",
+      status: 404,
+    });
+    expect(listComputers).not.toHaveBeenCalled();
     expect(db.centerAgentAuditRows).toEqual([]);
   });
 
@@ -10694,14 +10882,22 @@ function resolveAllRows(input: {
       .map((row) => ({
         action: row.action,
         actor_profile_id: row.actorProfileId,
+        context_load_estimated_token_count: null,
+        context_load_included_message_count: null,
+        context_load_manifest_id: null,
+        context_manifest_estimated_token_count: null,
+        context_manifest_included_message_count: null,
+        context_manifest_truncated: null,
         created_at: row.createdAtMs,
         id: row.id,
+        local_agent_client: null,
         on_behalf_of_display_name: row.onBehalfOfDisplayName,
         on_behalf_of_profile_id: row.onBehalfOfProfileId,
         on_behalf_of_user_id: row.onBehalfOfUserId,
         organization_id: row.organizationId,
         resource_id: row.resourceId,
         resource_type: row.resourceType,
+        source_native_delivery_id: null,
       }));
   }
 
@@ -11754,4 +11950,72 @@ function createD1RunResult(changes: number): D1Result {
     results: [],
     success: true,
   } as unknown as D1Result;
+}
+
+function createMissingCurrentComputerReadiness() {
+  return {
+    canReplyFromThisComputer: false,
+    currentTarget: { availability: "missing" as const },
+    generatedAt: "2026-08-19T00:00:00.000Z",
+    localComponents: {
+      agentSetupCommand: "openmeld setup --view agent",
+      cli: {
+        commandContractVersion: null,
+        installedPackageVersion: null,
+        latestPackageVersion: null,
+        reasonCodes: [],
+        requiredCommandContractVersion: null,
+        status: "unknown" as const,
+        updatePolicy: "required" as const,
+        wakeBlocked: false,
+      },
+      generatedAt: "2026-08-19T00:00:00.000Z",
+      humanSetupCommand: "openmeld setup",
+      schemaVersion: 1 as const,
+      service: {
+        installedVersion: null,
+        latestVersion: null,
+        reasonCodes: [],
+        requiredVersion: null,
+        status: "unknown" as const,
+        updatePolicy: "required" as const,
+        wakeBlocked: false,
+      },
+      setupAction: "connect_service" as const,
+      setupActionDescription: "Connect OpenMeld Service on this computer.",
+      setupActionLabel: "Connect OpenMeld Service",
+      skills: {
+        expectedBundleHash: null,
+        expectedTargetCount: 0,
+        installedBundleHash: null,
+        reasonCodes: [],
+        skillContractVersion: null,
+        status: "unknown" as const,
+        targetCount: null,
+        updatePolicy: "required" as const,
+        wakeBlocked: false,
+      },
+    },
+    message: "No current Computer was found.",
+    nextAction: "run_setup" as const,
+    primaryBlocker: "current_runtime_missing" as const,
+    runtime: {
+      deviceDisplayName: null,
+      deviceId: null,
+      executionTargetStatus: null,
+      lastObservedAtMs: null,
+      openMeldServiceRuntimeId: null,
+      reasonCodes: [],
+      runtimeLane: null,
+    },
+    service: {
+      connected: false,
+      executionCompatibility: null,
+      matchingCurrentRuntime: false,
+      reasonCodes: [],
+      sessionDeviceId: null,
+      sessionLane: null,
+    },
+    status: "blocked" as const,
+  };
 }

@@ -78,6 +78,10 @@ type CenterAgentListComputersBodySchema =
   typeof import("../../schemas/http/center-agent")["centerAgentListComputersBodySchema"];
 type CenterAgentListComputersResponseSchema =
   typeof import("../../schemas/http/center-agent")["centerAgentListComputersResponseSchema"];
+type CenterAgentReadMemberComputersBodySchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentReadMemberComputersBodySchema"];
+type CenterAgentReadMemberComputersResponseSchema =
+  typeof import("../../schemas/http/center-agent")["centerAgentReadMemberComputersResponseSchema"];
 type CenterAgentListLocalAgentConnectionCandidatesBodySchema =
   typeof import("../../schemas/http/center-agent")["centerAgentListLocalAgentConnectionCandidatesBodySchema"];
 type CenterAgentListLocalAgentConnectionCandidatesResponseSchema =
@@ -268,6 +272,10 @@ export type CenterAgentListComputersBody =
   z.infer<CenterAgentListComputersBodySchema>;
 export type CenterAgentListComputersResponse =
   z.infer<CenterAgentListComputersResponseSchema>;
+export type CenterAgentReadMemberComputersBody =
+  z.infer<CenterAgentReadMemberComputersBodySchema>;
+export type CenterAgentReadMemberComputersResponse =
+  z.infer<CenterAgentReadMemberComputersResponseSchema>;
 export type CenterAgentListLocalAgentConnectionCandidatesBody =
   z.infer<CenterAgentListLocalAgentConnectionCandidatesBodySchema>;
 export type CenterAgentListLocalAgentConnectionCandidatesResponse =
