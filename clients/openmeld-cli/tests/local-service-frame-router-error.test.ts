@@ -281,6 +281,7 @@ describe("local service frame-router error handling", () => {
       reason: "wake.stop",
       taskId: "task-1",
     });
+    expect(registry.getTask("task-1")).toBeNull();
     expect(JSON.parse(socket.send.mock.calls[0]?.[0] ?? "")).toEqual({
       code: "daemon.local_agent_control.result",
       payload: {

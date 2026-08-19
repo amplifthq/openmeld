@@ -64,6 +64,16 @@ export async function handleLocalControlPlaneCancel(input: {
     ...(input.payload.reason ? { reason: input.payload.reason } : {}),
     taskId: resolution.record.taskId,
   });
+  if (result.accepted) {
+    const currentRecord = input.registry.getTask(resolution.record.taskId);
+    if (
+      currentRecord?.dispatchId === resolution.record.dispatchId &&
+      currentRecord.runtimeCoordinatorExecutionId ===
+        resolution.record.runtimeCoordinatorExecutionId
+    ) {
+      input.registry.removeTask(resolution.record.taskId);
+    }
+  }
   const reasonCode = result.accepted
     ? "adapter.cancel.accepted"
     : result.reasonCode;
