@@ -14,6 +14,29 @@ move between pages, while compact sidebars keep every destination available.
 
 Evidence: pr:119, commit:f56c4a77ef59c5d2e9d48533d794145fb868aa75, workflow:32198069001
 
+### Help the Center Agent find the right capability
+
+Improved · v0.3.76 · center-agent · channels · slack
+
+The Center Agent now loads a small set of tools relevant to each request and
+searches the same organized catalog before treating a hidden tool as missing.
+This also lets a verified member ask from any current Slack conversation to
+privately invite named teammates, while exact directory matching and Core
+authorization keep every invitation scoped to the requested people.
+
+Evidence: pr:142, commit:54027f755ed43ff1d27055e06f8b15b3b43fa8eb, workflow:32255551305, workflow:32257426899
+
+### More reliable Slack onboarding
+
+Fixed · v0.3.76 · slack · onboarding · center-agent
+
+OpenMeld now keeps Slack setup and welcome delivery recoverable, avoids sending
+the same welcome twice, respects the Organization's working language, and only
+lets a verified member invite exact Slack teammates through Core-bound private
+delivery.
+
+Evidence: pr:84, pr:142, commit:54027f755ed43ff1d27055e06f8b15b3b43fa8eb, workflow:32255551305, workflow:32257426899
+
 ### Open exact Slack messages from Inbox
 
 Fixed · inbox · slack · center-agent
@@ -27,6 +50,39 @@ they reload the current Web client.
 
 Evidence: pr:124, commit:03339b2fad85e6bb2834ee9085ad0ddbdef59f88, workflow:32190997197, workflow:32197280409, workflow:32198069001, workflow:32198451108
 
+### Publish only to verified Slack threads
+
+Security · v0.3.76 · slack · center-agent
+
+Center Agent thread replies now require an exact Slack message link from the
+request or the Slack evidence it just read. OpenMeld verifies that link against
+the connected workspace before publishing, so an invented channel or timestamp
+cannot redirect the reply.
+
+Evidence: pr:143, commit:b192a404a2a3fd7c3e33838d3db9d5d47ead4a6b, workflow:32255551305, workflow:32257426899
+
+### Review and save Profile Report updates
+
+Fixed · v0.3.76 · documents · inbox · center-agent
+
+Pending Profile Report updates now explain that they need to be reviewed and
+saved. The existing **Save changes** action accepts the visible update even when
+no text edit is needed, then clears the matching Inbox action.
+
+Evidence: pr:141, commit:6e60eb65dc0b6a7c4edfc9d0434c991acb274019, workflow:32255551305, workflow:32256652038
+
+### See computers and connected accounts in People
+
+Improved · v0.3.76 · people · profiles · computers · channels
+
+Human Profile cards now show clear Computer status, existing Profile Reports,
+and connected Slack, Lark, or Feishu accounts without exposing internal profile
+handles or vague activity labels. Members can complete missing setup from their
+own card, disconnect a wrong account, and securely move a provider account to
+the right OpenMeld profile after proving control in that channel.
+
+Evidence: pr:144, commit:906aeeb111fabafa39c4ed59751158a8484383ab, workflow:32255551305, workflow:32256652038, workflow:32257153823
+
 ### See the same Computer status everywhere
 
 Fixed · computers · web
@@ -36,6 +92,30 @@ attention color. An available update stays amber everywhere, while required
 repairs stay red and Computer details keep one clear OpenMeld Service action.
 
 Evidence: pr:133, commit:e61d981b0d248a00498f3ca34c8e2cf486b536e4, workflow:32209316256
+
+### Understand every organization computer
+
+Improved · v0.3.76 · computers · center-agent · cli · web
+
+The Home directory now includes every computer shared with the Organization,
+even when it has no Agent Profile. Members can also ask the Center Agent or
+their own local agent about computers: the Center Agent receives model-safe
+owner diagnostics only in the member's private conversation, local agents can
+read the authenticated user's complete CLI inventory, and teammate lookups stay
+limited to the same safe summary shown in the Organization directory.
+
+Evidence: pr:140, commit:334268c8e6a700cc1993df8d7dbf86e69dd75373, workflow:32255551305, workflow:32256652038, workflow:32257426899
+
+### Use the current Service's controls
+
+Fixed · v0.3.76 · computers · service · web
+
+Computer controls now follow the newest OpenMeld Service session for that
+device and lane. An older reconnecting session can no longer make file access,
+folder selection, Project controls, or local Agent controls appear available
+when the current Service does not support them.
+
+Evidence: pr:143, commit:b192a404a2a3fd7c3e33838d3db9d5d47ead4a6b, workflow:32255551305, workflow:32256652038
 
 ## August 17, 2026
 
