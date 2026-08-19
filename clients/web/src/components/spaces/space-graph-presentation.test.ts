@@ -113,6 +113,42 @@ describe("buildSpaceGraphPresentation", () => {
 		);
 	});
 
+	it("keeps a terminal failure attached to its target Agent while profile artwork is unavailable", () => {
+		const source = buildTimelineItem({
+			actorName: "Felix",
+			actorProfileId: "profile-felix",
+			actorProfileKind: "human",
+			id: "message-source",
+			wakeTargetProfileIds: ["profile-cursor"],
+		});
+		const failure = buildTimelineItem({
+			actorName: "OpenMeld System",
+			actorProfileId: "system",
+			actorProfileKind: "system",
+			id: "notice-cursor",
+			replyToSignalId: source.id,
+			signalType: "signal.system_notice",
+			systemNoticeTargetProfileId: "profile-cursor",
+			systemNoticeType: "terminal_failure",
+			text: "Cursor could not reply.",
+			wakeSourceSignalId: source.id,
+		});
+
+		const graph = buildSpaceGraphPresentation({
+			profileNamesById: new Map([["profile-cursor", "Cursor"]]),
+			timelineItems: [source, failure],
+		});
+
+		expect(graph.nodes).toContainEqual(
+			expect.objectContaining({
+				actorName: "Cursor",
+				actorProfileKind: "agent",
+				id: "message:notice-cursor",
+				profilePresentation: null,
+			})
+		);
+	});
+
 	it("keeps an explicit silent outcome distinct from a missing result", () => {
 		const source = buildTimelineItem({
 			id: "message-source",

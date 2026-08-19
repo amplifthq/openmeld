@@ -80,7 +80,11 @@ export function buildSpaceGraphPresentation(input: {
 		(item) => !activeResultSignalIds.has(item.id)
 	);
 	const nodes: SpaceGraphNode[] = messageItems.map((item) =>
-		buildMessageNode(item, input.profilePresentationsById)
+		buildMessageNode({
+			item,
+			profileNamesById: input.profileNamesById,
+			profilePresentationsById: input.profilePresentationsById,
+		})
 	);
 	const edges: SpaceGraphEdge[] = [];
 	const signalIds = new Set(messageItems.map((item) => item.id));
@@ -250,30 +254,36 @@ function isRecordedGraphMessage(item: SpaceTimelineItem): boolean {
 	);
 }
 
-function buildMessageNode(
-	item: SpaceTimelineItem,
+function buildMessageNode(input: {
+	item: SpaceTimelineItem;
+	profileNamesById: ReadonlyMap<string, string>;
 	profilePresentationsById?: ReadonlyMap<
 		string,
 		SpaceCollaborationProfilePresentation
-	>
-): SpaceGraphMessageNode {
-	const presentationProfileId =
-		item.actorProfileKind === "system" && item.systemNoticeTargetProfileId
+	>;
+}): SpaceGraphMessageNode {
+	const { item } = input;
+	const targetProfileId =
+		item.actorProfileKind === "system"
 			? item.systemNoticeTargetProfileId
-			: item.actorProfileId;
+			: null;
+	const presentationProfileId = targetProfileId ?? item.actorProfileId;
+	const profilePresentation =
+		input.profilePresentationsById?.get(presentationProfileId) ?? null;
 	return {
 		actorName:
-			profilePresentationsById?.get(presentationProfileId)?.profileName ??
-			item.actorName,
+			profilePresentation?.profileName ??
+			(targetProfileId
+				? (input.profileNamesById.get(targetProfileId) ?? "Unknown Agent")
+				: item.actorName),
 		actorProfileKind:
-			profilePresentationsById?.get(presentationProfileId)?.profileKind ??
-			item.actorProfileKind,
+			profilePresentation?.profileKind ??
+			(targetProfileId ? "agent" : item.actorProfileKind),
 		createdAtMs: item.createdAtMs,
 		id: buildMessageNodeId(item.id),
 		item,
 		kind: "message",
-		profilePresentation:
-			profilePresentationsById?.get(presentationProfileId) ?? null,
+		profilePresentation,
 		text: item.text,
 	};
 }

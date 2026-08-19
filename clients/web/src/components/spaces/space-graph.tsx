@@ -18,7 +18,6 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Button } from "@openmeld/ui/components/button";
-import { OpenMeldLetterLogoStrong } from "@openmeld/ui/components/openmeld-letter-logo-strong";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowCounterClockwiseIcon,
@@ -29,6 +28,7 @@ import { useReducedMotion } from "framer-motion";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import { OpenMeldSystemIcon } from "./openmeld-system-icon";
 import {
 	buildSpaceGraphLayout,
 	type SpaceGraphLayoutNodeSize,
@@ -465,20 +465,25 @@ function SpaceGraphMessageActorIcon(input: { node: SpaceGraphMessageNode }) {
 			/>
 		);
 	}
-	if (input.node.item.actorProfileKind === "system") {
+	const actorProfileKind = input.node.actorProfileKind;
+	if (actorProfileKind === "system") {
 		return (
 			<span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-foreground">
-				<OpenMeldLetterLogoStrong ariaLabel="OpenMeld" className="size-4" />
+				<OpenMeldSystemIcon />
 			</span>
 		);
 	}
+	const actorProfileId =
+		(input.node.item.actorProfileKind === "system"
+			? input.node.item.systemNoticeTargetProfileId
+			: null) ?? input.node.item.actorProfileId;
 	return (
 		<SpaceProfileIcon
 			agentControllerRef={input.node.item.actorAgentControllerRef}
 			avatarImageUrl={input.node.item.actorAvatarImageUrl}
 			isCenterAgent={false}
-			profileId={input.node.item.actorProfileId}
-			profileKind={input.node.item.actorProfileKind}
+			profileId={actorProfileId}
+			profileKind={actorProfileKind}
 			profileName={input.node.actorName}
 			size="sm"
 		/>

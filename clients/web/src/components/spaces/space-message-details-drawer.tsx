@@ -8,7 +8,6 @@ import type {
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
-import { OpenMeldLetterLogoStrong } from "@openmeld/ui/components/openmeld-letter-logo-strong";
 import {
 	Tooltip,
 	TooltipContent,
@@ -46,6 +45,7 @@ import type {
 } from "#/lib/spaces/wake-progress-presentation";
 import type { SpaceWakeStopTargetResolution } from "#/lib/spaces/wake-stop-target";
 import { spaceMessageDetailsQueryOptions } from "#/query/spaces/message-details";
+import { OpenMeldSystemIcon } from "./openmeld-system-icon";
 import {
 	type SpaceAgentProfileBindingRecoveryPlan,
 	SpaceAgentRecoveryActionControl,
@@ -712,7 +712,7 @@ function ActivityActorIcon(input: { item: MessageDetailsActivityItem }) {
 	if (input.item.actor.profileKind === "system") {
 		return (
 			<span className="relative z-10 flex size-6 items-center justify-center rounded-md bg-background text-foreground ring-1 ring-border">
-				<OpenMeldLetterLogoStrong ariaLabel="OpenMeld" className="size-4" />
+				<OpenMeldSystemIcon />
 			</span>
 		);
 	}
