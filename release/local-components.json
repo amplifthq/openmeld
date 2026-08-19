@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-19T07:11:22.931Z",
+  "updatedAt": "2026-08-19T12:46:23.569Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.75",
+      "packageVersion": "0.3.76",
       "updatePolicy": "available",
-      "reason": "Adds reliable same-conversation reply review and upstream working-language guidance to the bundled OpenMeld Service."
+      "reason": "Adds capability discovery, verified Slack invitations and thread replies, connected People identities, clear Profile Report save attention, and privacy-safe Computer visibility and diagnostics."
     },
     "service": {
-      "bundleHash": "80973695ad81416ad035516fa98d7b5172ad7b8577ad1d2d301332a1c9b27de2",
-      "bundleVersion": "0.3.75",
+      "bundleHash": "ad9507b78c294dd873a5ea0b11ea785de2dcf37a1b23abdbdcce1962c41b213c",
+      "bundleVersion": "0.3.76",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Adds reliable same-conversation reply review and upstream working-language guidance to the bundled OpenMeld Service."
+      "reason": "Adds capability discovery, verified Slack invitations and thread replies, connected People identities, clear Profile Report save attention, and privacy-safe Computer visibility and diagnostics."
     },
     "skills": {
-      "bundleHash": "11ad94f43deeea2d61c07fe71c2e005ba7d110b39fc22aac1b46bfcdfabe5d63",
+      "bundleHash": "24cc0ca6222633d1d80f0899af8a1e1cf9252c4a271f8bf60676e685d6ad7e3d",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Keeps Center Agent Slack thread replies compatible with the latest OpenMeld cloud services."
+      "reason": "Adds capability discovery, verified Slack invitations and thread replies, connected People identities, clear Profile Report save attention, and privacy-safe Computer visibility and diagnostics."
     }
   }
 }
