@@ -2,6 +2,67 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "collapsible-sidebar-groups",
+      "title": "Collapse sidebar groups when you need more room",
+      "kind": "improved",
+      "areas": [
+        "navigation",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-19",
+      "evidence": [
+        "pr:119",
+        "commit:f56c4a77ef59c5d2e9d48533d794145fb868aa75",
+        "workflow:32198069001"
+      ],
+      "body": "The main sidebar now groups People, Agents, and Computers under Team and lets\nyou collapse Work, Team, and Resources. OpenMeld remembers those choices as you\nmove between pages, while compact sidebars keep every destination available."
+    },
+    {
+      "id": "exact-slack-inbox-links",
+      "title": "Open exact Slack messages from Inbox",
+      "kind": "fixed",
+      "areas": [
+        "inbox",
+        "slack",
+        "center-agent"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-19",
+      "evidence": [
+        "pr:124",
+        "commit:03339b2fad85e6bb2834ee9085ad0ddbdef59f88",
+        "workflow:32190997197",
+        "workflow:32197280409",
+        "workflow:32198069001",
+        "workflow:32198451108"
+      ],
+      "body": "Inbox now links Center Agent Slack updates to the exact Slack message. Opening\nthe link marks the OpenMeld item read, and temporary Slack permalink failures\nare retried without creating duplicate Inbox items. Existing Slack items are\nupgraded in place without resetting their read, action, or dismissal state.\nTabs left open during the rollout keep the prior Center Agent destination until\nthey reload the current Web client."
+    },
+    {
+      "id": "consistent-computer-status",
+      "title": "See the same Computer status everywhere",
+      "kind": "fixed",
+      "areas": [
+        "computers",
+        "web"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-08-19",
+      "evidence": [
+        "pr:133",
+        "commit:e61d981b0d248a00498f3ca34c8e2cf486b536e4",
+        "workflow:32209316256"
+      ],
+      "body": "Computer cards, detail pages, and navigation now use the same status and\nattention color. An available update stays amber everywhere, while required\nrepairs stay red and Computer details keep one clear OpenMeld Service action."
+    },
+    {
       "id": "openmeld-changelog-foundation",
       "title": "A shared Changelog workflow for coding agents",
       "kind": "new",
