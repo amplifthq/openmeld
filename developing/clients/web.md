@@ -415,17 +415,19 @@ Each row presents exactly one trailing visual status: current agent work first,
 then unread attention, then the persistent pin for an otherwise idle pinned
 Space. Hover or keyboard focus replaces that status with the pin action so the
 member can always pin or unpin the Space without overlapping indicators.
-Ambient agent work comes from a successful account active Wake summary whose
-`generatedAtMs` is no more than the shared 45-second maximum age. For the open
-Space, the sidebar also observes the same Core-derived per-Space Wake progress
-summary and shared presentation cache already rendered by the conversation so
-the two surfaces cannot disagree while that route is mounted. This is a shared
-read projection, not a second writer or execution authority. Terminal or
-locally expired progress never produces an orb. A failed account-summary
-refresh, a future timestamp, or expiry clears ambient indicators, while the
-open Space remains aligned with its current conversation evidence; Web must not
-keep an old orb visible merely because TanStack Query retains its last
-successful account-summary data.
+Ambient agent work for other Spaces comes from a successful account active Wake
+summary whose `generatedAtMs` is no more than the shared 45-second maximum age.
+For the open Space, the sidebar instead observes the same Core-derived
+per-Space Wake progress summary and shared presentation cache already rendered
+by the conversation so the two surfaces cannot disagree while that route is
+mounted. Those sources use the shared Wake identity and lifecycle merge
+semantics before Web decides whether work is active, so newer terminal progress
+wins over an older active summary. This is a shared read projection, not a
+second writer or execution authority. Terminal or locally expired progress
+never produces an orb. A failed account-summary refresh, a future timestamp, or
+expiry clears ambient indicators, while the open Space remains aligned with
+its current conversation evidence; Web must not keep an old orb visible merely
+because TanStack Query retains its last successful account-summary data.
 Opening a route alone does not clear the indicator. The shared Space message
 view writes the same Core-owned per-Space monotonic read-through watermark only
 after the document is visible and the member remains at the latest message for

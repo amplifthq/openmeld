@@ -1,6 +1,9 @@
 "use client";
 
-import { hasVisibleActiveWakeProgress } from "@openmeld/space";
+import {
+	hasVisibleActiveWakeProgress,
+	mergeWakeProgressItems,
+} from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
@@ -188,16 +191,20 @@ export function AppSpacesSidebar(input: {
 			spaceId: input.currentSpaceId,
 		})
 	);
-	const activeWakeSpaceIds = new Set(
-		usableActiveWakeSummaryItems.map((item) => item.spaceId)
-	);
+	const activeWakeSpaceIds = new Set<string>();
+	for (const item of usableActiveWakeSummaryItems) {
+		if (item.spaceId !== input.currentSpaceId) {
+			activeWakeSpaceIds.add(item.spaceId);
+		}
+	}
+	const currentSpaceWakeProgressItems = mergeWakeProgressItems({
+		currentItems: currentSpaceActiveWakeProgressSummaryQuery.data?.items ?? [],
+		incomingItems: currentSpaceWakeProgressPresentationQuery.data ?? [],
+	});
 	if (
 		input.currentSpaceId.trim().length > 0 &&
 		hasVisibleActiveWakeProgress({
-			items: [
-				...(currentSpaceWakeProgressPresentationQuery.data ?? []),
-				...(currentSpaceActiveWakeProgressSummaryQuery.data?.items ?? []),
-			],
+			items: currentSpaceWakeProgressItems,
 		})
 	) {
 		activeWakeSpaceIds.add(input.currentSpaceId);

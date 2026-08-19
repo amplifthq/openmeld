@@ -765,7 +765,10 @@ describe("AppSpacesSidebar", () => {
 		).toBeTruthy();
 	});
 
-	it("does not keep the current Space orb for terminal shared progress", async () => {
+	it.each([
+		"failed",
+		"stopped",
+	] as const)("does not keep the current Space orb when newer shared progress is %s", async (terminalPhase) => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -773,23 +776,56 @@ describe("AppSpacesSidebar", () => {
 					spaceId: "space-alpha",
 					spaceName: "Alpha",
 				}),
+				createAccountSpaceItem({
+					pinnedAt: "2026-04-29T02:00:00.000Z",
+					spaceId: "space-beta",
+					spaceName: "Beta",
+				}),
 			],
 			spaceItems: [],
 		});
-		getAccountSpaceActiveWakeSummaryMock.mockRejectedValue(
-			new Error("account active Wake summary unavailable")
-		);
+		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
+			generatedAtMs: Date.now(),
+			items: [
+				{ activeWakeCount: 1, spaceId: "space-alpha" },
+				{ activeWakeCount: 1, spaceId: "space-beta" },
+			],
+		});
 		const queryClient = createSidebarQueryClient();
+		const nowMs = Date.now();
+		const currentSpaceSummaryOptions =
+			spaceActiveWakeProgressSummaryQueryOptions({
+				enabled: false,
+				openMeldProfileId: "human-1",
+				spaceId: "space-alpha",
+			});
+		queryClient.setQueryData(currentSpaceSummaryOptions.queryKey, {
+			items: [
+				createWakeProgressItem({
+					clientMessageId: "client-message-alpha",
+					dispatchId: "dispatch-alpha",
+					phase: "running",
+					sourceSignalId: "signal-alpha",
+					targetLabel: "Runner",
+					targetProfileId: "agent-alpha",
+					updatedAtMs: nowMs,
+				}),
+			],
+			query: {
+				spaceId: "space-alpha",
+				targetProfileId: null,
+			},
+		});
 		setSpaceWakeProgressPresentationItems({
 			items: [
 				createWakeProgressItem({
 					clientMessageId: "client-message-alpha",
 					dispatchId: "dispatch-alpha",
-					phase: "failed",
+					phase: terminalPhase,
 					sourceSignalId: "signal-alpha",
 					targetLabel: "Runner",
 					targetProfileId: "agent-alpha",
-					updatedAtMs: Date.now(),
+					updatedAtMs: nowMs + 1,
 				}),
 			],
 			openMeldProfileId: "human-1",
@@ -807,8 +843,11 @@ describe("AppSpacesSidebar", () => {
 
 		expect(await screen.findByRole("button", { name: "Alpha" })).toBeTruthy();
 		expect(
-			document.querySelector('[data-space-active-wake-orb="true"]')
-		).toBeNull();
+			screen.getByRole("button", { name: "Beta, agent working" })
+		).toBeTruthy();
+		expect(
+			document.querySelectorAll('[data-space-active-wake-orb="true"]')
+		).toHaveLength(1);
 	});
 
 	it("does not render a working orb from an expired cached summary", async () => {
