@@ -1,6 +1,7 @@
 import { stream as streamOpenAICompletions } from "@earendil-works/pi-ai/api/openai-completions";
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
 import { describe, expect, it, vi } from "vitest";
+import { REMOTE_AGENT_CONNECTOR_TOOL_NAMES } from "../agent-core/connector-tools";
 import { REMOTE_AGENT_GITHUB_TOOL_NAMES } from "../agent-core/github-tools";
 import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "../flue-adapter/capability-discovery";
 import {
@@ -221,6 +222,61 @@ describe("Remote Agent model reasoning", () => {
     );
   });
 
+  it("keeps the generic Connected App bootstrap direct for provider-specific goals", async () => {
+    const reportStage = vi.fn();
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
+      {},
+      reportStage
+    );
+    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
+      (name) => ({ function: { name }, type: "function" })
+    );
+    const connectedAppTools = REMOTE_AGENT_CONNECTOR_TOOL_NAMES.map((name) => ({
+      function: {
+        description: "Discover or execute one authorized Connected App action.",
+        name,
+      },
+      type: "function",
+    }));
+    const unrelatedTools = Array.from({ length: 65 }, (_, index) => ({
+      function: {
+        description: "Manage one unrelated test resource.",
+        name: `tool_${String(index)}`,
+      },
+      type: "function",
+    }));
+    const codemode = {
+      function: {
+        description: "The frozen active capability catalog.",
+        name: "codemode",
+      },
+      type: "function",
+    };
+
+    const payload = await options.onPayload?.(
+      {
+        messages: [{ content: "Send an email with Gmail.", role: "user" }],
+        tools: [
+          ...unrelatedTools,
+          ...discoveryTools,
+          ...connectedAppTools,
+          codemode,
+        ],
+      },
+      TEXT_ONLY_MODEL
+    );
+
+    expect(payload).toMatchObject({
+      tools: [...discoveryTools, ...connectedAppTools, codemode],
+    });
+    expect(payload).not.toMatchObject({
+      tools: expect.arrayContaining(unrelatedTools),
+    });
+    expect(reportStage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageCount: 1, toolCount: 6 })
+    );
+  });
+
   it("keeps only Code Mode direct when a large tool surface has no required direct tools", async () => {
     const reportStage = vi.fn();
     const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
@@ -322,6 +378,202 @@ describe("Remote Agent model reasoning", () => {
       expect.objectContaining({
         messageCount: 1,
         toolCount: 5,
+      })
+    );
+  });
+
+  it("loads member directory before member Computer diagnostics", async () => {
+    const reportStage = vi.fn();
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
+      {},
+      reportStage
+    );
+    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
+      (name) => ({ function: { name }, type: "function" })
+    );
+    const organizationDirectory = {
+      function: {
+        description: "Read the exact OpenMeld Organization member directory.",
+        name: "openmeld_read_organization_directory",
+      },
+      type: "function",
+    };
+    const memberComputers = {
+      function: {
+        description: "Read one exact Organization member's computers.",
+        name: "openmeld_read_member_computers",
+      },
+      type: "function",
+    };
+    const unrelatedTools = Array.from({ length: 65 }, (_, index) => ({
+      function: {
+        description: "Manage one unrelated test resource.",
+        name: `tool_${String(index)}`,
+      },
+      type: "function",
+    }));
+    const codemode = {
+      function: {
+        description: "The frozen active capability catalog.",
+        name: "codemode",
+      },
+      type: "function",
+    };
+
+    const payload = await options.onPayload?.(
+      {
+        messages: [{ content: "查看同事电脑", role: "user" }],
+        tools: [
+          ...unrelatedTools,
+          ...discoveryTools,
+          organizationDirectory,
+          memberComputers,
+          codemode,
+        ],
+      },
+      TEXT_ONLY_MODEL
+    );
+
+    expect(payload).toMatchObject({
+      tools: [
+        ...discoveryTools,
+        organizationDirectory,
+        memberComputers,
+        codemode,
+      ],
+    });
+    expect(payload).not.toMatchObject({
+      tools: expect.arrayContaining(unrelatedTools),
+    });
+    expect(reportStage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageCount: 1,
+        toolCount: 5,
+      })
+    );
+  });
+
+  it.each([
+    {
+      prerequisites: [
+        {
+          description: "List the current Organization's Projects.",
+          name: "openmeld_list_projects",
+        },
+      ],
+      query: "openmeld_update_project",
+      targetDescription: "Update one existing Organization Project.",
+      targetName: "openmeld_update_project",
+    },
+    {
+      prerequisites: [
+        {
+          description: "List exact OpenMeld Agent Task Handles.",
+          name: "openmeld_list_agent_tasks",
+        },
+      ],
+      query: "openmeld_watch_agent_task",
+      targetDescription: "Watch one exact OpenMeld Agent Task.",
+      targetName: "openmeld_watch_agent_task",
+    },
+    {
+      prerequisites: [
+        {
+          description: "Preview Organization Skills and GitHub SHAs.",
+          name: "openmeld_read_organization_skills",
+        },
+      ],
+      query: "openmeld_install_organization_skill",
+      targetDescription: "Install one optional Organization Skill.",
+      targetName: "openmeld_install_organization_skill",
+    },
+    {
+      prerequisites: [
+        {
+          description: "List exact local agent connection candidates.",
+          name: "openmeld_list_local_agent_connection_candidates",
+        },
+      ],
+      query: "openmeld_connect_agent_profile_to_local_agent",
+      targetDescription: "Connect one Agent Profile to a local agent.",
+      targetName: "openmeld_connect_agent_profile_to_local_agent",
+    },
+    {
+      prerequisites: [
+        {
+          description: "List exact local agent connection candidates.",
+          name: "openmeld_list_local_agent_connection_candidates",
+        },
+        {
+          description: "List exact Organization Spaces.",
+          name: "openmeld_list_spaces",
+        },
+      ],
+      query: "openmeld_create_configured_agent_profile",
+      targetDescription: "Create one complete working Agent Profile.",
+      targetName: "openmeld_create_configured_agent_profile",
+    },
+  ])("loads exact prerequisites before $targetName", async ({
+    prerequisites,
+    query,
+    targetDescription,
+    targetName,
+  }) => {
+    const reportStage = vi.fn();
+    const options = withRemoteAgentProviderObservabilityAndSessionAffinity(
+      {},
+      reportStage
+    );
+    const discoveryTools = REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.map(
+      (name) => ({ function: { name }, type: "function" })
+    );
+    const prerequisiteTools = prerequisites.map(({ description, name }) => ({
+      function: { description, name },
+      type: "function",
+    }));
+    const target = {
+      function: { description: targetDescription, name: targetName },
+      type: "function",
+    };
+    const unrelatedTools = Array.from({ length: 65 }, (_, index) => ({
+      function: {
+        description: "Manage one unrelated test resource.",
+        name: `tool_${String(index)}`,
+      },
+      type: "function",
+    }));
+    const codemode = {
+      function: {
+        description: "The frozen active capability catalog.",
+        name: "codemode",
+      },
+      type: "function",
+    };
+
+    const payload = await options.onPayload?.(
+      {
+        messages: [{ content: query, role: "user" }],
+        tools: [
+          ...unrelatedTools,
+          ...discoveryTools,
+          ...prerequisiteTools,
+          target,
+          codemode,
+        ],
+      },
+      TEXT_ONLY_MODEL
+    );
+
+    expect(payload).toMatchObject({
+      tools: [...discoveryTools, ...prerequisiteTools, target, codemode],
+    });
+    expect(payload).not.toMatchObject({
+      tools: expect.arrayContaining(unrelatedTools),
+    });
+    expect(reportStage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageCount: 1,
+        toolCount: 4 + prerequisiteTools.length,
       })
     );
   });

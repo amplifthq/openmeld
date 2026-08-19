@@ -44,6 +44,74 @@ type CapabilityCatalogEntry = {
 const CAPABILITY_CATALOG_OVERRIDES: Readonly<
   Record<string, CapabilityCatalogEntry>
 > = {
+  openmeld_connect_agent_profile_to_local_agent: {
+    aliases: [
+      "connect an Agent Profile to a local agent",
+      "connect an Agent Profile to a Computer",
+      "连接代理配置文件",
+      "连接本地代理",
+    ],
+    dependencies: ["openmeld_list_local_agent_connection_candidates"],
+    namespace: "agents_and_computers",
+  },
+  openmeld_create_configured_agent_profile: {
+    aliases: [
+      "create a working Agent Profile",
+      "set up a complete Agent Profile",
+      "创建可工作的代理配置文件",
+      "完整设置代理配置文件",
+    ],
+    dependencies: [
+      "openmeld_list_local_agent_connection_candidates",
+      "openmeld_list_spaces",
+    ],
+    namespace: "agents_and_computers",
+  },
+  openmeld_create_project: {
+    aliases: ["create a project", "add an Organization project", "创建项目"],
+    dependencies: ["openmeld_list_projects"],
+    namespace: "projects",
+  },
+  openmeld_create_organization_invite_link: {
+    aliases: [
+      "create an organization invite link",
+      "make a join link",
+      "创建组织邀请链接",
+      "创建加入链接",
+    ],
+    namespace: "people_and_invitations",
+  },
+  openmeld_get_organization_invite_link: {
+    aliases: [
+      "get the organization invite link",
+      "read the join link",
+      "获取组织邀请链接",
+      "查看加入链接",
+    ],
+    namespace: "people_and_invitations",
+  },
+  openmeld_list_computers: {
+    aliases: [
+      "check my computer",
+      "computer diagnostics",
+      "OpenMeld Tools status",
+      "local agent status",
+      "检查我的电脑",
+      "电脑诊断",
+      "OpenMeld 工具状态",
+      "本地代理状态",
+    ],
+    namespace: "agents_and_computers",
+  },
+  openmeld_list_connected_apps: {
+    aliases: [
+      "list connected apps",
+      "check app connections",
+      "查看已连接应用",
+      "检查应用连接",
+    ],
+    namespace: "connected_apps",
+  },
   openmeld_invite_slack_teammates: {
     aliases: [
       "invite a Slack teammate",
@@ -60,6 +128,16 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
     ],
     dependencies: ["openmeld_read_slack_workspace_directory"],
     namespace: "people_and_invitations",
+  },
+  openmeld_install_organization_skill: {
+    aliases: [
+      "install an Organization Skill",
+      "install a GitHub Skill",
+      "安装组织技能",
+      "安装 GitHub 技能",
+    ],
+    dependencies: ["openmeld_read_organization_skills"],
+    namespace: "organization",
   },
   openmeld_read_slack_workspace_directory: {
     aliases: [
@@ -78,6 +156,58 @@ const CAPABILITY_CATALOG_OVERRIDES: Readonly<
       "邀请链接",
     ],
     namespace: "people_and_invitations",
+  },
+  openmeld_read_member_computers: {
+    aliases: [
+      "read a teammate's computers",
+      "member computer status",
+      "teammate OpenMeld Tools status",
+      "查看同事电脑",
+      "成员电脑状态",
+      "同事 OpenMeld 工具状态",
+    ],
+    dependencies: ["openmeld_read_organization_directory"],
+    namespace: "agents_and_computers",
+  },
+  openmeld_read_member_openmeld_service_status: {
+    aliases: [
+      "read a teammate's OpenMeld Service status",
+      "member OpenMeld Service connection",
+      "teammate local agent status",
+      "查看同事 OpenMeld 服务状态",
+      "成员服务连接状态",
+      "同事本地代理状态",
+    ],
+    dependencies: ["openmeld_read_organization_directory"],
+    namespace: "agents_and_computers",
+  },
+  openmeld_prepare_remove_project: {
+    aliases: ["prepare to remove a project", "准备移除项目"],
+    dependencies: ["openmeld_list_projects"],
+    namespace: "projects",
+  },
+  openmeld_remove_project: {
+    aliases: ["remove a project", "delete a project", "移除项目", "删除项目"],
+    dependencies: ["openmeld_prepare_remove_project"],
+    namespace: "projects",
+  },
+  openmeld_set_agent_profile_default_project: {
+    aliases: ["set a default project", "设置默认项目"],
+    dependencies: [
+      "openmeld_list_projects",
+      "openmeld_read_organization_directory",
+    ],
+    namespace: "projects",
+  },
+  openmeld_update_project: {
+    aliases: ["update a project", "edit a project", "更新项目", "编辑项目"],
+    dependencies: ["openmeld_list_projects"],
+    namespace: "projects",
+  },
+  openmeld_watch_agent_task: {
+    aliases: ["watch an agent task", "wait for an agent task", "观察代理任务"],
+    dependencies: ["openmeld_list_agent_tasks"],
+    namespace: "spaces_and_tasks",
   },
 };
 
@@ -115,10 +245,18 @@ export function expandRemoteAgentCapabilityDependencies(
   capabilityNames: ReadonlySet<string>
 ): Set<string> {
   const expanded = new Set(capabilityNames);
-  for (const capabilityName of capabilityNames) {
+  const pending = [...capabilityNames];
+  while (pending.length > 0) {
+    const capabilityName = pending.shift();
+    if (!capabilityName) {
+      continue;
+    }
     for (const dependency of CAPABILITY_CATALOG_OVERRIDES[capabilityName]
       ?.dependencies ?? []) {
-      expanded.add(dependency);
+      if (!expanded.has(dependency)) {
+        expanded.add(dependency);
+        pending.push(dependency);
+      }
     }
   }
   return expanded;

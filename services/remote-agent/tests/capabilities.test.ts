@@ -11,7 +11,12 @@ import {
   REMOTE_AGENT_OPENMELD_TOOL_NAMES,
   REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES,
 } from "../agent-core/tools";
-import { REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES } from "../flue-adapter/capability-discovery";
+import { expandRemoteAgentCapabilityDependencies } from "../flue-adapter/capability-catalog";
+import {
+  REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME,
+  REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
+  REMOTE_AGENT_CAPABILITY_SEARCH_TOOL_NAME,
+} from "../flue-adapter/capability-discovery";
 import { getRemoteAgentFlueTools as buildRemoteAgentFlueTools } from "../flue-adapter/tools";
 import {
   TEST_CODE_MODE_LOADER,
@@ -39,11 +44,32 @@ async function getRemoteAgentFlueTools(
   });
 }
 
+async function createCapabilityInventoryStorage() {
+  const request = createSubmitTurnRequest();
+  const storage = new InMemoryDurableObjectStorage();
+  await putRemoteAgentCallbackContext(
+    storage,
+    createRemoteAgentCallbackContext({
+      ack: {
+        accepted: true,
+        createdAt: TEST_NOW_MS,
+        idempotencyKey: "remote-agent:dispatch_123",
+        requestId: "flue_submission_capability_inventory",
+        status: "pending",
+        submissionId: "flue_submission_capability_inventory",
+      },
+      nowMs: TEST_NOW_MS,
+      request,
+    })
+  );
+  return storage;
+}
+
 describe("remote agent Flue capability inventory", () => {
   it("exposes the complete first-phase explicit tool surface", async () => {
     const tools = await getRemoteAgentFlueTools({
       coreWorker: {},
-      storage: new InMemoryDurableObjectStorage(),
+      storage: await createCapabilityInventoryStorage(),
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
@@ -55,6 +81,127 @@ describe("remote agent Flue capability inventory", () => {
     expect(tools.map((tool) => tool.name)).toContain("web_fetch");
     expect(tools.map((tool) => tool.name)).toContain("browser_read_page");
     expect(tools.map((tool) => tool.name)).toContain("browser_screenshot");
+  });
+
+  it("describes every executable capability from the final registered turn catalog", async () => {
+    const tools = await getRemoteAgentFlueTools({
+      coreWorker: {},
+      storage: await createCapabilityInventoryStorage(),
+    });
+    const describeTool = tools.find(
+      (tool) => tool.name === REMOTE_AGENT_CAPABILITY_DESCRIBE_TOOL_NAME
+    );
+    if (!describeTool?.run) {
+      throw new Error("Center Agent capability describe is unavailable.");
+    }
+    const executableNames = tools
+      .map((tool) => tool.name)
+      .filter(
+        (name) =>
+          name !== "codemode" &&
+          !REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES.includes(
+            name as (typeof REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES)[number]
+          )
+      );
+    const describedCapabilities: {
+      name: string;
+      namespace: string;
+    }[] = [];
+
+    for (let index = 0; index < executableNames.length; index += 8) {
+      const result = (await describeTool.run({
+        input: { names: executableNames.slice(index, index + 8) },
+      } as never)) as {
+        capabilities: { name: string; namespace: string }[];
+        unknownNames: string[];
+      };
+      expect(result.unknownNames).toEqual([]);
+      describedCapabilities.push(...result.capabilities);
+    }
+
+    const describedNames = describedCapabilities.map(({ name }) => name);
+    const namespaceByName = new Map(
+      describedCapabilities.map(({ name, namespace }) => [name, namespace])
+    );
+    expect(describedNames).toEqual(executableNames);
+    expect(describedNames).toContain("openmeld_list_computers");
+    expect(describedNames).toContain("openmeld_read_member_computers");
+    expect(namespaceByName.get("openmeld_list_connected_apps")).toBe(
+      "connected_apps"
+    );
+    expect(namespaceByName.get("openmeld_get_organization_invite_link")).toBe(
+      "people_and_invitations"
+    );
+    expect(
+      namespaceByName.get("openmeld_create_organization_invite_link")
+    ).toBe("people_and_invitations");
+  });
+
+  it("finds the requester Computer diagnostics capability from a Chinese goal", async () => {
+    const tools = await getRemoteAgentFlueTools({
+      coreWorker: {},
+      storage: await createCapabilityInventoryStorage(),
+    });
+    const searchTool = tools.find(
+      (tool) => tool.name === REMOTE_AGENT_CAPABILITY_SEARCH_TOOL_NAME
+    );
+    if (!searchTool?.run) {
+      throw new Error("Center Agent capability search is unavailable.");
+    }
+
+    await expect(
+      searchTool.run({
+        input: { query: "检查我的电脑和 OpenMeld 工具状态" },
+      } as never)
+    ).resolves.toMatchObject({
+      capabilities: expect.arrayContaining([
+        expect.objectContaining({
+          name: "openmeld_list_computers",
+          namespace: "agents_and_computers",
+        }),
+      ]),
+    });
+  });
+
+  it("loads the exact member lookup prerequisite for member Computer diagnostics", () => {
+    expect(
+      expandRemoteAgentCapabilityDependencies(
+        new Set([
+          "openmeld_read_member_computers",
+          "openmeld_read_member_openmeld_service_status",
+        ])
+      )
+    ).toEqual(
+      new Set([
+        "openmeld_read_member_computers",
+        "openmeld_read_member_openmeld_service_status",
+        "openmeld_read_organization_directory",
+      ])
+    );
+  });
+
+  it("expands exact multi-step capability prerequisites transitively", () => {
+    expect(
+      expandRemoteAgentCapabilityDependencies(
+        new Set([
+          "openmeld_install_organization_skill",
+          "openmeld_remove_project",
+          "openmeld_update_project",
+          "openmeld_watch_agent_task",
+        ])
+      )
+    ).toEqual(
+      new Set([
+        "openmeld_install_organization_skill",
+        "openmeld_remove_project",
+        "openmeld_update_project",
+        "openmeld_watch_agent_task",
+        "openmeld_read_organization_skills",
+        "openmeld_prepare_remove_project",
+        "openmeld_list_projects",
+        "openmeld_list_agent_tasks",
+      ])
+    );
   });
 
   it("exposes structured Space Reference input on the direct Wake tool", async () => {

@@ -66,18 +66,23 @@ describe("Slack welcome teammate invitations", () => {
         },
       },
     };
+    const matchingEvidence = {
+      delivery: privateDelivery,
+      representedHuman: {
+        profileId: "profile-actor",
+        userId: "user-actor",
+      },
+      slackTeamId: "T1",
+      slackUserId: "U_ACTOR",
+      sourceNativeDeliveryId: "delivery-1",
+    } satisfies Parameters<
+      typeof requireRemoteAgentSlackTeammateInvitationDeliveryEvidence
+    >[0];
 
     expect(() =>
-      requireRemoteAgentSlackTeammateInvitationDeliveryEvidence({
-        delivery: privateDelivery,
-        representedHuman: {
-          profileId: "profile-actor",
-          userId: "user-actor",
-        },
-        slackTeamId: "T1",
-        slackUserId: "U_ACTOR",
-        sourceNativeDeliveryId: "delivery-1",
-      })
+      requireRemoteAgentSlackTeammateInvitationDeliveryEvidence(
+        matchingEvidence
+      )
     ).not.toThrow();
     expect(() =>
       requireRemoteAgentSlackTeammateInvitationDeliveryEvidence({
@@ -122,6 +127,109 @@ describe("Slack welcome teammate invitations", () => {
         sourceNativeDeliveryId: "delivery-1",
       })
     ).toThrow("active Slack delivery");
+
+    const invalidEvidence = [
+      {
+        ...matchingEvidence,
+        sourceNativeDeliveryId: "model-invented-delivery",
+      },
+      {
+        ...matchingEvidence,
+        delivery: { ...privateDelivery, conversationKind: "lark" },
+      },
+      {
+        ...matchingEvidence,
+        delivery: { ...privateDelivery, slackTeamId: "T_OTHER" },
+      },
+      {
+        ...matchingEvidence,
+        delivery: {
+          ...privateDelivery,
+          workerSubmitRequest: {
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              trigger: { source: "message_channel", teamId: "T1" },
+            },
+          },
+        },
+      },
+      {
+        ...matchingEvidence,
+        delivery: {
+          ...privateDelivery,
+          workerSubmitRequest: {
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              sender: {
+                ...privateDelivery.workerSubmitRequest.turnEnvelope.sender,
+                verified: false,
+              },
+            },
+          },
+        },
+      },
+      {
+        ...matchingEvidence,
+        delivery: {
+          ...privateDelivery,
+          workerSubmitRequest: {
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              sender: {
+                ...privateDelivery.workerSubmitRequest.turnEnvelope.sender,
+                ownerUserId: "user-other",
+              },
+            },
+          },
+        },
+      },
+      {
+        ...matchingEvidence,
+        delivery: {
+          ...privateDelivery,
+          workerSubmitRequest: {
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              sender: {
+                ...privateDelivery.workerSubmitRequest.turnEnvelope.sender,
+                messageChannelIdentity: {
+                  connectionId: "T1",
+                  provider: "lark",
+                  providerUserId: "U_ACTOR",
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        ...matchingEvidence,
+        delivery: {
+          ...privateDelivery,
+          workerSubmitRequest: {
+            turnEnvelope: {
+              ...privateDelivery.workerSubmitRequest.turnEnvelope,
+              sender: {
+                ...privateDelivery.workerSubmitRequest.turnEnvelope.sender,
+                messageChannelIdentity: {
+                  connectionId: "T1",
+                  provider: "slack",
+                  providerUserId: "U_OTHER",
+                },
+              },
+            },
+          },
+        },
+      },
+    ] satisfies Parameters<
+      typeof requireRemoteAgentSlackTeammateInvitationDeliveryEvidence
+    >[0][];
+
+    for (const evidence of invalidEvidence) {
+      expect(() =>
+        requireRemoteAgentSlackTeammateInvitationDeliveryEvidence(evidence)
+      ).toThrow("active Slack delivery");
+    }
   });
 
   afterEach(() => {

@@ -8,6 +8,7 @@ import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import { registerApiProvider, registerProvider } from "@flue/runtime";
 import type { CenterAgentModelRoute } from "@openmeld/schemas/types";
 import { z } from "zod/v4";
+import { REMOTE_AGENT_CONNECTOR_TOOL_NAMES } from "../agent-core/connector-tools";
 import {
   buildRemoteAgentAiGatewayHeaders,
   buildRemoteAgentGatewayMetadata,
@@ -769,6 +770,7 @@ const REMOTE_AGENT_CODE_MODE_TOOL_NAME = "codemode";
 const REMOTE_AGENT_RELEVANT_DIRECT_TOOL_LIMIT = 8;
 const REMOTE_AGENT_ALWAYS_DIRECT_TOOL_NAME_SET = new Set<string>([
   ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
+  ...REMOTE_AGENT_CONNECTOR_TOOL_NAMES,
 ]);
 
 function compactRemoteAgentProviderTools(
