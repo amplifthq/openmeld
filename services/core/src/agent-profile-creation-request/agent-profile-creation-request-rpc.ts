@@ -25,7 +25,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { resolveCenterAgentAuditAttribution } from "../center-agent/center-agent-audit";
 import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
-import type { CoreBindings } from "../lib/bindings";
+import { type CoreBindings, identityDb } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
   projectAgentProfileCreationRequestInbox,
@@ -586,14 +586,15 @@ function requireIdentifier(value: unknown, label: string): string {
 }
 
 function requireDb(env: CoreBindings): D1Database {
-  if (!env.OPENMELD_DB) {
+  const db = identityDb(env);
+  if (!db) {
     throw createCoreRpcHttpError({
       code: "agent_profile_creation_request.unavailable",
       reason: "Agent Profile creation requests are temporarily unavailable.",
       status: 503,
     });
   }
-  return env.OPENMELD_DB;
+  return db;
 }
 
 async function requireOrganizationMember(input: {
