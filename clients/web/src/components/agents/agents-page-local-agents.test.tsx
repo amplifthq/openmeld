@@ -25,8 +25,9 @@ import {
 
 const HOMEBREW_INSTALLATION_NAME = /Homebrew installation/;
 const LOW_CODEX_USAGE_GAUGE_NAME = /Codex 5-hour usage, 84% used, Low/u;
-const OWNED_USAGE_SUMMARY_ORDER = /v0\.38\.0.*Usage 84%/u;
-const TEAM_USAGE_SUMMARY_ORDER = /v0\.148\.0.*Usage 84%/u;
+const OWNED_USAGE_SUMMARY_ORDER = /v0\.38\.0.*84%/u;
+const TEAM_USAGE_SUMMARY_ORDER = /v0\.148\.0.*84%/u;
+const LOW_CODEX_USAGE_SUMMARY_NAME = /Codex usage limits, 84% used, Low/u;
 
 const toastMock = vi.hoisted(() =>
 	Object.assign(vi.fn(), {
@@ -140,12 +141,13 @@ describe("LocalAgentsCard", () => {
 		});
 
 		const ownedRow = screen.getByTestId("settings-local-agent-row-codex");
-		expect(screen.queryByRole("progressbar")).toBeNull();
-		expect(
-			within(ownedRow).getByTestId("local-agent-usage-summary").textContent
-		).toContain("Usage 84%");
+		const ownedSummary = within(ownedRow).getByRole("progressbar", {
+			name: LOW_CODEX_USAGE_SUMMARY_NAME,
+		});
+		expect(ownedSummary.textContent).toBe("84%");
+		expect(ownedSummary.getAttribute("aria-valuenow")).toBe("84");
 		expect(ownedRow.textContent).toMatch(OWNED_USAGE_SUMMARY_ORDER);
-		fireEvent.click(within(ownedRow).getByTestId("local-agent-usage-summary"));
+		fireEvent.click(ownedSummary);
 		expect(
 			screen.getByRole("progressbar", {
 				name: LOW_CODEX_USAGE_GAUGE_NAME,
@@ -192,10 +194,11 @@ describe("LocalAgentsCard", () => {
 		);
 
 		const teammateRow = screen.getByTestId("settings-local-agent-row-codex");
-		expect(screen.queryByRole("progressbar")).toBeNull();
-		expect(
-			within(teammateRow).getByTestId("local-agent-usage-summary").textContent
-		).toContain("Usage 84%");
+		const teammateSummary = within(teammateRow).getByRole("progressbar", {
+			name: LOW_CODEX_USAGE_SUMMARY_NAME,
+		});
+		expect(teammateSummary.textContent).toBe("84%");
+		expect(teammateSummary.getAttribute("aria-valuenow")).toBe("84");
 		expect(teammateRow.textContent).toMatch(TEAM_USAGE_SUMMARY_ORDER);
 		fireEvent.click(
 			within(teammateRow)
@@ -212,6 +215,29 @@ describe("LocalAgentsCard", () => {
 				.getByRole("switch", { name: "Codex local agent" })
 				.hasAttribute("data-disabled")
 		).toBe(true);
+	});
+
+	it("does not advertise unsupported usage in collapsed agent rows", () => {
+		renderLocalAgentsCard({
+			includeAgentControllerInterface: true,
+			setEnabledSupported: true,
+			usageLimits: [
+				{
+					key: "codex:usage-limits",
+					label: "Usage limits",
+					observedAt: "2026-08-20T07:55:00.000Z",
+					resetsAt: null,
+					status: "unsupported",
+					usedPercent: null,
+				},
+			],
+		});
+
+		const ownedRow = screen.getByTestId("settings-local-agent-row-codex");
+		expect(
+			within(ownedRow).queryByTestId("local-agent-usage-summary")
+		).toBeNull();
+		expect(ownedRow.textContent).not.toContain("Usage unsupported");
 	});
 
 	it("confirms before disabling a supported installed local agent", async () => {

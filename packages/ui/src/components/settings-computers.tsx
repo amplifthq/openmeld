@@ -338,8 +338,8 @@ type UsageLimitPresentation = {
 
 type UsageLimitSummary = {
   accessibleDetails: string;
-  badgeLabel: string;
   presentation: UsageLimitPresentation;
+  usedPercent: number;
 };
 
 export function SettingsLocalAgentUsageSummary({
@@ -352,15 +352,11 @@ export function SettingsLocalAgentUsageSummary({
   nowMs?: number;
 }) {
   const summary = resolveUsageLimitSummary(limits);
+  if (!summary) {
+    return null;
+  }
   const accessibleLabel = `${agentName} usage limits, ${summary.accessibleDetails}`;
-  const badge = (
-    <Badge
-      className={resolveUsageLimitBadgeClassName(summary.presentation.tone)}
-      variant="secondary"
-    >
-      {summary.badgeLabel}
-    </Badge>
-  );
+  const usedPercentLabel = formatUsedPercent(summary.usedPercent);
 
   return (
     <Tooltip>
@@ -368,11 +364,43 @@ export function SettingsLocalAgentUsageSummary({
         render={
           <span
             aria-label={accessibleLabel}
-            className="inline-flex shrink-0"
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={summary.usedPercent}
+            className="inline-flex h-5 shrink-0 items-center gap-1 font-medium text-xs tabular-nums"
             data-testid="local-agent-usage-summary"
-            role="img"
+            role="progressbar"
           >
-            {badge}
+            <svg
+              aria-hidden="true"
+              className={cn(
+                "size-4 -rotate-90",
+                resolveStatusToneStrongTextClassName(summary.presentation.tone)
+              )}
+              viewBox="0 0 20 20"
+            >
+              <circle
+                className="text-muted-foreground/20"
+                cx="10"
+                cy="10"
+                fill="none"
+                r="7.5"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              />
+              <circle
+                cx="10"
+                cy="10"
+                fill="none"
+                pathLength="100"
+                r="7.5"
+                stroke="currentColor"
+                strokeDasharray={`${summary.usedPercent} 100`}
+                strokeLinecap="round"
+                strokeWidth="2.5"
+              />
+            </svg>
+            <span>{usedPercentLabel}</span>
           </span>
         }
       />
@@ -588,14 +616,13 @@ function resolveUsageLimitPresentation(
 
 function resolveUsageLimitSummary(
   limits?: AgentControllerUsageLimits
-): UsageLimitSummary {
-  const [firstLimit, ...remainingLimits] = limits ?? [];
+): UsageLimitSummary | null {
+  const quantifiedLimits = (limits ?? []).filter(
+    (limit) => limit.usedPercent !== null
+  );
+  const [firstLimit, ...remainingLimits] = quantifiedLimits;
   if (!firstLimit) {
-    return {
-      accessibleDetails: "Unavailable, not reported by provider yet",
-      badgeLabel: "Usage unavailable",
-      presentation: { label: "Unavailable", tone: "muted" },
-    };
+    return null;
   }
 
   let selectedLimit = firstLimit;
@@ -617,22 +644,14 @@ function resolveUsageLimitSummary(
   }
 
   const usedPercent = selectedLimit.usedPercent;
-  const accessibleDetails =
-    usedPercent === null
-      ? selectedPresentation.label
-      : `${formatUsedPercent(usedPercent)} used, ${selectedPresentation.label}`;
-  const badgeLabel =
-    usedPercent !== null &&
-    selectedPresentation.label !== "Stale" &&
-    selectedPresentation.label !== "Unavailable" &&
-    selectedPresentation.label !== "Unsupported"
-      ? `Usage ${formatUsedPercent(usedPercent)}`
-      : `Usage ${selectedPresentation.label.toLowerCase()}`;
+  if (usedPercent === null) {
+    return null;
+  }
 
   return {
-    accessibleDetails,
-    badgeLabel,
+    accessibleDetails: `${formatUsedPercent(usedPercent)} used, ${selectedPresentation.label}`,
     presentation: selectedPresentation,
+    usedPercent,
   };
 }
 

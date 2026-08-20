@@ -9,6 +9,7 @@ import {
 const NOW_MS = Date.parse("2026-08-20T08:00:00.000Z");
 const LOW_WEEKLY_USAGE_GAUGE_NAME =
   /Codex Weekly usage, 88% used, Low, Resets in 7 days, Updated 10 minutes ago/u;
+const USAGE_UNSUPPORTED_COPY = /Usage unsupported/u;
 
 afterEach(cleanup);
 
@@ -35,6 +36,14 @@ describe("Settings Local Agent usage limits", () => {
               status: "available",
               usedPercent: 88,
             },
+            {
+              key: "unsupported",
+              label: "Other usage",
+              observedAt: "2026-08-20T07:50:00.000Z",
+              resetsAt: null,
+              status: "unsupported",
+              usedPercent: null,
+            },
           ]}
           nowMs={NOW_MS}
         />
@@ -42,7 +51,11 @@ describe("Settings Local Agent usage limits", () => {
     );
 
     const trigger = screen.getByTestId("local-agent-usage-summary");
-    expect(trigger.textContent).toContain("Usage 88%");
+    expect(trigger.textContent).toBe("88%");
+    expect(trigger.getAttribute("role")).toBe("progressbar");
+    expect(trigger.getAttribute("aria-valuemin")).toBe("0");
+    expect(trigger.getAttribute("aria-valuemax")).toBe("100");
+    expect(trigger.getAttribute("aria-valuenow")).toBe("88");
     expect(trigger.getAttribute("aria-label")).toContain(
       "Codex usage limits, 88% used, Low"
     );
@@ -55,6 +68,51 @@ describe("Settings Local Agent usage limits", () => {
     expect(screen.getByText("Weekly usage")).toBeTruthy();
     expect(screen.getByText("88% used · Low")).toBeTruthy();
     expect(screen.getByText("Select this agent to view details.")).toBeTruthy();
+  });
+
+  it("omits collapsed summaries when the provider reports no percentage", () => {
+    const { rerender } = render(
+      <TooltipProvider>
+        <SettingsLocalAgentUsageSummary
+          agentName="Claude Code"
+          limits={[
+            {
+              key: "claude-code:usage-limits",
+              label: "Usage limits",
+              observedAt: "2026-08-20T07:59:00.000Z",
+              resetsAt: null,
+              status: "unsupported",
+              usedPercent: null,
+            },
+          ]}
+          nowMs={NOW_MS}
+        />
+      </TooltipProvider>
+    );
+
+    expect(screen.queryByTestId("local-agent-usage-summary")).toBeNull();
+    expect(screen.queryByText(USAGE_UNSUPPORTED_COPY)).toBeNull();
+
+    rerender(
+      <TooltipProvider>
+        <SettingsLocalAgentUsageSummary
+          agentName="Cursor"
+          limits={[
+            {
+              key: "cursor:usage-limits",
+              label: "Usage limits",
+              observedAt: "2026-08-20T07:59:00.000Z",
+              resetsAt: null,
+              status: "unavailable",
+              usedPercent: null,
+            },
+          ]}
+          nowMs={NOW_MS}
+        />
+      </TooltipProvider>
+    );
+
+    expect(screen.queryByTestId("local-agent-usage-summary")).toBeNull();
   });
 
   it("renders multiple accessible gauges and every public capacity status", () => {
