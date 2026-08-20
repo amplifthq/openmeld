@@ -32,6 +32,7 @@ import { HumanProfileNameEditor } from "#/components/profiles/human-profile-name
 import { copyTextToClipboard } from "#/lib/clipboard";
 
 export function DirectoryHumanProfileDetailsDrawer(input: {
+	activityNowMs: number;
 	directMessageIsPending: boolean;
 	editing: boolean;
 	member: DirectoryHumanProfileRow;
@@ -88,6 +89,7 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 						<div className="min-h-0 flex-1 overflow-y-auto">
 							<div className="space-y-6 px-5 py-6">
 								<ProfileHero
+									activityNowMs={input.activityNowMs}
 									editing={input.editing}
 									member={input.member}
 									onEditingChange={input.onEditingChange}
@@ -158,6 +160,7 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 }
 
 function ProfileHero(input: {
+	activityNowMs: number;
 	editing: boolean;
 	member: DirectoryHumanProfileRow;
 	onEditingChange: (editing: boolean) => void;
@@ -208,7 +211,10 @@ function ProfileHero(input: {
 				>
 					{input.member.profileStatus === "disabled"
 						? "Profile disabled"
-						: formatDirectoryActivity(input.member.lastUsedAt)}
+						: formatDirectoryActivity(
+								input.member.lastUsedAt,
+								input.activityNowMs
+							)}
 				</p>
 			</div>
 		</div>

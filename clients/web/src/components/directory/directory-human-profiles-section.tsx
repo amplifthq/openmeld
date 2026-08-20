@@ -80,6 +80,8 @@ type DirectoryHumanProfileCardState = Omit<
 	highlight: "default" | "highlighted";
 };
 
+const DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
+
 export function DirectoryHumanProfilesSection(input: {
 	activeBatch: CenterAgentMemberResearchBatch | null;
 	canCreateProfile: boolean;
@@ -100,6 +102,7 @@ export function DirectoryHumanProfilesSection(input: {
 	state: DirectoryHumanProfilesViewState;
 }) {
 	const rowElementsRef = useRef(new Map<string, HTMLElement>());
+	const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
 	const [highlightedProfileId, setHighlightedProfileId] = useState<
 		string | null
 	>(null);
@@ -115,6 +118,13 @@ export function DirectoryHumanProfilesSection(input: {
 		pendingResearch: input.pendingResearch,
 		processedCount,
 	});
+
+	useEffect(() => {
+		const intervalId = window.setInterval(() => {
+			setActivityNowMs(Date.now());
+		}, DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS);
+		return () => window.clearInterval(intervalId);
+	}, []);
 
 	useEffect(() => {
 		if (!input.focusProfileId || profilesAreLoading) {
@@ -152,6 +162,7 @@ export function DirectoryHumanProfilesSection(input: {
 					<DirectoryCardItem itemId={member.id} key={member.id}>
 						<DirectoryHumanProfileCard
 							activeBatch={input.activeBatch}
+							activityNowMs={activityNowMs}
 							latestTasks={latestTasks}
 							member={member}
 							memberResearchError={input.memberResearchError}
@@ -227,6 +238,7 @@ export function DirectoryHumanProfilesSection(input: {
 
 function DirectoryHumanProfileCard(input: {
 	activeBatch: CenterAgentMemberResearchBatch | null;
+	activityNowMs: number;
 	latestTasks: readonly CenterAgentMemberResearchTask[];
 	member: DirectoryHumanProfileRow;
 	memberResearchError: { message: string; subjectUserId: string } | null;
@@ -308,7 +320,10 @@ function DirectoryHumanProfileCard(input: {
 				secondarySubtitle={
 					input.member.profileStatus === "disabled"
 						? "Profile disabled"
-						: formatDirectoryActivity(input.member.lastUsedAt)
+						: formatDirectoryActivity(
+								input.member.lastUsedAt,
+								input.activityNowMs
+							)
 				}
 				subtitle={resolveDirectoryEmailLabel(input.member.email)}
 				testId={
@@ -327,6 +342,7 @@ function DirectoryHumanProfileCard(input: {
 				}
 			/>
 			<DirectoryHumanProfileDetailsDrawer
+				activityNowMs={input.activityNowMs}
 				directMessageIsPending={input.state.directMessage === "pending"}
 				editing={isEditingDetails}
 				member={input.member}

@@ -260,7 +260,10 @@ describe("DirectoryMembersOverview", () => {
 		toastWarningMock.mockReset();
 	});
 
-	afterEach(cleanup);
+	afterEach(() => {
+		cleanup();
+		vi.useRealTimers();
+	});
 
 	it("shows the current member without inventing a Profile Report and links collaboration guidance to organization creation", async () => {
 		listCurrentOrganizationDocumentsMock.mockResolvedValue({
@@ -310,6 +313,26 @@ describe("DirectoryMembersOverview", () => {
 				await screen.findByRole("dialog", { name: "Profile" })
 			).queryByText("Organization role")
 		).toBeNull();
+	});
+
+	it("keeps relative activity current while the People page remains open", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime("2026-07-15T00:00:30.000Z");
+		renderOverview({
+			isPersonal: true,
+			personalProfiles: [
+				{
+					...buildHumanProfile(),
+					lastUsedAt: "2026-07-15T00:00:15.000Z",
+				},
+			],
+		});
+
+		expect(await screen.findByText("Last used just now")).toBeTruthy();
+		act(() => {
+			vi.advanceTimersByTime(60_000);
+		});
+		expect(screen.getByText("Last used 1 minute ago")).toBeTruthy();
 	});
 
 	it("explains how to create the first Human Profile in a personal workspace", async () => {
