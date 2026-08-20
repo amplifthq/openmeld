@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-19T12:46:23.569Z",
+  "updatedAt": "2026-08-20T18:29:52.457Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.76",
+      "packageVersion": "0.3.77",
       "updatePolicy": "available",
-      "reason": "Adds capability discovery, verified Slack invitations and thread replies, connected People identities, clear Profile Report save attention, and privacy-safe Computer visibility and diagnostics."
+      "reason": "Adds organization-wide Human Profile activity, Profile Reports, Agent Profile and Computer summaries, and the same People directory for Center Agent and local agents."
     },
     "service": {
-      "bundleHash": "ad9507b78c294dd873a5ea0b11ea785de2dcf37a1b23abdbdcce1962c41b213c",
-      "bundleVersion": "0.3.76",
+      "bundleHash": "7b77b8386266d948f3c35745f09c09fbe8bda98b10c1e9d7e5b700261be3d33d",
+      "bundleVersion": "0.3.77",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Adds capability discovery, verified Slack invitations and thread replies, connected People identities, clear Profile Report save attention, and privacy-safe Computer visibility and diagnostics."
+      "reason": "Adds organization-wide Human Profile activity, Profile Reports, Agent Profile and Computer summaries, and the same People directory for Center Agent and local agents."
     },
     "skills": {
-      "bundleHash": "24cc0ca6222633d1d80f0899af8a1e1cf9252c4a271f8bf60676e685d6ad7e3d",
+      "bundleHash": "1ee99d104ba0f2e410df02c4966ea996888d87961e726e7c5b179bb038e0e62e",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Adds capability discovery, verified Slack invitations and thread replies, connected People identities, clear Profile Report save attention, and privacy-safe Computer visibility and diagnostics."
+      "reason": "Adds organization-wide Human Profile activity, Profile Reports, Agent Profile and Computer summaries, and the same People directory for Center Agent and local agents."
     }
   }
 }
