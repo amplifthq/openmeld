@@ -84,7 +84,9 @@ release state stay outside portable frontmatter in Core-owned schemas.
 origin, capability, coverage, reconciliation-page, paginated read, CLI JSON,
 and Center Agent tool shapes. The five provider values are `codex`,
 `claude-code`, `cursor`, `opencode`, and `grok-build`; consumers cannot add a
-provider or reinterpret a capability locally.
+provider or reinterpret a capability locally. Every provider value has exactly
+one canonical built-in Agent Controller ref, and strict reconciliation,
+coverage, and read schemas reject mismatched pairs.
 
 Core owns Organization authorization, public owner/Project/Computer joins,
 atomic publication, stable keyset pagination, staleness, and the read-time
@@ -93,6 +95,9 @@ maps native evidence into the shared observed-Session shape before transport.
 Web, CLI, Local Agents, and Remote Agent may filter or render the response, but
 they must not rebuild Session identity, status, title, Binding, origin,
 Computer liveness, or Resume/Fork capability.
+Pagination cursors bind both the complete filter set and the authorized
+Organization, so a cursor issued in one tenant is invalid in another even when
+all visible filters match.
 
 The stable product identity is `(owner, agentControllerRef,
 nativeSessionId)`. The public contract intentionally contains the native id and

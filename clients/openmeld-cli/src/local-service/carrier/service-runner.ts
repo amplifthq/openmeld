@@ -732,6 +732,7 @@ export const runDaemonServiceLoop = async (
   const controlPlaneDaemonVersion =
     daemonServiceContract?.daemonVersion ?? "unknown";
   const controlPlaneToken = await ensureDaemonControlPlaneToken();
+  let requestAgentActivitySync: (() => void) | null = null;
   const controlPlaneServer = await startLocalDaemonControlPlaneServer({
     expectedToken: controlPlaneToken,
     getContext: async () => ({
@@ -760,6 +761,13 @@ export const runDaemonServiceLoop = async (
         }),
       conversationExecutionStatusHandler: async (payload) =>
         await resolveLocalConversationExecutionStatus(payload),
+      requestAgentActivitySyncHandler: () => {
+        if (!requestAgentActivitySync) {
+          return { accepted: false };
+        }
+        requestAgentActivitySync();
+        return { accepted: true };
+      },
       syncRouteCatalogHandler: async (payload) =>
         await handleLocalControlPlaneRouteCatalogSync({
           payload,
@@ -897,6 +905,12 @@ export const runDaemonServiceLoop = async (
       });
     },
   });
+  requestAgentActivitySync = () => {
+    agentActivitySync.requestSync({
+      reconcile: true,
+      refreshContext: true,
+    });
+  };
   const agentActivityIntegrationRefresh =
     createManagedAgentActivityIntegrationRefreshScheduler({
       onError: (error) => {

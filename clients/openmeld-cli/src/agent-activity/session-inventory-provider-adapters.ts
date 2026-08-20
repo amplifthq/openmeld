@@ -8,6 +8,7 @@ import { resolveInstalledClaudeCodeLaunchCandidates } from "@openmeld/adapter-cl
 import { resolveInstalledCodexLaunchCandidates } from "@openmeld/adapter-codex";
 import {
   buildCliLaunchInvocation,
+  type InstalledLaunchCandidatesFailureReason,
   type RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
 import { resolveInstalledGrokBuildLaunchCandidates } from "@openmeld/adapter-grok-build";
@@ -20,6 +21,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { readRecentAgentActivityHookStatus } from "./hook-projection-store";
 import { resolveObservedAgentActivityBinding } from "./observer-adapters";
+import { resolveOpenCodeDatabasePath } from "./opencode-storage";
 import type { ProjectBinding } from "./project-bindings";
 import { normalizeSharedSessionTitle } from "./provider-session-titles";
 import {
@@ -73,6 +75,7 @@ export async function discoverLocalAgentSessionProviders(input: {
   homeDir?: string;
   nowMs?: number;
   rootDir?: string;
+  xdgDataHome?: string;
 }): Promise<LocalAgentSessionProviderDiscovery[]> {
   const homeDir = input.homeDir ?? homedir();
   const nowMs = input.nowMs ?? Date.now();
@@ -100,7 +103,7 @@ async function discoverCodex(input: {
     timeoutMs: PROVIDER_PROBE_TIMEOUT_MS,
   });
   if (!launch.ok) {
-    return unsupported("codex", "codex_provider_not_launchable");
+    return providerLaunchFailure("codex", launch.reason);
   }
   try {
     return sessionsResult(
@@ -414,7 +417,7 @@ async function discoverClaudeCode(input: {
     timeoutMs: PROVIDER_PROBE_TIMEOUT_MS,
   });
   if (!launch.ok) {
-    return unsupported("claude-code", "claude_code_provider_not_launchable");
+    return providerLaunchFailure("claude-code", launch.reason);
   }
   try {
     const liveStatuses = await readClaudeAgentStatuses(
@@ -615,20 +618,18 @@ async function discoverOpenCode(input: {
   homeDir: string;
   nowMs: number;
   rootDir?: string;
+  xdgDataHome?: string;
 }): Promise<LocalAgentSessionProviderDiscovery> {
   const launch = await resolveInstalledOpenCodeLaunchCandidates({
     timeoutMs: PROVIDER_PROBE_TIMEOUT_MS,
   });
   if (!launch.ok) {
-    return unsupported("opencode", "opencode_provider_not_launchable");
+    return providerLaunchFailure("opencode", launch.reason);
   }
-  const databasePath = join(
-    input.homeDir,
-    ".local",
-    "share",
-    "opencode",
-    "opencode.db"
-  );
+  const databasePath = resolveOpenCodeDatabasePath({
+    homeDir: input.homeDir,
+    xdgDataHome: input.xdgDataHome,
+  });
   const database = await stat(databasePath).catch(() => null);
   if (!database?.isFile()) {
     return sessionsResult("opencode", []);
@@ -752,7 +753,7 @@ async function discoverGrokBuild(input: {
     timeoutMs: PROVIDER_PROBE_TIMEOUT_MS,
   });
   if (!launch.ok) {
-    return unsupported("grok-build", "grok_build_provider_not_launchable");
+    return providerLaunchFailure("grok-build", launch.reason);
   }
   try {
     return sessionsResult(
@@ -941,6 +942,16 @@ function unsupported(
     provider,
     result: "unsupported",
   };
+}
+
+function providerLaunchFailure(
+  provider: LocalAgentSessionProvider,
+  reason: InstalledLaunchCandidatesFailureReason
+): LocalAgentSessionProviderDiscovery {
+  const problemCodePrefix = provider.replaceAll("-", "_");
+  return reason === "not_installed"
+    ? unsupported(provider, `${problemCodePrefix}_provider_not_installed`)
+    : failed(provider, `${problemCodePrefix}_provider_not_launchable`);
 }
 
 function failed(

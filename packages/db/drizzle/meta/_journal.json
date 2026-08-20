@@ -918,6 +918,13 @@
       "when": 1787216219625,
       "tag": "0130_hard_selene",
       "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "6",
+      "when": 1787229586656,
+      "tag": "0131_abandoned_triathlon",
+      "breakpoints": true
     }
   ]
 }

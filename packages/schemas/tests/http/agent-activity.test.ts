@@ -86,6 +86,20 @@ describe("Agent Activity Session Inventory contracts", () => {
         ],
       }).success
     ).toBe(false);
+    expect(
+      agentActivitySessionInventoryResponseSchema.safeParse({
+        ...response,
+        sessions: [
+          {
+            ...session,
+            localAgent: {
+              ...session.localAgent,
+              agentControllerRef: "builtin:claude-code",
+            },
+          },
+        ],
+      }).success
+    ).toBe(false);
   });
 
   it("requires honest terminal provider outcomes and unique native IDs per page", () => {
@@ -139,6 +153,14 @@ describe("Agent Activity Session Inventory contracts", () => {
         sessions: [],
       }).success
     ).toBe(true);
+    expect(
+      submitAgentActivitySessionReconciliationBodySchema.safeParse({
+        ...base,
+        agentControllerRef: "builtin:claude-code",
+        result: "sessions",
+        sessions: [observed],
+      }).success
+    ).toBe(false);
   });
 });
 

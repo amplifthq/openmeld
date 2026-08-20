@@ -22,6 +22,10 @@ import { getAuthSessionState } from "../config/auth-session";
 import { resolveBaseUrl } from "../config/base-url";
 import { resolveOpenMeldRootDir } from "../config/paths";
 import {
+  LocalDaemonControlPlaneClientError,
+  requestLocalAgentActivitySync,
+} from "../local-service/control-plane/client";
+import {
   LocalProjectConnectionError,
   validateLocalProjectConnectionPath,
 } from "../local-service/projects/local-project-connection";
@@ -277,6 +281,9 @@ async function unbindAndPurgeLocalProject(
   for (const removed of removedProjectScopes.values()) {
     await purgeLocalProject(removed);
   }
+  if (removedProjectScopes.size > 0) {
+    await requestSessionInventoryReconciliationAfterProjectDisconnect();
+  }
   if ((await listProjectBindings({})).length === 0) {
     await unregisterAgentActivityRoute({
       rootDir: resolveOpenMeldRootDir(),
@@ -285,6 +292,28 @@ async function unbindAndPurgeLocalProject(
         `[openmeld.agent_activity.route_unregister_failed] ${error instanceof Error ? error.message : String(error)}\n`
       );
     });
+  }
+}
+
+async function requestSessionInventoryReconciliationAfterProjectDisconnect(): Promise<void> {
+  try {
+    await requestLocalAgentActivitySync({
+      payload: { reason: "project_connection_disconnected" },
+    });
+  } catch (error) {
+    if (
+      error instanceof LocalDaemonControlPlaneClientError &&
+      [
+        "daemon.control.auth_token_missing",
+        "daemon.control.contract_mismatch",
+        "daemon.control.endpoint_missing",
+      ].includes(error.code)
+    ) {
+      return;
+    }
+    process.stderr.write(
+      `[openmeld.agent_activity.session_inventory_sync_request_failed] ${error instanceof Error ? error.message : String(error)}\n`
+    );
   }
 }
 

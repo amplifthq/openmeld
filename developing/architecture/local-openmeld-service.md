@@ -506,11 +506,22 @@ offline interval. It retries one page idempotently and starts a fresh
 reconciliation after incompatible local source changes. Core alone stages and
 publishes the result.
 
+An explicit CLI Project unbind or archive requests an immediate reconciliation
+through the authenticated local Service control plane after removing the local
+binding. The command remains locally usable while the Service is offline; the
+persisted source set then carries the disconnected fact on the next successful
+Service reconciliation instead of claiming that a cloud update already
+succeeded.
+
 Provider adapters return the shared native title, lifecycle status, origin,
 and Resume/Fork capability facts. A scanner must not read transcript content to
 invent a title, infer Working from modification time alone, or report a
 capability that the concrete installed provider and OpenMeld adapter cannot
-invoke. Session Inventory transport remains independent from dispatch,
+invoke. Installed-but-not-launchable is an error that preserves the last
+complete inventory; only a genuinely absent provider is unsupported. OpenCode
+resolves its retained database from `XDG_DATA_HOME` when configured and uses
+the platform home fallback only when it is absent. Session Inventory transport
+remains independent from dispatch,
 RuntimeCoordinator, Agent Profile readiness, and Wake reporting.
 
 ## Agent Controller Task Lifecycle Callbacks

@@ -10,15 +10,36 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectBinding } from "../src/agent-activity/project-bindings";
 import { recordOpenMeldCreatedLocalAgentSession } from "../src/agent-activity/session-inventory-origin-store";
 import {
   discoverClaudeRetainedSessions,
   discoverCodexThreads,
   discoverGrokBuildRetainedSessions,
+  discoverLocalAgentSessionProviders,
   discoverOpenCodeRetainedSessions,
 } from "../src/agent-activity/session-inventory-provider-adapters";
+
+const launchMocks = vi.hoisted(() => ({
+  claude: vi.fn(),
+  codex: vi.fn(),
+  grok: vi.fn(),
+  opencode: vi.fn(),
+}));
+
+vi.mock("@openmeld/adapter-claude-code", () => ({
+  resolveInstalledClaudeCodeLaunchCandidates: launchMocks.claude,
+}));
+vi.mock("@openmeld/adapter-codex", () => ({
+  resolveInstalledCodexLaunchCandidates: launchMocks.codex,
+}));
+vi.mock("@openmeld/adapter-grok-build", () => ({
+  resolveInstalledGrokBuildLaunchCandidates: launchMocks.grok,
+}));
+vi.mock("@openmeld/adapter-opencode", () => ({
+  resolveInstalledOpenCodeLaunchCandidates: launchMocks.opencode,
+}));
 
 const NOW_MS = Date.UTC(2026, 7, 20, 10, 0, 0);
 let root = "";
@@ -26,6 +47,15 @@ let repositoryPath = "";
 let binding: ProjectBinding;
 
 beforeEach(async () => {
+  const notInstalled = {
+    errorMessage: "not installed",
+    ok: false as const,
+    reason: "not_installed" as const,
+  };
+  launchMocks.claude.mockResolvedValue(notInstalled);
+  launchMocks.codex.mockResolvedValue(notInstalled);
+  launchMocks.grok.mockResolvedValue(notInstalled);
+  launchMocks.opencode.mockResolvedValue(notInstalled);
   root = await mkdtemp(join(tmpdir(), "openmeld-session-inventory-"));
   repositoryPath = join(root, "openmeld");
   await mkdir(repositoryPath, { recursive: true });
@@ -47,6 +77,97 @@ afterEach(async () => {
 });
 
 describe("Local Agent Session Inventory provider adapters", () => {
+  it("preserves the last inventory when an installed provider is temporarily not launchable", async () => {
+    launchMocks.codex.mockResolvedValue({
+      errorMessage: "launch timed out",
+      ok: false,
+      reason: "not_launchable",
+    });
+
+    const discoveries = await discoverLocalAgentSessionProviders({
+      bindings: [binding],
+      homeDir: root,
+      nowMs: NOW_MS,
+      rootDir: root,
+    });
+
+    expect(discoveries.find(({ provider }) => provider === "codex")).toEqual({
+      agentControllerRef: "builtin:codex",
+      problemCode: "codex_provider_not_launchable",
+      provider: "codex",
+      result: "error",
+    });
+    expect(
+      discoveries.find(({ provider }) => provider === "claude-code")
+    ).toMatchObject({
+      problemCode: "claude_code_provider_not_installed",
+      result: "unsupported",
+    });
+  });
+
+  it("discovers OpenCode from the effective XDG data home", async () => {
+    const xdgDataHome = join(root, "xdg-data");
+    const databaseDirectory = join(xdgDataHome, "opencode");
+    const databasePath = join(databaseDirectory, "opencode.db");
+    await mkdir(databaseDirectory, { recursive: true });
+    const database = new Database(databasePath);
+    database.exec(`CREATE TABLE session (
+      id TEXT PRIMARY KEY,
+      directory TEXT NOT NULL,
+      title TEXT,
+      time_created INTEGER,
+      time_updated INTEGER NOT NULL,
+      time_archived INTEGER
+    )`);
+    database
+      .prepare(
+        "INSERT INTO session (id, directory, title, time_created, time_updated, time_archived) VALUES (?, ?, ?, ?, ?, NULL)"
+      )
+      .run(
+        "opencode-xdg",
+        repositoryPath,
+        "XDG native title",
+        NOW_MS - 2000,
+        NOW_MS - 1000
+      );
+    database.close();
+    launchMocks.opencode.mockResolvedValue({
+      candidates: [
+        {
+          commandPath: "opencode",
+          launchContract: {
+            argsPrefix: [],
+            commandPath: "opencode",
+            kind: "executable",
+          },
+        },
+      ],
+      ok: true,
+    });
+
+    const discoveries = await discoverLocalAgentSessionProviders({
+      bindings: [binding],
+      homeDir: join(root, "unrelated-home"),
+      nowMs: NOW_MS,
+      rootDir: root,
+      xdgDataHome,
+    });
+
+    expect(
+      discoveries.find(({ provider }) => provider === "opencode")
+    ).toMatchObject({
+      result: "sessions",
+      sessions: [
+        {
+          session: {
+            nativeSessionId: "opencode-xdg",
+            nativeSessionTitle: "XDG native title",
+          },
+        },
+      ],
+    });
+  });
+
   it("exhausts Codex native pages and keeps archived capabilities honest", async () => {
     const serverPath = join(root, "fake-codex-app-server.mjs");
     await writeFile(

@@ -449,6 +449,19 @@ async function publishStagedSessions(input: {
             AND NOT EXISTS (
               SELECT 1
               FROM agent_activity_session_inventory_candidates candidate
+              INNER JOIN agent_activity_session_inventory claimed
+                ON claimed.organization_id = candidate.organization_id
+                AND claimed.owner_user_id = candidate.owner_user_id
+                AND claimed.agent_controller_ref = candidate.agent_controller_ref
+                AND claimed.native_session_id = candidate.native_session_id
+              WHERE candidate.source_scope_key = ?
+                AND candidate.reconciliation_id = ?
+                AND claimed.source_scope_key <> ?
+                AND claimed.visible = 1
+            )
+            AND NOT EXISTS (
+              SELECT 1
+              FROM agent_activity_session_inventory_candidates candidate
               WHERE candidate.source_scope_key = ?
                 AND candidate.reconciliation_id = ?
                 AND candidate.organization_id = agent_activity_session_inventory.organization_id
@@ -460,6 +473,9 @@ async function publishStagedSessions(input: {
       )
       .bind(
         input.nowMs,
+        input.sourceScopeKey,
+        input.sourceScopeKey,
+        input.reconciliationId,
         input.sourceScopeKey,
         input.sourceScopeKey,
         input.reconciliationId
@@ -490,6 +506,19 @@ async function publishStagedSessions(input: {
           FROM agent_activity_session_inventory_candidates candidate
           WHERE candidate.source_scope_key = ?
             AND candidate.reconciliation_id = ?
+            AND NOT EXISTS (
+              SELECT 1
+              FROM agent_activity_session_inventory_candidates proposed
+              INNER JOIN agent_activity_session_inventory claimed
+                ON claimed.organization_id = proposed.organization_id
+                AND claimed.owner_user_id = proposed.owner_user_id
+                AND claimed.agent_controller_ref = proposed.agent_controller_ref
+                AND claimed.native_session_id = proposed.native_session_id
+              WHERE proposed.source_scope_key = ?
+                AND proposed.reconciliation_id = ?
+                AND claimed.source_scope_key <> ?
+                AND claimed.visible = 1
+            )
           ON CONFLICT(organization_id, owner_user_id, agent_controller_ref, native_session_id)
           DO UPDATE SET
             project_id = excluded.project_id,
@@ -510,13 +539,18 @@ async function publishStagedSessions(input: {
             observed_at_ms = excluded.observed_at_ms,
             published_at_ms = excluded.published_at_ms,
             updated_at_ms = excluded.updated_at_ms
+          WHERE agent_activity_session_inventory.source_scope_key = excluded.source_scope_key
+            OR agent_activity_session_inventory.visible = 0
         `
       )
       .bind(
         input.nowMs,
         input.nowMs,
         input.sourceScopeKey,
-        input.reconciliationId
+        input.reconciliationId,
+        input.sourceScopeKey,
+        input.reconciliationId,
+        input.sourceScopeKey
       ),
     input.db
       .prepare(
@@ -526,13 +560,60 @@ async function publishStagedSessions(input: {
               last_complete_at_ms = ?, updated_at_ms = ?
           WHERE source_scope_key = ?
             AND current_reconciliation_id = ?
+            AND NOT EXISTS (
+              SELECT 1
+              FROM agent_activity_session_inventory_candidates candidate
+              INNER JOIN agent_activity_session_inventory claimed
+                ON claimed.organization_id = candidate.organization_id
+                AND claimed.owner_user_id = candidate.owner_user_id
+                AND claimed.agent_controller_ref = candidate.agent_controller_ref
+                AND claimed.native_session_id = candidate.native_session_id
+              WHERE candidate.source_scope_key = ?
+                AND candidate.reconciliation_id = ?
+                AND claimed.source_scope_key <> ?
+                AND claimed.visible = 1
+            )
         `
       )
       .bind(
         input.nowMs,
         input.nowMs,
         input.sourceScopeKey,
-        input.reconciliationId
+        input.reconciliationId,
+        input.sourceScopeKey,
+        input.reconciliationId,
+        input.sourceScopeKey
+      ),
+    input.db
+      .prepare(
+        `
+          UPDATE agent_activity_session_inventory_sources
+          SET state = 'error', problem_code = 'session_identity_conflict',
+              updated_at_ms = ?
+          WHERE source_scope_key = ?
+            AND current_reconciliation_id = ?
+            AND EXISTS (
+              SELECT 1
+              FROM agent_activity_session_inventory_candidates candidate
+              INNER JOIN agent_activity_session_inventory claimed
+                ON claimed.organization_id = candidate.organization_id
+                AND claimed.owner_user_id = candidate.owner_user_id
+                AND claimed.agent_controller_ref = candidate.agent_controller_ref
+                AND claimed.native_session_id = candidate.native_session_id
+              WHERE candidate.source_scope_key = ?
+                AND candidate.reconciliation_id = ?
+                AND claimed.source_scope_key <> ?
+                AND claimed.visible = 1
+            )
+        `
+      )
+      .bind(
+        input.nowMs,
+        input.sourceScopeKey,
+        input.reconciliationId,
+        input.sourceScopeKey,
+        input.reconciliationId,
+        input.sourceScopeKey
       ),
     input.db
       .prepare(
@@ -543,6 +624,30 @@ async function publishStagedSessions(input: {
       )
       .bind(input.sourceScopeKey, input.reconciliationId),
   ]);
+  const source = await input.db
+    .prepare(
+      `
+        SELECT current_reconciliation_id, next_page_index, state
+        FROM agent_activity_session_inventory_sources
+        WHERE source_scope_key = ?
+        LIMIT 1
+      `
+    )
+    .bind(input.sourceScopeKey)
+    .first<SourceRow>();
+  if (
+    source?.current_reconciliation_id !== input.reconciliationId ||
+    source.state !== "current"
+  ) {
+    if (source?.state === "error") {
+      throw new Error(
+        "Agent Activity Session identity is already claimed by another current source."
+      );
+    }
+    throw new Error(
+      "Agent Activity Session reconciliation did not publish a current source."
+    );
+  }
 }
 
 async function acceptTerminalCoverageResult(input: {
@@ -642,7 +747,10 @@ export async function readAgentActivitySessionInventory(input: {
   organizationId: string;
   query: AgentActivitySessionInventoryQuery;
 }): Promise<AgentActivitySessionInventoryResponse> {
-  const querySignature = await buildQuerySignature(input.query);
+  const querySignature = await buildQuerySignature({
+    organizationId: input.organizationId,
+    query: input.query,
+  });
   const cursor = input.query.cursor
     ? decodeCursor(input.query.cursor, querySignature)
     : null;
@@ -1040,18 +1148,20 @@ async function countPublishedSessions(input: {
   return Number(row?.count ?? 0);
 }
 
-async function buildQuerySignature(
-  query: AgentActivitySessionInventoryQuery
-): Promise<string> {
+async function buildQuerySignature(input: {
+  organizationId: string;
+  query: AgentActivitySessionInventoryQuery;
+}): Promise<string> {
   return await sha256Key([
-    query.memberUserId ?? "",
-    query.nativeSessionId ?? "",
-    query.origin ?? "",
-    query.projectId ?? "",
-    query.provider ?? "",
-    query.query ?? "",
-    query.status ?? "",
-    String(query.limit),
+    input.organizationId,
+    input.query.memberUserId ?? "",
+    input.query.nativeSessionId ?? "",
+    input.query.origin ?? "",
+    input.query.projectId ?? "",
+    input.query.provider ?? "",
+    input.query.query ?? "",
+    input.query.status ?? "",
+    String(input.query.limit),
   ]);
 }
 

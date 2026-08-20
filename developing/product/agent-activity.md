@@ -221,6 +221,9 @@ the shared metadata contract.
 - `unsupported` is a provider capability fact. `error` preserves the last
   complete projection as stale. Neither is converted into an empty successful
   result.
+- A provider that is not installed reports `unsupported`. A provider that is
+  installed but temporarily cannot launch or read its retained store reports
+  `error`, so a transient local failure cannot erase the last complete set.
 - Provider-retained history is the hard completeness boundary. Sessions the
   provider deleted, expired, or created in a no-persistence mode cannot be
   reconstructed by OpenMeld.
@@ -403,12 +406,14 @@ Rollback removes the Web request first, then Gateway, then Core. Session-title
 reporting itself reuses the existing optional `title` event field, so old cloud
 code and old local observers remain interoperable.
 
-The safe Session Inventory order is migration 0130, shared schema consumers,
-Core, Gateway and API clients, Web/CLI/agent readers, then the local observer
-producer. An old producer continues to report only historical Activity; a new
-producer treats a missing reconciliation route as retryable and never erases
-the last complete Core projection. Rollback stops the new local producer before
-removing readers; retained D1 evidence is never rewritten to simulate rollback.
+The safe Session Inventory order is migrations 0130 and 0131, shared schema
+consumers, Core, Gateway and API clients, Web/CLI/agent readers, then the local
+observer producer. Migration 0131 atomically prevents two enabled Agent Profile
+Bindings from owning one controller conversation. An old producer continues to
+report only historical Activity; a new producer treats a missing reconciliation
+route as retryable and never erases the last complete Core projection. Rollback
+stops the new local producer before removing readers; retained D1 evidence is
+never rewritten to simulate rollback.
 The legacy digest rollout still uses migrations 0029, 0030, 0031, then 0032;
 the one-time active-duration backfill runs only after migration 0032 and its
 Core reader are deployed.

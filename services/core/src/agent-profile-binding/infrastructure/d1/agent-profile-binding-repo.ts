@@ -271,9 +271,17 @@ export async function ensurePrimaryAgentProfileBindingRecord(input: {
   const agentControllerCollaborationMode = normalizeNullableText(
     input.record.agentControllerCollaborationMode
   );
-  const insertResult = await input.db
-    .prepare(
-      `
+  const insertWrite = await writeWithControllerConversationConstraint({
+    agentControllerConversationId:
+      input.record.agentControllerConversationId ?? null,
+    agentControllerRef: input.record.agentControllerRef,
+    db: input.db,
+    excludeAgentProfileId: input.record.agentProfileId,
+    owner: input.record.owner,
+    write: async () =>
+      await input.db
+        .prepare(
+          `
         INSERT INTO openMeldDaemon_agent_profile_bindings (
           binding_id,
           owner_kind,
@@ -301,28 +309,33 @@ export async function ensurePrimaryAgentProfileBindingRecord(input: {
           WHERE binding_state = 'enabled_primary'
           DO NOTHING
       `
-    )
-    .bind(
-      input.record.bindingId,
-      input.record.owner.kind,
-      input.record.owner.id,
-      input.record.agentProfileId,
-      input.record.openMeldServiceRuntimeId,
-      input.record.runtimeKind ?? "openmeld_service",
-      input.record.hostedRuntimeIdentityJson ?? null,
-      input.record.agentControllerRef,
-      input.record.agentControllerConversationId ?? null,
-      input.record.createdAtMs,
-      input.record.updatedAtMs,
-      input.record.createdByProfileId ?? null,
-      input.record.reasonCode ?? null,
-      agentControllerCollaborationMode,
-      input.record.agentControllerPermissionMode ?? null,
-      input.record.modelId ?? null,
-      serializeOpenCodePermission(input.record.openCodePermission),
-      input.record.reasoningLevel ?? null
-    )
-    .run();
+        )
+        .bind(
+          input.record.bindingId,
+          input.record.owner.kind,
+          input.record.owner.id,
+          input.record.agentProfileId,
+          input.record.openMeldServiceRuntimeId,
+          input.record.runtimeKind ?? "openmeld_service",
+          input.record.hostedRuntimeIdentityJson ?? null,
+          input.record.agentControllerRef,
+          input.record.agentControllerConversationId ?? null,
+          input.record.createdAtMs,
+          input.record.updatedAtMs,
+          input.record.createdByProfileId ?? null,
+          input.record.reasonCode ?? null,
+          agentControllerCollaborationMode,
+          input.record.agentControllerPermissionMode ?? null,
+          input.record.modelId ?? null,
+          serializeOpenCodePermission(input.record.openCodePermission),
+          input.record.reasoningLevel ?? null
+        )
+        .run(),
+  });
+  if (insertWrite.status === "rejected") {
+    return insertWrite;
+  }
+  const insertResult = insertWrite.value;
 
   const binding =
     current ??
@@ -447,10 +460,18 @@ export async function reconnectPrimaryAgentProfileBindingRecord(input: {
     };
   }
 
-  await input.db.batch([
-    input.db
-      .prepare(
-        `
+  const reconnectWrite = await writeWithControllerConversationConstraint({
+    agentControllerConversationId:
+      input.record.agentControllerConversationId ?? null,
+    agentControllerRef: input.record.agentControllerRef,
+    db: input.db,
+    excludeAgentProfileId: input.record.agentProfileId,
+    owner: input.record.owner,
+    write: async () =>
+      await input.db.batch([
+        input.db
+          .prepare(
+            `
           UPDATE openMeldDaemon_agent_profile_bindings
           SET
             binding_state = 'disabled_historical',
@@ -462,18 +483,18 @@ export async function reconnectPrimaryAgentProfileBindingRecord(input: {
             AND binding_id = ?
             AND binding_state = 'enabled_primary'
         `
-      )
-      .bind(
-        input.record.updatedAtMs,
-        input.record.updatedAtMs,
-        input.record.owner.kind,
-        input.record.owner.id,
-        input.record.agentProfileId,
-        current.bindingId
-      ),
-    input.db
-      .prepare(
-        `
+          )
+          .bind(
+            input.record.updatedAtMs,
+            input.record.updatedAtMs,
+            input.record.owner.kind,
+            input.record.owner.id,
+            input.record.agentProfileId,
+            current.bindingId
+          ),
+        input.db
+          .prepare(
+            `
           INSERT INTO openMeldDaemon_agent_profile_bindings (
             binding_id,
             owner_kind,
@@ -501,34 +522,38 @@ export async function reconnectPrimaryAgentProfileBindingRecord(input: {
             WHERE binding_state = 'enabled_primary'
             DO NOTHING
         `
-      )
-      .bind(
-        input.record.bindingId,
-        input.record.owner.kind,
-        input.record.owner.id,
-        input.record.agentProfileId,
-        input.record.openMeldServiceRuntimeId,
-        input.record.runtimeKind ?? "openmeld_service",
-        input.record.hostedRuntimeIdentityJson ?? null,
-        input.record.agentControllerRef,
-        input.record.agentControllerConversationId ?? null,
-        input.record.createdAtMs,
-        input.record.updatedAtMs,
-        input.record.createdByProfileId ?? null,
-        input.record.reasonCode ?? null,
-        input.agentControllerCollaborationModePatch
-          ?.agentControllerCollaborationMode ??
-          (current.agentControllerRef === input.record.agentControllerRef
-            ? current.agentControllerCollaborationMode
-            : null) ??
-          input.record.agentControllerCollaborationMode ??
-          null,
-        input.record.agentControllerPermissionMode ?? null,
-        input.record.modelId ?? null,
-        serializeOpenCodePermission(input.record.openCodePermission),
-        input.record.reasoningLevel ?? null
-      ),
-  ]);
+          )
+          .bind(
+            input.record.bindingId,
+            input.record.owner.kind,
+            input.record.owner.id,
+            input.record.agentProfileId,
+            input.record.openMeldServiceRuntimeId,
+            input.record.runtimeKind ?? "openmeld_service",
+            input.record.hostedRuntimeIdentityJson ?? null,
+            input.record.agentControllerRef,
+            input.record.agentControllerConversationId ?? null,
+            input.record.createdAtMs,
+            input.record.updatedAtMs,
+            input.record.createdByProfileId ?? null,
+            input.record.reasonCode ?? null,
+            input.agentControllerCollaborationModePatch
+              ?.agentControllerCollaborationMode ??
+              (current.agentControllerRef === input.record.agentControllerRef
+                ? current.agentControllerCollaborationMode
+                : null) ??
+              input.record.agentControllerCollaborationMode ??
+              null,
+            input.record.agentControllerPermissionMode ?? null,
+            input.record.modelId ?? null,
+            serializeOpenCodePermission(input.record.openCodePermission),
+            input.record.reasoningLevel ?? null
+          ),
+      ]),
+  });
+  if (reconnectWrite.status === "rejected") {
+    return reconnectWrite;
+  }
 
   const binding = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: input.record.agentProfileId,
@@ -763,6 +788,79 @@ export async function readPrimaryAgentProfileBindingRecordByControllerConversati
     .first<AgentProfileBindingRow>();
 
   return row ? mapAgentProfileBindingRow(row) : null;
+}
+
+async function resolveControllerConversationConstraintConflict(input: {
+  agentControllerConversationId: string | null;
+  agentControllerRef: string;
+  db: D1Database;
+  error: unknown;
+  excludeAgentProfileId: string;
+  owner: AgentProfileBindingOwner;
+}): Promise<Extract<
+  EnsurePrimaryAgentProfileBindingResult,
+  { status: "rejected" }
+> | null> {
+  if (!isControllerConversationUniqueConstraintError(input.error)) {
+    return null;
+  }
+  const existingBinding =
+    await readPrimaryAgentProfileBindingRecordByControllerConversation({
+      agentControllerConversationId: input.agentControllerConversationId,
+      agentControllerRef: input.agentControllerRef,
+      db: input.db,
+      excludeAgentProfileId: input.excludeAgentProfileId,
+      owner: input.owner,
+    });
+  return existingBinding
+    ? {
+        existingBinding,
+        reason: "controller_conversation_conflict",
+        status: "rejected",
+      }
+    : null;
+}
+
+async function writeWithControllerConversationConstraint<T>(input: {
+  agentControllerConversationId: string | null;
+  agentControllerRef: string;
+  db: D1Database;
+  excludeAgentProfileId: string;
+  owner: AgentProfileBindingOwner;
+  write: () => Promise<T>;
+}): Promise<
+  | { status: "written"; value: T }
+  | Extract<EnsurePrimaryAgentProfileBindingResult, { status: "rejected" }>
+> {
+  try {
+    return { status: "written", value: await input.write() };
+  } catch (error) {
+    const conflict = await resolveControllerConversationConstraintConflict({
+      agentControllerConversationId: input.agentControllerConversationId,
+      agentControllerRef: input.agentControllerRef,
+      db: input.db,
+      error,
+      excludeAgentProfileId: input.excludeAgentProfileId,
+      owner: input.owner,
+    });
+    if (conflict) {
+      return conflict;
+    }
+    throw error;
+  }
+}
+
+function isControllerConversationUniqueConstraintError(
+  error: unknown
+): boolean {
+  const message = toErrorMessage(error);
+  return (
+    message.includes("UNIQUE constraint failed") &&
+    message.includes("owner_kind") &&
+    message.includes("owner_id") &&
+    message.includes("agent_controller_ref") &&
+    message.includes("agent_controller_conversation_id")
+  );
 }
 
 export async function updatePrimaryAgentProfileBindingConversationId(input: {

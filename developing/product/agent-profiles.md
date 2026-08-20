@@ -172,6 +172,9 @@ private memory should create separate Agent Profiles. Two different Agent
 Profiles must not share one controller conversation. If duplicate ownership is
 observed, the system must reject or ignore the conflicting write and fail closed
 until the Binding or local Agent Context is repaired.
+The enabled-primary Binding storage constraint is the final atomic authority for
+this rule; a read-before-write availability check improves the response but
+cannot reserve a conversation or replace database uniqueness under concurrency.
 
 Agent Controller Permission Mode is the per-profile controller permission intent
 stored on the Binding. It tells OpenMeld how to launch the selected Agent Controller

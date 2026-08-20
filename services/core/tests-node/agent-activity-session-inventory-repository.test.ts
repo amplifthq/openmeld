@@ -10,6 +10,7 @@ import {
 } from "../src/agent-activity/activity-session-inventory-repository";
 import {
   applyDrizzleMigrationsForTables,
+  createBeforeMatchingBatchD1Database,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
 
@@ -62,6 +63,65 @@ describe("Agent Activity Session Inventory repository", () => {
       secondPage.sessions.map((session) => session.nativeSessionId)
     ).toEqual(["native-3"]);
     expect(secondPage.nextCursor).toBeNull();
+  });
+
+  it("rejects a pagination cursor issued for another Organization", async () => {
+    const harness = createInventoryHarness();
+    await reconcile(harness.db, {
+      sessions: [
+        observedSession("native-2", 2000),
+        observedSession("native-1", 1000),
+      ],
+    });
+    const firstPage = await read(harness.db, { limit: 1 });
+
+    await expect(
+      readAgentActivitySessionInventory({
+        db: harness.db,
+        nowMs: NOW_MS,
+        organizationId: "org-2",
+        query: { cursor: firstPage.nextCursor ?? undefined, limit: 1 },
+      })
+    ).rejects.toThrow("Agent Activity Session cursor is invalid.");
+  });
+
+  it("does not let a racing reconciliation move a current Session identity between sources", async () => {
+    const harness = createInventoryHarness();
+    const racingDb = createBeforeMatchingBatchD1Database({
+      beforeBatch: () => insertRacingSessionIdentity(harness),
+      db: harness.db,
+      matches: (sql) =>
+        sql.includes("INSERT INTO agent_activity_session_inventory ("),
+    });
+
+    await expect(
+      reconcile(racingDb, {
+        sessions: [observedSession("native-race", 1000)],
+      })
+    ).rejects.toThrow(
+      "Agent Activity Session identity is already claimed by another current source."
+    );
+
+    expect(
+      harness.queryFirst<{
+        source_scope_key: string;
+      }>({
+        params: ["native-race"],
+        sql: `SELECT source_scope_key
+          FROM agent_activity_session_inventory
+          WHERE native_session_id = ?`,
+      })
+    ).toEqual({ source_scope_key: "source-race-winner" });
+    expect(
+      harness.queryFirst<{ problem_code: string; state: string }>({
+        sql: `SELECT problem_code, state
+          FROM agent_activity_session_inventory_sources
+          WHERE source_scope_key <> 'source-race-winner'`,
+      })
+    ).toEqual({
+      problem_code: "session_identity_conflict",
+      state: "error",
+    });
   });
 
   it("derives Binding live and never returns internal device or local path content", async () => {
@@ -316,6 +376,66 @@ function observedSession(nativeSessionId: string, offsetMs: number) {
     startedAtMs: NOW_MS - offsetMs - 1000,
     status: "idle" as const,
   };
+}
+
+function insertRacingSessionIdentity(
+  harness: ReturnType<typeof createSqliteD1Harness>
+): void {
+  const competingConnectionId = `sha256:${"f".repeat(64)}`;
+  harness.run({
+    params: [
+      "source-race-winner",
+      AUTHORITY.organizationId,
+      AUTHORITY.ownerUserId,
+      "project-1",
+      AUTHORITY.deviceId,
+      AUTHORITY.connectedComputerId,
+      competingConnectionId,
+      "builtin:codex",
+      "codex",
+      "reconciliation-race-winner",
+      NOW_MS,
+      NOW_MS,
+      NOW_MS,
+    ],
+    sql: `INSERT INTO agent_activity_session_inventory_sources (
+      source_scope_key, organization_id, owner_user_id, project_id,
+      device_id, connected_computer_id, local_connection_id,
+      agent_controller_ref, provider, state, current_reconciliation_id,
+      next_page_index, problem_code, last_attempt_at_ms,
+      last_complete_at_ms, updated_at_ms
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'current', ?, 1, NULL, ?, ?, ?)`,
+  });
+  harness.run({
+    params: [
+      "inventory-race-winner",
+      AUTHORITY.organizationId,
+      AUTHORITY.ownerUserId,
+      "builtin:codex",
+      "native-race",
+      "project-1",
+      AUTHORITY.deviceId,
+      AUTHORITY.connectedComputerId,
+      competingConnectionId,
+      "source-race-winner",
+      "codex",
+      "Native native-race",
+      NOW_MS - 1000,
+      "reconciliation-race-winner",
+      NOW_MS,
+      NOW_MS,
+      NOW_MS,
+    ],
+    sql: `INSERT INTO agent_activity_session_inventory (
+      id, organization_id, owner_user_id, agent_controller_ref,
+      native_session_id, project_id, device_id, connected_computer_id,
+      local_connection_id, source_scope_key, provider, native_session_title,
+      status, last_active_at_ms, started_at_ms, origin, can_resume, can_fork,
+      visible, source_reconciliation_id, observed_at_ms, published_at_ms,
+      updated_at_ms
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, NULL, 'local',
+      1, 0, 1, ?, ?, ?, ?)`,
+  });
 }
 
 async function reconcile(

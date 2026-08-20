@@ -26,6 +26,10 @@ type SkippedDaemonProfileSchema =
   typeof import("../../schemas/daemon/control-plane")["skippedDaemonProfileSchema"];
 type OpenMeldDaemonSyncRouteCatalogRequestPayloadSchema =
   typeof import("../../schemas/daemon/control-plane")["openMeldDaemonSyncRouteCatalogRequestPayloadSchema"];
+type OpenMeldDaemonRequestAgentActivitySyncPayloadSchema =
+  typeof import("../../schemas/daemon/control-plane")["openMeldDaemonRequestAgentActivitySyncPayloadSchema"];
+type OpenMeldDaemonRequestAgentActivitySyncRequestPayloadSchema =
+  typeof import("../../schemas/daemon/control-plane")["openMeldDaemonRequestAgentActivitySyncRequestPayloadSchema"];
 type OpenMeldDaemonSetLocalAgentEnabledPayloadSchema =
   typeof import("../../schemas/daemon/control-plane")["openMeldDaemonSetLocalAgentEnabledPayloadSchema"];
 type OpenMeldDaemonSetLocalAgentEnabledRequestPayloadSchema =
@@ -95,6 +99,10 @@ export type DaemonProfileSkipReason = z.infer<DaemonProfileSkipReasonSchema>;
 export type SkippedDaemonProfile = z.infer<SkippedDaemonProfileSchema>;
 export type OpenMeldDaemonSyncRouteCatalogRequestPayload =
   z.infer<OpenMeldDaemonSyncRouteCatalogRequestPayloadSchema>;
+export type OpenMeldDaemonRequestAgentActivitySyncPayload =
+  z.infer<OpenMeldDaemonRequestAgentActivitySyncPayloadSchema>;
+export type OpenMeldDaemonRequestAgentActivitySyncRequestPayload =
+  z.infer<OpenMeldDaemonRequestAgentActivitySyncRequestPayloadSchema>;
 export type OpenMeldDaemonSetLocalAgentEnabledPayload =
   z.infer<OpenMeldDaemonSetLocalAgentEnabledPayloadSchema>;
 export type OpenMeldDaemonSetLocalAgentEnabledRequestPayload =

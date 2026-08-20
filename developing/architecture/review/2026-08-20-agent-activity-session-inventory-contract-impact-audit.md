@@ -26,10 +26,10 @@ Projects and reconciles it into Core. Core owns current visibility, stable
 pagination, public Computer projection, source health, and the live Binding
 join. Web, CLI, Local Agents, and Center Agent consume the same shared schema.
 
-The stable public Session identity is:
+The stable product Session identity is:
 
 ```text
-organizationId + owner.userId + localAgent.agentControllerRef + nativeSessionId
+owner.userId + localAgent.agentControllerRef + nativeSessionId
 ```
 
 Project and Computer describe the current environment. Agent Activity creates
@@ -51,9 +51,10 @@ router. Its only fields are `label`, `usedPercent`, nullable `resetsAt`, and
 | Agent Profile Binding ensure body | Additive optional `sessionInventorySelection` for authoritative Resume revalidation | Shared schemas and API client; Gateway forwards; Core validates before the Binding writer |
 | CLI JSON envelope | Additive `activity.sessions` result using the shared response unchanged | Shared schemas; CLI Human, Agent, and JSON views |
 | Local reconciliation | New provider observations and page/result submissions | Local OpenMeld Service is observer/carrier; Core remains inventory owner |
+| Local Service control plane | Additive `request_agent_activity_sync` command for immediate post-disconnect reconciliation | CLI requests; the current local Service schedules the canonical sync loop |
 | Center Agent RPC/tool | Additive read-only paginated Session Inventory | Core authorization and projection; Remote Agent tool receiver |
 | Agent Controller Interface snapshot | Additive optional `usageLimits` | Local Service observation; Core registry receiver; Organization Computers, CLI, Web, and Center Agent readers |
-| Core D1 | Migration 0130 adds canonical inventory, private candidate, and source-health tables | Core only |
+| Core D1 | Migration 0130 adds canonical inventory, private candidate, and source-health tables; migration 0131 atomically reserves one enabled Binding per owner/controller/native conversation | Core only |
 
 No existing Activity snapshot field changes meaning. Historical Activity
 evidence and retention remain separate from the current selectable inventory.
@@ -72,25 +73,32 @@ evidence and retention remain separate from the current selectable inventory.
 | Old Web/Gateway receiver with new expanded Organization Computer payload | Strict receivers can reject `usageLimits`; shared receiver deployments must precede Core producing the field |
 | Old OpenMeld Skill with new CLI | Existing commands continue; the old Skill does not discover the new Session command |
 | New OpenMeld Skill with old CLI | `activity sessions` is unavailable; release stamping keeps Skill and CLI delivery aligned |
+| New CLI with old local Service | The additive immediate-sync control request is rejected as a contract mismatch; unbind remains local and the persisted source set reconciles after the Service is upgraded or on its next compatible run |
 
 ## Required Rollout And Rollback Order
 
 Rollout order:
 
-1. Apply Core D1 migration 0130.
-2. Deploy shared-schema receivers and Core RPC/repository support, including
+1. Before applying migration 0131, run a read-only production preflight for
+   duplicate enabled-primary Bindings with the same owner, Agent Controller,
+   and controller conversation. The uniqueness migration intentionally fails
+   closed if legacy duplicates exist; repair any duplicate under the Binding
+   owner's policy before continuing. This feature PR does not deploy or mutate
+   production data.
+2. Apply Core D1 migrations 0130 and 0131.
+3. Deploy shared-schema receivers and Core RPC/repository support, including
    the expanded ACI receiver, without enabling new callers prematurely.
-3. Deploy Gateway and Web readers and the Remote Agent read tool.
-4. After this feature PR merges, use the dedicated clean release worktree to
+4. Deploy Gateway and Web readers and the Remote Agent read tool.
+5. After this feature PR merges, use the dedicated clean release worktree to
    stamp and publish aligned CLI, OpenMeld Service, and OpenMeld-managed Skills.
-5. Verify one real installed-client reconciliation, Web/CLI reads, Center Agent
+6. Verify one real installed-client reconciliation, Web/CLI reads, Center Agent
    read, Project disconnect removal, and content non-disclosure before calling
    the product delivered.
 
 Rollback reverses caller order: roll back local components and Skills first,
-then Web/Remote Agent/Gateway callers, then Core code. Migration 0130 can remain
-as inert additive storage. Rollback must not delete historical Activity
-evidence or rewrite Binding/Profile data.
+then Web/Remote Agent/Gateway callers, then Core code. Migrations 0130 and 0131
+can remain as additive integrity/storage constraints. Rollback must not delete
+historical Activity evidence or rewrite Binding/Profile data.
 
 ## Provider Capability Verdict
 
@@ -151,10 +159,14 @@ The shared schemas reject and the projections omit:
 - duplicated Session titles, duplicated Binding state, synthetic provider
   capabilities, and synthetic OpenMeld Session ids.
 
-Current inventory rows disappear from selectable reads immediately when their
-Project is disconnected. Historical Activity evidence retains its existing
-policy. Reconciliation error preserves prior rows as visibly stale; an
-explicit disconnected or unsupported terminal result removes selectable rows.
+Current inventory rows disappear from selectable reads when their Project is
+disconnected. CLI unbind/archive requests the local Service reconciliation
+immediately; when the Service is offline, the persisted source set carries the
+disconnected fact on its next successful run without blocking the local
+operation. Historical Activity evidence retains its existing policy.
+Reconciliation error, including an installed provider's transient launch
+failure, preserves prior rows as visibly stale; an explicit disconnected or
+genuinely not-installed provider result removes selectable rows.
 
 ## Architecture Invariant Assessment
 

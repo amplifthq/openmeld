@@ -45,6 +45,25 @@ describe("daemon control-plane schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts a local Agent Activity reconciliation request envelope", () => {
+    expect(
+      openMeldDaemonControlPlaneRequestSchema.safeParse({
+        v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
+        command: "request_agent_activity_sync",
+        payload: {
+          reason: "project_connection_disconnected",
+        },
+      }).success
+    ).toBe(true);
+    expect(
+      openMeldDaemonControlPlaneResponseSchema.safeParse({
+        v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
+        code: "service.agent_activity_sync_requested",
+        payload: { accepted: true },
+      }).success
+    ).toBe(true);
+  });
+
   it("accepts set profile workspace request envelope", () => {
     const result = openMeldDaemonControlPlaneRequestSchema.safeParse({
       v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,

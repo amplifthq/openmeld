@@ -17,6 +17,17 @@ export const LOCAL_AGENT_SESSION_PROVIDERS = [
   "grok-build",
 ] as const;
 
+const LOCAL_AGENT_CONTROLLER_REF_BY_PROVIDER = {
+  "claude-code": "builtin:claude-code",
+  codex: "builtin:codex",
+  cursor: "builtin:cursor",
+  "grok-build": "builtin:grok-build",
+  opencode: "builtin:opencode",
+} as const satisfies Record<
+  (typeof LOCAL_AGENT_SESSION_PROVIDERS)[number],
+  `builtin:${string}`
+>;
+
 const boundedIdentifierSchema = z.string().trim().min(1).max(512);
 const displayNameSchema = z.string().trim().min(1).max(256);
 const timestampMsSchema = z.number().int().nonnegative();
@@ -89,11 +100,13 @@ export const agentActivityInventoryComputerSchema = z.strictObject({
   state: agentActivityInventoryComputerStateSchema,
 });
 
-export const agentActivityInventoryLocalAgentSchema = z.strictObject({
-  agentControllerRef: agentControllerRefSchema,
-  name: displayNameSchema,
-  provider: localAgentSessionProviderSchema,
-});
+export const agentActivityInventoryLocalAgentSchema = z
+  .strictObject({
+    agentControllerRef: agentControllerRefSchema,
+    name: displayNameSchema,
+    provider: localAgentSessionProviderSchema,
+  })
+  .superRefine(refineLocalAgentProviderControllerPair);
 
 export const agentActivityInventorySessionSchema = z
   .strictObject({
@@ -144,16 +157,18 @@ export const agentActivityInventorySessionSchema = z
     }
   });
 
-export const agentActivityInventoryCoverageSchema = z.strictObject({
-  agentControllerRef: agentControllerRefSchema,
-  computerId: boundedIdentifierSchema,
-  lastAttemptAtMs: timestampMsSchema.nullable(),
-  lastCompleteAtMs: timestampMsSchema.nullable(),
-  problemCode: z.string().trim().min(1).max(128).nullable(),
-  projectId: boundedIdentifierSchema,
-  provider: localAgentSessionProviderSchema,
-  state: agentActivityInventoryCoverageStateSchema,
-});
+export const agentActivityInventoryCoverageSchema = z
+  .strictObject({
+    agentControllerRef: agentControllerRefSchema,
+    computerId: boundedIdentifierSchema,
+    lastAttemptAtMs: timestampMsSchema.nullable(),
+    lastCompleteAtMs: timestampMsSchema.nullable(),
+    problemCode: z.string().trim().min(1).max(128).nullable(),
+    projectId: boundedIdentifierSchema,
+    provider: localAgentSessionProviderSchema,
+    state: agentActivityInventoryCoverageStateSchema,
+  })
+  .superRefine(refineLocalAgentProviderControllerPair);
 
 export const agentActivitySessionInventoryQuerySchema = z.strictObject({
   cursor: z.string().trim().min(1).max(2048).optional(),
@@ -254,6 +269,7 @@ export const submitAgentActivitySessionReconciliationBodySchema = z
     problemCode: z.string().trim().min(1).max(128).optional(),
   })
   .superRefine((value, context) => {
+    refineLocalAgentProviderControllerPair(value, context);
     const nativeSessionIds = new Set<string>();
     for (const [index, session] of value.sessions.entries()) {
       if (nativeSessionIds.has(session.nativeSessionId)) {
@@ -296,6 +312,26 @@ export const submitAgentActivitySessionReconciliationBodySchema = z
       });
     }
   });
+
+function refineLocalAgentProviderControllerPair(
+  value: {
+    agentControllerRef: string;
+    provider: (typeof LOCAL_AGENT_SESSION_PROVIDERS)[number];
+  },
+  context: z.RefinementCtx
+): void {
+  if (
+    value.agentControllerRef !==
+    LOCAL_AGENT_CONTROLLER_REF_BY_PROVIDER[value.provider]
+  ) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "Local Agent provider and Agent Controller reference must identify the same provider.",
+      path: ["agentControllerRef"],
+    });
+  }
+}
 
 export const submitAgentActivitySessionReconciliationResponseSchema =
   z.strictObject({
