@@ -582,9 +582,7 @@ describe("DirectoryMembersOverview", () => {
 		expect(drawerRoleBadge?.className).toBe(cardRoleBadge?.className);
 		expect(within(detailsDialog).getByText("Member account")).toBeTruthy();
 		expect(within(detailsDialog).getByText("Work access")).toBeTruthy();
-		expect(
-			within(detailsDialog).getByText("Connected identities")
-		).toBeTruthy();
+		expect(within(detailsDialog).getByText("Connected Channels")).toBeTruthy();
 		expect(within(detailsDialog).getByText("Jul 2, 2026")).toBeTruthy();
 		expect(
 			within(detailsDialog).getAllByText("Human Profile").length
@@ -1120,8 +1118,11 @@ describe("DirectoryMembersOverview", () => {
 		});
 	});
 
-	it("lets an Organization owner manage another member's connected account", async () => {
-		getActiveOrganizationMemberRoleMock.mockResolvedValue("owner");
+	it.each([
+		"owner",
+		"admin",
+	] as const)("lets an Organization %s manage another member's connected account", async (role) => {
+		getActiveOrganizationMemberRoleMock.mockResolvedValue(role);
 		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
 			availableLarkPlatformProviders: ["lark"],
 			connections: [

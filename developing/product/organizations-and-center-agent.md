@@ -2224,7 +2224,7 @@ may see this coarse state. The card never exposes another member's device id,
 executable paths, credentials, private setup instructions, or management
 controls.
 
-**Connected identities** appears when the Organization currently has at least
+**Connected Channels** appears when the Organization currently has at least
 one Slack, Lark, or Feishu Channel connection or a preserved link whose Channel
 needs repair. Every Human Profile card footer shows the same provider logos and
 one coarse link state per provider: linked, not linked, or needs attention. This

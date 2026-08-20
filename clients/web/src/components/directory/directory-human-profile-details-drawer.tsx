@@ -224,7 +224,7 @@ function ConnectedIdentities(input: {
 	return (
 		<section className="space-y-2">
 			<h3 className="font-medium text-muted-foreground text-xs">
-				Connected identities
+				Connected Channels
 			</h3>
 			<div className="min-w-0 divide-y divide-border overflow-hidden rounded-md border border-border">
 				{input.accounts.length === 0 ? (
