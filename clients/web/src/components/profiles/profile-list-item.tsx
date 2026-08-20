@@ -11,12 +11,15 @@ export function ProfileCard(input: {
 	footerRight?: ReactNode;
 	icon: ReactNode;
 	menu?: ReactNode;
+	onProfileSummaryClick?: () => void;
+	profileSummaryAriaLabel?: string;
 	rowRef?: Ref<HTMLElement>;
 	secondarySubtitle?: ReactNode;
 	subtitle?: ReactNode;
 	testId?: string;
 	title: string;
 	titleAction?: ReactNode;
+	titleAdornment?: ReactNode;
 }) {
 	const {
 		actions,
@@ -26,18 +29,50 @@ export function ProfileCard(input: {
 		footerRight,
 		icon,
 		menu,
+		onProfileSummaryClick,
+		profileSummaryAriaLabel,
 		rowRef,
 		secondarySubtitle,
 		subtitle,
 		testId,
 		title,
 		titleAction,
+		titleAdornment,
 	} = input;
 	const hasFooter = Boolean(footerLeft || footerRight);
 	const hasSecondarySubtitle =
 		secondarySubtitle !== undefined &&
 		secondarySubtitle !== null &&
 		secondarySubtitle !== false;
+	const summaryContent = (
+		<>
+			{icon}
+			<div className="min-w-0 flex-1 space-y-1">
+				<div className="flex min-w-0 items-start gap-2">
+					<p
+						className={cn(
+							"min-w-0 break-words font-medium text-[0.95rem] leading-5",
+							dimTitle ? "text-muted-foreground" : "text-foreground"
+						)}
+					>
+						{title}
+					</p>
+					{titleAdornment ? (
+						<div className="shrink-0">{titleAdornment}</div>
+					) : null}
+					{titleAction ? <div className="shrink-0">{titleAction}</div> : null}
+				</div>
+				{subtitle ? (
+					<p className="text-muted-foreground text-xs leading-5">{subtitle}</p>
+				) : null}
+				{hasSecondarySubtitle ? (
+					<p className="text-muted-foreground text-xs leading-5">
+						{secondarySubtitle}
+					</p>
+				) : null}
+			</div>
+		</>
+	);
 	return (
 		<article
 			className={cn(
@@ -48,34 +83,20 @@ export function ProfileCard(input: {
 			ref={rowRef}
 		>
 			<div className="flex min-w-0 items-start justify-between gap-3">
-				<div className="flex min-w-0 flex-1 items-start gap-3">
-					{icon}
-					<div className="min-w-0 flex-1 space-y-1">
-						<div className="flex min-w-0 items-start gap-2">
-							<p
-								className={cn(
-									"min-w-0 break-words font-medium text-[0.95rem] leading-5",
-									dimTitle ? "text-muted-foreground" : "text-foreground"
-								)}
-							>
-								{title}
-							</p>
-							{titleAction ? (
-								<div className="shrink-0">{titleAction}</div>
-							) : null}
-						</div>
-						{subtitle ? (
-							<p className="text-muted-foreground text-xs leading-5">
-								{subtitle}
-							</p>
-						) : null}
-						{hasSecondarySubtitle ? (
-							<p className="text-muted-foreground text-xs leading-5">
-								{secondarySubtitle}
-							</p>
-						) : null}
+				{onProfileSummaryClick ? (
+					<button
+						aria-label={profileSummaryAriaLabel ?? `About ${title}`}
+						className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+						onClick={onProfileSummaryClick}
+						type="button"
+					>
+						{summaryContent}
+					</button>
+				) : (
+					<div className="flex min-w-0 flex-1 items-start gap-3">
+						{summaryContent}
 					</div>
-				</div>
+				)}
 				{menu ? (
 					<div className="flex shrink-0 items-start justify-end">{menu}</div>
 				) : null}

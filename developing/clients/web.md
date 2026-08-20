@@ -1404,17 +1404,28 @@ Brief, or to a prefilled Brief creation route, and does not duplicate the
 editor in Settings. Organization switching preserves the Documents route
 family while replacing all document data with the target Organization's scope.
 
-Each People card places profile controls in a top-right icon row: a Computer
-shortcut, the contextual **Profile Report** or **Learn about {member}** action,
-**Direct Message** for another active Human Profile, **Edit Human Profile** for
-the signed-in member's own active default Human Profile, and **More → About
-profile**. The About surface uses the shared profile-details snapshot but omits
-the internal Handle. Cards likewise omit undefined recent activity and the
-ubiquitous **Active** state; only an exceptional disabled state is visible.
-Members without an active Human Profile have no Direct Message or About action,
-and the signed-in member cannot Direct Message themself. People admits only one
-pending Direct Message open intent at a time so competing responses cannot
-navigate to an earlier selection. The Human Profiles header includes
+Each People card uses a prominent Human Profile avatar, name, email, explicit
+`(you)` marker, Organization role, and a concrete **Last used {time}** value or
+**Activity unavailable**. The signed-in member sorts first; the remaining cards
+sort owner, admin, member, and unknown, then by name and user ID. The top-right
+icon row owns the contextual **Profile Report** or **Learn about {member}**
+action, **Direct Message** for another active Human Profile, and **More**. The
+Computer summary and provider-logo identity-link states share one aligned footer
+below one divider instead of competing with profile actions.
+
+Selecting the avatar, name, or **More → View profile** opens a right-side
+**Profile** drawer. It owns the member account details, Organization role, join
+time, Computer access, connected identities, shared Profile details, and the
+permitted Direct Message, edit, connect, or manage actions. **More → Edit
+profile** remains available only for the signed-in member's own active default
+Human Profile. The drawer and card omit the internal Handle, undefined recent
+activity, and the ubiquitous **Active** state; only an exceptional disabled
+state is visible. Web does not derive an Organization online dot from last-used
+time, Computer state, or Space-scoped presence. Members without an active Human
+Profile have no Direct Message or Profile action, and the signed-in member
+cannot Direct Message themself. People admits only one pending Direct Message
+open intent at a time so competing responses cannot navigate to an earlier
+selection. The Human Profiles header includes
 **Learn about all members** and shows processed progress such as `3/8` while
 Core runs the serial batch. A member currently queued or running shows
 **Learning…**; other starts stay disabled until the batch is terminal.
@@ -1430,23 +1441,29 @@ In an Organization workspace, People reads the Organization Computer
 projection and shows a concrete summary on every Human Profile card: **1
 computer connected**, **2 computers connected**, **1 computer needs
 attention**, **No computer connected**, or **Computer status unavailable**.
-The top-right Computer icon uses the same state without a separate dot: green
-for connected, amber for attention, and muted otherwise. One Computer opens its
+The footer Computer icon uses the same state without a separate dot: green for
+connected, amber for attention, and muted otherwise. One Computer opens its
 detail; multiple Computers open the Computers home. The signed-in member with
 none receives **Connect a computer** and the normal setup route; teammates have
 no setup or management action. A failed or incomplete response never blanks
 People or changes a member's identity; missing evidence stays unavailable
-rather than being presented as not connected.
+rather than being presented as not connected. Computer state never claims that
+the Human Profile is online.
 
 People reads Message Channel connections and their Core-owned identity-link
-projection together. **Connected accounts** is absent when the Organization has
-no Slack, Lark, or Feishu Channel. Otherwise it lists existing mappings on the
-mapped member's card, exposes **Connect** only for a currently connected
-provider missing from the signed-in member's own card, and keeps a mapped row
-visible as unavailable when that provider connection needs repair. Self and
-Channel managers may disconnect a wrong mapping; replacement still requires a
-private provider proof and confirmation by the intended signed-in account.
-Disconnecting this relationship never disconnects the Organization Channel.
+projection together. Connected identity state is absent when the Organization
+has no Slack, Lark, or Feishu Channel. Otherwise every card footer shows the
+same provider logos with a coarse linked, not-linked, or needs-attention state.
+The drawer exposes **Connect** only for a currently connected provider missing
+from the signed-in member's own profile, and keeps a mapped identity visible as
+unavailable when that provider connection needs repair. The drawer presents an
+account email only when the canonical projection provides one; it never uses a
+provider display name as the account identifier or guesses an email. Until the
+projection carries the provider email, Web says **Account email unavailable**.
+Self and Channel managers may disconnect a wrong mapping; replacement still
+requires a private provider proof and confirmation by the intended signed-in
+account. Disconnecting this relationship never disconnects the Organization
+Channel.
 
 ### Projects
 

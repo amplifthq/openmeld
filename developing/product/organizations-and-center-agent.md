@@ -2162,14 +2162,18 @@ draft-only document does not place its proposed title into the system prompt.
 
 People represents every current human member with one **Human Profile** card,
 including an explicit missing-profile state when that member has no Human
-Profile identity yet. The card owns the member's name, email, exceptional
-profile state, Organization role when it is meaningful, Computer summary,
-Connected accounts, and one contextual **Profile Report** or **Learn about
-{member}** action. It never exposes the internal profile Handle or slug, a
-generic **Active** badge, or an undefined recent-activity field. People must not
-duplicate the same people in a separate Members card. Invitation controls
-remain separate, and **Learn about all members** belongs to the Human Profiles
-section header.
+Profile identity yet. The card owns a prominent Human Profile avatar, the
+member's name and email, an explicit `(you)` marker for the signed-in member,
+the Organization role for every member, the last-used time when Core provides
+one, exceptional profile state, and one contextual **Profile Report** or
+**Learn about {member}** action. A consistent footer below one divider owns the
+coarse Computer state and provider-logo identity-link states. The card never
+exposes the internal profile Handle or slug, a generic **Active** badge, an
+invented online presence, or an undefined recent-activity field. People sorts
+the signed-in member first, then owner, admin, member, and unknown roles, with
+name and user ID as deterministic tie breakers. People must not duplicate the
+same people in a separate Members card. Invitation controls remain separate,
+and **Learn about all members** belongs to the Human Profiles section header.
 
 An existing Profile Report opens from a top-right document icon. Amber means
 the report has updates to review and save. When the current Documents projection
@@ -2193,40 +2197,47 @@ the research task reaches its terminal outcome. User-defined recurring learning
 plans and proactive opt-in prompts for organization-wide automatic learning are
 future extensions of this same workflow, not alternate document writers.
 
-Human Profile cards use the same top-right action model as Agent Profile cards.
-The icon row owns the Computer shortcut, the contextual **Profile Report** or
-**Learn about {member}** action, **Direct Message** for another active Human
-Profile, **Edit Human Profile** for the signed-in member's own active default
-Human Profile, and an overflow menu whose **About profile** item opens the
-shared profile-details surface. Self-Direct Messages are unavailable, and
-owners or admins do not receive an edit action for another member's Human
-Profile. Editing the current member's default Human Profile reuses the paired
-Account Display Name mutation rather than introducing a second identity writer.
+Human Profile cards reserve the top-right icon row for the contextual **Profile
+Report** or **Learn about {member}** action, **Direct Message** for another
+active Human Profile, and an overflow menu. Selecting the avatar, name, or
+**View profile** opens the right-side **Profile** details surface. That surface
+owns member account details, Organization role, join time, Computer access,
+connected identities, shared Profile details, and the permitted Direct Message,
+edit, connect, or manage actions. The overflow menu keeps **Edit profile** for
+the signed-in member's own active default Human Profile. Self-Direct Messages
+are unavailable, and owners or admins do not receive an edit action for another
+member's Human Profile. Editing the current member's default Human Profile
+reuses the paired Account Display Name mutation rather than introducing a
+second identity writer.
 
 In an Organization workspace, each Human Profile card also shows one coarse
 **Computer** summary: the number connected, needs attention, none connected, or
-status unavailable. The same state colors one top-right Computer icon: green
-for connected, amber for attention, and muted otherwise, with no separate
-status dot. A member with one Computer opens that Computer directly; multiple
-Computers open the Computers home. A signed-in member with none sees **Connect a
-computer** and reaches the normal setup path, while another member sees only
-**No computer connected**. This answers only whether at least one current
-OpenMeld Service session for the member can carry Wake work; it does not claim
-that any Agent Profile is ready. Every current Organization member may see this
-coarse state. The card never exposes another member's device id, executable
-paths, credentials, private setup instructions, or management controls.
+status unavailable. The footer colors the Computer icon green for connected,
+amber for attention, and muted otherwise, with no separate status dot. A member
+with one Computer opens that Computer directly; multiple Computers open the
+Computers home. A signed-in member with none sees **Connect a computer** and
+reaches the normal setup path, while another member sees only **No computer
+connected**. This answers only whether at least one current OpenMeld Service
+session for the member can carry Wake work; it does not claim that the member
+is online or that any Agent Profile is ready. Every current Organization member
+may see this coarse state. The card never exposes another member's device id,
+executable paths, credentials, private setup instructions, or management
+controls.
 
-**Connected accounts** appears only when the Organization currently has at
-least one Slack, Lark, or Feishu Channel connection or a preserved link whose
-Channel needs repair. Each row names the provider account and whether its
-Channel is available. A missing provider row appears only on the signed-in
-member's own card and only for a currently connected provider; **Connect**
-explains how to ask that provider's Center Agent for the private proof action.
-Other members do not see connect controls. The linked member may manage and
-disconnect their own row; owners and admins may manage another member's wrong
-link without gaining the ability to assign a replacement. If the Organization
-has no Slack, Lark, or Feishu connection, People omits the entire section
-instead of advertising unavailable providers.
+**Connected identities** appears when the Organization currently has at least
+one Slack, Lark, or Feishu Channel connection or a preserved link whose Channel
+needs repair. Every Human Profile card footer shows the same provider logos and
+one coarse link state per provider: linked, not linked, or needs attention. This
+makes another member's missing link visible without exposing a connect action.
+The details surface names the provider and account email when the canonical
+projection provides it. It must not present a provider display name as an
+account identifier or infer an email; until the projection carries the email,
+the details surface says **Account email unavailable**. **Connect** remains
+self-only and explains how to ask that provider's Center Agent for the private
+proof action. The linked member may manage and disconnect their own identity;
+owners and admins may manage another member's wrong link without gaining the
+ability to assign a replacement. If the Organization has no supported Channel,
+People omits identity state instead of advertising unavailable providers.
 
 The first-level **Computers** home is a separate Organization member surface,
 not an expansion of this coarse Human Profile status. It groups Core's
