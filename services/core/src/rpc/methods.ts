@@ -307,6 +307,7 @@ import type {
   CenterAgentDispatchHistoryEntry,
   CenterAgentEnableAgentProfileBody,
   CenterAgentEnableAgentProfileResponse,
+  CenterAgentListAgentActivitySessionsToolRpcInput,
   CenterAgentListAgentTasksBody,
   CenterAgentListAgentTasksResponse,
   CenterAgentListComputersBody,
@@ -573,7 +574,10 @@ import {
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   type SpaceAccessContext,
 } from "@openmeld/space";
-import { rpcCenterAgentReadAgentActivity as centerAgentReadAgentActivity } from "../agent-activity/activity-center-agent-rpc";
+import {
+  rpcCenterAgentListAgentActivitySessions as centerAgentListAgentActivitySessions,
+  rpcCenterAgentReadAgentActivity as centerAgentReadAgentActivity,
+} from "../agent-activity/activity-center-agent-rpc";
 import { rpcSubmitAgentActivityEvents as submitAgentActivityEvents } from "../agent-activity/activity-event-rpc";
 import {
   rpcReadAgentActivitySessionInventory as readAgentActivitySessionInventory,
@@ -1090,6 +1094,8 @@ export type ReadOrganizationUsageOverviewInput =
   OrganizationUsageOverviewRpcInput;
 export type CenterAgentReadAgentActivityInput =
   CenterAgentReadAgentActivityToolRpcInput;
+export type CenterAgentListAgentActivitySessionsInput =
+  CenterAgentListAgentActivitySessionsToolRpcInput;
 export type CenterAgentReadChangelogInput =
   CenterAgentReadChangelogToolRpcInput;
 export type CenterAgentListOpportunitiesInput =
@@ -1318,6 +1324,13 @@ export function rpcCenterAgentReadAgentActivity(
   input: CenterAgentReadAgentActivityInput
 ) {
   return centerAgentReadAgentActivity(env, input);
+}
+
+export function rpcCenterAgentListAgentActivitySessions(
+  env: CoreBindings,
+  input: CenterAgentListAgentActivitySessionsInput
+) {
+  return centerAgentListAgentActivitySessions(env, input);
 }
 
 export function rpcCenterAgentReadChangelog(

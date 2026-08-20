@@ -93,7 +93,9 @@ describe("remote agent OpenMeld tool catalog", () => {
     }).map((tool) => tool.name);
 
     expect(disabled).not.toContain("openmeld_read_agent_activity");
+    expect(disabled).not.toContain("openmeld_list_agent_activity_sessions");
     expect(enabled).toContain("openmeld_read_agent_activity");
+    expect(enabled).toContain("openmeld_list_agent_activity_sessions");
   });
 
   it("exposes exactly the approved model-visible OpenMeld tool list", () => {
@@ -4809,6 +4811,18 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     },
     {
       expectedPayload: {
+        limit: 25,
+        provider: "grok-build",
+        status: "unknown",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      },
+      input: { limit: 25, provider: "grok-build", status: "unknown" },
+      response: agentActivitySessionInventoryResponse(),
+      rpcName: "centerAgentListAgentActivitySessions",
+      toolName: "openmeld_list_agent_activity_sessions",
+    },
+    {
+      expectedPayload: {
         areas: ["channels", "center-agent"],
         limit: 5,
         offset: 10,
@@ -5710,6 +5724,16 @@ function agentActivitySnapshotResponse() {
     sessions: [],
     sessionsTruncated: false,
     stalenessThresholdMs: 300_000,
+  };
+}
+
+function agentActivitySessionInventoryResponse() {
+  return {
+    asOfMs: TEST_NOW_MS,
+    coverage: [],
+    nextCursor: null,
+    organization: { id: "org_123", name: "Amplift" },
+    sessions: [],
   };
 }
 

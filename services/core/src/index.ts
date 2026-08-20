@@ -460,6 +460,7 @@ import {
   type CenterAgentCreateConfiguredAgentProfileInput,
   type CenterAgentCreateSpaceInput,
   type CenterAgentEnableAgentProfileInput,
+  type CenterAgentListAgentActivitySessionsInput,
   type CenterAgentListAgentTasksInput,
   type CenterAgentListComputersInput,
   type CenterAgentListLocalAgentConnectionCandidatesInput,
@@ -643,6 +644,7 @@ import {
   rpcCenterAgentEnableAgentProfile,
   rpcCenterAgentGetOrganizationDirectory,
   rpcCenterAgentGetOrganizationSpaceDirectory,
+  rpcCenterAgentListAgentActivitySessions,
   rpcCenterAgentListAgentTasks,
   rpcCenterAgentListComputers,
   rpcCenterAgentListLocalAgentConnectionCandidates,
@@ -4338,6 +4340,12 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
 
   centerAgentReadAgentActivity(input: CenterAgentReadAgentActivityInput) {
     return rpcCenterAgentReadAgentActivity(this.env, input);
+  }
+
+  centerAgentListAgentActivitySessions(
+    input: CenterAgentListAgentActivitySessionsInput
+  ) {
+    return rpcCenterAgentListAgentActivitySessions(this.env, input);
   }
 
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {

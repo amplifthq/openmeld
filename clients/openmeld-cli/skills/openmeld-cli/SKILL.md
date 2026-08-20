@@ -225,6 +225,36 @@ openmeld service status --view agent
 openmeld profiles list --view agent
 ```
 
+## Local Agent Session Inventory
+
+When the user asks which Local Agent Sessions exist in the active Organization,
+or needs a stable Session reference for Agent Profile creation, read the Core-owned
+Session Inventory instead of scanning provider files yourself:
+
+```bash
+openmeld activity sessions --view agent
+openmeld activity sessions --project <project-slug> --provider codex --view agent
+openmeld activity sessions --native-session <provider-native-session-id> --json
+```
+
+Use `nextCursor` with `--cursor` until it is null when the task requires a
+complete inventory. Every row already contains the authorized Owner, Project,
+Computer, Local Agent, Native Session ID and title, status, freshness, origin,
+`canResume`, `canFork`, and current Agent Profile Binding. Treat those fields as
+facts; do not recalculate them from provider files, process presence, timestamps,
+or Activity events.
+
+A visible Native Session ID is a locator, not operation authority. Before any
+resume, fork, Agent Profile creation, Binding change, or Space membership change,
+use the owning OpenMeld command and let it recheck identity, Organization,
+Project, Computer, provider capability, and permission. When `canResume` or
+`canFork` is false, do not simulate that capability. When coverage or status is
+`unknown`, `stale`, `unsupported`, or `error`, report that state directly.
+
+Session Inventory is metadata-only. Never read or upload transcripts, prompts,
+responses, reasoning, tool inputs or outputs, file contents, diffs, commands,
+terminal content, credentials, or local absolute paths to supplement it.
+
 ## Organization Skills
 
 Organization Skills are optional methods owned by the active OpenMeld

@@ -4,12 +4,17 @@ import {
   createProjectsApi,
 } from "@openmeld/api-client";
 import {
+  agentActivityInventorySessionOriginSchema,
+  agentActivityInventorySessionStatusSchema,
+  agentActivitySessionInventoryQuerySchema,
   agentActivitySessionStatusSchema,
   agentActivitySnapshotQuerySchema,
   cliJsonOutputEnvelopeSchema,
+  localAgentSessionProviderSchema,
 } from "@openmeld/schemas";
 import type {
   AgentActivityProvider,
+  AgentActivitySessionInventoryResponse,
   AgentActivitySnapshotResponse,
   Project,
 } from "@openmeld/schemas/types";
@@ -109,6 +114,70 @@ export async function runAgentActivityRead(
       response.organizationId
     );
     emitSuccess(context, "activity.read", response);
+  });
+}
+
+export async function runAgentActivitySessions(
+  input: CommandInput & {
+    cursor?: string;
+    limit?: string;
+    member?: string;
+    nativeSession?: string;
+    origin?: string;
+    project?: string;
+    provider?: string;
+    query?: string;
+    status?: string;
+  } = {}
+): Promise<void> {
+  await runProjectCommand(input, "activity.sessions", async (context) => {
+    let projectId: string | undefined;
+    if (input.project) {
+      const projects = await context.projectsApi.list();
+      requireOrganizationIdentity(
+        context.organizationId,
+        context.organizationSlug,
+        projects.organizationId
+      );
+      projectId = resolveProjectId(projects.projects, input.project);
+    }
+    const response = await context.activityApi.readSessions(
+      agentActivitySessionInventoryQuerySchema.parse({
+        ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+        ...(input.member === undefined ? {} : { memberUserId: input.member }),
+        ...(input.nativeSession === undefined
+          ? {}
+          : { nativeSessionId: input.nativeSession }),
+        ...(input.origin === undefined
+          ? {}
+          : {
+              origin: agentActivityInventorySessionOriginSchema.parse(
+                input.origin
+              ),
+            }),
+        ...(projectId === undefined ? {} : { projectId }),
+        ...(input.provider === undefined
+          ? {}
+          : {
+              provider: localAgentSessionProviderSchema.parse(input.provider),
+            }),
+        ...(input.query === undefined ? {} : { query: input.query }),
+        ...(input.status === undefined
+          ? {}
+          : {
+              status: agentActivityInventorySessionStatusSchema.parse(
+                input.status
+              ),
+            }),
+      })
+    );
+    requireOrganizationIdentity(
+      context.organizationId,
+      context.organizationSlug,
+      response.organization.id
+    );
+    emitSuccess(context, "activity.sessions", response);
   });
 }
 
@@ -531,19 +600,7 @@ export function emitSuccess(
     );
     return;
   }
-  if (code === "activity.read" && context.presenter.view === "agent") {
-    emitAgentActivitySnapshot(
-      context.presenter,
-      payload as AgentActivitySnapshotResponse
-    );
-    return;
-  }
-  if (code === "activity.read") {
-    emitHumanAgentActivitySnapshot({
-      organizationName: context.organizationName,
-      presenter: context.presenter,
-      snapshot: payload as AgentActivitySnapshotResponse,
-    });
+  if (emitActivitySuccess(context, code, payload)) {
     return;
   }
   const nowMs = Date.now();
@@ -619,6 +676,43 @@ export function emitSuccess(
     sanitize: true,
     title: titleForCode(code),
   });
+}
+
+function emitActivitySuccess(
+  context: ProjectCommandContext,
+  code: string,
+  payload: Record<string, unknown>
+): boolean {
+  if (code === "activity.read" && context.presenter.view === "agent") {
+    emitAgentActivitySnapshot(
+      context.presenter,
+      payload as AgentActivitySnapshotResponse
+    );
+    return true;
+  }
+  if (code === "activity.sessions" && context.presenter.view === "agent") {
+    emitAgentActivitySessionInventory(
+      context.presenter,
+      payload as AgentActivitySessionInventoryResponse
+    );
+    return true;
+  }
+  if (code === "activity.sessions") {
+    emitHumanAgentActivitySessionInventory({
+      inventory: payload as AgentActivitySessionInventoryResponse,
+      presenter: context.presenter,
+    });
+    return true;
+  }
+  if (code === "activity.read") {
+    emitHumanAgentActivitySnapshot({
+      organizationName: context.organizationName,
+      presenter: context.presenter,
+      snapshot: payload as AgentActivitySnapshotResponse,
+    });
+    return true;
+  }
+  return false;
 }
 
 function buildLocalConnectionRows(payload: Record<string, unknown>) {
@@ -724,6 +818,79 @@ export function emitAgentActivitySnapshot(
   }
 }
 
+export function emitAgentActivitySessionInventory(
+  presenter: Presenter,
+  inventory: AgentActivitySessionInventoryResponse
+) {
+  presenter.data({
+    code: "activity.sessions.inventory",
+    payload: {
+      asOfMs: inventory.asOfMs,
+      nextCursor: inventory.nextCursor,
+      organization: inventory.organization,
+      sessionCount: inventory.sessions.length,
+    },
+  });
+  for (const coverage of inventory.coverage) {
+    presenter.data({ code: "activity.sessions.coverage", payload: coverage });
+  }
+  for (const session of inventory.sessions) {
+    presenter.data({ code: "activity.sessions.session", payload: session });
+  }
+}
+
+export function emitHumanAgentActivitySessionInventory(input: {
+  inventory: AgentActivitySessionInventoryResponse;
+  presenter: Presenter;
+}) {
+  const { inventory } = input;
+  const coverageProblems = inventory.coverage.filter(
+    (coverage) => coverage.state !== "current"
+  );
+  renderInfoCard({
+    codePrefix: "activity.sessions",
+    presenter: input.presenter,
+    rows: [
+      { label: "Organization", value: inventory.organization.name },
+      { label: "As of", value: new Date(inventory.asOfMs).toISOString() },
+      {
+        label: "Sessions on this page",
+        value: String(inventory.sessions.length),
+      },
+      ...coverageProblems.map((coverage) => ({
+        label: `${providerDisplayName(coverage.provider)} coverage`,
+        value: `${coverage.state}${coverage.problemCode ? ` · ${coverage.problemCode}` : ""}`,
+      })),
+      ...inventory.sessions.map((session) => ({
+        label: session.nativeSessionTitle ?? session.nativeSessionId,
+        value: [
+          session.owner.name,
+          session.project.name,
+          session.computer.name,
+          session.localAgent.name,
+          session.status,
+          session.dataState,
+          new Date(session.lastActiveAtMs).toISOString(),
+          `ID ${session.nativeSessionId}`,
+          session.boundAgentProfileId
+            ? `Agent Profile ${session.boundAgentProfileId}`
+            : "Not connected to an Agent Profile",
+        ].join(" · "),
+      })),
+      ...(inventory.nextCursor
+        ? [
+            {
+              label: "Next page",
+              value: `Run again with --cursor ${inventory.nextCursor}`,
+            },
+          ]
+        : []),
+    ],
+    sanitize: true,
+    title: "Agent Activity Sessions",
+  });
+}
+
 export function emitHumanAgentActivitySnapshot(input: {
   nowMs?: number;
   organizationName: string;
@@ -803,6 +970,18 @@ function providerLabel(provider: AgentActivityProvider) {
   return provider === "opencode" ? "OpenCode" : "Codex";
 }
 
+function providerDisplayName(
+  provider: AgentActivitySessionInventoryResponse["coverage"][number]["provider"]
+) {
+  return {
+    "claude-code": "Claude Code",
+    codex: "Codex",
+    cursor: "Cursor",
+    "grok-build": "Grok Build",
+    opencode: "OpenCode",
+  }[provider];
+}
+
 export function requireOption(
   value: string | undefined,
   label: string
@@ -840,7 +1019,7 @@ function resolveProjectCommandErrorMessage(
 }
 
 function titleForCode(code: string): string {
-  if (code === "activity.read") {
+  if (code === "activity.read" || code === "activity.sessions") {
     return "Agent Activity";
   }
   const action = (code.split(".").at(-1) ?? "complete").replaceAll("_", " ");

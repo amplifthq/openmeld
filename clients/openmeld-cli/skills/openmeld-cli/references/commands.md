@@ -139,6 +139,27 @@ openmeld org directory --view agent
 openmeld org directory --json
 ```
 
+### `openmeld activity sessions`
+
+List the active Organization's authorized Local Agent Session Inventory. Agent
+View emits the shared Session contract as stable result codes; `--json` emits
+one `activity.sessions` envelope. Continue with the opaque cursor until
+`nextCursor` is null when a complete inventory is required.
+
+```bash
+openmeld activity sessions --view human
+openmeld activity sessions --view agent --limit 100
+openmeld activity sessions --project openmeld --provider codex --view agent
+openmeld activity sessions --status working --origin openmeld --json
+openmeld activity sessions --native-session <provider-native-session-id> --json
+openmeld activity sessions --cursor <opaque-cursor> --view agent
+```
+
+Filters: `--project`, `--member`, `--provider`, `--status`, `--origin`,
+`--native-session`, `--query`, `--limit`, and `--cursor`. A returned Native
+Session ID is a locator, not permission to resume, fork, create a Binding, or
+add an Agent Profile to a Space.
+
 ### `openmeld org invite-link`
 
 Read, create or reset, and revoke the active Organization invite link. OpenMeld
