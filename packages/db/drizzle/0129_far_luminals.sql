@@ -1,0 +1,1 @@
+ALTER TABLE `openMeldRemoteAgent_message_channel_identity_link_tokens` ADD `consume_nonce` text;

@@ -1,3 +1,4 @@
+import type { MessageChannelIdentityLinkAuditRecord } from "../../application/message-channel-identity-link-audit";
 import type { RemoteAgentLarkPlatformProvider } from "./lark-platform-channel-connection-repo";
 import { readRemoteAgentLarkPlatformIdentityLink } from "./lark-platform-identity-link-repo";
 
@@ -6,6 +7,7 @@ export type RemoteAgentMessageChannelIdentityLinkTokenRecord = {
   claimedByUserId: string | null;
   connectionId: string;
   continuationAttempt: number;
+  consumeNonce: string | null;
   consumedAtMs: number | null;
   expiresAtMs: number;
   issuedAtMs: number;
@@ -24,6 +26,7 @@ type RemoteAgentMessageChannelIdentityLinkTokenRow = {
   claimed_by_user_id: string | null;
   connection_id: string;
   continuation_attempt: number;
+  consume_nonce: string | null;
   consumed_at_ms: number | null;
   expires_at_ms: number;
   issued_at_ms: number;
@@ -69,9 +72,10 @@ export async function insertRemoteAgentMessageChannelIdentityLinkToken(input: {
           claimed_at_ms,
           membership_requirement,
           consumed_at_ms,
+          consume_nonce,
           continuation_attempt
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0
         FROM openMeldRemoteAgent_lark_platform_channel_connections
         WHERE connection_id = ?
           AND provider = ?
@@ -143,6 +147,7 @@ export async function readActiveRemoteAgentMessageChannelIdentityLinkToken(input
           token.claimed_at_ms,
           token.membership_requirement,
           token.consumed_at_ms,
+          token.consume_nonce,
           token.continuation_attempt
         FROM openMeldRemoteAgent_message_channel_identity_link_tokens AS token
         INNER JOIN openMeldRemoteAgent_lark_platform_channel_connections AS connection
@@ -185,6 +190,7 @@ export async function readRemoteAgentMessageChannelIdentityLinkTokenForUser(inpu
           token.claimed_at_ms,
           token.membership_requirement,
           token.consumed_at_ms,
+          token.consume_nonce,
           token.continuation_attempt
         FROM openMeldRemoteAgent_message_channel_identity_link_tokens AS token
         INNER JOIN openMeldRemoteAgent_lark_platform_channel_connections AS connection
@@ -257,17 +263,43 @@ export async function claimRemoteAgentMessageChannelIdentityLinkToken(input: {
   return claimed?.claimedByUserId === input.openmeldUserId ? claimed : null;
 }
 
+export type RemoteAgentMessageChannelIdentityLinkConsumeResult =
+  | {
+      replacedExistingLink: boolean;
+      status: "linked";
+    }
+  | {
+      replacedExistingLink: false;
+      status: "replayed";
+    }
+  | { status: "invalid" };
+
 export async function consumeRemoteAgentMessageChannelIdentityLinkToken(input: {
+  audit: MessageChannelIdentityLinkAuditRecord;
+  consumeNonce: string;
   db: D1Database;
   nowMs: number;
   token: RemoteAgentMessageChannelIdentityLinkTokenRecord;
   openmeldUserId: string;
-}): Promise<boolean> {
+}): Promise<RemoteAgentMessageChannelIdentityLinkConsumeResult> {
+  if (input.audit.action !== "replace_message_channel_identity_link") {
+    throw new Error(
+      "Message Channel identity replacement has invalid audit action"
+    );
+  }
+  if (
+    input.audit.organizationId !== input.token.organizationId ||
+    input.audit.createdAtMs !== input.nowMs
+  ) {
+    throw new Error(
+      "Message Channel identity replacement has mismatched audit scope"
+    );
+  }
   const consume = input.db
     .prepare(
       `
         UPDATE openMeldRemoteAgent_message_channel_identity_link_tokens
-        SET consumed_at_ms = ?
+        SET consumed_at_ms = ?, consume_nonce = ?
         WHERE token_hash = ?
           AND provider = ?
           AND connection_id = ?
@@ -284,10 +316,17 @@ export async function consumeRemoteAgentMessageChannelIdentityLinkToken(input: {
               AND connection.organization_id = ?
               AND connection.status = 'connected'
           )
+          AND EXISTS (
+            SELECT 1
+            FROM members
+            WHERE organization_id = ?
+              AND user_id = ?
+          )
       `
     )
     .bind(
       input.nowMs,
+      input.consumeNonce,
       input.token.tokenHash,
       input.token.provider,
       input.token.connectionId,
@@ -297,7 +336,68 @@ export async function consumeRemoteAgentMessageChannelIdentityLinkToken(input: {
       input.nowMs,
       input.token.connectionId,
       input.token.provider,
-      input.token.organizationId
+      input.token.organizationId,
+      input.token.organizationId,
+      input.openmeldUserId
+    );
+  const auditReplacement = input.db
+    .prepare(
+      `
+        INSERT INTO center_agent_audit_journal (
+          id,
+          organization_id,
+          actor_profile_id,
+          action,
+          on_behalf_of_profile_id,
+          on_behalf_of_user_id,
+          on_behalf_of_display_name,
+          resource_type,
+          resource_id,
+          source_native_delivery_id,
+          created_at
+        )
+        SELECT ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, NULL, ?
+        WHERE EXISTS (
+          SELECT 1
+          FROM openMeldRemoteAgent_message_channel_identity_link_tokens AS token
+          WHERE token.token_hash = ?
+            AND token.consume_nonce = ?
+            AND token.consumed_at_ms = ?
+            AND token.claimed_by_user_id = ?
+            AND token.provider = ?
+            AND token.connection_id = ?
+            AND token.provider_user_id = ?
+            AND token.organization_id = ?
+        ) AND EXISTS (
+          SELECT 1
+          FROM openMeldRemoteAgent_lark_platform_identity_links AS identity_link
+          WHERE identity_link.provider = ?
+            AND identity_link.connection_id = ?
+            AND identity_link.provider_user_id = ?
+            AND identity_link.openmeld_user_id <> ?
+        )
+      `
+    )
+    .bind(
+      input.audit.id,
+      input.audit.organizationId,
+      input.audit.actorProfileId,
+      input.audit.action,
+      "message_channel_identity_link",
+      input.audit.resourceId,
+      input.audit.createdAtMs,
+      input.token.tokenHash,
+      input.consumeNonce,
+      input.nowMs,
+      input.openmeldUserId,
+      input.token.provider,
+      input.token.connectionId,
+      input.token.providerUserId,
+      input.token.organizationId,
+      input.token.provider,
+      input.token.connectionId,
+      input.token.providerUserId,
+      input.openmeldUserId
     );
   const link = input.db
     .prepare(
@@ -314,7 +414,19 @@ export async function consumeRemoteAgentMessageChannelIdentityLinkToken(input: {
         SELECT provider, connection_id, provider_user_id, organization_id, ?, 'explicit', ?
         FROM openMeldRemoteAgent_message_channel_identity_link_tokens
         WHERE token_hash = ?
+          AND consume_nonce = ?
           AND consumed_at_ms = ?
+          AND claimed_by_user_id = ?
+          AND provider = ?
+          AND connection_id = ?
+          AND provider_user_id = ?
+          AND organization_id = ?
+          AND EXISTS (
+            SELECT 1
+            FROM members
+            WHERE organization_id = ?
+              AND user_id = ?
+          )
         ON CONFLICT(provider, connection_id, provider_user_id) DO UPDATE SET
           organization_id = excluded.organization_id,
           openmeld_user_id = excluded.openmeld_user_id,
@@ -326,9 +438,31 @@ export async function consumeRemoteAgentMessageChannelIdentityLinkToken(input: {
       input.openmeldUserId,
       input.nowMs,
       input.token.tokenHash,
-      input.nowMs
+      input.consumeNonce,
+      input.nowMs,
+      input.openmeldUserId,
+      input.token.provider,
+      input.token.connectionId,
+      input.token.providerUserId,
+      input.token.organizationId,
+      input.token.organizationId,
+      input.openmeldUserId
     );
-  await input.db.batch([consume, link]);
+  const results = await input.db.batch([consume, auditReplacement, link]);
+  const consumeResult = results[0];
+  const auditResult = results[1];
+  const linkResult = results[2];
+  if (didWriteRows(consumeResult)) {
+    if (!didWriteRows(linkResult)) {
+      throw new Error(
+        "Message Channel identity token was consumed without writing its identity link"
+      );
+    }
+    return {
+      replacedExistingLink: didWriteRows(auditResult),
+      status: "linked",
+    };
+  }
   const [consumedToken, identityLink] = await Promise.all([
     readRemoteAgentMessageChannelIdentityLinkToken({
       db: input.db,
@@ -341,11 +475,12 @@ export async function consumeRemoteAgentMessageChannelIdentityLinkToken(input: {
       providerUserId: input.token.providerUserId,
     }),
   ]);
-  return (
-    consumedToken?.consumedAtMs !== null &&
+  return consumedToken?.consumedAtMs !== null &&
+    consumedToken?.claimedByUserId === input.openmeldUserId &&
     identityLink?.organizationId === input.token.organizationId &&
     identityLink.openmeldUserId === input.openmeldUserId
-  );
+    ? { replacedExistingLink: false, status: "replayed" }
+    : { status: "invalid" };
 }
 
 export async function advanceRemoteAgentMessageChannelIdentityContinuationAttempt(input: {
@@ -414,6 +549,7 @@ async function readRemoteAgentMessageChannelIdentityLinkToken(input: {
           claimed_at_ms,
           membership_requirement,
           consumed_at_ms,
+          consume_nonce,
           continuation_attempt
         FROM openMeldRemoteAgent_message_channel_identity_link_tokens
         WHERE token_hash = ?
@@ -433,6 +569,7 @@ function mapTokenRow(
     claimedByUserId: row.claimed_by_user_id,
     connectionId: row.connection_id,
     continuationAttempt: row.continuation_attempt,
+    consumeNonce: row.consume_nonce,
     consumedAtMs: row.consumed_at_ms,
     expiresAtMs: row.expires_at_ms,
     issuedAtMs: row.issued_at_ms,
@@ -445,4 +582,17 @@ function mapTokenRow(
     sourceDeliveryId: row.source_delivery_id,
     tokenHash: row.token_hash,
   };
+}
+
+function didWriteRows(result: unknown): boolean {
+  const meta = (
+    result as { meta?: { changes?: unknown; rows_written?: unknown } }
+  ).meta;
+  if (typeof meta?.changes === "number") {
+    return meta.changes > 0;
+  }
+  if (typeof meta?.rows_written === "number") {
+    return meta.rows_written > 0;
+  }
+  return false;
 }

@@ -530,6 +530,9 @@ const SLACK_DISPLAY_NAME_MENTION_PATTERN =
 const SLACK_MENTION_DIRECTORY_KEY_PREFIX =
   "remote-agent:slack-mention-directory:";
 const SLACK_MENTION_DIRECTORY_RETENTION_MS = 60 * 60 * 1000;
+const ORGANIZATION_DIRECTORY_MEMBER_KEY_PREFIX =
+  "remote-agent:organization-directory-members:";
+const ORGANIZATION_DIRECTORY_MEMBER_RETENTION_MS = 60 * 60 * 1000;
 const SLACK_THREAD_PUBLICATION_EVIDENCE_KEY_PREFIX =
   "remote-agent:slack-thread-publication-evidence:";
 const SLACK_MEMBER_RESEARCH_CHANNEL_INSPECTION_KEY_PREFIX = `${REMOTE_AGENT_SLACK_MEMBER_RESEARCH_STATE_PREFIX}channel-inspection:`;
@@ -1398,9 +1401,15 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           input.coreWorker.centerAgentGetOrganizationDirectory,
           "centerAgentGetOrganizationDirectory"
         );
-        return organizationDirectoryResponseSchema.parse(
+        const response = organizationDirectoryResponseSchema.parse(
           await rpc(toolContext)
         );
+        await rememberOrganizationDirectoryMembers({
+          memberUserIds: response.members.map((member) => member.userId),
+          storage: input.storage,
+          submissionId: input.submissionId,
+        });
+        return response;
       },
     }),
     toolDefinition({
@@ -1412,6 +1421,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         const request = centerAgentReadMemberComputersBodySchema.parse(
           parseValibot(memberComputersToolInputSchema, payload)
         );
+        await requireReturnedOrganizationMemberUserId({
+          memberUserId: request.memberUserId,
+          storage: input.storage,
+          submissionId: input.submissionId,
+        });
         const toolContext =
           await buildAnonymousCompatibleOrganizationReadToolContext({
             storage: input.storage,
@@ -1439,6 +1453,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           centerAgentReadMemberOpenMeldServiceStatusBodySchema.parse(
             parseValibot(memberOpenMeldServiceStatusToolInputSchema, payload)
           );
+        await requireReturnedOrganizationMemberUserId({
+          memberUserId: request.memberUserId,
+          storage: input.storage,
+          submissionId: input.submissionId,
+        });
         const toolContext =
           await buildAnonymousCompatibleOrganizationReadToolContext({
             storage: input.storage,
@@ -5060,6 +5079,34 @@ async function rememberSlackMentionDirectory(input: {
     returnedIds,
     Date.now() + SLACK_MENTION_DIRECTORY_RETENTION_MS
   );
+}
+
+async function rememberOrganizationDirectoryMembers(input: {
+  memberUserIds: readonly string[];
+  storage: RemoteAgentStorage;
+  submissionId: string;
+}): Promise<void> {
+  await input.storage.putExpiring(
+    `${ORGANIZATION_DIRECTORY_MEMBER_KEY_PREFIX}${input.submissionId}`,
+    [...new Set(input.memberUserIds)],
+    Date.now() + ORGANIZATION_DIRECTORY_MEMBER_RETENTION_MS
+  );
+}
+
+async function requireReturnedOrganizationMemberUserId(input: {
+  memberUserId: string;
+  storage: RemoteAgentReadableStorage;
+  submissionId: string;
+}): Promise<void> {
+  const memberUserIds =
+    (await input.storage.get<string[]>(
+      `${ORGANIZATION_DIRECTORY_MEMBER_KEY_PREFIX}${input.submissionId}`
+    )) ?? [];
+  if (!memberUserIds.includes(input.memberUserId)) {
+    throw new Error(
+      "Read the Organization directory in this turn before reading member diagnostics, then use only a returned member userId."
+    );
+  }
 }
 
 async function rememberSlackThreadPublicationEvidence(input: {

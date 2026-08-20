@@ -321,6 +321,7 @@ export const openMeldRemoteAgentMessageChannelIdentityLinkTokens = sqliteTable(
       .notNull()
       .default("allow_enrollment"),
     consumedAtMs: integer("consumed_at_ms"),
+    consumeNonce: text("consume_nonce"),
     continuationAttempt: integer("continuation_attempt").notNull().default(0),
   },
   (table) => [

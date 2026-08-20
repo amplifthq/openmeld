@@ -1,3 +1,4 @@
+import type { MessageChannelIdentityLinkAuditRecord } from "../../application/message-channel-identity-link-audit";
 import type { RemoteAgentLarkPlatformProvider } from "./lark-platform-channel-connection-repo";
 
 export type RemoteAgentLarkPlatformIdentityLinkSource =
@@ -216,6 +217,95 @@ export async function deleteRemoteAgentLarkPlatformIdentityLinkIfMatches(input: 
       input.openmeldUserId
     )
     .run();
+  return Number(result.meta?.changes ?? 0) === 1;
+}
+
+export async function disconnectRemoteAgentLarkPlatformIdentityLink(input: {
+  audit: MessageChannelIdentityLinkAuditRecord;
+  connectionId: string;
+  db: D1Database;
+  organizationId: string;
+  provider: RemoteAgentLarkPlatformProvider;
+  providerUserId: string;
+  openmeldUserId: string;
+}): Promise<boolean> {
+  if (input.audit.action !== "disconnect_message_channel_identity_link") {
+    throw new Error(
+      "Lark-platform identity disconnect has invalid audit action"
+    );
+  }
+  if (input.audit.organizationId !== input.organizationId) {
+    throw new Error(
+      "Lark-platform identity disconnect has mismatched audit scope"
+    );
+  }
+  const auditStatement = input.db
+    .prepare(
+      `
+        INSERT INTO center_agent_audit_journal (
+          id,
+          organization_id,
+          actor_profile_id,
+          action,
+          on_behalf_of_profile_id,
+          on_behalf_of_user_id,
+          on_behalf_of_display_name,
+          resource_type,
+          resource_id,
+          source_native_delivery_id,
+          created_at
+        )
+        SELECT ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, NULL, ?
+        WHERE EXISTS (
+          SELECT 1
+          FROM openMeldRemoteAgent_lark_platform_identity_links
+          WHERE provider = ?
+            AND connection_id = ?
+            AND provider_user_id = ?
+            AND organization_id = ?
+            AND openmeld_user_id = ?
+        )
+      `
+    )
+    .bind(
+      input.audit.id,
+      input.audit.organizationId,
+      input.audit.actorProfileId,
+      input.audit.action,
+      "message_channel_identity_link",
+      input.audit.resourceId,
+      input.audit.createdAtMs,
+      input.provider,
+      input.connectionId,
+      input.providerUserId,
+      input.organizationId,
+      input.openmeldUserId
+    );
+  const deleteStatement = input.db
+    .prepare(
+      `
+        DELETE FROM openMeldRemoteAgent_lark_platform_identity_links
+        WHERE provider = ?
+          AND connection_id = ?
+          AND provider_user_id = ?
+          AND organization_id = ?
+          AND openmeld_user_id = ?
+      `
+    )
+    .bind(
+      input.provider,
+      input.connectionId,
+      input.providerUserId,
+      input.organizationId,
+      input.openmeldUserId
+    );
+  const results = await input.db.batch([auditStatement, deleteStatement]);
+  const result = results.at(-1);
+  if (!result) {
+    throw new Error(
+      "Lark-platform identity link delete batch returned no result"
+    );
+  }
   return Number(result.meta?.changes ?? 0) === 1;
 }
 
