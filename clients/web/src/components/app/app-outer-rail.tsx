@@ -924,7 +924,7 @@ function OrganizationAvatar(input: {
 			<DitherProfileAvatar
 				avatarImageUrl={input.humanProfileAvatar.avatarImageUrl}
 				className={cn(
-					"shrink-0 after:border-0",
+					"shrink-0",
 					input.placement === "rail" ? "size-5" : "size-7"
 				)}
 				data-testid={

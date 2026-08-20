@@ -86,6 +86,7 @@ export function OrganizationHomeList(input: { children: ReactNode }) {
 export function OrganizationHomeListItem(input: {
 	href: string;
 	icon: ReactNode;
+	iconPresentation?: "bare" | "framed";
 	itemId: string;
 	meta?: ReactNode;
 	title: string;
@@ -97,9 +98,13 @@ export function OrganizationHomeListItem(input: {
 					className="flex min-h-14 min-w-0 items-center gap-3 rounded-md px-2.5 py-2 outline-none transition-colors duration-100 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transition-none"
 					to={input.href}
 				>
-					<span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-md border border-border/70 bg-background text-muted-foreground">
-						{input.icon}
-					</span>
+					{input.iconPresentation === "bare" ? (
+						input.icon
+					) : (
+						<span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-md border border-border/70 bg-background text-muted-foreground">
+							{input.icon}
+						</span>
+					)}
 					<span className="min-w-0 flex-1">
 						<span className="block truncate font-medium text-foreground text-sm">
 							{input.title}
