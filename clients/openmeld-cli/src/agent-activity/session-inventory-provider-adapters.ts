@@ -464,7 +464,7 @@ export async function discoverClaudeRetainedSessions(input: {
   const identities = new Map<string, string>();
   for (const path of files) {
     const metadata = await readClaudeSessionMetadata(path);
-    if (!metadata || metadata.isSidechain) {
+    if (metadata.isSidechain) {
       continue;
     }
     const priorPath = identities.get(metadata.nativeSessionId);
@@ -516,7 +516,7 @@ async function readClaudeSessionMetadata(path: string): Promise<{
   nativeSessionId: string;
   nativeSessionTitle: string | null;
   startedAtMs: number | null;
-} | null> {
+}> {
   const lines = createInterface({
     crlfDelay: Number.POSITIVE_INFINITY,
     input: createReadStream(path, { encoding: "utf8" }),
@@ -533,7 +533,7 @@ async function readClaudeSessionMetadata(path: string): Promise<{
     applyClaudeSessionLine(state, line);
   }
   if (!(state.cwd && state.nativeSessionId && state.lastActiveAtMs !== null)) {
-    return null;
+    throw new Error("Claude Code Session file is missing required metadata.");
   }
   return {
     cwd: state.cwd,

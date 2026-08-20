@@ -210,8 +210,13 @@ the shared metadata contract.
 - Reconciliation pages are staged privately. Core publishes the new set only
   after the terminal page is accepted, so readers never mistake a partial scan
   for the complete inventory.
-- Page order and retry are stable and idempotent. An interrupted scan can be
-  restarted without erasing the last complete projection.
+- Page order and retry are stable and idempotent. Core fences current-inventory
+  and source-state terminal publication mutations on the source's active
+  syncing reconciliation. Two overlapping copies of the same terminal page
+  therefore publish the same complete set once; a late duplicate cannot delete
+  current rows already published by the winner, and candidate cleanup remains
+  scoped to the exact reconciliation. An interrupted scan can be restarted
+  without erasing the last complete projection.
 - The local source ledger namespaces every observed connection by the
   authenticated owner. After an account switch, a retained Project connection
   with source evidence for another owner is not adopted or submitted as the
@@ -240,6 +245,10 @@ the shared metadata contract.
 - A provider that is not installed reports `unsupported`. A provider that is
   installed but temporarily cannot launch or read its retained store reports
   `error`, so a transient local failure cannot erase the last complete set.
+- A retained provider record or Session file that is syntactically readable but
+  lacks its required native id, Project path, or last-active timestamp is an
+  incomplete scan and reports `error`; it is never silently omitted from a
+  supposedly complete inventory.
 - Provider-retained history is the hard completeness boundary. Sessions the
   provider deleted, expired, or created in a no-persistence mode cannot be
   reconstructed by OpenMeld.

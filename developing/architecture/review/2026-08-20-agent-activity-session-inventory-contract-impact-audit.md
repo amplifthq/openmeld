@@ -163,6 +163,12 @@ operation. Historical Activity evidence retains its existing policy.
 Reconciliation error, including an installed provider's transient launch
 failure, preserves prior rows as visibly stale; an explicit disconnected or
 genuinely not-installed provider result removes selectable rows.
+Core fences terminal publication on the exact active syncing reconciliation,
+so concurrent delivery of the same terminal page is idempotent and cannot turn
+a previously published source into an empty healthy projection. Provider scans
+also fail closed when a syntactically readable retained record lacks required
+identity, Project path, or timestamp metadata; such a record cannot be skipped
+while coverage claims current.
 
 ## Architecture Invariant Assessment
 

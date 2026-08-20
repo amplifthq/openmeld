@@ -293,24 +293,29 @@ export async function acceptAgentActivitySessionReconciliation(input: {
             SET state = 'error', problem_code = 'session_identity_conflict',
                 updated_at_ms = ?
             WHERE source_scope_key = ?
+              AND current_reconciliation_id = ?
+              AND state = 'syncing'
           `
         )
-        .bind(input.nowMs, sourceScopeKey),
+        .bind(
+          input.nowMs,
+          sourceScopeKey,
+          input.reconciliation.reconciliationId
+        ),
     ]);
     throw new Error(
       "Agent Activity Session identity is already claimed by another current source."
     );
   }
 
-  const publishedSessionCount = await countCandidates({
-    db: input.db,
-    reconciliationId: input.reconciliation.reconciliationId,
-    sourceScopeKey,
-  });
   await publishStagedSessions({
     db: input.db,
     nowMs: input.nowMs,
     reconciliationId: input.reconciliation.reconciliationId,
+    sourceScopeKey,
+  });
+  const publishedSessionCount = await countPublishedSessions({
+    db: input.db,
     sourceScopeKey,
   });
   return parseReconciliationResponse({
@@ -445,6 +450,13 @@ async function publishStagedSessions(input: {
         `
           DELETE FROM agent_activity_session_inventory
           WHERE source_scope_key = ?
+            AND EXISTS (
+              SELECT 1
+              FROM agent_activity_session_inventory_sources active_source
+              WHERE active_source.source_scope_key = ?
+                AND active_source.current_reconciliation_id = ?
+                AND active_source.state = 'syncing'
+            )
             AND NOT EXISTS (
               SELECT 1
               FROM agent_activity_session_inventory_candidates candidate
@@ -472,6 +484,8 @@ async function publishStagedSessions(input: {
       )
       .bind(
         input.sourceScopeKey,
+        input.sourceScopeKey,
+        input.reconciliationId,
         input.sourceScopeKey,
         input.reconciliationId,
         input.sourceScopeKey,
@@ -504,6 +518,13 @@ async function publishStagedSessions(input: {
           FROM agent_activity_session_inventory_candidates candidate
           WHERE candidate.source_scope_key = ?
             AND candidate.reconciliation_id = ?
+            AND EXISTS (
+              SELECT 1
+              FROM agent_activity_session_inventory_sources active_source
+              WHERE active_source.source_scope_key = ?
+                AND active_source.current_reconciliation_id = ?
+                AND active_source.state = 'syncing'
+            )
             AND NOT EXISTS (
               SELECT 1
               FROM agent_activity_session_inventory_candidates proposed
@@ -548,6 +569,8 @@ async function publishStagedSessions(input: {
         input.reconciliationId,
         input.sourceScopeKey,
         input.reconciliationId,
+        input.sourceScopeKey,
+        input.reconciliationId,
         input.sourceScopeKey
       ),
     input.db
@@ -558,6 +581,7 @@ async function publishStagedSessions(input: {
               last_complete_at_ms = ?, updated_at_ms = ?
           WHERE source_scope_key = ?
             AND current_reconciliation_id = ?
+            AND state = 'syncing'
             AND NOT EXISTS (
               SELECT 1
               FROM agent_activity_session_inventory_candidates candidate
@@ -590,6 +614,7 @@ async function publishStagedSessions(input: {
               updated_at_ms = ?
           WHERE source_scope_key = ?
             AND current_reconciliation_id = ?
+            AND state = 'syncing'
             AND EXISTS (
               SELECT 1
               FROM agent_activity_session_inventory_candidates candidate
@@ -1150,24 +1175,6 @@ function providerDisplayName(provider: LocalAgentSessionProvider): string {
     "grok-build": "Grok Build",
     opencode: "OpenCode",
   }[provider];
-}
-
-async function countCandidates(input: {
-  db: D1Database;
-  reconciliationId: string;
-  sourceScopeKey: string;
-}): Promise<number> {
-  const row = await input.db
-    .prepare(
-      `
-        SELECT count(*) AS count
-        FROM agent_activity_session_inventory_candidates
-        WHERE source_scope_key = ? AND reconciliation_id = ?
-      `
-    )
-    .bind(input.sourceScopeKey, input.reconciliationId)
-    .first<{ count: number }>();
-  return Number(row?.count ?? 0);
 }
 
 async function countPublishedSessions(input: {

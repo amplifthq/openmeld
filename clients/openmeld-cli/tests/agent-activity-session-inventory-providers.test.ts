@@ -566,6 +566,29 @@ describe("Local Agent Session Inventory provider adapters", () => {
     ).rejects.toThrow("Claude Code Session file contains malformed JSON");
   });
 
+  it("rejects a structurally incomplete Claude Session file", async () => {
+    const configDir = join(root, "claude-config-incomplete");
+    const projectsDir = join(configDir, "projects", "openmeld");
+    await mkdir(projectsDir, { recursive: true });
+    await writeFile(
+      join(projectsDir, "session.jsonl"),
+      `${JSON.stringify({
+        customTitle: "Incomplete native Session",
+        type: "custom-title",
+      })}\n`,
+      "utf8"
+    );
+
+    await expect(
+      discoverClaudeRetainedSessions({
+        bindings: [binding],
+        configDir,
+        nowMs: NOW_MS,
+        rootDir: root,
+      })
+    ).rejects.toThrow("Claude Code Session file is missing required metadata");
+  });
+
   it("reads the complete OpenCode table beyond the legacy 500 row snapshot", async () => {
     const databasePath = join(root, "opencode.db");
     const database = new Database(databasePath);

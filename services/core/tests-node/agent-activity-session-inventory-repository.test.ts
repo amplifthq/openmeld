@@ -12,6 +12,7 @@ import { isSessionReconciliationFingerprintCompatible } from "../src/agent-activ
 import {
   applyDrizzleMigrationsForTables,
   createBeforeMatchingBatchD1Database,
+  createDuplicateMatchingBatchD1Database,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
 
@@ -140,6 +141,25 @@ describe("Agent Activity Session Inventory repository", () => {
       problem_code: "session_identity_conflict",
       state: "error",
     });
+  });
+
+  it("keeps terminal publication idempotent when the same batch races twice", async () => {
+    const harness = createInventoryHarness();
+    const duplicatedDb = createDuplicateMatchingBatchD1Database({
+      db: harness.db,
+      matches: (sql) =>
+        sql.includes("INSERT INTO agent_activity_session_inventory ("),
+    });
+
+    const response = await reconcile(duplicatedDb, {
+      sessions: [observedSession("native-idempotent", 1000)],
+    });
+
+    expect(response.publishedSessionCount).toBe(1);
+    expect((await read(harness.db)).sessions).toMatchObject([
+      { nativeSessionId: "native-idempotent" },
+    ]);
+    expect(inventoryRowCount(harness)).toBe(1);
   });
 
   it("derives Binding live and never returns internal device or local path content", async () => {
