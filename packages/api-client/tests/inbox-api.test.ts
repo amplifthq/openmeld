@@ -204,7 +204,7 @@ describe("api-client Inbox API", () => {
         expect.objectContaining({
           init: expect.objectContaining({
             headers: expect.objectContaining({
-              "x-openmeld-inbox-source-target-version": "2",
+              "x-openmeld-inbox-source-target-version": "3",
             }),
           }),
           operation,

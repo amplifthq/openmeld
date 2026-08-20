@@ -13,6 +13,8 @@ import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
 const agentsRouteSearchSchema = z.object({
 	profileId: z.string().trim().min(1).optional(),
+	requestId: z.string().trim().min(1).optional(),
+	view: z.enum(["agents", "requests"]).optional(),
 });
 
 export const Route = createFileRoute("/o/$orgSlug/agents")({
@@ -46,9 +48,19 @@ function AgentsRoute() {
 
 	return (
 		<PeopleAndAgentsPage
+			activeAgentView={search.view ?? "agents"}
 			activeSectionId="agents"
 			focusProfileId={search.profileId ?? null}
+			focusRequestId={search.requestId ?? null}
 			initialSidebarStates={sidebarStates}
+			onAgentViewChange={(view) => {
+				navigate({
+					search: view === "agents" ? {} : { view },
+					to: buildOrganizationAgentsPath(orgSlug),
+				}).catch((error: unknown) => {
+					console.error("Failed to change the Agents view.", error);
+				});
+			}}
 			onFocusConsumed={() => {
 				if (!search.profileId) {
 					return;

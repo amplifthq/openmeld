@@ -46,6 +46,15 @@ const MESSAGE_CHANNEL_ITEM = {
   },
 };
 
+const AGENT_PROFILE_CREATION_REQUEST_ITEM = {
+  ...ITEM,
+  id: "inbox-item-3",
+  sourceTarget: {
+    kind: "agent_profile_creation_request" as const,
+    requestId: "creation-request-1",
+  },
+};
+
 describe("Inbox routes", () => {
   it("forwards the complete member Inbox surface to Core", async () => {
     const { coreRpc, env } = makeEnv();
@@ -168,7 +177,7 @@ describe("Inbox routes", () => {
     );
     const currentResponse = await app.fetch(
       new Request("http://local/v1/inbox?limit=25", {
-        headers: { "x-openmeld-inbox-source-target-version": "2" },
+        headers: { "x-openmeld-inbox-source-target-version": "3" },
       }),
       env,
       TEST_EXECUTION_CONTEXT
@@ -180,7 +189,7 @@ describe("Inbox routes", () => {
     );
     const currentItemResponse = await app.fetch(
       new Request("http://local/v1/inbox/items/inbox-item-2", {
-        headers: { "x-openmeld-inbox-source-target-version": "2" },
+        headers: { "x-openmeld-inbox-source-target-version": "3" },
       }),
       env,
       TEST_EXECUTION_CONTEXT
@@ -197,7 +206,7 @@ describe("Inbox routes", () => {
         "http://local/v1/inbox/items/inbox-item-2/read",
         "PATCH",
         { read: true },
-        { "x-openmeld-inbox-source-target-version": "2" }
+        { "x-openmeld-inbox-source-target-version": "3" }
       ),
       env,
       TEST_EXECUTION_CONTEXT
@@ -236,6 +245,44 @@ describe("Inbox routes", () => {
         ...MESSAGE_CHANNEL_ITEM,
         readAt: "2026-08-04T01:01:00.000Z",
       },
+    });
+  });
+
+  it("keeps a new Agent creation approval readable for stale Inbox clients", async () => {
+    const { coreRpc, env } = makeEnv();
+    coreRpc.listInboxItems.mockResolvedValue({
+      items: [AGENT_PROFILE_CREATION_REQUEST_ITEM as unknown as typeof ITEM],
+      nextCursor: null,
+      organizationId: "org-1",
+    });
+
+    const staleResponse = await app.fetch(
+      new Request("http://local/v1/inbox?limit=25", {
+        headers: { "x-openmeld-inbox-source-target-version": "2" },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const currentResponse = await app.fetch(
+      new Request("http://local/v1/inbox?limit=25", {
+        headers: { "x-openmeld-inbox-source-target-version": "3" },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    await expect(staleResponse.json()).resolves.toMatchObject({
+      items: [{ sourceTarget: { kind: "center_agent" } }],
+    });
+    await expect(currentResponse.json()).resolves.toMatchObject({
+      items: [
+        {
+          sourceTarget: {
+            kind: "agent_profile_creation_request",
+            requestId: "creation-request-1",
+          },
+        },
+      ],
     });
   });
 

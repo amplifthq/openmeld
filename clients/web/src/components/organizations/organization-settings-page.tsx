@@ -38,6 +38,7 @@ import { OrganizationInformationProtectionSection } from "#/components/organizat
 import { OrganizationInviteLink } from "#/components/organizations/organization-invite-link";
 import { OrganizationLogoSection } from "#/components/organizations/organization-logo-section";
 import { PersonalWorkspaceInvitationGuidance } from "#/components/organizations/personal-workspace-invitation-guidance";
+import { AgentProfileCreationApprovalSettings } from "#/components/settings/agent-profile-creation-approval-settings";
 import {
 	cancelOrganizationInvitation,
 	deleteOrganization,
@@ -179,6 +180,9 @@ function OrganizationSettingsContent(input: {
 				<PersonalWorkspaceLifecycleSection />
 			) : (
 				<>
+					<AgentProfileCreationApprovalSettings
+						organizationId={currentOrganization.id}
+					/>
 					<OrganizationWakeAccessPreferenceSection
 						organizationId={currentOrganization.id}
 					/>

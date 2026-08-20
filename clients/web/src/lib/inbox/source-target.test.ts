@@ -77,6 +77,13 @@ describe("buildInboxItemSourceNavigation", () => {
 
 	it.each([
 		[
+			{
+				kind: "agent_profile_creation_request",
+				requestId: "request/with spaces",
+			} as const,
+			"/o/amplift/agents?view=requests&requestId=request%2Fwith+spaces",
+		],
+		[
 			{ kind: "center_agent_task", taskId: "task/with spaces" } as const,
 			"/o/amplift/center-agent/tasks/task%2Fwith%20spaces",
 		],

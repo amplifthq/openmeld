@@ -1,5 +1,6 @@
 import type { InboxItem } from "@openmeld/schemas/types";
 import {
+	buildOrganizationAgentCreationRequestsPath,
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentTaskPath,
 	buildOrganizationComputersPath,
@@ -14,6 +15,14 @@ export function buildInboxItemSourceNavigation(input: {
 }): { href: string; openInNewTab: boolean } {
 	const target = input.item.sourceTarget;
 	switch (target.kind) {
+		case "agent_profile_creation_request":
+			return {
+				href: buildOrganizationAgentCreationRequestsPath({
+					orgSlug: input.orgSlug,
+					requestId: target.requestId,
+				}),
+				openInNewTab: false,
+			};
 		case "space":
 			return {
 				href: buildOrganizationSpacePath({
