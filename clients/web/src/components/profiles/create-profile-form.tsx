@@ -29,7 +29,10 @@ import type {
 	NewProfileErrorState,
 	NewProfileKind,
 } from "#/lib/profiles/create-profile-flow";
-import { AgentProfileBindingChoiceList } from "./agent-binding-choice-list";
+import {
+	type AgentProfileBindingChoice,
+	AgentProfileBindingChoiceList,
+} from "./agent-binding-choice-list";
 import {
 	isOpenCodeAgentId,
 	OpenCodePermissionsField,
@@ -60,6 +63,10 @@ const REASONING_LEVEL_SPLIT_PATTERN = /[-_]/u;
 // navigation, no StartFlow reads/writes, and no mutation.
 export function CreateProfileForm(input: {
 	additionalHumanProfileCreationEnabled: boolean;
+	additionalSubmitBlockReason?: string | null;
+	agentBindingChoices?: readonly AgentProfileBindingChoice[];
+	agentBindingValue?: string;
+	agentOwnershipSlot?: ReactNode;
 	availableLocalAgentIds: readonly string[];
 	boundAgentId: string;
 	boundAgentControllerPermissionMode: AgentControllerPermissionMode;
@@ -81,6 +88,7 @@ export function CreateProfileForm(input: {
 	profileName: string;
 	recoveryActionHref: string;
 	onChangeBoundAgentId: (agentId: string) => void;
+	onChangeAgentBindingValue?: (value: string) => void;
 	onChangeBoundAgentControllerPermissionMode: (
 		agentControllerPermissionMode: AgentControllerPermissionMode
 	) => void;
@@ -96,6 +104,7 @@ export function CreateProfileForm(input: {
 	onChangeProfileName: (profileName: string) => void;
 	onSelectProfileKind: (profileKind: NewProfileKind) => void;
 	onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+	submitLabel?: string;
 }) {
 	const submitBlockReasonId = useId();
 	// Block submit until the account profiles have resolved, so the acting human
@@ -120,6 +129,7 @@ export function CreateProfileForm(input: {
 				value={input.profileKind}
 			/>
 			<form className="grid min-w-0 gap-4" onSubmit={input.onSubmit}>
+				{input.profileKind === "agent" ? input.agentOwnershipSlot : null}
 				<div className="grid min-w-0 gap-2">
 					<Label htmlFor="create-profile-name-input">Profile name</Label>
 					<Input
@@ -135,66 +145,10 @@ export function CreateProfileForm(input: {
 					/>
 				</div>
 				{input.profileKind === "agent" ? (
-					<AgentProfileBindingChoiceList
-						availableLocalAgentIds={input.availableLocalAgentIds}
-						disabled={input.isSubmitting}
-						isResolving={input.isResolvingLocalAgents}
-						onChange={input.onChangeBoundAgentId}
-						value={input.boundAgentId}
+					<AgentProfileFields
+						agentBindingHelpText={agentBindingHelpText}
+						input={input}
 					/>
-				) : null}
-				{input.profileKind === "agent" &&
-				input.boundAgentId &&
-				input.projectSelectionSlot
-					? input.projectSelectionSlot
-					: null}
-				{input.profileKind === "agent" &&
-				input.boundAgentId &&
-				!input.projectSelectionSlot ? (
-					<ProjectFolderField
-						disabled={input.isSubmitting}
-						onChange={input.onChangeProjectFolderPath}
-						pickerDeviceId={input.localFolderPickerDeviceId}
-						value={input.projectFolderPath}
-					/>
-				) : null}
-				{input.profileKind === "agent" && input.boundAgentId ? (
-					<AgentProfileModelSelectionFields
-						agentId={input.boundAgentId}
-						disabled={input.isSubmitting}
-						modelCatalog={input.modelCatalog}
-						modelId={input.boundModelId}
-						onChangeModelId={input.onChangeBoundModelId}
-						onChangeReasoningLevel={input.onChangeBoundReasoningLevel}
-						reasoningLevel={input.boundReasoningLevel}
-					/>
-				) : null}
-				{input.profileKind === "agent" && input.boundAgentId ? (
-					<AgentControllerPermissionModeFields
-						agentId={input.boundAgentId}
-						confirmed={input.boundAgentControllerPermissionModeConfirmed}
-						disabled={input.isSubmitting}
-						onChange={input.onChangeBoundAgentControllerPermissionMode}
-						onConfirmChange={
-							input.onChangeBoundAgentControllerPermissionModeConfirmed
-						}
-						value={input.boundAgentControllerPermissionMode}
-					/>
-				) : null}
-				{input.profileKind === "agent" &&
-				isOpenCodeAgentId(input.boundAgentId) ? (
-					<OpenCodePermissionsField
-						disabled={input.isSubmitting}
-						onChange={input.onChangeBoundOpenCodePermission}
-						value={input.boundOpenCodePermission}
-					/>
-				) : null}
-				{input.profileKind === "agent" ? (
-					<div className="grid gap-1">
-						<p className="text-muted-foreground text-xs">
-							{agentBindingHelpText}
-						</p>
-					</div>
 				) : null}
 				{input.organizationWakeAccessSlot}
 				{input.errorState ? (
@@ -232,11 +186,76 @@ export function CreateProfileForm(input: {
 						disabled={!canSubmit}
 						type="submit"
 					>
-						Create profile
+						{input.submitLabel ?? "Create profile"}
 					</SpinnerButton>
 				</div>
 			</form>
 		</div>
+	);
+}
+
+function AgentProfileFields(input: {
+	agentBindingHelpText: string;
+	input: Parameters<typeof CreateProfileForm>[0];
+}) {
+	const form = input.input;
+	return (
+		<>
+			<AgentProfileBindingChoiceList
+				availableLocalAgentIds={form.availableLocalAgentIds}
+				choices={form.agentBindingChoices}
+				disabled={form.isSubmitting}
+				isResolving={form.isResolvingLocalAgents}
+				onChange={form.onChangeAgentBindingValue ?? form.onChangeBoundAgentId}
+				value={form.agentBindingValue ?? form.boundAgentId}
+			/>
+			{form.boundAgentId && form.projectSelectionSlot
+				? form.projectSelectionSlot
+				: null}
+			{form.boundAgentId && !form.projectSelectionSlot ? (
+				<ProjectFolderField
+					disabled={form.isSubmitting}
+					onChange={form.onChangeProjectFolderPath}
+					pickerDeviceId={form.localFolderPickerDeviceId}
+					value={form.projectFolderPath}
+				/>
+			) : null}
+			{form.boundAgentId ? (
+				<AgentProfileModelSelectionFields
+					agentId={form.boundAgentId}
+					disabled={form.isSubmitting}
+					modelCatalog={form.modelCatalog}
+					modelId={form.boundModelId}
+					onChangeModelId={form.onChangeBoundModelId}
+					onChangeReasoningLevel={form.onChangeBoundReasoningLevel}
+					reasoningLevel={form.boundReasoningLevel}
+				/>
+			) : null}
+			{form.boundAgentId ? (
+				<AgentControllerPermissionModeFields
+					agentId={form.boundAgentId}
+					confirmed={form.boundAgentControllerPermissionModeConfirmed}
+					disabled={form.isSubmitting}
+					onChange={form.onChangeBoundAgentControllerPermissionMode}
+					onConfirmChange={
+						form.onChangeBoundAgentControllerPermissionModeConfirmed
+					}
+					value={form.boundAgentControllerPermissionMode}
+				/>
+			) : null}
+			{isOpenCodeAgentId(form.boundAgentId) ? (
+				<OpenCodePermissionsField
+					disabled={form.isSubmitting}
+					onChange={form.onChangeBoundOpenCodePermission}
+					value={form.boundOpenCodePermission}
+				/>
+			) : null}
+			<div className="grid gap-1">
+				<p className="text-muted-foreground text-xs">
+					{input.agentBindingHelpText}
+				</p>
+			</div>
+		</>
 	);
 }
 
@@ -324,6 +343,7 @@ function resolveAgentBindingHelpText(input: {
 
 function resolveCreateProfileSubmitBlockReason(input: {
 	additionalHumanProfileCreationEnabled: boolean;
+	additionalSubmitBlockReason?: string | null;
 	boundAgentControllerPermissionMode: AgentControllerPermissionMode;
 	boundAgentControllerPermissionModeConfirmed: boolean;
 	boundAgentId: string;
@@ -342,6 +362,9 @@ function resolveCreateProfileSubmitBlockReason(input: {
 	}
 	if (input.isResolvingAccount) {
 		return "Loading account profiles.";
+	}
+	if (input.additionalSubmitBlockReason) {
+		return input.additionalSubmitBlockReason;
 	}
 	if (input.projectSelectionBlockReason) {
 		return input.projectSelectionBlockReason;

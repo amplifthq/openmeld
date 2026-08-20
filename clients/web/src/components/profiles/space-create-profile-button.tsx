@@ -60,7 +60,7 @@ function SpaceCreateProfileDialogMount(input: {
 	spaceId: string;
 	spaceName: string | null;
 }) {
-	const { currentOrganization } = useAppOrganization();
+	const { currentOrganization, currentUserId } = useAppOrganization();
 	const recovery = useLocalAgentRecoveryController({
 		currentLocalRuntimeReplyReadinessRefetchIntervalMs: false,
 		loadAgentExecutionReadiness: false,
@@ -77,6 +77,8 @@ function SpaceCreateProfileDialogMount(input: {
 
 	return (
 		<CreateProfileDialog
+			allowTeammateRequests={currentOrganization.isPersonal !== true}
+			currentUserId={currentUserId}
 			onAfterJoin={input.onAfterJoin}
 			onOpenChange={(nextOpen) => {
 				if (!nextOpen) {

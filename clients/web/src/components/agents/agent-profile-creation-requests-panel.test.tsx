@@ -114,6 +114,7 @@ function renderPanel() {
 				currentUserId="user-felix"
 				directory={DIRECTORY}
 				focusRequestId={null}
+				onCreateAgent={vi.fn()}
 				onOpenAgent={vi.fn()}
 				organizationId="org-1"
 			/>

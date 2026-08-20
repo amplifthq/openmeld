@@ -5,10 +5,9 @@ import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useId } from "react";
+import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 
-const localAgentDisplaySplitPattern = /[-_]/u;
-
-type AgentProfileBindingChoice = {
+export type AgentProfileBindingChoice = {
 	agentId: string | null;
 	description: string;
 	label: string;
@@ -17,13 +16,14 @@ type AgentProfileBindingChoice = {
 
 export function AgentProfileBindingChoiceList(input: {
 	availableLocalAgentIds: readonly string[];
+	choices?: readonly AgentProfileBindingChoice[];
 	disabled: boolean;
 	isResolving: boolean;
 	onChange: (agentId: string) => void;
 	value: string;
 }) {
 	const headingId = useId();
-	const choices: AgentProfileBindingChoice[] = [
+	const choices: readonly AgentProfileBindingChoice[] = input.choices ?? [
 		{
 			agentId: null,
 			description:
@@ -89,15 +89,4 @@ export function AgentProfileBindingChoiceList(input: {
 			) : null}
 		</div>
 	);
-}
-
-export function formatLocalAgentDisplayName(agentId: string): string {
-	const displaySegments: string[] = [];
-	for (const segment of agentId.split(localAgentDisplaySplitPattern)) {
-		if (segment.length === 0) {
-			continue;
-		}
-		displaySegments.push(segment[0]?.toUpperCase() + segment.slice(1));
-	}
-	return displaySegments.join(" ");
 }

@@ -167,6 +167,9 @@ export function PeopleAndAgentsPage(input: {
 				}}
 				onViewChange={input.onAgentViewChange}
 				organizationId={currentOrganization.id}
+				organizationName={currentOrganization.name}
+				orgSlug={orgSlug}
+				recovery={recovery}
 			/>
 		);
 	}
@@ -296,6 +299,20 @@ export function PeopleAndAgentsPage(input: {
 			</ProfilesSectionLayout>
 			{isCreateProfileOpen ? (
 				<CreateProfileDialog
+					allowTeammateRequests={isOrganizationContext}
+					currentUserId={currentUserId}
+					onAgentRequestCreated={(request) => {
+						if (request.createdAgentProfileId) {
+							navigate({
+								search: { profileId: request.createdAgentProfileId },
+								to: profileHomeRoutes.agents,
+							}).catch((error: unknown) => {
+								console.error("Failed to open the created Agent.", error);
+							});
+							return;
+						}
+						input.onAgentViewChange?.("requests");
+					}}
 					onOpenChange={setIsCreateProfileOpen}
 					onProfileCreated={handleProfileCreated}
 					open={true}
@@ -339,7 +356,11 @@ function AgentRequestsHome(input: {
 	onOpenAgent: (profileId: string) => void;
 	onViewChange?: (view: "agents" | "requests") => void;
 	organizationId: string;
+	organizationName: string;
+	orgSlug: string;
+	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
 }) {
+	const [isCreateAgentOpen, setIsCreateAgentOpen] = useState(false);
 	let content: ReactNode;
 	if (input.directoryQuery.data) {
 		content = (
@@ -347,6 +368,7 @@ function AgentRequestsHome(input: {
 				currentUserId={input.currentUserId}
 				directory={input.directoryQuery.data}
 				focusRequestId={input.focusRequestId}
+				onCreateAgent={() => setIsCreateAgentOpen(true)}
 				onOpenAgent={input.onOpenAgent}
 				organizationId={input.organizationId}
 			/>
@@ -390,6 +412,29 @@ function AgentRequestsHome(input: {
 					{content}
 				</TabsSubtlePanel>
 			</ProfilesSectionLayout>
+			{isCreateAgentOpen ? (
+				<CreateProfileDialog
+					allowTeammateRequests={true}
+					currentUserId={input.currentUserId}
+					onAgentRequestCreated={(request) => {
+						if (request.createdAgentProfileId) {
+							input.onOpenAgent(request.createdAgentProfileId);
+						}
+					}}
+					onOpenChange={setIsCreateAgentOpen}
+					onProfileCreated={(profile) =>
+						input.onOpenAgent(profile.openMeldProfileId)
+					}
+					open={true}
+					organizationAuthorizationContext={{
+						organizationId: input.organizationId,
+						organizationName: input.organizationName,
+					}}
+					organizationId={input.organizationId}
+					orgSlug={input.orgSlug}
+					recovery={input.recovery}
+				/>
+			) : null}
 		</AppFullWidthLayout>
 	);
 }

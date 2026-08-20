@@ -5,6 +5,7 @@ import {
 } from "@openmeld/api-client";
 import type {
 	AgentProfileCreationApprovalPolicy,
+	AgentProfileCreationConfiguration,
 	AgentProfileCreationRequestMutationResponse,
 	CreateAgentProfileCreationRequestResponse,
 	GetAgentProfileCreationApprovalPreferenceResponse,
@@ -22,18 +23,22 @@ function createApi(organizationId: string) {
 }
 
 export async function createAgentProfileCreationRequest(input: {
+	configuration: AgentProfileCreationConfiguration;
 	idempotencyKey: string;
 	organizationId: string;
 	profileName: string;
+	requestedSpaceId?: string | null;
 	targetOwnerUserId: string;
 }): Promise<CreateAgentProfileCreationRequestResponse> {
 	try {
 		return await createApi(
 			input.organizationId
 		).createAgentProfileCreationRequest({
+			configuration: input.configuration,
 			idempotencyKey: input.idempotencyKey,
 			organizationId: input.organizationId,
 			profileName: input.profileName,
+			requestedSpaceId: input.requestedSpaceId,
 			sessionStrategy: "new",
 			source: "web",
 			targetOwnerUserId: input.targetOwnerUserId,

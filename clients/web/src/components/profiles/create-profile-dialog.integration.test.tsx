@@ -53,6 +53,9 @@ const setOrganizationBindingAuthorizationPreferenceMock = vi.hoisted(() =>
 const getAgentProfileCreationDefaultsMock = vi.hoisted(() => vi.fn());
 const setAgentProfileCreationDefaultsMock = vi.hoisted(() => vi.fn());
 const listProjectsMock = vi.hoisted(() => vi.fn());
+const readOrganizationDirectoryMock = vi.hoisted(() => vi.fn());
+const readOrganizationComputersMock = vi.hoisted(() => vi.fn());
+const createAgentProfileCreationRequestMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
 
@@ -174,6 +177,34 @@ vi.mock("#/query/organizations/projects", () => ({
 		staleTime: Number.POSITIVE_INFINITY,
 	}),
 }));
+
+vi.mock("#/lib/organizations/organization-directory", () => ({
+	readCurrentOrganizationDirectory: (
+		...args: Parameters<typeof readOrganizationDirectoryMock>
+	) => readOrganizationDirectoryMock(...args),
+}));
+
+vi.mock("#/lib/organizations/organization-computers", () => ({
+	readCurrentOrganizationComputers: (
+		...args: Parameters<typeof readOrganizationComputersMock>
+	) => readOrganizationComputersMock(...args),
+}));
+
+vi.mock(
+	"#/lib/profiles/agent-profile-creation-requests",
+	async (importOriginal) => {
+		const actual =
+			await importOriginal<
+				typeof import("#/lib/profiles/agent-profile-creation-requests")
+			>();
+		return {
+			...actual,
+			createAgentProfileCreationRequest: (
+				...args: Parameters<typeof createAgentProfileCreationRequestMock>
+			) => createAgentProfileCreationRequestMock(...args),
+		};
+	}
+);
 
 vi.mock("#/query/config/model-catalog", () => ({
 	modelCatalogQueryOptions: () => ({
@@ -503,6 +534,71 @@ describe("CreateProfileDialog", () => {
 				autoAuthorizeAgentProfileBindings: true,
 			});
 		listProjectsMock.mockReset().mockResolvedValue({ projects: [] });
+		readOrganizationDirectoryMock.mockReset().mockResolvedValue({
+			agentProfiles: [],
+			generatedAt: "2026-08-20T00:00:00.000Z",
+			members: [
+				{ user: { name: "Felix" }, userId: "user-123" },
+				{ user: { name: "Ashley" }, userId: "user-ashley" },
+			],
+			organizationId: "organization-123",
+		});
+		readOrganizationComputersMock.mockReset().mockResolvedValue({
+			computers: [
+				{
+					computerId: "device-ashley",
+					deviceDisplayName: "Ashley's Mac Studio",
+					deviceType: "desktop",
+					lastSeenAtMs: 1_775_952_000_000,
+					localAgents: [
+						{
+							agentControllerRef: "builtin:codex",
+							enabled: true,
+							status: "ready",
+						},
+					],
+					osVersion: "25.5.0",
+					ownerUserId: "user-ashley",
+					platformFamily: "macOS",
+					serviceState: "connected",
+				},
+			],
+			generatedAt: "2026-08-20T00:00:00.000Z",
+			organizationId: "organization-123",
+		});
+		createAgentProfileCreationRequestMock.mockReset().mockResolvedValue({
+			replayed: false,
+			request: {
+				actorProfileId: FELIX_ID,
+				completedAt: null,
+				configuration: {
+					agentControllerPermissionMode: "codex:askForApproval",
+					agentControllerRef: "builtin:codex",
+					authorizeForOrganization: true,
+					defaultProjectId: "project-1",
+					modelId: "gpt-5.4-mini",
+					openCodePermission: null,
+					reasoningLevel: "high",
+					targetComputerId: "device-ashley",
+				},
+				createdAgentProfileId: null,
+				createdAt: "2026-08-20T00:00:00.000Z",
+				decidedAt: null,
+				failureMessage: null,
+				id: "apcr-teammate",
+				nativeSessionId: null,
+				organizationId: "organization-123",
+				profileName: "Release Agent",
+				requestedSpaceId: null,
+				requesterUserId: "user-123",
+				sessionStrategy: "new",
+				source: "web",
+				status: "pending",
+				statusReason: "approval_required",
+				targetOwnerUserId: "user-ashley",
+				updatedAt: "2026-08-20T00:00:00.000Z",
+			},
+		});
 		getAgentProfileCreationDefaultsMock
 			.mockReset()
 			.mockImplementation(async ({ agentControllerRef, organizationId }) => ({
@@ -549,6 +645,62 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});
+	});
+
+	it("uses the existing Create Agent form to request a teammate-owned Agent with the selected configuration", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		renderCreateProfileDialog({
+			allowTeammateRequests: true,
+			currentUserId: "user-123",
+			organizationAuthorizationContext: {
+				organizationId: "organization-123",
+				organizationName: "Acme",
+			},
+		});
+
+		fireEvent.click(
+			await screen.findByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
+		);
+		fireEvent.click(await screen.findByRole("radio", { name: "A teammate" }));
+		await waitFor(() => {
+			expect(
+				screen.getByRole("combobox", { name: "Agent owner" }).textContent
+			).toContain("Ashley");
+		});
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Release Agent" },
+		});
+		fireEvent.click(await screen.findByRole("radio", { name: "Codex" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Default Project" }));
+		fireEvent.click(await screen.findByRole("option", { name: "OpenMeld" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+		fireEvent.click(
+			await screen.findByRole("option", { name: "GPT-5.4 Mini" })
+		);
+		fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
+		fireEvent.click(await screen.findByRole("option", { name: "High" }));
+		fireEvent.click(screen.getByRole("button", { name: "Request Agent" }));
+
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith({
+				configuration: {
+					agentControllerPermissionMode: "codex:askForApproval",
+					agentControllerRef: "builtin:codex",
+					authorizeForOrganization: true,
+					defaultProjectId: "project-1",
+					modelId: "gpt-5.4-mini",
+					openCodePermission: null,
+					reasoningLevel: "high",
+					targetComputerId: "device-ashley",
+				},
+				idempotencyKey: expect.any(String),
+				organizationId: "organization-123",
+				profileName: "Release Agent",
+				requestedSpaceId: null,
+				targetOwnerUserId: "user-ashley",
+			});
+		});
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 	});
 
 	it("keeps Agent creation available while hiding Human creation when the capability is disabled", async () => {

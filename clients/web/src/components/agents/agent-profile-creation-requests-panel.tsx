@@ -6,28 +6,11 @@ import type {
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@openmeld/ui/components/dialog";
-import { Input } from "@openmeld/ui/components/input";
-import { Label } from "@openmeld/ui/components/label";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-} from "@openmeld/ui/fluid/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import {
 	cancelAgentProfileCreationRequest,
-	createAgentProfileCreationRequest,
 	decideAgentProfileCreationRequest,
 	retryAgentProfileCreationRequest,
 } from "#/lib/profiles/agent-profile-creation-requests";
@@ -43,11 +26,11 @@ export function AgentProfileCreationRequestsPanel(input: {
 	currentUserId: string;
 	directory: OrganizationDirectoryResponse;
 	focusRequestId: string | null;
+	onCreateAgent: () => void;
 	onOpenAgent: (profileId: string) => void;
 	organizationId: string;
 }) {
 	const queryClient = useQueryClient();
-	const [isCreateOpen, setIsCreateOpen] = useState(false);
 	const focusedRequestRef = useRef<HTMLElement | null>(null);
 	const requestsQuery = useQuery(
 		agentProfileCreationRequestsQueryOptions({
@@ -145,7 +128,7 @@ export function AgentProfileCreationRequestsPanel(input: {
 				</p>
 				<Button
 					disabled={!hasAnotherMember}
-					onClick={() => setIsCreateOpen(true)}
+					onClick={input.onCreateAgent}
 					size="sm"
 					type="button"
 				>
@@ -206,6 +189,11 @@ export function AgentProfileCreationRequestsPanel(input: {
 										request,
 									})}
 								</p>
+								{request.failureMessage ? (
+									<p className="text-destructive text-xs leading-5">
+										{request.failureMessage}
+									</p>
+								) : null}
 							</div>
 							<RequestActions
 								currentUserId={input.currentUserId}
@@ -220,23 +208,6 @@ export function AgentProfileCreationRequestsPanel(input: {
 					</article>
 				);
 			})}
-
-			{isCreateOpen ? (
-				<CreateAgentRequestDialog
-					currentUserId={input.currentUserId}
-					members={input.directory.members}
-					onCreated={async () => {
-						setIsCreateOpen(false);
-						await queryClient.invalidateQueries({
-							queryKey: agentProfileCreationRequestQueryKeys.byOrganization(
-								input.organizationId
-							),
-						});
-					}}
-					onOpenChange={setIsCreateOpen}
-					organizationId={input.organizationId}
-				/>
-			) : null}
 		</div>
 	);
 }
@@ -294,7 +265,18 @@ function RequestActions(input: {
 	}
 	if (input.request.status === "failed") {
 		return (
-			<div className="flex shrink-0 gap-2">
+			<div className="flex shrink-0 flex-wrap gap-2">
+				{input.request.createdAgentProfileId ? (
+					<Button
+						onClick={() =>
+							input.onOpenAgent(input.request.createdAgentProfileId ?? "")
+						}
+						size="sm"
+						variant="outline"
+					>
+						View Agent
+					</Button>
+				) : null}
 				{isRequester ? (
 					<Button
 						disabled={input.isPending}
@@ -331,120 +313,6 @@ function RequestActions(input: {
 		);
 	}
 	return null;
-}
-
-function CreateAgentRequestDialog(input: {
-	currentUserId: string;
-	members: readonly DirectoryMember[];
-	onCreated: () => Promise<void>;
-	onOpenChange: (open: boolean) => void;
-	organizationId: string;
-}) {
-	const candidates = input.members.filter(
-		(member) => member.userId !== input.currentUserId
-	);
-	const [targetOwnerUserId, setTargetOwnerUserId] = useState(
-		candidates[0]?.userId ?? ""
-	);
-	const [profileName, setProfileName] = useState("");
-	const [idempotencyKey] = useState(
-		() => `web-agent-request-${crypto.randomUUID()}`
-	);
-	const mutation = useMutation({
-		mutationFn: async () =>
-			await createAgentProfileCreationRequest({
-				idempotencyKey,
-				organizationId: input.organizationId,
-				profileName,
-				targetOwnerUserId,
-			}),
-		onError: (error) => toast.error(error.message),
-		onSuccess: async (result) => {
-			toast.success(createdRequestMessage(result.request.status));
-			await input.onCreated();
-		},
-	});
-	const selectedMember = candidates.find(
-		(member) => member.userId === targetOwnerUserId
-	);
-
-	return (
-		<Dialog onOpenChange={input.onOpenChange} open={true}>
-			<DialogContent className="sm:max-w-md">
-				<form
-					onSubmit={(event: FormEvent) => {
-						event.preventDefault();
-						if (targetOwnerUserId && profileName.trim()) {
-							mutation.mutate();
-						}
-					}}
-				>
-					<DialogHeader>
-						<DialogTitle>Request an Agent for a teammate</DialogTitle>
-						<DialogDescription>
-							They’ll approve the request based on their settings. The Agent
-							will belong to them.
-						</DialogDescription>
-					</DialogHeader>
-					<div className="space-y-4 py-5">
-						<div className="space-y-2">
-							<Label htmlFor="agent-request-owner">Owner</Label>
-							<Select
-								onValueChange={setTargetOwnerUserId}
-								value={targetOwnerUserId}
-							>
-								<SelectTrigger
-									displayValue={
-										selectedMember?.user.name ?? "Choose a teammate"
-									}
-									id="agent-request-owner"
-								/>
-								<SelectContent>
-									{candidates.map((member, index) => (
-										<SelectItem
-											index={index}
-											key={member.userId}
-											value={member.userId}
-										>
-											{member.user.name}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</div>
-						<div className="space-y-2">
-							<Label htmlFor="agent-request-name">Agent name</Label>
-							<Input
-								autoComplete="off"
-								id="agent-request-name"
-								maxLength={80}
-								onChange={(event) => setProfileName(event.target.value)}
-								placeholder="Release Reviewer"
-								value={profileName}
-							/>
-						</div>
-					</div>
-					<DialogFooter>
-						<Button
-							onClick={() => input.onOpenChange(false)}
-							type="button"
-							variant="outline"
-						>
-							Cancel
-						</Button>
-						<Button
-							disabled={
-								mutation.isPending || !targetOwnerUserId || !profileName.trim()
-							}
-							type="submit"
-						>
-							{mutation.isPending ? "Sending…" : "Send request"}
-						</Button>
-					</DialogFooter>
-				</form>
-			</DialogContent>
-		</Dialog>
-	);
 }
 
 function statusLabel(request: AgentProfileCreationRequest): string {
@@ -520,18 +388,6 @@ function sourceLabel(source: AgentProfileCreationRequest["source"]): string {
 		default:
 			return assertNever(source);
 	}
-}
-
-function createdRequestMessage(
-	status: AgentProfileCreationRequest["status"]
-): string {
-	if (status === "completed") {
-		return "Agent created.";
-	}
-	if (status === "declined") {
-		return "This teammate doesn’t allow Agent creation requests.";
-	}
-	return "Request sent.";
 }
 
 function assertNever(value: never): never {
