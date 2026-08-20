@@ -247,12 +247,24 @@ Never retain or project `monthlyLimit`, `used`, `onDemandCap`, `onDemandUsed`,
 fields, `onDemandEnabled`, `subscriptionTier`, provider auth data, or user IDs.
 These are unnecessary monetary, payment, subscription, or account facts.
 
-Real acceptance on 2026-08-20 used installed `grok 1.0.3`. A sanitized ACP
-harness started `grok agent --no-leader stdio`, initialized ACP v1 without file
-or terminal capabilities, authenticated through the provider's own process, and
-sent `_x.ai/billing`. It received a direct percentage and a weekly period with
-an RFC 3339 reset. Exact live values were intentionally omitted. No session was
-opened and no model prompt was sent.
+Initial research acceptance on 2026-08-20 used installed `grok 1.0.3`. Final
+implementation acceptance reran the implemented adapter against installed
+`grok 1.0.5`. In both cases, a sanitized ACP harness started
+`grok agent --no-leader stdio`, initialized ACP v1 without file or terminal
+capabilities, authenticated through the provider's own process, and sent
+`_x.ai/billing`. The final run produced one normalized limit with a direct
+percentage and reset evidence, and the field-allowlist check passed. Exact live
+values were intentionally omitted. No session was opened and no model prompt
+was sent.
+
+The final Codex and Grok Build acceptance used a fresh temporary
+`OPENMELD_HOME` and the built production adapter/projector code. It emitted only
+provider name, native interface, stable limit keys, limit count, status, reset
+presence, percentage presence, and the allowlist verdict. Codex produced three
+normalized windows from two native buckets; Grok Build produced one normalized
+included-credit window. Both projections contained only `key`, `label`,
+`usedPercent`, `resetsAt`, `observedAt`, and `status`. Raw responses and live
+values were neither logged nor retained by the acceptance harness.
 
 ## OpenMeld Integration Boundary
 
