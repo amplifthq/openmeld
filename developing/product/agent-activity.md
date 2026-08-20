@@ -236,6 +236,13 @@ the shared metadata contract.
   These current projections cannot continue claiming a native Session identity
   or retain its metadata after the Computer is forgotten. Historical Activity
   evidence keeps its separate retention policy.
+- Removing a member from an Organization asks Core to delete that owner's
+  staged candidates, current Inventory rows, and reconciliation sources for
+  that Organization. The Auth membership lifecycle triggers this cleanup only
+  after removal succeeds; it does not write the Core-owned projection directly.
+  Re-adding the user therefore cannot revive Session metadata retained from the
+  previous membership. Historical Activity evidence keeps its separate
+  retention policy.
 - A `disconnected` report may revoke the exact previously authorized source
   after the Project repository fingerprint changes. Other reconciliation
   outcomes still require the current Project fingerprint, so this revocation

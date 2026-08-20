@@ -90,6 +90,44 @@ type PageCursor = {
   version: 1;
 };
 
+export type DeletedAgentActivitySessionInventoryMemberProjection = {
+  candidateCount: number;
+  inventoryCount: number;
+  sourceCount: number;
+};
+
+export async function deleteAgentActivitySessionInventoryForOrganizationMember(input: {
+  db: D1Database;
+  organizationId: string;
+  ownerUserId: string;
+}): Promise<DeletedAgentActivitySessionInventoryMemberProjection> {
+  const [candidates, inventory, sources] = await input.db.batch([
+    input.db
+      .prepare(
+        `DELETE FROM agent_activity_session_inventory_candidates
+         WHERE organization_id = ? AND owner_user_id = ?`
+      )
+      .bind(input.organizationId, input.ownerUserId),
+    input.db
+      .prepare(
+        `DELETE FROM agent_activity_session_inventory
+         WHERE organization_id = ? AND owner_user_id = ?`
+      )
+      .bind(input.organizationId, input.ownerUserId),
+    input.db
+      .prepare(
+        `DELETE FROM agent_activity_session_inventory_sources
+         WHERE organization_id = ? AND owner_user_id = ?`
+      )
+      .bind(input.organizationId, input.ownerUserId),
+  ]);
+  return {
+    candidateCount: Number(candidates?.meta.changes ?? 0),
+    inventoryCount: Number(inventory?.meta.changes ?? 0),
+    sourceCount: Number(sources?.meta.changes ?? 0),
+  };
+}
+
 export async function readConnectedComputerId(input: {
   db: D1Database;
   deviceId: string;

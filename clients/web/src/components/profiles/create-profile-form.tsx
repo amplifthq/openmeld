@@ -73,6 +73,7 @@ export function CreateProfileForm(input: {
 	isSubmitting: boolean;
 	modelCatalog: ModelCatalog | null;
 	localFolderPickerDeviceId: string | null;
+	allowProfileKindSelection: boolean;
 	organizationWakeAccessSlot?: ReactNode;
 	projectSelectionBlockReason?: string | null;
 	projectSelectionSlot?: ReactNode;
@@ -112,13 +113,15 @@ export function CreateProfileForm(input: {
 			className="grid w-full min-w-0 gap-4"
 			data-testid="create-profile-panel"
 		>
-			<ProfileKindTabs
-				additionalHumanProfileCreationEnabled={
-					input.additionalHumanProfileCreationEnabled
-				}
-				onSelect={input.onSelectProfileKind}
-				value={input.profileKind}
-			/>
+			{input.allowProfileKindSelection ? (
+				<ProfileKindTabs
+					additionalHumanProfileCreationEnabled={
+						input.additionalHumanProfileCreationEnabled
+					}
+					onSelect={input.onSelectProfileKind}
+					value={input.profileKind}
+				/>
+			) : null}
 			<form className="grid min-w-0 gap-4" onSubmit={input.onSubmit}>
 				<div className="grid min-w-0 gap-2">
 					<Label htmlFor="create-profile-name-input">Profile name</Label>

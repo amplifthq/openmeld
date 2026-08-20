@@ -194,6 +194,10 @@ export function CreateProfileDialog(input: {
 	const organizationAuthorizationContext =
 		input.organizationAuthorizationContext;
 	const organizationId = input.organizationId;
+	const dialogTitle = resolveCreateProfileDialogTitle({
+		additionalHumanProfileCreationEnabled,
+		hasSessionPreset: Boolean(sessionPreset),
+	});
 	const projectsQuery = useQuery(
 		projectsQueryOptions({
 			enabled: Boolean(organizationId),
@@ -539,11 +543,7 @@ export function CreateProfileDialog(input: {
 		>
 			<DialogContent className="flex max-h-[min(42rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-xl">
 				<DialogHeader>
-					<DialogTitle>
-						{additionalHumanProfileCreationEnabled
-							? "Create a new profile"
-							: "Create a new Agent"}
-					</DialogTitle>
+					<DialogTitle>{dialogTitle}</DialogTitle>
 					<DialogDescription>
 						{resolveCreateProfileDialogDescription({
 							agentActivitySessionPreset: input.agentActivitySessionPreset,
@@ -557,6 +557,7 @@ export function CreateProfileDialog(input: {
 						additionalHumanProfileCreationEnabled={
 							additionalHumanProfileCreationEnabled
 						}
+						allowProfileKindSelection={!sessionPreset}
 						availableLocalAgentIds={availableLocalAgentIds}
 						boundAgentControllerPermissionMode={
 							boundAgentControllerPermissionMode
@@ -634,6 +635,9 @@ export function CreateProfileDialog(input: {
 							setErrorState(null);
 						}}
 						onSelectProfileKind={(nextProfileKind) => {
+							if (sessionPreset) {
+								return;
+							}
 							if (
 								nextProfileKind === "human" &&
 								!additionalHumanProfileCreationEnabled
@@ -692,6 +696,18 @@ export function CreateProfileDialog(input: {
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function resolveCreateProfileDialogTitle(input: {
+	additionalHumanProfileCreationEnabled: boolean;
+	hasSessionPreset: boolean;
+}): string {
+	if (input.hasSessionPreset) {
+		return "Create a new Agent Profile";
+	}
+	return input.additionalHumanProfileCreationEnabled
+		? "Create a new profile"
+		: "Create a new Agent";
 }
 
 function resolveCreateProfileDialogDescription(input: {

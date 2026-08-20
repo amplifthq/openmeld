@@ -305,6 +305,7 @@ import type {
   UpdateOrganizationSkillRpcInput,
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
+import { deleteAgentActivitySessionInventoryForOrganizationMember } from "./agent-activity/activity-session-inventory-repository";
 import { reconcileDeletedAgentProfile } from "./agent-profile-binding/application/deleted-profile-reconcile-service";
 import { app } from "./app";
 import { rpcCenterAgentAuthorizeAnonymousMemberTool } from "./center-agent/application/anonymous-member-request";
@@ -352,7 +353,12 @@ import {
   rpcMarkSpaceInboxReadThrough,
   rpcUpdateInboxNotificationPreferences,
 } from "./inbox/transport/rpc/inbox-rpc";
-import { type CoreBindings, localStateDb, projectionsDb } from "./lib/bindings";
+import {
+  agentActivityDb,
+  type CoreBindings,
+  localStateDb,
+  projectionsDb,
+} from "./lib/bindings";
 import { rpcCenterAgentManageOrganizationDocuments } from "./organization-documents/center-agent-document-rpc";
 import {
   rpcApproveOrganizationDocumentDraft,
@@ -910,6 +916,36 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ProjectSpaceIndexMembershipOverlayRpcInput
   ): Promise<ProjectSpaceIndexMembershipOverlayRpcResult> {
     return rpcProjectSpaceIndexMembershipOverlay(this.env, input);
+  }
+
+  async deleteAgentActivitySessionInventoryForOrganizationMember(input: {
+    organizationId?: string | null;
+    userId?: string | null;
+  }): Promise<{
+    code?: string;
+    deleted?: {
+      candidateCount: number;
+      inventoryCount: number;
+      sourceCount: number;
+    };
+    ok: boolean;
+  }> {
+    const organizationId = normalizeOptionalRpcText(input.organizationId);
+    const userId = normalizeOptionalRpcText(input.userId);
+    if (!(organizationId && userId)) {
+      return { code: "invalid_payload", ok: false };
+    }
+    const db = agentActivityDb(this.env);
+    if (!db) {
+      return { code: "agent_activity.store_unavailable", ok: false };
+    }
+    const deleted =
+      await deleteAgentActivitySessionInventoryForOrganizationMember({
+        db,
+        organizationId,
+        ownerUserId: userId,
+      });
+    return { deleted, ok: true };
   }
 
   async deleteCenterAgentMemberMemory(input: {

@@ -591,6 +591,15 @@ describe("CreateProfileDialog", () => {
 		expect(
 			(screen.getByLabelText("Profile name") as HTMLInputElement).value
 		).toBe("Build Session Inventory");
+		expect(
+			screen.getByRole("heading", { name: "Create a new Agent Profile" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("tab", { name: HUMAN_PROFILE_CARD_PATTERN })
+		).toBeNull();
+		expect(
+			screen.queryByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
+		).toBeNull();
 		expect(screen.queryByText("Recommended score")).toBeNull();
 	});
 

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   acceptAgentActivitySessionReconciliation,
   canResumeAgentActivitySessionSelection,
+  deleteAgentActivitySessionInventoryForOrganizationMember,
   readAgentActivitySessionInventory,
 } from "../src/agent-activity/activity-session-inventory-repository";
 import { isSessionReconciliationFingerprintCompatible } from "../src/agent-activity/activity-session-inventory-rpc";
@@ -432,6 +433,44 @@ describe("Agent Activity Session Inventory repository", () => {
           WHERE owner_user_id = ? AND device_id = ?`,
       })
     ).toEqual({ count: 1 });
+  });
+
+  it("purges every current and staged Session projection when its Organization member is removed", async () => {
+    const harness = createInventoryHarness();
+    await reconcile(harness.db, {
+      sessions: [observedSession("native-published", 1000)],
+    });
+    await reconcile(harness.db, {
+      reconciliationId: "reconciliation-staged",
+      sessions: [observedSession("native-staged", 500)],
+      terminal: false,
+    });
+
+    await expect(
+      deleteAgentActivitySessionInventoryForOrganizationMember({
+        db: harness.db,
+        organizationId: AUTHORITY.organizationId,
+        ownerUserId: AUTHORITY.ownerUserId,
+      })
+    ).resolves.toEqual({
+      candidateCount: 1,
+      inventoryCount: 1,
+      sourceCount: 1,
+    });
+
+    for (const table of [
+      "agent_activity_session_inventory_candidates",
+      "agent_activity_session_inventory",
+      "agent_activity_session_inventory_sources",
+    ]) {
+      expect(
+        harness.queryFirst<{ count: number }>({
+          params: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
+          sql: `SELECT count(*) AS count FROM ${table}
+            WHERE organization_id = ? AND owner_user_id = ?`,
+        })
+      ).toEqual({ count: 0 });
+    }
   });
 });
 
