@@ -180,6 +180,7 @@ export async function checkWebAgentProfileRuntimeReadiness(input: {
 
 export async function ensureWebAgentProfileRuntimeBinding(input: {
 	actorProfileId?: string | null;
+	agentControllerConversationId?: string | null;
 	agentProfileId: string;
 	agentControllerCollaborationMode?: AgentControllerCollaborationMode | null;
 	agentControllerPermissionMode?: AgentControllerPermissionMode | null;
@@ -207,6 +208,9 @@ export async function ensureWebAgentProfileRuntimeBinding(input: {
 		const reasoningLevel = modelId
 			? normalizeOptionalBindingText(input.reasoningLevel)
 			: null;
+		const agentControllerConversationId = normalizeOptionalBindingText(
+			input.agentControllerConversationId
+		);
 		const bindingRequest = {
 			agentProfileId: input.agentProfileId,
 			...(input.agentControllerCollaborationMode
@@ -219,6 +223,11 @@ export async function ensureWebAgentProfileRuntimeBinding(input: {
 				? { agentControllerPermissionMode: input.agentControllerPermissionMode }
 				: {}),
 			agentControllerRef: readinessResult.agentControllerRef,
+			...(agentControllerConversationId
+				? {
+						agentControllerConversationId,
+					}
+				: {}),
 			deviceId: readinessResult.deviceId,
 			lane: readinessResult.lane,
 			openMeldServiceRuntimeId: readinessResult.openMeldServiceRuntimeId,

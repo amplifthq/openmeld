@@ -51,6 +51,7 @@ export type NewProfileCreationInput = {
 };
 
 export type NewAgentProfileLocalSetupInput = {
+	agentControllerConversationId?: string | null;
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	boundAgentId: string;
 	currentServiceCanSetProfileWorkspace?: boolean;
@@ -141,6 +142,7 @@ export async function setupNewAgentProfileLocalState(
 	}
 
 	await bindNewAgentProfileToLocalAgent({
+		agentControllerConversationId: input.agentControllerConversationId ?? null,
 		...(input.agentControllerPermissionMode
 			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
 			: {}),
@@ -180,6 +182,7 @@ function requireNewAgentProfileOrganizationId(
 }
 
 async function bindNewAgentProfileToLocalAgent(input: {
+	agentControllerConversationId: string | null;
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	agentProfileId: string;
 	agentControllerRef: string;
@@ -197,6 +200,9 @@ async function bindNewAgentProfileToLocalAgent(input: {
 			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
 			: {}),
 		agentControllerRef: input.agentControllerRef,
+		...(input.agentControllerConversationId
+			? { agentControllerConversationId: input.agentControllerConversationId }
+			: {}),
 		deviceId: input.deviceId,
 		modelId: input.modelId,
 		openCodePermission: input.openCodePermission,

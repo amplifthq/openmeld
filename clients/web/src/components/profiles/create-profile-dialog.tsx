@@ -87,6 +87,16 @@ export type CreateProfileOrganizationAuthorizationContext = {
 	organizationName: string;
 };
 
+export type CreateProfileAgentActivitySessionPreset = {
+	agentControllerRef: string;
+	localAgentName: string;
+	mode: "create" | "resume";
+	nativeSessionId: string;
+	nativeSessionTitle: string | null;
+	projectId: string;
+	status: "working" | "idle" | "ended" | "error" | "unknown";
+};
+
 // Standalone, route-free Create Profile dialog. Reused from Profiles, legacy
 // agent redirects, and Spaces — the only difference is `spaceContext`: when
 // present, the freshly created profile is also joined to that Space (always as a
@@ -94,6 +104,7 @@ export type CreateProfileOrganizationAuthorizationContext = {
 // without Space membership. Carries zero dependency on retired start pages or
 // route intents.
 export function CreateProfileDialog(input: {
+	agentActivitySessionPreset?: CreateProfileAgentActivitySessionPreset;
 	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
 	onOpenChange: (open: boolean) => void;
 	onProfileCreated?: (profile: AuthProfileView) => void;
@@ -104,6 +115,7 @@ export function CreateProfileDialog(input: {
 	recovery: RecoveryController;
 	spaceContext?: CreateProfileSpaceContext;
 }) {
+	const sessionPreset = input.agentActivitySessionPreset;
 	const queryClient = useQueryClient();
 	const { selectedHumanProfile, profilesQuery } = useSelectedHumanProfile({
 		selectDefaultWhenMissing: true,
@@ -111,13 +123,20 @@ export function CreateProfileDialog(input: {
 	const profileCapabilitiesQuery = useQuery(profileCapabilitiesQueryOptions());
 	const additionalHumanProfileCreationEnabled =
 		isAdditionalHumanProfileCreationEnabled(profileCapabilitiesQuery);
-	const [profileKind, setProfileKind] = useState<NewProfileKind | null>(null);
+	const [profileKind, setProfileKind] = useState<NewProfileKind | null>(() =>
+		sessionPreset ? "agent" : null
+	);
 	const selectableProfileKind =
 		profileKind === "human" && !additionalHumanProfileCreationEnabled
 			? null
 			: profileKind;
-	const [profileName, setProfileName] = useState("");
-	const [boundAgentId, setBoundAgentId] = useState("");
+	const [profileName, setProfileName] = useState(() =>
+		resolveSessionPresetProfileName(sessionPreset)
+	);
+	const [boundAgentId, setBoundAgentId] = useState(
+		() =>
+			resolveSessionPresetAgentId(sessionPreset?.agentControllerRef ?? "") ?? ""
+	);
 	const [
 		boundAgentControllerPermissionMode,
 		setBoundAgentControllerPermissionMode,
@@ -132,7 +151,9 @@ export function CreateProfileDialog(input: {
 	const [boundOpenCodePermission, setBoundOpenCodePermission] =
 		useState<AgentProfileBindingOpenCodePermission | null>(null);
 	const [projectFolderPath, setProjectFolderPath] = useState("");
-	const [selectedProjectId, setSelectedProjectId] = useState("");
+	const [selectedProjectId, setSelectedProjectId] = useState(
+		() => sessionPreset?.projectId ?? ""
+	);
 	const [
 		selectedProjectBindingGeneration,
 		setSelectedProjectBindingGeneration,
@@ -155,8 +176,13 @@ export function CreateProfileDialog(input: {
 		fingerprint: string;
 		idempotencyKey: string;
 	} | null>(null);
-	const appliedCreationDefaultsKeyRef = useRef<string | null>(null);
-	const creationDefaultsEditedRef = useRef(false);
+	const [initialSessionPresetKey] = useState(() =>
+		resolveSessionPresetKey(sessionPreset)
+	);
+	const appliedCreationDefaultsKeyRef = useRef<string | null>(
+		initialSessionPresetKey
+	);
+	const creationDefaultsEditedRef = useRef(Boolean(sessionPreset));
 	const { data: modelCatalog = null } = useQuery(modelCatalogQueryOptions());
 	const currentOrgSlug = useOptionalCurrentOrganizationSlug();
 	const orgSlug = input.orgSlug ?? currentOrgSlug;
@@ -279,6 +305,10 @@ export function CreateProfileDialog(input: {
 					boundAgentId,
 				});
 			const creationOutcome = await createProfileWithFollowUps({
+				agentControllerConversationId:
+					resolveAgentActivitySessionConversationId(
+						input.agentActivitySessionPreset
+					),
 				...(agentControllerPermissionMode
 					? { agentControllerPermissionMode }
 					: {}),
@@ -497,6 +527,7 @@ export function CreateProfileDialog(input: {
 					</DialogTitle>
 					<DialogDescription>
 						{resolveCreateProfileDialogDescription({
+							agentActivitySessionPreset: input.agentActivitySessionPreset,
 							additionalHumanProfileCreationEnabled,
 							spaceContext,
 						})}
@@ -645,9 +676,20 @@ export function CreateProfileDialog(input: {
 }
 
 function resolveCreateProfileDialogDescription(input: {
+	agentActivitySessionPreset:
+		| CreateProfileAgentActivitySessionPreset
+		| undefined;
 	additionalHumanProfileCreationEnabled: boolean;
 	spaceContext: CreateProfileSpaceContext | undefined;
 }): string {
+	if (input.agentActivitySessionPreset?.mode === "resume") {
+		return input.agentActivitySessionPreset.status === "working"
+			? "Connect this working Session to a new Agent Profile. Forking preserves the current work when your Local Agent supports it."
+			: "Connect this Session to a new Agent Profile so it can continue with the same Local Agent context.";
+	}
+	if (input.agentActivitySessionPreset?.mode === "create") {
+		return "Create a new Agent Profile with this Local Agent and Project. The existing Session stays unchanged.";
+	}
 	if (input.spaceContext) {
 		return input.additionalHumanProfileCreationEnabled
 			? `Create a profile and bring it into ${input.spaceContext.spaceName ?? "this Space"}.`
@@ -656,6 +698,39 @@ function resolveCreateProfileDialogDescription(input: {
 	return input.additionalHumanProfileCreationEnabled
 		? "Create a person or Agent on this account."
 		: "Create an Agent on this account.";
+}
+
+function resolveSessionPresetAgentId(
+	agentControllerRef: string
+): string | null {
+	const normalized = agentControllerRef.trim();
+	if (!normalized.startsWith("builtin:")) {
+		return null;
+	}
+	const agentId = normalized.slice("builtin:".length).trim();
+	return agentId.length > 0 ? agentId : null;
+}
+
+function resolveAgentActivitySessionConversationId(
+	preset: CreateProfileAgentActivitySessionPreset | undefined
+): string | null {
+	return preset?.mode === "resume" ? preset.nativeSessionId : null;
+}
+
+function resolveSessionPresetProfileName(
+	preset: CreateProfileAgentActivitySessionPreset | undefined
+): string {
+	return preset
+		? preset.nativeSessionTitle?.trim() || `${preset.localAgentName} Agent`
+		: "";
+}
+
+function resolveSessionPresetKey(
+	preset: CreateProfileAgentActivitySessionPreset | undefined
+): string | null {
+	return preset
+		? `${preset.mode}:${preset.agentControllerRef}:${preset.nativeSessionId}`
+		: null;
 }
 
 function resolveProjectSelectionBlockReason(input: {

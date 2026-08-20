@@ -110,6 +110,25 @@ describe("new Agent Profile local setup", () => {
 		});
 	});
 
+	it("binds a resumed Agent Profile to the selected Native Session ID", async () => {
+		await createAndSetupAgent({
+			agentControllerConversationId: "native-codex-thread-1",
+			boundAgentId: "codex",
+			deviceId: "device-1",
+			organizationId: "organization-1",
+			profileName: "Research Agent",
+			runtimeLane: "dev-local",
+			selectedHumanProfileId: "profile-human",
+		});
+
+		expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentControllerConversationId: "native-codex-thread-1",
+				agentControllerRef: "builtin:codex",
+			})
+		);
+	});
+
 	it("preserves the existing managed-workspace behavior when no Project is selected", async () => {
 		await createAndSetupAgent({
 			boundAgentId: "codex",

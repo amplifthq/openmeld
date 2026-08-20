@@ -37,6 +37,7 @@ export const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 // Auth create response is the commit point. Nothing after it may escape as a
 // create failure, because a form retry would create a duplicate identity.
 export async function createProfileWithFollowUps(input: {
+	agentControllerConversationId?: string | null;
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	boundAgentId: string;
 	currentServiceCanSetProfileWorkspace: boolean;
@@ -101,6 +102,8 @@ export async function createProfileWithFollowUps(input: {
 	if (profile.profileKind === "agent") {
 		try {
 			profile = await setupNewAgentProfileLocalState({
+				agentControllerConversationId:
+					input.agentControllerConversationId ?? null,
 				...(input.agentControllerPermissionMode
 					? {
 							agentControllerPermissionMode:

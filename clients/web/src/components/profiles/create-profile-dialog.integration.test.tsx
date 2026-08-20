@@ -527,6 +527,30 @@ describe("CreateProfileDialog", () => {
 		toastWarningMock.mockReset();
 	});
 
+	it("prefills a working Session Resume and gives only the lightweight Fork suggestion", async () => {
+		renderCreateProfileDialog({
+			agentActivitySessionPreset: {
+				agentControllerRef: "builtin:codex",
+				localAgentName: "Codex",
+				mode: "resume",
+				nativeSessionId: "native-codex-thread-1",
+				nativeSessionTitle: "Build Session Inventory",
+				projectId: "project-1",
+				status: "working",
+			},
+		});
+
+		expect(
+			await screen.findByText(
+				"Connect this working Session to a new Agent Profile. Forking preserves the current work when your Local Agent supports it."
+			)
+		).toBeTruthy();
+		expect(
+			(screen.getByLabelText("Profile name") as HTMLInputElement).value
+		).toBe("Build Session Inventory");
+		expect(screen.queryByText("Recommended score")).toBeNull();
+	});
+
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();

@@ -128,13 +128,20 @@ export function AgentActivityPage(input: {
 				contentClassName={APP_CONTEXTUAL_MAIN_TEXT_BASE_START_CLASS_NAME}
 				headerSlotName="agent-activity-content-header"
 			>
-				<AgentActivityContent>{input.children}</AgentActivityContent>
+				<AgentActivityContent
+					showSnapshotState={input.activeSectionId !== "sessions"}
+				>
+					{input.children}
+				</AgentActivityContent>
 			</AppContextualContentFrame>
 		</AppSurfaceLayout>
 	);
 }
 
-export function AgentActivityContent(input: { children: ReactNode }) {
+export function AgentActivityContent(input: {
+	children: ReactNode;
+	showSnapshotState?: boolean;
+}) {
 	const { currentOrganization } = useAppOrganization();
 	return (
 		<AgentActivityOrganizationContent
@@ -142,6 +149,7 @@ export function AgentActivityContent(input: { children: ReactNode }) {
 			key={currentOrganization.id}
 			organizationId={currentOrganization.id}
 			organizationSlug={currentOrganization.slug}
+			showSnapshotState={input.showSnapshotState ?? true}
 		>
 			{input.children}
 		</AgentActivityOrganizationContent>
@@ -153,6 +161,7 @@ function AgentActivityOrganizationContent(input: {
 	isPersonal: boolean;
 	organizationId: string;
 	organizationSlug: string;
+	showSnapshotState: boolean;
 }) {
 	return (
 		<AgentActivityDataProvider organizationId={input.organizationId}>
@@ -161,7 +170,7 @@ function AgentActivityOrganizationContent(input: {
 					isPersonal={input.isPersonal}
 					organizationSlug={input.organizationSlug}
 				/>
-				<AgentActivitySnapshotState />
+				{input.showSnapshotState ? <AgentActivitySnapshotState /> : null}
 				{input.children}
 			</div>
 		</AgentActivityDataProvider>

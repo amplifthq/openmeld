@@ -146,6 +146,24 @@ describe("ensureWebAgentProfileRuntimeBinding", () => {
 		);
 	});
 
+	it("passes the provider-native Session ID into the authoritative Binding request", async () => {
+		await ensureWebAgentProfileRuntimeBinding({
+			actorProfileId: "human-1",
+			agentControllerConversationId: "native-codex-thread-1",
+			agentProfileId: "agt-codex",
+			agentControllerRef: "builtin:codex",
+			deviceId: "device-1",
+			runtimeLane: "canary",
+		});
+
+		expect(ensurePrimaryBindingMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentControllerConversationId: "native-codex-thread-1",
+				agentProfileId: "agt-codex",
+			})
+		);
+	});
+
 	it("passes selected Agent Controller Permission Mode into the Binding request", async () => {
 		await ensureWebAgentProfileRuntimeBinding({
 			actorProfileId: "human-1",
