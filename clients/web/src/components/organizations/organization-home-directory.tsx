@@ -164,6 +164,7 @@ function PeoplePanel(input: DirectoryPanelInput) {
 									size={32}
 								/>
 							}
+							iconPresentation="bare"
 							itemId={member.userId}
 							key={member.userId}
 							title={member.user.name}
