@@ -9,10 +9,10 @@ import {
   type BetterSqliteDatabase,
   createCanonicalSharedInMemoryDatabase,
   createCanonicalSharedLocalFixture,
+  DB_TOOLING_CONTRACT_TEST_TIMEOUT_MS,
 } from "./helpers/shared-sqlite-fixture.ts";
 
 const cleanupFns: Array<() => void> = [];
-const SPLIT_LOCAL_WORKER_CLEANUP_TEST_TIMEOUT_MS = 30_000;
 
 afterEach(() => {
   while (cleanupFns.length > 0) {
@@ -21,97 +21,113 @@ afterEach(() => {
 });
 
 describe("fresh Web Start user cleanup", () => {
-  it("deletes OpenMeld product state for one account and preserves auth identity", () => {
-    const fixture = createCanonicalSharedLocalFixture(
-      "fresh-web-start-cleanup"
-    );
-    cleanupFns.push(fixture.cleanup);
-    const database = new Database(fixture.sqlitePath);
+  it(
+    "deletes OpenMeld product state for one account and preserves auth identity",
+    () => {
+      const fixture = createCanonicalSharedLocalFixture(
+        "fresh-web-start-cleanup"
+      );
+      cleanupFns.push(fixture.cleanup);
+      const database = new Database(fixture.sqlitePath);
 
-    try {
-      seedAuthUser(database, {
-        email: "fresh@example.com",
-        userId: "user-fresh",
-      });
-      seedAuthUser(database, {
-        email: "other@example.com",
-        userId: "user-other",
-      });
-      seedOpenMeldProductState(database, "user-fresh");
-      seedOpenMeldProductState(database, "user-other");
+      try {
+        seedAuthUser(database, {
+          email: "fresh@example.com",
+          userId: "user-fresh",
+        });
+        seedAuthUser(database, {
+          email: "other@example.com",
+          userId: "user-other",
+        });
+        seedOpenMeldProductState(database, "user-fresh");
+        seedOpenMeldProductState(database, "user-other");
 
-      const localDbTargets: FreshWebStartLocalDbTarget[] = [
-        {
-          localDbPath: fixture.sqlitePath,
-          services: ["auth", "core"],
-        },
-      ];
-      const result = runFreshWebStartUserCleanup({
-        databasesByPath: new Map([[fixture.sqlitePath, database]]),
-        email: " Fresh@Example.com ",
-        localDbTargets,
-      });
+        const localDbTargets: FreshWebStartLocalDbTarget[] = [
+          {
+            localDbPath: fixture.sqlitePath,
+            services: ["auth", "core"],
+          },
+        ];
+        const result = runFreshWebStartUserCleanup({
+          databasesByPath: new Map([[fixture.sqlitePath, database]]),
+          email: " Fresh@Example.com ",
+          localDbTargets,
+        });
 
-      expect(result).toMatchObject({
-        clearAuthSessions: false,
-        email: "fresh@example.com",
-        localDbTargets,
-        userId: "user-fresh",
-      });
-      expect(result.counts).toMatchObject({
-        openMeldProfiles: 2,
-        openMeldProfileSpaceHistory: 2,
-        openMeldSpaceDeletionTombstones: 1,
-        openMeldDaemonOwnedDevices: 1,
-        openMeldDaemonCurrentDeviceTargets: 1,
-        authOneTimeTokenVerifications: 0,
-        authSessions: 0,
-      });
+        expect(result).toMatchObject({
+          clearAuthSessions: false,
+          email: "fresh@example.com",
+          localDbTargets,
+          userId: "user-fresh",
+        });
+        expect(result.counts).toMatchObject({
+          openMeldProfiles: 2,
+          openMeldProfileSpaceHistory: 2,
+          openMeldSpaceDeletionTombstones: 1,
+          openMeldDaemonOwnedDevices: 1,
+          openMeldDaemonCurrentDeviceTargets: 1,
+          authOneTimeTokenVerifications: 0,
+          authSessions: 0,
+        });
 
-      expect(readCount(database, "users", "id = 'user-fresh'")).toBe(1);
-      expect(readCount(database, "accounts", "user_id = 'user-fresh'")).toBe(1);
-      expect(readCount(database, "sessions", "user_id = 'user-fresh'")).toBe(1);
+        expect(readCount(database, "users", "id = 'user-fresh'")).toBe(1);
+        expect(readCount(database, "accounts", "user_id = 'user-fresh'")).toBe(
+          1
+        );
+        expect(readCount(database, "sessions", "user_id = 'user-fresh'")).toBe(
+          1
+        );
 
-      expect(
-        readCount(database, "openmeld_profiles", "owner_user_id = 'user-fresh'")
-      ).toBe(0);
-      expect(readCount(database, "openmeld_profile_space_history")).toBe(2);
-      expect(
-        readCount(
-          database,
-          "openmeld_space_deletion_tombstones",
-          "deleted_by_owner_user_id = 'user-fresh'"
-        )
-      ).toBe(0);
-      expect(
-        readCount(
-          database,
-          "openMeldDaemon_owned_devices",
-          "owner_user_id = 'user-fresh'"
-        )
-      ).toBe(0);
-      expect(
-        readCount(
-          database,
-          "openMeldDaemon_current_device_targets",
-          "owner_user_id = 'user-fresh'"
-        )
-      ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "openmeld_profiles",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(readCount(database, "openmeld_profile_space_history")).toBe(2);
+        expect(
+          readCount(
+            database,
+            "openmeld_space_deletion_tombstones",
+            "deleted_by_owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "openMeldDaemon_owned_devices",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "openMeldDaemon_current_device_targets",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
 
-      expect(
-        readCount(database, "openmeld_profiles", "owner_user_id = 'user-other'")
-      ).toBe(2);
-      expect(
-        readCount(
-          database,
-          "openMeldDaemon_owned_devices",
-          "owner_user_id = 'user-other'"
-        )
-      ).toBe(1);
-    } finally {
-      database.close();
-    }
-  });
+        expect(
+          readCount(
+            database,
+            "openmeld_profiles",
+            "owner_user_id = 'user-other'"
+          )
+        ).toBe(2);
+        expect(
+          readCount(
+            database,
+            "openMeldDaemon_owned_devices",
+            "owner_user_id = 'user-other'"
+          )
+        ).toBe(1);
+      } finally {
+        database.close();
+      }
+    },
+    DB_TOOLING_CONTRACT_TEST_TIMEOUT_MS
+  );
 
   it("optionally clears auth sessions for the user", () => {
     const database = createCanonicalSharedInMemoryDatabase();
@@ -158,32 +174,36 @@ describe("fresh Web Start user cleanup", () => {
     }
   });
 
-  it("fails fast when the test account does not exist", () => {
-    const fixture = createCanonicalSharedLocalFixture(
-      "fresh-web-start-missing-user"
-    );
-    cleanupFns.push(fixture.cleanup);
-    const database = new Database(fixture.sqlitePath);
-
-    try {
-      expect(() =>
-        runFreshWebStartUserCleanup({
-          databasesByPath: new Map([[fixture.sqlitePath, database]]),
-          email: "missing@example.com",
-          localDbTargets: [
-            {
-              localDbPath: fixture.sqlitePath,
-              services: ["auth", "core"],
-            },
-          ],
-        })
-      ).toThrow(
-        "fresh Web Start cleanup could not find a local auth user for missing@example.com"
+  it(
+    "fails fast when the test account does not exist",
+    () => {
+      const fixture = createCanonicalSharedLocalFixture(
+        "fresh-web-start-missing-user"
       );
-    } finally {
-      database.close();
-    }
-  });
+      cleanupFns.push(fixture.cleanup);
+      const database = new Database(fixture.sqlitePath);
+
+      try {
+        expect(() =>
+          runFreshWebStartUserCleanup({
+            databasesByPath: new Map([[fixture.sqlitePath, database]]),
+            email: "missing@example.com",
+            localDbTargets: [
+              {
+                localDbPath: fixture.sqlitePath,
+                services: ["auth", "core"],
+              },
+            ],
+          })
+        ).toThrow(
+          "fresh Web Start cleanup could not find a local auth user for missing@example.com"
+        );
+      } finally {
+        database.close();
+      }
+    },
+    DB_TOOLING_CONTRACT_TEST_TIMEOUT_MS
+  );
 
   it("normalizes and validates the email input", () => {
     expect(normalizeFreshWebStartCleanupEmail(" Demo@Example.com ")).toBe(
@@ -298,7 +318,7 @@ describe("fresh Web Start user cleanup", () => {
         coreDatabase.close();
       }
     },
-    SPLIT_LOCAL_WORKER_CLEANUP_TEST_TIMEOUT_MS
+    DB_TOOLING_CONTRACT_TEST_TIMEOUT_MS
   );
 });
 
