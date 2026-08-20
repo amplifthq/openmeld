@@ -336,6 +336,100 @@ type UsageLimitPresentation = {
   tone: "danger" | "muted" | "ready" | "warning";
 };
 
+type UsageLimitSummary = {
+  accessibleDetails: string;
+  badgeLabel: string;
+  presentation: UsageLimitPresentation;
+};
+
+export function SettingsLocalAgentUsageSummary({
+  agentName,
+  limits,
+  nowMs = Date.now(),
+}: {
+  agentName: string;
+  limits?: AgentControllerUsageLimits;
+  nowMs?: number;
+}) {
+  const summary = resolveUsageLimitSummary(limits);
+  const accessibleLabel = `${agentName} usage limits, ${summary.accessibleDetails}`;
+  const badge = (
+    <Badge
+      className={resolveUsageLimitBadgeClassName(summary.presentation.tone)}
+      variant="secondary"
+    >
+      {summary.badgeLabel}
+    </Badge>
+  );
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            aria-label={accessibleLabel}
+            className="inline-flex shrink-0"
+            data-testid="local-agent-usage-summary"
+            role="img"
+          >
+            {badge}
+          </span>
+        }
+      />
+      <TooltipContent
+        className="min-w-64 max-w-sm flex-col items-stretch gap-2.5 whitespace-normal text-left"
+        side="top"
+      >
+        <span className="font-medium">Usage limits</span>
+        {limits && limits.length > 0 ? (
+          <span className="grid gap-2">
+            {limits.map((limit) => (
+              <UsageLimitPreview key={limit.key} limit={limit} nowMs={nowMs} />
+            ))}
+          </span>
+        ) : (
+          <span className="text-background/75">
+            Not reported by provider yet.
+          </span>
+        )}
+        <span className="border-background/20 border-t pt-2 text-background/75">
+          Select this agent to view details.
+        </span>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function UsageLimitPreview({
+  limit,
+  nowMs,
+}: {
+  limit: AgentControllerUsageLimits[number];
+  nowMs: number;
+}) {
+  const presentation = resolveUsageLimitPresentation(limit);
+  return (
+    <span className="grid gap-0.5">
+      <span className="font-medium">{limit.label}</span>
+      <span>
+        {limit.usedPercent === null
+          ? resolveMissingUsageCopy(limit.status)
+          : `${formatUsedPercent(limit.usedPercent)} used`}
+        {" · "}
+        {presentation.label}
+      </span>
+      <span className="text-background/75">
+        {formatUsageLimitReset(limit.resetsAt, nowMs)} ·{" "}
+        {formatUsageLimitObservation({
+          nowMs,
+          observedAt: limit.observedAt,
+          stale: limit.status === "stale",
+        })}
+      </span>
+    </span>
+  );
+}
+
 export function SettingsLocalAgentUsageLimits({
   agentName,
   limits,
@@ -490,6 +584,75 @@ function resolveUsageLimitPresentation(
     return { label: "Low", tone: "warning" };
   }
   return { label: "Available", tone: "ready" };
+}
+
+function resolveUsageLimitSummary(
+  limits?: AgentControllerUsageLimits
+): UsageLimitSummary {
+  const [firstLimit, ...remainingLimits] = limits ?? [];
+  if (!firstLimit) {
+    return {
+      accessibleDetails: "Unavailable, not reported by provider yet",
+      badgeLabel: "Usage unavailable",
+      presentation: { label: "Unavailable", tone: "muted" },
+    };
+  }
+
+  let selectedLimit = firstLimit;
+  let selectedPresentation = resolveUsageLimitPresentation(selectedLimit);
+  for (const limit of remainingLimits) {
+    const presentation = resolveUsageLimitPresentation(limit);
+    const selectedPriority = resolveUsageLimitSummaryPriority(
+      selectedPresentation.label
+    );
+    const priority = resolveUsageLimitSummaryPriority(presentation.label);
+    if (
+      priority > selectedPriority ||
+      (priority === selectedPriority &&
+        (limit.usedPercent ?? -1) > (selectedLimit.usedPercent ?? -1))
+    ) {
+      selectedLimit = limit;
+      selectedPresentation = presentation;
+    }
+  }
+
+  const usedPercent = selectedLimit.usedPercent;
+  const accessibleDetails =
+    usedPercent === null
+      ? selectedPresentation.label
+      : `${formatUsedPercent(usedPercent)} used, ${selectedPresentation.label}`;
+  const badgeLabel =
+    usedPercent !== null &&
+    selectedPresentation.label !== "Stale" &&
+    selectedPresentation.label !== "Unavailable" &&
+    selectedPresentation.label !== "Unsupported"
+      ? `Usage ${formatUsedPercent(usedPercent)}`
+      : `Usage ${selectedPresentation.label.toLowerCase()}`;
+
+  return {
+    accessibleDetails,
+    badgeLabel,
+    presentation: selectedPresentation,
+  };
+}
+
+function resolveUsageLimitSummaryPriority(
+  label: UsageLimitPresentation["label"]
+): number {
+  switch (label) {
+    case "Exhausted":
+      return 6;
+    case "Stale":
+      return 5;
+    case "Low":
+      return 4;
+    case "Unavailable":
+      return 3;
+    case "Unsupported":
+      return 2;
+    default:
+      return 1;
+  }
 }
 
 function resolveMissingUsageCopy(

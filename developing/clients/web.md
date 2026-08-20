@@ -725,8 +725,12 @@ Tools component versions and update states; setup commands, hashes, and
 owner-only controls remain private.
 
 Each Local Agent renders its `usageLimits` list inside the existing expandable
-row. Owned and teammate Computers use the same accessible gauge component. A
-gauge names the limit, exposes its 0–100 used value to assistive technology,
+row. Usage Limit evidence does not create a separate page or make the row expand
+automatically. In the collapsed row, a compact summary follows the existing
+version and update metadata; its tooltip previews every reported window, and
+selecting the existing row reveals the full gauges in its details. Owned and
+teammate Computers use the same shared summary and accessible gauge component.
+A gauge names the limit, exposes its 0–100 used value to assistive technology,
 shows the used percentage in text, shows reset and last-observed time, and names
 the state so color is never the only signal. The UI derives **Low** when a fresh
 available limit is at least 80% used; it does not store a second status or

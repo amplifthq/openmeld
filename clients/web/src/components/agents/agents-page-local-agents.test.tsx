@@ -5,6 +5,7 @@ import type {
 	OrganizationComputerLocalAgentDetails,
 } from "@openmeld/schemas/types";
 import type { ComputerReplyReadiness } from "@openmeld/start";
+import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
@@ -24,6 +25,8 @@ import {
 
 const HOMEBREW_INSTALLATION_NAME = /Homebrew installation/;
 const LOW_CODEX_USAGE_GAUGE_NAME = /Codex 5-hour usage, 84% used, Low/u;
+const OWNED_USAGE_SUMMARY_ORDER = /v0\.38\.0.*Usage 84%/u;
+const TEAM_USAGE_SUMMARY_ORDER = /v0\.148\.0.*Usage 84%/u;
 
 const toastMock = vi.hoisted(() =>
 	Object.assign(vi.fn(), {
@@ -117,7 +120,7 @@ describe("LocalAgentsCard", () => {
 		vi.clearAllMocks();
 	});
 
-	it("shows the same usage gauges for owned and teammate Computers", () => {
+	it("keeps usage in existing owned and teammate agent rows", () => {
 		const usageLimits: NonNullable<
 			AgentControllerInterfaceSnapshot["usageLimits"]
 		> = [
@@ -136,6 +139,13 @@ describe("LocalAgentsCard", () => {
 			usageLimits,
 		});
 
+		const ownedRow = screen.getByTestId("settings-local-agent-row-codex");
+		expect(screen.queryByRole("progressbar")).toBeNull();
+		expect(
+			within(ownedRow).getByTestId("local-agent-usage-summary").textContent
+		).toContain("Usage 84%");
+		expect(ownedRow.textContent).toMatch(OWNED_USAGE_SUMMARY_ORDER);
+		fireEvent.click(within(ownedRow).getByTestId("local-agent-usage-summary"));
 		expect(
 			screen.getByRole("progressbar", {
 				name: LOW_CODEX_USAGE_GAUGE_NAME,
@@ -162,23 +172,36 @@ describe("LocalAgentsCard", () => {
 			version: "0.148.0",
 		};
 		render(
-			<LocalAgentsCard
-				computer={{
-					deviceDisplayName: "Maya's Mac",
-					localAgents: [
-						{
-							agentId: "codex",
-							details,
-							displayName: "Codex",
-							enabled: true,
-							status: "ready",
-						},
-					],
-				}}
-				view="team"
-			/>
+			<TooltipProvider>
+				<LocalAgentsCard
+					computer={{
+						deviceDisplayName: "Maya's Mac",
+						localAgents: [
+							{
+								agentId: "codex",
+								details,
+								displayName: "Codex",
+								enabled: true,
+								status: "ready",
+							},
+						],
+					}}
+					view="team"
+				/>
+			</TooltipProvider>
 		);
 
+		const teammateRow = screen.getByTestId("settings-local-agent-row-codex");
+		expect(screen.queryByRole("progressbar")).toBeNull();
+		expect(
+			within(teammateRow).getByTestId("local-agent-usage-summary").textContent
+		).toContain("Usage 84%");
+		expect(teammateRow.textContent).toMatch(TEAM_USAGE_SUMMARY_ORDER);
+		fireEvent.click(
+			within(teammateRow)
+				.getByTestId("settings-local-agent-row-trigger")
+				.querySelector("button") as HTMLButtonElement
+		);
 		expect(
 			screen.getByRole("progressbar", {
 				name: LOW_CODEX_USAGE_GAUGE_NAME,
@@ -1064,27 +1087,29 @@ function renderLocalAgentsCard(input: {
 		defaultOptions: { queries: { retry: false } },
 	});
 	render(
-		<QueryClientProvider client={queryClient}>
-			<LocalAgentsCard
-				computer={buildComputer(executionTarget)}
-				isCurrentComputer={true}
-				recovery={
-					{
-						agentProfiles: [],
-						refreshAll:
-							input.refreshAll ?? vi.fn().mockResolvedValue(undefined),
-						refreshLocalAgentCatalog:
-							input.refreshLocalAgentCatalog ??
-							vi.fn().mockResolvedValue(undefined),
-						selectedExecutionTarget: executionTarget,
-						setLocalAgentEnabled:
-							input.setLocalAgentEnabled ??
-							vi.fn().mockResolvedValue(undefined),
-					} as unknown as LocalAgentsCardOwnerProps["recovery"]
-				}
-				replyReadiness={input.replyReadiness ?? READY_REPLY_READINESS}
-			/>
-		</QueryClientProvider>
+		<TooltipProvider>
+			<QueryClientProvider client={queryClient}>
+				<LocalAgentsCard
+					computer={buildComputer(executionTarget)}
+					isCurrentComputer={true}
+					recovery={
+						{
+							agentProfiles: [],
+							refreshAll:
+								input.refreshAll ?? vi.fn().mockResolvedValue(undefined),
+							refreshLocalAgentCatalog:
+								input.refreshLocalAgentCatalog ??
+								vi.fn().mockResolvedValue(undefined),
+							selectedExecutionTarget: executionTarget,
+							setLocalAgentEnabled:
+								input.setLocalAgentEnabled ??
+								vi.fn().mockResolvedValue(undefined),
+						} as unknown as LocalAgentsCardOwnerProps["recovery"]
+					}
+					replyReadiness={input.replyReadiness ?? READY_REPLY_READINESS}
+				/>
+			</QueryClientProvider>
+		</TooltipProvider>
 	);
 
 	return { executionTarget };

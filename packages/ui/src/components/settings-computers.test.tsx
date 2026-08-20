@@ -1,6 +1,10 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { SettingsLocalAgentUsageLimits } from "./settings-computers";
+import { TooltipProvider } from "#components/tooltip";
+import {
+  SettingsLocalAgentUsageLimits,
+  SettingsLocalAgentUsageSummary,
+} from "./settings-computers";
 
 const NOW_MS = Date.parse("2026-08-20T08:00:00.000Z");
 const LOW_WEEKLY_USAGE_GAUGE_NAME =
@@ -9,6 +13,50 @@ const LOW_WEEKLY_USAGE_GAUGE_NAME =
 afterEach(cleanup);
 
 describe("Settings Local Agent usage limits", () => {
+  it("summarizes the most constrained window and previews every limit", async () => {
+    render(
+      <TooltipProvider>
+        <SettingsLocalAgentUsageSummary
+          agentName="Codex"
+          limits={[
+            {
+              key: "available",
+              label: "5-hour usage",
+              observedAt: "2026-08-20T07:57:00.000Z",
+              resetsAt: "2026-08-20T10:00:00.000Z",
+              status: "available",
+              usedPercent: 42,
+            },
+            {
+              key: "low",
+              label: "Weekly usage",
+              observedAt: "2026-08-20T07:50:00.000Z",
+              resetsAt: "2026-08-27T08:00:00.000Z",
+              status: "available",
+              usedPercent: 88,
+            },
+          ]}
+          nowMs={NOW_MS}
+        />
+      </TooltipProvider>
+    );
+
+    const trigger = screen.getByTestId("local-agent-usage-summary");
+    expect(trigger.textContent).toContain("Usage 88%");
+    expect(trigger.getAttribute("aria-label")).toContain(
+      "Codex usage limits, 88% used, Low"
+    );
+
+    fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
+    fireEvent.mouseEnter(trigger);
+
+    expect(await screen.findByText("5-hour usage")).toBeTruthy();
+    expect(screen.getByText("42% used · Available")).toBeTruthy();
+    expect(screen.getByText("Weekly usage")).toBeTruthy();
+    expect(screen.getByText("88% used · Low")).toBeTruthy();
+    expect(screen.getByText("Select this agent to view details.")).toBeTruthy();
+  });
+
   it("renders multiple accessible gauges and every public capacity status", () => {
     render(
       <SettingsLocalAgentUsageLimits

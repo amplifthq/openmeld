@@ -41,6 +41,7 @@ import {
 	type SettingsLocalAgentRow,
 	SettingsLocalAgentRows,
 	SettingsLocalAgentUsageLimits,
+	SettingsLocalAgentUsageSummary,
 } from "@openmeld/ui/components/settings-computers";
 import {
 	SettingsDetailList,
@@ -167,7 +168,6 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 			/>
 		),
 		description,
-		defaultExpanded: Boolean(agent.details?.usageLimits),
 		detail: (
 			<div className="space-y-4">
 				<SettingsLocalAgentUsageLimits
@@ -183,6 +183,12 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 		summaryMeta: agent.details
 			? formatAgentControllerInterfaceOperationalSummary(agent.details)
 			: null,
+		summaryAccessory: (
+			<SettingsLocalAgentUsageSummary
+				agentName={agent.displayName}
+				limits={agent.details?.usageLimits}
+			/>
+		),
 	};
 }
 
@@ -1271,14 +1277,22 @@ function buildLocalAgentCatalogRow(input: {
 	].filter(
 		(status): status is LocalAgentCatalogRowSummaryStatus => status !== null
 	);
-	const summaryAccessory = versionAdvisory ? (
-		<SettingsLocalAgentAdvisoryBadge
-			detail={versionAdvisory.detail}
-			key="version-advisory"
-			label={versionAdvisory.label}
-			tone={versionAdvisory.tone}
-			updateCommand={versionAdvisory.updateCommand}
-		/>
+	const summaryAccessory = agentControllerInterface ? (
+		<span className="inline-flex items-center gap-1.5">
+			{versionAdvisory ? (
+				<SettingsLocalAgentAdvisoryBadge
+					detail={versionAdvisory.detail}
+					key="version-advisory"
+					label={versionAdvisory.label}
+					tone={versionAdvisory.tone}
+					updateCommand={versionAdvisory.updateCommand}
+				/>
+			) : null}
+			<SettingsLocalAgentUsageSummary
+				agentName={input.entry.displayName}
+				limits={agentControllerInterface.usageLimits}
+			/>
+		</span>
 	) : null;
 
 	return {
@@ -1295,9 +1309,9 @@ function buildLocalAgentCatalogRow(input: {
 				}}
 			/>
 		),
-		defaultExpanded:
-			Boolean(agentControllerInterface?.usageLimits) ||
-			shouldExpandAgentControllerInterface(agentControllerInterface),
+		defaultExpanded: shouldExpandAgentControllerInterface(
+			agentControllerInterface
+		),
 		description,
 		detail:
 			agentControllerInterface || canChangeInstallation ? (
