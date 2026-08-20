@@ -4036,6 +4036,15 @@ Agent Profile as actor, and delegates to the same Core request operations.
 Routine turns cannot decide another member's pending request or change the
 represented member's approval preferences.
 
+This is an additive rollout. Apply the D1 migration first, then deploy Auth so
+Core can send creation provenance, Gateway so it can read the new Inbox source
+target, Core, Web, and Remote Agent. Publish the CLI and managed Skill only
+after the cloud endpoints exist. New cloud leaves old CLI, Skills, setup, Wake,
+status, trace, and recovery behavior unchanged. A new CLI or Skill against old
+cloud receives an explicit unsupported-route failure; it must not retry through
+direct creation. Rollback removes Web and Remote Agent callers first and keeps
+the additive nullable Profile columns and request tables.
+
 ## Additional Human Profile Creation Capability Contract
 
 Auth owns both the capability projection and the mutation policy for manual
