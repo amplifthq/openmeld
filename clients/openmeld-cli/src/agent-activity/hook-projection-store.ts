@@ -18,7 +18,11 @@ const HOOK_RECONCILIATION_GRACE_MS = 2 * 60_000;
 type HookProjectionStore = {
   entries: Record<
     string,
-    { observedAtMs: number; status: AgentActivityEvent["status"] }
+    {
+      eventType?: AgentActivityEvent["eventType"];
+      observedAtMs: number;
+      status: AgentActivityEvent["status"];
+    }
   >;
   version: 1;
 };
@@ -30,6 +34,7 @@ export async function recordAgentActivityHookProjection(input: {
   await withAgentActivityLocalStateLock(input, async () => {
     const store = await readStore(input);
     store.entries[projectionKey(input.event)] = {
+      eventType: input.event.eventType,
       observedAtMs: input.event.observedAtMs,
       status: input.event.status,
     };
@@ -86,6 +91,7 @@ export async function readRecentAgentActivityHookStatus(input: {
   if (
     !(
       projection &&
+      isSessionInventoryLifecycleProjection(projection) &&
       projection.observedAtMs <= input.nowMs &&
       input.nowMs - projection.observedAtMs <= HOOK_RECONCILIATION_GRACE_MS
     )
@@ -93,6 +99,21 @@ export async function readRecentAgentActivityHookStatus(input: {
     return null;
   }
   return projection.status;
+}
+
+function isSessionInventoryLifecycleProjection(
+  projection: HookProjectionStore["entries"][string]
+): boolean {
+  return (
+    (projection.eventType === "session_started" &&
+      projection.status === "active") ||
+    (projection.eventType === "session_active" &&
+      projection.status === "active") ||
+    (projection.eventType === "session_idle" && projection.status === "idle") ||
+    (projection.eventType === "session_ended" &&
+      projection.status === "ended") ||
+    (projection.eventType === "session_error" && projection.status === "error")
+  );
 }
 
 function projectionKey(input: {

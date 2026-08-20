@@ -453,7 +453,7 @@ describe("Local Agent Session Inventory reconciliation", () => {
     );
   });
 
-  it("never submits another signed-in owner's stored sources after an account switch", async () => {
+  it("never adopts another signed-in owner's retained Project binding after an account switch", async () => {
     root = await mkdtemp(join(tmpdir(), "openmeld-session-owner-switch-"));
     const firstRepositoryPath = join(root, "first-repository");
     const secondRepositoryPath = join(root, "second-repository");
@@ -476,11 +476,6 @@ describe("Local Agent Session Inventory reconciliation", () => {
       rootDir: root,
     });
 
-    await unbindProject({
-      organizationId: "org-first",
-      projectId: "project-first",
-      rootDir: root,
-    });
     const secondBinding = await bindProject({
       organizationId: "org-second",
       projectId: "project-second",

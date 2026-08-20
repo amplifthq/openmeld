@@ -212,6 +212,12 @@ the shared metadata contract.
   for the complete inventory.
 - Page order and retry are stable and idempotent. An interrupted scan can be
   restarted without erasing the last complete projection.
+- The local source ledger namespaces every observed connection by the
+  authenticated owner. After an account switch, a retained Project connection
+  with source evidence for another owner is not adopted or submitted as the
+  newly signed-in owner; other current-owner connections continue reconciling.
+  Foreign-owner source evidence remains local until that owner can reconcile
+  it, and an ownerless legacy source record grants no ownership.
 - A complete reconciliation hides prior current rows from the same source that
   are absent from the new candidate set. Removing a Local Project Connection
   reports `disconnected` and removes that source from the selectable current
@@ -242,6 +248,11 @@ Working, Idle, Ended, Error, and Unknown require provider evidence. File
 modification time alone is not proof that a Session is Working or Ended. When a
 provider exposes retained metadata but no reliable lifecycle fact, status is
 Unknown. Ended is not synonymous with cannot Resume.
+
+For Claude Code, only explicit top-level Session lifecycle hooks may refine the
+retained status. `Notification`, subagent lifecycle, and other ambiguous hook
+events remain Unknown unless the structured live-agent registry supplies a
+current status for the exact native Session id.
 
 `canResume` and `canFork` are explicit provider-and-session capability facts.
 They are true only when the installed provider exposes that native operation

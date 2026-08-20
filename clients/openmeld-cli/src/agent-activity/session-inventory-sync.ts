@@ -68,15 +68,20 @@ export async function syncLocalAgentSessionInventory(
     rootDir?: string;
   } = {}
 ): Promise<LocalAgentSessionInventorySyncResult> {
-  const bindings = await listProjectBindings({ rootDir: input.rootDir });
+  const storedBindings = await listProjectBindings({ rootDir: input.rootDir });
   const sourceStore = await readSourceStore(input);
-  if (bindings.length === 0 && sourceStore.sources.length === 0) {
+  if (storedBindings.length === 0 && sourceStore.sources.length === 0) {
     return emptySyncResult("idle", null);
   }
   const reporting = await prepareReporting(input);
   if (!reporting.ok) {
     return emptySyncResult("unavailable", reporting.reason);
   }
+  const bindings = bindingsOwnedByCurrentUser({
+    bindings: storedBindings,
+    ownerUserId: reporting.ownerUserId,
+    sources: sourceStore.sources,
+  });
   const previousSources = sourceStore.sources.filter(
     (source) => source.ownerUserId === reporting.ownerUserId
   );
@@ -181,6 +186,27 @@ export async function syncLocalAgentSessionInventory(
     status: submittedSourceCount > 0 ? "submitted" : "idle",
     submittedSourceCount,
   };
+}
+
+function bindingsOwnedByCurrentUser(input: {
+  bindings: readonly ProjectBinding[];
+  ownerUserId: string;
+  sources: readonly StoredInventorySource[];
+}): ProjectBinding[] {
+  const ownersByConnection = new Map<string, Set<string>>();
+  for (const source of input.sources) {
+    const owners =
+      ownersByConnection.get(source.localConnectionId) ?? new Set();
+    owners.add(source.ownerUserId);
+    ownersByConnection.set(source.localConnectionId, owners);
+  }
+  return input.bindings.filter((binding) => {
+    const knownOwners = ownersByConnection.get(buildLocalConnectionId(binding));
+    return (
+      knownOwners === undefined ||
+      (knownOwners.size === 1 && knownOwners.has(input.ownerUserId))
+    );
+  });
 }
 
 function buildCurrentSources(input: {

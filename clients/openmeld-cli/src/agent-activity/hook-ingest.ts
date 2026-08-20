@@ -50,6 +50,7 @@ export async function ingestAgentActivityHook(input: {
   const nowMs = input.nowMs ?? Date.now();
   const hookEvent = text(input.payload.hook_event_name) ?? "unknown";
   const status = hookStatus(
+    input.provider,
     hookEvent,
     input.payload.status ?? input.payload.reason
   );
@@ -317,9 +318,13 @@ export async function readAgentActivityHookStdin(input?: {
 }
 
 function hookStatus(
+  provider: AgentActivityProvider,
   name: string,
   providerStatus: unknown
 ): AgentActivityEvent["status"] {
+  if (provider === "claude-code") {
+    return claudeCodeHookStatus(name, providerStatus);
+  }
   if (name === "session.error") {
     return "error";
   }
@@ -349,6 +354,27 @@ function hookStatus(
     return text(providerStatus) === "error" ? "error" : "idle";
   }
   return "active";
+}
+
+function claudeCodeHookStatus(
+  name: string,
+  providerStatus: unknown
+): AgentActivityEvent["status"] {
+  if (name === "SessionEnd") {
+    return text(providerStatus) === "error" ? "error" : "ended";
+  }
+  if (name === "Stop") {
+    return text(providerStatus) === "error" ? "error" : "idle";
+  }
+  if (
+    name === "SessionStart" ||
+    name === "UserPromptSubmit" ||
+    name === "PreToolUse" ||
+    name === "PostToolUse"
+  ) {
+    return "active";
+  }
+  return "unknown";
 }
 
 function resolveHookCwd(payload: Record<string, unknown>) {

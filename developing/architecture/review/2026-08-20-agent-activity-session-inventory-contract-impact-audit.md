@@ -107,6 +107,11 @@ fresh lifecycle evidence maps to Unknown. `origin = openmeld` requires an
 OpenMeld-owned creation provenance record; provider client/source labels never
 grant that origin.
 
+The local source ledger also scopes retained Project connections to the
+authenticated owner after the first accepted source observation. Account
+switches do not restamp another owner's retained connection, and ambiguous
+Claude `Notification` or subagent hooks cannot refine top-level Session status.
+
 ## Sanitized Live Acceptance
 
 The acceptance runner used the installed official provider CLIs and the real
