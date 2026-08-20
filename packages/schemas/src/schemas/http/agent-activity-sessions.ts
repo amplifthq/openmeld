@@ -191,7 +191,7 @@ export const agentActivitySessionInventoryQuerySchema = z.strictObject({
 
 export const agentActivitySessionInventoryResponseSchema = z.strictObject({
   asOfMs: timestampMsSchema,
-  coverage: z.array(agentActivityInventoryCoverageSchema).max(2500),
+  coverage: z.array(agentActivityInventoryCoverageSchema),
   nextCursor: z.string().trim().min(1).max(2048).nullable(),
   organization: agentActivityInventoryOrganizationSchema,
   sessions: z

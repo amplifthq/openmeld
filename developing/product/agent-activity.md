@@ -390,8 +390,10 @@ time, owner, `agentControllerRef`, and native Session id. Filters include
 Project, owner, provider, status, origin, exact native id, and bounded title/id
 search. The response also returns coverage facts for waiting, syncing, current,
 stale, unsupported, error, and disconnected sources. Public Computer identity
-is `connectedComputerId` plus the current user-visible name; internal device id,
-Service runtime id, local connection hash, and absolute path never leave Core.
+is `connectedComputerId` plus the current user-visible name. Coverage is the
+complete authorized source set for every Session page; it is not a fixed-size
+snapshot and must not be silently truncated. Internal device id, Service
+runtime id, local connection hash, and absolute path never leave Core.
 
 Web keeps **Agent Activity → Sessions** as the sole Session inventory product.
 It may offer Create Agent Profile, Resume as Agent Profile, Fork as Agent

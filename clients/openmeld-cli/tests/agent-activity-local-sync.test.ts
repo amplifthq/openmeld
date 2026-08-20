@@ -428,6 +428,60 @@ describe("Agent Activity local delivery", () => {
       listProjectBindings({ rootDir: requireRoot() })
     ).resolves.toHaveLength(0);
   });
+
+  it("keeps the delivery lock until both sync branches settle after a failure", async () => {
+    await seedLocalEvent();
+    let releaseActivity: (() => void) | undefined;
+    let rejectInventory: (() => void) | undefined;
+    mocks.submitAgentActivityEvents.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseActivity = () =>
+            resolve({
+              events: [{ eventId: "event-1", index: 0, outcome: "accepted" }],
+              status: "accepted",
+            });
+        })
+    );
+    mocks.syncLocalAgentSessionInventory.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectInventory = () => reject(new Error("Session Inventory failed"));
+        })
+    );
+
+    const syncing = syncLocalAgentActivity({
+      refreshContext: false,
+      rootDir: requireRoot(),
+    });
+    const syncingFailure = expect(syncing).rejects.toThrow(
+      "Session Inventory failed"
+    );
+    await until(
+      () =>
+        mocks.submitAgentActivityEvents.mock.calls.length === 1 &&
+        mocks.syncLocalAgentSessionInventory.mock.calls.length === 1
+    );
+    rejectInventory?.();
+    let unbound = false;
+    const unbinding = unbindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      rootDir: requireRoot(),
+    }).then(() => {
+      unbound = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(unbound).toBe(false);
+
+    releaseActivity?.();
+    await syncingFailure;
+    await unbinding;
+    await expect(
+      listProjectBindings({ rootDir: requireRoot() })
+    ).resolves.toHaveLength(0);
+  });
 });
 
 async function seedLocalEvent() {

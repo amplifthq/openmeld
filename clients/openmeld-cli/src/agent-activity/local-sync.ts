@@ -78,13 +78,21 @@ export async function syncLocalAgentActivity(input?: {
   const observedCount = inbox.observedCount + reconciliation.observedCount;
   const [result, sessionInventory] = await withAgentActivityDeliveryLock(
     { rootDir: input?.rootDir },
-    async () =>
-      await Promise.all([
+    async () => {
+      const [activityResult, inventoryResult] = await Promise.allSettled([
         submitDueAgentActivity(input, observedCount),
         input?.reconcile === false
           ? Promise.resolve(idleSessionInventoryResult())
           : syncLocalAgentSessionInventory({ rootDir: input?.rootDir }),
-      ])
+      ]);
+      if (activityResult.status === "rejected") {
+        throw activityResult.reason;
+      }
+      if (inventoryResult.status === "rejected") {
+        throw inventoryResult.reason;
+      }
+      return [activityResult.value, inventoryResult.value] as const;
+    }
   );
   if (input?.refreshContext !== false) {
     await refreshAgentActivityContextCaches({ rootDir: input?.rootDir }).catch(

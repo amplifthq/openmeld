@@ -506,6 +506,65 @@ describe("Local Agent Session Inventory provider adapters", () => {
     );
   });
 
+  it("rejects a non-null malformed OpenCode archive marker", async () => {
+    const xdgDataHome = join(root, "xdg-data");
+    const databaseDirectory = join(xdgDataHome, "opencode");
+    const databasePath = join(databaseDirectory, "opencode.db");
+    await mkdir(databaseDirectory, { recursive: true });
+    const database = new Database(databasePath);
+    database.exec(`CREATE TABLE session (
+      id TEXT PRIMARY KEY,
+      directory TEXT NOT NULL,
+      title TEXT,
+      time_created INTEGER,
+      time_updated INTEGER NOT NULL,
+      time_archived INTEGER
+    )`);
+    database
+      .prepare(
+        "INSERT INTO session (id, directory, title, time_created, time_updated, time_archived) VALUES (?, ?, ?, ?, ?, ?)"
+      )
+      .run(
+        "opencode-invalid-archive",
+        repositoryPath,
+        "Invalid archive marker",
+        NOW_MS - 2000,
+        NOW_MS - 1000,
+        "not-a-timestamp"
+      );
+    database.close();
+    launchMocks.opencode.mockResolvedValue({
+      candidates: [
+        {
+          commandPath: "opencode",
+          launchContract: {
+            argsPrefix: [],
+            commandPath: "opencode",
+            kind: "executable",
+          },
+        },
+      ],
+      ok: true,
+    });
+
+    const discoveries = await discoverLocalAgentSessionProviders({
+      bindings: [binding],
+      homeDir: root,
+      nowMs: NOW_MS,
+      rootDir: root,
+      xdgDataHome,
+    });
+
+    expect(discoveries.find(({ provider }) => provider === "opencode")).toEqual(
+      {
+        agentControllerRef: "builtin:opencode",
+        problemCode: "opencode_retained_inventory_failed",
+        provider: "opencode",
+        result: "error",
+      }
+    );
+  });
+
   it("discovers OpenCode from the effective XDG data home", async () => {
     const xdgDataHome = join(root, "xdg-data");
     const databaseDirectory = join(xdgDataHome, "opencode");

@@ -103,6 +103,29 @@ describe("Agent Activity Session Inventory contracts", () => {
     ).toBe(false);
   });
 
+  it("does not cap complete source coverage at a fixed snapshot size", () => {
+    const coverage = Array.from({ length: 2501 }, (_, index) => ({
+      agentControllerRef: "builtin:codex" as const,
+      computerId: `computer-${index}`,
+      lastAttemptAtMs: 1_787_200_000_000,
+      lastCompleteAtMs: 1_787_200_000_000,
+      problemCode: null,
+      projectId: "project-1",
+      provider: "codex" as const,
+      state: "current" as const,
+    }));
+
+    expect(
+      agentActivitySessionInventoryResponseSchema.parse({
+        asOfMs: 1_787_200_000_000,
+        coverage,
+        nextCursor: null,
+        organization: session.organization,
+        sessions: [],
+      }).coverage
+    ).toHaveLength(2501);
+  });
+
   it("requires honest terminal provider outcomes and unique native IDs per page", () => {
     const base = {
       agentControllerRef: "builtin:codex",

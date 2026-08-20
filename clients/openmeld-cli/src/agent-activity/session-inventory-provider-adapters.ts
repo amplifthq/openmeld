@@ -774,6 +774,11 @@ export async function discoverOpenCodeRetainedSessions(input: {
       continue;
     }
     const archivedAtMs = timestamp(row.time_archived);
+    if (row.time_archived !== null && archivedAtMs === null) {
+      throw new Error(
+        "OpenCode returned a malformed retained Session archive marker."
+      );
+    }
     const hookStatus = await readRecentAgentActivityHookStatus({
       nowMs: input.nowMs,
       provider: "opencode",

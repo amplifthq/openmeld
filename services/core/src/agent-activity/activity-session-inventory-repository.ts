@@ -1231,7 +1231,6 @@ async function readCoverage(input: {
         WHERE ${clauses.join(" AND ")}
         ORDER BY source.project_id, source.owner_user_id,
           source.connected_computer_id, source.agent_controller_ref
-        LIMIT 2500
       `
     )
     .bind(

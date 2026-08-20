@@ -306,6 +306,40 @@ describe("Agent Activity Session Inventory repository", () => {
     expect(inventoryRowCount(harness)).toBe(0);
   });
 
+  it("returns every source coverage fact instead of a fixed snapshot", async () => {
+    const harness = createInventoryHarness();
+    harness.run({
+      params: [NOW_MS, NOW_MS, NOW_MS],
+      sql: `WITH RECURSIVE source_number(value) AS (
+          SELECT 0
+          UNION ALL
+          SELECT value + 1 FROM source_number WHERE value < 2500
+        )
+        INSERT INTO agent_activity_session_inventory_sources (
+          source_scope_key, organization_id, owner_user_id, project_id,
+          device_id, connected_computer_id, local_connection_id,
+          agent_controller_ref, provider, state, current_reconciliation_id,
+          next_page_index, problem_code, last_attempt_at_ms,
+          last_complete_at_ms, updated_at_ms
+        )
+        SELECT
+          'coverage-source-' || printf('%04d', value),
+          'org-1', 'user-1', 'project-1',
+          'coverage-device-' || value, 'coverage-computer-' || value,
+          'sha256:' || printf('%064x', value),
+          'builtin:codex', 'codex', 'current', NULL,
+          0, NULL, ?, ?, ?
+        FROM source_number`,
+    });
+
+    const inventory = await read(harness.db);
+    expect(inventory.coverage).toHaveLength(2501);
+    expect(inventory.coverage.at(-1)).toMatchObject({
+      computerId: "coverage-computer-999",
+      state: "current",
+    });
+  });
+
   it("deletes Session metadata proven absent by a complete reconciliation", async () => {
     const harness = createInventoryHarness();
     await reconcile(harness.db, {
