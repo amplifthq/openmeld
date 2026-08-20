@@ -409,8 +409,18 @@ async function readSourceStore(input: {
   rootDir?: string;
 }): Promise<InventorySourceStore> {
   const path = sourceStorePath(input);
-  const raw = await readFile(path, "utf8").catch(() => null);
-  if (!raw) {
+  const raw = await readFile(path, "utf8").catch((error: unknown) => {
+    if (isNodeError(error, "ENOENT")) {
+      return null;
+    }
+    throw new Error(
+      `Failed to read the Session Inventory source store: ${path}`,
+      {
+        cause: error,
+      }
+    );
+  });
+  if (raw === null) {
     return { sources: [], version: SOURCE_STORE_VERSION };
   }
   const value: unknown = JSON.parse(raw);
@@ -454,6 +464,15 @@ function sourceStorePath(input: { rootDir?: string }): string {
     "device",
     "agent-activity",
     "session-inventory-sources.json"
+  );
+}
+
+function isNodeError(
+  error: unknown,
+  code: string
+): error is NodeJS.ErrnoException {
+  return (
+    error instanceof Error && (error as NodeJS.ErrnoException).code === code
   );
 }
 

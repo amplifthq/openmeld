@@ -1,4 +1,12 @@
-import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  stat,
+  symlink,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -66,6 +74,70 @@ afterEach(async () => {
 });
 
 describe("Local Agent Session Inventory reconciliation", () => {
+  it("does not publish or overwrite state when the source store cannot be read", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-session-store-error-"));
+    const repositoryPath = join(root, "repository");
+    await mkdir(repositoryPath, { recursive: true });
+    const binding = await bindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      projectSlug: "openmeld",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir: root,
+    });
+    mocks.discoverLocalAgentSessionProviders.mockResolvedValue([
+      {
+        agentControllerRef: "builtin:codex",
+        provider: "codex",
+        result: "sessions",
+        sessions: [
+          {
+            binding,
+            session: {
+              canFork: false,
+              canResume: true,
+              lastActiveAtMs: 10_000,
+              nativeSessionId: "native-preserved",
+              nativeSessionTitle: "Preserved Session",
+              origin: "local",
+              startedAtMs: 9000,
+              status: "idle",
+            },
+          },
+        ],
+      },
+    ]);
+    await syncLocalAgentSessionInventory({
+      foundation: {} as never,
+      nowMs: 20_000,
+      rootDir: root,
+    });
+
+    const sourceStorePath = join(
+      root,
+      "device",
+      "agent-activity",
+      "session-inventory-sources.json"
+    );
+    const preservedPath = `${sourceStorePath}.preserved`;
+    await rename(sourceStorePath, preservedPath);
+    await symlink(sourceStorePath, sourceStorePath);
+    mocks.submitAgentActivitySessionReconciliation.mockClear();
+
+    await expect(
+      syncLocalAgentSessionInventory({
+        foundation: {} as never,
+        nowMs: 30_000,
+        rootDir: root,
+      })
+    ).rejects.toThrow("Failed to read the Session Inventory source store");
+    expect(
+      mocks.submitAgentActivitySessionReconciliation
+    ).not.toHaveBeenCalled();
+    expect(await readFile(preservedPath, "utf8")).toContain("project-1");
+  });
+
   it("disconnects an obsolete Project connection before publishing its replacement", async () => {
     root = await mkdtemp(join(tmpdir(), "openmeld-session-rebind-"));
     const repositoryPath = join(root, "repository");

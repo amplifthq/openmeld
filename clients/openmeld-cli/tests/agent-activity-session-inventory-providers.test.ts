@@ -78,6 +78,91 @@ afterEach(async () => {
 });
 
 describe("Local Agent Session Inventory provider adapters", () => {
+  it("preserves Claude and Grok inventory when retained roots cannot be inspected", async () => {
+    const claudeConfigDir = join(root, "claude-config-error");
+    const grokHome = join(root, "grok-home-error");
+    const claudeRegistryPath = join(root, "claude-registry.mjs");
+    await mkdir(claudeConfigDir, { recursive: true });
+    await mkdir(grokHome, { recursive: true });
+    await symlink(
+      join(claudeConfigDir, "projects"),
+      join(claudeConfigDir, "projects")
+    );
+    await symlink(join(grokHome, "sessions"), join(grokHome, "sessions"));
+    await writeFile(
+      claudeRegistryPath,
+      'process.stdout.write("[]\\n");\n',
+      "utf8"
+    );
+    launchMocks.claude.mockResolvedValue({
+      candidates: [
+        {
+          commandPath: process.execPath,
+          launchContract: {
+            argsPrefix: [claudeRegistryPath],
+            commandPath: process.execPath,
+            kind: "executable",
+          },
+        },
+      ],
+      ok: true,
+    });
+    launchMocks.grok.mockResolvedValue({
+      candidates: [
+        {
+          commandPath: "grok",
+          launchContract: {
+            argsPrefix: [],
+            commandPath: "grok",
+            kind: "executable",
+          },
+        },
+      ],
+      ok: true,
+    });
+
+    const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    const previousGrokHome = process.env.GROK_HOME;
+    process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
+    process.env.GROK_HOME = grokHome;
+    try {
+      const discoveries = await discoverLocalAgentSessionProviders({
+        bindings: [binding],
+        homeDir: root,
+        nowMs: NOW_MS,
+        rootDir: root,
+      });
+
+      expect(
+        discoveries.find(({ provider }) => provider === "claude-code")
+      ).toEqual({
+        agentControllerRef: "builtin:claude-code",
+        problemCode: "claude_code_retained_inventory_failed",
+        provider: "claude-code",
+        result: "error",
+      });
+      expect(
+        discoveries.find(({ provider }) => provider === "grok-build")
+      ).toEqual({
+        agentControllerRef: "builtin:grok-build",
+        problemCode: "grok_build_retained_inventory_failed",
+        provider: "grok-build",
+        result: "error",
+      });
+    } finally {
+      if (previousClaudeConfigDir === undefined) {
+        Reflect.deleteProperty(process.env, "CLAUDE_CONFIG_DIR");
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
+      }
+      if (previousGrokHome === undefined) {
+        Reflect.deleteProperty(process.env, "GROK_HOME");
+      } else {
+        process.env.GROK_HOME = previousGrokHome;
+      }
+    }
+  });
+
   it("preserves the last inventory when an installed provider is temporarily not launchable", async () => {
     launchMocks.codex.mockResolvedValue({
       errorMessage: "launch timed out",

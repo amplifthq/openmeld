@@ -858,9 +858,22 @@ async function listFiles(
     fileName(name: string): boolean;
   }
 ): Promise<string[]> {
-  const rootStat = await stat(root).catch(() => null);
-  if (!rootStat?.isDirectory()) {
+  const rootStat = await stat(root).catch((error: unknown) => {
+    if (isNodeError(error, "ENOENT")) {
+      return null;
+    }
+    throw new Error(
+      `Failed to inspect the Local Agent Session inventory root: ${root}`,
+      { cause: error }
+    );
+  });
+  if (rootStat === null) {
     return [];
+  }
+  if (!rootStat.isDirectory()) {
+    throw new Error(
+      `Local Agent Session inventory root is not a directory: ${root}`
+    );
   }
   const files: string[] = [];
   const visit = async (directory: string): Promise<void> => {
@@ -1076,4 +1089,13 @@ function text(value: unknown): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNodeError(
+  error: unknown,
+  code: string
+): error is NodeJS.ErrnoException {
+  return (
+    error instanceof Error && (error as NodeJS.ErrnoException).code === code
+  );
 }
