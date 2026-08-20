@@ -346,7 +346,10 @@ into the Agent Profile Binding command. Before writing Binding truth, Core
 revalidates the authenticated owner and active Organization, active Project,
 public Computer plus internal runtime device, controller/provider/native id,
 fresh current source, `canResume`, and any existing active Binding. A cached Web
-row can express selection intent but cannot authorize a Resume operation.
+row can express selection intent but cannot authorize a Resume operation. The
+Binding writer then conditionally claims the controller conversation in the
+same atomic write boundary, so concurrent Resume requests cannot both create a
+new enabled Binding for one native Session.
 
 The legacy Overview and Changes surfaces continue to consume the bounded
 Activity snapshot contract.

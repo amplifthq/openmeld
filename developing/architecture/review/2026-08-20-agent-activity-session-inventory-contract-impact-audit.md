@@ -43,7 +43,7 @@ Organization, Owner, Project, Computer, provider, Session, and capability.
 | Contract | Change | Owner and receiver |
 | --- | --- | --- |
 | Agent Activity Session HTTP/RPC schemas | New strict list query, keyset cursor, reconciliation pages, coverage, Session, Owner, Project, Computer, Local Agent, origin, capability, and Binding projections | Shared schemas; Core is the read/projection owner; Gateway, Web, CLI, and Remote Agent are receivers |
-| Agent Profile Binding ensure body | Additive optional `sessionInventorySelection` for authoritative Resume revalidation | Shared schemas and API client; Gateway forwards; Core validates before the Binding writer |
+| Agent Profile Binding ensure body | Additive optional `sessionInventorySelection` for authoritative Resume revalidation; the Binding writer atomically conditionally claims the controller conversation | Shared schemas and API client; Gateway forwards; Core validates before the Binding writer, which remains Binding authority |
 | CLI JSON envelope | Additive `activity.sessions` result using the shared response unchanged | Shared schemas; CLI Human, Agent, and JSON views |
 | Local reconciliation | New provider observations and page/result submissions | Local OpenMeld Service is observer/carrier; Core remains inventory owner |
 | Local Service control plane | Additive `request_agent_activity_sync` command for immediate post-disconnect reconciliation | CLI requests; the current local Service schedules the canonical sync loop |
@@ -132,7 +132,10 @@ the provider has no retained Sessions elsewhere. The live run proves installed
 adapter execution and metadata mapping; deterministic contract tests prove
 pagination, reconciliation, disconnect, authorization, Binding derivation,
 Resume-time Binding revalidation, and content exclusion without reading user
-content into test output.
+content into test output. Binding repository tests also prove that two
+concurrent new Agent Profiles cannot both claim one controller conversation,
+while historical duplicate Bindings remain readable and are not rewritten by
+Agent Activity.
 
 ## Privacy And Negative Acceptance
 
