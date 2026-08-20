@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 import { localProjectControlConnectionSchema } from "../daemon/local-project-control";
 import { agentActivitySnapshotResponseSchema } from "../http/agent-activity";
+import { agentActivitySessionInventoryResponseSchema } from "../http/agent-activity-sessions";
 import {
   createCenterAgentRoutineResponseSchema,
   deleteCenterAgentRoutineResponseSchema,
@@ -315,6 +316,12 @@ export const cliJsonAgentActivityReadEnvelopeSchema =
     agentActivitySnapshotResponseSchema.shape
   );
 
+export const cliJsonAgentActivitySessionsEnvelopeSchema =
+  defineStrictSuccessEnvelope(
+    "activity.sessions",
+    agentActivitySessionInventoryResponseSchema.shape
+  );
+
 const cliJsonAgentActivityIntegrationStatusSchema = z.strictObject({
   claude: z.boolean(),
   codex: z.boolean(),
@@ -568,6 +575,7 @@ export const cliJsonOutputEnvelopeSchema = z.discriminatedUnion("type", [
   cliJsonProjectsConnectionsSetDefaultEnvelopeSchema,
   cliJsonProjectsConnectionsRemoveEnvelopeSchema,
   cliJsonAgentActivityReadEnvelopeSchema,
+  cliJsonAgentActivitySessionsEnvelopeSchema,
   cliJsonAgentActivityInstallEnvelopeSchema,
   cliJsonAgentActivityUninstallEnvelopeSchema,
   cliJsonAgentActivityStatusEnvelopeSchema,
@@ -626,6 +634,7 @@ export const CLI_JSON_OUTPUT_TYPES = [
   "projects.connections.set_default",
   "projects.connections.remove",
   "activity.read",
+  "activity.sessions",
   "activity.install",
   "activity.uninstall",
   "activity.status",

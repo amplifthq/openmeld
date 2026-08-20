@@ -639,10 +639,9 @@ readable directory to its canonical path, rejects a path already bound to any
 other Organization or Project, stores only local mode-0600 binding state, and
 uploads at most the Project id plus an optional safe repository fingerprint.
 The same successful `bind` action installs OpenMeld-owned Codex and Claude Code
-hooks, Cursor hooks, and the OpenCode plugin. Grok Build does not add a managed
-hook or become an Agent Activity provider in this phase; its Wake lifecycle
-events remain execution telemetry, and direct user-started Grok sessions are
-not observed. If compare-and-swap protection rejects a
+hooks, Cursor hooks, and the OpenCode plugin. Grok Build retained Sessions are
+discovered through its provider-native local surface; it does not require an
+invented OpenMeld hook. If compare-and-swap protection rejects a
 configuration edit, the binding remains valid and the command reports
 `integrationSetup.status = needs_attention`; `openmeld activity install` is the
 explicit repair command. `unbind` stops new observation and removes unsent
@@ -655,6 +654,20 @@ explicit `--json` emits the strict shared `activity.read` envelope. The managed
 `install`, `uninstall`, `status`, `health`, `sync`, and `context` JSON outputs
 also use the closed shared CLI envelope union. Hook commands are hidden
 provider adapters, not public data readers.
+
+`openmeld activity sessions` is the complete paginated current Inventory read.
+Human View prints the native title and id, Owner, Project, Computer, Local
+Agent, status, last activity, origin, Resume/Fork capability, and bound Agent
+Profile without exposing an internal runtime or path. `--view agent` and
+`--json` emit the strict shared `activity.sessions` envelope unchanged except
+for the ordinary CLI success wrapper. Filters and `--cursor` map directly to
+the shared Core query; the CLI never reconstructs a next page from local rows.
+
+OpenMeld-managed Local Agent skills direct agents to the same command. A Local
+Agent may cite the tuple `owner.userId + localAgent.agentControllerRef +
+nativeSessionId`, but it must treat the response as read-only evidence and use
+the relevant authoritative command for any later Profile, Binding, Resume,
+Fork, or Space mutation.
 
 OpenMeld Service observes only sessions inside an explicitly bound Project and
 delivers them through a bounded durable outbox. A 404 or unavailable service

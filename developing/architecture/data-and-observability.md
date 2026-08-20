@@ -162,12 +162,39 @@ Snapshot and daily-aggregate reads may project one Project inside the already
 authorized Organization; this is a read filter, not a second Project authority
 or permission path.
 
-Raw provider session ids remain private ingestion keys. Public snapshots use a
-separate opaque session id and never return provider session ids, local paths,
-device ids, OpenMeld Service runtime ids, prompts, responses, transcripts,
-tools, commands, file contents, or arbitrary provider objects. Local observer
-files and the mode-0600 outbox are delivery evidence only and cannot authorize
-an Organization, member, Project, or runtime.
+`agent_activity_session_inventory` is the separate Core-owned current
+Inventory projection for Agent Activity → Sessions. It is not historical
+evidence and is not derived from `agent_activity_events`.
+`agent_activity_session_inventory_candidates` is private staging for one
+incomplete reconciliation; readers never query it.
+`agent_activity_session_inventory_sources` owns the last complete coverage and
+current page cursor per authenticated owner, Computer, Project connection, and
+Local Agent. Publishing a terminal reconciliation and hiding rows absent from
+that exact source is one D1 transaction. A failed or interrupted producer
+cannot expose a partial set as current.
+
+Inventory row uniqueness is Organization, owner user id,
+`agentControllerRef`, and native Session id. Project, connected Computer,
+device, and local connection locate the current authorized environment but are
+not another identity. When two sources claim one identity with inconsistent
+environment evidence, publication fails closed and preserves the prior
+complete row.
+
+Legacy Activity snapshots continue to use a separate opaque projection id.
+The current Inventory intentionally returns the provider-native Session id and
+does not mint another public id. Neither contract returns local paths, device
+ids, OpenMeld Service runtime ids, prompts, responses, transcripts, tools,
+commands, file contents, or arbitrary provider objects. Local observer files
+and the mode-0600 outbox are delivery evidence only and cannot authorize an
+Organization, member, Project, or runtime.
+
+Inventory reads join active Organization membership, active Project rows,
+owner profile, `connectedComputerId`, and current Computer name. They derive
+`boundAgentProfileId` from the authoritative enabled primary Binding and active
+Agent Profile on every read. Inventory storage has no bound column. Internal
+device and runtime ids may support those joins but are never projected. Current
+Computer connectivity is an explicit reporting-evidence projection and must
+not be presented as Agent Profile Wake readiness.
 
 Raw events expire after 14 days. Scheduled retention aggregates the exact
 event and session counts before bounded deletion; a session split across

@@ -732,6 +732,7 @@ describe("cli --json output envelope contract", () => {
       "projects.connections.set_default",
       "projects.connections.remove",
       "activity.read",
+      "activity.sessions",
       "activity.install",
       "activity.uninstall",
       "activity.status",

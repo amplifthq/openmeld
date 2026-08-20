@@ -11,10 +11,13 @@
 ## Product Promise
 
 Agent Activity gives every member of one OpenMeld Organization a fast,
-privacy-safe answer to:
+privacy-safe answer to two related questions:
 
 > Which coding agents are active, on which Project, through which client, and
 > when were they last active?
+
+> Which retained Local Agent Sessions exist under our connected Projects, and
+> which native Session can a person or agent unambiguously reference?
 
 `Agent Activity` is the canonical product and code term. Its canonical Web
 route is `/o/{orgSlug}/agent-activity`, and the primary rail label is
@@ -72,8 +75,19 @@ Never collect, store, transmit, summarize, inject, or display:
 - absolute paths, environment variables, credentials, or raw repository URLs;
 - arbitrary provider fields or an unreviewed serialized session object.
 
-Raw provider session ids are private ingestion keys. Public Web, CLI, Center
-Agent, and snapshot responses never return them.
+The provider-native Session id is the public Session identifier in the current
+Session Inventory. OpenMeld does not create a second public Session id. Its
+product identity is the tuple `(owner, agentControllerRef, nativeSessionId)`.
+Project and Computer describe the Session's current authorized work
+environment; they are not additional identity namespaces. A native Session id
+is an identifier, never operation authority. Resume, Fork, Profile creation,
+and Space membership must re-authorize the Organization, owner, Project,
+Computer, controller, and current provider capability at execution time.
+
+Historical Activity event and legacy snapshot contracts keep their opaque
+projection ids for compatibility. Those ids are not Session Inventory identity
+and must not be accepted by new Session selection or Agent Profile creation
+flows.
 
 Organization snapshots return the reviewed provider-specific metadata for each
 session only when the reader sends `includeProviderMetadata=true`. The field is
@@ -83,11 +97,23 @@ provider-specific object rather than a generic metadata bag. Web opts in and
 presents every returned reviewed field, while Core removes private
 parent-session ids before the public response.
 
-Session projection updates preserve the last verified non-null title, client
-kind, model, Git identity, and reviewed provider fields when a later real-time
-hook does not know those facts. A later event with an explicit value updates the
-fact; a sparse event must not erase richer evidence already observed from the
-provider's session store.
+The Session Inventory uses only the current provider-native title. It does not
+copy, rename, summarize, or preserve a previous title after the provider store
+has changed or removed it. A provider prompt preview, first prompt, transcript
+summary, OpenMeld label, or Agent Profile name is not a substitute. When the
+provider exposes no safe native title, the value is `null` and the UI says that
+no native title is available.
+
+The historical Activity session projection may still preserve sparse event
+fields for evidence continuity. That compatibility behavior does not apply to
+the current Session Inventory.
+
+`boundAgentProfileId` is resolved at read time from the authoritative enabled
+primary Agent Profile Binding whose owner, `agentControllerRef`, and native
+conversation id match the Session. Agent Activity never writes a second bound
+flag or copied Profile id. Zero matches means unbound, one verified active
+Profile means bound, and multiple or inconsistent matches fail closed as a
+binding conflict.
 
 ## Presence And Evidence
 
@@ -115,8 +141,9 @@ Profile look Wake-ready or change Wake routing.
 
 ## Ingestion And Local Observation
 
-OpenMeld Service owns local observation and durable delivery. Supported MVP
-providers are Codex App/CLI, Claude Code CLI, Cursor, and OpenCode clients.
+OpenMeld Service owns local observation and durable delivery. Supported Session
+Inventory providers are Codex App/CLI, Claude Code CLI, Cursor, OpenCode, and
+Grok Build.
 
 - Codex App and CLI share rollout storage; client kind is derived only from
   trusted provenance such as `originator`.
@@ -132,11 +159,11 @@ providers are Codex App/CLI, Claude Code CLI, Cursor, and OpenCode clients.
 - OpenCode uses its official plugin event surface. When trusted provenance
   cannot distinguish CLI, TUI, Desktop, and Web, the product displays
   `OpenCode` with `clientKind = unknown`.
-- Grok Build is not an Agent Activity provider in this phase. OpenMeld does not
-  install Grok hooks or observe user-started Grok sessions. Runtime lifecycle
-  and tool events from an OpenMeld-started Grok Wake remain execution progress
-  and diagnostics; they must not be relabeled as durable Agent Activity without
-  adding the complete privacy, schema, ingestion, and read-model contract.
+- Grok Build participates through its provider-native retained Session
+  inventory and ACP lifecycle evidence. Provider versions that cannot discover
+  retained Sessions report `unsupported`; OpenMeld does not infer a successful
+  empty result. Runtime lifecycle and tool events remain execution telemetry
+  and are not transcript-derived Activity.
 - Managed hook and plugin installation uses compare-and-swap ownership,
   coexists with user configuration, and is reversible without deleting user
   entries.
@@ -164,6 +191,65 @@ providers are Codex App/CLI, Claude Code CLI, Cursor, and OpenCode clients.
   outbox is bounded and reports pressure explicitly instead of deleting the
   oldest unsent fact to claim health.
 
+### Complete Session reconciliation
+
+Session Inventory discovery is a durable full reconciliation, not an event
+window. Every connected local Project folder and supported Local Agent is one
+reconciliation source. OpenMeld Service enumerates every provider-retained
+Session available through that provider's documented local surface, maps it to
+exactly one authorized connection, and uploads bounded pages containing only
+the shared metadata contract.
+
+- There is no ten-minute startup window, fixed file-count cap, or fixed cloud
+  snapshot cap.
+- Reconciliation pages are staged privately. Core publishes the new set only
+  after the terminal page is accepted, so readers never mistake a partial scan
+  for the complete inventory.
+- Page order and retry are stable and idempotent. An interrupted scan can be
+  restarted without erasing the last complete projection.
+- A complete reconciliation hides prior current rows from the same source that
+  are absent from the new candidate set. Removing a Local Project Connection
+  reports `disconnected` and removes that source from the selectable current
+  Inventory while retained Activity evidence remains unchanged.
+- `unsupported` is a provider capability fact. `error` preserves the last
+  complete projection as stale. Neither is converted into an empty successful
+  result.
+- Provider-retained history is the hard completeness boundary. Sessions the
+  provider deleted, expired, or created in a no-persistence mode cannot be
+  reconstructed by OpenMeld.
+
+Working, Idle, Ended, Error, and Unknown require provider evidence. File
+modification time alone is not proof that a Session is Working or Ended. When a
+provider exposes retained metadata but no reliable lifecycle fact, status is
+Unknown. Ended is not synonymous with cannot Resume.
+
+`canResume` and `canFork` are explicit provider-and-session capability facts.
+They are true only when the installed provider exposes that native operation
+for the concrete retained Session and the OpenMeld adapter supports invoking
+it. OpenMeld does not simulate Fork by copying metadata or starting an unrelated
+Session.
+
+The current provider contract is intentionally asymmetric where the provider
+surface is asymmetric:
+
+| Provider | Complete retained discovery | Native title | Status without fresh lifecycle | Resume | Fork |
+| --- | --- | --- | --- | --- | --- |
+| Codex | app-server `thread/list`, every source kind, archived and non-archived pages to cursor exhaustion | current `Thread.name`, else null | archived is Ended; otherwise Unknown | retained non-archived threads | retained non-archived threads |
+| Claude Code | top-level retained JSONL plus the complete live/job registry and hooks | explicit native custom title, else null | Unknown | retained Sessions | retained Sessions |
+| Cursor | no complete documented machine-readable inventory; report unsupported coverage | unavailable for the complete inventory | Unknown | only when the concrete Cursor surface proves the ID is resumable | unsupported |
+| OpenCode | complete local Session table or official API pagination | current persisted `session.title` | archived is Ended; otherwise Unknown | retained usable Sessions | retained usable Sessions |
+| Grok Build | complete retained `summary.json` index | current generated or renamed native title | Unknown | retained Sessions | retained Sessions |
+
+Archived or otherwise unusable Sessions return false for an operation unless
+the installed provider version and adapter have proved that exact operation.
+Provider command output, protocol version, and retained-store shape must be
+probed; this table is not permission to guess across provider versions.
+
+Origin is `openmeld`, `local`, or `unknown`. `openmeld` requires explicit local
+execution evidence that OpenMeld created that native Session. `local` requires
+provider evidence of creation outside OpenMeld. Ambiguous history is `unknown`;
+it is never guessed from the current folder or current owner.
+
 Context injection is optional and fail-open for agent startup. It uses a
 provider-independent 300-byte UTF-8 ceiling, which is also a hard upper bound
 of 300 tokens for byte-fallback tokenizers. It may contain only cached, fresh,
@@ -174,11 +260,14 @@ provider requires a real local injection test.
 
 ## Organization Visibility
 
-MVP visibility is simple: every active member can read all Agent Activity in
-the current Organization. Personal workspaces are valid one-member
-Organizations and use the same Activity contract. Organization
-switching must isolate query caches and preserve the Agent Activity page when
-the target is personal.
+Every active member can read current Agent Activity and Session Inventory in
+the current Organization. Inventory rows are eligible only while their Project
+is active and their local connection remains authorized to that Organization.
+The authenticated reporting runtime determines the owner and Computer; a local
+payload cannot choose another member or Computer. Personal workspaces are valid
+one-member Organizations and use the same contract. Organization switching
+must isolate query caches and preserve the Agent Activity page when the target
+is personal.
 
 Future per-Project or per-member permissions may narrow reads. MVP code must
 not invent hidden ACL state before that shared permission system exists.
@@ -212,7 +301,33 @@ not invent hidden ACL state before that shared permission system exists.
 
 ## Read Surfaces
 
-Web, CLI, and the Center Agent consume one Core-owned snapshot contract.
+The current Session Inventory is one shared schema and Core-owned projection.
+Web, CLI Human View, CLI JSON/Agent View, Local Agents, and the Center Agent read
+that same paginated contract. No consumer may reconstruct Sessions from recent
+events, re-map status, copy Binding state, or maintain a provider capability
+table.
+
+Inventory pages use a Core-issued opaque keyset cursor ordered by last active
+time, owner, `agentControllerRef`, and native Session id. Filters include
+Project, owner, provider, status, origin, exact native id, and bounded title/id
+search. The response also returns coverage facts for waiting, syncing, current,
+stale, unsupported, error, and disconnected sources. Public Computer identity
+is `connectedComputerId` plus the current user-visible name; internal device id,
+Service runtime id, local connection hash, and absolute path never leave Core.
+
+Web keeps **Agent Activity → Sessions** as the sole Session inventory product.
+It may offer Create Agent Profile, Resume as Agent Profile, Fork as Agent
+Profile, Open Agent Profile, and Add to Space according to the returned facts.
+Those actions belong to their authoritative Profile, Binding, and Space
+systems. Agent Activity supplies only the selected Session fact. Resuming a
+Working Session shows a lightweight suggestion to Fork when available; it does
+not reject, score, or automatically route the request.
+
+The legacy Overview and Changes surfaces continue to consume the bounded
+Activity snapshot contract.
+
+Web, CLI, and the Center Agent consume one Core-owned snapshot contract for
+that historical presence view.
 Snapshots are Organization-scoped and may filter by Project, member, provider,
 and status. They return an explicit `asOfMs`, staleness, active sessions,
 recent evidence, Projects, and digests.
@@ -243,10 +358,11 @@ reuse `Activity` for audit journal entries.
 
 ## Rollout And Compatibility
 
-Projects use migration 0029. Activity events, sessions, digests, daily
+Projects use migration 0029. Activity events, legacy sessions, digests, daily
 aggregates, and execution links use migration 0030. Retention sweep indexes use
-migration 0031. Active duration in daily aggregates uses migration 0032. All
-four migrations are forward-only.
+migration 0031. Active duration in daily aggregates uses migration 0032. The
+complete Session Inventory, private reconciliation candidates, and source
+coverage use migration 0130. All migrations are forward-only.
 
 Reporting uses the existing CLI/OpenMeld Service coordinated release path.
 Old servers that return 404 keep the local outbox and back off without
@@ -271,9 +387,12 @@ Rollback removes the Web request first, then Gateway, then Core. Session-title
 reporting itself reuses the existing optional `title` event field, so old cloud
 code and old local observers remain interoperable.
 
-The safe order is migrations 0029, 0030, 0031, then 0032; strict readers and the
-Remote Agent digest consumer; Core before Gateway and API consumers; Web and
-CLI consumers; the local observer release; and only then the digest producer
-flag. The one-time active-duration backfill runs after migration 0032 and Core
-are deployed. Rollback disables the digest producer and local reporting before
+The safe Session Inventory order is migration 0130, shared schema consumers,
+Core, Gateway and API clients, Web/CLI/agent readers, then the local observer
+producer. An old producer continues to report only historical Activity; a new
+producer treats a missing reconciliation route as retryable and never erases
+the last complete Core projection. Rollback stops the new local producer before
 removing readers; retained D1 evidence is never rewritten to simulate rollback.
+The legacy digest rollout still uses migrations 0029, 0030, 0031, then 0032;
+the one-time active-duration backfill runs only after migration 0032 and its
+Core reader are deployed.

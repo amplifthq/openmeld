@@ -484,6 +484,35 @@ the normal handshake can refresh authentication. That recovery must preserve
 the per-channel failure evidence, reject stale-socket recovery requests, and
 remain separate from read-only status and doctor commands.
 
+## Agent Activity Session Inventory Carrier
+
+The local Service performs a periodic full reconciliation for every explicitly
+connected local Project folder and each supported provider. Event hooks remain
+the low-latency presence path, but they cannot substitute for complete Session
+discovery. The scanner cannot restrict first startup to recent files, cap a
+provider at a fixed file count, or treat one bounded page as the entire
+inventory.
+
+Each local connection is represented outside the machine only by a one-way
+hash of its stable local binding generation. Absolute roots never enter the
+request. Before upload, the Service resolves every provider Session working
+directory to exactly one current binding and discards unmatched candidates.
+Ambiguous matches fail closed and produce bounded coverage failure evidence.
+
+One source reconciliation uses stable native-id order and at most the shared
+page limit. The Service persists the last successfully reported source set so a
+removed binding can emit a disconnected terminal reconciliation after an
+offline interval. It retries one page idempotently and starts a fresh
+reconciliation after incompatible local source changes. Core alone stages and
+publishes the result.
+
+Provider adapters return the shared native title, lifecycle status, origin,
+and Resume/Fork capability facts. A scanner must not read transcript content to
+invent a title, infer Working from modification time alone, or report a
+capability that the concrete installed provider and OpenMeld adapter cannot
+invoke. Session Inventory transport remains independent from dispatch,
+RuntimeCoordinator, Agent Profile readiness, and Wake reporting.
+
 ## Agent Controller Task Lifecycle Callbacks
 
 The Local OpenMeld Service is the delivery carrier for exact Agent Controller

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  AGENT_ACTIVITY_SESSION_INVENTORY_PAGE_DEFAULT,
   agentActivityEventSchema,
   agentActivityPublicDigestSchema,
+  agentActivitySessionInventoryQuerySchema,
+  agentActivitySessionInventoryResponseSchema,
   agentActivitySnapshotQuerySchema,
   agentActivitySnapshotResponseSchema,
   agentActivityStatsQuerySchema,
@@ -9,8 +12,135 @@ import {
   agentActivityStatsRpcInputSchema,
   submitAgentActivityEventsBodySchema,
   submitAgentActivityEventsResponseSchema,
+  submitAgentActivitySessionReconciliationBodySchema,
   summarizeAgentActivityDigestRpcInputSchema,
 } from "../../src";
+
+describe("Agent Activity Session Inventory contracts", () => {
+  const session = {
+    boundAgentProfileId: null,
+    bindingState: "unbound" as const,
+    canFork: false,
+    canResume: true,
+    computer: {
+      id: "computer-public-1",
+      lastSeenAtMs: 1_787_199_900_000,
+      name: "Felix's MacBook Pro",
+      state: "online" as const,
+    },
+    dataState: "current" as const,
+    inventoryUpdatedAtMs: 1_787_200_000_000,
+    lastActiveAtMs: 1_787_199_800_000,
+    localAgent: {
+      agentControllerRef: "builtin:codex",
+      name: "Codex",
+      provider: "codex" as const,
+    },
+    nativeSessionId: "019c1234-5678-7000-8000-123456789abc",
+    nativeSessionTitle: "Upgrade Agent Activity Sessions",
+    organization: { id: "org-1", name: "Amplift" },
+    origin: "local" as const,
+    owner: { name: "Felix", userId: "user-1" },
+    project: { id: "project-1", name: "OpenMeld", slug: "openmeld" },
+    startedAtMs: 1_787_190_000_000,
+    status: "idle" as const,
+  };
+
+  it("uses stable bounded paging and rejects a cursor from an unknown field", () => {
+    expect(agentActivitySessionInventoryQuerySchema.parse({})).toEqual({
+      limit: AGENT_ACTIVITY_SESSION_INVENTORY_PAGE_DEFAULT,
+    });
+    expect(
+      agentActivitySessionInventoryQuerySchema.safeParse({
+        limit: 101,
+      }).success
+    ).toBe(false);
+    expect(
+      agentActivitySessionInventoryQuerySchema.safeParse({
+        limit: 10,
+        transcript: true,
+      }).success
+    ).toBe(false);
+  });
+
+  it("publishes the native Session identity without private local content", () => {
+    const response = {
+      asOfMs: 1_787_200_000_000,
+      coverage: [],
+      nextCursor: null,
+      organization: session.organization,
+      sessions: [session],
+    };
+    expect(agentActivitySessionInventoryResponseSchema.parse(response)).toEqual(
+      response
+    );
+    expect(
+      agentActivitySessionInventoryResponseSchema.safeParse({
+        ...response,
+        sessions: [
+          {
+            ...session,
+            absolutePath: "/Users/felix/.codex/sessions/private.jsonl",
+            transcript: [{ role: "user", text: "secret prompt" }],
+          },
+        ],
+      }).success
+    ).toBe(false);
+  });
+
+  it("requires honest terminal provider outcomes and unique native IDs per page", () => {
+    const base = {
+      agentControllerRef: "builtin:codex",
+      lane: "dev",
+      localConnectionId:
+        "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      observedAtMs: 1_787_200_000_000,
+      openMeldServiceRuntimeId: {
+        source: "runtime_registry_authority" as const,
+        value: "runtime-1",
+      },
+      organizationId: "org-1",
+      pageIndex: 0,
+      projectId: "project-1",
+      provider: "codex" as const,
+      reconciliationId: "reconciliation-1",
+      repositoryFingerprint: null,
+      terminal: true,
+    };
+    const observed = {
+      canFork: false,
+      canResume: true,
+      lastActiveAtMs: session.lastActiveAtMs,
+      nativeSessionId: session.nativeSessionId,
+      nativeSessionTitle: session.nativeSessionTitle,
+      origin: session.origin,
+      startedAtMs: session.startedAtMs,
+      status: session.status,
+    };
+    expect(
+      submitAgentActivitySessionReconciliationBodySchema.safeParse({
+        ...base,
+        result: "sessions",
+        sessions: [observed, observed],
+      }).success
+    ).toBe(false);
+    expect(
+      submitAgentActivitySessionReconciliationBodySchema.safeParse({
+        ...base,
+        result: "unsupported",
+        sessions: [],
+      }).success
+    ).toBe(false);
+    expect(
+      submitAgentActivitySessionReconciliationBodySchema.safeParse({
+        ...base,
+        problemCode: "provider_inventory_unavailable",
+        result: "unsupported",
+        sessions: [],
+      }).success
+    ).toBe(true);
+  });
+});
 
 describe("Agent Activity snapshot contracts", () => {
   it("requires an explicit compatible opt-in before returning provider details", () => {
