@@ -78,6 +78,42 @@ afterEach(async () => {
 });
 
 describe("Local Agent Session Inventory provider adapters", () => {
+  it("preserves Codex inventory when a retained thread record is malformed", async () => {
+    const serverPath = join(root, "malformed-codex-app-server.mjs");
+    await writeFile(
+      serverPath,
+      buildFakeCodexAppServer(repositoryPath, { malformedThread: true }),
+      "utf8"
+    );
+    launchMocks.codex.mockResolvedValue({
+      candidates: [
+        {
+          commandPath: process.execPath,
+          launchContract: {
+            argsPrefix: [serverPath],
+            commandPath: process.execPath,
+            kind: "executable",
+          },
+        },
+      ],
+      ok: true,
+    });
+
+    const discoveries = await discoverLocalAgentSessionProviders({
+      bindings: [binding],
+      homeDir: root,
+      nowMs: NOW_MS,
+      rootDir: root,
+    });
+
+    expect(discoveries.find(({ provider }) => provider === "codex")).toEqual({
+      agentControllerRef: "builtin:codex",
+      problemCode: "codex_thread_list_failed",
+      provider: "codex",
+      result: "error",
+    });
+  });
+
   it("preserves Claude and Grok inventory when retained roots cannot be inspected", async () => {
     const claudeConfigDir = join(root, "claude-config-error");
     const grokHome = join(root, "grok-home-error");
@@ -550,7 +586,21 @@ describe("Local Agent Session Inventory provider adapters", () => {
   });
 });
 
-function buildFakeCodexAppServer(cwd: string): string {
+function buildFakeCodexAppServer(
+  cwd: string,
+  input: { malformedThread?: boolean } = {}
+): string {
+  const liveThread = {
+    createdAt: 30,
+    cwd,
+    ephemeral: false,
+    id: input.malformedThread ? undefined : "codex-live",
+    name: "Native Codex title",
+    recencyAt: 40,
+    source: "cli",
+    status: { activeFlags: [], type: "active" },
+    updatedAt: 40,
+  };
   return `import { createInterface } from "node:readline";
 const sourceKinds = ${JSON.stringify([
     "cli",
@@ -580,7 +630,7 @@ for await (const line of lines) {
   const data = archived
     ? [{ id: "codex-archived", cwd: ${JSON.stringify(cwd)}, createdAt: 10, updatedAt: 20, recencyAt: 20, ephemeral: false, name: null, source: "appServer", status: { type: "notLoaded" } }]
     : request.params.cursor === null
-      ? [{ id: "codex-live", cwd: ${JSON.stringify(cwd)}, createdAt: 30, updatedAt: 40, recencyAt: 40, ephemeral: false, name: "Native Codex title", source: "cli", status: { type: "active", activeFlags: [] } }]
+      ? [${JSON.stringify(liveThread)}]
       : [];
   const nextCursor = archived ? null : request.params.cursor === null ? "page-2" : null;
   process.stdout.write(JSON.stringify({ id: request.id, jsonrpc: "2.0", result: { data, nextCursor } }) + "\\n");

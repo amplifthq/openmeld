@@ -168,7 +168,7 @@ async function mapCodexThread(input: {
     input.thread.recencyAt ?? input.thread.updatedAt
   );
   if (!(nativeSessionId && cwd && lastActiveAtMs !== null)) {
-    return null;
+    throw new Error("Codex returned a malformed retained thread record.");
   }
   const binding = await resolveObservedAgentActivityBinding(
     cwd,
@@ -228,12 +228,18 @@ async function listAllCodexThreads(
           sourceKinds: CODEX_THREAD_SOURCE_KINDS,
           useStateDbOnly: false,
         });
-        if (!(isRecord(response) && Array.isArray(response.data))) {
+        if (
+          !(
+            isRecord(response) &&
+            Array.isArray(response.data) &&
+            response.data.every(isRecord)
+          )
+        ) {
           throw new Error("Codex thread/list response is invalid.");
         }
         pages.push({
           archived,
-          data: response.data.filter(isRecord),
+          data: response.data,
         });
         cursor = nullableText(response.nextCursor);
       } while (cursor !== null);
