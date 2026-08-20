@@ -7,6 +7,7 @@ import type {
 	DaemonServiceLane,
 } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
+import { deleteStartAgentProfile } from "#/lib/profiles/delete-agent-profile";
 import {
 	createNewProfile,
 	type NewProfileKind,
@@ -33,10 +34,20 @@ export type CreatedProfileOutcome = {
 
 export const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a human profile to this account before bringing profiles into this Space.";
+const SESSION_RESUME_UNAVAILABLE_REASON =
+	"agent_profile_binding.session_resume_unavailable";
+
+export class SessionProfileCreationRolledBackError extends Error {
+	constructor(cause: NewProfileLocalSetupError) {
+		super(cause.message, { cause });
+		this.name = "SessionProfileCreationRolledBackError";
+	}
+}
 
 // This is the single phase-order owner for interactive Profile creation. The
-// Auth create response is the commit point. Nothing after it may escape as a
-// create failure, because a form retry would create a duplicate identity.
+// Auth create response is normally the commit point, so later follow-up errors
+// cannot escape as create failures. The one exception is a Core-rejected
+// Session Resume: that incomplete identity is removed before the error escapes.
 export async function createProfileWithFollowUps(input: {
 	agentControllerConversationId?: string | null;
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
@@ -77,6 +88,49 @@ export async function createProfileWithFollowUps(input: {
 	});
 	const followUpIssues: CreatedProfileFollowUpIssue[] = [];
 	let spaceJoined = false;
+	let localSetupAttempted = false;
+	const setupLocalState = async () =>
+		await setupNewAgentProfileLocalState({
+			agentControllerConversationId:
+				input.agentControllerConversationId ?? null,
+			...(input.agentControllerPermissionMode
+				? {
+						agentControllerPermissionMode: input.agentControllerPermissionMode,
+					}
+				: {}),
+			boundAgentId: input.boundAgentId,
+			currentServiceCanSetProfileWorkspace:
+				input.currentServiceCanSetProfileWorkspace,
+			defaultProjectId: input.defaultProjectId,
+			deviceId: input.deviceId,
+			modelId: input.modelId,
+			openCodePermission: input.openCodePermission,
+			organizationId: input.organizationId,
+			profile,
+			projectFolderPath: input.projectFolderPath,
+			reasoningLevel: input.reasoningLevel,
+			runtimeLane: input.runtimeLane,
+			selectedHumanProfileId: input.selectedHumanProfileId,
+			...(input.sessionInventorySelection
+				? { sessionInventorySelection: input.sessionInventorySelection }
+				: {}),
+		});
+
+	// Resume eligibility is revalidated by Core during the Binding write. Run
+	// that write before Space membership so a Session that changed while this
+	// dialog was open can be compensated without leaving a visible orphan.
+	if (profile.profileKind === "agent" && input.sessionInventorySelection) {
+		localSetupAttempted = true;
+		try {
+			profile = await setupLocalState();
+		} catch (error) {
+			if (isSessionResumeUnavailable(error)) {
+				await removeIncompleteSessionProfile({ error, profile });
+				throw new SessionProfileCreationRolledBackError(error);
+			}
+			followUpIssues.push(buildLocalSetupFollowUpIssue(error));
+		}
+	}
 
 	if (spaceJoinContext) {
 		try {
@@ -101,46 +155,55 @@ export async function createProfileWithFollowUps(input: {
 		}
 	}
 
-	if (profile.profileKind === "agent") {
+	if (profile.profileKind === "agent" && !localSetupAttempted) {
 		try {
-			profile = await setupNewAgentProfileLocalState({
-				agentControllerConversationId:
-					input.agentControllerConversationId ?? null,
-				...(input.agentControllerPermissionMode
-					? {
-							agentControllerPermissionMode:
-								input.agentControllerPermissionMode,
-						}
-					: {}),
-				boundAgentId: input.boundAgentId,
-				currentServiceCanSetProfileWorkspace:
-					input.currentServiceCanSetProfileWorkspace,
-				defaultProjectId: input.defaultProjectId,
-				deviceId: input.deviceId,
-				modelId: input.modelId,
-				openCodePermission: input.openCodePermission,
-				organizationId: input.organizationId,
-				profile,
-				projectFolderPath: input.projectFolderPath,
-				reasoningLevel: input.reasoningLevel,
-				runtimeLane: input.runtimeLane,
-				selectedHumanProfileId: input.selectedHumanProfileId,
-				...(input.sessionInventorySelection
-					? { sessionInventorySelection: input.sessionInventorySelection }
-					: {}),
-			});
+			profile = await setupLocalState();
 		} catch (error) {
-			followUpIssues.push({
-				kind: "local_setup",
-				message: toCreatedProfileFollowUpMessage(
-					error,
-					"OpenMeld created the Agent, but couldn't finish its local setup."
-				),
-			});
+			followUpIssues.push(buildLocalSetupFollowUpIssue(error));
 		}
 	}
 
 	return { followUpIssues, profile, spaceJoined };
+}
+
+function buildLocalSetupFollowUpIssue(
+	error: unknown
+): CreatedProfileFollowUpIssue {
+	return {
+		kind: "local_setup",
+		message: toCreatedProfileFollowUpMessage(
+			error,
+			"OpenMeld created the Agent, but couldn't finish its local setup."
+		),
+	};
+}
+
+function isSessionResumeUnavailable(
+	error: unknown
+): error is NewProfileLocalSetupError {
+	return (
+		error instanceof NewProfileLocalSetupError &&
+		error.reasonCodes.includes(SESSION_RESUME_UNAVAILABLE_REASON)
+	);
+}
+
+async function removeIncompleteSessionProfile(input: {
+	error: NewProfileLocalSetupError;
+	profile: AuthProfileView;
+}): Promise<void> {
+	try {
+		await deleteStartAgentProfile({ data: input.profile.openMeldProfileId });
+	} catch (cleanupError) {
+		throw new Error(
+			`${input.error.message} OpenMeld also couldn't remove the incomplete Agent Profile. Open Agent Profiles and remove it before trying again.`,
+			{
+				cause: new AggregateError(
+					[input.error, cleanupError],
+					"Session Agent Profile rollback failed."
+				),
+			}
+		);
+	}
 }
 
 function assertSpaceJoinActorBeforeProfileCreate(input: {

@@ -305,11 +305,12 @@ Status should be composed as follows:
 - StopFailure or a failed job is `error`; and
 - a retained transcript without fresh lifecycle evidence is `unknown`.
 
-The current managed integration omits both `StopFailure` and `SessionEnd`
-(`clients/openmeld-cli/src/agent-activity/managed-integrations.ts:16-25`), and
-the generic hook mapper treats every `Notification` as idle
-(`clients/openmeld-cli/src/agent-activity/hook-ingest.ts:319-351`). Those gaps
-must be fixed before Claude status can be called complete.
+The managed integration now registers both `StopFailure` and `SessionEnd`
+(`clients/openmeld-cli/src/agent-activity/managed-integrations.ts:16-27`), and
+the Claude-specific mapper turns them into error and ended evidence while
+leaving ambiguous `Notification` and subagent hooks unknown
+(`clients/openmeld-cli/src/agent-activity/hook-ingest.ts:359-383`). Contract
+tests cover installation, terminal status mapping, and metadata exclusion.
 
 Installed `claude --help` exposes `--resume`, `--session-id`, `--name`,
 `--no-session-persistence`, and `--fork-session`. Native Resume is documented

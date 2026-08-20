@@ -32,12 +32,16 @@ export type NewProfileErrorState = {
 };
 
 export class NewProfileLocalSetupError extends Error {
+	reasonCodes: readonly string[];
 	setupRefreshActionLabel: string;
 	setupRefreshAvailable: boolean;
 
-	constructor(input: NewProfileErrorState) {
+	constructor(
+		input: NewProfileErrorState & { reasonCodes?: readonly string[] }
+	) {
 		super(input.message);
 		this.name = "NewProfileLocalSetupError";
+		this.reasonCodes = [...(input.reasonCodes ?? [])];
 		this.setupRefreshActionLabel = input.setupRefreshActionLabel;
 		this.setupRefreshAvailable = input.setupRefreshAvailable;
 	}
@@ -221,6 +225,7 @@ async function bindNewAgentProfileToLocalAgent(input: {
 	if (bindingResult.status !== "accepted") {
 		throw new NewProfileLocalSetupError({
 			message: formatWebAgentProfileRuntimeBindingFailure(bindingResult),
+			reasonCodes: bindingResult.reasonCodes,
 			setupRefreshActionLabel:
 				formatWebAgentProfileRuntimeBindingFailureActionLabel(bindingResult),
 			setupRefreshAvailable:

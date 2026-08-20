@@ -45,6 +45,7 @@ import {
 	type CreatedProfileFollowUpIssue,
 	type CreateProfileSpaceContext,
 	createProfileWithFollowUps,
+	SessionProfileCreationRolledBackError,
 } from "#/lib/profiles/create-profile-orchestration";
 import {
 	bulkAuthorizeAgentProfileBindingsForOrganization,
@@ -428,6 +429,11 @@ export function CreateProfileDialog(input: {
 			};
 		},
 		onError: (error) => {
+			if (error instanceof SessionProfileCreationRolledBackError) {
+				// Auth keeps creation idempotency records after soft deletion. A
+				// compensated Session failure therefore needs a fresh key on retry.
+				creationIntentRef.current = null;
+			}
 			const failure = toStructuredApiClientFailure(error);
 			setErrorState({
 				message:

@@ -171,6 +171,8 @@ describe("Agent Activity hook ingestion", () => {
 
     for (const [hookEventName, sessionId] of [
       ["Notification", "claude-notification"],
+      ["SessionEnd", "claude-session-end"],
+      ["StopFailure", "claude-stop-failure"],
       ["SubagentStop", "claude-subagent-stop"],
       ["Stop", "claude-stop"],
     ] as const) {
@@ -210,9 +212,19 @@ describe("Agent Activity hook ingestion", () => {
         status: "unknown",
       },
       {
+        eventType: "session_ended",
+        providerSessionId: "claude-session-end",
+        status: "ended",
+      },
+      {
         eventType: "session_idle",
         providerSessionId: "claude-stop",
         status: "idle",
+      },
+      {
+        eventType: "session_error",
+        providerSessionId: "claude-stop-failure",
+        status: "error",
       },
       {
         eventType: "session_updated",
@@ -222,17 +234,22 @@ describe("Agent Activity hook ingestion", () => {
     ]);
     await expect(
       Promise.all(
-        ["claude-notification", "claude-subagent-stop", "claude-stop"].map(
-          (providerSessionId) =>
-            readRecentAgentActivityHookStatus({
-              nowMs: 1000,
-              provider: "claude-code",
-              providerSessionId,
-              rootDir: openMeldRoot,
-            })
+        [
+          "claude-notification",
+          "claude-session-end",
+          "claude-stop-failure",
+          "claude-subagent-stop",
+          "claude-stop",
+        ].map((providerSessionId) =>
+          readRecentAgentActivityHookStatus({
+            nowMs: 1000,
+            provider: "claude-code",
+            providerSessionId,
+            rootDir: openMeldRoot,
+          })
         )
       )
-    ).resolves.toEqual([null, null, "idle"]);
+    ).resolves.toEqual([null, "ended", "error", null, "idle"]);
   });
 
   it("keeps the newest hook lifecycle and fails closed on conflicting timestamp ties", async () => {

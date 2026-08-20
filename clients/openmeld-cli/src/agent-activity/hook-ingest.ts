@@ -360,6 +360,9 @@ function claudeCodeHookStatus(
   name: string,
   providerStatus: unknown
 ): AgentActivityEvent["status"] {
+  if (name === "StopFailure") {
+    return "error";
+  }
   if (name === "SessionEnd") {
     return text(providerStatus) === "error" ? "error" : "ended";
   }

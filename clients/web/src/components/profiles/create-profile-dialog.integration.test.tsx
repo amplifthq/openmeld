@@ -35,6 +35,7 @@ const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const getProfileCapabilitiesMock = vi.hoisted(() => vi.fn());
 const createStartHumanProfileMock = vi.hoisted(() => vi.fn());
 const createStartAgentProfileMock = vi.hoisted(() => vi.fn());
+const deleteStartAgentProfileMock = vi.hoisted(() => vi.fn());
 const addMembersMock = vi.hoisted(() => vi.fn());
 const recordProfileSpaceHistoryMock = vi.hoisted(() => vi.fn());
 const refreshAllMock = vi.hoisted(() => vi.fn());
@@ -100,6 +101,12 @@ vi.mock("#/lib/profiles/create-agent-profile", () => ({
 	createStartAgentProfile: (
 		...args: Parameters<typeof createStartAgentProfileMock>
 	) => createStartAgentProfileMock(...args),
+}));
+
+vi.mock("#/lib/profiles/delete-agent-profile", () => ({
+	deleteStartAgentProfile: (
+		...args: Parameters<typeof deleteStartAgentProfileMock>
+	) => deleteStartAgentProfileMock(...args),
 }));
 
 vi.mock("#/lib/spaces/api", () => ({
@@ -487,6 +494,9 @@ describe("CreateProfileDialog", () => {
 		createStartAgentProfileMock
 			.mockReset()
 			.mockResolvedValue(buildAgentProfileFixture());
+		deleteStartAgentProfileMock
+			.mockReset()
+			.mockResolvedValue(buildAgentProfileFixture());
 		addMembersMock.mockReset().mockResolvedValue({
 			addedMemberIds: [NEW_AGENT_ID],
 			alreadyMemberIds: [],
@@ -668,6 +678,80 @@ describe("CreateProfileDialog", () => {
 				})
 			);
 		});
+	});
+
+	it("uses a fresh creation key after stale Resume cleanup", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		ensureRuntimeBindingMock
+			.mockResolvedValueOnce({
+				agentControllerRef: "builtin:codex",
+				reason: "binding_rejected",
+				reasonCodes: ["agent_profile_binding.session_resume_unavailable"],
+				routable: false,
+				status: "rejected",
+			})
+			.mockResolvedValueOnce({
+				agentControllerRef: "builtin:codex",
+				deviceId: "device-session",
+				lane: "canary",
+				outcome: "created",
+				reasonCodes: ["agent_profile_binding.command_eligible"],
+				routable: true,
+				openMeldServiceRuntimeId: {
+					source: "runtime_registry_authority",
+					value: "runtime-123",
+				},
+				status: "accepted",
+			});
+		renderCreateProfileDialog({
+			agentActivitySessionPreset: {
+				agentControllerRef: "builtin:codex",
+				computerId: "computer-session",
+				localAgentName: "Codex",
+				mode: "resume",
+				nativeSessionId: "native-codex-thread-1",
+				nativeSessionTitle: "Build Session Inventory",
+				organizationId: "organization-123",
+				ownerUserId: "user-123",
+				projectId: "project-1",
+				provider: "codex",
+				status: "idle",
+			},
+			recovery: buildCrossComputerRecovery(),
+		});
+
+		const submitButton = await screen.findByRole("button", {
+			name: CREATE_PROFILE_BUTTON_PATTERN,
+		});
+		fireEvent.click(
+			await screen.findByRole("combobox", { name: "Working folder" })
+		);
+		fireEvent.click(
+			screen.getByRole("option", { name: "Let OpenMeld choose" })
+		);
+		await waitFor(() => {
+			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
+		});
+		fireEvent.click(submitButton);
+
+		await waitFor(() => {
+			expect(deleteStartAgentProfileMock).toHaveBeenCalledWith({
+				data: NEW_AGENT_ID,
+			});
+			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
+		});
+		const firstKey =
+			createStartAgentProfileMock.mock.calls[0]?.[0].data.idempotencyKey;
+		fireEvent.click(submitButton);
+
+		await waitFor(() => {
+			expect(createStartAgentProfileMock).toHaveBeenCalledTimes(2);
+		});
+		const secondKey =
+			createStartAgentProfileMock.mock.calls[1]?.[0].data.idempotencyKey;
+		expect(firstKey).toEqual(expect.any(String));
+		expect(secondKey).toEqual(expect.any(String));
+		expect(secondKey).not.toBe(firstKey);
 	});
 
 	afterEach(() => {
