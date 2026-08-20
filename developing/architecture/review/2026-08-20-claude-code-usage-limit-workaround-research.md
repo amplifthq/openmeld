@@ -12,6 +12,8 @@
   or execution authority.
 - Source of truth: This file is dated research evidence. Product and architecture
   owner documents remain authoritative.
+- Remove this file once the passive Claude Code contract, provider limitations,
+  and live numeric acceptance evidence are fully absorbed into owner documents.
 
 Date: 2026-08-20
 
