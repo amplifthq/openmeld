@@ -64,6 +64,7 @@ describe("Profile Details snapshot", () => {
         openMeldProfileId: "agt_7600b644-500a-4955-b807-ece84ecc68187",
         createdAt: "2026-06-18T00:00:00.000Z",
         createdByUserId: "user-1",
+        creationActorProfileId: "agt_11111111-1111-4111-8111-111111111111",
         creatorProfileId: "human-1",
         isDefault: false,
         lastUsedAt: null,
@@ -73,7 +74,7 @@ describe("Profile Details snapshot", () => {
         profileHandle: "codex-setup-interviewer-20260618",
         profileKind: "agent",
         profileName: "Codex Setup Interviewer 20260618",
-        source: "user",
+        source: "center_agent_create",
         status: "active",
         updatedAt: "2026-06-19T00:00:00.000Z",
       },
@@ -89,6 +90,12 @@ describe("Profile Details snapshot", () => {
       "Advanced details",
     ]);
     expect(findRowValue(snapshot, "profile", "Owner")).toBe("Felix");
+    expect(findRowValue(snapshot, "profile", "Created by")).toBe(
+      "Center Agent"
+    );
+    expect(findRowValue(snapshot, "profile", "Created from")).toBe(
+      "Center Agent"
+    );
     expect(findRowValue(snapshot, "profile", "Created")).toBe("Jun 18, 2026");
     expect(findRowValue(snapshot, "profile", "Updated")).toBe("Jun 19, 2026");
     expect(findRowValue(snapshot, "connection", "Agent controller")).toBe(
@@ -111,6 +118,9 @@ describe("Profile Details snapshot", () => {
     });
     expect(findRowValue(snapshot, "advanced", "Binding source")).toBe(
       "Binding Truth"
+    );
+    expect(findRowValue(snapshot, "advanced", "Created by profile ID")).toBe(
+      "agt_11111111-1111-4111-8111-111111111111"
     );
     expect(
       findRowValue(

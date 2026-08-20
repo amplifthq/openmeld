@@ -112,6 +112,18 @@ export function buildProfileDetailsSnapshotFromAuthProfile(input: {
           value: input.profile.ownerName ?? input.profile.ownerUserId,
         }),
         textRow({
+          id: "created_by",
+          label: "Created by",
+          source: "profile_identity",
+          value: resolveProfileCreationActorLabel(input.profile),
+        }),
+        textRow({
+          id: "created_from",
+          label: "Created from",
+          source: "profile_identity",
+          value: formatProfileCreationSource(input.profile.source),
+        }),
+        textRow({
           id: "status",
           label: "Status",
           source: "profile_identity",
@@ -150,6 +162,7 @@ export function buildProfileDetailsSnapshotFromAuthProfile(input: {
       buildAdvancedDetailsSection({
         bindingSource: input.primaryBinding?.resolutionSource,
         bindingState: input.primaryBinding?.bindingState,
+        creationActorProfileId: input.profile.creationActorProfileId,
         profileId: input.profile.openMeldProfileId,
         wakePhase: wakeAvailability?.phase,
         wakeReasonCode: wakeAvailability?.reasonCode,
@@ -319,6 +332,7 @@ function buildAdvancedDetailsSection(input: {
   addedByProfileId?: string | null;
   bindingSource?: string | null;
   bindingState?: string | null;
+  creationActorProfileId?: string | null;
   profileId: string;
   wakePhase?: string | null;
   wakeReasonCode?: string | null;
@@ -340,6 +354,15 @@ function buildAdvancedDetailsSection(input: {
       successMessage: "Profile ID copied.",
       value: input.addedByProfileId,
       valueKind: "identifier",
+    }),
+    copyableRow({
+      id: "created_by_profile_id",
+      label: "Created by profile ID",
+      source: "profile_identity",
+      successMessage: "Profile ID copied.",
+      value: input.creationActorProfileId,
+      valueKind: "identifier",
+      visibility: "owner_self",
     }),
     copyableRow({
       id: "workspace_directory",
@@ -383,6 +406,49 @@ function buildAdvancedDetailsSection(input: {
       visibility: "owner_self",
     }),
   ]);
+}
+
+function resolveProfileCreationActorLabel(
+  profile: Pick<
+    AuthProfileView,
+    "creationActorProfileId" | "ownerName" | "ownerUserId" | "source"
+  >
+): string | null {
+  switch (profile.source) {
+    case "center_agent_create":
+      return "Center Agent";
+    case "local_agent_create":
+      return "Local agent";
+    case "auth_bootstrap":
+    case "migration":
+      return "OpenMeld";
+    case "cli_create":
+    case "web_create":
+      return profile.ownerName ?? profile.ownerUserId;
+    default:
+      return profile.creationActorProfileId
+        ? (profile.ownerName ?? profile.ownerUserId)
+        : null;
+  }
+}
+
+function formatProfileCreationSource(source: string): string | null {
+  switch (source) {
+    case "auth_bootstrap":
+      return "OpenMeld setup";
+    case "web_create":
+      return "OpenMeld Web";
+    case "cli_create":
+      return "OpenMeld CLI";
+    case "local_agent_create":
+      return "Local agent";
+    case "center_agent_create":
+      return "Center Agent";
+    case "migration":
+      return "OpenMeld migration";
+    default:
+      return formatSnakeCaseValue(source);
+  }
 }
 
 function buildDetailsSnapshot(input: {
