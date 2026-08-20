@@ -41,6 +41,8 @@ describe("fresh Web Start user cleanup", () => {
         });
         seedOpenMeldProductState(database, "user-fresh");
         seedOpenMeldProductState(database, "user-other");
+        seedAgentActivitySessionInventory(database, "user-fresh");
+        seedAgentActivitySessionInventory(database, "user-other");
 
         const localDbTargets: FreshWebStartLocalDbTarget[] = [
           {
@@ -61,6 +63,9 @@ describe("fresh Web Start user cleanup", () => {
           userId: "user-fresh",
         });
         expect(result.counts).toMatchObject({
+          agentActivitySessionInventory: 1,
+          agentActivitySessionInventoryCandidates: 1,
+          agentActivitySessionInventorySources: 1,
           openMeldProfiles: 2,
           openMeldProfileSpaceHistory: 2,
           openMeldSpaceDeletionTombstones: 1,
@@ -82,6 +87,27 @@ describe("fresh Web Start user cleanup", () => {
           readCount(
             database,
             "openmeld_profiles",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "agent_activity_session_inventory",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "agent_activity_session_inventory_candidates",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "agent_activity_session_inventory_sources",
             "owner_user_id = 'user-fresh'"
           )
         ).toBe(0);
@@ -119,6 +145,13 @@ describe("fresh Web Start user cleanup", () => {
           readCount(
             database,
             "openMeldDaemon_owned_devices",
+            "owner_user_id = 'user-other'"
+          )
+        ).toBe(1);
+        expect(
+          readCount(
+            database,
+            "agent_activity_session_inventory",
             "owner_user_id = 'user-other'"
           )
         ).toBe(1);
@@ -572,6 +605,113 @@ function seedCoreSideOpenMeldProductState(
       ) VALUES (?, ?, ?)`
     )
     .run(ownerUserId, `device-${ownerUserId}`, now);
+}
+
+function seedAgentActivitySessionInventory(
+  database: BetterSqliteDatabase,
+  ownerUserId: string
+): void {
+  const now = 1_700_000_100_000;
+  const organizationId =
+    ownerUserId === "user-fresh" ? "org-fresh" : "org-other";
+  const projectId = `project-${ownerUserId}`;
+  const sourceScopeKey = `source-${ownerUserId}`;
+  const nativeSessionId = `native-${ownerUserId}`;
+  const localConnectionId = `sha256:${"a".repeat(64)}`;
+
+  database
+    .prepare(
+      `INSERT INTO projects (
+        id, organization_id, name, slug, created_by_user_id,
+        created_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      projectId,
+      organizationId,
+      `Project for ${ownerUserId}`,
+      `project-${ownerUserId}`,
+      ownerUserId,
+      now,
+      now
+    );
+  database
+    .prepare(
+      `INSERT INTO agent_activity_session_inventory (
+        id, organization_id, owner_user_id, agent_controller_ref,
+        native_session_id, project_id, device_id, connected_computer_id,
+        local_connection_id, source_scope_key, provider, native_session_title,
+        status, last_active_at_ms, started_at_ms, origin, can_resume, can_fork,
+        visible, source_reconciliation_id, observed_at_ms, published_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, 'builtin:codex', ?, ?, ?, ?, ?, ?, 'codex',
+        'Private native title', 'unknown', ?, ?, 'local', 1, 0, 1,
+        'reconcile-1', ?, ?, ?)`
+    )
+    .run(
+      `inventory-${ownerUserId}`,
+      organizationId,
+      ownerUserId,
+      nativeSessionId,
+      projectId,
+      `device-${ownerUserId}`,
+      `computer-${ownerUserId}`,
+      localConnectionId,
+      sourceScopeKey,
+      now,
+      now - 1000,
+      now,
+      now,
+      now
+    );
+  database
+    .prepare(
+      `INSERT INTO agent_activity_session_inventory_candidates (
+        id, source_scope_key, reconciliation_id, page_index, organization_id,
+        owner_user_id, agent_controller_ref, native_session_id, project_id,
+        device_id, connected_computer_id, local_connection_id, provider,
+        native_session_title, status, last_active_at_ms, started_at_ms, origin,
+        can_resume, can_fork, observed_at_ms, created_at_ms
+      ) VALUES (?, ?, 'reconcile-2', 0, ?, ?, 'builtin:codex', ?, ?, ?, ?, ?,
+        'codex', 'Private candidate title', 'unknown', ?, ?, 'local', 1, 0, ?, ?)`
+    )
+    .run(
+      `candidate-${ownerUserId}`,
+      sourceScopeKey,
+      organizationId,
+      ownerUserId,
+      nativeSessionId,
+      projectId,
+      `device-${ownerUserId}`,
+      `computer-${ownerUserId}`,
+      localConnectionId,
+      now,
+      now - 1000,
+      now,
+      now
+    );
+  database
+    .prepare(
+      `INSERT INTO agent_activity_session_inventory_sources (
+        source_scope_key, organization_id, owner_user_id, project_id,
+        device_id, connected_computer_id, local_connection_id,
+        agent_controller_ref, provider, state, current_reconciliation_id,
+        next_page_index, last_attempt_at_ms, last_complete_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'builtin:codex', 'codex', 'current',
+        null, 0, ?, ?, ?)`
+    )
+    .run(
+      sourceScopeKey,
+      organizationId,
+      ownerUserId,
+      projectId,
+      `device-${ownerUserId}`,
+      `computer-${ownerUserId}`,
+      localConnectionId,
+      now,
+      now,
+      now
+    );
 }
 
 function readCount(

@@ -8,6 +8,9 @@ import {
 const SQLITE_BUSY_ERROR_RE = /database is locked|busy/i;
 
 export type FreshWebStartUserCleanupCounts = {
+  agentActivitySessionInventory: number;
+  agentActivitySessionInventoryCandidates: number;
+  agentActivitySessionInventorySources: number;
   openMeldProfileSpaceHistory: number;
   openMeldProfiles: number;
   openMeldSpaceDeletionTombstones: number;
@@ -41,6 +44,9 @@ type CleanupUserRow = {
 type BetterSqliteDatabase = Database.Database;
 
 const DEFAULT_COUNTS: FreshWebStartUserCleanupCounts = {
+  agentActivitySessionInventory: 0,
+  agentActivitySessionInventoryCandidates: 0,
+  agentActivitySessionInventorySources: 0,
   openMeldProfileSpaceHistory: 0,
   openMeldProfiles: 0,
   openMeldSpaceDeletionTombstones: 0,
@@ -157,6 +163,21 @@ export const runFreshWebStartUserCleanup = (input: {
       const targetCounts = database.transaction(() => {
         const nextCounts = { ...DEFAULT_COUNTS };
 
+        nextCounts.agentActivitySessionInventoryCandidates = runDelete(
+          database,
+          "DELETE FROM agent_activity_session_inventory_candidates WHERE owner_user_id = ?",
+          [userRow.userId]
+        );
+        nextCounts.agentActivitySessionInventory = runDelete(
+          database,
+          "DELETE FROM agent_activity_session_inventory WHERE owner_user_id = ?",
+          [userRow.userId]
+        );
+        nextCounts.agentActivitySessionInventorySources = runDelete(
+          database,
+          "DELETE FROM agent_activity_session_inventory_sources WHERE owner_user_id = ?",
+          [userRow.userId]
+        );
         nextCounts.openMeldProfileSpaceHistory = runDelete(
           database,
           `DELETE FROM openmeld_profile_space_history
@@ -207,6 +228,12 @@ export const runFreshWebStartUserCleanup = (input: {
 
       counts.openMeldProfileSpaceHistory +=
         targetCounts.openMeldProfileSpaceHistory;
+      counts.agentActivitySessionInventory +=
+        targetCounts.agentActivitySessionInventory;
+      counts.agentActivitySessionInventoryCandidates +=
+        targetCounts.agentActivitySessionInventoryCandidates;
+      counts.agentActivitySessionInventorySources +=
+        targetCounts.agentActivitySessionInventorySources;
       counts.openMeldProfiles += targetCounts.openMeldProfiles;
       counts.openMeldSpaceDeletionTombstones +=
         targetCounts.openMeldSpaceDeletionTombstones;
