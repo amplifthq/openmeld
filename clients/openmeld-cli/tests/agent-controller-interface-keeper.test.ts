@@ -22,10 +22,12 @@ import {
   ageAgentControllerInterfaceKeeperForTests,
   buildAgentControllerInterfaceKeeperKey,
   consumeArmedAgentControllerInterfaceReprobe,
+  readLastKnownAgentControllerUsageLimits,
   readLastSuccessfulAgentControllerInterfaceCheckAt,
   readReusableAgentControllerInterfaceSnapshot,
   recordAgentControllerInterfaceProbeFailure,
   recordAgentControllerInterfaceProbeSuccess,
+  recordAgentControllerUsageLimitsObservation,
   resetAgentControllerInterfaceKeeperForTests,
   resolveAgentControllerCommandFingerprint,
   resolveNextRuntimeAgentControllerReportSyncAtMs,
@@ -730,6 +732,128 @@ describe("agent controller interface re-probe orchestration", () => {
         keeperKey,
       })
     ).toBe(completedAt);
+  });
+
+  it("merges passive provider usage evidence into the existing ACI snapshot", () => {
+    recordAgentControllerInterfaceProbeSuccess({
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      nowMs: 1000,
+      snapshot: {
+        ...completedSnapshot(),
+        usageLimits: [
+          {
+            key: "provider",
+            label: "Usage limits",
+            observedAt: "2026-07-03T10:00:00.000Z",
+            resetsAt: null,
+            status: "unavailable",
+            usedPercent: null,
+          },
+        ],
+      },
+    });
+    recordAgentControllerUsageLimitsObservation({
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      usageLimits: [
+        {
+          key: "claude-code:five-hour",
+          label: "5-hour usage limit",
+          observedAt: "2026-07-03T10:01:00.000Z",
+          resetsAt: "2026-07-03T15:00:00.000Z",
+          status: "available",
+          usedPercent: 82,
+        },
+      ],
+    });
+
+    expect(
+      readLastKnownAgentControllerUsageLimits({
+        commandFingerprint: COMMAND_FINGERPRINT,
+        keeperKey,
+      })
+    ).toEqual([
+      {
+        key: "claude-code:five-hour",
+        label: "5-hour usage limit",
+        observedAt: "2026-07-03T10:01:00.000Z",
+        resetsAt: "2026-07-03T15:00:00.000Z",
+        status: "available",
+        usedPercent: 82,
+      },
+    ]);
+  });
+
+  it("retains passive usage evidence observed before the first completed probe", () => {
+    const usageLimits = [
+      {
+        key: "claude-code:seven-day",
+        label: "Weekly usage limit",
+        observedAt: "2026-07-03T10:01:00.000Z",
+        resetsAt: null,
+        status: "available" as const,
+        usedPercent: 45,
+      },
+    ];
+    recordAgentControllerUsageLimitsObservation({
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      usageLimits,
+    });
+    recordAgentControllerInterfaceProbeSuccess({
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      nowMs: 1000,
+      snapshot: completedSnapshot(),
+    });
+
+    expect(
+      readLastKnownAgentControllerUsageLimits({
+        commandFingerprint: COMMAND_FINGERPRINT,
+        keeperKey,
+      })
+    ).toEqual(usageLimits);
+  });
+
+  it("does not let an older concurrent passive observation replace newer evidence", () => {
+    const newerLimit = {
+      key: "claude-code:five-hour",
+      label: "5-hour usage limit",
+      observedAt: "2026-07-03T10:02:00.000Z",
+      resetsAt: null,
+      status: "available" as const,
+      usedPercent: 88,
+    };
+    recordAgentControllerUsageLimitsObservation({
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      usageLimits: [newerLimit],
+    });
+    recordAgentControllerUsageLimitsObservation({
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      usageLimits: [
+        {
+          ...newerLimit,
+          observedAt: "2026-07-03T10:01:00.000Z",
+          usedPercent: 70,
+        },
+      ],
+    });
+
+    recordAgentControllerInterfaceProbeSuccess({
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      nowMs: 1000,
+      snapshot: completedSnapshot(),
+    });
+    expect(
+      readLastKnownAgentControllerUsageLimits({
+        commandFingerprint: COMMAND_FINGERPRINT,
+        keeperKey,
+      })
+    ).toEqual([newerLimit]);
   });
 
   it("keeps authenticated historical evidence without reusing it after a failed probe", () => {

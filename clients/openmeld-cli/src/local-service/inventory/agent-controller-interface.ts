@@ -48,6 +48,7 @@ import {
   resolveAgentControllerCommandFingerprint,
 } from "./agent-controller-interface-keeper";
 import { probeOpenCodeReadiness } from "./opencode-readiness-probe";
+import { resolveLaunchContractCommandPath } from "./runtime-provider-usage-limits";
 
 const PROBE_TIMEOUT_MS = 8000;
 const CODEX_AUX_INVENTORY_GRACE_MS = 2500;
@@ -1682,14 +1683,6 @@ function parseCliVersion(output: string): string | null {
   }
   const semver = normalized.match(CLI_SEMVER_RE);
   return semver?.[1] ?? normalized.split(WHITESPACE_RE).at(-1) ?? normalized;
-}
-
-function resolveLaunchContractCommandPath(
-  launchContract: RuntimeAgentControllerLaunchContract
-): string {
-  return launchContract.kind === "executable"
-    ? launchContract.commandPath
-    : launchContract.scriptPath;
 }
 
 function parseJsonRpcMessage(line: string): JsonRpcMessage | null {

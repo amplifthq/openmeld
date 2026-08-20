@@ -104,7 +104,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyClaudeCodeLaunchContract,
     },
     nativeInterface: "claude-agent-sdk",
-    usageLimitSupport: "unsupported",
+    usageLimitSupport: "native",
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "claude-code" },
       npmPackageName: "@anthropic-ai/claude-code",

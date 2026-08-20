@@ -120,6 +120,7 @@ import { DaemonServiceRunError } from "../core/types";
 import { resolveComputerFileAccessAdmission } from "../file-access/computer-file-access-admission";
 import { applyComputerFileAccessAwareness } from "../file-access/computer-file-access-prompt";
 import { readComputerFileAccessPolicy } from "../file-access/computer-file-access-store";
+import { recordRuntimeProviderUsageLimits } from "../inventory/runtime-provider-usage-limits";
 import {
   buildRuntimeRouteTargets,
   resolveLocalRuntimeControllerSupport,
@@ -1378,6 +1379,33 @@ export async function handleDispatchDeliverFrame(input: {
               agentControllerConversationId:
                 event.agentControllerConversationId,
               source: "runtime_event",
+            });
+          }
+          if (
+            event.phase === "provider_usage_limits_observed" &&
+            routeConfig?.launchContract
+          ) {
+            const recordUsageLimits = recordRuntimeProviderUsageLimits({
+              agentId: runtimeControllerSupport.runtimeAdapterMatch.adapterId,
+              launchContract: routeConfig.launchContract,
+              usageLimits: event.usageLimits,
+            });
+            recordUsageLimits.catch((error) => {
+              emitRunLine({
+                presenter: input.presenter,
+                code: "daemon.run.provider_usage_limits_observation_ignored",
+                text: `provider usage limit observation could not be retained for task ${parsedTask.taskId}`,
+                payload: {
+                  agentControllerRef: parsedTask.agentControllerRef,
+                  dispatchId: parsedTask.dispatchId,
+                  errorMessage: toErrorMessage(error),
+                  observedLimitKeys: event.usageLimits.map(
+                    (limit) => limit.key
+                  ),
+                  targetProfileId: parsedTask.targetProfileId,
+                  taskId: parsedTask.taskId,
+                },
+              });
             });
           }
           if (

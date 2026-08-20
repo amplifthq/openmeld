@@ -101,6 +101,7 @@ export {
   ClaudeCliTransportError,
   invokeClaudeCliTransport,
 } from "./transport/claude-cli-transport.js";
+export { projectClaudeCodeUsageLimits } from "./usage/claude-code-usage-limits.js";
 
 const CLAUDE_CODE_CONVERSATION_BRIDGE_SPEC =
   resolveBuiltinAdapterConversationBridgeSpec("claude-code");
