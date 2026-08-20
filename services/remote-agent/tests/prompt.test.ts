@@ -310,6 +310,21 @@ describe("remote agent system prompt", () => {
     );
   });
 
+  it("teaches the Center Agent to use authoritative People directory facts", () => {
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Use openmeld_read_organization_directory for Organization membership, role, Human Profile identity, Agent Profile ownership, or latest accepted Human activity."
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Match Agent Profiles to members by exact ownerUserId."
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "A missing lastActiveAt means OpenMeld has no authoritative Human activity timestamp"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "never substitute Computer, login/session, or Agent Activity time"
+    );
+  });
+
   it("keeps Opportunity recommendations evidence-backed and separate from execution", () => {
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
       "one concrete, evidence-backed recommendation for the current verified member"

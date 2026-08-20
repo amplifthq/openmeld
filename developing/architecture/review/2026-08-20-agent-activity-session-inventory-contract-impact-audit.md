@@ -48,7 +48,7 @@ Organization, Owner, Project, Computer, provider, Session, and capability.
 | Local reconciliation | New provider observations and page/result submissions | Local OpenMeld Service is observer/carrier; Core remains inventory owner |
 | Local Service control plane | Additive `request_agent_activity_sync` command for immediate post-disconnect reconciliation | CLI requests; the current local Service schedules the canonical sync loop |
 | Center Agent RPC/tool | Additive read-only paginated Session Inventory | Core authorization and projection; Remote Agent tool receiver |
-| Core D1 | Migration 0130 adds canonical inventory, private candidate, and source-health tables | Core only |
+| Core D1 | Migration 0131 adds canonical inventory, private candidate, and source-health tables | Core only |
 
 No existing Activity snapshot field changes meaning. Historical Activity
 evidence and retention remain separate from the current selectable inventory.
@@ -67,13 +67,13 @@ evidence and retention remain separate from the current selectable inventory.
 | Old OpenMeld Skill with new CLI | Existing commands continue; the old Skill does not discover the new Session command |
 | New OpenMeld Skill with old CLI | `activity sessions` is unavailable; release stamping keeps Skill and CLI delivery aligned |
 | New CLI with old local Service | The additive immediate-sync control request is rejected as a contract mismatch; unbind remains local and the persisted source set reconciles after the Service is upgraded or on its next compatible run |
-| New Core with a pre-0130 database | Forbidden rollout order: Session queries and atomic Forget Computer cleanup require the additive inventory tables; apply migration 0130 before deploying Core |
+| New Core with a pre-0131 database | Forbidden rollout order: Session queries and atomic Forget Computer cleanup require the additive inventory tables; apply migration 0131 before deploying Core |
 
 ## Required Rollout And Rollback Order
 
 Rollout order:
 
-1. Apply Core D1 migration 0130. This feature PR does not deploy or mutate
+1. Apply Core D1 migration 0131. This feature PR does not deploy or mutate
    production data and does not migrate or repair Binding rows.
 2. Deploy shared-schema receivers and Core RPC/repository support without
    enabling new callers prematurely.
@@ -85,7 +85,7 @@ Rollout order:
    the product delivered.
 
 Rollback reverses caller order: roll back local components and Skills first,
-then Web/Remote Agent/Gateway callers, then Core code. Migration 0130 can remain
+then Web/Remote Agent/Gateway callers, then Core code. Migration 0131 can remain
 as additive inventory storage. Rollback must not delete
 historical Activity evidence or rewrite Binding/Profile data.
 

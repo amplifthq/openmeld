@@ -525,7 +525,7 @@ function createRouteFetch(input: {
 			}
 			if (
 				route ===
-				`GET ${origin}/v1/organizations/current/directory?includeHumanProfileLastUsedAt=true`
+				`GET ${origin}/v1/organizations/current/directory?includeMemberLastActiveAt=true`
 			) {
 				return jsonResponse({
 					agentProfiles: [],

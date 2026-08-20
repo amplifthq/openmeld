@@ -224,6 +224,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         request,
         "openmeld_read_organization_directory"
       ),
+      includeMemberLastActiveAt: true,
       speakerMember: {
         displayName: "Ashley",
         kind: "anonymous_member",
@@ -4661,7 +4662,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_create_task",
     },
     {
-      expectedPayload: {},
+      expectedPayload: { includeMemberLastActiveAt: true },
       input: {},
       response: organizationDirectoryResponse(),
       rpcName: "centerAgentGetOrganizationDirectory",

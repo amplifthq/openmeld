@@ -1,4 +1,7 @@
-import { ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER } from "@openmeld/gateway-contract";
+import {
+  ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER,
+  ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER,
+} from "@openmeld/gateway-contract";
 import {
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
@@ -68,18 +71,28 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       c.req.query(
         ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER
       ) === "true";
+    const includeMemberLastActiveAt =
+      c.req.query(
+        ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER
+      ) === "true";
 
     return executeRpcRoute({
       c,
       route: CURRENT_ORGANIZATION_DIRECTORY_ROUTE,
       method: "GET",
       responseSchema: organizationDirectoryResponseSchema,
-      resolveSuccessPayload: includeHumanProfileLastUsedAt
-        ? undefined
-        : removeHumanProfileLastUsedAt,
+      resolveSuccessPayload: (result) =>
+        projectOrganizationDirectoryResponse({
+          includeHumanProfileLastUsedAt,
+          includeMemberLastActiveAt,
+          result,
+        }),
       execute: async () =>
         await c.var.coreRpc.getCurrentOrganizationDirectory({
           context: buildCoreRpcContext(c),
+          ...(includeMemberLastActiveAt
+            ? { includeMemberLastActiveAt: true }
+            : {}),
         }),
     });
   });
@@ -597,30 +610,41 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
   });
 }
 
-function removeHumanProfileLastUsedAt(result: unknown): unknown {
-  const parsed = organizationDirectoryResponseSchema.safeParse(result);
+function projectOrganizationDirectoryResponse(input: {
+  includeHumanProfileLastUsedAt: boolean;
+  includeMemberLastActiveAt: boolean;
+  result: unknown;
+}): unknown {
+  const parsed = organizationDirectoryResponseSchema.safeParse(input.result);
   if (!parsed.success) {
-    return result;
+    return input.result;
   }
 
   return {
     ...parsed.data,
     members: parsed.data.members.map((member) => {
       const humanProfile = member.humanProfile;
-      if (!humanProfile) {
-        return member;
-      }
-
       return {
-        ...member,
-        humanProfile: {
-          profileId: humanProfile.profileId,
-          profileName: humanProfile.profileName,
-          profileHandle: humanProfile.profileHandle,
-          status: humanProfile.status,
-        } satisfies NonNullable<
-          OrganizationDirectoryResponse["members"][number]["humanProfile"]
-        >,
+        ...(input.includeMemberLastActiveAt && member.lastActiveAt
+          ? { lastActiveAt: member.lastActiveAt }
+          : {}),
+        memberId: member.memberId,
+        organizationId: member.organizationId,
+        userId: member.userId,
+        role: member.role,
+        joinedAt: member.joinedAt,
+        user: member.user,
+        humanProfile: humanProfile
+          ? {
+              ...(input.includeHumanProfileLastUsedAt && humanProfile.lastUsedAt
+                ? { lastUsedAt: humanProfile.lastUsedAt }
+                : {}),
+              profileId: humanProfile.profileId,
+              profileName: humanProfile.profileName,
+              profileHandle: humanProfile.profileHandle,
+              status: humanProfile.status,
+            }
+          : null,
       };
     }),
   } satisfies OrganizationDirectoryResponse;

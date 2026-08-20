@@ -327,6 +327,14 @@ is personal.
 Future per-Project or per-member permissions may narrow reads. MVP code must
 not invent hidden ACL state before that shared permission system exists.
 
+The People directory's member `lastActiveAt` is not Agent Activity. It is a
+separate Core-owned, Organization-scoped projection of the latest accepted,
+persisted text Signal authored by that member's current Human Profile. Agent
+Activity provider events, Computer heartbeats, OpenMeld Service presence, login
+or session refresh, and Agent Profile work must never update or backfill it.
+When no authoritative Human Signal has been observed, clients omit recent
+Human activity instead of borrowing a timestamp from this product.
+
 ## Retention And Digests
 
 - Level-zero events are retained for 14 days.
@@ -427,7 +435,7 @@ Projects use migration 0029. Activity events, legacy sessions, digests, daily
 aggregates, and execution links use migration 0030. Retention sweep indexes use
 migration 0031. Active duration in daily aggregates uses migration 0032. The
 complete Session Inventory, private reconciliation candidates, and source
-coverage use migration 0130. All migrations are forward-only.
+coverage use migration 0131. All migrations are forward-only.
 
 Reporting uses the existing CLI/OpenMeld Service coordinated release path.
 Old servers that return 404 keep the local outbox and back off without
@@ -454,7 +462,7 @@ Rollback removes the Web request first, then Gateway, then Core. Session-title
 reporting itself reuses the existing optional `title` event field, so old cloud
 code and old local observers remain interoperable.
 
-The safe Session Inventory order is migration 0130, shared schema consumers,
+The safe Session Inventory order is migration 0131, shared schema consumers,
 Core, Gateway and API clients, Web/CLI/agent readers, then the local observer
 producer. Agent Activity does not add or migrate Binding constraints; the
 Binding owner continues to adjudicate historical duplicate conversations. An

@@ -322,7 +322,7 @@ describe("computer summary status", () => {
 	it.each([
 		["connected", "ready", "OpenMeld Tools are ready"],
 		["needs_attention", "warning", "OpenMeld Tools need an update"],
-		["not_connected", "danger", "OpenMeld Tools are not connected"],
+		["not_connected", "danger", "Not connected"],
 		["unknown", "muted", "OpenMeld Tools status unavailable"],
 	] as const)("maps an Organization computer's %s projection to %s", (serviceState, tone, label) => {
 		expect(

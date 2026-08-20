@@ -6,7 +6,7 @@ afterEach(() => {
 });
 
 describe("readCurrentOrganizationDirectory", () => {
-	it("requests Human Profile activity while remaining compatible with older gateways", async () => {
+	it("requests authoritative member activity from the Organization directory", async () => {
 		const fetchMock = vi.fn(async () =>
 			Response.json({
 				agentProfiles: [],
@@ -21,7 +21,7 @@ describe("readCurrentOrganizationDirectory", () => {
 
 		expect(fetchMock).toHaveBeenCalledWith(
 			expect.stringContaining(
-				"/v1/organizations/current/directory?includeHumanProfileLastUsedAt=true"
+				"/v1/organizations/current/directory?includeMemberLastActiveAt=true"
 			),
 			expect.objectContaining({ credentials: "include" })
 		);
