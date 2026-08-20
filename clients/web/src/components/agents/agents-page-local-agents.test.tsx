@@ -2,6 +2,7 @@ import type {
 	AgentControllerInterfaceSnapshot,
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
+	OrganizationComputerLocalAgentDetails,
 } from "@openmeld/schemas/types";
 import type { ComputerReplyReadiness } from "@openmeld/start";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -22,6 +23,7 @@ import {
 } from "./agents-page-local-agents";
 
 const HOMEBREW_INSTALLATION_NAME = /Homebrew installation/;
+const LOW_CODEX_USAGE_GAUGE_NAME = /Codex 5-hour usage, 84% used, Low/u;
 
 const toastMock = vi.hoisted(() =>
 	Object.assign(vi.fn(), {
@@ -113,6 +115,80 @@ describe("LocalAgentsCard", () => {
 		cleanup();
 		vi.useRealTimers();
 		vi.clearAllMocks();
+	});
+
+	it("shows the same usage gauges for owned and teammate Computers", () => {
+		const usageLimits: NonNullable<
+			AgentControllerInterfaceSnapshot["usageLimits"]
+		> = [
+			{
+				key: "codex:primary",
+				label: "5-hour usage",
+				observedAt: "2026-08-20T07:55:00.000Z",
+				resetsAt: "2026-08-20T12:00:00.000Z",
+				status: "available",
+				usedPercent: 84,
+			},
+		];
+		renderLocalAgentsCard({
+			includeAgentControllerInterface: true,
+			setEnabledSupported: true,
+			usageLimits,
+		});
+
+		expect(
+			screen.getByRole("progressbar", {
+				name: LOW_CODEX_USAGE_GAUGE_NAME,
+			})
+		).toBeTruthy();
+		cleanup();
+
+		const details: OrganizationComputerLocalAgentDetails = {
+			capabilities: {
+				approvals: true,
+				cancel: true,
+				interrupt: true,
+				modelSelection: true,
+				nativeEventStream: true,
+				permissionModes: true,
+				structuredUserInput: false,
+			},
+			checkedAt: "2026-08-20T08:00:00.000Z",
+			launch: { installChoiceCount: 1, status: "ready" },
+			models: [{ displayName: "GPT-5.5" }],
+			nativeInterface: "codex-app-server",
+			status: "ready",
+			usageLimits,
+			version: "0.148.0",
+		};
+		render(
+			<LocalAgentsCard
+				computer={{
+					deviceDisplayName: "Maya's Mac",
+					localAgents: [
+						{
+							agentId: "codex",
+							details,
+							displayName: "Codex",
+							enabled: true,
+							status: "ready",
+						},
+					],
+				}}
+				view="team"
+			/>
+		);
+
+		expect(
+			screen.getByRole("progressbar", {
+				name: LOW_CODEX_USAGE_GAUGE_NAME,
+			})
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("switch", { name: "Codex local agent" })
+				.hasAttribute("data-disabled")
+		).toBe(true);
 	});
 
 	it("confirms before disabling a supported installed local agent", async () => {
@@ -942,6 +1018,7 @@ function renderLocalAgentsCard(input: {
 	agentControllerCheck?: AgentControllerInterfaceSnapshot["check"];
 	agentControllerMessage?: string | null;
 	agentControllerStatus?: AgentControllerInterfaceSnapshot["status"];
+	usageLimits?: AgentControllerInterfaceSnapshot["usageLimits"];
 	codexEnabled?: boolean;
 	includeAgentControllerInterface?: boolean;
 	installChoiceCount?: number;
@@ -967,6 +1044,7 @@ function renderLocalAgentsCard(input: {
 		agentControllerCheck: input.agentControllerCheck,
 		agentControllerMessage: input.agentControllerMessage,
 		agentControllerStatus: input.agentControllerStatus,
+		usageLimits: input.usageLimits,
 		codexEnabled: input.codexEnabled ?? true,
 		includeAgentControllerInterface: input.includeAgentControllerInterface,
 		installChoiceCount: input.installChoiceCount,
@@ -1034,6 +1112,7 @@ function buildExecutionTarget(input: {
 	agentControllerCheck?: AgentControllerInterfaceSnapshot["check"];
 	agentControllerMessage?: string | null;
 	agentControllerStatus?: AgentControllerInterfaceSnapshot["status"];
+	usageLimits?: AgentControllerInterfaceSnapshot["usageLimits"];
 	codexEnabled: boolean;
 	includeAgentControllerInterface?: boolean;
 	installChoiceCount?: number;
@@ -1118,6 +1197,7 @@ function buildExecutionTarget(input: {
 							schemaVersion: 1,
 							skills: [],
 							status: input.agentControllerStatus ?? "ready",
+							...(input.usageLimits ? { usageLimits: input.usageLimits } : {}),
 							version: "0.38.0",
 						}
 					: null,

@@ -40,6 +40,7 @@ import {
 	SettingsLocalAgentAdvisoryBadge,
 	type SettingsLocalAgentRow,
 	SettingsLocalAgentRows,
+	SettingsLocalAgentUsageLimits,
 } from "@openmeld/ui/components/settings-computers";
 import {
 	SettingsDetailList,
@@ -166,7 +167,16 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 			/>
 		),
 		description,
-		detail: <SettingsDetailList rows={detailRows} />,
+		defaultExpanded: Boolean(agent.details?.usageLimits),
+		detail: (
+			<div className="space-y-4">
+				<SettingsLocalAgentUsageLimits
+					agentName={agent.displayName}
+					limits={agent.details?.usageLimits}
+				/>
+				<SettingsDetailList rows={detailRows} />
+			</div>
+		),
 		displayName: agent.displayName,
 		id: agent.agentId,
 		logoAgentId: agent.agentId,
@@ -1285,25 +1295,31 @@ function buildLocalAgentCatalogRow(input: {
 				}}
 			/>
 		),
-		defaultExpanded: shouldExpandAgentControllerInterface(
-			agentControllerInterface
-		),
+		defaultExpanded:
+			Boolean(agentControllerInterface?.usageLimits) ||
+			shouldExpandAgentControllerInterface(agentControllerInterface),
 		description,
 		detail:
 			agentControllerInterface || canChangeInstallation ? (
 				<div className="space-y-3">
 					{agentControllerInterface ? (
-						<SettingsDetailList
-							rows={createAgentControllerInterfaceDetailRows({
-								agentId: input.entry.agentId,
-								canRefreshCatalog: input.canRefreshCatalog,
-								emailRevealed: input.accountEmailRevealed,
-								isCheckingAgents: input.isCheckingAgents,
-								onCheckAgents: input.onCheckAgents,
-								onRevealEmail: input.onRevealAccountEmail,
-								snapshot: agentControllerInterface,
-							})}
-						/>
+						<>
+							<SettingsLocalAgentUsageLimits
+								agentName={input.entry.displayName}
+								limits={agentControllerInterface.usageLimits}
+							/>
+							<SettingsDetailList
+								rows={createAgentControllerInterfaceDetailRows({
+									agentId: input.entry.agentId,
+									canRefreshCatalog: input.canRefreshCatalog,
+									emailRevealed: input.accountEmailRevealed,
+									isCheckingAgents: input.isCheckingAgents,
+									onCheckAgents: input.onCheckAgents,
+									onRevealEmail: input.onRevealAccountEmail,
+									snapshot: agentControllerInterface,
+								})}
+							/>
+						</>
 					) : null}
 					{canChangeInstallation ? (
 						<LocalAgentInstallationManager

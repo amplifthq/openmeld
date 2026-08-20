@@ -1,3 +1,4 @@
+import type { AgentControllerUsageLimits } from "@openmeld/schemas/types";
 import {
   DesktopTowerIcon,
   PlusIcon,
@@ -314,6 +315,298 @@ export type SettingsLocalAgentRow = {
   summaryStatus?: SettingsLocalAgentRowSummaryStatus;
   summaryStatuses?: readonly SettingsLocalAgentRowSummaryStatus[];
 };
+
+const LOW_CAPACITY_USED_THRESHOLD_PERCENT = 80;
+const US_USAGE_PERCENT_FORMATTER = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 1,
+});
+const US_USAGE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+type UsageLimitPresentation = {
+  label:
+    | "Available"
+    | "Exhausted"
+    | "Low"
+    | "Stale"
+    | "Unavailable"
+    | "Unsupported";
+  tone: "danger" | "muted" | "ready" | "warning";
+};
+
+export function SettingsLocalAgentUsageLimits({
+  agentName,
+  limits,
+  nowMs = Date.now(),
+}: {
+  agentName: string;
+  limits?: AgentControllerUsageLimits;
+  nowMs?: number;
+}) {
+  return (
+    <section aria-label={`${agentName} usage limits`} className="space-y-2.5">
+      <div>
+        <h4 className="font-medium text-sm">Usage limits</h4>
+        <p className="mt-0.5 text-muted-foreground text-xs leading-5">
+          Capacity reported by the provider. This does not control whether the
+          agent can run.
+        </p>
+      </div>
+      {limits && limits.length > 0 ? (
+        <div className="grid gap-2.5">
+          {limits.map((limit) => (
+            <SettingsLocalAgentUsageLimitGauge
+              agentName={agentName}
+              key={limit.key}
+              limit={limit}
+              nowMs={nowMs}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-md border border-border/70 bg-muted/15 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="font-medium text-sm">Usage limits</span>
+            <Badge variant="secondary">Unavailable</Badge>
+          </div>
+          <p className="mt-1 text-muted-foreground text-xs leading-5">
+            Not reported by provider yet.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SettingsLocalAgentUsageLimitGauge({
+  agentName,
+  limit,
+  nowMs,
+}: {
+  agentName: string;
+  limit: AgentControllerUsageLimits[number];
+  nowMs: number;
+}) {
+  const presentation = resolveUsageLimitPresentation(limit);
+  const usedPercent = limit.usedPercent;
+  const resetLabel = formatUsageLimitReset(limit.resetsAt, nowMs);
+  const observedLabel = formatUsageLimitObservation({
+    nowMs,
+    observedAt: limit.observedAt,
+    stale: limit.status === "stale",
+  });
+  const accessibleLabel = [
+    `${agentName} ${limit.label}`,
+    usedPercent === null ? null : `${formatUsedPercent(usedPercent)} used`,
+    presentation.label,
+    resetLabel,
+    observedLabel,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return (
+    <div className="rounded-md border border-border/70 bg-background/45 px-3 py-2.5">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-medium text-sm">{limit.label}</p>
+          <p className="mt-0.5 text-muted-foreground text-xs">
+            {usedPercent === null
+              ? resolveMissingUsageCopy(limit.status)
+              : `${formatUsedPercent(usedPercent)} used`}
+          </p>
+        </div>
+        <Badge
+          className={resolveUsageLimitBadgeClassName(presentation.tone)}
+          variant="secondary"
+        >
+          {presentation.label}
+        </Badge>
+      </div>
+      {usedPercent === null ? null : (
+        <div
+          aria-label={accessibleLabel}
+          aria-valuemax={100}
+          aria-valuemin={0}
+          aria-valuenow={usedPercent}
+          className="mt-2 h-2 overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+        >
+          <div
+            aria-hidden="true"
+            className={cn(
+              "h-full rounded-full",
+              resolveUsageLimitBarClassName(presentation.tone)
+            )}
+            style={{ width: `${usedPercent}%` }}
+          />
+        </div>
+      )}
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground text-xs leading-5">
+        <UsageLimitTime dateTime={limit.resetsAt} label={resetLabel} />
+        <UsageLimitTime dateTime={limit.observedAt} label={observedLabel} />
+      </div>
+    </div>
+  );
+}
+
+function UsageLimitTime({
+  dateTime,
+  label,
+}: {
+  dateTime: string | null;
+  label: string;
+}) {
+  return dateTime ? (
+    <time dateTime={dateTime} title={formatExactUsageLimitTime(dateTime)}>
+      {label}
+    </time>
+  ) : (
+    <span>{label}</span>
+  );
+}
+
+function resolveUsageLimitPresentation(
+  limit: AgentControllerUsageLimits[number]
+): UsageLimitPresentation {
+  if (limit.status === "exhausted") {
+    return { label: "Exhausted", tone: "danger" };
+  }
+  if (limit.status === "stale") {
+    return { label: "Stale", tone: "warning" };
+  }
+  if (limit.status === "unavailable") {
+    return { label: "Unavailable", tone: "muted" };
+  }
+  if (limit.status === "unsupported") {
+    return { label: "Unsupported", tone: "muted" };
+  }
+  if (
+    limit.usedPercent !== null &&
+    limit.usedPercent >= LOW_CAPACITY_USED_THRESHOLD_PERCENT
+  ) {
+    return { label: "Low", tone: "warning" };
+  }
+  return { label: "Available", tone: "ready" };
+}
+
+function resolveMissingUsageCopy(
+  status: AgentControllerUsageLimits[number]["status"]
+): string {
+  if (status === "unsupported") {
+    return "Not reported by provider.";
+  }
+  if (status === "unavailable") {
+    return "Temporarily unavailable.";
+  }
+  return "Usage percentage not reported.";
+}
+
+function formatUsedPercent(value: number): string {
+  return `${US_USAGE_PERCENT_FORMATTER.format(value)}%`;
+}
+
+function formatUsageLimitReset(resetsAt: string | null, nowMs: number): string {
+  if (!resetsAt) {
+    return "Reset time not reported";
+  }
+  const resetAtMs = Date.parse(resetsAt);
+  if (!Number.isFinite(resetAtMs)) {
+    return "Reset time not reported";
+  }
+  const remainingMs = resetAtMs - nowMs;
+  if (remainingMs <= 0) {
+    return "Reset time passed";
+  }
+  return `Resets ${formatRelativeFutureDuration(remainingMs)}`;
+}
+
+function formatUsageLimitObservation(input: {
+  nowMs: number;
+  observedAt: string;
+  stale: boolean;
+}): string {
+  const observedAtMs = Date.parse(input.observedAt);
+  if (!Number.isFinite(observedAtMs)) {
+    return input.stale
+      ? "Last updated time unavailable"
+      : "Updated time unavailable";
+  }
+  const elapsedMs = Math.max(0, input.nowMs - observedAtMs);
+  const prefix = input.stale ? "Last updated" : "Updated";
+  return `${prefix} ${formatRelativePastDuration(elapsedMs)}`;
+}
+
+function formatRelativeFutureDuration(durationMs: number): string {
+  const minutes = Math.floor(durationMs / 60_000);
+  if (minutes < 1) {
+    return "in less than a minute";
+  }
+  if (minutes < 60) {
+    return `in ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `in ${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
+  const days = Math.floor(hours / 24);
+  return `in ${days} ${days === 1 ? "day" : "days"}`;
+}
+
+function formatRelativePastDuration(durationMs: number): string {
+  const minutes = Math.floor(durationMs / 60_000);
+  if (minutes < 1) {
+    return "just now";
+  }
+  if (minutes < 60) {
+    return `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  }
+  const days = Math.floor(hours / 24);
+  return `${days} ${days === 1 ? "day" : "days"} ago`;
+}
+
+function formatExactUsageLimitTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : US_USAGE_TIME_FORMATTER.format(date);
+}
+
+function resolveUsageLimitBadgeClassName(
+  tone: UsageLimitPresentation["tone"]
+): string {
+  if (tone === "danger") {
+    return "border-destructive/25 bg-destructive/10 text-destructive";
+  }
+  if (tone === "warning") {
+    return resolveStatusToneAdvisoryBadgeClassName();
+  }
+  if (tone === "ready") {
+    return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  }
+  return "text-muted-foreground";
+}
+
+function resolveUsageLimitBarClassName(
+  tone: UsageLimitPresentation["tone"]
+): string {
+  if (tone === "danger") {
+    return "bg-destructive";
+  }
+  if (tone === "warning") {
+    return "bg-amber-500";
+  }
+  if (tone === "ready") {
+    return "bg-emerald-500";
+  }
+  return "bg-muted-foreground";
+}
 
 export type SettingsLocalAgentAdvisoryBadgeProps = {
   detail: string;
