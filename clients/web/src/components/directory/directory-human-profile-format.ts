@@ -52,6 +52,20 @@ export function formatDirectoryActivity(
 	return `Last used ${DIRECTORY_DATE_FORMATTER.format(timestamp)}`;
 }
 
+export function resolveDirectoryHumanProfileActivityLabel(input: {
+	lastUsedAt: string | null;
+	nowMs?: number;
+	profileStatus: DirectoryHumanProfileRow["profileStatus"];
+}): string {
+	if (input.profileStatus === "disabled") {
+		return "Profile disabled";
+	}
+	if (input.profileStatus === null) {
+		return "Human Profile unavailable";
+	}
+	return formatDirectoryActivity(input.lastUsedAt, input.nowMs);
+}
+
 export function formatDirectoryDate(value: string | null): string {
 	if (!value) {
 		return "Unavailable";

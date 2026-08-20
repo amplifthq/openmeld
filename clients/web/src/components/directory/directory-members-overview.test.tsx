@@ -521,6 +521,28 @@ describe("DirectoryMembersOverview", () => {
 		expect(onCreateProfileMock).toHaveBeenCalledOnce();
 	});
 
+	it("labels an organization member whose Human Profile is unavailable", async () => {
+		renderOverview({ isPersonal: false });
+
+		const adaCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		).find((card) => within(card).queryByText("Ada Lovelace"));
+		if (!adaCard) {
+			throw new Error("Expected Ada's member card.");
+		}
+		expect(within(adaCard).getByText("Human Profile unavailable")).toBeTruthy();
+		expect(within(adaCard).queryByText("Activity unavailable")).toBeNull();
+
+		fireEvent.click(
+			within(adaCard).getByRole("button", {
+				name: "Open Ada Lovelace's profile",
+			})
+		);
+		const drawer = await screen.findByRole("dialog", { name: "Profile" });
+		expect(within(drawer).getByText("Human Profile unavailable")).toBeTruthy();
+		expect(within(drawer).queryByText("Activity unavailable")).toBeNull();
+	});
+
 	it("sorts the current member first, then orders everyone else by role", async () => {
 		renderOverview({ currentUserProfile: true, isPersonal: false });
 

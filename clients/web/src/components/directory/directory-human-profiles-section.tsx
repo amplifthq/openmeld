@@ -46,8 +46,8 @@ import {
 import { DirectoryHumanProfileAvatar } from "#/components/directory/directory-human-profile-avatar";
 import { DirectoryHumanProfileDetailsDrawer } from "#/components/directory/directory-human-profile-details-drawer";
 import {
-	formatDirectoryActivity,
 	resolveDirectoryEmailLabel,
+	resolveDirectoryHumanProfileActivityLabel,
 	resolveDirectoryIdentityAccountLabel,
 } from "#/components/directory/directory-human-profile-format";
 import type {
@@ -317,14 +317,11 @@ function DirectoryHumanProfileCard(input: {
 				onProfileSummaryClick={() => openProfile(false)}
 				profileSummaryAriaLabel={`Open ${input.member.name}'s profile`}
 				rowRef={input.rowRef}
-				secondarySubtitle={
-					input.member.profileStatus === "disabled"
-						? "Profile disabled"
-						: formatDirectoryActivity(
-								input.member.lastUsedAt,
-								input.activityNowMs
-							)
-				}
+				secondarySubtitle={resolveDirectoryHumanProfileActivityLabel({
+					lastUsedAt: input.member.lastUsedAt,
+					nowMs: input.activityNowMs,
+					profileStatus: input.member.profileStatus,
+				})}
 				subtitle={resolveDirectoryEmailLabel(input.member.email)}
 				testId={
 					input.state.context === "organization"

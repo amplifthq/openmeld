@@ -14,9 +14,9 @@ import { toast } from "sonner";
 import { Drawer } from "vaul";
 import { DirectoryHumanProfileAvatar } from "#/components/directory/directory-human-profile-avatar";
 import {
-	formatDirectoryActivity,
 	formatDirectoryDate,
 	resolveDirectoryEmailLabel,
+	resolveDirectoryHumanProfileActivityLabel,
 	resolveDirectoryRoleLabel,
 } from "#/components/directory/directory-human-profile-format";
 import type {
@@ -209,12 +209,11 @@ function ProfileHero(input: {
 							: "text-muted-foreground"
 					)}
 				>
-					{input.member.profileStatus === "disabled"
-						? "Profile disabled"
-						: formatDirectoryActivity(
-								input.member.lastUsedAt,
-								input.activityNowMs
-							)}
+					{resolveDirectoryHumanProfileActivityLabel({
+						lastUsedAt: input.member.lastUsedAt,
+						nowMs: input.activityNowMs,
+						profileStatus: input.member.profileStatus,
+					})}
 				</p>
 			</div>
 		</div>
