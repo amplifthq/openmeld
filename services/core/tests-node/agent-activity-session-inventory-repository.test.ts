@@ -306,6 +306,55 @@ describe("Agent Activity Session Inventory repository", () => {
     expect(inventoryRowCount(harness)).toBe(0);
   });
 
+  it.each([
+    "disconnected",
+    "unsupported",
+  ] as const)("does not let delayed %s coverage replace a newer reconciliation", async (result) => {
+    const harness = createInventoryHarness();
+    await reconcile(harness.db, {
+      sessions: [observedSession("native-newer", 1000)],
+    });
+    const racingDb = createBeforeMatchingBatchD1Database({
+      beforeBatch: () => {
+        harness.run({
+          params: [NOW_MS + 1, NOW_MS + 1],
+          sql: `UPDATE agent_activity_session_inventory_sources
+            SET current_reconciliation_id = 'reconciliation-newer',
+                state = 'current', last_complete_at_ms = ?, updated_at_ms = ?`,
+        });
+      },
+      db: harness.db,
+      matches: (sql) =>
+        sql.includes("INSERT INTO agent_activity_session_inventory_sources"),
+    });
+
+    await expect(
+      reconcile(racingDb, {
+        reconciliationId: `reconciliation-delayed-${result}`,
+        result,
+        sessions: [],
+      })
+    ).rejects.toThrow(
+      "Agent Activity Session reconciliation did not publish terminal coverage."
+    );
+
+    expect((await read(harness.db)).sessions).toMatchObject([
+      { nativeSessionId: "native-newer" },
+    ]);
+    expect(
+      harness.queryFirst<{
+        current_reconciliation_id: string;
+        state: string;
+      }>({
+        sql: `SELECT current_reconciliation_id, state
+          FROM agent_activity_session_inventory_sources`,
+      })
+    ).toEqual({
+      current_reconciliation_id: "reconciliation-newer",
+      state: "current",
+    });
+  });
+
   it("returns every source coverage fact instead of a fixed snapshot", async () => {
     const harness = createInventoryHarness();
     harness.run({

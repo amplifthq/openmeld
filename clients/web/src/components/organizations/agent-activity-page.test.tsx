@@ -780,6 +780,45 @@ describe("Agent Activity pages", () => {
 		).toBeNull();
 	});
 
+	it.each([
+		{
+			message:
+				"OpenMeld couldn't establish the current Session Inventory. No Sessions are shown until the connected computer reports a complete inventory.",
+			state: "error" as const,
+		},
+		{
+			message:
+				"Session Inventory is stale, so OpenMeld isn't claiming there are no Sessions. Wait for a fresh sync from the connected computer.",
+			state: "stale" as const,
+		},
+	])("shows $state coverage before a filtered-empty explanation", async ({
+		message,
+		state,
+	}) => {
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects: [project({ id: "project-active" })],
+		});
+		readSessions.mockResolvedValue(
+			sessionInventory({ coverage: [inventoryCoverage(state)] })
+		);
+
+		renderPage("sessions", {
+			sessionFilters: {
+				cursor: null,
+				memberUserId: null,
+				origin: null,
+				provider: "codex",
+				query: null,
+				status: null,
+			},
+		});
+
+		expect(await screen.findByText(message)).toBeTruthy();
+		expect(screen.queryByText("No Sessions match these filters.")).toBeNull();
+		expect(screen.getByRole("button", { name: "Clear filters" })).toBeTruthy();
+	});
+
 	it("does not offer Agent Profile actions for a Session with conflicting connections", async () => {
 		listProjects.mockResolvedValue({
 			organizationId: "org-acme",

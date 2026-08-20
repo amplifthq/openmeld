@@ -62,21 +62,32 @@ export function SessionsEmptyMessage(input: {
 	if (input.coverage.length === 0 && !input.hasFilters) {
 		return <AgentActivityEmptySetup setupState="awaiting_first_session" />;
 	}
-	if (input.hasFilters) {
+	if (input.coverage.some((item) => item.state === "error")) {
 		return (
-			<span className="inline-flex flex-col items-center gap-3 py-2">
-				<span>No Sessions match these filters.</span>
-				<Button onClick={input.clearFilters} size="sm" variant="outline">
-					Clear filters
-				</Button>
-			</span>
+			<FilterableEmptyMessage
+				clearFilters={input.clearFilters}
+				hasFilters={input.hasFilters}
+				message="OpenMeld couldn't establish the current Session Inventory. No Sessions are shown until the connected computer reports a complete inventory."
+			/>
 		);
 	}
-	if (input.coverage.some((item) => item.state === "error")) {
-		return "OpenMeld couldn't establish the current Session Inventory. No Sessions are shown until the connected computer reports a complete inventory.";
-	}
 	if (input.coverage.some((item) => item.state === "stale")) {
-		return "Session Inventory is stale, so OpenMeld isn't claiming there are no Sessions. Wait for a fresh sync from the connected computer.";
+		return (
+			<FilterableEmptyMessage
+				clearFilters={input.clearFilters}
+				hasFilters={input.hasFilters}
+				message="Session Inventory is stale, so OpenMeld isn't claiming there are no Sessions. Wait for a fresh sync from the connected computer."
+			/>
+		);
+	}
+	if (input.hasFilters) {
+		return (
+			<FilterableEmptyMessage
+				clearFilters={input.clearFilters}
+				hasFilters
+				message="No Sessions match these filters."
+			/>
+		);
 	}
 	if (input.coverage.some((item) => item.state === "unsupported")) {
 		return "Session discovery is not supported for the connected Local Agent yet.";
@@ -92,6 +103,24 @@ export function SessionsEmptyMessage(input: {
 		return "Waiting for the first complete Session sync from the connected computer.";
 	}
 	return "No Sessions are currently available from connected Projects.";
+}
+
+function FilterableEmptyMessage(input: {
+	clearFilters: () => void;
+	hasFilters: boolean;
+	message: string;
+}) {
+	if (!input.hasFilters) {
+		return input.message;
+	}
+	return (
+		<span className="inline-flex flex-col items-center gap-3 py-2">
+			<span>{input.message}</span>
+			<Button onClick={input.clearFilters} size="sm" variant="outline">
+				Clear filters
+			</Button>
+		</span>
+	);
 }
 
 export function SessionFilterSelect(input: {

@@ -401,6 +401,8 @@ export async function acceptAgentActivitySessionReconciliation(input: {
   if (input.reconciliation.result !== "sessions") {
     return await acceptTerminalCoverageResult({
       ...input,
+      expectedCurrentReconciliationId:
+        existing?.current_reconciliation_id ?? null,
       sourceScopeKey,
     });
   }
@@ -843,6 +845,7 @@ async function publishStagedSessions(input: {
 async function acceptTerminalCoverageResult(input: {
   authority: InventorySourceAuthority;
   db: D1Database;
+  expectedCurrentReconciliationId: string | null;
   nowMs: number;
   reconciliation: SubmitAgentActivitySessionReconciliationBody;
   sourceScopeKey: string;
@@ -852,25 +855,6 @@ async function acceptTerminalCoverageResult(input: {
     input.reconciliation.result === "disconnected";
   const state = input.reconciliation.result;
   const statements: D1PreparedStatement[] = [
-    input.db
-      .prepare(
-        "DELETE FROM agent_activity_session_inventory_candidates WHERE source_scope_key = ?"
-      )
-      .bind(input.sourceScopeKey),
-  ];
-  if (hidesCurrentRows) {
-    statements.push(
-      input.db
-        .prepare(
-          `
-            DELETE FROM agent_activity_session_inventory
-            WHERE source_scope_key = ?
-          `
-        )
-        .bind(input.sourceScopeKey)
-    );
-  }
-  statements.push(
     input.db
       .prepare(
         `
@@ -901,6 +885,7 @@ async function acceptTerminalCoverageResult(input: {
               ELSE agent_activity_session_inventory_sources.last_complete_at_ms
             END,
             updated_at_ms = excluded.updated_at_ms
+          WHERE agent_activity_session_inventory_sources.current_reconciliation_id IS ?
         `
       )
       .bind(
@@ -918,9 +903,54 @@ async function acceptTerminalCoverageResult(input: {
         input.reconciliation.problemCode ?? null,
         input.nowMs,
         hidesCurrentRows ? input.nowMs : null,
-        input.nowMs
+        input.nowMs,
+        input.expectedCurrentReconciliationId
+      ),
+    input.db
+      .prepare(
+        `
+          DELETE FROM agent_activity_session_inventory_candidates
+          WHERE source_scope_key = ?
+            AND EXISTS (
+              SELECT 1
+              FROM agent_activity_session_inventory_sources active_source
+              WHERE active_source.source_scope_key = ?
+                AND active_source.current_reconciliation_id = ?
+                AND active_source.state = ?
+            )
+        `
       )
-  );
+      .bind(
+        input.sourceScopeKey,
+        input.sourceScopeKey,
+        input.reconciliation.reconciliationId,
+        state
+      ),
+  ];
+  if (hidesCurrentRows) {
+    statements.push(
+      input.db
+        .prepare(
+          `
+            DELETE FROM agent_activity_session_inventory
+            WHERE source_scope_key = ?
+              AND EXISTS (
+                SELECT 1
+                FROM agent_activity_session_inventory_sources active_source
+                WHERE active_source.source_scope_key = ?
+                  AND active_source.current_reconciliation_id = ?
+                  AND active_source.state = ?
+              )
+          `
+        )
+        .bind(
+          input.sourceScopeKey,
+          input.sourceScopeKey,
+          input.reconciliation.reconciliationId,
+          state
+        )
+    );
+  }
   statements.push(
     retireReplacedDisconnectedSourcesStatement({
       db: input.db,
@@ -929,6 +959,26 @@ async function acceptTerminalCoverageResult(input: {
     })
   );
   await input.db.batch(statements);
+  const source = await input.db
+    .prepare(
+      `
+        SELECT current_reconciliation_id, next_page_index, state
+        FROM agent_activity_session_inventory_sources
+        WHERE source_scope_key = ?
+        LIMIT 1
+      `
+    )
+    .bind(input.sourceScopeKey)
+    .first<SourceRow>();
+  if (
+    source?.current_reconciliation_id !==
+      input.reconciliation.reconciliationId ||
+    source.state !== state
+  ) {
+    throw new Error(
+      "Agent Activity Session reconciliation did not publish terminal coverage."
+    );
+  }
   return parseReconciliationResponse({
     acceptedPageIndex: 0,
     publishedSessionCount: hidesCurrentRows ? 0 : null,
