@@ -22,6 +22,32 @@ export type AgentActivitySessionAction =
 	| "fork_profile"
 	| "resume_profile";
 
+const ORIGIN_LABELS = {
+	local: "Created locally",
+	openmeld: "Created by OpenMeld",
+	unknown: "Origin uncertain",
+} satisfies Record<AgentActivityInventorySession["origin"], string>;
+
+const COMPUTER_STATE_DISPLAYS = {
+	offline: { label: "Offline", tone: "muted" },
+	online: { label: "Online", tone: "ready" },
+	unknown: { label: "State unknown", tone: "muted" },
+} satisfies Record<
+	AgentActivityInventorySession["computer"]["state"],
+	{ label: string; tone: StatusTone }
+>;
+
+const SESSION_STATUS_DISPLAYS = {
+	ended: { label: "Ended", tone: "muted" },
+	error: { label: "Error", tone: "danger" },
+	idle: { label: "Idle", tone: "warning" },
+	unknown: { label: "Unknown", tone: "muted" },
+	working: { label: "Working", tone: "ready" },
+} satisfies Record<
+	AgentActivityInventorySession["status"],
+	{ label: string; tone: StatusTone }
+>;
+
 export function AgentActivitySessionInventoryTable(input: {
 	currentUserId: string;
 	emptyMessage: ReactNode;
@@ -237,14 +263,9 @@ function CopySessionIdButton(input: { nativeSessionId: string }) {
 function OriginBadge(input: {
 	origin: AgentActivityInventorySession["origin"];
 }) {
-	const label = {
-		local: "Created locally",
-		openmeld: "Created by OpenMeld",
-		unknown: "Origin uncertain",
-	}[input.origin];
 	return (
 		<Badge className="w-fit rounded-md font-normal" variant="outline">
-			{label}
+			{ORIGIN_LABELS[input.origin]}
 		</Badge>
 	);
 }
@@ -252,15 +273,7 @@ function OriginBadge(input: {
 function ComputerStateBadge(input: {
 	state: AgentActivityInventorySession["computer"]["state"];
 }) {
-	const displays = {
-		offline: { label: "Offline", tone: "muted" },
-		online: { label: "Online", tone: "ready" },
-		unknown: { label: "State unknown", tone: "muted" },
-	} satisfies Record<
-		AgentActivityInventorySession["computer"]["state"],
-		{ label: string; tone: StatusTone }
-	>;
-	const display = displays[input.state];
+	const display = COMPUTER_STATE_DISPLAYS[input.state];
 	return (
 		<Badge
 			className={cn(
@@ -277,17 +290,7 @@ function SessionStatusBadge(input: {
 	dataState: AgentActivityInventorySession["dataState"];
 	status: AgentActivityInventorySession["status"];
 }) {
-	const displays = {
-		ended: { label: "Ended", tone: "muted" },
-		error: { label: "Error", tone: "danger" },
-		idle: { label: "Idle", tone: "warning" },
-		unknown: { label: "Unknown", tone: "muted" },
-		working: { label: "Working", tone: "ready" },
-	} satisfies Record<
-		AgentActivityInventorySession["status"],
-		{ label: string; tone: StatusTone }
-	>;
-	const display = displays[input.status];
+	const display = SESSION_STATUS_DISPLAYS[input.status];
 	return (
 		<div className="grid gap-1">
 			<Badge

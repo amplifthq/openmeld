@@ -78,7 +78,8 @@ Rollout order:
 2. Deploy shared-schema receivers and Core RPC/repository support, including
    the expanded ACI receiver, without enabling new callers prematurely.
 3. Deploy Gateway and Web readers and the Remote Agent read tool.
-4. Stamp and publish aligned CLI, OpenMeld Service, and OpenMeld-managed Skills.
+4. After this feature PR merges, use the dedicated clean release worktree to
+   stamp and publish aligned CLI, OpenMeld Service, and OpenMeld-managed Skills.
 5. Verify one real installed-client reconciliation, Web/CLI reads, Center Agent
    read, Project disconnect removal, and content non-disclosure before calling
    the product delivered.
@@ -163,9 +164,11 @@ This change does not violate the scoped architecture owner documents:
 
 ## Release Gates
 
-Before push, this pull request must complete the repository Changelog check,
-docs validation, changed-package typechecks/tests, affected checks, Contract
-Impact Audit review, local-component stamp, `verify:release-ready`, broad PR
-verification, and React Doctor for the Web change. A merge or green CI run is
-not deployment or real-user production smoke, and this pull request does not
-authorize either.
+Before push, this ordinary feature branch must complete the repository
+Changelog check, docs validation, changed-package typechecks/tests, affected
+checks, Contract Impact Audit review, deferred `verify:release-ready` against
+the exact PR base, broad PR verification, and React Doctor for the Web change.
+It must keep the CLI version and `release/local-components.json` identical to
+the base. The later dedicated release branch owns the source-derived stamp. A
+merge or green CI run is not deployment or real-user production smoke, and
+this pull request does not authorize either.

@@ -33,12 +33,14 @@ import { AgentActivityAddToSpaceDialog } from "./agent-activity-add-to-space-dia
 import { useAgentActivityData } from "./agent-activity-page";
 import {
 	CoverageNotice,
+	SessionFilterSelect,
+	SessionsEmptyMessage,
+} from "./agent-activity-session-inventory-controls";
+import {
 	ORIGIN_OPTIONS,
 	PROVIDER_OPTIONS,
-	resolveSessionsEmptyMessage,
-	SessionFilterSelect,
 	STATUS_OPTIONS,
-} from "./agent-activity-session-inventory-controls";
+} from "./agent-activity-session-inventory-options";
 import {
 	type AgentActivitySessionAction,
 	AgentActivitySessionInventoryTable,
@@ -100,22 +102,25 @@ export function AgentActivitySessions(input: {
 		input.filters.provider !== null ||
 		input.filters.query !== null ||
 		input.filters.status !== null;
-	const emptyMessage = resolveSessionsEmptyMessage({
-		clearFilters: () =>
-			input.onFiltersChange({
-				cursor: null,
-				memberUserId: null,
-				origin: null,
-				provider: null,
-				query: null,
-				status: null,
-			}),
-		coverage: inventoryQuery.data?.coverage ?? [],
-		hasFilters,
-		isError: inventoryQuery.isError,
-		isPending: inventoryQuery.isPending,
-		projectCount: data.projects.length,
-	});
+	const emptyMessage = (
+		<SessionsEmptyMessage
+			clearFilters={() =>
+				input.onFiltersChange({
+					cursor: null,
+					memberUserId: null,
+					origin: null,
+					provider: null,
+					query: null,
+					status: null,
+				})
+			}
+			coverage={inventoryQuery.data?.coverage ?? []}
+			hasFilters={hasFilters}
+			isError={inventoryQuery.isError}
+			isPending={inventoryQuery.isPending}
+			projectCount={data.projects.length}
+		/>
+	);
 	const updateFilters = (patch: Partial<AgentActivitySessionsFilters>) => {
 		input.onFiltersChange({ ...input.filters, ...patch, cursor: null });
 	};
