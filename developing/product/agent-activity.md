@@ -236,13 +236,16 @@ the shared metadata contract.
   These current projections cannot continue claiming a native Session identity
   or retain its metadata after the Computer is forgotten. Historical Activity
   evidence keeps its separate retention policy.
-- Removing a member from an Organization asks Core to delete that owner's
-  staged candidates, current Inventory rows, and reconciliation sources for
-  that Organization. The Auth membership lifecycle triggers this cleanup only
-  after removal succeeds; it does not write the Core-owned projection directly.
-  Re-adding the user therefore cannot revive Session metadata retained from the
-  previous membership. Historical Activity evidence keeps its separate
-  retention policy.
+- Removing a member from an Organization first requires Core to accept a
+  durable cleanup request and purge that owner's staged candidates, current
+  Inventory rows, and reconciliation sources for that Organization. If Core
+  cannot persist the request, Auth blocks the membership removal. After the
+  removal commits, Auth asks Core to purge again and finalize the request; the
+  Core minute scheduler retries any accepted request whose post-removal call
+  failed. Auth never writes the Core-owned projection directly. Re-adding the
+  user therefore cannot revive Session metadata retained from the previous
+  membership. Historical Activity evidence keeps its separate retention
+  policy.
 - A `disconnected` report may revoke the exact previously authorized source
   after the Project repository fingerprint changes. Other reconciliation
   outcomes still require the current Project fingerprint, so this revocation
@@ -299,13 +302,13 @@ Session.
 The current provider contract is intentionally asymmetric where the provider
 surface is asymmetric:
 
-| Provider | Complete retained discovery | Native title | Status without fresh lifecycle | Resume | Fork |
-| --- | --- | --- | --- | --- | --- |
-| Codex | app-server `thread/list`, every source kind, archived and non-archived pages to cursor exhaustion; only explicit null or a non-empty string is a valid page cursor | current `Thread.name`, else null | archived is Ended; otherwise Unknown | retained non-archived threads | false until OpenMeld wires and verifies provider-native Fork |
-| Claude Code | top-level retained JSONL plus the complete live/job registry and hooks | explicit native custom title, else null | Unknown | retained Sessions | false until OpenMeld wires and verifies provider-native Fork |
-| Cursor | no complete documented machine-readable inventory; report unsupported coverage | unavailable for the complete inventory | Unknown | unsupported from the complete inventory | unsupported |
-| OpenCode | complete local Session table or official API pagination | current persisted `session.title` | archived is Ended; otherwise Unknown | retained usable Sessions | false until OpenMeld wires and verifies provider-native Fork |
-| Grok Build | complete retained `summary.json` index | current generated or renamed native title | Unknown | retained Sessions | false until OpenMeld wires and verifies provider-native Fork |
+| Provider    | Complete retained discovery                                                                                                                                        | Native title                              | Status without fresh lifecycle       | Resume                                  | Fork                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- | ------------------------------------ | --------------------------------------- | ------------------------------------------------------------ |
+| Codex       | app-server `thread/list`, every source kind, archived and non-archived pages to cursor exhaustion; only explicit null or a non-empty string is a valid page cursor | current `Thread.name`, else null          | archived is Ended; otherwise Unknown | retained non-archived threads           | false until OpenMeld wires and verifies provider-native Fork |
+| Claude Code | top-level retained JSONL plus the complete live/job registry and hooks                                                                                             | explicit native custom title, else null   | Unknown                              | retained Sessions                       | false until OpenMeld wires and verifies provider-native Fork |
+| Cursor      | no complete documented machine-readable inventory; report unsupported coverage                                                                                     | unavailable for the complete inventory    | Unknown                              | unsupported from the complete inventory | unsupported                                                  |
+| OpenCode    | complete local Session table or official API pagination                                                                                                            | current persisted `session.title`         | archived is Ended; otherwise Unknown | retained usable Sessions                | false until OpenMeld wires and verifies provider-native Fork |
+| Grok Build  | complete retained `summary.json` index                                                                                                                             | current generated or renamed native title | Unknown                              | retained Sessions                       | false until OpenMeld wires and verifies provider-native Fork |
 
 Archived or otherwise unusable Sessions return false for an operation unless
 the installed provider version and adapter have proved that exact operation.
@@ -451,6 +454,7 @@ aggregates, and execution links use migration 0030. Retention sweep indexes use
 migration 0031. Active duration in daily aggregates uses migration 0032. The
 complete Session Inventory, private reconciliation candidates, and source
 coverage use migration 0131. All migrations are forward-only.
+Durable Organization-member Session Inventory cleanup requests use migration 0132.
 
 Reporting uses the existing CLI/OpenMeld Service coordinated release path.
 Old servers that return 404 keep the local outbox and back off without
@@ -477,9 +481,11 @@ Rollback removes the Web request first, then Gateway, then Core. Session-title
 reporting itself reuses the existing optional `title` event field, so old cloud
 code and old local observers remain interoperable.
 
-The safe Session Inventory order is migration 0131, shared schema consumers,
-Core, Gateway and API clients, Web/CLI/agent readers, then the local observer
-producer. Agent Activity does not add or migrate Binding constraints; the
+The safe Session Inventory order is migrations 0131 and 0132, shared schema
+consumers, Core, Auth, Gateway and API clients, Web/CLI/agent readers, then the
+local observer producer. Core must expose the cleanup-request receiver before
+Auth begins requiring durable acceptance for member removal. Agent Activity
+does not add or migrate Binding constraints; the
 Binding owner continues to adjudicate historical duplicate conversations. An
 old producer continues to report only historical Activity; a new producer
 treats a missing reconciliation route as retryable and never erases the last

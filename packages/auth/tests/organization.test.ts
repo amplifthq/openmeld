@@ -1140,13 +1140,23 @@ describe("organization identity foundation", () => {
   });
 
   it("allows removing a member who does not host the designated Center Agent", async () => {
-    const deleteSessionInventory = vi.fn().mockResolvedValue({
-      deleted: { candidateCount: 1, inventoryCount: 2, sourceCount: 1 },
-      ok: true,
-    });
+    const requestSessionInventoryCleanup = vi
+      .fn()
+      .mockResolvedValueOnce({
+        accepted: true,
+        deleted: { candidateCount: 1, inventoryCount: 2, sourceCount: 1 },
+        ok: true,
+        pending: true,
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        deleted: { candidateCount: 0, inventoryCount: 0, sourceCount: 0 },
+        ok: true,
+        pending: false,
+      });
     const coreWorker = {
-      deleteAgentActivitySessionInventoryForOrganizationMember:
-        deleteSessionInventory,
+      requestAgentActivitySessionInventoryCleanupForOrganizationMember:
+        requestSessionInventoryCleanup,
       deleteCenterAgentMemberMemory: vi
         .fn()
         .mockResolvedValue({ ok: true, status: "not_found" }),
@@ -1183,7 +1193,8 @@ describe("organization identity foundation", () => {
         sql: "select id from members where id = ?",
       })
     ).toBeNull();
-    expect(deleteSessionInventory).toHaveBeenCalledWith({
+    expect(requestSessionInventoryCleanup).toHaveBeenCalledTimes(2);
+    expect(requestSessionInventoryCleanup).toHaveBeenCalledWith({
       organizationId: membership.organizationId,
       userId: membership.memberUserId,
     });

@@ -96,12 +96,38 @@ export type DeletedAgentActivitySessionInventoryMemberProjection = {
   sourceCount: number;
 };
 
-export async function deleteAgentActivitySessionInventoryForOrganizationMember(input: {
+export type AgentActivitySessionInventoryMemberCleanupRequest = {
+  attemptCount: number;
+  organizationId: string;
+  ownerUserId: string;
+  requestedAtMs: number;
+};
+
+export async function requestAgentActivitySessionInventoryMemberCleanup(input: {
   db: D1Database;
+  finalize: boolean;
+  nowMs: number;
   organizationId: string;
   ownerUserId: string;
 }): Promise<DeletedAgentActivitySessionInventoryMemberProjection> {
-  const [candidates, inventory, sources] = await input.db.batch([
+  const statements = [
+    input.db
+      .prepare(
+        `INSERT INTO agent_activity_session_inventory_member_cleanup_requests (
+           organization_id,
+           owner_user_id,
+           requested_at_ms,
+           last_attempt_at_ms,
+           attempt_count,
+           last_error
+         ) VALUES (?, ?, ?, ?, 0, NULL)
+         ON CONFLICT (organization_id, owner_user_id) DO UPDATE SET
+           requested_at_ms = excluded.requested_at_ms,
+           last_attempt_at_ms = excluded.last_attempt_at_ms,
+           attempt_count = 0,
+           last_error = NULL`
+      )
+      .bind(input.organizationId, input.ownerUserId, input.nowMs, input.nowMs),
     input.db
       .prepare(
         `DELETE FROM agent_activity_session_inventory_candidates
@@ -120,12 +146,94 @@ export async function deleteAgentActivitySessionInventoryForOrganizationMember(i
          WHERE organization_id = ? AND owner_user_id = ?`
       )
       .bind(input.organizationId, input.ownerUserId),
-  ]);
+  ];
+  if (input.finalize) {
+    statements.push(
+      input.db
+        .prepare(
+          `DELETE FROM agent_activity_session_inventory_member_cleanup_requests
+           WHERE organization_id = ? AND owner_user_id = ?`
+        )
+        .bind(input.organizationId, input.ownerUserId)
+    );
+  }
+  const [, candidates, inventory, sources] = await input.db.batch(statements);
   return {
     candidateCount: Number(candidates?.meta.changes ?? 0),
     inventoryCount: Number(inventory?.meta.changes ?? 0),
     sourceCount: Number(sources?.meta.changes ?? 0),
   };
+}
+
+export async function readAgentActivitySessionInventoryMemberCleanupRequests(input: {
+  db: D1Database;
+  limit: number;
+}): Promise<AgentActivitySessionInventoryMemberCleanupRequest[]> {
+  const result = await input.db
+    .prepare(
+      `SELECT
+         organization_id,
+         owner_user_id,
+         requested_at_ms,
+         attempt_count
+       FROM agent_activity_session_inventory_member_cleanup_requests
+       ORDER BY last_attempt_at_ms ASC, requested_at_ms ASC,
+         organization_id ASC, owner_user_id ASC
+       LIMIT ?`
+    )
+    .bind(input.limit)
+    .all<{
+      attempt_count: number;
+      organization_id: string;
+      owner_user_id: string;
+      requested_at_ms: number;
+    }>();
+  return (result.results ?? []).map((row) => ({
+    attemptCount: Number(row.attempt_count),
+    organizationId: row.organization_id,
+    ownerUserId: row.owner_user_id,
+    requestedAtMs: Number(row.requested_at_ms),
+  }));
+}
+
+export async function recordAgentActivitySessionInventoryMemberCleanupFailure(input: {
+  db: D1Database;
+  error: string;
+  nowMs: number;
+  organizationId: string;
+  ownerUserId: string;
+}): Promise<void> {
+  await input.db
+    .prepare(
+      `UPDATE agent_activity_session_inventory_member_cleanup_requests
+       SET attempt_count = attempt_count + 1,
+           last_attempt_at_ms = ?,
+           last_error = ?
+       WHERE organization_id = ? AND owner_user_id = ?`
+    )
+    .bind(
+      input.nowMs,
+      input.error.slice(0, 512),
+      input.organizationId,
+      input.ownerUserId
+    )
+    .run();
+}
+
+export async function recordAgentActivitySessionInventoryMemberCleanupWaiting(input: {
+  db: D1Database;
+  nowMs: number;
+  organizationId: string;
+  ownerUserId: string;
+}): Promise<void> {
+  await input.db
+    .prepare(
+      `UPDATE agent_activity_session_inventory_member_cleanup_requests
+       SET last_attempt_at_ms = ?, last_error = NULL
+       WHERE organization_id = ? AND owner_user_id = ?`
+    )
+    .bind(input.nowMs, input.organizationId, input.ownerUserId)
+    .run();
 }
 
 export async function readConnectedComputerId(input: {

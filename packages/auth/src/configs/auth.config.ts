@@ -20,7 +20,8 @@ import {
 } from "../organization/access-control";
 import {
   type AgentActivitySessionInventoryLifecycleWorker,
-  deleteAgentActivitySessionInventoryOnOrganizationMemberRemoval,
+  finalizeAgentActivitySessionInventoryCleanupAfterOrganizationMemberRemoval,
+  requireAgentActivitySessionInventoryCleanupBeforeOrganizationMemberRemoval,
 } from "../organization/agent-activity-session-inventory-lifecycle";
 import { assertMemberDoesNotHostCenterAgent } from "../organization/center-agent-member-removal-guard";
 import {
@@ -731,20 +732,31 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
           ? { data: { ...organization, metadata: personalMetadata } }
           : undefined;
       },
-      beforeRemoveMember: ({ member, organization, user }) =>
-        assertMemberDoesNotHostCenterAgent({
+      beforeRemoveMember: async ({ member, organization, user }) => {
+        const userId = user.id ?? member.userId;
+        await assertMemberDoesNotHostCenterAgent({
           db: env.OPENMELD_DB,
           organizationId: organization.id,
-          userId: user.id ?? member.userId,
-        }),
-      afterRemoveMember: async ({ member, organization, user }) => {
-        const userId = user.id ?? member.userId;
-        await Promise.all([
-          deleteAgentActivitySessionInventoryOnOrganizationMemberRemoval({
+          userId,
+        });
+        await requireAgentActivitySessionInventoryCleanupBeforeOrganizationMemberRemoval(
+          {
             coreWorker: env.OPENMELD_CORE_WORKER,
             organizationId: organization.id,
             userId,
-          }),
+          }
+        );
+      },
+      afterRemoveMember: async ({ member, organization, user }) => {
+        const userId = user.id ?? member.userId;
+        await Promise.all([
+          finalizeAgentActivitySessionInventoryCleanupAfterOrganizationMemberRemoval(
+            {
+              coreWorker: env.OPENMELD_CORE_WORKER,
+              organizationId: organization.id,
+              userId,
+            }
+          ),
           deleteCenterAgentMemberMemoryOnOrganizationRemoval({
             coreWorker: env.OPENMELD_CORE_WORKER,
             organizationId: organization.id,

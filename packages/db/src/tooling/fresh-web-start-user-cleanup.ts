@@ -10,6 +10,7 @@ const SQLITE_BUSY_ERROR_RE = /database is locked|busy/i;
 export type FreshWebStartUserCleanupCounts = {
   agentActivitySessionInventory: number;
   agentActivitySessionInventoryCandidates: number;
+  agentActivitySessionInventoryMemberCleanupRequests: number;
   agentActivitySessionInventorySources: number;
   openMeldProfileSpaceHistory: number;
   openMeldProfiles: number;
@@ -46,6 +47,7 @@ type BetterSqliteDatabase = Database.Database;
 const DEFAULT_COUNTS: FreshWebStartUserCleanupCounts = {
   agentActivitySessionInventory: 0,
   agentActivitySessionInventoryCandidates: 0,
+  agentActivitySessionInventoryMemberCleanupRequests: 0,
   agentActivitySessionInventorySources: 0,
   openMeldProfileSpaceHistory: 0,
   openMeldProfiles: 0,
@@ -178,6 +180,12 @@ export const runFreshWebStartUserCleanup = (input: {
           "DELETE FROM agent_activity_session_inventory_sources WHERE owner_user_id = ?",
           [userRow.userId]
         );
+        nextCounts.agentActivitySessionInventoryMemberCleanupRequests =
+          runDelete(
+            database,
+            "DELETE FROM agent_activity_session_inventory_member_cleanup_requests WHERE owner_user_id = ?",
+            [userRow.userId]
+          );
         nextCounts.openMeldProfileSpaceHistory = runDelete(
           database,
           `DELETE FROM openmeld_profile_space_history
@@ -232,6 +240,8 @@ export const runFreshWebStartUserCleanup = (input: {
         targetCounts.agentActivitySessionInventory;
       counts.agentActivitySessionInventoryCandidates +=
         targetCounts.agentActivitySessionInventoryCandidates;
+      counts.agentActivitySessionInventoryMemberCleanupRequests +=
+        targetCounts.agentActivitySessionInventoryMemberCleanupRequests;
       counts.agentActivitySessionInventorySources +=
         targetCounts.agentActivitySessionInventorySources;
       counts.openMeldProfiles += targetCounts.openMeldProfiles;

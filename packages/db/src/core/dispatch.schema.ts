@@ -16,6 +16,7 @@ import {
   agentActivityEvents,
   agentActivitySessionInventory,
   agentActivitySessionInventoryCandidates,
+  agentActivitySessionInventoryMemberCleanupRequests,
   agentActivitySessionInventorySources,
   agentActivitySessions,
 } from "./agent-activity.schema.ts";
@@ -1581,6 +1582,7 @@ export const coreSchema = {
   agentActivityExecutionLinks,
   agentActivitySessionInventory,
   agentActivitySessionInventoryCandidates,
+  agentActivitySessionInventoryMemberCleanupRequests,
   agentActivitySessionInventorySources,
   agentActivitySessions,
   agentControllerTaskLifecycleEvents,

@@ -4,10 +4,14 @@ import type {
 } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  acceptAgentActivitySessionInventoryMemberCleanup,
+  retryAgentActivitySessionInventoryMemberCleanups,
+} from "../src/agent-activity/activity-session-inventory-member-cleanup-service";
+import {
   acceptAgentActivitySessionReconciliation,
   canResumeAgentActivitySessionSelection,
-  deleteAgentActivitySessionInventoryForOrganizationMember,
   readAgentActivitySessionInventory,
+  requestAgentActivitySessionInventoryMemberCleanup,
 } from "../src/agent-activity/activity-session-inventory-repository";
 import { isSessionReconciliationFingerprintCompatible } from "../src/agent-activity/activity-session-inventory-rpc";
 import { forgetComputerRecordAtomically } from "../src/start/infrastructure/d1/current-device-forget-repo";
@@ -447,8 +451,10 @@ describe("Agent Activity Session Inventory repository", () => {
     });
 
     await expect(
-      deleteAgentActivitySessionInventoryForOrganizationMember({
+      requestAgentActivitySessionInventoryMemberCleanup({
         db: harness.db,
+        finalize: false,
+        nowMs: NOW_MS,
         organizationId: AUTHORITY.organizationId,
         ownerUserId: AUTHORITY.ownerUserId,
       })
@@ -471,6 +477,106 @@ describe("Agent Activity Session Inventory repository", () => {
         })
       ).toEqual({ count: 0 });
     }
+    expect(
+      harness.queryFirst<{ count: number }>({
+        params: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
+        sql: `SELECT count(*) AS count
+          FROM agent_activity_session_inventory_member_cleanup_requests
+          WHERE organization_id = ? AND owner_user_id = ?`,
+      })
+    ).toEqual({ count: 1 });
+
+    await reconcile(harness.db, {
+      reconciliationId: "reconciliation-raced-after-cleanup-request",
+      sessions: [observedSession("native-raced", 1500)],
+    });
+    expect(
+      harness.queryFirst<{ count: number }>({
+        params: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
+        sql: `SELECT count(*) AS count
+          FROM agent_activity_session_inventory
+          WHERE organization_id = ? AND owner_user_id = ?`,
+      })
+    ).toEqual({ count: 1 });
+
+    await expect(
+      requestAgentActivitySessionInventoryMemberCleanup({
+        db: harness.db,
+        finalize: true,
+        nowMs: NOW_MS + 1,
+        organizationId: AUTHORITY.organizationId,
+        ownerUserId: AUTHORITY.ownerUserId,
+      })
+    ).resolves.toEqual({
+      candidateCount: 0,
+      inventoryCount: 1,
+      sourceCount: 1,
+    });
+
+    for (const table of [
+      "agent_activity_session_inventory_candidates",
+      "agent_activity_session_inventory",
+      "agent_activity_session_inventory_sources",
+      "agent_activity_session_inventory_member_cleanup_requests",
+    ]) {
+      expect(
+        harness.queryFirst<{ count: number }>({
+          params: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
+          sql: `SELECT count(*) AS count FROM ${table}
+            WHERE organization_id = ? AND owner_user_id = ?`,
+        })
+      ).toEqual({ count: 0 });
+    }
+  });
+
+  it("retries an accepted cleanup and removes projections that raced with member removal", async () => {
+    const harness = createInventoryHarness();
+    await reconcile(harness.db, {
+      sessions: [observedSession("native-before-removal", 1000)],
+    });
+
+    await expect(
+      acceptAgentActivitySessionInventoryMemberCleanup({
+        db: harness.db,
+        nowMs: NOW_MS,
+        organizationId: AUTHORITY.organizationId,
+        ownerUserId: AUTHORITY.ownerUserId,
+        resolveMembershipState: async () => "active",
+      })
+    ).resolves.toMatchObject({ pending: true });
+
+    await reconcile(harness.db, {
+      reconciliationId: "reconciliation-before-removal-commits",
+      sessions: [observedSession("native-raced-before-removal", 1500)],
+    });
+
+    await expect(
+      retryAgentActivitySessionInventoryMemberCleanups({
+        db: harness.db,
+        nowMs: NOW_MS + 1,
+        resolveMembershipState: async () => "removed",
+      })
+    ).resolves.toEqual({
+      errors: 0,
+      finalized: 1,
+      scanned: 1,
+      waitingForRemoval: 0,
+    });
+
+    for (const table of [
+      "agent_activity_session_inventory_candidates",
+      "agent_activity_session_inventory",
+      "agent_activity_session_inventory_sources",
+      "agent_activity_session_inventory_member_cleanup_requests",
+    ]) {
+      expect(
+        harness.queryFirst<{ count: number }>({
+          params: [AUTHORITY.organizationId, AUTHORITY.ownerUserId],
+          sql: `SELECT count(*) AS count FROM ${table}
+            WHERE organization_id = ? AND owner_user_id = ?`,
+        })
+      ).toEqual({ count: 0 });
+    }
   });
 });
 
@@ -482,6 +588,7 @@ function createInventoryHarness(): ReturnType<typeof createSqliteD1Harness> {
     "agent_activity_session_inventory",
     "agent_activity_session_inventory_candidates",
     "agent_activity_session_inventory_sources",
+    "agent_activity_session_inventory_member_cleanup_requests",
   ]);
   for (const sql of [
     "INSERT INTO organizations (id, name) VALUES ('org-1', 'Amplift')",

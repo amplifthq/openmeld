@@ -47,6 +47,7 @@ export const {
   agentActivityExecutionLinks,
   agentActivitySessionInventory,
   agentActivitySessionInventoryCandidates,
+  agentActivitySessionInventoryMemberCleanupRequests,
   agentActivitySessionInventorySources,
   agentActivitySessions,
   agentControllerTaskLifecycleEvents,

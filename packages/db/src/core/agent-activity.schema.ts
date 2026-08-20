@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -329,6 +330,41 @@ export const agentActivitySessionInventorySources = sqliteTable(
           ("state" = 'syncing' and "current_reconciliation_id" is not null)
           or ("state" <> 'syncing')
         )`
+    ),
+  ]
+);
+
+/**
+ * Durable cleanup intent accepted before Auth removes an Organization member.
+ * Core keeps the request until membership absence is observed and every
+ * current/staged Session projection has been purged again after that boundary.
+ */
+export const agentActivitySessionInventoryMemberCleanupRequests = sqliteTable(
+  "agent_activity_session_inventory_member_cleanup_requests",
+  {
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id").notNull(),
+    requestedAtMs: integer("requested_at_ms").notNull(),
+    lastAttemptAtMs: integer("last_attempt_at_ms").notNull(),
+    attemptCount: integer("attempt_count").notNull(),
+    lastError: text("last_error"),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.organizationId, table.ownerUserId],
+      name: "agent_activity_session_inventory_member_cleanup_requests_pk",
+    }),
+    index("agent_activity_session_inventory_member_cleanup_due_idx").on(
+      table.lastAttemptAtMs,
+      table.requestedAtMs
+    ),
+    check(
+      "agent_activity_session_inventory_member_cleanup_time_check",
+      sql`"requested_at_ms" >= 0
+        and "last_attempt_at_ms" >= "requested_at_ms"
+        and "attempt_count" >= 0`
     ),
   ]
 );

@@ -7,6 +7,7 @@ export {
   agentActivityEvents,
   agentActivitySessionInventory,
   agentActivitySessionInventoryCandidates,
+  agentActivitySessionInventoryMemberCleanupRequests,
   agentActivitySessionInventorySources,
   agentActivitySessions,
 } from "./agent-activity.schema.ts";

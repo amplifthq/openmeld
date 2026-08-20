@@ -65,6 +65,7 @@ describe("fresh Web Start user cleanup", () => {
         expect(result.counts).toMatchObject({
           agentActivitySessionInventory: 1,
           agentActivitySessionInventoryCandidates: 1,
+          agentActivitySessionInventoryMemberCleanupRequests: 1,
           agentActivitySessionInventorySources: 1,
           openMeldProfiles: 2,
           openMeldProfileSpaceHistory: 2,
@@ -108,6 +109,13 @@ describe("fresh Web Start user cleanup", () => {
           readCount(
             database,
             "agent_activity_session_inventory_sources",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "agent_activity_session_inventory_member_cleanup_requests",
             "owner_user_id = 'user-fresh'"
           )
         ).toBe(0);
@@ -712,6 +720,14 @@ function seedAgentActivitySessionInventory(
       now,
       now
     );
+  database
+    .prepare(
+      `INSERT INTO agent_activity_session_inventory_member_cleanup_requests (
+        organization_id, owner_user_id, requested_at_ms, last_attempt_at_ms,
+        attempt_count, last_error
+      ) VALUES (?, ?, ?, ?, 0, null)`
+    )
+    .run(organizationId, ownerUserId, now, now);
 }
 
 function readCount(

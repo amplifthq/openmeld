@@ -305,7 +305,7 @@ import type {
   UpdateOrganizationSkillRpcInput,
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
-import { deleteAgentActivitySessionInventoryForOrganizationMember } from "./agent-activity/activity-session-inventory-repository";
+import { acceptAgentActivitySessionInventoryMemberCleanup } from "./agent-activity/activity-session-inventory-member-cleanup-service";
 import { reconcileDeletedAgentProfile } from "./agent-profile-binding/application/deleted-profile-reconcile-service";
 import { app } from "./app";
 import { rpcCenterAgentAuthorizeAnonymousMemberTool } from "./center-agent/application/anonymous-member-request";
@@ -399,6 +399,7 @@ import {
   rpcCenterAgentGetOrganizationInviteLink,
 } from "./organizations/center-agent-organization-invite-link-rpc";
 import { rpcCenterAgentSetOrganizationWorkingLanguage } from "./organizations/center-agent-working-language-rpc";
+import { resolveOrganizationMembershipById } from "./organizations/organization-context";
 import { PrepareSessionHub } from "./prepare-session/transport/do/prepare-session-hub";
 import {
   type CreatePrepareSessionInput,
@@ -918,10 +919,11 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcProjectSpaceIndexMembershipOverlay(this.env, input);
   }
 
-  async deleteAgentActivitySessionInventoryForOrganizationMember(input: {
+  async requestAgentActivitySessionInventoryCleanupForOrganizationMember(input: {
     organizationId?: string | null;
     userId?: string | null;
   }): Promise<{
+    accepted?: boolean;
     code?: string;
     deleted?: {
       candidateCount: number;
@@ -929,6 +931,7 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
       sourceCount: number;
     };
     ok: boolean;
+    pending?: boolean;
   }> {
     const organizationId = normalizeOptionalRpcText(input.organizationId);
     const userId = normalizeOptionalRpcText(input.userId);
@@ -939,13 +942,40 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
     if (!db) {
       return { code: "agent_activity.store_unavailable", ok: false };
     }
-    const deleted =
-      await deleteAgentActivitySessionInventoryForOrganizationMember({
-        db,
-        organizationId,
-        ownerUserId: userId,
-      });
-    return { deleted, ok: true };
+    const result = await acceptAgentActivitySessionInventoryMemberCleanup({
+      db,
+      nowMs: Date.now(),
+      organizationId,
+      ownerUserId: userId,
+      resolveMembershipState: async (subject) => {
+        const membership = await resolveOrganizationMembershipById({
+          env: this.env,
+          organizationId: subject.organizationId,
+          userId: subject.ownerUserId,
+        });
+        if (membership.ok) {
+          return "active";
+        }
+        return membership.code === "organization.membership_required"
+          ? "removed"
+          : "unavailable";
+      },
+    });
+    return {
+      accepted: true,
+      deleted: result.deleted,
+      ok: true,
+      pending: result.pending,
+    };
+  }
+
+  deleteAgentActivitySessionInventoryForOrganizationMember(input: {
+    organizationId?: string | null;
+    userId?: string | null;
+  }) {
+    return this.requestAgentActivitySessionInventoryCleanupForOrganizationMember(
+      input
+    );
   }
 
   async deleteCenterAgentMemberMemory(input: {
