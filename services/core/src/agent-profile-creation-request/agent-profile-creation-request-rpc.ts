@@ -535,11 +535,11 @@ async function createRequestedAgentProfile(
   env: CoreBindings,
   request: AgentProfileCreationRequestRecord
 ): Promise<string> {
-  const create = env.OPENMELD_AUTH_WORKER?.createAgentProfileInOrganization;
-  if (!create) {
+  const authWorker = env.OPENMELD_AUTH_WORKER;
+  if (!authWorker?.createAgentProfileInOrganization) {
     throw new Error("Auth Agent Profile creation RPC is unavailable.");
   }
-  const result = await create.call(env.OPENMELD_AUTH_WORKER, {
+  const result = await authWorker.createAgentProfileInOrganization({
     createdByUserId: request.requesterUserId,
     creationActorProfileId: request.actorProfileId,
     idempotencyKey: `agent-profile-creation-request:${request.id}`,

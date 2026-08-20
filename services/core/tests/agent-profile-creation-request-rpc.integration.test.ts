@@ -46,12 +46,25 @@ describe("Agent Profile creation request RPC", () => {
 
   it("creates an approval item, authorizes the target decision, and creates the target-owned Profile", async () => {
     const fixture = await seedFixture();
-    const createAgentProfileInOrganization = vi.fn().mockResolvedValue({
+    const createAgentProfileInOrganizationMock = vi.fn().mockResolvedValue({
       ok: true,
       profile: {
         openMeldProfileId: "agt_11111111-1111-4111-8111-111111111111",
       },
     });
+    const createAgentProfileInOrganization = new Proxy(
+      createAgentProfileInOrganizationMock,
+      {
+        get(target, property, receiver) {
+          if (property === "call") {
+            throw new Error(
+              "Cloudflare RPC method stubs must be invoked directly."
+            );
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      }
+    );
     const bindings = {
       OPENMELD_AUTH_WORKER: { createAgentProfileInOrganization },
       OPENMELD_DB: env.OPENMELD_DB,
@@ -103,7 +116,7 @@ describe("Agent Profile creation request RPC", () => {
       status: "completed",
       statusReason: "profile_created",
     });
-    expect(createAgentProfileInOrganization).toHaveBeenCalledWith({
+    expect(createAgentProfileInOrganizationMock).toHaveBeenCalledWith({
       createdByUserId: fixture.requesterUserId,
       creationActorProfileId: fixture.requesterProfileId,
       idempotencyKey: `agent-profile-creation-request:${created.request.id}`,
