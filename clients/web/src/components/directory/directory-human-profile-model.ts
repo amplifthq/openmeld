@@ -465,8 +465,7 @@ function resolveIdentityAccounts(input: {
 				return {
 					accountEmail: null,
 					canDisconnect:
-						connectionIsReady &&
-						(input.isCurrentUser || input.canManageConnectedAccounts),
+						input.isCurrentUser || input.canManageConnectedAccounts,
 					channelsPath: null,
 					id: link.id,
 					provider,

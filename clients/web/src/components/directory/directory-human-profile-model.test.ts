@@ -66,6 +66,7 @@ describe("directory Human Profile model", () => {
 
 		expect(linkedMember?.identityAccounts).toEqual([
 			expect.objectContaining({
+				canDisconnect: true,
 				channelsPath: null,
 				id: expect.any(String),
 				provider: "slack",
