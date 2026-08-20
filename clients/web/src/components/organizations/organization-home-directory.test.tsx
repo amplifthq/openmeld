@@ -33,7 +33,7 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("#/components/profiles/dither-profile-avatar", () => ({
 	DitherProfileAvatar: ({ profileName }: { profileName: string }) => (
-		<span data-profile-name={profileName} />
+		<span data-profile-name={profileName} data-slot="avatar" />
 	),
 }));
 
@@ -142,6 +142,16 @@ describe("OrganizationHomeDirectory", () => {
 
 		const teammateComputer = await screen.findByText("Maya’s Mac");
 		expect(teammateComputer.closest("a")?.textContent).toContain("Maya Chen");
+	});
+
+	it("renders People avatars without an extra icon frame", async () => {
+		renderDirectory();
+
+		const personName = await screen.findByText("Felix Lee");
+		const personLink = personName.closest("a");
+		const avatar = personLink?.querySelector('[data-slot="avatar"]');
+
+		expect(avatar?.parentElement).toBe(personLink);
 	});
 });
 

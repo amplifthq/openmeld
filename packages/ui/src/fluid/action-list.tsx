@@ -1,8 +1,9 @@
 "use client";
 
+import { mergeProps } from "@base-ui/react/merge-props";
+import { useRender } from "@base-ui/react/use-render";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
-  type ButtonHTMLAttributes,
   createContext,
   type HTMLAttributes,
   type ReactNode,
@@ -29,7 +30,7 @@ type FluidActionListProps = HTMLAttributes<HTMLDivElement> & {
   hoverIndicatorClassName?: string;
 };
 
-type FluidActionListItemProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+type FluidActionListItemProps = useRender.ComponentProps<"button"> & {
   index: number;
 };
 
@@ -101,6 +102,7 @@ export function FluidActionList({
           "relative flex max-w-full select-none flex-col",
           className
         )}
+        data-slot="fluid-action-list"
         onBlur={(event) => {
           if (containerRef.current?.contains(event.relatedTarget as Node)) {
             return;
@@ -192,10 +194,11 @@ export function FluidActionList({
 }
 
 export function FluidActionListItem({
-  children,
   className,
   disabled = false,
   index,
+  ref,
+  render,
   type = "button",
   ...props
 }: FluidActionListItemProps) {
@@ -209,22 +212,28 @@ export function FluidActionListItem({
     };
   }, [disabled, index, registerItem]);
 
-  return (
-    <button
-      {...props}
-      className={cn(
-        "relative z-10 min-w-0 appearance-none bg-transparent outline-none disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      data-hovered={activeIndex === index || undefined}
-      data-proximity-index={index}
-      disabled={disabled}
-      ref={itemRef}
-      type={type}
-    >
-      {children}
-    </button>
-  );
+  const renderedItem = useRender({
+    defaultTagName: "button",
+    props: {
+      ...mergeProps<"button">(
+        {
+          className: cn(
+            "relative z-10 min-w-0 appearance-none bg-transparent outline-none disabled:cursor-not-allowed disabled:opacity-50",
+            className
+          ),
+          disabled,
+          type,
+        },
+        props
+      ),
+      "data-hovered": activeIndex === index || undefined,
+      "data-proximity-index": index,
+    },
+    ref: ref ? [itemRef, ref] : itemRef,
+    render,
+  });
+
+  return <>{renderedItem}</>;
 }
 
 export type { FluidActionListItemProps, FluidActionListProps };

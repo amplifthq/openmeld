@@ -37,19 +37,14 @@ export type DirectoryHumanProfileComputer = {
 	state: DirectoryComputerDisplayState;
 };
 
-export type DirectoryConnectedAccount = {
+export type DirectoryIdentityAccount = {
+	accountEmail: string | null;
 	canDisconnect: boolean;
-	id: string;
-	provider: MessageChannelConnectionProjection["provider"];
-	providerAccountName: string | null;
-	providerLabel: string;
-	state: "connected" | "unavailable";
-};
-
-export type DirectoryConnectableAccount = {
-	channelsPath: string;
+	channelsPath: string | null;
+	id: string | null;
 	provider: MessageChannelConnectionProjection["provider"];
 	providerLabel: string;
+	state: "connected" | "not_connected" | "unavailable";
 };
 
 type DirectoryProfileReportDocument = Pick<
@@ -72,19 +67,20 @@ export type DirectoryHumanProfileRow = {
 	avatarImageUrl: string | null;
 	canEdit: boolean;
 	computer: DirectoryHumanProfileComputer;
-	connectableAccounts: readonly DirectoryConnectableAccount[];
-	connectedAccounts: readonly DirectoryConnectedAccount[];
 	details: ProfileDetailsSnapshot | null;
-	email: string;
+	email: string | null;
 	hasDraft: boolean;
 	id: string;
+	identityAccounts: readonly DirectoryIdentityAccount[];
 	isDefault: boolean;
 	isCurrentUser: boolean;
+	joinedAt: string | null;
+	lastUsedAt: string | null;
 	name: string;
 	notice: string | null;
 	reportAction: DirectoryProfileReportAction;
 	profileStatus: "active" | "disabled" | null;
-	role: DirectoryHumanProfileRole;
+	role: DirectoryHumanProfileRole | null;
 	userId: string;
 };
 
@@ -101,59 +97,57 @@ export function buildOrganizationHumanProfileRows(input: {
 	orgSlug: string;
 }): DirectoryHumanProfileRow[] {
 	const reportsBySubject = indexProfileReportDocuments(input.documents);
-	return input.members.map((member) => {
-		const document = reportsBySubject.get(member.user.id);
-		const humanProfile = member.humanProfile;
-		const isCurrentUser = member.user.id === input.currentUserId;
-		return {
-			avatarImageUrl: member.user.image,
-			canEdit: isCurrentUser && humanProfile?.status === "active",
-			computer: resolveHumanProfileComputer({
-				computers: input.computers,
-				isCurrentUser,
-				orgSlug: input.orgSlug,
-				status: input.computersStatus,
-				userId: member.user.id,
-			}),
-			connectableAccounts: resolveConnectableAccounts({
-				isCurrentUser,
-				messageChannels: input.messageChannels,
-				messageChannelsStatus: input.messageChannelsStatus,
-				orgSlug: input.orgSlug,
-				userId: member.user.id,
-			}),
-			connectedAccounts: resolveConnectedAccounts({
-				canManageConnectedAccounts: input.canManageConnectedAccounts,
-				isCurrentUser,
-				messageChannels: input.messageChannels,
-				messageChannelsStatus: input.messageChannelsStatus,
-				userId: member.user.id,
-			}),
-			details:
-				humanProfile?.status === "active"
+	return input.members
+		.map((member) => {
+			const document = reportsBySubject.get(member.user.id);
+			const humanProfile = member.humanProfile;
+			const isCurrentUser = member.user.id === input.currentUserId;
+			return {
+				avatarImageUrl: member.user.image,
+				canEdit: isCurrentUser && humanProfile?.status === "active",
+				computer: resolveHumanProfileComputer({
+					computers: input.computers,
+					isCurrentUser,
+					orgSlug: input.orgSlug,
+					status: input.computersStatus,
+					userId: member.user.id,
+				}),
+				identityAccounts: resolveIdentityAccounts({
+					canManageConnectedAccounts: input.canManageConnectedAccounts,
+					isCurrentUser,
+					messageChannels: input.messageChannels,
+					messageChannelsStatus: input.messageChannelsStatus,
+					orgSlug: input.orgSlug,
+					userId: member.user.id,
+				}),
+				details: humanProfile
 					? buildProfileDetailsSnapshotFromHumanProfile({
 							profileId: humanProfile.profileId,
 							profileName: humanProfile.profileName,
 							viewerScope: isCurrentUser ? "owner_self" : "observer",
 						})
 					: null,
-			email: member.user.email,
-			hasDraft: document?.hasDraft ?? false,
-			id: humanProfile?.profileId ?? `member:${member.memberId}`,
-			isDefault: false,
-			isCurrentUser,
-			name: humanProfile?.profileName || member.user.name || member.user.email,
-			notice: null,
-			reportAction: resolveProfileReportAction({
-				document,
-				documentsStatus: input.documentsStatus,
-				orgSlug: input.orgSlug,
-			}),
-			profileStatus: humanProfile?.status ?? null,
-			role: resolveDirectoryHumanProfileRole(member.role),
-			userId: member.user.id,
-		};
-	});
+				email: member.user.email,
+				hasDraft: document?.hasDraft ?? false,
+				id: humanProfile?.profileId ?? `member:${member.memberId}`,
+				isDefault: false,
+				isCurrentUser,
+				joinedAt: member.joinedAt,
+				lastUsedAt: humanProfile?.lastUsedAt ?? null,
+				name:
+					humanProfile?.profileName || member.user.name || member.user.email,
+				notice: null,
+				reportAction: resolveProfileReportAction({
+					document,
+					documentsStatus: input.documentsStatus,
+					orgSlug: input.orgSlug,
+				}),
+				profileStatus: humanProfile?.status ?? null,
+				role: resolveDirectoryHumanProfileRole(member.role),
+				userId: member.user.id,
+			};
+		})
+		.sort(compareDirectoryHumanProfileRows);
 }
 
 export function buildPersonalHumanProfileRows(input: {
@@ -190,14 +184,15 @@ export function buildPersonalHumanProfileRows(input: {
 					status: input.computersStatus,
 					userId: input.subjectUserId,
 				}),
-				connectableAccounts: [],
-				connectedAccounts: [],
 				details: null,
-				email: input.account.email?.trim() || "Current member",
+				email: input.account.email?.trim() || null,
 				hasDraft,
 				id: `member:${input.subjectUserId || input.orgSlug}`,
+				identityAccounts: [],
 				isDefault: false,
 				isCurrentUser: true,
+				joinedAt: null,
+				lastUsedAt: null,
 				name:
 					input.account.name?.trim() ||
 					input.account.email?.trim() ||
@@ -207,7 +202,7 @@ export function buildPersonalHumanProfileRows(input: {
 				),
 				reportAction,
 				profileStatus: null,
-				role: "owner",
+				role: null,
 				userId: input.subjectUserId,
 			},
 		];
@@ -223,26 +218,24 @@ export function buildPersonalHumanProfileRows(input: {
 				status: input.computersStatus,
 				userId: input.subjectUserId,
 			}),
-			connectableAccounts: [],
-			connectedAccounts: [],
-			details:
-				profile.status === "active"
-					? buildProfileDetailsSnapshotFromHumanProfile({
-							profileId: profile.openMeldProfileId,
-							profileName: profile.profileName,
-							viewerScope: "owner_self",
-						})
-					: null,
-			email: input.account.email?.trim() || "Current member",
+			details: buildProfileDetailsSnapshotFromHumanProfile({
+				profileId: profile.openMeldProfileId,
+				profileName: profile.profileName,
+				viewerScope: "owner_self",
+			}),
+			email: input.account.email?.trim() || null,
 			hasDraft,
 			id: profile.openMeldProfileId,
+			identityAccounts: [],
 			isDefault: profile.isDefault,
 			isCurrentUser: true,
+			joinedAt: null,
+			lastUsedAt: profile.lastUsedAt,
 			name: profile.profileName,
 			notice: null,
 			reportAction,
 			profileStatus: profile.status,
-			role: "owner",
+			role: null,
 			userId: input.subjectUserId,
 		},
 	];
@@ -431,76 +424,105 @@ function formatComputerCount(
 	return `${count} computers ${state === "needs attention" ? "need attention" : state}`;
 }
 
-function resolveConnectedAccounts(input: {
+function resolveIdentityAccounts(input: {
 	canManageConnectedAccounts: boolean;
-	isCurrentUser: boolean;
-	messageChannels: MessageChannelConnectionListResponse | null;
-	messageChannelsStatus: DirectoryProjectionStatus;
-	userId: string;
-}): DirectoryConnectedAccount[] {
-	const connectionByProvider = new Map(
-		(input.messageChannels?.connections ?? []).map((connection) => [
-			connection.provider,
-			connection,
-		])
-	);
-	const connectedAccounts: DirectoryConnectedAccount[] = [];
-	for (const link of input.messageChannels?.identityLinks ?? []) {
-		if (link.openMeldUserId !== input.userId) {
-			continue;
-		}
-		connectedAccounts.push({
-			canDisconnect: input.isCurrentUser || input.canManageConnectedAccounts,
-			id: link.id,
-			provider: link.provider,
-			providerAccountName: link.providerAccountName,
-			providerLabel: resolveProviderLabel(link.provider),
-			state:
-				input.messageChannelsStatus === "ready" &&
-				connectionByProvider.get(link.provider)?.status === "connected"
-					? "connected"
-					: "unavailable",
-		});
-	}
-	return connectedAccounts;
-}
-
-function resolveConnectableAccounts(input: {
 	isCurrentUser: boolean;
 	messageChannels: MessageChannelConnectionListResponse | null;
 	messageChannelsStatus: DirectoryProjectionStatus;
 	orgSlug: string;
 	userId: string;
-}): DirectoryConnectableAccount[] {
-	if (
-		input.messageChannelsStatus !== "ready" ||
-		!(input.isCurrentUser && input.messageChannels)
-	) {
+}): DirectoryIdentityAccount[] {
+	if (!input.messageChannels) {
 		return [];
 	}
-	const linkedProviders = new Set<
-		MessageChannelConnectionProjection["provider"]
+	const hasFreshConnections = input.messageChannelsStatus === "ready";
+	const connectionByProvider = new Map(
+		input.messageChannels.connections.map((connection) => [
+			connection.provider,
+			connection,
+		])
+	);
+	const linkByProvider = new Map<
+		DirectoryIdentityAccount["provider"],
+		MessageChannelConnectionListResponse["identityLinks"][number]
 	>();
 	for (const link of input.messageChannels.identityLinks) {
 		if (link.openMeldUserId === input.userId) {
-			linkedProviders.add(link.provider);
+			linkByProvider.set(link.provider, link);
 		}
 	}
-	const connectableAccounts: DirectoryConnectableAccount[] = [];
-	for (const connection of input.messageChannels.connections) {
-		if (
-			connection.status !== "connected" ||
-			linkedProviders.has(connection.provider)
-		) {
-			continue;
-		}
-		connectableAccounts.push({
-			channelsPath: buildOrganizationChannelsPath(input.orgSlug),
-			provider: connection.provider,
-			providerLabel: resolveProviderLabel(connection.provider),
-		});
+	const providers = new Set([
+		...connectionByProvider.keys(),
+		...input.messageChannels.identityLinks.map((link) => link.provider),
+	]);
+	return [...providers]
+		.map((provider): DirectoryIdentityAccount => {
+			const connection = connectionByProvider.get(provider);
+			const link = linkByProvider.get(provider);
+			const connectionIsReady =
+				hasFreshConnections && connection?.status === "connected";
+			if (link) {
+				return {
+					accountEmail: null,
+					canDisconnect:
+						input.isCurrentUser || input.canManageConnectedAccounts,
+					channelsPath: null,
+					id: link.id,
+					provider,
+					providerLabel: resolveProviderLabel(provider),
+					state: connectionIsReady ? "connected" : "unavailable",
+				};
+			}
+			return {
+				accountEmail: null,
+				canDisconnect: false,
+				channelsPath:
+					input.isCurrentUser && connectionIsReady
+						? buildOrganizationChannelsPath(input.orgSlug)
+						: null,
+				id: null,
+				provider,
+				providerLabel: resolveProviderLabel(provider),
+				state: connectionIsReady ? "not_connected" : "unavailable",
+			};
+		})
+		.sort((left, right) =>
+			left.providerLabel.localeCompare(right.providerLabel)
+		);
+}
+
+const DIRECTORY_ROLE_PRIORITY: Record<DirectoryHumanProfileRole, number> = {
+	owner: 0,
+	admin: 1,
+	member: 2,
+	unknown: 3,
+};
+
+function compareDirectoryHumanProfileRows(
+	left: DirectoryHumanProfileRow,
+	right: DirectoryHumanProfileRow
+): number {
+	if (left.isCurrentUser !== right.isCurrentUser) {
+		return left.isCurrentUser ? -1 : 1;
 	}
-	return connectableAccounts;
+	const roleComparison =
+		resolveRolePriority(left.role) - resolveRolePriority(right.role);
+	if (roleComparison !== 0) {
+		return roleComparison;
+	}
+	const nameComparison = left.name.localeCompare(right.name, "en", {
+		numeric: true,
+		sensitivity: "base",
+	});
+	return nameComparison === 0
+		? left.userId.localeCompare(right.userId)
+		: nameComparison;
+}
+
+function resolveRolePriority(role: DirectoryHumanProfileRole | null): number {
+	return role === null
+		? DIRECTORY_ROLE_PRIORITY.unknown
+		: DIRECTORY_ROLE_PRIORITY[role];
 }
 
 function resolveProviderLabel(

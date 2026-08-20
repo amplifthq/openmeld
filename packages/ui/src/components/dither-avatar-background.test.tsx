@@ -49,4 +49,19 @@ describe("DitherAvatarBackground", () => {
     expect(canvas?.classList.contains("opacity-80")).toBe(true);
     expect(fillRect).toHaveBeenCalled();
   });
+
+  it("overscans the rounded clipping edge so canvas resampling cannot reveal a seam", () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const { container } = render(
+      <DitherAvatarBackground
+        seed="openmeld-dither-profile-avatar:v1:human:profile-3"
+        size={32}
+      />
+    );
+    const canvas = container.querySelector("canvas");
+
+    expect(canvas?.classList.contains("-inset-px")).toBe(true);
+    expect(canvas?.classList.contains("h-[calc(100%+2px)]")).toBe(true);
+    expect(canvas?.classList.contains("w-[calc(100%+2px)]")).toBe(true);
+  });
 });

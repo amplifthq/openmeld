@@ -464,10 +464,12 @@ describe("LandingPage", () => {
 		expect(within(availableChannels).getAllByRole("listitem")).toHaveLength(2);
 		expect(within(availableChannels).getByText("Slack")).toBeTruthy();
 		expect(within(availableChannels).getByText("Lark")).toBeTruthy();
-		expect(
-			within(availableChannels).getByTestId("app-logo-lark").parentElement
-				?.className
-		).toContain("bg-muted/50");
+		const larkLogoContainer =
+			within(availableChannels).getByTestId("app-logo-lark").parentElement;
+		expect(larkLogoContainer?.className).toContain("dark:bg-transparent");
+		expect(larkLogoContainer?.className).toContain("dark:border-0");
+		expect(larkLogoContainer?.className).toContain("dark:shadow-none");
+		expect(larkLogoContainer?.className).not.toContain("dark:bg-muted/50");
 		const availableApps = within(connectedWorkSection).getByRole("list", {
 			name: "Available Apps",
 		});

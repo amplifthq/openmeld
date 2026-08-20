@@ -50,7 +50,10 @@ export function DitherAvatarBackground({
     <canvas
       {...props}
       aria-hidden="true"
-      className={cn("absolute inset-0 size-full", className)}
+      className={cn(
+        "absolute -inset-px h-[calc(100%+2px)] w-[calc(100%+2px)]",
+        className
+      )}
       data-slot="dither-avatar-background"
       height={size}
       ref={canvasRef}
