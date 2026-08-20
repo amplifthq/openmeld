@@ -108,6 +108,18 @@ export async function syncLocalAgentSessionInventory(
     previousSources.sources.map((source) => [sourceKey(source), source])
   );
   try {
+    for (const source of disconnectedSources) {
+      await submitDisconnectedSource({
+        api,
+        deviceId: reporting.deviceId,
+        lane: reporting.lane,
+        nowMs,
+        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
+        source,
+      });
+      retainedSources.delete(sourceKey(source));
+      submittedSourceCount += 1;
+    }
     for (const source of currentSources) {
       await submitCurrentSource({
         api,
@@ -119,18 +131,6 @@ export async function syncLocalAgentSessionInventory(
       });
       retainedSources.set(sourceKey(source), storedSource(source));
       sessionCount += source.sessions.length;
-      submittedSourceCount += 1;
-    }
-    for (const source of disconnectedSources) {
-      await submitDisconnectedSource({
-        api,
-        deviceId: reporting.deviceId,
-        lane: reporting.lane,
-        nowMs,
-        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
-        source,
-      });
-      retainedSources.delete(sourceKey(source));
       submittedSourceCount += 1;
     }
   } catch (error) {

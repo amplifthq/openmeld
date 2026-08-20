@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ProjectBinding } from "../src/agent-activity/project-bindings";
 import { recordOpenMeldCreatedLocalAgentSession } from "../src/agent-activity/session-inventory-origin-store";
@@ -143,7 +143,7 @@ describe("Local Agent Session Inventory provider adapters", () => {
 
   it("reads the complete OpenCode table beyond the legacy 500 row snapshot", async () => {
     const databasePath = join(root, "opencode.db");
-    const database = new DatabaseSync(databasePath);
+    const database = new Database(databasePath);
     database.exec(`CREATE TABLE session (
       id TEXT PRIMARY KEY,
       directory TEXT NOT NULL,
@@ -189,10 +189,23 @@ describe("Local Agent Session Inventory provider adapters", () => {
       join(sessionDir, "summary.json"),
       JSON.stringify({
         created_at: "2026-08-20T09:00:00.000Z",
+        cwd: repositoryPath,
         generated_title: "Native Grok title",
-        info: { cwd: repositoryPath, id: "grok-native-1" },
+        id: "grok-native-1",
         session_summary: "must not become the title",
         updated_at: "2026-08-20T09:30:00.000Z",
+      }),
+      "utf8"
+    );
+    const nestedSessionDir = join(grokHome, "sessions", "workspace", "grok-2");
+    await mkdir(nestedSessionDir, { recursive: true });
+    await writeFile(
+      join(nestedSessionDir, "summary.json"),
+      JSON.stringify({
+        created_at: "2026-08-20T08:00:00.000Z",
+        generated_title: "Installed-layout title",
+        info: { cwd: repositoryPath, id: "grok-native-2" },
+        updated_at: "2026-08-20T08:30:00.000Z",
       }),
       "utf8"
     );
@@ -207,7 +220,7 @@ describe("Local Agent Session Inventory provider adapters", () => {
       grokHome,
       rootDir: root,
     });
-    expect(sessions).toHaveLength(1);
+    expect(sessions).toHaveLength(2);
     expect(sessions[0]?.session).toEqual({
       canFork: false,
       canResume: true,
@@ -217,6 +230,11 @@ describe("Local Agent Session Inventory provider adapters", () => {
       origin: "openmeld",
       startedAtMs: Date.UTC(2026, 7, 20, 9),
       status: "unknown",
+    });
+    expect(sessions[1]?.session).toMatchObject({
+      nativeSessionId: "grok-native-2",
+      nativeSessionTitle: "Installed-layout title",
+      origin: "unknown",
     });
     const originStorePath = join(
       root,

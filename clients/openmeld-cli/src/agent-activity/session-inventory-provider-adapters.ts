@@ -30,6 +30,9 @@ import {
 const PROVIDER_PROBE_TIMEOUT_MS = 5000;
 const PROVIDER_DISCOVERY_TIMEOUT_MS = 30_000;
 const MAX_JSON_RPC_LINE_BYTES = 8 * 1024 * 1024;
+const OPENCODE_SESSION_QUERY = `SELECT id, directory, title, time_created, time_updated, time_archived
+  FROM session
+  ORDER BY time_updated DESC, id ASC`;
 const CODEX_THREAD_SOURCE_KINDS = [
   "cli",
   "vscode",
@@ -653,59 +656,86 @@ export async function discoverOpenCodeRetainedSessions(input: {
 }): Promise<BoundObservedLocalAgentSession[]> {
   const openMeldCreatedSessionKeys =
     await readOpenMeldCreatedLocalAgentSessionKeys(input);
-  const { DatabaseSync } = await import("node:sqlite");
-  const database = new DatabaseSync(input.databasePath, { readOnly: true });
-  try {
-    const rows = database
-      .prepare(
-        `SELECT id, directory, title, time_created, time_updated, time_archived
-         FROM session
-         ORDER BY time_updated DESC, id ASC`
-      )
-      .all() as Record<string, unknown>[];
-    const result: BoundObservedLocalAgentSession[] = [];
-    for (const row of rows) {
-      const nativeSessionId = text(row.id);
-      const cwd = text(row.directory);
-      const lastActiveAtMs = timestamp(row.time_updated);
-      if (!(nativeSessionId && cwd && lastActiveAtMs !== null)) {
-        continue;
-      }
-      const binding = await resolveObservedAgentActivityBinding(
-        cwd,
-        input.bindings
-      );
-      if (!binding) {
-        continue;
-      }
-      const archivedAtMs = timestamp(row.time_archived);
-      const hookStatus = await readRecentAgentActivityHookStatus({
-        nowMs: input.nowMs,
-        provider: "opencode",
-        providerSessionId: nativeSessionId,
-        rootDir: input.rootDir,
-      });
-      result.push({
-        binding,
-        session: observedLocalAgentSessionSchema.parse({
-          canFork: false,
-          canResume: archivedAtMs === null,
-          lastActiveAtMs,
-          nativeSessionId,
-          nativeSessionTitle: normalizeSharedSessionTitle(row.title),
-          origin: resolveLocalAgentSessionOrigin({
-            agentControllerRef: "builtin:opencode",
-            fallback: "unknown",
-            nativeSessionId,
-            openMeldCreatedSessionKeys,
-          }),
-          startedAtMs: timestamp(row.time_created),
-          status:
-            archivedAtMs === null ? mapLegacyHookStatus(hookStatus) : "ended",
-        }),
-      });
+  const rows = await readOpenCodeSessionRows(input.databasePath);
+  const result: BoundObservedLocalAgentSession[] = [];
+  for (const row of rows) {
+    const nativeSessionId = text(row.id);
+    const cwd = text(row.directory);
+    const lastActiveAtMs = timestamp(row.time_updated);
+    if (!(nativeSessionId && cwd && lastActiveAtMs !== null)) {
+      continue;
     }
-    return stableSessions(result);
+    const binding = await resolveObservedAgentActivityBinding(
+      cwd,
+      input.bindings
+    );
+    if (!binding) {
+      continue;
+    }
+    const archivedAtMs = timestamp(row.time_archived);
+    const hookStatus = await readRecentAgentActivityHookStatus({
+      nowMs: input.nowMs,
+      provider: "opencode",
+      providerSessionId: nativeSessionId,
+      rootDir: input.rootDir,
+    });
+    result.push({
+      binding,
+      session: observedLocalAgentSessionSchema.parse({
+        canFork: false,
+        canResume: archivedAtMs === null,
+        lastActiveAtMs,
+        nativeSessionId,
+        nativeSessionTitle: normalizeSharedSessionTitle(row.title),
+        origin: resolveLocalAgentSessionOrigin({
+          agentControllerRef: "builtin:opencode",
+          fallback: "unknown",
+          nativeSessionId,
+          openMeldCreatedSessionKeys,
+        }),
+        startedAtMs: timestamp(row.time_created),
+        status:
+          archivedAtMs === null ? mapLegacyHookStatus(hookStatus) : "ended",
+      }),
+    });
+  }
+  return stableSessions(result);
+}
+
+async function readOpenCodeSessionRows(
+  databasePath: string
+): Promise<Record<string, unknown>[]> {
+  if (typeof process.versions.bun === "string") {
+    const bunSqliteModuleName = "bun:sqlite";
+    const { Database } = (await import(bunSqliteModuleName)) as {
+      Database: new (
+        path: string,
+        options: { create: boolean; readonly: boolean }
+      ) => {
+        close: () => void;
+        query: (sql: string) => { all: () => Record<string, unknown>[] };
+      };
+    };
+    const database = new Database(databasePath, {
+      create: false,
+      readonly: true,
+    });
+    try {
+      return database.query(OPENCODE_SESSION_QUERY).all();
+    } finally {
+      database.close();
+    }
+  }
+  const { default: Database } = await import("better-sqlite3");
+  const database = new Database(databasePath, {
+    fileMustExist: true,
+    readonly: true,
+  });
+  try {
+    return database.prepare(OPENCODE_SESSION_QUERY).all() as Record<
+      string,
+      unknown
+    >[];
   } finally {
     database.close();
   }
@@ -753,11 +783,23 @@ export async function discoverGrokBuildRetainedSessions(input: {
   const identities = new Set<string>();
   for (const path of paths) {
     const summary: unknown = JSON.parse(await readFile(path, "utf8"));
-    if (!(isRecord(summary) && isRecord(summary.info))) {
+    if (!isRecord(summary)) {
       throw new Error("Grok Build summary metadata is invalid.");
     }
-    const nativeSessionId = text(summary.info.id);
-    const cwd = text(summary.info.cwd);
+    const topLevelIdentity = {
+      cwd: text(summary.cwd),
+      nativeSessionId: text(summary.id),
+    };
+    const nestedInfo = isRecord(summary.info) ? summary.info : null;
+    const nestedIdentity = {
+      cwd: text(nestedInfo?.cwd),
+      nativeSessionId: text(nestedInfo?.id),
+    };
+    const identity =
+      topLevelIdentity.nativeSessionId && topLevelIdentity.cwd
+        ? topLevelIdentity
+        : nestedIdentity;
+    const { cwd, nativeSessionId } = identity;
     const lastActiveAtMs = timestamp(
       summary.last_active_at ?? summary.updated_at
     );

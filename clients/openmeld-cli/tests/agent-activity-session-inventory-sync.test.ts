@@ -66,6 +66,105 @@ afterEach(async () => {
 });
 
 describe("Local Agent Session Inventory reconciliation", () => {
+  it("disconnects an obsolete Project connection before publishing its replacement", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-session-rebind-"));
+    const repositoryPath = join(root, "repository");
+    await mkdir(repositoryPath, { recursive: true });
+    const firstBinding = await bindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      projectSlug: "openmeld",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir: root,
+    });
+    mocks.discoverLocalAgentSessionProviders.mockResolvedValue([
+      {
+        agentControllerRef: "builtin:codex",
+        provider: "codex",
+        result: "sessions",
+        sessions: [
+          {
+            binding: firstBinding,
+            session: {
+              canFork: false,
+              canResume: true,
+              lastActiveAtMs: 10_000,
+              nativeSessionId: "native-rebound",
+              nativeSessionTitle: "Rebound Session",
+              origin: "local",
+              startedAtMs: 9000,
+              status: "idle",
+            },
+          },
+        ],
+      },
+    ]);
+    await syncLocalAgentSessionInventory({
+      foundation: {} as never,
+      nowMs: 20_000,
+      rootDir: root,
+    });
+
+    const replacementBinding = await bindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      projectSlug: "openmeld",
+      repositoryFingerprint: `sha256:${"a".repeat(64)}`,
+      repositoryPath,
+      rootDir: root,
+    });
+    expect(replacementBinding.bindingGeneration).not.toBe(
+      firstBinding.bindingGeneration
+    );
+    mocks.discoverLocalAgentSessionProviders.mockResolvedValue([
+      {
+        agentControllerRef: "builtin:codex",
+        provider: "codex",
+        result: "sessions",
+        sessions: [
+          {
+            binding: replacementBinding,
+            session: {
+              canFork: false,
+              canResume: true,
+              lastActiveAtMs: 30_000,
+              nativeSessionId: "native-rebound",
+              nativeSessionTitle: "Rebound Session",
+              origin: "local",
+              startedAtMs: 9000,
+              status: "idle",
+            },
+          },
+        ],
+      },
+    ]);
+    mocks.submitAgentActivitySessionReconciliation.mockClear();
+
+    const result = await syncLocalAgentSessionInventory({
+      foundation: {} as never,
+      nowMs: 30_000,
+      rootDir: root,
+    });
+
+    expect(result).toMatchObject({
+      sessionCount: 1,
+      status: "submitted",
+      submittedSourceCount: 2,
+    });
+    const requests =
+      mocks.submitAgentActivitySessionReconciliation.mock.calls.map(
+        ([request]) => request as { localConnectionId: string; result: string }
+      );
+    expect(requests.map(({ result: requestResult }) => requestResult)).toEqual([
+      "disconnected",
+      "sessions",
+    ]);
+    expect(requests[0]?.localConnectionId).not.toBe(
+      requests[1]?.localConnectionId
+    );
+  });
+
   it("submits every Session in stable pages and then disconnects the removed Project source", async () => {
     root = await mkdtemp(join(tmpdir(), "openmeld-session-sync-"));
     const repositoryPath = join(root, "repository");
