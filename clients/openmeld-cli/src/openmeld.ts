@@ -215,6 +215,7 @@ import {
   stripViewArgs,
 } from "./openmeld-cli-view";
 import {
+  runOrgComputers,
   runOrgCurrent,
   runOrgDirectory,
   runOrgInviteLink,
@@ -887,6 +888,23 @@ orgCmd
       view,
       run: async () => {
         await runOrgDirectory({ json, view });
+      },
+    });
+  });
+
+orgCmd
+  .command("computers")
+  .description("List Organization-visible Computers and local agents.")
+  .option("--json", "Print one machine-readable JSON envelope.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const json = opts.json === true;
+    const view = json ? "agent" : getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      jsonOutput: json,
+      routeTokens: ["org", "computers"],
+      view,
+      run: async () => {
+        await runOrgComputers({ json, view });
       },
     });
   });
@@ -4528,6 +4546,38 @@ profileCmd
     "Confirm a dangerous Agent Controller Permission Mode without prompting",
     false
   )
+  .option(
+    "--owner <userId>",
+    "Create for a member from `openmeld org directory --view agent`, or self"
+  )
+  .option(
+    "--computer <computerId>",
+    "Exact Organization-visible Computer for a teammate-owned Agent"
+  )
+  .option("--project <projectId>", "Default Project for the new Agent")
+  .option(
+    "--session <strategy>",
+    "Session strategy for an owner request: new, resume, or fork",
+    "new"
+  )
+  .option(
+    "--native-session <id>",
+    "Native provider Session ID required for resume or fork"
+  )
+  .option("--space <spaceId>", "Add the created Agent to this Space")
+  .option("--source <source>", "Request source: cli or local-agent", "cli")
+  .option(
+    "--request-key <key>",
+    "Stable idempotency key for safely retrying an owner request"
+  )
+  .option(
+    "--organization <slugOrId>",
+    "Organization slug or ID; defaults to the current Organization"
+  )
+  .option(
+    "--no-organization-wake-access",
+    "Do not request Organization Wake access for the selected Binding"
+  )
   .action(async (profileName, opts) => {
     const outputView = await resolveEffectiveViewForOutput();
     const targetName =
@@ -4552,6 +4602,39 @@ profileCmd
       routeTokens: ["profile", "create"],
       view,
       run: async () => {
+        if (typeof opts.owner === "string") {
+          if (
+            typeof opts.kind === "string" &&
+            opts.kind.trim().toLowerCase() !== "agent"
+          ) {
+            throw createProfileCreateGuideError(
+              "--owner can only create an Agent Profile; pass --kind agent."
+            );
+          }
+          await runProfileCreationRequestCreate({
+            agentController: opts.agentController,
+            agentControllerPermissionModeInput:
+              opts.agentControllerPermissionMode,
+            authorizeForOrganization: opts.organizationWakeAccess,
+            confirmDangerousAgentControllerPermissionMode: Boolean(
+              opts.confirmDangerousAgentControllerPermissionMode
+            ),
+            defaultProjectId: opts.project,
+            idempotencyKey: opts.requestKey,
+            modelId: opts.model,
+            nativeSessionId: opts.nativeSession,
+            organization: opts.organization,
+            profileName: targetName,
+            reasoningLevel: opts.reasoningEffort,
+            requestedSpaceId: opts.space,
+            sessionStrategy: opts.session,
+            source: opts.source,
+            targetComputerId: opts.computer,
+            targetOwner: opts.owner,
+            view,
+          });
+          return;
+        }
         await runProfileCreate({
           profileName: targetName,
           kind: opts.kind,

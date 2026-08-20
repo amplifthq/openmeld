@@ -139,6 +139,21 @@ openmeld org directory --view agent
 openmeld org directory --json
 ```
 
+### `openmeld org computers`
+
+List the active Organization's team-visible Computers and supported local
+agents. Agent View preserves the validated Organization Computers projection;
+`--json` emits one scriptable JSON envelope.
+
+```bash
+openmeld org computers --view agent
+openmeld org computers --json
+```
+
+Join `ownerUserId` to `openmeld org directory`, then use the exact `computerId`
+and `agentControllerRef` with `openmeld profiles create`. Private local paths,
+account identities, launch commands, and private skills are not exposed.
+
 ### `openmeld org invite-link`
 
 Read, create or reset, and revoke the active Organization invite link. OpenMeld
@@ -519,13 +534,14 @@ openmeld profiles update <profile-id> --name <profile-name>
 openmeld profiles delete <profile-id> --force
 ```
 
-Create and manage Organization Agent Profile requests:
+Create your own Agent Profile or request one for a teammate through the same
+entry, then manage requests separately:
 
 ```bash
-openmeld profiles requests create <profile-name> --owner self --session new --source local-agent --request-key <stable-key> --view agent
-openmeld profiles requests create <profile-name> --owner <member-user-id> --session new --source local-agent --request-key <stable-key> --view agent
-openmeld profiles requests create <profile-name> --owner <member-user-id> --session resume --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
-openmeld profiles requests create <profile-name> --owner <member-user-id> --session fork --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create <profile-name> --kind agent --owner self --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create <profile-name> --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create <profile-name> --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session resume --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create <profile-name> --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session fork --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
 openmeld profiles requests list --view agent
 openmeld profiles requests approve <request-id> --view agent
 openmeld profiles requests decline <request-id> --view agent

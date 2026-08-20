@@ -66,9 +66,20 @@ import { runProfileCreationRequestCreate } from "../src/profile-creation-request
 const CREATED_REQUEST = {
   actorProfileId: "profile-requester",
   completedAt: null,
+  configuration: {
+    agentControllerPermissionMode: null,
+    agentControllerRef: null,
+    authorizeForOrganization: true,
+    defaultProjectId: null,
+    modelId: null,
+    openCodePermission: null,
+    reasoningLevel: null,
+    targetComputerId: null,
+  },
   createdAgentProfileId: null,
   createdAt: "2026-08-20T10:00:00.000Z",
   decidedAt: null,
+  failureMessage: null,
   id: "request-1",
   nativeSessionId: "native-session-1",
   organizationId: "org-1",
@@ -111,6 +122,7 @@ describe("Agent Profile creation request CLI", () => {
     });
 
     expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledWith({
+      configuration: CREATED_REQUEST.configuration,
       idempotencyKey: "stable-request-key",
       nativeSessionId: "native-session-1",
       organizationId: "org-1",
@@ -127,6 +139,42 @@ describe("Agent Profile creation request CLI", () => {
         replayed: false,
         request: CREATED_REQUEST,
       },
+    });
+  });
+
+  it("passes the teammate Computer and Binding choices through the shared request", async () => {
+    await runProfileCreationRequestCreate({
+      agentController: "builtin:codex",
+      agentControllerPermissionModeInput: "approve-for-me",
+      defaultProjectId: "project-1",
+      idempotencyKey: "configured-request-key",
+      modelId: "gpt-5.5",
+      profileName: "Configured Agent",
+      reasoningLevel: "high",
+      targetComputerId: "computer-2",
+      targetOwner: "user-2",
+      view: "agent",
+    });
+
+    expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledWith({
+      configuration: {
+        agentControllerPermissionMode: "codex:approveForMe",
+        agentControllerRef: "builtin:codex",
+        authorizeForOrganization: true,
+        defaultProjectId: "project-1",
+        modelId: "gpt-5.5",
+        openCodePermission: null,
+        reasoningLevel: "high",
+        targetComputerId: "computer-2",
+      },
+      idempotencyKey: "configured-request-key",
+      nativeSessionId: undefined,
+      organizationId: "org-1",
+      profileName: "Configured Agent",
+      requestedSpaceId: undefined,
+      sessionStrategy: "new",
+      source: "cli",
+      targetOwnerUserId: "user-2",
     });
   });
 

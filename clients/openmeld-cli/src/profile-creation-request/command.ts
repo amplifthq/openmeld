@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
+  agentProfileCreationConfigurationSchema,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+} from "@openmeld/schemas";
+import type { AgentProfileCreationConfiguration } from "@openmeld/schemas/types";
+import { resolveAgentControllerPermissionModeInput } from "../profile/controller-permission-mode-input";
+import {
   type ProfileCreationRequestCommonCommandInput,
   resolveProfileCreationRequestCommandContext,
 } from "./context";
@@ -21,13 +27,21 @@ import {
 
 export type ProfileCreationRequestCreateInput =
   ProfileCreationRequestCommonCommandInput & {
+    agentController?: string;
+    agentControllerPermissionModeInput?: string;
+    authorizeForOrganization?: boolean;
+    confirmDangerousAgentControllerPermissionMode?: boolean;
+    defaultProjectId?: string;
     idempotencyKey?: string;
+    modelId?: string;
     nativeSessionId?: string;
     profileName?: string;
+    reasoningLevel?: string;
     requestedSpaceId?: string;
     sessionStrategy?: string;
     source?: string;
     targetOwner?: string;
+    targetComputerId?: string;
   };
 
 export async function runProfileCreationRequestCreate(
@@ -47,7 +61,9 @@ export async function runProfileCreationRequestCreate(
       callerUserId: context.callerUserId,
       value: input.targetOwner,
     });
+    const configuration = await resolveRequestConfiguration(input);
     const response = await context.api.createAgentProfileCreationRequest({
+      configuration,
       idempotencyKey:
         normalizeOptionalText(input.idempotencyKey) ?? randomUUID(),
       nativeSessionId,
@@ -70,6 +86,38 @@ export async function runProfileCreationRequestCreate(
   } catch (error) {
     emitCommandError({ context, error, operation: "create" });
   }
+}
+
+async function resolveRequestConfiguration(
+  input: ProfileCreationRequestCreateInput
+): Promise<AgentProfileCreationConfiguration> {
+  const agentControllerRef = normalizeOptionalText(input.agentController);
+  const targetComputerId = normalizeOptionalText(input.targetComputerId);
+  if (Boolean(agentControllerRef) !== Boolean(targetComputerId)) {
+    throw new Error(
+      "--agent-controller and --computer must be provided together for a creation request."
+    );
+  }
+  const permissionMode = await resolveAgentControllerPermissionModeInput({
+    agentControllerRef,
+    agentControllerPermissionModeInput:
+      input.agentControllerPermissionModeInput,
+    allowPrompt: false,
+    confirmDangerousAgentControllerPermissionMode:
+      input.confirmDangerousAgentControllerPermissionMode,
+    flagName: "--agent-controller-permission-mode",
+  });
+  return agentProfileCreationConfigurationSchema.parse({
+    ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+    agentControllerPermissionMode:
+      permissionMode.agentControllerPermissionMode ?? null,
+    agentControllerRef: agentControllerRef ?? null,
+    authorizeForOrganization: input.authorizeForOrganization !== false,
+    defaultProjectId: normalizeOptionalText(input.defaultProjectId) ?? null,
+    modelId: normalizeOptionalText(input.modelId) ?? null,
+    reasoningLevel: normalizeOptionalText(input.reasoningLevel) ?? null,
+    targetComputerId: targetComputerId ?? null,
+  });
 }
 
 export async function runProfileCreationRequestList(

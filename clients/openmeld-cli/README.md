@@ -103,7 +103,7 @@ openmeld profiles create --name "Build Agent" --kind agent
 openmeld profiles set <profile-id>
 openmeld profiles update <profile-id> --name "Build Agent v2"
 openmeld profiles delete <profile-id> --force
-openmeld profiles requests create "Review Agent" --owner self --session new
+openmeld profiles create "Review Agent" --kind agent --owner self --session new
 openmeld profiles requests list
 openmeld profiles requests approve <request-id>
 openmeld profiles requests cancel <request-id>

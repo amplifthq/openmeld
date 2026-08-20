@@ -5,6 +5,7 @@ import {
   cliJsonEntryCheckBlockedErrorCodeSchema,
   cliJsonErrorEnvelopeSchema,
   cliJsonFeedbackSubmittedEnvelopeSchema,
+  cliJsonOrganizationComputersEnvelopeSchema,
   cliJsonOrganizationDirectoryEnvelopeSchema,
   cliJsonOutputEnvelopeSchema,
   cliJsonProjectsConnectionsListEnvelopeSchema,
@@ -683,6 +684,38 @@ describe("cli --json output envelope contract", () => {
         }).success
       ).toBe(false);
     });
+
+    it("keeps Organization Computers on the team-safe shared response schema", () => {
+      const envelope = {
+        schemaVersion: VERSION,
+        type: "organization.computers",
+        organizationId: "org-1",
+        generatedAt: "2026-08-20T05:00:00.000Z",
+        computers: [
+          {
+            computerId: "computer-1",
+            deviceDisplayName: "Design Mac",
+            deviceType: "laptop",
+            lastSeenAtMs: 1_777_000_000_000,
+            localAgents: [],
+            osVersion: "15.5",
+            ownerUserId: "user-2",
+            platformFamily: "macOS",
+            serviceState: "connected",
+          },
+        ],
+      } as const;
+
+      expect(
+        cliJsonOrganizationComputersEnvelopeSchema.safeParse(envelope).success
+      ).toBe(true);
+      expect(
+        cliJsonOrganizationComputersEnvelopeSchema.safeParse({
+          ...envelope,
+          privatePath: "/Users/private",
+        }).success
+      ).toBe(false);
+    });
   });
 
   describe("entry-check blocked error codes", () => {
@@ -749,6 +782,7 @@ describe("cli --json output envelope contract", () => {
       "space.members",
       "space.list.organization",
       "organization.directory",
+      "organization.computers",
       "organization.invite_link.get",
       "organization.invite_link.create",
       "organization.invite_link.revoke",

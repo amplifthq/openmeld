@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getAuthSession, setAuthSession } from "../src/config/auth-session";
 import {
+  runOrgComputers,
   runOrgCurrent,
   runOrgDirectory,
   runOrgInviteLink,
@@ -196,6 +197,28 @@ describe("org commands", () => {
         ...directory,
       });
     });
+  });
+
+  it("returns the exact team-safe Organization Computers contract in agent view", async () => {
+    const computers = buildOrganizationComputersFixture();
+    const calls = mockOrganizationFetch({ computers });
+
+    await withTempHome(async () => {
+      await writeSignedInSession();
+
+      const result = await runCommandAndCapture(() =>
+        runOrgComputers({ json: false, view: "agent" })
+      );
+
+      expect(result.exitCode).toBeUndefined();
+      expect(
+        parseJsonLine(result.stdout, "organization.computers")?.payload
+      ).toEqual(computers);
+    });
+
+    expect(calls.map((call) => call.pathname)).toContain(
+      "/v1/organizations/current/computers"
+    );
   });
 
   it("keeps unauthenticated directory failures machine-readable in JSON output", async () => {
@@ -478,6 +501,7 @@ async function writeSignedInSession(input?: {
 }
 
 function mockOrganizationFetch(options?: {
+  computers?: ReturnType<typeof buildOrganizationComputersFixture>;
   directory?: ReturnType<typeof buildOrganizationDirectoryFixture>;
   directoryResponse?: Response;
   inviteLinkError?: Error;
@@ -553,6 +577,13 @@ function mockOrganizationFetch(options?: {
         );
       }
 
+      if (pathname === "/v1/organizations/current/computers") {
+        return new Response(JSON.stringify(options?.computers), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
       if (pathname === "/api/auth/organization/join-link") {
         if (options?.inviteLinkError) {
           throw options.inviteLinkError;
@@ -567,6 +598,32 @@ function mockOrganizationFetch(options?: {
     })
   );
   return calls;
+}
+
+function buildOrganizationComputersFixture() {
+  return {
+    computers: [
+      {
+        computerId: "computer-1",
+        deviceDisplayName: "Design Mac",
+        deviceType: "laptop" as const,
+        lastSeenAtMs: 1_777_000_000_000,
+        localAgents: [
+          {
+            agentControllerRef: "builtin:codex",
+            enabled: true,
+            status: "ready" as const,
+          },
+        ],
+        osVersion: "15.5",
+        ownerUserId: "user-2",
+        platformFamily: "macOS" as const,
+        serviceState: "connected" as const,
+      },
+    ],
+    generatedAt: "2026-08-20T05:00:00.000Z",
+    organizationId: "org-1",
+  };
 }
 
 async function runCommandAndCapture(command: () => Promise<void>) {

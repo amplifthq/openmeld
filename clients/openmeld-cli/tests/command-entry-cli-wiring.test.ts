@@ -30,6 +30,9 @@ const runMocks = vi.hoisted(() => ({
   runOrgDirectory: vi.fn<OrgCommandModule["runOrgDirectory"]>(
     async () => undefined
   ),
+  runOrgComputers: vi.fn<OrgCommandModule["runOrgComputers"]>(
+    async () => undefined
+  ),
   runOrgInviteLink: vi.fn<OrgCommandModule["runOrgInviteLink"]>(
     async () => undefined
   ),
@@ -116,6 +119,7 @@ vi.mock("../src/org/command", async (importOriginal) => {
   const actual = await importOriginal<OrgCommandModule>();
   return {
     ...actual,
+    runOrgComputers: runMocks.runOrgComputers,
     runOrgDirectory: runMocks.runOrgDirectory,
     runOrgInviteLink: runMocks.runOrgInviteLink,
   };
@@ -492,6 +496,16 @@ describe("command entry CLI wiring", () => {
     });
   });
 
+  it("maps org computers argv to the shared Organization Computers projection", async () => {
+    await runCli(["org", "computers", "--json"], "human");
+
+    expect(runMocks.runOrgComputers).toHaveBeenCalledOnce();
+    expect(runMocks.runOrgComputers).toHaveBeenCalledWith({
+      json: true,
+      view: "agent",
+    });
+  });
+
   it.each([
     "get",
     "create",
@@ -538,6 +552,60 @@ describe("command entry CLI wiring", () => {
       requestedSpaceId: "space-1",
       sessionStrategy: "fork",
       source: "local-agent",
+      targetOwner: "user-2",
+      view: "agent",
+    });
+  });
+
+  it("uses profiles create as the unified entry for a teammate-owned Agent", async () => {
+    await runCli([
+      "profiles",
+      "create",
+      "Review Agent",
+      "--kind",
+      "agent",
+      "--owner",
+      "user-2",
+      "--agent-controller",
+      "builtin:codex",
+      "--computer",
+      "computer-2",
+      "--project",
+      "project-1",
+      "--model",
+      "gpt-5.5",
+      "--reasoning-effort",
+      "high",
+      "--agent-controller-permission-mode",
+      "approve-for-me",
+      "--space",
+      "space-1",
+      "--source",
+      "local-agent",
+      "--request-key",
+      "request-key-2",
+      "--organization",
+      "amplift",
+      "--no-organization-wake-access",
+    ]);
+
+    expect(runMocks.runProfileCreationRequestCreate).toHaveBeenCalledOnce();
+    expect(runMocks.runProfileCreationRequestCreate).toHaveBeenCalledWith({
+      agentController: "builtin:codex",
+      agentControllerPermissionModeInput: "approve-for-me",
+      authorizeForOrganization: false,
+      confirmDangerousAgentControllerPermissionMode: false,
+      defaultProjectId: "project-1",
+      idempotencyKey: "request-key-2",
+      modelId: "gpt-5.5",
+      nativeSessionId: undefined,
+      organization: "amplift",
+      profileName: "Review Agent",
+      reasoningLevel: "high",
+      requestedSpaceId: "space-1",
+      sessionStrategy: "new",
+      source: "local-agent",
+      targetComputerId: "computer-2",
       targetOwner: "user-2",
       view: "agent",
     });

@@ -68,6 +68,7 @@ describe("openmeld-cli skill docs contract", () => {
     for (const raw of [skillRaw, commandsReferenceRaw]) {
       for (const command of [
         "openmeld org directory",
+        "openmeld org computers",
         "openmeld org invite-link get",
         "openmeld org invite-link create",
         "openmeld org invite-link revoke",
@@ -208,7 +209,7 @@ describe("openmeld-cli skill docs contract", () => {
     ].map(normalizeMarkdownWhitespace);
 
     for (const raw of docs) {
-      expect(raw).toContain("openmeld profiles requests create");
+      expect(raw).toContain("openmeld profiles create");
       expect(raw).toContain("openmeld profiles requests list");
       expect(raw).toContain("openmeld profiles requests approve");
       expect(raw).toContain("openmeld profiles requests cancel");

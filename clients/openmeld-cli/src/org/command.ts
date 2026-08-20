@@ -4,6 +4,7 @@ import {
 } from "@openmeld/api-client";
 import type {
   GetOrganizationJoinLinkResponse,
+  OrganizationComputersResponse,
   OrganizationDirectoryResponse,
   RevokeOrganizationJoinLinkResponse,
 } from "@openmeld/schemas/types";
@@ -291,6 +292,60 @@ export async function runOrgDirectory(input: {
     presenter: context.presenter,
     directory,
   });
+}
+
+export async function runOrgComputers(input: {
+  json: boolean;
+  view?: string;
+}): Promise<void> {
+  const context = await resolveOrganizationCommandContext(input);
+  if (!context) {
+    return;
+  }
+  if (!context.session.activeOrganization) {
+    emitOrganizationCommandError({
+      presenter: context.presenter,
+      cliJsonOutput: context.cliJsonOutput,
+      code: "organization.active_missing",
+      title: "No Active Organization",
+      message: "No active OpenMeld organization is selected.",
+      nextStep: "Run `openmeld org list`, then `openmeld org switch <slug>`.",
+      activeOrganization: null,
+    });
+    return;
+  }
+
+  let computers: OrganizationComputersResponse;
+  try {
+    computers = await createOrganizationApi(
+      createCliApiClientFoundation(await resolveBaseUrl())
+    ).getCurrentComputers();
+  } catch (error) {
+    emitOrganizationApiError({
+      presenter: context.presenter,
+      error,
+      activeOrganization: context.session.activeOrganization,
+      cliJsonOutput: context.cliJsonOutput,
+    });
+    return;
+  }
+
+  if (context.cliJsonOutput) {
+    emitCliJsonEnvelope({
+      schemaVersion: 1,
+      type: "organization.computers",
+      ...computers,
+    });
+    return;
+  }
+  if (context.runtime.resolvedView === "agent") {
+    context.presenter.data({
+      code: "organization.computers",
+      payload: computers,
+    });
+    return;
+  }
+  renderOrganizationComputersCard({ computers, presenter: context.presenter });
 }
 
 export async function runOrgInviteLink(input: {
@@ -626,6 +681,36 @@ function renderOrganizationDirectoryCard(input: {
     sanitize: true,
     minContentWidth: 72,
   });
+}
+
+function renderOrganizationComputersCard(input: {
+  computers: OrganizationComputersResponse;
+  presenter: Presenter;
+}): void {
+  renderInfoCard({
+    presenter: input.presenter,
+    title: "Organization Computers",
+    codePrefix: "organization.computers.card",
+    rows: input.computers.computers.map((computer) => ({
+      label: computer.deviceDisplayName,
+      value: `${computer.serviceState} · ${formatOrganizationComputerLocalAgents(computer.localAgents)}`,
+    })),
+    sanitize: true,
+    minContentWidth: 72,
+  });
+}
+
+function formatOrganizationComputerLocalAgents(
+  localAgents: OrganizationComputersResponse["computers"][number]["localAgents"]
+): string {
+  if (localAgents.length === 0) {
+    return "No reported local agents";
+  }
+  return localAgents
+    .map(
+      (localAgent) => `${localAgent.agentControllerRef} (${localAgent.status})`
+    )
+    .join(", ");
 }
 
 function renderOrganizationInviteLinkCard(input: {

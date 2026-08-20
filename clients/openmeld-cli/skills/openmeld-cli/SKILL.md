@@ -381,21 +381,23 @@ Create or select an Agent Profile through setup:
 openmeld start --view agent --kind agent --profile-name "Codex Agent"
 ```
 
-### Request An Agent Profile
+### Create Or Request An Agent Profile
 
-Use the Organization request path when creating an Agent Profile for a teammate,
-when the owner may need to approve it, or when a Local Agent needs a stable,
-auditable creation workflow. Read the Organization directory for member user IDs:
+`openmeld profiles create` is the one creation entry for your own Agent Profile
+and for requesting a teammate-owned Agent Profile. Read the Organization
+directory for member user IDs, then read the team-safe Computer projection for
+the exact Computer and local-agent controller references available to that owner:
 
 ```bash
 openmeld org directory --view agent
+openmeld org computers --view agent
 ```
 
-Request a new-session Agent Profile for the current user or a teammate:
+Create or request a new-session Agent Profile with the same configuration:
 
 ```bash
-openmeld profiles requests create "Review Agent" --owner self --session new --source local-agent --request-key <stable-key> --view agent
-openmeld profiles requests create "Review Agent" --owner <member-user-id> --session new --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create "Review Agent" --kind agent --owner self --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create "Review Agent" --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
 ```
 
 Use `--source local-agent` when a supported Local Agent is making the request;
@@ -407,8 +409,8 @@ request.
 Resume and Fork use the exact provider-native Session ID:
 
 ```bash
-openmeld profiles requests create "Review Agent" --owner <member-user-id> --session resume --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
-openmeld profiles requests create "Review Agent" --owner <member-user-id> --session fork --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create "Review Agent" --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session resume --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create "Review Agent" --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session fork --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
 ```
 
 Pass only a Session exposed by OpenMeld Agent Activity for the selected Project.
@@ -662,7 +664,7 @@ action. Keep purely local code or file work local. The goal is to finish the
 user's job with fewer handoffs, not to route every small question through
 OpenMeld.
 
-### Organization Directory And Invite Link
+### Organization Directory, Computers, And Invite Link
 
 Read the active Organization directory in Agent View or as one JSON envelope:
 
@@ -670,6 +672,18 @@ Read the active Organization directory in Agent View or as one JSON envelope:
 openmeld org directory --view agent
 openmeld org directory --json
 ```
+
+Read the Organization-visible Computer and local-agent readiness projection:
+
+```bash
+openmeld org computers --view agent
+openmeld org computers --json
+```
+
+Join `ownerUserId` to the directory member `user.id`, then use the exact
+`computerId` and `agentControllerRef` when creating a teammate-owned Agent.
+This projection is deliberately team-safe: do not expect private account names,
+local paths, launch commands, or private skills.
 
 Read or manage the Organization invite link:
 
