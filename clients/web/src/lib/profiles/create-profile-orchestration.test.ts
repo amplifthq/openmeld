@@ -92,12 +92,35 @@ describe("Session-based Agent Profile creation", () => {
 		expect(orchestrationMocks.joinSpace).not.toHaveBeenCalled();
 	});
 
-	it("keeps unrelated local setup failures as visible follow-up issues", async () => {
+	it("removes the new Agent when Resume setup fails before Binding", async () => {
+		const computerOffline = new NewProfileLocalSetupError({
+			message: "OpenMeld Service is offline.",
+			setupRefreshActionLabel: "Reconnect computer",
+			setupRefreshAvailable: true,
+		});
+		orchestrationMocks.setupLocalState.mockRejectedValue(computerOffline);
+
+		await expect(
+			createProfileWithFollowUps(resumeCreationInput())
+		).rejects.toMatchObject({
+			cause: computerOffline,
+			message: computerOffline.message,
+			name: SessionProfileCreationRolledBackError.name,
+		});
+
+		expect(orchestrationMocks.deleteProfile).toHaveBeenCalledWith({
+			data: agentProfile.openMeldProfileId,
+		});
+		expect(orchestrationMocks.joinSpace).not.toHaveBeenCalled();
+	});
+
+	it("keeps post-Binding local setup failures as visible follow-up issues", async () => {
 		orchestrationMocks.setupLocalState.mockRejectedValue(
 			new NewProfileLocalSetupError({
-				message: "OpenMeld Service is offline.",
+				bindingEstablished: true,
+				message: "OpenMeld couldn't prepare the working folder.",
 				setupRefreshActionLabel: "Reconnect computer",
-				setupRefreshAvailable: true,
+				setupRefreshAvailable: false,
 			})
 		);
 
@@ -105,7 +128,10 @@ describe("Session-based Agent Profile creation", () => {
 			createProfileWithFollowUps(resumeCreationInput())
 		).resolves.toMatchObject({
 			followUpIssues: [
-				{ kind: "local_setup", message: "OpenMeld Service is offline." },
+				{
+					kind: "local_setup",
+					message: "OpenMeld couldn't prepare the working folder.",
+				},
 			],
 			profile: agentProfile,
 		});

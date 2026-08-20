@@ -34,20 +34,25 @@ export type CreatedProfileOutcome = {
 
 export const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a human profile to this account before bringing profiles into this Space.";
-const SESSION_RESUME_UNAVAILABLE_REASON =
-	"agent_profile_binding.session_resume_unavailable";
 
 export class SessionProfileCreationRolledBackError extends Error {
-	constructor(cause: NewProfileLocalSetupError) {
-		super(cause.message, { cause });
+	constructor(cause: unknown) {
+		super(
+			toCreatedProfileFollowUpMessage(
+				cause,
+				"OpenMeld couldn't connect this Session to the new Agent Profile."
+			),
+			{ cause }
+		);
 		this.name = "SessionProfileCreationRolledBackError";
 	}
 }
 
 // This is the single phase-order owner for interactive Profile creation. The
 // Auth create response is normally the commit point, so later follow-up errors
-// cannot escape as create failures. The one exception is a Core-rejected
-// Session Resume: that incomplete identity is removed before the error escapes.
+// cannot escape as create failures. The one exception is a Session-preset
+// setup failure before Core establishes its Binding: that incomplete identity
+// is removed before the error escapes.
 export async function createProfileWithFollowUps(input: {
 	agentControllerConversationId?: string | null;
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
@@ -124,7 +129,7 @@ export async function createProfileWithFollowUps(input: {
 		try {
 			profile = await setupLocalState();
 		} catch (error) {
-			if (isSessionResumeUnavailable(error)) {
+			if (!didLocalSetupEstablishBinding(error)) {
 				await removeIncompleteSessionProfile({ error, profile });
 				throw new SessionProfileCreationRolledBackError(error);
 			}
@@ -178,24 +183,23 @@ function buildLocalSetupFollowUpIssue(
 	};
 }
 
-function isSessionResumeUnavailable(
-	error: unknown
-): error is NewProfileLocalSetupError {
-	return (
-		error instanceof NewProfileLocalSetupError &&
-		error.reasonCodes.includes(SESSION_RESUME_UNAVAILABLE_REASON)
-	);
+function didLocalSetupEstablishBinding(error: unknown): boolean {
+	return error instanceof NewProfileLocalSetupError && error.bindingEstablished;
 }
 
 async function removeIncompleteSessionProfile(input: {
-	error: NewProfileLocalSetupError;
+	error: unknown;
 	profile: AuthProfileView;
 }): Promise<void> {
 	try {
 		await deleteStartAgentProfile({ data: input.profile.openMeldProfileId });
 	} catch (cleanupError) {
+		const setupFailureMessage = toCreatedProfileFollowUpMessage(
+			input.error,
+			"OpenMeld couldn't connect this Session to the new Agent Profile."
+		);
 		throw new Error(
-			`${input.error.message} OpenMeld also couldn't remove the incomplete Agent Profile. Open Agent Profiles and remove it before trying again.`,
+			`${setupFailureMessage} OpenMeld also couldn't remove the incomplete Agent Profile. Open Agent Profiles and remove it before trying again.`,
 			{
 				cause: new AggregateError(
 					[input.error, cleanupError],

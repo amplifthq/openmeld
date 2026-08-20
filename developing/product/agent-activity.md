@@ -265,6 +265,8 @@ the shared metadata contract.
 - A rejected or unavailable source records the sync as degraded but does not
   stop reconciliation of later disconnected or current sources. One revoked
   Organization or stale connection cannot starve unrelated Project inventory.
+  The combined local Activity sync remains `unavailable` when Session Inventory
+  is unavailable, even when unrelated Activity events submitted successfully.
 - A retained provider record or Session file that is syntactically readable but
   lacks its required native id, Project path, or last-active timestamp is an
   incomplete scan and reports `error`; it is never silently omitted from a
@@ -415,6 +417,12 @@ boundary. A Project disconnect or stale source between preflight and write
 therefore rejects without creating or replacing a Binding, and concurrent
 Resume requests cannot both create a new enabled Binding for one native
 Session.
+
+For interactive Resume creation, the authoritative Binding is the commit
+boundary. Any Session-preset setup failure before Core accepts that Binding
+removes the just-created incomplete Agent Profile. A workspace or Default
+Project failure after an accepted Binding remains a visible follow-up issue and
+must not be presented as a successful rollback.
 
 The legacy Overview and Changes surfaces continue to consume the bounded
 Activity snapshot contract.

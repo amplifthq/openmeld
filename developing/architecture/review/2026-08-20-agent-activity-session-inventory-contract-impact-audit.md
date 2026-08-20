@@ -151,9 +151,13 @@ Resume-time Binding revalidation, and content exclusion without reading user
 content into test output. Binding repository tests also prove that two
 concurrent new Agent Profiles cannot both claim one controller conversation,
 while historical duplicate Bindings remain readable and are not rewritten by
-Agent Activity. Web creation tests also prove that a Core rejection caused by
-changed Resume eligibility removes the just-created Agent before Space
-membership and reports failure instead of returning an unbound success.
+Agent Activity. Web creation tests also prove that any Session-preset setup
+failure before Core establishes the Binding removes the just-created Agent
+before Space membership and reports failure instead of returning an unbound
+success. A post-Binding workspace failure remains a visible follow-up and does
+not claim that the Profile was rolled back. CLI sync tests prove that a Session
+Inventory outage keeps the combined local sync unavailable even when unrelated
+Activity events submitted successfully.
 
 ## Privacy And Negative Acceptance
 

@@ -107,8 +107,30 @@ export async function syncLocalAgentActivity(input?: {
         ? sessionInventory.reason
         : null),
     sessionInventory,
-    status: result.status === "idle" ? sessionInventory.status : result.status,
+    status: resolveCombinedAgentActivitySyncStatus({
+      activityStatus: result.status,
+      sessionInventoryStatus: sessionInventory.status,
+    }),
   };
+}
+
+export function resolveCombinedAgentActivitySyncStatus(input: {
+  activityStatus: AgentActivityLocalSyncResult["status"];
+  sessionInventoryStatus: LocalAgentSessionInventorySyncResult["status"];
+}): AgentActivityLocalSyncResult["status"] {
+  if (
+    input.activityStatus === "unavailable" ||
+    input.sessionInventoryStatus === "unavailable"
+  ) {
+    return "unavailable";
+  }
+  if (
+    input.activityStatus === "submitted" ||
+    input.sessionInventoryStatus === "submitted"
+  ) {
+    return "submitted";
+  }
+  return "idle";
 }
 
 async function submitDueAgentActivity(
