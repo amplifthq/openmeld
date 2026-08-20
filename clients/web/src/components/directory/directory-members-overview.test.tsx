@@ -681,7 +681,7 @@ describe("DirectoryMembersOverview", () => {
 		).toBeNull();
 	});
 
-	it("opens card editing inside the padded Profile action menu and Drawer", async () => {
+	it("opens card editing inside the Fluid Profile action menu and Drawer", async () => {
 		renderOverview({ currentUserProfile: true, isPersonal: false });
 
 		const currentMemberCard = (
@@ -698,6 +698,12 @@ describe("DirectoryMembersOverview", () => {
 		);
 		const profileMenu = await screen.findByRole("menu");
 		expect(profileMenu.classList.contains("p-1")).toBe(true);
+		expect(
+			profileMenu.querySelector('[data-slot="fluid-action-list"]')
+		).not.toBeNull();
+		expect(profileMenu.querySelectorAll("[data-proximity-index]")).toHaveLength(
+			2
+		);
 		fireEvent.click(
 			within(profileMenu).getByRole("menuitem", { name: "Edit profile" })
 		);

@@ -15,8 +15,6 @@ import {
 } from "@openmeld/ui/components/dialog";
 import {
 	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
@@ -25,6 +23,10 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
@@ -641,18 +643,30 @@ function HumanProfileCardActions(input: {
 				>
 					<DotsThreeIcon aria-hidden="true" />
 				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end" className="min-w-48" sideOffset={8}>
-					<DropdownMenuItem className="text-sm" onClick={input.onOpenProfile}>
+				<FluidDropdownMenuContent
+					align="end"
+					className="min-w-48"
+					sideOffset={8}
+				>
+					<FluidDropdownMenuItem
+						className="text-sm"
+						index={0}
+						onClick={input.onOpenProfile}
+					>
 						<InfoIcon aria-hidden="true" />
 						View profile
-					</DropdownMenuItem>
+					</FluidDropdownMenuItem>
 					{input.member.canEdit ? (
-						<DropdownMenuItem className="text-sm" onClick={input.onEdit}>
+						<FluidDropdownMenuItem
+							className="text-sm"
+							index={1}
+							onClick={input.onEdit}
+						>
 							<PencilSimpleIcon aria-hidden="true" />
 							Edit profile
-						</DropdownMenuItem>
+						</FluidDropdownMenuItem>
 					) : null}
-				</DropdownMenuContent>
+				</FluidDropdownMenuContent>
 			</DropdownMenu>
 		</div>
 	);
