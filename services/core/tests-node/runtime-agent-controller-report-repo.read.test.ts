@@ -244,6 +244,86 @@ describe("runtime agent controller report repo read-side", () => {
       harness.close();
     }
   });
+
+  it("keeps the last reported capacity stale when a later provider read is unavailable", async () => {
+    const harness = createSqliteD1Harness();
+    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
+    applyMigrationForTable(
+      harness,
+      "openMeldDaemon_runtime_agent_controller_reports"
+    );
+    try {
+      const runtimeLookupInput = lookupInput("owner-1", "device-1");
+      const registeredRuntimeId = openMeldServiceRuntimeId(
+        runtimeLookupInput,
+        "runtime_opaque_1"
+      );
+      await registerRuntime(
+        harness.db,
+        runtimeLookupInput,
+        registeredRuntimeId
+      );
+      await acceptRuntimeAgentControllerReportRecord({
+        db: harness.db,
+        nowMs: 2000,
+        report: {
+          agentControllerRef: "builtin:codex",
+          agentControllerInterface: usageSnapshot(),
+          expiresAtMs: 2_000_000,
+          observedAtMs: 1000,
+          reasonCodes: ["runtime.agent_controller_report.ready"],
+          openMeldServiceRuntimeId: registeredRuntimeId,
+          status: "ready",
+        },
+      });
+
+      await acceptRuntimeAgentControllerReportRecord({
+        db: harness.db,
+        nowMs: 3000,
+        report: {
+          agentControllerRef: "builtin:codex",
+          agentControllerInterface: {
+            ...usageSnapshot(),
+            checkedAt: "1970-01-01T00:00:02.000Z",
+            usageLimits: [
+              {
+                key: "provider",
+                label: "Usage limits",
+                observedAt: "1970-01-01T00:00:02.000Z",
+                resetsAt: null,
+                status: "unavailable",
+                usedPercent: null,
+              },
+            ],
+          },
+          expiresAtMs: 2_000_000,
+          observedAtMs: 2000,
+          reasonCodes: ["runtime.agent_controller_report.ready"],
+          openMeldServiceRuntimeId: registeredRuntimeId,
+          status: "ready",
+        },
+      });
+
+      const storedReports = await readCurrentRuntimeAgentControllerReports({
+        db: harness.db,
+        openMeldServiceRuntimeId: registeredRuntimeId,
+      });
+      expect(
+        storedReports[0]?.agentControllerInterface?.usageLimits
+      ).toMatchObject([
+        { key: "codex:primary", status: "stale", usedPercent: 42 },
+        { key: "codex:secondary", status: "stale", usedPercent: 100 },
+        {
+          key: "provider-unavailable",
+          status: "unavailable",
+          usedPercent: null,
+        },
+        { key: "provider", status: "unsupported", usedPercent: null },
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
 });
 
 function usageSnapshot() {

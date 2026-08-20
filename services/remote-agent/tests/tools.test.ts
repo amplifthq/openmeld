@@ -713,7 +713,10 @@ describe("remote agent OpenMeld tool catalog", () => {
       }),
     ]);
     expect(centerAgentReadMemberComputers).toHaveBeenCalledWith(
-      expect.objectContaining({ memberUserId: "user_1" })
+      expect.objectContaining({
+        includeUsageLimits: "true",
+        memberUserId: "user_1",
+      })
     );
   });
 
@@ -4676,7 +4679,10 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_read_organization_directory",
     },
     {
-      expectedPayload: { memberUserId: "user_1" },
+      expectedPayload: {
+        includeUsageLimits: "true",
+        memberUserId: "user_1",
+      },
       input: { memberUserId: "user_1" },
       response: memberComputersResponse(),
       rpcName: "centerAgentReadMemberComputers",

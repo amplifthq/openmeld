@@ -39,8 +39,7 @@ export function projectClaudeCodeUsageLimits(input: {
   }
 
   const usedPercent = readUsedPercent(info?.utilization);
-  const providerStatus = readProviderStatus(info?.status);
-  if (usedPercent === null && providerStatus !== "rejected") {
+  if (usedPercent === null) {
     return [];
   }
 
@@ -51,10 +50,7 @@ export function projectClaudeCodeUsageLimits(input: {
       label: display.label,
       observedAt: input.observedAt,
       resetsAt: readResetTime(info?.resetsAt),
-      status:
-        providerStatus === "rejected" || usedPercent === 100
-          ? "exhausted"
-          : "available",
+      status: usedPercent === 100 ? "exhausted" : "available",
       usedPercent,
     },
   ];
@@ -65,16 +61,6 @@ function readRateLimitType(
 ): SupportedClaudeRateLimitType | null {
   return typeof value === "string" && value in WINDOW_DISPLAY_BY_TYPE
     ? (value as SupportedClaudeRateLimitType)
-    : null;
-}
-
-function readProviderStatus(
-  value: unknown
-): "allowed" | "allowed_warning" | "rejected" | null {
-  return value === "allowed" ||
-    value === "allowed_warning" ||
-    value === "rejected"
-    ? value
     : null;
 }
 

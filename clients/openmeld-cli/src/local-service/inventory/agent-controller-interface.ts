@@ -24,6 +24,7 @@ import type {
   AgentControllerUsageLimits,
 } from "@openmeld/schemas/types";
 import {
+  type BuiltinAgentControllerUsageLimitSupport,
   type BuiltinAgentControllerVersionMaintenanceDefinition,
   EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES,
   resolveBuiltinAgentControllerDefinition,
@@ -154,29 +155,31 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
     checkedAt,
     support: controllerDefinition?.usageLimitSupport ?? "not_evaluated",
   });
-  const baseSnapshot: AgentControllerInterfaceSnapshot = {
-    agentControllerRef: input.agentControllerRef,
-    auth: { status: "unknown" },
-    capabilities:
-      controllerDefinition?.capabilities ??
-      EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES,
-    check: {
-      lastSucceededAt: null,
-      status: "not_run",
+  const baseSnapshot = withUsageLimits(
+    {
+      agentControllerRef: input.agentControllerRef,
+      auth: { status: "unknown" },
+      capabilities:
+        controllerDefinition?.capabilities ??
+        EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES,
+      check: {
+        lastSucceededAt: null,
+        status: "not_run",
+      },
+      checkedAt,
+      controllerId: input.state.agentId,
+      displayName: input.state.displayName,
+      launch,
+      message: input.state.launchStatusDetail ?? null,
+      models: [],
+      nativeInterface: controllerDefinition?.nativeInterface ?? "local-cli",
+      schemaVersion: 1,
+      skills: [],
+      status: resolveBaseStatus(input.state),
+      version: null,
     },
-    checkedAt,
-    controllerId: input.state.agentId,
-    displayName: input.state.displayName,
-    launch,
-    message: input.state.launchStatusDetail ?? null,
-    models: [],
-    nativeInterface: controllerDefinition?.nativeInterface ?? "local-cli",
-    schemaVersion: 1,
-    skills: [],
-    status: resolveBaseStatus(input.state),
-    ...(initialUsageLimits ? { usageLimits: initialUsageLimits } : {}),
-    version: null,
-  };
+    initialUsageLimits
+  );
 
   if (input.state.launchStatus !== "ready" || !input.state.launchContract) {
     return baseSnapshot;
@@ -237,18 +240,22 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
       beforeProbe: commandFingerprintBeforeProbe,
     });
   if (outcome.probeCompleted) {
-    const usageLimits = preserveLastKnownUsageLimitsAfterFailure({
+    const usageLimits = resolveUsageLimitsAfterCompletedProbe({
+      authStatus: outcome.snapshot.auth.status,
       current: outcome.snapshot.usageLimits,
       previous: lastKnownUsageLimits,
+      support: controllerDefinition?.usageLimitSupport ?? "not_evaluated",
     });
-    const completedSnapshot: AgentControllerInterfaceSnapshot = {
-      ...outcome.snapshot,
-      check: {
-        lastSucceededAt: outcome.snapshot.checkedAt,
-        status: "succeeded",
+    const completedSnapshot = withUsageLimits(
+      {
+        ...outcome.snapshot,
+        check: {
+          lastSucceededAt: outcome.snapshot.checkedAt,
+          status: "succeeded",
+        },
       },
-      ...(usageLimits ? { usageLimits } : {}),
-    };
+      usageLimits
+    );
     if (commandFingerprintRemainedStable && commandFingerprintAfterProbe) {
       recordAgentControllerInterfaceProbeSuccess({
         commandFingerprint: commandFingerprintAfterProbe,
@@ -280,19 +287,43 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
     lastSucceededAt: preservedLastSuccessfulCheckAt,
     probePolicy,
   });
-  return {
-    ...outcome.snapshot,
-    check: {
-      lastSucceededAt: preservedLastSuccessfulCheckAt,
-      status: "failed",
+  return withUsageLimits(
+    {
+      ...outcome.snapshot,
+      check: {
+        lastSucceededAt: preservedLastSuccessfulCheckAt,
+        status: "failed",
+      },
+      // A failed check is not proof that the controller itself is broken.
+      status: "unknown",
     },
-    ...(usageLimits ? { usageLimits } : {}),
-    // A failed check is not proof that the controller itself is broken.
-    status: "unknown",
-  };
+    usageLimits
+  );
 }
 
-export function preserveLastKnownUsageLimitsAfterFailure(input: {
+function withUsageLimits(
+  snapshot: AgentControllerInterfaceSnapshot,
+  usageLimits: AgentControllerUsageLimits | undefined
+): AgentControllerInterfaceSnapshot {
+  return usageLimits ? { ...snapshot, usageLimits } : snapshot;
+}
+
+export function resolveUsageLimitsAfterCompletedProbe(input: {
+  authStatus: AgentControllerInterfaceAuthSnapshot["status"];
+  current: AgentControllerUsageLimits | undefined;
+  previous: AgentControllerUsageLimits | null;
+  support: BuiltinAgentControllerUsageLimitSupport;
+}): AgentControllerUsageLimits | undefined {
+  if (input.authStatus !== "authenticated") {
+    return input.current;
+  }
+  if (input.support === "passive") {
+    return input.previous ?? input.current;
+  }
+  return preserveLastKnownUsageLimitsAfterFailure(input);
+}
+
+function preserveLastKnownUsageLimitsAfterFailure(input: {
   current: AgentControllerUsageLimits | undefined;
   previous: AgentControllerUsageLimits | null;
 }): AgentControllerUsageLimits | undefined {
@@ -308,7 +339,7 @@ export function preserveLastKnownUsageLimitsAfterFailure(input: {
     return input.current;
   }
   return input.previous.map((limit) =>
-    limit.status === "unsupported" ? limit : { ...limit, status: "stale" }
+    limit.usedPercent === null ? limit : { ...limit, status: "stale" }
   );
 }
 
@@ -325,7 +356,7 @@ function resolveUsageLimitsAfterFailedProbe(input: {
 
 function resolveInitialProviderUsageLimits(input: {
   checkedAt: string;
-  support: "native" | "not_evaluated" | "unsupported";
+  support: BuiltinAgentControllerUsageLimitSupport;
 }): AgentControllerInterfaceSnapshot["usageLimits"] {
   if (input.support === "native") {
     return createUnavailableProviderUsageLimits(input.checkedAt);

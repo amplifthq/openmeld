@@ -76,6 +76,16 @@ describe("openmeld agents list/show", () => {
       schemaVersion: 1,
       skills: [],
       status: "ready",
+      usageLimits: [
+        {
+          key: "codex:primary",
+          label: "5-hour usage",
+          observedAt: "2026-06-28T00:00:00.000Z",
+          resetsAt: "2026-06-28T05:00:00.000Z",
+          status: "available",
+          usedPercent: 42,
+        },
+      ],
       version: "0.1.0",
       versionAdvisory: {
         checkedAt: "2026-06-28T00:00:00.000Z",
@@ -273,6 +283,14 @@ describe("openmeld agents list/show", () => {
         nativeInterface: "codex-app-server",
         models: [{ id: "gpt-5.5", displayName: "GPT-5.5" }],
       });
+      expect(
+        (
+          envelope?.agentControllerInterface as
+            | { usageLimits?: unknown }
+            | null
+            | undefined
+        )?.usageLimits
+      ).toBeUndefined();
     });
   });
 

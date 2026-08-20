@@ -2,8 +2,13 @@ export function buildCurrentOrganizationDirectoryPath(): string {
   return "/v1/organizations/current/directory";
 }
 
-export function buildCurrentOrganizationComputersPath(): string {
-  return "/v1/organizations/current/computers";
+export function buildCurrentOrganizationComputersPath(input?: {
+  includeUsageLimits?: "true";
+}): string {
+  const path = "/v1/organizations/current/computers";
+  return input?.includeUsageLimits === "true"
+    ? `${path}?includeUsageLimits=true`
+    : path;
 }
 
 export function buildCurrentOrganizationMemberOpenMeldServiceStatusesPath(): string {

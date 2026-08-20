@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { listOrganizationComputers } from "../src/organizations/organization-computers-service";
 
 describe("Organization Computers service", () => {
-  it("projects the same team-safe usage evidence without provider account data", async () => {
-    const response = await listOrganizationComputers({
+  it("projects team-safe usage evidence only when the reader opts in", async () => {
+    const input = {
       generatedAt: "2026-08-20T08:00:00.000Z",
       lookupMemberComputerInventory: async () => ({
         devices: [
@@ -38,6 +38,16 @@ describe("Organization Computers service", () => {
       }),
       memberUserIds: ["user-1"],
       organizationId: "organization-1",
+    } satisfies Parameters<typeof listOrganizationComputers>[0];
+
+    const legacyResponse = await listOrganizationComputers(input);
+    expect(
+      legacyResponse.computers[0]?.localAgents[0]?.details?.usageLimits
+    ).toBeUndefined();
+
+    const response = await listOrganizationComputers({
+      ...input,
+      includeUsageLimits: true,
     });
 
     expect(response.computers[0]?.localAgents[0]).toMatchObject({

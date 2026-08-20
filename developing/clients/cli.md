@@ -957,6 +957,14 @@ shared stable key, label, 0–100 used percentage, nullable reset time,
 observation time, and status contract. It is capacity information only and does
 not grant execution, routing, or Computer mutation authority.
 
+`org computers --view agent` and `org computers --json` read the active
+Organization's existing team-safe Computers projection with Usage Limits
+explicitly requested. This gives authorized Local Agents the same normalized
+member-computer capacity facts as OpenMeld Web and the Center Agent without
+exposing provider account identity, credentials, executable paths, setup
+commands, or Computer controls. The command does not query providers directly
+or derive facts from the Web UI.
+
 The CLI may expose the authenticated user's local owner inventory because it is
 the user's direct local Agent View. The Center Agent RPC is a separate
 model-facing boundary: even in a requester-private conversation it receives
@@ -1050,6 +1058,12 @@ session for an existing membership and does not perform self-service membership.
 and Agent Profiles as separate groups. Agent View emits the full validated
 response through the presenter protocol; `org directory --json` emits the
 strict versioned `organization.directory` envelope.
+
+`org computers` reads current member Computers and their team-safe Local Agent
+details. Agent View preserves the validated Organization Computers response;
+`org computers --json` emits the strict versioned `organization.computers`
+envelope. Usage Limits are opt-in on this compatibility-sensitive endpoint so
+older CLI readers retain the legacy response shape.
 
 `org invite-link get|create|revoke` manages the active Organization invite link
 through Auth's owner/admin permission boundary. The CLI sends only the active

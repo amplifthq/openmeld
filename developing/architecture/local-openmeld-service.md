@@ -218,6 +218,12 @@ is `unavailable`. A controller with no supported native source is explicitly
 `unsupported`. These states do not alter Agent Profile readiness, Binding,
 Wake admission, RuntimeCoordinator, routing, or agent selection.
 
+The local keeper avoids replacing a successful observation during one Service
+process lifetime. Core applies the same last-good rule while accepting the next
+Runtime Agent Controller Report, so a Service restart followed by a temporary
+provider failure does not erase the already stored numeric evidence. This is an
+update to the canonical report row, not a second Usage Limit store.
+
 Claude Code is partially supported through public Agent SDK
 `rate_limit_event` messages already present in OpenMeld-launched turns. Only a
 finite native utilization value and its allowlisted window/reset fields become

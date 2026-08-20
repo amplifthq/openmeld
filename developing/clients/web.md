@@ -730,6 +730,9 @@ automatically. In the collapsed row, a compact summary follows the existing
 version and update metadata; its tooltip previews every reported window, and
 selecting the existing row reveals the full gauges in its details. Owned and
 teammate Computers use the same shared summary and accessible gauge component.
+A provider with no quantified evidence does not add a collapsed-row badge or
+placeholder gauge. Web explicitly opts in to both owner and Organization
+projections and refreshes them while the Computers surface is active.
 A gauge names the limit, exposes its 0–100 used value to assistive technology,
 shows the used percentage in text, shows reset and last-observed time, and names
 the state so color is never the only signal. The UI derives **Low** when a fresh

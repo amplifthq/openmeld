@@ -86,7 +86,7 @@ describe("builtin agent controller definitions", () => {
     );
 
     expect(supportByAgentId).toMatchObject({
-      "claude-code": "native",
+      "claude-code": "passive",
       codex: "native",
       cursor: "unsupported",
       "grok-build": "native",

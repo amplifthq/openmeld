@@ -61,7 +61,7 @@ test("supports provider-reported shared and model weekly windows", () => {
   }
 });
 
-test("keeps missing normal utilization unknown and reports explicit rejection honestly", () => {
+test("keeps missing utilization unknown even when Claude rejects the request", () => {
   assert.deepEqual(
     projectClaudeCodeUsageLimits({
       event: {
@@ -90,6 +90,22 @@ test("keeps missing normal utilization unknown and reports explicit rejection ho
       },
       observedAt: "2026-08-20T10:00:00.000Z",
     }),
+    []
+  );
+
+  assert.deepEqual(
+    projectClaudeCodeUsageLimits({
+      event: {
+        rate_limit_info: {
+          rateLimitType: "seven_day",
+          resetsAt: 1_787_191_200,
+          status: "rejected",
+          utilization: 1,
+        },
+        type: "rate_limit_event",
+      },
+      observedAt: "2026-08-20T10:00:00.000Z",
+    }),
     [
       {
         key: "claude-code:seven-day",
@@ -97,7 +113,7 @@ test("keeps missing normal utilization unknown and reports explicit rejection ho
         observedAt: "2026-08-20T10:00:00.000Z",
         resetsAt: "2026-08-20T02:00:00.000Z",
         status: "exhausted",
-        usedPercent: null,
+        usedPercent: 100,
       },
     ]
   );

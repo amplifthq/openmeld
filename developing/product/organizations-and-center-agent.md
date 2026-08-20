@@ -2290,13 +2290,15 @@ exposes device details.
 
 When the request genuinely requires another member's Computer details, the
 designated Center Agent may instead call `openmeld_read_member_computers` with
-the exact directory `userId`. Core reuses the same strict team-safe Organization
-Computer projection shown to teammates, filters it to that current member, and
-records an `organization_member` audit entry. This tool never upgrades to the
-owner projection, even when the target happens to match the requester; private
-File Access, paths, commands, accounts, policies, and management controls stay
-absent. Its Local Agent Usage Limits are the same sanitized fields used by the
-Computers UI, not a Center-Agent-only query or inference.
+the exact directory `userId`. The current Remote Agent explicitly requests
+Usage Limits through the same additive projection flag used by Web. Core reuses
+the strict team-safe Organization Computer projection shown to teammates,
+filters it to that current member, and records an `organization_member` audit
+entry. This tool never upgrades to the owner projection, even when the target
+happens to match the requester; private File Access, paths, commands, accounts,
+policies, and management controls stay absent. Its Local Agent Usage Limits are
+the same sanitized fields used by the Computers UI, not a Center-Agent-only
+query or inference.
 
 **Profile Report** is the stable product term for this document so it does not
 collide with Agent Profile or Human Profile identity. The persisted document

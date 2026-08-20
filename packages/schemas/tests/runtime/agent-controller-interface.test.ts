@@ -179,6 +179,17 @@ describe("agent controller interface schema", () => {
       },
     },
     {
+      name: "an available limit at 100 percent",
+      usageLimit: {
+        key: "codex:primary",
+        label: "5-hour usage",
+        observedAt: "2026-06-29T12:00:00.000Z",
+        resetsAt: null,
+        status: "available",
+        usedPercent: 100,
+      },
+    },
+    {
       name: "an unavailable limit with fabricated usage",
       usageLimit: {
         key: "provider",

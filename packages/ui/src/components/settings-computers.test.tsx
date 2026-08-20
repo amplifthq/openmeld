@@ -193,10 +193,11 @@ describe("Settings Local Agent usage limits", () => {
     expect(screen.getByText("Not reported by provider.")).toBeTruthy();
   });
 
-  it("renders honest never-observed evidence without a fake gauge", () => {
+  it("keeps an absent usage-limit projection out of the product surface", () => {
     render(<SettingsLocalAgentUsageLimits agentName="Cursor" nowMs={NOW_MS} />);
 
-    expect(screen.getByText("Not reported by provider yet.")).toBeTruthy();
+    expect(screen.queryByRole("region")).toBeNull();
+    expect(screen.queryByText("Not reported by provider yet.")).toBeNull();
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
 });

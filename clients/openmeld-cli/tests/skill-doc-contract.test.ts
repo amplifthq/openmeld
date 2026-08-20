@@ -68,6 +68,7 @@ describe("openmeld-cli skill docs contract", () => {
     for (const raw of [skillRaw, commandsReferenceRaw]) {
       for (const command of [
         "openmeld org directory",
+        "openmeld org computers",
         "openmeld org invite-link get",
         "openmeld org invite-link create",
         "openmeld org invite-link revoke",

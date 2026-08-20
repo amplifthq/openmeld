@@ -54,6 +54,13 @@ export const agentControllerUsageLimitSchema = z
         path: ["usedPercent"],
       });
     }
+    if (value.status === "available" && value.usedPercent === 100) {
+      context.addIssue({
+        code: "custom",
+        message: "available usage limits require usedPercent below 100",
+        path: ["usedPercent"],
+      });
+    }
     if (
       (value.status === "unavailable" || value.status === "unsupported") &&
       (value.usedPercent !== null || value.resetsAt !== null)

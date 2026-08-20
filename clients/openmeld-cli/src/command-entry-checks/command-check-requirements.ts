@@ -94,6 +94,11 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     OPTIONAL_CLI_UPDATE,
     REQUIRED_SIGN_IN
   ),
+  "organization.computers": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
   "organization.invite_link.get": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,

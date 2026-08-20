@@ -134,16 +134,23 @@ async function writeCurrentAgentControllerReport(
     db: input.db,
     openMeldServiceRuntimeId: input.report.openMeldServiceRuntimeId,
   });
+  const writeInput = {
+    ...input,
+    report: preserveLastKnownUsageLimits({
+      currentReport: existing,
+      nextReport: input.report,
+    }),
+  };
   const existingDecision = resolveExistingReportDecision({
     currentReport: existing,
-    nextReport: input.report,
+    nextReport: writeInput.report,
   });
   if (existingDecision) {
     return existingDecision;
   }
 
   if (existing) {
-    return updateNewerCurrentAgentControllerReport(input);
+    return updateNewerCurrentAgentControllerReport(writeInput);
   }
 
   const insertResult = await input.db
@@ -170,22 +177,24 @@ async function writeCurrentAgentControllerReport(
       `
     )
     .bind(
-      input.report.openMeldServiceRuntimeId.value,
-      input.report.agentControllerRef,
-      input.report.status,
-      input.report.observedAtMs,
-      input.report.expiresAtMs,
-      JSON.stringify(input.report.reasonCodes),
-      stringifyAgentControllerInterface(input.report.agentControllerInterface),
+      writeInput.report.openMeldServiceRuntimeId.value,
+      writeInput.report.agentControllerRef,
+      writeInput.report.status,
+      writeInput.report.observedAtMs,
+      writeInput.report.expiresAtMs,
+      JSON.stringify(writeInput.report.reasonCodes),
+      stringifyAgentControllerInterface(
+        writeInput.report.agentControllerInterface
+      ),
       input.nowMs,
       input.nowMs,
-      input.report.openMeldServiceRuntimeId.value
+      writeInput.report.openMeldServiceRuntimeId.value
     )
     .run();
 
   if (getChangedRows(insertResult) > 0) {
     return {
-      currentReport: input.report,
+      currentReport: writeInput.report,
       outcome: "created",
       status: "accepted",
     };
@@ -203,7 +212,7 @@ async function writeCurrentAgentControllerReport(
     };
   }
 
-  return resolveConcurrentAgentControllerReportWrite(input);
+  return resolveConcurrentAgentControllerReportWrite(writeInput);
 }
 
 async function updateNewerCurrentAgentControllerReport(
@@ -257,19 +266,56 @@ async function resolveConcurrentAgentControllerReportWrite(
     db: input.db,
     openMeldServiceRuntimeId: input.report.openMeldServiceRuntimeId,
   });
+  const writeInput = {
+    ...input,
+    report: preserveLastKnownUsageLimits({
+      currentReport,
+      nextReport: input.report,
+    }),
+  };
   const decision = resolveExistingReportDecision({
     currentReport,
-    nextReport: input.report,
+    nextReport: writeInput.report,
   });
   if (decision) {
     return decision;
   }
   if (currentReport) {
-    return updateNewerCurrentAgentControllerReport(input);
+    return updateNewerCurrentAgentControllerReport(writeInput);
   }
   return {
     reason: "runtime_missing",
     status: "rejected",
+  };
+}
+
+function preserveLastKnownUsageLimits(input: {
+  currentReport: AcceptedRuntimeAgentControllerReport | null;
+  nextReport: AcceptedRuntimeAgentControllerReport;
+}): AcceptedRuntimeAgentControllerReport {
+  const currentLimits =
+    input.currentReport?.agentControllerInterface?.usageLimits;
+  const nextSnapshot = input.nextReport.agentControllerInterface;
+  const nextLimits = nextSnapshot?.usageLimits;
+  const providerReadIsUnavailable =
+    nextSnapshot?.auth.status === "authenticated" &&
+    nextLimits?.length === 1 &&
+    nextLimits[0]?.status === "unavailable";
+  const hasKnownCapacity = currentLimits?.some(
+    (limit) => limit.usedPercent !== null
+  );
+  if (!(providerReadIsUnavailable && hasKnownCapacity && currentLimits)) {
+    return input.nextReport;
+  }
+
+  return {
+    ...input.nextReport,
+    agentControllerInterface: {
+      ...nextSnapshot,
+      usageLimits: currentLimits.map((limit) =>
+        limit.usedPercent === null ? limit : { ...limit, status: "stale" }
+      ),
+    },
   };
 }
 

@@ -71,9 +71,15 @@ export type BuiltinAgentControllerDefinition = {
   capabilities: AgentControllerInterfaceCapabilities;
   installResolver: BuiltinControllerInstallResolver;
   nativeInterface: AgentControllerInterfaceNativeInterface;
-  usageLimitSupport: "native" | "not_evaluated" | "unsupported";
+  usageLimitSupport: BuiltinAgentControllerUsageLimitSupport;
   versionMaintenance?: BuiltinAgentControllerVersionMaintenanceDefinition;
 };
+
+export type BuiltinAgentControllerUsageLimitSupport =
+  | "native"
+  | "not_evaluated"
+  | "passive"
+  | "unsupported";
 
 export const EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES = {
   approvals: false,
@@ -104,7 +110,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyClaudeCodeLaunchContract,
     },
     nativeInterface: "claude-agent-sdk",
-    usageLimitSupport: "native",
+    usageLimitSupport: "passive",
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "claude-code" },
       npmPackageName: "@anthropic-ai/claude-code",

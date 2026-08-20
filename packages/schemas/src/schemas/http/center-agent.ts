@@ -1023,6 +1023,7 @@ export const centerAgentListComputersResponseSchema = z.strictObject({
 });
 
 export const centerAgentReadMemberComputersBodySchema = z.strictObject({
+  includeUsageLimits: z.literal("true").optional(),
   memberUserId: trimmedNonEmptyStringSchema,
 });
 

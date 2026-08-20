@@ -1500,6 +1500,7 @@ describe("organization Core RPC", () => {
           profileKind: "agent",
           userId: "user-a",
         }),
+        includeUsageLimits: "true",
         memberUserId: "user-b",
       })
     ).resolves.toMatchObject({

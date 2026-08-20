@@ -2246,6 +2246,7 @@ export type GetCurrentOrganizationDirectoryInput = {
 
 export type GetCurrentOrganizationComputersInput = {
   context?: CoreRpcContextInput;
+  includeUsageLimits?: "true";
 };
 
 export type GetCurrentOrganizationMemberOpenMeldServiceStatusesInput = {
@@ -3176,7 +3177,7 @@ export async function rpcSetCurrentLocalAgentEnabled(
     agentId: acceptedPayload.agentId,
     changed: acceptedPayload.changed,
     enabled: acceptedPayload.enabled,
-    localRuntimes: refreshedLocalRuntimes,
+    localRuntimes: omitLocalRuntimeUsageLimits(refreshedLocalRuntimes),
     reportSyncStatus: acceptedPayload.reportSyncStatus,
     status: acceptedPayload.status,
   };
@@ -3301,7 +3302,7 @@ export async function rpcSelectCurrentLocalAgentInstallation(
     agentId: acceptedPayload.agentId,
     changed: acceptedPayload.changed,
     installations: acceptedPayload.installations,
-    localRuntimes: refreshedLocalRuntimes,
+    localRuntimes: omitLocalRuntimeUsageLimits(refreshedLocalRuntimes),
     reportSyncStatus: acceptedPayload.reportSyncStatus,
     selectedInstallationId: acceptedPayload.selectedInstallationId,
     status:
@@ -3453,7 +3454,7 @@ export async function rpcRefreshCurrentLocalAgentCatalog(
     userId,
   });
   const response: RefreshCurrentLocalAgentCatalogResponse = {
-    localRuntimes: refreshedLocalRuntimes,
+    localRuntimes: omitLocalRuntimeUsageLimits(refreshedLocalRuntimes),
     sync: transportResult.payload,
   };
   const validated =
@@ -3508,7 +3509,7 @@ export async function rpcSetLocalRuntimeDisplayName(
     );
   }
 
-  return validated.data;
+  return omitLocalRuntimeUsageLimits(validated.data);
 }
 
 export async function rpcEnrollLocalRuntime(
@@ -5034,6 +5035,7 @@ export async function rpcGetCurrentOrganizationComputers(
   return await buildOrganizationComputersResponse({
     env,
     generatedAt,
+    includeUsageLimits: input.includeUsageLimits === "true",
     memberUserIds: members.map((member) => member.userId),
     organizationId: activeOrganization.organizationId,
   });
@@ -5042,6 +5044,7 @@ export async function rpcGetCurrentOrganizationComputers(
 async function buildOrganizationComputersResponse(input: {
   env: CoreBindings;
   generatedAt: string;
+  includeUsageLimits?: boolean;
   memberUserIds: string[];
   organizationId: string;
 }): Promise<OrganizationComputersResponse> {
@@ -5058,6 +5061,7 @@ async function buildOrganizationComputersResponse(input: {
 
   const response = await listOrganizationComputers({
     generatedAt,
+    includeUsageLimits: input.includeUsageLimits,
     lookupMemberComputerInventory: async ({ userId }) => {
       const [devices, executionTargets] = await Promise.all([
         listOwnedDeviceRegistryRecords({ db, userId }),
@@ -9934,6 +9938,7 @@ export async function rpcCenterAgentReadMemberComputers(
   const computers = await buildOrganizationComputersResponse({
     env,
     generatedAt,
+    includeUsageLimits: input.includeUsageLimits === "true",
     memberUserIds: [targetMembership.userId],
     organizationId: targetMembership.organizationId,
   });

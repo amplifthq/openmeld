@@ -100,6 +100,37 @@ describe("api-client organization api", () => {
     );
   });
 
+  it("explicitly requests usage limits for Organization computers", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          computers: [],
+          generatedAt: "2026-08-20T00:00:00.000Z",
+          organizationId: "org-1",
+        })
+      )
+    );
+    const api = createOrganizationApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await api.getCurrentComputers({
+      includeUsageLimits: "true",
+      requestContext: REQUEST_CONTEXT,
+    });
+
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        init: expect.objectContaining({ method: "GET" }),
+        operation: "organization.computers.read",
+        url: "https://gateway.openmeld.invalid/v1/organizations/current/computers?includeUsageLimits=true",
+      })
+    );
+  });
+
   it("lists active Organization Spaces visible to the caller", async () => {
     const transport = vi.fn(() =>
       Promise.resolve(

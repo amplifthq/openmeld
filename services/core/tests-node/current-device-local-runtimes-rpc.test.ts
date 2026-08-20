@@ -7,6 +7,7 @@ import type { CoreBindings } from "../src/lib/bindings";
 import {
   rpcEnrollLocalRuntime,
   rpcListLocalRuntimes,
+  rpcSetLocalRuntimeDisplayName,
   rpcSubmitRuntimeAgentControllerReports,
   rpcWriteCurrentDeviceObservedMetadata,
 } from "../src/rpc/methods";
@@ -79,7 +80,6 @@ describe("current device local runtimes RPC read model", () => {
         `,
         params: ["owner-1", "computer-existing", 1, 1],
       });
-
       await rpcEnrollLocalRuntime(env, {
         connectedComputerId: "computer-existing",
         context,
@@ -270,6 +270,16 @@ describe("current device local runtimes RPC read model", () => {
           },
         ],
       });
+
+      const mutationResponse = await rpcSetLocalRuntimeDisplayName(env, {
+        context,
+        deviceId: "device-macbook",
+        displayName: "Studio Mac",
+      });
+      expect(
+        mutationResponse.localRuntimes[0]?.executionTargets[0]?.capabilities[0]
+          ?.agentControllerInterface?.usageLimits
+      ).toBeUndefined();
     } finally {
       harness.close();
     }

@@ -467,6 +467,10 @@ export function SettingsLocalAgentUsageLimits({
   limits?: AgentControllerUsageLimits;
   nowMs?: number;
 }) {
+  if (limits === undefined) {
+    return null;
+  }
+
   return (
     <section aria-label={`${agentName} usage limits`} className="space-y-2.5">
       <div>

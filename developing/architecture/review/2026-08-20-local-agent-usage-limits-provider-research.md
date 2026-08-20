@@ -418,7 +418,7 @@ Changed boundaries:
 - owner Local Runtimes can return the evidence only when the reader explicitly
   requests `includeUsageLimits=true`;
 - the strict Organization Computers `details` projection adds the same optional,
-  sanitized list for Web and Center Agent readers; and
+  sanitized list only when Web or the Center Agent explicitly opts in; and
 - built-in Codex and Grok Build adapters add non-task native probes, while the
   Claude Code adapter adds a sanitized passive observation from an already
   running ordinary provider turn. The internal adapter runtime-event union is
@@ -432,35 +432,44 @@ Mixed-version behavior:
   Services because `usageLimits` and the owner read query are optional;
 - old CLI readers omit `includeUsageLimits`, so new Core removes the additive
   field from their Local Runtimes response before the old strict schema sees it;
+- old Web and Remote Agent readers omit their Organization Computers opt-in, so
+  new Core removes the additive field from their strict team-safe response;
 - new Web or CLI against an old Gateway/Core gets the existing response without
   usage evidence and continues to support setup, status, diagnostics, Computer
   controls, and Wake;
-- old Core cannot safely validate a new Service report containing the strict ACI
-  field, so local components must not be published before the cloud readers;
+- when old Core rejects only the additive ACI member, new Service retries the
+  same reports with `usageLimits` omitted; if old Core rejects the complete ACI
+  shape, the existing compatibility retry still removes only that nested ACI
+  snapshot rather than dropping the controller report;
+- new CLI keeps legacy `agents show --json` output free of the additive field so
+  an older Desktop parser remains compatible; the owner `computer` Agent View
+  reads the complete owner projection, while `org computers` Agent View and its
+  strict JSON envelope explicitly request the team-safe Organization projection;
   and
-- an old already-loaded Web client may reject a new strict Organization
-  Computers response during the short cloud rollout window. Deploy Web and
-  Gateway readers before Core begins emitting the field, and prompt a normal
-  reload if that old bundle remains open.
+- mutation responses remain legacy-shaped while new Web invalidates and
+  refetches the opt-in owner projection, preventing a control write from
+  replacing the visible usage evidence with an incompatible response.
 
 Release order:
 
-1. deploy Web and Gateway readers that accept the optional query and
-   Organization field;
-2. deploy Core parsing, freshness, owner opt-in, Organization projection, and
-   Center Agent read support;
-3. publish the CLI/OpenMeld Service local component so native provider evidence
-   begins reporting only after Core can accept it.
+The normal release planner may keep its existing component order. CLI/Service
+may publish before or after the cloud readers because its bounded compatibility
+retry preserves the old Core report contract. Web, Gateway, and Core may roll
+forward independently because every expanded strict read is opt-in. The new
+Remote Agent must deploy after Core because it is the component that begins
+sending the new strict Center Agent tool input.
 
-Rollback reverses this dependency: stop publishing/serving the new local
-component before rolling Core back, then roll back Gateway and Web. Existing
-stored reports remain additive JSON evidence and need no D1 migration or data
-rewrite.
+Rollback removes the new Remote Agent before rolling Core back. CLI/Service,
+Gateway, and Web can otherwise roll back independently through the same
+compatibility behavior. Existing stored reports remain additive JSON evidence
+and need no D1 migration or data rewrite.
 
-No CLI command-contract, Service handshake, daemon execution epoch, Prepare,
-skill, or Wake contract constant changes. The new CLI/Service artifact is an
-advisory `available` update: older local components keep all existing setup and
-Wake behavior but do not report Usage Limits. Repository policy keeps version
-bumps and manifest stamping on the later publishing branch; this feature PR
-must still pass the base-aware release-readiness verifier without hand-editing
-artifact hashes.
+The CLI adds the read-only `org computers` command and strict
+`organization.computers` JSON envelope, and the managed OpenMeld CLI Skill
+documents that existing team-safe read. No Service handshake, daemon execution
+epoch, Prepare, or Wake contract constant changes. The new CLI/Service artifact
+is an advisory `available` update: older local components keep all existing
+setup and Wake behavior but do not report Usage Limits or expose the new CLI
+read. Repository policy keeps version bumps and manifest stamping on the later
+publishing branch; this feature PR must still pass the base-aware
+release-readiness verifier without hand-editing artifact hashes.

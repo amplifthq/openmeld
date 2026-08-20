@@ -12,8 +12,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTargetState } from "../src/agents/registry";
 import { createDefaultRuntimeAgentControllerSettings } from "../src/config/runtime-config";
 import {
-  preserveLastKnownUsageLimitsAfterFailure,
   resolveAgentControllerInterfaceSnapshot,
+  resolveUsageLimitsAfterCompletedProbe,
 } from "../src/local-service/inventory/agent-controller-interface";
 import { OPENCLAW_MODELS_STATUS_MISSING_AUTH_RESPONSE } from "./fixtures/openclaw-models-status";
 import {
@@ -59,7 +59,8 @@ describe("agent controller interface inventory", () => {
     const observedAt = "2026-08-20T08:00:00.000Z";
 
     expect(
-      preserveLastKnownUsageLimitsAfterFailure({
+      resolveUsageLimitsAfterCompletedProbe({
+        authStatus: "authenticated",
         current: [
           {
             key: "provider",
@@ -87,7 +88,16 @@ describe("agent controller interface inventory", () => {
             status: "exhausted",
             usedPercent: 100,
           },
+          {
+            key: "provider-unavailable",
+            label: "Usage limits",
+            observedAt,
+            resetsAt: null,
+            status: "unavailable",
+            usedPercent: null,
+          },
         ],
+        support: "native",
       })
     ).toEqual([
       expect.objectContaining({
@@ -102,7 +112,65 @@ describe("agent controller interface inventory", () => {
         status: "stale",
         usedPercent: 100,
       }),
+      expect.objectContaining({
+        key: "provider-unavailable",
+        status: "unavailable",
+        usedPercent: null,
+      }),
     ]);
+  });
+
+  it("keeps a fresh passive observation fresh when the probe does not query capacity", () => {
+    const usageLimits = [
+      {
+        key: "claude-code:five-hour",
+        label: "5-hour usage limit",
+        observedAt: "2026-08-20T08:00:00.000Z",
+        resetsAt: "2026-08-20T12:00:00.000Z",
+        status: "available" as const,
+        usedPercent: 61,
+      },
+    ];
+
+    expect(
+      resolveUsageLimitsAfterCompletedProbe({
+        authStatus: "authenticated",
+        current: undefined,
+        previous: usageLimits,
+        support: "passive",
+      })
+    ).toEqual(usageLimits);
+  });
+
+  it("drops another account's last-known capacity when authentication is lost", () => {
+    const unavailable = [
+      {
+        key: "provider",
+        label: "Usage limits",
+        observedAt: "2026-08-20T08:20:00.000Z",
+        resetsAt: null,
+        status: "unavailable" as const,
+        usedPercent: null,
+      },
+    ];
+
+    expect(
+      resolveUsageLimitsAfterCompletedProbe({
+        authStatus: "unauthenticated",
+        current: unavailable,
+        previous: [
+          {
+            key: "codex:primary",
+            label: "5-hour usage",
+            observedAt: "2026-08-20T08:00:00.000Z",
+            resetsAt: "2026-08-20T12:00:00.000Z",
+            status: "available",
+            usedPercent: 72,
+          },
+        ],
+        support: "native",
+      })
+    ).toEqual(unavailable);
   });
 
   it("reports Grok Build ACP authentication and live models", async () => {
