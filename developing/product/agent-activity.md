@@ -184,12 +184,14 @@ Grok Build.
 - A fresh provider profile may create its session directory after OpenMeld
   Service starts. Missing watcher roots are retried dynamically; users must not
   need to restart the Service to begin near-real-time observation.
-- The published CLI retains its Node 20 startup contract. OpenCode's retained
+- The published CLI supports Node 20 and Node 22 through 25. OpenCode's retained
   Session reconciliation opens its SQLite store read-only only when the store
-  exists: the npm CLI uses the Node-20-compatible `better-sqlite3` dependency,
-  while the standalone Bun binary uses built-in `bun:sqlite`. Both runtimes
-  execute the same ordered query and row-mapping contract; the managed OpenCode
-  plugin remains the primary lifecycle-event path.
+  exists: the npm CLI uses `better-sqlite3` only on the Node releases that its
+  native package supports, while the standalone Bun binary uses built-in
+  `bun:sqlite`. Both runtimes execute the same ordered query and row-mapping
+  contract; the managed OpenCode plugin remains the primary lifecycle-event
+  path. Node 21 and Node 26 or newer are not declared compatible until the
+  native SQLite reader supports them.
 - A local event is at most 16 KiB; one report contains at most 64 events; the
   outbox is bounded and reports pressure explicitly instead of deleting the
   oldest unsent fact to claim health.

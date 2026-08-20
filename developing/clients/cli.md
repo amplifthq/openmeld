@@ -677,9 +677,11 @@ ceiling, labels the content as awareness rather than authority, and emits
 nothing on missing, stale, or malformed cache data.
 
 Watcher roots that do not exist when the Service starts are retried after the
-provider creates them. The CLI remains startable on its declared Node 20 floor;
-OpenCode SQLite reconciliation is optional capability detection, while the
-managed OpenCode plugin is the low-latency primary path.
+provider creates them. The npm CLI supports Node 20 and Node 22 through 25;
+Node 21 and Node 26 or newer remain outside the declared range while the native
+OpenCode SQLite reader does not support them. OpenCode SQLite reconciliation is
+optional capability detection, while the managed OpenCode plugin is the
+low-latency primary path.
 
 ### Center Agent Routines
 

@@ -123,6 +123,8 @@ OpenCode: discovery succeeded, sessions=0 for the accepted Project
 Grok Build: sessions=5, titled=5, resume=5, unknown=5, fork=0
 OpenCode SQLite runtime: Node v20.20.2 fresh-install better-sqlite3 12.6.2
 read/prepare/close smoke passed
+Packaged CLI engine: Node 20 and Node 22-25, matching better-sqlite3 12.6.2;
+Node 21 and Node 26+ are rejected by the published package contract
 OpenCode standalone runtime: Bun v1.3.14 compiled executable opened the real
 SQLite fixture read-only through bun:sqlite and returned the expected Session
 ```
