@@ -1415,15 +1415,17 @@ below one divider instead of competing with profile actions.
 
 Selecting the avatar, name, or **More → View profile** opens a right-side
 **Profile** drawer. It owns the member account details, Organization role, join
-time, Computer access, connected identities, shared Profile details, and the
+time, Computer access, Connected Channels, shared Profile details, and the
 permitted Direct Message, edit, connect, or manage actions. **More → Edit
 profile** remains available only for the signed-in member's own active default
 Human Profile. The drawer and card omit the internal Handle, undefined recent
 activity, and the ubiquitous **Active** state; only an exceptional disabled
 state is visible. Web does not derive an Organization online dot from last-used
 time, Computer state, or Space-scoped presence. Members without an active Human
-Profile have no Direct Message or Profile action, and the signed-in member
-cannot Direct Message themself. People admits only one pending Direct Message
+Profile have no Direct Message or edit action, but the Profile drawer remains
+available for inspecting account details and the explicit unavailable or
+disabled profile state. The signed-in member cannot Direct Message themself.
+People admits only one pending Direct Message
 open intent at a time so competing responses cannot navigate to an earlier
 selection. The Human Profiles header includes
 **Learn about all members** and shows processed progress such as `3/8` while

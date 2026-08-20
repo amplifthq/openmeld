@@ -6,6 +6,9 @@ export function DirectoryHumanProfileRoleBadge(input: {
 	className?: string;
 	role: DirectoryHumanProfileRow["role"];
 }) {
+	if (input.role === null) {
+		return null;
+	}
 	return (
 		<span
 			className={cn(

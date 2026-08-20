@@ -12,9 +12,11 @@ import {
 import type { CSSProperties } from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
+import { DirectoryHumanProfileAvatar } from "#/components/directory/directory-human-profile-avatar";
 import {
 	formatDirectoryActivity,
 	formatDirectoryDate,
+	resolveDirectoryEmailLabel,
 	resolveDirectoryRoleLabel,
 } from "#/components/directory/directory-human-profile-format";
 import type {
@@ -26,7 +28,6 @@ import {
 	DirectoryIdentityAccountSummary,
 } from "#/components/directory/directory-human-profile-presentation";
 import { DirectoryHumanProfileRoleBadge } from "#/components/directory/directory-human-profile-role-badge";
-import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { HumanProfileNameEditor } from "#/components/profiles/human-profile-name-editor";
 import { copyTextToClipboard } from "#/lib/clipboard";
 
@@ -106,11 +107,16 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 								) : null}
 
 								<DetailSection title="Member account">
-									<DetailRow label="Email" value={input.member.email} />
 									<DetailRow
-										label="Organization role"
-										value={resolveDirectoryRoleLabel(input.member.role)}
+										label="Email"
+										value={resolveDirectoryEmailLabel(input.member.email)}
 									/>
+									{input.member.role === null ? null : (
+										<DetailRow
+											label="Organization role"
+											value={resolveDirectoryRoleLabel(input.member.role)}
+										/>
+									)}
 									<DetailRow
 										label="Joined"
 										value={formatDirectoryDate(input.member.joinedAt)}
@@ -158,14 +164,7 @@ function ProfileHero(input: {
 }) {
 	return (
 		<div className="flex min-w-0 items-start gap-4">
-			<DitherProfileAvatar
-				avatarImageUrl={input.member.avatarImageUrl}
-				className="shrink-0"
-				profileId={input.member.id}
-				profileKind="human"
-				profileName={input.member.name}
-				size={96}
-			/>
+			<DirectoryHumanProfileAvatar context="detail" member={input.member} />
 			<div className="min-w-0 flex-1 pt-1">
 				{input.editing ? (
 					<HumanProfileNameEditor
@@ -197,7 +196,7 @@ function ProfileHero(input: {
 					</div>
 				)}
 				<p className="mt-1 break-all text-muted-foreground text-sm">
-					{input.member.email}
+					{resolveDirectoryEmailLabel(input.member.email)}
 				</p>
 				<p
 					className={cn(
@@ -221,51 +220,48 @@ function ConnectedIdentities(input: {
 	onConnectAccount: (account: DirectoryIdentityAccount) => void;
 	onManageAccount: (account: DirectoryIdentityAccount) => void;
 }) {
+	if (input.accounts.length === 0) {
+		return null;
+	}
 	return (
 		<section className="space-y-2">
 			<h3 className="font-medium text-muted-foreground text-xs">
 				Connected Channels
 			</h3>
 			<div className="min-w-0 divide-y divide-border overflow-hidden rounded-md border border-border">
-				{input.accounts.length === 0 ? (
-					<p className="px-4 py-3 text-muted-foreground text-sm">
-						No identity provider is connected to this organization.
-					</p>
-				) : (
-					input.accounts.map((account) => (
-						<div
-							className="flex min-w-0 items-center gap-3 px-4 py-3"
-							key={account.provider}
-						>
-							<div className="min-w-0 flex-1">
-								<DirectoryIdentityAccountSummary
-									account={account}
-									context="detail"
-								/>
-							</div>
-							{account.state === "not_connected" && account.channelsPath ? (
-								<Button
-									onClick={() => input.onConnectAccount(account)}
-									size="sm"
-									type="button"
-									variant="outline"
-								>
-									Connect
-								</Button>
-							) : null}
-							{account.id && account.canDisconnect ? (
-								<Button
-									onClick={() => input.onManageAccount(account)}
-									size="sm"
-									type="button"
-									variant="ghost"
-								>
-									Manage
-								</Button>
-							) : null}
+				{input.accounts.map((account) => (
+					<div
+						className="flex min-w-0 items-center gap-3 px-4 py-3"
+						key={account.provider}
+					>
+						<div className="min-w-0 flex-1">
+							<DirectoryIdentityAccountSummary
+								account={account}
+								context="detail"
+							/>
 						</div>
-					))
-				)}
+						{account.state === "not_connected" && account.channelsPath ? (
+							<Button
+								onClick={() => input.onConnectAccount(account)}
+								size="sm"
+								type="button"
+								variant="outline"
+							>
+								Connect
+							</Button>
+						) : null}
+						{account.id && account.canDisconnect ? (
+							<Button
+								onClick={() => input.onManageAccount(account)}
+								size="sm"
+								type="button"
+								variant="ghost"
+							>
+								Manage
+							</Button>
+						) : null}
+					</div>
+				))}
 			</div>
 		</section>
 	);

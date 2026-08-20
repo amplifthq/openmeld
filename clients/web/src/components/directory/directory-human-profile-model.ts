@@ -68,7 +68,7 @@ export type DirectoryHumanProfileRow = {
 	canEdit: boolean;
 	computer: DirectoryHumanProfileComputer;
 	details: ProfileDetailsSnapshot | null;
-	email: string;
+	email: string | null;
 	hasDraft: boolean;
 	id: string;
 	identityAccounts: readonly DirectoryIdentityAccount[];
@@ -80,7 +80,7 @@ export type DirectoryHumanProfileRow = {
 	notice: string | null;
 	reportAction: DirectoryProfileReportAction;
 	profileStatus: "active" | "disabled" | null;
-	role: DirectoryHumanProfileRole;
+	role: DirectoryHumanProfileRole | null;
 	userId: string;
 };
 
@@ -120,14 +120,13 @@ export function buildOrganizationHumanProfileRows(input: {
 					orgSlug: input.orgSlug,
 					userId: member.user.id,
 				}),
-				details:
-					humanProfile?.status === "active"
-						? buildProfileDetailsSnapshotFromHumanProfile({
-								profileId: humanProfile.profileId,
-								profileName: humanProfile.profileName,
-								viewerScope: isCurrentUser ? "owner_self" : "observer",
-							})
-						: null,
+				details: humanProfile
+					? buildProfileDetailsSnapshotFromHumanProfile({
+							profileId: humanProfile.profileId,
+							profileName: humanProfile.profileName,
+							viewerScope: isCurrentUser ? "owner_self" : "observer",
+						})
+					: null,
 				email: member.user.email,
 				hasDraft: document?.hasDraft ?? false,
 				id: humanProfile?.profileId ?? `member:${member.memberId}`,
@@ -186,7 +185,7 @@ export function buildPersonalHumanProfileRows(input: {
 					userId: input.subjectUserId,
 				}),
 				details: null,
-				email: input.account.email?.trim() || "Current member",
+				email: input.account.email?.trim() || null,
 				hasDraft,
 				id: `member:${input.subjectUserId || input.orgSlug}`,
 				identityAccounts: [],
@@ -203,7 +202,7 @@ export function buildPersonalHumanProfileRows(input: {
 				),
 				reportAction,
 				profileStatus: null,
-				role: "owner",
+				role: null,
 				userId: input.subjectUserId,
 			},
 		];
@@ -219,15 +218,12 @@ export function buildPersonalHumanProfileRows(input: {
 				status: input.computersStatus,
 				userId: input.subjectUserId,
 			}),
-			details:
-				profile.status === "active"
-					? buildProfileDetailsSnapshotFromHumanProfile({
-							profileId: profile.openMeldProfileId,
-							profileName: profile.profileName,
-							viewerScope: "owner_self",
-						})
-					: null,
-			email: input.account.email?.trim() || "Current member",
+			details: buildProfileDetailsSnapshotFromHumanProfile({
+				profileId: profile.openMeldProfileId,
+				profileName: profile.profileName,
+				viewerScope: "owner_self",
+			}),
+			email: input.account.email?.trim() || null,
 			hasDraft,
 			id: profile.openMeldProfileId,
 			identityAccounts: [],
@@ -239,7 +235,7 @@ export function buildPersonalHumanProfileRows(input: {
 			notice: null,
 			reportAction,
 			profileStatus: profile.status,
-			role: "owner",
+			role: null,
 			userId: input.subjectUserId,
 		},
 	];
@@ -436,9 +432,10 @@ function resolveIdentityAccounts(input: {
 	orgSlug: string;
 	userId: string;
 }): DirectoryIdentityAccount[] {
-	if (!input.messageChannels || input.messageChannelsStatus !== "ready") {
+	if (!input.messageChannels) {
 		return [];
 	}
+	const hasFreshConnections = input.messageChannelsStatus === "ready";
 	const connectionByProvider = new Map(
 		input.messageChannels.connections.map((connection) => [
 			connection.provider,
@@ -456,50 +453,43 @@ function resolveIdentityAccounts(input: {
 	}
 	const providers = new Set([
 		...connectionByProvider.keys(),
-		...linkByProvider.keys(),
+		...input.messageChannels.identityLinks.map((link) => link.provider),
 	]);
 	return [...providers]
 		.map((provider): DirectoryIdentityAccount => {
 			const connection = connectionByProvider.get(provider);
 			const link = linkByProvider.get(provider);
+			const connectionIsReady =
+				hasFreshConnections && connection?.status === "connected";
 			if (link) {
 				return {
-					accountEmail: resolveProviderAccountEmail(link.providerAccountName),
+					accountEmail: null,
 					canDisconnect:
-						input.isCurrentUser || input.canManageConnectedAccounts,
+						connectionIsReady &&
+						(input.isCurrentUser || input.canManageConnectedAccounts),
 					channelsPath: null,
 					id: link.id,
 					provider,
 					providerLabel: resolveProviderLabel(provider),
-					state:
-						connection?.status === "connected" ? "connected" : "unavailable",
+					state: connectionIsReady ? "connected" : "unavailable",
 				};
 			}
 			return {
 				accountEmail: null,
 				canDisconnect: false,
 				channelsPath:
-					input.isCurrentUser && connection?.status === "connected"
+					input.isCurrentUser && connectionIsReady
 						? buildOrganizationChannelsPath(input.orgSlug)
 						: null,
 				id: null,
 				provider,
 				providerLabel: resolveProviderLabel(provider),
-				state: "not_connected",
+				state: connectionIsReady ? "not_connected" : "unavailable",
 			};
 		})
 		.sort((left, right) =>
 			left.providerLabel.localeCompare(right.providerLabel)
 		);
-}
-
-const PROVIDER_ACCOUNT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
-
-function resolveProviderAccountEmail(value: string | null): string | null {
-	const normalizedValue = value?.trim() ?? "";
-	return PROVIDER_ACCOUNT_EMAIL_PATTERN.test(normalizedValue)
-		? normalizedValue
-		: null;
 }
 
 const DIRECTORY_ROLE_PRIORITY: Record<DirectoryHumanProfileRole, number> = {
@@ -517,7 +507,7 @@ function compareDirectoryHumanProfileRows(
 		return left.isCurrentUser ? -1 : 1;
 	}
 	const roleComparison =
-		DIRECTORY_ROLE_PRIORITY[left.role] - DIRECTORY_ROLE_PRIORITY[right.role];
+		resolveRolePriority(left.role) - resolveRolePriority(right.role);
 	if (roleComparison !== 0) {
 		return roleComparison;
 	}
@@ -528,6 +518,12 @@ function compareDirectoryHumanProfileRows(
 	return nameComparison === 0
 		? left.userId.localeCompare(right.userId)
 		: nameComparison;
+}
+
+function resolveRolePriority(role: DirectoryHumanProfileRole | null): number {
+	return role === null
+		? DIRECTORY_ROLE_PRIORITY.unknown
+		: DIRECTORY_ROLE_PRIORITY[role];
 }
 
 function resolveProviderLabel(

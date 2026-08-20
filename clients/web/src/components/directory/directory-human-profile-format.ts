@@ -63,6 +63,10 @@ export function formatDirectoryDate(value: string | null): string {
 	return DIRECTORY_DATE_FORMATTER.format(timestamp);
 }
 
+export function resolveDirectoryEmailLabel(email: string | null): string {
+	return email?.trim() || "Email unavailable";
+}
+
 export function resolveDirectoryIdentityAccountLabel(
 	account: DirectoryIdentityAccount
 ): string {

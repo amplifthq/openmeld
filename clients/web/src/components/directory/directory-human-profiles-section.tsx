@@ -36,7 +36,6 @@ import {
 	PencilSimpleIcon,
 	PlusIcon,
 	UserFocusIcon,
-	UserIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -44,9 +43,11 @@ import {
 	DirectoryCardGrid,
 	DirectoryCardItem,
 } from "#/components/directory/directory-card-grid";
+import { DirectoryHumanProfileAvatar } from "#/components/directory/directory-human-profile-avatar";
 import { DirectoryHumanProfileDetailsDrawer } from "#/components/directory/directory-human-profile-details-drawer";
 import {
 	formatDirectoryActivity,
+	resolveDirectoryEmailLabel,
 	resolveDirectoryIdentityAccountLabel,
 } from "#/components/directory/directory-human-profile-format";
 import type {
@@ -58,7 +59,6 @@ import {
 	DirectoryIdentityAccountSummary,
 } from "#/components/directory/directory-human-profile-presentation";
 import { DirectoryHumanProfileRoleBadge } from "#/components/directory/directory-human-profile-role-badge";
-import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { ProfileCard } from "#/components/profiles/profile-list-item";
 import { ProfilesSectionLayout } from "#/components/profiles/profiles-section-layout";
 
@@ -282,7 +282,9 @@ function DirectoryHumanProfileCard(input: {
 						onOpenDetails={() => openProfile(false)}
 					/>
 				}
-				icon={<HumanProfileIcon member={input.member} />}
+				icon={
+					<DirectoryHumanProfileAvatar context="card" member={input.member} />
+				}
 				menu={
 					<HumanProfileCardActions
 						activeBatch={input.activeBatch}
@@ -308,7 +310,7 @@ function DirectoryHumanProfileCard(input: {
 						? "Profile disabled"
 						: formatDirectoryActivity(input.member.lastUsedAt)
 				}
-				subtitle={input.member.email}
+				subtitle={resolveDirectoryEmailLabel(input.member.email)}
 				testId={
 					input.state.context === "organization"
 						? "organization-human-profile-row"
@@ -708,28 +710,6 @@ function resolveLearnAllActionLabel(input: {
 	}
 	return "Learn about all members";
 }
-function HumanProfileIcon(input: { member: DirectoryHumanProfileRow }) {
-	if (input.member.profileStatus !== null) {
-		return (
-			<DitherProfileAvatar
-				avatarImageUrl={input.member.avatarImageUrl}
-				className="mt-0.5"
-				data-testid={`human-profile-avatar-${input.member.id}`}
-				profileId={input.member.id}
-				profileKind="human"
-				profileName={input.member.name}
-				size={56}
-			/>
-		);
-	}
-
-	return (
-		<span className="grid size-14 shrink-0 place-items-center rounded-md border border-border bg-background text-muted-foreground">
-			<UserIcon aria-hidden="true" className="size-6" />
-		</span>
-	);
-}
-
 const HUMAN_PROFILE_ROW_SKELETON_IDS = ["first", "second", "third"] as const;
 
 function HumanProfileRowsSkeleton() {

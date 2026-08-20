@@ -61,6 +61,7 @@ export function HumanProfileNameEditor(input: {
 				</span>
 			</div>
 			<Input
+				aria-describedby="human-profile-name-scope"
 				aria-invalid={toAriaInvalid(visibleError)}
 				autoFocus
 				className={cn("mt-2", visibleError && "border-destructive")}
@@ -74,6 +75,13 @@ export function HumanProfileNameEditor(input: {
 				}}
 				value={name}
 			/>
+			<p
+				className="mt-2 text-muted-foreground text-xs leading-5"
+				id="human-profile-name-scope"
+			>
+				This updates your display name across OpenMeld, including your default
+				Human Profile.
+			</p>
 			{visibleError ? (
 				<p className="mt-2 text-destructive text-xs" role="alert">
 					{visibleError}
