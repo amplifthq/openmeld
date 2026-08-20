@@ -302,8 +302,6 @@ function ChannelCard(input: {
 	needsAttention?: boolean;
 	statusLabel?: string;
 }) {
-	const usesThemeAwareLogoSurface =
-		input.logo.service === "lark" || input.logo.service === "feishu";
 	const hasSupportingContent = Boolean(
 		input.accountName || input.details || input.guidance
 	);
@@ -317,11 +315,7 @@ function ChannelCard(input: {
 			<Card className="h-full bg-transparent" size="sm">
 				<CardHeader>
 					<div className="flex min-w-0 items-center gap-4">
-						<AppLogo
-							app={input.logo}
-							className={usesThemeAwareLogoSurface ? "bg-muted/50" : undefined}
-							size="lg"
-						/>
+						<AppLogo app={input.logo} size="lg" />
 						<div className="min-w-0">
 							<CardTitle className="text-base">
 								<h2>{input.name}</h2>

@@ -16,6 +16,7 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AppShellAccount } from "#/components/app/app-shell-account";
 import { centerAgentMemberResearchQueryKeys } from "#/query/organizations/center-agent-member-research";
 import { messageChannelQueryKeys } from "#/query/organizations/message-channels";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
@@ -259,7 +260,10 @@ describe("DirectoryMembersOverview", () => {
 		toastWarningMock.mockReset();
 	});
 
-	afterEach(cleanup);
+	afterEach(() => {
+		cleanup();
+		vi.useRealTimers();
+	});
 
 	it("shows the current member without inventing a Profile Report and links collaboration guidance to organization creation", async () => {
 		listCurrentOrganizationDocumentsMock.mockResolvedValue({
@@ -272,7 +276,7 @@ describe("DirectoryMembersOverview", () => {
 
 		expect(await screen.findByText("Felix")).toBeTruthy();
 		expect(screen.getByText("felix@example.com")).toBeTruthy();
-		expect(screen.getByText("Owner")).toBeTruthy();
+		expect(screen.queryByText("Owner")).toBeNull();
 		expect(screen.getByText("Invite members")).toBeTruthy();
 		expect(
 			screen.getByText(
@@ -301,6 +305,34 @@ describe("DirectoryMembersOverview", () => {
 		expect(getOrganizationJoinLinkMock).not.toHaveBeenCalled();
 		expect(inviteOrganizationMemberMock).not.toHaveBeenCalled();
 		expect(listCurrentOrganizationMessageChannelsMock).not.toHaveBeenCalled();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open Felix's profile" })
+		);
+		expect(
+			within(
+				await screen.findByRole("dialog", { name: "Profile" })
+			).queryByText("Organization role")
+		).toBeNull();
+	});
+
+	it("keeps relative activity current while the People page remains open", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		vi.setSystemTime("2026-07-15T00:00:30.000Z");
+		renderOverview({
+			isPersonal: true,
+			personalProfiles: [
+				{
+					...buildHumanProfile(),
+					lastUsedAt: "2026-07-15T00:00:15.000Z",
+				},
+			],
+		});
+
+		expect(await screen.findByText("Last used just now")).toBeTruthy();
+		act(() => {
+			vi.advanceTimersByTime(60_000);
+		});
+		expect(screen.getByText("Last used 1 minute ago")).toBeTruthy();
 	});
 
 	it("explains how to create the first Human Profile in a personal workspace", async () => {
@@ -331,6 +363,31 @@ describe("DirectoryMembersOverview", () => {
 		expect(
 			screen.queryByRole("button", { name: "Create Human Profile" })
 		).toBeNull();
+	});
+
+	it("keeps unavailable personal account data and the unresolved avatar explicit", async () => {
+		renderOverview({
+			account: { email: null, name: null },
+			isPersonal: true,
+			personalProfiles: [],
+		});
+
+		const profileCard = await screen.findByTestId("human-profile-row");
+		expect(within(profileCard).getByText("Email unavailable")).toBeTruthy();
+		fireEvent.click(
+			within(profileCard).getByRole("button", {
+				name: "Open Current member's profile",
+			})
+		);
+		const drawer = await screen.findByRole("dialog", { name: "Profile" });
+		expect(
+			within(drawer).getAllByText("Email unavailable").length
+		).toBeGreaterThan(0);
+		expect(
+			within(drawer).getByTestId(
+				"human-profile-avatar-placeholder-member:user-current"
+			)
+		).toBeTruthy();
 	});
 
 	it("keeps the member directory primary and explains invitation permissions", async () => {
@@ -430,6 +487,14 @@ describe("DirectoryMembersOverview", () => {
 		expect(within(graceCard).queryByText(HANDLE_PATTERN)).toBeNull();
 		expect(within(graceCard).queryByText("Active")).toBeNull();
 		expect(within(graceCard).getByText("Admin")).toBeTruthy();
+		const cardRoleBadge = graceCard.querySelector(
+			'[data-slot="human-profile-role-badge"]'
+		);
+		expect(cardRoleBadge?.textContent).toBe("Admin");
+		expect(cardRoleBadge?.classList.contains("inline-flex")).toBe(true);
+		expect(cardRoleBadge?.classList.contains("h-5")).toBe(true);
+		expect(cardRoleBadge?.classList.contains("items-center")).toBe(true);
+		expect(cardRoleBadge?.classList.contains("leading-none")).toBe(true);
 		expect(
 			within(graceCard)
 				.getByTestId(
@@ -454,6 +519,44 @@ describe("DirectoryMembersOverview", () => {
 			screen.getByRole("button", { name: "Create Human Profile" })
 		);
 		expect(onCreateProfileMock).toHaveBeenCalledOnce();
+	});
+
+	it("labels an organization member whose Human Profile is unavailable", async () => {
+		renderOverview({ isPersonal: false });
+
+		const adaCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		).find((card) => within(card).queryByText("Ada Lovelace"));
+		if (!adaCard) {
+			throw new Error("Expected Ada's member card.");
+		}
+		expect(within(adaCard).getByText("Human Profile unavailable")).toBeTruthy();
+		expect(within(adaCard).queryByText("Activity unavailable")).toBeNull();
+
+		fireEvent.click(
+			within(adaCard).getByRole("button", {
+				name: "Open Ada Lovelace's profile",
+			})
+		);
+		const drawer = await screen.findByRole("dialog", { name: "Profile" });
+		expect(within(drawer).getByText("Human Profile unavailable")).toBeTruthy();
+		expect(within(drawer).queryByText("Activity unavailable")).toBeNull();
+	});
+
+	it("sorts the current member first, then orders everyone else by role", async () => {
+		renderOverview({ currentUserProfile: true, isPersonal: false });
+
+		const [currentCard, adminCard] = await screen.findAllByTestId(
+			"organization-human-profile-row"
+		);
+		if (!(currentCard && adminCard)) {
+			throw new Error("Expected both Organization Human Profile cards.");
+		}
+		expect(within(currentCard).getByText("Felix")).toBeTruthy();
+		expect(within(currentCard).getByText("(you)")).toBeTruthy();
+		expect(within(currentCard).getByText("Member")).toBeTruthy();
+		expect(within(adminCard).getByText("Grace Hopper")).toBeTruthy();
+		expect(within(adminCard).getByText("Admin")).toBeTruthy();
 	});
 
 	it("opens a Human conversation in the dedicated Direct Messages route", async () => {
@@ -524,7 +627,7 @@ describe("DirectoryMembersOverview", () => {
 		});
 	});
 
-	it("shows Human Profile details from the shared snapshot", async () => {
+	it("opens a complete Human Profile drawer from the member card", async () => {
 		renderOverview({ isPersonal: false });
 
 		const graceCard = (
@@ -533,18 +636,32 @@ describe("DirectoryMembersOverview", () => {
 		if (!graceCard) {
 			throw new Error("Expected Grace's Human Profile card.");
 		}
+		const cardRoleBadge = graceCard.querySelector(
+			'[data-slot="human-profile-role-badge"]'
+		);
 
 		fireEvent.click(
 			within(graceCard).getByRole("button", {
-				name: "Profile options for Grace Hopper",
+				name: "Open Grace Hopper's profile",
 			})
 		);
-		fireEvent.click(screen.getByRole("menuitem", { name: "About profile" }));
 
-		expect(await screen.findByText("About profile")).toBeTruthy();
-		const detailsDialog = screen.getByRole("dialog", {
-			name: "About profile",
+		const detailsDialog = await screen.findByRole("dialog", {
+			name: "Profile",
 		});
+		const directMessageButton = within(detailsDialog).getByRole("button", {
+			name: "Direct Message",
+		});
+		expect(directMessageButton.classList.contains("w-full")).toBe(true);
+		expect(directMessageButton.classList.contains("h-9")).toBe(true);
+		const drawerRoleBadge = detailsDialog.querySelector(
+			'[data-slot="human-profile-role-badge"]'
+		);
+		expect(drawerRoleBadge?.textContent).toBe("Admin");
+		expect(drawerRoleBadge?.className).toBe(cardRoleBadge?.className);
+		expect(within(detailsDialog).getByText("Member account")).toBeTruthy();
+		expect(within(detailsDialog).getByText("Work access")).toBeTruthy();
+		expect(within(detailsDialog).getByText("Jul 2, 2026")).toBeTruthy();
 		expect(
 			within(detailsDialog).getAllByText("Human Profile").length
 		).toBeGreaterThan(0);
@@ -553,7 +670,7 @@ describe("DirectoryMembersOverview", () => {
 		).toBeTruthy();
 	});
 
-	it("does not expose About or Direct Message actions for a disabled organization Human Profile", async () => {
+	it("keeps a disabled organization Human Profile inspectable without Direct Message", async () => {
 		renderOverview({ graceProfileStatus: "disabled", isPersonal: false });
 
 		const graceCard = (
@@ -569,13 +686,13 @@ describe("DirectoryMembersOverview", () => {
 			})
 		).toBeNull();
 		expect(
-			within(graceCard).queryByRole("button", {
-				name: "Profile options for Grace Hopper",
+			within(graceCard).getByRole("button", {
+				name: "Open Grace Hopper's profile",
 			})
-		).toBeNull();
+		).toBeTruthy();
 	});
 
-	it("does not expose About or edit actions for a disabled personal Human Profile", async () => {
+	it("keeps a disabled personal Human Profile inspectable without edit actions", async () => {
 		renderOverview({
 			isPersonal: true,
 			personalProfiles: [{ ...buildHumanProfile(), status: "disabled" }],
@@ -588,10 +705,19 @@ describe("DirectoryMembersOverview", () => {
 			})
 		).toBeNull();
 		expect(
-			within(profileCard).queryByRole("button", {
-				name: "Profile options for Felix",
+			within(profileCard).getByRole("button", {
+				name: "Open Felix's profile",
 			})
-		).toBeNull();
+		).toBeTruthy();
+		expect(within(profileCard).getByText("Profile disabled")).toBeTruthy();
+		fireEvent.click(
+			within(profileCard).getByRole("button", {
+				name: "Open Felix's profile",
+			})
+		);
+		const drawer = await screen.findByRole("dialog", { name: "Profile" });
+		expect(within(drawer).getByText("Profile disabled")).toBeTruthy();
+		expect(within(drawer).getByText("human-felix")).toBeTruthy();
 	});
 
 	it("lets the current member edit their default Human Profile name", async () => {
@@ -611,20 +737,81 @@ describe("DirectoryMembersOverview", () => {
 		).toBeNull();
 		fireEvent.click(
 			within(currentMemberCard).getByRole("button", {
-				name: "Edit Human Profile",
+				name: "Open Felix's profile",
 			})
 		);
-		const nameInput = await screen.findByRole("textbox", { name: "Name" });
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Edit profile" })
+		);
+		const profileDrawer = screen.getByRole("dialog", { name: "Profile" });
+		const nameInput = await within(profileDrawer).findByRole("textbox", {
+			name: "Name",
+		});
+		expect(
+			within(profileDrawer).getByText(
+				"This updates your display name across OpenMeld, including your default Human Profile."
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("dialog", { name: "Edit Human Profile" })
+		).toBeNull();
 		fireEvent.change(nameInput, { target: { value: "Katherine Johnson" } });
-		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		fireEvent.click(
+			within(profileDrawer).getByRole("button", { name: "Save changes" })
+		);
 
 		await waitFor(() => {
 			expect(updateUserNameMock).toHaveBeenCalled();
 			expect(updateUserNameMock.mock.calls[0]?.[0]).toBe("Katherine Johnson");
 		});
+		expect(screen.getByRole("dialog", { name: "Profile" })).toBeTruthy();
+		expect(
+			within(screen.getByRole("dialog", { name: "Profile" })).queryByRole(
+				"textbox",
+				{ name: "Name" }
+			)
+		).toBeNull();
 	});
 
-	it("keeps a Human Profile name update failure visible in the edit dialog", async () => {
+	it("opens card editing inside the Fluid Profile action menu and Drawer", async () => {
+		renderOverview({ currentUserProfile: true, isPersonal: false });
+
+		const currentMemberCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		).find((card) => within(card).queryByText("Felix"));
+		if (!currentMemberCard) {
+			throw new Error("Expected the current member's Human Profile card.");
+		}
+
+		fireEvent.click(
+			within(currentMemberCard).getByRole("button", {
+				name: "Profile options for Felix",
+			})
+		);
+		const profileMenu = await screen.findByRole("menu");
+		expect(profileMenu.classList.contains("p-1")).toBe(true);
+		expect(
+			profileMenu.querySelector('[data-slot="fluid-action-list"]')
+		).not.toBeNull();
+		expect(profileMenu.querySelectorAll("[data-proximity-index]")).toHaveLength(
+			2
+		);
+		fireEvent.click(
+			within(profileMenu).getByRole("menuitem", { name: "Edit profile" })
+		);
+
+		const profileDrawer = await screen.findByRole("dialog", {
+			name: "Profile",
+		});
+		expect(
+			within(profileDrawer).getByRole("textbox", { name: "Name" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("dialog", { name: "Edit Human Profile" })
+		).toBeNull();
+	});
+
+	it("keeps a Human Profile name update failure visible in the Drawer", async () => {
 		updateUserNameMock.mockRejectedValueOnce(
 			new Error("The display name could not be saved.")
 		);
@@ -639,20 +826,30 @@ describe("DirectoryMembersOverview", () => {
 
 		fireEvent.click(
 			within(currentMemberCard).getByRole("button", {
-				name: "Edit Human Profile",
+				name: "Open Felix's profile",
 			})
 		);
-		fireEvent.change(await screen.findByRole("textbox", { name: "Name" }), {
-			target: { value: "Katherine Johnson" },
-		});
-		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-
-		expect((await screen.findByRole("alert")).textContent).toContain(
-			"The display name could not be saved."
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Edit profile" })
 		);
+		const profileDrawer = screen.getByRole("dialog", { name: "Profile" });
+		fireEvent.change(
+			within(profileDrawer).getByRole("textbox", { name: "Name" }),
+			{
+				target: { value: "Katherine Johnson" },
+			}
+		);
+		fireEvent.click(
+			within(profileDrawer).getByRole("button", { name: "Save changes" })
+		);
+
 		expect(
-			screen.getByRole("dialog", { name: "Edit Human Profile" })
-		).toBeTruthy();
+			(await within(profileDrawer).findByRole("alert")).textContent
+		).toContain("The display name could not be saved.");
+		expect(
+			screen.queryByRole("dialog", { name: "Edit Human Profile" })
+		).toBeNull();
+		expect(screen.getByRole("dialog", { name: "Profile" })).toBeTruthy();
 	});
 
 	it("shows each member's Computer state with a matching icon and destination", async () => {
@@ -813,13 +1010,13 @@ describe("DirectoryMembersOverview", () => {
 			).getAttribute("href")
 		).toBe("/o/acme/connect?session=fresh");
 		expect(
-			within(currentCard)
-				.getByRole("link", { name: "Connect a computer" })
-				.getAttribute("href")
-		).toBe("/o/acme/connect?session=fresh");
+			within(currentCard).getAllByRole("link", {
+				name: "Felix: Connect a computer",
+			})
+		).toHaveLength(1);
 	});
 
-	it("shows only Organization-connected providers and lets a member manage their own account", async () => {
+	it("shows provider identity states and lets a member manage their own account", async () => {
 		const identityLinkId = `channel_identity_${"a".repeat(64)}`;
 		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
 			availableLarkPlatformProviders: ["lark"],
@@ -856,21 +1053,43 @@ describe("DirectoryMembersOverview", () => {
 			throw new Error("Expected the current member's Human Profile card.");
 		}
 		expect(
-			await within(currentCard).findByText("Connected accounts")
-		).toBeTruthy();
-		expect(within(currentCard).getByText("Slack · @felix")).toBeTruthy();
-		expect(within(currentCard).getByText("Lark")).toBeTruthy();
-		fireEvent.click(
-			within(currentCard).getByRole("button", { name: "Connect" })
-		);
-		expect(
-			await screen.findByRole("dialog", {
-				name: "Connect your Lark account",
+			await within(currentCard).findByRole("button", {
+				name: "Slack account: Account email unavailable",
 			})
 		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		expect(
+			within(currentCard).getByRole("button", {
+				name: "Lark account: No account connected",
+			})
+		).toBeTruthy();
+		expect(
+			within(currentCard)
+				.getByTestId("app-logo-slack")
+				.classList.contains("grayscale")
+		).toBe(false);
+		expect(
+			within(currentCard)
+				.getByTestId("app-logo-lark")
+				.classList.contains("grayscale")
+		).toBe(true);
+		expect(
+			within(currentCard).getByText("Account email unavailable")
+		).toBeTruthy();
+		expect(within(currentCard).queryByText("Linked")).toBeNull();
 		fireEvent.click(
-			within(currentCard).getByRole("button", { name: "Manage" })
+			within(currentCard).getByRole("button", {
+				name: "Slack account: Account email unavailable",
+			})
+		);
+		const identityDrawer = await screen.findByRole("dialog", {
+			name: "Profile",
+		});
+		expect(
+			within(identityDrawer).getByText("Account email unavailable")
+		).toBeTruthy();
+		expect(within(identityDrawer).queryByText("Linked")).toBeNull();
+		fireEvent.click(
+			within(identityDrawer).getByRole("button", { name: "Manage" })
 		);
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Disconnect account" })
@@ -887,6 +1106,49 @@ describe("DirectoryMembersOverview", () => {
 		expect(toastSuccessMock).toHaveBeenCalledWith(
 			"Connected account disconnected."
 		);
+	});
+
+	it("does not present a provider display name as an account email", async () => {
+		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
+			availableLarkPlatformProviders: [],
+			connections: [
+				buildChannelConnection({ id: "slack:T123", provider: "slack" }),
+			],
+			identityLinks: [
+				{
+					connectedAt: "2026-07-16T00:00:00.000Z",
+					id: `channel_identity_${"d".repeat(64)}`,
+					openMeldUserId: "user-current",
+					provider: "slack",
+					providerAccountName: "felix@amplift.ai",
+				},
+			],
+			organizationId: "org-acme",
+		});
+		renderOverview({ currentUserProfile: true, isPersonal: false });
+
+		const currentCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		)[0];
+		if (!currentCard) {
+			throw new Error("Expected the current member's Human Profile card.");
+		}
+		const identityButton = await within(currentCard).findByRole("button", {
+			name: "Slack account: Account email unavailable",
+		});
+		expect(within(currentCard).queryByText("felix@amplift.ai")).toBeNull();
+		expect(
+			within(currentCard).getByText("Account email unavailable")
+		).toBeTruthy();
+
+		fireEvent.click(identityButton);
+		const profileDrawer = await screen.findByRole("dialog", {
+			name: "Profile",
+		});
+		expect(within(profileDrawer).queryByText("felix@amplift.ai")).toBeNull();
+		expect(
+			within(profileDrawer).getByText("Account email unavailable")
+		).toBeTruthy();
 	});
 
 	it("offers the current member a connection when another member owns that provider account", async () => {
@@ -914,14 +1176,32 @@ describe("DirectoryMembersOverview", () => {
 		if (!currentCard) {
 			throw new Error("Expected the current member's Human Profile card.");
 		}
-		expect(await within(currentCard).findByText("Slack")).toBeTruthy();
 		expect(
-			within(currentCard).getByRole("button", { name: "Connect" })
+			await within(currentCard).findByRole("button", {
+				name: "Slack account: No account connected",
+			})
 		).toBeTruthy();
-		expect(within(currentCard).queryByText("Slack · @grace")).toBeNull();
+		expect(
+			within(currentCard)
+				.getByTestId("app-logo-slack")
+				.classList.contains("grayscale")
+		).toBe(true);
+		expect(within(currentCard).queryByText("No account connected")).toBeNull();
+		expect(within(currentCard).queryByText("@grace")).toBeNull();
+		fireEvent.click(
+			within(currentCard).getByRole("button", {
+				name: "Slack account: No account connected",
+			})
+		);
+		expect(
+			within(await screen.findByRole("dialog", { name: "Profile" })).getByRole(
+				"button",
+				{ name: "Connect" }
+			)
+		).toBeTruthy();
 	});
 
-	it("stops offering a cached Channel connection after its refresh fails", async () => {
+	it("keeps a cached Channel visible but unavailable after its refresh fails", async () => {
 		const queryClient = createTestQueryClient();
 		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
 			availableLarkPlatformProviders: ["lark"],
@@ -942,8 +1222,16 @@ describe("DirectoryMembersOverview", () => {
 		if (!currentCard) {
 			throw new Error("Expected the current member's Human Profile card.");
 		}
+		fireEvent.click(
+			await within(currentCard).findByRole("button", {
+				name: "Slack account: No account connected",
+			})
+		);
+		const identityDrawer = await screen.findByRole("dialog", {
+			name: "Profile",
+		});
 		expect(
-			await within(currentCard).findByRole("button", { name: "Connect" })
+			within(identityDrawer).getByRole("button", { name: "Connect" })
 		).toBeTruthy();
 		listCurrentOrganizationMessageChannelsMock.mockRejectedValue(
 			new Error("Message Channels refresh failed")
@@ -954,16 +1242,32 @@ describe("DirectoryMembersOverview", () => {
 				queryKey: messageChannelQueryKeys.list("org-acme"),
 			});
 		});
-
 		await waitFor(() => {
+			const refreshedCurrentCard = screen.getAllByTestId(
+				"organization-human-profile-row"
+			)[0];
+			if (!refreshedCurrentCard) {
+				throw new Error("Expected the refreshed current member card.");
+			}
 			expect(
-				within(currentCard).queryByRole("button", { name: "Connect" })
-			).toBeNull();
+				refreshedCurrentCard.querySelector(
+					'[aria-label="Slack account: Connection unavailable"]'
+				)
+			).toBeTruthy();
 		});
+		expect(
+			within(identityDrawer).getByText("Connection unavailable")
+		).toBeTruthy();
+		expect(
+			within(identityDrawer).queryByRole("button", { name: "Connect" })
+		).toBeNull();
 	});
 
-	it("lets an Organization owner manage another member's connected account", async () => {
-		getActiveOrganizationMemberRoleMock.mockResolvedValue("owner");
+	it.each([
+		"owner",
+		"admin",
+	] as const)("lets an Organization %s manage another member's connected account", async (role) => {
+		getActiveOrganizationMemberRoleMock.mockResolvedValue(role);
 		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
 			availableLarkPlatformProviders: ["lark"],
 			connections: [
@@ -988,18 +1292,45 @@ describe("DirectoryMembersOverview", () => {
 		if (!graceCard) {
 			throw new Error("Expected Grace's Human Profile card.");
 		}
-		expect(await within(graceCard).findByText("Slack · @grace")).toBeTruthy();
 		expect(
-			within(graceCard).getByRole("button", { name: "Manage" })
+			await within(graceCard).findByRole("button", {
+				name: "Slack account: Account email unavailable",
+			})
+		).toBeTruthy();
+		fireEvent.click(
+			within(graceCard).getByRole("button", {
+				name: "Slack account: Account email unavailable",
+			})
+		);
+		expect(
+			within(await screen.findByRole("dialog", { name: "Profile" })).getByRole(
+				"button",
+				{ name: "Manage" }
+			)
 		).toBeTruthy();
 	});
 
-	it("does not show Connected accounts when the Organization has no connected provider", async () => {
+	it("omits Connected Channels when the Organization has no provider", async () => {
 		renderOverview({ currentUserProfile: true, isPersonal: false });
 
-		expect(await screen.findByText("Felix")).toBeTruthy();
-		expect(screen.queryByText("Connected accounts")).toBeNull();
+		const currentCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		)[0];
+		if (!currentCard) {
+			throw new Error("Expected the current member's Human Profile card.");
+		}
+		expect(screen.queryByText("Connected Channels")).toBeNull();
 		expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+		fireEvent.click(
+			within(currentCard).getByRole("button", {
+				name: "Open Felix's profile",
+			})
+		);
+		expect(
+			within(
+				await screen.findByRole("dialog", { name: "Profile" })
+			).queryByText("Connected Channels")
+		).toBeNull();
 	});
 
 	it("hides Human Profile creation when Auth disables the capability", async () => {
@@ -1476,6 +1807,7 @@ describe("InvitationForm", () => {
 
 function renderOverview(
 	input: {
+		account?: AppShellAccount;
 		additionalHumanProfileCreationEnabled?: boolean;
 		currentUserProfile?: boolean;
 		graceProfileStatus?: "active" | "disabled";
@@ -1510,7 +1842,7 @@ function renderOverview(
 				joinedAt: "2026-07-01T00:00:00.000Z",
 				memberId: "member-ada",
 				organizationId: "org-acme",
-				role: "owner",
+				role: input.currentUserProfile ? "member" : "owner",
 				user: {
 					email: input.currentUserProfile
 						? "felix@example.com"
@@ -1544,11 +1876,14 @@ function renderOverview(
 		],
 		organizationId: "org-acme",
 	});
+	if (input.currentUserProfile) {
+		directory.members.reverse();
+	}
 
 	return render(
 		<TestQueryClientProvider queryClient={queryClient}>
 			<DirectoryMembersOverview
-				account={{ email: "felix@example.com", name: "Felix" }}
+				account={input.account ?? { email: "felix@example.com", name: "Felix" }}
 				currentOrganization={{
 					id: input.isPersonal ? "org-felix" : "org-acme",
 					isPersonal: input.isPersonal,

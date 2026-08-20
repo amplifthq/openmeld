@@ -294,7 +294,7 @@ function AccountAvatarEditor(input: {
 			<div className="group/account-avatar relative size-16 shrink-0">
 				<DitherProfileAvatar
 					avatarImageUrl={input.currentAvatar}
-					className="block after:border-0"
+					className="block"
 					data-testid="account-human-profile-avatar"
 					key={input.currentAvatar ? "profile-photo" : "generated-avatar"}
 					profileId={input.profileId}
