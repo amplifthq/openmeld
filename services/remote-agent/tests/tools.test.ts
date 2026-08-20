@@ -1,6 +1,7 @@
 import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   centerAgentCheckAgentProfileReadinessResponseSchema,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
   FEEDBACK_ISSUE_INVALID_TRANSITION_ERROR_CODE,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
@@ -5857,9 +5858,11 @@ function createAgentProfileCreationRequestResponse() {
     request: {
       actorProfileId: "center-agent-profile",
       completedAt: null,
+      configuration: DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
       createdAgentProfileId: null,
       createdAt: ISO_NOW,
       decidedAt: null,
+      failureMessage: null,
       id: "request-1",
       nativeSessionId: null,
       organizationId: "org_123",
