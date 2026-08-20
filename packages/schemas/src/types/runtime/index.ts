@@ -12,6 +12,9 @@ export type {
   AgentControllerInterfaceStatus,
   AgentControllerInterfaceVersionAdvisory,
   AgentControllerInterfaceVersionAdvisoryStatus,
+  AgentControllerUsageLimit,
+  AgentControllerUsageLimitStatus,
+  AgentControllerUsageLimits,
 } from "./agent-controller-interface";
 export type * from "./agent-task-coordination";
 export type * from "./center-agent-model";

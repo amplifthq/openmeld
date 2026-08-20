@@ -320,7 +320,7 @@ describe("current device target routes", () => {
 
     const response = await app.fetch(
       new Request(
-        "http://local/v1/local-runtimes?connectionIdentityAdoption=safe_legacy_current"
+        "http://local/v1/local-runtimes?connectionIdentityAdoption=safe_legacy_current&includeUsageLimits=true"
       ),
       env,
       TEST_EXECUTION_CONTEXT
@@ -330,6 +330,7 @@ describe("current device target routes", () => {
     expect(coreRpc.listLocalRuntimes).toHaveBeenCalledWith(
       expect.objectContaining({
         connectionIdentityAdoption: "safe_legacy_current",
+        includeUsageLimits: "true",
       })
     );
   });

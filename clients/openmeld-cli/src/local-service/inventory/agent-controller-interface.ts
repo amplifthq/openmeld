@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
+import { projectCodexUsageLimits } from "@openmeld/adapter-codex";
 import {
   buildCliLaunchInvocation,
+  createUnavailableProviderUsageLimits,
+  createUnsupportedProviderUsageLimits,
   materializeCliLaunchCommand,
   type RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
@@ -18,6 +21,7 @@ import type {
   AgentControllerInterfaceSnapshot,
   AgentControllerInterfaceStatus,
   AgentControllerInterfaceVersionAdvisory,
+  AgentControllerUsageLimits,
 } from "@openmeld/schemas/types";
 import {
   type BuiltinAgentControllerVersionMaintenanceDefinition,
@@ -36,6 +40,7 @@ import { warnDaemonEvent } from "../core/logger";
 import {
   buildAgentControllerInterfaceKeeperKey,
   didAgentControllerCommandFingerprintRemainStable,
+  readLastKnownAgentControllerUsageLimits,
   readLastSuccessfulAgentControllerInterfaceCheckAt,
   readReusableAgentControllerInterfaceSnapshot,
   recordAgentControllerInterfaceProbeFailure,
@@ -144,6 +149,10 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
     input.state.agentId
   );
   const launch = resolveLaunchSnapshot(input.state);
+  const initialUsageLimits = resolveInitialProviderUsageLimits({
+    checkedAt,
+    support: controllerDefinition?.usageLimitSupport ?? "not_evaluated",
+  });
   const baseSnapshot: AgentControllerInterfaceSnapshot = {
     agentControllerRef: input.agentControllerRef,
     auth: { status: "unknown" },
@@ -164,6 +173,7 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
     schemaVersion: 1,
     skills: [],
     status: resolveBaseStatus(input.state),
+    ...(initialUsageLimits ? { usageLimits: initialUsageLimits } : {}),
     version: null,
   };
 
@@ -196,6 +206,10 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
       commandFingerprint: commandFingerprintBeforeProbe,
       keeperKey,
     });
+  const lastKnownUsageLimits = readLastKnownAgentControllerUsageLimits({
+    commandFingerprint: commandFingerprintBeforeProbe,
+    keeperKey,
+  });
   if (probePolicy === "background") {
     const reusableSnapshot = readReusableAgentControllerInterfaceSnapshot({
       commandFingerprint: commandFingerprintBeforeProbe,
@@ -222,12 +236,17 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
       beforeProbe: commandFingerprintBeforeProbe,
     });
   if (outcome.probeCompleted) {
+    const usageLimits = preserveLastKnownUsageLimitsAfterFailure({
+      current: outcome.snapshot.usageLimits,
+      previous: lastKnownUsageLimits,
+    });
     const completedSnapshot: AgentControllerInterfaceSnapshot = {
       ...outcome.snapshot,
       check: {
         lastSucceededAt: outcome.snapshot.checkedAt,
         status: "succeeded",
       },
+      ...(usageLimits ? { usageLimits } : {}),
     };
     if (commandFingerprintRemainedStable && commandFingerprintAfterProbe) {
       recordAgentControllerInterfaceProbeSuccess({
@@ -247,6 +266,11 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
   const preservedLastSuccessfulCheckAt = commandFingerprintRemainedStable
     ? lastSuccessfulCheckAt
     : null;
+  const usageLimits = resolveUsageLimitsAfterFailedProbe({
+    current: outcome.snapshot.usageLimits,
+    previous: lastKnownUsageLimits,
+    preserveHistoricalEvidence: commandFingerprintRemainedStable,
+  });
   warnDaemonEvent("[openmeld.agent_controller_interface.check_failed]", {
     agentControllerRef: input.agentControllerRef,
     commandFingerprintRemainedStable,
@@ -261,9 +285,54 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
       lastSucceededAt: preservedLastSuccessfulCheckAt,
       status: "failed",
     },
+    ...(usageLimits ? { usageLimits } : {}),
     // A failed check is not proof that the controller itself is broken.
     status: "unknown",
   };
+}
+
+export function preserveLastKnownUsageLimitsAfterFailure(input: {
+  current: AgentControllerUsageLimits | undefined;
+  previous: AgentControllerUsageLimits | null;
+}): AgentControllerUsageLimits | undefined {
+  const currentIsUnavailable =
+    input.current?.length === 1 && input.current[0]?.status === "unavailable";
+  const previousHasKnownCapacity = input.previous?.some(
+    (limit) =>
+      limit.status === "available" ||
+      limit.status === "exhausted" ||
+      limit.status === "stale"
+  );
+  if (!(currentIsUnavailable && previousHasKnownCapacity && input.previous)) {
+    return input.current;
+  }
+  return input.previous.map((limit) =>
+    limit.status === "unsupported" ? limit : { ...limit, status: "stale" }
+  );
+}
+
+function resolveUsageLimitsAfterFailedProbe(input: {
+  current: AgentControllerUsageLimits | undefined;
+  preserveHistoricalEvidence: boolean;
+  previous: AgentControllerUsageLimits | null;
+}): AgentControllerUsageLimits | undefined {
+  if (!input.preserveHistoricalEvidence) {
+    return input.current;
+  }
+  return preserveLastKnownUsageLimitsAfterFailure(input);
+}
+
+function resolveInitialProviderUsageLimits(input: {
+  checkedAt: string;
+  support: "native" | "not_evaluated" | "unsupported";
+}): AgentControllerInterfaceSnapshot["usageLimits"] {
+  if (input.support === "native") {
+    return createUnavailableProviderUsageLimits(input.checkedAt);
+  }
+  if (input.support === "unsupported") {
+    return createUnsupportedProviderUsageLimits(input.checkedAt);
+  }
+  return undefined;
 }
 
 function resolveLaunchSnapshot(
@@ -667,6 +736,7 @@ async function resolveCodexInterfaceSnapshot(input: {
         models: appServerProbe.models,
         skills: appServerProbe.skills,
         status: appServerProbe.status,
+        usageLimits: appServerProbe.usageLimits,
         version,
         versionAdvisory: await resolveControllerVersionAdvisory({
           checkedAt: input.baseSnapshot.checkedAt,
@@ -821,6 +891,7 @@ async function resolveGrokBuildInterfaceSnapshot(input: {
         message: null,
         models: interfaceProbe.result.models,
         status: "ready",
+        usageLimits: interfaceProbe.result.usageLimits,
         version,
         versionAdvisory: await resolveControllerVersionAdvisory({
           checkedAt: input.baseSnapshot.checkedAt,
@@ -1066,6 +1137,7 @@ type CodexAppServerProbeResult =
       ok: true;
       skills: AgentControllerInterfaceSkill[];
       status: AgentControllerInterfaceStatus;
+      usageLimits: NonNullable<AgentControllerInterfaceSnapshot["usageLimits"]>;
       version: string | null;
     }
   | {
@@ -1219,16 +1291,31 @@ async function runCodexAppServerProbeRequests(input: {
     .request("skills/list", { cwds: [process.cwd()] })
     .catch(() => null);
   const modelsPromise = requestAllCodexModels(input.request).catch(() => []);
+  const usageLimitsPromise = input
+    .request("account/rateLimits/read", null)
+    .then((response) =>
+      projectCodexUsageLimits({
+        observedAt: new Date().toISOString(),
+        response,
+      })
+    )
+    .catch(() =>
+      createUnavailableProviderUsageLimits(new Date().toISOString())
+    );
   const account = await input.request("account/read", {});
   // The account verdict is the core probe fact. Once it arrives the probe can
   // no longer time out; auxiliary model/skill inventory only gets a bounded
   // grace so a slow listing cannot turn a healthy controller into a timeout.
   input.clearProbeTimeout();
-  const [skills, models] = await resolveWithinGrace(
-    Promise.all([skillsPromise, modelsPromise]),
-    CODEX_AUX_INVENTORY_GRACE_MS,
-    [null, []]
-  );
+  const [skills, models, usageLimits] = await Promise.all([
+    resolveWithinGrace(skillsPromise, CODEX_AUX_INVENTORY_GRACE_MS, null),
+    resolveWithinGrace(modelsPromise, CODEX_AUX_INVENTORY_GRACE_MS, []),
+    resolveWithinGrace(
+      usageLimitsPromise,
+      CODEX_AUX_INVENTORY_GRACE_MS,
+      createUnavailableProviderUsageLimits(new Date().toISOString())
+    ),
+  ]);
   const auth = resolveCodexAuthSnapshot(account);
   input.finish({
     auth,
@@ -1240,6 +1327,7 @@ async function runCodexAppServerProbeRequests(input: {
     ok: true,
     skills: parseCodexSkills(skills),
     status: auth.status === "unauthenticated" ? "error" : "ready",
+    usageLimits,
     version: parseCodexUserAgentVersion(initialized),
   });
 }

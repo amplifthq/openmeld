@@ -2,6 +2,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type {
   AgentControllerInterfaceSnapshot,
+  AgentControllerUsageLimits,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/schemas/types";
 
@@ -74,6 +75,16 @@ export function readLastSuccessfulAgentControllerInterfaceCheckAt(input: {
   return (
     readMatchingAgentControllerInterfaceKeeperEntry(input)
       ?.lastSuccessfulCheckAt ?? null
+  );
+}
+
+export function readLastKnownAgentControllerUsageLimits(input: {
+  commandFingerprint: AgentControllerCommandFingerprint | null;
+  keeperKey: string;
+}): AgentControllerUsageLimits | null {
+  return (
+    readMatchingAgentControllerInterfaceKeeperEntry(input)?.lastGoodSnapshot
+      ?.usageLimits ?? null
   );
 }
 

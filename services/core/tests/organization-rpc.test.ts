@@ -1447,7 +1447,40 @@ describe("organization Core RPC", () => {
             deviceDisplayName: "Maya’s Mac",
             deviceType: "laptop",
             lastSeenAtMs: 1000,
-            localAgents: [],
+            localAgents: [
+              {
+                agentControllerRef: "builtin:codex",
+                details: {
+                  capabilities: {
+                    approvals: true,
+                    cancel: true,
+                    interrupt: true,
+                    modelSelection: true,
+                    nativeEventStream: true,
+                    permissionModes: true,
+                    structuredUserInput: false,
+                  },
+                  checkedAt: "2026-08-19T00:00:00.000Z",
+                  launch: { installChoiceCount: 1, status: "ready" },
+                  models: [{ displayName: "GPT-5.5" }],
+                  nativeInterface: "codex-app-server",
+                  status: "ready",
+                  usageLimits: [
+                    {
+                      key: "codex:primary",
+                      label: "5-hour usage",
+                      observedAt: "2026-08-19T00:00:00.000Z",
+                      resetsAt: "2026-08-19T05:00:00.000Z",
+                      status: "available",
+                      usedPercent: 63,
+                    },
+                  ],
+                  version: "0.148.0",
+                },
+                enabled: true,
+                status: "ready",
+              },
+            ],
             osVersion: "15.6",
             ownerUserId: "user-b",
             platformFamily: "macOS",
@@ -1470,7 +1503,23 @@ describe("organization Core RPC", () => {
         memberUserId: "user-b",
       })
     ).resolves.toMatchObject({
-      computers: [expect.objectContaining({ ownerUserId: "user-b" })],
+      computers: [
+        expect.objectContaining({
+          localAgents: [
+            expect.objectContaining({
+              details: expect.objectContaining({
+                usageLimits: [
+                  expect.objectContaining({
+                    key: "codex:primary",
+                    usedPercent: 63,
+                  }),
+                ],
+              }),
+            }),
+          ],
+          ownerUserId: "user-b",
+        }),
+      ],
       memberUserId: "user-b",
       organizationId: "org-a",
     });

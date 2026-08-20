@@ -71,6 +71,7 @@ export type BuiltinAgentControllerDefinition = {
   capabilities: AgentControllerInterfaceCapabilities;
   installResolver: BuiltinControllerInstallResolver;
   nativeInterface: AgentControllerInterfaceNativeInterface;
+  usageLimitSupport: "native" | "not_evaluated" | "unsupported";
   versionMaintenance?: BuiltinAgentControllerVersionMaintenanceDefinition;
 };
 
@@ -103,6 +104,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyClaudeCodeLaunchContract,
     },
     nativeInterface: "claude-agent-sdk",
+    usageLimitSupport: "unsupported",
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "claude-code" },
       npmPackageName: "@anthropic-ai/claude-code",
@@ -127,6 +129,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyCodexLaunchContract,
     },
     nativeInterface: "codex-app-server",
+    usageLimitSupport: "native",
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "codex" },
       npmPackageName: "@openai/codex",
@@ -143,6 +146,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyOpenClawLaunchContract,
     },
     nativeInterface: "local-cli",
+    usageLimitSupport: "not_evaluated",
   },
   {
     adapterId: "cursor",
@@ -162,6 +166,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyCursorLaunchContract,
     },
     nativeInterface: "acp",
+    usageLimitSupport: "unsupported",
     versionMaintenance: {
       homebrewPackage: { kind: "cask", name: "cursor-cli" },
       officialUpdateCommand: "cursor-agent update",
@@ -186,6 +191,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyGrokBuildLaunchContract,
     },
     nativeInterface: "acp",
+    usageLimitSupport: "native",
     versionMaintenance: {
       officialUpdateCommand: "grok update",
       officialUpdatePath: isGrokBuildNativeCommandPath,
@@ -209,6 +215,7 @@ const BUILTIN_AGENT_CONTROLLER_DEFINITIONS = [
       verifyLaunchContract: verifyOpenCodeLaunchContract,
     },
     nativeInterface: "local-cli",
+    usageLimitSupport: "unsupported",
     versionMaintenance: {
       homebrewPackage: { kind: "formula", name: "opencode" },
       npmPackageName: "opencode-ai",

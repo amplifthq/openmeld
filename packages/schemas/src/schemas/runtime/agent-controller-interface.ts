@@ -7,6 +7,81 @@ const ACI_BOUNDED_TEXT_SCHEMA = z.string().trim().min(1).max(32_000);
 const ACI_COMMAND_PATH_SCHEMA = z.string().trim().min(1).max(4096);
 const ACI_ISO_DATE_TIME_SCHEMA = z.iso.datetime({ offset: true });
 
+// Background interface snapshots can be reused for up to 15 minutes. Give the
+// local service one normal refresh interval beyond that before Core marks the
+// provider capacity evidence stale.
+export const AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS = 20 * 60_000;
+
+export const agentControllerUsageLimitStatusSchema = z.enum([
+  "available",
+  "exhausted",
+  "stale",
+  "unavailable",
+  "unsupported",
+]);
+
+export const agentControllerUsageLimitSchema = z
+  .strictObject({
+    key: ACI_BOUNDED_ID_SCHEMA,
+    label: ACI_BOUNDED_LABEL_SCHEMA,
+    observedAt: ACI_ISO_DATE_TIME_SCHEMA,
+    resetsAt: ACI_ISO_DATE_TIME_SCHEMA.nullable(),
+    status: agentControllerUsageLimitStatusSchema,
+    usedPercent: z.number().finite().min(0).max(100).nullable(),
+  })
+  .superRefine((value, context) => {
+    if (
+      (value.status === "available" || value.status === "exhausted") &&
+      value.usedPercent === null
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: `${value.status} usage limits require usedPercent`,
+        path: ["usedPercent"],
+      });
+    }
+    if (value.status === "stale" && value.usedPercent === null) {
+      context.addIssue({
+        code: "custom",
+        message: "stale usage limits require a last-known usedPercent",
+        path: ["usedPercent"],
+      });
+    }
+    if (value.status === "exhausted" && value.usedPercent !== 100) {
+      context.addIssue({
+        code: "custom",
+        message: "exhausted usage limits require usedPercent to equal 100",
+        path: ["usedPercent"],
+      });
+    }
+    if (
+      (value.status === "unavailable" || value.status === "unsupported") &&
+      (value.usedPercent !== null || value.resetsAt !== null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: `${value.status} usage limits cannot invent usage or reset facts`,
+      });
+    }
+  });
+
+export const agentControllerUsageLimitsSchema = z
+  .array(agentControllerUsageLimitSchema)
+  .max(32)
+  .superRefine((limits, context) => {
+    const keys = new Set<string>();
+    for (const [index, limit] of limits.entries()) {
+      if (keys.has(limit.key)) {
+        context.addIssue({
+          code: "custom",
+          message: "usage limit keys must be unique within one controller",
+          path: [index, "key"],
+        });
+      }
+      keys.add(limit.key);
+    }
+  });
+
 export const agentControllerInterfaceStatusSchema = z.enum([
   "disabled",
   "error",
@@ -119,6 +194,7 @@ export const agentControllerInterfaceSnapshotSchema = z.strictObject({
   schemaVersion: z.literal(1),
   skills: z.array(agentControllerInterfaceSkillSchema).max(512),
   status: agentControllerInterfaceStatusSchema,
+  usageLimits: agentControllerUsageLimitsSchema.optional(),
   version: ACI_BOUNDED_ID_SCHEMA.nullable(),
   versionAdvisory: agentControllerInterfaceVersionAdvisorySchema.optional(),
 });

@@ -77,6 +77,23 @@ describe("builtin agent controller definitions", () => {
     ).toBe(true);
   });
 
+  it("declares native and unsupported usage limit providers explicitly", () => {
+    const supportByAgentId = Object.fromEntries(
+      listBuiltinAgentControllerDefinitions().map((definition) => [
+        definition.agentId,
+        definition.usageLimitSupport,
+      ])
+    );
+
+    expect(supportByAgentId).toMatchObject({
+      "claude-code": "unsupported",
+      codex: "native",
+      cursor: "unsupported",
+      "grok-build": "native",
+      opencode: "unsupported",
+    });
+  });
+
   it("declares the Homebrew package kind and name for maintained controllers", () => {
     const homebrewPackages = Object.fromEntries(
       listBuiltinAgentControllerDefinitions()

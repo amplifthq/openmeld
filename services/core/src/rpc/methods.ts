@@ -2091,6 +2091,7 @@ export type ForgetComputerInput = {
 export type GetLocalRuntimesInput = {
   connectionIdentityAdoption?: LocalRuntimesQuery["connectionIdentityAdoption"];
   context?: CoreRpcContextInput;
+  includeUsageLimits?: LocalRuntimesQuery["includeUsageLimits"];
 };
 
 export type GetCurrentLocalRuntimeReplyReadinessInput = {
@@ -2780,13 +2781,52 @@ export async function rpcListLocalRuntimes(
   env: CoreBindings,
   input: GetLocalRuntimesInput
 ): Promise<LocalRuntimesResponse> {
-  return await listLocalRuntimesForOwnerUser({
+  const response = await listLocalRuntimesForOwnerUser({
     ...(input.connectionIdentityAdoption === undefined
       ? {}
       : { connectionIdentityAdoption: input.connectionIdentityAdoption }),
     env,
     userId: requireAuthenticatedOwnerUserId(input.context),
   });
+  return input.includeUsageLimits === "true"
+    ? response
+    : omitLocalRuntimeUsageLimits(response);
+}
+
+function omitLocalRuntimeUsageLimits(
+  response: LocalRuntimesResponse
+): LocalRuntimesResponse {
+  const omitFromComputer = <
+    T extends
+      | LocalRuntimesResponse["localRuntimes"][number]
+      | NonNullable<LocalRuntimesResponse["legacyDeviceEvidence"]>[number],
+  >(
+    computer: T
+  ): T => ({
+    ...computer,
+    executionTargets: computer.executionTargets.map((target) => ({
+      ...target,
+      capabilities: target.capabilities.map((capability) => {
+        if (!capability.agentControllerInterface?.usageLimits) {
+          return capability;
+        }
+        const { usageLimits: _usageLimits, ...agentControllerInterface } =
+          capability.agentControllerInterface;
+        return { ...capability, agentControllerInterface };
+      }),
+    })),
+  });
+
+  return {
+    ...response,
+    localRuntimes: response.localRuntimes.map(omitFromComputer),
+    ...(response.legacyDeviceEvidence
+      ? {
+          legacyDeviceEvidence:
+            response.legacyDeviceEvidence.map(omitFromComputer),
+        }
+      : {}),
+  };
 }
 
 async function listLocalRuntimesForOwnerUser(input: {

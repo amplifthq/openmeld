@@ -11,7 +11,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTargetState } from "../src/agents/registry";
 import { createDefaultRuntimeAgentControllerSettings } from "../src/config/runtime-config";
-import { resolveAgentControllerInterfaceSnapshot } from "../src/local-service/inventory/agent-controller-interface";
+import {
+  preserveLastKnownUsageLimitsAfterFailure,
+  resolveAgentControllerInterfaceSnapshot,
+} from "../src/local-service/inventory/agent-controller-interface";
 import { OPENCLAW_MODELS_STATUS_MISSING_AUTH_RESPONSE } from "./fixtures/openclaw-models-status";
 import {
   OPENCODE_NPM_LATEST_RESPONSE,
@@ -52,6 +55,56 @@ afterEach(() => {
 });
 
 describe("agent controller interface inventory", () => {
+  it("preserves last-known provider capacity as stale after a temporary read failure", () => {
+    const observedAt = "2026-08-20T08:00:00.000Z";
+
+    expect(
+      preserveLastKnownUsageLimitsAfterFailure({
+        current: [
+          {
+            key: "provider",
+            label: "Usage limits",
+            observedAt: "2026-08-20T08:20:00.000Z",
+            resetsAt: null,
+            status: "unavailable",
+            usedPercent: null,
+          },
+        ],
+        previous: [
+          {
+            key: "codex:primary",
+            label: "5-hour usage",
+            observedAt,
+            resetsAt: "2026-08-20T12:00:00.000Z",
+            status: "available",
+            usedPercent: 72,
+          },
+          {
+            key: "codex:secondary",
+            label: "Weekly usage",
+            observedAt,
+            resetsAt: null,
+            status: "exhausted",
+            usedPercent: 100,
+          },
+        ],
+      })
+    ).toEqual([
+      expect.objectContaining({
+        key: "codex:primary",
+        observedAt,
+        status: "stale",
+        usedPercent: 72,
+      }),
+      expect.objectContaining({
+        key: "codex:secondary",
+        observedAt,
+        status: "stale",
+        usedPercent: 100,
+      }),
+    ]);
+  });
+
   it("reports Grok Build ACP authentication and live models", async () => {
     const home = await mkdtemp(join(tmpdir(), "openmeld-aci-grok-build-"));
     try {
@@ -89,6 +142,15 @@ describe("agent controller interface inventory", () => {
         ],
         nativeInterface: "acp",
         status: "ready",
+        usageLimits: [
+          {
+            key: "grok-build:included-credits",
+            label: "Weekly usage limit",
+            resetsAt: "2026-08-27T00:00:00.000Z",
+            status: "available",
+            usedPercent: 27,
+          },
+        ],
         version: "1.0.3",
         versionAdvisory: {
           currentVersion: "1.0.3",
@@ -871,6 +933,9 @@ describe("agent controller interface inventory", () => {
             '  if (message.method === "skills/list") {',
             "    reply(message.id, { skills: [] });",
             "  }",
+            '  if (message.method === "account/rateLimits/read") {',
+            '    reply(message.id, { rateLimits: { limitId: "codex", primary: { usedPercent: 81, resetsAt: 1787259600, windowDurationMins: 300 }, secondary: { usedPercent: 34, resetsAt: null, windowDurationMins: 10080 } } });',
+            "  }",
             "  // model/list is intentionally never answered: a hung auxiliary listing.",
             "};",
             'process.stdin.on("data", (chunk) => {',
@@ -902,6 +967,20 @@ describe("agent controller interface inventory", () => {
           auth: { email: "dev@example.com", status: "authenticated" },
           models: [],
           status: "ready",
+          usageLimits: [
+            {
+              key: "codex:primary",
+              label: "5-hour usage",
+              status: "available",
+              usedPercent: 81,
+            },
+            {
+              key: "codex:secondary",
+              label: "Weekly usage",
+              status: "available",
+              usedPercent: 34,
+            },
+          ],
           version: "0.142.5",
         });
         // The probe must settle on the auxiliary grace, not the 8s hard timeout.
@@ -1104,6 +1183,11 @@ async function writeGrokBuildBin(
             `    send({ id: message.id, error: { code: -32000, message: ${JSON.stringify(input.authFailure)} } });`,
           ]
         : ["    send({ id: message.id, result: {} });"]),
+      '  } else if (message.method === "_x.ai/billing") {',
+      "    send({ id: message.id, result: { config: {",
+      '      creditUsagePercent: 27, currentPeriod: { type: "weekly", end: "2026-08-27T00:00:00Z" },',
+      "      prepaidBalance: 99, history: [{ private: true }]",
+      '    }, subscriptionTier: "private-plan" } });',
       "  }",
       "});",
       "",

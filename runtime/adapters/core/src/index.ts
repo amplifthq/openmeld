@@ -111,6 +111,11 @@ export {
   verifyLaunchContractFiles,
 } from "./launch-contract.js";
 export {
+  type AdapterProviderUsageLimit,
+  createUnavailableProviderUsageLimits,
+  createUnsupportedProviderUsageLimits,
+} from "./provider-usage-limits.js";
+export {
   type AdapterRuntimeFailure,
   buildProviderExitError,
   classifyCliDriverTimeoutFailure,

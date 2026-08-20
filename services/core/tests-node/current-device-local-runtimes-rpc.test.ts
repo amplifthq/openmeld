@@ -43,6 +43,16 @@ describe("current device local runtimes RPC read model", () => {
     schemaVersion: 1,
     skills: [],
     status: "ready",
+    usageLimits: [
+      {
+        key: "codex:primary",
+        label: "5-hour usage",
+        observedAt: "2026-06-28T00:00:00.000Z",
+        resetsAt: "2026-06-28T05:00:00.000Z",
+        status: "available",
+        usedPercent: 42,
+      },
+    ],
     version: "0.1.0",
   } satisfies AgentControllerInterfaceSnapshot;
 
@@ -223,9 +233,18 @@ describe("current device local runtimes RPC read model", () => {
         ],
       });
 
+      const compatibilityResponse = await rpcListLocalRuntimes(env, {
+        context,
+      });
+      expect(
+        compatibilityResponse.localRuntimes[0]?.executionTargets[0]
+          ?.capabilities[0]?.agentControllerInterface?.usageLimits
+      ).toBeUndefined();
+
       await expect(
         rpcListLocalRuntimes(env, {
           context,
+          includeUsageLimits: "true",
         })
       ).resolves.toMatchObject({
         localRuntimes: [
@@ -236,7 +255,13 @@ describe("current device local runtimes RPC read model", () => {
                 capabilities: [
                   {
                     agentControllerRef: "builtin:codex",
-                    agentControllerInterface: CODEX_AGENT_CONTROLLER_INTERFACE,
+                    agentControllerInterface: {
+                      ...CODEX_AGENT_CONTROLLER_INTERFACE,
+                      usageLimits:
+                        CODEX_AGENT_CONTROLLER_INTERFACE.usageLimits.map(
+                          (limit) => ({ ...limit, status: "stale" })
+                        ),
+                    },
                     status: "ready",
                   },
                 ],

@@ -68,6 +68,16 @@ describe("Owner Computer diagnostics contract", () => {
         launch: { installChoiceCount: 1, status: "ready" },
         models: [{ displayName: "GPT-5.5" }],
         status: "ready",
+        usageLimits: [
+          {
+            key: "codex:primary",
+            label: "5-hour usage",
+            observedAt: "2026-08-19T00:00:00.000Z",
+            resetsAt: "2026-08-19T05:00:00.000Z",
+            status: "available",
+            usedPercent: 62,
+          },
+        ],
         version: "1.2.3",
         versionAdvisory: {
           currentVersion: "1.2.3",
@@ -210,6 +220,16 @@ function createSensitiveLocalRuntimes() {
                   schemaVersion: 1 as const,
                   skills: [{ id: "private-company-skill" }],
                   status: "ready" as const,
+                  usageLimits: [
+                    {
+                      key: "codex:primary",
+                      label: "5-hour usage",
+                      observedAt: "2026-08-19T00:00:00.000Z",
+                      resetsAt: "2026-08-19T05:00:00.000Z",
+                      status: "available" as const,
+                      usedPercent: 62,
+                    },
+                  ],
                   version: "1.2.3",
                   versionAdvisory: {
                     checkedAt: "2026-08-19T00:00:00.000Z",
