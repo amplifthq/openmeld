@@ -18,7 +18,10 @@ import {
   buildMessageChannelTurnEnvelope,
   resolveMessageChannelTurnTarget as resolveMessageChannelTurnTargetWithAuth,
 } from "../src/remote-agent/application/message-channel-turn-resolution";
-import { insertRemoteAgentLarkPlatformIdentityLinkIfAbsent } from "../src/remote-agent/infrastructure/d1/lark-platform-identity-link-repo";
+import {
+  insertRemoteAgentLarkPlatformIdentityLinkIfAbsent,
+  readRemoteAgentLarkPlatformIdentityLink,
+} from "../src/remote-agent/infrastructure/d1/lark-platform-identity-link-repo";
 import {
   claimRemoteAgentLarkPlatformRegistrationAttempt,
   completeRemoteAgentLarkPlatformRegistration,
@@ -34,6 +37,7 @@ import {
 import {
   applyDrizzleMigrationsForTables,
   applyDrizzleMigrationForTable as applyMigrationForTable,
+  createBeforeMatchingBatchD1Database,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
 
@@ -503,6 +507,219 @@ describe("Remote Agent Message Channel orchestration", () => {
       harness.close();
     }
   });
+
+  it("rolls back a Lark identity replacement when its audit write fails", async () => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelOrchestrationMigrations(harness);
+    seedOrganizationAndCenterAgent(harness);
+    await seedLarkConnection(harness);
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(4000);
+    const token =
+      "messagechannellink_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+    try {
+      harness.run({
+        sql: `
+          INSERT INTO openmeld_profiles (
+            profile_id,
+            profile_name,
+            profile_handle,
+            profile_kind,
+            is_default,
+            status,
+            organization_id,
+            owner_user_id,
+            created_at,
+            updated_at
+          ) VALUES (
+            '22222222-2222-4222-8222-222222222222',
+            'Ari Human',
+            'ari-audit',
+            'human',
+            0,
+            'active',
+            NULL,
+            'user_member',
+            100,
+            100
+          )
+        `,
+      });
+      harness.run({
+        params: ["member_owner", "org_1", "user_owner", "member", 100],
+        sql: `
+          INSERT INTO members (id, organization_id, user_id, role, created_at)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      });
+      await insertRemoteAgentLarkPlatformIdentityLinkIfAbsent({
+        connectionId: "connection_lark_1",
+        db: harness.db,
+        nowMs: 3000,
+        organizationId: "org_1",
+        provider: "lark",
+        providerUserId: "ou_member_1",
+        resolutionSource: "explicit",
+        openmeldUserId: "user_owner",
+      });
+      await insertRemoteAgentMessageChannelIdentityLinkToken({
+        connectionId: "connection_lark_1",
+        db: harness.db,
+        expiresAtMs: 10_000,
+        issuedAtMs: 3000,
+        organizationId: "org_1",
+        provider: "lark",
+        providerUserDisplayName: "Ari Lark",
+        providerUserId: "ou_member_1",
+        tokenHash: await digestMessageChannelIdentityLinkToken(token),
+      });
+      harness.run({
+        sql: `
+          CREATE TRIGGER fail_identity_link_audit
+          BEFORE INSERT ON center_agent_audit_journal
+          WHEN NEW.action = 'replace_message_channel_identity_link'
+          BEGIN
+            SELECT RAISE(ABORT, 'injected identity-link audit failure');
+          END
+        `,
+      });
+
+      await expect(
+        rpcConsumeMessageChannelIdentityLink(buildIdentityLinkEnv(harness.db), {
+          context: buildHumanContext(),
+          token,
+        })
+      ).rejects.toThrow("injected identity-link audit failure");
+      await expect(
+        readRemoteAgentLarkPlatformIdentityLink({
+          connectionId: "connection_lark_1",
+          db: harness.db,
+          provider: "lark",
+          providerUserId: "ou_member_1",
+        })
+      ).resolves.toMatchObject({ openmeldUserId: "user_owner" });
+      harness.run({ sql: "DROP TRIGGER fail_identity_link_audit" });
+      await expect(
+        rpcConsumeMessageChannelIdentityLink(buildIdentityLinkEnv(harness.db), {
+          context: buildHumanContext(),
+          token,
+        })
+      ).resolves.toMatchObject({
+        linked: true,
+        replacedExistingLink: true,
+        openMeldUserId: "user_member",
+      });
+      await expect(
+        rpcConsumeMessageChannelIdentityLink(buildIdentityLinkEnv(harness.db), {
+          context: buildHumanContext(),
+          token,
+        })
+      ).resolves.toMatchObject({ linked: true });
+      expect(
+        harness.queryFirst<{ audit_count: number }>({
+          sql: `
+            SELECT COUNT(*) AS audit_count
+            FROM center_agent_audit_journal
+            WHERE action = 'replace_message_channel_identity_link'
+          `,
+        })
+      ).toEqual({ audit_count: 1 });
+    } finally {
+      dateNow.mockRestore();
+      harness.close();
+    }
+  });
+
+  it("does not audit a Lark replacement when the canonical link is already corrected inside the consume batch", async () => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelOrchestrationMigrations(harness);
+    seedOrganizationAndCenterAgent(harness);
+    await seedLarkConnection(harness);
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(4000);
+    const token =
+      "messagechannellink_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+    try {
+      harness.run({
+        params: ["member_owner", "org_1", "user_owner", "member", 100],
+        sql: `
+          INSERT INTO members (id, organization_id, user_id, role, created_at)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      });
+      harness.run({
+        sql: `
+          INSERT INTO openmeld_profiles (
+            profile_id, profile_name, profile_handle, profile_kind, is_default,
+            status, organization_id, owner_user_id, created_at, updated_at
+          ) VALUES (
+            '22222222-2222-4222-8222-222222222222', 'Ari Human', 'ari-audit',
+            'human', 0, 'active', NULL, 'user_member', 100, 100
+          )
+        `,
+      });
+      await insertRemoteAgentLarkPlatformIdentityLinkIfAbsent({
+        connectionId: "connection_lark_1",
+        db: harness.db,
+        nowMs: 3000,
+        organizationId: "org_1",
+        provider: "lark",
+        providerUserId: "ou_member_1",
+        resolutionSource: "explicit",
+        openmeldUserId: "user_owner",
+      });
+      await insertRemoteAgentMessageChannelIdentityLinkToken({
+        connectionId: "connection_lark_1",
+        db: harness.db,
+        expiresAtMs: 10_000,
+        issuedAtMs: 3000,
+        organizationId: "org_1",
+        provider: "lark",
+        providerUserDisplayName: "Ari Lark",
+        providerUserId: "ou_member_1",
+        tokenHash: await digestMessageChannelIdentityLinkToken(token),
+      });
+      const racingDb = createBeforeMatchingBatchD1Database({
+        beforeBatch: () => {
+          harness.run({
+            sql: `
+              UPDATE openMeldRemoteAgent_lark_platform_identity_links
+              SET openmeld_user_id = 'user_member'
+              WHERE provider = 'lark'
+                AND connection_id = 'connection_lark_1'
+                AND provider_user_id = 'ou_member_1'
+            `,
+          });
+        },
+        db: harness.db,
+        matches: (sql) =>
+          sql.includes(
+            "UPDATE openMeldRemoteAgent_message_channel_identity_link_tokens"
+          ) && sql.includes("SET consumed_at_ms"),
+      });
+
+      await expect(
+        rpcConsumeMessageChannelIdentityLink(buildIdentityLinkEnv(racingDb), {
+          context: buildHumanContext(),
+          token,
+        })
+      ).resolves.toMatchObject({
+        linked: true,
+        replacedExistingLink: false,
+        openMeldUserId: "user_member",
+      });
+      expect(
+        harness.queryFirst<{ audit_count: number }>({
+          sql: `
+            SELECT COUNT(*) AS audit_count
+            FROM center_agent_audit_journal
+            WHERE action = 'replace_message_channel_identity_link'
+          `,
+        })
+      ).toEqual({ audit_count: 0 });
+    } finally {
+      dateNow.mockRestore();
+      harness.close();
+    }
+  });
 });
 
 function createProviderAdapter(
@@ -651,6 +868,7 @@ function applyMessageChannelOrchestrationMigrations(
   });
   applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
   applyDrizzleMigrationsForTables(harness, [
+    "center_agent_audit_journal",
     "openMeldRemoteAgent_lark_platform_channel_connections",
     "openMeldRemoteAgent_message_channel_identity_link_tokens",
   ]);

@@ -681,14 +681,22 @@ describe("remote agent OpenMeld tool catalog", () => {
 
   it("reads one teammate's Computers through the team-safe Core projection", async () => {
     const request = createSubmitTurnRequest();
+    const directory = organizationDirectoryResponse([
+      organizationDirectoryMember(),
+    ]);
+    const centerAgentGetOrganizationDirectory = vi.fn(async () => directory);
     const centerAgentReadMemberComputers = vi.fn(async () =>
       memberComputersResponse()
     );
     const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: { centerAgentReadMemberComputers },
+      coreWorker: {
+        centerAgentGetOrganizationDirectory,
+        centerAgentReadMemberComputers,
+      },
       storage: await createStorageWithPendingContext(request),
     });
 
+    await executeTool(tools, "openmeld_read_organization_directory", {});
     await expect(
       executeTool(tools, "openmeld_read_member_computers", {
         memberUserId: "user_1",
@@ -697,6 +705,55 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentReadMemberComputers).toHaveBeenCalledWith(
       expect.objectContaining({ memberUserId: "user_1" })
     );
+  });
+
+  it("requires current-turn Organization directory evidence for member diagnostics", async () => {
+    const request = createSubmitTurnRequest();
+    const directory = organizationDirectoryResponse([
+      organizationDirectoryMember(),
+    ]);
+    const centerAgentGetOrganizationDirectory = vi.fn(async () => directory);
+    const centerAgentReadMemberComputers = vi.fn(async () =>
+      memberComputersResponse()
+    );
+    const centerAgentReadMemberOpenMeldServiceStatus = vi.fn(async () =>
+      memberOpenMeldServiceStatusResponse()
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {
+        centerAgentGetOrganizationDirectory,
+        centerAgentReadMemberComputers,
+        centerAgentReadMemberOpenMeldServiceStatus,
+      },
+      storage: await createStorageWithPendingContext(request),
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_read_member_computers", {
+        memberUserId: "user_1",
+      })
+    ).rejects.toThrow(
+      "Read the Organization directory in this turn before reading member diagnostics, then use only a returned member userId."
+    );
+    await expect(
+      executeTool(tools, "openmeld_read_member_openmeld_service_status", {
+        memberUserId: "user_1",
+      })
+    ).rejects.toThrow(
+      "Read the Organization directory in this turn before reading member diagnostics, then use only a returned member userId."
+    );
+
+    await executeTool(tools, "openmeld_read_organization_directory", {});
+    await expect(
+      executeTool(tools, "openmeld_read_member_computers", {
+        memberUserId: "user_1",
+      })
+    ).resolves.toEqual(memberComputersResponse());
+    await expect(
+      executeTool(tools, "openmeld_read_member_openmeld_service_status", {
+        memberUserId: "user_1",
+      })
+    ).resolves.toEqual(memberOpenMeldServiceStatusResponse());
   });
 
   it("lets a connected unlinked member read only the team-safe Computer projection", async () => {
@@ -725,6 +782,9 @@ describe("remote agent OpenMeld tool catalog", () => {
       authorized: true as const,
       sourceNativeDeliveryId: "delivery_123",
     }));
+    const centerAgentGetOrganizationDirectory = vi.fn(async () =>
+      organizationDirectoryResponse([organizationDirectoryMember()])
+    );
     const centerAgentReadMemberComputers = vi.fn(async () =>
       memberComputersResponse()
     );
@@ -732,6 +792,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: {
         centerAgentAuthorizeAnonymousMemberTool,
+        centerAgentGetOrganizationDirectory,
         centerAgentListComputers,
         centerAgentReadMemberComputers,
       },
@@ -739,6 +800,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       turnEnvelope: request.turnEnvelope,
     });
 
+    await executeTool(tools, "openmeld_read_organization_directory", {});
     await expect(
       executeTool(tools, "openmeld_read_member_computers", {
         memberUserId: "user_1",
@@ -3844,7 +3906,11 @@ describe("remote agent OpenMeld tool catalog", () => {
       const request = createSubmitTurnRequest();
       const storage = await createStorageWithPendingContext(request);
       const rpc = vi.fn(async () => scenario.response);
+      const centerAgentGetOrganizationDirectory = vi.fn(async () =>
+        organizationDirectoryResponse([organizationDirectoryMember()])
+      );
       const coreWorker = {
+        centerAgentGetOrganizationDirectory,
         [scenario.rpcName]: rpc,
       } as RemoteAgentCoreWorkerBinding;
       const tools = getRemoteAgentOpenMeldToolDefinitions({
@@ -3852,6 +3918,12 @@ describe("remote agent OpenMeld tool catalog", () => {
         storage,
       });
 
+      if (
+        scenario.toolName === "openmeld_read_member_computers" ||
+        scenario.toolName === "openmeld_read_member_openmeld_service_status"
+      ) {
+        await executeTool(tools, "openmeld_read_organization_directory", {});
+      }
       await executeTool(tools, scenario.toolName, scenario.input);
 
       expect(rpc).toHaveBeenCalledTimes(1);
@@ -5299,12 +5371,44 @@ function actionResponseBase(
   };
 }
 
-function organizationDirectoryResponse() {
+function organizationDirectoryResponse(
+  members: Array<{
+    humanProfile: null;
+    joinedAt: string;
+    memberId: string;
+    organizationId: string;
+    role: string;
+    user: {
+      email: string;
+      id: string;
+      image: null;
+      name: string;
+    };
+    userId: string;
+  }> = []
+) {
   return {
     agentProfiles: [],
     generatedAt: ISO_NOW,
-    members: [],
+    members,
     organizationId: "org_123",
+  };
+}
+
+function organizationDirectoryMember() {
+  return {
+    humanProfile: null,
+    joinedAt: ISO_NOW,
+    memberId: "member_1",
+    organizationId: "org_123",
+    role: "member",
+    user: {
+      email: "ari@example.com",
+      id: "user_1",
+      image: null,
+      name: "Ari",
+    },
+    userId: "user_1",
   };
 }
 

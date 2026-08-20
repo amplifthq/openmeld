@@ -212,6 +212,101 @@ export function createFaultInjectingD1Database(input: {
   } as D1Database;
 }
 
+export function createBeforeMatchingBatchD1Database(input: {
+  beforeBatch(): void;
+  db: D1Database;
+  matches(sql: string): boolean;
+}): D1Database {
+  const delegateByStatement = new WeakMap<object, D1PreparedStatement>();
+  const sqlByStatement = new WeakMap<object, string>();
+  let beforeBatchRan = false;
+  const wrap = (
+    delegate: D1PreparedStatement,
+    sql: string
+  ): D1PreparedStatement => {
+    const wrapped = {
+      all: <TRow>() => delegate.all<TRow>(),
+      bind: (...values: unknown[]) => wrap(delegate.bind(...values), sql),
+      first: <TRow>(columnName?: string) =>
+        columnName === undefined
+          ? delegate.first<TRow>()
+          : delegate.first<TRow>(columnName),
+      run: () => delegate.run(),
+    } as D1PreparedStatement;
+    delegateByStatement.set(wrapped, delegate);
+    sqlByStatement.set(wrapped, sql);
+    return wrapped;
+  };
+
+  return {
+    batch: async (statements: D1PreparedStatement[]) => {
+      if (
+        !beforeBatchRan &&
+        statements.some((statement) =>
+          input.matches(sqlByStatement.get(statement) ?? "")
+        )
+      ) {
+        beforeBatchRan = true;
+        input.beforeBatch();
+      }
+      return await input.db.batch(
+        statements.map(
+          (statement) => delegateByStatement.get(statement) ?? statement
+        )
+      );
+    },
+    prepare: (sql: string) => wrap(input.db.prepare(sql), sql),
+  } as D1Database;
+}
+
+export function createAfterMatchingBatchD1Database(input: {
+  afterBatch(): void;
+  db: D1Database;
+  matches(sql: string): boolean;
+}): D1Database {
+  const delegateByStatement = new WeakMap<object, D1PreparedStatement>();
+  const sqlByStatement = new WeakMap<object, string>();
+  let afterBatchRan = false;
+  const wrap = (
+    delegate: D1PreparedStatement,
+    sql: string
+  ): D1PreparedStatement => {
+    const wrapped = {
+      all: <TRow>() => delegate.all<TRow>(),
+      bind: (...values: unknown[]) => wrap(delegate.bind(...values), sql),
+      first: <TRow>(columnName?: string) =>
+        columnName === undefined
+          ? delegate.first<TRow>()
+          : delegate.first<TRow>(columnName),
+      run: () => delegate.run(),
+    } as D1PreparedStatement;
+    delegateByStatement.set(wrapped, delegate);
+    sqlByStatement.set(wrapped, sql);
+    return wrapped;
+  };
+
+  return {
+    batch: async (statements: D1PreparedStatement[]) => {
+      const shouldRunAfterBatch =
+        !afterBatchRan &&
+        statements.some((statement) =>
+          input.matches(sqlByStatement.get(statement) ?? "")
+        );
+      const results = await input.db.batch(
+        statements.map(
+          (statement) => delegateByStatement.get(statement) ?? statement
+        )
+      );
+      if (shouldRunAfterBatch) {
+        afterBatchRan = true;
+        input.afterBatch();
+      }
+      return results;
+    },
+    prepare: (sql: string) => wrap(input.db.prepare(sql), sql),
+  } as D1Database;
+}
+
 export type SplitDomain =
   | "openmeld-identity"
   | "openmeld-local-state"

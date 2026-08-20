@@ -46,6 +46,8 @@ import {
 import {
   applyDrizzleMigrationsForTables,
   applyDrizzleMigrationForTable as applyMigrationForTable,
+  createAfterMatchingBatchD1Database,
+  createBeforeMatchingBatchD1Database,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
 
@@ -634,6 +636,14 @@ describe("Remote Agent Message Channel repositories", () => {
         throw new Error("expected the identity-link deletion target");
       }
       await deleteRemoteAgentMessageChannelIdentityLinkTarget({
+        audit: {
+          action: "disconnect_message_channel_identity_link",
+          actorProfileId: "profile_1",
+          createdAtMs: 4000,
+          id: "disconnect-audit-1",
+          organizationId: "org_1",
+          resourceId: identityLinkId,
+        },
         identityDb: harness.db,
         organizationId: "org_1",
         stateDb: harness.db,
@@ -698,12 +708,14 @@ describe("Remote Agent Message Channel repositories", () => {
       });
       await expect(
         consumeRemoteAgentMessageChannelIdentityLinkToken({
+          audit: replacementAuditRecord("identity-token-hash", 3600),
+          consumeNonce: "consume-identity-token-failed",
           db: harness.db,
           nowMs: 3600,
           token: claimedToken,
           openmeldUserId: "user_1",
         })
-      ).resolves.toBe(false);
+      ).resolves.toEqual({ status: "invalid" });
       await setRemoteAgentLarkPlatformChannelConnectionStatus({
         connectionId: "connection_lark_1",
         db: harness.db,
@@ -716,12 +728,17 @@ describe("Remote Agent Message Channel repositories", () => {
       });
       await expect(
         consumeRemoteAgentMessageChannelIdentityLinkToken({
+          audit: replacementAuditRecord("identity-token-hash", 4000),
+          consumeNonce: "consume-identity-token",
           db: harness.db,
           nowMs: 4000,
           token: claimedToken,
           openmeldUserId: "user_1",
         })
-      ).resolves.toBe(true);
+      ).resolves.toMatchObject({
+        replacedExistingLink: false,
+        status: "linked",
+      });
       await expect(
         readActiveRemoteAgentMessageChannelIdentityLinkToken({
           db: harness.db,
@@ -743,12 +760,263 @@ describe("Remote Agent Message Channel repositories", () => {
       });
       await expect(
         consumeRemoteAgentMessageChannelIdentityLinkToken({
+          audit: replacementAuditRecord("identity-token-hash", 4100),
+          consumeNonce: "replay-identity-token",
           db: harness.db,
           nowMs: 4100,
           token: claimedToken,
           openmeldUserId: "user_1",
         })
-      ).resolves.toBe(true);
+      ).resolves.toEqual({
+        replacedExistingLink: false,
+        status: "replayed",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("does not reuse a prior same-millisecond consume after the canonical identity link changes", async () => {
+    const harness = createSqliteD1Harness();
+    applyLarkPlatformMigrations(harness);
+    try {
+      await seedConnectedRegistration(harness);
+      const token = await insertRemoteAgentMessageChannelIdentityLinkToken({
+        connectionId: "connection_lark_1",
+        db: harness.db,
+        expiresAtMs: 10_000,
+        issuedAtMs: 3000,
+        organizationId: "org_1",
+        provider: "lark",
+        providerUserDisplayName: "Ada",
+        providerUserId: "ou_user_1",
+        tokenHash: "same-millisecond-replay-token-hash",
+      });
+      const claimedToken =
+        await claimRemoteAgentMessageChannelIdentityLinkToken({
+          claimedAtMs: 3500,
+          db: harness.db,
+          token,
+          openmeldUserId: "user_1",
+        });
+      if (!claimedToken) {
+        throw new Error("expected the identity token to be claimed");
+      }
+      await expect(
+        consumeRemoteAgentMessageChannelIdentityLinkToken({
+          audit: replacementAuditRecord(token.tokenHash, 4000),
+          consumeNonce: "first-consume",
+          db: harness.db,
+          nowMs: 4000,
+          token: claimedToken,
+          openmeldUserId: "user_1",
+        })
+      ).resolves.toEqual({
+        replacedExistingLink: false,
+        status: "linked",
+      });
+
+      harness.run({
+        params: [
+          "user_2",
+          token.provider,
+          token.connectionId,
+          token.providerUserId,
+        ],
+        sql: `
+          UPDATE openMeldRemoteAgent_lark_platform_identity_links
+          SET openmeld_user_id = ?
+          WHERE provider = ?
+            AND connection_id = ?
+            AND provider_user_id = ?
+        `,
+      });
+
+      await expect(
+        consumeRemoteAgentMessageChannelIdentityLinkToken({
+          audit: replacementAuditRecord(token.tokenHash, 4000),
+          consumeNonce: "same-millisecond-retry",
+          db: harness.db,
+          nowMs: 4000,
+          token: claimedToken,
+          openmeldUserId: "user_1",
+        })
+      ).resolves.toEqual({ status: "invalid" });
+      await expect(
+        readRemoteAgentLarkPlatformIdentityLink({
+          connectionId: token.connectionId,
+          db: harness.db,
+          provider: token.provider,
+          providerUserId: token.providerUserId,
+        })
+      ).resolves.toMatchObject({ openmeldUserId: "user_2" });
+      expect(
+        harness.queryFirst<{ count: number }>({
+          sql: "SELECT COUNT(*) AS count FROM center_agent_audit_journal",
+        })
+      ).toEqual({ count: 0 });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("returns the committed consume result when a newer identity correction wins before response projection", async () => {
+    const harness = createSqliteD1Harness();
+    applyLarkPlatformMigrations(harness);
+    try {
+      await seedConnectedRegistration(harness);
+      const token = await insertRemoteAgentMessageChannelIdentityLinkToken({
+        connectionId: "connection_lark_1",
+        db: harness.db,
+        expiresAtMs: 10_000,
+        issuedAtMs: 3000,
+        organizationId: "org_1",
+        provider: "lark",
+        providerUserDisplayName: "Ada",
+        providerUserId: "ou_user_1",
+        tokenHash: "post-commit-correction-token-hash",
+      });
+      const claimedToken =
+        await claimRemoteAgentMessageChannelIdentityLinkToken({
+          claimedAtMs: 3500,
+          db: harness.db,
+          token,
+          openmeldUserId: "user_1",
+        });
+      if (!claimedToken) {
+        throw new Error("expected the identity token to be claimed");
+      }
+      const consumeDb = createAfterMatchingBatchD1Database({
+        afterBatch: () => {
+          harness.run({
+            params: [
+              "user_2",
+              token.provider,
+              token.connectionId,
+              token.providerUserId,
+            ],
+            sql: `
+              UPDATE openMeldRemoteAgent_lark_platform_identity_links
+              SET openmeld_user_id = ?
+              WHERE provider = ?
+                AND connection_id = ?
+                AND provider_user_id = ?
+            `,
+          });
+        },
+        db: harness.db,
+        matches: (sql) =>
+          sql.includes(
+            "UPDATE openMeldRemoteAgent_message_channel_identity_link_tokens"
+          ) && sql.includes("consume_nonce"),
+      });
+
+      await expect(
+        consumeRemoteAgentMessageChannelIdentityLinkToken({
+          audit: replacementAuditRecord(token.tokenHash, 4000),
+          consumeNonce: "post-commit-consume",
+          db: consumeDb,
+          nowMs: 4000,
+          token: claimedToken,
+          openmeldUserId: "user_1",
+        })
+      ).resolves.toEqual({
+        replacedExistingLink: false,
+        status: "linked",
+      });
+      await expect(
+        readRemoteAgentLarkPlatformIdentityLink({
+          connectionId: token.connectionId,
+          db: harness.db,
+          provider: token.provider,
+          providerUserId: token.providerUserId,
+        })
+      ).resolves.toMatchObject({ openmeldUserId: "user_2" });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("does not consume a Message Channel identity token after Organization membership is removed", async () => {
+    const harness = createSqliteD1Harness();
+    applyLarkPlatformMigrations(harness);
+    try {
+      await seedConnectedRegistration(harness);
+      const token = await insertRemoteAgentMessageChannelIdentityLinkToken({
+        connectionId: "connection_lark_1",
+        db: harness.db,
+        expiresAtMs: 10_000,
+        issuedAtMs: 3000,
+        organizationId: "org_1",
+        provider: "lark",
+        providerUserDisplayName: "Ada",
+        providerUserId: "ou_user_1",
+        tokenHash: "membership-removed-token-hash",
+      });
+      const claimedToken =
+        await claimRemoteAgentMessageChannelIdentityLinkToken({
+          claimedAtMs: 3500,
+          db: harness.db,
+          token,
+          openmeldUserId: "user_1",
+        });
+      if (!claimedToken) {
+        throw new Error("expected the identity token to be claimed");
+      }
+      const consumeDb = createBeforeMatchingBatchD1Database({
+        beforeBatch: () => {
+          harness.run({
+            params: [token.organizationId, "user_1"],
+            sql: `
+              DELETE FROM members
+              WHERE organization_id = ?
+                AND user_id = ?
+            `,
+          });
+        },
+        db: harness.db,
+        matches: (sql) =>
+          sql.includes(
+            "UPDATE openMeldRemoteAgent_message_channel_identity_link_tokens"
+          ) && sql.includes("consume_nonce"),
+      });
+
+      await expect(
+        consumeRemoteAgentMessageChannelIdentityLinkToken({
+          audit: replacementAuditRecord(token.tokenHash, 4000),
+          consumeNonce: "membership-removed-consume",
+          db: consumeDb,
+          nowMs: 4000,
+          token: claimedToken,
+          openmeldUserId: "user_1",
+        })
+      ).resolves.toEqual({ status: "invalid" });
+      expect(
+        harness.queryFirst<{
+          consume_nonce: string | null;
+          consumed_at_ms: number | null;
+        }>({
+          params: [token.tokenHash],
+          sql: `
+            SELECT consumed_at_ms, consume_nonce
+            FROM openMeldRemoteAgent_message_channel_identity_link_tokens
+            WHERE token_hash = ?
+          `,
+        })
+      ).toEqual({ consume_nonce: null, consumed_at_ms: null });
+      await expect(
+        readRemoteAgentLarkPlatformIdentityLink({
+          connectionId: token.connectionId,
+          db: harness.db,
+          provider: token.provider,
+          providerUserId: token.providerUserId,
+        })
+      ).resolves.toBeNull();
+      expect(
+        harness.queryFirst<{ count: number }>({
+          sql: "SELECT COUNT(*) AS count FROM center_agent_audit_journal",
+        })
+      ).toEqual({ count: 0 });
     } finally {
       harness.close();
     }
@@ -818,12 +1086,14 @@ describe("Remote Agent Message Channel repositories", () => {
       });
       await expect(
         consumeRemoteAgentMessageChannelIdentityLinkToken({
+          audit: replacementAuditRecord("conflicting-token-hash", 4100),
+          consumeNonce: "consume-conflicting-token",
           db: harness.db,
           nowMs: 4100,
           token: conflictingToken,
           openmeldUserId: "user_2",
         })
-      ).resolves.toBe(false);
+      ).resolves.toEqual({ status: "invalid" });
       await expect(
         readActiveRemoteAgentMessageChannelIdentityLinkToken({
           db: harness.db,
@@ -841,6 +1111,12 @@ describe("Remote Agent Message Channel repositories", () => {
     applyLarkPlatformMigrations(harness);
     try {
       await seedConnectedRegistration(harness);
+      harness.run({
+        sql: `
+          INSERT INTO members (id, organization_id, user_id)
+          VALUES ('member_2', 'org_1', 'user_2')
+        `,
+      });
       await insertRemoteAgentLarkPlatformIdentityLinkIfAbsent({
         connectionId: "connection_lark_1",
         db: harness.db,
@@ -875,12 +1151,17 @@ describe("Remote Agent Message Channel repositories", () => {
 
       await expect(
         consumeRemoteAgentMessageChannelIdentityLinkToken({
+          audit: replacementAuditRecord("replacement-token-hash", 4200),
+          consumeNonce: "consume-replacement-token",
           db: harness.db,
           nowMs: 4200,
           token: claimedToken,
           openmeldUserId: "user_2",
         })
-      ).resolves.toBe(true);
+      ).resolves.toMatchObject({
+        replacedExistingLink: true,
+        status: "linked",
+      });
       await expect(
         readRemoteAgentLarkPlatformIdentityLink({
           connectionId: "connection_lark_1",
@@ -1309,6 +1590,9 @@ function applyLarkPlatformMigrations(
   harness.run({ sql: "CREATE TABLE users (id TEXT PRIMARY KEY)" });
   harness.run({ sql: "CREATE TABLE organizations (id TEXT PRIMARY KEY)" });
   harness.run({
+    sql: "CREATE TABLE openmeld_profiles (profile_id TEXT PRIMARY KEY)",
+  });
+  harness.run({
     sql: `
       CREATE TABLE members (
         id TEXT PRIMARY KEY,
@@ -1324,12 +1608,16 @@ function applyLarkPlatformMigrations(
     sql: "INSERT INTO organizations (id) VALUES ('org_1'), ('org_2')",
   });
   harness.run({
+    sql: "INSERT INTO openmeld_profiles (profile_id) VALUES ('profile_1')",
+  });
+  harness.run({
     sql: `
       INSERT INTO members (id, organization_id, user_id)
       VALUES ('member_1', 'org_1', 'user_1')
     `,
   });
   applyDrizzleMigrationsForTables(harness, [
+    "center_agent_audit_journal",
     "openMeldRemoteAgent_lark_platform_channel_connections",
     "openMeldRemoteAgent_message_channel_identity_link_tokens",
   ]);
@@ -1337,6 +1625,17 @@ function applyLarkPlatformMigrations(
     harness,
     "openMeldRemoteAgent_lark_platform_registration_attempts"
   );
+}
+
+function replacementAuditRecord(tokenHash: string, nowMs: number) {
+  return {
+    action: "replace_message_channel_identity_link" as const,
+    actorProfileId: "profile_1",
+    createdAtMs: nowMs,
+    id: `replacement-audit:${tokenHash}`,
+    organizationId: "org_1",
+    resourceId: "identity-link-1",
+  };
 }
 
 async function seedConnectedRegistration(

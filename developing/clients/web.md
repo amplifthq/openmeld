@@ -1429,7 +1429,8 @@ orchestration names remain compatibility contracts.
 In an Organization workspace, People reads the Organization Computer
 projection and shows a concrete summary on every Human Profile card: **1
 computer connected**, **2 computers connected**, **1 computer needs
-attention**, **No computer connected**, or **Computer status unavailable**.
+attention**, **No computer connected**, **2 computers not connected**, or
+**Computer status unavailable**.
 The top-right Computer icon uses the same state without a separate dot: green
 for connected, amber for attention, and muted otherwise. One Computer opens its
 detail; multiple Computers open the Computers home. The signed-in member with

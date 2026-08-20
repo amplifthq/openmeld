@@ -63,6 +63,7 @@ import {
   rpcGetCenterAgentDirectMessageSpaceProjection,
   rpcGetCenterAgentModel,
   rpcGetCenterAgentOperatingState,
+  rpcGetCurrentOrganizationComputers,
   rpcGetCurrentOrganizationDirectory,
   rpcGetCurrentOrganizationSpaceDirectory,
   rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts,
@@ -1198,6 +1199,109 @@ describe("organization Core RPC", () => {
       entries: [
         expect.objectContaining({
           action: "read_member_openmeld_service_status",
+        }),
+      ],
+      organizationId: "org-a",
+    });
+  });
+
+  it("uses only the freshest session for each member device and lane", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [
+        memberRow("member-a", "org-a", "user-a", "owner"),
+        memberRow("member-b", "org-a", "user-b"),
+      ],
+      ownedDevices: [
+        {
+          deviceId: "device-b",
+          firstSeenAtMs: 1000,
+          lastObservedAtMs: 2000,
+          observedDisplayName: "Teammate Mac",
+          ownerUserId: "user-b",
+          updatedAtMs: 2000,
+        },
+      ],
+    });
+    const env = buildEnv({ db });
+    vi.spyOn(
+      runtimeTransportClient,
+      "lookupRuntimeTransportOwnerService"
+    ).mockResolvedValue({
+      online: true,
+      sessions: [
+        {
+          capabilities: {},
+          connectionGeneration: 2,
+          daemonSessionId: "session-current",
+          deviceId: "device-b",
+          executionCompatibility: {
+            expectedEpoch: "runtime-contract-v2",
+            observedEpoch: "runtime-contract-v1",
+            reasonCode: "daemon.runtime_contract.mismatch",
+            status: "update_required",
+          },
+          lane: "prod",
+          lastHeartbeatMs: 2000,
+          serviceVersion: "0.3.65",
+        },
+        {
+          capabilities: {},
+          connectionGeneration: 1,
+          daemonSessionId: "session-replaced",
+          deviceId: "device-b",
+          executionCompatibility: {
+            expectedEpoch: "runtime-contract-v1",
+            observedEpoch: "runtime-contract-v1",
+            reasonCode: "daemon.runtime_contract.compatible",
+            status: "compatible",
+          },
+          lane: "prod",
+          lastHeartbeatMs: 1000,
+          serviceVersion: "0.3.64",
+        },
+      ],
+    });
+
+    await expect(
+      rpcCenterAgentReadMemberOpenMeldServiceStatus(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+        memberUserId: "user-b",
+      })
+    ).resolves.toMatchObject({
+      member: {
+        state: "needs_attention",
+        userId: "user-b",
+      },
+      organizationId: "org-a",
+    });
+    await expect(
+      rpcGetCurrentOrganizationComputers(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          profileId: "00000000-0000-4000-8000-000000000001",
+          profileKind: "human",
+          userId: "user-a",
+        }),
+      })
+    ).resolves.toMatchObject({
+      computers: [
+        expect.objectContaining({
+          ownerUserId: "user-b",
+          serviceState: "needs_attention",
         }),
       ],
       organizationId: "org-a",
@@ -9573,6 +9677,14 @@ function createOrganizationRpcDb(input: {
   dispatchLedgerEntries?: DispatchLedgerTestEntry[];
   members: ReturnType<typeof memberRow>[];
   nativeDeliveries?: ReturnType<typeof nativeDeliveryLedgerRow>[];
+  ownedDevices?: Array<{
+    deviceId: string;
+    firstSeenAtMs: number;
+    lastObservedAtMs: number | null;
+    observedDisplayName: string | null;
+    ownerUserId: string;
+    updatedAtMs: number;
+  }>;
   centerAgentMemoryPolicies?: Array<{
     organizationId: string;
     organizationMemoryOptIn: boolean;
@@ -9708,6 +9820,7 @@ function createOrganizationRpcDb(input: {
               members: input.members,
               normalizedSql,
               organizations: input.organizations,
+              ownedDevices: input.ownedDevices,
               slackUserIdentityLinks: input.slackUserIdentityLinks,
               spaceMemberships: input.spaceMemberships,
               spaces: spaceRows,
@@ -10779,12 +10892,37 @@ function resolveAllRows(input: {
   organizations?: Parameters<
     typeof createOrganizationRpcDb
   >[0]["organizations"];
+  ownedDevices?: Parameters<typeof createOrganizationRpcDb>[0]["ownedDevices"];
   slackUserIdentityLinks?: Parameters<
     typeof createOrganizationRpcDb
   >[0]["slackUserIdentityLinks"];
   spaceMemberships?: ReturnType<typeof spaceMembershipRow>[];
   spaces?: ReturnType<typeof spaceRow>[];
 }) {
+  if (input.normalizedSql.includes("from openmelddaemon_owned_devices")) {
+    const ownerUserId = String(input.args[0] ?? "");
+    return (input.ownedDevices ?? [])
+      .filter((device) => device.ownerUserId === ownerUserId)
+      .sort(
+        (left, right) =>
+          right.updatedAtMs - left.updatedAtMs ||
+          left.deviceId.localeCompare(right.deviceId)
+      )
+      .map((device) => ({
+        connected_computer_id: null,
+        device_id: device.deviceId,
+        device_type: "laptop",
+        first_seen_at_ms: device.firstSeenAtMs,
+        last_observed_at_ms: device.lastObservedAtMs,
+        observed_display_name: device.observedDisplayName,
+        os_version: "15.5",
+        owner_user_id: device.ownerUserId,
+        platform_family: "macOS",
+        updated_at_ms: device.updatedAtMs,
+        user_display_name: null,
+      }));
+  }
+
   if (input.normalizedSql.includes("from slack_user_identity_links")) {
     const organizationId = String(input.args[0] ?? "");
     const slackTeamId = String(input.args[1] ?? "");

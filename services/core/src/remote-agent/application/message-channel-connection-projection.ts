@@ -8,17 +8,18 @@ import {
   type RemoteAgentLarkPlatformChannelConnectionRecord,
 } from "../infrastructure/d1/lark-platform-channel-connection-repo";
 import {
-  deleteRemoteAgentLarkPlatformIdentityLinkIfMatches,
+  disconnectRemoteAgentLarkPlatformIdentityLink,
   listRemoteAgentLarkPlatformIdentityLinks,
 } from "../infrastructure/d1/lark-platform-identity-link-repo";
 import {
-  deleteSlackUserIdentityLinkIfMatches,
+  disconnectSlackUserIdentityLink,
   readSlackUserIdentityLinksForOrganization,
 } from "../infrastructure/d1/slack-user-identity-link-repo";
 import {
   type RemoteAgentSlackWorkspaceBindingRecord,
   readRemoteAgentSlackWorkspaceBindingByOrganization,
 } from "../infrastructure/d1/slack-workspace-binding-repo";
+import type { MessageChannelIdentityLinkAuditRecord } from "./message-channel-identity-link-audit";
 
 export type MessageChannelIdentityLinkProjection = {
   connectedAt: string;
@@ -226,13 +227,15 @@ export async function findRemoteAgentMessageChannelIdentityLinkTarget(input: {
 }
 
 export async function deleteRemoteAgentMessageChannelIdentityLinkTarget(input: {
+  audit: MessageChannelIdentityLinkAuditRecord;
   identityDb: D1Database;
   organizationId: string;
   stateDb: D1Database;
   target: MessageChannelIdentityLinkTarget;
 }): Promise<void> {
   if (input.target.provider === "slack") {
-    const deleted = await deleteSlackUserIdentityLinkIfMatches({
+    const deleted = await disconnectSlackUserIdentityLink({
+      audit: input.audit,
       db: input.identityDb,
       openmeldUserId: input.target.openMeldUserId,
       organizationId: input.organizationId,
@@ -244,7 +247,8 @@ export async function deleteRemoteAgentMessageChannelIdentityLinkTarget(input: {
     }
     return;
   }
-  const deleted = await deleteRemoteAgentLarkPlatformIdentityLinkIfMatches({
+  const deleted = await disconnectRemoteAgentLarkPlatformIdentityLink({
+    audit: input.audit,
     connectionId: input.target.connectionId,
     db: input.stateDb,
     openmeldUserId: input.target.openMeldUserId,

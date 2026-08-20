@@ -21,6 +21,7 @@ import type {
   RuntimeTransportLookupOwnerServiceResponse,
 } from "@openmeld/schemas/types";
 import { resolveLocalComponentUpdateProjection } from "../../local-components/update-projection";
+import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../../runtime-transport/application/current-owner-service-sessions";
 import type { ForgetCurrentComputerRecordResult } from "../infrastructure/d1/current-device-forget-repo";
 import { resolveCurrentLocalRuntimeTarget } from "./current-local-runtime-target";
 import {
@@ -105,11 +106,6 @@ type LocalFolderPickerByDeviceLane = ReadonlyMap<
   string,
   NonNullable<LocalRuntimeComputer["localFolderPicker"]>
 >;
-type LiveOwnerServiceSession = Extract<
-  RuntimeTransportLookupOwnerServiceResponse,
-  { online: true }
->["sessions"][number];
-
 type ConnectCurrentDeviceIdentityResult =
   | {
       status: "connected";
@@ -1365,29 +1361,6 @@ function buildLocalFolderPickerByDeviceLane(
     );
   }
   return controls;
-}
-
-function selectCurrentOwnerServiceSessionsByDeviceLane(
-  ownerService: Extract<
-    RuntimeTransportLookupOwnerServiceResponse,
-    { online: true }
-  >
-): LiveOwnerServiceSession[] {
-  const currentSessions = new Map<string, LiveOwnerServiceSession>();
-  // RuntimeTransport is the session authority and returns sessions in the same
-  // freshness order used by RuntimeTransportHub for current-device commands.
-  // Keep only its first session per device/lane; combining older capabilities
-  // would advertise an action the Hub will refuse on the current session.
-  for (const session of ownerService.sessions) {
-    const key = buildDeviceLaneKey({
-      deviceId: session.deviceId,
-      runtimeLane: session.lane,
-    });
-    if (!currentSessions.has(key)) {
-      currentSessions.set(key, session);
-    }
-  }
-  return [...currentSessions.values()];
 }
 
 function buildDeviceLaneKey(input: {
