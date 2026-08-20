@@ -67,6 +67,7 @@ evidence and retention remain separate from the current selectable inventory.
 | Old OpenMeld Skill with new CLI | Existing commands continue; the old Skill does not discover the new Session command |
 | New OpenMeld Skill with old CLI | `activity sessions` is unavailable; release stamping keeps Skill and CLI delivery aligned |
 | New CLI with old local Service | The additive immediate-sync control request is rejected as a contract mismatch; unbind remains local and the persisted source set reconciles after the Service is upgraded or on its next compatible run |
+| New Core with a pre-0130 database | Forbidden rollout order: Session queries and atomic Forget Computer cleanup require the additive inventory tables; apply migration 0130 before deploying Core |
 
 ## Required Rollout And Rollback Order
 
@@ -160,6 +161,11 @@ disconnected. CLI unbind/archive requests the local Service reconciliation
 immediately; when the Service is offline, the persisted source set carries the
 disconnected fact on its next successful run without blocking the local
 operation. Historical Activity evidence retains its existing policy.
+Forgetting a Computer atomically deletes its private reconciliation candidates,
+current Inventory rows, and source coverage with the owned-device record, so
+orphaned metadata cannot keep claiming native Session identities. Hook status
+projection is monotonic by provider observation time; older evidence is ignored
+and conflicting equal-time evidence becomes Unknown.
 Reconciliation error, including an installed provider's transient launch
 failure, preserves prior rows as visibly stale; an explicit disconnected or
 genuinely not-installed provider result removes selectable rows.

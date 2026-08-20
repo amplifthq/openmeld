@@ -229,6 +229,11 @@ the shared metadata contract.
   Inventory while retained Activity evidence remains unchanged. CLI unbind and
   current-device Web removal both request this reconciliation immediately; the
   periodic loop is only a backstop.
+- Forgetting a Computer atomically removes its staged candidates, current
+  Inventory rows, and reconciliation sources with the owned-device record.
+  These current projections cannot continue claiming a native Session identity
+  or retain its metadata after the Computer is forgotten. Historical Activity
+  evidence keeps its separate retention policy.
 - A `disconnected` report may revoke the exact previously authorized source
   after the Project repository fingerprint changes. Other reconciliation
   outcomes still require the current Project fingerprint, so this revocation
@@ -261,7 +266,9 @@ Unknown. Ended is not synonymous with cannot Resume.
 For Claude Code, only explicit top-level Session lifecycle hooks may refine the
 retained status. `Notification`, subagent lifecycle, and other ambiguous hook
 events remain Unknown unless the structured live-agent registry supplies a
-current status for the exact native Session id.
+current status for the exact native Session id. The local hook projection is
+monotonic by `observedAtMs`: an older hook cannot overwrite newer lifecycle
+evidence, and conflicting events at the same timestamp fail closed to Unknown.
 
 The complete Claude union also includes an attributable registry Session before
 its top-level JSONL appears. The registry must supply native Session id, current

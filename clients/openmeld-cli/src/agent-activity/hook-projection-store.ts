@@ -33,11 +33,15 @@ export async function recordAgentActivityHookProjection(input: {
 }) {
   await withAgentActivityLocalStateLock(input, async () => {
     const store = await readStore(input);
-    store.entries[projectionKey(input.event)] = {
-      eventType: input.event.eventType,
-      observedAtMs: input.event.observedAtMs,
-      status: input.event.status,
-    };
+    const key = projectionKey(input.event);
+    store.entries[key] = selectCurrentHookProjection({
+      existing: store.entries[key],
+      incoming: {
+        eventType: input.event.eventType,
+        observedAtMs: input.event.observedAtMs,
+        status: input.event.status,
+      },
+    });
     const entries = Object.entries(store.entries)
       .sort((left, right) => right[1].observedAtMs - left[1].observedAtMs)
       .slice(0, STORE_LIMIT);
@@ -46,6 +50,31 @@ export async function recordAgentActivityHookProjection(input: {
       version: 1,
     });
   });
+}
+
+function selectCurrentHookProjection(input: {
+  existing: HookProjectionStore["entries"][string] | undefined;
+  incoming: HookProjectionStore["entries"][string];
+}): HookProjectionStore["entries"][string] {
+  if (
+    !input.existing ||
+    input.incoming.observedAtMs > input.existing.observedAtMs
+  ) {
+    return input.incoming;
+  }
+  if (input.incoming.observedAtMs < input.existing.observedAtMs) {
+    return input.existing;
+  }
+  if (
+    input.incoming.eventType === input.existing.eventType &&
+    input.incoming.status === input.existing.status
+  ) {
+    return input.existing;
+  }
+  return {
+    observedAtMs: input.incoming.observedAtMs,
+    status: "unknown",
+  };
 }
 
 export async function isCoveredByRecentAgentActivityHook(input: {
@@ -68,6 +97,7 @@ export async function isCoveredByRecentAgentActivityHook(input: {
     ];
   return Boolean(
     projection &&
+      projection.eventType !== undefined &&
       projection.status === input.status &&
       projection.observedAtMs <= input.nowMs &&
       input.nowMs - projection.observedAtMs <= HOOK_RECONCILIATION_GRACE_MS

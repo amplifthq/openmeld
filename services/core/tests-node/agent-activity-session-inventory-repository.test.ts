@@ -9,6 +9,7 @@ import {
   readAgentActivitySessionInventory,
 } from "../src/agent-activity/activity-session-inventory-repository";
 import { isSessionReconciliationFingerprintCompatible } from "../src/agent-activity/activity-session-inventory-rpc";
+import { forgetComputerRecordAtomically } from "../src/start/infrastructure/d1/current-device-forget-repo";
 import {
   applyDrizzleMigrationsForTables,
   createBeforeMatchingBatchD1Database,
@@ -385,6 +386,52 @@ describe("Agent Activity Session Inventory repository", () => {
     });
     expect((await read(harness.db)).sessions).toEqual([]);
     expect((await read(harness.db)).coverage).toEqual([]);
+  });
+
+  it("removes every current and staged Session projection when its Computer is forgotten", async () => {
+    const harness = createInventoryHarness();
+    await reconcile(harness.db, {
+      sessions: [observedSession("native-published", 1000)],
+    });
+    await reconcile(harness.db, {
+      reconciliationId: "reconciliation-staged",
+      sessions: [observedSession("native-staged", 500)],
+      terminal: false,
+    });
+
+    await expect(
+      forgetComputerRecordAtomically({
+        db: harness.db,
+        deviceId: AUTHORITY.deviceId,
+        forgottenAtMs: NOW_MS,
+        userId: AUTHORITY.ownerUserId,
+      })
+    ).resolves.toEqual({
+      forgottenDeviceId: AUTHORITY.deviceId,
+      status: "forgotten",
+    });
+
+    for (const table of [
+      "agent_activity_session_inventory_candidates",
+      "agent_activity_session_inventory",
+      "agent_activity_session_inventory_sources",
+      "openMeldDaemon_owned_devices",
+    ]) {
+      expect(
+        harness.queryFirst<{ count: number }>({
+          params: [AUTHORITY.ownerUserId, AUTHORITY.deviceId],
+          sql: `SELECT count(*) AS count FROM ${table}
+            WHERE owner_user_id = ? AND device_id = ?`,
+        })
+      ).toEqual({ count: 0 });
+    }
+    expect(
+      harness.queryFirst<{ count: number }>({
+        params: [AUTHORITY.ownerUserId, AUTHORITY.deviceId],
+        sql: `SELECT count(*) AS count FROM openMeldDaemon_forgotten_devices
+          WHERE owner_user_id = ? AND device_id = ?`,
+      })
+    ).toEqual({ count: 1 });
   });
 });
 

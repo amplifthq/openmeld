@@ -235,6 +235,72 @@ describe("Agent Activity hook ingestion", () => {
     ).resolves.toEqual([null, null, "idle"]);
   });
 
+  it("keeps the newest hook lifecycle and fails closed on conflicting timestamp ties", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-activity-hook-"));
+    const repositoryPath = join(root, "repository");
+    const openMeldRoot = join(root, "openmeld-home");
+    await mkdir(repositoryPath);
+    await bindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      projectSlug: "openmeld",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir: openMeldRoot,
+    });
+
+    for (const observation of [
+      {
+        hookEventName: "Stop",
+        nowMs: 2000,
+        sessionId: "claude-out-of-order",
+      },
+      {
+        hookEventName: "UserPromptSubmit",
+        nowMs: 1000,
+        sessionId: "claude-out-of-order",
+      },
+      {
+        hookEventName: "Stop",
+        nowMs: 3000,
+        sessionId: "claude-ambiguous-tie",
+      },
+      {
+        hookEventName: "UserPromptSubmit",
+        nowMs: 3000,
+        sessionId: "claude-ambiguous-tie",
+      },
+    ] as const) {
+      await expect(
+        ingestAgentActivityHook({
+          nowMs: observation.nowMs,
+          payload: {
+            cwd: repositoryPath,
+            hook_event_name: observation.hookEventName,
+            session_id: observation.sessionId,
+          },
+          provider: "claude-code",
+          rootDir: openMeldRoot,
+        })
+      ).resolves.toBe("queued");
+    }
+    await drainAgentActivityHookInbox({ nowMs: 3000, rootDir: openMeldRoot });
+
+    await expect(
+      Promise.all(
+        ["claude-out-of-order", "claude-ambiguous-tie"].map(
+          (providerSessionId) =>
+            readRecentAgentActivityHookStatus({
+              nowMs: 3000,
+              provider: "claude-code",
+              providerSessionId,
+              rootDir: openMeldRoot,
+            })
+        )
+      )
+    ).resolves.toEqual(["idle", null]);
+  });
+
   it("attributes OpenCode events by each verified session directory and never treats metadata updates as active", async () => {
     root = await mkdtemp(join(tmpdir(), "openmeld-activity-hook-"));
     const first = join(root, "first");
