@@ -8,25 +8,29 @@ import {
 import { AppLogo } from "#/components/organizations/app-logo";
 
 describe("AppLogo", () => {
-	it("gives the raw Slack mark more room without changing the outer logo size", () => {
+	it("gives Message Channel marks consistent room without changing the outer logo size", () => {
 		const { container } = render(
 			<>
 				<AppLogo app={SLACK_CHANNEL_IDENTITY} size="md" />
+				<AppLogo app={LARK_CHANNEL_IDENTITY} size="md" />
 				<AppLogo app={GITHUB_APP} size="md" />
 			</>
 		);
 		const { getByTestId } = within(container);
 
 		const slackFrame = getByTestId("app-logo-slack").parentElement;
+		const larkFrame = getByTestId("app-logo-lark").parentElement;
 		const githubFrame = getByTestId("app-logo-github").parentElement;
 
 		expect(slackFrame?.classList.contains("size-10")).toBe(true);
+		expect(larkFrame?.classList.contains("size-10")).toBe(true);
 		expect(githubFrame?.classList.contains("size-10")).toBe(true);
 		expect(slackFrame?.classList.contains("p-1")).toBe(true);
+		expect(larkFrame?.classList.contains("p-1")).toBe(true);
 		expect(githubFrame?.classList.contains("p-2")).toBe(true);
 	});
 
-	it("uses a quieter theme-aware surface for Message Channel logos", () => {
+	it("removes the Message Channel logo surface in dark mode", () => {
 		const { container } = render(
 			<>
 				<AppLogo app={SLACK_CHANNEL_IDENTITY} size="md" />
@@ -41,11 +45,14 @@ describe("AppLogo", () => {
 		const githubFrame = getByTestId("app-logo-github").parentElement;
 
 		for (const channelFrame of [slackFrame, larkFrame]) {
-			expect(channelFrame?.classList.contains("dark:bg-muted/50")).toBe(true);
-			expect(channelFrame?.classList.contains("dark:border-white/10")).toBe(
+			expect(channelFrame?.classList.contains("dark:bg-transparent")).toBe(
 				true
 			);
+			expect(channelFrame?.classList.contains("dark:border-0")).toBe(true);
+			expect(channelFrame?.classList.contains("dark:shadow-none")).toBe(true);
 		}
-		expect(githubFrame?.classList.contains("dark:bg-muted/50")).toBe(false);
+		expect(githubFrame?.classList.contains("dark:bg-transparent")).toBe(false);
+		expect(githubFrame?.classList.contains("dark:border-0")).toBe(false);
+		expect(githubFrame?.classList.contains("dark:shadow-none")).toBe(false);
 	});
 });

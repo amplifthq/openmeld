@@ -13,7 +13,7 @@ const DEFAULT_PADDING_CLASS_NAMES = {
 	sm: "p-1.5",
 } as const;
 
-const SLACK_PADDING_CLASS_NAMES = {
+const MESSAGE_CHANNEL_PADDING_CLASS_NAMES = {
 	lg: "p-1.5",
 	md: "p-1",
 	sm: "p-0.5",
@@ -26,7 +26,7 @@ export function AppLogo(input: {
 	size?: keyof typeof SIZE_CLASS_NAMES;
 }) {
 	const size = input.size ?? "md";
-	const usesThemeAwareChannelSurface =
+	const isMessageChannel =
 		input.app.service === "slack" ||
 		input.app.service === "lark" ||
 		input.app.service === "feishu";
@@ -35,12 +35,12 @@ export function AppLogo(input: {
 			aria-hidden="true"
 			className={cn(
 				"flex shrink-0 items-center justify-center rounded-md border border-black/10 bg-white shadow-xs",
-				usesThemeAwareChannelSurface
-					? "dark:border-white/10 dark:bg-muted/50"
+				isMessageChannel
+					? "dark:border-0 dark:bg-transparent dark:shadow-none"
 					: null,
 				SIZE_CLASS_NAMES[size],
-				input.app.service === "slack"
-					? SLACK_PADDING_CLASS_NAMES[size]
+				isMessageChannel
+					? MESSAGE_CHANNEL_PADDING_CLASS_NAMES[size]
 					: DEFAULT_PADDING_CLASS_NAMES[size],
 				input.className
 			)}
