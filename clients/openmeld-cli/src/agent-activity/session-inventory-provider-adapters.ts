@@ -422,7 +422,7 @@ async function discoverClaudeCode(input: {
   try {
     const liveStatuses = await readClaudeAgentStatuses(
       launch.candidates[0]?.launchContract
-    ).catch(() => new Map<string, AgentActivityInventorySessionStatus>());
+    );
     return sessionsResult(
       "claude-code",
       await discoverClaudeRetainedSessions({
@@ -596,7 +596,7 @@ async function readClaudeAgentStatuses(
   launchContract: RuntimeAgentControllerLaunchContract | undefined
 ): Promise<Map<string, AgentActivityInventorySessionStatus>> {
   if (!launchContract) {
-    return new Map();
+    throw new Error("Claude Code launch contract is unavailable.");
   }
   const output = await executeJsonCommand({
     args: ["agents", "--json", "--all"],
@@ -630,9 +630,17 @@ async function discoverOpenCode(input: {
     homeDir: input.homeDir,
     xdgDataHome: input.xdgDataHome,
   });
-  const database = await stat(databasePath).catch(() => null);
-  if (!database?.isFile()) {
-    return sessionsResult("opencode", []);
+  let database: Awaited<ReturnType<typeof stat>>;
+  try {
+    database = await stat(databasePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return sessionsResult("opencode", []);
+    }
+    return failed("opencode", "opencode_retained_inventory_failed");
+  }
+  if (!database.isFile()) {
+    return failed("opencode", "opencode_retained_inventory_failed");
   }
   try {
     return sessionsResult(

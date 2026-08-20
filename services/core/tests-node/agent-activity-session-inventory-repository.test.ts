@@ -8,6 +8,7 @@ import {
   canResumeAgentActivitySessionSelection,
   readAgentActivitySessionInventory,
 } from "../src/agent-activity/activity-session-inventory-repository";
+import { isSessionReconciliationFingerprintCompatible } from "../src/agent-activity/activity-session-inventory-rpc";
 import {
   applyDrizzleMigrationsForTables,
   createBeforeMatchingBatchD1Database,
@@ -83,6 +84,23 @@ describe("Agent Activity Session Inventory repository", () => {
         query: { cursor: firstPage.nextCursor ?? undefined, limit: 1 },
       })
     ).rejects.toThrow("Agent Activity Session cursor is invalid.");
+  });
+
+  it("allows an existing source to disconnect after the Project fingerprint changes", () => {
+    expect(
+      isSessionReconciliationFingerprintCompatible({
+        projectRepositoryFingerprint: "sha256:new-project-fingerprint",
+        reportedRepositoryFingerprint: "sha256:old-project-fingerprint",
+        result: "disconnected",
+      })
+    ).toBe(true);
+    expect(
+      isSessionReconciliationFingerprintCompatible({
+        projectRepositoryFingerprint: "sha256:new-project-fingerprint",
+        reportedRepositoryFingerprint: "sha256:old-project-fingerprint",
+        result: "sessions",
+      })
+    ).toBe(false);
   });
 
   it("does not let a racing reconciliation move a current Session identity between sources", async () => {
@@ -279,6 +297,36 @@ describe("Agent Activity Session Inventory repository", () => {
     ).toEqual(["native-published"]);
     expect(duringSync.sessions[0]?.dataState).toBe("stale");
     expect(duringSync.coverage).toMatchObject([{ state: "syncing" }]);
+  });
+
+  it("retires a disconnected source generation after its replacement publishes", async () => {
+    const harness = createInventoryHarness();
+    await reconcile(harness.db, {
+      sessions: [observedSession("native-old", 1000)],
+    });
+    await reconcile(harness.db, {
+      reconciliationId: "reconciliation-disconnected",
+      result: "disconnected",
+      sessions: [],
+    });
+
+    await reconcile(harness.db, {
+      localConnectionId: `sha256:${"f".repeat(64)}`,
+      reconciliationId: "reconciliation-replacement",
+      sessions: [observedSession("native-replacement", 500)],
+    });
+
+    expect(
+      harness.queryFirst<{ disconnected_count: number; source_count: number }>({
+        sql: `SELECT
+          sum(CASE WHEN state = 'disconnected' THEN 1 ELSE 0 END) AS disconnected_count,
+          count(*) AS source_count
+        FROM agent_activity_session_inventory_sources`,
+      })
+    ).toEqual({ disconnected_count: 0, source_count: 1 });
+    expect((await read(harness.db)).coverage).toMatchObject([
+      { state: "current" },
+    ]);
   });
 
   it("removes Sessions from the current inventory when the Project disconnects", async () => {

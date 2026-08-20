@@ -932,7 +932,7 @@ export const runDaemonServiceLoop = async (
         });
       },
     });
-  const activateAgentActivityForProjectConnection = () => {
+  const refreshAgentActivityForProjectConnectionChange = () => {
     agentActivitySync.requestSync({
       reconcile: true,
       refreshContext: true,
@@ -1046,7 +1046,8 @@ export const runDaemonServiceLoop = async (
                 failure,
               });
             },
-            onLocalProjectConnected: activateAgentActivityForProjectConnection,
+            onLocalProjectConnectionsChanged:
+              refreshAgentActivityForProjectConnectionChange,
             ownerUserId,
             profileOwnerName,
             presenter: input.presenter,

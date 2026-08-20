@@ -5,6 +5,7 @@ import {
   realpath,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -103,6 +104,100 @@ describe("Local Agent Session Inventory provider adapters", () => {
       problemCode: "claude_code_provider_not_installed",
       result: "unsupported",
     });
+  });
+
+  it("preserves Claude inventory when the complete native registry cannot be read", async () => {
+    const configDir = join(root, "claude-config");
+    const projectsDir = join(configDir, "projects", "openmeld");
+    const registryPath = join(root, "invalid-claude-registry.mjs");
+    await mkdir(projectsDir, { recursive: true });
+    await writeFile(
+      join(projectsDir, "session.jsonl"),
+      `${JSON.stringify({
+        cwd: repositoryPath,
+        sessionId: "claude-retained",
+        timestamp: "2026-08-20T09:00:00.000Z",
+      })}\n`,
+      "utf8"
+    );
+    await writeFile(registryPath, 'process.stdout.write("not-json\\n");\n');
+    launchMocks.claude.mockResolvedValue({
+      candidates: [
+        {
+          commandPath: process.execPath,
+          launchContract: {
+            argsPrefix: [registryPath],
+            commandPath: process.execPath,
+            kind: "executable",
+          },
+        },
+      ],
+      ok: true,
+    });
+
+    const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    try {
+      const discoveries = await discoverLocalAgentSessionProviders({
+        bindings: [binding],
+        homeDir: root,
+        nowMs: NOW_MS,
+        rootDir: root,
+      });
+
+      expect(
+        discoveries.find(({ provider }) => provider === "claude-code")
+      ).toEqual({
+        agentControllerRef: "builtin:claude-code",
+        problemCode: "claude_code_retained_inventory_failed",
+        provider: "claude-code",
+        result: "error",
+      });
+    } finally {
+      if (previousConfigDir === undefined) {
+        Reflect.deleteProperty(process.env, "CLAUDE_CONFIG_DIR");
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
+      }
+    }
+  });
+
+  it("preserves OpenCode inventory when its database cannot be inspected", async () => {
+    const xdgDataHome = join(root, "xdg-data");
+    const databaseDirectory = join(xdgDataHome, "opencode");
+    const databasePath = join(databaseDirectory, "opencode.db");
+    await mkdir(databaseDirectory, { recursive: true });
+    await symlink(databasePath, databasePath);
+    launchMocks.opencode.mockResolvedValue({
+      candidates: [
+        {
+          commandPath: "opencode",
+          launchContract: {
+            argsPrefix: [],
+            commandPath: "opencode",
+            kind: "executable",
+          },
+        },
+      ],
+      ok: true,
+    });
+
+    const discoveries = await discoverLocalAgentSessionProviders({
+      bindings: [binding],
+      homeDir: root,
+      nowMs: NOW_MS,
+      rootDir: root,
+      xdgDataHome,
+    });
+
+    expect(discoveries.find(({ provider }) => provider === "opencode")).toEqual(
+      {
+        agentControllerRef: "builtin:opencode",
+        problemCode: "opencode_retained_inventory_failed",
+        provider: "opencode",
+        result: "error",
+      }
+    );
   });
 
   it("discovers OpenCode from the effective XDG data home", async () => {

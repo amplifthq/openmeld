@@ -122,8 +122,11 @@ export async function rpcSubmitAgentActivitySessionReconciliation(
     });
   }
   if (
-    project.repositoryFingerprint !== null &&
-    project.repositoryFingerprint !== parsed.data.repositoryFingerprint
+    !isSessionReconciliationFingerprintCompatible({
+      projectRepositoryFingerprint: project.repositoryFingerprint,
+      reportedRepositoryFingerprint: parsed.data.repositoryFingerprint,
+      result: parsed.data.result,
+    })
   ) {
     throw createCoreRpcHttpError({
       code: "agent_activity.repository_fingerprint_mismatch",
@@ -190,6 +193,18 @@ function canReconcileProject(
 ): project is NonNullable<typeof project> {
   return Boolean(
     project && (project.archivedAtMs === null || result === "disconnected")
+  );
+}
+
+export function isSessionReconciliationFingerprintCompatible(input: {
+  projectRepositoryFingerprint: string | null;
+  reportedRepositoryFingerprint: string | null;
+  result: SubmitAgentActivitySessionReconciliationRpcInput["result"];
+}): boolean {
+  return (
+    input.result === "disconnected" ||
+    input.projectRepositoryFingerprint === null ||
+    input.projectRepositoryFingerprint === input.reportedRepositoryFingerprint
   );
 }
 

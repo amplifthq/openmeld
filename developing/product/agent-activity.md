@@ -213,11 +213,19 @@ the shared metadata contract.
 - A complete reconciliation hides prior current rows from the same source that
   are absent from the new candidate set. Removing a Local Project Connection
   reports `disconnected` and removes that source from the selectable current
-  Inventory while retained Activity evidence remains unchanged.
+  Inventory while retained Activity evidence remains unchanged. CLI unbind and
+  current-device Web removal both request this reconciliation immediately; the
+  periodic loop is only a backstop.
+- A `disconnected` report may revoke the exact previously authorized source
+  after the Project repository fingerprint changes. Other reconciliation
+  outcomes still require the current Project fingerprint, so this revocation
+  exception cannot publish or resume Sessions for the old repository.
 - When a local Project Connection is rebound, the Service publishes the old
   source's `disconnected` fact before publishing its replacement. A failed
   replacement therefore cannot keep an obsolete authorized source selectable
   or deadlock reconciliation on the Session identity uniqueness constraint.
+  Once the replacement publishes current or unsupported coverage, Core retires
+  the obsolete disconnected source generation from current coverage.
 - `unsupported` is a provider capability fact. `error` preserves the last
   complete projection as stale. Neither is converted into an empty successful
   result.

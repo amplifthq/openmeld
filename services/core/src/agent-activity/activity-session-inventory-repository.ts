@@ -615,6 +615,11 @@ async function publishStagedSessions(input: {
         input.reconciliationId,
         input.sourceScopeKey
       ),
+    retireReplacedDisconnectedSourcesStatement({
+      db: input.db,
+      reconciliationId: input.reconciliationId,
+      sourceScopeKey: input.sourceScopeKey,
+    }),
     input.db
       .prepare(
         `
@@ -732,6 +737,13 @@ async function acceptTerminalCoverageResult(input: {
         input.nowMs
       )
   );
+  statements.push(
+    retireReplacedDisconnectedSourcesStatement({
+      db: input.db,
+      reconciliationId: input.reconciliation.reconciliationId,
+      sourceScopeKey: input.sourceScopeKey,
+    })
+  );
   await input.db.batch(statements);
   return parseReconciliationResponse({
     acceptedPageIndex: 0,
@@ -739,6 +751,36 @@ async function acceptTerminalCoverageResult(input: {
     reconciliationId: input.reconciliation.reconciliationId,
     status: "published",
   });
+}
+
+function retireReplacedDisconnectedSourcesStatement(input: {
+  db: D1Database;
+  reconciliationId: string;
+  sourceScopeKey: string;
+}): D1PreparedStatement {
+  return input.db
+    .prepare(
+      `
+        DELETE FROM agent_activity_session_inventory_sources
+        WHERE state = 'disconnected'
+          AND source_scope_key <> ?
+          AND EXISTS (
+            SELECT 1
+            FROM agent_activity_session_inventory_sources replacement
+            WHERE replacement.source_scope_key = ?
+              AND replacement.current_reconciliation_id = ?
+              AND replacement.state IN ('current', 'unsupported')
+              AND replacement.organization_id = agent_activity_session_inventory_sources.organization_id
+              AND replacement.owner_user_id = agent_activity_session_inventory_sources.owner_user_id
+              AND replacement.project_id = agent_activity_session_inventory_sources.project_id
+              AND replacement.device_id = agent_activity_session_inventory_sources.device_id
+              AND replacement.connected_computer_id = agent_activity_session_inventory_sources.connected_computer_id
+              AND replacement.agent_controller_ref = agent_activity_session_inventory_sources.agent_controller_ref
+              AND replacement.provider = agent_activity_session_inventory_sources.provider
+          )
+      `
+    )
+    .bind(input.sourceScopeKey, input.sourceScopeKey, input.reconciliationId);
 }
 
 export async function readAgentActivitySessionInventory(input: {
