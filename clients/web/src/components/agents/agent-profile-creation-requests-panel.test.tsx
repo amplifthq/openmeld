@@ -8,6 +8,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { AgentProfileCreationRequestsPanel } from "./agent-profile-creation-requests-panel";
 
 const listRequestsMock = vi.hoisted(() => vi.fn());
@@ -99,6 +100,28 @@ describe("AgentProfileCreationRequestsPanel", () => {
 			});
 		});
 	});
+
+	it("refreshes Agents when setup fails after creating the Profile", async () => {
+		decideRequestMock.mockResolvedValueOnce({
+			request: {
+				...BASE_REQUEST,
+				createdAgentProfileId: "agent-created-before-setup-failed",
+				failureMessage: "The selected Computer is no longer reachable.",
+				status: "failed",
+				statusReason: "profile_creation_failed",
+			},
+		});
+		const { queryClient } = renderPanel();
+		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+
+		fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+
+		await waitFor(() => {
+			expect(invalidateQueries).toHaveBeenCalledWith({
+				queryKey: organizationQueryKeys.directory("org-1"),
+			});
+		});
+	});
 });
 
 function renderPanel() {
@@ -108,7 +131,7 @@ function renderPanel() {
 			queries: { retry: false },
 		},
 	});
-	return render(
+	const rendered = render(
 		<QueryClientProvider client={queryClient}>
 			<AgentProfileCreationRequestsPanel
 				currentUserId="user-felix"
@@ -120,6 +143,7 @@ function renderPanel() {
 			/>
 		</QueryClientProvider>
 	);
+	return { ...rendered, queryClient };
 }
 
 const DIRECTORY: OrganizationDirectoryResponse = {

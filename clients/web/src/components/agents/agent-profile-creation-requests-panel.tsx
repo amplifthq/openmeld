@@ -73,7 +73,7 @@ export function AgentProfileCreationRequestsPanel(input: {
 						input.organizationId
 					),
 				}),
-				result.request.status === "completed"
+				result.request.createdAgentProfileId
 					? queryClient.invalidateQueries({
 							queryKey: organizationQueryKeys.directory(input.organizationId),
 						})
