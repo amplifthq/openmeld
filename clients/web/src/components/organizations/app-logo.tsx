@@ -26,11 +26,18 @@ export function AppLogo(input: {
 	size?: keyof typeof SIZE_CLASS_NAMES;
 }) {
 	const size = input.size ?? "md";
+	const usesThemeAwareChannelSurface =
+		input.app.service === "slack" ||
+		input.app.service === "lark" ||
+		input.app.service === "feishu";
 	return (
 		<span
 			aria-hidden="true"
 			className={cn(
 				"flex shrink-0 items-center justify-center rounded-md border border-black/10 bg-white shadow-xs",
+				usesThemeAwareChannelSurface
+					? "dark:border-white/10 dark:bg-muted/50"
+					: null,
 				SIZE_CLASS_NAMES[size],
 				input.app.service === "slack"
 					? SLACK_PADDING_CLASS_NAMES[size]

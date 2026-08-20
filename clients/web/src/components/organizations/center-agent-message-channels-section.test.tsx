@@ -247,7 +247,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 		expect(screen.queryByText("Not connected", { exact: true })).toBeNull();
 		const larkLogo = screen.getByTestId("app-logo-lark");
 		expect(larkLogo.getAttribute("src")).toBe("/app-logos/feishu.svg");
-		expect(larkLogo.parentElement?.className).toContain("bg-muted/50");
+		expect(larkLogo.parentElement?.className).toContain("dark:bg-muted/50");
 	});
 
 	it("keeps Lark neutral while its setup progress is still loading", () => {

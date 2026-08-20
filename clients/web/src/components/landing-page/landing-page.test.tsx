@@ -467,7 +467,7 @@ describe("LandingPage", () => {
 		expect(
 			within(availableChannels).getByTestId("app-logo-lark").parentElement
 				?.className
-		).toContain("bg-muted/50");
+		).toContain("dark:bg-muted/50");
 		const availableApps = within(connectedWorkSection).getByRole("list", {
 			name: "Available Apps",
 		});
