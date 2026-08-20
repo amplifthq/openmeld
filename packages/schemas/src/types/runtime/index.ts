@@ -10,7 +10,6 @@ export type {
   AgentControllerInterfaceSkill,
   AgentControllerInterfaceSnapshot,
   AgentControllerInterfaceStatus,
-  AgentControllerInterfaceUsageLimit,
   AgentControllerInterfaceVersionAdvisory,
   AgentControllerInterfaceVersionAdvisoryStatus,
 } from "./agent-controller-interface";

@@ -705,18 +705,8 @@ version, update status/policy, Wake-blocking state, bounded reason codes, and
 managed skill target count. Setup commands, component hashes, runtime lanes,
 credentials, and actions are not members of the Organization schema.
 
-The optional local-agent `usageLimits` array is the team-safe provider limit
-projection. Each observed window contains only a provider-derived label,
-`usedPercent`, nullable `resetsAt`, and `observedAt`. The Local Agent Interface
-snapshot is its single producer contract: Web Computer details, `openmeld
-agents show --view agent`, and the Center Agent member-Computers tool consume
-the same projection. OpenMeld does not infer usage from failures, file times,
-plan names, token counts, or Activity. Providers without a verified structured
-read omit the field. This phase is visibility only and cannot route work,
-change Wake readiness, or block execution.
-
-`details`, its nested `usageLimits`, and `openMeldTools` are additive optional
-response fields. Web
+`details` and its nested `openMeldTools` are additive optional response fields.
+Web
 and Gateway receivers that use the strict Organization Computer schema must be
 deployed before Core begins writing them. New receivers accept the old Core
 projection; old receivers reject the expanded projection instead of silently

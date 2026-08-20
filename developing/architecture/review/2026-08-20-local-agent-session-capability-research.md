@@ -87,19 +87,6 @@ complete historical, structured, paginated inventory across IDE, CLI print
 mode, and ACP. The product must report this provider as partial or unsupported
 for complete inventory instead of presenting hook history as complete.
 
-### Usage Limit Projection
-
-The inspected Codex app-server exposes the structured
-`account/rateLimits/read` method. Its primary and secondary windows provide
-`usedPercent`, `windowDurationMins`, and nullable Unix-second `resetsAt` under a
-provider limit id/name. OpenMeld may project bounded labels and ISO timestamps
-from that response. A sanitized live probe returned three valid windows.
-
-No equivalently complete, stable, structured account Usage Limit read was
-verified for Claude Code, Cursor, OpenCode, or Grok Build in this review. Those
-providers must omit `usageLimits`; provider error text, plan names, local file
-times, and past failures are not usage evidence.
-
 ## Cross-Provider Contract Findings
 
 ### Identity

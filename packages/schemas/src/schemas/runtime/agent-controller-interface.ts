@@ -79,13 +79,6 @@ export const agentControllerInterfaceSkillSchema = z.strictObject({
   id: ACI_BOUNDED_ID_SCHEMA,
 });
 
-export const agentControllerInterfaceUsageLimitSchema = z.strictObject({
-  label: ACI_BOUNDED_LABEL_SCHEMA,
-  observedAt: ACI_ISO_DATE_TIME_SCHEMA,
-  resetsAt: ACI_ISO_DATE_TIME_SCHEMA.nullable(),
-  usedPercent: z.number().finite().min(0).max(100),
-});
-
 export const agentControllerInterfaceCapabilitiesSchema = z.strictObject({
   approvals: z.boolean(),
   cancel: z.boolean(),
@@ -126,10 +119,6 @@ export const agentControllerInterfaceSnapshotSchema = z.strictObject({
   schemaVersion: z.literal(1),
   skills: z.array(agentControllerInterfaceSkillSchema).max(512),
   status: agentControllerInterfaceStatusSchema,
-  usageLimits: z
-    .array(agentControllerInterfaceUsageLimitSchema)
-    .max(32)
-    .optional(),
   version: ACI_BOUNDED_ID_SCHEMA.nullable(),
   versionAdvisory: agentControllerInterfaceVersionAdvisorySchema.optional(),
 });

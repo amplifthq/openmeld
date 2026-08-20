@@ -1314,14 +1314,6 @@ transcripts, internal runtime identity, and private provider metadata. Project
 mutations and member-owned Activity or local context remain identity-gated;
 seeing a Session id never grants Resume, Fork, Binding, or Space authority.
 
-TEAM Computer details may show a Local Agent's bounded provider Usage Limit
-projection when that provider exposes a verified structured read. Each window
-contains only its label, used percentage, reset time, and observation time.
-Web, local-agent CLI view, and the Center Agent member-Computers tool reuse the
-same Organization Computer contract. Missing provider evidence remains absent;
-the Center Agent must not treat visibility as routing, Wake, or execution
-authority.
-
 Personal memory, member Apps, owner-level Local Agent or Computer details,
 role-restricted actions, destructive confirmation, durable member-owned
 mutations, and any action whose owner requires one specific OpenMeld human

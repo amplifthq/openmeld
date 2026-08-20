@@ -4,8 +4,8 @@
 
 - Purpose: Record the contract, compatibility, privacy, provider, and release
   evidence reviewed for the Organization Local Agent Session Inventory rollout.
-- Read this when: Reviewing or releasing the Session Inventory and provider
-  Usage Limit projection introduced by the same pull request.
+- Read this when: Reviewing or releasing the Session Inventory introduced by
+  the same pull request.
 - Update this when: The pull request changes a wire contract, receiver order,
   provider capability, privacy boundary, or release gate described here.
 - Do not use this for: The live product contract, deployment authorization, or
@@ -38,11 +38,6 @@ never turns visibility into Resume, Fork, Binding, Space, or execution
 authority. Every later mutation must reauthorize its actor and revalidate the
 Organization, Owner, Project, Computer, provider, Session, and capability.
 
-The Usage Limit addition follows the existing Local Agent Interface snapshot
-into the team-safe Organization Computer projection. It adds no database or
-router. Its only fields are `label`, `usedPercent`, nullable `resetsAt`, and
-`observedAt`; it cannot affect selection, Wake readiness, dispatch, or routing.
-
 ## Changed Contracts And Owners
 
 | Contract | Change | Owner and receiver |
@@ -53,7 +48,6 @@ router. Its only fields are `label`, `usedPercent`, nullable `resetsAt`, and
 | Local reconciliation | New provider observations and page/result submissions | Local OpenMeld Service is observer/carrier; Core remains inventory owner |
 | Local Service control plane | Additive `request_agent_activity_sync` command for immediate post-disconnect reconciliation | CLI requests; the current local Service schedules the canonical sync loop |
 | Center Agent RPC/tool | Additive read-only paginated Session Inventory | Core authorization and projection; Remote Agent tool receiver |
-| Agent Controller Interface snapshot | Additive optional `usageLimits` | Local Service observation; Core registry receiver; Organization Computers, CLI, Web, and Center Agent readers |
 | Core D1 | Migration 0130 adds canonical inventory, private candidate, and source-health tables; migration 0131 atomically reserves one enabled Binding per owner/controller/native conversation | Core only |
 
 No existing Activity snapshot field changes meaning. Historical Activity
@@ -63,14 +57,13 @@ evidence and retention remain separate from the current selectable inventory.
 
 | Combination | Result |
 | --- | --- |
-| Old CLI/Service with new Gateway/Core | Existing Activity and runtime reports continue; no Session pages or Usage Limits are produced |
+| Old CLI/Service with new Gateway/Core | Existing Activity and runtime reports continue; no Session pages are produced |
 | New CLI/Service with old Gateway | Session reconciliation receives an unavailable route and retries; existing Activity and Wake behavior continue |
-| New CLI/Service with old Core | New Session RPCs are unavailable and the optional strict ACI field can be rejected; therefore Core receivers must precede local components |
+| New CLI/Service with old Core | New Session RPCs are unavailable; therefore Core receivers must precede local components |
 | New Gateway/Remote Agent with old Core | New reads fail closed as unavailable; no alternate inventory is derived |
 | New Web with old Gateway/Core | Session read is visibly unavailable; Web does not fall back to the bounded snapshot as a complete inventory |
 | New Resume Web caller with old Gateway/Core | The strict Binding receiver rejects `sessionInventorySelection`; deploy Core and Gateway before the Web caller, and never retry without the selection pointer |
 | Old Web/API caller with new Gateway/Core | Existing non-Session Binding writes remain unchanged because `sessionInventorySelection` is optional |
-| Old Web/Gateway receiver with new expanded Organization Computer payload | Strict receivers can reject `usageLimits`; shared receiver deployments must precede Core producing the field |
 | Old OpenMeld Skill with new CLI | Existing commands continue; the old Skill does not discover the new Session command |
 | New OpenMeld Skill with old CLI | `activity sessions` is unavailable; release stamping keeps Skill and CLI delivery aligned |
 | New CLI with old local Service | The additive immediate-sync control request is rejected as a contract mismatch; unbind remains local and the persisted source set reconciles after the Service is upgraded or on its next compatible run |
@@ -86,8 +79,8 @@ Rollout order:
    owner's policy before continuing. This feature PR does not deploy or mutate
    production data.
 2. Apply Core D1 migrations 0130 and 0131.
-3. Deploy shared-schema receivers and Core RPC/repository support, including
-   the expanded ACI receiver, without enabling new callers prematurely.
+3. Deploy shared-schema receivers and Core RPC/repository support without
+   enabling new callers prematurely.
 4. Deploy Gateway and Web readers and the Remote Agent read tool.
 5. After this feature PR merges, use the dedicated clean release worktree to
    stamp and publish aligned CLI, OpenMeld Service, and OpenMeld-managed Skills.
@@ -124,8 +117,8 @@ grant that origin.
 The acceptance runner used the installed official provider CLIs and the real
 local provider stores, matched only against the connected OpenMeld repository
 and this isolated worktree. It used a temporary `OPENMELD_HOME` and temporary
-OpenMeld origin store. Output excluded titles, ids, paths, accounts, usage
-values, and content.
+OpenMeld origin store. Output excluded titles, ids, paths, accounts, content,
+and local private metadata.
 
 ```text
 Codex: sessions=185, titled=185, resume=180, ended=5, unknown=180, fork=0
@@ -137,8 +130,6 @@ OpenCode SQLite runtime: Node v20.20.2 fresh-install better-sqlite3 12.6.2
 read/prepare/close smoke passed
 OpenCode standalone runtime: Bun v1.3.14 compiled executable opened the real
 SQLite fixture read-only through bun:sqlite and returned the expected Session
-Codex Usage Limits: probe succeeded, structured windows=3; every window had a
-non-empty label, numeric usedPercent, ISO observedAt, and ISO resetsAt
 ```
 
 Zero rows are evidence only for the exact accepted Project, not a claim that
@@ -179,8 +170,7 @@ This change does not violate the scoped architecture owner documents:
   Binding store at read time.
 - Clients do not infer status, capability, Binding, or provider origin.
 - All cross-process payloads use strict shared schemas and fail closed.
-- Session and Usage Limit visibility cannot block Wake or create routing
-  authority.
+- Session visibility cannot block Wake or create routing authority.
 
 ## Release Gates
 

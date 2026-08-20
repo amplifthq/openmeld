@@ -17,7 +17,6 @@ import type {
   AgentControllerInterfaceSkill,
   AgentControllerInterfaceSnapshot,
   AgentControllerInterfaceStatus,
-  AgentControllerInterfaceUsageLimit,
   AgentControllerInterfaceVersionAdvisory,
 } from "@openmeld/schemas/types";
 import {
@@ -668,7 +667,6 @@ async function resolveCodexInterfaceSnapshot(input: {
         models: appServerProbe.models,
         skills: appServerProbe.skills,
         status: appServerProbe.status,
-        usageLimits: appServerProbe.usageLimits,
         version,
         versionAdvisory: await resolveControllerVersionAdvisory({
           checkedAt: input.baseSnapshot.checkedAt,
@@ -1068,7 +1066,6 @@ type CodexAppServerProbeResult =
       ok: true;
       skills: AgentControllerInterfaceSkill[];
       status: AgentControllerInterfaceStatus;
-      usageLimits: AgentControllerInterfaceUsageLimit[];
       version: string | null;
     }
   | {
@@ -1222,18 +1219,15 @@ async function runCodexAppServerProbeRequests(input: {
     .request("skills/list", { cwds: [process.cwd()] })
     .catch(() => null);
   const modelsPromise = requestAllCodexModels(input.request).catch(() => []);
-  const usageLimitsPromise = input
-    .request("account/rateLimits/read", undefined)
-    .catch(() => null);
   const account = await input.request("account/read", {});
   // The account verdict is the core probe fact. Once it arrives the probe can
   // no longer time out; auxiliary model/skill inventory only gets a bounded
   // grace so a slow listing cannot turn a healthy controller into a timeout.
   input.clearProbeTimeout();
-  const [skills, models, usageLimits] = await resolveWithinGrace(
-    Promise.all([skillsPromise, modelsPromise, usageLimitsPromise]),
+  const [skills, models] = await resolveWithinGrace(
+    Promise.all([skillsPromise, modelsPromise]),
     CODEX_AUX_INVENTORY_GRACE_MS,
-    [null, [], null]
+    [null, []]
   );
   const auth = resolveCodexAuthSnapshot(account);
   input.finish({
@@ -1246,10 +1240,6 @@ async function runCodexAppServerProbeRequests(input: {
     ok: true,
     skills: parseCodexSkills(skills),
     status: auth.status === "unauthenticated" ? "error" : "ready",
-    usageLimits: parseCodexUsageLimits({
-      observedAt: new Date().toISOString(),
-      response: usageLimits,
-    }),
     version: parseCodexUserAgentVersion(initialized),
   });
 }
@@ -1595,92 +1585,6 @@ function parseCodexSkills(skills: unknown): AgentControllerInterfaceSkill[] {
       },
     ];
   });
-}
-
-function parseCodexUsageLimits(input: {
-  observedAt: string;
-  response: unknown;
-}): AgentControllerInterfaceUsageLimit[] {
-  const response = toRecord(input.response);
-  const byLimitId = toRecord(response?.rateLimitsByLimitId);
-  const byLimitEntries = Object.entries(byLimitId ?? {});
-  const candidates =
-    byLimitEntries.length > 0
-      ? byLimitEntries
-      : [["Codex", response?.rateLimits]];
-  return candidates.flatMap(([limitId, value]) => {
-    const snapshot = toRecord(value);
-    if (!snapshot) {
-      return [];
-    }
-    const baseLabel =
-      normalizeOptionalText(snapshot.limitName) ??
-      normalizeOptionalText(limitId) ??
-      "Codex";
-    return (["primary", "secondary"] as const).flatMap((windowKind) => {
-      const window = toRecord(snapshot[windowKind]);
-      const usedPercent = window?.usedPercent;
-      if (
-        typeof usedPercent !== "number" ||
-        !Number.isFinite(usedPercent) ||
-        usedPercent < 0 ||
-        usedPercent > 100
-      ) {
-        return [];
-      }
-      return [
-        {
-          label: formatCodexUsageLimitLabel({
-            baseLabel,
-            durationMinutes: window?.windowDurationMins,
-            windowKind,
-          }),
-          observedAt: input.observedAt,
-          resetsAt: parseUnixSecondsAsIso(window?.resetsAt),
-          usedPercent,
-        },
-      ];
-    });
-  });
-}
-
-function formatCodexUsageLimitLabel(input: {
-  baseLabel: string;
-  durationMinutes: unknown;
-  windowKind: "primary" | "secondary";
-}): string {
-  const duration = input.durationMinutes;
-  if (
-    typeof duration !== "number" ||
-    !Number.isFinite(duration) ||
-    duration <= 0
-  ) {
-    return `${input.baseLabel} ${input.windowKind} limit`;
-  }
-  const rounded = Math.round(duration);
-  if (rounded > 0 && rounded % 10_080 === 0) {
-    const weeks = rounded / 10_080;
-    return `${input.baseLabel} ${weeks === 1 ? "weekly" : `${weeks}-week`} limit`;
-  }
-  if (rounded > 0 && rounded % 1440 === 0) {
-    const days = rounded / 1440;
-    return `${input.baseLabel} ${days === 1 ? "daily" : `${days}-day`} limit`;
-  }
-  if (rounded > 0 && rounded % 60 === 0) {
-    return `${input.baseLabel} ${rounded / 60}-hour limit`;
-  }
-  return `${input.baseLabel} ${rounded}-minute limit`;
-}
-
-function parseUnixSecondsAsIso(value: unknown): string | null {
-  if (value === null) {
-    return null;
-  }
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    return null;
-  }
-  const date = new Date(value * 1000);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function parseCliVersion(output: string): string | null {

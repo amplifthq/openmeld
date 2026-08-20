@@ -406,10 +406,6 @@ controller-provided models or skills when the controller exposes them through a
 stable surface. Version advisory may include a manual update command such as an
 official controller command or package-manager command, but CLI output must
 present it as guidance the user runs on that computer, not as a hidden mutation.
-When a provider exposes a verified structured Usage Limit read, the same local
-snapshot may include bounded `label`, `usedPercent`, `resetsAt`, and
-`observedAt` windows. Missing evidence remains absent, and the CLI never derives
-a limit from provider error text or uses it to block execution.
 Agent View and `--json` expose that local evidence under
 `agentControllerInterface` so Desktop and other local clients can reuse the same
 local-controller facts.

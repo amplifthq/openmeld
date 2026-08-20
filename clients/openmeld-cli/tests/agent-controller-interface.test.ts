@@ -797,9 +797,6 @@ describe("agent controller interface inventory", () => {
           '  if (message.method === "account/read") {',
           "    reply(message.id, { account: null, requiresOpenaiAuth: true });",
           "  }",
-          '  if (message.method === "account/rateLimits/read") {',
-          "    reply(message.id, { rateLimits: { limitId: 'codex', limitName: 'Codex', primary: { usedPercent: 34.4, windowDurationMins: 300, resetsAt: 1800000000 }, secondary: { usedPercent: 55, windowDurationMins: 10080, resetsAt: null } }, rateLimitsByLimitId: null, rateLimitResetCredits: null });",
-          "  }",
           '  if (message.method === "skills/list") {',
           "    reply(message.id, { skills: [] });",
           "  }",
@@ -835,18 +832,6 @@ describe("agent controller interface inventory", () => {
         message:
           "Codex CLI is installed, but this computer is not signed in to Codex.",
         status: "error",
-        usageLimits: [
-          {
-            label: "Codex 5-hour limit",
-            resetsAt: "2027-01-15T08:00:00.000Z",
-            usedPercent: 34.4,
-          },
-          {
-            label: "Codex weekly limit",
-            resetsAt: null,
-            usedPercent: 55,
-          },
-        ],
       });
     } finally {
       await rm(home, { force: true, recursive: true });

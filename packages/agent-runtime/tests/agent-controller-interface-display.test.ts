@@ -102,24 +102,6 @@ describe("agent controller interface display", () => {
     expect(shouldExpandAgentControllerInterface(snapshot)).toBe(false);
   });
 
-  it("shows provider usage limits as operational Computer facts", () => {
-    const snapshot = agentControllerInterfaceSnapshot({
-      usageLimits: [
-        {
-          label: "Codex weekly limit",
-          observedAt: "2026-06-28T12:00:00.000Z",
-          resetsAt: null,
-          usedPercent: 42.4,
-        },
-      ],
-    });
-
-    expect(createAgentControllerInterfaceDisplayRows(snapshot)).toContainEqual({
-      label: "Codex weekly limit",
-      value: "42% used",
-    });
-  });
-
   it("does not describe a privacy-redacted command path as missing", () => {
     const snapshot = agentControllerInterfaceSnapshot({
       launch: {

@@ -1606,12 +1606,6 @@ toolbar because the shared header is its single source of Project scope. Next
 page navigation uses the opaque Core cursor; a later page can return directly
 to the first page, and every filter change resets the cursor.
 
-TEAM Computer Local Agent details also render any bounded provider Usage Limit
-windows already present in the shared Organization Computer contract. Web does
-not query providers or derive limits itself; unsupported or unobserved
-providers show no limit row. The projection is informational and does not
-change agent selection, Wake, or routing.
-
 Each row renders the provider-native title, copyable native Session id, Owner,
 Project, public Computer name, Local Agent, status, last activity, origin,
 Resume/Fork capability, and authoritative bound Agent Profile. It never renders
