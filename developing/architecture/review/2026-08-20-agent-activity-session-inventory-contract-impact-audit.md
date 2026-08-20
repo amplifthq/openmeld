@@ -48,7 +48,7 @@ Organization, Owner, Project, Computer, provider, Session, and capability.
 | Local reconciliation | New provider observations and page/result submissions | Local OpenMeld Service is observer/carrier; Core remains inventory owner |
 | Local Service control plane | Additive `request_agent_activity_sync` command for immediate post-disconnect reconciliation | CLI requests; the current local Service schedules the canonical sync loop |
 | Center Agent RPC/tool | Additive read-only paginated Session Inventory | Core authorization and projection; Remote Agent tool receiver |
-| Core D1 | Migration 0130 adds canonical inventory, private candidate, and source-health tables; migration 0131 atomically reserves one enabled Binding per owner/controller/native conversation | Core only |
+| Core D1 | Migration 0130 adds canonical inventory, private candidate, and source-health tables | Core only |
 
 No existing Activity snapshot field changes meaning. Historical Activity
 evidence and retention remain separate from the current selectable inventory.
@@ -72,25 +72,20 @@ evidence and retention remain separate from the current selectable inventory.
 
 Rollout order:
 
-1. Before applying migration 0131, run a read-only production preflight for
-   duplicate enabled-primary Bindings with the same owner, Agent Controller,
-   and controller conversation. The uniqueness migration intentionally fails
-   closed if legacy duplicates exist; repair any duplicate under the Binding
-   owner's policy before continuing. This feature PR does not deploy or mutate
-   production data.
-2. Apply Core D1 migrations 0130 and 0131.
-3. Deploy shared-schema receivers and Core RPC/repository support without
+1. Apply Core D1 migration 0130. This feature PR does not deploy or mutate
+   production data and does not migrate or repair Binding rows.
+2. Deploy shared-schema receivers and Core RPC/repository support without
    enabling new callers prematurely.
-4. Deploy Gateway and Web readers and the Remote Agent read tool.
-5. After this feature PR merges, use the dedicated clean release worktree to
+3. Deploy Gateway and Web readers and the Remote Agent read tool.
+4. After this feature PR merges, use the dedicated clean release worktree to
    stamp and publish aligned CLI, OpenMeld Service, and OpenMeld-managed Skills.
-6. Verify one real installed-client reconciliation, Web/CLI reads, Center Agent
+5. Verify one real installed-client reconciliation, Web/CLI reads, Center Agent
    read, Project disconnect removal, and content non-disclosure before calling
    the product delivered.
 
 Rollback reverses caller order: roll back local components and Skills first,
-then Web/Remote Agent/Gateway callers, then Core code. Migrations 0130 and 0131
-can remain as additive integrity/storage constraints. Rollback must not delete
+then Web/Remote Agent/Gateway callers, then Core code. Migration 0130 can remain
+as additive inventory storage. Rollback must not delete
 historical Activity evidence or rewrite Binding/Profile data.
 
 ## Provider Capability Verdict

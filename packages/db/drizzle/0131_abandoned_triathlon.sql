@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX `openMeldDaemon_agent_profile_bindings_enabled_controller_conversation_unique` ON `openMeldDaemon_agent_profile_bindings` (`owner_kind`,`owner_id`,`agent_controller_ref`,`agent_controller_conversation_id`) WHERE "binding_state" = 'enabled_primary' and "agent_controller_conversation_id" is not null;

@@ -77,7 +77,7 @@ describe("Agent Profile Binding storage schema", () => {
       expect(indexes).toContain(
         "openMeldDaemon_agent_profile_bindings_enabled_primary_unique"
       );
-      expect(indexes).toContain(
+      expect(indexes).not.toContain(
         "openMeldDaemon_agent_profile_bindings_enabled_controller_conversation_unique"
       );
       expect(indexes).toContain(
@@ -91,7 +91,7 @@ describe("Agent Profile Binding storage schema", () => {
     }
   });
 
-  it("enforces lifecycle checks and enabled primary Binding identity", () => {
+  it("enforces lifecycle checks without rewriting historical conversation duplicates", () => {
     const database = new DatabaseSync(":memory:");
     try {
       applySharedMigrations(database);
@@ -139,21 +139,11 @@ describe("Agent Profile Binding storage schema", () => {
         bindingId: "binding_conversation_1",
         openMeldServiceRuntimeId: "runtime_conversation_1",
       });
-      expect(() =>
-        insertBinding(database, {
-          agentControllerConversationId: "native-session-1",
-          agentProfileId: "agent-profile-3",
-          bindingId: "binding_conversation_2",
-          openMeldServiceRuntimeId: "runtime_conversation_2",
-        })
-      ).toThrow(UNIQUE_ERROR_PATTERN);
-
       insertBinding(database, {
         agentControllerConversationId: "native-session-1",
-        agentControllerRef: "builtin:claude-code",
         agentProfileId: "agent-profile-3",
-        bindingId: "binding_other_controller",
-        openMeldServiceRuntimeId: "runtime_other_controller",
+        bindingId: "binding_conversation_2",
+        openMeldServiceRuntimeId: "runtime_conversation_2",
       });
 
       expect(

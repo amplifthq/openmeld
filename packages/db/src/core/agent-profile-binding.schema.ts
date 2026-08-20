@@ -41,18 +41,6 @@ export const openMeldDaemonAgentProfileBindings = sqliteTable(
     uniqueIndex("openMeldDaemon_agent_profile_bindings_enabled_primary_unique")
       .on(table.ownerKind, table.ownerId, table.agentProfileId)
       .where(sql`"binding_state" = 'enabled_primary'`),
-    uniqueIndex(
-      "openMeldDaemon_agent_profile_bindings_enabled_controller_conversation_unique"
-    )
-      .on(
-        table.ownerKind,
-        table.ownerId,
-        table.agentControllerRef,
-        table.agentControllerConversationId
-      )
-      .where(
-        sql`"binding_state" = 'enabled_primary' and "agent_controller_conversation_id" is not null`
-      ),
     index(
       "idx_openMeldDaemon_agent_profile_bindings_openmeld_service_runtime_agent_controller"
     ).on(table.openMeldServiceRuntimeId, table.agentControllerRef),
