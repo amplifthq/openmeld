@@ -114,7 +114,7 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 	}
 	if (
 		readiness.nextAction === "run_setup" &&
-		!isOnlyIncompleteControllerCheck(readiness)
+		!hasOnlyIncompleteControllerCheckEvidence(readiness)
 	) {
 		return AGENT_NEEDS_SETUP_STATUS;
 	}
@@ -200,14 +200,17 @@ export function isCurrentLocalRuntimeServiceDisconnected(
 	);
 }
 
-function isOnlyIncompleteControllerCheck(
+function hasOnlyIncompleteControllerCheckEvidence(
 	readiness: CurrentLocalRuntimeReplyReadinessResponse
 ): boolean {
+	const reasonCodes = readiness.runtime.reasonCodes;
 	return (
 		readiness.primaryBlocker === "agent_controller_report_not_ready" &&
-		readiness.runtime.reasonCodes.length > 0 &&
-		readiness.runtime.reasonCodes.every(
-			(reasonCode) => reasonCode === "controller.interface.check_failed"
+		reasonCodes.includes("controller.interface.check_failed") &&
+		reasonCodes.every(
+			(reasonCode) =>
+				reasonCode === "controller.interface.check_failed" ||
+				reasonCode === "runtime.agent_controller_report.ready"
 		)
 	);
 }

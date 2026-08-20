@@ -220,6 +220,61 @@ describe("computer summary status", () => {
 		expect(resolveComputerAttentionTone(status)).toBeNull();
 	});
 
+	it("does not escalate mixed ready and incomplete controller checks to global attention", () => {
+		const readiness = buildReadiness({
+			canReplyFromThisComputer: false,
+			nextAction: "run_setup",
+			primaryBlocker: "agent_controller_report_not_ready",
+			runtime: {
+				...buildReadiness().runtime,
+				executionTargetStatus: "partial",
+				reasonCodes: [
+					"runtime.agent_controller_report.ready",
+					"controller.interface.check_failed",
+				],
+			},
+			status: "blocked",
+		});
+
+		expect(
+			resolveCurrentLocalRuntimeComputerSummaryStatus({ readiness })
+		).toMatchObject({
+			reason: "status_unavailable",
+			tone: "muted",
+		});
+		expect(
+			resolveCurrentLocalRuntimeComputerAttentionToneForInventory({
+				localRuntimeCount: 1,
+				readiness,
+			})
+		).toBeNull();
+	});
+
+	it("keeps global repair attention when an incomplete check accompanies real repair evidence", () => {
+		expect(
+			resolveCurrentLocalRuntimeComputerSummaryStatus({
+				readiness: buildReadiness({
+					canReplyFromThisComputer: false,
+					nextAction: "run_setup",
+					primaryBlocker: "agent_controller_report_not_ready",
+					runtime: {
+						...buildReadiness().runtime,
+						executionTargetStatus: "partial",
+						reasonCodes: [
+							"runtime.agent_controller_report.ready",
+							"controller.interface.check_failed",
+							"controller.interface.error",
+						],
+					},
+					status: "blocked",
+				}),
+			})
+		).toMatchObject({
+			reason: "agent_needs_setup",
+			tone: "danger",
+		});
+	});
+
 	it("replaces cached attention with checking while all surfaces reconcile", () => {
 		const readiness = buildReadiness({
 			localComponents: buildLocalComponents({
