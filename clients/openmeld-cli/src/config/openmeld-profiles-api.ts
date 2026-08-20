@@ -34,6 +34,7 @@ export type OpenMeldProfile = {
   source: string;
   managedRole?: OpenMeldProfileManagedRole | null;
   createdByUserId: string | null;
+  creationActorProfileId?: string | null;
   creatorProfileId?: string | null;
   lastUsedAt: string | null;
   createdAt: string;
@@ -509,6 +510,8 @@ function parseOpenMeldProfileItem(value: unknown): OpenMeldProfile {
   const managedRole = readOptionalManagedRoleField(record, "managedRole");
   const createdByUserId =
     readOptionalStringField(record, "createdByUserId") ?? null;
+  const creationActorProfileId =
+    readOptionalStringField(record, "creationActorProfileId") ?? null;
   const creatorProfileId =
     readOptionalStringField(record, "creatorProfileId") ?? null;
   const lastUsedAt = readOptionalStringField(record, "lastUsedAt");
@@ -527,6 +530,7 @@ function parseOpenMeldProfileItem(value: unknown): OpenMeldProfile {
     source,
     managedRole,
     createdByUserId,
+    creationActorProfileId,
     creatorProfileId,
     lastUsedAt,
     createdAt,

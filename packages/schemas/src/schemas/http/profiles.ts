@@ -68,6 +68,7 @@ export const authProfileViewSchema = z
     managedRole: authProfileViewManagedRoleSchema,
     defaultProjectId: z.string().trim().min(1).nullable().optional(),
     createdByUserId: z.string().min(1).nullable(),
+    creationActorProfileId: z.string().min(1).nullable().optional(),
     creatorProfileId: z.string().min(1).nullable(),
     lastUsedAt: ISO_DATE_TIME_SCHEMA.nullable(),
     createdAt: ISO_DATE_TIME_SCHEMA,

@@ -28,6 +28,7 @@ type AgentProfileInsertInput = {
   organizationId: string;
   ownerUserId: string;
   createdByUserId?: string | null;
+  creationActorProfileId?: string | null;
   creatorProfileId?: string | null;
   creationIdempotencyKey?: string | null;
   managedRole?: OpenMeldProfileManagedRole | null;
@@ -272,6 +273,7 @@ export function createDrizzleOpenMeldProfileRepository(
         organizationId: input.organizationId,
         ownerUserId: input.ownerUserId,
         createdByUserId: input.createdByUserId ?? null,
+        creationActorProfileId: input.creationActorProfileId ?? null,
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: input.creationIdempotencyKey ?? null,
         managedRole: input.managedRole ?? null,

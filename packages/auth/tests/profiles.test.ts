@@ -26,6 +26,7 @@ const TEST_ORGANIZATION_ID = "org_test_profiles";
 type ProfileSeed = Omit<
   OpenMeldProfileRecord,
   | "profileHandle"
+  | "creationActorProfileId"
   | "creatorProfileId"
   | "creationIdempotencyKey"
   | "defaultProjectId"
@@ -36,6 +37,7 @@ type ProfileSeed = Omit<
     Pick<
       OpenMeldProfileRecord,
       | "profileHandle"
+      | "creationActorProfileId"
       | "creatorProfileId"
       | "creationIdempotencyKey"
       | "defaultProjectId"
@@ -53,6 +55,7 @@ function withProfileDefaults(profile: ProfileSeed): OpenMeldProfileRecord {
       profile.organizationId ??
       (profile.profileKind === "agent" ? TEST_ORGANIZATION_ID : null),
     creatorProfileId: profile.creatorProfileId ?? null,
+    creationActorProfileId: profile.creationActorProfileId ?? null,
     creationIdempotencyKey: profile.creationIdempotencyKey ?? null,
     defaultProjectId: profile.defaultProjectId ?? null,
     managedRole: profile.managedRole ?? null,
@@ -174,6 +177,7 @@ function createInMemoryRepository(
         status: "active",
         ownerUserId: input.ownerUserId,
         createdByUserId: input.createdByUserId ?? null,
+        creationActorProfileId: null,
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: null,
         defaultProjectId: null,
@@ -224,6 +228,7 @@ function createInMemoryRepository(
         status: "active",
         ownerUserId: input.ownerUserId,
         createdByUserId: input.createdByUserId ?? null,
+        creationActorProfileId: input.creationActorProfileId ?? null,
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: input.creationIdempotencyKey ?? null,
         defaultProjectId: null,
@@ -255,6 +260,7 @@ function createInMemoryRepository(
         status: "active",
         ownerUserId: input.ownerUserId,
         createdByUserId: input.createdByUserId ?? null,
+        creationActorProfileId: null,
         creatorProfileId: input.creatorProfileId ?? null,
         creationIdempotencyKey: null,
         defaultProjectId: null,
@@ -779,6 +785,32 @@ describe("OpenMeld profile service", () => {
     expect(created.creatorProfileId).toBeTruthy();
   });
 
+  it("preserves the creation entry point and actor separately from profile lineage", async () => {
+    const repository = createInMemoryRepository();
+    const service = createOpenMeldProfileService(repository, {
+      generateAgentProfileId: () => TEST_AGENT_PROFILE_ID,
+    });
+    const ownerProfile = await service.ensurePrimaryHumanProfile({
+      userId: "user_1",
+      userName: "Felix",
+      userEmail: "felix@openmeld.invalid",
+    });
+
+    const created = await service.createAgentProfile({
+      ownerUserId: "user_1",
+      createdByUserId: "user_1",
+      creationActorProfileId: "agt_center-agent",
+      creatorProfileId: ownerProfile.profileId,
+      organizationId: TEST_ORGANIZATION_ID,
+      profileName: "Research Bot",
+      source: "center_agent_create",
+    });
+
+    expect(created.creatorProfileId).toBe(ownerProfile.profileId);
+    expect(created.creationActorProfileId).toBe("agt_center-agent");
+    expect(created.source).toBe("center_agent_create");
+  });
+
   it("returns the committed Agent Profile when creation is replayed with the same idempotency key", async () => {
     const repository = createInMemoryRepository();
     const generatedAgentProfileIds = [
@@ -863,6 +895,31 @@ describe("OpenMeld profile service", () => {
       service.createAgentProfile({
         ...sharedInput,
         profileName: "Release Bot",
+      })
+    ).rejects.toBeInstanceOf(ProfileCreationIdempotencyConflictError);
+  });
+
+  it("rejects reuse of an idempotency key from another creation actor", async () => {
+    const repository = createInMemoryRepository();
+    const service = createOpenMeldProfileService(repository);
+    const sharedInput = {
+      ownerUserId: "user_1",
+      createdByUserId: "user_1",
+      organizationId: TEST_ORGANIZATION_ID,
+      profileName: "Research Bot",
+      idempotencyKey: "agent-profile-create:request-actor-123",
+      source: "center_agent_create" as const,
+    };
+
+    await service.createAgentProfile({
+      ...sharedInput,
+      creationActorProfileId: "agt_center-agent-a",
+    });
+
+    await expect(
+      service.createAgentProfile({
+        ...sharedInput,
+        creationActorProfileId: "agt_center-agent-b",
       })
     ).rejects.toBeInstanceOf(ProfileCreationIdempotencyConflictError);
   });

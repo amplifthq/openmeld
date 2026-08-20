@@ -150,9 +150,11 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
           userId: String(authenticated.user.id),
         }),
         createdByUserId: String(authenticated.user.id),
+        creationActorProfileId: body.creatorProfileId,
         creatorProfileId: body.creatorProfileId,
         ...(body.idempotencyKey ? { idempotencyKey: body.idempotencyKey } : {}),
         profileName: body.profileName,
+        source: resolveDirectAgentProfileCreationSource(c.req.raw.headers),
       });
 
       return c.json(
@@ -299,6 +301,14 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
       return c.json(failure.body, failure.status);
     }
   });
+}
+
+function resolveDirectAgentProfileCreationSource(
+  headers: Headers
+): "cli_create" | "web_create" {
+  return normalizeOptionalText(headers.get("authorization"))
+    ? "cli_create"
+    : "web_create";
 }
 
 function normalizeOptionalText(value: unknown): string | null {
