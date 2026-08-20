@@ -2,6 +2,7 @@ import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
 import {
   agentActivitySnapshotResponseSchema,
   agentControllerCollaborationModeSchema,
+  agentProfileCreationRequestMutationResponseSchema,
   agentTaskHandleSchema,
   buildOpenMeldNavigationAction,
   CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
@@ -85,6 +86,7 @@ import {
   centerAgentWakeAgentProfilesInSpaceResponseSchema,
   centerAgentWatchAgentTaskResponseSchema,
   changelogQueryResponseSchema,
+  createAgentProfileCreationRequestResponseSchema,
   createCenterAgentRoutineResponseSchema,
   createCenterAgentTaskResponseSchema,
   deleteCenterAgentRoutineResponseSchema,
@@ -93,7 +95,9 @@ import {
   FEEDBACK_ISSUE_CATEGORIES,
   FEEDBACK_ISSUE_STATUSES,
   feedbackIssueRecordSchema,
+  getAgentProfileCreationApprovalPreferenceResponseSchema,
   inspectExecutionRecoveryResponseSchema,
+  listAgentProfileCreationRequestsResponseSchema,
   listCenterAgentAuditJournalResponseSchema,
   listCenterAgentRoutinesResponseSchema,
   listFeedbackIssuesForOrganizationRequestSchema,
@@ -129,6 +133,7 @@ import {
   recordCenterAgentMemberResearchComputerFileResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
   SPACE_PASSWORD_MIN_LENGTH,
+  setAgentProfileCreationApprovalPreferenceResponseSchema,
   setOrganizationWorkingLanguagePreferenceBodySchema,
   startCenterAgentMemberResearchResponseSchema,
   submitFeedbackIssueRequestSchema,
@@ -348,6 +353,29 @@ const createSpaceAccessInputSchema = union([
 const createSpaceToolInputSchema = object({
   ...createSpaceCommonInputEntries,
   access: optional(createSpaceAccessInputSchema),
+});
+const createAgentProfileRequestToolInputSchema = strictObject({
+  nativeSessionId: optional(trimmedNonEmptyStringSchema),
+  profileName: trimmedNonEmptyStringSchema,
+  requestedSpaceId: optional(trimmedNonEmptyStringSchema),
+  sessionStrategy: picklist(["new", "resume", "fork"]),
+  targetOwnerUserId: trimmedNonEmptyStringSchema,
+});
+const manageAgentProfileRequestToolInputSchema = strictObject({
+  action: picklist(["approve", "decline", "cancel", "retry"]),
+  requestId: trimmedNonEmptyStringSchema,
+});
+const agentProfileRequestApprovalPreferencesToolInputSchema = strictObject({
+  existingSessionPolicy: picklist([
+    "never_allow",
+    "ask_every_time",
+    "automatically_allow",
+  ]),
+  newSessionPolicy: picklist([
+    "never_allow",
+    "ask_every_time",
+    "automatically_allow",
+  ]),
 });
 const referenceProfileIdsInputSchema = pipe(
   array(nonEmptyStringSchema),
@@ -1057,6 +1085,11 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_resume_controller_conversation",
   "openmeld_retry_as_new_execution",
   "openmeld_create_space",
+  "openmeld_create_agent_profile_request",
+  "openmeld_list_agent_profile_creation_requests",
+  "openmeld_manage_agent_profile_creation_request",
+  "openmeld_get_agent_profile_creation_approval_preferences",
+  "openmeld_set_agent_profile_creation_approval_preferences",
   "openmeld_create_agent_profile",
   "openmeld_enable_agent_profile",
   "openmeld_list_computers",
@@ -1138,6 +1171,8 @@ export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_resume_controller_conversation",
   "openmeld_retry_as_new_execution",
   "openmeld_set_organization_working_language",
+  "openmeld_manage_agent_profile_creation_request",
+  "openmeld_set_agent_profile_creation_approval_preferences",
 ] as const satisfies readonly RemoteAgentOpenMeldToolName[];
 
 const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAME_SET =
@@ -3670,9 +3705,121 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
       },
     }),
     toolDefinition({
+      name: "openmeld_create_agent_profile_request",
+      description:
+        "Create one auditable Agent Profile request for the represented member or a teammate in the current Organization. Use openmeld_read_organization_directory first and pass the exact target member user ID. New-session requests may complete immediately or follow the target owner's approval preference. Resume and Fork require the exact provider-native Session ID exposed by Agent Activity; preserve it unchanged. OpenMeld currently returns an explicit unavailable result until that Session can be verified. requestedSpaceId records the intended collaboration Space but does not grant membership. Use this request tool instead of openmeld_create_agent_profile when the target owner is another teammate.",
+      input: createAgentProfileRequestToolInputSchema,
+      execute: async (payload) => {
+        const requestInput = parseValibot(
+          createAgentProfileRequestToolInputSchema,
+          payload
+        );
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_create_agent_profile_request",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentCreateAgentProfileCreationRequest,
+          "centerAgentCreateAgentProfileCreationRequest"
+        );
+        return createAgentProfileCreationRequestResponseSchema.parse(
+          await rpc({ ...requestInput, ...toolContext })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_list_agent_profile_creation_requests",
+      description:
+        "List Agent Profile creation requests where the represented member is the requester or target owner. Use this to report approval progress, created Agent Profile IDs, failures, and whether the represented member can approve, decline, cancel, or retry a request.",
+      input: strictObject({}),
+      execute: async () => {
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_list_agent_profile_creation_requests",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentListAgentProfileCreationRequests,
+          "centerAgentListAgentProfileCreationRequests"
+        );
+        return listAgentProfileCreationRequestsResponseSchema.parse(
+          await rpc(toolContext)
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_manage_agent_profile_creation_request",
+      description:
+        "Approve, decline, cancel, or retry one Agent Profile creation request under Core-owned authority. Approve and decline are available only to the target owner. Cancel is available only to the requester. Retry is available only for a failed request involving the represented member. Read the request list first and follow its current status.",
+      input: manageAgentProfileRequestToolInputSchema,
+      execute: async (payload) => {
+        const requestInput = parseValibot(
+          manageAgentProfileRequestToolInputSchema,
+          payload
+        );
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_manage_agent_profile_creation_request",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentManageAgentProfileCreationRequest,
+          "centerAgentManageAgentProfileCreationRequest"
+        );
+        return agentProfileCreationRequestMutationResponseSchema.parse(
+          await rpc({ ...requestInput, ...toolContext })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_get_agent_profile_creation_approval_preferences",
+      description:
+        "Read the represented member's separate approval preferences for new-session and existing-session Agent Profile requests in the current Organization.",
+      input: strictObject({}),
+      execute: async () => {
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_get_agent_profile_creation_approval_preferences",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentGetAgentProfileCreationApprovalPreference,
+          "centerAgentGetAgentProfileCreationApprovalPreference"
+        );
+        return getAgentProfileCreationApprovalPreferenceResponseSchema.parse(
+          await rpc(toolContext)
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_set_agent_profile_creation_approval_preferences",
+      description:
+        "Update the represented member's Agent Profile creation approval preferences only when that member explicitly asks. Set separate policies for new Sessions and existing Sessions. Existing Sessions include Resume and Fork and may deserve a stricter policy.",
+      input: agentProfileRequestApprovalPreferencesToolInputSchema,
+      execute: async (payload) => {
+        const preferenceInput = parseValibot(
+          agentProfileRequestApprovalPreferencesToolInputSchema,
+          payload
+        );
+        const toolContext = await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_set_agent_profile_creation_approval_preferences",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentSetAgentProfileCreationApprovalPreference,
+          "centerAgentSetAgentProfileCreationApprovalPreference"
+        );
+        return setAgentProfileCreationApprovalPreferenceResponseSchema.parse(
+          await rpc({ ...preferenceInput, ...toolContext })
+        );
+      },
+    }),
+    toolDefinition({
       name: "openmeld_create_agent_profile",
       description:
-        "Create an OpenMeld Agent Profile record in the current Organization without connecting it to a local agent or adding it to a Space. Advanced path only: for a new working Agent Profile, prefer openmeld_create_configured_agent_profile.",
+        "Create an OpenMeld Agent Profile record owned by the represented member without connecting it to a local agent or adding it to a Space. Never use this to create for another teammate; use openmeld_create_agent_profile_request so their approval preference is enforced. Advanced self-owned path only: for a new working Agent Profile, prefer openmeld_create_configured_agent_profile.",
       input: object({
         profileName: nonEmptyStringSchema,
       }),

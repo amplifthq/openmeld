@@ -222,6 +222,21 @@ describe("Remote Agent user-visible work semantics", () => {
     });
     expect(
       resolveRemoteAgentToolWorkActivity(
+        "openmeld_create_agent_profile_request",
+        {
+          profileName: "Teammate Reviewer",
+        }
+      )
+    ).toEqual({
+      v: 1,
+      key: "agent_profile.create",
+      subject: {
+        kind: "agent_profile",
+        label: "Teammate Reviewer",
+      },
+    });
+    expect(
+      resolveRemoteAgentToolWorkActivity(
         "openmeld_create_configured_agent_profile",
         {
           profileName: "Configured Agent",

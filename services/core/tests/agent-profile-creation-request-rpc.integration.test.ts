@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import {
+  rpcCenterAgentCreateAgentProfileCreationRequest,
   rpcCreateAgentProfileCreationRequest,
   rpcDecideAgentProfileCreationRequest,
   rpcListAgentProfileCreationRequests,
@@ -8,6 +9,41 @@ import {
 import type { CoreBindings } from "../src/lib/bindings";
 
 describe("Agent Profile creation request RPC", () => {
+  it("uses the represented member as requester and the Center Agent as actor", async () => {
+    const fixture = await seedFixture();
+    const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+
+    const created = await rpcCenterAgentCreateAgentProfileCreationRequest(
+      bindings,
+      {
+        context: {
+          activeOrganizationId: fixture.organizationId,
+          actorContext: {
+            callerPrincipalId: fixture.requesterUserId,
+            openMeldProfileId: fixture.centerAgentProfileId,
+            ownerUserId: fixture.requesterUserId,
+            profileKind: "agent",
+            profileName: "Center Agent",
+            requestId: `center-request-${fixture.suffix}`,
+          },
+        },
+        onBehalfOf: { profileId: fixture.requesterProfileId },
+        profileName: "Center Requested Reviewer",
+        sessionStrategy: "new",
+        targetOwnerUserId: fixture.targetUserId,
+      }
+    );
+
+    expect(created.request).toMatchObject({
+      actorProfileId: fixture.centerAgentProfileId,
+      profileName: "Center Requested Reviewer",
+      requesterUserId: fixture.requesterUserId,
+      source: "center_agent",
+      status: "pending",
+      targetOwnerUserId: fixture.targetUserId,
+    });
+  });
+
   it("creates an approval item, authorizes the target decision, and creates the target-owned Profile", async () => {
     const fixture = await seedFixture();
     const createAgentProfileInOrganization = vi.fn().mockResolvedValue({
@@ -151,6 +187,7 @@ async function seedFixture() {
   const targetUserId = `user-target-${suffix}`;
   const requesterProfileId = crypto.randomUUID();
   const targetProfileId = crypto.randomUUID();
+  const centerAgentProfileId = `agt_${crypto.randomUUID()}`;
   const nowMs = 1_787_220_000_000;
   await env.OPENMELD_DB.batch([
     env.OPENMELD_DB.prepare(
@@ -172,8 +209,47 @@ async function seedFixture() {
     env.OPENMELD_DB.prepare(
       "INSERT INTO members (id, organization_id, user_id, role, created_at) VALUES (?, ?, ?, 'member', ?)"
     ).bind(`member-target-${suffix}`, organizationId, targetUserId, nowMs),
+    env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO openmeld_profiles (
+          profile_id, profile_name, profile_handle, profile_kind, is_default,
+          status, organization_id, owner_user_id, created_by_user_id, source,
+          managed_role, created_at, updated_at
+        ) VALUES (?, 'Requester', ?, 'human', 1, 'active', NULL, ?, ?,
+          'auth_bootstrap', NULL, ?, ?)
+      `
+    ).bind(
+      requesterProfileId,
+      `requester-${suffix}`,
+      requesterUserId,
+      requesterUserId,
+      nowMs,
+      nowMs
+    ),
+    env.OPENMELD_DB.prepare(
+      `
+        INSERT INTO openmeld_profiles (
+          profile_id, profile_name, profile_handle, profile_kind, is_default,
+          status, organization_id, owner_user_id, created_by_user_id, source,
+          managed_role, created_at, updated_at
+        ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, ?, ?,
+          'auth_bootstrap', 'center_agent', ?, ?)
+      `
+    ).bind(
+      centerAgentProfileId,
+      `center-agent-${suffix}`,
+      organizationId,
+      requesterUserId,
+      requesterUserId,
+      nowMs,
+      nowMs
+    ),
+    env.OPENMELD_DB.prepare(
+      "INSERT INTO center_agent_designations (organization_id, agent_profile_id, duty, designated_by, created_at) VALUES (?, ?, NULL, ?, ?)"
+    ).bind(organizationId, centerAgentProfileId, requesterUserId, nowMs),
   ]);
   return {
+    centerAgentProfileId,
     organizationId,
     requesterProfileId,
     requesterUserId,

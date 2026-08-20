@@ -312,12 +312,22 @@ import type {
 } from "@openmeld/schemas/types";
 import { reconcileDeletedAgentProfile } from "./agent-profile-binding/application/deleted-profile-reconcile-service";
 import {
+  type CenterAgentCreateAgentProfileCreationRequestRpcInput,
+  type CenterAgentGetAgentProfileCreationApprovalPreferenceRpcInput,
+  type CenterAgentListAgentProfileCreationRequestsRpcInput,
+  type CenterAgentManageAgentProfileCreationRequestRpcInput,
+  type CenterAgentSetAgentProfileCreationApprovalPreferenceRpcInput,
   type CreateAgentProfileCreationRequestRpcInput,
   type DecideAgentProfileCreationRequestRpcInput,
   type GetAgentProfileCreationApprovalPreferenceRpcInput,
   type ListAgentProfileCreationRequestsRpcInput,
   type MutateAgentProfileCreationRequestRpcInput,
   rpcCancelAgentProfileCreationRequest,
+  rpcCenterAgentCreateAgentProfileCreationRequest,
+  rpcCenterAgentGetAgentProfileCreationApprovalPreference,
+  rpcCenterAgentListAgentProfileCreationRequests,
+  rpcCenterAgentManageAgentProfileCreationRequest,
+  rpcCenterAgentSetAgentProfileCreationApprovalPreference,
   rpcCreateAgentProfileCreationRequest,
   rpcDecideAgentProfileCreationRequest,
   rpcGetAgentProfileCreationApprovalPreference,
@@ -2039,6 +2049,42 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: SetAgentProfileCreationApprovalPreferenceRpcInput
   ): Promise<SetAgentProfileCreationApprovalPreferenceResponse> {
     return rpcSetAgentProfileCreationApprovalPreference(this.env, input);
+  }
+
+  centerAgentCreateAgentProfileCreationRequest(
+    input: CenterAgentCreateAgentProfileCreationRequestRpcInput
+  ): Promise<CreateAgentProfileCreationRequestResponse> {
+    return rpcCenterAgentCreateAgentProfileCreationRequest(this.env, input);
+  }
+
+  centerAgentListAgentProfileCreationRequests(
+    input: CenterAgentListAgentProfileCreationRequestsRpcInput
+  ): Promise<ListAgentProfileCreationRequestsResponse> {
+    return rpcCenterAgentListAgentProfileCreationRequests(this.env, input);
+  }
+
+  centerAgentManageAgentProfileCreationRequest(
+    input: CenterAgentManageAgentProfileCreationRequestRpcInput
+  ): Promise<AgentProfileCreationRequestMutationResponse> {
+    return rpcCenterAgentManageAgentProfileCreationRequest(this.env, input);
+  }
+
+  centerAgentGetAgentProfileCreationApprovalPreference(
+    input: CenterAgentGetAgentProfileCreationApprovalPreferenceRpcInput
+  ): Promise<GetAgentProfileCreationApprovalPreferenceResponse> {
+    return rpcCenterAgentGetAgentProfileCreationApprovalPreference(
+      this.env,
+      input
+    );
+  }
+
+  centerAgentSetAgentProfileCreationApprovalPreference(
+    input: CenterAgentSetAgentProfileCreationApprovalPreferenceRpcInput
+  ): Promise<SetAgentProfileCreationApprovalPreferenceResponse> {
+    return rpcCenterAgentSetAgentProfileCreationApprovalPreference(
+      this.env,
+      input
+    );
   }
 
   getCurrentOrganizationDirectory(

@@ -10,7 +10,10 @@ import {
   setAgentProfileCreationApprovalPreferenceResponseSchema,
 } from "@openmeld/schemas";
 import type {
+  AgentProfileCreationApprovalPolicy,
   AgentProfileCreationRequestMutationResponse,
+  AgentProfileCreationSessionStrategy,
+  CenterAgentOnBehalfOfInput,
   CreateAgentProfileCreationRequestBody,
   CreateAgentProfileCreationRequestResponse,
   DecideAgentProfileCreationRequestBody,
@@ -20,6 +23,8 @@ import type {
   SetAgentProfileCreationApprovalPreferenceBody,
   SetAgentProfileCreationApprovalPreferenceResponse,
 } from "@openmeld/schemas/types";
+import { resolveCenterAgentAuditAttribution } from "../center-agent/center-agent-audit";
+import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
 import type { CoreBindings } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
 import {
@@ -70,6 +75,145 @@ export type SetAgentProfileCreationApprovalPreferenceRpcInput =
     context?: OpenMeldRequestContext;
     organizationId: string;
   };
+
+export type CenterAgentCreateAgentProfileCreationRequestRpcInput = {
+  context?: OpenMeldRequestContext;
+  nativeSessionId?: string | null;
+  onBehalfOf: CenterAgentOnBehalfOfInput;
+  profileName: string;
+  requestedSpaceId?: string | null;
+  sessionStrategy: AgentProfileCreationSessionStrategy;
+  targetOwnerUserId: string;
+};
+
+export type CenterAgentListAgentProfileCreationRequestsRpcInput = {
+  context?: OpenMeldRequestContext;
+  onBehalfOf: CenterAgentOnBehalfOfInput;
+};
+
+export type CenterAgentManageAgentProfileCreationRequestRpcInput = {
+  action: "approve" | "decline" | "cancel" | "retry";
+  context?: OpenMeldRequestContext;
+  onBehalfOf: CenterAgentOnBehalfOfInput;
+  requestId: string;
+};
+
+export type CenterAgentGetAgentProfileCreationApprovalPreferenceRpcInput = {
+  context?: OpenMeldRequestContext;
+  onBehalfOf: CenterAgentOnBehalfOfInput;
+};
+
+export type CenterAgentSetAgentProfileCreationApprovalPreferenceRpcInput = {
+  context?: OpenMeldRequestContext;
+  existingSessionPolicy: AgentProfileCreationApprovalPolicy;
+  newSessionPolicy: AgentProfileCreationApprovalPolicy;
+  onBehalfOf: CenterAgentOnBehalfOfInput;
+};
+
+export async function rpcCenterAgentCreateAgentProfileCreationRequest(
+  env: CoreBindings,
+  input: CenterAgentCreateAgentProfileCreationRequestRpcInput
+): Promise<CreateAgentProfileCreationRequestResponse> {
+  const prepared = await prepareCenterAgentRepresentedMemberRequest({
+    context: input.context,
+    env,
+    onBehalfOf: input.onBehalfOf,
+  });
+  return await rpcCreateAgentProfileCreationRequest(env, {
+    context: prepared.context,
+    idempotencyKey: await buildCenterAgentCreationRequestIdempotencyKey({
+      context: prepared.context,
+      nativeSessionId: input.nativeSessionId ?? null,
+      profileName: input.profileName,
+      sessionStrategy: input.sessionStrategy,
+      targetOwnerUserId: input.targetOwnerUserId,
+    }),
+    nativeSessionId: input.nativeSessionId,
+    organizationId: prepared.organizationId,
+    profileName: input.profileName,
+    requestedSpaceId: input.requestedSpaceId,
+    sessionStrategy: input.sessionStrategy,
+    source: "center_agent",
+    targetOwnerUserId: input.targetOwnerUserId,
+  });
+}
+
+export async function rpcCenterAgentListAgentProfileCreationRequests(
+  env: CoreBindings,
+  input: CenterAgentListAgentProfileCreationRequestsRpcInput
+): Promise<ListAgentProfileCreationRequestsResponse> {
+  const prepared = await prepareCenterAgentRepresentedMemberRequest({
+    context: input.context,
+    env,
+    onBehalfOf: input.onBehalfOf,
+  });
+  return await rpcListAgentProfileCreationRequests(env, {
+    context: prepared.context,
+    organizationId: prepared.organizationId,
+  });
+}
+
+export async function rpcCenterAgentManageAgentProfileCreationRequest(
+  env: CoreBindings,
+  input: CenterAgentManageAgentProfileCreationRequestRpcInput
+): Promise<AgentProfileCreationRequestMutationResponse> {
+  const prepared = await prepareCenterAgentRepresentedMemberRequest({
+    context: input.context,
+    env,
+    onBehalfOf: input.onBehalfOf,
+  });
+  const request = {
+    context: prepared.context,
+    organizationId: prepared.organizationId,
+    requestId: input.requestId,
+  };
+  switch (input.action) {
+    case "approve":
+    case "decline":
+      return await rpcDecideAgentProfileCreationRequest(env, {
+        ...request,
+        decision: input.action,
+      });
+    case "cancel":
+      return await rpcCancelAgentProfileCreationRequest(env, request);
+    case "retry":
+      return await rpcRetryAgentProfileCreationRequest(env, request);
+    default:
+      throw invalidPayload("Unsupported Agent Profile request action.");
+  }
+}
+
+export async function rpcCenterAgentGetAgentProfileCreationApprovalPreference(
+  env: CoreBindings,
+  input: CenterAgentGetAgentProfileCreationApprovalPreferenceRpcInput
+): Promise<GetAgentProfileCreationApprovalPreferenceResponse> {
+  const prepared = await prepareCenterAgentRepresentedMemberRequest({
+    context: input.context,
+    env,
+    onBehalfOf: input.onBehalfOf,
+  });
+  return await rpcGetAgentProfileCreationApprovalPreference(env, {
+    context: prepared.context,
+    organizationId: prepared.organizationId,
+  });
+}
+
+export async function rpcCenterAgentSetAgentProfileCreationApprovalPreference(
+  env: CoreBindings,
+  input: CenterAgentSetAgentProfileCreationApprovalPreferenceRpcInput
+): Promise<SetAgentProfileCreationApprovalPreferenceResponse> {
+  const prepared = await prepareCenterAgentRepresentedMemberRequest({
+    context: input.context,
+    env,
+    onBehalfOf: input.onBehalfOf,
+  });
+  return await rpcSetAgentProfileCreationApprovalPreference(env, {
+    context: prepared.context,
+    existingSessionPolicy: input.existingSessionPolicy,
+    newSessionPolicy: input.newSessionPolicy,
+    organizationId: prepared.organizationId,
+  });
+}
 
 export async function rpcCreateAgentProfileCreationRequest(
   env: CoreBindings,
@@ -306,6 +450,68 @@ function createService(env: CoreBindings, db: D1Database) {
         request,
       }),
   });
+}
+
+async function prepareCenterAgentRepresentedMemberRequest(input: {
+  context: OpenMeldRequestContext | undefined;
+  env: CoreBindings;
+  onBehalfOf: CenterAgentOnBehalfOfInput;
+}): Promise<{ context: OpenMeldRequestContext; organizationId: string }> {
+  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+    context: requireContext(input.context),
+    env: input.env,
+  });
+  const attribution = await resolveCenterAgentAuditAttribution({
+    authorization,
+    onBehalfOfProfileId: input.onBehalfOf.profileId,
+  });
+  if (!attribution.onBehalfOf) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_creation_request.represented_member_required",
+      reason:
+        "Agent Profile creation request tools require a represented Organization member.",
+      status: 403,
+    });
+  }
+  const representedUserId = requireIdentifier(
+    attribution.onBehalfOf.userId,
+    "Represented member"
+  );
+  return {
+    context: {
+      ...authorization.context,
+      actorContext: {
+        ...authorization.context.actorContext,
+        callerPrincipalId: representedUserId,
+        ownerUserId: representedUserId,
+      },
+    },
+    organizationId: authorization.activeOrganization.organizationId,
+  };
+}
+
+async function buildCenterAgentCreationRequestIdempotencyKey(input: {
+  context: OpenMeldRequestContext;
+  nativeSessionId: string | null;
+  profileName: string;
+  sessionStrategy: AgentProfileCreationSessionStrategy;
+  targetOwnerUserId: string;
+}): Promise<string> {
+  const payload = JSON.stringify({
+    nativeSessionId: input.nativeSessionId,
+    profileName: input.profileName,
+    requestId: input.context.actorContext.requestId,
+    sessionStrategy: input.sessionStrategy,
+    targetOwnerUserId: input.targetOwnerUserId,
+  });
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(payload)
+  );
+  const fingerprint = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+  return `center-agent:agent-profile-request:${fingerprint}`;
 }
 
 async function createRequestedAgentProfile(
