@@ -443,9 +443,8 @@ async function publishStagedSessions(input: {
     input.db
       .prepare(
         `
-          UPDATE agent_activity_session_inventory
-          SET visible = 0, updated_at_ms = ?
-          WHERE source_scope_key = ? AND visible = 1
+          DELETE FROM agent_activity_session_inventory
+          WHERE source_scope_key = ?
             AND NOT EXISTS (
               SELECT 1
               FROM agent_activity_session_inventory_candidates candidate
@@ -472,7 +471,6 @@ async function publishStagedSessions(input: {
         `
       )
       .bind(
-        input.nowMs,
         input.sourceScopeKey,
         input.sourceScopeKey,
         input.reconciliationId,
@@ -678,12 +676,11 @@ async function acceptTerminalCoverageResult(input: {
       input.db
         .prepare(
           `
-            UPDATE agent_activity_session_inventory
-            SET visible = 0, updated_at_ms = ?
-            WHERE source_scope_key = ? AND visible = 1
+            DELETE FROM agent_activity_session_inventory
+            WHERE source_scope_key = ?
           `
         )
-        .bind(input.nowMs, input.sourceScopeKey)
+        .bind(input.sourceScopeKey)
     );
   }
   statements.push(

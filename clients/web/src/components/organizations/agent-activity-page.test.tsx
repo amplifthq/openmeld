@@ -746,6 +746,35 @@ describe("Agent Activity pages", () => {
 		).toBeTruthy();
 	});
 
+	it("does not offer Agent Profile actions for a Session with conflicting connections", async () => {
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects: [project({ id: "project-active" })],
+		});
+		readSessions.mockResolvedValue(
+			sessionInventory({
+				sessions: [inventorySession({ bindingState: "conflict" })],
+			})
+		);
+
+		renderPage("sessions");
+
+		expect(
+			await screen.findByText(
+				"This Session has conflicting Agent Profile connections."
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Resume as Agent Profile" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Create Agent Profile" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Fork as Agent Profile" })
+		).toBeNull();
+	});
+
 	it("uses the Core cursor for stable Session Inventory pagination", async () => {
 		const onSessionFiltersChange = vi.fn();
 		listProjects.mockResolvedValueOnce({

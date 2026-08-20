@@ -161,6 +161,13 @@ function SessionProfileActions(input: {
 	onOpenProfile: (profileId: string) => void;
 	session: AgentActivityInventorySession;
 }) {
+	if (input.session.bindingState === "conflict") {
+		return (
+			<span className="block max-w-52 text-muted-foreground text-xs">
+				This Session has conflicting Agent Profile connections.
+			</span>
+		);
+	}
 	if (input.session.boundAgentProfileId) {
 		return (
 			<div className="flex min-w-44 flex-wrap gap-1.5">

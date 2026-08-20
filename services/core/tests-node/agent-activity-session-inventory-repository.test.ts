@@ -277,6 +277,31 @@ describe("Agent Activity Session Inventory repository", () => {
     expect(disconnected.coverage).toMatchObject([
       { problemCode: null, state: "disconnected" },
     ]);
+    expect(inventoryRowCount(harness)).toBe(0);
+  });
+
+  it("deletes Session metadata proven absent by a complete reconciliation", async () => {
+    const harness = createInventoryHarness();
+    await reconcile(harness.db, {
+      sessions: [observedSession("native-removed", 1000)],
+    });
+
+    await reconcile(harness.db, {
+      reconciliationId: "reconciliation-without-removed-session",
+      sessions: [observedSession("native-current", 500)],
+    });
+
+    expect(
+      harness.queryFirst<{ count: number }>({
+        params: ["native-removed"],
+        sql: `SELECT count(*) AS count
+          FROM agent_activity_session_inventory
+          WHERE native_session_id = ?`,
+      })
+    ).toEqual({ count: 0 });
+    expect((await read(harness.db)).sessions).toMatchObject([
+      { nativeSessionId: "native-current" },
+    ]);
   });
 
   it("keeps the last complete inventory visible while its replacement is syncing", async () => {
@@ -424,6 +449,16 @@ function observedSession(nativeSessionId: string, offsetMs: number) {
     startedAtMs: NOW_MS - offsetMs - 1000,
     status: "idle" as const,
   };
+}
+
+function inventoryRowCount(
+  harness: ReturnType<typeof createSqliteD1Harness>
+): number {
+  return (
+    harness.queryFirst<{ count: number }>({
+      sql: "SELECT count(*) AS count FROM agent_activity_session_inventory",
+    })?.count ?? -1
+  );
 }
 
 function insertRacingSessionIdentity(
