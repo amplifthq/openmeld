@@ -29,12 +29,13 @@ import {
   type LocalAgentSessionProviderDiscovery,
 } from "./session-inventory-provider-adapters";
 
-const SOURCE_STORE_VERSION = 1 as const;
+const SOURCE_STORE_VERSION = 2 as const;
 
 type StoredInventorySource = {
   agentControllerRef: string;
   localConnectionId: string;
   organizationId: string;
+  ownerUserId: string;
   projectId: string;
   provider: LocalAgentSessionProvider;
   repositoryFingerprint: string | null;
@@ -68,13 +69,19 @@ export async function syncLocalAgentSessionInventory(
   } = {}
 ): Promise<LocalAgentSessionInventorySyncResult> {
   const bindings = await listProjectBindings({ rootDir: input.rootDir });
-  const previousSources = await readSourceStore(input);
-  if (bindings.length === 0 && previousSources.sources.length === 0) {
+  const sourceStore = await readSourceStore(input);
+  if (bindings.length === 0 && sourceStore.sources.length === 0) {
     return emptySyncResult("idle", null);
   }
   const reporting = await prepareReporting(input);
   if (!reporting.ok) {
     return emptySyncResult("unavailable", reporting.reason);
+  }
+  const previousSources = sourceStore.sources.filter(
+    (source) => source.ownerUserId === reporting.ownerUserId
+  );
+  if (bindings.length === 0 && previousSources.length === 0) {
+    return emptySyncResult("idle", null);
   }
   const nowMs = input.nowMs ?? Date.now();
   const discoveries =
@@ -86,9 +93,13 @@ export async function syncLocalAgentSessionInventory(
           nowMs,
           rootDir: input.rootDir,
         });
-  const currentSources = buildCurrentSources({ bindings, discoveries });
+  const currentSources = buildCurrentSources({
+    bindings,
+    discoveries,
+    ownerUserId: reporting.ownerUserId,
+  });
   const currentKeys = new Set(currentSources.map(sourceKey));
-  const disconnectedSources = previousSources.sources.filter(
+  const disconnectedSources = previousSources.filter(
     (source) => !currentKeys.has(sourceKey(source))
   );
   const api = createRuntimeReportingApi(reporting.foundation);
@@ -105,7 +116,7 @@ export async function syncLocalAgentSessionInventory(
   let sessionCount = 0;
   let submittedSourceCount = 0;
   const retainedSources = new Map(
-    previousSources.sources.map((source) => [sourceKey(source), source])
+    sourceStore.sources.map((source) => [sourceKey(source), source])
   );
   try {
     for (const source of disconnectedSources) {
@@ -175,11 +186,12 @@ export async function syncLocalAgentSessionInventory(
 function buildCurrentSources(input: {
   bindings: readonly ProjectBinding[];
   discoveries: readonly LocalAgentSessionProviderDiscovery[];
+  ownerUserId: string;
 }): CurrentInventorySource[] {
   const sources: CurrentInventorySource[] = [];
   for (const binding of input.bindings) {
     for (const discovery of input.discoveries) {
-      const common = sourceFromBinding(binding, discovery);
+      const common = sourceFromBinding(binding, discovery, input.ownerUserId);
       if (discovery.result !== "sessions") {
         sources.push({
           ...common,
@@ -208,12 +220,14 @@ function buildCurrentSources(input: {
 
 function sourceFromBinding(
   binding: ProjectBinding,
-  discovery: LocalAgentSessionProviderDiscovery
+  discovery: LocalAgentSessionProviderDiscovery,
+  ownerUserId: string
 ): StoredInventorySource {
   return {
     agentControllerRef: discovery.agentControllerRef,
     localConnectionId: buildLocalConnectionId(binding),
     organizationId: binding.organizationId,
+    ownerUserId,
     projectId: binding.projectId,
     provider: discovery.provider,
     repositoryFingerprint: binding.repositoryFingerprint,
@@ -350,6 +364,7 @@ async function prepareReporting(input: {
       foundation: OpenMeldApiClientFoundation;
       lane: string;
       ok: true;
+      ownerUserId: string;
     }
   | { ok: false; reason: string }
 > {
@@ -367,17 +382,20 @@ async function prepareReporting(input: {
   ) {
     return { ok: false, reason: "service_contract_unavailable" };
   }
-  if (!input.foundation) {
-    const auth = await getAuthSessionState().catch(() => null);
-    if (
-      !(
-        auth?.state === "valid" &&
-        auth.session &&
-        canAttachAuthTokenToRequest(auth.session, serviceContract.gatewayUrl)
-      )
-    ) {
-      return { ok: false, reason: "auth_unavailable" };
-    }
+  const auth = await getAuthSessionState({ validateRemote: false }).catch(
+    () => null
+  );
+  const ownerUserId = auth?.session?.user?.id?.trim() ?? "";
+  if (!(auth?.state === "valid" && auth.session && ownerUserId)) {
+    return { ok: false, reason: "auth_unavailable" };
+  }
+  if (
+    !(
+      input.foundation ||
+      canAttachAuthTokenToRequest(auth.session, serviceContract.gatewayUrl)
+    )
+  ) {
+    return { ok: false, reason: "auth_unavailable" };
   }
   return {
     deviceId: serviceContract.deviceId,
@@ -386,6 +404,7 @@ async function prepareReporting(input: {
       createCliApiClientFoundation(serviceContract.gatewayUrl),
     lane: serviceContract.lane,
     ok: true,
+    ownerUserId,
   };
 }
 
@@ -403,6 +422,7 @@ function buildLocalConnectionId(binding: ProjectBinding): string {
 
 function sourceKey(source: StoredInventorySource): string {
   return [
+    source.ownerUserId,
     source.organizationId,
     source.projectId,
     source.localConnectionId,
@@ -415,6 +435,7 @@ function storedSource(source: StoredInventorySource): StoredInventorySource {
     agentControllerRef: source.agentControllerRef,
     localConnectionId: source.localConnectionId,
     organizationId: source.organizationId,
+    ownerUserId: source.ownerUserId,
     projectId: source.projectId,
     provider: source.provider,
     repositoryFingerprint: source.repositoryFingerprint,
@@ -440,6 +461,9 @@ async function readSourceStore(input: {
     return { sources: [], version: SOURCE_STORE_VERSION };
   }
   const value: unknown = JSON.parse(raw);
+  if (isLegacySourceStore(value)) {
+    return { sources: [], version: SOURCE_STORE_VERSION };
+  }
   if (
     !(
       value &&
@@ -447,12 +471,48 @@ async function readSourceStore(input: {
       "version" in value &&
       value.version === SOURCE_STORE_VERSION &&
       "sources" in value &&
-      Array.isArray(value.sources)
+      Array.isArray(value.sources) &&
+      value.sources.every(isStoredInventorySource)
     )
   ) {
     throw new Error(`Session Inventory source store is invalid: ${path}`);
   }
   return value as InventorySourceStore;
+}
+
+function isLegacySourceStore(value: unknown): boolean {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "version" in value &&
+      value.version === 1 &&
+      "sources" in value &&
+      Array.isArray(value.sources)
+  );
+}
+
+function isStoredInventorySource(
+  value: unknown
+): value is StoredInventorySource {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "agentControllerRef" in value &&
+      typeof value.agentControllerRef === "string" &&
+      "localConnectionId" in value &&
+      typeof value.localConnectionId === "string" &&
+      "organizationId" in value &&
+      typeof value.organizationId === "string" &&
+      "ownerUserId" in value &&
+      typeof value.ownerUserId === "string" &&
+      "projectId" in value &&
+      typeof value.projectId === "string" &&
+      "provider" in value &&
+      typeof value.provider === "string" &&
+      "repositoryFingerprint" in value &&
+      (value.repositoryFingerprint === null ||
+        typeof value.repositoryFingerprint === "string")
+  );
 }
 
 async function writeSourceStore(

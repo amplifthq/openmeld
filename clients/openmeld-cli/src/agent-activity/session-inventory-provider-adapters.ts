@@ -564,8 +564,10 @@ function applyClaudeSessionLine(
   let value: unknown;
   try {
     value = JSON.parse(line);
-  } catch {
-    return;
+  } catch (error) {
+    throw new Error("Claude Code Session file contains malformed JSON.", {
+      cause: error,
+    });
   }
   if (!isRecord(value)) {
     return;

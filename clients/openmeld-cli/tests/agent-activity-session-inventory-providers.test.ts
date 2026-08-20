@@ -542,6 +542,30 @@ describe("Local Agent Session Inventory provider adapters", () => {
     });
   });
 
+  it("rejects a malformed Claude Session file instead of publishing a partial inventory", async () => {
+    const configDir = join(root, "claude-config-malformed");
+    const projectsDir = join(configDir, "projects", "openmeld");
+    await mkdir(projectsDir, { recursive: true });
+    await writeFile(
+      join(projectsDir, "session.jsonl"),
+      `${JSON.stringify({
+        cwd: repositoryPath,
+        sessionId: "claude-native-malformed",
+        timestamp: "2025-01-01T00:00:00.000Z",
+      })}\n{"type":"custom-title"`,
+      "utf8"
+    );
+
+    await expect(
+      discoverClaudeRetainedSessions({
+        bindings: [binding],
+        configDir,
+        nowMs: NOW_MS,
+        rootDir: root,
+      })
+    ).rejects.toThrow("Claude Code Session file contains malformed JSON");
+  });
+
   it("reads the complete OpenCode table beyond the legacy 500 row snapshot", async () => {
     const databasePath = join(root, "opencode.db");
     const database = new Database(databasePath);

@@ -6,6 +6,7 @@ import {
   rm,
   stat,
   symlink,
+  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,7 @@ import { syncLocalAgentSessionInventory } from "../src/agent-activity/session-in
 
 const mocks = vi.hoisted(() => ({
   discoverLocalAgentSessionProviders: vi.fn(),
+  getAuthSessionState: vi.fn(),
   readDaemonServiceContract: vi.fn(),
   submitAgentActivitySessionReconciliation: vi.fn(),
   submitRegistration: vi.fn(),
@@ -38,6 +40,9 @@ vi.mock("@openmeld/api-client", async (importOriginal) => {
 vi.mock("../src/config/daemon-service-contract", () => ({
   readDaemonServiceContract: mocks.readDaemonServiceContract,
 }));
+vi.mock("../src/config/auth-session", () => ({
+  getAuthSessionState: mocks.getAuthSessionState,
+}));
 vi.mock("../src/agent-activity/session-inventory-provider-adapters", () => ({
   discoverLocalAgentSessionProviders: mocks.discoverLocalAgentSessionProviders,
 }));
@@ -45,6 +50,10 @@ vi.mock("../src/agent-activity/session-inventory-provider-adapters", () => ({
 let root: string | null = null;
 
 beforeEach(() => {
+  mocks.getAuthSessionState.mockResolvedValue({
+    session: { user: { id: "user-1" } },
+    state: "valid",
+  });
   mocks.readDaemonServiceContract.mockResolvedValue({
     deviceId: "private-device-1",
     gatewayUrl: "https://gateway.openmeld.test",
@@ -443,4 +452,171 @@ describe("Local Agent Session Inventory reconciliation", () => {
       })
     );
   });
+
+  it("never submits another signed-in owner's stored sources after an account switch", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-session-owner-switch-"));
+    const firstRepositoryPath = join(root, "first-repository");
+    const secondRepositoryPath = join(root, "second-repository");
+    await mkdir(firstRepositoryPath, { recursive: true });
+    await mkdir(secondRepositoryPath, { recursive: true });
+    const firstBinding = await bindProject({
+      organizationId: "org-first",
+      projectId: "project-first",
+      projectSlug: "first",
+      repositoryFingerprint: null,
+      repositoryPath: firstRepositoryPath,
+      rootDir: root,
+    });
+    mocks.discoverLocalAgentSessionProviders.mockResolvedValue([
+      discoveryFor(firstBinding, "native-first"),
+    ]);
+    await syncLocalAgentSessionInventory({
+      foundation: {} as never,
+      nowMs: 20_000,
+      rootDir: root,
+    });
+
+    await unbindProject({
+      organizationId: "org-first",
+      projectId: "project-first",
+      rootDir: root,
+    });
+    const secondBinding = await bindProject({
+      organizationId: "org-second",
+      projectId: "project-second",
+      projectSlug: "second",
+      repositoryFingerprint: null,
+      repositoryPath: secondRepositoryPath,
+      rootDir: root,
+    });
+    mocks.getAuthSessionState.mockResolvedValue({
+      session: { user: { id: "user-2" } },
+      state: "valid",
+    });
+    mocks.discoverLocalAgentSessionProviders.mockResolvedValue([
+      discoveryFor(secondBinding, "native-second"),
+    ]);
+    mocks.submitAgentActivitySessionReconciliation.mockClear();
+
+    await expect(
+      syncLocalAgentSessionInventory({
+        foundation: {} as never,
+        nowMs: 30_000,
+        rootDir: root,
+      })
+    ).resolves.toMatchObject({
+      sessionCount: 1,
+      sourceCount: 1,
+      status: "submitted",
+      submittedSourceCount: 1,
+    });
+    expect(
+      mocks.submitAgentActivitySessionReconciliation
+    ).toHaveBeenCalledTimes(1);
+    expect(mocks.submitAgentActivitySessionReconciliation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-second",
+        projectId: "project-second",
+        result: "sessions",
+      })
+    );
+    const stored = await readFile(
+      join(root, "device", "agent-activity", "session-inventory-sources.json"),
+      "utf8"
+    );
+    expect(stored).toContain('"ownerUserId":"user-1"');
+    expect(stored).toContain('"ownerUserId":"user-2"');
+  });
+
+  it("does not adopt a legacy ownerless source as the current owner's source", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-session-legacy-owner-"));
+    const repositoryPath = join(root, "repository");
+    await mkdir(repositoryPath, { recursive: true });
+    const binding = await bindProject({
+      organizationId: "org-current",
+      projectId: "project-current",
+      projectSlug: "current",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir: root,
+    });
+    const storePath = join(
+      root,
+      "device",
+      "agent-activity",
+      "session-inventory-sources.json"
+    );
+    await mkdir(join(root, "device", "agent-activity"), { recursive: true });
+    await writeFile(
+      storePath,
+      `${JSON.stringify({
+        sources: [
+          {
+            agentControllerRef: "builtin:codex",
+            localConnectionId: `sha256:${"f".repeat(64)}`,
+            organizationId: "org-legacy",
+            projectId: "project-legacy",
+            provider: "codex",
+            repositoryFingerprint: null,
+          },
+        ],
+        version: 1,
+      })}\n`,
+      "utf8"
+    );
+    mocks.getAuthSessionState.mockResolvedValue({
+      session: { user: { id: "user-current" } },
+      state: "valid",
+    });
+    mocks.discoverLocalAgentSessionProviders.mockResolvedValue([
+      discoveryFor(binding, "native-current"),
+    ]);
+
+    await syncLocalAgentSessionInventory({
+      foundation: {} as never,
+      nowMs: 40_000,
+      rootDir: root,
+    });
+
+    expect(
+      mocks.submitAgentActivitySessionReconciliation
+    ).toHaveBeenCalledTimes(1);
+    expect(mocks.submitAgentActivitySessionReconciliation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-current",
+        projectId: "project-current",
+        result: "sessions",
+      })
+    );
+    expect(await readFile(storePath, "utf8")).toContain(
+      '"ownerUserId":"user-current"'
+    );
+    expect(await readFile(storePath, "utf8")).not.toContain("project-legacy");
+  });
 });
+
+function discoveryFor(
+  binding: Awaited<ReturnType<typeof bindProject>>,
+  nativeSessionId: string
+) {
+  return {
+    agentControllerRef: "builtin:codex",
+    provider: "codex" as const,
+    result: "sessions" as const,
+    sessions: [
+      {
+        binding,
+        session: {
+          canFork: false,
+          canResume: true,
+          lastActiveAtMs: 10_000,
+          nativeSessionId,
+          nativeSessionTitle: null,
+          origin: "local" as const,
+          startedAtMs: 9000,
+          status: "idle" as const,
+        },
+      },
+    ],
+  };
+}
