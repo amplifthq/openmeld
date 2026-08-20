@@ -706,8 +706,9 @@ async function readOpenCodeSessionRows(
   databasePath: string
 ): Promise<Record<string, unknown>[]> {
   if (typeof process.versions.bun === "string") {
-    const bunSqliteModuleName = "bun:sqlite";
-    const { Database } = (await import(bunSqliteModuleName)) as {
+    // @ts-expect-error bun:sqlite exists only in the standalone Bun runtime.
+    const bunSqlite = await import("bun:sqlite");
+    const { Database } = bunSqlite as {
       Database: new (
         path: string,
         options: { create: boolean; readonly: boolean }
