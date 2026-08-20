@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDirectoryActivity } from "./directory-human-profile-presentation";
+import { formatDirectoryActivity } from "./directory-human-profile-format";
 
 describe("formatDirectoryActivity", () => {
 	const nowMs = Date.parse("2026-08-20T12:00:00.000Z");

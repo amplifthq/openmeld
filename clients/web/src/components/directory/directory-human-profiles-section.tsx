@@ -42,6 +42,11 @@ import {
 	DirectoryCardItem,
 } from "#/components/directory/directory-card-grid";
 import { DirectoryHumanProfileDetailsDrawer } from "#/components/directory/directory-human-profile-details-drawer";
+import {
+	formatDirectoryActivity,
+	resolveDirectoryIdentityAccountLabel,
+	resolveDirectoryRoleLabel,
+} from "#/components/directory/directory-human-profile-format";
 import type {
 	DirectoryHumanProfileRow,
 	DirectoryIdentityAccount,
@@ -49,9 +54,6 @@ import type {
 import {
 	DirectoryComputerSummary,
 	DirectoryIdentityAccountSummary,
-	formatDirectoryActivity,
-	resolveDirectoryIdentityAccountLabel,
-	resolveDirectoryRoleLabel,
 } from "#/components/directory/directory-human-profile-presentation";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { HumanProfileEditDialog } from "#/components/profiles/human-profile-edit-dialog";

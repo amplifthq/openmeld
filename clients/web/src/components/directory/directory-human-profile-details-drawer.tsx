@@ -12,6 +12,11 @@ import {
 import type { CSSProperties } from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
+import {
+	formatDirectoryActivity,
+	formatDirectoryDate,
+	resolveDirectoryRoleLabel,
+} from "#/components/directory/directory-human-profile-format";
 import type {
 	DirectoryHumanProfileRow,
 	DirectoryIdentityAccount,
@@ -19,9 +24,6 @@ import type {
 import {
 	DirectoryComputerSummary,
 	DirectoryIdentityAccountSummary,
-	formatDirectoryActivity,
-	formatDirectoryDate,
-	resolveDirectoryRoleLabel,
 } from "#/components/directory/directory-human-profile-presentation";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { copyTextToClipboard } from "#/lib/clipboard";
