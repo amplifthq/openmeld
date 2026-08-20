@@ -68,6 +68,7 @@ export function DirectoryComputerSummary(input: {
 export function DirectoryIdentityLogo(input: {
 	account: Pick<DirectoryIdentityAccount, "provider" | "providerLabel">;
 	className?: string;
+	muted?: boolean;
 	size?: "sm" | "md";
 }) {
 	return (
@@ -75,9 +76,42 @@ export function DirectoryIdentityLogo(input: {
 			<AppLogo
 				app={resolveChannelIdentity(input.account.provider)}
 				className={input.className}
+				muted={input.muted}
 				size={input.size ?? "sm"}
 			/>
 		</span>
+	);
+}
+
+export function DirectoryIdentityAccountSummary(input: {
+	account: DirectoryIdentityAccount;
+	context: "card" | "detail";
+}) {
+	const label = resolveDirectoryIdentityAccountLabel(input.account);
+	const showLabel =
+		input.context === "detail" || input.account.state !== "not_connected";
+	return (
+		<div className="inline-flex min-w-0 items-center gap-2">
+			<DirectoryIdentityLogo
+				account={input.account}
+				className={input.context === "card" ? "size-5 rounded-sm" : undefined}
+				muted={input.account.state !== "connected"}
+				size={input.context === "card" ? "sm" : "md"}
+			/>
+			{showLabel ? (
+				<span
+					className={cn(
+						"min-w-0 break-all",
+						input.context === "detail" ? "text-sm" : "text-xs",
+						input.account.state === "unavailable"
+							? "text-amber-600 dark:text-amber-400"
+							: "text-muted-foreground"
+					)}
+				>
+					{label}
+				</span>
+			) : null}
+		</div>
 	);
 }
 
@@ -128,16 +162,16 @@ export function formatDirectoryDate(value: string | null): string {
 	return DIRECTORY_DATE_FORMATTER.format(timestamp);
 }
 
-export function resolveDirectoryIdentityStateLabel(
-	state: DirectoryIdentityAccount["state"]
+export function resolveDirectoryIdentityAccountLabel(
+	account: DirectoryIdentityAccount
 ): string {
-	switch (state) {
+	switch (account.state) {
 		case "connected":
-			return "Linked";
+			return account.accountEmail ?? "Account email unavailable";
 		case "unavailable":
-			return "Needs attention";
+			return "Connection unavailable";
 		default:
-			return "Not linked";
+			return "No account connected";
 	}
 }
 

@@ -18,10 +18,9 @@ import type {
 } from "#/components/directory/directory-human-profile-model";
 import {
 	DirectoryComputerSummary,
-	DirectoryIdentityLogo,
+	DirectoryIdentityAccountSummary,
 	formatDirectoryActivity,
 	formatDirectoryDate,
-	resolveDirectoryIdentityStateLabel,
 	resolveDirectoryRoleLabel,
 } from "#/components/directory/directory-human-profile-presentation";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
@@ -217,16 +216,11 @@ function ConnectedIdentities(input: {
 							className="flex min-w-0 items-center gap-3 px-4 py-3"
 							key={account.provider}
 						>
-							<DirectoryIdentityLogo account={account} size="md" />
 							<div className="min-w-0 flex-1">
-								<p className="font-medium text-sm">
-									{resolveDirectoryIdentityStateLabel(account.state)}
-								</p>
-								<p className="text-muted-foreground text-xs">
-									{account.state === "connected"
-										? "Account email unavailable"
-										: "No identity is linked"}
-								</p>
+								<DirectoryIdentityAccountSummary
+									account={account}
+									context="detail"
+								/>
 							</div>
 							{account.state === "not_connected" && account.channelsPath ? (
 								<Button

@@ -38,6 +38,7 @@ export type DirectoryHumanProfileComputer = {
 };
 
 export type DirectoryIdentityAccount = {
+	accountEmail: string | null;
 	canDisconnect: boolean;
 	channelsPath: string | null;
 	id: string | null;
@@ -449,6 +450,7 @@ function resolveIdentityAccounts(input: {
 			const link = linkByProvider.get(provider);
 			if (link) {
 				return {
+					accountEmail: resolveProviderAccountEmail(link.providerAccountName),
 					canDisconnect:
 						input.isCurrentUser || input.canManageConnectedAccounts,
 					channelsPath: null,
@@ -460,6 +462,7 @@ function resolveIdentityAccounts(input: {
 				};
 			}
 			return {
+				accountEmail: null,
 				canDisconnect: false,
 				channelsPath:
 					input.isCurrentUser && connection?.status === "connected"
@@ -474,6 +477,15 @@ function resolveIdentityAccounts(input: {
 		.sort((left, right) =>
 			left.providerLabel.localeCompare(right.providerLabel)
 		);
+}
+
+const PROVIDER_ACCOUNT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
+function resolveProviderAccountEmail(value: string | null): string | null {
+	const normalizedValue = value?.trim() ?? "";
+	return PROVIDER_ACCOUNT_EMAIL_PATTERN.test(normalizedValue)
+		? normalizedValue
+		: null;
 }
 
 const DIRECTORY_ROLE_PRIORITY: Record<DirectoryHumanProfileRole, number> = {

@@ -48,7 +48,7 @@ export function ProfileCard(input: {
 		<>
 			{icon}
 			<div className="min-w-0 flex-1 space-y-1">
-				<div className="flex min-w-0 items-start gap-2">
+				<div className="flex min-w-0 items-center gap-2">
 					<p
 						className={cn(
 							"min-w-0 break-words font-medium text-[0.95rem] leading-5",
@@ -58,9 +58,13 @@ export function ProfileCard(input: {
 						{title}
 					</p>
 					{titleAdornment ? (
-						<div className="shrink-0">{titleAdornment}</div>
+						<div className="flex h-5 shrink-0 items-center">
+							{titleAdornment}
+						</div>
 					) : null}
-					{titleAction ? <div className="shrink-0">{titleAction}</div> : null}
+					{titleAction ? (
+						<div className="flex h-5 shrink-0 items-center">{titleAction}</div>
+					) : null}
 				</div>
 				{subtitle ? (
 					<p className="text-muted-foreground text-xs leading-5">{subtitle}</p>

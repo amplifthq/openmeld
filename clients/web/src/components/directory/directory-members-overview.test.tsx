@@ -851,14 +851,33 @@ describe("DirectoryMembersOverview", () => {
 			throw new Error("Expected the current member's Human Profile card.");
 		}
 		expect(
-			await within(currentCard).findByRole("button", { name: "Slack: Linked" })
+			await within(currentCard).findByRole("button", {
+				name: "Slack account: Account email unavailable",
+			})
 		).toBeTruthy();
 		expect(
-			within(currentCard).getByRole("button", { name: "Lark: Not linked" })
+			within(currentCard).getByRole("button", {
+				name: "Lark account: No account connected",
+			})
 		).toBeTruthy();
-		expect(within(currentCard).queryByText("@felix")).toBeNull();
+		expect(
+			within(currentCard)
+				.getByTestId("app-logo-slack")
+				.classList.contains("grayscale")
+		).toBe(false);
+		expect(
+			within(currentCard)
+				.getByTestId("app-logo-lark")
+				.classList.contains("grayscale")
+		).toBe(true);
+		expect(
+			within(currentCard).getByText("Account email unavailable")
+		).toBeTruthy();
+		expect(within(currentCard).queryByText("Linked")).toBeNull();
 		fireEvent.click(
-			within(currentCard).getByRole("button", { name: "Slack: Linked" })
+			within(currentCard).getByRole("button", {
+				name: "Slack account: Account email unavailable",
+			})
 		);
 		const identityDrawer = await screen.findByRole("dialog", {
 			name: "Profile",
@@ -866,6 +885,7 @@ describe("DirectoryMembersOverview", () => {
 		expect(
 			within(identityDrawer).getByText("Account email unavailable")
 		).toBeTruthy();
+		expect(within(identityDrawer).queryByText("Linked")).toBeNull();
 		fireEvent.click(
 			within(identityDrawer).getByRole("button", { name: "Manage" })
 		);
@@ -884,6 +904,44 @@ describe("DirectoryMembersOverview", () => {
 		expect(toastSuccessMock).toHaveBeenCalledWith(
 			"Connected account disconnected."
 		);
+	});
+
+	it("shows a provider account email consistently in the card and profile details", async () => {
+		listCurrentOrganizationMessageChannelsMock.mockResolvedValue({
+			availableLarkPlatformProviders: [],
+			connections: [
+				buildChannelConnection({ id: "slack:T123", provider: "slack" }),
+			],
+			identityLinks: [
+				{
+					connectedAt: "2026-07-16T00:00:00.000Z",
+					id: `channel_identity_${"d".repeat(64)}`,
+					openMeldUserId: "user-current",
+					provider: "slack",
+					providerAccountName: "felix@amplift.ai",
+				},
+			],
+			organizationId: "org-acme",
+		});
+		renderOverview({ currentUserProfile: true, isPersonal: false });
+
+		const currentCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		)[0];
+		if (!currentCard) {
+			throw new Error("Expected the current member's Human Profile card.");
+		}
+		const identityButton = await within(currentCard).findByRole("button", {
+			name: "Slack account: felix@amplift.ai",
+		});
+		expect(within(currentCard).getByText("felix@amplift.ai")).toBeTruthy();
+
+		fireEvent.click(identityButton);
+		expect(
+			within(await screen.findByRole("dialog", { name: "Profile" })).getByText(
+				"felix@amplift.ai"
+			)
+		).toBeTruthy();
 	});
 
 	it("offers the current member a connection when another member owns that provider account", async () => {
@@ -913,12 +971,20 @@ describe("DirectoryMembersOverview", () => {
 		}
 		expect(
 			await within(currentCard).findByRole("button", {
-				name: "Slack: Not linked",
+				name: "Slack account: No account connected",
 			})
 		).toBeTruthy();
+		expect(
+			within(currentCard)
+				.getByTestId("app-logo-slack")
+				.classList.contains("grayscale")
+		).toBe(true);
+		expect(within(currentCard).queryByText("No account connected")).toBeNull();
 		expect(within(currentCard).queryByText("@grace")).toBeNull();
 		fireEvent.click(
-			within(currentCard).getByRole("button", { name: "Slack: Not linked" })
+			within(currentCard).getByRole("button", {
+				name: "Slack account: No account connected",
+			})
 		);
 		expect(
 			within(await screen.findByRole("dialog", { name: "Profile" })).getByRole(
@@ -951,7 +1017,7 @@ describe("DirectoryMembersOverview", () => {
 		}
 		fireEvent.click(
 			await within(currentCard).findByRole("button", {
-				name: "Slack: Not linked",
+				name: "Slack account: No account connected",
 			})
 		);
 		const identityDrawer = await screen.findByRole("dialog", {
@@ -973,7 +1039,7 @@ describe("DirectoryMembersOverview", () => {
 		await waitFor(() => {
 			expect(
 				within(currentCard).queryByRole("button", {
-					name: "Slack: Not linked",
+					name: "Slack account: No account connected",
 				})
 			).toBeNull();
 		});
@@ -1006,10 +1072,14 @@ describe("DirectoryMembersOverview", () => {
 			throw new Error("Expected Grace's Human Profile card.");
 		}
 		expect(
-			await within(graceCard).findByRole("button", { name: "Slack: Linked" })
+			await within(graceCard).findByRole("button", {
+				name: "Slack account: Account email unavailable",
+			})
 		).toBeTruthy();
 		fireEvent.click(
-			within(graceCard).getByRole("button", { name: "Slack: Linked" })
+			within(graceCard).getByRole("button", {
+				name: "Slack account: Account email unavailable",
+			})
 		);
 		expect(
 			within(await screen.findByRole("dialog", { name: "Profile" })).getByRole(

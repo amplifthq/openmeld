@@ -48,9 +48,9 @@ import type {
 } from "#/components/directory/directory-human-profile-model";
 import {
 	DirectoryComputerSummary,
-	DirectoryIdentityLogo,
+	DirectoryIdentityAccountSummary,
 	formatDirectoryActivity,
-	resolveDirectoryIdentityStateLabel,
+	resolveDirectoryIdentityAccountLabel,
 	resolveDirectoryRoleLabel,
 } from "#/components/directory/directory-human-profile-presentation";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
@@ -404,25 +404,13 @@ function HumanProfileIdentitySummary(input: {
 		<div className="flex flex-wrap items-center justify-end gap-2">
 			{input.accounts.map((account) => (
 				<button
-					aria-label={`${account.providerLabel}: ${resolveDirectoryIdentityStateLabel(account.state)}`}
-					className="inline-flex items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+					aria-label={`${account.providerLabel} account: ${resolveDirectoryIdentityAccountLabel(account)}`}
+					className="inline-flex items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
 					key={account.provider}
 					onClick={input.onOpenDetails}
 					type="button"
 				>
-					<DirectoryIdentityLogo
-						account={account}
-						className="size-5 rounded-sm p-1"
-					/>
-					<span
-						className={cn(
-							account.state === "unavailable"
-								? "text-amber-600 dark:text-amber-400"
-								: null
-						)}
-					>
-						{resolveDirectoryIdentityStateLabel(account.state)}
-					</span>
+					<DirectoryIdentityAccountSummary account={account} context="card" />
 				</button>
 			))}
 		</div>
