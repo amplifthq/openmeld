@@ -61,6 +61,11 @@ export const agentProfileCreationRequests = sqliteTable(
       .references(() => users.id, { onDelete: "cascade" }),
     source: text("source").notNull(),
     profileName: text("profile_name").notNull(),
+    configurationJson: text("configuration_json")
+      .default(
+        '{"agentControllerPermissionMode":null,"agentControllerRef":null,"authorizeForOrganization":true,"defaultProjectId":null,"modelId":null,"openCodePermission":null,"reasoningLevel":null,"targetComputerId":null}'
+      )
+      .notNull(),
     sessionStrategy: text("session_strategy").notNull(),
     nativeSessionId: text("native_session_id"),
     requestedSpaceId: text("requested_space_id"),
@@ -68,6 +73,7 @@ export const agentProfileCreationRequests = sqliteTable(
     status: text("status").notNull(),
     statusReason: text("status_reason").notNull(),
     createdAgentProfileId: text("created_agent_profile_id"),
+    failureMessage: text("failure_message"),
     decidedAt: integer("decided_at", { mode: "timestamp_ms" }),
     completedAt: integer("completed_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
@@ -117,7 +123,11 @@ export const agentProfileCreationRequests = sqliteTable(
     ),
     check(
       "agent_profile_creation_requests_completion_check",
-      sql`("status" = 'completed' and "created_agent_profile_id" is not null and "completed_at" is not null) or ("status" != 'completed' and "created_agent_profile_id" is null and "completed_at" is null)`
+      sql`("status" = 'completed' and "created_agent_profile_id" is not null and "completed_at" is not null) or ("status" = 'failed' and "completed_at" is null) or ("status" not in ('completed', 'failed') and "created_agent_profile_id" is null and "completed_at" is null)`
+    ),
+    check(
+      "agent_profile_creation_requests_failure_check",
+      sql`("status" = 'failed' and "failure_message" is not null and length(trim("failure_message")) > 0) or ("status" != 'failed' and "failure_message" is null)`
     ),
     check(
       "agent_profile_creation_requests_required_text_check",

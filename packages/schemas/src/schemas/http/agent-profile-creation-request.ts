@@ -1,4 +1,9 @@
 import { z } from "zod/v4";
+import { agentControllerRefSchema } from "../daemon/agent-controller-ref";
+import {
+  agentProfileBindingAgentControllerPermissionModeSchema,
+  agentProfileBindingOpenCodePermissionSchema,
+} from "./agent-profile-binding";
 
 const identifierSchema = z.string().trim().min(1).max(256);
 const profileNameSchema = z.string().trim().min(1).max(80);
@@ -44,14 +49,77 @@ export const agentProfileCreationRequestStatusReasonSchema = z.enum([
   "profile_creation_failed",
 ]);
 
+export const agentProfileCreationConfigurationSchema = z
+  .strictObject({
+    agentControllerPermissionMode:
+      agentProfileBindingAgentControllerPermissionModeSchema.nullable(),
+    agentControllerRef: agentControllerRefSchema.nullable(),
+    authorizeForOrganization: z.boolean(),
+    defaultProjectId: identifierSchema.nullable(),
+    modelId: identifierSchema.nullable(),
+    openCodePermission: agentProfileBindingOpenCodePermissionSchema.nullable(),
+    reasoningLevel: identifierSchema.nullable(),
+    targetComputerId: identifierSchema.nullable(),
+  })
+  .superRefine((configuration, context) => {
+    const hasController = configuration.agentControllerRef !== null;
+    const hasComputer = configuration.targetComputerId !== null;
+    if (hasController !== hasComputer) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "agentControllerRef and targetComputerId must be provided together.",
+        path: hasController ? ["targetComputerId"] : ["agentControllerRef"],
+      });
+    }
+    if (
+      configuration.reasoningLevel !== null &&
+      configuration.modelId === null
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "reasoningLevel requires modelId.",
+        path: ["reasoningLevel"],
+      });
+    }
+    if (!hasController) {
+      const controllerSetting = [
+        configuration.agentControllerPermissionMode,
+        configuration.modelId,
+        configuration.openCodePermission,
+        configuration.reasoningLevel,
+      ].find((value) => value !== null);
+      if (controllerSetting !== undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "Local agent settings require an Agent Controller.",
+          path: ["agentControllerRef"],
+        });
+      }
+    }
+  });
+
+export const DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION = {
+  agentControllerPermissionMode: null,
+  agentControllerRef: null,
+  authorizeForOrganization: true,
+  defaultProjectId: null,
+  modelId: null,
+  openCodePermission: null,
+  reasoningLevel: null,
+  targetComputerId: null,
+} as const;
+
 export const agentProfileCreationRequestSchema = z
   .strictObject({
     actorProfileId: identifierSchema,
     completedAt: isoDateTimeSchema.nullable(),
+    configuration: agentProfileCreationConfigurationSchema,
     createdAgentProfileId: identifierSchema.nullable(),
     createdAt: isoDateTimeSchema,
     decidedAt: isoDateTimeSchema.nullable(),
     id: identifierSchema,
+    failureMessage: z.string().trim().min(1).max(1000).nullable(),
     nativeSessionId: identifierSchema.nullable(),
     organizationId: identifierSchema,
     profileName: profileNameSchema,
@@ -80,20 +148,34 @@ export const agentProfileCreationRequestSchema = z
       });
     }
     if (
-      (request.status === "completed") !==
-      (request.createdAgentProfileId !== null && request.completedAt !== null)
+      request.status === "completed" &&
+      request.createdAgentProfileId === null
     ) {
       context.addIssue({
         code: "custom",
-        message:
-          "Completed requests require a created Agent Profile and completion time.",
+        message: "Completed requests require a created Agent Profile.",
+        path: ["createdAgentProfileId"],
+      });
+    }
+    if ((request.status === "completed") !== (request.completedAt !== null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Only completed requests can have a completion time.",
         path: ["status"],
+      });
+    }
+    if ((request.status === "failed") !== (request.failureMessage !== null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Failed requests require a failure message.",
+        path: ["failureMessage"],
       });
     }
   });
 
 export const createAgentProfileCreationRequestBodySchema = z
   .strictObject({
+    configuration: agentProfileCreationConfigurationSchema.optional(),
     idempotencyKey: identifierSchema,
     nativeSessionId: identifierSchema.nullable().optional(),
     profileName: profileNameSchema,

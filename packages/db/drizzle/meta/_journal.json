@@ -925,6 +925,13 @@
       "when": 1787217135079,
       "tag": "0131_big_black_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "6",
+      "when": 1787237340996,
+      "tag": "0132_dry_misty_knight",
+      "breakpoints": true
     }
   ]
 }

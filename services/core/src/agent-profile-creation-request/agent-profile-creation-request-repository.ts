@@ -1,5 +1,6 @@
 import {
   agentProfileCreationApprovalPolicySchema,
+  agentProfileCreationConfigurationSchema,
   agentProfileCreationRequestSourceSchema,
   agentProfileCreationRequestStatusReasonSchema,
   agentProfileCreationRequestStatusSchema,
@@ -14,11 +15,13 @@ import type {
 type RequestRow = {
   actor_profile_id: string;
   completed_at: number | null;
+  configuration_json: string;
   created_agent_profile_id: string | null;
   created_at: number;
   decided_at: number | null;
   id: string;
   idempotency_key: string;
+  failure_message: string | null;
   native_session_id: string | null;
   organization_id: string;
   profile_name: string;
@@ -48,6 +51,7 @@ const REQUEST_COLUMNS = `
   target_owner_user_id,
   source,
   profile_name,
+  configuration_json,
   session_strategy,
   native_session_id,
   requested_space_id,
@@ -55,6 +59,7 @@ const REQUEST_COLUMNS = `
   status,
   status_reason,
   created_agent_profile_id,
+  failure_message,
   decided_at,
   completed_at,
   created_at,
@@ -130,7 +135,7 @@ export function createD1AgentProfileCreationRequestRepository(
           `
             INSERT INTO agent_profile_creation_requests (
               ${REQUEST_COLUMNS}
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `
         )
         .bind(
@@ -141,6 +146,7 @@ export function createD1AgentProfileCreationRequestRepository(
           record.targetOwnerUserId,
           record.source,
           record.profileName,
+          JSON.stringify(record.configuration),
           record.sessionStrategy,
           record.nativeSessionId,
           record.requestedSpaceId,
@@ -148,6 +154,7 @@ export function createD1AgentProfileCreationRequestRepository(
           record.status,
           record.statusReason,
           record.createdAgentProfileId,
+          record.failureMessage,
           record.decidedAtMs,
           record.completedAtMs,
           record.createdAtMs,
@@ -202,6 +209,7 @@ export function createD1AgentProfileCreationRequestRepository(
               status = ?,
               status_reason = ?,
               created_agent_profile_id = ?,
+              failure_message = ?,
               decided_at = ?,
               completed_at = ?,
               updated_at = ?
@@ -213,6 +221,7 @@ export function createD1AgentProfileCreationRequestRepository(
           record.status,
           record.statusReason,
           record.createdAgentProfileId,
+          record.failureMessage,
           record.decidedAtMs,
           record.completedAtMs,
           record.updatedAtMs,
@@ -290,11 +299,13 @@ function toRequestRecord(row: RequestRow): AgentProfileCreationRequestRecord {
   return {
     actorProfileId: requireText(row.actor_profile_id, "actor_profile_id"),
     completedAtMs: toNullableTimestamp(row.completed_at, "completed_at"),
+    configuration: parseConfiguration(row.configuration_json),
     createdAgentProfileId: toNullableText(row.created_agent_profile_id),
     createdAtMs: requireTimestamp(row.created_at, "created_at"),
     decidedAtMs: toNullableTimestamp(row.decided_at, "decided_at"),
     id: requireText(row.id, "id"),
     idempotencyKey: requireText(row.idempotency_key, "idempotency_key"),
+    failureMessage: toNullableText(row.failure_message),
     nativeSessionId: toNullableText(row.native_session_id),
     organizationId: requireText(row.organization_id, "organization_id"),
     profileName: requireText(row.profile_name, "profile_name"),
@@ -314,6 +325,22 @@ function toRequestRecord(row: RequestRow): AgentProfileCreationRequestRecord {
     ),
     updatedAtMs: requireTimestamp(row.updated_at, "updated_at"),
   };
+}
+
+function parseConfiguration(value: unknown) {
+  const raw = requireText(value, "configuration_json");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    throw new Error(
+      "Invalid Agent Profile creation request configuration_json.",
+      {
+        cause,
+      }
+    );
+  }
+  return agentProfileCreationConfigurationSchema.parse(parsed);
 }
 
 function toPreferenceRecord(

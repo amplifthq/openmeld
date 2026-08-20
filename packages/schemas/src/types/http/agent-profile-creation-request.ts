@@ -18,6 +18,9 @@ export type AgentProfileCreationRequestStatus = z.infer<
 export type AgentProfileCreationRequestStatusReason = z.infer<
   Schemas["agentProfileCreationRequestStatusReasonSchema"]
 >;
+export type AgentProfileCreationConfiguration = z.infer<
+  Schemas["agentProfileCreationConfigurationSchema"]
+>;
 export type AgentProfileCreationRequest = z.infer<
   Schemas["agentProfileCreationRequestSchema"]
 >;

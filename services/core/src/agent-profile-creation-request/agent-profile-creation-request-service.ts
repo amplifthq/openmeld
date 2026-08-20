@@ -1,11 +1,13 @@
 import {
   agentProfileCreationRequestSchema,
   createAgentProfileCreationRequestBodySchema,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
   setAgentProfileCreationApprovalPreferenceBodySchema,
 } from "@openmeld/schemas";
 import type {
   AgentProfileCreationApprovalPolicy,
   AgentProfileCreationApprovalPreference,
+  AgentProfileCreationConfiguration,
   AgentProfileCreationRequest,
   AgentProfileCreationRequestSource,
   AgentProfileCreationRequestStatus,
@@ -20,11 +22,13 @@ const DEFAULT_APPROVAL_POLICY = "ask_every_time" as const;
 export type AgentProfileCreationRequestRecord = {
   actorProfileId: string;
   completedAtMs: number | null;
+  configuration: AgentProfileCreationConfiguration;
   createdAgentProfileId: string | null;
   createdAtMs: number;
   decidedAtMs: number | null;
   id: string;
   idempotencyKey: string;
+  failureMessage: string | null;
   nativeSessionId: string | null;
   organizationId: string;
   profileName: string;
@@ -111,6 +115,22 @@ export class AgentProfileCreationRequestStateError extends Error {
   }
 }
 
+export class AgentProfileCreationRequestExecutionError extends Error {
+  readonly createdAgentProfileId: string | null;
+
+  constructor(input: {
+    cause: unknown;
+    createdAgentProfileId?: string | null;
+    message?: string;
+  }) {
+    const causeMessage =
+      input.cause instanceof Error ? input.cause.message : String(input.cause);
+    super(input.message ?? causeMessage, { cause: input.cause });
+    this.name = "AgentProfileCreationRequestExecutionError";
+    this.createdAgentProfileId = input.createdAgentProfileId ?? null;
+  }
+}
+
 export function createAgentProfileCreationRequestService(input: {
   createAgentProfile: (
     request: AgentProfileCreationRequestRecord
@@ -134,11 +154,19 @@ export function createAgentProfileCreationRequestService(input: {
     let createdAgentProfileId: string;
     try {
       createdAgentProfileId = await input.createAgentProfile(record);
-    } catch {
+    } catch (error) {
+      const executionError =
+        error instanceof AgentProfileCreationRequestExecutionError
+          ? error
+          : null;
       const failed = await input.repository.transition({
         expectedStatuses: ["approved"],
         requestId: record.id,
         update: {
+          createdAgentProfileId:
+            executionError?.createdAgentProfileId ??
+            record.createdAgentProfileId,
+          failureMessage: normalizeFailureMessage(error),
           status: "failed",
           statusReason: "profile_creation_failed",
           updatedAtMs: nowMs,
@@ -155,6 +183,7 @@ export function createAgentProfileCreationRequestService(input: {
       update: {
         completedAtMs: nowMs,
         createdAgentProfileId,
+        failureMessage: null,
         status: "completed",
         statusReason: "profile_created",
         updatedAtMs: nowMs,
@@ -201,6 +230,7 @@ export function createAgentProfileCreationRequestService(input: {
         requestId: current.id,
         update: {
           decidedAtMs: current.decidedAtMs ?? nowMs,
+          failureMessage: null,
           status: "cancelled",
           statusReason: "requester_cancelled",
           updatedAtMs: nowMs,
@@ -228,6 +258,8 @@ export function createAgentProfileCreationRequestService(input: {
       const body = createAgentProfileCreationRequestBodySchema.parse(
         request.body
       );
+      const configuration =
+        body.configuration ?? DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION;
       const existing = await input.repository.findByIdempotencyKey({
         idempotencyKey: body.idempotencyKey,
         organizationId: request.organizationId,
@@ -252,11 +284,13 @@ export function createAgentProfileCreationRequestService(input: {
       const record: AgentProfileCreationRequestRecord = {
         actorProfileId: request.actorProfileId,
         completedAtMs: null,
+        configuration,
         createdAgentProfileId: null,
         createdAtMs: nowMs,
         decidedAtMs: initial.status === "pending" ? null : nowMs,
         id: `apcr_${randomUuid()}`,
         idempotencyKey: body.idempotencyKey,
+        failureMessage: null,
         nativeSessionId: body.nativeSessionId ?? null,
         organizationId: request.organizationId,
         profileName: body.profileName,
@@ -408,6 +442,7 @@ export function createAgentProfileCreationRequestService(input: {
         expectedStatuses: ["failed", "approved"],
         requestId: current.id,
         update: {
+          failureMessage: null,
           status: "approved",
           statusReason:
             current.statusReason === "target_approved"
@@ -497,6 +532,10 @@ function assertSameIntent(
 ): void {
   if (
     record.actorProfileId !== actorProfileId ||
+    JSON.stringify(record.configuration) !==
+      JSON.stringify(
+        body.configuration ?? DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION
+      ) ||
     record.targetOwnerUserId !== body.targetOwnerUserId ||
     record.profileName !== body.profileName ||
     record.sessionStrategy !== body.sessionStrategy ||
@@ -517,6 +556,7 @@ function toPublicRequest(
       record.completedAtMs === null
         ? null
         : new Date(record.completedAtMs).toISOString(),
+    configuration: record.configuration,
     createdAgentProfileId: record.createdAgentProfileId,
     createdAt: new Date(record.createdAtMs).toISOString(),
     decidedAt:
@@ -524,6 +564,7 @@ function toPublicRequest(
         ? null
         : new Date(record.decidedAtMs).toISOString(),
     id: record.id,
+    failureMessage: record.failureMessage,
     nativeSessionId: record.nativeSessionId,
     organizationId: record.organizationId,
     profileName: record.profileName,
@@ -536,4 +577,11 @@ function toPublicRequest(
     targetOwnerUserId: record.targetOwnerUserId,
     updatedAt: new Date(record.updatedAtMs).toISOString(),
   });
+}
+
+function normalizeFailureMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const normalized =
+    raw.trim() || "OpenMeld couldn't finish creating this Agent.";
+  return normalized.slice(0, 1000);
 }

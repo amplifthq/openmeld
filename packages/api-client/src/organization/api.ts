@@ -79,6 +79,7 @@ export const createOrganizationApi: CreateOrganizationApi = (
 ) => ({
   createAgentProfileCreationRequest: async (input) => {
     const body = createAgentProfileCreationRequestBodySchema.parse({
+      configuration: input.configuration,
       idempotencyKey: input.idempotencyKey,
       nativeSessionId: input.nativeSessionId,
       profileName: input.profileName,

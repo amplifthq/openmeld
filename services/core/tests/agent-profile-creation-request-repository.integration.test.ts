@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import { createD1AgentProfileCreationRequestRepository } from "../src/agent-profile-creation-request/agent-profile-creation-request-repository";
 import type { AgentProfileCreationRequestRecord } from "../src/agent-profile-creation-request/agent-profile-creation-request-service";
@@ -16,11 +17,13 @@ describe("Agent Profile creation request repository", () => {
     const record: AgentProfileCreationRequestRecord = {
       actorProfileId: `human-${suffix}`,
       completedAtMs: null,
+      configuration: DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
       createdAgentProfileId: null,
       createdAtMs: 1_787_220_000_000,
       decidedAtMs: null,
       id: `apcr_${suffix}`,
       idempotencyKey: `key-${suffix}`,
+      failureMessage: null,
       nativeSessionId: null,
       organizationId,
       profileName: "Release Reviewer",

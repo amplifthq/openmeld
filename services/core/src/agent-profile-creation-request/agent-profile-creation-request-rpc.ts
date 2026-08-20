@@ -11,6 +11,7 @@ import {
 } from "@openmeld/schemas";
 import type {
   AgentProfileCreationApprovalPolicy,
+  AgentProfileCreationConfiguration,
   AgentProfileCreationRequestMutationResponse,
   AgentProfileCreationSessionStrategy,
   CenterAgentOnBehalfOfInput,
@@ -23,10 +24,19 @@ import type {
   SetAgentProfileCreationApprovalPreferenceBody,
   SetAgentProfileCreationApprovalPreferenceResponse,
 } from "@openmeld/schemas/types";
+import { projectCenterAgentLocalAgentConnectionCandidates } from "../center-agent/application/product-operations";
 import { resolveCenterAgentAuditAttribution } from "../center-agent/center-agent-audit";
 import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
 import { type CoreBindings, identityDb } from "../lib/bindings";
 import { createCoreRpcHttpError } from "../rpc/errors";
+import {
+  rpcAddOrganizationDirectoryProfilesToSpace,
+  rpcAuthorizeAgentProfileBindingForOrganization,
+  rpcEnsureAgentProfilePrimaryBinding,
+  rpcListLocalRuntimes,
+  rpcSetCurrentAgentProfileWorkspace,
+  rpcUpdateAgentProfileDefaultProject,
+} from "../rpc/methods";
 import {
   projectAgentProfileCreationRequestInbox,
   resolveAgentProfileCreationRequestInbox,
@@ -34,6 +44,7 @@ import {
 import { createD1AgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
 import {
   AgentProfileCreationRequestConflictError,
+  AgentProfileCreationRequestExecutionError,
   AgentProfileCreationRequestForbiddenError,
   AgentProfileCreationRequestNotFoundError,
   type AgentProfileCreationRequestRecord,
@@ -77,6 +88,7 @@ export type SetAgentProfileCreationApprovalPreferenceRpcInput =
   };
 
 export type CenterAgentCreateAgentProfileCreationRequestRpcInput = {
+  configuration?: AgentProfileCreationConfiguration;
   context?: OpenMeldRequestContext;
   nativeSessionId?: string | null;
   onBehalfOf: CenterAgentOnBehalfOfInput;
@@ -120,8 +132,10 @@ export async function rpcCenterAgentCreateAgentProfileCreationRequest(
     onBehalfOf: input.onBehalfOf,
   });
   return await rpcCreateAgentProfileCreationRequest(env, {
+    configuration: input.configuration,
     context: prepared.context,
     idempotencyKey: await buildCenterAgentCreationRequestIdempotencyKey({
+      configuration: input.configuration,
       context: prepared.context,
       nativeSessionId: input.nativeSessionId ?? null,
       profileName: input.profileName,
@@ -225,6 +239,7 @@ export async function rpcCreateAgentProfileCreationRequest(
     "Organization"
   );
   const body = createAgentProfileCreationRequestBodySchema.safeParse({
+    configuration: input.configuration,
     idempotencyKey: input.idempotencyKey,
     nativeSessionId: input.nativeSessionId,
     profileName: input.profileName,
@@ -491,6 +506,7 @@ async function prepareCenterAgentRepresentedMemberRequest(input: {
 }
 
 async function buildCenterAgentCreationRequestIdempotencyKey(input: {
+  configuration?: AgentProfileCreationConfiguration;
   context: OpenMeldRequestContext;
   nativeSessionId: string | null;
   profileName: string;
@@ -498,6 +514,7 @@ async function buildCenterAgentCreationRequestIdempotencyKey(input: {
   targetOwnerUserId: string;
 }): Promise<string> {
   const payload = JSON.stringify({
+    configuration: input.configuration,
     nativeSessionId: input.nativeSessionId,
     profileName: input.profileName,
     requestId: input.context.actorContext.requestId,
@@ -537,7 +554,184 @@ async function createRequestedAgentProfile(
   if (!result.profile.openMeldProfileId) {
     throw new Error("Auth could not create the requested Agent Profile.");
   }
-  return result.profile.openMeldProfileId;
+  const agentProfileId = result.profile.openMeldProfileId;
+  try {
+    await completeRequestedAgentProfileSetup({
+      agentProfileId,
+      env,
+      request,
+    });
+  } catch (cause) {
+    throw new AgentProfileCreationRequestExecutionError({
+      cause,
+      createdAgentProfileId: agentProfileId,
+    });
+  }
+  return agentProfileId;
+}
+
+async function completeRequestedAgentProfileSetup(input: {
+  agentProfileId: string;
+  env: CoreBindings;
+  request: AgentProfileCreationRequestRecord;
+}): Promise<void> {
+  if (input.request.requestedSpaceId) {
+    await addRequestedAgentProfileToSpace({
+      ...input,
+      spaceId: input.request.requestedSpaceId,
+    });
+  }
+
+  if (
+    input.request.configuration.agentControllerRef &&
+    input.request.configuration.targetComputerId
+  ) {
+    await connectRequestedAgentProfile(input);
+  }
+}
+
+async function addRequestedAgentProfileToSpace(input: {
+  agentProfileId: string;
+  env: CoreBindings;
+  request: AgentProfileCreationRequestRecord;
+  spaceId: string;
+}): Promise<void> {
+  const requesterContext = await buildMemberHumanContext({
+    env: input.env,
+    organizationId: input.request.organizationId,
+    requestId: `agent-profile-creation-request:${input.request.id}:space`,
+    userId: input.request.requesterUserId,
+  });
+  await rpcAddOrganizationDirectoryProfilesToSpace(input.env, {
+    context: requesterContext,
+    directoryProfileIds: [input.agentProfileId],
+    spaceId: input.spaceId,
+  });
+}
+
+async function connectRequestedAgentProfile(input: {
+  agentProfileId: string;
+  env: CoreBindings;
+  request: AgentProfileCreationRequestRecord;
+}): Promise<void> {
+  const configuration = input.request.configuration;
+  const targetContext = await buildMemberHumanContext({
+    env: input.env,
+    organizationId: input.request.organizationId,
+    requestId: `agent-profile-creation-request:${input.request.id}:target`,
+    userId: input.request.targetOwnerUserId,
+  });
+  const localRuntimes = await rpcListLocalRuntimes(input.env, {
+    connectionIdentityAdoption: "safe_legacy_current",
+    context: targetContext,
+  });
+  const candidates = projectCenterAgentLocalAgentConnectionCandidates({
+    localRuntimes,
+    organizationId: input.request.organizationId,
+  });
+  const candidate = candidates.candidates.find(
+    (item) =>
+      item.deviceId === configuration.targetComputerId &&
+      item.agentControllerRef === configuration.agentControllerRef
+  );
+  if (!candidate) {
+    throw new Error(
+      "The selected local agent is no longer available on that Computer."
+    );
+  }
+  if (!candidate.connectable) {
+    throw new Error(
+      `${candidate.agentDisplayName} on ${candidate.deviceDisplayName} is not ready to connect.`
+    );
+  }
+  const binding = await rpcEnsureAgentProfilePrimaryBinding(input.env, {
+    agentControllerRef: candidate.agentControllerRef,
+    agentProfileId: input.agentProfileId,
+    context: targetContext,
+    deviceId: candidate.deviceId,
+    lane: candidate.runtimeLane,
+    openMeldServiceRuntimeId: candidate.openMeldServiceRuntimeId,
+    writeMode: "reconnect",
+    ...(configuration.agentControllerPermissionMode
+      ? {
+          agentControllerPermissionMode:
+            configuration.agentControllerPermissionMode,
+        }
+      : {}),
+    ...(configuration.modelId ? { modelId: configuration.modelId } : {}),
+    ...(configuration.openCodePermission
+      ? { openCodePermission: configuration.openCodePermission }
+      : {}),
+    ...(configuration.reasoningLevel
+      ? { reasoningLevel: configuration.reasoningLevel }
+      : {}),
+  });
+  if (binding.status !== "accepted") {
+    throw new Error(
+      `OpenMeld couldn't connect the selected local agent: ${binding.reasonCodes.join(", ") || "unknown reason"}.`
+    );
+  }
+  await rpcSetCurrentAgentProfileWorkspace(input.env, {
+    agentProfileId: input.agentProfileId,
+    context: targetContext,
+    workspaceMode: "openmeld_managed",
+  });
+  if (configuration.defaultProjectId) {
+    await rpcUpdateAgentProfileDefaultProject(input.env, {
+      agentProfileId: input.agentProfileId,
+      context: targetContext,
+      defaultProjectId: configuration.defaultProjectId,
+      expectedOrganizationId: input.request.organizationId,
+    });
+  }
+  if (configuration.authorizeForOrganization) {
+    await rpcAuthorizeAgentProfileBindingForOrganization(input.env, {
+      agentProfileId: input.agentProfileId,
+      context: targetContext,
+    });
+  }
+}
+
+async function buildMemberHumanContext(input: {
+  env: CoreBindings;
+  organizationId: string;
+  requestId: string;
+  userId: string;
+}): Promise<OpenMeldRequestContext> {
+  const db = requireDb(input.env);
+  const human = await db
+    .prepare(
+      `
+        SELECT profile_handle, profile_id, profile_name
+        FROM openmeld_profiles
+        WHERE owner_user_id = ?
+          AND profile_kind = 'human'
+          AND is_default = 1
+          AND status = 'active'
+        LIMIT 1
+      `
+    )
+    .bind(input.userId)
+    .first<{
+      profile_handle: string;
+      profile_id: string;
+      profile_name: string;
+    }>();
+  if (!human) {
+    throw new Error("The Agent owner needs an active Human Profile.");
+  }
+  return openMeldRequestContextSchema.parse({
+    activeOrganizationId: input.organizationId,
+    actorContext: {
+      callerPrincipalId: input.userId,
+      openMeldProfileId: human.profile_id,
+      ownerUserId: input.userId,
+      profileHandle: human.profile_handle,
+      profileKind: "human",
+      profileName: human.profile_name,
+      requestId: input.requestId,
+    },
+  });
 }
 
 function mapProfileSource(

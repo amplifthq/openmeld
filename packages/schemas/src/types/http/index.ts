@@ -128,6 +128,7 @@ export type {
 export type {
   AgentProfileCreationApprovalPolicy,
   AgentProfileCreationApprovalPreference,
+  AgentProfileCreationConfiguration,
   AgentProfileCreationRequest,
   AgentProfileCreationRequestMutationResponse,
   AgentProfileCreationRequestSource,

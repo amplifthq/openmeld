@@ -816,6 +816,7 @@ export {
 export {
   agentProfileCreationApprovalPolicySchema,
   agentProfileCreationApprovalPreferenceSchema,
+  agentProfileCreationConfigurationSchema,
   agentProfileCreationRequestMutationResponseSchema,
   agentProfileCreationRequestSchema,
   agentProfileCreationRequestSourceSchema,
@@ -824,6 +825,7 @@ export {
   agentProfileCreationSessionStrategySchema,
   createAgentProfileCreationRequestBodySchema,
   createAgentProfileCreationRequestResponseSchema,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
   decideAgentProfileCreationRequestBodySchema,
   getAgentProfileCreationApprovalPreferenceResponseSchema,
   listAgentProfileCreationRequestsResponseSchema,

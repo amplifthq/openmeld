@@ -120,6 +120,8 @@ Each request freezes these product facts:
 - Agent Profile name
 - Session strategy: `new`, `resume`, or `fork`
 - the exact provider-native Session ID for `resume` or `fork`
+- the selected Computer and Agent Controller, when known
+- the requested Binding settings, Default Project, and Organization Wake access
 - an optional intended Space
 - one requester-scoped idempotency key
 
@@ -143,11 +145,12 @@ request creates one Inbox action for the target owner. Only that owner may
 approve or decline it, and only the requester may cancel it. Both participants
 can see current progress and immutable origin attribution.
 
-Approval authorizes creation of the Agent Profile identity only. An intended
-Space is coordination context, not membership authority. Binding the profile,
-starting or attaching the local Session, granting Wake access, and adding the
-Profile to a Space remain explicit follow-up operations owned by their existing
-contracts.
+Approval authorizes the request's complete frozen creation intent. Core still
+uses the existing owner contracts for each operation: Auth creates the Agent
+Profile identity, Space membership uses the normal Space mutation, and Binding,
+Default Project, and Organization Wake access use their existing Core-owned
+operations. The request state machine coordinates those operations; it does not
+create parallel mutation or authorization paths.
 
 The current creation-request executor completes `new` identity creation.
 `resume` and `fork` remain explicit, validated inputs but fail visibly until
@@ -155,11 +158,12 @@ Agent Activity supplies an authorized exact Session and the local Binding path
 can perform that strategy. Clients must not silently fall back to `new`.
 
 Creation surfaces return one explicit outcome for the committed Profile and
-each requested follow-up. When creation starts from a Space, the client adds
-the committed Profile to that Space before optional local setup so a temporary
-computer or Agent Controller failure cannot leave a hidden Profile outside the
+each requested follow-up. When creation includes a Space, the executor adds the
+committed Profile to that Space before optional local setup so a temporary
+Computer or Agent Controller failure cannot leave a hidden Profile outside the
 Space. Any failed follow-up stays visible as a precise recovery issue against
-the already-created Profile.
+the already-created Profile, and retry continues setup without creating a
+second identity.
 
 Human Profiles and the Center Agent use deterministic Dither artwork derived
 from their stable Profile kind and Profile ID. A Human Profile's uploaded image

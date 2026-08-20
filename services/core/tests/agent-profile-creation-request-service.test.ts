@@ -5,6 +5,7 @@ import type {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AgentProfileCreationRequestConflictError,
+  AgentProfileCreationRequestExecutionError,
   AgentProfileCreationRequestForbiddenError,
   type AgentProfileCreationRequestRecord,
   type AgentProfileCreationRequestRepository,
@@ -188,6 +189,33 @@ describe("Agent Profile creation request service", () => {
       statusReason: "requester_cancelled",
     });
     expect(resolveApprovalInbox).toHaveBeenCalledWith(cancelled);
+  });
+
+  it("keeps the committed Profile visible when its requested setup fails", async () => {
+    repository.preference = {
+      existingSessionPolicy: "ask_every_time",
+      newSessionPolicy: "automatically_allow",
+    };
+    createAgentProfile.mockRejectedValueOnce(
+      new AgentProfileCreationRequestExecutionError({
+        cause: new Error("Codex is no longer ready on Felix’s Mac."),
+        createdAgentProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      })
+    );
+
+    const result = await createService().create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+
+    expect(result.request).toMatchObject({
+      createdAgentProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      failureMessage: "Codex is no longer ready on Felix’s Mac.",
+      status: "failed",
+      statusReason: "profile_creation_failed",
+    });
   });
 
   function createService() {
