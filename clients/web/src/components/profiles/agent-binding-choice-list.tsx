@@ -5,8 +5,7 @@ import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useId } from "react";
-
-const localAgentDisplaySplitPattern = /[-_]/u;
+import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 
 type AgentProfileBindingChoice = {
 	agentId: string | null;
@@ -19,28 +18,12 @@ export function AgentProfileBindingChoiceList(input: {
 	availableLocalAgentIds: readonly string[];
 	disabled: boolean;
 	isResolving: boolean;
+	locked?: boolean;
 	onChange: (agentId: string) => void;
 	value: string;
 }) {
 	const headingId = useId();
-	const choices: AgentProfileBindingChoice[] = [
-		{
-			agentId: null,
-			description:
-				"Create this profile now and choose the controlling local agent later.",
-			label: "Choose later",
-			value: "",
-		},
-		...input.availableLocalAgentIds.map((agentId) => {
-			const label = formatLocalAgentDisplayName(agentId);
-			return {
-				agentId,
-				description: `This profile will be controlled by ${label} on this computer.`,
-				label,
-				value: agentId,
-			};
-		}),
-	];
+	const choices = buildAgentProfileBindingChoices(input);
 	const selectedIndex = choices.findIndex(
 		(choice) => choice.value === input.value
 	);
@@ -48,14 +31,17 @@ export function AgentProfileBindingChoiceList(input: {
 	return (
 		<div className="grid gap-2">
 			<p className="font-medium text-foreground text-sm" id={headingId}>
-				Choose which local agent controls this profile
+				{input.locked
+					? "Local agent for this Session"
+					: "Choose which local agent controls this profile"}
 			</p>
 			<RadioGroup
-				aria-disabled={input.disabled || undefined}
+				aria-disabled={input.disabled || input.locked || undefined}
 				aria-labelledby={headingId}
 				className={cn(
 					"w-full gap-1",
-					input.disabled && "pointer-events-none opacity-70"
+					(input.disabled || input.locked) && "pointer-events-none",
+					input.disabled && "opacity-70"
 				)}
 				selectedIndex={selectedIndex}
 			>
@@ -72,7 +58,7 @@ export function AgentProfileBindingChoiceList(input: {
 						key={choice.value || "bind-later"}
 						label={choice.label}
 						onSelect={() => {
-							if (input.disabled) {
+							if (input.disabled || input.locked) {
 								return;
 							}
 							input.onChange(choice.value);
@@ -91,13 +77,41 @@ export function AgentProfileBindingChoiceList(input: {
 	);
 }
 
-export function formatLocalAgentDisplayName(agentId: string): string {
-	const displaySegments: string[] = [];
-	for (const segment of agentId.split(localAgentDisplaySplitPattern)) {
-		if (segment.length === 0) {
-			continue;
+function buildAgentProfileBindingChoices(input: {
+	availableLocalAgentIds: readonly string[];
+	locked?: boolean;
+	value: string;
+}): AgentProfileBindingChoice[] {
+	if (input.locked) {
+		if (!input.value) {
+			return [];
 		}
-		displaySegments.push(segment[0]?.toUpperCase() + segment.slice(1));
+		const label = formatLocalAgentDisplayName(input.value);
+		return [
+			{
+				agentId: input.value,
+				description: `This Session stays connected to ${label} on this computer.`,
+				label,
+				value: input.value,
+			},
+		];
 	}
-	return displaySegments.join(" ");
+	return [
+		{
+			agentId: null,
+			description:
+				"Create this profile now and choose the controlling local agent later.",
+			label: "Choose later",
+			value: "",
+		},
+		...input.availableLocalAgentIds.map((agentId) => {
+			const label = formatLocalAgentDisplayName(agentId);
+			return {
+				agentId,
+				description: `This profile will be controlled by ${label} on this computer.`,
+				label,
+				value: agentId,
+			};
+		}),
+	];
 }

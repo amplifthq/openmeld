@@ -12,6 +12,7 @@ import type {
 	AgentProfileBindingOpenCodePermission,
 	AgentProfileBindingSessionInventorySelection,
 	AuthProfileView,
+	DaemonServiceLane,
 } from "@openmeld/schemas/types";
 import {
 	Dialog,
@@ -77,6 +78,7 @@ import {
 import { startQueryKeys } from "#/query/query-keys";
 import { AgentProfileProjectSelector } from "./agent-profile-project-selector";
 import { CreateProfileForm } from "./create-profile-form";
+import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 import { isOpenCodeAgentId } from "./open-code-permissions-field";
 
 type RecoveryController = ReturnType<typeof useLocalAgentRecoveryController>;
@@ -121,6 +123,9 @@ export function CreateProfileDialog(input: {
 	spaceContext?: CreateProfileSpaceContext;
 }) {
 	const sessionPreset = input.agentActivitySessionPreset;
+	const sessionPresetAgentId = resolveSessionPresetAgentId(
+		sessionPreset?.agentControllerRef ?? ""
+	);
 	const queryClient = useQueryClient();
 	const { selectedHumanProfile, profilesQuery } = useSelectedHumanProfile({
 		selectDefaultWhenMissing: true,
@@ -139,8 +144,7 @@ export function CreateProfileDialog(input: {
 		resolveSessionPresetProfileName(sessionPreset)
 	);
 	const [boundAgentId, setBoundAgentId] = useState(
-		() =>
-			resolveSessionPresetAgentId(sessionPreset?.agentControllerRef ?? "") ?? ""
+		() => sessionPresetAgentId ?? ""
 	);
 	const [
 		boundAgentControllerPermissionMode,
@@ -232,8 +236,7 @@ export function CreateProfileDialog(input: {
 		sessionPreset
 			? {
 					connectedComputerId: sessionPreset.computerId,
-					localAgentId:
-						resolveSessionPresetAgentId(sessionPreset.agentControllerRef) ?? "",
+					localAgentId: sessionPresetAgentId ?? "",
 				}
 			: undefined
 	);
@@ -248,6 +251,22 @@ export function CreateProfileDialog(input: {
 	const localFolderPickerDeviceId = resolveLocalFolderPickerDeviceId(
 		recovery.currentComputer
 	);
+	const sessionPresetBindingBlockReason =
+		resolveSessionPresetBindingBlockReason({
+			bindingTarget,
+			boundAgentId,
+			hasSessionPreset: Boolean(sessionPreset),
+			sessionPresetAgentId,
+		});
+	const profileCreationExecutionTarget = resolveProfileCreationExecutionTarget({
+		bindingTarget,
+		hasSessionPreset: Boolean(sessionPreset),
+		recovery,
+	});
+	const agentControllerConversationId =
+		resolveAgentActivitySessionConversationId(sessionPreset);
+	const sessionInventorySelection =
+		resolveAgentActivitySessionInventorySelection(sessionPreset);
 
 	useEffect(() => {
 		if (
@@ -317,27 +336,21 @@ export function CreateProfileDialog(input: {
 
 	const createProfileMutation = useMutation({
 		mutationFn: async (submission: { idempotencyKey: string }) => {
+			assertSessionPresetBindingReady(sessionPresetBindingBlockReason);
 			const agentControllerPermissionMode =
 				resolveCreateAgentControllerPermissionMode({
 					boundAgentControllerPermissionMode,
 					boundAgentId,
 				});
-			const sessionInventorySelection =
-				resolveAgentActivitySessionInventorySelection(
-					input.agentActivitySessionPreset
-				);
 			const creationOutcome = await createProfileWithFollowUps({
-				agentControllerConversationId:
-					resolveAgentActivitySessionConversationId(
-						input.agentActivitySessionPreset
-					),
+				agentControllerConversationId,
 				...(agentControllerPermissionMode
 					? { agentControllerPermissionMode }
 					: {}),
 				boundAgentId,
 				currentServiceCanSetProfileWorkspace:
 					bindingTarget?.localAgentControl.setProfileWorkspace === true,
-				deviceId: bindingTarget?.deviceId ?? recovery.deviceId,
+				deviceId: profileCreationExecutionTarget.deviceId,
 				idempotencyKey: submission.idempotencyKey,
 				modelId: boundAgentId ? boundModelId : null,
 				defaultProjectId: resolveSelectedDefaultProjectId({
@@ -353,7 +366,7 @@ export function CreateProfileDialog(input: {
 				profileKind: selectableProfileKind,
 				profileName,
 				reasoningLevel: boundAgentId ? boundReasoningLevel : null,
-				runtimeLane: bindingTarget?.runtimeLane ?? recovery.runtimeLane,
+				runtimeLane: profileCreationExecutionTarget.runtimeLane,
 				...toSessionInventorySelectionInput(sessionInventorySelection),
 				queryClient,
 				selectedHumanProfileId: selectedHumanProfile?.openMeldProfileId ?? null,
@@ -468,13 +481,15 @@ export function CreateProfileDialog(input: {
 			profileKind={selectableProfileKind}
 		/>
 	) : null;
-	const projectSelectionBlockReason = resolveProjectSelectionBlockReason({
-		boundAgentId,
-		projectFolderPath,
-		projectWorkspaceFallback,
-		selectedProjectBindingGeneration,
-		selectedProjectId,
-	});
+	const projectSelectionBlockReason =
+		sessionPresetBindingBlockReason ??
+		resolveProjectSelectionBlockReason({
+			boundAgentId,
+			projectFolderPath,
+			projectWorkspaceFallback,
+			selectedProjectBindingGeneration,
+			selectedProjectId,
+		});
 	let projectSelectionSlot: ReactNode;
 	if (organizationId && projectsQuery.isPending) {
 		projectSelectionSlot = (
@@ -574,6 +589,7 @@ export function CreateProfileDialog(input: {
 						isResolvingLocalAgents={isResolvingLocalAgents}
 						isSubmitting={createProfileMutation.isPending}
 						localFolderPickerDeviceId={localFolderPickerDeviceId}
+						lockLocalAgentSelection={Boolean(sessionPreset)}
 						modelCatalog={modelCatalog}
 						onChangeBoundAgentControllerPermissionMode={(
 							nextAgentControllerPermissionMode
@@ -790,6 +806,50 @@ function resolveSessionPresetKey(
 	return preset
 		? `${preset.mode}:${preset.agentControllerRef}:${preset.nativeSessionId}`
 		: null;
+}
+
+function resolveSessionPresetBindingBlockReason(input: {
+	bindingTarget: ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>;
+	boundAgentId: string;
+	hasSessionPreset: boolean;
+	sessionPresetAgentId: string | null;
+}): string | null {
+	if (!input.hasSessionPreset) {
+		return null;
+	}
+	if (!input.sessionPresetAgentId) {
+		return "This Session's local agent is not supported for Agent Profile creation.";
+	}
+	if (input.boundAgentId !== input.sessionPresetAgentId) {
+		return "This Agent Profile must use the same local agent as the Session.";
+	}
+	if (!input.bindingTarget) {
+		return `Connect this Session's computer and make ${formatLocalAgentDisplayName(input.sessionPresetAgentId)} available before creating the profile.`;
+	}
+	return null;
+}
+
+function assertSessionPresetBindingReady(blockReason: string | null): void {
+	if (blockReason) {
+		throw new Error(blockReason);
+	}
+}
+
+function resolveProfileCreationExecutionTarget(input: {
+	bindingTarget: ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>;
+	hasSessionPreset: boolean;
+	recovery: RecoveryController;
+}): { deviceId: string | null; runtimeLane: DaemonServiceLane | null } {
+	if (input.hasSessionPreset) {
+		return {
+			deviceId: input.bindingTarget?.deviceId ?? null,
+			runtimeLane: input.bindingTarget?.runtimeLane ?? null,
+		};
+	}
+	return {
+		deviceId: input.bindingTarget?.deviceId ?? input.recovery.deviceId,
+		runtimeLane: input.bindingTarget?.runtimeLane ?? input.recovery.runtimeLane,
+	};
 }
 
 function resolveProjectSelectionBlockReason(input: {

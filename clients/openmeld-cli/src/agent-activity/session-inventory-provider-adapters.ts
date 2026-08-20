@@ -1154,9 +1154,8 @@ function collectRecords(value: unknown): Record<string, unknown>[] {
 }
 
 function secondsTimestamp(value: unknown): number | null {
-  const number = Number(value);
-  return Number.isFinite(number) && number >= 0
-    ? Math.trunc(number * 1000)
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.trunc(value * 1000)
     : null;
 }
 

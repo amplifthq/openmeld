@@ -600,6 +600,26 @@ describe("CreateProfileDialog", () => {
 		expect(
 			screen.queryByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
 		).toBeNull();
+		expect(screen.getByText("Local agent for this Session")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"This Session stays connected to Codex on this computer."
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Choose later")).toBeNull();
+		expect(
+			(
+				screen.getByRole("button", {
+					name: CREATE_PROFILE_BUTTON_PATTERN,
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		expect(
+			await screen.findByText(
+				"Connect this Session's computer and make Codex available before creating the profile."
+			)
+		).toBeTruthy();
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 		expect(screen.queryByText("Recommended score")).toBeNull();
 	});
 

@@ -628,6 +628,32 @@ describe("Local Agent Session Inventory provider adapters", () => {
     ).rejects.toThrow("Codex thread/list nextCursor is invalid");
   });
 
+  it.each([
+    null,
+    false,
+    "",
+  ])("rejects a non-numeric Codex retained timestamp %#", async (threadTimestamp) => {
+    const serverPath = join(root, "fake-codex-invalid-timestamp.mjs");
+    await writeFile(
+      serverPath,
+      buildFakeCodexAppServer(repositoryPath, { threadTimestamp }),
+      "utf8"
+    );
+
+    await expect(
+      discoverCodexThreads({
+        bindings: [binding],
+        launchContract: {
+          argsPrefix: [serverPath],
+          commandPath: process.execPath,
+          kind: "executable",
+        },
+        nowMs: NOW_MS,
+        rootDir: root,
+      })
+    ).rejects.toThrow("Codex returned a malformed retained thread record");
+  });
+
   it("reads old Claude Sessions, latest native titles, and excludes subagents", async () => {
     const configDir = join(root, "claude-config");
     const projectsDir = join(configDir, "projects", "openmeld");
@@ -842,18 +868,25 @@ describe("Local Agent Session Inventory provider adapters", () => {
 
 function buildFakeCodexAppServer(
   cwd: string,
-  input: { firstPageNextCursor?: unknown; malformedThread?: boolean } = {}
+  input: {
+    firstPageNextCursor?: unknown;
+    malformedThread?: boolean;
+    threadTimestamp?: unknown;
+  } = {}
 ): string {
+  const threadTimestamp = Object.hasOwn(input, "threadTimestamp")
+    ? input.threadTimestamp
+    : 40;
   const liveThread = {
     createdAt: 30,
     cwd,
     ephemeral: false,
     id: input.malformedThread ? undefined : "codex-live",
     name: "Native Codex title",
-    recencyAt: 40,
+    recencyAt: threadTimestamp,
     source: "cli",
     status: { activeFlags: [], type: "active" },
-    updatedAt: 40,
+    updatedAt: threadTimestamp,
   };
   return `import { createInterface } from "node:readline";
 const sourceKinds = ${JSON.stringify([

@@ -71,6 +71,7 @@ export function CreateProfileForm(input: {
 	isResolvingAccount: boolean;
 	isResolvingLocalAgents: boolean;
 	isSubmitting: boolean;
+	lockLocalAgentSelection?: boolean;
 	modelCatalog: ModelCatalog | null;
 	localFolderPickerDeviceId: string | null;
 	allowProfileKindSelection: boolean;
@@ -106,6 +107,7 @@ export function CreateProfileForm(input: {
 	const agentBindingHelpText = resolveAgentBindingHelpText({
 		availableLocalAgentCount: input.availableLocalAgentIds.length,
 		isResolvingLocalAgents: input.isResolvingLocalAgents,
+		locked: input.lockLocalAgentSelection === true,
 	});
 
 	return (
@@ -142,6 +144,7 @@ export function CreateProfileForm(input: {
 						availableLocalAgentIds={input.availableLocalAgentIds}
 						disabled={input.isSubmitting}
 						isResolving={input.isResolvingLocalAgents}
+						locked={input.lockLocalAgentSelection}
 						onChange={input.onChangeBoundAgentId}
 						value={input.boundAgentId}
 					/>
@@ -315,7 +318,11 @@ function ProjectFolderField(input: {
 function resolveAgentBindingHelpText(input: {
 	availableLocalAgentCount: number;
 	isResolvingLocalAgents: boolean;
+	locked: boolean;
 }) {
+	if (input.locked) {
+		return "The Agent Profile must use the same local agent as this Session.";
+	}
 	if (input.isResolvingLocalAgents) {
 		return "Checking local agents on this computer.";
 	}

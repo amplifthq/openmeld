@@ -72,6 +72,12 @@ export function SessionsEmptyMessage(input: {
 			</span>
 		);
 	}
+	if (input.coverage.some((item) => item.state === "error")) {
+		return "OpenMeld couldn't establish the current Session Inventory. No Sessions are shown until the connected computer reports a complete inventory.";
+	}
+	if (input.coverage.some((item) => item.state === "stale")) {
+		return "Session Inventory is stale, so OpenMeld isn't claiming there are no Sessions. Wait for a fresh sync from the connected computer.";
+	}
 	if (input.coverage.some((item) => item.state === "unsupported")) {
 		return "Session discovery is not supported for the connected Local Agent yet.";
 	}

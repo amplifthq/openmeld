@@ -49,13 +49,13 @@ absolute working path, or concrete local Session ID was recorded.
 
 The inspected installed versions were:
 
-| Provider | Inspected first-party version |
-| --- | --- |
-| Codex | `codex-cli 0.148.0` |
-| Claude Code | `2.1.237` |
-| Cursor CLI | `2026.08.11-e8db854` |
-| OpenCode | `1.18.18` |
-| Grok Build | `1.0.3 (1a29d5bc12d4)` |
+| Provider    | Inspected first-party version |
+| ----------- | ----------------------------- |
+| Codex       | `codex-cli 0.148.0`           |
+| Claude Code | `2.1.237`                     |
+| Cursor CLI  | `2026.08.11-e8db854`          |
+| OpenCode    | `1.18.18`                     |
+| Grok Build  | `1.0.3 (1a29d5bc12d4)`        |
 
 These are evidence for the inspected versions, not an unconditional minimum
 version promise. At the beginning of this review, the repository defined Resume
@@ -71,13 +71,13 @@ retained by that provider on this computer. It never includes Sessions the
 provider deleted, expired under its retention policy, created with persistence
 disabled, stored only on another computer, or never persisted.
 
-| Provider | Complete retained discovery | Native title | Trustworthy status source | Native Resume | Native Fork |
-| --- | --- | --- | --- | --- | --- |
-| Codex | Yes: app-server `thread/list`, all source kinds, both archived states, cursor to exhaustion | Optional `Thread.name`; latest title index entry | Live app-server or hooks; archived storage; otherwise `unknown` | Yes for retained, non-archived threads | Yes for retained, non-archived threads |
-| Claude Code | Yes only as a composite of retained top-level JSONL, live/job registry, and hooks | Explicit `--name`, `/rename`, or `custom-title`; otherwise null | `claude agents --json --all` plus hooks; otherwise `unknown` | Yes for retained Sessions | Yes for retained Sessions |
-| Cursor | **No complete documented machine-readable source**; hooks are forward-only and private ACP metadata covers only an ACP subset | Hook payload has no title; private ACP metadata has a title only for the ACP subset | Hooks for observed lifecycle; otherwise `unknown` | Yes for CLI chat IDs and ACP Session IDs, not proven interchangeable with IDE chats | No inspected native Fork surface |
-| OpenCode | Yes: full local `session` table reconciliation, or provider API with pagination where supported | Persisted `session.title` | Live `/session/status`, lifecycle events, and `time_archived`; otherwise `unknown` | Yes for retained, usable Sessions | Yes for retained, usable Sessions |
-| Grok Build | Yes: full retained `summary.json` index scan | `generated_title` / renamed title in summary metadata | Complete hook sequence keyed by prompt, plus SessionEnd; otherwise `unknown` | Yes for retained Sessions | Yes; Fork creates a new native Session ID |
+| Provider    | Complete retained discovery                                                                                                   | Native title                                                                        | Trustworthy status source                                                          | Native Resume                                                                       | Native Fork                               |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------- |
+| Codex       | Yes: app-server `thread/list`, all source kinds, both archived states, cursor to exhaustion                                   | Optional `Thread.name`; latest title index entry                                    | Live app-server or hooks; archived storage; otherwise `unknown`                    | Yes for retained, non-archived threads                                              | Yes for retained, non-archived threads    |
+| Claude Code | Yes only as a composite of retained top-level JSONL, live/job registry, and hooks                                             | Explicit `--name`, `/rename`, or `custom-title`; otherwise null                     | `claude agents --json --all` plus hooks; otherwise `unknown`                       | Yes for retained Sessions                                                           | Yes for retained Sessions                 |
+| Cursor      | **No complete documented machine-readable source**; hooks are forward-only and private ACP metadata covers only an ACP subset | Hook payload has no title; private ACP metadata has a title only for the ACP subset | Hooks for observed lifecycle; otherwise `unknown`                                  | Yes for CLI chat IDs and ACP Session IDs, not proven interchangeable with IDE chats | No inspected native Fork surface          |
+| OpenCode    | Yes: full local `session` table reconciliation, or provider API with pagination where supported                               | Persisted `session.title`                                                           | Live `/session/status`, lifecycle events, and `time_archived`; otherwise `unknown` | Yes for retained, usable Sessions                                                   | Yes for retained, usable Sessions         |
+| Grok Build  | Yes: full retained `summary.json` index scan                                                                                  | `generated_title` / renamed title in summary metadata                               | Complete hook sequence keyed by prompt, plus SessionEnd; otherwise `unknown`       | Yes for retained Sessions                                                           | Yes; Fork creates a new native Session ID |
 
 The largest product blocker is Cursor. OpenMeld can truthfully provide complete
 inventory for the retained local stores of Codex, Claude Code, OpenCode, and
@@ -120,13 +120,13 @@ record did not otherwise change.
 Persisted existence and recent file modification are not reliable status. The
 shared mapping must use explicit lifecycle evidence:
 
-| Shared status | Required evidence |
-| --- | --- |
-| `working` | Fresh provider evidence that a turn or job is actively in flight |
-| `idle` | Explicit provider idle/stop evidence, or a provider-owned live registry that says the Session is waiting |
-| `ended` | Explicit archive, SessionEnd, deletion, close, or completed lifecycle evidence |
-| `error` | Explicit terminal provider failure for the latest lifecycle attempt |
-| `unknown` | Missing, stale, conflicting, version-unsupported, or insufficient evidence |
+| Shared status | Required evidence                                                                                        |
+| ------------- | -------------------------------------------------------------------------------------------------------- |
+| `working`     | Fresh provider evidence that a turn or job is actively in flight                                         |
+| `idle`        | Explicit provider idle/stop evidence, or a provider-owned live registry that says the Session is waiting |
+| `ended`       | Explicit archive, SessionEnd, deletion, close, or completed lifecycle evidence                           |
+| `error`       | Explicit terminal provider failure for the latest lifecycle attempt                                      |
+| `unknown`     | Missing, stale, conflicting, version-unsupported, or insufficient evidence                               |
 
 A later valid turn start supersedes a prior idle, ended-when-resumable, or error
 observation according to the provider's lifecycle. Age alone must never turn a
@@ -561,18 +561,18 @@ is supported by the provider but is not wired into OpenMeld, so product
 Each adapter should be validated with first-party-version fixtures or captured
 metadata-only shapes, plus a real installed-provider smoke where safe:
 
-| Test | Required assertion |
-| --- | --- |
-| Exhaustive discovery | More rows than one page/cap are all returned exactly once; reconciliation reaches a stable end cursor |
-| Stable identity | Resume preserves ID; Fork creates a new ID and retains only explicit parent/root lineage |
-| Title reconciliation | Rename without transcript activity updates the same Session; absent title remains null |
-| Status honesty | Old retained data with no lifecycle evidence is `unknown`, never fabricated `idle` or `working` |
-| Lifecycle ordering | A later turn start clears prior terminal/idle evidence; out-of-order provider hooks do not regress the latest prompt |
-| Archived/ended capability | Provider-specific Resume/Fork flags are false unless direct operation is verified for that state |
-| Version mismatch | Unsupported method, schema, or storage version returns a provider diagnostic and does not silently return an empty complete inventory |
-| Cursor partial boundary | ACP metadata and hook history are never labeled as complete Cursor inventory |
-| Project disconnect | Sessions outside current authorized Local Project Connections disappear from the selectable inventory |
-| Privacy | Inventory upload contains no transcript, prompt, response, reasoning, tool I/O, diff, command, terminal content, local absolute path, credential, internal runtime ID, or device ID |
+| Test                      | Required assertion                                                                                                                                                                  |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exhaustive discovery      | More rows than one page/cap are all returned exactly once; reconciliation reaches a stable end cursor                                                                               |
+| Stable identity           | Resume preserves ID; Fork creates a new ID and retains only explicit parent/root lineage                                                                                            |
+| Title reconciliation      | Rename without transcript activity updates the same Session; absent title remains null                                                                                              |
+| Status honesty            | Old retained data with no lifecycle evidence is `unknown`, never fabricated `idle` or `working`                                                                                     |
+| Lifecycle ordering        | A later turn start clears prior terminal/idle evidence; out-of-order provider hooks do not regress the latest prompt                                                                |
+| Archived/ended capability | Provider-specific Resume/Fork flags are false unless direct operation is verified for that state                                                                                    |
+| Version mismatch          | Unsupported method, schema, or storage version returns a provider diagnostic and does not silently return an empty complete inventory                                               |
+| Cursor partial boundary   | ACP metadata and hook history are never labeled as complete Cursor inventory                                                                                                        |
+| Project disconnect        | Sessions outside current authorized Local Project Connections disappear from the selectable inventory                                                                               |
+| Privacy                   | Inventory upload contains no transcript, prompt, response, reasoning, tool I/O, diff, command, terminal content, local absolute path, credential, internal runtime ID, or device ID |
 
 This review verified native surfaces and local metadata shapes without creating,
 resuming, or forking a real user Session. Release acceptance still requires

@@ -1,4 +1,5 @@
 import type {
+	AgentActivityInventoryCoverage,
 	AgentActivityInventorySession,
 	AgentActivityPublicSession,
 	AgentActivitySessionInventoryResponse,
@@ -746,6 +747,39 @@ describe("Agent Activity pages", () => {
 		).toBeTruthy();
 	});
 
+	it.each([
+		{
+			message:
+				"OpenMeld couldn't establish the current Session Inventory. No Sessions are shown until the connected computer reports a complete inventory.",
+			state: "error" as const,
+		},
+		{
+			message:
+				"Session Inventory is stale, so OpenMeld isn't claiming there are no Sessions. Wait for a fresh sync from the connected computer.",
+			state: "stale" as const,
+		},
+	])("keeps $state empty inventory coverage explicit", async ({
+		message,
+		state,
+	}) => {
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects: [project({ id: "project-active" })],
+		});
+		readSessions.mockResolvedValue(
+			sessionInventory({ coverage: [inventoryCoverage(state)] })
+		);
+
+		renderPage("sessions");
+
+		expect(await screen.findByText(message)).toBeTruthy();
+		expect(
+			screen.queryByText(
+				"No Sessions are currently available from connected Projects."
+			)
+		).toBeNull();
+	});
+
 	it("does not offer Agent Profile actions for a Session with conflicting connections", async () => {
 		listProjects.mockResolvedValue({
 			organizationId: "org-acme",
@@ -1165,6 +1199,22 @@ function sessionInventory(
 		organization: { id: organizationId, name: "Acme" },
 		sessions: [],
 		...overrides,
+	};
+}
+
+function inventoryCoverage(
+	state: AgentActivityInventoryCoverage["state"]
+): AgentActivityInventoryCoverage {
+	const nowMs = Date.now();
+	return {
+		agentControllerRef: "builtin:codex",
+		computerId: "computer-public-1",
+		lastAttemptAtMs: nowMs,
+		lastCompleteAtMs: state === "stale" ? nowMs - 60_000 : null,
+		problemCode: state === "error" ? "provider_error" : "inventory_stale",
+		projectId: "project-active",
+		provider: "codex",
+		state,
 	};
 }
 
