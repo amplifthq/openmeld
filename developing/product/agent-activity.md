@@ -372,11 +372,13 @@ permanent outcomes leave the outbox. Permanent rejection diagnostics contain
 no raw payload, prompt, transcript, or path.
 
 Digest RPC and Center Agent read-tool rollout are separate producer/consumer
-windows with separate feature fences. The Remote Agent exposes
-`openmeld_read_agent_activity` only when
-`OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED=true`; the default is false and
-Routine turns still cannot receive or execute it. Neither window changes
-RuntimeCoordinator or workstation execution authority.
+windows with separate feature fences. The Remote Agent exposes both
+`openmeld_read_agent_activity` and
+`openmeld_list_agent_activity_sessions` only when
+`OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED=true`; the default is false.
+Interactive member turns and reauthorized Routine turns may receive these
+read-only tools. Neither window changes RuntimeCoordinator or workstation
+execution authority.
 
 Provider-detail expansion uses a separate mixed-version window. Deploy Core
 first so its strict RPC reader accepts `includeProviderMetadata`, then Gateway,

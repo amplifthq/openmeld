@@ -21,8 +21,11 @@
 
 Date: 2026-08-20
 
-Status: IN PROGRESS — Remove when stable findings are distilled into owner docs
-and provider contract tests.
+Status: REVIEW EVIDENCE — Remove after provider-native capability conformance
+runs in CI against pinned official provider releases. Stable findings are
+distilled into `developing/product/agent-activity.md` and provider contract
+tests; this dated review records the inspected versions and evidence basis,
+while owner docs and shared schemas remain the live product contract.
 
 ## Research Scope And Evidence Standard
 
@@ -55,12 +58,11 @@ The inspected installed versions were:
 | Grok Build | `1.0.3 (1a29d5bc12d4)` |
 
 These are evidence for the inspected versions, not an unconditional minimum
-version promise. The current repository defines Resume declarations but no
-provider discovery or Fork capability in the shared conversation capability
-schema (`packages/schemas/src/schemas/daemon/agent-controller-conversation-capability.ts:3-26`),
-and it does not define a reliable minimum-version floor for every capability.
-The implementation must probe the installed provider before advertising
-discovery, Resume, Fork, or optional metadata fields.
+version promise. At the beginning of this review, the repository defined Resume
+declarations but no complete Session Inventory contract or provider Fork
+command path. This PR adds the discovery contract while deliberately retaining
+that Fork limitation. The implementation must probe the installed provider
+before advertising discovery, Resume, Fork, or optional metadata fields.
 
 ## Executive Capability Matrix
 
@@ -84,6 +86,19 @@ below. For Cursor, the currently documented public surfaces do not prove a
 complete historical, structured, paginated inventory across IDE, CLI print
 mode, and ACP. The product must report this provider as partial or unsupported
 for complete inventory instead of presenting hook history as complete.
+
+### Usage Limit Projection
+
+The inspected Codex app-server exposes the structured
+`account/rateLimits/read` method. Its primary and secondary windows provide
+`usedPercent`, `windowDurationMins`, and nullable Unix-second `resetsAt` under a
+provider limit id/name. OpenMeld may project bounded labels and ISO timestamps
+from that response. A sanitized live probe returned three valid windows.
+
+No equivalently complete, stable, structured account Usage Limit read was
+verified for Claude Code, Cursor, OpenCode, or Grok Build in this review. Those
+providers must omit `usageLimits`; provider error text, plan names, local file
+times, and past failures are not usage evidence.
 
 ## Cross-Provider Contract Findings
 

@@ -1584,8 +1584,14 @@ the separate shared paginated Core query rather than the bounded Activity
 snapshot. Provider, Working/Idle/Ended/Error/Unknown, Owner, origin, and search
 controls are URL state and are sent to Core. Project remains absent from its
 toolbar because the shared header is its single source of Project scope. Next
-and previous navigation preserve the opaque cursor chain and reset it whenever
-a filter changes.
+page navigation uses the opaque Core cursor; a later page can return directly
+to the first page, and every filter change resets the cursor.
+
+TEAM Computer Local Agent details also render any bounded provider Usage Limit
+windows already present in the shared Organization Computer contract. Web does
+not query providers or derive limits itself; unsupported or unobserved
+providers show no limit row. The projection is informational and does not
+change agent selection, Wake, or routing.
 
 Each row renders the provider-native title, copyable native Session id, Owner,
 Project, public Computer name, Local Agent, status, last activity, origin,
