@@ -195,7 +195,7 @@ function SessionProfileActions(input: {
 
 	return (
 		<div className="flex min-w-44 flex-wrap gap-1.5">
-			{input.session.canResume ? (
+			{input.session.canResume && input.session.dataState === "current" ? (
 				<Button
 					onClick={() => input.onAction("resume_profile")}
 					size="xs"

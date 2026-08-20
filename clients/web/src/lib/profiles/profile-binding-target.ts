@@ -14,6 +14,11 @@ export type ProfileBindingCatalogExecutionTargetSources =
 		selectedExecutionTarget?: LocalRuntimeExecutionTarget | null;
 	};
 
+export type ProfileBindingCatalogExecutionTargetPreference = {
+	connectedComputerId: string;
+	localAgentId: string;
+};
+
 // Binding is a configuration choice. Readiness remains display/repair metadata,
 // so the candidate filter must stay launchStatus-agnostic.
 export function bindableLocalAgentIdsFromTarget(
@@ -44,8 +49,12 @@ export function bindableLocalAgentEntriesFromTarget(
 // Prefer the resolved current-device target, then the live connected runtime,
 // then any reported computer, and read its current/first execution target.
 export function resolveProfileBindingCatalogExecutionTarget(
-	sources: ProfileBindingCatalogExecutionTargetSources
+	sources: ProfileBindingCatalogExecutionTargetSources,
+	preference?: ProfileBindingCatalogExecutionTargetPreference
 ): LocalRuntimeExecutionTarget | null {
+	if (preference) {
+		return resolvePreferredProfileBindingExecutionTarget(sources, preference);
+	}
 	if (sources.selectedExecutionTarget) {
 		return sources.selectedExecutionTarget;
 	}
@@ -60,6 +69,31 @@ export function resolveProfileBindingCatalogExecutionTarget(
 	return (
 		computer.executionTargets.find((target) => target.isCurrent) ??
 		computer.executionTargets[0] ??
+		null
+	);
+}
+
+function resolvePreferredProfileBindingExecutionTarget(
+	sources: ProfileBindingCatalogExecutionTargetSources,
+	preference: ProfileBindingCatalogExecutionTargetPreference
+): LocalRuntimeExecutionTarget | null {
+	const connectedComputer =
+		sources.localRuntimesQuery?.data?.localRuntimes.find(
+			(computer) =>
+				computer.connectedComputerId === preference.connectedComputerId
+		) ?? null;
+	if (!(connectedComputer && preference.localAgentId)) {
+		return null;
+	}
+	const compatibleTargets = connectedComputer.executionTargets.filter(
+		(target) =>
+			new Set(bindableLocalAgentIdsFromTarget(target)).has(
+				preference.localAgentId
+			)
+	);
+	return (
+		compatibleTargets.find((target) => target.isCurrent) ??
+		compatibleTargets[0] ??
 		null
 	);
 }

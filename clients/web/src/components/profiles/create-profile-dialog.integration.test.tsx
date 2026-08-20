@@ -320,6 +320,45 @@ function buildFakeRecovery(
 	} as unknown as DialogRecovery;
 }
 
+function buildCrossComputerRecovery(): DialogRecovery {
+	const codexCatalog = [
+		buildCatalogEntry({
+			agentId: "codex",
+			launchStatus: "ready",
+			selectable: true,
+		}),
+	];
+	const recovery = buildFakeRecovery(codexCatalog);
+	const currentComputer = recovery.localRuntimesQuery.data?.localRuntimes[0];
+	if (!currentComputer) {
+		throw new Error("Expected the fake current Computer.");
+	}
+	return {
+		...recovery,
+		localRuntimesQuery: {
+			...recovery.localRuntimesQuery,
+			data: {
+				...recovery.localRuntimesQuery.data,
+				localRuntimes: [
+					{ ...currentComputer, connectedComputerId: "computer-current" },
+					{
+						...currentComputer,
+						connectedComputerId: "computer-session",
+						deviceId: "device-session",
+						executionTargets: [
+							{
+								...currentComputer.executionTargets[0],
+								deviceId: "device-session",
+								runtimeLane: "canary",
+							},
+						],
+					},
+				],
+			},
+		},
+	} as DialogRecovery;
+}
+
 function buildCatalogEntry(input: {
 	agentId: string;
 	detected?: boolean;
@@ -553,6 +592,53 @@ describe("CreateProfileDialog", () => {
 			(screen.getByLabelText("Profile name") as HTMLInputElement).value
 		).toBe("Build Session Inventory");
 		expect(screen.queryByText("Recommended score")).toBeNull();
+	});
+
+	it("targets Session Resume at the selected Session Computer", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		renderCreateProfileDialog({
+			agentActivitySessionPreset: {
+				agentControllerRef: "builtin:codex",
+				computerId: "computer-session",
+				localAgentName: "Codex",
+				mode: "resume",
+				nativeSessionId: "native-codex-thread-1",
+				nativeSessionTitle: "Build Session Inventory",
+				organizationId: "organization-123",
+				ownerUserId: "user-123",
+				projectId: "project-1",
+				provider: "codex",
+				status: "idle",
+			},
+			recovery: buildCrossComputerRecovery(),
+		});
+
+		const submitButton = await screen.findByRole("button", {
+			name: CREATE_PROFILE_BUTTON_PATTERN,
+		});
+		fireEvent.click(
+			await screen.findByRole("combobox", { name: "Working folder" })
+		);
+		fireEvent.click(
+			screen.getByRole("option", { name: "Let OpenMeld choose" })
+		);
+		await waitFor(() => {
+			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
+		});
+		fireEvent.click(submitButton);
+
+		await waitFor(() => {
+			expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					agentControllerConversationId: "native-codex-thread-1",
+					deviceId: "device-session",
+					runtimeLane: "canary",
+					sessionInventorySelection: expect.objectContaining({
+						computerId: "computer-session",
+					}),
+				})
+			);
+		});
 	});
 
 	afterEach(() => {

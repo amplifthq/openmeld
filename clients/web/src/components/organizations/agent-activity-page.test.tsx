@@ -717,6 +717,35 @@ describe("Agent Activity pages", () => {
 		expect(screen.queryByText(TRUNCATED_ACTIVITY_PATTERN)).toBeNull();
 	});
 
+	it("does not offer Resume for a stale Session", async () => {
+		const nowMs = Date.now();
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects: [project({ id: "project-active" })],
+		});
+		readSessions.mockResolvedValue(
+			sessionInventory({
+				asOfMs: nowMs,
+				sessions: [
+					inventorySession({
+						dataState: "stale",
+						inventoryUpdatedAtMs: nowMs - 10 * 60_000,
+					}),
+				],
+			})
+		);
+
+		renderPage("sessions");
+
+		expect(await screen.findByText("Data may be stale")).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Resume as Agent Profile" })
+		).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Create Agent Profile" })
+		).toBeTruthy();
+	});
+
 	it("uses the Core cursor for stable Session Inventory pagination", async () => {
 		const onSessionFiltersChange = vi.fn();
 		listProjects.mockResolvedValueOnce({

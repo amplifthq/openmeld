@@ -223,7 +223,16 @@ export function CreateProfileDialog(input: {
 	// agent catalog AND the device/lane the bind must target. recovery.deviceId
 	// / recovery.runtimeLane are null when the current-device target is
 	// unresolved (no Agent Profile bound yet), so the bind must use this target.
-	const bindingTarget = resolveProfileBindingCatalogExecutionTarget(recovery);
+	const bindingTarget = resolveProfileBindingCatalogExecutionTarget(
+		recovery,
+		sessionPreset
+			? {
+					connectedComputerId: sessionPreset.computerId,
+					localAgentId:
+						resolveSessionPresetAgentId(sessionPreset.agentControllerRef) ?? "",
+				}
+			: undefined
+	);
 	const availableLocalAgentIds = bindableLocalAgentIdsFromTarget(bindingTarget);
 	const isResolvingLocalAgents =
 		availableLocalAgentIds.length === 0 &&
