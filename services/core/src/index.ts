@@ -599,6 +599,7 @@ import {
   type PreviewMessageChannelIdentityLinkInput,
   type PreviewSlackIdentityLinkInput,
   type PutSpaceContractInput,
+  type ReadAgentActivitySessionInventoryInput,
   type ReadAgentActivitySnapshotInput,
   type ReadAgentActivityStatsInput,
   type ReadCenterAgentOrganizationMemoryPolicyInput,
@@ -782,6 +783,7 @@ import {
   rpcPreviewMessageChannelIdentityLink,
   rpcPreviewSlackIdentityLink,
   rpcPutSpaceContract,
+  rpcReadAgentActivitySessionInventory,
   rpcReadAgentActivitySnapshot,
   rpcReadAgentActivityStats,
   rpcReadCenterAgentOrganizationMemoryPolicy,
@@ -816,6 +818,7 @@ import {
   rpcSetOrganizationInformationProtectionPolicy,
   rpcSetSpaceAccessMode,
   rpcSubmitAgentActivityEvents,
+  rpcSubmitAgentActivitySessionReconciliation,
   rpcSubmitAgentControllerTaskLifecycleEvents,
   rpcSubmitRuntimeAgentControllerReports,
   rpcSubmitRuntimeProviderConversationProofs,
@@ -853,6 +856,7 @@ import {
   type SpaceAccessModeStateResult,
   type SpacePasswordStateResult,
   type SubmitAgentActivityEventsInput,
+  type SubmitAgentActivitySessionReconciliationInput,
   type SubmitAgentControllerTaskLifecycleEventsInput,
   type SubmitRuntimeAgentControllerReportsInput,
   type SubmitRuntimeProviderConversationProofsInput,
@@ -1073,6 +1077,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcSubmitAgentActivityEvents(this.env, input);
   }
 
+  submitAgentActivitySessionReconciliation(
+    input: SubmitAgentActivitySessionReconciliationInput
+  ) {
+    return rpcSubmitAgentActivitySessionReconciliation(this.env, input);
+  }
+
   submitAgentControllerTaskLifecycleEvents(
     input: SubmitAgentControllerTaskLifecycleEventsInput
   ) {
@@ -1081,6 +1091,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   readAgentActivitySnapshot(input: ReadAgentActivitySnapshotInput) {
     return rpcReadAgentActivitySnapshot(this.env, input);
+  }
+
+  readAgentActivitySessionInventory(
+    input: ReadAgentActivitySessionInventoryInput
+  ) {
+    return rpcReadAgentActivitySessionInventory(this.env, input);
   }
 
   readAgentActivityStats(input: ReadAgentActivityStatsInput) {
@@ -2859,8 +2875,20 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.submitAgentActivityEvents(input);
   }
 
+  submitAgentActivitySessionReconciliation(
+    input: SubmitAgentActivitySessionReconciliationInput
+  ) {
+    return super.submitAgentActivitySessionReconciliation(input);
+  }
+
   readAgentActivitySnapshot(input: ReadAgentActivitySnapshotInput) {
     return super.readAgentActivitySnapshot(input);
+  }
+
+  readAgentActivitySessionInventory(
+    input: ReadAgentActivitySessionInventoryInput
+  ) {
+    return super.readAgentActivitySessionInventory(input);
   }
 
   readAgentActivityStats(input: ReadAgentActivityStatsInput) {

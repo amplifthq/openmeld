@@ -8,6 +8,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { organizations } from "../auth/auth.schema.ts";
+import { projects } from "./project.schema.ts";
 
 export const agentActivityEvents = sqliteTable(
   "agent_activity_events",
@@ -132,6 +133,202 @@ export const agentActivitySessions = sqliteTable(
         and "expires_at_ms" >= "last_observed_at_ms"
         and "last_accepted_sequence" > 0
         and "updated_at_ms" >= "created_at_ms"`
+    ),
+  ]
+);
+
+/**
+ * Core-owned current Session Inventory. Historical Activity evidence remains in
+ * agent_activity_events; this projection is replaced only after a complete
+ * provider/Project/Computer reconciliation is accepted.
+ */
+export const agentActivitySessionInventory = sqliteTable(
+  "agent_activity_session_inventory",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id").notNull(),
+    agentControllerRef: text("agent_controller_ref").notNull(),
+    nativeSessionId: text("native_session_id").notNull(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    deviceId: text("device_id").notNull(),
+    connectedComputerId: text("connected_computer_id").notNull(),
+    localConnectionId: text("local_connection_id").notNull(),
+    sourceScopeKey: text("source_scope_key").notNull(),
+    provider: text("provider").notNull(),
+    nativeSessionTitle: text("native_session_title"),
+    status: text("status").notNull(),
+    lastActiveAtMs: integer("last_active_at_ms").notNull(),
+    startedAtMs: integer("started_at_ms"),
+    origin: text("origin").notNull(),
+    canResume: integer("can_resume", { mode: "boolean" }).notNull(),
+    canFork: integer("can_fork", { mode: "boolean" }).notNull(),
+    visible: integer("visible", { mode: "boolean" }).notNull(),
+    sourceReconciliationId: text("source_reconciliation_id").notNull(),
+    observedAtMs: integer("observed_at_ms").notNull(),
+    publishedAtMs: integer("published_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    uniqueIndex("agent_activity_session_inventory_identity_unique").on(
+      table.organizationId,
+      table.ownerUserId,
+      table.agentControllerRef,
+      table.nativeSessionId
+    ),
+    index("agent_activity_session_inventory_org_page_idx").on(
+      table.organizationId,
+      table.visible,
+      desc(table.lastActiveAtMs),
+      table.ownerUserId,
+      table.agentControllerRef,
+      table.nativeSessionId
+    ),
+    index("agent_activity_session_inventory_source_idx").on(
+      table.sourceScopeKey,
+      table.visible,
+      table.sourceReconciliationId
+    ),
+    index("agent_activity_session_inventory_project_idx").on(
+      table.organizationId,
+      table.projectId,
+      table.visible,
+      desc(table.lastActiveAtMs)
+    ),
+    check(
+      "agent_activity_session_inventory_connection_hash_check",
+      sql`length("local_connection_id") = 71
+        and substr("local_connection_id", 1, 7) = 'sha256:'
+        and substr("local_connection_id", 8) not glob '*[^0-9a-f]*'`
+    ),
+    check(
+      "agent_activity_session_inventory_time_check",
+      sql`"last_active_at_ms" >= 0
+        and ("started_at_ms" is null or "started_at_ms" <= "last_active_at_ms")
+        and "published_at_ms" >= 0
+        and "updated_at_ms" >= "published_at_ms"`
+    ),
+    check(
+      "agent_activity_session_inventory_status_check",
+      sql`"status" in ('working', 'idle', 'ended', 'error', 'unknown')`
+    ),
+    check(
+      "agent_activity_session_inventory_origin_check",
+      sql`"origin" in ('openmeld', 'local', 'unknown')`
+    ),
+  ]
+);
+
+/** Staging rows are never user-readable and are discarded after publication. */
+export const agentActivitySessionInventoryCandidates = sqliteTable(
+  "agent_activity_session_inventory_candidates",
+  {
+    id: text("id").primaryKey(),
+    sourceScopeKey: text("source_scope_key").notNull(),
+    reconciliationId: text("reconciliation_id").notNull(),
+    pageIndex: integer("page_index").notNull(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id").notNull(),
+    agentControllerRef: text("agent_controller_ref").notNull(),
+    nativeSessionId: text("native_session_id").notNull(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    deviceId: text("device_id").notNull(),
+    connectedComputerId: text("connected_computer_id").notNull(),
+    localConnectionId: text("local_connection_id").notNull(),
+    provider: text("provider").notNull(),
+    nativeSessionTitle: text("native_session_title"),
+    status: text("status").notNull(),
+    lastActiveAtMs: integer("last_active_at_ms").notNull(),
+    startedAtMs: integer("started_at_ms"),
+    origin: text("origin").notNull(),
+    canResume: integer("can_resume", { mode: "boolean" }).notNull(),
+    canFork: integer("can_fork", { mode: "boolean" }).notNull(),
+    observedAtMs: integer("observed_at_ms").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+  },
+  (table) => [
+    uniqueIndex("agent_activity_session_candidates_identity_unique").on(
+      table.sourceScopeKey,
+      table.reconciliationId,
+      table.agentControllerRef,
+      table.nativeSessionId
+    ),
+    index("agent_activity_session_candidates_page_idx").on(
+      table.sourceScopeKey,
+      table.reconciliationId,
+      table.pageIndex
+    ),
+    check(
+      "agent_activity_session_candidates_time_check",
+      sql`"page_index" >= 0
+        and "last_active_at_ms" >= 0
+        and ("started_at_ms" is null or "started_at_ms" <= "last_active_at_ms")
+        and "created_at_ms" >= 0`
+    ),
+  ]
+);
+
+/** One reconciliation cursor and coverage fact per authorized local source. */
+export const agentActivitySessionInventorySources = sqliteTable(
+  "agent_activity_session_inventory_sources",
+  {
+    sourceScopeKey: text("source_scope_key").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    ownerUserId: text("owner_user_id").notNull(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    deviceId: text("device_id").notNull(),
+    connectedComputerId: text("connected_computer_id").notNull(),
+    localConnectionId: text("local_connection_id").notNull(),
+    agentControllerRef: text("agent_controller_ref").notNull(),
+    provider: text("provider").notNull(),
+    state: text("state").notNull(),
+    currentReconciliationId: text("current_reconciliation_id"),
+    nextPageIndex: integer("next_page_index").notNull(),
+    problemCode: text("problem_code"),
+    lastAttemptAtMs: integer("last_attempt_at_ms"),
+    lastCompleteAtMs: integer("last_complete_at_ms"),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    uniqueIndex("agent_activity_session_sources_scope_unique").on(
+      table.organizationId,
+      table.ownerUserId,
+      table.deviceId,
+      table.projectId,
+      table.localConnectionId,
+      table.agentControllerRef
+    ),
+    index("agent_activity_session_sources_org_state_idx").on(
+      table.organizationId,
+      table.state,
+      desc(table.updatedAtMs)
+    ),
+    check(
+      "agent_activity_session_sources_state_check",
+      sql`"state" in (
+        'waiting', 'syncing', 'current', 'stale', 'unsupported', 'error', 'disconnected'
+      )`
+    ),
+    check(
+      "agent_activity_session_sources_cursor_check",
+      sql`"next_page_index" >= 0
+        and "updated_at_ms" >= 0
+        and (
+          ("state" = 'syncing' and "current_reconciliation_id" is not null)
+          or ("state" <> 'syncing')
+        )`
     ),
   ]
 );

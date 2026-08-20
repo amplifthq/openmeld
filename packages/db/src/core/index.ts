@@ -5,6 +5,9 @@ export {
   agentActivityDailySessionKeys,
   agentActivityDigests,
   agentActivityEvents,
+  agentActivitySessionInventory,
+  agentActivitySessionInventoryCandidates,
+  agentActivitySessionInventorySources,
   agentActivitySessions,
 } from "./agent-activity.schema.ts";
 export { openMeldDaemonAgentExecutionReadinessImpacts } from "./agent-execution-readiness-impact.schema.ts";

@@ -14,6 +14,9 @@ import {
   agentActivityDailySessionKeys,
   agentActivityDigests,
   agentActivityEvents,
+  agentActivitySessionInventory,
+  agentActivitySessionInventoryCandidates,
+  agentActivitySessionInventorySources,
   agentActivitySessions,
 } from "./agent-activity.schema.ts";
 import { openMeldDaemonAgentExecutionReadinessImpacts } from "./agent-execution-readiness-impact.schema.ts";
@@ -1575,6 +1578,9 @@ export const coreSchema = {
   agentActivityDigests,
   agentActivityEvents,
   agentActivityExecutionLinks,
+  agentActivitySessionInventory,
+  agentActivitySessionInventoryCandidates,
+  agentActivitySessionInventorySources,
   agentActivitySessions,
   agentControllerTaskLifecycleEvents,
   agentControllerTasks,

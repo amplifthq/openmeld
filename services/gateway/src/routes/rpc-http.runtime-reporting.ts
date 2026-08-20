@@ -1,9 +1,12 @@
 import {
   AGENT_ACTIVITY_EVENT_BATCH_MAX_BYTES,
+  AGENT_ACTIVITY_SESSION_RECONCILIATION_MAX_BYTES,
   AGENT_CONTROLLER_TASK_LIFECYCLE_EVENT_BATCH_MAX_BYTES,
   runtimeReportingRouteParamsSchema,
   submitAgentActivityEventsBodySchema,
   submitAgentActivityEventsResponseSchema,
+  submitAgentActivitySessionReconciliationBodySchema,
+  submitAgentActivitySessionReconciliationResponseSchema,
   submitAgentControllerTaskLifecycleEventsBodySchema,
   submitAgentControllerTaskLifecycleEventsResponseSchema,
   submitRuntimeAgentControllerReportsBodySchema,
@@ -30,10 +33,75 @@ const RUNTIME_PROVIDER_CONVERSATION_PROOFS_ROUTE =
   "/v1/devices/:deviceId/runtime-provider-conversation-proofs/current";
 const AGENT_ACTIVITY_EVENTS_ROUTE =
   "/v1/devices/:deviceId/agent-activity-events";
+const AGENT_ACTIVITY_SESSION_RECONCILIATION_ROUTE =
+  "/v1/devices/:deviceId/agent-activity-session-reconciliation";
 const AGENT_CONTROLLER_TASK_LIFECYCLE_EVENTS_ROUTE =
   "/v1/devices/:deviceId/agent-controller-task-lifecycle-events";
 
 export function registerRuntimeReportingRoutes(app: Hono<HonoBindings>): void {
+  app.put(AGENT_ACTIVITY_SESSION_RECONCILIATION_ROUTE, async (c) => {
+    const routeParams = parseRuntimeReportingRouteParams({
+      deviceId: c.req.param("deviceId"),
+    });
+    if (!routeParams.ok) {
+      return respondBadRequest({
+        c,
+        route: AGENT_ACTIVITY_SESSION_RECONCILIATION_ROUTE,
+        method: "PUT",
+        code: "invalid_device_id",
+        message: routeParams.message,
+      });
+    }
+    const bodyResult = await readJsonRequestBody(c.req.raw, {
+      maxBytes: AGENT_ACTIVITY_SESSION_RECONCILIATION_MAX_BYTES,
+    });
+    if (!bodyResult.ok) {
+      if (bodyResult.message === "Payload too large") {
+        return respondPayloadTooLarge({
+          c,
+          route: AGENT_ACTIVITY_SESSION_RECONCILIATION_ROUTE,
+          method: "PUT",
+          message:
+            "Agent Activity Session reconciliation exceeds its safety limit",
+        });
+      }
+      return respondBadRequest({
+        c,
+        route: AGENT_ACTIVITY_SESSION_RECONCILIATION_ROUTE,
+        method: "PUT",
+        code: "invalid_json",
+        message: bodyResult.message,
+      });
+    }
+    const parsedBody =
+      submitAgentActivitySessionReconciliationBodySchema.safeParse(
+        bodyResult.value
+      );
+    if (!parsedBody.success) {
+      return respondBadRequest({
+        c,
+        route: AGENT_ACTIVITY_SESSION_RECONCILIATION_ROUTE,
+        method: "PUT",
+        code: "invalid_payload",
+        message:
+          parsedBody.error.issues[0]?.message ??
+          "Agent Activity Session reconciliation is invalid",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: AGENT_ACTIVITY_SESSION_RECONCILIATION_ROUTE,
+      method: "PUT",
+      responseSchema: submitAgentActivitySessionReconciliationResponseSchema,
+      execute: async () =>
+        await c.var.coreRpc.submitAgentActivitySessionReconciliation({
+          ...parsedBody.data,
+          context: buildCoreRpcContext(c),
+          deviceId: routeParams.value.deviceId,
+        }),
+    });
+  });
+
   app.put(AGENT_CONTROLLER_TASK_LIFECYCLE_EVENTS_ROUTE, async (c) => {
     const routeParams = parseRuntimeReportingRouteParams({
       deviceId: c.req.param("deviceId"),

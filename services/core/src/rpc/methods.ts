@@ -271,6 +271,7 @@ import type {
   AccountSpaceIndexQuery,
   AccountSpaceIndexResponse,
   AddOrganizationDirectoryProfilesToSpaceBody,
+  AgentActivitySessionInventoryRpcInput,
   AgentActivitySnapshotRpcInput,
   AgentActivityStatsRpcInput,
   AgentControllerPermissionMode,
@@ -539,6 +540,7 @@ import type {
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
   SubmitAgentActivityEventsRpcInput,
+  SubmitAgentActivitySessionReconciliationRpcInput,
   SubmitAgentControllerTaskLifecycleEventItem,
   SubmitAgentControllerTaskLifecycleEventsResponse,
   SubmitAgentControllerTaskLifecycleEventsRpcInput,
@@ -573,6 +575,10 @@ import {
 } from "@openmeld/space";
 import { rpcCenterAgentReadAgentActivity as centerAgentReadAgentActivity } from "../agent-activity/activity-center-agent-rpc";
 import { rpcSubmitAgentActivityEvents as submitAgentActivityEvents } from "../agent-activity/activity-event-rpc";
+import {
+  rpcReadAgentActivitySessionInventory as readAgentActivitySessionInventory,
+  rpcSubmitAgentActivitySessionReconciliation as submitAgentActivitySessionReconciliation,
+} from "../agent-activity/activity-session-inventory-rpc";
 import { rpcReadAgentActivitySnapshot as readAgentActivitySnapshot } from "../agent-activity/activity-snapshot-rpc";
 import { rpcReadAgentActivityStats as readAgentActivityStats } from "../agent-activity/activity-stats-rpc";
 import {
@@ -1072,9 +1078,13 @@ export type RemoveConnectionInput = LocalProjectControlRemoveConnectionRpcInput;
 export type RemoveMissingConnectionsInput =
   LocalProjectControlRemoveMissingConnectionsRpcInput;
 export type SubmitAgentActivityEventsInput = SubmitAgentActivityEventsRpcInput;
+export type SubmitAgentActivitySessionReconciliationInput =
+  SubmitAgentActivitySessionReconciliationRpcInput;
 export type SubmitAgentControllerTaskLifecycleEventsInput =
   SubmitAgentControllerTaskLifecycleEventsRpcInput;
 export type ReadAgentActivitySnapshotInput = AgentActivitySnapshotRpcInput;
+export type ReadAgentActivitySessionInventoryInput =
+  AgentActivitySessionInventoryRpcInput;
 export type ReadAgentActivityStatsInput = AgentActivityStatsRpcInput;
 export type ReadOrganizationUsageOverviewInput =
   OrganizationUsageOverviewRpcInput;
@@ -1261,6 +1271,13 @@ export function rpcSubmitAgentActivityEvents(
   return submitAgentActivityEvents(env, input);
 }
 
+export function rpcSubmitAgentActivitySessionReconciliation(
+  env: CoreBindings,
+  input: SubmitAgentActivitySessionReconciliationInput
+) {
+  return submitAgentActivitySessionReconciliation(env, input);
+}
+
 export function rpcSubmitAgentControllerTaskLifecycleEvents(
   env: CoreBindings,
   input: SubmitAgentControllerTaskLifecycleEventsInput
@@ -1273,6 +1290,13 @@ export function rpcReadAgentActivitySnapshot(
   input: ReadAgentActivitySnapshotInput
 ) {
   return readAgentActivitySnapshot(env, input);
+}
+
+export function rpcReadAgentActivitySessionInventory(
+  env: CoreBindings,
+  input: ReadAgentActivitySessionInventoryInput
+) {
+  return readAgentActivitySessionInventory(env, input);
 }
 
 export function rpcReadAgentActivityStats(
