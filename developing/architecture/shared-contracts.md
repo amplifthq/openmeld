@@ -3451,7 +3451,11 @@ not start work, modify the turn, retain its raw event, or create a second usage
 store. Claude Code's Agent SDK event is partial: a missing utilization value
 creates no percentage evidence, while allowlisted 0–1 utilization is normalized
 to 0–100 and all session, account, overage, credit, and payment fields are
-discarded.
+discarded. The local Service separately confirms the current account through
+the existing non-task ACI authentication probe before merging a passive event.
+That owner-only comparison evidence never becomes part of the Usage Limit item
+or crosses into Organization Computers; an unknown or different account fails
+closed instead of reusing the observation.
 
 Version advisory is read-only controller maintenance evidence:
 current version, latest known version, advisory status, and an optional manual

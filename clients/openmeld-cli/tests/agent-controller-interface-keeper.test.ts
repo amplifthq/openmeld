@@ -640,11 +640,16 @@ describe("agent controller interface re-probe orchestration", () => {
     agentId: "opencode",
     commandPath: "/usr/local/bin/opencode",
   });
+  const AUTH_SNAPSHOT = {
+    email: "owner@example.com",
+    label: "Signed in",
+    status: "authenticated" as const,
+  };
 
   function completedSnapshot(): AgentControllerInterfaceSnapshot {
     return {
       agentControllerRef: "builtin:opencode",
-      auth: { label: "Signed in", status: "authenticated" },
+      auth: AUTH_SNAPSHOT,
       capabilities: EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES,
       checkedAt: "2026-07-03T10:00:00.000Z",
       controllerId: "opencode",
@@ -754,6 +759,7 @@ describe("agent controller interface re-probe orchestration", () => {
       },
     });
     recordAgentControllerUsageLimitsObservation({
+      authSnapshot: AUTH_SNAPSHOT,
       commandFingerprint: COMMAND_FINGERPRINT,
       keeperKey,
       usageLimits: [
@@ -785,6 +791,100 @@ describe("agent controller interface re-probe orchestration", () => {
     ]);
   });
 
+  it("does not mix a passive observation into another account", () => {
+    const accountALimit = {
+      key: "claude-code:five-hour",
+      label: "5-hour usage limit",
+      observedAt: "2026-07-03T10:00:00.000Z",
+      resetsAt: null,
+      status: "available" as const,
+      usedPercent: 30,
+    };
+    recordAgentControllerInterfaceProbeSuccess({
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      nowMs: 1000,
+      snapshot: {
+        ...completedSnapshot(),
+        auth: {
+          email: "account-a@example.com",
+          label: "Signed in",
+          status: "authenticated",
+        },
+        usageLimits: [accountALimit],
+      },
+    });
+
+    const accountBAuth = {
+      email: "account-b@example.com",
+      label: "Signed in",
+      status: "authenticated" as const,
+    };
+    const accountBLimit = {
+      key: "claude-code:seven-day",
+      label: "Weekly usage limit",
+      observedAt: "2026-07-03T10:01:00.000Z",
+      resetsAt: null,
+      status: "available" as const,
+      usedPercent: 80,
+    };
+    recordAgentControllerUsageLimitsObservation({
+      authSnapshot: accountBAuth,
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      usageLimits: [accountBLimit],
+    });
+
+    expect(
+      readLastKnownAgentControllerUsageLimits({
+        commandFingerprint: COMMAND_FINGERPRINT,
+        keeperKey,
+      })
+    ).toEqual([accountALimit]);
+
+    recordAgentControllerInterfaceProbeSuccess({
+      commandFingerprint: COMMAND_FINGERPRINT,
+      keeperKey,
+      nowMs: 2000,
+      snapshot: {
+        ...completedSnapshot(),
+        auth: accountBAuth,
+      },
+    });
+    expect(
+      readLastKnownAgentControllerUsageLimits({
+        commandFingerprint: COMMAND_FINGERPRINT,
+        keeperKey,
+      })
+    ).toEqual([accountBLimit]);
+  });
+
+  it("rejects passive usage evidence without stable account identity", () => {
+    expect(
+      recordAgentControllerUsageLimitsObservation({
+        authSnapshot: { status: "unknown" },
+        commandFingerprint: COMMAND_FINGERPRINT,
+        keeperKey,
+        usageLimits: [
+          {
+            key: "claude-code:five-hour",
+            label: "5-hour usage limit",
+            observedAt: "2026-07-03T10:01:00.000Z",
+            resetsAt: null,
+            status: "available",
+            usedPercent: 40,
+          },
+        ],
+      })
+    ).toBe(false);
+    expect(
+      readLastKnownAgentControllerUsageLimits({
+        commandFingerprint: COMMAND_FINGERPRINT,
+        keeperKey,
+      })
+    ).toBeNull();
+  });
+
   it("retains passive usage evidence observed before the first completed probe", () => {
     const usageLimits = [
       {
@@ -797,6 +897,7 @@ describe("agent controller interface re-probe orchestration", () => {
       },
     ];
     recordAgentControllerUsageLimitsObservation({
+      authSnapshot: AUTH_SNAPSHOT,
       commandFingerprint: COMMAND_FINGERPRINT,
       keeperKey,
       usageLimits,
@@ -826,11 +927,13 @@ describe("agent controller interface re-probe orchestration", () => {
       usedPercent: 88,
     };
     recordAgentControllerUsageLimitsObservation({
+      authSnapshot: AUTH_SNAPSHOT,
       commandFingerprint: COMMAND_FINGERPRINT,
       keeperKey,
       usageLimits: [newerLimit],
     });
     recordAgentControllerUsageLimitsObservation({
+      authSnapshot: AUTH_SNAPSHOT,
       commandFingerprint: COMMAND_FINGERPRINT,
       keeperKey,
       usageLimits: [

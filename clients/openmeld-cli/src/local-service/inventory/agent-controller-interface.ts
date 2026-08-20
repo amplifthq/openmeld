@@ -143,6 +143,24 @@ const CONTROLLER_INTERFACE_SNAPSHOT_RESOLVERS: Record<
   opencode: resolveOpenCodeInterfaceSnapshot,
 };
 
+export async function probeAgentControllerUsageObservationAuth(input: {
+  agentId: string;
+  launchContract: RuntimeAgentControllerLaunchContract;
+}): Promise<AgentControllerInterfaceAuthSnapshot> {
+  if (input.agentId !== "claude-code") {
+    return { status: "unknown" };
+  }
+  // Claude's passive SDK rate-limit event carries no stable account identity.
+  // Reuse its native, non-task ACI auth command solely to bind the observation;
+  // the auth snapshot never becomes part of a Usage Limit item.
+  const authProbe = await runLaunchContractCommand({
+    allowNonZeroExit: true,
+    args: ["auth", "status"],
+    launchContract: input.launchContract,
+  });
+  return resolveClaudeAuthSnapshot(authProbe);
+}
+
 export async function resolveAgentControllerInterfaceSnapshot(input: {
   agentControllerRef: string;
   probePolicy?: AgentControllerInterfaceProbePolicy;
@@ -264,7 +282,7 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
       usageLimits
     );
     if (commandFingerprintRemainedStable && commandFingerprintAfterProbe) {
-      recordAgentControllerInterfaceProbeSuccess({
+      return recordAgentControllerInterfaceProbeSuccess({
         commandFingerprint: commandFingerprintAfterProbe,
         keeperKey,
         nowMs: Date.now(),

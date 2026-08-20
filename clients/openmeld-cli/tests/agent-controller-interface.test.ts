@@ -15,6 +15,12 @@ import {
   resolveAgentControllerInterfaceSnapshot,
   resolveUsageLimitsAfterCompletedProbe,
 } from "../src/local-service/inventory/agent-controller-interface";
+import {
+  buildAgentControllerInterfaceKeeperKey,
+  recordAgentControllerUsageLimitsObservation,
+  resetAgentControllerInterfaceKeeperForTests,
+  resolveAgentControllerCommandFingerprint,
+} from "../src/local-service/inventory/agent-controller-interface-keeper";
 import { OPENCLAW_MODELS_STATUS_MISSING_AUTH_RESPONSE } from "./fixtures/openclaw-models-status";
 import {
   OPENCODE_NPM_LATEST_RESPONSE,
@@ -50,6 +56,7 @@ beforeEach(() => {
 
 afterEach(() => {
   createOpencodeClientMock.mockReset();
+  resetAgentControllerInterfaceKeeperForTests();
   warnDaemonEventMock.mockReset();
   vi.unstubAllGlobals();
 });
@@ -154,6 +161,70 @@ describe("agent controller interface inventory", () => {
         support: "passive",
       })
     ).toEqual(usageLimits);
+  });
+
+  it("returns a pre-probe passive observation in the first Claude snapshot", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-claude-usage-"));
+    try {
+      const binPath = join(home, "claude");
+      await writeFile(
+        binPath,
+        [
+          "#!/bin/sh",
+          'if [ "$1" = "--version" ]; then echo "2.1.197 (Claude Code)"; exit 0; fi',
+          'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then',
+          '  echo \'{"loggedIn":true,"email":"owner@example.com"}\'',
+          "  exit 0",
+          "fi",
+          "exit 1",
+          "",
+        ].join("\n"),
+        "utf8"
+      );
+      await chmod(binPath, 0o755);
+      const commandFingerprint = await resolveAgentControllerCommandFingerprint(
+        {
+          commandPath: binPath,
+          launchContractKind: "executable",
+        }
+      );
+      if (!commandFingerprint) {
+        throw new Error("Expected a fingerprint for the Claude test command");
+      }
+      const usageLimit = {
+        key: "claude-code:five-hour",
+        label: "5-hour usage limit",
+        observedAt: "2026-08-20T08:00:00.000Z",
+        resetsAt: "2026-08-20T12:00:00.000Z",
+        status: "available" as const,
+        usedPercent: 61,
+      };
+      recordAgentControllerUsageLimitsObservation({
+        authSnapshot: {
+          email: "owner@example.com",
+          status: "authenticated",
+        },
+        commandFingerprint,
+        keeperKey: buildAgentControllerInterfaceKeeperKey({
+          agentId: "claude-code",
+          commandPath: binPath,
+        }),
+        usageLimits: [usageLimit],
+      });
+
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:claude-code",
+        state: createBuiltinAgentTargetState(
+          "claude-code",
+          "Claude Code",
+          binPath
+        ),
+      });
+
+      expect(snapshot.usageLimits).toEqual([usageLimit]);
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
   });
 
   it("drops another account's last-known capacity when authentication is lost", () => {

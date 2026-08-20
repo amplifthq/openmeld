@@ -475,6 +475,10 @@ Implement only the following slice in the Local Agent Usage Limits PR:
   SDK message stream. Do not create a query for collection.
 - Allowlist only `rateLimitType`, `utilization`, and `resetsAt`; discard the raw
   event and all session, account, overage, credit, and payment fields.
+- Before retaining the event, reuse Claude Code's existing native, non-task ACI
+  `auth status` command solely to prove a stable owner account. Keep that
+  owner-only auth snapshot outside the Usage Limit item, and discard the event
+  when the account is unknown or differs from the current ACI snapshot.
 - Normalize SDK utilization from `0–1` to the contract's `0–100` used semantics
   using the source-specific parser.
 - Project only the window actually reported with valid utilization. Missing
@@ -488,7 +492,9 @@ Implement only the following slice in the Local Agent Usage Limits PR:
   `claude -p`, open `/usage`, scrape a terminal/Web page, parse failure text, or
   make a test prompt.
 - Do not read `.credentials.json`, Keychain items, environment OAuth tokens,
-  account metadata, subscription tier, or billing/extra-usage fields.
+  subscription tier, or billing/extra-usage fields. Do not add account metadata
+  to Usage Limit evidence; the existing owner-only ACI auth snapshot may be
+  used only for the same-account guard above.
 - Do not use local JSONL token/cost estimators as a fallback.
 - Do not use the explicitly experimental SDK usage control method as the
   first-release source.
@@ -518,6 +524,8 @@ Pro or Max installation without printing the raw callback:
   same provider evidence is available.
 - The persisted local evidence contains only the allowlisted fields and
   `observedAt`.
+- A direct provider-account switch cannot merge windows from two accounts; an
+  unknown account fails closed and retains no new passive evidence.
 - The ACI report, owner projection, team-safe projection, CLI JSON, and Web UI
   contain no status-line payload, credential, account identity, path, session,
   cost, or payment fields.

@@ -129,6 +129,13 @@ normalizes only finite values in the inclusive 0–1 range and retains only the
 normalized limit item. It discards the raw event, session identifiers, overage,
 credit, purchase, and payment fields before the evidence enters ACI.
 
+Because the passive event itself has no stable account identity, the Service
+reuses Claude Code's existing native `auth status` ACI command before retaining
+the observation. That non-task check is only a same-account guard: its existing
+owner-only auth snapshot stays outside every Usage Limit item, and an unknown or
+different account discards the observation. The Usage Limit path never reads a
+credential store, token, billing record, or raw account payload directly.
+
 This source is intentionally partial. In the ordinary `allowed` state, the SDK
 commonly omits `utilization`, and one event represents one window rather than a
 complete account snapshot. OpenMeld therefore publishes a gauge only when the
@@ -370,8 +377,9 @@ captures of the real non-task probes above. Tests should prove:
 - Grok Build exposes only direct percent/current period and rejects or discards
   all billing/account fields;
 - Claude Code normalizes valid passive SDK events, retains no raw event or
-  billing fields, and leaves missing ordinary utilization unknown without
-  invoking a task for collection;
+  billing fields, binds retained evidence to the existing owner-only ACI auth
+  snapshot, and leaves missing ordinary utilization unknown without invoking a
+  task for collection;
 - Cursor and OpenCode return explicit `unsupported` evidence without invoking
   their task entry points;
 - a first native query failure is `unavailable` with no invented facts;

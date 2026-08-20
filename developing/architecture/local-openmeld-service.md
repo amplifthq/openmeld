@@ -210,17 +210,22 @@ The Service collects this evidence through the existing background ACI probe
 or a sanitized provider-native event passively observed during an ordinary
 already-running Agent Controller turn, then publishes it through the same
 Runtime Agent Controller Report. Passive observation must not create a turn,
-change its prompt or result, or become execution authority. One provider
-failure cannot fail the Computer inventory or another controller. A temporary
-failure after a valid observation preserves that last-known percentage and
-reset with its original `observedAt`, marked `stale`, only when the existing
-owner-only authentication evidence proves the same provider account. An
-account change, signed-out state, or missing stable account identity fails
-closed to the current `unavailable` evidence instead of carrying capacity
-between accounts. A provider that has never returned usable evidence is
-`unavailable`. A controller with no supported native source is explicitly
-`unsupported`. These states do not alter Agent Profile readiness, Binding,
-Wake admission, RuntimeCoordinator, routing, or agent selection.
+change its prompt or result, or become execution authority. Before retaining a
+passive observation, the Service confirms the current account through the
+controller's existing native, non-task ACI authentication probe and binds the
+observation to that owner-only evidence. It never adds account identity to a
+Usage Limit item. An observation with unknown account identity is discarded,
+and evidence bound to a different account cannot merge into the current
+snapshot. One provider failure cannot fail the Computer inventory or another
+controller. A temporary failure after a valid observation preserves that
+last-known percentage and reset with its original `observedAt`, marked `stale`,
+only when the existing owner-only authentication evidence proves the same
+provider account. An account change, signed-out state, or missing stable account
+identity fails closed to the current `unavailable` evidence instead of carrying
+capacity between accounts. A provider that has never returned usable evidence
+is `unavailable`. A controller with no supported native source is explicitly
+`unsupported`. These states do not alter Agent Profile readiness, Binding, Wake
+admission, RuntimeCoordinator, routing, or agent selection.
 
 The local keeper avoids replacing a successful observation during one Service
 process lifetime when the provider account remains proven. Core applies the

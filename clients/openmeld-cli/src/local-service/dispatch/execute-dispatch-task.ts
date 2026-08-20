@@ -120,6 +120,7 @@ import { DaemonServiceRunError } from "../core/types";
 import { resolveComputerFileAccessAdmission } from "../file-access/computer-file-access-admission";
 import { applyComputerFileAccessAwareness } from "../file-access/computer-file-access-prompt";
 import { readComputerFileAccessPolicy } from "../file-access/computer-file-access-store";
+import { probeAgentControllerUsageObservationAuth } from "../inventory/agent-controller-interface";
 import { recordRuntimeProviderUsageLimits } from "../inventory/runtime-provider-usage-limits";
 import {
   buildRuntimeRouteTargets,
@@ -1338,6 +1339,9 @@ export async function handleDispatchDeliverFrame(input: {
       return agentControllerConversationId;
     };
     let agentToolActivitySequence = 0;
+    let usageObservationAuthPromise: ReturnType<
+      typeof probeAgentControllerUsageObservationAuth
+    > | null = null;
     const runtimeExecutionPromise = Promise.resolve(
       runDispatchRuntimeExecution({
         computerFileAccessBoundary,
@@ -1385,28 +1389,61 @@ export async function handleDispatchDeliverFrame(input: {
             event.phase === "provider_usage_limits_observed" &&
             routeConfig?.launchContract
           ) {
-            const recordUsageLimits = recordRuntimeProviderUsageLimits({
-              agentId: runtimeControllerSupport.runtimeAdapterMatch.adapterId,
-              launchContract: routeConfig.launchContract,
-              usageLimits: event.usageLimits,
-            });
-            recordUsageLimits.catch((error) => {
-              emitRunLine({
-                presenter: input.presenter,
-                code: "daemon.run.provider_usage_limits_observation_ignored",
-                text: `provider usage limit observation could not be retained for task ${parsedTask.taskId}`,
-                payload: {
-                  agentControllerRef: parsedTask.agentControllerRef,
-                  dispatchId: parsedTask.dispatchId,
-                  errorMessage: toErrorMessage(error),
-                  observedLimitKeys: event.usageLimits.map(
-                    (limit) => limit.key
-                  ),
-                  targetProfileId: parsedTask.targetProfileId,
-                  taskId: parsedTask.taskId,
-                },
+            const agentId =
+              runtimeControllerSupport.runtimeAdapterMatch.adapterId;
+            const launchContract = routeConfig.launchContract;
+            usageObservationAuthPromise ??=
+              probeAgentControllerUsageObservationAuth({
+                agentId,
+                launchContract,
               });
-            });
+            const recordUsageLimits = usageObservationAuthPromise.then(
+              (authSnapshot) =>
+                recordRuntimeProviderUsageLimits({
+                  agentId,
+                  authSnapshot,
+                  launchContract,
+                  usageLimits: event.usageLimits,
+                })
+            );
+            recordUsageLimits
+              .then((retained) => {
+                if (retained) {
+                  return;
+                }
+                emitRunLine({
+                  presenter: input.presenter,
+                  code: "daemon.run.provider_usage_limits_observation_ignored",
+                  text: `provider usage limit observation could not be retained for task ${parsedTask.taskId}`,
+                  payload: {
+                    agentControllerRef: parsedTask.agentControllerRef,
+                    dispatchId: parsedTask.dispatchId,
+                    observedLimitKeys: event.usageLimits.map(
+                      (limit) => limit.key
+                    ),
+                    reasonCode: "provider_account_unconfirmed",
+                    targetProfileId: parsedTask.targetProfileId,
+                    taskId: parsedTask.taskId,
+                  },
+                });
+              })
+              .catch((error) => {
+                emitRunLine({
+                  presenter: input.presenter,
+                  code: "daemon.run.provider_usage_limits_observation_ignored",
+                  text: `provider usage limit observation could not be retained for task ${parsedTask.taskId}`,
+                  payload: {
+                    agentControllerRef: parsedTask.agentControllerRef,
+                    dispatchId: parsedTask.dispatchId,
+                    errorMessage: toErrorMessage(error),
+                    observedLimitKeys: event.usageLimits.map(
+                      (limit) => limit.key
+                    ),
+                    targetProfileId: parsedTask.targetProfileId,
+                    taskId: parsedTask.taskId,
+                  },
+                });
+              });
           }
           if (
             !firstOutputEvidenceSent &&
