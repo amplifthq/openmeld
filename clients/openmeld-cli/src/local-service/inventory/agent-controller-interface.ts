@@ -12,6 +12,7 @@ import {
   GrokBuildAcpTransportError,
   probeGrokBuildAcpInterface,
 } from "@openmeld/adapter-grok-build";
+import { areAgentControllerInterfaceAccountsSame } from "@openmeld/agent-runtime";
 import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceAuthSnapshot,
@@ -41,6 +42,7 @@ import { warnDaemonEvent } from "../core/logger";
 import {
   buildAgentControllerInterfaceKeeperKey,
   didAgentControllerCommandFingerprintRemainStable,
+  readLastKnownAgentControllerAuthSnapshot,
   readLastKnownAgentControllerUsageLimits,
   readLastSuccessfulAgentControllerInterfaceCheckAt,
   readReusableAgentControllerInterfaceSnapshot,
@@ -214,6 +216,10 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
     commandFingerprint: commandFingerprintBeforeProbe,
     keeperKey,
   });
+  const lastKnownAuth = readLastKnownAgentControllerAuthSnapshot({
+    commandFingerprint: commandFingerprintBeforeProbe,
+    keeperKey,
+  });
   if (probePolicy === "background") {
     const reusableSnapshot = readReusableAgentControllerInterfaceSnapshot({
       commandFingerprint: commandFingerprintBeforeProbe,
@@ -241,9 +247,10 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
     });
   if (outcome.probeCompleted) {
     const usageLimits = resolveUsageLimitsAfterCompletedProbe({
-      authStatus: outcome.snapshot.auth.status,
+      currentAuth: outcome.snapshot.auth,
       current: outcome.snapshot.usageLimits,
       previous: lastKnownUsageLimits,
+      previousAuth: lastKnownAuth,
       support: controllerDefinition?.usageLimitSupport ?? "not_evaluated",
     });
     const completedSnapshot = withUsageLimits(
@@ -275,8 +282,10 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
     ? lastSuccessfulCheckAt
     : null;
   const usageLimits = resolveUsageLimitsAfterFailedProbe({
+    currentAuth: outcome.snapshot.auth,
     current: outcome.snapshot.usageLimits,
     previous: lastKnownUsageLimits,
+    previousAuth: lastKnownAuth,
     preserveHistoricalEvidence: commandFingerprintRemainedStable,
   });
   warnDaemonEvent("[openmeld.agent_controller_interface.check_failed]", {
@@ -309,12 +318,18 @@ function withUsageLimits(
 }
 
 export function resolveUsageLimitsAfterCompletedProbe(input: {
-  authStatus: AgentControllerInterfaceAuthSnapshot["status"];
+  currentAuth: AgentControllerInterfaceAuthSnapshot;
   current: AgentControllerUsageLimits | undefined;
   previous: AgentControllerUsageLimits | null;
+  previousAuth: AgentControllerInterfaceAuthSnapshot | null;
   support: BuiltinAgentControllerUsageLimitSupport;
 }): AgentControllerUsageLimits | undefined {
-  if (input.authStatus !== "authenticated") {
+  if (
+    !areAgentControllerInterfaceAccountsSame(
+      input.previousAuth,
+      input.currentAuth
+    )
+  ) {
     return input.current;
   }
   if (input.support === "passive") {
@@ -344,11 +359,21 @@ function preserveLastKnownUsageLimitsAfterFailure(input: {
 }
 
 function resolveUsageLimitsAfterFailedProbe(input: {
+  currentAuth: AgentControllerInterfaceAuthSnapshot;
   current: AgentControllerUsageLimits | undefined;
   preserveHistoricalEvidence: boolean;
   previous: AgentControllerUsageLimits | null;
+  previousAuth: AgentControllerInterfaceAuthSnapshot | null;
 }): AgentControllerUsageLimits | undefined {
-  if (!input.preserveHistoricalEvidence) {
+  if (
+    !(
+      input.preserveHistoricalEvidence &&
+      areAgentControllerInterfaceAccountsSame(
+        input.previousAuth,
+        input.currentAuth
+      )
+    )
+  ) {
     return input.current;
   }
   return preserveLastKnownUsageLimitsAfterFailure(input);

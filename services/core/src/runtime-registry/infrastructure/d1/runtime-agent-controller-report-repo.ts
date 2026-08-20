@@ -1,5 +1,6 @@
 import {
   type AuthorityOpenMeldServiceRuntimeId,
+  areAgentControllerInterfaceAccountsSame,
   createAuthorityOpenMeldServiceRuntimeId,
   parseAgentControllerRef,
   type RuntimeAgentControllerReportStatus,
@@ -296,9 +297,15 @@ function preserveLastKnownUsageLimits(input: {
   const currentLimits =
     input.currentReport?.agentControllerInterface?.usageLimits;
   const nextSnapshot = input.nextReport.agentControllerInterface;
+  if (!nextSnapshot) {
+    return input.nextReport;
+  }
   const nextLimits = nextSnapshot?.usageLimits;
   const providerReadIsUnavailable =
-    nextSnapshot?.auth.status === "authenticated" &&
+    areAgentControllerInterfaceAccountsSame(
+      input.currentReport?.agentControllerInterface?.auth,
+      nextSnapshot?.auth
+    ) &&
     nextLimits?.length === 1 &&
     nextLimits[0]?.status === "unavailable";
   const hasKnownCapacity = currentLimits?.some(

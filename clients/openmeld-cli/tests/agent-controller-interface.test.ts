@@ -60,7 +60,10 @@ describe("agent controller interface inventory", () => {
 
     expect(
       resolveUsageLimitsAfterCompletedProbe({
-        authStatus: "authenticated",
+        currentAuth: {
+          email: "capacity-owner@example.com",
+          status: "authenticated",
+        },
         current: [
           {
             key: "provider",
@@ -97,6 +100,10 @@ describe("agent controller interface inventory", () => {
             usedPercent: null,
           },
         ],
+        previousAuth: {
+          email: "capacity-owner@example.com",
+          status: "authenticated",
+        },
         support: "native",
       })
     ).toEqual([
@@ -134,9 +141,16 @@ describe("agent controller interface inventory", () => {
 
     expect(
       resolveUsageLimitsAfterCompletedProbe({
-        authStatus: "authenticated",
+        currentAuth: {
+          email: "capacity-owner@example.com",
+          status: "authenticated",
+        },
         current: undefined,
         previous: usageLimits,
+        previousAuth: {
+          email: "capacity-owner@example.com",
+          status: "authenticated",
+        },
         support: "passive",
       })
     ).toEqual(usageLimits);
@@ -156,7 +170,7 @@ describe("agent controller interface inventory", () => {
 
     expect(
       resolveUsageLimitsAfterCompletedProbe({
-        authStatus: "unauthenticated",
+        currentAuth: { status: "unauthenticated" },
         current: unavailable,
         previous: [
           {
@@ -168,6 +182,48 @@ describe("agent controller interface inventory", () => {
             usedPercent: 72,
           },
         ],
+        previousAuth: {
+          email: "capacity-owner@example.com",
+          status: "authenticated",
+        },
+        support: "native",
+      })
+    ).toEqual(unavailable);
+  });
+
+  it("drops last-known capacity when the authenticated provider account changes", () => {
+    const unavailable = [
+      {
+        key: "provider",
+        label: "Usage limits",
+        observedAt: "2026-08-20T08:20:00.000Z",
+        resetsAt: null,
+        status: "unavailable" as const,
+        usedPercent: null,
+      },
+    ];
+
+    expect(
+      resolveUsageLimitsAfterCompletedProbe({
+        currentAuth: {
+          email: "new-capacity-owner@example.com",
+          status: "authenticated",
+        },
+        current: unavailable,
+        previous: [
+          {
+            key: "codex:primary",
+            label: "5-hour usage",
+            observedAt: "2026-08-20T08:00:00.000Z",
+            resetsAt: "2026-08-20T12:00:00.000Z",
+            status: "available",
+            usedPercent: 72,
+          },
+        ],
+        previousAuth: {
+          email: "previous-capacity-owner@example.com",
+          status: "authenticated",
+        },
         support: "native",
       })
     ).toEqual(unavailable);

@@ -344,11 +344,14 @@ a provider usage observation. A natively supported provider with no first-ever
 usable response emits the equivalent `unavailable` sentinel.
 
 After a successful observation, a later provider timeout, parse error, or
-temporary failure must not erase last-good evidence or the entire Local Agent.
-Keep the last-good value and its original `observedAt`, then present it as
-`stale`. The failure remains diagnostic evidence, not a replacement percentage.
-A failure in one adapter must not fail inventory or reporting for another
-controller on the same Computer.
+temporary failure must not erase the entire Local Agent. Keep the last-good
+value and its original `observedAt`, then present it as `stale`, only when the
+existing owner-only authentication evidence proves the provider account did not
+change. A changed, signed-out, or unidentified account fails closed to the
+current unavailable observation so one account's capacity cannot be projected
+for another. The failure remains diagnostic evidence, not a replacement
+percentage. A failure in one adapter must not fail inventory or reporting for
+another controller on the same Computer.
 
 The local Service should collect at the existing background ACI inventory and
 Runtime Agent Controller reporting cadence. It must not collect during Wake by

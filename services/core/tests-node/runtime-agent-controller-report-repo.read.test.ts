@@ -324,13 +324,99 @@ describe("runtime agent controller report repo read-side", () => {
       harness.close();
     }
   });
+
+  it("does not retain another provider account's capacity after an account switch", async () => {
+    const harness = createSqliteD1Harness();
+    applyMigrationForTable(harness, "openMeldDaemon_runtime_registry_records");
+    applyMigrationForTable(
+      harness,
+      "openMeldDaemon_runtime_agent_controller_reports"
+    );
+    try {
+      const runtimeLookupInput = lookupInput("owner-1", "device-1");
+      const registeredRuntimeId = openMeldServiceRuntimeId(
+        runtimeLookupInput,
+        "runtime_opaque_1"
+      );
+      await registerRuntime(
+        harness.db,
+        runtimeLookupInput,
+        registeredRuntimeId
+      );
+      await acceptRuntimeAgentControllerReportRecord({
+        db: harness.db,
+        nowMs: 2000,
+        report: {
+          agentControllerRef: "builtin:codex",
+          agentControllerInterface: usageSnapshot({
+            email: "previous-capacity-owner@example.com",
+            status: "authenticated",
+          }),
+          expiresAtMs: 2_000_000,
+          observedAtMs: 1000,
+          reasonCodes: ["runtime.agent_controller_report.ready"],
+          openMeldServiceRuntimeId: registeredRuntimeId,
+          status: "ready",
+        },
+      });
+
+      await acceptRuntimeAgentControllerReportRecord({
+        db: harness.db,
+        nowMs: 3000,
+        report: {
+          agentControllerRef: "builtin:codex",
+          agentControllerInterface: {
+            ...usageSnapshot({
+              email: "new-capacity-owner@example.com",
+              status: "authenticated",
+            }),
+            checkedAt: "1970-01-01T00:00:02.000Z",
+            usageLimits: [
+              {
+                key: "provider",
+                label: "Usage limits",
+                observedAt: "1970-01-01T00:00:02.000Z",
+                resetsAt: null,
+                status: "unavailable",
+                usedPercent: null,
+              },
+            ],
+          },
+          expiresAtMs: 2_000_000,
+          observedAtMs: 2000,
+          reasonCodes: ["runtime.agent_controller_report.ready"],
+          openMeldServiceRuntimeId: registeredRuntimeId,
+          status: "ready",
+        },
+      });
+
+      const storedReports = await readCurrentRuntimeAgentControllerReports({
+        db: harness.db,
+        openMeldServiceRuntimeId: registeredRuntimeId,
+      });
+      expect(storedReports[0]?.agentControllerInterface?.usageLimits).toEqual([
+        expect.objectContaining({
+          key: "provider",
+          status: "unavailable",
+          usedPercent: null,
+        }),
+      ]);
+    } finally {
+      harness.close();
+    }
+  });
 });
 
-function usageSnapshot() {
+function usageSnapshot(
+  auth = {
+    email: "capacity-owner@example.com",
+    status: "authenticated" as const,
+  }
+) {
   const observedAt = "1970-01-01T00:00:01.000Z";
   return {
     agentControllerRef: "builtin:codex",
-    auth: { status: "authenticated" as const },
+    auth,
     capabilities: {
       approvals: true,
       cancel: true,

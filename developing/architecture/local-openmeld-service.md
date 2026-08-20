@@ -210,19 +210,24 @@ The Service collects this evidence through the existing background ACI probe
 or a sanitized provider-native event passively observed during an ordinary
 already-running Agent Controller turn, then publishes it through the same
 Runtime Agent Controller Report. Passive observation must not create a turn,
-change its prompt or result, or become execution authority. One provider failure cannot fail the
-Computer inventory or another controller. A temporary failure after a valid
-observation preserves that last-known percentage and reset with its original
-`observedAt`, marked `stale`; a provider that has never returned usable evidence
-is `unavailable`. A controller with no supported native source is explicitly
+change its prompt or result, or become execution authority. One provider
+failure cannot fail the Computer inventory or another controller. A temporary
+failure after a valid observation preserves that last-known percentage and
+reset with its original `observedAt`, marked `stale`, only when the existing
+owner-only authentication evidence proves the same provider account. An
+account change, signed-out state, or missing stable account identity fails
+closed to the current `unavailable` evidence instead of carrying capacity
+between accounts. A provider that has never returned usable evidence is
+`unavailable`. A controller with no supported native source is explicitly
 `unsupported`. These states do not alter Agent Profile readiness, Binding,
 Wake admission, RuntimeCoordinator, routing, or agent selection.
 
 The local keeper avoids replacing a successful observation during one Service
-process lifetime. Core applies the same last-good rule while accepting the next
-Runtime Agent Controller Report, so a Service restart followed by a temporary
-provider failure does not erase the already stored numeric evidence. This is an
-update to the canonical report row, not a second Usage Limit store.
+process lifetime when the provider account remains proven. Core applies the
+same account-bound last-good rule while accepting the next Runtime Agent
+Controller Report, so a Service restart followed by a temporary provider
+failure does not erase stored numeric evidence for a proven unchanged account.
+This is an update to the canonical report row, not a second Usage Limit store.
 
 Claude Code is partially supported through public Agent SDK
 `rate_limit_event` messages already present in OpenMeld-launched turns. Only a

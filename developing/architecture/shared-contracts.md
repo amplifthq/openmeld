@@ -3488,11 +3488,14 @@ cloud-visible merely because a local adapter can populate it.
 
 The Usage Limit allowlist never includes credentials, provider account identity,
 subscription or payment state, balances, monetary values, history, or raw
-provider responses. Core derives staleness from the provider observation time
-and the existing report expiry. Unsupported and never-observed unavailable
-evidence remain distinct; only last-known percentage evidence becomes stale.
-This projection does not change readiness, Wake, Binding, routing, Agent
-Activity, or RuntimeCoordinator contracts.
+provider responses. Core may compare already-existing owner-only ACI
+authentication evidence solely to prevent last-known capacity from crossing a
+provider account change; that evidence never enters the Usage Limit projection
+or Organization Computers. Core derives staleness from the provider observation
+time and the existing report expiry. Unsupported and never-observed unavailable
+evidence remain distinct; only account-bound last-known percentage evidence
+becomes stale. This projection does not change readiness, Wake, Binding,
+routing, Agent Activity, or RuntimeCoordinator contracts.
 
 A redacted field is not negative evidence. Clients must omit local-only command
 paths that are null in the cloud projection instead of describing them as

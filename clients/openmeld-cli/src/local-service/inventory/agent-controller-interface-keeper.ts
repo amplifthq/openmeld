@@ -1,6 +1,7 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type {
+  AgentControllerInterfaceAuthSnapshot,
   AgentControllerInterfaceSnapshot,
   AgentControllerUsageLimit,
   AgentControllerUsageLimits,
@@ -87,6 +88,16 @@ export function readLastKnownAgentControllerUsageLimits(input: {
   return (
     readMatchingAgentControllerInterfaceKeeperEntry(input)?.lastGoodSnapshot
       ?.usageLimits ?? null
+  );
+}
+
+export function readLastKnownAgentControllerAuthSnapshot(input: {
+  commandFingerprint: AgentControllerCommandFingerprint | null;
+  keeperKey: string;
+}): AgentControllerInterfaceAuthSnapshot | null {
+  return (
+    readMatchingAgentControllerInterfaceKeeperEntry(input)?.lastGoodSnapshot
+      ?.auth ?? null
   );
 }
 
