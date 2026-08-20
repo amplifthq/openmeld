@@ -30,7 +30,8 @@ source qualifies only when it is:
 
 1. first-party and intended for the provider's own client or an integration;
 2. machine-readable without scraping terminal UI or a Web dashboard;
-3. callable without creating a conversation, session turn, or model task;
+3. observable without creating a conversation, session turn, or model task
+   solely for collection;
 4. explicit about usage rather than inferred from a failed task; and
 5. filterable before data crosses the local OpenMeld Service trust boundary.
 
@@ -45,7 +46,7 @@ work, and projected only the usage fields named below before recording output.
 | Provider | Native non-task source | Decision for first release | Evidence shape |
 | --- | --- | --- | --- |
 | Codex | Yes: App Server `account/rateLimits/read` | Supported for ChatGPT rate limits; feature-detect and report `unavailable` when the current sign-in cannot provide them | Multiple metered buckets, each with optional primary and secondary windows, direct used percent, and reset time |
-| Claude Code | No supported machine-readable source found | `unsupported` — the interactive `/usage` screen is not an integration contract | Human-only plan-usage screen; no documented non-interactive usage command or SDK account-limit method |
+| Claude Code | Partial: native Agent SDK `rate_limit_event` during an ordinary OpenMeld-launched turn | Passively supported when the provider supplies numeric utilization; otherwise `unavailable`, never `unsupported` | One reported window per event, optional 0–1 utilization normalized to 0–100, and optional reset time |
 | Cursor | No supported source found | `unsupported` | Authentication/account status and model/ACP commands exist; no documented quota or usage-limit command |
 | OpenCode | No normalized provider-capacity source | `unsupported` | `opencode stats` reports historical local session tokens and cost, not remaining provider capacity or reset windows |
 | Grok Build | Yes: first-party ACP extension `_x.ai/billing` | Supported for a signed-in grok.com account; feature-detect because this is a vendor ACP extension | One current included-credit period with direct used percent and an RFC 3339 period end |
@@ -111,42 +112,49 @@ window fields above. This method is explicitly a ChatGPT rate-limit surface. An
 API-key-only or other authentication mode that returns no compatible snapshot
 must be `unavailable`, not zero percent, unlimited, or globally `unsupported`.
 
-### Claude Code — Unsupported for Service Collection
+### Claude Code — Partial Native Passive Support
 
-Claude Code has a real `/usage` slash command. The official command reference
-says it shows plan usage limits and activity statistics, while the cost guide
-describes usage bars for subscribers. This is reliable human evidence but not a
-service integration: it exists inside the interactive terminal UI. The
-documented CLI exposes machine-readable `claude auth status`, but no
-non-interactive usage-limit command. No documented Claude Agent SDK account
-limit method was found.
+The earlier finding that Claude Code exposed only the interactive `/usage`
+screen was outdated. Current Claude Code documents subscription `rate_limits`
+in its status-line JSON after a normal provider response, and the public Claude
+Agent SDK types an equivalent `rate_limit_event` in the message stream that
+OpenMeld already consumes for ordinary Claude turns.
 
-Sources:
+The SDK event is the safe first-release source because observing it does not
+create another prompt, access a provider credential, or modify the user's one
+global status-line command. It carries a provider window type, optional
+`utilization`, optional `resetsAt`, and status. SDK utilization is a 0–1
+fraction, unlike the status-line field's direct 0–100 percentage. OpenMeld
+normalizes only finite values in the inclusive 0–1 range and retains only the
+normalized limit item. It discards the raw event, session identifiers, overage,
+credit, purchase, and payment fields before the evidence enters ACI.
 
-- [Claude Code interactive commands](https://code.claude.com/docs/en/commands)
-- [Claude Code costs and usage](https://code.claude.com/docs/en/costs#using-the-usage-command)
-- [Claude Code CLI reference](https://code.claude.com/docs/en/cli-usage)
+This source is intentionally partial. In the ordinary `allowed` state, the SDK
+commonly omits `utilization`, and one event represents one window rather than a
+complete account snapshot. OpenMeld therefore publishes a gauge only when the
+provider returns numeric utilization. Missing utilization does not become 0,
+100, unlimited, or a fabricated second window. A later warning or rejection
+can provide usable native evidence; last-known numeric evidence keeps its
+original `observedAt` and becomes stale normally.
 
-Installed `claude 2.1.237` help confirmed the documented command surface. The
-investigation did not open `/usage`, because doing so would create or modify an
-interactive provider session and could expose private account and plan details.
-OpenMeld must not scrape that TUI or Web dashboard. It must also not run
-`claude -p "/usage"`: print mode is a model-task entry point, not a documented
-slash-command transport.
+Sources and the rejected alternatives are recorded in
+[`2026-08-20-claude-code-usage-limit-workaround-research.md`](./2026-08-20-claude-code-usage-limit-workaround-research.md).
+The primary first-party references are the
+[Claude Code status-line contract](https://code.claude.com/docs/en/statusline)
+and the
+[Claude Agent SDK changelog](https://github.com/anthropics/claude-agent-sdk-typescript/blob/591a180a197a73ce90042a6f97a7c59c100d2c3a/CHANGELOG.md#L347-L350).
 
-Minimal OpenMeld integration is therefore an explicit unsupported evidence item:
+Installed `claude 2.1.237` and packaged Agent SDK `0.3.195` acceptance proved
+that the public event type is available. A no-prompt SDK initialization emitted
+no event, and the explicitly experimental usage control returned no rate-limit
+snapshot; both remain unknown. OpenMeld did not run a model task for collection
+and did not print live values or any account data.
 
-```text
-key: provider
-label: Usage limits
-usedPercent: null
-resetsAt: null
-status: unsupported
-```
-
-The user-facing explanation should be, “Claude Code does not provide a
-supported way for OpenMeld to read usage limits.” A task-time rate-limit error
-must remain execution evidence and must never be converted into capacity.
+OpenMeld must not install or wrap the user's status line, scrape `/usage`, run
+`claude -p` for collection, read `.credentials.json` or Keychain, call the
+private OAuth usage endpoint, parse failure text, or substitute transcript
+token/cost estimates. Claude Code is now **passively supported when the native
+SDK reports numeric evidence**, not permanently unsupported.
 
 ### Cursor — Unsupported
 
@@ -358,8 +366,11 @@ captures of the real non-task probes above. Tests should prove:
 - Codex single-window and missing-window responses do not invent a second item;
 - Grok Build exposes only direct percent/current period and rejects or discards
   all billing/account fields;
-- Claude Code, Cursor, and OpenCode return explicit `unsupported` evidence
-  without invoking their task entry points;
+- Claude Code normalizes valid passive SDK events, retains no raw event or
+  billing fields, and leaves missing ordinary utilization unknown without
+  invoking a task for collection;
+- Cursor and OpenCode return explicit `unsupported` evidence without invoking
+  their task entry points;
 - a first native query failure is `unavailable` with no invented facts;
 - a later native query failure preserves the prior value and original
   `observedAt` as `stale`;
@@ -383,9 +394,10 @@ thread/turn and no Grok Build session/prompt was created.
 
 - Codex rate-limit APIs are experimental. Recheck the generated App Server
   schema and multi-bucket behavior when the packaged Codex minimum changes.
-- Claude Code becomes supportable only if Anthropic publishes a non-interactive,
-  machine-readable account-limit method. The interactive `/usage` screen alone
-  is not enough.
+- Claude Code's headless Agent SDK coverage remains partial because ordinary
+  `allowed` events may omit utilization. Recheck when Anthropic publishes a
+  stable complete SDK snapshot; do not adopt the explicitly experimental usage
+  control or claim the user's global status line automatically.
 - Cursor becomes supportable only if Cursor publishes a non-task quota contract
   in CLI, ACP, or another first-party integration surface.
 - OpenCode becomes supportable only if it exposes normalized current provider
@@ -407,8 +419,11 @@ Changed boundaries:
   requests `includeUsageLimits=true`;
 - the strict Organization Computers `details` projection adds the same optional,
   sanitized list for Web and Center Agent readers; and
-- built-in Codex and Grok Build adapters add non-task native probes. No daemon
-  execution, Prepare Session, Wake, Space action, diagnostics, Binding, Agent
+- built-in Codex and Grok Build adapters add non-task native probes, while the
+  Claude Code adapter adds a sanitized passive observation from an already
+  running ordinary provider turn. The internal adapter runtime-event union is
+  additive and compiled with the same local component. No daemon execution
+  authority, Prepare Session, Wake, Space action, diagnostics, Binding, Agent
   Activity, or RuntimeCoordinator envelope changes.
 
 Mixed-version behavior:

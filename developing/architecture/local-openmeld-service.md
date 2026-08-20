@@ -207,13 +207,24 @@ Session to collect it, or retain credentials, account identity, subscription,
 payment, balance, or monetary fields from a provider response.
 
 The Service collects this evidence through the existing background ACI probe
-and Runtime Agent Controller Report. One provider failure cannot fail the
+or a sanitized provider-native event passively observed during an ordinary
+already-running Agent Controller turn, then publishes it through the same
+Runtime Agent Controller Report. Passive observation must not create a turn,
+change its prompt or result, or become execution authority. One provider failure cannot fail the
 Computer inventory or another controller. A temporary failure after a valid
 observation preserves that last-known percentage and reset with its original
 `observedAt`, marked `stale`; a provider that has never returned usable evidence
 is `unavailable`. A controller with no supported native source is explicitly
 `unsupported`. These states do not alter Agent Profile readiness, Binding,
 Wake admission, RuntimeCoordinator, routing, or agent selection.
+
+Claude Code is partially supported through public Agent SDK
+`rate_limit_event` messages already present in OpenMeld-launched turns. Only a
+finite native utilization value and its allowlisted window/reset fields become
+capacity evidence; missing ordinary utilization remains unknown. OpenMeld must
+not install or replace the user's global Claude status line, invoke Claude for
+collection, read Claude credentials, call a private OAuth usage endpoint, or
+substitute transcript token/cost estimates.
 
 ### Agent Instruction Delivery
 

@@ -3436,6 +3436,16 @@ one of `available`, `exhausted`, `stale`, `unavailable`, or `unsupported`.
 `Low` is derived by presentation code and is not stored. Missing provider facts
 remain null; they must not become zero, 100, or unlimited capacity.
 
+Provider adapters may add evidence either from a dedicated native non-task
+probe or from a provider-native event passively observed during an ordinary
+already-running controller turn. Both sources must normalize into this same
+list before crossing the local Service boundary. A passive observation must
+not start work, modify the turn, retain its raw event, or create a second usage
+store. Claude Code's Agent SDK event is partial: a missing utilization value
+creates no percentage evidence, while allowlisted 0–1 utilization is normalized
+to 0–100 and all session, account, overage, credit, and payment fields are
+discarded.
+
 Version advisory is read-only controller maintenance evidence:
 current version, latest known version, advisory status, and an optional manual
 update command for the install method OpenMeld detected. It must not become an
