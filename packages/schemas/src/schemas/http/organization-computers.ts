@@ -1,5 +1,10 @@
 import { z } from "zod/v4";
 import {
+  agentControllerConversationCapabilitySchema,
+  resolveBuiltinAgentControllerConversationCapability,
+} from "../daemon/agent-controller-conversation-capability";
+import { normalizeKnownBuiltinAgentControllerId } from "../daemon/agent-controller-ref";
+import {
   localComponentUpdatePolicySchema,
   localComponentUpdateStatusSchema,
 } from "../local-components";
@@ -53,6 +58,8 @@ export const organizationComputerLocalAgentDetailsSchema = z.strictObject({
   capabilities: agentControllerInterfaceCapabilitiesSchema,
   check: agentControllerInterfaceCheckSnapshotSchema.optional(),
   checkedAt: ISO_DATE_TIME_SCHEMA,
+  conversationCapabilities:
+    agentControllerConversationCapabilitySchema.optional(),
   launch: z.strictObject({
     installChoiceCount: z.number().int().nonnegative(),
     status: localAgentCatalogLaunchStatusSchema,
@@ -80,10 +87,17 @@ export const organizationComputerLocalAgentDetailsSchema = z.strictObject({
 export function projectOrganizationComputerLocalAgentDetails(
   snapshot: z.infer<typeof agentControllerInterfaceSnapshotSchema>
 ): z.infer<typeof organizationComputerLocalAgentDetailsSchema> {
+  const builtinControllerId = normalizeKnownBuiltinAgentControllerId(
+    snapshot.agentControllerRef
+  );
+  const conversationCapabilities = builtinControllerId
+    ? resolveBuiltinAgentControllerConversationCapability(builtinControllerId)
+    : null;
   return {
     capabilities: snapshot.capabilities,
     ...(snapshot.check ? { check: snapshot.check } : {}),
     checkedAt: snapshot.checkedAt,
+    ...(conversationCapabilities ? { conversationCapabilities } : {}),
     launch: {
       installChoiceCount: snapshot.launch.installChoiceCount,
       status: snapshot.launch.status,

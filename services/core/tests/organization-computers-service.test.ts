@@ -203,6 +203,13 @@ describe("organization computers service", () => {
               status: "succeeded",
             },
             checkedAt: "2026-08-18T05:00:00.000Z",
+            conversationCapabilities: {
+              discover: "unsupported",
+              externalImport: "by_ref_id",
+              fork: "by_ref_id",
+              resume: "by_ref_id",
+              turnOverride: "unsupported",
+            },
             launch: {
               installChoiceCount: 2,
               status: "ready",

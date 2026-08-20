@@ -417,7 +417,10 @@ Pass only a Session exposed by OpenMeld Agent Activity for the selected Project.
 Keep the provider-native ID unchanged. OpenMeld currently fails these requests
 clearly until it can verify that Session; use `--session new` when verification
 is unavailable. Prefer Fork when preserving an active working Session matters;
-prefer Resume when continuing the original Session is intentional.
+prefer Resume when continuing the original Session is intentional. Check the
+selected local agent's `conversationCapabilities` from `openmeld org computers`
+before requesting Fork. Never simulate Fork by summarizing context into a new
+Session.
 
 Track and manage requests:
 

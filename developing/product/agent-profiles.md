@@ -137,6 +137,17 @@ before resuming a currently working Session, while Center Agent and Local Agent
 guidance should prefer fork for that case. The request contract does not add a
 second policy engine that guesses or rejects the user's choice.
 
+OpenMeld publishes each built-in Agent Controller's native conversation
+capabilities through the team-safe Organization Computers projection. Resume
+is supported by reference ID for Codex, Claude Code, Cursor, Grok Build,
+OpenCode, and OpenClaw. Native fork by reference ID is currently confirmed for
+Codex, Claude Code, Grok Build, and OpenCode. Cursor and OpenClaw report fork as
+unsupported until OpenMeld has a controller-native operation that returns a new
+Session ID while preserving the source context. Clients must render this fact
+honestly and must not imitate Fork by injecting a summary into a new Session.
+Capability reporting informs selection; it does not authorize Session access
+or perform the operation.
+
 Each member controls two independent per-Organization policies: one for new
 Sessions and one for existing Sessions. Each policy is **Ask every time**,
 **Automatically allow**, or **Never allow**; both default to **Ask every

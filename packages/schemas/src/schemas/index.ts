@@ -121,6 +121,7 @@ export {
   agentControllerConversationCapabilitySchema,
   agentControllerConversationDiscoverCapabilitySchema,
   agentControllerConversationExternalImportCapabilitySchema,
+  agentControllerConversationForkCapabilitySchema,
   agentControllerConversationResumeCapabilitySchema,
   agentControllerConversationTurnOverrideCapabilitySchema,
   BUILTIN_AGENT_CONTROLLER_CONVERSATION_CAPABILITY_BY_CONTROLLER_ID,

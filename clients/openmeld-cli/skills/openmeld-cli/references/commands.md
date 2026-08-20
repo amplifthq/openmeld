@@ -554,6 +554,8 @@ openmeld profiles requests preferences set --new-session automatically-allow --e
 Resume and Fork accept the exact provider-native Session ID. They fail clearly
 until OpenMeld Agent Activity can verify the selected Project Session. Approval
 policy values are `never-allow`, `ask-every-time`, and `automatically-allow`.
+Read `conversationCapabilities` from `openmeld org computers` before choosing
+Fork; never substitute a generated summary for a controller-native Fork.
 
 ### `openmeld agents`
 
