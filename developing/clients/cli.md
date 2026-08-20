@@ -1039,7 +1039,15 @@ session for an existing membership and does not perform self-service membership.
 `org directory` reads the current Organization Directory and presents members
 and Agent Profiles as separate groups. Agent View emits the full validated
 response through the presenter protocol; `org directory --json` emits the
-strict versioned `organization.directory` envelope.
+strict versioned `organization.directory` envelope. Both agent-facing forms
+request the optional Core-owned member `lastActiveAt` projection. A local agent
+therefore sees the same Organization member, Human Profile, Agent Profile,
+role, and authoritative Human activity facts as Web, under the signed-in
+member's current Organization authority. The CLI does not expose private local
+paths, credentials, Connected Channel management authority, provisional
+Profile Report drafts, or another member's owner-self controls through this
+Directory command. Missing `lastActiveAt` stays absent; the CLI never fills it
+from Computer, login/session, or Agent Activity timestamps.
 
 `org invite-link get|create|revoke` manages the active Organization invite link
 through Auth's owner/admin permission boundary. The CLI sends only the active

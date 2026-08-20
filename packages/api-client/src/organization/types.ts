@@ -45,6 +45,10 @@ export type OrganizationRouteInput = OrganizationRequestInput & {
   organizationId: string;
 };
 
+export type GetCurrentOrganizationDirectoryInput = OrganizationRequestInput & {
+  includeMemberLastActiveAt?: boolean;
+};
+
 export type UpdateCurrentOrganizationLogoInput = OrganizationRequestInput & {
   bytes: ArrayBuffer | Blob | Uint8Array;
   mimeType: OrganizationLogoMimeType;
@@ -113,7 +117,7 @@ export type OrganizationApi = {
     input: OrganizationRouteInput
   ) => Promise<ListOrganizationBindingAuthorizationProfilesResponse>;
   getCurrentDirectory: (
-    input?: OrganizationRequestInput
+    input?: GetCurrentOrganizationDirectoryInput
   ) => Promise<OrganizationDirectoryResponse>;
   getCurrentComputers: (
     input?: OrganizationRequestInput

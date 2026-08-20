@@ -233,6 +233,7 @@ import {
 } from "../../../lib/bindings";
 import { verifySpacePasswordProof } from "../../../lib/space-password-proof";
 import { readOrganizationAccountIdentityProjection } from "../../../organizations/organization-context";
+import { recordOrganizationMemberActivity } from "../../../organizations/organization-member-activity-repository";
 import {
   buildRemoteAgentExecutionRecoveryIdentity,
   reconcileRemoteAgentRetainedResultPublication,
@@ -15449,6 +15450,8 @@ export class Space extends DurableObject<CoreBindings> {
       signalContext,
       persistSignalWithOptionalOutbox,
       flushPendingDispatchOutbox: () => this.flushPendingDispatchOutbox(),
+      recordHumanActivity: (currentSignal) =>
+        this.recordOrganizationMemberHumanActivity(currentSignal),
       waitUntil: (promise) => this.ctx.waitUntil(promise),
       broadcast: (currentSignal) =>
         this.broadcastSignal(currentSignal, signalContext, { persisted: true }),
@@ -15459,6 +15462,88 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       storage: this.ctx.storage,
     });
+  }
+
+  private async recordOrganizationMemberHumanActivity(
+    signal: SignalEnvelope
+  ): Promise<void> {
+    if (signal.type !== "signal.text" || signal.profile?.kind !== "human") {
+      return;
+    }
+
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      signal.profile.profileId
+    );
+    const meta = this.readSpaceMetaRecord();
+    const ownerUserId = member?.ownerUserIdSnapshot?.trim() ?? "";
+    if (
+      !meta ||
+      member?.status !== "active" ||
+      member.profileKindSnapshot !== "human" ||
+      !ownerUserId
+    ) {
+      let reason = "profile_kind_mismatch";
+      if (!meta) {
+        reason = "space_metadata_missing";
+      } else if (member?.status !== "active") {
+        reason = "active_human_membership_missing";
+      } else if (!ownerUserId) {
+        reason = "owner_user_id_missing";
+      }
+      console.warn("[core.organization_member_activity.not_recorded]", {
+        event: "organization_member_activity.not_recorded",
+        profileId: signal.profile.profileId,
+        reason,
+        signalId: signal.id,
+        spaceId: signal.spaceId,
+      });
+      return;
+    }
+
+    const db = identityDb(this.bindings);
+    if (!db) {
+      console.warn("[core.organization_member_activity.not_recorded]", {
+        event: "organization_member_activity.not_recorded",
+        organizationId: meta.organizationId,
+        profileId: signal.profile.profileId,
+        reason: "projection_store_unavailable",
+        signalId: signal.id,
+        spaceId: signal.spaceId,
+        userId: ownerUserId,
+      });
+      return;
+    }
+
+    try {
+      await recordOrganizationMemberActivity({
+        db,
+        humanProfileId: signal.profile.profileId,
+        lastActiveAtMs: signal.ts,
+        organizationId: meta.organizationId,
+        updatedAtMs: Math.max(Date.now(), signal.ts),
+        userId: ownerUserId,
+      });
+      console.info("[core.organization_member_activity.recorded]", {
+        event: "organization_member_activity.recorded",
+        lastActiveAt: new Date(signal.ts).toISOString(),
+        organizationId: meta.organizationId,
+        profileId: signal.profile.profileId,
+        signalId: signal.id,
+        spaceId: signal.spaceId,
+        userId: ownerUserId,
+      });
+    } catch (error) {
+      console.warn("[core.organization_member_activity.record_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        event: "organization_member_activity.record_failed",
+        organizationId: meta.organizationId,
+        profileId: signal.profile.profileId,
+        signalId: signal.id,
+        spaceId: signal.spaceId,
+        userId: ownerUserId,
+      });
+    }
   }
 
   private assertRemoteAgentFinalReplyWasNotStopped(

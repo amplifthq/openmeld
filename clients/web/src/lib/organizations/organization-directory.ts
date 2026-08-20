@@ -2,7 +2,7 @@ import {
 	type StructuredApiClientFailure,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
-import { ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER } from "@openmeld/gateway-contract";
+import { ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER } from "@openmeld/gateway-contract";
 import { organizationDirectoryResponseSchema } from "@openmeld/schemas";
 import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -11,7 +11,7 @@ export async function readCurrentOrganizationDirectory(input: {
 	organizationId: string;
 }): Promise<OrganizationDirectoryResponse> {
 	const query = new URLSearchParams({
-		[ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER]:
+		[ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER]:
 			"true",
 	});
 	try {

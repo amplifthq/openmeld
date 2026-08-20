@@ -1,3 +1,4 @@
+import type { StatusTone } from "@openmeld/ui/lib/status-tone";
 import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
 import type {
 	DirectoryHumanProfileRow,
@@ -17,53 +18,53 @@ const HOUR_IN_MS = 60 * MINUTE_IN_MS;
 const DAY_IN_MS = 24 * HOUR_IN_MS;
 
 export function formatDirectoryActivity(
-	lastUsedAt: string | null,
+	lastActiveAt: string | null,
 	nowMs = Date.now()
-): string {
-	if (!lastUsedAt) {
-		return "Activity unavailable";
+): string | null {
+	if (!lastActiveAt) {
+		return null;
 	}
-	const timestamp = new Date(lastUsedAt);
+	const timestamp = new Date(lastActiveAt);
 	if (Number.isNaN(timestamp.getTime())) {
-		return "Activity unavailable";
+		return null;
 	}
 	const elapsedMs = nowMs - timestamp.getTime();
 	if (elapsedMs < MINUTE_IN_MS) {
-		return "Last used just now";
+		return "Last active just now";
 	}
 	if (elapsedMs < HOUR_IN_MS) {
-		return `Last used ${DIRECTORY_RELATIVE_TIME_FORMATTER.format(
+		return `Last active ${DIRECTORY_RELATIVE_TIME_FORMATTER.format(
 			-Math.round(elapsedMs / MINUTE_IN_MS),
 			"minute"
 		)}`;
 	}
 	if (elapsedMs < DAY_IN_MS) {
-		return `Last used ${DIRECTORY_RELATIVE_TIME_FORMATTER.format(
+		return `Last active ${DIRECTORY_RELATIVE_TIME_FORMATTER.format(
 			-Math.round(elapsedMs / HOUR_IN_MS),
 			"hour"
 		)}`;
 	}
 	if (elapsedMs < 7 * DAY_IN_MS) {
-		return `Last used ${DIRECTORY_RELATIVE_TIME_FORMATTER.format(
+		return `Last active ${DIRECTORY_RELATIVE_TIME_FORMATTER.format(
 			-Math.round(elapsedMs / DAY_IN_MS),
 			"day"
 		)}`;
 	}
-	return `Last used ${DIRECTORY_DATE_FORMATTER.format(timestamp)}`;
+	return `Last active ${DIRECTORY_DATE_FORMATTER.format(timestamp)}`;
 }
 
 export function resolveDirectoryHumanProfileActivityLabel(input: {
-	lastUsedAt: string | null;
+	lastActiveAt: string | null;
 	nowMs?: number;
 	profileStatus: DirectoryHumanProfileRow["profileStatus"];
-}): string {
+}): string | null {
 	if (input.profileStatus === "disabled") {
 		return "Profile disabled";
 	}
 	if (input.profileStatus === null) {
 		return "Human Profile unavailable";
 	}
-	return formatDirectoryActivity(input.lastUsedAt, input.nowMs);
+	return formatDirectoryActivity(input.lastActiveAt, input.nowMs);
 }
 
 export function formatDirectoryDate(value: string | null): string {
@@ -121,5 +122,22 @@ export function resolveDirectoryComputerToneClassName(
 			return resolveStatusToneTextClassName("checking");
 		default:
 			return resolveStatusToneTextClassName("muted");
+	}
+}
+
+export function resolveDirectoryComputerStatusTone(
+	state: DirectoryHumanProfileRow["computer"]["state"]
+): StatusTone {
+	switch (state) {
+		case "connected":
+			return "ready";
+		case "needs_attention":
+			return "warning";
+		case "not_connected":
+			return "danger";
+		case "checking":
+			return "checking";
+		default:
+			return "muted";
 	}
 }

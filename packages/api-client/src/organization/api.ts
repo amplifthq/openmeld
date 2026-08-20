@@ -160,7 +160,9 @@ export const createOrganizationApi: CreateOrganizationApi = (
     }),
   getCurrentDirectory: async (input = {}) =>
     await client.requestJson({
-      url: buildCurrentOrganizationDirectoryPath(),
+      url: buildCurrentOrganizationDirectoryPath({
+        includeMemberLastActiveAt: input.includeMemberLastActiveAt,
+      }),
       operation: "organization.directory.read",
       method: "GET",
       requestContext: input.requestContext,

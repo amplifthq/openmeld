@@ -1,5 +1,12 @@
-export function buildCurrentOrganizationDirectoryPath(): string {
-  return "/v1/organizations/current/directory";
+import { ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER } from "@openmeld/gateway-contract";
+
+export function buildCurrentOrganizationDirectoryPath(input?: {
+  includeMemberLastActiveAt?: boolean;
+}): string {
+  const path = "/v1/organizations/current/directory";
+  return input?.includeMemberLastActiveAt === true
+    ? `${path}?${ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER}=true`
+    : path;
 }
 
 export function buildCurrentOrganizationComputersPath(): string {
