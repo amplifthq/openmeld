@@ -40,11 +40,12 @@ export function AgentProfileOwnerChoice(input: {
 			<RadioGroup
 				aria-disabled={input.disabled || undefined}
 				aria-labelledby={headingId}
-				className="grid gap-1 sm:grid-cols-2"
+				className="w-full gap-1"
+				orientation="horizontal"
 				selectedIndex={input.mode === "self" ? 0 : 1}
 			>
 				<RadioItem
-					className="px-4 py-3"
+					className="min-w-0 flex-1 px-4 py-3"
 					description="Create an Agent that you own and can use right away."
 					index={0}
 					label="Me"
@@ -57,7 +58,7 @@ export function AgentProfileOwnerChoice(input: {
 				/>
 				<RadioItem
 					aria-disabled={teammates.length === 0 || undefined}
-					className={`px-4 py-3 ${teammates.length === 0 ? "cursor-not-allowed opacity-60" : ""}`}
+					className={`min-w-0 flex-1 px-4 py-3 ${teammates.length === 0 ? "cursor-not-allowed opacity-60" : ""}`}
 					description="Ask a teammate to approve an Agent that they will own."
 					index={1}
 					label="A teammate"
