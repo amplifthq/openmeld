@@ -342,8 +342,7 @@ export const submitAgentActivitySessionReconciliationResponseSchema =
   });
 
 export const submitAgentActivitySessionReconciliationRpcInputSchema =
-  z.strictObject({
+  submitAgentActivitySessionReconciliationBodySchema.safeExtend({
     context: openMeldRequestContextSchema.optional(),
     deviceId: boundedIdentifierSchema,
-    ...submitAgentActivitySessionReconciliationBodySchema.shape,
   });

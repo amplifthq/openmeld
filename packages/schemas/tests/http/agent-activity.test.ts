@@ -13,6 +13,7 @@ import {
   submitAgentActivityEventsBodySchema,
   submitAgentActivityEventsResponseSchema,
   submitAgentActivitySessionReconciliationBodySchema,
+  submitAgentActivitySessionReconciliationRpcInputSchema,
   summarizeAgentActivityDigestRpcInputSchema,
 } from "../../src";
 
@@ -159,6 +160,26 @@ describe("Agent Activity Session Inventory contracts", () => {
         agentControllerRef: "builtin:claude-code",
         result: "sessions",
         sessions: [observed],
+      }).success
+    ).toBe(false);
+    expect(
+      submitAgentActivitySessionReconciliationRpcInputSchema.safeParse({
+        ...base,
+        agentControllerRef: "builtin:claude-code",
+        deviceId: "device-1",
+        result: "sessions",
+        sessions: [observed],
+      }).success
+    ).toBe(false);
+    expect(
+      submitAgentActivitySessionReconciliationRpcInputSchema.safeParse({
+        ...base,
+        deviceId: "device-1",
+        pageIndex: 1,
+        problemCode: "provider_inventory_unavailable",
+        result: "unsupported",
+        sessions: [],
+        terminal: false,
       }).success
     ).toBe(false);
   });
