@@ -19,6 +19,14 @@ const TEAM_SAFE_DETAILS = {
   models: [{ displayName: "Claude Sonnet" }],
   nativeInterface: "claude-cli",
   status: "ready",
+  usageLimits: [
+    {
+      label: "Codex 5-hour limit",
+      observedAt: "2026-08-18T05:00:00.000Z",
+      resetsAt: "2026-08-18T10:00:00.000Z",
+      usedPercent: 42,
+    },
+  ],
   version: "2.1.234",
   versionAdvisory: {
     checkedAt: "2026-08-18T05:00:00.000Z",
@@ -124,6 +132,22 @@ describe("Organization Computers contracts", () => {
     expect(
       organizationComputersResponseSchema.safeParse(
         responseWithDetails({ ...TEAM_SAFE_DETAILS, ...privateField })
+      ).success
+    ).toBe(false);
+  });
+
+  it("rejects invalid provider usage-limit percentages", () => {
+    expect(
+      organizationComputersResponseSchema.safeParse(
+        responseWithDetails({
+          ...TEAM_SAFE_DETAILS,
+          usageLimits: [
+            {
+              ...TEAM_SAFE_DETAILS.usageLimits[0],
+              usedPercent: 101,
+            },
+          ],
+        })
       ).success
     ).toBe(false);
   });

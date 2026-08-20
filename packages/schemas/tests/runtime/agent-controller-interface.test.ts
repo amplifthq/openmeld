@@ -59,6 +59,22 @@ describe("agent controller interface schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts bounded provider usage-limit observations", () => {
+    const result = agentControllerInterfaceSnapshotSchema.safeParse({
+      ...createValidAgentControllerInterfaceSnapshot(),
+      usageLimits: [
+        {
+          label: "Codex weekly limit",
+          observedAt: "2026-06-29T12:00:00.000Z",
+          resetsAt: null,
+          usedPercent: 63.5,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it.each([
     {
       check: {

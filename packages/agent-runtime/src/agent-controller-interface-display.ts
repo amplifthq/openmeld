@@ -60,7 +60,29 @@ export function createAgentControllerInterfaceOperationalDisplayRows(
       value: formatAgentControllerCheckedAt(snapshot.check.lastSucceededAt),
     });
   }
+  for (const usageLimit of snapshot.usageLimits ?? []) {
+    rows.splice(rows.length - 1, 0, {
+      label: usageLimit.label,
+      value: formatAgentControllerUsageLimit(usageLimit),
+    });
+  }
   return rows;
+}
+
+function formatAgentControllerUsageLimit(
+  usageLimit: NonNullable<
+    OrganizationComputerLocalAgentDetails["usageLimits"]
+  >[number]
+): string {
+  const used = `${Math.round(usageLimit.usedPercent)}% used`;
+  if (!usageLimit.resetsAt) {
+    return used;
+  }
+  const reset = new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(usageLimit.resetsAt));
+  return `${used} · Resets ${reset}`;
 }
 
 export function formatAgentControllerInterfaceOperationalSummary(

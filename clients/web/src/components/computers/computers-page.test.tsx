@@ -472,6 +472,14 @@ function buildOrganizationComputers(input: {
 									models: [{ displayName: "Claude Sonnet" }],
 									nativeInterface: "claude-cli",
 									status: "ready",
+									usageLimits: [
+										{
+											label: "Provider weekly limit",
+											observedAt: "2026-08-18T05:00:00.000Z",
+											resetsAt: null,
+											usedPercent: 42,
+										},
+									],
 									version: "2.1.234",
 									versionAdvisory: {
 										checkedAt: "2026-08-18T05:00:00.000Z",
@@ -752,6 +760,8 @@ describe("ComputersPage", () => {
 			)
 		).toBeTruthy();
 		expect(screen.getByText("Last checked")).toBeTruthy();
+		expect(screen.getByText("Provider weekly limit")).toBeTruthy();
+		expect(screen.getByText("42% used")).toBeTruthy();
 		expect(
 			screen.getAllByText("Available on this computer").length
 		).toBeGreaterThan(0);

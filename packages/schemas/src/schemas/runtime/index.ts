@@ -12,6 +12,7 @@ export {
   agentControllerInterfaceSkillSchema,
   agentControllerInterfaceSnapshotSchema,
   agentControllerInterfaceStatusSchema,
+  agentControllerInterfaceUsageLimitSchema,
 } from "./agent-controller-interface";
 export {
   AGENT_TASK_COORDINATION_SCHEMA_VERSION,

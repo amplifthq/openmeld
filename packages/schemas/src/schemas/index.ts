@@ -2346,6 +2346,7 @@ export {
   agentControllerInterfaceSkillSchema,
   agentControllerInterfaceSnapshotSchema,
   agentControllerInterfaceStatusSchema,
+  agentControllerInterfaceUsageLimitSchema,
   agentControllerInterfaceVersionAdvisorySchema,
   agentControllerInterfaceVersionAdvisoryStatusSchema,
 } from "./runtime/agent-controller-interface";

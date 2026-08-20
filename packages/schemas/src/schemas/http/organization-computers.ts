@@ -66,6 +66,17 @@ export const organizationComputerLocalAgentDetailsSchema = z.strictObject({
     .max(256),
   nativeInterface: agentControllerInterfaceNativeInterfaceSchema,
   status: agentControllerInterfaceStatusSchema,
+  usageLimits: z
+    .array(
+      z.strictObject({
+        label: z.string().trim().min(1).max(256),
+        observedAt: ISO_DATE_TIME_SCHEMA,
+        resetsAt: ISO_DATE_TIME_SCHEMA.nullable(),
+        usedPercent: z.number().finite().min(0).max(100),
+      })
+    )
+    .max(32)
+    .optional(),
   version: BOUNDED_ID_SCHEMA.nullable(),
   versionAdvisory: z
     .strictObject({
@@ -93,6 +104,7 @@ export function projectOrganizationComputerLocalAgentDetails(
     })),
     nativeInterface: snapshot.nativeInterface,
     status: snapshot.status,
+    ...(snapshot.usageLimits ? { usageLimits: snapshot.usageLimits } : {}),
     version: snapshot.version,
     ...(snapshot.versionAdvisory
       ? {
