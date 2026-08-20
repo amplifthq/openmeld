@@ -26,13 +26,15 @@ import {
 	DirectoryIdentityAccountSummary,
 } from "#/components/directory/directory-human-profile-presentation";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
+import { HumanProfileNameEditor } from "#/components/profiles/human-profile-name-editor";
 import { copyTextToClipboard } from "#/lib/clipboard";
 
 export function DirectoryHumanProfileDetailsDrawer(input: {
 	directMessageIsPending: boolean;
+	editing: boolean;
 	member: DirectoryHumanProfileRow;
 	onConnectAccount: (account: DirectoryIdentityAccount) => void;
-	onEdit: () => void;
+	onEditingChange: (editing: boolean) => void;
 	onManageAccount: (account: DirectoryIdentityAccount) => void;
 	onOpenChange: (open: boolean) => void;
 	onOpenDirectMessage: () => void;
@@ -83,31 +85,21 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 
 						<div className="min-h-0 flex-1 overflow-y-auto">
 							<div className="space-y-6 px-5 py-6">
-								<ProfileHero member={input.member} />
-								{canOpenDirectMessage || input.member.canEdit ? (
-									<div className="grid grid-cols-2 gap-2">
-										{canOpenDirectMessage ? (
-											<Button
-												disabled={input.directMessageIsPending}
-												onClick={input.onOpenDirectMessage}
-												type="button"
-												variant="outline"
-											>
-												<ChatCircleTextIcon aria-hidden="true" />
-												Direct Message
-											</Button>
-										) : null}
-										{input.member.canEdit ? (
-											<Button
-												onClick={input.onEdit}
-												type="button"
-												variant="outline"
-											>
-												<PencilSimpleIcon aria-hidden="true" />
-												Edit profile
-											</Button>
-										) : null}
-									</div>
+								<ProfileHero
+									editing={input.editing}
+									member={input.member}
+									onEditingChange={input.onEditingChange}
+								/>
+								{canOpenDirectMessage ? (
+									<Button
+										disabled={input.directMessageIsPending}
+										onClick={input.onOpenDirectMessage}
+										type="button"
+										variant="outline"
+									>
+										<ChatCircleTextIcon aria-hidden="true" />
+										Direct Message
+									</Button>
 								) : null}
 
 								<DetailSection title="Member account">
@@ -156,7 +148,11 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 	);
 }
 
-function ProfileHero(input: { member: DirectoryHumanProfileRow }) {
+function ProfileHero(input: {
+	editing: boolean;
+	member: DirectoryHumanProfileRow;
+	onEditingChange: (editing: boolean) => void;
+}) {
 	return (
 		<div className="flex min-w-0 items-start gap-4">
 			<DitherProfileAvatar
@@ -168,15 +164,37 @@ function ProfileHero(input: { member: DirectoryHumanProfileRow }) {
 				size={96}
 			/>
 			<div className="min-w-0 flex-1 pt-1">
-				<div className="flex min-w-0 flex-wrap items-center gap-2">
-					<h2 className="break-words font-semibold text-xl leading-7">
-						{input.member.name}
-						{input.member.isCurrentUser ? " (you)" : ""}
-					</h2>
-					<span className="rounded-sm border border-border bg-background px-1.5 py-0.5 font-medium text-[0.65rem] text-muted-foreground uppercase tracking-wide">
-						{resolveDirectoryRoleLabel(input.member.role)}
-					</span>
-				</div>
+				{input.editing ? (
+					<HumanProfileNameEditor
+						onCancel={() => input.onEditingChange(false)}
+						onSaved={() => input.onEditingChange(false)}
+						profileName={input.member.name}
+					/>
+				) : (
+					<div className="flex min-w-0 items-start gap-2">
+						<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+							<h2 className="break-words font-semibold text-xl leading-7">
+								{input.member.name}
+								{input.member.isCurrentUser ? " (you)" : ""}
+							</h2>
+							<span className="rounded-sm border border-border bg-background px-1.5 py-0.5 font-medium text-[0.65rem] text-muted-foreground uppercase tracking-wide">
+								{resolveDirectoryRoleLabel(input.member.role)}
+							</span>
+						</div>
+						{input.member.canEdit ? (
+							<Button
+								className="shrink-0"
+								onClick={() => input.onEditingChange(true)}
+								size="sm"
+								type="button"
+								variant="ghost"
+							>
+								<PencilSimpleIcon aria-hidden="true" />
+								Edit profile
+							</Button>
+						) : null}
+					</div>
+				)}
 				<p className="mt-1 break-all text-muted-foreground text-sm">
 					{input.member.email}
 				</p>

@@ -31,6 +31,7 @@ import {
 	DotsThreeIcon,
 	FileTextIcon,
 	InfoIcon,
+	PencilSimpleIcon,
 	PlusIcon,
 	UserFocusIcon,
 	UserIcon,
@@ -56,7 +57,6 @@ import {
 	DirectoryIdentityAccountSummary,
 } from "#/components/directory/directory-human-profile-presentation";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
-import { HumanProfileEditDialog } from "#/components/profiles/human-profile-edit-dialog";
 import { ProfileCard } from "#/components/profiles/profile-list-item";
 import { ProfilesSectionLayout } from "#/components/profiles/profiles-section-layout";
 
@@ -236,7 +236,7 @@ function DirectoryHumanProfileCard(input: {
 	state: DirectoryHumanProfileCardState;
 }) {
 	const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-	const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+	const [isEditingDetails, setIsEditingDetails] = useState(false);
 	const [connectableAccount, setConnectableAccount] =
 		useState<DirectoryIdentityAccount | null>(null);
 	const [connectedAccount, setConnectedAccount] =
@@ -252,6 +252,10 @@ function DirectoryHumanProfileCard(input: {
 		input.memberResearchError?.subjectUserId === input.member.userId
 			? input.memberResearchError.message
 			: null;
+	const openProfile = (editing: boolean) => {
+		setIsEditingDetails(editing);
+		setIsDetailsOpen(true);
+	};
 	return (
 		<>
 			<ProfileCard
@@ -273,7 +277,7 @@ function DirectoryHumanProfileCard(input: {
 				footerRight={
 					<HumanProfileIdentitySummary
 						accounts={input.member.identityAccounts}
-						onOpenDetails={() => setIsDetailsOpen(true)}
+						onOpenDetails={() => openProfile(false)}
 					/>
 				}
 				icon={<HumanProfileIcon member={input.member} />}
@@ -285,16 +289,16 @@ function DirectoryHumanProfileCard(input: {
 						isStarting={isStarting}
 						member={input.member}
 						memberResearchError={memberResearchError}
-						onEdit={() => setIsEditDialogOpen(true)}
+						onEdit={() => openProfile(true)}
 						onOpenDirectMessage={async () => {
 							await input.onOpenDirectMessage(input.member.id);
 						}}
-						onOpenProfile={() => setIsDetailsOpen(true)}
+						onOpenProfile={() => openProfile(false)}
 						onResearch={input.onResearch}
 						task={task}
 					/>
 				}
-				onProfileSummaryClick={() => setIsDetailsOpen(true)}
+				onProfileSummaryClick={() => openProfile(false)}
 				profileSummaryAriaLabel={`Open ${input.member.name}'s profile`}
 				rowRef={input.rowRef}
 				secondarySubtitle={
@@ -318,20 +322,25 @@ function DirectoryHumanProfileCard(input: {
 			/>
 			<DirectoryHumanProfileDetailsDrawer
 				directMessageIsPending={input.state.directMessage === "pending"}
+				editing={isEditingDetails}
 				member={input.member}
 				onConnectAccount={(account) => {
 					setIsDetailsOpen(false);
+					setIsEditingDetails(false);
 					setConnectableAccount(account);
 				}}
-				onEdit={() => {
-					setIsDetailsOpen(false);
-					setIsEditDialogOpen(true);
-				}}
+				onEditingChange={setIsEditingDetails}
 				onManageAccount={(account) => {
 					setIsDetailsOpen(false);
+					setIsEditingDetails(false);
 					setConnectedAccount(account);
 				}}
-				onOpenChange={setIsDetailsOpen}
+				onOpenChange={(open) => {
+					setIsDetailsOpen(open);
+					if (!open) {
+						setIsEditingDetails(false);
+					}
+				}}
 				onOpenDirectMessage={() => {
 					input.onOpenDirectMessage(input.member.id).catch((error) => {
 						console.error("Human Profile Direct Message action failed.", error);
@@ -361,13 +370,6 @@ function DirectoryHumanProfileCard(input: {
 					}
 				}}
 			/>
-			{input.member.canEdit ? (
-				<HumanProfileEditDialog
-					onOpenChange={setIsEditDialogOpen}
-					open={isEditDialogOpen}
-					profileName={input.member.name}
-				/>
-			) : null}
 		</>
 	);
 }
@@ -644,6 +646,7 @@ function HumanProfileCardActions(input: {
 					</DropdownMenuItem>
 					{input.member.canEdit ? (
 						<DropdownMenuItem className="text-sm" onClick={input.onEdit}>
+							<PencilSimpleIcon aria-hidden="true" />
 							Edit profile
 						</DropdownMenuItem>
 					) : null}

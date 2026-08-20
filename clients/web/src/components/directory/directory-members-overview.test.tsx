@@ -637,17 +637,64 @@ describe("DirectoryMembersOverview", () => {
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Edit profile" })
 		);
-		const nameInput = await screen.findByRole("textbox", { name: "Name" });
+		const profileDrawer = screen.getByRole("dialog", { name: "Profile" });
+		const nameInput = await within(profileDrawer).findByRole("textbox", {
+			name: "Name",
+		});
+		expect(
+			screen.queryByRole("dialog", { name: "Edit Human Profile" })
+		).toBeNull();
 		fireEvent.change(nameInput, { target: { value: "Katherine Johnson" } });
-		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+		fireEvent.click(
+			within(profileDrawer).getByRole("button", { name: "Save changes" })
+		);
 
 		await waitFor(() => {
 			expect(updateUserNameMock).toHaveBeenCalled();
 			expect(updateUserNameMock.mock.calls[0]?.[0]).toBe("Katherine Johnson");
 		});
+		expect(screen.getByRole("dialog", { name: "Profile" })).toBeTruthy();
+		expect(
+			within(screen.getByRole("dialog", { name: "Profile" })).queryByRole(
+				"textbox",
+				{ name: "Name" }
+			)
+		).toBeNull();
 	});
 
-	it("keeps a Human Profile name update failure visible in the edit dialog", async () => {
+	it("opens card editing inside the padded Profile action menu and Drawer", async () => {
+		renderOverview({ currentUserProfile: true, isPersonal: false });
+
+		const currentMemberCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		).find((card) => within(card).queryByText("Felix"));
+		if (!currentMemberCard) {
+			throw new Error("Expected the current member's Human Profile card.");
+		}
+
+		fireEvent.click(
+			within(currentMemberCard).getByRole("button", {
+				name: "Profile options for Felix",
+			})
+		);
+		const profileMenu = await screen.findByRole("menu");
+		expect(profileMenu.classList.contains("p-1")).toBe(true);
+		fireEvent.click(
+			within(profileMenu).getByRole("menuitem", { name: "Edit profile" })
+		);
+
+		const profileDrawer = await screen.findByRole("dialog", {
+			name: "Profile",
+		});
+		expect(
+			within(profileDrawer).getByRole("textbox", { name: "Name" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("dialog", { name: "Edit Human Profile" })
+		).toBeNull();
+	});
+
+	it("keeps a Human Profile name update failure visible in the Drawer", async () => {
 		updateUserNameMock.mockRejectedValueOnce(
 			new Error("The display name could not be saved.")
 		);
@@ -668,17 +715,24 @@ describe("DirectoryMembersOverview", () => {
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Edit profile" })
 		);
-		fireEvent.change(await screen.findByRole("textbox", { name: "Name" }), {
-			target: { value: "Katherine Johnson" },
-		});
-		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-
-		expect((await screen.findByRole("alert")).textContent).toContain(
-			"The display name could not be saved."
+		const profileDrawer = screen.getByRole("dialog", { name: "Profile" });
+		fireEvent.change(
+			within(profileDrawer).getByRole("textbox", { name: "Name" }),
+			{
+				target: { value: "Katherine Johnson" },
+			}
 		);
+		fireEvent.click(
+			within(profileDrawer).getByRole("button", { name: "Save changes" })
+		);
+
 		expect(
-			screen.getByRole("dialog", { name: "Edit Human Profile" })
-		).toBeTruthy();
+			(await within(profileDrawer).findByRole("alert")).textContent
+		).toContain("The display name could not be saved.");
+		expect(
+			screen.queryByRole("dialog", { name: "Edit Human Profile" })
+		).toBeNull();
+		expect(screen.getByRole("dialog", { name: "Profile" })).toBeTruthy();
 	});
 
 	it("shows each member's Computer state with a matching icon and destination", async () => {
