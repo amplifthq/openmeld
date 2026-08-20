@@ -297,6 +297,13 @@ describe("cli --json output envelope contract", () => {
             health: { pending: 0, permanentlyRejected: 0, retrying: 0 },
             observedCount: 2,
             reason: null,
+            sessionInventory: {
+              reason: null,
+              sessionCount: 125,
+              sourceCount: 5,
+              status: "submitted",
+              submittedSourceCount: 5,
+            },
             status: "submitted",
             submittedCount: 2,
           },

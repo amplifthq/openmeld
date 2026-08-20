@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   scanLocalAgentActivity: vi.fn(),
   startAgentActivityTranscriptWatchers: vi.fn(),
   stopAgentActivityTranscriptWatchers: vi.fn(),
+  syncLocalAgentSessionInventory: vi.fn(),
 }));
 
 vi.mock("@openmeld/api-client", () => ({
@@ -65,6 +66,10 @@ vi.mock("../src/agent-activity/local-state-lock", () => ({
   ),
 }));
 
+vi.mock("../src/agent-activity/session-inventory-sync", () => ({
+  syncLocalAgentSessionInventory: mocks.syncLocalAgentSessionInventory,
+}));
+
 vi.mock("../src/agent-activity/project-bindings", () => ({
   listProjectBindings: mocks.listProjectBindings,
   removeAgentActivityBindingsWhileDeliveryLocked: vi.fn(),
@@ -92,6 +97,13 @@ describe("Agent Activity local sync loop", () => {
       .mockReset()
       .mockResolvedValue(undefined);
     mocks.scanLocalAgentActivity.mockReset();
+    mocks.syncLocalAgentSessionInventory.mockReset().mockResolvedValue({
+      reason: null,
+      sessionCount: 0,
+      sourceCount: 0,
+      status: "idle",
+      submittedSourceCount: 0,
+    });
     mocks.stopAgentActivityTranscriptWatchers
       .mockReset()
       .mockResolvedValue(undefined);

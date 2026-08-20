@@ -69,6 +69,32 @@ export async function isCoveredByRecentAgentActivityHook(input: {
   );
 }
 
+export async function readRecentAgentActivityHookStatus(input: {
+  nowMs: number;
+  provider: AgentActivityEvent["provider"];
+  providerSessionId: string;
+  rootDir?: string;
+}): Promise<AgentActivityEvent["status"] | null> {
+  const store = await readStore(input).catch(() => null);
+  const projection =
+    store?.entries[
+      projectionKey({
+        provider: input.provider,
+        providerSessionId: input.providerSessionId,
+      })
+    ];
+  if (
+    !(
+      projection &&
+      projection.observedAtMs <= input.nowMs &&
+      input.nowMs - projection.observedAtMs <= HOOK_RECONCILIATION_GRACE_MS
+    )
+  ) {
+    return null;
+  }
+  return projection.status;
+}
+
 function projectionKey(input: {
   provider: AgentActivityEvent["provider"];
   providerSessionId: string;

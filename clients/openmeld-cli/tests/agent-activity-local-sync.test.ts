@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   submitAgentActivityEvents: vi.fn(),
   submitAgentControllerTaskLifecycleEvents: vi.fn(),
   submitRegistration: vi.fn(),
+  syncLocalAgentSessionInventory: vi.fn(),
 }));
 
 vi.mock("@openmeld/api-client", () => ({
@@ -73,6 +74,9 @@ vi.mock("../src/agent-activity/local-observer", () => ({
   ),
   startAgentActivityTranscriptWatchers: vi.fn(() => () => Promise.resolve()),
 }));
+vi.mock("../src/agent-activity/session-inventory-sync", () => ({
+  syncLocalAgentSessionInventory: mocks.syncLocalAgentSessionInventory,
+}));
 
 let root: string | null = null;
 
@@ -98,6 +102,13 @@ beforeEach(() => {
       },
     ],
     status: "accepted",
+  });
+  mocks.syncLocalAgentSessionInventory.mockResolvedValue({
+    reason: null,
+    sessionCount: 0,
+    sourceCount: 0,
+    status: "idle",
+    submittedSourceCount: 0,
   });
 });
 

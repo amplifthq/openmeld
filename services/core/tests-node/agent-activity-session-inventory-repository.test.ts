@@ -146,6 +146,26 @@ describe("Agent Activity Session Inventory repository", () => {
     ]);
   });
 
+  it("keeps the last complete inventory visible while its replacement is syncing", async () => {
+    const harness = createInventoryHarness();
+    await reconcile(harness.db, {
+      sessions: [observedSession("native-published", 1000)],
+    });
+
+    await reconcile(harness.db, {
+      reconciliationId: "reconciliation-in-progress",
+      sessions: [observedSession("native-candidate", 500)],
+      terminal: false,
+    });
+
+    const duringSync = await read(harness.db);
+    expect(
+      duringSync.sessions.map((session) => session.nativeSessionId)
+    ).toEqual(["native-published"]);
+    expect(duringSync.sessions[0]?.dataState).toBe("stale");
+    expect(duringSync.coverage).toMatchObject([{ state: "syncing" }]);
+  });
+
   it("removes Sessions from the current inventory when the Project disconnects", async () => {
     const harness = createInventoryHarness();
     await reconcile(harness.db, {

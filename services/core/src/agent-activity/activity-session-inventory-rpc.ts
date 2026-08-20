@@ -114,7 +114,7 @@ export async function rpcSubmitAgentActivitySessionReconciliation(
     organizationId: parsed.data.organizationId,
     projectId: parsed.data.projectId,
   });
-  if (!(project && project.archivedAtMs === null)) {
+  if (!canReconcileProject(project, parsed.data.result)) {
     throw createCoreRpcHttpError({
       code: "agent_activity.project_unavailable",
       reason: "The connected Project is unavailable.",
@@ -182,6 +182,15 @@ export async function rpcSubmitAgentActivitySessionReconciliation(
     }
     throw error;
   }
+}
+
+function canReconcileProject(
+  project: Awaited<ReturnType<typeof readProjectRecord>>,
+  result: SubmitAgentActivitySessionReconciliationRpcInput["result"]
+): project is NonNullable<typeof project> {
+  return Boolean(
+    project && (project.archivedAtMs === null || result === "disconnected")
+  );
 }
 
 function isObservationTimeCurrent(observedAtMs: number, nowMs: number) {

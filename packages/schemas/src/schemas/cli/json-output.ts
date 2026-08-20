@@ -376,8 +376,29 @@ export const cliJsonAgentActivitySyncEnvelopeSchema =
           "write_response_invalid",
           "write_timeout",
           "write_transport_failure",
+          "inventory_write_auth_rejected",
+          "inventory_endpoint_unavailable",
+          "inventory_write_retryable_http_failure",
+          "inventory_write_transport_failure",
         ])
         .nullable(),
+      sessionInventory: z.strictObject({
+        reason: z
+          .enum([
+            "service_contract_unavailable",
+            "auth_unavailable",
+            "registration_rejected",
+            "inventory_write_auth_rejected",
+            "inventory_endpoint_unavailable",
+            "inventory_write_retryable_http_failure",
+            "inventory_write_transport_failure",
+          ])
+          .nullable(),
+        sessionCount: z.number().int().nonnegative(),
+        sourceCount: z.number().int().nonnegative(),
+        status: z.enum(["idle", "submitted", "unavailable"]),
+        submittedSourceCount: z.number().int().nonnegative(),
+      }),
       status: z.enum(["idle", "submitted", "unavailable"]),
       submittedCount: z.number().int().nonnegative(),
     }),

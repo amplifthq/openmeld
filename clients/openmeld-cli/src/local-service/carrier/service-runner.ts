@@ -881,7 +881,7 @@ export const runDaemonServiceLoop = async (
             : "daemon.run.agent_activity_sync_unavailable",
         text:
           result.status === "submitted"
-            ? `Local Agent reporting submitted ${String(result.submittedCount)} activity event(s) and ${String(result.controllerTaskEventSubmittedCount)} task callback event(s).`
+            ? `Local Agent reporting submitted ${String(result.submittedCount)} activity event(s), ${String(result.controllerTaskEventSubmittedCount)} task callback event(s), and ${String(result.sessionInventory.submittedSourceCount)} Session Inventory source(s).`
             : `Agent Activity sync deferred: ${result.reason ?? "unavailable"}.`,
         payload: {
           ...result.health,
@@ -890,6 +890,7 @@ export const runDaemonServiceLoop = async (
           controllerTaskHealth: result.controllerTaskHealth,
           observedCount: result.observedCount,
           reason: result.reason,
+          sessionInventory: result.sessionInventory,
           status: result.status,
           submittedCount: result.submittedCount,
         },

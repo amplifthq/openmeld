@@ -711,7 +711,7 @@ function buildInventoryFilters(input: {
   const clauses = [
     "inventory.organization_id = ?",
     "inventory.visible = 1",
-    "source.state IN ('current', 'stale', 'error')",
+    "source.state IN ('syncing', 'current', 'stale', 'error')",
   ];
   const bindings: unknown[] = [input.organizationId];
   const add = (clause: string, value: unknown) => {
