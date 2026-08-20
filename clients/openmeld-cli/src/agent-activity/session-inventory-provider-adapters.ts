@@ -426,7 +426,7 @@ async function discoverClaudeCode(input: {
     return providerLaunchFailure("claude-code", launch.reason);
   }
   try {
-    const liveStatuses = await readClaudeAgentStatuses(
+    const registrySessions = await readClaudeAgentSessions(
       launch.candidates[0]?.launchContract
     );
     return sessionsResult(
@@ -436,8 +436,8 @@ async function discoverClaudeCode(input: {
         configDir:
           nullableText(process.env.CLAUDE_CONFIG_DIR) ??
           join(input.homeDir, ".claude"),
-        liveStatuses,
         nowMs: input.nowMs,
+        registrySessions,
         rootDir: input.rootDir,
       })
     );
@@ -449,8 +449,8 @@ async function discoverClaudeCode(input: {
 export async function discoverClaudeRetainedSessions(input: {
   bindings: readonly ProjectBinding[];
   configDir: string;
-  liveStatuses?: ReadonlyMap<string, AgentActivityInventorySessionStatus>;
   nowMs: number;
+  registrySessions?: ReadonlyMap<string, ClaudeAgentRegistrySession>;
   rootDir?: string;
 }): Promise<BoundObservedLocalAgentSession[]> {
   const openMeldCreatedSessionKeys =
@@ -479,6 +479,9 @@ export async function discoverClaudeRetainedSessions(input: {
     if (!binding) {
       continue;
     }
+    const registrySession = input.registrySessions?.get(
+      metadata.nativeSessionId
+    );
     const hookStatus = await readRecentAgentActivityHookStatus({
       nowMs: input.nowMs,
       provider: "claude-code",
@@ -500,9 +503,37 @@ export async function discoverClaudeRetainedSessions(input: {
           openMeldCreatedSessionKeys,
         }),
         startedAtMs: metadata.startedAtMs,
-        status:
-          input.liveStatuses?.get(metadata.nativeSessionId) ??
-          mapLegacyHookStatus(hookStatus),
+        status: registrySession?.status ?? mapLegacyHookStatus(hookStatus),
+      }),
+    });
+  }
+  for (const registrySession of input.registrySessions?.values() ?? []) {
+    if (identities.has(registrySession.nativeSessionId)) {
+      continue;
+    }
+    const binding = await resolveObservedAgentActivityBinding(
+      registrySession.cwd,
+      input.bindings
+    );
+    if (!binding) {
+      continue;
+    }
+    result.push({
+      binding,
+      session: observedLocalAgentSessionSchema.parse({
+        canFork: false,
+        canResume: true,
+        lastActiveAtMs: registrySession.lastActiveAtMs,
+        nativeSessionId: registrySession.nativeSessionId,
+        nativeSessionTitle: null,
+        origin: resolveLocalAgentSessionOrigin({
+          agentControllerRef: "builtin:claude-code",
+          fallback: "unknown",
+          nativeSessionId: registrySession.nativeSessionId,
+          openMeldCreatedSessionKeys,
+        }),
+        startedAtMs: null,
+        status: registrySession.status,
       }),
     });
   }
@@ -600,9 +631,16 @@ function applyClaudeSessionLine(
   }
 }
 
-async function readClaudeAgentStatuses(
+type ClaudeAgentRegistrySession = {
+  cwd: string;
+  lastActiveAtMs: number;
+  nativeSessionId: string;
+  status: AgentActivityInventorySessionStatus;
+};
+
+async function readClaudeAgentSessions(
   launchContract: RuntimeAgentControllerLaunchContract | undefined
-): Promise<Map<string, AgentActivityInventorySessionStatus>> {
+): Promise<Map<string, ClaudeAgentRegistrySession>> {
   if (!launchContract) {
     throw new Error("Claude Code launch contract is unavailable.");
   }
@@ -610,15 +648,61 @@ async function readClaudeAgentStatuses(
     args: ["agents", "--json", "--all"],
     launchContract,
   });
-  const statuses = new Map<string, AgentActivityInventorySessionStatus>();
+  const sessions = new Map<string, ClaudeAgentRegistrySession>();
   for (const record of collectRecords(output)) {
-    const id = text(record.sessionId ?? record.session_id);
-    const status = mapClaudeAgentStatus(record.status ?? record.state);
-    if (id && status) {
-      statuses.set(id, status);
+    const candidate = parseClaudeAgentRegistrySession(record);
+    if (!candidate) {
+      continue;
     }
+    sessions.set(
+      candidate.nativeSessionId,
+      mergeClaudeAgentRegistrySession(
+        sessions.get(candidate.nativeSessionId),
+        candidate
+      )
+    );
   }
-  return statuses;
+  return sessions;
+}
+
+function parseClaudeAgentRegistrySession(
+  record: Record<string, unknown>
+): ClaudeAgentRegistrySession | null {
+  const nativeSessionId = text(record.sessionId ?? record.session_id);
+  if (!nativeSessionId) {
+    return null;
+  }
+  const cwd = text(record.cwd);
+  const lastActiveAtMs = timestamp(record.startedAt ?? record.started_at);
+  const status = mapClaudeAgentStatus(record.status ?? record.state);
+  if (!(cwd && lastActiveAtMs !== null && status)) {
+    throw new Error("Claude Code agent registry Session is incomplete.");
+  }
+  return { cwd, lastActiveAtMs, nativeSessionId, status };
+}
+
+function mergeClaudeAgentRegistrySession(
+  existing: ClaudeAgentRegistrySession | undefined,
+  candidate: ClaudeAgentRegistrySession
+): ClaudeAgentRegistrySession {
+  if (!existing) {
+    return candidate;
+  }
+  if (existing.cwd !== candidate.cwd) {
+    throw new Error(
+      "Claude Code agent registry Session has conflicting Project paths."
+    );
+  }
+  const latest =
+    candidate.lastActiveAtMs >= existing.lastActiveAtMs ? candidate : existing;
+  return {
+    ...latest,
+    lastActiveAtMs: Math.max(existing.lastActiveAtMs, candidate.lastActiveAtMs),
+    status:
+      existing.status === "working" || candidate.status === "working"
+        ? "working"
+        : latest.status,
+  };
 }
 
 async function discoverOpenCode(input: {

@@ -265,6 +265,13 @@ the observer must fail closed and report a provider diagnostic rather than
 silently merge unrelated metadata. The latest explicit provider cwd is the
 current environment; the first transcript cwd is not an immutable identity.
 
+The inspected registry returned the metadata-only fields `sessionId`, `cwd`,
+`startedAt`, `state`, `id`, `kind`, and `name`. A registry-only Session can be
+attributed from `sessionId`, `cwd`, the provider job-start activity timestamp,
+and `state` before its top-level JSONL appears. The registry `name` describes
+the agent/job and must not become the native Session title. Missing required
+registry metadata makes the composite scan incomplete rather than current.
+
 The current observer violates several of these requirements: it hard-codes
 `~/.claude/projects`, recursively collects every JSONL including subagent
 files, caps discovery at 2,000 files, and skips previously unseen files older

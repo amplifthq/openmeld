@@ -263,6 +263,14 @@ retained status. `Notification`, subagent lifecycle, and other ambiguous hook
 events remain Unknown unless the structured live-agent registry supplies a
 current status for the exact native Session id.
 
+The complete Claude union also includes an attributable registry Session before
+its top-level JSONL appears. The registry must supply native Session id, current
+Project path, provider job start time, and a recognized state. That job start is
+the latest safe activity event for a registry-only row; the top-level Session
+start remains null. Registry agent/job names are not native Session titles. A
+registry Session missing any required field makes the provider scan incomplete
+and preserves the prior Core inventory as stale.
+
 `canResume` and `canFork` are explicit provider-and-session capability facts.
 They are true only when the installed provider exposes that native operation
 for the concrete retained Session and the OpenMeld adapter supports invoking

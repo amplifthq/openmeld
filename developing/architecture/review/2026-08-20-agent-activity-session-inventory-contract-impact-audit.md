@@ -97,7 +97,7 @@ contract is deliberately stricter than provider marketing:
 | Provider | Complete discovery | Native title/id | Public Resume | Public Fork |
 | --- | --- | --- | --- | --- |
 | Codex | Complete app-server `thread/list` across explicit source kinds, archived states, and every cursor | `Thread.id` and native name | Yes for non-archived Sessions | No; provider-native Fork exists but OpenMeld has no verified invocation path |
-| Claude Code | Complete retained top-level JSONL union plus structured live-agent/hook evidence | Stable Session id and explicit custom title | Yes | No; provider-native Fork exists but OpenMeld has no verified invocation path |
+| Claude Code | Complete retained top-level JSONL union plus attributable registry-only Sessions and structured hook evidence | Stable Session id and explicit custom title | Yes | No; provider-native Fork exists but OpenMeld has no verified invocation path |
 | Cursor | Unsupported: no complete structured inventory across IDE, print, and ACP Sessions | No cross-surface identity claim | No from this inventory | No |
 | OpenCode | Complete SQLite Session-table scan | Stable native id and title | Yes for verified retained Sessions | No; provider-native Fork exists but OpenMeld has no verified invocation path |
 | Grok Build | Complete recursive `summary.json` retained index | UUID and native title | Yes | No; provider-native Fork exists but OpenMeld has no verified invocation path |

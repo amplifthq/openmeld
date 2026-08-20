@@ -283,6 +283,127 @@ describe("Local Agent Session Inventory provider adapters", () => {
     }
   });
 
+  it("includes a registry-only Claude Session in the complete inventory", async () => {
+    const configDir = join(root, "claude-config-registry-only");
+    const registryPath = join(root, "claude-registry-only.mjs");
+    await mkdir(join(configDir, "projects"), { recursive: true });
+    await writeFile(
+      registryPath,
+      `process.stdout.write(JSON.stringify([${JSON.stringify({
+        cwd: repositoryPath,
+        id: "agent-registry-only",
+        kind: "local",
+        name: "Registry agent name is not a Session title",
+        sessionId: "claude-registry-only",
+        startedAt: NOW_MS - 1000,
+        state: "running",
+      })}]) + "\\n");\n`,
+      "utf8"
+    );
+    launchMocks.claude.mockResolvedValue({
+      candidates: [
+        {
+          commandPath: process.execPath,
+          launchContract: {
+            argsPrefix: [registryPath],
+            commandPath: process.execPath,
+            kind: "executable",
+          },
+        },
+      ],
+      ok: true,
+    });
+
+    const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    try {
+      const discoveries = await discoverLocalAgentSessionProviders({
+        bindings: [binding],
+        homeDir: root,
+        nowMs: NOW_MS,
+        rootDir: root,
+      });
+
+      expect(
+        discoveries.find(({ provider }) => provider === "claude-code")
+      ).toMatchObject({
+        result: "sessions",
+        sessions: [
+          {
+            session: {
+              lastActiveAtMs: NOW_MS - 1000,
+              nativeSessionId: "claude-registry-only",
+              nativeSessionTitle: null,
+              startedAtMs: null,
+              status: "working",
+            },
+          },
+        ],
+      });
+    } finally {
+      if (previousConfigDir === undefined) {
+        Reflect.deleteProperty(process.env, "CLAUDE_CONFIG_DIR");
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
+      }
+    }
+  });
+
+  it("fails closed when a Claude registry Session lacks required metadata", async () => {
+    const configDir = join(root, "claude-config-registry-incomplete");
+    const registryPath = join(root, "claude-registry-incomplete.mjs");
+    await mkdir(join(configDir, "projects"), { recursive: true });
+    await writeFile(
+      registryPath,
+      `process.stdout.write(JSON.stringify([${JSON.stringify({
+        id: "agent-registry-incomplete",
+        sessionId: "claude-registry-incomplete",
+        startedAt: NOW_MS - 1000,
+        state: "running",
+      })}]) + "\\n");\n`,
+      "utf8"
+    );
+    launchMocks.claude.mockResolvedValue({
+      candidates: [
+        {
+          commandPath: process.execPath,
+          launchContract: {
+            argsPrefix: [registryPath],
+            commandPath: process.execPath,
+            kind: "executable",
+          },
+        },
+      ],
+      ok: true,
+    });
+
+    const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    try {
+      const discoveries = await discoverLocalAgentSessionProviders({
+        bindings: [binding],
+        homeDir: root,
+        nowMs: NOW_MS,
+        rootDir: root,
+      });
+
+      expect(
+        discoveries.find(({ provider }) => provider === "claude-code")
+      ).toEqual({
+        agentControllerRef: "builtin:claude-code",
+        problemCode: "claude_code_retained_inventory_failed",
+        provider: "claude-code",
+        result: "error",
+      });
+    } finally {
+      if (previousConfigDir === undefined) {
+        Reflect.deleteProperty(process.env, "CLAUDE_CONFIG_DIR");
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
+      }
+    }
+  });
+
   it("preserves OpenCode inventory when its database cannot be inspected", async () => {
     const xdgDataHome = join(root, "xdg-data");
     const databaseDirectory = join(xdgDataHome, "opencode");
