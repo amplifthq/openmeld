@@ -1,8 +1,13 @@
 import {
+  agentProfileCreationRequestMutationResponseSchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   centerAgentOrganizationMemoryPolicyResponseSchema,
   centerAgentWipeMemberMemoryResponseSchema,
+  createAgentProfileCreationRequestBodySchema,
+  createAgentProfileCreationRequestResponseSchema,
+  decideAgentProfileCreationRequestBodySchema,
+  getAgentProfileCreationApprovalPreferenceResponseSchema,
   getAgentProfileCreationDefaultsResponseSchema,
   getOrganizationBindingAuthorizationPreferenceResponseSchema,
   larkPlatformActiveRegistrationListResponseSchema,
@@ -10,6 +15,7 @@ import {
   larkPlatformRegistrationAttemptIdSchema,
   larkPlatformRegistrationBeginModeSchema,
   larkPlatformRegistrationResponseSchema,
+  listAgentProfileCreationRequestsResponseSchema,
   listOrganizationBindingAuthorizationProfilesResponseSchema,
   messageChannelConnectionListResponseSchema,
   messageChannelIdentityLinkConsumeBodySchema,
@@ -27,6 +33,8 @@ import {
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   saveOrganizationWakeAccessChoiceBodySchema,
   saveOrganizationWakeAccessChoiceResponseSchema,
+  setAgentProfileCreationApprovalPreferenceBodySchema,
+  setAgentProfileCreationApprovalPreferenceResponseSchema,
   setAgentProfileCreationDefaultsBodySchema,
   setAgentProfileCreationDefaultsResponseSchema,
   setOrganizationBindingAuthorizationPreferenceBodySchema,
@@ -36,7 +44,12 @@ import {
 } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
 import {
+  buildAgentProfileCreationApprovalPreferencePath,
   buildAgentProfileCreationDefaultsPath,
+  buildAgentProfileCreationRequestCancelPath,
+  buildAgentProfileCreationRequestDecisionPath,
+  buildAgentProfileCreationRequestRetryPath,
+  buildAgentProfileCreationRequestsPath,
   buildCurrentOrganizationCenterAgentMemoryPolicyPath,
   buildCurrentOrganizationCenterAgentMemoryWipeSelfPath,
   buildCurrentOrganizationComputersPath,
@@ -64,6 +77,124 @@ import type { CreateOrganizationApi } from "./types";
 export const createOrganizationApi: CreateOrganizationApi = (
   client: OpenMeldApiClientFoundation
 ) => ({
+  createAgentProfileCreationRequest: async (input) => {
+    const body = createAgentProfileCreationRequestBodySchema.parse({
+      idempotencyKey: input.idempotencyKey,
+      nativeSessionId: input.nativeSessionId,
+      profileName: input.profileName,
+      requestedSpaceId: input.requestedSpaceId,
+      sessionStrategy: input.sessionStrategy,
+      source: input.source,
+      targetOwnerUserId: input.targetOwnerUserId,
+    });
+    return await client.requestJson({
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "invalid Agent Profile creation request response",
+      method: "POST",
+      operation: "agent_profile.creation_request.create",
+      requestContext: input.requestContext,
+      schema: createAgentProfileCreationRequestResponseSchema,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      url: buildAgentProfileCreationRequestsPath(input.organizationId),
+    });
+  },
+  listAgentProfileCreationRequests: async (input) =>
+    await client.requestJson({
+      invalidMessage: "invalid Agent Profile creation request list response",
+      method: "GET",
+      operation: "agent_profile.creation_request.list",
+      requestContext: input.requestContext,
+      schema: listAgentProfileCreationRequestsResponseSchema,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      url: buildAgentProfileCreationRequestsPath(input.organizationId),
+    }),
+  decideAgentProfileCreationRequest: async (input) => {
+    const body = decideAgentProfileCreationRequestBodySchema.parse({
+      decision: input.decision,
+    });
+    return await client.requestJson({
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage:
+        "invalid Agent Profile creation request decision response",
+      method: "POST",
+      operation: "agent_profile.creation_request.decide",
+      requestContext: input.requestContext,
+      schema: agentProfileCreationRequestMutationResponseSchema,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      url: buildAgentProfileCreationRequestDecisionPath(
+        input.organizationId,
+        input.requestId
+      ),
+    });
+  },
+  cancelAgentProfileCreationRequest: async (input) =>
+    await client.requestJson({
+      invalidMessage: "invalid Agent Profile creation request cancel response",
+      method: "POST",
+      operation: "agent_profile.creation_request.cancel",
+      requestContext: input.requestContext,
+      schema: agentProfileCreationRequestMutationResponseSchema,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      url: buildAgentProfileCreationRequestCancelPath(
+        input.organizationId,
+        input.requestId
+      ),
+    }),
+  retryAgentProfileCreationRequest: async (input) =>
+    await client.requestJson({
+      invalidMessage: "invalid Agent Profile creation request retry response",
+      method: "POST",
+      operation: "agent_profile.creation_request.retry",
+      requestContext: input.requestContext,
+      schema: agentProfileCreationRequestMutationResponseSchema,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      url: buildAgentProfileCreationRequestRetryPath(
+        input.organizationId,
+        input.requestId
+      ),
+    }),
+  getAgentProfileCreationApprovalPreference: async (input) =>
+    await client.requestJson({
+      invalidMessage:
+        "invalid Agent Profile creation approval preference response",
+      method: "GET",
+      operation: "agent_profile.creation_approval_preference.read",
+      requestContext: input.requestContext,
+      schema: getAgentProfileCreationApprovalPreferenceResponseSchema,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      url: buildAgentProfileCreationApprovalPreferencePath(
+        input.organizationId
+      ),
+    }),
+  setAgentProfileCreationApprovalPreference: async (input) => {
+    const body = setAgentProfileCreationApprovalPreferenceBodySchema.parse({
+      existingSessionPolicy: input.existingSessionPolicy,
+      newSessionPolicy: input.newSessionPolicy,
+    });
+    return await client.requestJson({
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage:
+        "invalid Agent Profile creation approval preference response",
+      method: "PUT",
+      operation: "agent_profile.creation_approval_preference.write",
+      requestContext: input.requestContext,
+      schema: setAgentProfileCreationApprovalPreferenceResponseSchema,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      url: buildAgentProfileCreationApprovalPreferencePath(
+        input.organizationId
+      ),
+    });
+  },
   getAgentProfileCreationDefaults: async (input) =>
     await client.requestJson({
       url: buildAgentProfileCreationDefaultsPath(

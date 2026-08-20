@@ -785,6 +785,105 @@ describe("api-client organization api", () => {
       })
     );
   });
+
+  it("creates and manages Agent Profile creation requests through one API", async () => {
+    const request = {
+      actorProfileId: "profile-actor",
+      completedAt: null,
+      createdAgentProfileId: null,
+      createdAt: "2026-08-20T00:00:00.000Z",
+      decidedAt: null,
+      id: "creation-request-1",
+      nativeSessionId: null,
+      organizationId: "org-1",
+      profileName: "Review Agent",
+      requestedSpaceId: null,
+      requesterUserId: "user-1",
+      sessionStrategy: "new" as const,
+      source: "web" as const,
+      status: "pending" as const,
+      statusReason: "approval_required" as const,
+      targetOwnerUserId: "user-2",
+      updatedAt: "2026-08-20T00:00:00.000Z",
+    };
+    const preference = {
+      existingSessionPolicy: "ask_every_time" as const,
+      newSessionPolicy: "automatically_allow" as const,
+      organizationId: "org-1",
+      updatedAt: "2026-08-20T00:00:00.000Z",
+      userId: "user-1",
+    };
+    const transport = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ replayed: false, request }))
+      .mockResolvedValueOnce(
+        jsonResponse({ organizationId: "org-1", requests: [request] })
+      )
+      .mockResolvedValueOnce(jsonResponse({ request }))
+      .mockResolvedValueOnce(jsonResponse(preference))
+      .mockResolvedValueOnce(jsonResponse(preference));
+    const api = createOrganizationApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await api.createAgentProfileCreationRequest({
+      idempotencyKey: "create-review-agent",
+      organizationId: "org-1",
+      profileName: "Review Agent",
+      requestContext: REQUEST_CONTEXT,
+      sessionStrategy: "new",
+      source: "web",
+      targetOwnerUserId: "user-2",
+    });
+    await api.listAgentProfileCreationRequests({
+      organizationId: "org-1",
+      requestContext: REQUEST_CONTEXT,
+    });
+    await api.decideAgentProfileCreationRequest({
+      decision: "approve",
+      organizationId: "org-1",
+      requestContext: REQUEST_CONTEXT,
+      requestId: "creation-request-1",
+    });
+    await api.getAgentProfileCreationApprovalPreference({
+      organizationId: "org-1",
+      requestContext: REQUEST_CONTEXT,
+    });
+    await api.setAgentProfileCreationApprovalPreference({
+      existingSessionPolicy: "ask_every_time",
+      newSessionPolicy: "automatically_allow",
+      organizationId: "org-1",
+      requestContext: REQUEST_CONTEXT,
+    });
+
+    expect(transport).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        init: expect.objectContaining({
+          body: JSON.stringify({
+            idempotencyKey: "create-review-agent",
+            profileName: "Review Agent",
+            sessionStrategy: "new",
+            source: "web",
+            targetOwnerUserId: "user-2",
+          }),
+          method: "POST",
+        }),
+        operation: "agent_profile.creation_request.create",
+        url: "https://gateway.openmeld.invalid/v1/organizations/org-1/agent-profile-creation-requests",
+      })
+    );
+    expect(transport.mock.calls.map(([call]) => call.operation)).toEqual([
+      "agent_profile.creation_request.create",
+      "agent_profile.creation_request.list",
+      "agent_profile.creation_request.decide",
+      "agent_profile.creation_approval_preference.read",
+      "agent_profile.creation_approval_preference.write",
+    ]);
+  });
 });
 
 function larkRegistrationResponse(

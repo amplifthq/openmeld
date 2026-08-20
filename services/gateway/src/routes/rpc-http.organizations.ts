@@ -1,12 +1,18 @@
 import { ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER } from "@openmeld/gateway-contract";
 import {
+  agentProfileCreationRequestMutationResponseSchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   centerAgentOrganizationMemoryPolicyResponseSchema,
   centerAgentWipeMemberMemoryResponseSchema,
+  createAgentProfileCreationRequestBodySchema,
+  createAgentProfileCreationRequestResponseSchema,
+  decideAgentProfileCreationRequestBodySchema,
   feedbackReportingPolicyResponseSchema,
+  getAgentProfileCreationApprovalPreferenceResponseSchema,
   getAgentProfileCreationDefaultsResponseSchema,
   getOrganizationBindingAuthorizationPreferenceResponseSchema,
+  listAgentProfileCreationRequestsResponseSchema,
   listOrganizationBindingAuthorizationProfilesResponseSchema,
   organizationComputersResponseSchema,
   organizationDirectoryResponseSchema,
@@ -16,6 +22,8 @@ import {
   organizationSpaceDirectoryWithMemberCountsResponseSchema,
   saveOrganizationWakeAccessChoiceBodySchema,
   saveOrganizationWakeAccessChoiceResponseSchema,
+  setAgentProfileCreationApprovalPreferenceBodySchema,
+  setAgentProfileCreationApprovalPreferenceResponseSchema,
   setAgentProfileCreationDefaultsBodySchema,
   setAgentProfileCreationDefaultsResponseSchema,
   setOrganizationBindingAuthorizationPreferenceBodySchema,
@@ -59,10 +67,239 @@ const ORGANIZATION_BINDING_AUTHORIZATION_PREFERENCE_ROUTE =
   "/v1/organizations/:organizationId/binding-authorization-preference";
 const AGENT_PROFILE_CREATION_DEFAULTS_ROUTE =
   "/v1/organizations/:organizationId/agent-profile-creation-defaults/:agentControllerRef";
+const AGENT_PROFILE_CREATION_REQUESTS_ROUTE =
+  "/v1/organizations/:organizationId/agent-profile-creation-requests";
+const AGENT_PROFILE_CREATION_REQUEST_DECISION_ROUTE =
+  "/v1/organizations/:organizationId/agent-profile-creation-requests/:requestId/decision";
+const AGENT_PROFILE_CREATION_REQUEST_CANCEL_ROUTE =
+  "/v1/organizations/:organizationId/agent-profile-creation-requests/:requestId/cancel";
+const AGENT_PROFILE_CREATION_REQUEST_RETRY_ROUTE =
+  "/v1/organizations/:organizationId/agent-profile-creation-requests/:requestId/retry";
+const AGENT_PROFILE_CREATION_APPROVAL_PREFERENCE_ROUTE =
+  "/v1/organizations/:organizationId/agent-profile-creation-approval-preference";
 const ORGANIZATION_WAKE_ACCESS_CHOICE_ROUTE =
   "/v1/organizations/:organizationId/wake-access-choice";
 
 export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
+  app.post(AGENT_PROFILE_CREATION_REQUESTS_ROUTE, async (c) => {
+    const organizationId = c.req.param("organizationId")?.trim();
+    if (!organizationId) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message: "organizationId is required",
+        method: "POST",
+        route: AGENT_PROFILE_CREATION_REQUESTS_ROUTE,
+      });
+    }
+    const bodyResult = await readJsonRequestBody(c.req.raw);
+    if (!bodyResult.ok) {
+      return respondBadRequest({
+        c,
+        code: "invalid_json",
+        message: bodyResult.message,
+        method: "POST",
+        route: AGENT_PROFILE_CREATION_REQUESTS_ROUTE,
+      });
+    }
+    const body = createAgentProfileCreationRequestBodySchema.safeParse(
+      bodyResult.value
+    );
+    if (!body.success) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message:
+          body.error.issues[0]?.message ??
+          "Invalid Agent Profile creation request payload.",
+        method: "POST",
+        route: AGENT_PROFILE_CREATION_REQUESTS_ROUTE,
+      });
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.createAgentProfileCreationRequest({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+          organizationId,
+        }),
+      method: "POST",
+      responseSchema: createAgentProfileCreationRequestResponseSchema,
+      route: AGENT_PROFILE_CREATION_REQUESTS_ROUTE,
+    });
+  });
+
+  app.get(AGENT_PROFILE_CREATION_REQUESTS_ROUTE, (c) => {
+    const organizationId = c.req.param("organizationId")?.trim();
+    if (!organizationId) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message: "organizationId is required",
+        method: "GET",
+        route: AGENT_PROFILE_CREATION_REQUESTS_ROUTE,
+      });
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.listAgentProfileCreationRequests({
+          context: buildCoreRpcContext(c),
+          organizationId,
+        }),
+      method: "GET",
+      responseSchema: listAgentProfileCreationRequestsResponseSchema,
+      route: AGENT_PROFILE_CREATION_REQUESTS_ROUTE,
+    });
+  });
+
+  app.post(AGENT_PROFILE_CREATION_REQUEST_DECISION_ROUTE, async (c) => {
+    const identifiers = readCreationRequestIdentifiers(c);
+    if (!identifiers) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message: "organizationId and requestId are required",
+        method: "POST",
+        route: AGENT_PROFILE_CREATION_REQUEST_DECISION_ROUTE,
+      });
+    }
+    const bodyResult = await readJsonRequestBody(c.req.raw);
+    if (!bodyResult.ok) {
+      return respondBadRequest({
+        c,
+        code: "invalid_json",
+        message: bodyResult.message,
+        method: "POST",
+        route: AGENT_PROFILE_CREATION_REQUEST_DECISION_ROUTE,
+      });
+    }
+    const body = decideAgentProfileCreationRequestBodySchema.safeParse(
+      bodyResult.value
+    );
+    if (!body.success) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message:
+          body.error.issues[0]?.message ??
+          "Invalid Agent Profile creation request decision.",
+        method: "POST",
+        route: AGENT_PROFILE_CREATION_REQUEST_DECISION_ROUTE,
+      });
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.decideAgentProfileCreationRequest({
+          ...body.data,
+          ...identifiers,
+          context: buildCoreRpcContext(c),
+        }),
+      method: "POST",
+      responseSchema: agentProfileCreationRequestMutationResponseSchema,
+      route: AGENT_PROFILE_CREATION_REQUEST_DECISION_ROUTE,
+    });
+  });
+
+  app.post(AGENT_PROFILE_CREATION_REQUEST_CANCEL_ROUTE, (c) =>
+    executeCreationRequestMutation({
+      c,
+      execute: async (identifiers) =>
+        await c.var.coreRpc.cancelAgentProfileCreationRequest({
+          ...identifiers,
+          context: buildCoreRpcContext(c),
+        }),
+      route: AGENT_PROFILE_CREATION_REQUEST_CANCEL_ROUTE,
+    })
+  );
+
+  app.post(AGENT_PROFILE_CREATION_REQUEST_RETRY_ROUTE, (c) =>
+    executeCreationRequestMutation({
+      c,
+      execute: async (identifiers) =>
+        await c.var.coreRpc.retryAgentProfileCreationRequest({
+          ...identifiers,
+          context: buildCoreRpcContext(c),
+        }),
+      route: AGENT_PROFILE_CREATION_REQUEST_RETRY_ROUTE,
+    })
+  );
+
+  app.get(AGENT_PROFILE_CREATION_APPROVAL_PREFERENCE_ROUTE, (c) => {
+    const organizationId = c.req.param("organizationId")?.trim();
+    if (!organizationId) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message: "organizationId is required",
+        method: "GET",
+        route: AGENT_PROFILE_CREATION_APPROVAL_PREFERENCE_ROUTE,
+      });
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.getAgentProfileCreationApprovalPreference({
+          context: buildCoreRpcContext(c),
+          organizationId,
+        }),
+      method: "GET",
+      responseSchema: getAgentProfileCreationApprovalPreferenceResponseSchema,
+      route: AGENT_PROFILE_CREATION_APPROVAL_PREFERENCE_ROUTE,
+    });
+  });
+
+  app.put(AGENT_PROFILE_CREATION_APPROVAL_PREFERENCE_ROUTE, async (c) => {
+    const organizationId = c.req.param("organizationId")?.trim();
+    if (!organizationId) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message: "organizationId is required",
+        method: "PUT",
+        route: AGENT_PROFILE_CREATION_APPROVAL_PREFERENCE_ROUTE,
+      });
+    }
+    const bodyResult = await readJsonRequestBody(c.req.raw);
+    if (!bodyResult.ok) {
+      return respondBadRequest({
+        c,
+        code: "invalid_json",
+        message: bodyResult.message,
+        method: "PUT",
+        route: AGENT_PROFILE_CREATION_APPROVAL_PREFERENCE_ROUTE,
+      });
+    }
+    const body = setAgentProfileCreationApprovalPreferenceBodySchema.safeParse(
+      bodyResult.value
+    );
+    if (!body.success) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message:
+          body.error.issues[0]?.message ??
+          "Invalid Agent Profile creation approval preference.",
+        method: "PUT",
+        route: AGENT_PROFILE_CREATION_APPROVAL_PREFERENCE_ROUTE,
+      });
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.setAgentProfileCreationApprovalPreference({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+          organizationId,
+        }),
+      method: "PUT",
+      responseSchema: setAgentProfileCreationApprovalPreferenceResponseSchema,
+      route: AGENT_PROFILE_CREATION_APPROVAL_PREFERENCE_ROUTE,
+    });
+  });
+
   app.get(CURRENT_ORGANIZATION_DIRECTORY_ROUTE, (c) => {
     const includeHumanProfileLastUsedAt =
       c.req.query(
@@ -594,6 +831,41 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
           context: buildCoreRpcContext(c),
         }),
     });
+  });
+}
+
+function readCreationRequestIdentifiers(c: {
+  req: { param: (name: string) => string | undefined };
+}): { organizationId: string; requestId: string } | null {
+  const organizationId = c.req.param("organizationId")?.trim();
+  const requestId = c.req.param("requestId")?.trim();
+  return organizationId && requestId ? { organizationId, requestId } : null;
+}
+
+function executeCreationRequestMutation(input: {
+  c: Parameters<typeof executeRpcRoute>[0]["c"];
+  execute: (identifiers: {
+    organizationId: string;
+    requestId: string;
+  }) => Promise<unknown>;
+  route: string;
+}) {
+  const identifiers = readCreationRequestIdentifiers(input.c);
+  if (!identifiers) {
+    return respondBadRequest({
+      c: input.c,
+      code: "invalid_payload",
+      message: "organizationId and requestId are required",
+      method: "POST",
+      route: input.route,
+    });
+  }
+  return executeRpcRoute({
+    c: input.c,
+    execute: async () => await input.execute(identifiers),
+    method: "POST",
+    responseSchema: agentProfileCreationRequestMutationResponseSchema,
+    route: input.route,
   });
 }
 

@@ -33,6 +33,8 @@ export const CORE_OPPORTUNITY_SCHEMA_DEFINITION_PATH =
   "packages/db/src/core/opportunity.schema.ts";
 export const CORE_AGENT_ACTIVITY_SCHEMA_DEFINITION_PATH =
   "packages/db/src/core/agent-activity.schema.ts";
+export const CORE_AGENT_PROFILE_CREATION_REQUEST_SCHEMA_DEFINITION_PATH =
+  "packages/db/src/core/agent-profile-creation-request.schema.ts";
 export const CORE_EVAL_REPORT_SCHEMA_DEFINITION_PATH =
   "packages/db/src/core/eval-report.schema.ts";
 export const CORE_DB_MIGRATIONS_PATH = "packages/db/drizzle";
@@ -44,6 +46,12 @@ export const CORE_DB_RELEASE_NOTES = [
 
 export const getCoreDbSchemaSources = (): DbFactSource[] => {
   return [
+    {
+      kind: "schema_module",
+      owner: "packages/db",
+      path: CORE_AGENT_PROFILE_CREATION_REQUEST_SCHEMA_DEFINITION_PATH,
+      note: "Core owns Agent Profile creation requests and member approval preferences in shared D1.",
+    },
     {
       kind: "schema_module",
       owner: "packages/db",

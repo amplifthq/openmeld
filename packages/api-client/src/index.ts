@@ -195,7 +195,12 @@ export {
 } from "./local-runtime/api";
 export { createOrganizationApi } from "./organization/api";
 export {
+  buildAgentProfileCreationApprovalPreferencePath,
   buildAgentProfileCreationDefaultsPath,
+  buildAgentProfileCreationRequestCancelPath,
+  buildAgentProfileCreationRequestDecisionPath,
+  buildAgentProfileCreationRequestRetryPath,
+  buildAgentProfileCreationRequestsPath,
   buildCurrentOrganizationCenterAgentMemoryWipeSelfPath,
   buildCurrentOrganizationComputersPath,
   buildCurrentOrganizationDirectoryPath,
@@ -216,14 +221,18 @@ export {
 } from "./organization/routes";
 export type {
   AgentProfileCreationDefaultsRouteInput,
+  AgentProfileCreationRequestRouteInput,
   BeginLarkPlatformRegistrationInput,
   BulkAuthorizeAgentProfileBindingsForOrganizationInput,
+  CreateAgentProfileCreationRequestInput,
   CreateOrganizationApi,
+  DecideAgentProfileCreationRequestInput,
   OrganizationApi,
   OrganizationRequestInput,
   OrganizationRouteInput,
   PollLarkPlatformRegistrationInput,
   SaveOrganizationWakeAccessChoiceInput,
+  SetAgentProfileCreationApprovalPreferenceInput,
   SetAgentProfileCreationDefaultsInput,
   SetOrganizationBindingAuthorizationPreferenceInput,
   SetOrganizationInformationProtectionInput,

@@ -100,6 +100,46 @@ export function buildAgentProfileCreationDefaultsPath(
   return `/v1/organizations/${encodeURIComponent(organizationId)}/agent-profile-creation-defaults/${encodeURIComponent(agentControllerRef)}`;
 }
 
+export function buildAgentProfileCreationRequestsPath(
+  organizationId: string
+): string {
+  return `/v1/organizations/${encodeURIComponent(organizationId)}/agent-profile-creation-requests`;
+}
+
+export function buildAgentProfileCreationRequestPath(
+  organizationId: string,
+  requestId: string
+): string {
+  return `${buildAgentProfileCreationRequestsPath(organizationId)}/${encodeURIComponent(requestId)}`;
+}
+
+export function buildAgentProfileCreationRequestDecisionPath(
+  organizationId: string,
+  requestId: string
+): string {
+  return `${buildAgentProfileCreationRequestPath(organizationId, requestId)}/decision`;
+}
+
+export function buildAgentProfileCreationRequestCancelPath(
+  organizationId: string,
+  requestId: string
+): string {
+  return `${buildAgentProfileCreationRequestPath(organizationId, requestId)}/cancel`;
+}
+
+export function buildAgentProfileCreationRequestRetryPath(
+  organizationId: string,
+  requestId: string
+): string {
+  return `${buildAgentProfileCreationRequestPath(organizationId, requestId)}/retry`;
+}
+
+export function buildAgentProfileCreationApprovalPreferencePath(
+  organizationId: string
+): string {
+  return `/v1/organizations/${encodeURIComponent(organizationId)}/agent-profile-creation-approval-preference`;
+}
+
 export function buildOrganizationWakeAccessChoicePath(
   organizationId: string
 ): string {

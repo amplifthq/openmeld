@@ -126,6 +126,23 @@ export type {
   UpdateAgentProfilePrimaryBindingOpenCodePermissionBody,
 } from "./agent-profile-binding";
 export type {
+  AgentProfileCreationApprovalPolicy,
+  AgentProfileCreationApprovalPreference,
+  AgentProfileCreationRequest,
+  AgentProfileCreationRequestMutationResponse,
+  AgentProfileCreationRequestSource,
+  AgentProfileCreationRequestStatus,
+  AgentProfileCreationRequestStatusReason,
+  AgentProfileCreationSessionStrategy,
+  CreateAgentProfileCreationRequestBody,
+  CreateAgentProfileCreationRequestResponse,
+  DecideAgentProfileCreationRequestBody,
+  GetAgentProfileCreationApprovalPreferenceResponse,
+  ListAgentProfileCreationRequestsResponse,
+  SetAgentProfileCreationApprovalPreferenceBody,
+  SetAgentProfileCreationApprovalPreferenceResponse,
+} from "./agent-profile-creation-request";
+export type {
   ReconcileDeletedAgentProfileRequest,
   ReconcileDeletedAgentProfileResponse,
   ReconcileDeletedAgentProfileSpaceOutcome,

@@ -1,0 +1,457 @@
+import {
+  agentProfileCreationRequestMutationResponseSchema,
+  createAgentProfileCreationRequestBodySchema,
+  createAgentProfileCreationRequestResponseSchema,
+  decideAgentProfileCreationRequestBodySchema,
+  getAgentProfileCreationApprovalPreferenceResponseSchema,
+  listAgentProfileCreationRequestsResponseSchema,
+  openMeldRequestContextSchema,
+  setAgentProfileCreationApprovalPreferenceBodySchema,
+  setAgentProfileCreationApprovalPreferenceResponseSchema,
+} from "@openmeld/schemas";
+import type {
+  AgentProfileCreationRequestMutationResponse,
+  CreateAgentProfileCreationRequestBody,
+  CreateAgentProfileCreationRequestResponse,
+  DecideAgentProfileCreationRequestBody,
+  GetAgentProfileCreationApprovalPreferenceResponse,
+  ListAgentProfileCreationRequestsResponse,
+  OpenMeldRequestContext,
+  SetAgentProfileCreationApprovalPreferenceBody,
+  SetAgentProfileCreationApprovalPreferenceResponse,
+} from "@openmeld/schemas/types";
+import type { CoreBindings } from "../lib/bindings";
+import { createCoreRpcHttpError } from "../rpc/errors";
+import {
+  projectAgentProfileCreationRequestInbox,
+  resolveAgentProfileCreationRequestInbox,
+} from "./agent-profile-creation-request-inbox";
+import { createD1AgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
+import {
+  AgentProfileCreationRequestConflictError,
+  AgentProfileCreationRequestForbiddenError,
+  AgentProfileCreationRequestNotFoundError,
+  type AgentProfileCreationRequestRecord,
+  AgentProfileCreationRequestStateError,
+  createAgentProfileCreationRequestService,
+} from "./agent-profile-creation-request-service";
+
+export type CreateAgentProfileCreationRequestRpcInput =
+  CreateAgentProfileCreationRequestBody & {
+    context?: OpenMeldRequestContext;
+    organizationId: string;
+  };
+
+export type ListAgentProfileCreationRequestsRpcInput = {
+  context?: OpenMeldRequestContext;
+  organizationId: string;
+};
+
+export type DecideAgentProfileCreationRequestRpcInput =
+  DecideAgentProfileCreationRequestBody & {
+    context?: OpenMeldRequestContext;
+    organizationId: string;
+    requestId: string;
+  };
+
+export type MutateAgentProfileCreationRequestRpcInput = {
+  context?: OpenMeldRequestContext;
+  organizationId: string;
+  requestId: string;
+};
+
+export type GetAgentProfileCreationApprovalPreferenceRpcInput = {
+  context?: OpenMeldRequestContext;
+  organizationId: string;
+};
+
+export type SetAgentProfileCreationApprovalPreferenceRpcInput =
+  SetAgentProfileCreationApprovalPreferenceBody & {
+    context?: OpenMeldRequestContext;
+    organizationId: string;
+  };
+
+export async function rpcCreateAgentProfileCreationRequest(
+  env: CoreBindings,
+  input: CreateAgentProfileCreationRequestRpcInput
+): Promise<CreateAgentProfileCreationRequestResponse> {
+  const context = requireContext(input.context);
+  const organizationId = requireIdentifier(
+    input.organizationId,
+    "Organization"
+  );
+  const body = createAgentProfileCreationRequestBodySchema.safeParse({
+    idempotencyKey: input.idempotencyKey,
+    nativeSessionId: input.nativeSessionId,
+    profileName: input.profileName,
+    requestedSpaceId: input.requestedSpaceId,
+    sessionStrategy: input.sessionStrategy,
+    source: input.source,
+    targetOwnerUserId: input.targetOwnerUserId,
+  });
+  if (!body.success) {
+    throw invalidPayload(body.error.issues[0]?.message);
+  }
+  if (body.data.sessionStrategy !== "new") {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_creation_request.session_strategy_unavailable",
+      reason:
+        "Resume and fork requests will be available after OpenMeld can verify the selected local session.",
+      status: 409,
+    });
+  }
+  const db = requireDb(env);
+  const requesterUserId = requireCallerUserId(context);
+  await requireOrganizationMember({
+    db,
+    organizationId,
+    userId: requesterUserId,
+  });
+  await requireOrganizationMember({
+    db,
+    organizationId,
+    userId: body.data.targetOwnerUserId,
+  });
+
+  const service = createService(env, db);
+  try {
+    const response = await service.create({
+      actorProfileId: requireIdentifier(
+        context.actorContext.openMeldProfileId,
+        "Actor Profile"
+      ),
+      body: body.data,
+      organizationId,
+      requesterUserId,
+    });
+    return createAgentProfileCreationRequestResponseSchema.parse(response);
+  } catch (error) {
+    throw translateDomainError(error);
+  }
+}
+
+export async function rpcListAgentProfileCreationRequests(
+  env: CoreBindings,
+  input: ListAgentProfileCreationRequestsRpcInput
+): Promise<ListAgentProfileCreationRequestsResponse> {
+  const context = requireContext(input.context);
+  const organizationId = requireIdentifier(
+    input.organizationId,
+    "Organization"
+  );
+  const db = requireDb(env);
+  const userId = requireCallerUserId(context);
+  await requireOrganizationMember({ db, organizationId, userId });
+  const requests = await createService(env, db).list({
+    organizationId,
+    userId,
+  });
+  return listAgentProfileCreationRequestsResponseSchema.parse({
+    organizationId,
+    requests,
+  });
+}
+
+export async function rpcDecideAgentProfileCreationRequest(
+  env: CoreBindings,
+  input: DecideAgentProfileCreationRequestRpcInput
+): Promise<AgentProfileCreationRequestMutationResponse> {
+  const context = requireContext(input.context);
+  const organizationId = requireIdentifier(
+    input.organizationId,
+    "Organization"
+  );
+  const requestId = requireIdentifier(input.requestId, "Request");
+  const body = decideAgentProfileCreationRequestBodySchema.safeParse({
+    decision: input.decision,
+  });
+  if (!body.success) {
+    throw invalidPayload(body.error.issues[0]?.message);
+  }
+  const db = requireDb(env);
+  const userId = requireCallerUserId(context);
+  await requireOrganizationMember({ db, organizationId, userId });
+  try {
+    const request = await createService(env, db).decide({
+      decision: body.data.decision,
+      organizationId,
+      requestId,
+      userId,
+    });
+    return agentProfileCreationRequestMutationResponseSchema.parse({ request });
+  } catch (error) {
+    throw translateDomainError(error);
+  }
+}
+
+export async function rpcCancelAgentProfileCreationRequest(
+  env: CoreBindings,
+  input: MutateAgentProfileCreationRequestRpcInput
+): Promise<AgentProfileCreationRequestMutationResponse> {
+  const context = requireContext(input.context);
+  const organizationId = requireIdentifier(
+    input.organizationId,
+    "Organization"
+  );
+  const requestId = requireIdentifier(input.requestId, "Request");
+  const db = requireDb(env);
+  const requesterUserId = requireCallerUserId(context);
+  await requireOrganizationMember({
+    db,
+    organizationId,
+    userId: requesterUserId,
+  });
+  try {
+    const request = await createService(env, db).cancel({
+      organizationId,
+      requesterUserId,
+      requestId,
+    });
+    return agentProfileCreationRequestMutationResponseSchema.parse({ request });
+  } catch (error) {
+    throw translateDomainError(error);
+  }
+}
+
+export async function rpcRetryAgentProfileCreationRequest(
+  env: CoreBindings,
+  input: MutateAgentProfileCreationRequestRpcInput
+): Promise<AgentProfileCreationRequestMutationResponse> {
+  const context = requireContext(input.context);
+  const organizationId = requireIdentifier(
+    input.organizationId,
+    "Organization"
+  );
+  const requestId = requireIdentifier(input.requestId, "Request");
+  const db = requireDb(env);
+  const userId = requireCallerUserId(context);
+  await requireOrganizationMember({ db, organizationId, userId });
+  try {
+    const request = await createService(env, db).retry({
+      organizationId,
+      requestId,
+      userId,
+    });
+    return agentProfileCreationRequestMutationResponseSchema.parse({ request });
+  } catch (error) {
+    throw translateDomainError(error);
+  }
+}
+
+export async function rpcGetAgentProfileCreationApprovalPreference(
+  env: CoreBindings,
+  input: GetAgentProfileCreationApprovalPreferenceRpcInput
+): Promise<GetAgentProfileCreationApprovalPreferenceResponse> {
+  const context = requireContext(input.context);
+  const organizationId = requireIdentifier(
+    input.organizationId,
+    "Organization"
+  );
+  const db = requireDb(env);
+  const userId = requireCallerUserId(context);
+  await requireOrganizationMember({ db, organizationId, userId });
+  const preference = await createService(env, db).getPreference({
+    organizationId,
+    userId,
+  });
+  return getAgentProfileCreationApprovalPreferenceResponseSchema.parse(
+    preference
+  );
+}
+
+export async function rpcSetAgentProfileCreationApprovalPreference(
+  env: CoreBindings,
+  input: SetAgentProfileCreationApprovalPreferenceRpcInput
+): Promise<SetAgentProfileCreationApprovalPreferenceResponse> {
+  const context = requireContext(input.context);
+  const organizationId = requireIdentifier(
+    input.organizationId,
+    "Organization"
+  );
+  const body = setAgentProfileCreationApprovalPreferenceBodySchema.safeParse({
+    existingSessionPolicy: input.existingSessionPolicy,
+    newSessionPolicy: input.newSessionPolicy,
+  });
+  if (!body.success) {
+    throw invalidPayload(body.error.issues[0]?.message);
+  }
+  const db = requireDb(env);
+  const userId = requireCallerUserId(context);
+  await requireOrganizationMember({ db, organizationId, userId });
+  const preference = await createService(env, db).setPreference({
+    body: body.data,
+    organizationId,
+    userId,
+  });
+  return setAgentProfileCreationApprovalPreferenceResponseSchema.parse(
+    preference
+  );
+}
+
+function createService(env: CoreBindings, db: D1Database) {
+  return createAgentProfileCreationRequestService({
+    createAgentProfile: async (request) =>
+      await createRequestedAgentProfile(env, request),
+    projectApprovalInbox: async (request) =>
+      await projectAgentProfileCreationRequestInbox({
+        db,
+        nowMs: Date.now(),
+        request,
+      }),
+    repository: createD1AgentProfileCreationRequestRepository(db),
+    resolveApprovalInbox: async (request) =>
+      await resolveAgentProfileCreationRequestInbox({
+        db,
+        nowMs: Date.now(),
+        request,
+      }),
+  });
+}
+
+async function createRequestedAgentProfile(
+  env: CoreBindings,
+  request: AgentProfileCreationRequestRecord
+): Promise<string> {
+  const create = env.OPENMELD_AUTH_WORKER?.createAgentProfileInOrganization;
+  if (!create) {
+    throw new Error("Auth Agent Profile creation RPC is unavailable.");
+  }
+  const result = await create.call(env.OPENMELD_AUTH_WORKER, {
+    createdByUserId: request.requesterUserId,
+    creationActorProfileId: request.actorProfileId,
+    idempotencyKey: `agent-profile-creation-request:${request.id}`,
+    organizationId: request.organizationId,
+    ownerUserId: request.targetOwnerUserId,
+    profileName: request.profileName,
+    source: mapProfileSource(request.source),
+  });
+  if (!result.ok) {
+    throw new Error(result.message);
+  }
+  if (!result.profile.openMeldProfileId) {
+    throw new Error("Auth could not create the requested Agent Profile.");
+  }
+  return result.profile.openMeldProfileId;
+}
+
+function mapProfileSource(
+  source: CreateAgentProfileCreationRequestBody["source"]
+): "web_create" | "cli_create" | "local_agent_create" | "center_agent_create" {
+  switch (source) {
+    case "web":
+      return "web_create";
+    case "cli":
+      return "cli_create";
+    case "local_agent":
+      return "local_agent_create";
+    case "center_agent":
+      return "center_agent_create";
+    default:
+      throw new Error(`Unsupported Agent Profile creation source: ${source}`);
+  }
+}
+
+function requireContext(value: unknown): OpenMeldRequestContext {
+  const parsed = openMeldRequestContextSchema.safeParse(value);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_creation_request.context_required",
+      reason:
+        "Agent Profile creation requests require an authenticated profile.",
+      status: 403,
+    });
+  }
+  return parsed.data;
+}
+
+function requireCallerUserId(context: OpenMeldRequestContext): string {
+  return requireIdentifier(
+    context.actorContext.callerPrincipalId,
+    "Authenticated caller"
+  );
+}
+
+function requireIdentifier(value: unknown, label: string): string {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) {
+    throw invalidPayload(`${label} id is required.`);
+  }
+  return normalized;
+}
+
+function requireDb(env: CoreBindings): D1Database {
+  if (!env.OPENMELD_DB) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_creation_request.unavailable",
+      reason: "Agent Profile creation requests are temporarily unavailable.",
+      status: 503,
+    });
+  }
+  return env.OPENMELD_DB;
+}
+
+async function requireOrganizationMember(input: {
+  db: D1Database;
+  organizationId: string;
+  userId: string;
+}): Promise<void> {
+  const member = await input.db
+    .prepare(
+      `
+        SELECT id
+        FROM members
+        WHERE organization_id = ?
+          AND user_id = ?
+        LIMIT 1
+      `
+    )
+    .bind(input.organizationId, input.userId)
+    .first<{ id: string }>();
+  if (!member?.id) {
+    throw createCoreRpcHttpError({
+      code: "organization.membership_required",
+      reason: "The selected person is not a member of this Organization.",
+      status: 403,
+    });
+  }
+}
+
+function invalidPayload(reason?: string) {
+  return createCoreRpcHttpError({
+    code: "invalid_payload",
+    reason: reason ?? "Invalid Agent Profile creation request.",
+    status: 400,
+  });
+}
+
+function translateDomainError(error: unknown) {
+  if (error instanceof AgentProfileCreationRequestConflictError) {
+    return createCoreRpcHttpError({
+      code: "agent_profile_creation_request.idempotency_conflict",
+      reason: error.message,
+      status: 409,
+    });
+  }
+  if (error instanceof AgentProfileCreationRequestForbiddenError) {
+    return createCoreRpcHttpError({
+      code: "agent_profile_creation_request.forbidden",
+      reason: error.message,
+      status: 403,
+    });
+  }
+  if (error instanceof AgentProfileCreationRequestNotFoundError) {
+    return createCoreRpcHttpError({
+      code: "agent_profile_creation_request.not_found",
+      reason: error.message,
+      status: 404,
+    });
+  }
+  if (error instanceof AgentProfileCreationRequestStateError) {
+    return createCoreRpcHttpError({
+      code: "agent_profile_creation_request.state_conflict",
+      reason: error.message,
+      status: 409,
+    });
+  }
+  return error;
+}

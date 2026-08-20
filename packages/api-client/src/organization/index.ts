@@ -2,7 +2,12 @@
 
 export { createOrganizationApi } from "./api";
 export {
+  buildAgentProfileCreationApprovalPreferencePath,
   buildAgentProfileCreationDefaultsPath,
+  buildAgentProfileCreationRequestCancelPath,
+  buildAgentProfileCreationRequestDecisionPath,
+  buildAgentProfileCreationRequestRetryPath,
+  buildAgentProfileCreationRequestsPath,
   buildCurrentOrganizationComputersPath,
   buildCurrentOrganizationDirectoryPath,
   buildCurrentOrganizationInformationProtectionPath,
@@ -17,12 +22,16 @@ export {
 } from "./routes";
 export type {
   AgentProfileCreationDefaultsRouteInput,
+  AgentProfileCreationRequestRouteInput,
   BulkAuthorizeAgentProfileBindingsForOrganizationInput,
+  CreateAgentProfileCreationRequestInput,
   CreateOrganizationApi,
+  DecideAgentProfileCreationRequestInput,
   OrganizationApi,
   OrganizationRequestInput,
   OrganizationRouteInput,
   SaveOrganizationWakeAccessChoiceInput,
+  SetAgentProfileCreationApprovalPreferenceInput,
   SetAgentProfileCreationDefaultsInput,
   SetOrganizationBindingAuthorizationPreferenceInput,
   SetOrganizationInformationProtectionInput,

@@ -814,6 +814,23 @@ export {
   updateAgentProfilePrimaryBindingOpenCodePermissionBodySchema,
 } from "./http/agent-profile-binding";
 export {
+  agentProfileCreationApprovalPolicySchema,
+  agentProfileCreationApprovalPreferenceSchema,
+  agentProfileCreationRequestMutationResponseSchema,
+  agentProfileCreationRequestSchema,
+  agentProfileCreationRequestSourceSchema,
+  agentProfileCreationRequestStatusReasonSchema,
+  agentProfileCreationRequestStatusSchema,
+  agentProfileCreationSessionStrategySchema,
+  createAgentProfileCreationRequestBodySchema,
+  createAgentProfileCreationRequestResponseSchema,
+  decideAgentProfileCreationRequestBodySchema,
+  getAgentProfileCreationApprovalPreferenceResponseSchema,
+  listAgentProfileCreationRequestsResponseSchema,
+  setAgentProfileCreationApprovalPreferenceBodySchema,
+  setAgentProfileCreationApprovalPreferenceResponseSchema,
+} from "./http/agent-profile-creation-request";
+export {
   RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES,
   reconcileDeletedAgentProfileRequestSchema,
   reconcileDeletedAgentProfileResponseSchema,
