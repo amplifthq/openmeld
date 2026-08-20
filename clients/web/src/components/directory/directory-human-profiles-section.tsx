@@ -46,7 +46,6 @@ import { DirectoryHumanProfileDetailsDrawer } from "#/components/directory/direc
 import {
 	formatDirectoryActivity,
 	resolveDirectoryIdentityAccountLabel,
-	resolveDirectoryRoleLabel,
 } from "#/components/directory/directory-human-profile-format";
 import type {
 	DirectoryHumanProfileRow,
@@ -56,6 +55,7 @@ import {
 	DirectoryComputerSummary,
 	DirectoryIdentityAccountSummary,
 } from "#/components/directory/directory-human-profile-presentation";
+import { DirectoryHumanProfileRoleBadge } from "#/components/directory/directory-human-profile-role-badge";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { ProfileCard } from "#/components/profiles/profile-list-item";
 import { ProfilesSectionLayout } from "#/components/profiles/profiles-section-layout";
@@ -313,7 +313,9 @@ function DirectoryHumanProfileCard(input: {
 						: "human-profile-row"
 				}
 				title={input.member.name}
-				titleAction={<HumanProfileRoleBadge member={input.member} />}
+				titleAction={
+					<DirectoryHumanProfileRoleBadge role={input.member.role} />
+				}
 				titleAdornment={
 					input.member.isCurrentUser ? (
 						<span className="text-muted-foreground text-xs">(you)</span>
@@ -692,14 +694,6 @@ function resolveLearnAllActionLabel(input: {
 	}
 	return "Learn about all members";
 }
-function HumanProfileRoleBadge(input: { member: DirectoryHumanProfileRow }) {
-	return (
-		<span className="rounded-sm border border-border bg-background px-1.5 py-0.5 font-medium text-[0.65rem] text-muted-foreground uppercase tracking-wide">
-			{resolveDirectoryRoleLabel(input.member.role)}
-		</span>
-	);
-}
-
 function HumanProfileIcon(input: { member: DirectoryHumanProfileRow }) {
 	if (input.member.profileStatus !== null) {
 		return (

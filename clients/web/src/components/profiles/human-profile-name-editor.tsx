@@ -8,7 +8,7 @@ import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { cn } from "@openmeld/ui/lib/utils";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import { useUpdateUserName } from "#/hooks/account.hooks";
 import { getAuthErrorMessage } from "#/lib/auth-errors";
 import { toAriaInvalid } from "#/lib/form-error";
@@ -19,8 +19,9 @@ export function HumanProfileNameEditor(input: {
 	profileName: string;
 }) {
 	const updateName = useUpdateUserName();
-	const [name, setName] = useState(input.profileName);
+	const [draftName, setDraftName] = useState<string | null>(null);
 	const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+	const name = draftName ?? input.profileName;
 	const validation = useMemo(
 		() => accountDisplayNameSchema.safeParse(name),
 		[name]
@@ -41,12 +42,6 @@ export function HumanProfileNameEditor(input: {
 		updateName.isPending ||
 		Boolean(validationError) ||
 		normalizedName === normalizedCurrentName;
-
-	useEffect(() => {
-		setName(input.profileName);
-		setHasAttemptedSubmit(false);
-		updateName.reset();
-	}, [input.profileName, updateName.reset]);
 
 	const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
@@ -75,7 +70,7 @@ export function HumanProfileNameEditor(input: {
 				onChange={(event) => {
 					setHasAttemptedSubmit(false);
 					updateName.reset();
-					setName(event.target.value);
+					setDraftName(event.target.value);
 				}}
 				value={name}
 			/>

@@ -25,6 +25,7 @@ import {
 	DirectoryComputerSummary,
 	DirectoryIdentityAccountSummary,
 } from "#/components/directory/directory-human-profile-presentation";
+import { DirectoryHumanProfileRoleBadge } from "#/components/directory/directory-human-profile-role-badge";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { HumanProfileNameEditor } from "#/components/profiles/human-profile-name-editor";
 import { copyTextToClipboard } from "#/lib/clipboard";
@@ -92,8 +93,10 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 								/>
 								{canOpenDirectMessage ? (
 									<Button
+										className="w-full"
 										disabled={input.directMessageIsPending}
 										onClick={input.onOpenDirectMessage}
+										size="lg"
 										type="button"
 										variant="outline"
 									>
@@ -177,9 +180,7 @@ function ProfileHero(input: {
 								{input.member.name}
 								{input.member.isCurrentUser ? " (you)" : ""}
 							</h2>
-							<span className="rounded-sm border border-border bg-background px-1.5 py-0.5 font-medium text-[0.65rem] text-muted-foreground uppercase tracking-wide">
-								{resolveDirectoryRoleLabel(input.member.role)}
-							</span>
+							<DirectoryHumanProfileRoleBadge role={input.member.role} />
 						</div>
 						{input.member.canEdit ? (
 							<Button

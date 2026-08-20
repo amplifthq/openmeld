@@ -430,6 +430,14 @@ describe("DirectoryMembersOverview", () => {
 		expect(within(graceCard).queryByText(HANDLE_PATTERN)).toBeNull();
 		expect(within(graceCard).queryByText("Active")).toBeNull();
 		expect(within(graceCard).getByText("Admin")).toBeTruthy();
+		const cardRoleBadge = graceCard.querySelector(
+			'[data-slot="human-profile-role-badge"]'
+		);
+		expect(cardRoleBadge?.textContent).toBe("Admin");
+		expect(cardRoleBadge?.classList.contains("inline-flex")).toBe(true);
+		expect(cardRoleBadge?.classList.contains("h-5")).toBe(true);
+		expect(cardRoleBadge?.classList.contains("items-center")).toBe(true);
+		expect(cardRoleBadge?.classList.contains("leading-none")).toBe(true);
 		expect(
 			within(graceCard)
 				.getByTestId(
@@ -549,6 +557,9 @@ describe("DirectoryMembersOverview", () => {
 		if (!graceCard) {
 			throw new Error("Expected Grace's Human Profile card.");
 		}
+		const cardRoleBadge = graceCard.querySelector(
+			'[data-slot="human-profile-role-badge"]'
+		);
 
 		fireEvent.click(
 			within(graceCard).getByRole("button", {
@@ -559,6 +570,16 @@ describe("DirectoryMembersOverview", () => {
 		const detailsDialog = await screen.findByRole("dialog", {
 			name: "Profile",
 		});
+		const directMessageButton = within(detailsDialog).getByRole("button", {
+			name: "Direct Message",
+		});
+		expect(directMessageButton.classList.contains("w-full")).toBe(true);
+		expect(directMessageButton.classList.contains("h-9")).toBe(true);
+		const drawerRoleBadge = detailsDialog.querySelector(
+			'[data-slot="human-profile-role-badge"]'
+		);
+		expect(drawerRoleBadge?.textContent).toBe("Admin");
+		expect(drawerRoleBadge?.className).toBe(cardRoleBadge?.className);
 		expect(within(detailsDialog).getByText("Member account")).toBeTruthy();
 		expect(within(detailsDialog).getByText("Work access")).toBeTruthy();
 		expect(
