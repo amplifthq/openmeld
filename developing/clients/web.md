@@ -716,12 +716,29 @@ last-seen time, coarse Service state, team-safe local-agent availability, and
 visible Agents that use it. A reported local agent may also expose operational
 details that help teammates understand compatibility: controller state, native
 interface, installed version and update status, launch readiness and install
-count, reported model names, native capabilities, and last-check time. It does
+count, reported model names, native capabilities, last-check time, and
+provider-reported Usage Limits. It does
 not expose controller accounts, executable or installation paths, launch
 arguments, update commands, private skills, local policy, credentials, raw
 errors, or mutation controls. A live Service may expose team-safe OpenMeld
 Tools component versions and update states; setup commands, hashes, and
 owner-only controls remain private.
+
+Each Local Agent renders its `usageLimits` list inside the existing expandable
+row. Owned and teammate Computers use the same accessible gauge component. A
+gauge names the limit, exposes its 0–100 used value to assistive technology,
+shows the used percentage in text, shows reset and last-observed time, and names
+the state so color is never the only signal. The UI derives **Low** when a fresh
+available limit is at least 80% used; it does not store a second status or
+remaining percentage. Unknown values have no gauge and never appear as 0%,
+100%, or unlimited.
+
+The UI keeps multiple provider windows separate and handles offline Computers,
+expired evidence, temporary provider failure, permanent lack of support, and a
+supported provider that has never returned evidence. Last-known percentages on
+an offline or expired Computer are **Stale**. A temporary first-read failure is
+**Unavailable**; no native provider source is **Unsupported**. Copy states that
+capacity information does not control whether the Local Agent can run.
 
 Owned and teammate Computers reuse the same Computer summary, **OpenMeld
 Tools**, and **Local agents** presentation components. Web applies visibility

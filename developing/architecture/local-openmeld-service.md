@@ -175,6 +175,7 @@ ACI-owned local evidence may include:
   event streaming, and structured user input
 - controller-provided model, skill, or command inventory when available through
   a stable native surface
+- provider-reported Usage Limits when a stable native, non-task surface exists
 - clear local repair guidance when the controller is missing, ambiguous, old, or
   not authenticated
 
@@ -196,6 +197,23 @@ ACI must not own:
 - final `Available for Wake` truth
 - RuntimeCoordinator execution truth
 - the user's model intent stored on a Binding
+
+Provider Usage Limits are capacity evidence, not execution authority. Each
+controller projects one optional list of stable limit keys, plain-English
+labels, 0–100 used percentages, reset times when reported, observation times,
+and honest states. An adapter must leave an unknown percentage or reset time
+unknown. It must never infer capacity from a failed run, start a Wake or Agent
+Session to collect it, or retain credentials, account identity, subscription,
+payment, balance, or monetary fields from a provider response.
+
+The Service collects this evidence through the existing background ACI probe
+and Runtime Agent Controller Report. One provider failure cannot fail the
+Computer inventory or another controller. A temporary failure after a valid
+observation preserves that last-known percentage and reset with its original
+`observedAt`, marked `stale`; a provider that has never returned usable evidence
+is `unavailable`. A controller with no supported native source is explicitly
+`unsupported`. These states do not alter Agent Profile readiness, Binding,
+Wake admission, RuntimeCoordinator, routing, or agent selection.
 
 ### Agent Instruction Delivery
 

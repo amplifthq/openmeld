@@ -947,6 +947,16 @@ These commands are read-only owner tools for Local Agents; they do not make CLI
 inventory or current-computer diagnostics authoritative for Agent Profile
 readiness, Wake availability, or execution outcome.
 
+The same Agent View includes each reported controller's optional
+`agentControllerInterface.usageLimits` list. Local Agents read this normalized
+owner projection directly by requesting the additive Usage Limit field; older
+CLI versions omit that request and continue to receive their strict legacy
+shape. Local Agents must not invoke a provider independently,
+scrape the Computers UI, or infer quota from Wake failures. The list uses the
+shared stable key, label, 0–100 used percentage, nullable reset time,
+observation time, and status contract. It is capacity information only and does
+not grant execution, routing, or Computer mutation authority.
+
 The CLI may expose the authenticated user's local owner inventory because it is
 the user's direct local Agent View. The Center Agent RPC is a separate
 model-facing boundary: even in a requester-private conversation it receives

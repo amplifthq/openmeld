@@ -827,7 +827,10 @@ state, local-agent ref/enabled/readiness status, and an optional sanitized
 Agent Controller Interface detail projection. That detail projection permits
 controller state, native interface, installed version and update status, launch
 status and install count, model display names, native capability flags, check
-status, and check timestamps. It never emits controller accounts, executable
+status and timestamps, and sanitized provider Usage Limits. Usage Limits contain
+only stable key, label, used percentage, reset time, observation time, and
+status; they carry no provider identity, credential, subscription, payment,
+balance, monetary, or history data. It never emits controller accounts, executable
 or installation paths, launch arguments, update commands, diagnostic messages,
 private skills, local policy, credentials, or raw lookup errors. One member's
 failed live lookup is logged
@@ -835,6 +838,13 @@ with Organization/member correlation and projects `unknown` without hiding
 their registry-backed Computers or failing the remaining batch. The signed-in
 member's complete mutable inventory still comes from the owner-scoped
 local-runtimes contract.
+
+Usage Limits remain part of the existing Runtime Agent Controller Report JSON
+and Core-owned Computer projection; Core does not create a second usage store.
+Core derives `stale` from `observedAt` or an expired Computer report while
+preserving the last-known value. An unsupported provider stays `unsupported`,
+and a supported provider with no usable observation stays `unavailable`.
+Capacity evidence never changes readiness or execution status.
 
 When a matching live Runtime Transport session reports local-component facts,
 the same Organization Computers projection may emit a sanitized OpenMeld Tools

@@ -643,7 +643,9 @@ bounded local-agent availability. Its optional local-agent `details` object is
 a sanitized projection of canonical Agent Controller Interface evidence and
 permits controller state, native interface, installed version and update
 status, launch status and install count, model display names, native capability
-flags, check status, and check timestamps. Controller accounts, executable or
+flags, check status and timestamps, and sanitized provider Usage Limits. Each
+Usage Limit contains only its stable key, label, 0–100 used percentage when
+known, reset time when known, observation time, and status. Controller accounts, executable or
 installation paths, launch arguments, update commands, diagnostic messages,
 private skills, local policy, credentials, and raw lookup failures are not
 members of this schema. Owner-scoped local runtimes remain authoritative for
@@ -662,7 +664,9 @@ version, update status/policy, Wake-blocking state, bounded reason codes, and
 managed skill target count. Setup commands, component hashes, runtime lanes,
 credentials, and actions are not members of the Organization schema.
 
-Both `details` and `openMeldTools` are additive optional response fields. Web
+Both `details` and `openMeldTools` are additive optional response fields. The
+optional `usageLimits` member inside `details` follows the same rolling-
+compatibility rule. Web
 and Gateway receivers that use the strict Organization Computer schema must be
 deployed before Core begins writing them. New receivers accept the old Core
 projection; old receivers reject the expanded projection instead of silently
@@ -670,6 +674,13 @@ dropping fields. Rollback reverses that order: roll back Core before Gateway
 or Web. CLI and local Service wire contracts do not change; Core only projects
 existing canonical registry and live-session evidence into the team-safe read
 model.
+
+Owner Local Runtimes keeps old published CLI readers compatible through the
+optional `includeUsageLimits=true` query. New Web and CLI readers request the
+field; Core omits it for callers that do not opt in, so their older strict ACI
+schema continues to parse the otherwise unchanged owner response. This is a
+versioned projection choice on the same Core-owned read model, not a second
+Usage Limit store or payload authority.
 
 These Auth methods and schemas are additive private contracts. Deploy Auth
 before Core, and roll back Core before Auth. New Core against old Auth exposes
@@ -3417,7 +3428,15 @@ openmeld agents show <agent-id> --json -> agentControllerInterface -> Desktop/UI
 ACI evidence belongs on the Agent Controller capability in the local runtimes
 read model. It may describe install selection, version, controller version
 advisory, controller sign-in, native control capabilities, models, skills, and
-diagnostics. Version advisory is read-only controller maintenance evidence:
+diagnostics. Its optional `usageLimits` list is the one provider-capacity
+contract shared by Service reporting, owner reads, Organization Computers, Web,
+Center Agent, and Local Agent JSON. Each item has one stable key and label,
+`usedPercent` with 0–100 used semantics, nullable `resetsAt`, `observedAt`, and
+one of `available`, `exhausted`, `stale`, `unavailable`, or `unsupported`.
+`Low` is derived by presentation code and is not stored. Missing provider facts
+remain null; they must not become zero, 100, or unlimited capacity.
+
+Version advisory is read-only controller maintenance evidence:
 current version, latest known version, advisory status, and an optional manual
 update command for the install method OpenMeld detected. It must not become an
 automatic Web/Desktop command runner, Agent Profile identity, Binding truth,
@@ -3443,12 +3462,20 @@ arguments, authentication type, controller-provided model and skill inventories,
 and free-text local messages. It preserves only the controller identity, coarse
 authentication status, optional provider email or bounded account label, static
 capabilities, native interface, version/update evidence, launch status/count,
-bounded check evidence, and stable readiness fields needed by Core and
+bounded check evidence, Usage Limits, and stable readiness fields needed by Core and
 owner-facing clients. Provider account evidence is allowed only because the
 authenticated owner-only `listLocalRuntimes` surface needs to identify which
 local account OpenMeld will use; it must not flow into Organization computer
 directories or another member's read model. Do not make every schema field
 cloud-visible merely because a local adapter can populate it.
+
+The Usage Limit allowlist never includes credentials, provider account identity,
+subscription or payment state, balances, monetary values, history, or raw
+provider responses. Core derives staleness from the provider observation time
+and the existing report expiry. Unsupported and never-observed unavailable
+evidence remain distinct; only last-known percentage evidence becomes stale.
+This projection does not change readiness, Wake, Binding, routing, Agent
+Activity, or RuntimeCoordinator contracts.
 
 A redacted field is not negative evidence. Clients must omit local-only command
 paths that are null in the cloud projection instead of describing them as
