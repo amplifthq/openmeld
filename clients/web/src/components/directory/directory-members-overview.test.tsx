@@ -401,7 +401,7 @@ describe("DirectoryMembersOverview", () => {
 		expect(getOrganizationJoinLinkMock).not.toHaveBeenCalled();
 	});
 
-	it("keeps Learn available when Documents fail without guessing a Report link", async () => {
+	it("hides Profile Report and Learn actions when Documents fail", async () => {
 		listCurrentOrganizationDocumentsMock.mockRejectedValue(
 			new Error("Documents unavailable")
 		);
@@ -420,10 +420,23 @@ describe("DirectoryMembersOverview", () => {
 		}
 		expect(within(adaCard).queryByText(REPORT_UNAVAILABLE_PATTERN)).toBeNull();
 		expect(
-			within(adaCard).getByRole("button", {
+			within(adaCard).queryByRole("button", {
 				name: "Learn about Ada Lovelace",
 			})
-		).toBeTruthy();
+		).toBeNull();
+		fireEvent.click(
+			within(adaCard).getByRole("button", {
+				name: "Open Ada Lovelace's profile",
+			})
+		);
+		const profileDrawer = await screen.findByRole("dialog", {
+			name: "Profile",
+		});
+		expect(
+			within(profileDrawer).queryByRole("button", {
+				name: "Learn about Ada Lovelace",
+			})
+		).toBeNull();
 	});
 
 	it("consolidates member actions and roles into Human Profile cards", async () => {
@@ -629,6 +642,7 @@ describe("DirectoryMembersOverview", () => {
 			agentProfiles: [
 				buildDirectoryAgentProfile({
 					agentControllerRef: "builtin:codex",
+					avatarUrl: "https://example.com/grace-agent.png",
 					profileId: "agent-grace-codex",
 				}),
 				buildDirectoryAgentProfile({
@@ -703,6 +717,11 @@ describe("DirectoryMembersOverview", () => {
 		expect(
 			within(detailsDialog).getAllByTestId("agent-profile-summary-icon")
 		).toHaveLength(3);
+		expect(
+			within(detailsDialog)
+				.getByTestId("agent-profile-summary-avatar")
+				.getAttribute("src")
+		).toBe("https://example.com/grace-agent.png");
 		expect(within(detailsDialog).getByText("+1")).toBeTruthy();
 		expect(within(detailsDialog).getByText("Jul 2, 2026")).toBeTruthy();
 		expect(within(detailsDialog).getByText("Profile Report")).toBeTruthy();
@@ -1990,11 +2009,12 @@ function renderOverview(
 
 function buildDirectoryAgentProfile(input: {
 	agentControllerRef: string;
+	avatarUrl?: string;
 	isCenterAgent?: boolean;
 	profileId: string;
 }): OrganizationDirectoryResponse["agentProfiles"][number] {
 	return {
-		avatarUrl: undefined,
+		avatarUrl: input.avatarUrl,
 		isCenterAgent: input.isCenterAgent,
 		ownerUserId: "user-grace",
 		profileId: input.profileId,

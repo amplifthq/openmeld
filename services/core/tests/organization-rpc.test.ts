@@ -1073,6 +1073,43 @@ describe("organization Core RPC", () => {
     expect(response.members[0]).not.toHaveProperty("lastActiveAt");
   });
 
+  it("reads member activity from the identity store when local state is separate", async () => {
+    const member = memberRow("member-a", "org-a", "user-a");
+    const identityDb = createOrganizationRpcDb({
+      agentProfiles: [],
+      memberActivities: [
+        {
+          humanProfileId: HUMAN_PROFILE_ID,
+          lastActiveAtMs: Date.parse("2026-07-07T23:45:00.000Z"),
+          organizationId: "org-a",
+          userId: "user-a",
+        },
+      ],
+      members: [member],
+    });
+    const localStateDb = createOrganizationRpcDb({
+      agentProfiles: [],
+      memberActivities: [],
+      members: [],
+    });
+    const env = buildEnv({
+      agentProfiles: [],
+      db: identityDb,
+      localStateDb,
+      members: [member],
+    });
+
+    const response = await rpcGetCurrentOrganizationDirectory(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+      includeMemberLastActiveAt: true,
+    });
+
+    expect(response.members[0]?.lastActiveAt).toBe("2026-07-07T23:45:00.000Z");
+  });
+
   it("fails closed when the Auth-owned member projection is unavailable", async () => {
     const env = buildEnv({
       authWorker: { resolveOrganizationDirectoryMembers: undefined },
@@ -9169,6 +9206,7 @@ function buildEnv(
       updateCenterAgentProfileInOrganization?: ReturnType<typeof vi.fn>;
     };
     db?: ReturnType<typeof createOrganizationRpcDb>;
+    localStateDb?: ReturnType<typeof createOrganizationRpcDb>;
     remoteAgentBlockedOrganizationIds?: string;
     remoteAgentWorker?: CoreBindings["OPENMELD_REMOTE_AGENT_WORKER"];
     remoteAgentRuntimeEnabled?: string;
@@ -9207,6 +9245,9 @@ function buildEnv(
       ...input.authWorker,
     },
     OPENMELD_DB: db as unknown as D1Database,
+    OPENMELD_LOCAL_STATE_DB: input.localStateDb as unknown as
+      | D1Database
+      | undefined,
     OPENMELD_REMOTE_AGENT_BLOCKED_ORGANIZATION_IDS:
       input.remoteAgentBlockedOrganizationIds,
     OPENMELD_REMOTE_AGENT_WORKER: input.remoteAgentWorker,

@@ -37,6 +37,24 @@ describe("directory Human Profile model", () => {
 		expect(member?.lastActiveAt).toBe("2026-08-20T11:00:00.000Z");
 	});
 
+	it.each([
+		"loading",
+		"failed",
+	] as const)("keeps Profile Report evidence unavailable while Documents are %s", (documentsStatus) => {
+		const rows = buildOrganizationRows({
+			documentsStatus,
+			messageChannels: buildMessageChannels({
+				connections: [],
+				identityLinks: [],
+			}),
+			messageChannelsStatus: "ready",
+		});
+
+		expect(rows.every((row) => row.profileReport.state === "unavailable")).toBe(
+			true
+		);
+	});
+
 	it("does not promote a provider display name to an account email", () => {
 		const [member] = buildOrganizationRows({
 			messageChannels: buildMessageChannels({
@@ -176,10 +194,39 @@ describe("directory Human Profile model", () => {
 			},
 		]);
 	});
+
+	it("includes ordinary Agent Profiles in a personal Human Profile", () => {
+		const [member] = buildPersonalRows({
+			profiles: [
+				buildHumanProfile(),
+				buildPersonalAgentProfile({
+					avatarUrl: "https://example.com/ari-agent.png",
+					managedRole: null,
+					openMeldProfileId: "agent-ari",
+					profileName: "Ari Agent",
+				}),
+				buildPersonalAgentProfile({
+					managedRole: "center_agent",
+					openMeldProfileId: "agent-center",
+					profileName: "Center Agent",
+				}),
+			],
+		});
+
+		expect(member?.agentProfiles).toEqual([
+			{
+				agentId: null,
+				avatarImageUrl: "https://example.com/ari-agent.png",
+				id: "agent-ari",
+				name: "Ari Agent",
+			},
+		]);
+	});
 });
 
 function buildOrganizationRows(input: {
 	agentProfiles?: OrganizationDirectoryResponse["agentProfiles"];
+	documentsStatus?: "failed" | "loading" | "ready";
 	messageChannels: ReturnType<typeof buildMessageChannels>;
 	messageChannelsStatus: "failed" | "loading" | "ready";
 }) {
@@ -207,7 +254,7 @@ function buildOrganizationRows(input: {
 		computersStatus: "ready",
 		currentUserId: "user-a",
 		documents: [],
-		documentsStatus: "ready",
+		documentsStatus: input.documentsStatus ?? "ready",
 		members: directory.members,
 		messageChannels: input.messageChannels,
 		messageChannelsStatus: input.messageChannelsStatus,
@@ -264,6 +311,24 @@ function buildHumanProfile(): AuthProfileView {
 		source: "auth_bootstrap",
 		status: "active",
 		updatedAt: "2026-08-20T00:00:00.000Z",
+	};
+}
+
+function buildPersonalAgentProfile(input: {
+	avatarUrl?: string;
+	managedRole: AuthProfileView["managedRole"];
+	openMeldProfileId: string;
+	profileName: string;
+}): AuthProfileView {
+	return {
+		...buildHumanProfile(),
+		...(input.avatarUrl ? { avatarUrl: input.avatarUrl } : {}),
+		isDefault: false,
+		managedRole: input.managedRole,
+		openMeldProfileId: input.openMeldProfileId,
+		profileHandle: input.openMeldProfileId,
+		profileKind: "agent",
+		profileName: input.profileName,
 	};
 }
 

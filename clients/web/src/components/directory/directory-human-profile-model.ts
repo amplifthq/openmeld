@@ -173,18 +173,21 @@ export function buildPersonalHumanProfileRows(input: {
 }): DirectoryHumanProfileRow[] {
 	const reportsBySubject = indexProfileReportDocuments(input.documents);
 	const document = reportsBySubject.get(input.subjectUserId);
+	const humanProfiles = input.profiles.filter(
+		(candidate) => candidate.profileKind === "human"
+	);
+	const agentProfiles = buildPersonalAgentProfileSummaries(input.profiles);
 	const profileReport = resolveProfileReport({
 		document,
 		documentsStatus: input.documentsStatus,
 		orgSlug: input.orgSlug,
 	});
 	const profile =
-		input.profiles.find((candidate) => candidate.isDefault) ??
-		input.profiles[0];
+		humanProfiles.find((candidate) => candidate.isDefault) ?? humanProfiles[0];
 	if (!profile) {
 		return [
 			{
-				agentProfiles: [],
+				agentProfiles,
 				avatarImageUrl: null,
 				canEdit: false,
 				computer: resolveHumanProfileComputer({
@@ -218,7 +221,7 @@ export function buildPersonalHumanProfileRows(input: {
 	}
 	return [
 		{
-			agentProfiles: [],
+			agentProfiles,
 			avatarImageUrl: profile.avatarUrl ?? null,
 			canEdit: profile.isDefault && profile.status === "active",
 			computer: resolveHumanProfileComputer({
@@ -250,6 +253,24 @@ export function buildPersonalHumanProfileRows(input: {
 	];
 }
 
+function buildPersonalAgentProfileSummaries(
+	profiles: readonly AuthProfileView[]
+): readonly DirectoryAgentProfileSummary[] {
+	const agentProfiles: DirectoryAgentProfileSummary[] = [];
+	for (const profile of profiles) {
+		if (profile.profileKind !== "agent" || profile.managedRole !== null) {
+			continue;
+		}
+		agentProfiles.push({
+			agentId: null,
+			avatarImageUrl: profile.avatarUrl ?? null,
+			id: profile.openMeldProfileId,
+			name: profile.profileName,
+		});
+	}
+	return sortAgentProfileSummaries(agentProfiles);
+}
+
 function indexAgentProfilesByOwner(
 	agentProfiles: OrganizationDirectoryResponse["agentProfiles"]
 ): ReadonlyMap<string, readonly DirectoryAgentProfileSummary[]> {
@@ -270,17 +291,23 @@ function indexAgentProfilesByOwner(
 		profilesByOwner.set(profile.ownerUserId, profiles);
 	}
 	for (const profiles of profilesByOwner.values()) {
-		profiles.sort((left, right) => {
-			const nameComparison = left.name.localeCompare(right.name, "en", {
-				numeric: true,
-				sensitivity: "base",
-			});
-			return nameComparison === 0
-				? left.id.localeCompare(right.id)
-				: nameComparison;
-		});
+		sortAgentProfileSummaries(profiles);
 	}
 	return profilesByOwner;
+}
+
+function sortAgentProfileSummaries(
+	profiles: DirectoryAgentProfileSummary[]
+): DirectoryAgentProfileSummary[] {
+	return profiles.sort((left, right) => {
+		const nameComparison = left.name.localeCompare(right.name, "en", {
+			numeric: true,
+			sensitivity: "base",
+		});
+		return nameComparison === 0
+			? left.id.localeCompare(right.id)
+			: nameComparison;
+	});
 }
 
 export function resolveMissingPersonalHumanProfileMessage(

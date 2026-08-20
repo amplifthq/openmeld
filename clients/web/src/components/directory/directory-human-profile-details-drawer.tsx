@@ -53,7 +53,7 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 	onOpenChange: (open: boolean) => void;
 	onOpenDirectMessage: () => void;
 	open: boolean;
-	researchAction: DirectoryHumanProfileResearchAction;
+	researchAction: DirectoryHumanProfileResearchAction | null;
 }) {
 	const canOpenDirectMessage =
 		input.member.profileStatus === "active" && !input.member.isCurrentUser;
@@ -174,13 +174,18 @@ function ProfileActions(input: {
 	canOpenDirectMessage: boolean;
 	directMessageIsPending: boolean;
 	onOpenDirectMessage: () => void;
-	researchAction: DirectoryHumanProfileResearchAction;
+	researchAction: DirectoryHumanProfileResearchAction | null;
 }) {
+	if (!(input.canOpenDirectMessage || input.researchAction)) {
+		return null;
+	}
+	const hasTwoActions =
+		input.canOpenDirectMessage && Boolean(input.researchAction);
 	return (
 		<div
 			className={cn(
 				"grid gap-2",
-				input.canOpenDirectMessage ? "sm:grid-cols-2" : "grid-cols-1"
+				hasTwoActions ? "sm:grid-cols-2" : "grid-cols-1"
 			)}
 			data-testid="human-profile-primary-actions"
 		>
@@ -197,18 +202,20 @@ function ProfileActions(input: {
 					Direct Message
 				</Button>
 			) : null}
-			<Button
-				aria-description={input.researchAction.description}
-				aria-label={input.researchAction.label}
-				className="w-full"
-				disabled={input.researchAction.disabled}
-				onClick={input.researchAction.onSelect}
-				size="lg"
-				type="button"
-			>
-				<UserFocusIcon aria-hidden="true" data-icon="inline-start" />
-				{input.researchAction.label}
-			</Button>
+			{input.researchAction ? (
+				<Button
+					aria-description={input.researchAction.description}
+					aria-label={input.researchAction.label}
+					className="w-full"
+					disabled={input.researchAction.disabled}
+					onClick={input.researchAction.onSelect}
+					size="lg"
+					type="button"
+				>
+					<UserFocusIcon aria-hidden="true" data-icon="inline-start" />
+					{input.researchAction.label}
+				</Button>
+			) : null}
 		</div>
 	);
 }

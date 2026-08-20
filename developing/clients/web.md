@@ -1419,8 +1419,8 @@ refreshes, Computer heartbeats, and Agent Activity are not substitutes.
 Undefined activity is omitted instead of rendering a placeholder. The
 signed-in member sorts first; the remaining cards
 sort owner, admin, member, and unknown, then by name and user ID. The top-right
-icon row owns the contextual **Profile Report** or **Learn about {member}**
-action, **Direct Message** for another active Human Profile, and **More**. The
+icon row owns the contextual **Profile Report** and **Learn about {member}**
+actions, **Direct Message** for another active Human Profile, and **More**. The
 Computer summary and provider-logo identity-link states share one aligned footer
 below one divider instead of competing with profile actions.
 
@@ -1448,11 +1448,15 @@ Core runs the serial batch. A member currently queued or running shows
 **Learning…**; other starts stay disabled until the batch is terminal.
 People polls the Core-owned status and document list while work is active.
 When a Profile Report exists, the document icon opens the latest report; amber
-indicates that it has updates to review and save. Only a successful Documents read that
-contains no report may replace that icon with **Learn about {member}**. Loading
-or failed evidence shows neither action. **Profile Report** is the user-facing
-document term; the persisted `member_profile` kind and member-research
-orchestration names remain compatibility contracts.
+indicates that it has updates to review and save. **Learn about {member}**
+remains available beside it so a member can create a fresh dated report. A
+successful Documents read that contains no report shows only **Learn about
+{member}**. Loading or failed evidence shows neither action because Web cannot
+yet prove whether a report exists. The drawer follows the same evidence rule
+and keeps the learning action beside Direct Message when both are available.
+**Profile Report** is the user-facing document term; the persisted
+`member_profile` kind and member-research orchestration names remain
+compatibility contracts.
 
 In an Organization workspace, People reads the Organization Computer
 projection and shows a concrete summary on every Human Profile card: **1

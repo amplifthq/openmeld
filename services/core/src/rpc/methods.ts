@@ -4890,7 +4890,10 @@ export async function rpcGetCurrentOrganizationDirectory(
       })
     );
   const memberActivityPromise = input.includeMemberLastActiveAt
-    ? listOrganizationMemberActivity({ db, organizationId })
+    ? listOrganizationMemberActivity({
+        db: requireIdentityDb(env),
+        organizationId,
+      })
     : Promise.resolve([]);
   const [
     directoryMembers,

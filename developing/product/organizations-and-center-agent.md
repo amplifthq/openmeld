@@ -2172,9 +2172,9 @@ People represents every current human member with one **Human Profile** card,
 including an explicit missing-profile state when that member has no Human
 Profile identity yet. The card owns a prominent Human Profile avatar, the
 member's name and email, an explicit `(you)` marker for the signed-in member,
-the Organization role for every member, the last-used time when Core provides
-one, exceptional profile state, and one contextual **Profile Report** or
-**Learn about {member}** action. A consistent footer below one divider owns the
+the Organization role for every member, the **Last active** time when Core
+provides one, exceptional profile state, and contextual **Profile Report** and
+**Learn about {member}** actions. A consistent footer below one divider owns the
 coarse Computer state and provider-logo identity-link states. The card never
 exposes the internal profile Handle or slug, a generic **Active** badge, an
 invented online presence, or an undefined recent-activity field. People sorts
@@ -2184,10 +2184,12 @@ same people in a separate Members card. Invitation controls remain separate,
 and **Learn about all members** belongs to the Human Profiles section header.
 
 An existing Profile Report opens from a top-right document icon. Amber means
-the report has updates to review and save. When the current Documents projection
-proves that no report exists, that exact action slot becomes **Learn about {member}**;
-it never opens a blank document. While Documents are loading or unavailable,
-People shows neither action because it cannot safely choose between them. A
+the report has updates to review and save. **Learn about {member}** remains
+available beside it to create a fresh dated report. When the current Documents
+projection proves that no report exists, People shows only **Learn about
+{member}**; it never opens a blank document. While Documents are loading or
+unavailable, People shows neither action because it cannot prove the current
+report state. A
 single-member learning start failure stays on that member's card with its retry
 action. **Learn about** asks the designated Center Agent to process one member
 at a time and create one new dated Profile Report. The all-members operation is
@@ -2206,12 +2208,13 @@ plans and proactive opt-in prompts for organization-wide automatic learning are
 future extensions of this same workflow, not alternate document writers.
 
 Human Profile cards reserve the top-right icon row for the contextual **Profile
-Report** or **Learn about {member}** action, **Direct Message** for another
+Report** and **Learn about {member}** actions, **Direct Message** for another
 active Human Profile, and an overflow menu. Selecting the avatar, name, or
 **View profile** opens the right-side **Profile** details surface. That surface
-owns member account details, Organization role, join time, Computer access,
-connected identities, shared Profile details, and the permitted Direct Message,
-edit, connect, or manage actions. The overflow menu keeps **Edit profile** for
+owns member account details, Organization role, join time, ordinary Agent
+Profile count and icons, Computer access, **Connected Channels**, shared Profile
+details, and the permitted Direct Message, learn, edit, connect, or manage
+actions. The overflow menu keeps **Edit profile** for
 the signed-in member's own active default Human Profile. Self-Direct Messages
 are unavailable, and owners or admins do not receive an edit action for another
 member's Human Profile. Editing the current member's default Human Profile

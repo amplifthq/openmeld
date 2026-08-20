@@ -159,6 +159,27 @@ export function DirectoryAgentProfilesSummary(input: {
 function AgentProfileSummaryIcon(input: {
 	profile: DirectoryAgentProfileSummary;
 }) {
+	let content = (
+		<RobotIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+	);
+	if (input.profile.avatarImageUrl) {
+		content = (
+			<img
+				alt=""
+				className="size-full object-cover"
+				data-testid="agent-profile-summary-avatar"
+				height={32}
+				referrerPolicy="no-referrer"
+				src={input.profile.avatarImageUrl}
+				width={32}
+			/>
+		);
+	} else if (
+		input.profile.agentId &&
+		hasLocalAgentLogo(input.profile.agentId)
+	) {
+		content = <LocalAgentLogo agentId={input.profile.agentId} size="sm" />;
+	}
 	return (
 		<span
 			aria-label={input.profile.name}
@@ -167,14 +188,7 @@ function AgentProfileSummaryIcon(input: {
 			role="img"
 			title={input.profile.name}
 		>
-			{input.profile.agentId && hasLocalAgentLogo(input.profile.agentId) ? (
-				<LocalAgentLogo agentId={input.profile.agentId} size="sm" />
-			) : (
-				<RobotIcon
-					aria-hidden="true"
-					className="size-4 text-muted-foreground"
-				/>
-			)}
+			{content}
 		</span>
 	);
 }
