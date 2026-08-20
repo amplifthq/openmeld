@@ -168,6 +168,10 @@ The first release creates items for these explicit user-visible events:
 9. One evidence-backed Opportunity that the Center Agent has chosen to present
    to the current verified member. It is an ordinary normal-importance update;
    the Opportunity domain, not Inbox, owns the member's decision.
+10. An Agent Profile Creation Request that needs the target owner's decision.
+    The item opens the canonical **Agents → Requests** view. Approve, decline,
+    cancel, retry, and creation status remain owned by the request domain;
+    reading or dismissing the Inbox projection never decides the request.
 
 Producers must identify one or more exact recipients from source-owned identity
 facts. They must not guess from display names, notify every administrator as a
@@ -375,6 +379,8 @@ adapters without changing Inbox truth.
 - Opening every supported item reaches its canonical source.
 - Task items navigate to the exact authorized Task and never treat Inbox state
   as Task resolution.
+- Agent Profile Creation Request items navigate to the exact request and never
+  treat Inbox read or Dismiss as approval or decline.
 - Source resolution never occurs through Inbox read or Dismiss mutations.
 - Every full-page item offers Dismiss; it removes only the recipient's Inbox
   projection and updates unread and attention counts without a refresh.

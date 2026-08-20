@@ -2058,11 +2058,34 @@ Loading or failed capability reads fail closed for Human creation. UI gating is
 presentation only; Auth still rejects direct or stale-client Human creation
 requests.
 
+The Organization **Agents** home has one secondary **Requests** view. It lists
+the current member's incoming and outgoing Agent Profile Creation Requests,
+shows their source and current status, and exposes only the actions the member
+may perform: approve or decline as target owner, cancel as requester, retry a
+failed request, or open the created Agent. A request deep link from Inbox opens
+and focuses this same view; Web does not add another request-management home.
+
+**Request Agent for teammate** starts a new-Session request for an exact member
+from the current Organization directory. Existing-Session selection belongs on
+the authorized Agent Activity Session surface once that projection is ready;
+Web must pass its exact provider-native Session ID and chosen `resume` or `fork`
+strategy without creating a browser-local Session identity.
+
+**Settings → General → Agent creation approvals** gives every member separate
+**New sessions** and **Existing sessions** policies with **Ask every time**,
+**Automatically allow**, and **Never allow** choices. Web reads and writes the
+Core preference; it does not infer approval from role, friendship, request
+source, or prior decisions.
+
 For Profile Details dialogs, Web should consume the shared Profile Details
 snapshot or section model from the shared contract layer. Web may render the
 dialog, copy buttons, scrolling, and disclosure states, but it must not decide
 Profile identity, Space membership, Wake availability, Binding, or local
 connection truth by stitching unrelated browser-side facts together.
+
+Profile Details includes immutable **Created by** and **Created from** rows.
+They describe the actor and initiation surface, not the owner or current
+Binding. The Advanced view may expose the exact actor Profile ID for diagnosis.
 
 Agent Profile creation and maintenance surfaces may render Agent Controller
 Permission Mode after the user has chosen a controller. Web should use the

@@ -98,6 +98,62 @@ with an explicit conflict. A client-side in-flight guard improves immediate
 feedback, but Auth's durable idempotency boundary remains authoritative when
 rendering, transport, or network retries overlap.
 
+Every created Agent Profile keeps immutable creation attribution: the exact
+Profile that acted and the surface that initiated the action (`web`, `cli`,
+`local_agent`, or `center_agent`). The owner and actor are separate facts. A
+Center Agent or Local Agent may act for a human requester without becoming the
+new Agent Profile's owner. Profile Details shows the human-readable creator and
+source; exact internal identifiers remain an Advanced detail.
+
+## Agent Profile Creation Requests
+
+An Agent Profile Creation Request is the one Organization-scoped coordination
+flow for creating an Agent Profile owned by the requester or by another member.
+Web, CLI, Local Agents, and the Center Agent use the same Core-owned request
+state machine rather than implementing separate approval rules.
+
+Each request freezes these product facts:
+
+- requester user and acting Profile
+- target owner user
+- initiation source
+- Agent Profile name
+- Session strategy: `new`, `resume`, or `fork`
+- the exact provider-native Session ID for `resume` or `fork`
+- an optional intended Space
+- one requester-scoped idempotency key
+
+OpenMeld does not mint, translate, normalize, or replace provider-native
+Session IDs. A Project's Agent Activity authorization boundary decides which
+local Sessions the Organization may see; creation callers pass the exact native
+ID from that projection.
+
+`new` starts with a separate local Session. `resume` continues the selected
+Session. `fork` creates an independent child Session that inherits the selected
+Session's context without interrupting it. UI copy may give a light warning
+before resuming a currently working Session, while Center Agent and Local Agent
+guidance should prefer fork for that case. The request contract does not add a
+second policy engine that guesses or rejects the user's choice.
+
+Each member controls two independent per-Organization policies: one for new
+Sessions and one for existing Sessions. Each policy is **Ask every time**,
+**Automatically allow**, or **Never allow**; both default to **Ask every
+time**. A self-request does not require redundant approval. A pending teammate
+request creates one Inbox action for the target owner. Only that owner may
+approve or decline it, and only the requester may cancel it. Both participants
+can see current progress and immutable origin attribution.
+
+Approval authorizes creation of the Agent Profile identity only. An intended
+Space is coordination context, not membership authority. Binding the profile,
+starting or attaching the local Session, granting Wake access, and adding the
+Profile to a Space remain explicit follow-up operations owned by their existing
+contracts.
+
+The current creation-request executor completes `new` identity creation.
+`resume` and `fork` remain explicit, validated inputs but fail visibly until
+Agent Activity supplies an authorized exact Session and the local Binding path
+can perform that strategy. Clients must not silently fall back to `new`.
+
 Creation surfaces return one explicit outcome for the committed Profile and
 each requested follow-up. When creation starts from a Space, the client adds
 the committed Profile to that Space before optional local setup so a temporary

@@ -4001,6 +4001,41 @@ canonical endpoint. Rollback reverses that order (Web first, then Auth). No CLI,
 OpenMeld Service, daemon, setup, Wake, Space action, or diagnostic contract is
 changed.
 
+## Agent Profile Creation Request Contract
+
+`packages/schemas/src/schemas/http/agent-profile-creation-request.ts` owns the
+strict cross-client request, list, decision, mutation, and approval-preference
+payloads. Web, CLI, the Local Agent Skill, API client, Gateway, Core, and Remote
+Agent consume those schemas instead of maintaining client-specific status or
+approval enums.
+
+The public request freezes requester user, acting Profile, target owner,
+initiation source, name, Session strategy, optional exact provider-native
+Session ID, optional intended Space, status, reason, timestamps, and the created
+Agent Profile ID after completion. `new` forbids a Session ID; `resume` and
+`fork` require one. The shared contract never introduces an OpenMeld Session ID
+or treats a provider-native ID as authority by itself.
+
+Core owns authorization and transitions for the Organization routes under
+`/v1/organizations/:organizationId/agent-profile-creation-requests` and the
+member's singular `agent-profile-creation-approval-preference` route. Gateway
+is transport only. Auth performs the final idempotent Agent Profile identity
+write after Core approval; it records the target user as owner and the request's
+actor/source as immutable creation provenance.
+
+The requester's stable idempotency key is unique within that requester and
+Organization. Exact replays return the same request; a changed actor, target,
+name, strategy, native Session ID, intended Space, or source conflicts. Pending
+requests project one structured Inbox target of kind
+`agent_profile_creation_request`; that locator carries only the canonical
+request ID and grants no approval or Profile access.
+
+The Center Agent RPC wrapper does not create a second state machine. It verifies
+the current designation, resolves the represented member, preserves the Center
+Agent Profile as actor, and delegates to the same Core request operations.
+Routine turns cannot decide another member's pending request or change the
+represented member's approval preferences.
+
 ## Additional Human Profile Creation Capability Contract
 
 Auth owns both the capability projection and the mutation policy for manual

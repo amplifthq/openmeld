@@ -358,6 +358,34 @@ request fails before mutation with Auth's stable capability error. A missing or
 invalid capability response fails closed for Human creation; Auth remains the
 final enforcement boundary for older CLI versions.
 
+`openmeld profiles requests` is the CLI and Local Agent entry to the shared
+Agent Profile Creation Request capability:
+
+```text
+openmeld profiles requests create "Release Reviewer" --target-owner <user-id> --session new
+openmeld profiles requests create "API Debugger" --target-owner self --session resume --native-session-id <provider-native-id>
+openmeld profiles requests list
+openmeld profiles requests approve <request-id>
+openmeld profiles requests decline <request-id>
+openmeld profiles requests cancel <request-id>
+openmeld profiles requests retry <request-id>
+openmeld profiles requests preferences get
+openmeld profiles requests preferences set --new-session ask-every-time --existing-session ask-every-time
+```
+
+The command resolves the current or explicit Organization, accepts `self` or an
+exact target owner user ID, preserves the exact provider-native Session ID, and
+supports a caller-supplied stable request key for safe retries. Human View
+explains current status and next action. Agent View emits the shared strict
+request envelopes. Local Agents set source `local-agent`; ordinary terminal
+use defaults to `cli`.
+
+The current executor completes new-Session identity creation. Resume and fork
+requests return an explicit unavailable outcome until Agent Activity and the
+local Binding path can verify and perform that exact Session strategy. The CLI
+must never replace either strategy with new-Session creation. An optional Space
+ID records intent only and does not grant membership.
+
 Agent Profile creation and maintenance may also set the Binding's Agent
 Controller Permission Mode:
 
