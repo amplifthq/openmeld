@@ -160,6 +160,28 @@ describe("agent profile binding http schemas", () => {
         agentControllerConversationId: undefined,
       }).success
     ).toBe(false);
+
+    const longestNativeSessionId = "s".repeat(512);
+    expect(
+      ensureAgentProfilePrimaryBindingBodySchema.safeParse({
+        ...body,
+        agentControllerConversationId: longestNativeSessionId,
+        sessionInventorySelection: {
+          ...body.sessionInventorySelection,
+          nativeSessionId: longestNativeSessionId,
+        },
+      }).success
+    ).toBe(true);
+    expect(
+      ensureAgentProfilePrimaryBindingBodySchema.safeParse({
+        ...body,
+        agentControllerConversationId: `${longestNativeSessionId}s`,
+        sessionInventorySelection: {
+          ...body.sessionInventorySelection,
+          nativeSessionId: `${longestNativeSessionId}s`,
+        },
+      }).success
+    ).toBe(false);
   });
 
   it("keeps Codex Collaboration Mode separate from Permission Mode", () => {

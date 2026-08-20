@@ -13662,7 +13662,23 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
   try {
     result = await ensurePrimaryAgentProfileBinding({
       agentProfileId: request.agentProfileId,
-      bindingStore: createD1AgentProfileBindingCommandStore({ db }),
+      bindingStore: createD1AgentProfileBindingCommandStore({
+        db,
+        ...(body.data.sessionInventorySelection
+          ? {
+              sessionInventoryEligibility: {
+                activeOrganizationId: normalizeOptionalText(
+                  request.context.activeOrganizationId
+                ),
+                agentControllerRef: body.data.agentControllerRef,
+                agentProfileId: request.agentProfileId,
+                deviceId: body.data.deviceId,
+                ownerUserId: request.owner.id,
+                selection: body.data.sessionInventorySelection,
+              },
+            }
+          : {}),
+      }),
       agentControllerConversationId: body.data.agentControllerConversationId,
       agentControllerRef: body.data.agentControllerRef,
       createdByProfileId: request.context.actorContext.openMeldProfileId,

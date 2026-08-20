@@ -43,7 +43,7 @@ Organization, Owner, Project, Computer, provider, Session, and capability.
 | Contract | Change | Owner and receiver |
 | --- | --- | --- |
 | Agent Activity Session HTTP/RPC schemas | New strict list query, keyset cursor, reconciliation pages, coverage, Session, Owner, Project, Computer, Local Agent, origin, capability, and Binding projections | Shared schemas; Core is the read/projection owner; Gateway, Web, CLI, and Remote Agent are receivers |
-| Agent Profile Binding ensure body | Additive optional `sessionInventorySelection` for authoritative Resume revalidation; the Binding writer atomically conditionally claims the controller conversation | Shared schemas and API client; Gateway forwards; Core validates before the Binding writer, which remains Binding authority |
+| Agent Profile Binding ensure body | Additive optional `sessionInventorySelection` for authoritative Resume revalidation; native Session id uses the shared 1–512 character contract, and the Binding writer repeats current-source eligibility while atomically claiming the controller conversation | Shared schemas and API client; Gateway forwards; Core validates before and inside the Binding write boundary, which remains Binding authority |
 | CLI JSON envelope | Additive `activity.sessions` result using the shared response unchanged | Shared schemas; CLI Human, Agent, and JSON views |
 | Local reconciliation | New provider observations and page/result submissions | Local OpenMeld Service is observer/carrier; Core remains inventory owner |
 | Local Service control plane | Additive `request_agent_activity_sync` command for immediate post-disconnect reconciliation | CLI requests; the current local Service schedules the canonical sync loop |
@@ -169,6 +169,11 @@ and conflicting equal-time evidence becomes Unknown.
 Reconciliation error, including an installed provider's transient launch
 failure, preserves prior rows as visibly stale; an explicit disconnected or
 genuinely not-installed provider result removes selectable rows.
+One source rejection is isolated and reported as a degraded sync while later
+sources continue; a stale Organization cannot indefinitely starve unrelated
+Project inventory. Codex pagination treats only explicit null or a non-empty
+string as a valid native cursor, so malformed cursor evidence cannot publish a
+prefix as complete.
 Core fences terminal publication on the exact active syncing reconciliation,
 so concurrent delivery of the same terminal page is idempotent and cannot turn
 a previously published source into an empty healthy projection. Provider scans

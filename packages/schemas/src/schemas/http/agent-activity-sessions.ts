@@ -32,6 +32,8 @@ const boundedIdentifierSchema = z.string().trim().min(1).max(512);
 const displayNameSchema = z.string().trim().min(1).max(256);
 const timestampMsSchema = z.number().int().nonnegative();
 
+export const agentActivityNativeSessionIdSchema = boundedIdentifierSchema;
+
 export const localAgentSessionProviderSchema = z.enum(
   LOCAL_AGENT_SESSION_PROVIDERS
 );
@@ -119,7 +121,7 @@ export const agentActivityInventorySessionSchema = z
     inventoryUpdatedAtMs: timestampMsSchema,
     lastActiveAtMs: timestampMsSchema,
     localAgent: agentActivityInventoryLocalAgentSchema,
-    nativeSessionId: boundedIdentifierSchema,
+    nativeSessionId: agentActivityNativeSessionIdSchema,
     nativeSessionTitle: z
       .string()
       .trim()
@@ -179,7 +181,7 @@ export const agentActivitySessionInventoryQuerySchema = z.strictObject({
     .max(AGENT_ACTIVITY_SESSION_INVENTORY_PAGE_MAX)
     .default(AGENT_ACTIVITY_SESSION_INVENTORY_PAGE_DEFAULT),
   memberUserId: boundedIdentifierSchema.optional(),
-  nativeSessionId: boundedIdentifierSchema.optional(),
+  nativeSessionId: agentActivityNativeSessionIdSchema.optional(),
   origin: agentActivityInventorySessionOriginSchema.optional(),
   projectId: boundedIdentifierSchema.optional(),
   provider: localAgentSessionProviderSchema.optional(),
@@ -214,7 +216,7 @@ export const observedLocalAgentSessionSchema = z
     canFork: z.boolean(),
     canResume: z.boolean(),
     lastActiveAtMs: timestampMsSchema,
-    nativeSessionId: boundedIdentifierSchema,
+    nativeSessionId: agentActivityNativeSessionIdSchema,
     nativeSessionTitle: z
       .string()
       .trim()

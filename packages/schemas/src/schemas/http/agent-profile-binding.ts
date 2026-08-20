@@ -2,7 +2,10 @@ import { z } from "zod/v4";
 import { agentControllerCollaborationModeSchema } from "../agent-controller-collaboration-mode";
 import { agentControllerPermissionModeSchema } from "../agent-controller-permission-mode";
 import { openCodePermissionConfigSchema } from "../open-code-permission";
-import { localAgentSessionProviderSchema } from "./agent-activity-sessions";
+import {
+  agentActivityNativeSessionIdSchema,
+  localAgentSessionProviderSchema,
+} from "./agent-activity-sessions";
 
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 const reasonCodeSchema = z.string().trim().min(1).max(256);
@@ -36,7 +39,7 @@ export const agentProfileBindingWriteModeSchema = z.enum([
 export const agentProfileBindingSessionInventorySelectionSchema =
   z.strictObject({
     computerId: boundedIdentifierSchema,
-    nativeSessionId: boundedIdentifierSchema,
+    nativeSessionId: agentActivityNativeSessionIdSchema,
     organizationId: boundedIdentifierSchema,
     ownerUserId: boundedIdentifierSchema,
     projectId: boundedIdentifierSchema,
@@ -46,7 +49,8 @@ export const agentProfileBindingSessionInventorySelectionSchema =
 export const ensureAgentProfilePrimaryBindingBodySchema = z
   .strictObject({
     agentControllerRef: boundedIdentifierSchema,
-    agentControllerConversationId: boundedIdentifierSchema.optional(),
+    agentControllerConversationId:
+      agentActivityNativeSessionIdSchema.optional(),
     deviceId: boundedIdentifierSchema,
     lane: boundedIdentifierSchema,
     openMeldServiceRuntimeId: agentProfileBindingRuntimeIdSchema,

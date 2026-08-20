@@ -246,6 +246,81 @@ describe("Local Agent Session Inventory reconciliation", () => {
     );
   });
 
+  it("continues with current sources after a disconnected source is rejected", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-session-source-failure-"));
+    const obsoleteRepositoryPath = join(root, "obsolete-repository");
+    const currentRepositoryPath = join(root, "current-repository");
+    await mkdir(obsoleteRepositoryPath, { recursive: true });
+    await mkdir(currentRepositoryPath, { recursive: true });
+    const obsoleteBinding = await bindProject({
+      organizationId: "org-a",
+      projectId: "project-a",
+      projectSlug: "obsolete",
+      repositoryFingerprint: null,
+      repositoryPath: obsoleteRepositoryPath,
+      rootDir: root,
+    });
+    mocks.discoverLocalAgentSessionProviders.mockResolvedValue([
+      discoveryFor(obsoleteBinding, "native-obsolete"),
+    ]);
+    await syncLocalAgentSessionInventory({
+      foundation: {} as never,
+      nowMs: 20_000,
+      rootDir: root,
+    });
+    await unbindProject({
+      organizationId: "org-a",
+      projectId: "project-a",
+      rootDir: root,
+    });
+
+    const currentBinding = await bindProject({
+      organizationId: "org-b",
+      projectId: "project-b",
+      projectSlug: "current",
+      repositoryFingerprint: null,
+      repositoryPath: currentRepositoryPath,
+      rootDir: root,
+    });
+    mocks.discoverLocalAgentSessionProviders.mockResolvedValue([
+      discoveryFor(currentBinding, "native-current"),
+    ]);
+    mocks.submitAgentActivitySessionReconciliation.mockClear();
+    mocks.submitAgentActivitySessionReconciliation.mockImplementation(
+      async (request: { result: string }) => {
+        await Promise.resolve();
+        if (request.result === "disconnected") {
+          throw Object.assign(new Error("membership revoked"), { status: 403 });
+        }
+        return {
+          acceptedPageIndex: 0,
+          publishedSessionCount: 1,
+          reconciliationId: "accepted-second",
+          status: "accepted",
+        };
+      }
+    );
+
+    await expect(
+      syncLocalAgentSessionInventory({
+        foundation: {} as never,
+        nowMs: 30_000,
+        rootDir: root,
+      })
+    ).resolves.toEqual({
+      reason: "inventory_write_auth_rejected",
+      sessionCount: 1,
+      sourceCount: 2,
+      status: "unavailable",
+      submittedSourceCount: 1,
+    });
+    expect(
+      mocks.submitAgentActivitySessionReconciliation.mock.calls.map(
+        ([request]) => (request as { result: string }).result
+      )
+    ).toEqual(["disconnected", "sessions"]);
+  });
+
   it("retains a source after an accepted page so a later Project removal can disconnect it", async () => {
     root = await mkdtemp(join(tmpdir(), "openmeld-session-partial-page-"));
     const repositoryPath = join(root, "repository");

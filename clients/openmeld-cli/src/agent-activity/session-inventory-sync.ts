@@ -60,6 +60,13 @@ export type LocalAgentSessionInventorySyncResult = {
   submittedSourceCount: number;
 };
 
+type InventorySourceSubmissionResult = {
+  firstFailure: unknown;
+  hasFailure: boolean;
+  sessionCount: number;
+  submittedSourceCount: number;
+};
+
 export async function syncLocalAgentSessionInventory(
   input: {
     foundation?: OpenMeldApiClientFoundation;
@@ -118,74 +125,164 @@ export async function syncLocalAgentSessionInventory(
   ) {
     return emptySyncResult("unavailable", "registration_rejected");
   }
-  let sessionCount = 0;
-  let submittedSourceCount = 0;
   const retainedSources = new Map(
     sourceStore.sources.map((source) => [sourceKey(source), source])
   );
-  try {
-    for (const source of disconnectedSources) {
-      await submitDisconnectedSource({
-        api,
-        deviceId: reporting.deviceId,
-        lane: reporting.lane,
-        nowMs,
-        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
-        source,
-      });
-      retainedSources.delete(sourceKey(source));
-      submittedSourceCount += 1;
-    }
-    for (const source of currentSources) {
-      const key = sourceKey(source);
-      let sourceStored = retainedSources.has(key);
-      await submitCurrentSource({
-        api,
-        deviceId: reporting.deviceId,
-        lane: reporting.lane,
-        nowMs,
-        onPageAccepted: async () => {
-          if (sourceStored) {
-            return;
-          }
-          retainedSources.set(key, storedSource(source));
-          await writeSourceStore(input, {
-            sources: [...retainedSources.values()],
-            version: SOURCE_STORE_VERSION,
-          });
-          sourceStored = true;
-        },
-        openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
-        source,
-      });
-      retainedSources.set(key, storedSource(source));
-      sessionCount += source.sessions.length;
-      submittedSourceCount += 1;
-    }
-  } catch (error) {
-    await writeSourceStore(input, {
-      sources: [...retainedSources.values()],
-      version: SOURCE_STORE_VERSION,
-    });
-    return {
-      reason: classifyInventorySyncFailure(error),
-      sessionCount,
-      sourceCount: currentSources.length + disconnectedSources.length,
-      status: "unavailable",
-      submittedSourceCount,
-    };
-  }
+  const common = {
+    api,
+    deviceId: reporting.deviceId,
+    lane: reporting.lane,
+    nowMs,
+    openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
+    retainedSources,
+  };
+  const disconnected = await submitDisconnectedSources({
+    ...common,
+    sources: disconnectedSources,
+  });
+  const current = await submitCurrentSources({
+    ...common,
+    sourceStoreInput: input,
+    sources: currentSources,
+  });
+  const hasSourceFailure = disconnected.hasFailure || current.hasFailure;
+  const firstSourceFailure = disconnected.hasFailure
+    ? disconnected.firstFailure
+    : current.firstFailure;
+  const sessionCount = current.sessionCount;
+  const submittedSourceCount =
+    disconnected.submittedSourceCount + current.submittedSourceCount;
   await writeSourceStore(input, {
     sources: [...retainedSources.values()],
     version: SOURCE_STORE_VERSION,
   });
   return {
-    reason: null,
+    reason: hasSourceFailure
+      ? classifyInventorySyncFailure(firstSourceFailure)
+      : null,
     sessionCount,
     sourceCount: currentSources.length + disconnectedSources.length,
-    status: submittedSourceCount > 0 ? "submitted" : "idle",
+    status: resolveInventorySyncStatus({
+      hasSourceFailure,
+      submittedSourceCount,
+    }),
     submittedSourceCount,
   };
+}
+
+class InventorySourceStoreWriteError extends Error {
+  readonly originalError: unknown;
+
+  constructor(originalError: unknown) {
+    super("Failed to persist the Session Inventory source store.");
+    this.name = "InventorySourceStoreWriteError";
+    this.originalError = originalError;
+  }
+}
+
+async function submitDisconnectedSources(input: {
+  api: ReturnType<typeof createRuntimeReportingApi>;
+  deviceId: string;
+  lane: string;
+  nowMs: number;
+  openMeldServiceRuntimeId: {
+    source: "runtime_registry_authority";
+    value: string;
+  };
+  retainedSources: Map<string, StoredInventorySource>;
+  sources: readonly StoredInventorySource[];
+}): Promise<InventorySourceSubmissionResult> {
+  const result = emptySourceSubmissionResult();
+  for (const source of input.sources) {
+    try {
+      await submitDisconnectedSource({ ...input, source });
+      input.retainedSources.delete(sourceKey(source));
+      result.submittedSourceCount += 1;
+    } catch (error) {
+      recordFirstSourceFailure(result, error);
+    }
+  }
+  return result;
+}
+
+async function submitCurrentSources(input: {
+  api: ReturnType<typeof createRuntimeReportingApi>;
+  deviceId: string;
+  lane: string;
+  nowMs: number;
+  openMeldServiceRuntimeId: {
+    source: "runtime_registry_authority";
+    value: string;
+  };
+  retainedSources: Map<string, StoredInventorySource>;
+  sources: readonly CurrentInventorySource[];
+  sourceStoreInput: { rootDir?: string };
+}): Promise<InventorySourceSubmissionResult> {
+  const result = emptySourceSubmissionResult();
+  for (const source of input.sources) {
+    const key = sourceKey(source);
+    let sourceStored = input.retainedSources.has(key);
+    try {
+      await submitCurrentSource({
+        ...input,
+        onPageAccepted: async () => {
+          if (sourceStored) {
+            return;
+          }
+          input.retainedSources.set(key, storedSource(source));
+          try {
+            await writeSourceStore(input.sourceStoreInput, {
+              sources: [...input.retainedSources.values()],
+              version: SOURCE_STORE_VERSION,
+            });
+          } catch (error) {
+            throw new InventorySourceStoreWriteError(error);
+          }
+          sourceStored = true;
+        },
+        source,
+      });
+      input.retainedSources.set(key, storedSource(source));
+      result.sessionCount += source.sessions.length;
+      result.submittedSourceCount += 1;
+    } catch (error) {
+      if (error instanceof InventorySourceStoreWriteError) {
+        throw error.originalError;
+      }
+      recordFirstSourceFailure(result, error);
+    }
+  }
+  return result;
+}
+
+function emptySourceSubmissionResult(): InventorySourceSubmissionResult {
+  return {
+    firstFailure: undefined,
+    hasFailure: false,
+    sessionCount: 0,
+    submittedSourceCount: 0,
+  };
+}
+
+function recordFirstSourceFailure(
+  result: InventorySourceSubmissionResult,
+  error: unknown
+): void {
+  if (result.hasFailure) {
+    return;
+  }
+  result.firstFailure = error;
+  result.hasFailure = true;
+}
+
+function resolveInventorySyncStatus(input: {
+  hasSourceFailure: boolean;
+  submittedSourceCount: number;
+}): LocalAgentSessionInventorySyncResult["status"] {
+  if (input.hasSourceFailure) {
+    return "unavailable";
+  }
+  return input.submittedSourceCount > 0 ? "submitted" : "idle";
 }
 
 function bindingsOwnedByCurrentUser(input: {

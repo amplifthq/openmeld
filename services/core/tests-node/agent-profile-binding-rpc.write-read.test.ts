@@ -150,6 +150,84 @@ describe("agent profile binding Core RPC", () => {
         reasonCodes: ["agent_profile_binding.session_resume_unavailable"],
         status: "rejected",
       });
+
+      harness.run({
+        sql: "DELETE FROM openMeldDaemon_agent_profile_bindings",
+      });
+      harness.run({
+        sql: "UPDATE agent_activity_session_inventory_sources SET state = 'current'",
+      });
+      const authWorker = {
+        resolveProfileById: vi.fn(async () => {
+          await Promise.resolve();
+          harness.run({
+            sql: "UPDATE agent_activity_session_inventory_sources SET state = 'error'",
+          });
+          return {
+            ok: true as const,
+            profile: {
+              ownerUserId: "owner-1",
+              profileHandle: "agent-one",
+              profileId: AGENT_PROFILE_ID,
+              profileKind: "agent" as const,
+              profileName: "Agent One",
+              status: "active" as const,
+            },
+          };
+        }),
+      } satisfies CoreBindings["OPENMELD_AUTH_WORKER"];
+
+      await expect(
+        rpcEnsureAgentProfilePrimaryBinding(
+          coreEnv(harness.db, { authWorker }),
+          input
+        )
+      ).resolves.toMatchObject({
+        reasonCodes: ["agent_profile_binding.session_resume_unavailable"],
+        status: "rejected",
+      });
+      expect(
+        harness.queryFirst<{ count: number }>({
+          sql: "SELECT count(*) AS count FROM openMeldDaemon_agent_profile_bindings",
+        })
+      ).toEqual({ count: 0 });
+
+      await expect(
+        rpcEnsureAgentProfilePrimaryBinding(coreEnv(harness.db), {
+          ...input,
+          agentControllerConversationId: "native-session-old",
+          sessionInventorySelection: undefined,
+        })
+      ).resolves.toMatchObject({ status: "accepted" });
+      harness.run({
+        sql: "UPDATE agent_activity_session_inventory_sources SET state = 'current'",
+      });
+
+      await expect(
+        rpcEnsureAgentProfilePrimaryBinding(
+          coreEnv(harness.db, { authWorker }),
+          { ...input, writeMode: "reconnect" }
+        )
+      ).resolves.toMatchObject({
+        reasonCodes: ["agent_profile_binding.session_resume_unavailable"],
+        status: "rejected",
+      });
+      expect(
+        harness.queryFirst<{
+          agent_controller_conversation_id: string;
+          binding_state: string;
+          count: number;
+        }>({
+          sql: `SELECT agent_controller_conversation_id, binding_state,
+            count(*) AS count
+            FROM openMeldDaemon_agent_profile_bindings
+            WHERE binding_state = 'enabled_primary'`,
+        })
+      ).toEqual({
+        agent_controller_conversation_id: "native-session-old",
+        binding_state: "enabled_primary",
+        count: 1,
+      });
     } finally {
       harness.close();
     }

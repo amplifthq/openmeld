@@ -80,7 +80,9 @@ Session Inventory. OpenMeld does not create a second public Session id. Its
 product identity is the tuple `(owner, agentControllerRef, nativeSessionId)`.
 Project and Computer describe the Session's current authorized work
 environment; they are not additional identity namespaces. A native Session id
-is an identifier, never operation authority. Resume, Fork, Profile creation,
+uses the shared trimmed 1–512 character identifier contract across Inventory
+and Binding selection. It is an identifier, never operation authority. Resume,
+Fork, Profile creation,
 and Space membership must re-authorize the Organization, owner, Project,
 Computer, controller, and current provider capability at execution time.
 
@@ -250,6 +252,9 @@ the shared metadata contract.
 - A provider that is not installed reports `unsupported`. A provider that is
   installed but temporarily cannot launch or read its retained store reports
   `error`, so a transient local failure cannot erase the last complete set.
+- A rejected or unavailable source records the sync as degraded but does not
+  stop reconciliation of later disconnected or current sources. One revoked
+  Organization or stale connection cannot starve unrelated Project inventory.
 - A retained provider record or Session file that is syntactically readable but
   lacks its required native id, Project path, or last-active timestamp is an
   incomplete scan and reports `error`; it is never silently omitted from a
@@ -289,7 +294,7 @@ surface is asymmetric:
 
 | Provider | Complete retained discovery | Native title | Status without fresh lifecycle | Resume | Fork |
 | --- | --- | --- | --- | --- | --- |
-| Codex | app-server `thread/list`, every source kind, archived and non-archived pages to cursor exhaustion | current `Thread.name`, else null | archived is Ended; otherwise Unknown | retained non-archived threads | false until OpenMeld wires and verifies provider-native Fork |
+| Codex | app-server `thread/list`, every source kind, archived and non-archived pages to cursor exhaustion; only explicit null or a non-empty string is a valid page cursor | current `Thread.name`, else null | archived is Ended; otherwise Unknown | retained non-archived threads | false until OpenMeld wires and verifies provider-native Fork |
 | Claude Code | top-level retained JSONL plus the complete live/job registry and hooks | explicit native custom title, else null | Unknown | retained Sessions | false until OpenMeld wires and verifies provider-native Fork |
 | Cursor | no complete documented machine-readable inventory; report unsupported coverage | unavailable for the complete inventory | Unknown | unsupported from the complete inventory | unsupported |
 | OpenCode | complete local Session table or official API pagination | current persisted `session.title` | archived is Ended; otherwise Unknown | retained usable Sessions | false until OpenMeld wires and verifies provider-native Fork |
@@ -392,9 +397,12 @@ revalidates the authenticated owner and active Organization, active Project,
 public Computer plus internal runtime device, controller/provider/native id,
 fresh current source, `canResume`, and any existing active Binding. A cached Web
 row can express selection intent but cannot authorize a Resume operation. The
-Binding writer then conditionally claims the controller conversation in the
-same atomic write boundary, so concurrent Resume requests cannot both create a
-new enabled Binding for one native Session.
+Binding writer repeats that current-source eligibility predicate while it
+conditionally claims the controller conversation in the same atomic SQL write
+boundary. A Project disconnect or stale source between preflight and write
+therefore rejects without creating or replacing a Binding, and concurrent
+Resume requests cannot both create a new enabled Binding for one native
+Session.
 
 The legacy Overview and Changes surfaces continue to consume the bounded
 Activity snapshot contract.

@@ -18,6 +18,16 @@ import type {
 export const AGENT_ACTIVITY_SESSION_INVENTORY_STALE_AFTER_MS = 15 * 60_000;
 const BASE64_PADDING_PATTERN = /=+$/u;
 
+export type AgentActivitySessionResumeEligibility = {
+  activeOrganizationId: string | null;
+  agentControllerRef: string;
+  agentProfileId: string;
+  deviceId: string;
+  nowMs: number;
+  ownerUserId: string;
+  selection: AgentProfileBindingSessionInventorySelection;
+};
+
 type InventorySourceAuthority = {
   connectedComputerId: string;
   deviceId: string;
@@ -100,25 +110,45 @@ export async function readConnectedComputerId(input: {
   return value ? value : null;
 }
 
-export async function canResumeAgentActivitySessionSelection(input: {
-  activeOrganizationId: string | null;
-  agentControllerRef: string;
-  agentProfileId: string;
-  db: D1Database;
-  deviceId: string;
-  nowMs: number;
-  ownerUserId: string;
-  selection: AgentProfileBindingSessionInventorySelection;
-}): Promise<boolean> {
+export async function canResumeAgentActivitySessionSelection(
+  input: {
+    db: D1Database;
+  } & AgentActivitySessionResumeEligibility
+): Promise<boolean> {
+  const query = buildAgentActivitySessionResumeEligibilityQuery(input);
+  if (!query) {
+    return false;
+  }
+  const row = await input.db
+    .prepare(query.sql)
+    .bind(...query.bindings)
+    .first<{ allowed: number }>();
+  return row?.allowed === 1;
+}
+
+export function buildAgentActivitySessionResumeEligibilityQuery(
+  input: AgentActivitySessionResumeEligibility
+): { bindings: unknown[]; sql: string } | null {
   if (
     input.activeOrganizationId !== input.selection.organizationId ||
     input.ownerUserId !== input.selection.ownerUserId
   ) {
-    return false;
+    return null;
   }
-  const row = await input.db
-    .prepare(
-      `
+  return {
+    bindings: [
+      input.selection.organizationId,
+      input.selection.ownerUserId,
+      input.selection.projectId,
+      input.selection.computerId,
+      input.deviceId,
+      input.agentControllerRef,
+      input.selection.provider,
+      input.selection.nativeSessionId,
+      input.nowMs - AGENT_ACTIVITY_SESSION_INVENTORY_STALE_AFTER_MS,
+      input.agentProfileId,
+    ],
+    sql: `
         SELECT 1 AS allowed
         FROM agent_activity_session_inventory inventory
         INNER JOIN agent_activity_session_inventory_sources source
@@ -163,22 +193,8 @@ export async function canResumeAgentActivitySessionSelection(input: {
               AND binding.agent_profile_id <> ?
           )
         LIMIT 1
-      `
-    )
-    .bind(
-      input.selection.organizationId,
-      input.selection.ownerUserId,
-      input.selection.projectId,
-      input.selection.computerId,
-      input.deviceId,
-      input.agentControllerRef,
-      input.selection.provider,
-      input.selection.nativeSessionId,
-      input.nowMs - AGENT_ACTIVITY_SESSION_INVENTORY_STALE_AFTER_MS,
-      input.agentProfileId
-    )
-    .first<{ allowed: number }>();
-  return row?.allowed === 1;
+      `,
+  };
 }
 
 export async function acceptAgentActivitySessionReconciliation(input: {

@@ -241,7 +241,7 @@ async function listAllCodexThreads(
           archived,
           data: response.data,
         });
-        cursor = nullableText(response.nextCursor);
+        cursor = parseCodexNextCursor(response.nextCursor);
       } while (cursor !== null);
     }
     return pages;
@@ -1173,6 +1173,16 @@ function timestamp(value: unknown): number | null {
 
 function nullableText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function parseCodexNextCursor(value: unknown): string | null {
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("Codex thread/list nextCursor is invalid.");
+  }
+  return value.trim();
 }
 
 function text(value: unknown): string | null {

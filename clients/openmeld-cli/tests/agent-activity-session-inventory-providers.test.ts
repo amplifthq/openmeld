@@ -606,6 +606,28 @@ describe("Local Agent Session Inventory provider adapters", () => {
     });
   });
 
+  it("rejects a malformed non-null Codex pagination cursor", async () => {
+    const serverPath = join(root, "fake-codex-invalid-cursor.mjs");
+    await writeFile(
+      serverPath,
+      buildFakeCodexAppServer(repositoryPath, { firstPageNextCursor: "" }),
+      "utf8"
+    );
+
+    await expect(
+      discoverCodexThreads({
+        bindings: [binding],
+        launchContract: {
+          argsPrefix: [serverPath],
+          commandPath: process.execPath,
+          kind: "executable",
+        },
+        nowMs: NOW_MS,
+        rootDir: root,
+      })
+    ).rejects.toThrow("Codex thread/list nextCursor is invalid");
+  });
+
   it("reads old Claude Sessions, latest native titles, and excludes subagents", async () => {
     const configDir = join(root, "claude-config");
     const projectsDir = join(configDir, "projects", "openmeld");
@@ -820,7 +842,7 @@ describe("Local Agent Session Inventory provider adapters", () => {
 
 function buildFakeCodexAppServer(
   cwd: string,
-  input: { malformedThread?: boolean } = {}
+  input: { firstPageNextCursor?: unknown; malformedThread?: boolean } = {}
 ): string {
   const liveThread = {
     createdAt: 30,
@@ -864,7 +886,11 @@ for await (const line of lines) {
     : request.params.cursor === null
       ? [${JSON.stringify(liveThread)}]
       : [];
-  const nextCursor = archived ? null : request.params.cursor === null ? "page-2" : null;
+  const nextCursor = archived ? null : request.params.cursor === null ? ${JSON.stringify(
+    input.firstPageNextCursor === undefined
+      ? "page-2"
+      : input.firstPageNextCursor
+  )} : null;
   process.stdout.write(JSON.stringify({ id: request.id, jsonrpc: "2.0", result: { data, nextCursor } }) + "\\n");
 }`;
 }
