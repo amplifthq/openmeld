@@ -519,6 +519,26 @@ openmeld profiles update <profile-id> --name <profile-name>
 openmeld profiles delete <profile-id> --force
 ```
 
+Create and manage Organization Agent Profile requests:
+
+```bash
+openmeld profiles requests create <profile-name> --owner self --session new --source local-agent --request-key <stable-key> --view agent
+openmeld profiles requests create <profile-name> --owner <member-user-id> --session new --source local-agent --request-key <stable-key> --view agent
+openmeld profiles requests create <profile-name> --owner <member-user-id> --session resume --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
+openmeld profiles requests create <profile-name> --owner <member-user-id> --session fork --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
+openmeld profiles requests list --view agent
+openmeld profiles requests approve <request-id> --view agent
+openmeld profiles requests decline <request-id> --view agent
+openmeld profiles requests cancel <request-id> --view agent
+openmeld profiles requests retry <request-id> --view agent
+openmeld profiles requests preferences get --view agent
+openmeld profiles requests preferences set --new-session automatically-allow --existing-session ask-every-time --view agent
+```
+
+Resume and Fork accept the exact provider-native Session ID. They fail clearly
+until OpenMeld Agent Activity can verify the selected Project Session. Approval
+policy values are `never-allow`, `ask-every-time`, and `automatically-allow`.
+
 ### `openmeld agents`
 
 Find, enable, repair, and review local agents on this computer. Use `openmeld setup`

@@ -103,11 +103,18 @@ openmeld profiles create --name "Build Agent" --kind agent
 openmeld profiles set <profile-id>
 openmeld profiles update <profile-id> --name "Build Agent v2"
 openmeld profiles delete <profile-id> --force
+openmeld profiles requests create "Review Agent" --owner self --session new
+openmeld profiles requests list
+openmeld profiles requests approve <request-id>
+openmeld profiles requests cancel <request-id>
+openmeld profiles requests preferences get
 ```
 
 Each account has one default Human Profile, reused across organizations.
 Creating additional Human Profiles is available only when OpenMeld explicitly
 enables that capability; Agent Profile creation remains available.
+Organization requests provide an auditable path for creating an Agent Profile
+for yourself or a teammate under that member's approval preference.
 
 ## Spaces
 

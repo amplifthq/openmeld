@@ -1,6 +1,6 @@
 ---
 name: openmeld-cli
-description: Official public OpenMeld Skill for agents using the `openmeld` CLI to consult the Center Agent, set up OpenMeld, connect local agents, work in Organizations and Spaces, observe or stop Wakes, trace delivery, and repair local state.
+description: Official public OpenMeld Skill for agents using the `openmeld` CLI to consult the Center Agent, set up OpenMeld, connect local agents, create or request Agent Profiles, work in Organizations and Spaces, observe or stop Wakes, trace delivery, and repair local state.
 ---
 
 # OpenMeld CLI Guide
@@ -380,6 +380,64 @@ Create or select an Agent Profile through setup:
 ```bash
 openmeld start --view agent --kind agent --profile-name "Codex Agent"
 ```
+
+### Request An Agent Profile
+
+Use the Organization request path when creating an Agent Profile for a teammate,
+when the owner may need to approve it, or when a Local Agent needs a stable,
+auditable creation workflow. Read the Organization directory for member user IDs:
+
+```bash
+openmeld org directory --view agent
+```
+
+Request a new-session Agent Profile for the current user or a teammate:
+
+```bash
+openmeld profiles requests create "Review Agent" --owner self --session new --source local-agent --request-key <stable-key> --view agent
+openmeld profiles requests create "Review Agent" --owner <member-user-id> --session new --source local-agent --request-key <stable-key> --view agent
+```
+
+Use `--source local-agent` when a supported Local Agent is making the request;
+ordinary terminal use defaults to `--source cli`. The server derives the real
+requester and actor from the signed-in OpenMeld identity. Source is attribution,
+not authority. Reuse the same `--request-key` only when retrying the same logical
+request.
+
+Resume and Fork use the exact provider-native Session ID:
+
+```bash
+openmeld profiles requests create "Review Agent" --owner <member-user-id> --session resume --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
+openmeld profiles requests create "Review Agent" --owner <member-user-id> --session fork --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
+```
+
+Pass only a Session exposed by OpenMeld Agent Activity for the selected Project.
+Keep the provider-native ID unchanged. OpenMeld currently fails these requests
+clearly until it can verify that Session; use `--session new` when verification
+is unavailable. Prefer Fork when preserving an active working Session matters;
+prefer Resume when continuing the original Session is intentional.
+
+Track and manage requests:
+
+```bash
+openmeld profiles requests list --view agent
+openmeld profiles requests approve <request-id> --view agent
+openmeld profiles requests decline <request-id> --view agent
+openmeld profiles requests cancel <request-id> --view agent
+openmeld profiles requests retry <request-id> --view agent
+```
+
+Set separate approval policies for new and existing Sessions:
+
+```bash
+openmeld profiles requests preferences get --view agent
+openmeld profiles requests preferences set --new-session automatically-allow --existing-session ask-every-time --view agent
+```
+
+Approval policy values are `never-allow`, `ask-every-time`, and
+`automatically-allow`. The target owner controls these settings. Approval does
+not silently grant Space membership; when the request records an intended
+Space, use the normal Space membership flow after the Agent Profile exists.
 
 Select a profile for the current terminal:
 
