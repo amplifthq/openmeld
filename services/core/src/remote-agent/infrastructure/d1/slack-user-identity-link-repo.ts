@@ -1,3 +1,5 @@
+import type { MessageChannelIdentityLinkAuditRecord } from "../../application/message-channel-identity-link-audit";
+
 export type SlackUserIdentityLinkSource = "explicit" | "email_auto";
 
 export type SlackIdentityLinkDeliveryScope =
@@ -35,10 +37,12 @@ export type SlackIdentityLinkTokenRecord = {
 export type SlackIdentityLinkConsumeResult =
   | {
       link: SlackUserIdentityLinkRecord;
+      replacedExistingLink: boolean;
       status: "linked";
     }
   | {
       link: SlackUserIdentityLinkRecord;
+      replacedExistingLink: false;
       status: "replayed";
     }
   | {
@@ -344,6 +348,84 @@ export async function deleteSlackUserIdentityLinkIfMatches(input: {
       input.openmeldUserId
     )
     .run();
+  return Number(result.meta?.changes ?? 0) === 1;
+}
+
+export async function disconnectSlackUserIdentityLink(input: {
+  audit: MessageChannelIdentityLinkAuditRecord;
+  db: D1Database;
+  organizationId: string;
+  slackTeamId: string;
+  slackUserId: string;
+  openmeldUserId: string;
+}): Promise<boolean> {
+  if (input.audit.action !== "disconnect_message_channel_identity_link") {
+    throw new Error("Slack identity disconnect has invalid audit action");
+  }
+  if (input.audit.organizationId !== input.organizationId) {
+    throw new Error("Slack identity disconnect has mismatched audit scope");
+  }
+  const auditStatement = input.db
+    .prepare(
+      `
+        INSERT INTO center_agent_audit_journal (
+          id,
+          organization_id,
+          actor_profile_id,
+          action,
+          on_behalf_of_profile_id,
+          on_behalf_of_user_id,
+          on_behalf_of_display_name,
+          resource_type,
+          resource_id,
+          source_native_delivery_id,
+          created_at
+        )
+        SELECT ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, NULL, ?
+        WHERE EXISTS (
+          SELECT 1
+          FROM slack_user_identity_links
+          WHERE organization_id = ?
+            AND slack_team_id = ?
+            AND slack_user_id = ?
+            AND openmeld_user_id = ?
+        )
+      `
+    )
+    .bind(
+      input.audit.id,
+      input.audit.organizationId,
+      input.audit.actorProfileId,
+      input.audit.action,
+      "message_channel_identity_link",
+      input.audit.resourceId,
+      input.audit.createdAtMs,
+      input.organizationId,
+      input.slackTeamId,
+      input.slackUserId,
+      input.openmeldUserId
+    );
+  const deleteStatement = input.db
+    .prepare(
+      `
+        DELETE FROM slack_user_identity_links
+        WHERE organization_id = ?
+          AND slack_team_id = ?
+          AND slack_user_id = ?
+          AND openmeld_user_id = ?
+      `
+    )
+    .bind(
+      input.organizationId,
+      input.slackTeamId,
+      input.slackUserId,
+      input.openmeldUserId
+    );
+  const results = await input.db.batch([auditStatement, deleteStatement]);
+  const result = results.at(-1);
+  if (!result) {
+    throw new Error("Slack identity link delete batch returned no result");
+  }
   return Number(result.meta?.changes ?? 0) === 1;
 }
 
@@ -692,6 +774,7 @@ export async function claimSlackIdentityLinkTokenForUser(input: {
               AND claimed_token.token_hash <> ?
               AND claimed_token.claimed_by_user_id IS NOT NULL
               AND claimed_token.claimed_by_user_id <> ?
+              AND claimed_token.consumed_at_ms IS NULL
               AND claimed_token.expires_at_ms > ?
           )
       `
@@ -738,6 +821,7 @@ export async function claimSlackIdentityLinkTokenForUser(input: {
 }
 
 export async function consumeSlackIdentityLinkTokenAndUpsertUserLink(input: {
+  audit: MessageChannelIdentityLinkAuditRecord;
   consumeNonce: string;
   db: D1Database;
   consumedAtMs: number;
@@ -747,6 +831,15 @@ export async function consumeSlackIdentityLinkTokenAndUpsertUserLink(input: {
   tokenHash: string;
   openmeldUserId: string;
 }): Promise<SlackIdentityLinkConsumeResult> {
+  if (input.audit.action !== "replace_message_channel_identity_link") {
+    throw new Error("Slack identity replacement has invalid audit action");
+  }
+  if (
+    input.audit.organizationId !== input.organizationId ||
+    input.audit.createdAtMs !== input.consumedAtMs
+  ) {
+    throw new Error("Slack identity replacement has mismatched audit scope");
+  }
   const consumeToken = input.db
     .prepare(
       `
@@ -790,6 +883,61 @@ export async function consumeSlackIdentityLinkTokenAndUpsertUserLink(input: {
       input.slackTeamId,
       input.organizationId,
       input.organizationId,
+      input.openmeldUserId
+    );
+  const auditReplacement = input.db
+    .prepare(
+      `
+        INSERT INTO center_agent_audit_journal (
+          id,
+          organization_id,
+          actor_profile_id,
+          action,
+          on_behalf_of_profile_id,
+          on_behalf_of_user_id,
+          on_behalf_of_display_name,
+          resource_type,
+          resource_id,
+          source_native_delivery_id,
+          created_at
+        )
+        SELECT ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, NULL, ?
+        WHERE EXISTS (
+          SELECT 1
+          FROM slack_user_identity_link_tokens AS token
+          WHERE token.token_hash = ?
+            AND token.consume_nonce = ?
+            AND token.consumed_at_ms = ?
+            AND token.consumed_by_user_id = ?
+            AND token.organization_id = ?
+            AND token.slack_team_id = ?
+            AND token.slack_user_id = ?
+        ) AND EXISTS (
+          SELECT 1
+          FROM slack_user_identity_links AS identity_link
+          WHERE identity_link.slack_team_id = ?
+            AND identity_link.slack_user_id = ?
+            AND identity_link.openmeld_user_id <> ?
+        )
+      `
+    )
+    .bind(
+      input.audit.id,
+      input.audit.organizationId,
+      input.audit.actorProfileId,
+      input.audit.action,
+      "message_channel_identity_link",
+      input.audit.resourceId,
+      input.audit.createdAtMs,
+      input.tokenHash,
+      input.consumeNonce,
+      input.consumedAtMs,
+      input.openmeldUserId,
+      input.organizationId,
+      input.slackTeamId,
+      input.slackUserId,
+      input.slackTeamId,
+      input.slackUserId,
       input.openmeldUserId
     );
   const upsertLink = input.db
@@ -852,10 +1000,14 @@ export async function consumeSlackIdentityLinkTokenAndUpsertUserLink(input: {
       input.organizationId,
       input.openmeldUserId
     );
-  const [consumeResult, linkResult] = await input.db.batch([
+  const results = await input.db.batch([
     consumeToken,
+    auditReplacement,
     upsertLink,
   ]);
+  const consumeResult = results[0];
+  const auditResult = results[1];
+  const linkResult = results[2];
 
   if (!didWriteRows(consumeResult)) {
     const existingLink = await readSlackUserIdentityLink({
@@ -873,7 +1025,11 @@ export async function consumeSlackIdentityLinkTokenAndUpsertUserLink(input: {
       openmeldUserId: input.openmeldUserId,
     });
     return replayToken?.consumedAtMs
-      ? { link: existingLink, status: "replayed" }
+      ? {
+          link: existingLink,
+          replacedExistingLink: false,
+          status: "replayed",
+        }
       : { status: "invalid" };
   }
   if (!didWriteRows(linkResult)) {
@@ -881,21 +1037,18 @@ export async function consumeSlackIdentityLinkTokenAndUpsertUserLink(input: {
       "Slack identity link token was consumed without writing its identity link"
     );
   }
-  const link = await readSlackUserIdentityLink({
-    db: input.db,
-    slackTeamId: input.slackTeamId,
-    slackUserId: input.slackUserId,
-  });
-  if (
-    !link ||
-    link.organizationId !== input.organizationId ||
-    link.openmeldUserId !== input.openmeldUserId
-  ) {
-    throw new Error(
-      "Slack identity link token consumption lost its identity link"
-    );
-  }
-  return { link, status: "linked" };
+  return {
+    link: {
+      createdAtMs: input.consumedAtMs,
+      openmeldUserId: input.openmeldUserId,
+      organizationId: input.organizationId,
+      slackTeamId: input.slackTeamId,
+      slackUserId: input.slackUserId,
+      source: "explicit",
+    },
+    replacedExistingLink: didWriteRows(auditResult),
+    status: "linked",
+  };
 }
 
 export async function advanceSlackIdentityContinuationAttempt(input: {

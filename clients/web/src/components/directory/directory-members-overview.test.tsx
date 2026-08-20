@@ -850,7 +850,8 @@ describe("DirectoryMembersOverview", () => {
 		});
 		renderOverview({ isPersonal: false });
 
-		expect(await screen.findAllByText("No computer connected")).toHaveLength(2);
+		expect(await screen.findByText("1 computer not connected")).toBeTruthy();
+		expect(screen.getByText("Computer status unavailable")).toBeTruthy();
 		const profileCards = await screen.findAllByTestId(
 			"organization-human-profile-row"
 		);
@@ -860,9 +861,39 @@ describe("DirectoryMembersOverview", () => {
 		}
 		expect(
 			within(graceCard).getByRole("link", {
-				name: "Grace Hopper: No computer connected",
+				name: "Grace Hopper: Computer status unavailable",
 			})
 		).toBeTruthy();
+	});
+
+	it("opens an existing current-user Computer instead of offering first-time setup", async () => {
+		readCurrentOrganizationComputersMock.mockResolvedValue({
+			computers: [
+				buildComputer({
+					computerId: "computer-felix",
+					ownerUserId: "user-current",
+					serviceState: "not_connected",
+				}),
+			],
+			generatedAt: "2026-07-16T00:00:00.000Z",
+			organizationId: "org-acme",
+		});
+		renderOverview({ currentUserProfile: true, isPersonal: false });
+
+		const currentCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		)[0];
+		if (!currentCard) {
+			throw new Error("Expected the current member's Human Profile card.");
+		}
+		expect(
+			(
+				await within(currentCard).findByRole("link", {
+					name: "Felix: 1 computer not connected",
+				})
+			).getAttribute("href")
+		).toBe("/o/acme/computers/computer-felix");
+		expect(within(currentCard).queryByText("Connect a computer")).toBeNull();
 	});
 
 	it("gives the current member a direct path to connect their first Computer", async () => {

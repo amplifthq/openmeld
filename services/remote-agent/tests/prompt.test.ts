@@ -621,6 +621,10 @@ describe("remote agent system prompt", () => {
       "openmeld_post_slack_channel_message publishes either a top-level message in a Slack channel or, for an explicitly requested interactive current turn, a reply to an exact existing thread."
     );
     expect(prompt).toContain(
+      "pass threadPermalink only when the exact permalink comes from the user's request or trusted Slack evidence"
+    );
+    expect(prompt).not.toContain("pass threadTs");
+    expect(prompt).toContain(
       "Ordinary replies to a Slack mention must stay in the originating thread"
     );
     expect(prompt).toContain(

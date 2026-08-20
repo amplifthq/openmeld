@@ -848,6 +848,10 @@ import {
   listRemoteAgentMessageChannelConnectionProjections,
   listRemoteAgentMessageChannelIdentityLinkProjections,
 } from "../remote-agent/application/message-channel-connection-projection";
+import {
+  buildMessageChannelIdentityDisconnectAuditRecord,
+  buildMessageChannelIdentityReplacementAuditRecord,
+} from "../remote-agent/application/message-channel-identity-link-audit";
 import { digestMessageChannelIdentityLinkToken } from "../remote-agent/application/message-channel-identity-link-token";
 import { continueMessageChannelIdentityOnboardingRequest } from "../remote-agent/application/message-channel-native-delivery-service";
 import { createConfiguredMessageChannelProviderRegistry } from "../remote-agent/application/message-channel-provider-runtime";
@@ -955,6 +959,7 @@ import {
   readRuntimeRegistryRecordByRuntimeId,
   registerRuntimeRegistryRecord,
 } from "../runtime-registry/infrastructure/d1/runtime-registry-repo";
+import { selectCurrentOwnerServiceSessionsByDeviceLane } from "../runtime-transport/application/current-owner-service-sessions";
 import { countActiveRuntimeCoordinatorExecutionsBySpaceIds } from "../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
 import { parseRpcErrorPayload } from "../shared/rpc/rpc-json";
 import {
@@ -5068,45 +5073,48 @@ function projectOrganizationComputerLiveSessions(input: {
   if (!input.liveSessions.online) {
     return [];
   }
-  return input.liveSessions.sessions.map((session) => {
-    const localComponents = resolveLocalComponentUpdateProjection({
-      generatedAt: input.generatedAt,
-      localComponentsStatus: session.capabilities.localComponents ?? null,
-      serviceConnected: true,
-      serviceVersion: session.serviceVersion ?? null,
-    });
-    return {
-      deviceId: session.deviceId,
-      executionCompatibility: session.executionCompatibility,
-      openMeldTools: {
-        cli: {
-          installedPackageVersion: localComponents.cli.installedPackageVersion,
-          latestPackageVersion: localComponents.cli.latestPackageVersion,
-          reasonCodes: localComponents.cli.reasonCodes,
-          status: localComponents.cli.status,
-          updatePolicy: localComponents.cli.updatePolicy,
-          wakeBlocked: localComponents.cli.wakeBlocked,
+  return selectCurrentOwnerServiceSessionsByDeviceLane(input.liveSessions).map(
+    (session) => {
+      const localComponents = resolveLocalComponentUpdateProjection({
+        generatedAt: input.generatedAt,
+        localComponentsStatus: session.capabilities.localComponents ?? null,
+        serviceConnected: true,
+        serviceVersion: session.serviceVersion ?? null,
+      });
+      return {
+        deviceId: session.deviceId,
+        executionCompatibility: session.executionCompatibility,
+        openMeldTools: {
+          cli: {
+            installedPackageVersion:
+              localComponents.cli.installedPackageVersion,
+            latestPackageVersion: localComponents.cli.latestPackageVersion,
+            reasonCodes: localComponents.cli.reasonCodes,
+            status: localComponents.cli.status,
+            updatePolicy: localComponents.cli.updatePolicy,
+            wakeBlocked: localComponents.cli.wakeBlocked,
+          },
+          service: {
+            installedVersion: localComponents.service.installedVersion,
+            latestVersion: localComponents.service.latestVersion,
+            reasonCodes: localComponents.service.reasonCodes,
+            requiredVersion: localComponents.service.requiredVersion,
+            status: localComponents.service.status,
+            updatePolicy: localComponents.service.updatePolicy,
+            wakeBlocked: localComponents.service.wakeBlocked,
+          },
+          skills: {
+            reasonCodes: localComponents.skills.reasonCodes,
+            status: localComponents.skills.status,
+            targetCount: localComponents.skills.targetCount,
+            updatePolicy: localComponents.skills.updatePolicy,
+            wakeBlocked: localComponents.skills.wakeBlocked,
+          },
         },
-        service: {
-          installedVersion: localComponents.service.installedVersion,
-          latestVersion: localComponents.service.latestVersion,
-          reasonCodes: localComponents.service.reasonCodes,
-          requiredVersion: localComponents.service.requiredVersion,
-          status: localComponents.service.status,
-          updatePolicy: localComponents.service.updatePolicy,
-          wakeBlocked: localComponents.service.wakeBlocked,
-        },
-        skills: {
-          reasonCodes: localComponents.skills.reasonCodes,
-          status: localComponents.skills.status,
-          targetCount: localComponents.skills.targetCount,
-          updatePolicy: localComponents.skills.updatePolicy,
-          wakeBlocked: localComponents.skills.wakeBlocked,
-        },
-      },
-      serviceUpdateWakeBlocked: localComponents.service.wakeBlocked,
-    };
-  });
+        serviceUpdateWakeBlocked: localComponents.service.wakeBlocked,
+      };
+    }
+  );
 }
 
 async function buildOrganizationMemberOpenMeldServiceStatusesResponse(input: {
@@ -5126,15 +5134,17 @@ async function buildOrganizationMemberOpenMeldServiceStatusesResponse(input: {
       if (!ownerService.online) {
         return [];
       }
-      return ownerService.sessions.map((session) => ({
-        executionCompatibility: session.executionCompatibility,
-        serviceUpdateWakeBlocked: resolveLocalComponentUpdateProjection({
-          generatedAt: input.generatedAt,
-          localComponentsStatus: session.capabilities.localComponents ?? null,
-          serviceConnected: true,
-          serviceVersion: session.serviceVersion ?? null,
-        }).service.wakeBlocked,
-      }));
+      return selectCurrentOwnerServiceSessionsByDeviceLane(ownerService).map(
+        (session) => ({
+          executionCompatibility: session.executionCompatibility,
+          serviceUpdateWakeBlocked: resolveLocalComponentUpdateProjection({
+            generatedAt: input.generatedAt,
+            localComponentsStatus: session.capabilities.localComponents ?? null,
+            serviceConnected: true,
+            serviceVersion: session.serviceVersion ?? null,
+          }).service.wakeBlocked,
+        })
+      );
     },
     memberUserIds: input.memberUserIds,
     onLookupError: ({ error, userId }) => {
@@ -6270,18 +6280,18 @@ export async function rpcDisconnectMessageChannelIdentityLink(
       status: 403,
     });
   }
+  const audit = buildMessageChannelIdentityDisconnectAuditRecord({
+    context,
+    nowMs: Date.now(),
+    organizationId: activeOrganization.organizationId,
+    resourceId: target.id,
+  });
   await deleteRemoteAgentMessageChannelIdentityLinkTarget({
+    audit,
     identityDb: identityDatabase,
     organizationId: activeOrganization.organizationId,
     stateDb: stateDatabase,
     target,
-  });
-  await writeCenterAgentHumanAuditEntry({
-    action: "disconnect_message_channel_identity_link",
-    context,
-    db: identityDatabase,
-    organizationId: activeOrganization.organizationId,
-    resource: { id: target.id, type: "message_channel_identity_link" },
   });
   return messageChannelConnectionListResponseSchema.parse({
     availableLarkPlatformProviders:
@@ -6403,16 +6413,6 @@ export async function rpcConsumeMessageChannelIdentityLink(
     nowMs,
     token: parsed.data.token,
   });
-  const existingLink = await readRemoteAgentLarkPlatformIdentityLink({
-    connectionId: linkContext.token.connectionId,
-    db: linkContext.stateDb,
-    provider: linkContext.token.provider,
-    providerUserId: linkContext.token.providerUserId,
-  });
-  const replacesExistingLink = Boolean(
-    existingLink &&
-      existingLink.openmeldUserId !== linkContext.membership.userId
-  );
   const claimedToken = linkContext.token.consumedAtMs
     ? linkContext.token
     : await claimRemoteAgentMessageChannelIdentityLinkToken({
@@ -6434,30 +6434,29 @@ export async function rpcConsumeMessageChannelIdentityLink(
     membership: linkContext.membership,
     provider: linkContext.token.provider,
   });
-  const consumed = await consumeRemoteAgentMessageChannelIdentityLinkToken({
-    db: linkContext.stateDb,
-    nowMs,
-    token: claimedToken,
-    openmeldUserId: ensuredMembership.membership.userId,
+  const resourceId = await buildMessageChannelIdentityLinkId({
+    connectionId: linkContext.token.connectionId,
+    provider: linkContext.token.provider,
+    providerUserId: linkContext.token.providerUserId,
   });
-  if (!consumed) {
+  const audit = buildMessageChannelIdentityReplacementAuditRecord({
+    context,
+    nowMs,
+    organizationId: ensuredMembership.membership.organizationId,
+    resourceId,
+  });
+  const consumeResult = await consumeRemoteAgentMessageChannelIdentityLinkToken(
+    {
+      audit,
+      consumeNonce: crypto.randomUUID(),
+      db: linkContext.stateDb,
+      nowMs,
+      token: claimedToken,
+      openmeldUserId: ensuredMembership.membership.userId,
+    }
+  );
+  if (consumeResult.status === "invalid") {
     throw createMessageChannelIdentityLinkTokenInvalidError();
-  }
-  if (replacesExistingLink) {
-    await writeCenterAgentHumanAuditEntry({
-      action: "replace_message_channel_identity_link",
-      context,
-      db: requireIdentityDb(env),
-      organizationId: ensuredMembership.membership.organizationId,
-      resource: {
-        id: await buildMessageChannelIdentityLinkId({
-          connectionId: linkContext.token.connectionId,
-          provider: linkContext.token.provider,
-          providerUserId: linkContext.token.providerUserId,
-        }),
-        type: "message_channel_identity_link",
-      },
-    });
   }
   let continuationStatus: "not_requested" | "retryable_failure" | "submitted" =
     "not_requested";
@@ -6507,7 +6506,7 @@ export async function rpcConsumeMessageChannelIdentityLink(
     provider: linkContext.token.provider,
     providerUserDisplayName: linkContext.token.providerUserDisplayName,
     providerUserId: linkContext.token.providerUserId,
-    replacedExistingLink: replacesExistingLink,
+    replacedExistingLink: consumeResult.replacedExistingLink,
     openMeldUserId: ensuredMembership.membership.userId,
   });
 }
@@ -8463,15 +8462,6 @@ export async function rpcConsumeSlackIdentityLink(
     nowMs,
     token: parsed.data.token,
   });
-  const existingLink = await readSlackUserIdentityLink({
-    db,
-    slackTeamId: linkContext.token.slackTeamId,
-    slackUserId: linkContext.token.slackUserId,
-  });
-  const replacesExistingLink = Boolean(
-    existingLink &&
-      existingLink.openmeldUserId !== linkContext.membership.userId
-  );
   const claimResult = await claimSlackIdentityLinkTokenForUser({
     claimedAtMs: nowMs,
     db,
@@ -8494,7 +8484,19 @@ export async function rpcConsumeSlackIdentityLink(
     env,
     membership: linkContext.membership,
   });
+  const resourceId = await buildMessageChannelIdentityLinkId({
+    connectionId: `slack:${linkContext.token.slackTeamId}`,
+    provider: "slack",
+    providerUserId: linkContext.token.slackUserId,
+  });
+  const audit = buildMessageChannelIdentityReplacementAuditRecord({
+    context,
+    nowMs,
+    organizationId: ensuredMembership.membership.organizationId,
+    resourceId,
+  });
   const consumeResult = await consumeSlackIdentityLinkTokenAndUpsertUserLink({
+    audit,
     consumeNonce: crypto.randomUUID(),
     db,
     consumedAtMs: nowMs,
@@ -8506,22 +8508,6 @@ export async function rpcConsumeSlackIdentityLink(
   });
   if (consumeResult.status === "invalid") {
     throw createSlackIdentityLinkTokenInvalidError();
-  }
-  if (replacesExistingLink) {
-    await writeCenterAgentHumanAuditEntry({
-      action: "replace_message_channel_identity_link",
-      context,
-      db,
-      organizationId: ensuredMembership.membership.organizationId,
-      resource: {
-        id: await buildMessageChannelIdentityLinkId({
-          connectionId: `slack:${linkContext.token.slackTeamId}`,
-          provider: "slack",
-          providerUserId: linkContext.token.slackUserId,
-        }),
-        type: "message_channel_identity_link",
-      },
-    });
   }
   let continuationStatus: "legacy" | "retryable_failure" | "submitted";
   try {
@@ -8561,7 +8547,7 @@ export async function rpcConsumeSlackIdentityLink(
     slackDisplayName: linkContext.token.slackUserDisplayName,
     slackTeamId: linkContext.token.slackTeamId,
     slackUserId: linkContext.token.slackUserId,
-    replacedExistingLink: replacesExistingLink,
+    replacedExistingLink: consumeResult.replacedExistingLink,
     openMeldUserId: ensuredMembership.membership.userId,
   };
   const validated = slackIdentityLinkConsumeResponseSchema.safeParse(response);

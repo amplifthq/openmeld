@@ -1047,14 +1047,20 @@ one, including abandoned claims. An explicitly requested non-continuing setup
 action supersedes only an older non-continuing action; it never invalidates a
 source-bound action that is still waiting to continue another request. Final
 consumption rechecks the current workspace Binding and signed-in Organization
-membership in the same D1
-transaction that consumes the claimed token and writes the explicit identity
-link. If that exact Slack account is mapped to another member, the same
-Slack-private proof atomically replaces the canonical mapping. If the workspace
-moves or membership disappears during that operation, neither the token nor the
-identity link changes. Token plaintext appears only in the private direct-message
-action delivered to the exact Slack user and must not enter public messages,
-logs, or diagnostics.
+membership in the same D1 transaction that consumes the claimed token and
+writes the explicit identity link. If that exact Slack account is mapped to
+another member, the same
+Slack-private proof atomically replaces the canonical mapping. The transaction
+classifies replacement from the canonical pre-upsert link, conditionally records
+the replacement audit, and derives the returned `replacedExistingLink` from that
+same audit write; no pre-transaction projection may decide any of those facts.
+The consume nonce binds the audit and link write to the exact successful consume,
+including same-millisecond retries. A successful response reports that
+transaction's receipt rather than reclassifying it from a later canonical-link
+read. If the workspace moves, membership disappears, or required audit insertion
+fails during that operation, neither the token nor the identity link changes.
+Token plaintext appears only in the private direct-message action delivered to
+the exact Slack user and must not enter public messages, logs, or diagnostics.
 
 For post-result Slack guidance, an active source-bound token is also the durable
 at-most-once publication fence. A callback replay never creates a second
@@ -1068,13 +1074,16 @@ guidance publication only and never changes the already confirmed task result.
 Lark and Feishu use the same authority model through the generic Message
 Channel identity-link ledger. D1 stores only the token digest, provider,
 connection, exact provider user, Organization, source native-delivery id,
-`continue_request | optional_setup` purpose, issue/expiry/consumption times, and
-continuation retry generation. The private card carries the plaintext token to
-that provider user and uses a deterministic provider publication UUID. A
-consumed token is readable for response-loss or continuation retry only when
-the explicit provider identity link resolves to the same signed-in OpenMeld
-user. The source delivery is correlation evidence, never execution authority;
-the continued verified-member delivery receives its own idempotency key,
+`continue_request | optional_setup` purpose, issue/expiry/consumption times, an
+internal per-consume nonce, and continuation retry generation. The private card
+carries the plaintext token to that provider user and uses a deterministic
+provider publication UUID. Final consumption, canonical link replacement,
+conditional replacement audit, and the returned replacement fact use the same
+D1 transaction and exact consume nonce, matching the Slack invariant above. A
+consumed token is readable for response-loss or continuation retry only when the
+explicit provider identity link resolves to the same signed-in OpenMeld user.
+The source delivery is correlation evidence, never execution authority; the
+continued verified-member delivery receives its own idempotency key,
 working/final publication lifecycle, and Native Delivery outcome. Migration
 `0096_lovely_roland_deschain` backfills legacy tokens as non-continuing optional
 setup so old rows do not acquire request-continuation authority. The same
@@ -1083,7 +1092,9 @@ backfills consumed claims only from the exact existing provider identity link.
 Migration `0097_last_squirrel_girl` adds the frozen membership requirement to
 both Slack and provider-neutral tokens. Existing rows are `allow_enrollment`;
 only a newly agent-selected current-member target is written as
-`current_member`.
+`current_member`. Migration `0129_far_luminals` adds the nullable consume nonce;
+old rows remain readable, while only a new consume may authorize its
+transaction's audit and canonical link write.
 
 The Organization Message Channel connection projection is also the read owner
 for People account mappings. It projects each canonical link with an opaque

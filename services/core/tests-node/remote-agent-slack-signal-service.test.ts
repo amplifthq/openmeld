@@ -56,6 +56,7 @@ import {
 } from "../src/remote-agent/infrastructure/d1/slack-thread-context-cursor-repo";
 import {
   claimSlackIdentityLinkTokenForUser,
+  consumeSlackIdentityLinkTokenAndUpsertUserLink,
   insertSlackIdentityLinkToken,
   insertSlackUserIdentityLinkIfAbsent,
   readSlackIdentityLinkTokenForUser,
@@ -70,6 +71,8 @@ import {
 import {
   applyDrizzleMigrationsForTables,
   applyDrizzleMigrationForTable as applyMigrationForTable,
+  createAfterMatchingBatchD1Database,
+  createBeforeMatchingBatchD1Database,
   createFaultInjectingD1Database,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
@@ -3433,7 +3436,6 @@ describe("Remote Agent Slack signal service", () => {
   it("moves a Slack account after the Slack user proves control with a private token", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
-    applyMigrationForTable(harness, "center_agent_audit_journal");
     seedSlackOrganization(harness);
     stubSlackFetch({ email: "ari@example.test" });
     const token = `slacklink_${"5".repeat(64)}`;
@@ -3503,6 +3505,183 @@ describe("Remote Agent Slack signal service", () => {
           slackUserId: "U123",
         })
       ).resolves.toMatchObject({ openmeldUserId: "user_member" });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("derives Slack replacement audit from the canonical link inside the consume batch", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    stubSlackFetch({ email: "ari@example.test" });
+    const token = `slacklink_${"7".repeat(64)}`;
+    const nowMs = Date.now();
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await insertSlackUserIdentityLinkIfAbsent({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserId: "U123",
+        source: "explicit",
+        openmeldUserId: "user_member",
+      });
+      await insertSlackIdentityLinkToken({
+        db: harness.db,
+        deliveryScope: "slack_ephemeral",
+        expiresAtMs: nowMs + 60_000,
+        issuedAtMs: nowMs - 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserDisplayName: "Slack Ari",
+        slackUserId: "U123",
+        tokenHash: await digestSlackIdentityLinkToken(token),
+      });
+      const racingDb = createBeforeMatchingBatchD1Database({
+        beforeBatch: () => {
+          harness.run({
+            sql: `
+              UPDATE slack_user_identity_links
+              SET openmeld_user_id = 'user_concurrent'
+              WHERE slack_team_id = 'T123' AND slack_user_id = 'U123'
+            `,
+          });
+        },
+        db: harness.db,
+        matches: (sql) =>
+          sql.includes("UPDATE slack_user_identity_link_tokens") &&
+          sql.includes("consume_nonce"),
+      });
+
+      await expect(
+        rpcConsumeSlackIdentityLink(buildEnv(racingDb), {
+          context: buildHumanContext(),
+          token,
+        })
+      ).resolves.toMatchObject({
+        linked: true,
+        replacedExistingLink: true,
+        openMeldUserId: "user_member",
+      });
+      expect(
+        harness.queryFirst<{ audit_count: number }>({
+          sql: `
+            SELECT COUNT(*) AS audit_count
+            FROM center_agent_audit_journal
+            WHERE action = 'replace_message_channel_identity_link'
+          `,
+        })
+      ).toEqual({ audit_count: 1 });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("rolls back a Slack identity replacement when its audit write fails", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    stubSlackFetch({ email: "ari@example.test" });
+    const token = `slacklink_${"6".repeat(64)}`;
+    const nowMs = Date.now();
+    try {
+      harness.run({
+        params: ["user_old", "Old member", "old@example.test", 1, 100, 100],
+        sql: `
+          INSERT INTO users (id, name, email, email_verified, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `,
+      });
+      harness.run({
+        params: ["member_old", "org_1", "user_old", "member", 100],
+        sql: `
+          INSERT INTO members (id, organization_id, user_id, role, created_at)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+      });
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await insertSlackUserIdentityLinkIfAbsent({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserId: "U123",
+        source: "explicit",
+        openmeldUserId: "user_old",
+      });
+      await insertSlackIdentityLinkToken({
+        db: harness.db,
+        deliveryScope: "slack_ephemeral",
+        expiresAtMs: nowMs + 60_000,
+        issuedAtMs: nowMs - 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserDisplayName: "Slack Ari",
+        slackUserId: "U123",
+        tokenHash: await digestSlackIdentityLinkToken(token),
+      });
+      harness.run({
+        sql: `
+          CREATE TRIGGER fail_identity_link_audit
+          BEFORE INSERT ON center_agent_audit_journal
+          WHEN NEW.action = 'replace_message_channel_identity_link'
+          BEGIN
+            SELECT RAISE(ABORT, 'injected identity-link audit failure');
+          END
+        `,
+      });
+
+      await expect(
+        rpcConsumeSlackIdentityLink(buildEnv(harness.db), {
+          context: buildHumanContext(),
+          token,
+        })
+      ).rejects.toThrow("injected identity-link audit failure");
+      await expect(
+        readSlackUserIdentityLink({
+          db: harness.db,
+          slackTeamId: "T123",
+          slackUserId: "U123",
+        })
+      ).resolves.toMatchObject({ openmeldUserId: "user_old" });
+      harness.run({ sql: "DROP TRIGGER fail_identity_link_audit" });
+      await expect(
+        rpcConsumeSlackIdentityLink(buildEnv(harness.db), {
+          context: buildHumanContext(),
+          token,
+        })
+      ).resolves.toMatchObject({
+        linked: true,
+        replacedExistingLink: true,
+        openMeldUserId: "user_member",
+      });
+      await expect(
+        rpcConsumeSlackIdentityLink(buildEnv(harness.db), {
+          context: buildHumanContext(),
+          token,
+        })
+      ).resolves.toMatchObject({ linked: true });
+      expect(
+        harness.queryFirst<{ audit_count: number }>({
+          sql: `
+            SELECT COUNT(*) AS audit_count
+            FROM center_agent_audit_journal
+            WHERE action = 'replace_message_channel_identity_link'
+          `,
+        })
+      ).toEqual({ audit_count: 1 });
     } finally {
       harness.close();
     }
@@ -4058,6 +4237,168 @@ describe("Remote Agent Slack signal service", () => {
           openmeldUserId: "user_member",
         })
       ).resolves.toMatchObject({ status: "claimed" });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("lets a new user claim a fresh token after the previous user's token was consumed", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const firstTokenHash = await digestSlackIdentityLinkToken(
+      `slacklink_${"1".repeat(64)}`
+    );
+    const replacementTokenHash = await digestSlackIdentityLinkToken(
+      `slacklink_${"2".repeat(64)}`
+    );
+    const nowMs = Date.now();
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await insertSlackIdentityLinkToken({
+        claimedByUserId: "user_member",
+        db: harness.db,
+        deliveryScope: "slack_ephemeral",
+        expiresAtMs: nowMs + 86_400_000,
+        issuedAtMs: nowMs - 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserDisplayName: "Slack Ari",
+        slackUserId: "U123",
+        tokenHash: firstTokenHash,
+      });
+      await expect(
+        consumeSlackIdentityLinkTokenAndUpsertUserLink({
+          audit: {
+            action: "replace_message_channel_identity_link",
+            actorProfileId: "profile_member",
+            createdAtMs: nowMs,
+            id: `replacement-audit:${firstTokenHash}`,
+            organizationId: "org_1",
+            resourceId: "slack-identity-link",
+          },
+          consumeNonce: "consume-first-token",
+          consumedAtMs: nowMs,
+          db: harness.db,
+          openmeldUserId: "user_member",
+          organizationId: "org_1",
+          slackTeamId: "T123",
+          slackUserId: "U123",
+          tokenHash: firstTokenHash,
+        })
+      ).resolves.toMatchObject({ status: "linked" });
+
+      await insertSlackIdentityLinkToken({
+        db: harness.db,
+        deliveryScope: "slack_ephemeral",
+        expiresAtMs: nowMs + 86_400_000,
+        issuedAtMs: nowMs + 1,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserDisplayName: "Slack Ari",
+        slackUserId: "U123",
+        tokenHash: replacementTokenHash,
+      });
+
+      await expect(
+        claimSlackIdentityLinkTokenForUser({
+          claimedAtMs: nowMs + 2,
+          db: harness.db,
+          openmeldUserId: "user_replacement",
+          organizationId: "org_1",
+          slackTeamId: "T123",
+          slackUserId: "U123",
+          tokenHash: replacementTokenHash,
+        })
+      ).resolves.toMatchObject({ status: "claimed" });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("returns the committed Slack link when a newer correction wins before response projection", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    const tokenHash = await digestSlackIdentityLinkToken(
+      `slacklink_${"3".repeat(64)}`
+    );
+    const nowMs = Date.now();
+
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+      await insertSlackIdentityLinkToken({
+        claimedByUserId: "user_member",
+        db: harness.db,
+        deliveryScope: "slack_ephemeral",
+        expiresAtMs: nowMs + 86_400_000,
+        issuedAtMs: nowMs - 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+        slackUserDisplayName: "Slack Ari",
+        slackUserId: "U123",
+        tokenHash,
+      });
+      const consumeDb = createAfterMatchingBatchD1Database({
+        afterBatch: () => {
+          harness.run({
+            params: ["user_replacement", "T123", "U123"],
+            sql: `
+              UPDATE slack_user_identity_links
+              SET openmeld_user_id = ?
+              WHERE slack_team_id = ?
+                AND slack_user_id = ?
+            `,
+          });
+        },
+        db: harness.db,
+        matches: (sql) =>
+          sql.includes("UPDATE slack_user_identity_link_tokens") &&
+          sql.includes("consume_nonce"),
+      });
+
+      await expect(
+        consumeSlackIdentityLinkTokenAndUpsertUserLink({
+          audit: {
+            action: "replace_message_channel_identity_link",
+            actorProfileId: "profile_member",
+            createdAtMs: nowMs,
+            id: `replacement-audit:${tokenHash}`,
+            organizationId: "org_1",
+            resourceId: "slack-identity-link",
+          },
+          consumeNonce: "post-commit-slack-consume",
+          consumedAtMs: nowMs,
+          db: consumeDb,
+          openmeldUserId: "user_member",
+          organizationId: "org_1",
+          slackTeamId: "T123",
+          slackUserId: "U123",
+          tokenHash,
+        })
+      ).resolves.toMatchObject({
+        link: { openmeldUserId: "user_member" },
+        replacedExistingLink: false,
+        status: "linked",
+      });
+      await expect(
+        readSlackUserIdentityLink({
+          db: harness.db,
+          slackTeamId: "T123",
+          slackUserId: "U123",
+        })
+      ).resolves.toMatchObject({ openmeldUserId: "user_replacement" });
     } finally {
       harness.close();
     }
@@ -6133,6 +6474,7 @@ function applySlackMigrations(
     "openMeldRemoteAgent_slack_thread_context_cursors"
   );
   applyMigrationForTable(input, "openMeldRemoteAgent_slack_workspace_bindings");
+  applyMigrationForTable(input, "center_agent_audit_journal");
   applyMigrationForTable(input, "slack_channel_introduction_runs");
   applyMigrationForTable(input, "slack_channel_introduction_items");
   applyMigrationForTable(input, "slack_workspace_tokens");

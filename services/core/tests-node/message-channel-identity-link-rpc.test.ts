@@ -28,6 +28,32 @@ describe("Message Channel identity-link disconnect RPC", () => {
     expect(readIdentityLink()).toBeNull();
   });
 
+  it("rolls back an identity-link disconnect when its audit write fails", async () => {
+    seedMember(harness, { role: "member", userId: "user-self" });
+    seedIdentityLink(harness, {
+      openMeldUserId: "user-self",
+      organizationId: "org-a",
+    });
+    harness.run({
+      sql: `
+        CREATE TRIGGER fail_identity_link_audit
+        BEFORE INSERT ON center_agent_audit_journal
+        WHEN NEW.action = 'disconnect_message_channel_identity_link'
+        BEGIN
+          SELECT RAISE(ABORT, 'injected identity-link audit failure');
+        END
+      `,
+    });
+
+    await expect(
+      disconnectIdentityLink({ roleUserId: "user-self" })
+    ).rejects.toThrow("injected identity-link audit failure");
+    expect(readIdentityLink()).toMatchObject({
+      openmeld_user_id: "user-self",
+      organization_id: "org-a",
+    });
+  });
+
   it("rejects a member disconnecting another member's provider account", async () => {
     seedMember(harness, { role: "member", userId: "user-requester" });
     seedMember(harness, { role: "member", userId: "user-owner" });

@@ -369,13 +369,27 @@ function resolveHumanProfileComputer(input: {
 			state: "needs_attention",
 		};
 	}
+	if (computers.some((computer) => computer.serviceState === "unknown")) {
+		return {
+			count: computers.length,
+			label: "Computer status unavailable",
+			path: resolveComputerPath({ ...input, computers }),
+			state: "unknown",
+		};
+	}
+	if (computers.length > 0) {
+		return {
+			count: computers.length,
+			label: `${computers.length} ${computers.length === 1 ? "computer" : "computers"} not connected`,
+			path: resolveComputerPath({ ...input, computers }),
+			state: "not_connected",
+		};
+	}
 	return {
-		count: computers.length,
+		count: 0,
 		label: input.isCurrentUser ? "Connect a computer" : "No computer connected",
 		path: resolveComputerPath({ ...input, computers }),
-		state: computers.some((computer) => computer.serviceState === "unknown")
-			? "unknown"
-			: "not_connected",
+		state: "not_connected",
 	};
 }
 
