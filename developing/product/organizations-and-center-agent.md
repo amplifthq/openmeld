@@ -1070,6 +1070,14 @@ this release.
   Setting Default Project is limited to that member's local Agent Profiles.
   Role-scoped actions use the represented member's current server-side role;
   they are not autonomous Center Agent privileges.
+- The audited Organization Directory read is the shared People identity surface
+  for Web, Center Agent, and local agents using the signed-in member's CLI
+  authority. It includes current members, Human and Agent Profiles, roles, and
+  optional Core-owned `lastActiveAt`; it does not grant profile mutation,
+  Channel disconnection, private Computer access, or draft Profile Report
+  access. The Center Agent may combine this directory with its separate
+  team-safe Computer and approved Organization Document reads, but those owners
+  remain separate and no composite cache becomes another source of truth.
 - Selecting or resetting the Organization working language is a represented
   owner/admin configuration action. The Center Agent does not receive
   autonomous authority to change it, and member research may write only the

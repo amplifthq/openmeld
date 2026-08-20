@@ -363,6 +363,7 @@ export function DirectoryMembersOverview(input: {
 				subjectUserId: input.currentUserId,
 			})
 		: buildOrganizationHumanProfileRows({
+				agentProfiles: input.directoryQuery.data?.agentProfiles ?? [],
 				canManageConnectedAccounts,
 				computers: computersQuery.data ?? null,
 				computersStatus,

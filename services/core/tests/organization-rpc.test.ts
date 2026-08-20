@@ -1016,6 +1016,51 @@ describe("organization Core RPC", () => {
         memberRow("member-a", "org-a", "user-a"),
         memberRow("member-b", "org-b", "user-b"),
       ],
+      memberActivities: [
+        {
+          humanProfileId: HUMAN_PROFILE_ID,
+          lastActiveAtMs: Date.parse("2026-07-07T23:45:00.000Z"),
+          organizationId: "org-a",
+          userId: "user-a",
+        },
+      ],
+    });
+
+    const response = await rpcGetCurrentOrganizationDirectory(env, {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        userId: "user-a",
+      }),
+      includeMemberLastActiveAt: true,
+    });
+
+    expect(response.organizationId).toBe("org-a");
+    expect(response.members.map((member) => member.userId)).toEqual(["user-a"]);
+    expect(response.members[0]?.humanProfile?.lastUsedAt).toBe(
+      "2023-11-14T22:13:20.000Z"
+    );
+    expect(response.members[0]?.lastActiveAt).toBe("2026-07-07T23:45:00.000Z");
+    expect(response.agentProfiles.map((agent) => agent.profileId)).toEqual([
+      AGENT_PROFILE_ID,
+    ]);
+    expect(
+      response.agentProfiles[0]?.readiness.agentExecutionReadiness
+        .agentProfileId
+    ).toBe(AGENT_PROFILE_ID);
+  });
+
+  it("omits Organization member activity unless the caller opts in", async () => {
+    const env = buildEnv({
+      agentProfiles: [],
+      members: [memberRow("member-a", "org-a", "user-a")],
+      memberActivities: [
+        {
+          humanProfileId: HUMAN_PROFILE_ID,
+          lastActiveAtMs: Date.parse("2026-07-07T23:45:00.000Z"),
+          organizationId: "org-a",
+          userId: "user-a",
+        },
+      ],
     });
 
     const response = await rpcGetCurrentOrganizationDirectory(env, {
@@ -1025,18 +1070,7 @@ describe("organization Core RPC", () => {
       }),
     });
 
-    expect(response.organizationId).toBe("org-a");
-    expect(response.members.map((member) => member.userId)).toEqual(["user-a"]);
-    expect(response.members[0]?.humanProfile?.lastUsedAt).toBe(
-      "2023-11-14T22:13:20.000Z"
-    );
-    expect(response.agentProfiles.map((agent) => agent.profileId)).toEqual([
-      AGENT_PROFILE_ID,
-    ]);
-    expect(
-      response.agentProfiles[0]?.readiness.agentExecutionReadiness
-        .agentProfileId
-    ).toBe(AGENT_PROFILE_ID);
+    expect(response.members[0]).not.toHaveProperty("lastActiveAt");
   });
 
   it("fails closed when the Auth-owned member projection is unavailable", async () => {
@@ -9156,6 +9190,7 @@ function buildEnv(
       centerAgentDesignations: input.centerAgentDesignations ?? [],
       centerAgentMemoryPolicies: input.centerAgentMemoryPolicies ?? [],
       dispatchLedgerEntries: input.dispatchLedgerEntries ?? [],
+      memberActivities: input.memberActivities ?? [],
       members: input.members ?? [],
       organizations: input.organizations ?? [],
       personalOrganizations: input.personalOrganizations ?? [],
@@ -9675,6 +9710,12 @@ function createOrganizationRpcDb(input: {
   > | null;
   centerAgentAuditJournal?: CenterAgentAuditJournalTestRow[];
   dispatchLedgerEntries?: DispatchLedgerTestEntry[];
+  memberActivities?: Array<{
+    humanProfileId: string;
+    lastActiveAtMs: number;
+    organizationId: string;
+    userId: string;
+  }>;
   members: ReturnType<typeof memberRow>[];
   nativeDeliveries?: ReturnType<typeof nativeDeliveryLedgerRow>[];
   ownedDevices?: Array<{
@@ -9817,6 +9858,7 @@ function createOrganizationRpcDb(input: {
               centerAgentAuditRows,
               centerAgentDesignationRows,
               dispatchLedgerEntries: input.dispatchLedgerEntries,
+              memberActivities: input.memberActivities,
               members: input.members,
               normalizedSql,
               organizations: input.organizations,
@@ -10887,6 +10929,9 @@ function resolveAllRows(input: {
     ReturnType<typeof centerAgentDesignationRow>
   >;
   dispatchLedgerEntries?: DispatchLedgerTestEntry[];
+  memberActivities?: Parameters<
+    typeof createOrganizationRpcDb
+  >[0]["memberActivities"];
   members: Parameters<typeof createOrganizationRpcDb>[0]["members"];
   normalizedSql: string;
   organizations?: Parameters<
@@ -10899,6 +10944,20 @@ function resolveAllRows(input: {
   spaceMemberships?: ReturnType<typeof spaceMembershipRow>[];
   spaces?: ReturnType<typeof spaceRow>[];
 }) {
+  if (input.normalizedSql.includes("from organization_member_activity")) {
+    const organizationId = String(input.args[0] ?? "");
+    return (input.memberActivities ?? [])
+      .filter((activity) => activity.organizationId === organizationId)
+      .sort((left, right) => left.userId.localeCompare(right.userId))
+      .map((activity) => ({
+        human_profile_id: activity.humanProfileId,
+        last_active_at_ms: activity.lastActiveAtMs,
+        organization_id: activity.organizationId,
+        updated_at_ms: activity.lastActiveAtMs,
+        user_id: activity.userId,
+      }));
+  }
+
   if (input.normalizedSql.includes("from openmelddaemon_owned_devices")) {
     const ownerUserId = String(input.args[0] ?? "");
     return (input.ownedDevices ?? [])

@@ -5,6 +5,7 @@ import {
 import type {
 	AuthProfileView,
 	MessageChannelConnectionProjection,
+	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import {
@@ -21,6 +22,19 @@ describe("directory Human Profile model", () => {
 
 		expect(missingProfile).toMatchObject({ email: null, role: null });
 		expect(activeProfile).toMatchObject({ email: null, role: null });
+		expect(activeProfile?.lastActiveAt).toBeNull();
+	});
+
+	it("uses the Organization activity projection instead of Auth profile use", () => {
+		const [member] = buildOrganizationRows({
+			messageChannels: buildMessageChannels({
+				connections: [],
+				identityLinks: [],
+			}),
+			messageChannelsStatus: "ready",
+		});
+
+		expect(member?.lastActiveAt).toBe("2026-08-20T11:00:00.000Z");
 	});
 
 	it("does not promote a provider display name to an account email", () => {
@@ -102,9 +116,70 @@ describe("directory Human Profile model", () => {
 			}),
 		]);
 	});
+
+	it("groups ordinary Agent Profiles by owner and excludes the Center Agent", () => {
+		const rows = buildOrganizationRows({
+			agentProfiles: [
+				buildAgentProfile({
+					agentControllerRef: "builtin:codex",
+					ownerUserId: "user-a",
+					profileId: "agent-codex",
+					profileName: "Ari Codex",
+				}),
+				buildAgentProfile({
+					agentControllerRef: "builtin:claude-code",
+					ownerUserId: "user-a",
+					profileId: "agent-claude",
+					profileName: "Ari Claude",
+				}),
+				buildAgentProfile({
+					agentControllerRef: "builtin:codex",
+					isCenterAgent: true,
+					ownerUserId: "user-a",
+					profileId: "agent-center",
+					profileName: "Center Agent",
+				}),
+				buildAgentProfile({
+					agentControllerRef: "builtin:grok-build",
+					ownerUserId: "user-b",
+					profileId: "agent-grok",
+					profileName: "Builder",
+				}),
+			],
+			messageChannels: buildMessageChannels({
+				connections: [],
+				identityLinks: [],
+			}),
+			messageChannelsStatus: "ready",
+		});
+
+		expect(rows.find((row) => row.userId === "user-a")?.agentProfiles).toEqual([
+			{
+				agentId: "claude-code",
+				avatarImageUrl: null,
+				id: "agent-claude",
+				name: "Ari Claude",
+			},
+			{
+				agentId: "codex",
+				avatarImageUrl: null,
+				id: "agent-codex",
+				name: "Ari Codex",
+			},
+		]);
+		expect(rows.find((row) => row.userId === "user-b")?.agentProfiles).toEqual([
+			{
+				agentId: "grok-build",
+				avatarImageUrl: null,
+				id: "agent-grok",
+				name: "Builder",
+			},
+		]);
+	});
 });
 
 function buildOrganizationRows(input: {
+	agentProfiles?: OrganizationDirectoryResponse["agentProfiles"];
 	messageChannels: ReturnType<typeof buildMessageChannels>;
 	messageChannelsStatus: "failed" | "loading" | "ready";
 }) {
@@ -126,6 +201,7 @@ function buildOrganizationRows(input: {
 		organizationId: "org-a",
 	});
 	return buildOrganizationHumanProfileRows({
+		agentProfiles: input.agentProfiles ?? [],
 		canManageConnectedAccounts: true,
 		computers: null,
 		computersStatus: "ready",
@@ -137,6 +213,24 @@ function buildOrganizationRows(input: {
 		messageChannelsStatus: input.messageChannelsStatus,
 		orgSlug: "acme",
 	});
+}
+
+function buildAgentProfile(input: {
+	agentControllerRef: string;
+	isCenterAgent?: boolean;
+	ownerUserId: string;
+	profileId: string;
+	profileName: string;
+}): OrganizationDirectoryResponse["agentProfiles"][number] {
+	return {
+		avatarUrl: undefined,
+		isCenterAgent: input.isCenterAgent,
+		ownerUserId: input.ownerUserId,
+		profileId: input.profileId,
+		profileName: input.profileName,
+		readiness: { agentControllerRef: input.agentControllerRef },
+		status: "active",
+	} as OrganizationDirectoryResponse["agentProfiles"][number];
 }
 
 function buildPersonalRows(input: { profiles: readonly AuthProfileView[] }) {
@@ -179,8 +273,18 @@ function buildDirectoryMember(input: {
 	userId: string;
 }) {
 	return {
-		humanProfile: null,
+		humanProfile: {
+			lastUsedAt: "2026-08-20T12:00:00.000Z",
+			profileHandle: input.userId,
+			profileId:
+				input.userId === "user-a"
+					? "11111111-1111-4111-8111-111111111111"
+					: "22222222-2222-4222-8222-222222222222",
+			profileName: input.userId,
+			status: "active",
+		},
 		joinedAt: "2026-08-20T00:00:00.000Z",
+		lastActiveAt: input.userId === "user-a" ? "2026-08-20T11:00:00.000Z" : null,
 		memberId: input.memberId,
 		organizationId: "org-a",
 		role: input.role,

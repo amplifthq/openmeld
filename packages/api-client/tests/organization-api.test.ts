@@ -100,6 +100,33 @@ describe("api-client organization api", () => {
     );
   });
 
+  it("requests Organization member activity only when the caller opts in", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          organizationId: "org-1",
+          generatedAt: "2026-07-04T00:00:00.000Z",
+          members: [],
+          agentProfiles: [],
+        })
+      )
+    );
+    const api = createOrganizationApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await api.getCurrentDirectory({ includeMemberLastActiveAt: true });
+
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://gateway.openmeld.invalid/v1/organizations/current/directory?includeMemberLastActiveAt=true",
+      })
+    );
+  });
+
   it("lists active Organization Spaces visible to the caller", async () => {
     const transport = vi.fn(() =>
       Promise.resolve(

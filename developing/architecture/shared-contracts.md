@@ -627,12 +627,20 @@ identity resolution, not Binding authorization.
 
 Core derives those additional ids only from its own Organization Binding
 authorization and Binding records. It then combines the Auth projections with
-Core-owned Center Agent designation and readiness. Core must not reproduce the
+Core-owned Center Agent designation and readiness. When a caller explicitly
+requests `includeMemberLastActiveAt=true`, Core also overlays its own optional
+member `lastActiveAt` projection. This ISO timestamp is tied to the member's
+current Human Profile and advances only from an accepted, persisted Human text
+Signal in that Organization. A missing or stale-profile projection is omitted;
+Computer heartbeat, login/session refresh, presence, and Agent Activity are not
+fallbacks. Core must not reproduce the
 member, user, Human Profile, or Agent Profile identity joins from Auth private
 tables. A missing method, failed result, malformed payload, or mismatched
 Organization id fails the Directory read closed with
 `organization.directory_unavailable`; there is no direct-table fallback. The
-public `OrganizationDirectoryResponse` remains unchanged.
+public `OrganizationDirectoryResponse` adds only the optional member-level
+`lastActiveAt` field. Gateway strips it unless the query opts in, so older Web
+and CLI clients continue to receive the prior strict shape during rollout.
 
 `organization-computers.ts` owns the strict team-safe Organization Computer
 projection. Core authorizes the active Organization, resolves its current

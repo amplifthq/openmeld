@@ -52,17 +52,7 @@ export function buildProfileDetailsSnapshotFromHumanProfile(
     profileId: input.profileId,
     profileKind: "human",
     profileName: input.profileName,
-    sections: [
-      section("profile", "Profile", [
-        textRow({
-          id: "profile_type",
-          label: "Profile type",
-          source: "profile_identity",
-          value: formatProfileKind("human"),
-        }),
-      ]),
-      buildAdvancedDetailsSection({ profileId: input.profileId }),
-    ],
+    sections: [buildAdvancedDetailsSection({ profileId: input.profileId })],
     viewerScope: input.viewerScope,
   });
 }
