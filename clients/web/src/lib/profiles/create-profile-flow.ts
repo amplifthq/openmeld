@@ -2,6 +2,7 @@ import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	AgentControllerPermissionMode,
 	AgentProfileBindingOpenCodePermission,
+	AgentProfileBindingSessionInventorySelection,
 	AuthProfileView,
 	DaemonServiceLane,
 } from "@openmeld/schemas/types";
@@ -65,6 +66,7 @@ export type NewAgentProfileLocalSetupInput = {
 	reasoningLevel?: string | null;
 	runtimeLane: DaemonServiceLane | null;
 	selectedHumanProfileId: string | null;
+	sessionInventorySelection?: AgentProfileBindingSessionInventorySelection;
 };
 
 export async function createNewProfile(
@@ -154,6 +156,9 @@ export async function setupNewAgentProfileLocalState(
 		reasoningLevel: input.reasoningLevel ?? null,
 		runtimeLane: input.runtimeLane,
 		selectedHumanProfileId: input.selectedHumanProfileId,
+		...(input.sessionInventorySelection
+			? { sessionInventorySelection: input.sessionInventorySelection }
+			: {}),
 	});
 	await configureNewAgentProfileWorkspace({
 		agentProfileId: input.profile.openMeldProfileId,
@@ -192,6 +197,7 @@ async function bindNewAgentProfileToLocalAgent(input: {
 	reasoningLevel: string | null;
 	runtimeLane: DaemonServiceLane | null;
 	selectedHumanProfileId: string | null;
+	sessionInventorySelection?: AgentProfileBindingSessionInventorySelection;
 }): Promise<void> {
 	const bindingResult = await ensureWebAgentProfileRuntimeBinding({
 		actorProfileId: input.selectedHumanProfileId,
@@ -208,6 +214,9 @@ async function bindNewAgentProfileToLocalAgent(input: {
 		openCodePermission: input.openCodePermission,
 		reasoningLevel: input.reasoningLevel,
 		runtimeLane: input.runtimeLane,
+		...(input.sessionInventorySelection
+			? { sessionInventorySelection: input.sessionInventorySelection }
+			: {}),
 	});
 	if (bindingResult.status !== "accepted") {
 		throw new NewProfileLocalSetupError({

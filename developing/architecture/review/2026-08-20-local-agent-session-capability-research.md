@@ -472,9 +472,11 @@ headless operation, ACP Session operations, and bounded `sessions list`
 [lines 79-123](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/17-sessions.md#L79-L123),
 [lines 199-245](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/17-sessions.md#L199-L245)).
 
-Sanitized inspection of the installed first-party store confirmed summary keys
-for `id`, `cwd`, `generated_title`, `created_at`, `updated_at`,
-`last_active_at`, and `parent_session_id` without reading content. Complete
+Sanitized inspection of the installed first-party store confirmed `info.id`,
+`info.cwd`, `generated_title`, `created_at`, `updated_at`, and
+`last_active_at` without exposing values or content. The adapter also accepts
+the reviewed top-level `id`/`cwd` compatibility shape as one complete pair.
+Complete
 retained enumeration should scan every summary index with stable local
 pagination/reconciliation. The default bounded `sessions list` output is not a
 complete discovery algorithm.

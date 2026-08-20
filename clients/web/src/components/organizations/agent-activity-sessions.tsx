@@ -394,11 +394,15 @@ function toCreationPreset(
 ): CreateProfileAgentActivitySessionPreset {
 	return {
 		agentControllerRef: input.session.localAgent.agentControllerRef,
+		computerId: input.session.computer.id,
 		localAgentName: input.session.localAgent.name,
 		mode: input.mode,
 		nativeSessionId: input.session.nativeSessionId,
 		nativeSessionTitle: input.session.nativeSessionTitle,
+		organizationId: input.session.organization.id,
+		ownerUserId: input.session.owner.userId,
 		projectId: input.session.project.id,
+		provider: input.session.localAgent.provider,
 		status: input.session.status,
 	};
 }

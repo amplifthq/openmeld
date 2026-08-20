@@ -103,6 +103,7 @@ export type {
   AgentProfileBindingResolutionSource,
   AgentProfileBindingRouteParams,
   AgentProfileBindingRuntimeId,
+  AgentProfileBindingSessionInventorySelection,
   AgentProfileBindingState,
   AgentProfileCreationDefaults,
   AgentProfileOrganizationWakeAccessEntry,

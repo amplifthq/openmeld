@@ -111,6 +111,14 @@ describe("new Agent Profile local setup", () => {
 	});
 
 	it("binds a resumed Agent Profile to the selected Native Session ID", async () => {
+		const sessionInventorySelection = {
+			computerId: "computer-1",
+			nativeSessionId: "native-codex-thread-1",
+			organizationId: "organization-1",
+			ownerUserId: "user-1",
+			projectId: "project-1",
+			provider: "codex" as const,
+		};
 		await createAndSetupAgent({
 			agentControllerConversationId: "native-codex-thread-1",
 			boundAgentId: "codex",
@@ -119,12 +127,14 @@ describe("new Agent Profile local setup", () => {
 			profileName: "Research Agent",
 			runtimeLane: "dev-local",
 			selectedHumanProfileId: "profile-human",
+			sessionInventorySelection,
 		});
 
 		expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				agentControllerConversationId: "native-codex-thread-1",
 				agentControllerRef: "builtin:codex",
+				sessionInventorySelection,
 			})
 		);
 	});

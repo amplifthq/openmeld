@@ -531,11 +531,15 @@ describe("CreateProfileDialog", () => {
 		renderCreateProfileDialog({
 			agentActivitySessionPreset: {
 				agentControllerRef: "builtin:codex",
+				computerId: "computer-1",
 				localAgentName: "Codex",
 				mode: "resume",
 				nativeSessionId: "native-codex-thread-1",
 				nativeSessionTitle: "Build Session Inventory",
+				organizationId: "organization-123",
+				ownerUserId: "user-123",
 				projectId: "project-1",
+				provider: "codex",
 				status: "working",
 			},
 		});

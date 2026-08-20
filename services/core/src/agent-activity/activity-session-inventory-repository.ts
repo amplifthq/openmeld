@@ -9,6 +9,7 @@ import type {
   AgentActivityInventorySession,
   AgentActivitySessionInventoryQuery,
   AgentActivitySessionInventoryResponse,
+  AgentProfileBindingSessionInventorySelection,
   LocalAgentSessionProvider,
   SubmitAgentActivitySessionReconciliationBody,
   SubmitAgentActivitySessionReconciliationResponse,
@@ -97,6 +98,87 @@ export async function readConnectedComputerId(input: {
     .first<{ connected_computer_id: string | null }>();
   const value = row?.connected_computer_id?.trim();
   return value ? value : null;
+}
+
+export async function canResumeAgentActivitySessionSelection(input: {
+  activeOrganizationId: string | null;
+  agentControllerRef: string;
+  agentProfileId: string;
+  db: D1Database;
+  deviceId: string;
+  nowMs: number;
+  ownerUserId: string;
+  selection: AgentProfileBindingSessionInventorySelection;
+}): Promise<boolean> {
+  if (
+    input.activeOrganizationId !== input.selection.organizationId ||
+    input.ownerUserId !== input.selection.ownerUserId
+  ) {
+    return false;
+  }
+  const row = await input.db
+    .prepare(
+      `
+        SELECT 1 AS allowed
+        FROM agent_activity_session_inventory inventory
+        INNER JOIN agent_activity_session_inventory_sources source
+          ON source.source_scope_key = inventory.source_scope_key
+        INNER JOIN projects
+          ON projects.id = inventory.project_id
+          AND projects.organization_id = inventory.organization_id
+          AND projects.archived_at_ms IS NULL
+        INNER JOIN members
+          ON members.organization_id = inventory.organization_id
+          AND members.user_id = inventory.owner_user_id
+        INNER JOIN openMeldDaemon_owned_devices owned
+          ON owned.owner_user_id = inventory.owner_user_id
+          AND owned.device_id = inventory.device_id
+          AND owned.connected_computer_id = inventory.connected_computer_id
+        WHERE inventory.organization_id = ?
+          AND inventory.owner_user_id = ?
+          AND inventory.project_id = ?
+          AND inventory.connected_computer_id = ?
+          AND inventory.device_id = ?
+          AND inventory.agent_controller_ref = ?
+          AND inventory.provider = ?
+          AND inventory.native_session_id = ?
+          AND inventory.visible = 1
+          AND inventory.can_resume = 1
+          AND source.state = 'current'
+          AND source.last_complete_at_ms >= ?
+          AND NOT EXISTS (
+            SELECT 1
+            FROM openMeldDaemon_agent_profile_bindings binding
+            INNER JOIN openmeld_profiles profile
+              ON profile.profile_id = binding.agent_profile_id
+              AND profile.organization_id = inventory.organization_id
+              AND profile.owner_user_id = inventory.owner_user_id
+              AND profile.profile_kind = 'agent'
+              AND profile.status = 'active'
+            WHERE binding.owner_kind = 'owner_account'
+              AND binding.owner_id = inventory.owner_user_id
+              AND binding.agent_controller_ref = inventory.agent_controller_ref
+              AND binding.agent_controller_conversation_id = inventory.native_session_id
+              AND binding.binding_state = 'enabled_primary'
+              AND binding.agent_profile_id <> ?
+          )
+        LIMIT 1
+      `
+    )
+    .bind(
+      input.selection.organizationId,
+      input.selection.ownerUserId,
+      input.selection.projectId,
+      input.selection.computerId,
+      input.deviceId,
+      input.agentControllerRef,
+      input.selection.provider,
+      input.selection.nativeSessionId,
+      input.nowMs - AGENT_ACTIVITY_SESSION_INVENTORY_STALE_AFTER_MS,
+      input.agentProfileId
+    )
+    .first<{ allowed: number }>();
+  return row?.allowed === 1;
 }
 
 export async function acceptAgentActivitySessionReconciliation(input: {

@@ -10,10 +10,14 @@ import type {
 	AgentControllerCollaborationMode,
 	AgentControllerPermissionMode,
 	AgentProfileBindingOpenCodePermission,
+	AgentProfileBindingSessionInventorySelection,
 	DaemonServiceLane,
 } from "@openmeld/schemas/types";
 import { sleep } from "@openmeld/utils";
-import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import {
+	createOrganizationScopedWebOpenMeldApiFoundation,
+	createUnscopedWebOpenMeldApiFoundation,
+} from "#/lib/openmeld-api/client";
 
 const AGENT_CONTROLLER_REPORT_BINDING_MAX_ATTEMPTS = 5;
 const AGENT_CONTROLLER_REPORT_BINDING_RETRY_DELAY_MS = 1500;
@@ -190,6 +194,7 @@ export async function ensureWebAgentProfileRuntimeBinding(input: {
 	openCodePermission?: AgentProfileBindingOpenCodePermission | null;
 	reasoningLevel?: string | null;
 	runtimeLane: DaemonServiceLane | null;
+	sessionInventorySelection?: AgentProfileBindingSessionInventorySelection;
 	writeMode?: "ensure" | "reconnect";
 }): Promise<EnsureWebAgentProfileRuntimeBindingResult> {
 	const readinessResult = await checkWebAgentProfileRuntimeReadiness(input);
@@ -198,11 +203,7 @@ export async function ensureWebAgentProfileRuntimeBinding(input: {
 	}
 
 	try {
-		const foundation = createUnscopedWebOpenMeldApiFoundation({
-			...(input.actorProfileId
-				? { openMeldProfileId: input.actorProfileId }
-				: {}),
-		});
+		const foundation = createBindingApiFoundation(input);
 		const agentProfileBindingApi = createAgentProfileBindingApi(foundation);
 		const modelId = normalizeOptionalBindingText(input.modelId);
 		const reasoningLevel = modelId
@@ -236,6 +237,9 @@ export async function ensureWebAgentProfileRuntimeBinding(input: {
 			...(input.openCodePermission
 				? { openCodePermission: input.openCodePermission }
 				: {}),
+			...toSessionInventorySelectionRequestFields(
+				input.sessionInventorySelection
+			),
 			...(input.writeMode ? { writeMode: input.writeMode } : {}),
 		};
 		let binding =
@@ -295,6 +299,29 @@ export async function ensureWebAgentProfileRuntimeBinding(input: {
 	}
 }
 
+function createBindingApiFoundation(input: {
+	actorProfileId?: string | null;
+	sessionInventorySelection?: AgentProfileBindingSessionInventorySelection;
+}) {
+	const actor = input.actorProfileId
+		? { openMeldProfileId: input.actorProfileId }
+		: {};
+	return input.sessionInventorySelection
+		? createOrganizationScopedWebOpenMeldApiFoundation({
+				...actor,
+				organizationId: input.sessionInventorySelection.organizationId,
+			})
+		: createUnscopedWebOpenMeldApiFoundation(actor);
+}
+
+function toSessionInventorySelectionRequestFields(
+	selection: AgentProfileBindingSessionInventorySelection | undefined
+): {
+	sessionInventorySelection?: AgentProfileBindingSessionInventorySelection;
+} {
+	return selection ? { sessionInventorySelection: selection } : {};
+}
+
 export function formatWebAgentProfileRuntimeBindingFailure(
 	result: Exclude<
 		EnsureWebAgentProfileRuntimeBindingResult,
@@ -315,6 +342,14 @@ export function formatWebAgentProfileRuntimeBindingFailure(
 	}
 	if (hasLocalReadinessRefreshReason(result)) {
 		return "Connect local agent after OpenMeld refreshes this computer's local agent list.";
+	}
+	if (
+		result.reason === "binding_rejected" &&
+		result.reasonCodes.includes(
+			"agent_profile_binding.session_resume_unavailable"
+		)
+	) {
+		return "This Session changed or is no longer available to resume. Refresh Agent Activity and choose it again.";
 	}
 	if (result.reason === "binding_rejected") {
 		return "OpenMeld could not save this local agent connection. Connect the local agent again.";

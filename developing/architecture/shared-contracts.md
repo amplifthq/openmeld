@@ -101,6 +101,15 @@ runtime id, local connection id, absolute path, transcript locator, or mutation
 token. Every later operation re-authorizes its complete target; possession of a
 read response grants no execution authority.
 
+The Agent Profile Binding ensure body has an additive optional
+`sessionInventorySelection` for Resume. It carries only Organization, Owner,
+Project, public Computer, provider, and native Session ids; its native id must
+equal the Binding conversation id. Gateway forwards the strict shape unchanged,
+and Core accepts the Binding write only while the matching canonical inventory
+row remains current, fresh, authorized, resumable, on the submitted runtime
+device, and not actively bound to another Agent Profile. Callers without this
+field retain the existing Binding contract.
+
 Reconciliation pages are bounded and ordered. Core stages one source's pages
 under a reconciliation id and makes no user-readable change until the terminal
 page succeeds. A complete terminal page replaces that source's current set.

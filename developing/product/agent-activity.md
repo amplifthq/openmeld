@@ -184,9 +184,12 @@ Grok Build.
 - A fresh provider profile may create its session directory after OpenMeld
   Service starts. Missing watcher roots are retried dynamically; users must not
   need to restart the Service to begin near-real-time observation.
-- The published CLI retains its Node 20 startup contract. OpenCode's optional
-  SQLite reconciliation is capability-detected and fail-open when `node:sqlite`
-  is unavailable; the managed OpenCode plugin remains the primary event path.
+- The published CLI retains its Node 20 startup contract. OpenCode's retained
+  Session reconciliation opens its SQLite store read-only only when the store
+  exists: the npm CLI uses the Node-20-compatible `better-sqlite3` dependency,
+  while the standalone Bun binary uses built-in `bun:sqlite`. Both runtimes
+  execute the same ordered query and row-mapping contract; the managed OpenCode
+  plugin remains the primary lifecycle-event path.
 - A local event is at most 16 KiB; one report contains at most 64 events; the
   outbox is bounded and reports pressure explicitly instead of deleting the
   oldest unsent fact to claim health.
@@ -211,6 +214,10 @@ the shared metadata contract.
   are absent from the new candidate set. Removing a Local Project Connection
   reports `disconnected` and removes that source from the selectable current
   Inventory while retained Activity evidence remains unchanged.
+- When a local Project Connection is rebound, the Service publishes the old
+  source's `disconnected` fact before publishing its replacement. A failed
+  replacement therefore cannot keep an obsolete authorized source selectable
+  or deadlock reconciliation on the Session identity uniqueness constraint.
 - `unsupported` is a provider capability fact. `error` preserves the last
   complete projection as stale. Neither is converted into an empty successful
   result.
@@ -234,11 +241,11 @@ surface is asymmetric:
 
 | Provider | Complete retained discovery | Native title | Status without fresh lifecycle | Resume | Fork |
 | --- | --- | --- | --- | --- | --- |
-| Codex | app-server `thread/list`, every source kind, archived and non-archived pages to cursor exhaustion | current `Thread.name`, else null | archived is Ended; otherwise Unknown | retained non-archived threads | retained non-archived threads |
-| Claude Code | top-level retained JSONL plus the complete live/job registry and hooks | explicit native custom title, else null | Unknown | retained Sessions | retained Sessions |
-| Cursor | no complete documented machine-readable inventory; report unsupported coverage | unavailable for the complete inventory | Unknown | only when the concrete Cursor surface proves the ID is resumable | unsupported |
-| OpenCode | complete local Session table or official API pagination | current persisted `session.title` | archived is Ended; otherwise Unknown | retained usable Sessions | retained usable Sessions |
-| Grok Build | complete retained `summary.json` index | current generated or renamed native title | Unknown | retained Sessions | retained Sessions |
+| Codex | app-server `thread/list`, every source kind, archived and non-archived pages to cursor exhaustion | current `Thread.name`, else null | archived is Ended; otherwise Unknown | retained non-archived threads | false until OpenMeld wires and verifies provider-native Fork |
+| Claude Code | top-level retained JSONL plus the complete live/job registry and hooks | explicit native custom title, else null | Unknown | retained Sessions | false until OpenMeld wires and verifies provider-native Fork |
+| Cursor | no complete documented machine-readable inventory; report unsupported coverage | unavailable for the complete inventory | Unknown | unsupported from the complete inventory | unsupported |
+| OpenCode | complete local Session table or official API pagination | current persisted `session.title` | archived is Ended; otherwise Unknown | retained usable Sessions | false until OpenMeld wires and verifies provider-native Fork |
+| Grok Build | complete retained `summary.json` index | current generated or renamed native title | Unknown | retained Sessions | false until OpenMeld wires and verifies provider-native Fork |
 
 Archived or otherwise unusable Sessions return false for an operation unless
 the installed provider version and adapter have proved that exact operation.
@@ -322,6 +329,13 @@ Those actions belong to their authoritative Profile, Binding, and Space
 systems. Agent Activity supplies only the selected Session fact. Resuming a
 Working Session shows a lightweight suggestion to Fork when available; it does
 not reject, score, or automatically route the request.
+
+Resume as Agent Profile carries a strict `sessionInventorySelection` pointer
+into the Agent Profile Binding command. Before writing Binding truth, Core
+revalidates the authenticated owner and active Organization, active Project,
+public Computer plus internal runtime device, controller/provider/native id,
+fresh current source, `canResume`, and any existing active Binding. A cached Web
+row can express selection intent but cannot authorize a Resume operation.
 
 The legacy Overview and Changes surfaces continue to consume the bounded
 Activity snapshot contract.

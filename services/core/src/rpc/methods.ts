@@ -579,6 +579,7 @@ import {
   rpcCenterAgentReadAgentActivity as centerAgentReadAgentActivity,
 } from "../agent-activity/activity-center-agent-rpc";
 import { rpcSubmitAgentActivityEvents as submitAgentActivityEvents } from "../agent-activity/activity-event-rpc";
+import { canResumeAgentActivitySessionSelection } from "../agent-activity/activity-session-inventory-repository";
 import {
   rpcReadAgentActivitySessionInventory as readAgentActivitySessionInventory,
   rpcSubmitAgentActivitySessionReconciliation as submitAgentActivitySessionReconciliation,
@@ -13553,6 +13554,7 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
     modelId: input.modelId,
     openCodePermission: input.openCodePermission,
     reasoningLevel: input.reasoningLevel,
+    sessionInventorySelection: input.sessionInventorySelection,
     writeMode: input.writeMode,
   });
   if (!body.success) {
@@ -13579,6 +13581,26 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
   if (!openMeldServiceRuntimeId.ok) {
     return buildRejectedAgentProfileBindingResponse([
       "agent_profile_binding.agent_controller_report_invalid",
+    ]);
+  }
+
+  if (
+    body.data.sessionInventorySelection &&
+    !(await canResumeAgentActivitySessionSelection({
+      activeOrganizationId: normalizeOptionalText(
+        request.context.activeOrganizationId
+      ),
+      agentControllerRef: body.data.agentControllerRef,
+      agentProfileId: request.agentProfileId,
+      db,
+      deviceId: body.data.deviceId,
+      nowMs: Date.now(),
+      ownerUserId: request.owner.id,
+      selection: body.data.sessionInventorySelection,
+    }))
+  ) {
+    return buildRejectedAgentProfileBindingResponse([
+      "agent_profile_binding.session_resume_unavailable",
     ]);
   }
 

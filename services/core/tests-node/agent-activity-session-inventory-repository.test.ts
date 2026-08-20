@@ -5,6 +5,7 @@ import type {
 import { afterEach, describe, expect, it } from "vitest";
 import {
   acceptAgentActivitySessionReconciliation,
+  canResumeAgentActivitySessionSelection,
   readAgentActivitySessionInventory,
 } from "../src/agent-activity/activity-session-inventory-repository";
 import {
@@ -114,6 +115,60 @@ describe("Agent Activity Session Inventory repository", () => {
       bindingState: "unbound",
       boundAgentProfileId: null,
     });
+  });
+
+  it("authorizes Resume only from a fresh matching unbound Session fact", async () => {
+    const harness = createInventoryHarness();
+    await reconcile(harness.db, {
+      sessions: [observedSession("native-resume", 1000)],
+    });
+    const validate = (overrides: Record<string, unknown> = {}) =>
+      canResumeAgentActivitySessionSelection({
+        activeOrganizationId: "org-1",
+        agentControllerRef: "builtin:codex",
+        agentProfileId: "agt_new",
+        db: harness.db,
+        deviceId: AUTHORITY.deviceId,
+        nowMs: NOW_MS,
+        ownerUserId: "user-1",
+        selection: {
+          computerId: AUTHORITY.connectedComputerId,
+          nativeSessionId: "native-resume",
+          organizationId: "org-1",
+          ownerUserId: "user-1",
+          projectId: "project-1",
+          provider: "codex",
+        },
+        ...overrides,
+      });
+
+    await expect(validate()).resolves.toBe(true);
+    await expect(
+      validate({ activeOrganizationId: "another-organization" })
+    ).resolves.toBe(false);
+    await expect(validate({ deviceId: "another-device" })).resolves.toBe(false);
+
+    harness.run({
+      params: ["agt_existing", "Existing Agent", "org-1", "user-1", "active"],
+      sql: `INSERT INTO openmeld_profiles
+        (profile_id, profile_name, profile_kind, organization_id, owner_user_id, status)
+        VALUES (?, ?, 'agent', ?, ?, ?)`,
+    });
+    harness.run({
+      params: [
+        "binding-existing",
+        "user-1",
+        "agt_existing",
+        "builtin:codex",
+        "native-resume",
+        "enabled_primary",
+      ],
+      sql: `INSERT INTO openMeldDaemon_agent_profile_bindings
+        (binding_id, owner_kind, owner_id, agent_profile_id,
+         agent_controller_ref, agent_controller_conversation_id, binding_state)
+        VALUES (?, 'owner_account', ?, ?, ?, ?, ?)`,
+    });
+    await expect(validate()).resolves.toBe(false);
   });
 
   it("keeps the last complete rows stale after an error and removes them after disconnect", async () => {

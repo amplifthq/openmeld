@@ -2,6 +2,7 @@ import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	AgentControllerPermissionMode,
 	AgentProfileBindingOpenCodePermission,
+	AgentProfileBindingSessionInventorySelection,
 	AuthProfileView,
 	DaemonServiceLane,
 } from "@openmeld/schemas/types";
@@ -56,6 +57,7 @@ export async function createProfileWithFollowUps(input: {
 	runtimeLane: DaemonServiceLane | null;
 	selectedHumanProfile: AuthProfileView | null | undefined;
 	selectedHumanProfileId: string | null;
+	sessionInventorySelection?: AgentProfileBindingSessionInventorySelection;
 	spaceContext: CreateProfileSpaceContext | undefined;
 }): Promise<CreatedProfileOutcome> {
 	assertSpaceJoinActorBeforeProfileCreate(input);
@@ -123,6 +125,9 @@ export async function createProfileWithFollowUps(input: {
 				reasoningLevel: input.reasoningLevel,
 				runtimeLane: input.runtimeLane,
 				selectedHumanProfileId: input.selectedHumanProfileId,
+				...(input.sessionInventorySelection
+					? { sessionInventorySelection: input.sessionInventorySelection }
+					: {}),
 			});
 		} catch (error) {
 			followUpIssues.push({

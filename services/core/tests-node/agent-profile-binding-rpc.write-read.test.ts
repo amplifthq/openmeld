@@ -6,6 +6,7 @@ import {
 } from "@openmeld/agent-runtime";
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import { acceptAgentActivitySessionReconciliation } from "../src/agent-activity/activity-session-inventory-repository";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   rpcDisableAgentProfilePrimaryBinding,
@@ -33,12 +34,127 @@ const DEFAULT_CONTEXT: OpenMeldRequestContext = {
     requestId: "req-agent-profile-binding",
   },
 };
+const SESSION_RESUME_CONTEXT: OpenMeldRequestContext = {
+  ...DEFAULT_CONTEXT,
+  activeOrganizationId: "org-personal-owner-1",
+};
 const CODEX_AVAILABLE_MODEL_IDS = readAvailableModelIds("codex");
 const UNKNOWN_MODEL_SUPPORT_MESSAGE = `Model "gpt-99-nonexistent" is not supported for Agent Controller "builtin:codex". Supported models: ${CODEX_AVAILABLE_MODEL_IDS.join(", ")}.`;
 const UNSUPPORTED_REASONING_MESSAGE =
   'Reasoning level "ultra" is not supported for model "gpt-5.5". Supported reasoning levels: low, medium, high, xhigh.';
 
 describe("agent profile binding Core RPC", () => {
+  it("revalidates a resumed Session against the current Core inventory before writing Binding truth", async () => {
+    const harness = createSqliteD1Harness();
+    applyAgentProfileBindingRpcMigrations(harness);
+    for (const tableName of [
+      "agent_activity_session_inventory",
+      "agent_activity_session_inventory_candidates",
+      "agent_activity_session_inventory_sources",
+    ]) {
+      applyMigrationForTable(harness, tableName);
+    }
+    try {
+      for (const sql of [
+        "ALTER TABLE projects ADD COLUMN organization_id text",
+        "ALTER TABLE projects ADD COLUMN name text",
+        "ALTER TABLE projects ADD COLUMN slug text",
+        "ALTER TABLE projects ADD COLUMN archived_at_ms integer",
+      ]) {
+        harness.run({ sql });
+      }
+      harness.run({
+        params: ["project-1", "org-personal-owner-1", "OpenMeld", "openmeld"],
+        sql: `INSERT INTO projects
+          (id, organization_id, name, slug, archived_at_ms)
+          VALUES (?, ?, ?, ?, NULL)`,
+      });
+      harness.run({
+        params: ["owner-1", "device-1", "computer-1", Date.now(), Date.now()],
+        sql: `INSERT INTO openMeldDaemon_owned_devices
+          (owner_user_id, device_id, connected_computer_id,
+           first_seen_at_ms, updated_at_ms)
+          VALUES (?, ?, ?, ?, ?)`,
+      });
+      const observedAtMs = Date.now();
+      await acceptAgentActivitySessionReconciliation({
+        authority: {
+          connectedComputerId: "computer-1",
+          deviceId: "device-1",
+          organizationId: "org-personal-owner-1",
+          ownerUserId: "owner-1",
+        },
+        db: harness.db,
+        nowMs: observedAtMs,
+        reconciliation: {
+          agentControllerRef: "builtin:codex",
+          lane: "openmeld-dev",
+          localConnectionId: `sha256:${"a".repeat(64)}`,
+          observedAtMs,
+          openMeldServiceRuntimeId: {
+            source: "runtime_registry_authority",
+            value: "runtime_opaque_1",
+          },
+          organizationId: "org-personal-owner-1",
+          pageIndex: 0,
+          projectId: "project-1",
+          provider: "codex",
+          reconciliationId: "reconciliation-resume",
+          repositoryFingerprint: null,
+          result: "sessions",
+          sessions: [
+            {
+              canFork: false,
+              canResume: true,
+              lastActiveAtMs: observedAtMs,
+              nativeSessionId: "native-session-1",
+              nativeSessionTitle: "Native Session",
+              origin: "local",
+              startedAtMs: observedAtMs - 1000,
+              status: "idle",
+            },
+          ],
+          terminal: true,
+        },
+      });
+      const registeredRuntimeId =
+        await seedRuntimeAgentControllerReport(harness);
+      const input = {
+        agentControllerConversationId: "native-session-1",
+        agentControllerRef: "builtin:codex",
+        agentProfileId: AGENT_PROFILE_ID,
+        context: SESSION_RESUME_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        openMeldServiceRuntimeId: registeredRuntimeId,
+        sessionInventorySelection: {
+          computerId: "computer-1",
+          nativeSessionId: "native-session-1",
+          organizationId: "org-personal-owner-1",
+          ownerUserId: "owner-1",
+          projectId: "project-1",
+          provider: "codex" as const,
+        },
+      };
+
+      await expect(
+        rpcEnsureAgentProfilePrimaryBinding(coreEnv(harness.db), input)
+      ).resolves.toMatchObject({ status: "accepted" });
+
+      harness.run({
+        sql: "UPDATE agent_activity_session_inventory_sources SET state = 'error'",
+      });
+      await expect(
+        rpcEnsureAgentProfilePrimaryBinding(coreEnv(harness.db), input)
+      ).resolves.toMatchObject({
+        reasonCodes: ["agent_profile_binding.session_resume_unavailable"],
+        status: "rejected",
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("creates and reads primary Binding truth from authenticated owner, Profile owner, Runtime, and Agent Controller Report evidence", async () => {
     const harness = createSqliteD1Harness();
     applyAgentProfileBindingRpcMigrations(harness);

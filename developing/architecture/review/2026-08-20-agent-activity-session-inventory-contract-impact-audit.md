@@ -48,6 +48,7 @@ router. Its only fields are `label`, `usedPercent`, nullable `resetsAt`, and
 | Contract | Change | Owner and receiver |
 | --- | --- | --- |
 | Agent Activity Session HTTP/RPC schemas | New strict list query, keyset cursor, reconciliation pages, coverage, Session, Owner, Project, Computer, Local Agent, origin, capability, and Binding projections | Shared schemas; Core is the read/projection owner; Gateway, Web, CLI, and Remote Agent are receivers |
+| Agent Profile Binding ensure body | Additive optional `sessionInventorySelection` for authoritative Resume revalidation | Shared schemas and API client; Gateway forwards; Core validates before the Binding writer |
 | CLI JSON envelope | Additive `activity.sessions` result using the shared response unchanged | Shared schemas; CLI Human, Agent, and JSON views |
 | Local reconciliation | New provider observations and page/result submissions | Local OpenMeld Service is observer/carrier; Core remains inventory owner |
 | Center Agent RPC/tool | Additive read-only paginated Session Inventory | Core authorization and projection; Remote Agent tool receiver |
@@ -66,6 +67,8 @@ evidence and retention remain separate from the current selectable inventory.
 | New CLI/Service with old Core | New Session RPCs are unavailable and the optional strict ACI field can be rejected; therefore Core receivers must precede local components |
 | New Gateway/Remote Agent with old Core | New reads fail closed as unavailable; no alternate inventory is derived |
 | New Web with old Gateway/Core | Session read is visibly unavailable; Web does not fall back to the bounded snapshot as a complete inventory |
+| New Resume Web caller with old Gateway/Core | The strict Binding receiver rejects `sessionInventorySelection`; deploy Core and Gateway before the Web caller, and never retry without the selection pointer |
+| Old Web/API caller with new Gateway/Core | Existing non-Session Binding writes remain unchanged because `sessionInventorySelection` is optional |
 | Old Web/Gateway receiver with new expanded Organization Computer payload | Strict receivers can reject `usageLimits`; shared receiver deployments must precede Core producing the field |
 | Old OpenMeld Skill with new CLI | Existing commands continue; the old Skill does not discover the new Session command |
 | New OpenMeld Skill with old CLI | `activity sessions` is unavailable; release stamping keeps Skill and CLI delivery aligned |
@@ -122,6 +125,10 @@ Claude Code: discovery succeeded, sessions=0 for the accepted Project
 Cursor: unsupported, cursor_complete_inventory_unavailable
 OpenCode: discovery succeeded, sessions=0 for the accepted Project
 Grok Build: sessions=5, titled=5, resume=5, unknown=5, fork=0
+OpenCode SQLite runtime: Node v20.20.2 fresh-install better-sqlite3 12.6.2
+read/prepare/close smoke passed
+OpenCode standalone runtime: Bun v1.3.14 compiled executable opened the real
+SQLite fixture read-only through bun:sqlite and returned the expected Session
 Codex Usage Limits: probe succeeded, structured windows=3; every window had a
 non-empty label, numeric usedPercent, ISO observedAt, and ISO resetsAt
 ```
@@ -130,7 +137,8 @@ Zero rows are evidence only for the exact accepted Project, not a claim that
 the provider has no retained Sessions elsewhere. The live run proves installed
 adapter execution and metadata mapping; deterministic contract tests prove
 pagination, reconciliation, disconnect, authorization, Binding derivation,
-and content exclusion without reading user content into test output.
+Resume-time Binding revalidation, and content exclusion without reading user
+content into test output.
 
 ## Privacy And Negative Acceptance
 

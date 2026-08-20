@@ -10,6 +10,7 @@ import { formatAgentRecoveryActionLabel } from "@openmeld/schemas";
 import type {
 	AgentControllerPermissionMode,
 	AgentProfileBindingOpenCodePermission,
+	AgentProfileBindingSessionInventorySelection,
 	AuthProfileView,
 } from "@openmeld/schemas/types";
 import {
@@ -89,11 +90,15 @@ export type CreateProfileOrganizationAuthorizationContext = {
 
 export type CreateProfileAgentActivitySessionPreset = {
 	agentControllerRef: string;
+	computerId: string;
 	localAgentName: string;
 	mode: "create" | "resume";
 	nativeSessionId: string;
 	nativeSessionTitle: string | null;
+	organizationId: string;
+	ownerUserId: string;
 	projectId: string;
+	provider: AgentProfileBindingSessionInventorySelection["provider"];
 	status: "working" | "idle" | "ended" | "error" | "unknown";
 };
 
@@ -304,6 +309,10 @@ export function CreateProfileDialog(input: {
 					boundAgentControllerPermissionMode,
 					boundAgentId,
 				});
+			const sessionInventorySelection =
+				resolveAgentActivitySessionInventorySelection(
+					input.agentActivitySessionPreset
+				);
 			const creationOutcome = await createProfileWithFollowUps({
 				agentControllerConversationId:
 					resolveAgentActivitySessionConversationId(
@@ -332,6 +341,7 @@ export function CreateProfileDialog(input: {
 				profileName,
 				reasoningLevel: boundAgentId ? boundReasoningLevel : null,
 				runtimeLane: bindingTarget?.runtimeLane ?? recovery.runtimeLane,
+				...toSessionInventorySelectionInput(sessionInventorySelection),
 				queryClient,
 				selectedHumanProfileId: selectedHumanProfile?.openMeldProfileId ?? null,
 				selectedHumanProfile,
@@ -715,6 +725,30 @@ function resolveAgentActivitySessionConversationId(
 	preset: CreateProfileAgentActivitySessionPreset | undefined
 ): string | null {
 	return preset?.mode === "resume" ? preset.nativeSessionId : null;
+}
+
+function resolveAgentActivitySessionInventorySelection(
+	preset: CreateProfileAgentActivitySessionPreset | undefined
+): AgentProfileBindingSessionInventorySelection | undefined {
+	if (preset?.mode !== "resume") {
+		return undefined;
+	}
+	return {
+		computerId: preset.computerId,
+		nativeSessionId: preset.nativeSessionId,
+		organizationId: preset.organizationId,
+		ownerUserId: preset.ownerUserId,
+		projectId: preset.projectId,
+		provider: preset.provider,
+	};
+}
+
+function toSessionInventorySelectionInput(
+	selection: AgentProfileBindingSessionInventorySelection | undefined
+): {
+	sessionInventorySelection?: AgentProfileBindingSessionInventorySelection;
+} {
+	return selection ? { sessionInventorySelection: selection } : {};
 }
 
 function resolveSessionPresetProfileName(

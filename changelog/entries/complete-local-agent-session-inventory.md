@@ -11,4 +11,5 @@ inventory of authorized Local Agent Sessions across connected Projects. Web,
 CLI, Local Agents, and the Center Agent share native Session titles and IDs,
 owners, Projects, Computers, status, capabilities, and Agent Profile Binding
 facts. TEAM Computer details can also show verified provider Usage Limit
-windows when a Local Agent exposes them.
+windows when a Local Agent exposes them. Resume rechecks the current authorized
+Session before connecting it to a new Agent Profile.

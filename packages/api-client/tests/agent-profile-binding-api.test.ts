@@ -186,12 +186,21 @@ describe("api-client agent profile binding api", () => {
 
     const result = await api.ensurePrimaryBinding({
       agentProfileId: AGENT_PROFILE_ID,
+      agentControllerConversationId: "native-session-1",
       agentControllerRef: "builtin:codex",
       deviceId: "device-1",
       lane: "openmeld-dev",
       openMeldServiceRuntimeId: {
         source: "runtime_registry_authority",
         value: "runtime_opaque_1",
+      },
+      sessionInventorySelection: {
+        computerId: "computer-1",
+        nativeSessionId: "native-session-1",
+        organizationId: "org-1",
+        ownerUserId: "owner-1",
+        projectId: "project-1",
+        provider: "codex",
       },
     });
 
@@ -201,11 +210,20 @@ describe("api-client agent profile binding api", () => {
         init: expect.objectContaining({
           body: JSON.stringify({
             agentControllerRef: "builtin:codex",
+            agentControllerConversationId: "native-session-1",
             deviceId: "device-1",
             lane: "openmeld-dev",
             openMeldServiceRuntimeId: {
               source: "runtime_registry_authority",
               value: "runtime_opaque_1",
+            },
+            sessionInventorySelection: {
+              computerId: "computer-1",
+              nativeSessionId: "native-session-1",
+              organizationId: "org-1",
+              ownerUserId: "owner-1",
+              projectId: "project-1",
+              provider: "codex",
             },
           }),
           method: "PUT",
