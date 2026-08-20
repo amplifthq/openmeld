@@ -6,14 +6,12 @@ import {
 	AvatarImage,
 } from "@openmeld/ui/components/avatar";
 import { DitherAvatarBackground } from "@openmeld/ui/components/dither-avatar-background";
+import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
 import type { ComponentProps } from "react";
+import { buildDitherProfileAvatarSeed } from "#/components/profiles/dither-profile-avatar-seed";
 
-const DITHER_PROFILE_AVATAR_SEED_NAMESPACE =
-	"openmeld-dither-profile-avatar:v1";
 const PROFILE_NAME_WORD_SEPARATOR_PATTERN = /\s+/u;
-
-export type DitherProfileAvatarKind = "center-agent" | "human";
 
 type CommonDitherProfileAvatarProps = Omit<
 	ComponentProps<typeof Avatar>,
@@ -38,6 +36,7 @@ type DitherProfileAvatarProps = CommonDitherProfileAvatarProps &
 
 export function DitherProfileAvatar({
 	avatarImageUrl,
+	className,
 	profileId,
 	profileKind,
 	profileName,
@@ -50,6 +49,7 @@ export function DitherProfileAvatar({
 		<Avatar
 			{...props}
 			aria-hidden="true"
+			className={cn("after:border-0", className)}
 			data-profile-kind={profileKind}
 			style={{ height: size, width: size }}
 		>
@@ -88,13 +88,6 @@ export function DitherProfileAvatar({
 			</AvatarFallback>
 		</Avatar>
 	);
-}
-
-export function buildDitherProfileAvatarSeed(input: {
-	profileId: string;
-	profileKind: DitherProfileAvatarKind;
-}): string {
-	return `${DITHER_PROFILE_AVATAR_SEED_NAMESPACE}:${input.profileKind}:${input.profileId}`;
 }
 
 function buildProfileInitials(profileName: string): string {

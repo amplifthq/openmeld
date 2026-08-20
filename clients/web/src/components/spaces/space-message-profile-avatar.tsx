@@ -26,7 +26,7 @@ export function SpaceMessageProfileAvatar(
 		if (input.isCenterAgent) {
 			return (
 				<DitherProfileAvatar
-					className="size-6 after:border-0"
+					className="size-6"
 					data-testid={`space-center-agent-profile-avatar-${input.profileId}`}
 					profileId={input.profileId}
 					profileKind="center-agent"
@@ -68,7 +68,7 @@ export function SpaceMessageProfileAvatar(
 		return (
 			<DitherProfileAvatar
 				avatarImageUrl={input.avatarImageUrl}
-				className="size-6 after:border-0"
+				className="size-6"
 				data-testid={`space-human-profile-avatar-${input.profileId}`}
 				profileId={input.profileId}
 				profileKind="human"

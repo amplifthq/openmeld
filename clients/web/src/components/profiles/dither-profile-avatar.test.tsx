@@ -1,9 +1,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-	buildDitherProfileAvatarSeed,
-	DitherProfileAvatar,
-} from "#/components/profiles/dither-profile-avatar";
+import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
+import { buildDitherProfileAvatarSeed } from "#/components/profiles/dither-profile-avatar-seed";
 
 afterEach(() => {
 	cleanup();
@@ -47,6 +45,23 @@ describe("DitherProfileAvatar", () => {
 				.querySelector("canvas")
 				?.getAttribute("data-profile-avatar-seed")
 		).toBe("openmeld-dither-profile-avatar:v1:human:human-1");
+	});
+
+	it("does not cover profile pixels with the generic Avatar border", () => {
+		mockCanvasContext();
+		render(
+			<DitherProfileAvatar
+				data-testid="borderless-profile-avatar"
+				profileId="human-1"
+				profileKind="human"
+				profileName="Felix Lee"
+				size={32}
+			/>
+		);
+
+		expect(screen.getByTestId("borderless-profile-avatar").className).toContain(
+			"after:border-0"
+		);
 	});
 
 	it("always renders Center Agent with a Dither background and agent glyph", () => {

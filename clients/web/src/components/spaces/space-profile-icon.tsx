@@ -29,7 +29,6 @@ export function SpaceProfileIcon(input: {
 		return (
 			<DitherProfileAvatar
 				className={cn(
-					"after:border-0",
 					SPACE_PROFILE_ICON_SIZE_CLASS_NAMES[size],
 					input.className
 				)}
@@ -47,7 +46,6 @@ export function SpaceProfileIcon(input: {
 			<DitherProfileAvatar
 				avatarImageUrl={input.avatarImageUrl}
 				className={cn(
-					"after:border-0",
 					SPACE_PROFILE_ICON_SIZE_CLASS_NAMES[size],
 					input.className
 				)}

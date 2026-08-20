@@ -71,8 +71,11 @@ describe("Message Channel identity-link disconnect RPC", () => {
     });
   });
 
-  it("lets an Organization owner disconnect another member's provider account", async () => {
-    seedMember(harness, { role: "owner", userId: "user-requester" });
+  it.each([
+    "owner",
+    "admin",
+  ] as const)("lets an Organization %s disconnect another member's provider account", async (role) => {
+    seedMember(harness, { role, userId: "user-requester" });
     seedMember(harness, { role: "member", userId: "user-owner" });
     seedIdentityLink(harness, {
       openMeldUserId: "user-owner",
@@ -218,7 +221,7 @@ function seedSlackConnection(
 
 function seedMember(
   harness: ReturnType<typeof createSqliteD1Harness>,
-  input: { role: "member" | "owner"; userId: string }
+  input: { role: "admin" | "member" | "owner"; userId: string }
 ): void {
   harness.run({
     params: [`member-${input.userId}`, "org-a", input.userId, input.role],

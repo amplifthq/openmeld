@@ -418,13 +418,7 @@ function ConnectedWorkSection() {
 								className="flex items-center gap-3 border-border border-t pt-3"
 								key={channel.service}
 							>
-								<AppLogo
-									app={channel}
-									className={
-										channel.service === "lark" ? "bg-muted/50" : undefined
-									}
-									size="sm"
-								/>
+								<AppLogo app={channel} size="sm" />
 								<span className="font-medium text-sm">{channel.name}</span>
 							</li>
 						))}

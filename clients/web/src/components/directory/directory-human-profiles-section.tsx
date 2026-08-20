@@ -15,8 +15,6 @@ import {
 } from "@openmeld/ui/components/dialog";
 import {
 	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
@@ -25,20 +23,19 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
-import { resolveStatusToneTextClassName } from "@openmeld/ui/lib/status-tone";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
-	CheckIcon,
-	DesktopTowerIcon,
 	DotsThreeIcon,
 	FileTextIcon,
 	InfoIcon,
 	PencilSimpleIcon,
 	PlusIcon,
 	UserFocusIcon,
-	UserIcon,
-	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -46,14 +43,22 @@ import {
 	DirectoryCardGrid,
 	DirectoryCardItem,
 } from "#/components/directory/directory-card-grid";
+import { DirectoryHumanProfileAvatar } from "#/components/directory/directory-human-profile-avatar";
+import { DirectoryHumanProfileDetailsDrawer } from "#/components/directory/directory-human-profile-details-drawer";
+import {
+	resolveDirectoryEmailLabel,
+	resolveDirectoryHumanProfileActivityLabel,
+	resolveDirectoryIdentityAccountLabel,
+} from "#/components/directory/directory-human-profile-format";
 import type {
-	DirectoryConnectableAccount,
-	DirectoryConnectedAccount,
 	DirectoryHumanProfileRow,
+	DirectoryIdentityAccount,
 } from "#/components/directory/directory-human-profile-model";
-import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
-import { HumanProfileEditDialog } from "#/components/profiles/human-profile-edit-dialog";
-import { ProfileDetailsDialog } from "#/components/profiles/profile-details-dialog";
+import {
+	DirectoryComputerSummary,
+	DirectoryIdentityAccountSummary,
+} from "#/components/directory/directory-human-profile-presentation";
+import { DirectoryHumanProfileRoleBadge } from "#/components/directory/directory-human-profile-role-badge";
 import { ProfileCard } from "#/components/profiles/profile-list-item";
 import { ProfilesSectionLayout } from "#/components/profiles/profiles-section-layout";
 
@@ -75,6 +80,8 @@ type DirectoryHumanProfileCardState = Omit<
 	highlight: "default" | "highlighted";
 };
 
+const DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS = 60_000;
+
 export function DirectoryHumanProfilesSection(input: {
 	activeBatch: CenterAgentMemberResearchBatch | null;
 	canCreateProfile: boolean;
@@ -95,6 +102,7 @@ export function DirectoryHumanProfilesSection(input: {
 	state: DirectoryHumanProfilesViewState;
 }) {
 	const rowElementsRef = useRef(new Map<string, HTMLElement>());
+	const [activityNowMs, setActivityNowMs] = useState(() => Date.now());
 	const [highlightedProfileId, setHighlightedProfileId] = useState<
 		string | null
 	>(null);
@@ -110,6 +118,13 @@ export function DirectoryHumanProfilesSection(input: {
 		pendingResearch: input.pendingResearch,
 		processedCount,
 	});
+
+	useEffect(() => {
+		const intervalId = window.setInterval(() => {
+			setActivityNowMs(Date.now());
+		}, DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS);
+		return () => window.clearInterval(intervalId);
+	}, []);
 
 	useEffect(() => {
 		if (!input.focusProfileId || profilesAreLoading) {
@@ -147,6 +162,7 @@ export function DirectoryHumanProfilesSection(input: {
 					<DirectoryCardItem itemId={member.id} key={member.id}>
 						<DirectoryHumanProfileCard
 							activeBatch={input.activeBatch}
+							activityNowMs={activityNowMs}
 							latestTasks={latestTasks}
 							member={member}
 							memberResearchError={input.memberResearchError}
@@ -222,6 +238,7 @@ export function DirectoryHumanProfilesSection(input: {
 
 function DirectoryHumanProfileCard(input: {
 	activeBatch: CenterAgentMemberResearchBatch | null;
+	activityNowMs: number;
 	latestTasks: readonly CenterAgentMemberResearchTask[];
 	member: DirectoryHumanProfileRow;
 	memberResearchError: { message: string; subjectUserId: string } | null;
@@ -232,10 +249,12 @@ function DirectoryHumanProfileCard(input: {
 	rowRef: (node: HTMLElement | null) => void;
 	state: DirectoryHumanProfileCardState;
 }) {
+	const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+	const [isEditingDetails, setIsEditingDetails] = useState(false);
 	const [connectableAccount, setConnectableAccount] =
-		useState<DirectoryConnectableAccount | null>(null);
+		useState<DirectoryIdentityAccount | null>(null);
 	const [connectedAccount, setConnectedAccount] =
-		useState<DirectoryConnectedAccount | null>(null);
+		useState<DirectoryIdentityAccount | null>(null);
 	const task = input.latestTasks.find(
 		(candidate) => candidate.subjectUserId === input.member.userId
 	);
@@ -247,24 +266,37 @@ function DirectoryHumanProfileCard(input: {
 		input.memberResearchError?.subjectUserId === input.member.userId
 			? input.memberResearchError.message
 			: null;
+	const openProfile = (editing: boolean) => {
+		setIsEditingDetails(editing);
+		setIsDetailsOpen(true);
+	};
 	return (
 		<>
 			<ProfileCard
 				actions={
-					<HumanProfileConnections
-						member={input.member}
-						memberResearchError={memberResearchError}
-						onConnectAccount={setConnectableAccount}
-						onManageAccount={setConnectedAccount}
-					/>
+					input.member.notice || memberResearchError ? (
+						<HumanProfileCardNotice
+							member={input.member}
+							memberResearchError={memberResearchError}
+						/>
+					) : undefined
 				}
 				className={cn(
-					"min-h-40",
+					"min-h-48",
 					input.state.highlight === "highlighted"
 						? "border-ring bg-muted/30 ring-1 ring-ring/60"
 						: null
 				)}
-				icon={<HumanProfileIcon member={input.member} />}
+				footerLeft={<DirectoryComputerSummary member={input.member} />}
+				footerRight={
+					<HumanProfileIdentitySummary
+						accounts={input.member.identityAccounts}
+						onOpenDetails={() => openProfile(false)}
+					/>
+				}
+				icon={
+					<DirectoryHumanProfileAvatar context="card" member={input.member} />
+				}
 				menu={
 					<HumanProfileCardActions
 						activeBatch={input.activeBatch}
@@ -273,25 +305,67 @@ function DirectoryHumanProfileCard(input: {
 						isStarting={isStarting}
 						member={input.member}
 						memberResearchError={memberResearchError}
+						onEdit={() => openProfile(true)}
 						onOpenDirectMessage={async () => {
 							await input.onOpenDirectMessage(input.member.id);
 						}}
+						onOpenProfile={() => openProfile(false)}
 						onResearch={input.onResearch}
 						task={task}
 					/>
 				}
+				onProfileSummaryClick={() => openProfile(false)}
+				profileSummaryAriaLabel={`Open ${input.member.name}'s profile`}
 				rowRef={input.rowRef}
-				secondarySubtitle={
-					input.member.profileStatus === "disabled" ? "Disabled" : null
-				}
-				subtitle={input.member.email}
+				secondarySubtitle={resolveDirectoryHumanProfileActivityLabel({
+					lastUsedAt: input.member.lastUsedAt,
+					nowMs: input.activityNowMs,
+					profileStatus: input.member.profileStatus,
+				})}
+				subtitle={resolveDirectoryEmailLabel(input.member.email)}
 				testId={
 					input.state.context === "organization"
 						? "organization-human-profile-row"
 						: "human-profile-row"
 				}
 				title={input.member.name}
-				titleAction={<HumanProfileRoleBadge member={input.member} />}
+				titleAction={
+					<DirectoryHumanProfileRoleBadge role={input.member.role} />
+				}
+				titleAdornment={
+					input.member.isCurrentUser ? (
+						<span className="text-muted-foreground text-xs">(you)</span>
+					) : null
+				}
+			/>
+			<DirectoryHumanProfileDetailsDrawer
+				activityNowMs={input.activityNowMs}
+				directMessageIsPending={input.state.directMessage === "pending"}
+				editing={isEditingDetails}
+				member={input.member}
+				onConnectAccount={(account) => {
+					setIsDetailsOpen(false);
+					setIsEditingDetails(false);
+					setConnectableAccount(account);
+				}}
+				onEditingChange={setIsEditingDetails}
+				onManageAccount={(account) => {
+					setIsDetailsOpen(false);
+					setIsEditingDetails(false);
+					setConnectedAccount(account);
+				}}
+				onOpenChange={(open) => {
+					setIsDetailsOpen(open);
+					if (!open) {
+						setIsEditingDetails(false);
+					}
+				}}
+				onOpenDirectMessage={() => {
+					input.onOpenDirectMessage(input.member.id).catch((error) => {
+						console.error("Human Profile Direct Message action failed.", error);
+					});
+				}}
+				open={isDetailsOpen}
 			/>
 			<ConnectChannelAccountDialog
 				account={connectableAccount}
@@ -304,7 +378,7 @@ function DirectoryHumanProfileCard(input: {
 			<ManageChannelAccountDialog
 				account={connectedAccount}
 				onDisconnect={() => {
-					if (connectedAccount) {
+					if (connectedAccount?.id) {
 						input.onDisconnectConnectedAccount(connectedAccount.id);
 						setConnectedAccount(null);
 					}
@@ -319,88 +393,19 @@ function DirectoryHumanProfileCard(input: {
 	);
 }
 
-function HumanProfileConnections(input: {
+function HumanProfileCardNotice(input: {
 	member: DirectoryHumanProfileRow;
 	memberResearchError: string | null;
-	onConnectAccount: (account: DirectoryConnectableAccount) => void;
-	onManageAccount: (account: DirectoryConnectedAccount) => void;
 }) {
+	if (!(input.member.notice || input.memberResearchError)) {
+		return null;
+	}
 	return (
-		<div className="space-y-3">
+		<div className="space-y-2">
 			{input.member.notice ? (
 				<p className="text-muted-foreground text-sm leading-6">
 					{input.member.notice}
 				</p>
-			) : null}
-			<HumanProfileComputerSummary member={input.member} />
-			{input.member.connectedAccounts.length > 0 ||
-			input.member.connectableAccounts.length > 0 ? (
-				<div className="space-y-1.5 border-border/70 border-t pt-3">
-					<p className="font-medium text-muted-foreground text-xs">
-						Connected accounts
-					</p>
-					{input.member.connectedAccounts.map((account) => (
-						<div
-							className="flex min-w-0 items-center justify-between gap-3 text-sm"
-							key={account.id}
-						>
-							<span className="flex min-w-0 items-center gap-2">
-								{account.state === "connected" ? (
-									<CheckIcon
-										aria-hidden="true"
-										className="size-3.5 shrink-0 text-emerald-500"
-									/>
-								) : (
-									<WarningCircleIcon
-										aria-hidden="true"
-										className="size-3.5 shrink-0 text-amber-500"
-									/>
-								)}
-								<span className="truncate">
-									{formatConnectedAccountLabel(account)}
-								</span>
-							</span>
-							<span className="flex shrink-0 items-center gap-2">
-								<span
-									className={cn(
-										"text-xs",
-										account.state === "connected"
-											? "text-muted-foreground"
-											: "text-amber-600 dark:text-amber-400"
-									)}
-								>
-									{account.state === "connected" ? "Connected" : "Unavailable"}
-								</span>
-								{account.canDisconnect ? (
-									<Button
-										onClick={() => input.onManageAccount(account)}
-										size="xs"
-										type="button"
-										variant="ghost"
-									>
-										Manage
-									</Button>
-								) : null}
-							</span>
-						</div>
-					))}
-					{input.member.connectableAccounts.map((account) => (
-						<div
-							className="flex items-center justify-between gap-3 text-sm"
-							key={account.provider}
-						>
-							<span>{account.providerLabel}</span>
-							<Button
-								onClick={() => input.onConnectAccount(account)}
-								size="xs"
-								type="button"
-								variant="outline"
-							>
-								Connect
-							</Button>
-						</div>
-					))}
-				</div>
 			) : null}
 			{input.memberResearchError ? (
 				<p className="text-destructive text-xs leading-5">
@@ -411,104 +416,32 @@ function HumanProfileConnections(input: {
 	);
 }
 
-function HumanProfileComputerSummary(input: {
-	member: DirectoryHumanProfileRow;
+function HumanProfileIdentitySummary(input: {
+	accounts: readonly DirectoryIdentityAccount[];
+	onOpenDetails: () => void;
 }) {
-	const content = (
-		<>
-			<DesktopTowerIcon
-				aria-hidden="true"
-				className={cn(
-					"size-4 shrink-0",
-					resolveComputerToneClassName(input.member.computer.state)
-				)}
-			/>
-			<span>{input.member.computer.label}</span>
-		</>
-	);
-	if (!input.member.computer.path) {
-		return (
-			<div className="flex items-center gap-2 text-muted-foreground text-sm">
-				{content}
-			</div>
-		);
+	if (input.accounts.length === 0) {
+		return null;
 	}
 	return (
-		<Link
-			className="inline-flex items-center gap-2 text-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-			to={input.member.computer.path}
-		>
-			{content}
-		</Link>
+		<div className="flex flex-wrap items-center justify-end gap-2">
+			{input.accounts.map((account) => (
+				<button
+					aria-label={`${account.providerLabel} account: ${resolveDirectoryIdentityAccountLabel(account)}`}
+					className="inline-flex items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+					key={account.provider}
+					onClick={input.onOpenDetails}
+					type="button"
+				>
+					<DirectoryIdentityAccountSummary account={account} context="card" />
+				</button>
+			))}
+		</div>
 	);
-}
-
-function HumanProfileComputerAction(input: {
-	member: DirectoryHumanProfileRow;
-}) {
-	const label = `${input.member.name}: ${input.member.computer.label}`;
-	const icon = (
-		<DesktopTowerIcon
-			aria-hidden="true"
-			className={cn(
-				"size-5",
-				resolveComputerToneClassName(input.member.computer.state)
-			)}
-		/>
-	);
-	return (
-		<Tooltip>
-			<TooltipTrigger
-				render={
-					input.member.computer.path ? (
-						<Link
-							aria-label={label}
-							className={buttonVariants({ size: "icon", variant: "ghost" })}
-							to={input.member.computer.path}
-						/>
-					) : (
-						<span
-							aria-label={label}
-							className="inline-flex size-8 items-center justify-center"
-							role="img"
-						/>
-					)
-				}
-			>
-				{icon}
-			</TooltipTrigger>
-			<TooltipContent side="bottom">
-				{input.member.computer.label}
-			</TooltipContent>
-		</Tooltip>
-	);
-}
-
-function resolveComputerToneClassName(
-	state: DirectoryHumanProfileRow["computer"]["state"]
-): string {
-	switch (state) {
-		case "connected":
-			return resolveStatusToneTextClassName("ready");
-		case "needs_attention":
-			return resolveStatusToneTextClassName("warning");
-		case "checking":
-			return resolveStatusToneTextClassName("checking");
-		default:
-			return resolveStatusToneTextClassName("muted");
-	}
-}
-
-function formatConnectedAccountLabel(
-	account: DirectoryConnectedAccount
-): string {
-	return account.providerAccountName
-		? `${account.providerLabel} · ${account.providerAccountName}`
-		: `${account.providerLabel} account`;
 }
 
 function ConnectChannelAccountDialog(input: {
-	account: DirectoryConnectableAccount | null;
+	account: DirectoryIdentityAccount | null;
 	onOpenChange: (open: boolean) => void;
 }) {
 	const [copied, setCopied] = useState(false);
@@ -537,7 +470,7 @@ function ConnectChannelAccountDialog(input: {
 					{requestText}
 				</div>
 				<DialogFooter className="sm:justify-between">
-					{input.account ? (
+					{input.account?.channelsPath ? (
 						<Link
 							className={buttonVariants({ size: "sm", variant: "ghost" })}
 							to={input.account.channelsPath}
@@ -569,7 +502,7 @@ function ConnectChannelAccountDialog(input: {
 }
 
 function ManageChannelAccountDialog(input: {
-	account: DirectoryConnectedAccount | null;
+	account: DirectoryIdentityAccount | null;
 	onDisconnect: () => void;
 	onOpenChange: (open: boolean) => void;
 }) {
@@ -580,8 +513,8 @@ function ManageChannelAccountDialog(input: {
 					<DialogTitle>Manage connected account</DialogTitle>
 					<DialogDescription>
 						{input.account
-							? `${formatConnectedAccountLabel(input.account)} is connected to this OpenMeld profile.`
-							: "This account is connected to this OpenMeld profile."}
+							? `This ${input.account.providerLabel} account is linked to the OpenMeld profile.`
+							: "This account is linked to the OpenMeld profile."}
 					</DialogDescription>
 				</DialogHeader>
 				<p className="text-muted-foreground text-sm leading-6">
@@ -612,12 +545,12 @@ function HumanProfileCardActions(input: {
 	isStarting: boolean;
 	member: DirectoryHumanProfileRow;
 	memberResearchError: string | null;
+	onEdit: () => void;
 	onOpenDirectMessage: () => Promise<void>;
+	onOpenProfile: () => void;
 	onResearch: (subjectUserId: string) => void;
 	task: CenterAgentMemberResearchTask | undefined;
 }) {
-	const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
-	const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 	const learnActionLabel = resolveLearnActionLabel({
 		displayName: input.member.name,
 		hasDraft: input.member.hasDraft,
@@ -684,112 +617,73 @@ function HumanProfileCardActions(input: {
 	}
 
 	return (
-		<>
-			<div className="flex items-center justify-end gap-1">
-				<HumanProfileComputerAction member={input.member} />
-				{profileKnowledgeAction}
-				{canOpenDirectMessage ? (
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<Button
-									aria-label="Direct Message"
-									disabled={input.directMessageIsPending}
-									onClick={() => {
-										input.onOpenDirectMessage().catch((error) => {
-											console.error(
-												"Human Profile Direct Message action failed.",
-												error
-											);
-										});
-									}}
-									size="icon"
-									type="button"
-									variant="ghost"
-								>
-									<ChatCircleTextIcon aria-hidden="true" />
-								</Button>
-							}
-						/>
-						<TooltipContent side="bottom">Direct Message</TooltipContent>
-					</Tooltip>
-				) : null}
-				{input.member.canEdit ? (
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<Button
-									aria-label="Edit Human Profile"
-									onClick={() => setIsEditDialogOpen(true)}
-									size="icon"
-									type="button"
-									variant="ghost"
-								>
-									<PencilSimpleIcon aria-hidden="true" />
-								</Button>
-							}
-						/>
-						<TooltipContent side="bottom">Edit Human Profile</TooltipContent>
-					</Tooltip>
-				) : null}
-				{input.member.details ? (
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={
-								<Button
-									aria-label={`Profile options for ${input.member.name}`}
-									size="icon"
-									type="button"
-									variant="ghost"
-								/>
-							}
-						>
-							<DotsThreeIcon aria-hidden="true" />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent
-							align="end"
-							className="min-w-48"
-							sideOffset={8}
-						>
-							<DropdownMenuItem
-								className="text-sm"
-								onClick={() => setIsDetailsDialogOpen(true)}
-							>
-								<InfoIcon aria-hidden="true" />
-								About profile
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
-				) : null}
-			</div>
-			{input.member.details ? (
-				<ProfileDetailsDialog
-					details={input.member.details}
-					isDirectMessagePending={input.directMessageIsPending}
-					onOpenChange={setIsDetailsDialogOpen}
-					onOpenDirectMessage={
-						canOpenDirectMessage
-							? () => {
+		<div className="flex items-center justify-end gap-1">
+			{profileKnowledgeAction}
+			{canOpenDirectMessage ? (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-label="Direct Message"
+								disabled={input.directMessageIsPending}
+								onClick={() => {
 									input.onOpenDirectMessage().catch((error) => {
 										console.error(
 											"Human Profile Direct Message action failed.",
 											error
 										);
 									});
-								}
-							: undefined
+								}}
+								size="icon"
+								type="button"
+								variant="ghost"
+							>
+								<ChatCircleTextIcon aria-hidden="true" />
+							</Button>
+						}
+					/>
+					<TooltipContent side="bottom">Direct Message</TooltipContent>
+				</Tooltip>
+			) : null}
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					render={
+						<Button
+							aria-label={`Profile options for ${input.member.name}`}
+							size="icon"
+							type="button"
+							variant="ghost"
+						/>
 					}
-					open={isDetailsDialogOpen}
-				/>
-			) : null}
-			{input.member.canEdit ? (
-				<HumanProfileEditDialog
-					onOpenChange={setIsEditDialogOpen}
-					open={isEditDialogOpen}
-					profileName={input.member.name}
-				/>
-			) : null}
-		</>
+				>
+					<DotsThreeIcon aria-hidden="true" />
+				</DropdownMenuTrigger>
+				<FluidDropdownMenuContent
+					align="end"
+					className="min-w-48"
+					sideOffset={8}
+				>
+					<FluidDropdownMenuItem
+						className="text-sm"
+						index={0}
+						onClick={input.onOpenProfile}
+					>
+						<InfoIcon aria-hidden="true" />
+						View profile
+					</FluidDropdownMenuItem>
+					{input.member.canEdit ? (
+						<FluidDropdownMenuItem
+							className="text-sm"
+							index={1}
+							onClick={input.onEdit}
+						>
+							<PencilSimpleIcon aria-hidden="true" />
+							Edit profile
+						</FluidDropdownMenuItem>
+					) : null}
+				</FluidDropdownMenuContent>
+			</DropdownMenu>
+		</div>
 	);
 }
 
@@ -829,54 +723,6 @@ function resolveLearnAllActionLabel(input: {
 	}
 	return "Learn about all members";
 }
-function HumanProfileRoleBadge(input: { member: DirectoryHumanProfileRow }) {
-	if (input.member.role === "member" || input.member.role === "unknown") {
-		return null;
-	}
-	return (
-		<span className="rounded-sm border border-border bg-background px-1.5 py-0.5 font-medium text-[0.65rem] text-muted-foreground uppercase tracking-wide">
-			{resolveDirectoryHumanProfileRoleLabel(input.member.role)}
-		</span>
-	);
-}
-
-function resolveDirectoryHumanProfileRoleLabel(
-	role: DirectoryHumanProfileRow["role"]
-): string {
-	switch (role) {
-		case "admin":
-			return "Admin";
-		case "member":
-			return "Member";
-		case "owner":
-			return "Owner";
-		default:
-			return "Unknown role";
-	}
-}
-
-function HumanProfileIcon(input: { member: DirectoryHumanProfileRow }) {
-	if (input.member.profileStatus !== null) {
-		return (
-			<DitherProfileAvatar
-				avatarImageUrl={input.member.avatarImageUrl}
-				className="mt-0.5"
-				data-testid={`human-profile-avatar-${input.member.id}`}
-				profileId={input.member.id}
-				profileKind="human"
-				profileName={input.member.name}
-				size={40}
-			/>
-		);
-	}
-
-	return (
-		<span className="grid size-11 shrink-0 place-items-center border border-border bg-background text-muted-foreground">
-			<UserIcon aria-hidden="true" className="size-5" />
-		</span>
-	);
-}
-
 const HUMAN_PROFILE_ROW_SKELETON_IDS = ["first", "second", "third"] as const;
 
 function HumanProfileRowsSkeleton() {
@@ -889,7 +735,7 @@ function HumanProfileRowsSkeleton() {
 					key={id}
 				>
 					<div className="flex items-start gap-3">
-						<Skeleton className="size-11 shrink-0" />
+						<Skeleton className="size-14 shrink-0" />
 						<div className="min-w-0 flex-1 space-y-2">
 							<Skeleton className="h-4 w-48 max-w-full" />
 							<Skeleton className="h-3 w-64 max-w-full" />
