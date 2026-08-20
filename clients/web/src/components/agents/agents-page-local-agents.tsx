@@ -7,7 +7,10 @@ import {
 	resolveAgentControllerInterfaceDescription,
 	shouldExpandAgentControllerInterface,
 } from "@openmeld/agent-runtime";
-import { formatLocalSetupActionLabel } from "@openmeld/schemas";
+import {
+	compareAgentControllerRefsForDisplay,
+	formatLocalSetupActionLabel,
+} from "@openmeld/schemas";
 import type {
 	AgentControllerInterfaceSnapshot,
 	CurrentLocalAgentInstallationsResponse,
@@ -134,7 +137,11 @@ export function LocalAgentsCard(
 function TeamLocalAgentsCard(input: {
 	computer: TeamLocalAgentsCardProps["computer"];
 }) {
-	const rows = input.computer.localAgents.map(buildTeamLocalAgentRow);
+	const rows = [...input.computer.localAgents]
+		.sort((left, right) =>
+			compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
+		)
+		.map(buildTeamLocalAgentRow);
 	return (
 		<LocalAgentsCardFrame description="See which local agents are available on this computer. Only the computer owner can change these settings.">
 			{rows.length > 0 ? (
@@ -1706,6 +1713,13 @@ function compareLocalAgentCatalogEntries(
 	left: DeviceAgentCatalogEntry,
 	right: DeviceAgentCatalogEntry
 ): number {
+	const displayOrder = compareAgentControllerRefsForDisplay(
+		left.agentId,
+		right.agentId
+	);
+	if (displayOrder !== 0) {
+		return displayOrder;
+	}
 	const leftPriority = resolveLocalAgentCatalogEntrySortPriority(left);
 	const rightPriority = resolveLocalAgentCatalogEntrySortPriority(right);
 	if (leftPriority !== rightPriority) {

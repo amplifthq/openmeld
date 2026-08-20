@@ -28,6 +28,8 @@ const LOW_CODEX_USAGE_GAUGE_NAME = /Codex 5-hour usage, 84% used, Low/u;
 const OWNED_USAGE_SUMMARY_ORDER = /v0\.38\.0.*84%/u;
 const TEAM_USAGE_SUMMARY_ORDER = /v0\.148\.0.*84%/u;
 const LOW_CODEX_USAGE_SUMMARY_NAME = /Codex usage limits, 84% used, Low/u;
+const LOCAL_AGENT_ROW_TEST_ID =
+	/^settings-local-agent-row-(?:codex|claude-code|grok-build|cursor|opencode)$/u;
 
 const toastMock = vi.hoisted(() =>
 	Object.assign(vi.fn(), {
@@ -119,6 +121,66 @@ describe("LocalAgentsCard", () => {
 		cleanup();
 		vi.useRealTimers();
 		vi.clearAllMocks();
+	});
+
+	it("uses the shared product order for owned and teammate local agents", () => {
+		const localAgentCatalogEntries: LocalRuntimeExecutionTarget["localAgentCatalog"]["entries"] =
+			[
+				["opencode", "OpenCode"],
+				["cursor", "Cursor"],
+				["grok-build", "Grok Build"],
+				["claude-code", "Claude Code"],
+				["codex", "Codex"],
+			].map(([agentId, displayName]) => ({
+				agentId,
+				detected: true,
+				displayName,
+				enabled: true,
+				lifecycleStatus: "active",
+				launchStatus: "ready",
+				selectable: true,
+				selectableReason: null,
+				targetKind: "builtin",
+			}));
+		const expectedOrder = [
+			"settings-local-agent-row-codex",
+			"settings-local-agent-row-claude-code",
+			"settings-local-agent-row-grok-build",
+			"settings-local-agent-row-cursor",
+			"settings-local-agent-row-opencode",
+		];
+		renderLocalAgentsCard({
+			localAgentCatalogEntries,
+			setEnabledSupported: true,
+		});
+		expect(
+			screen
+				.getAllByTestId(LOCAL_AGENT_ROW_TEST_ID)
+				.map((row) => row.getAttribute("data-testid"))
+		).toEqual(expectedOrder);
+		cleanup();
+
+		render(
+			<TooltipProvider>
+				<LocalAgentsCard
+					computer={{
+						deviceDisplayName: "Maya's Mac",
+						localAgents: localAgentCatalogEntries.map((entry) => ({
+							agentId: entry.agentId,
+							displayName: entry.displayName,
+							enabled: entry.enabled,
+							status: "ready" as const,
+						})),
+					}}
+					view="team"
+				/>
+			</TooltipProvider>
+		);
+		expect(
+			screen
+				.getAllByTestId(LOCAL_AGENT_ROW_TEST_ID)
+				.map((row) => row.getAttribute("data-testid"))
+		).toEqual(expectedOrder);
 	});
 
 	it("keeps usage in existing owned and teammate agent rows", () => {
