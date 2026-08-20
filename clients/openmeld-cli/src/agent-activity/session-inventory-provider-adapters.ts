@@ -678,7 +678,7 @@ export async function discoverOpenCodeRetainedSessions(input: {
     const cwd = text(row.directory);
     const lastActiveAtMs = timestamp(row.time_updated);
     if (!(nativeSessionId && cwd && lastActiveAtMs !== null)) {
-      continue;
+      throw new Error("OpenCode returned a malformed retained Session row.");
     }
     const binding = await resolveObservedAgentActivityBinding(
       cwd,

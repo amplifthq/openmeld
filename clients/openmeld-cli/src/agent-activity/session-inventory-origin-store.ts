@@ -76,8 +76,18 @@ async function readStore(input: {
   rootDir?: string;
 }): Promise<SessionOriginStore> {
   const path = storePath(input);
-  const raw = await readFile(path, "utf8").catch(() => null);
-  if (!raw) {
+  const raw = await readFile(path, "utf8").catch((error: unknown) => {
+    if (isNodeError(error, "ENOENT")) {
+      return null;
+    }
+    throw new Error(
+      `Failed to read the Session Inventory origin store: ${path}`,
+      {
+        cause: error,
+      }
+    );
+  });
+  if (raw === null) {
     return { openMeldCreatedSessionKeys: [], version: STORE_VERSION };
   }
   const value: unknown = JSON.parse(raw);
@@ -124,5 +134,14 @@ function storePath(input: { rootDir?: string }): string {
     "device",
     "agent-activity",
     "session-inventory-origins.json"
+  );
+}
+
+function isNodeError(
+  error: unknown,
+  code: string
+): error is NodeJS.ErrnoException {
+  return (
+    error instanceof Error && (error as NodeJS.ErrnoException).code === code
   );
 }

@@ -237,6 +237,97 @@ describe("Local Agent Session Inventory reconciliation", () => {
     );
   });
 
+  it("retains a source after an accepted page so a later Project removal can disconnect it", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-session-partial-page-"));
+    const repositoryPath = join(root, "repository");
+    await mkdir(repositoryPath, { recursive: true });
+    const binding = await bindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      projectSlug: "openmeld",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir: root,
+    });
+    mocks.discoverLocalAgentSessionProviders.mockResolvedValue([
+      {
+        agentControllerRef: "builtin:codex",
+        provider: "codex",
+        result: "sessions",
+        sessions: Array.from({ length: 205 }, (_, index) => ({
+          binding,
+          session: {
+            canFork: false,
+            canResume: true,
+            lastActiveAtMs: 10_000 + index,
+            nativeSessionId: `native-${String(index).padStart(3, "0")}`,
+            nativeSessionTitle: null,
+            origin: "unknown",
+            startedAtMs: null,
+            status: "unknown",
+          },
+        })),
+      },
+    ]);
+    mocks.submitAgentActivitySessionReconciliation
+      .mockResolvedValueOnce({
+        acceptedPageIndex: 0,
+        publishedSessionCount: null,
+        reconciliationId: "accepted",
+        status: "accepted",
+      })
+      .mockRejectedValueOnce(new Error("later page failed"));
+
+    await expect(
+      syncLocalAgentSessionInventory({
+        foundation: {} as never,
+        nowMs: 20_000,
+        rootDir: root,
+      })
+    ).resolves.toMatchObject({
+      reason: "inventory_write_transport_failure",
+      status: "unavailable",
+    });
+    expect(
+      mocks.submitAgentActivitySessionReconciliation
+    ).toHaveBeenCalledTimes(2);
+    expect(
+      await readFile(
+        join(
+          root,
+          "device",
+          "agent-activity",
+          "session-inventory-sources.json"
+        ),
+        "utf8"
+      )
+    ).toContain("project-1");
+
+    await unbindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      rootDir: root,
+    });
+    mocks.submitAgentActivitySessionReconciliation.mockClear();
+
+    await expect(
+      syncLocalAgentSessionInventory({
+        foundation: {} as never,
+        nowMs: 30_000,
+        rootDir: root,
+      })
+    ).resolves.toMatchObject({
+      status: "submitted",
+      submittedSourceCount: 1,
+    });
+    expect(mocks.submitAgentActivitySessionReconciliation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "project-1",
+        result: "disconnected",
+      })
+    );
+  });
+
   it("submits every Session in stable pages and then disconnects the removed Project source", async () => {
     root = await mkdtemp(join(tmpdir(), "openmeld-session-sync-"));
     const repositoryPath = join(root, "repository");

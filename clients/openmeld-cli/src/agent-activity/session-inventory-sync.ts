@@ -121,15 +121,28 @@ export async function syncLocalAgentSessionInventory(
       submittedSourceCount += 1;
     }
     for (const source of currentSources) {
+      const key = sourceKey(source);
+      let sourceStored = retainedSources.has(key);
       await submitCurrentSource({
         api,
         deviceId: reporting.deviceId,
         lane: reporting.lane,
         nowMs,
+        onPageAccepted: async () => {
+          if (sourceStored) {
+            return;
+          }
+          retainedSources.set(key, storedSource(source));
+          await writeSourceStore(input, {
+            sources: [...retainedSources.values()],
+            version: SOURCE_STORE_VERSION,
+          });
+          sourceStored = true;
+        },
         openMeldServiceRuntimeId: registration.openMeldServiceRuntimeId,
         source,
       });
-      retainedSources.set(sourceKey(source), storedSource(source));
+      retainedSources.set(key, storedSource(source));
       sessionCount += source.sessions.length;
       submittedSourceCount += 1;
     }
@@ -212,6 +225,7 @@ async function submitCurrentSource(input: {
   deviceId: string;
   lane: string;
   nowMs: number;
+  onPageAccepted: () => Promise<void>;
   openMeldServiceRuntimeId: {
     source: "runtime_registry_authority";
     value: string;
@@ -229,6 +243,7 @@ async function submitCurrentSource(input: {
       sessions: [],
       terminal: true,
     });
+    await input.onPageAccepted();
     return;
   }
   const pages = pageSessions(input.source.sessions);
@@ -241,6 +256,7 @@ async function submitCurrentSource(input: {
       sessions,
       terminal: pageIndex === pages.length - 1,
     });
+    await input.onPageAccepted();
   }
 }
 

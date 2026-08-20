@@ -321,6 +321,70 @@ describe("Local Agent Session Inventory provider adapters", () => {
     );
   });
 
+  it("preserves OpenCode inventory when a retained row is malformed", async () => {
+    const xdgDataHome = join(root, "xdg-data");
+    const databaseDirectory = join(xdgDataHome, "opencode");
+    const databasePath = join(databaseDirectory, "opencode.db");
+    await mkdir(databaseDirectory, { recursive: true });
+    const database = new Database(databasePath);
+    database.exec(`CREATE TABLE session (
+      id TEXT,
+      directory TEXT,
+      title TEXT,
+      time_created INTEGER,
+      time_updated INTEGER,
+      time_archived INTEGER
+    )`);
+    const insert = database.prepare(
+      "INSERT INTO session (id, directory, title, time_created, time_updated, time_archived) VALUES (?, ?, ?, ?, ?, NULL)"
+    );
+    insert.run(
+      "opencode-valid",
+      repositoryPath,
+      "Valid native title",
+      NOW_MS - 2000,
+      NOW_MS - 1000
+    );
+    insert.run(
+      null,
+      repositoryPath,
+      "Malformed native title",
+      NOW_MS - 2000,
+      NOW_MS - 500
+    );
+    database.close();
+    launchMocks.opencode.mockResolvedValue({
+      candidates: [
+        {
+          commandPath: "opencode",
+          launchContract: {
+            argsPrefix: [],
+            commandPath: "opencode",
+            kind: "executable",
+          },
+        },
+      ],
+      ok: true,
+    });
+
+    const discoveries = await discoverLocalAgentSessionProviders({
+      bindings: [binding],
+      homeDir: root,
+      nowMs: NOW_MS,
+      rootDir: root,
+      xdgDataHome,
+    });
+
+    expect(discoveries.find(({ provider }) => provider === "opencode")).toEqual(
+      {
+        agentControllerRef: "builtin:opencode",
+        problemCode: "opencode_retained_inventory_failed",
+        provider: "opencode",
+        result: "error",
+      }
+    );
+  });
+
   it("discovers OpenCode from the effective XDG data home", async () => {
     const xdgDataHome = join(root, "xdg-data");
     const databaseDirectory = join(xdgDataHome, "opencode");
