@@ -765,74 +765,115 @@ function findKnownCodexBlock(
   raw: string,
   knownArtifacts: ManagedIntegrationArtifacts[]
 ): { block: string; preservedTail: string } | null {
-  for (const artifacts of knownArtifacts) {
-    for (const block of [
+  return findCodexBlock(
+    raw,
+    knownArtifacts.flatMap((artifacts) => [
       artifacts.codexBlock,
       artifacts.legacyCodexBlock,
       artifacts.preTaskLifecycleCodexBlock,
       artifacts.preTaskLifecycleLegacyCodexBlock,
-    ]) {
-      const normalized = block.trim();
-      if (raw.includes(normalized)) {
-        return { block: normalized, preservedTail: "" };
-      }
-      const lines = normalized.split("\n");
-      const endMarker = lines.at(-1);
-      if (!endMarker) {
-        continue;
-      }
-      const ownedPrefix = lines.slice(0, -1).join("\n");
-      const ownedPrefixIndex = raw.indexOf(ownedPrefix);
-      if (ownedPrefixIndex < 0) {
-        continue;
-      }
-      const preservedTailStart = ownedPrefixIndex + ownedPrefix.length;
-      const endMarkerIndex = raw.indexOf(endMarker, preservedTailStart);
-      if (endMarkerIndex < 0) {
-        continue;
-      }
-      const preservedTail = raw.slice(preservedTailStart, endMarkerIndex);
-      if (!preservedTail.trimStart().startsWith("[hooks.state]")) {
-        continue;
-      }
-      return {
-        block: raw.slice(ownedPrefixIndex, endMarkerIndex + endMarker.length),
-        preservedTail,
-      };
-    }
-  }
-  return null;
+    ])
+  );
 }
 
 function hasCurrentCodexBlock(
   raw: string,
   knownArtifacts: ManagedIntegrationArtifacts[]
 ): boolean {
-  return knownArtifacts.some((artifacts) =>
-    [artifacts.codexBlock, artifacts.legacyCodexBlock].some((block) => {
-      const normalized = block.trim();
-      if (raw.includes(normalized)) {
-        return true;
-      }
-      const lines = normalized.split("\n");
-      const endMarker = lines.at(-1);
-      if (!endMarker) {
-        return false;
-      }
-      const ownedPrefix = lines.slice(0, -1).join("\n");
-      const ownedPrefixIndex = raw.indexOf(ownedPrefix);
-      const preservedTailStart = ownedPrefixIndex + ownedPrefix.length;
-      const endMarkerIndex =
-        ownedPrefixIndex < 0 ? -1 : raw.indexOf(endMarker, preservedTailStart);
-      return (
-        endMarkerIndex >= 0 &&
-        raw
-          .slice(preservedTailStart, endMarkerIndex)
-          .trimStart()
-          .startsWith("[hooks.state]")
-      );
-    })
+  return Boolean(
+    findCodexBlock(
+      raw,
+      knownArtifacts.flatMap((artifacts) => [
+        artifacts.codexBlock,
+        artifacts.legacyCodexBlock,
+      ])
+    )
   );
+}
+
+function findCodexBlock(
+  raw: string,
+  expectedBlocks: string[]
+): { block: string; preservedTail: string } | null {
+  for (const expectedBlock of expectedBlocks) {
+    const normalized = expectedBlock.trim();
+    if (raw.includes(normalized)) {
+      return { block: normalized, preservedTail: "" };
+    }
+
+    const lines = normalized.split("\n");
+    const beginMarker = lines[0];
+    const endMarker = lines.at(-1);
+    if (!(beginMarker && endMarker)) {
+      continue;
+    }
+
+    let beginMarkerIndex = raw.indexOf(beginMarker);
+    while (beginMarkerIndex >= 0) {
+      const endMarkerIndex = raw.indexOf(
+        endMarker,
+        beginMarkerIndex + beginMarker.length
+      );
+      if (endMarkerIndex < 0) {
+        break;
+      }
+
+      const candidate = raw.slice(
+        beginMarkerIndex,
+        endMarkerIndex + endMarker.length
+      );
+      const trustState = extractCodexTrustState(candidate, endMarker);
+      if (trustState?.blockWithoutTrustState === normalized) {
+        return {
+          block: candidate,
+          preservedTail: `\n${trustState.value}`,
+        };
+      }
+
+      beginMarkerIndex = raw.indexOf(
+        beginMarker,
+        beginMarkerIndex + beginMarker.length
+      );
+    }
+  }
+  return null;
+}
+
+function extractCodexTrustState(
+  block: string,
+  endMarker: string
+): { blockWithoutTrustState: string; value: string } | null {
+  const trustStateHeaders = [...block.matchAll(/^\[hooks\.state\]$/gm)];
+  if (trustStateHeaders.length !== 1) {
+    return null;
+  }
+
+  const trustStateStart = trustStateHeaders[0]?.index;
+  if (trustStateStart === undefined) {
+    return null;
+  }
+
+  const nextHookBoundary = block.indexOf(
+    "\n[[hooks.",
+    trustStateStart + "[hooks.state]".length
+  );
+  const endMarkerBoundary = block.indexOf(
+    `\n${endMarker}`,
+    trustStateStart + "[hooks.state]".length
+  );
+  const boundaryCandidates = [nextHookBoundary, endMarkerBoundary].filter(
+    (index) => index >= 0
+  );
+  if (boundaryCandidates.length === 0) {
+    return null;
+  }
+
+  const trustStateEnd = Math.min(...boundaryCandidates) + 1;
+  return {
+    blockWithoutTrustState:
+      block.slice(0, trustStateStart) + block.slice(trustStateEnd),
+    value: block.slice(trustStateStart, trustStateEnd).trimEnd(),
+  };
 }
 
 function isOwnedClaudeGroupForCommand(value: unknown, command: string) {
