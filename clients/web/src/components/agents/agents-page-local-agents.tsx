@@ -7,7 +7,10 @@ import {
 	resolveAgentControllerInterfaceDescription,
 	shouldExpandAgentControllerInterface,
 } from "@openmeld/agent-runtime";
-import { formatLocalSetupActionLabel } from "@openmeld/schemas";
+import {
+	compareAgentControllerRefsForDisplay,
+	formatLocalSetupActionLabel,
+} from "@openmeld/schemas";
 import type {
 	AgentControllerInterfaceSnapshot,
 	CurrentLocalAgentInstallationsResponse,
@@ -40,6 +43,8 @@ import {
 	SettingsLocalAgentAdvisoryBadge,
 	type SettingsLocalAgentRow,
 	SettingsLocalAgentRows,
+	SettingsLocalAgentUsageLimits,
+	SettingsLocalAgentUsageSummary,
 } from "@openmeld/ui/components/settings-computers";
 import {
 	SettingsDetailList,
@@ -132,7 +137,11 @@ export function LocalAgentsCard(
 function TeamLocalAgentsCard(input: {
 	computer: TeamLocalAgentsCardProps["computer"];
 }) {
-	const rows = input.computer.localAgents.map(buildTeamLocalAgentRow);
+	const rows = [...input.computer.localAgents]
+		.sort((left, right) =>
+			compareAgentControllerRefsForDisplay(left.agentId, right.agentId)
+		)
+		.map(buildTeamLocalAgentRow);
 	return (
 		<LocalAgentsCardFrame description="See which local agents are available on this computer. Only the computer owner can change these settings.">
 			{rows.length > 0 ? (
@@ -166,13 +175,27 @@ function buildTeamLocalAgentRow(agent: TeamLocalAgent): SettingsLocalAgentRow {
 			/>
 		),
 		description,
-		detail: <SettingsDetailList rows={detailRows} />,
+		detail: (
+			<div className="space-y-4">
+				<SettingsLocalAgentUsageLimits
+					agentName={agent.displayName}
+					limits={agent.details?.usageLimits}
+				/>
+				<SettingsDetailList rows={detailRows} />
+			</div>
+		),
 		displayName: agent.displayName,
 		id: agent.agentId,
 		logoAgentId: agent.agentId,
 		summaryMeta: agent.details
 			? formatAgentControllerInterfaceOperationalSummary(agent.details)
 			: null,
+		summaryAccessory: (
+			<SettingsLocalAgentUsageSummary
+				agentName={agent.displayName}
+				limits={agent.details?.usageLimits}
+			/>
+		),
 	};
 }
 
@@ -1261,14 +1284,22 @@ function buildLocalAgentCatalogRow(input: {
 	].filter(
 		(status): status is LocalAgentCatalogRowSummaryStatus => status !== null
 	);
-	const summaryAccessory = versionAdvisory ? (
-		<SettingsLocalAgentAdvisoryBadge
-			detail={versionAdvisory.detail}
-			key="version-advisory"
-			label={versionAdvisory.label}
-			tone={versionAdvisory.tone}
-			updateCommand={versionAdvisory.updateCommand}
-		/>
+	const summaryAccessory = agentControllerInterface ? (
+		<span className="inline-flex items-center gap-1.5">
+			{versionAdvisory ? (
+				<SettingsLocalAgentAdvisoryBadge
+					detail={versionAdvisory.detail}
+					key="version-advisory"
+					label={versionAdvisory.label}
+					tone={versionAdvisory.tone}
+					updateCommand={versionAdvisory.updateCommand}
+				/>
+			) : null}
+			<SettingsLocalAgentUsageSummary
+				agentName={input.entry.displayName}
+				limits={agentControllerInterface.usageLimits}
+			/>
+		</span>
 	) : null;
 
 	return {
@@ -1293,17 +1324,23 @@ function buildLocalAgentCatalogRow(input: {
 			agentControllerInterface || canChangeInstallation ? (
 				<div className="space-y-3">
 					{agentControllerInterface ? (
-						<SettingsDetailList
-							rows={createAgentControllerInterfaceDetailRows({
-								agentId: input.entry.agentId,
-								canRefreshCatalog: input.canRefreshCatalog,
-								emailRevealed: input.accountEmailRevealed,
-								isCheckingAgents: input.isCheckingAgents,
-								onCheckAgents: input.onCheckAgents,
-								onRevealEmail: input.onRevealAccountEmail,
-								snapshot: agentControllerInterface,
-							})}
-						/>
+						<>
+							<SettingsLocalAgentUsageLimits
+								agentName={input.entry.displayName}
+								limits={agentControllerInterface.usageLimits}
+							/>
+							<SettingsDetailList
+								rows={createAgentControllerInterfaceDetailRows({
+									agentId: input.entry.agentId,
+									canRefreshCatalog: input.canRefreshCatalog,
+									emailRevealed: input.accountEmailRevealed,
+									isCheckingAgents: input.isCheckingAgents,
+									onCheckAgents: input.onCheckAgents,
+									onRevealEmail: input.onRevealAccountEmail,
+									snapshot: agentControllerInterface,
+								})}
+							/>
+						</>
 					) : null}
 					{canChangeInstallation ? (
 						<LocalAgentInstallationManager
@@ -1676,6 +1713,13 @@ function compareLocalAgentCatalogEntries(
 	left: DeviceAgentCatalogEntry,
 	right: DeviceAgentCatalogEntry
 ): number {
+	const displayOrder = compareAgentControllerRefsForDisplay(
+		left.agentId,
+		right.agentId
+	);
+	if (displayOrder !== 0) {
+		return displayOrder;
+	}
 	const leftPriority = resolveLocalAgentCatalogEntrySortPriority(left);
 	const rightPriority = resolveLocalAgentCatalogEntrySortPriority(right);
 	if (leftPriority !== rightPriority) {

@@ -142,6 +142,18 @@ async function createFixture() {
           send({ id: message.id, result: {} });
           return;
         }
+        if (message.method === "_x.ai/billing") {
+          send({
+            id: message.id,
+            result: {
+              config: {
+                creditUsagePercent: 27,
+                currentPeriod: { end: "2026-08-27T00:00:00Z", type: "weekly" }
+              }
+            }
+          });
+          return;
+        }
         if (message.method === "session/new") {
           const sessionModels = scenario === "conflicting_models"
             ? { ...modelState, availableModels: modelState.availableModels.slice(0, 1) }

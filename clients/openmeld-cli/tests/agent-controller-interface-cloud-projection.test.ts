@@ -41,6 +41,16 @@ describe("Agent Controller Interface cloud projection", () => {
       schemaVersion: 1,
       skills: [{ id: "review" }],
       status: "unknown",
+      usageLimits: [
+        {
+          key: "opencode:provider",
+          label: "Usage limits",
+          observedAt: "2026-07-19T07:10:00.000Z",
+          resetsAt: null,
+          status: "unsupported",
+          usedPercent: null,
+        },
+      ],
       version: "1.18.1",
     };
 

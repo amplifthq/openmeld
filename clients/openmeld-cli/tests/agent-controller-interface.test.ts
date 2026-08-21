@@ -11,7 +11,16 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentTargetState } from "../src/agents/registry";
 import { createDefaultRuntimeAgentControllerSettings } from "../src/config/runtime-config";
-import { resolveAgentControllerInterfaceSnapshot } from "../src/local-service/inventory/agent-controller-interface";
+import {
+  resolveAgentControllerInterfaceSnapshot,
+  resolveUsageLimitsAfterCompletedProbe,
+} from "../src/local-service/inventory/agent-controller-interface";
+import {
+  buildAgentControllerInterfaceKeeperKey,
+  recordAgentControllerUsageLimitsObservation,
+  resetAgentControllerInterfaceKeeperForTests,
+  resolveAgentControllerCommandFingerprint,
+} from "../src/local-service/inventory/agent-controller-interface-keeper";
 import { OPENCLAW_MODELS_STATUS_MISSING_AUTH_RESPONSE } from "./fixtures/openclaw-models-status";
 import {
   OPENCODE_NPM_LATEST_RESPONSE,
@@ -47,11 +56,250 @@ beforeEach(() => {
 
 afterEach(() => {
   createOpencodeClientMock.mockReset();
+  resetAgentControllerInterfaceKeeperForTests();
   warnDaemonEventMock.mockReset();
   vi.unstubAllGlobals();
 });
 
 describe("agent controller interface inventory", () => {
+  it("preserves last-known provider capacity as stale after a temporary read failure", () => {
+    const observedAt = "2026-08-20T08:00:00.000Z";
+
+    expect(
+      resolveUsageLimitsAfterCompletedProbe({
+        currentAuth: {
+          email: "capacity-owner@example.com",
+          status: "authenticated",
+        },
+        current: [
+          {
+            key: "provider",
+            label: "Usage limits",
+            observedAt: "2026-08-20T08:20:00.000Z",
+            resetsAt: null,
+            status: "unavailable",
+            usedPercent: null,
+          },
+        ],
+        previous: [
+          {
+            key: "codex:primary",
+            label: "5-hour usage",
+            observedAt,
+            resetsAt: "2026-08-20T12:00:00.000Z",
+            status: "available",
+            usedPercent: 72,
+          },
+          {
+            key: "codex:secondary",
+            label: "Weekly usage",
+            observedAt,
+            resetsAt: null,
+            status: "exhausted",
+            usedPercent: 100,
+          },
+          {
+            key: "provider-unavailable",
+            label: "Usage limits",
+            observedAt,
+            resetsAt: null,
+            status: "unavailable",
+            usedPercent: null,
+          },
+        ],
+        previousAuth: {
+          email: "capacity-owner@example.com",
+          status: "authenticated",
+        },
+        support: "native",
+      })
+    ).toEqual([
+      expect.objectContaining({
+        key: "codex:primary",
+        observedAt,
+        status: "stale",
+        usedPercent: 72,
+      }),
+      expect.objectContaining({
+        key: "codex:secondary",
+        observedAt,
+        status: "stale",
+        usedPercent: 100,
+      }),
+      expect.objectContaining({
+        key: "provider-unavailable",
+        status: "unavailable",
+        usedPercent: null,
+      }),
+    ]);
+  });
+
+  it("keeps a fresh passive observation fresh when the probe does not query capacity", () => {
+    const usageLimits = [
+      {
+        key: "claude-code:five-hour",
+        label: "5-hour usage limit",
+        observedAt: "2026-08-20T08:00:00.000Z",
+        resetsAt: "2026-08-20T12:00:00.000Z",
+        status: "available" as const,
+        usedPercent: 61,
+      },
+    ];
+
+    expect(
+      resolveUsageLimitsAfterCompletedProbe({
+        currentAuth: {
+          email: "capacity-owner@example.com",
+          status: "authenticated",
+        },
+        current: undefined,
+        previous: usageLimits,
+        previousAuth: {
+          email: "capacity-owner@example.com",
+          status: "authenticated",
+        },
+        support: "passive",
+      })
+    ).toEqual(usageLimits);
+  });
+
+  it("returns a pre-probe passive observation in the first Claude snapshot", async () => {
+    const home = await mkdtemp(join(tmpdir(), "openmeld-aci-claude-usage-"));
+    try {
+      const binPath = join(home, "claude");
+      await writeFile(
+        binPath,
+        [
+          "#!/bin/sh",
+          'if [ "$1" = "--version" ]; then echo "2.1.197 (Claude Code)"; exit 0; fi',
+          'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then',
+          '  echo \'{"loggedIn":true,"email":"owner@example.com"}\'',
+          "  exit 0",
+          "fi",
+          "exit 1",
+          "",
+        ].join("\n"),
+        "utf8"
+      );
+      await chmod(binPath, 0o755);
+      const commandFingerprint = await resolveAgentControllerCommandFingerprint(
+        {
+          commandPath: binPath,
+          launchContractKind: "executable",
+        }
+      );
+      if (!commandFingerprint) {
+        throw new Error("Expected a fingerprint for the Claude test command");
+      }
+      const usageLimit = {
+        key: "claude-code:five-hour",
+        label: "5-hour usage limit",
+        observedAt: "2026-08-20T08:00:00.000Z",
+        resetsAt: "2026-08-20T12:00:00.000Z",
+        status: "available" as const,
+        usedPercent: 61,
+      };
+      recordAgentControllerUsageLimitsObservation({
+        authSnapshot: {
+          email: "owner@example.com",
+          status: "authenticated",
+        },
+        commandFingerprint,
+        keeperKey: buildAgentControllerInterfaceKeeperKey({
+          agentId: "claude-code",
+          commandPath: binPath,
+        }),
+        usageLimits: [usageLimit],
+      });
+
+      const snapshot = await resolveAgentControllerInterfaceSnapshot({
+        agentControllerRef: "builtin:claude-code",
+        state: createBuiltinAgentTargetState(
+          "claude-code",
+          "Claude Code",
+          binPath
+        ),
+      });
+
+      expect(snapshot.usageLimits).toEqual([usageLimit]);
+    } finally {
+      await rm(home, { force: true, recursive: true });
+    }
+  });
+
+  it("drops another account's last-known capacity when authentication is lost", () => {
+    const unavailable = [
+      {
+        key: "provider",
+        label: "Usage limits",
+        observedAt: "2026-08-20T08:20:00.000Z",
+        resetsAt: null,
+        status: "unavailable" as const,
+        usedPercent: null,
+      },
+    ];
+
+    expect(
+      resolveUsageLimitsAfterCompletedProbe({
+        currentAuth: { status: "unauthenticated" },
+        current: unavailable,
+        previous: [
+          {
+            key: "codex:primary",
+            label: "5-hour usage",
+            observedAt: "2026-08-20T08:00:00.000Z",
+            resetsAt: "2026-08-20T12:00:00.000Z",
+            status: "available",
+            usedPercent: 72,
+          },
+        ],
+        previousAuth: {
+          email: "capacity-owner@example.com",
+          status: "authenticated",
+        },
+        support: "native",
+      })
+    ).toEqual(unavailable);
+  });
+
+  it("drops last-known capacity when the authenticated provider account changes", () => {
+    const unavailable = [
+      {
+        key: "provider",
+        label: "Usage limits",
+        observedAt: "2026-08-20T08:20:00.000Z",
+        resetsAt: null,
+        status: "unavailable" as const,
+        usedPercent: null,
+      },
+    ];
+
+    expect(
+      resolveUsageLimitsAfterCompletedProbe({
+        currentAuth: {
+          email: "new-capacity-owner@example.com",
+          status: "authenticated",
+        },
+        current: unavailable,
+        previous: [
+          {
+            key: "codex:primary",
+            label: "5-hour usage",
+            observedAt: "2026-08-20T08:00:00.000Z",
+            resetsAt: "2026-08-20T12:00:00.000Z",
+            status: "available",
+            usedPercent: 72,
+          },
+        ],
+        previousAuth: {
+          email: "previous-capacity-owner@example.com",
+          status: "authenticated",
+        },
+        support: "native",
+      })
+    ).toEqual(unavailable);
+  });
+
   it("reports Grok Build ACP authentication and live models", async () => {
     const home = await mkdtemp(join(tmpdir(), "openmeld-aci-grok-build-"));
     try {
@@ -89,6 +337,15 @@ describe("agent controller interface inventory", () => {
         ],
         nativeInterface: "acp",
         status: "ready",
+        usageLimits: [
+          {
+            key: "grok-build:included-credits",
+            label: "Weekly usage limit",
+            resetsAt: "2026-08-27T00:00:00.000Z",
+            status: "available",
+            usedPercent: 27,
+          },
+        ],
         version: "1.0.3",
         versionAdvisory: {
           currentVersion: "1.0.3",
@@ -871,6 +1128,9 @@ describe("agent controller interface inventory", () => {
             '  if (message.method === "skills/list") {',
             "    reply(message.id, { skills: [] });",
             "  }",
+            '  if (message.method === "account/rateLimits/read") {',
+            '    reply(message.id, { rateLimits: { limitId: "codex", primary: { usedPercent: 81, resetsAt: 1787259600, windowDurationMins: 300 }, secondary: { usedPercent: 34, resetsAt: null, windowDurationMins: 10080 } } });',
+            "  }",
             "  // model/list is intentionally never answered: a hung auxiliary listing.",
             "};",
             'process.stdin.on("data", (chunk) => {',
@@ -902,6 +1162,20 @@ describe("agent controller interface inventory", () => {
           auth: { email: "dev@example.com", status: "authenticated" },
           models: [],
           status: "ready",
+          usageLimits: [
+            {
+              key: "codex:primary",
+              label: "5-hour usage",
+              status: "available",
+              usedPercent: 81,
+            },
+            {
+              key: "codex:secondary",
+              label: "Weekly usage",
+              status: "available",
+              usedPercent: 34,
+            },
+          ],
           version: "0.142.5",
         });
         // The probe must settle on the auxiliary grace, not the 8s hard timeout.
@@ -1104,6 +1378,11 @@ async function writeGrokBuildBin(
             `    send({ id: message.id, error: { code: -32000, message: ${JSON.stringify(input.authFailure)} } });`,
           ]
         : ["    send({ id: message.id, result: {} });"]),
+      '  } else if (message.method === "_x.ai/billing") {',
+      "    send({ id: message.id, result: { config: {",
+      '      creditUsagePercent: 27, currentPeriod: { type: "weekly", end: "2026-08-27T00:00:00Z" },',
+      "      prepaidBalance: 99, history: [{ private: true }]",
+      '    }, subscriptionTier: "private-plan" } });',
       "  }",
       "});",
       "",

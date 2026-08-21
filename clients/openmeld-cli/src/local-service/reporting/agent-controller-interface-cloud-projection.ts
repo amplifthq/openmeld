@@ -39,6 +39,11 @@ export function projectAgentControllerInterfaceForCloud(
     schemaVersion: snapshot.schemaVersion,
     skills: [],
     status: snapshot.status,
+    ...(snapshot.usageLimits
+      ? {
+          usageLimits: snapshot.usageLimits.map((limit) => ({ ...limit })),
+        }
+      : {}),
     version: snapshot.version,
     ...(snapshot.versionAdvisory
       ? {

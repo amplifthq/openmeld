@@ -28,6 +28,9 @@ const runMocks = vi.hoisted(() => ({
   runOrgDirectory: vi.fn<OrgCommandModule["runOrgDirectory"]>(
     async () => undefined
   ),
+  runOrgComputers: vi.fn<OrgCommandModule["runOrgComputers"]>(
+    async () => undefined
+  ),
   runOrgInviteLink: vi.fn<OrgCommandModule["runOrgInviteLink"]>(
     async () => undefined
   ),
@@ -108,6 +111,7 @@ vi.mock("../src/org/command", async (importOriginal) => {
   const actual = await importOriginal<OrgCommandModule>();
   return {
     ...actual,
+    runOrgComputers: runMocks.runOrgComputers,
     runOrgDirectory: runMocks.runOrgDirectory,
     runOrgInviteLink: runMocks.runOrgInviteLink,
   };
@@ -469,6 +473,16 @@ describe("command entry CLI wiring", () => {
 
     expect(runMocks.runOrgDirectory).toHaveBeenCalledOnce();
     expect(runMocks.runOrgDirectory).toHaveBeenCalledWith({
+      json: true,
+      view: "agent",
+    });
+  });
+
+  it("maps org computers argv to runOrgComputers", async () => {
+    await runCli(["org", "computers", "--json"], "human");
+
+    expect(runMocks.runOrgComputers).toHaveBeenCalledOnce();
+    expect(runMocks.runOrgComputers).toHaveBeenCalledWith({
       json: true,
       view: "agent",
     });

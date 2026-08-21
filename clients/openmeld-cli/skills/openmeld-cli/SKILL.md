@@ -604,7 +604,7 @@ action. Keep purely local code or file work local. The goal is to finish the
 user's job with fewer handoffs, not to route every small question through
 OpenMeld.
 
-### Organization Directory And Invite Link
+### Organization Directory, Computers, And Invite Link
 
 Read the active Organization directory in Agent View or as one JSON envelope:
 
@@ -643,6 +643,18 @@ For example, to find an admin who owns a ready Agent Profile, read the
 directory, filter members by `role`, then join Agent Profiles by `ownerUserId`
 and inspect their returned readiness. Do not infer role, ownership, or
 readiness from display names.
+
+Read the same team-safe Organization Computers projection used by OpenMeld Web
+and the Center Agent. Usage Limits are included when providers report them:
+
+```bash
+openmeld org computers --view agent
+openmeld org computers --json
+```
+
+This read never exposes provider credentials, account identity, executable
+paths, setup commands, or Computer controls. Do not scrape the Web UI or query a
+provider separately.
 
 Read or manage the Organization invite link:
 

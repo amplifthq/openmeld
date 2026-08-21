@@ -150,6 +150,18 @@ This command does not expose Connected Channel management, private Computer
 paths or file access, Profile Report drafts or bodies, credentials, or private
 local-agent state.
 
+### `openmeld org computers`
+
+List member Computers and their team-safe Local Agent details in the active
+Organization. When a provider reports Usage Limits, the same normalized limits
+shown in OpenMeld Web and available to the Center Agent are included. Use
+`--json` for one scriptable JSON envelope.
+
+```bash
+openmeld org computers --view agent
+openmeld org computers --json
+```
+
 ### `openmeld org invite-link`
 
 Read, create or reset, and revoke the active Organization invite link. OpenMeld

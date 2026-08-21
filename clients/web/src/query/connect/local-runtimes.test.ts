@@ -7,6 +7,7 @@ import {
 	boundedCurrentLocalRuntimeReplyReadinessRefetchInterval,
 	currentLocalRuntimeReplyReadinessQueryOptions,
 	LOCAL_RUNTIME_CATALOG_CHECK_RECOVERY_INTERVAL_MS,
+	LOCAL_RUNTIME_USAGE_LIMIT_REFRESH_INTERVAL_MS,
 	localRuntimeCatalogCheckRecoveryRefetchInterval,
 	resolveLocalRuntimeCatalogReadyReconcileKey,
 	shouldReconcileLocalRuntimeCatalogAfterReplyReady,
@@ -302,11 +303,11 @@ describe("localRuntimeCatalogCheckRecoveryRefetchInterval", () => {
 		).toBe(LOCAL_RUNTIME_CATALOG_CHECK_RECOVERY_INTERVAL_MS);
 	});
 
-	it("stops reconciling after controller checks recover", () => {
+	it("keeps usage-limit evidence fresh after controller checks recover", () => {
 		expect(
 			localRuntimeCatalogCheckRecoveryRefetchInterval({
 				state: { data: buildLocalRuntimes() },
 			})
-		).toBe(false);
+		).toBe(LOCAL_RUNTIME_USAGE_LIMIT_REFRESH_INTERVAL_MS);
 	});
 });

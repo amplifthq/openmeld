@@ -1439,7 +1439,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           await callCoreRpc(
             input.coreWorker,
             "centerAgentReadMemberComputers",
-            { ...request, ...toolContext },
+            {
+              ...request,
+              includeUsageLimits: "true" as const,
+              ...toolContext,
+            },
             (binding, rpcInput) =>
               binding.centerAgentReadMemberComputers?.(rpcInput)
           )
@@ -3743,7 +3747,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           "centerAgentListComputers"
         );
         return centerAgentListComputersResponseSchema.parse(
-          await rpc({ ...toolContext, includeDiagnostics: true })
+          await rpc({
+            ...toolContext,
+            includeDiagnostics: true,
+            includeUsageLimits: "true",
+          })
         );
       },
     }),

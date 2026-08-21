@@ -2092,6 +2092,7 @@ export type ForgetComputerInput = {
 export type GetLocalRuntimesInput = {
   connectionIdentityAdoption?: LocalRuntimesQuery["connectionIdentityAdoption"];
   context?: CoreRpcContextInput;
+  includeUsageLimits?: LocalRuntimesQuery["includeUsageLimits"];
 };
 
 export type GetCurrentLocalRuntimeReplyReadinessInput = {
@@ -2247,6 +2248,7 @@ export type GetCurrentOrganizationDirectoryInput = {
 
 export type GetCurrentOrganizationComputersInput = {
   context?: CoreRpcContextInput;
+  includeUsageLimits?: "true";
 };
 
 export type GetCurrentOrganizationMemberOpenMeldServiceStatusesInput = {
@@ -2783,13 +2785,52 @@ export async function rpcListLocalRuntimes(
   env: CoreBindings,
   input: GetLocalRuntimesInput
 ): Promise<LocalRuntimesResponse> {
-  return await listLocalRuntimesForOwnerUser({
+  const response = await listLocalRuntimesForOwnerUser({
     ...(input.connectionIdentityAdoption === undefined
       ? {}
       : { connectionIdentityAdoption: input.connectionIdentityAdoption }),
     env,
     userId: requireAuthenticatedOwnerUserId(input.context),
   });
+  return input.includeUsageLimits === "true"
+    ? response
+    : omitLocalRuntimeUsageLimits(response);
+}
+
+function omitLocalRuntimeUsageLimits(
+  response: LocalRuntimesResponse
+): LocalRuntimesResponse {
+  const omitFromComputer = <
+    T extends
+      | LocalRuntimesResponse["localRuntimes"][number]
+      | NonNullable<LocalRuntimesResponse["legacyDeviceEvidence"]>[number],
+  >(
+    computer: T
+  ): T => ({
+    ...computer,
+    executionTargets: computer.executionTargets.map((target) => ({
+      ...target,
+      capabilities: target.capabilities.map((capability) => {
+        if (!capability.agentControllerInterface?.usageLimits) {
+          return capability;
+        }
+        const { usageLimits: _usageLimits, ...agentControllerInterface } =
+          capability.agentControllerInterface;
+        return { ...capability, agentControllerInterface };
+      }),
+    })),
+  });
+
+  return {
+    ...response,
+    localRuntimes: response.localRuntimes.map(omitFromComputer),
+    ...(response.legacyDeviceEvidence
+      ? {
+          legacyDeviceEvidence:
+            response.legacyDeviceEvidence.map(omitFromComputer),
+        }
+      : {}),
+  };
 }
 
 async function listLocalRuntimesForOwnerUser(input: {
@@ -2858,6 +2899,7 @@ async function getCurrentLocalRuntimeReplyReadinessForOwnerUser(input: {
 
 async function buildOwnerComputerDiagnostics(input: {
   env: CoreBindings;
+  includeUsageLimits: boolean;
   localRuntimes: LocalRuntimesResponse;
   userId: string;
 }): Promise<OwnerComputerDiagnostics> {
@@ -2872,7 +2914,11 @@ async function buildOwnerComputerDiagnostics(input: {
   return ownerComputerDiagnosticsSchema.parse({
     currentComputerFileAccess,
     currentLocalRuntimeReplyReadiness,
-    localRuntimes: projectOwnerComputerLocalRuntimes(input.localRuntimes),
+    localRuntimes: projectOwnerComputerLocalRuntimes(
+      input.includeUsageLimits
+        ? input.localRuntimes
+        : omitLocalRuntimeUsageLimits(input.localRuntimes)
+    ),
   });
 }
 
@@ -3139,7 +3185,7 @@ export async function rpcSetCurrentLocalAgentEnabled(
     agentId: acceptedPayload.agentId,
     changed: acceptedPayload.changed,
     enabled: acceptedPayload.enabled,
-    localRuntimes: refreshedLocalRuntimes,
+    localRuntimes: omitLocalRuntimeUsageLimits(refreshedLocalRuntimes),
     reportSyncStatus: acceptedPayload.reportSyncStatus,
     status: acceptedPayload.status,
   };
@@ -3264,7 +3310,7 @@ export async function rpcSelectCurrentLocalAgentInstallation(
     agentId: acceptedPayload.agentId,
     changed: acceptedPayload.changed,
     installations: acceptedPayload.installations,
-    localRuntimes: refreshedLocalRuntimes,
+    localRuntimes: omitLocalRuntimeUsageLimits(refreshedLocalRuntimes),
     reportSyncStatus: acceptedPayload.reportSyncStatus,
     selectedInstallationId: acceptedPayload.selectedInstallationId,
     status:
@@ -3416,7 +3462,7 @@ export async function rpcRefreshCurrentLocalAgentCatalog(
     userId,
   });
   const response: RefreshCurrentLocalAgentCatalogResponse = {
-    localRuntimes: refreshedLocalRuntimes,
+    localRuntimes: omitLocalRuntimeUsageLimits(refreshedLocalRuntimes),
     sync: transportResult.payload,
   };
   const validated =
@@ -3471,7 +3517,7 @@ export async function rpcSetLocalRuntimeDisplayName(
     );
   }
 
-  return validated.data;
+  return omitLocalRuntimeUsageLimits(validated.data);
 }
 
 export async function rpcEnrollLocalRuntime(
@@ -5033,6 +5079,7 @@ export async function rpcGetCurrentOrganizationComputers(
   return await buildOrganizationComputersResponse({
     env,
     generatedAt,
+    includeUsageLimits: input.includeUsageLimits === "true",
     memberUserIds: members.map((member) => member.userId),
     organizationId: activeOrganization.organizationId,
   });
@@ -5041,6 +5088,7 @@ export async function rpcGetCurrentOrganizationComputers(
 async function buildOrganizationComputersResponse(input: {
   env: CoreBindings;
   generatedAt: string;
+  includeUsageLimits?: boolean;
   memberUserIds: string[];
   organizationId: string;
 }): Promise<OrganizationComputersResponse> {
@@ -5057,6 +5105,7 @@ async function buildOrganizationComputersResponse(input: {
 
   const response = await listOrganizationComputers({
     generatedAt,
+    includeUsageLimits: input.includeUsageLimits,
     lookupMemberComputerInventory: async ({ userId }) => {
       const [devices, executionTargets] = await Promise.all([
         listOwnedDeviceRegistryRecords({ db, userId }),
@@ -8973,6 +9022,9 @@ export async function rpcCenterAgentListComputers(
     ...(input.includeDiagnostics === undefined
       ? {}
       : { includeDiagnostics: input.includeDiagnostics }),
+    ...(input.includeUsageLimits === undefined
+      ? {}
+      : { includeUsageLimits: input.includeUsageLimits }),
     speakerMember: input.speakerMember,
   });
   if (!parsed.success) {
@@ -9002,6 +9054,7 @@ export async function rpcCenterAgentListComputers(
   const diagnostics = parsed.data.includeDiagnostics
     ? await buildOwnerComputerDiagnostics({
         env,
+        includeUsageLimits: parsed.data.includeUsageLimits === "true",
         localRuntimes,
         userId: representedHuman.userId,
       })
@@ -9936,6 +9989,7 @@ export async function rpcCenterAgentReadMemberComputers(
   const computers = await buildOrganizationComputersResponse({
     env,
     generatedAt,
+    includeUsageLimits: input.includeUsageLimits === "true",
     memberUserIds: [targetMembership.userId],
     organizationId: targetMembership.organizationId,
   });

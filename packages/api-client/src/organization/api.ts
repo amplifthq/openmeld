@@ -173,7 +173,9 @@ export const createOrganizationApi: CreateOrganizationApi = (
     }),
   getCurrentComputers: async (input = {}) =>
     await client.requestJson({
-      url: buildCurrentOrganizationComputersPath(),
+      url: buildCurrentOrganizationComputersPath({
+        includeUsageLimits: input.includeUsageLimits,
+      }),
       operation: "organization.computers.read",
       method: "GET",
       requestContext: input.requestContext,

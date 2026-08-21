@@ -4,6 +4,7 @@ import {
   type RuntimeLookupInput,
 } from "@openmeld/agent-runtime";
 import {
+  AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS,
   agentControllerInterfaceSnapshotSchema,
   daemonServiceLaneSchema,
 } from "@openmeld/schemas";
@@ -418,9 +419,13 @@ function mapOwnedDeviceExecutionTargetRow(input: {
     return [];
   }
 
-  const agentControllerInterface = parseAgentControllerInterface(
-    input.row.agent_controller_interface_json
-  );
+  const agentControllerInterface = parseAgentControllerInterface({
+    nowMs: input.nowMs,
+    reportExpired:
+      input.row.expires_at_ms !== null &&
+      input.row.expires_at_ms <= input.nowMs,
+    value: input.row.agent_controller_interface_json,
+  });
   const capabilityReasonCodes = [
     ...parseReasonCodes(input.row.reported_reason_codes_json),
     ...agentControllerInterface.reasonCodes,
@@ -492,15 +497,19 @@ function parseReasonCodes(value: string | null): readonly string[] {
   }
 }
 
-function parseAgentControllerInterface(value: string | null): {
+function parseAgentControllerInterface(input: {
+  nowMs: number;
+  reportExpired: boolean;
+  value: string | null;
+}): {
   reasonCodes: readonly string[];
   snapshot: AgentControllerInterfaceSnapshot | null;
 } {
-  if (!value) {
+  if (!input.value) {
     return { reasonCodes: [], snapshot: null };
   }
   try {
-    const parsed: unknown = JSON.parse(value);
+    const parsed: unknown = JSON.parse(input.value);
     const result = agentControllerInterfaceSnapshotSchema.safeParse(parsed);
     if (!result.success) {
       return {
@@ -508,13 +517,51 @@ function parseAgentControllerInterface(value: string | null): {
         snapshot: null,
       };
     }
-    return { reasonCodes: [], snapshot: result.data };
+    return {
+      reasonCodes: [],
+      snapshot: projectUsageLimitFreshness({
+        nowMs: input.nowMs,
+        reportExpired: input.reportExpired,
+        snapshot: result.data,
+      }),
+    };
   } catch {
     return {
       reasonCodes: ["runtime.agent_controller_interface.invalid_json"],
       snapshot: null,
     };
   }
+}
+
+function projectUsageLimitFreshness(input: {
+  nowMs: number;
+  reportExpired: boolean;
+  snapshot: AgentControllerInterfaceSnapshot;
+}): AgentControllerInterfaceSnapshot {
+  if (!input.snapshot.usageLimits) {
+    return input.snapshot;
+  }
+  return {
+    ...input.snapshot,
+    usageLimits: input.snapshot.usageLimits.map((limit) => {
+      if (limit.status === "unsupported" || limit.status === "unavailable") {
+        return limit;
+      }
+      const observedAtMs = Date.parse(limit.observedAt);
+      const observationExpired =
+        Number.isFinite(observedAtMs) &&
+        observedAtMs + AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS <=
+          input.nowMs;
+      const resetsAtMs = limit.resetsAt
+        ? Date.parse(limit.resetsAt)
+        : Number.NaN;
+      const resetExpired =
+        Number.isFinite(resetsAtMs) && resetsAtMs <= input.nowMs;
+      return input.reportExpired || observationExpired || resetExpired
+        ? { ...limit, status: "stale" as const }
+        : limit;
+    }),
+  };
 }
 
 function normalizeOptionalDisplayName(value: string | null): string | null {

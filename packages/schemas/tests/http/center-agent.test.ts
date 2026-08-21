@@ -128,10 +128,12 @@ describe("Center Agent HTTP schemas", () => {
     expect(
       centerAgentListComputersBodySchema.parse({
         includeDiagnostics: true,
+        includeUsageLimits: "true",
         speakerMember: { memberId: "member_1", userId: "user_1" },
       })
     ).toEqual({
       includeDiagnostics: true,
+      includeUsageLimits: "true",
       speakerMember: { memberId: "member_1", userId: "user_1" },
     });
     expect(centerAgentListComputersBodySchema.safeParse({}).success).toBe(

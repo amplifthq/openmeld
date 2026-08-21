@@ -175,6 +175,7 @@ ACI-owned local evidence may include:
   event streaming, and structured user input
 - controller-provided model, skill, or command inventory when available through
   a stable native surface
+- provider-reported Usage Limits when a stable native, non-task surface exists
 - clear local repair guidance when the controller is missing, ambiguous, old, or
   not authenticated
 
@@ -196,6 +197,50 @@ ACI must not own:
 - final `Available for Wake` truth
 - RuntimeCoordinator execution truth
 - the user's model intent stored on a Binding
+
+Provider Usage Limits are capacity evidence, not execution authority. Each
+controller projects one optional list of stable limit keys, plain-English
+labels, 0–100 used percentages, reset times when reported, observation times,
+and honest states. An adapter must leave an unknown percentage or reset time
+unknown. It must never infer capacity from a failed run, start a Wake or Agent
+Session to collect it, or retain credentials, account identity, subscription,
+payment, balance, or monetary fields from a provider response.
+
+The Service collects this evidence through the existing background ACI probe
+or a sanitized provider-native event passively observed during an ordinary
+already-running Agent Controller turn, then publishes it through the same
+Runtime Agent Controller Report. Passive observation must not create a turn,
+change its prompt or result, or become execution authority. Before retaining a
+passive observation, the Service confirms the current account through the
+controller's existing native, non-task ACI authentication probe and binds the
+observation to that owner-only evidence. It never adds account identity to a
+Usage Limit item. An observation with unknown account identity is discarded,
+and evidence bound to a different account cannot merge into the current
+snapshot. One provider failure cannot fail the Computer inventory or another
+controller. A temporary failure after a valid observation preserves that
+last-known percentage and reset with its original `observedAt`, marked `stale`,
+only when the existing owner-only authentication evidence proves the same
+provider account. An account change, signed-out state, or missing stable account
+identity fails closed to the current `unavailable` evidence instead of carrying
+capacity between accounts. A provider that has never returned usable evidence
+is `unavailable`. A controller with no supported native source is explicitly
+`unsupported`. These states do not alter Agent Profile readiness, Binding, Wake
+admission, RuntimeCoordinator, routing, or agent selection.
+
+The local keeper avoids replacing a successful observation during one Service
+process lifetime when the provider account remains proven. Core applies the
+same account-bound last-good rule while accepting the next Runtime Agent
+Controller Report, so a Service restart followed by a temporary provider
+failure does not erase stored numeric evidence for a proven unchanged account.
+This is an update to the canonical report row, not a second Usage Limit store.
+
+Claude Code is partially supported through public Agent SDK
+`rate_limit_event` messages already present in OpenMeld-launched turns. Only a
+finite native utilization value and its allowlisted window/reset fields become
+capacity evidence; missing ordinary utilization remains unknown. OpenMeld must
+not install or replace the user's global Claude status line, invoke Claude for
+collection, read Claude credentials, call a private OAuth usage endpoint, or
+substitute transcript token/cost estimates.
 
 ### Agent Instruction Delivery
 

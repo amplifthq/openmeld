@@ -54,6 +54,7 @@ export type CommandEntryName =
   | "organization.current"
   | "organization.switch"
   | "organization.directory"
+  | "organization.computers"
   | "organization.invite_link.get"
   | "organization.invite_link.create"
   | "organization.invite_link.revoke"

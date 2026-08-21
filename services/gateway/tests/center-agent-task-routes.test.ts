@@ -68,65 +68,57 @@ const TEST_EXECUTION_CONTEXT = {
 } as unknown as ExecutionContext;
 
 describe("Center Agent Task routes", () => {
-  it("forwards list, detail, conversation, Stop, and Retry to Core", async () => {
+  it("forwards task lists to Core", async () => {
     const { coreRpc, env } = makeEnv();
-    const responses = await Promise.all([
-      app.fetch(
-        new Request(
-          "http://local/v1/organizations/current/center-agent/tasks?limit=20"
-        ),
-        env,
-        TEST_EXECUTION_CONTEXT
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/center-agent/tasks?limit=20"
       ),
-      app.fetch(
-        new Request(
-          `http://local/v1/organizations/current/center-agent/tasks/${TASK_ID}`
-        ),
-        env,
-        TEST_EXECUTION_CONTEXT
-      ),
-      app.fetch(
-        jsonRequest(
-          `http://local/v1/organizations/current/center-agent/tasks/${TASK_ID}/messages`,
-          {
-            expectedVersion: 2,
-            idempotencyKey: "message-1",
-            text: "Focus on setup friction.",
-          }
-        ),
-        env,
-        TEST_EXECUTION_CONTEXT
-      ),
-      app.fetch(
-        jsonRequest(
-          `http://local/v1/organizations/current/center-agent/tasks/${TASK_ID}/stop`,
-          { expectedVersion: 2 }
-        ),
-        env,
-        TEST_EXECUTION_CONTEXT
-      ),
-      app.fetch(
-        jsonRequest(
-          `http://local/v1/organizations/current/center-agent/tasks/${TASK_ID}/retry`,
-          { expectedVersion: 2, idempotencyKey: "retry-1" }
-        ),
-        env,
-        TEST_EXECUTION_CONTEXT
-      ),
-    ]);
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
 
-    expect(responses.map((response) => response.status)).toEqual([
-      200, 200, 200, 200, 200,
-    ]);
+    expect(response.status).toBe(200);
     expect(coreRpc.listCenterAgentTasks).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 20 })
     );
     expect(coreRpc.listCenterAgentTasks.mock.calls[0]?.[0]).not.toHaveProperty(
       "responseContractVersion"
     );
+  });
+
+  it("forwards task details to Core", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/organizations/current/center-agent/tasks/${TASK_ID}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
     expect(coreRpc.getCenterAgentTask).toHaveBeenCalledWith(
       expect.objectContaining({ taskId: TASK_ID })
     );
+  });
+
+  it("forwards task conversation messages to Core", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      jsonRequest(
+        `http://local/v1/organizations/current/center-agent/tasks/${TASK_ID}/messages`,
+        {
+          expectedVersion: 2,
+          idempotencyKey: "message-1",
+          text: "Focus on setup friction.",
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
     expect(coreRpc.continueCenterAgentTask).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedVersion: 2,
@@ -135,9 +127,37 @@ describe("Center Agent Task routes", () => {
         text: "Focus on setup friction.",
       })
     );
+  });
+
+  it("forwards task stops to Core", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      jsonRequest(
+        `http://local/v1/organizations/current/center-agent/tasks/${TASK_ID}/stop`,
+        { expectedVersion: 2 }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
     expect(coreRpc.stopCenterAgentTask).toHaveBeenCalledWith(
       expect.objectContaining({ expectedVersion: 2, taskId: TASK_ID })
     );
+  });
+
+  it("forwards task retries to Core", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      jsonRequest(
+        `http://local/v1/organizations/current/center-agent/tasks/${TASK_ID}/retry`,
+        { expectedVersion: 2, idempotencyKey: "retry-1" }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
     expect(coreRpc.retryCenterAgentTask).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedVersion: 2,

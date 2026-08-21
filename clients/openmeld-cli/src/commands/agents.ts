@@ -2260,7 +2260,10 @@ export async function runAgentsShow(input: AgentsShowInput): Promise<void> {
 
   const payload = {
     agent: buildAgentRegistrationAgentView(state),
-    agentControllerInterface,
+    agentControllerInterface:
+      input.json === true || runtime.resolvedView === "agent"
+        ? projectLegacyAgentControllerInterface(agentControllerInterface)
+        : agentControllerInterface,
     installChoices: state.installChoices,
     launchStatus: formatAgentViewLaunchStatus(state.launchStatus),
     launchStatusDetail: state.launchStatusDetail,
@@ -2346,6 +2349,16 @@ export async function runAgentsShow(input: AgentsShowInput): Promise<void> {
     ],
     minContentWidth: 34,
   });
+}
+
+function projectLegacyAgentControllerInterface(
+  snapshot: AgentControllerInterfaceSnapshot | null
+): AgentControllerInterfaceSnapshot | null {
+  if (!snapshot?.usageLimits) {
+    return snapshot;
+  }
+  const { usageLimits: _usageLimits, ...legacySnapshot } = snapshot;
+  return legacySnapshot;
 }
 
 function createSilentAgentsPresenter(

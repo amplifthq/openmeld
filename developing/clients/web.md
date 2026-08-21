@@ -716,12 +716,36 @@ last-seen time, coarse Service state, team-safe local-agent availability, and
 visible Agents that use it. A reported local agent may also expose operational
 details that help teammates understand compatibility: controller state, native
 interface, installed version and update status, launch readiness and install
-count, reported model names, native capabilities, and last-check time. It does
+count, reported model names, native capabilities, last-check time, and
+provider-reported Usage Limits. It does
 not expose controller accounts, executable or installation paths, launch
 arguments, update commands, private skills, local policy, credentials, raw
 errors, or mutation controls. A live Service may expose team-safe OpenMeld
 Tools component versions and update states; setup commands, hashes, and
 owner-only controls remain private.
+
+Each Local Agent renders its `usageLimits` list inside the existing expandable
+row. Usage Limit evidence does not create a separate page or make the row expand
+automatically. In the collapsed row, a compact summary follows the existing
+version and update metadata; its tooltip previews every reported window, and
+selecting the existing row reveals the full gauges in its details. Owned and
+teammate Computers use the same shared summary and accessible gauge component.
+A provider with no quantified evidence does not add a collapsed-row badge or
+placeholder gauge. Web explicitly opts in to both owner and Organization
+projections and refreshes them while the Computers surface is active.
+A gauge names the limit, exposes its 0–100 used value to assistive technology,
+shows the used percentage in text, shows reset and last-observed time, and names
+the state so color is never the only signal. The UI derives **Low** when a fresh
+available limit is at least 80% used; it does not store a second status or
+remaining percentage. Unknown values have no gauge and never appear as 0%,
+100%, or unlimited.
+
+The UI keeps multiple provider windows separate and handles offline Computers,
+expired evidence, temporary provider failure, permanent lack of support, and a
+supported provider that has never returned evidence. Last-known percentages on
+an offline or expired Computer are **Stale**. A temporary first-read failure is
+**Unavailable**; no native provider source is **Unsupported**. Copy states that
+capacity information does not control whether the Local Agent can run.
 
 Owned and teammate Computers reuse the same Computer summary, **OpenMeld
 Tools**, and **Local agents** presentation components. Web applies visibility

@@ -18,6 +18,7 @@ export async function readLocalRuntimes(): Promise<LocalRuntimesResponse> {
 			createUnscopedWebOpenMeldApiFoundation()
 		).listLocalRuntimes({
 			connectionIdentityAdoption: "safe_legacy_current",
+			includeUsageLimits: "true",
 		});
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);

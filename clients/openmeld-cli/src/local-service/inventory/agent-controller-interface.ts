@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
+import { projectCodexUsageLimits } from "@openmeld/adapter-codex";
 import {
   buildCliLaunchInvocation,
+  createUnavailableProviderUsageLimits,
+  createUnsupportedProviderUsageLimits,
   materializeCliLaunchCommand,
   type RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
@@ -9,6 +12,7 @@ import {
   GrokBuildAcpTransportError,
   probeGrokBuildAcpInterface,
 } from "@openmeld/adapter-grok-build";
+import { areAgentControllerInterfaceAccountsSame } from "@openmeld/agent-runtime";
 import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
 import type {
   AgentControllerInterfaceAuthSnapshot,
@@ -18,8 +22,10 @@ import type {
   AgentControllerInterfaceSnapshot,
   AgentControllerInterfaceStatus,
   AgentControllerInterfaceVersionAdvisory,
+  AgentControllerUsageLimits,
 } from "@openmeld/schemas/types";
 import {
+  type BuiltinAgentControllerUsageLimitSupport,
   type BuiltinAgentControllerVersionMaintenanceDefinition,
   EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES,
   resolveBuiltinAgentControllerDefinition,
@@ -36,6 +42,8 @@ import { warnDaemonEvent } from "../core/logger";
 import {
   buildAgentControllerInterfaceKeeperKey,
   didAgentControllerCommandFingerprintRemainStable,
+  readLastKnownAgentControllerAuthSnapshot,
+  readLastKnownAgentControllerUsageLimits,
   readLastSuccessfulAgentControllerInterfaceCheckAt,
   readReusableAgentControllerInterfaceSnapshot,
   recordAgentControllerInterfaceProbeFailure,
@@ -43,6 +51,7 @@ import {
   resolveAgentControllerCommandFingerprint,
 } from "./agent-controller-interface-keeper";
 import { probeOpenCodeReadiness } from "./opencode-readiness-probe";
+import { resolveLaunchContractCommandPath } from "./runtime-provider-usage-limits";
 
 const PROBE_TIMEOUT_MS = 8000;
 const CODEX_AUX_INVENTORY_GRACE_MS = 2500;
@@ -134,6 +143,24 @@ const CONTROLLER_INTERFACE_SNAPSHOT_RESOLVERS: Record<
   opencode: resolveOpenCodeInterfaceSnapshot,
 };
 
+export async function probeAgentControllerUsageObservationAuth(input: {
+  agentId: string;
+  launchContract: RuntimeAgentControllerLaunchContract;
+}): Promise<AgentControllerInterfaceAuthSnapshot> {
+  if (input.agentId !== "claude-code") {
+    return { status: "unknown" };
+  }
+  // Claude's passive SDK rate-limit event carries no stable account identity.
+  // Reuse its native, non-task ACI auth command solely to bind the observation;
+  // the auth snapshot never becomes part of a Usage Limit item.
+  const authProbe = await runLaunchContractCommand({
+    allowNonZeroExit: true,
+    args: ["auth", "status"],
+    launchContract: input.launchContract,
+  });
+  return resolveClaudeAuthSnapshot(authProbe);
+}
+
 export async function resolveAgentControllerInterfaceSnapshot(input: {
   agentControllerRef: string;
   probePolicy?: AgentControllerInterfaceProbePolicy;
@@ -144,28 +171,35 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
     input.state.agentId
   );
   const launch = resolveLaunchSnapshot(input.state);
-  const baseSnapshot: AgentControllerInterfaceSnapshot = {
-    agentControllerRef: input.agentControllerRef,
-    auth: { status: "unknown" },
-    capabilities:
-      controllerDefinition?.capabilities ??
-      EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES,
-    check: {
-      lastSucceededAt: null,
-      status: "not_run",
-    },
+  const initialUsageLimits = resolveInitialProviderUsageLimits({
     checkedAt,
-    controllerId: input.state.agentId,
-    displayName: input.state.displayName,
-    launch,
-    message: input.state.launchStatusDetail ?? null,
-    models: [],
-    nativeInterface: controllerDefinition?.nativeInterface ?? "local-cli",
-    schemaVersion: 1,
-    skills: [],
-    status: resolveBaseStatus(input.state),
-    version: null,
-  };
+    support: controllerDefinition?.usageLimitSupport ?? "not_evaluated",
+  });
+  const baseSnapshot = withUsageLimits(
+    {
+      agentControllerRef: input.agentControllerRef,
+      auth: { status: "unknown" },
+      capabilities:
+        controllerDefinition?.capabilities ??
+        EMPTY_AGENT_CONTROLLER_INTERFACE_CAPABILITIES,
+      check: {
+        lastSucceededAt: null,
+        status: "not_run",
+      },
+      checkedAt,
+      controllerId: input.state.agentId,
+      displayName: input.state.displayName,
+      launch,
+      message: input.state.launchStatusDetail ?? null,
+      models: [],
+      nativeInterface: controllerDefinition?.nativeInterface ?? "local-cli",
+      schemaVersion: 1,
+      skills: [],
+      status: resolveBaseStatus(input.state),
+      version: null,
+    },
+    initialUsageLimits
+  );
 
   if (input.state.launchStatus !== "ready" || !input.state.launchContract) {
     return baseSnapshot;
@@ -196,6 +230,14 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
       commandFingerprint: commandFingerprintBeforeProbe,
       keeperKey,
     });
+  const lastKnownUsageLimits = readLastKnownAgentControllerUsageLimits({
+    commandFingerprint: commandFingerprintBeforeProbe,
+    keeperKey,
+  });
+  const lastKnownAuth = readLastKnownAgentControllerAuthSnapshot({
+    commandFingerprint: commandFingerprintBeforeProbe,
+    keeperKey,
+  });
   if (probePolicy === "background") {
     const reusableSnapshot = readReusableAgentControllerInterfaceSnapshot({
       commandFingerprint: commandFingerprintBeforeProbe,
@@ -222,15 +264,25 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
       beforeProbe: commandFingerprintBeforeProbe,
     });
   if (outcome.probeCompleted) {
-    const completedSnapshot: AgentControllerInterfaceSnapshot = {
-      ...outcome.snapshot,
-      check: {
-        lastSucceededAt: outcome.snapshot.checkedAt,
-        status: "succeeded",
+    const usageLimits = resolveUsageLimitsAfterCompletedProbe({
+      currentAuth: outcome.snapshot.auth,
+      current: outcome.snapshot.usageLimits,
+      previous: lastKnownUsageLimits,
+      previousAuth: lastKnownAuth,
+      support: controllerDefinition?.usageLimitSupport ?? "not_evaluated",
+    });
+    const completedSnapshot = withUsageLimits(
+      {
+        ...outcome.snapshot,
+        check: {
+          lastSucceededAt: outcome.snapshot.checkedAt,
+          status: "succeeded",
+        },
       },
-    };
+      usageLimits
+    );
     if (commandFingerprintRemainedStable && commandFingerprintAfterProbe) {
-      recordAgentControllerInterfaceProbeSuccess({
+      return recordAgentControllerInterfaceProbeSuccess({
         commandFingerprint: commandFingerprintAfterProbe,
         keeperKey,
         nowMs: Date.now(),
@@ -247,6 +299,13 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
   const preservedLastSuccessfulCheckAt = commandFingerprintRemainedStable
     ? lastSuccessfulCheckAt
     : null;
+  const usageLimits = resolveUsageLimitsAfterFailedProbe({
+    currentAuth: outcome.snapshot.auth,
+    current: outcome.snapshot.usageLimits,
+    previous: lastKnownUsageLimits,
+    previousAuth: lastKnownAuth,
+    preserveHistoricalEvidence: commandFingerprintRemainedStable,
+  });
   warnDaemonEvent("[openmeld.agent_controller_interface.check_failed]", {
     agentControllerRef: input.agentControllerRef,
     commandFingerprintRemainedStable,
@@ -255,15 +314,100 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
     lastSucceededAt: preservedLastSuccessfulCheckAt,
     probePolicy,
   });
-  return {
-    ...outcome.snapshot,
-    check: {
-      lastSucceededAt: preservedLastSuccessfulCheckAt,
-      status: "failed",
+  return withUsageLimits(
+    {
+      ...outcome.snapshot,
+      check: {
+        lastSucceededAt: preservedLastSuccessfulCheckAt,
+        status: "failed",
+      },
+      // A failed check is not proof that the controller itself is broken.
+      status: "unknown",
     },
-    // A failed check is not proof that the controller itself is broken.
-    status: "unknown",
-  };
+    usageLimits
+  );
+}
+
+function withUsageLimits(
+  snapshot: AgentControllerInterfaceSnapshot,
+  usageLimits: AgentControllerUsageLimits | undefined
+): AgentControllerInterfaceSnapshot {
+  return usageLimits ? { ...snapshot, usageLimits } : snapshot;
+}
+
+export function resolveUsageLimitsAfterCompletedProbe(input: {
+  currentAuth: AgentControllerInterfaceAuthSnapshot;
+  current: AgentControllerUsageLimits | undefined;
+  previous: AgentControllerUsageLimits | null;
+  previousAuth: AgentControllerInterfaceAuthSnapshot | null;
+  support: BuiltinAgentControllerUsageLimitSupport;
+}): AgentControllerUsageLimits | undefined {
+  if (
+    !areAgentControllerInterfaceAccountsSame(
+      input.previousAuth,
+      input.currentAuth
+    )
+  ) {
+    return input.current;
+  }
+  if (input.support === "passive") {
+    return input.previous ?? input.current;
+  }
+  return preserveLastKnownUsageLimitsAfterFailure(input);
+}
+
+function preserveLastKnownUsageLimitsAfterFailure(input: {
+  current: AgentControllerUsageLimits | undefined;
+  previous: AgentControllerUsageLimits | null;
+}): AgentControllerUsageLimits | undefined {
+  const currentIsUnavailable =
+    input.current?.length === 1 && input.current[0]?.status === "unavailable";
+  const previousHasKnownCapacity = input.previous?.some(
+    (limit) =>
+      limit.status === "available" ||
+      limit.status === "exhausted" ||
+      limit.status === "stale"
+  );
+  if (!(currentIsUnavailable && previousHasKnownCapacity && input.previous)) {
+    return input.current;
+  }
+  return input.previous.map((limit) =>
+    limit.usedPercent === null ? limit : { ...limit, status: "stale" }
+  );
+}
+
+function resolveUsageLimitsAfterFailedProbe(input: {
+  currentAuth: AgentControllerInterfaceAuthSnapshot;
+  current: AgentControllerUsageLimits | undefined;
+  preserveHistoricalEvidence: boolean;
+  previous: AgentControllerUsageLimits | null;
+  previousAuth: AgentControllerInterfaceAuthSnapshot | null;
+}): AgentControllerUsageLimits | undefined {
+  if (
+    !(
+      input.preserveHistoricalEvidence &&
+      areAgentControllerInterfaceAccountsSame(
+        input.previousAuth,
+        input.currentAuth
+      )
+    )
+  ) {
+    return input.current;
+  }
+  return preserveLastKnownUsageLimitsAfterFailure(input);
+}
+
+function resolveInitialProviderUsageLimits(input: {
+  checkedAt: string;
+  support: BuiltinAgentControllerUsageLimitSupport;
+}): AgentControllerInterfaceSnapshot["usageLimits"] {
+  if (input.support === "native") {
+    return createUnavailableProviderUsageLimits(input.checkedAt);
+  }
+  if (input.support === "unsupported") {
+    return createUnsupportedProviderUsageLimits(input.checkedAt);
+  }
+  return undefined;
 }
 
 function resolveLaunchSnapshot(
@@ -667,6 +811,7 @@ async function resolveCodexInterfaceSnapshot(input: {
         models: appServerProbe.models,
         skills: appServerProbe.skills,
         status: appServerProbe.status,
+        usageLimits: appServerProbe.usageLimits,
         version,
         versionAdvisory: await resolveControllerVersionAdvisory({
           checkedAt: input.baseSnapshot.checkedAt,
@@ -821,6 +966,7 @@ async function resolveGrokBuildInterfaceSnapshot(input: {
         message: null,
         models: interfaceProbe.result.models,
         status: "ready",
+        usageLimits: interfaceProbe.result.usageLimits,
         version,
         versionAdvisory: await resolveControllerVersionAdvisory({
           checkedAt: input.baseSnapshot.checkedAt,
@@ -1066,6 +1212,7 @@ type CodexAppServerProbeResult =
       ok: true;
       skills: AgentControllerInterfaceSkill[];
       status: AgentControllerInterfaceStatus;
+      usageLimits: NonNullable<AgentControllerInterfaceSnapshot["usageLimits"]>;
       version: string | null;
     }
   | {
@@ -1219,16 +1366,31 @@ async function runCodexAppServerProbeRequests(input: {
     .request("skills/list", { cwds: [process.cwd()] })
     .catch(() => null);
   const modelsPromise = requestAllCodexModels(input.request).catch(() => []);
+  const usageLimitsPromise = input
+    .request("account/rateLimits/read", null)
+    .then((response) =>
+      projectCodexUsageLimits({
+        observedAt: new Date().toISOString(),
+        response,
+      })
+    )
+    .catch(() =>
+      createUnavailableProviderUsageLimits(new Date().toISOString())
+    );
   const account = await input.request("account/read", {});
   // The account verdict is the core probe fact. Once it arrives the probe can
   // no longer time out; auxiliary model/skill inventory only gets a bounded
   // grace so a slow listing cannot turn a healthy controller into a timeout.
   input.clearProbeTimeout();
-  const [skills, models] = await resolveWithinGrace(
-    Promise.all([skillsPromise, modelsPromise]),
-    CODEX_AUX_INVENTORY_GRACE_MS,
-    [null, []]
-  );
+  const [skills, models, usageLimits] = await Promise.all([
+    resolveWithinGrace(skillsPromise, CODEX_AUX_INVENTORY_GRACE_MS, null),
+    resolveWithinGrace(modelsPromise, CODEX_AUX_INVENTORY_GRACE_MS, []),
+    resolveWithinGrace(
+      usageLimitsPromise,
+      CODEX_AUX_INVENTORY_GRACE_MS,
+      createUnavailableProviderUsageLimits(new Date().toISOString())
+    ),
+  ]);
   const auth = resolveCodexAuthSnapshot(account);
   input.finish({
     auth,
@@ -1240,6 +1402,7 @@ async function runCodexAppServerProbeRequests(input: {
     ok: true,
     skills: parseCodexSkills(skills),
     status: auth.status === "unauthenticated" ? "error" : "ready",
+    usageLimits,
     version: parseCodexUserAgentVersion(initialized),
   });
 }
@@ -1466,8 +1629,10 @@ function resolveClaudeAuthSnapshot(
     return { status: "unauthenticated" };
   }
   if (probe.code === 0 && output.length > 0) {
+    const email = resolveLikelyEmail(output);
     return {
-      label: resolveLikelyEmail(output) ?? "Signed in",
+      ...(email ? { email } : {}),
+      label: email ?? "Signed in",
       status: "authenticated",
       type: "claude",
     };
@@ -1594,14 +1759,6 @@ function parseCliVersion(output: string): string | null {
   }
   const semver = normalized.match(CLI_SEMVER_RE);
   return semver?.[1] ?? normalized.split(WHITESPACE_RE).at(-1) ?? normalized;
-}
-
-function resolveLaunchContractCommandPath(
-  launchContract: RuntimeAgentControllerLaunchContract
-): string {
-  return launchContract.kind === "executable"
-    ? launchContract.commandPath
-    : launchContract.scriptPath;
 }
 
 function parseJsonRpcMessage(line: string): JsonRpcMessage | null {

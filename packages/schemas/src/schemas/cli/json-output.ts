@@ -14,6 +14,7 @@ import {
   submitFeedbackIssueRequestSchema,
   submitFeedbackIssueResponseSchema,
 } from "../http/feedback";
+import { organizationComputersResponseSchema } from "../http/organization-computers";
 import { organizationDirectoryResponseSchema } from "../http/organization-directory";
 import {
   getOrganizationJoinLinkResponseSchema,
@@ -450,6 +451,12 @@ export const cliJsonOrganizationDirectoryEnvelopeSchema =
     organizationDirectoryResponseSchema.shape
   );
 
+export const cliJsonOrganizationComputersEnvelopeSchema =
+  defineStrictSuccessEnvelope(
+    "organization.computers",
+    organizationComputersResponseSchema.shape
+  );
+
 export const cliJsonOrganizationInviteLinkGetEnvelopeSchema =
   defineStrictSuccessEnvelope(
     "organization.invite_link.get",
@@ -528,6 +535,9 @@ export type CliJsonSpaceListOrganizationEnvelope = z.infer<
 export type CliJsonOrganizationDirectoryEnvelope = z.infer<
   typeof cliJsonOrganizationDirectoryEnvelopeSchema
 >;
+export type CliJsonOrganizationComputersEnvelope = z.infer<
+  typeof cliJsonOrganizationComputersEnvelopeSchema
+>;
 export type CliJsonOrganizationInviteLinkGetEnvelope = z.infer<
   typeof cliJsonOrganizationInviteLinkGetEnvelopeSchema
 >;
@@ -585,6 +595,7 @@ export const cliJsonOutputEnvelopeSchema = z.discriminatedUnion("type", [
   cliJsonSpaceMembersEnvelopeSchema,
   cliJsonSpaceListOrganizationEnvelopeSchema,
   cliJsonOrganizationDirectoryEnvelopeSchema,
+  cliJsonOrganizationComputersEnvelopeSchema,
   cliJsonOrganizationInviteLinkGetEnvelopeSchema,
   cliJsonOrganizationInviteLinkCreateEnvelopeSchema,
   cliJsonOrganizationInviteLinkRevokeEnvelopeSchema,
@@ -643,6 +654,7 @@ export const CLI_JSON_OUTPUT_TYPES = [
   "space.members",
   "space.list.organization",
   "organization.directory",
+  "organization.computers",
   "organization.invite_link.get",
   "organization.invite_link.create",
   "organization.invite_link.revoke",

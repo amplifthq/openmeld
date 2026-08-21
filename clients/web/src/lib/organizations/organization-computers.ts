@@ -17,7 +17,10 @@ export async function readCurrentOrganizationComputers(input: {
 			createOrganizationScopedWebOpenMeldApiFoundation({
 				organizationId: input.organizationId,
 			})
-		).getCurrentComputers({ signal: input.signal });
+		).getCurrentComputers({
+			includeUsageLimits: "true",
+			signal: input.signal,
+		});
 		if (response.organizationId !== input.organizationId) {
 			throw new Error("Organization computers response organization mismatch.");
 		}
