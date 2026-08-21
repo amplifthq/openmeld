@@ -379,7 +379,6 @@ const REVIEWER_OPTION_NAME = /Reviewer/;
 const RUNNER_OPTION_NAME = /Runner/;
 const SCOUT_OPTION_NAME = /Scout/;
 const WATCHER_OPTION_NAME = /Watcher/;
-const AGENT_PROFILE_TAB_NAME = /Agent profile/i;
 const CREATE_PROFILE_BUTTON_NAME = /Create profile/i;
 const DIAGNOSTIC_REPORT_POINTER_COPY =
 	/The report sends message IDs and system trace pointers, not the message text\./;
@@ -1447,7 +1446,7 @@ describe("SpaceLanding", () => {
 		let membersRefetchCount = 0;
 		const membersRefetchMock = vi.fn().mockImplementation(() => {
 			const nextSnapshot =
-				membersRefetchCount === 0
+				membersRefetchCount < 2
 					? newAgentOfflineSnapshot
 					: newAgentReadySnapshot;
 			membersRefetchCount += 1;
@@ -1523,9 +1522,6 @@ describe("SpaceLanding", () => {
 		const dialog = await screen.findByRole("dialog", {
 			name: "Create a new Agent",
 		});
-		fireEvent.click(
-			within(dialog).getByRole("tab", { name: AGENT_PROFILE_TAB_NAME })
-		);
 		fireEvent.change(within(dialog).getByLabelText("Profile name"), {
 			target: { value: "Scout" },
 		});
@@ -15317,6 +15313,20 @@ function mockSpaceQueries(input: {
 			if (
 				Array.isArray(options.queryKey) &&
 				options.queryKey[0] === "organizations" &&
+				options.queryKey[2] === "computers"
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: {
+						computers: [],
+						generatedAt: "2026-07-16T00:00:00.000Z",
+						organizationId: "org-acme",
+					},
+				});
+			}
+			if (
+				Array.isArray(options.queryKey) &&
+				options.queryKey[0] === "organizations" &&
 				options.queryKey[2] === "directory"
 			) {
 				return createQueryResult({
@@ -15351,6 +15361,22 @@ function mockSpaceQueries(input: {
 								userId: "user-mira",
 							}
 						: undefined,
+				});
+			}
+			if (
+				Array.isArray(options.queryKey) &&
+				options.queryKey[0] === "agent-activity" &&
+				options.queryKey[2] === "sessions"
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: {
+						asOfMs: 1_773_792_000_000,
+						coverage: [],
+						nextCursor: null,
+						organization: { id: "org-acme", name: "Acme" },
+						sessions: [],
+					},
 				});
 			}
 			if (
