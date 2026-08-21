@@ -262,7 +262,6 @@ export function CreateProfileDialog(input: {
 	const organizationId = input.organizationId;
 	const dialogTitle = resolveCreateProfileDialogTitle({
 		additionalHumanProfileCreationEnabled,
-		hasSessionPreset: Boolean(sessionPreset),
 	});
 	const canRequestForTeammate = canRequestTeammateAgent({
 		allowTeammateRequests:
@@ -1808,11 +1807,7 @@ function handleCreateProfileDialogOpenChange(input: {
 
 function resolveCreateProfileDialogTitle(input: {
 	additionalHumanProfileCreationEnabled: boolean;
-	hasSessionPreset: boolean;
 }): string {
-	if (input.hasSessionPreset) {
-		return "Create a new Agent Profile";
-	}
 	return input.additionalHumanProfileCreationEnabled
 		? "Create a new profile"
 		: "Create a new Agent";
@@ -1832,17 +1827,17 @@ function resolveCreateProfileDialogDescription(input: {
 			return `Request an Agent for ${input.targetOwnerName ?? "this teammate"} that continues this Session.`;
 		}
 		return input.agentActivitySessionPreset.status === "working"
-			? "Connect this working Session to a new Agent Profile. Fork it instead when you want to preserve the work already in progress."
-			: "Connect this Session to a new Agent Profile so it can continue with the same Local Agent context.";
+			? "Connect this working Session to a new Agent. Fork it instead when you want to preserve the work already in progress."
+			: "Connect this Session to a new Agent so it can continue with the same Local Agent context.";
 	}
 	if (input.agentActivitySessionPreset?.mode === "fork") {
 		if (input.ownerMode === "teammate") {
 			return `Request an Agent for ${input.targetOwnerName ?? "this teammate"} from a copy of this Session. The original stays unchanged.`;
 		}
-		return "Create a new Agent Profile from a copy of this Session. The original Session stays unchanged.";
+		return "Create a new Agent from a copy of this Session. The original Session stays unchanged.";
 	}
 	if (input.agentActivitySessionPreset?.mode === "create") {
-		return "Create a new Agent Profile with this Local Agent and Project. The existing Session stays unchanged.";
+		return "Create a new Agent with this Local Agent and Project. The existing Session stays unchanged.";
 	}
 	if (input.ownerMode === "teammate") {
 		return `Configure an Agent for ${input.targetOwnerName ?? "a teammate"}. Their approval settings decide whether it is created now or sent as a request.`;

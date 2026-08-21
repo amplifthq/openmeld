@@ -713,14 +713,14 @@ describe("CreateProfileDialog", () => {
 
 		expect(
 			await screen.findByText(
-				"Connect this working Session to a new Agent Profile. Fork it instead when you want to preserve the work already in progress."
+				"Connect this working Session to a new Agent. Fork it instead when you want to preserve the work already in progress."
 			)
 		).toBeTruthy();
 		expect(
 			(screen.getByLabelText("Profile name") as HTMLInputElement).value
 		).toBe("Build Session Inventory");
 		expect(
-			screen.getByRole("heading", { name: "Create a new Agent Profile" })
+			screen.getByRole("heading", { name: "Create a new Agent" })
 		).toBeTruthy();
 		expect(
 			screen.queryByRole("tab", { name: HUMAN_PROFILE_CARD_PATTERN })
