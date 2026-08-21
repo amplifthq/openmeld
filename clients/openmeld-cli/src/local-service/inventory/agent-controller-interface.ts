@@ -1629,8 +1629,10 @@ function resolveClaudeAuthSnapshot(
     return { status: "unauthenticated" };
   }
   if (probe.code === 0 && output.length > 0) {
+    const email = resolveLikelyEmail(output);
     return {
-      label: resolveLikelyEmail(output) ?? "Signed in",
+      ...(email ? { email } : {}),
+      label: email ?? "Signed in",
       status: "authenticated",
       type: "claude",
     };

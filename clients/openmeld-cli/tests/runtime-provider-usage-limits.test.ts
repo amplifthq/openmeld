@@ -29,6 +29,35 @@ afterEach(async () => {
 });
 
 describe("runtime provider usage-limit observations", () => {
+  it("preserves a plaintext Claude email for passive usage binding", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "openmeld-claude-auth-"));
+    temporaryDirectories.push(directory);
+    const commandPath = join(directory, "claude");
+    await writeFile(
+      commandPath,
+      [
+        "#!/bin/sh",
+        "printf '%s\\n' 'Logged in as owner@example.com'",
+        "exit 0",
+        "",
+      ].join("\n"),
+      "utf8"
+    );
+    await chmod(commandPath, 0o755);
+
+    await expect(
+      probeAgentControllerUsageObservationAuth({
+        agentId: "claude-code",
+        launchContract: { commandPath, kind: "executable" },
+      })
+    ).resolves.toEqual({
+      email: "owner@example.com",
+      label: "owner@example.com",
+      status: "authenticated",
+      type: "claude",
+    });
+  });
+
   it("retains a passive event in the same fingerprinted ACI keeper", async () => {
     const directory = await mkdtemp(join(tmpdir(), "openmeld-claude-usage-"));
     temporaryDirectories.push(directory);
