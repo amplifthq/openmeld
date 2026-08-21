@@ -24,6 +24,7 @@ import type {
   SetAgentProfileCreationApprovalPreferenceBody,
   SetAgentProfileCreationApprovalPreferenceResponse,
 } from "@openmeld/schemas/types";
+import { resolveAgentActivitySessionInventorySelection } from "../agent-activity/activity-session-inventory-repository";
 import { projectCenterAgentLocalAgentConnectionCandidates } from "../center-agent/application/product-operations";
 import { resolveCenterAgentAuditAttribution } from "../center-agent/center-agent-audit";
 import { requireCurrentDesignatedCenterAgentCaller } from "../center-agent/current-designated-center-agent";
@@ -251,11 +252,11 @@ export async function rpcCreateAgentProfileCreationRequest(
   if (!body.success) {
     throw invalidPayload(body.error.issues[0]?.message);
   }
-  if (body.data.sessionStrategy !== "new") {
+  if (body.data.sessionStrategy === "fork") {
     throw createCoreRpcHttpError({
       code: "agent_profile_creation_request.session_strategy_unavailable",
       reason:
-        "Resume and fork requests will be available after OpenMeld can verify the selected local session.",
+        "Fork requests will be available after the selected local agent can create a child Session.",
       status: 409,
     });
   }
@@ -271,6 +272,16 @@ export async function rpcCreateAgentProfileCreationRequest(
     organizationId,
     userId: body.data.targetOwnerUserId,
   });
+  if (body.data.sessionStrategy === "resume") {
+    await requireRequestedSessionSelection({
+      configuration: body.data.configuration,
+      db,
+      nativeSessionId: body.data.nativeSessionId,
+      organizationId,
+      ownerUserId: body.data.targetOwnerUserId,
+      sessionStrategy: body.data.sessionStrategy,
+    });
+  }
 
   const service = createService(env, db);
   try {
@@ -615,6 +626,17 @@ async function connectRequestedAgentProfile(input: {
   request: AgentProfileCreationRequestRecord;
 }): Promise<void> {
   const configuration = input.request.configuration;
+  const sessionInventorySelection =
+    input.request.sessionStrategy === "new"
+      ? null
+      : await requireRequestedSessionSelection({
+          configuration,
+          db: requireDb(input.env),
+          nativeSessionId: input.request.nativeSessionId,
+          organizationId: input.request.organizationId,
+          ownerUserId: input.request.targetOwnerUserId,
+          sessionStrategy: input.request.sessionStrategy,
+        });
   const targetContext = await buildMemberHumanContext({
     env: input.env,
     organizationId: input.request.organizationId,
@@ -646,6 +668,13 @@ async function connectRequestedAgentProfile(input: {
   }
   const binding = await rpcEnsureAgentProfilePrimaryBinding(input.env, {
     agentControllerRef: candidate.agentControllerRef,
+    ...(sessionInventorySelection
+      ? {
+          agentControllerConversationId:
+            sessionInventorySelection.nativeSessionId,
+          sessionInventorySelection,
+        }
+      : {}),
     agentProfileId: input.agentProfileId,
     context: targetContext,
     deviceId: candidate.deviceId,
@@ -690,6 +719,48 @@ async function connectRequestedAgentProfile(input: {
       context: targetContext,
     });
   }
+}
+
+async function requireRequestedSessionSelection(input: {
+  configuration: AgentProfileCreationConfiguration | undefined;
+  db: D1Database;
+  nativeSessionId: string | null | undefined;
+  organizationId: string;
+  ownerUserId: string;
+  sessionStrategy: Exclude<AgentProfileCreationSessionStrategy, "new">;
+}) {
+  const agentControllerRef = input.configuration?.agentControllerRef;
+  const computerId = input.configuration?.targetComputerId;
+  const projectId = input.configuration?.defaultProjectId;
+  if (
+    !(agentControllerRef && computerId && projectId && input.nativeSessionId)
+  ) {
+    throw invalidPayload(
+      "Resume and fork requests require a Session, its Project, Computer, and local agent."
+    );
+  }
+  const selection = await resolveAgentActivitySessionInventorySelection({
+    agentControllerRef,
+    capability: input.sessionStrategy,
+    computerId,
+    db: input.db,
+    nativeSessionId: input.nativeSessionId,
+    nowMs: Date.now(),
+    organizationId: input.organizationId,
+    ownerUserId: input.ownerUserId,
+    projectId,
+  });
+  if (!selection) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_creation_request.session_strategy_unavailable",
+      reason:
+        input.sessionStrategy === "resume"
+          ? "This Session is no longer current, available, or resumable for the selected member."
+          : "This Session is no longer current, available, or forkable for the selected member.",
+      status: 409,
+    });
+  }
+  return selection;
 }
 
 async function buildMemberHumanContext(input: {

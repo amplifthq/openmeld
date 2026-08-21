@@ -28,6 +28,10 @@ export type AgentActivitySessionResumeEligibility = {
   selection: AgentProfileBindingSessionInventorySelection;
 };
 
+export type AgentActivitySessionInventorySelectionCapability =
+  | "fork"
+  | "resume";
+
 type InventorySourceAuthority = {
   connectedComputerId: string;
   deviceId: string;
@@ -270,6 +274,52 @@ export async function canResumeAgentActivitySessionSelection(
     .bind(...query.bindings)
     .first<{ allowed: number }>();
   return row?.allowed === 1;
+}
+
+export async function resolveAgentActivitySessionInventorySelection(input: {
+  agentControllerRef: string;
+  capability: AgentActivitySessionInventorySelectionCapability;
+  computerId: string;
+  db: D1Database;
+  nativeSessionId: string;
+  nowMs: number;
+  organizationId: string;
+  ownerUserId: string;
+  projectId: string;
+}): Promise<AgentProfileBindingSessionInventorySelection | null> {
+  const inventory = await readAgentActivitySessionInventory({
+    db: input.db,
+    nowMs: input.nowMs,
+    organizationId: input.organizationId,
+    query: {
+      limit: 100,
+      memberUserId: input.ownerUserId,
+      nativeSessionId: input.nativeSessionId,
+      projectId: input.projectId,
+    },
+  });
+  const session = inventory.sessions.find(
+    (candidate) =>
+      candidate.computer.id === input.computerId &&
+      candidate.localAgent.agentControllerRef === input.agentControllerRef
+  );
+  if (
+    !session ||
+    session.dataState !== "current" ||
+    (input.capability === "resume" &&
+      (!session.canResume || session.bindingState !== "unbound")) ||
+    (input.capability === "fork" && !session.canFork)
+  ) {
+    return null;
+  }
+  return {
+    computerId: session.computer.id,
+    nativeSessionId: session.nativeSessionId,
+    organizationId: session.organization.id,
+    ownerUserId: session.owner.userId,
+    projectId: session.project.id,
+    provider: session.localAgent.provider,
+  };
 }
 
 export function buildAgentActivitySessionResumeEligibilityQuery(

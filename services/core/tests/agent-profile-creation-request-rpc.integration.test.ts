@@ -154,17 +154,66 @@ describe("Agent Profile creation request RPC", () => {
     expect(resolvedInbox?.resolution_status).toBe("resolved");
   });
 
-  it("fails closed for resume until the native session can be verified", async () => {
+  it("accepts a Resume request for a current matching Session", async () => {
+    const fixture = await seedFixture();
+    const session = await seedResumeSession(fixture);
+    const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+
+    const created = await rpcCreateAgentProfileCreationRequest(bindings, {
+      configuration: {
+        agentControllerPermissionMode: null,
+        agentControllerRef: "builtin:codex",
+        authorizeForOrganization: true,
+        defaultProjectId: session.projectId,
+        modelId: null,
+        openCodePermission: null,
+        reasoningLevel: null,
+        targetComputerId: session.computerId,
+      },
+      context: contextFor(fixture.requesterUserId, fixture.requesterProfileId),
+      idempotencyKey: `resume-${fixture.suffix}`,
+      nativeSessionId: session.nativeSessionId,
+      organizationId: fixture.organizationId,
+      profileName: "Release Reviewer",
+      sessionStrategy: "resume",
+      source: "web",
+      targetOwnerUserId: fixture.targetUserId,
+    });
+
+    expect(created.request).toMatchObject({
+      configuration: {
+        agentControllerRef: "builtin:codex",
+        defaultProjectId: session.projectId,
+        targetComputerId: session.computerId,
+      },
+      nativeSessionId: session.nativeSessionId,
+      sessionStrategy: "resume",
+      status: "pending",
+      targetOwnerUserId: fixture.targetUserId,
+    });
+  });
+
+  it("rejects Resume when the selected Session is not current and matching", async () => {
     const fixture = await seedFixture();
     const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
 
     await expect(
       rpcCreateAgentProfileCreationRequest(bindings, {
+        configuration: {
+          agentControllerPermissionMode: null,
+          agentControllerRef: "builtin:codex",
+          authorizeForOrganization: true,
+          defaultProjectId: `project-${fixture.suffix}`,
+          modelId: null,
+          openCodePermission: null,
+          reasoningLevel: null,
+          targetComputerId: `computer-${fixture.suffix}`,
+        },
         context: contextFor(
           fixture.requesterUserId,
           fixture.requesterProfileId
         ),
-        idempotencyKey: `resume-${fixture.suffix}`,
+        idempotencyKey: `resume-missing-${fixture.suffix}`,
         nativeSessionId: "native-codex-session-id",
         organizationId: fixture.organizationId,
         profileName: "Release Reviewer",
@@ -270,4 +319,87 @@ async function seedFixture() {
     targetProfileId,
     targetUserId,
   };
+}
+
+async function seedResumeSession(
+  fixture: Awaited<ReturnType<typeof seedFixture>>
+) {
+  const nowMs = Date.now();
+  const projectId = `project-${fixture.suffix}`;
+  const deviceId = `device-${fixture.suffix}`;
+  const computerId = `computer-${fixture.suffix}`;
+  const nativeSessionId = `native-session-${fixture.suffix}`;
+  const sourceScopeKey = `source-${fixture.suffix}`;
+  const localConnectionId = `sha256:${"a".repeat(64)}`;
+  await env.OPENMELD_DB.batch([
+    env.OPENMELD_DB.prepare(
+      `INSERT INTO projects (
+        id, organization_id, name, slug, created_by_user_id,
+        created_at_ms, updated_at_ms
+      ) VALUES (?, ?, 'OpenMeld', ?, ?, ?, ?)`
+    ).bind(
+      projectId,
+      fixture.organizationId,
+      `openmeld-${fixture.suffix}`,
+      fixture.targetUserId,
+      nowMs,
+      nowMs
+    ),
+    env.OPENMELD_DB.prepare(
+      `INSERT INTO openMeldDaemon_owned_devices (
+        owner_user_id, device_id, connected_computer_id, user_display_name,
+        first_seen_at_ms, last_observed_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, 'Target Mac', ?, ?, ?)`
+    ).bind(fixture.targetUserId, deviceId, computerId, nowMs, nowMs, nowMs),
+    env.OPENMELD_DB.prepare(
+      `INSERT INTO agent_activity_session_inventory_sources (
+        source_scope_key, organization_id, owner_user_id, project_id,
+        device_id, connected_computer_id, local_connection_id,
+        agent_controller_ref, provider, state, current_reconciliation_id,
+        next_page_index, problem_code, last_attempt_at_ms,
+        last_complete_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'builtin:codex', 'codex', 'current',
+        ?, 1, NULL, ?, ?, ?)`
+    ).bind(
+      sourceScopeKey,
+      fixture.organizationId,
+      fixture.targetUserId,
+      projectId,
+      deviceId,
+      computerId,
+      localConnectionId,
+      `reconciliation-${fixture.suffix}`,
+      nowMs,
+      nowMs,
+      nowMs
+    ),
+    env.OPENMELD_DB.prepare(
+      `INSERT INTO agent_activity_session_inventory (
+        id, organization_id, owner_user_id, agent_controller_ref,
+        native_session_id, project_id, device_id, connected_computer_id,
+        local_connection_id, source_scope_key, provider, native_session_title,
+        status, last_active_at_ms, started_at_ms, origin, can_resume, can_fork,
+        visible, source_reconciliation_id, observed_at_ms, published_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, 'builtin:codex', ?, ?, ?, ?, ?, ?, 'codex',
+        'Existing release work', 'idle', ?, ?, 'local', 1, 0, 1, ?, ?, ?, ?)`
+    ).bind(
+      `inventory-${fixture.suffix}`,
+      fixture.organizationId,
+      fixture.targetUserId,
+      nativeSessionId,
+      projectId,
+      deviceId,
+      computerId,
+      localConnectionId,
+      sourceScopeKey,
+      nowMs,
+      nowMs - 60_000,
+      `reconciliation-${fixture.suffix}`,
+      nowMs,
+      nowMs,
+      nowMs
+    ),
+  ]);
+  return { computerId, deviceId, nativeSessionId, projectId };
 }
