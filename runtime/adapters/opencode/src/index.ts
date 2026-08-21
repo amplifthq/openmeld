@@ -82,6 +82,7 @@ export {
   OpenCodeCliTransportError,
 } from "./transport/opencode-cli-transport.js";
 export {
+  forkOpenCodeServerSession,
   invokeOpenCodeServerTransport,
   OpenCodeServerTransportError,
 } from "./transport/opencode-server-transport.js";

@@ -75,6 +75,16 @@ type OpenCodeServerTransportInput = {
   streamingMode?: AdapterStreamingMode;
 };
 
+type OpenCodeServerLifecycleInput = Pick<
+  OpenCodeServerTransportInput,
+  | "env"
+  | "launchContract"
+  | "onProcessControlEvent"
+  | "onRuntimeEvent"
+  | "openCodeTimeoutMs"
+  | "openCodeWorkdir"
+>;
+
 export class OpenCodeServerTransportError extends Error {
   readonly code: string;
   readonly errorType: AdapterErrorType;
@@ -162,8 +172,79 @@ export async function invokeOpenCodeServerTransport(
   };
 }
 
+export async function forkOpenCodeServerSession(input: {
+  env?: Record<string, string | undefined>;
+  launchContract: RuntimeAgentControllerLaunchContract;
+  openCodeTimeoutMs: number | null;
+  openCodeWorkdir: string;
+  sourceSessionId: string;
+  title?: string;
+}): Promise<{ sessionId: string }> {
+  const sourceSessionId = normalizeOptionalText(input.sourceSessionId);
+  if (!sourceSessionId) {
+    throw new OpenCodeServerTransportError({
+      code: "schema.invalid",
+      errorType: "config",
+      message: "schema.invalid: sourceSessionId is required",
+    });
+  }
+  const deadlineMs =
+    input.openCodeTimeoutMs === null
+      ? null
+      : Date.now() + input.openCodeTimeoutMs;
+  const { server, serverUrl } = await startHealthyOpenCodeServer({
+    ...input,
+    deadlineMs,
+  });
+  try {
+    const client = createOpencodeClient({
+      baseUrl: serverUrl,
+      directory: input.openCodeWorkdir,
+      responseStyle: "data",
+      throwOnError: true,
+    });
+    const session = await client.session.fork(
+      {
+        directory: input.openCodeWorkdir,
+        sessionID: sourceSessionId,
+      },
+      {
+        responseStyle: "data",
+        throwOnError: true,
+      }
+    );
+    const sessionId = readOpenCodeSessionId(session);
+    const title = normalizeOptionalText(input.title);
+    if (title) {
+      try {
+        await client.session.update(
+          {
+            directory: input.openCodeWorkdir,
+            sessionID: sessionId,
+            title,
+          },
+          {
+            responseStyle: "data",
+            throwOnError: true,
+          }
+        );
+      } catch (error) {
+        console.warn("[openmeld.opencode.fork_title_sync_failed]", {
+          error,
+          sessionId,
+        });
+      }
+    }
+    return { sessionId };
+  } catch (error) {
+    throw toOpenCodeServerTransportError(error, server.readStderr());
+  } finally {
+    await server.close();
+  }
+}
+
 async function startHealthyOpenCodeServer(
-  input: OpenCodeServerTransportInput & { deadlineMs: number | null }
+  input: OpenCodeServerLifecycleInput & { deadlineMs: number | null }
 ): Promise<{ server: OpenCodeServerProcess; serverUrl: string }> {
   const startupTimeoutLimits = [
     SERVER_INITIAL_STARTUP_TIMEOUT_MS,
@@ -232,7 +313,7 @@ type OpenCodeServerStartAttempt =
     };
 
 async function runOpenCodeServerStartAttempt(
-  input: OpenCodeServerTransportInput & {
+  input: OpenCodeServerLifecycleInput & {
     deadlineMs: number | null;
     startupTimeoutMs: number;
   }

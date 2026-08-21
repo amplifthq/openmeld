@@ -6,7 +6,7 @@ import type {
 	ProfileDetailsSection,
 	ProfileDetailsSnapshot,
 } from "@openmeld/schemas/types";
-import { Button } from "@openmeld/ui/components/button";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -15,11 +15,21 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { cn } from "@openmeld/ui/lib/utils";
-import { ChatCircleTextIcon, CopyIcon } from "@phosphor-icons/react";
+import {
+	ArrowSquareOutIcon,
+	ChatCircleTextIcon,
+	CopyIcon,
+} from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { copyTextToClipboard } from "#/lib/clipboard";
 
 export function ProfileDetailsDialog(input: {
+	currentSession?: {
+		href: string;
+		nativeSessionId: string;
+		title: string;
+	};
 	details: ProfileDetailsSnapshot;
 	isDirectMessagePending?: boolean;
 	onOpenDirectMessage?: () => void;
@@ -64,6 +74,29 @@ export function ProfileDetailsDialog(input: {
 							</Button>
 						) : null}
 					</div>
+					{input.currentSession ? (
+						<div className="mt-5 flex min-w-0 items-start justify-between gap-3 rounded-md border border-border px-3 py-3">
+							<div className="min-w-0 space-y-1">
+								<p className="text-muted-foreground text-xs">Current Session</p>
+								<p className="break-words font-medium text-sm">
+									{input.currentSession.title}
+								</p>
+								<p className="break-all font-mono text-muted-foreground text-xs">
+									{input.currentSession.nativeSessionId}
+								</p>
+							</div>
+							<Link
+								className={cn(
+									buttonVariants({ size: "sm", variant: "outline" }),
+									"shrink-0"
+								)}
+								to={input.currentSession.href}
+							>
+								<ArrowSquareOutIcon data-icon="inline-start" />
+								View Session
+							</Link>
+						</div>
+					) : null}
 
 					<div className="mt-5 min-w-0 space-y-5">
 						{input.details.sections.map((section) => (

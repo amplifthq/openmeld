@@ -333,7 +333,10 @@ function resolveInboxItemResponse(input: {
 function projectLegacyInboxSourceTarget(
   item: z.infer<typeof listInboxItemsResponseSchema>["items"][number]
 ): z.infer<typeof listInboxItemsResponseSchema>["items"][number] {
-  if (item.sourceTarget.kind !== "message_channel") {
+  if (
+    item.sourceTarget.kind !== "message_channel" &&
+    item.sourceTarget.kind !== "agent_profile_creation_request"
+  ) {
     return item;
   }
   return {

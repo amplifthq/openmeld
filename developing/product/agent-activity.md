@@ -306,11 +306,11 @@ surface is asymmetric:
 
 | Provider    | Complete retained discovery                                                                                                                                        | Native title                              | Status without fresh lifecycle       | Resume                                  | Fork                                                         |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- | ------------------------------------ | --------------------------------------- | ------------------------------------------------------------ |
-| Codex       | app-server `thread/list`, every source kind, archived and non-archived pages to cursor exhaustion; only explicit null or a non-empty string is a valid page cursor | current `Thread.name`, else null          | archived is Ended; otherwise Unknown | retained non-archived threads           | false until OpenMeld wires and verifies provider-native Fork |
-| Claude Code | top-level retained JSONL plus the complete live/job registry and hooks                                                                                             | explicit native custom title, else null   | Unknown                              | retained Sessions                       | false until OpenMeld wires and verifies provider-native Fork |
+| Codex       | app-server `thread/list`, every source kind, archived and non-archived pages to cursor exhaustion; only explicit null or a non-empty string is a valid page cursor | current `Thread.name`, else null          | archived is Ended; otherwise Unknown | retained non-archived threads           | app-server `thread/fork`                                     |
+| Claude Code | top-level retained JSONL plus the complete live/job registry and hooks                                                                                             | explicit native custom title, else null   | Unknown                              | retained Sessions                       | native SDK `forkSession`                                     |
 | Cursor      | no complete documented machine-readable inventory; report unsupported coverage                                                                                     | unavailable for the complete inventory    | Unknown                              | unsupported from the complete inventory | unsupported                                                  |
-| OpenCode    | complete local Session table or official API pagination                                                                                                            | current persisted `session.title`         | archived is Ended; otherwise Unknown | retained usable Sessions                | false until OpenMeld wires and verifies provider-native Fork |
-| Grok Build  | complete retained `summary.json` index                                                                                                                             | current generated or renamed native title | Unknown                              | retained Sessions                       | false until OpenMeld wires and verifies provider-native Fork |
+| OpenCode    | complete local Session table or official API pagination                                                                                                            | current persisted `session.title`         | archived is Ended; otherwise Unknown | retained usable Sessions                | native `/session/{id}/fork`                                  |
+| Grok Build  | complete retained `summary.json` index                                                                                                                             | current generated or renamed native title | Unknown                              | retained Sessions                       | unsupported by the current ACP v1 controller contract        |
 
 Archived or otherwise unusable Sessions return false for an operation unless
 the installed provider version and adapter have proved that exact operation.
@@ -417,6 +417,12 @@ boundary. A Project disconnect or stale source between preflight and write
 therefore rejects without creating or replacing a Binding, and concurrent
 Resume requests cannot both create a new enabled Binding for one native
 Session.
+
+Fork as Agent Profile applies the same current-source and native-capability
+checks before asking the selected current local Service to fork. The provider's
+returned native child Session ID becomes Binding truth; the source native ID
+remains unchanged. Core never treats the Activity row itself as execution
+authority and never copies source metadata to simulate a fork.
 
 For interactive Resume creation, the authoritative Binding is the commit
 boundary. Any Session-preset setup failure before Core accepts that Binding

@@ -79,6 +79,8 @@ export const {
   openMeldDaemonAgentExecutionReadinessImpacts,
   openMeldDaemonAgentProfileBindings,
   agentProfileCreationDefaults,
+  agentProfileCreationApprovalPreferences,
+  agentProfileCreationRequests,
   organizationBindingAuthorizationPreferences,
   organizationDocuments,
   organizationDocumentFolders,

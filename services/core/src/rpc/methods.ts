@@ -9915,15 +9915,28 @@ export async function rpcCenterAgentCreateAgentProfile(
     });
   }
 
+  const requestedAttribution = await resolveCenterAgentAuditAttribution({
+    authorization,
+    onBehalfOfProfileId: parsed.data.onBehalfOf?.profileId ?? null,
+  });
+  const representedOwnerUserId =
+    requestedAttribution.onBehalfOf?.userId ??
+    authorization.activeOrganization.userId;
+
   const created = await callRequiredAuthWorkerRpc({
     authWorker: env.OPENMELD_AUTH_WORKER,
     call: (authWorker) =>
       authWorker.createAgentProfileInOrganization({
         organizationId: authorization.activeOrganization.organizationId,
-        ownerUserId: authorization.activeOrganization.userId,
-        createdByUserId: authorization.activeOrganization.userId,
-        creatorProfileId: authorization.actorProfileId,
+        ownerUserId: representedOwnerUserId,
+        createdByUserId: representedOwnerUserId,
+        creationActorProfileId: authorization.actorProfileId,
+        idempotencyKey: buildCenterAgentAgentProfileCreationIdempotencyKey({
+          profileName: parsed.data.profileName,
+          requestId: authorization.context.actorContext.requestId,
+        }),
         profileName: parsed.data.profileName,
+        source: "center_agent_create",
       }),
     unavailable: {
       code: "center_agent.profile_create_unavailable",
@@ -9958,6 +9971,13 @@ export async function rpcCenterAgentCreateAgentProfile(
     );
   }
   return validated.data;
+}
+
+function buildCenterAgentAgentProfileCreationIdempotencyKey(input: {
+  profileName: string;
+  requestId: string;
+}): string {
+  return `center-agent:create-agent-profile:${input.requestId}:${input.profileName}`;
 }
 
 export async function rpcCenterAgentEnableAgentProfile(

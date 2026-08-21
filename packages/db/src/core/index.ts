@@ -15,6 +15,10 @@ export { openMeldDaemonAgentExecutionReadinessImpacts } from "./agent-execution-
 export { openMeldDaemonAgentProfileBindings } from "./agent-profile-binding.schema.ts";
 export { agentProfileCreationDefaults } from "./agent-profile-creation-defaults.schema.ts";
 export {
+  agentProfileCreationApprovalPreferences,
+  agentProfileCreationRequests,
+} from "./agent-profile-creation-request.schema.ts";
+export {
   centerAgentAttentionRequests,
   centerAgentAuditJournal,
   centerAgentConnectorActionOperations,
@@ -90,6 +94,7 @@ export {
 export { evalReports } from "./eval-report.schema.ts";
 export {
   CORE_AGENT_ACTIVITY_SCHEMA_DEFINITION_PATH,
+  CORE_AGENT_PROFILE_CREATION_REQUEST_SCHEMA_DEFINITION_PATH,
   CORE_CENTER_AGENT_MEMBER_RESEARCH_SCHEMA_DEFINITION_PATH,
   CORE_CENTER_AGENT_TASKS_SCHEMA_DEFINITION_PATH,
   CORE_CONNECTOR_CONNECTION_SCHEMA_DEFINITION_PATH,

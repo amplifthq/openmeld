@@ -7,7 +7,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { useId } from "react";
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 
-type AgentProfileBindingChoice = {
+export type AgentProfileBindingChoice = {
 	agentId: string | null;
 	description: string;
 	label: string;
@@ -16,6 +16,7 @@ type AgentProfileBindingChoice = {
 
 export function AgentProfileBindingChoiceList(input: {
 	availableLocalAgentIds: readonly string[];
+	choices?: readonly AgentProfileBindingChoice[];
 	disabled: boolean;
 	isResolving: boolean;
 	locked?: boolean;
@@ -23,7 +24,7 @@ export function AgentProfileBindingChoiceList(input: {
 	value: string;
 }) {
 	const headingId = useId();
-	const choices = buildAgentProfileBindingChoices(input);
+	const choices = input.choices ?? buildAgentProfileBindingChoices(input);
 	const selectedIndex = choices.findIndex(
 		(choice) => choice.value === input.value
 	);

@@ -11,6 +11,7 @@ describe("agent controller conversation capability schema", () => {
     const result = agentControllerConversationCapabilitySchema.safeParse({
       discover: "unsupported",
       externalImport: "by_ref_id",
+      fork: "by_ref_id",
       resume: "by_ref_id",
       turnOverride: "unsupported",
     });
@@ -22,6 +23,7 @@ describe("agent controller conversation capability schema", () => {
     const result = agentControllerConversationCapabilitySchema.safeParse({
       discover: "unsupported",
       externalImport: "manual",
+      fork: "by_ref_id",
       resume: "by_ref_id",
       turnOverride: "unsupported",
     });
@@ -35,6 +37,7 @@ describe("agent controller conversation capability schema", () => {
     ).toEqual({
       discover: "unsupported",
       externalImport: "by_ref_id",
+      fork: "by_ref_id",
       resume: "by_ref_id",
       turnOverride: "unsupported",
     });
@@ -43,6 +46,7 @@ describe("agent controller conversation capability schema", () => {
     ).toEqual({
       discover: "unsupported",
       externalImport: "by_ref_id",
+      fork: "by_ref_id",
       resume: "by_ref_id",
       turnOverride: "unsupported",
     });
@@ -51,6 +55,7 @@ describe("agent controller conversation capability schema", () => {
     ).toEqual({
       discover: "unsupported",
       externalImport: "unsupported",
+      fork: "unsupported",
       resume: "by_ref_id",
       turnOverride: "unsupported",
     });
@@ -59,9 +64,16 @@ describe("agent controller conversation capability schema", () => {
     ).toEqual({
       discover: "unsupported",
       externalImport: "unsupported",
+      fork: "by_ref_id",
       resume: "by_ref_id",
       turnOverride: "unsupported",
     });
+    expect(
+      resolveBuiltinAgentControllerConversationCapability("cursor")
+    ).toMatchObject({ fork: "unsupported", resume: "by_ref_id" });
+    expect(
+      resolveBuiltinAgentControllerConversationCapability("grok-build")
+    ).toMatchObject({ fork: "unsupported", resume: "by_ref_id" });
     expect(
       resolveBuiltinAgentControllerConversationCapability("custom")
     ).toBeNull();

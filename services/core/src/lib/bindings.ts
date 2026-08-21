@@ -45,6 +45,7 @@ type AuthAgentProfileRpcItem = {
   managedRole: "openmeld_assistant" | "center_agent" | null;
   defaultProjectId?: string | null;
   createdByUserId: string | null;
+  creationActorProfileId?: string | null;
   creatorProfileId: string | null;
   lastUsedAt: string | null;
   createdAt: string;
@@ -91,9 +92,17 @@ type CoreAuthDispatchBindingRpc = {
     organizationId?: string | null;
     ownerUserId?: string | null;
     createdByUserId?: string | null;
+    creationActorProfileId?: string | null;
     creatorProfileId?: string | null;
     idempotencyKey?: string | null;
     profileName: string;
+    source?:
+      | "auth_bootstrap"
+      | "web_create"
+      | "cli_create"
+      | "local_agent_create"
+      | "center_agent_create"
+      | "migration";
   }): Promise<AuthAgentProfileRpcResult>;
   ensureCenterAgentProfileInOrganization?(input: {
     organizationId?: string | null;

@@ -61,14 +61,14 @@ describe("OpenMeld gateway proxy", () => {
 		const fetchMock = vi.fn<typeof fetch>((_input, init) => {
 			const headers = init?.headers as Headers;
 			expect(headers.get(OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION)).toBe(
-				"2"
+				"3"
 			);
 			return Promise.resolve(new Response("ok", { status: 200 }));
 		});
 
 		const response = await proxyOpenMeldGatewayRequest({
 			request: new Request("https://openmeld.test/v1/inbox", {
-				headers: { [OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION]: "2" },
+				headers: { [OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION]: "3" },
 			}),
 			gatewayUrl: "https://gateway.openmeld.test",
 			webAppUrl: "https://openmeld.test",

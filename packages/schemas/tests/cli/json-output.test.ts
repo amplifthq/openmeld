@@ -241,6 +241,18 @@ describe("cli --json output envelope contract", () => {
         },
         {
           schemaVersion: VERSION,
+          type: "activity.sessions",
+          asOfMs: 1000,
+          coverage: [],
+          nextCursor: null,
+          organization: {
+            id: "org-1",
+            name: "Ampli Lift",
+          },
+          sessions: [],
+        },
+        {
+          schemaVersion: VERSION,
           type: "activity.install",
           integrations: {
             claude: "changed",
@@ -300,10 +312,10 @@ describe("cli --json output envelope contract", () => {
             reason: null,
             sessionInventory: {
               reason: null,
-              sessionCount: 125,
-              sourceCount: 5,
+              sessionCount: 1,
+              sourceCount: 1,
               status: "submitted",
-              submittedSourceCount: 5,
+              submittedSourceCount: 1,
             },
             status: "submitted",
             submittedCount: 2,
@@ -692,23 +704,39 @@ describe("cli --json output envelope contract", () => {
       ).toBe(false);
     });
 
-    it("validates Organization Computers envelopes through the shared team-safe response schema", () => {
+    it("keeps Organization Computers on the team-safe shared response schema", () => {
+      const envelope = {
+        schemaVersion: VERSION,
+        type: "organization.computers",
+        organizationId: "org-1",
+        generatedAt: "2026-08-20T05:00:00.000Z",
+        computers: [
+          {
+            computerId: "computer-1",
+            deviceDisplayName: "Design Mac",
+            deviceType: "laptop",
+            lastSeenAtMs: 1_777_000_000_000,
+            localAgents: [],
+            osVersion: "15.5",
+            ownerUserId: "user-2",
+            platformFamily: "macOS",
+            serviceState: "connected",
+          },
+        ],
+      } as const;
+
       expect(
-        cliJsonOrganizationComputersEnvelopeSchema.safeParse({
-          schemaVersion: VERSION,
-          type: "organization.computers",
-          organizationId: "org-1",
-          generatedAt: "2026-08-20T10:00:00.000Z",
-          computers: [],
-        }).success
+        cliJsonOrganizationComputersEnvelopeSchema.safeParse(envelope).success
       ).toBe(true);
       expect(
         cliJsonOrganizationComputersEnvelopeSchema.safeParse({
-          schemaVersion: VERSION,
-          type: "organization.computers",
-          organizationId: "org-1",
-          generatedAt: "2026-08-20T10:00:00.000Z",
-          computers: [],
+          ...envelope,
+          privatePath: "/Users/private",
+        }).success
+      ).toBe(false);
+      expect(
+        cliJsonOrganizationComputersEnvelopeSchema.safeParse({
+          ...envelope,
           providerCredential: "secret",
         }).success
       ).toBe(false);

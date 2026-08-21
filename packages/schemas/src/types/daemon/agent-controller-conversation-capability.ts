@@ -6,6 +6,8 @@ type AgentControllerConversationDiscoverCapabilitySchema =
   typeof import("../../schemas/daemon/agent-controller-conversation-capability")["agentControllerConversationDiscoverCapabilitySchema"];
 type AgentControllerConversationExternalImportCapabilitySchema =
   typeof import("../../schemas/daemon/agent-controller-conversation-capability")["agentControllerConversationExternalImportCapabilitySchema"];
+type AgentControllerConversationForkCapabilitySchema =
+  typeof import("../../schemas/daemon/agent-controller-conversation-capability")["agentControllerConversationForkCapabilitySchema"];
 type AgentControllerConversationResumeCapabilitySchema =
   typeof import("../../schemas/daemon/agent-controller-conversation-capability")["agentControllerConversationResumeCapabilitySchema"];
 type AgentControllerConversationTurnOverrideCapabilitySchema =
@@ -17,6 +19,8 @@ export type AgentControllerConversationDiscoverCapability =
   z.infer<AgentControllerConversationDiscoverCapabilitySchema>;
 export type AgentControllerConversationExternalImportCapability =
   z.infer<AgentControllerConversationExternalImportCapabilitySchema>;
+export type AgentControllerConversationForkCapability =
+  z.infer<AgentControllerConversationForkCapabilitySchema>;
 export type AgentControllerConversationResumeCapability =
   z.infer<AgentControllerConversationResumeCapabilitySchema>;
 export type AgentControllerConversationTurnOverrideCapability =

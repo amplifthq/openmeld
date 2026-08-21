@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { organizationComputersResponseSchema } from "../../src/index";
+import {
+  organizationComputersResponseSchema,
+  projectOrganizationComputerLocalAgentDetails,
+} from "../../src/index";
 
 const TEAM_SAFE_DETAILS = {
   capabilities: {
@@ -12,6 +15,13 @@ const TEAM_SAFE_DETAILS = {
     structuredUserInput: false,
   },
   checkedAt: "2026-08-18T05:00:00.000Z",
+  conversationCapabilities: {
+    discover: "unsupported",
+    externalImport: "by_ref_id",
+    fork: "by_ref_id",
+    resume: "by_ref_id",
+    turnOverride: "unsupported",
+  },
   launch: {
     installChoiceCount: 2,
     status: "ready",
@@ -102,6 +112,35 @@ function responseWithDetails(details: unknown) {
 }
 
 describe("Organization Computers contracts", () => {
+  it.each([
+    ["builtin:codex", "by_ref_id"],
+    ["builtin:cursor", "unsupported"],
+  ] as const)("projects the truthful fork capability for %s", (agentControllerRef, expectedForkCapability) => {
+    expect(
+      projectOrganizationComputerLocalAgentDetails({
+        agentControllerRef,
+        auth: { status: "authenticated" },
+        capabilities: TEAM_SAFE_DETAILS.capabilities,
+        checkedAt: "2026-08-18T05:00:00.000Z",
+        controllerId: agentControllerRef.slice("builtin:".length),
+        displayName: "Local Agent",
+        launch: {
+          argsPrefix: [],
+          commandPath: "/usr/local/bin/local-agent",
+          installChoiceCount: 1,
+          status: "ready",
+        },
+        message: null,
+        models: [],
+        nativeInterface: "local-cli",
+        schemaVersion: 1,
+        skills: [],
+        status: "ready",
+        version: "1.0.0",
+      }).conversationCapabilities?.fork
+    ).toBe(expectedForkCapability);
+  });
+
   it("accepts useful team-safe local-agent operational details", () => {
     expect(
       organizationComputersResponseSchema.parse(

@@ -14,6 +14,7 @@ import {
   DEFAULT_AUTH_BASE_URL,
   normalizeAuthHeaderValue,
   type OpenMeldProfileManagedRole,
+  type OpenMeldProfileSource,
   type OpenMeldProfileSpaceCreatorKind,
   type OpenMeldProfileSpaceHistoryStatus,
   OrganizationJoinLinkServiceError,
@@ -137,6 +138,7 @@ type OpenMeldProfileRpcItem = {
   managedRole: OpenMeldProfileManagedRole | null;
   defaultProjectId?: string | null;
   createdByUserId: string | null;
+  creationActorProfileId: string | null;
   creatorProfileId: string | null;
   lastUsedAt: string | null;
   createdAt: string | null;
@@ -235,9 +237,11 @@ type CreateAgentProfileInOrganizationRpcInput = {
   organizationId?: string | null;
   ownerUserId?: string | null;
   createdByUserId?: string | null;
+  creationActorProfileId?: string | null;
   creatorProfileId?: string | null;
   idempotencyKey?: string | null;
   profileName: string;
+  source?: OpenMeldProfileSource;
 };
 
 type CreateAgentProfileInOrganizationRpcResult =
@@ -1344,9 +1348,11 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
         ownerUserId: resolved.userId,
         organizationId: activeOrganizationId.value,
         createdByUserId: resolved.userId,
+        creationActorProfileId: normalizeOptionalText(input.creatorProfileId),
         creatorProfileId: normalizeOptionalText(input.creatorProfileId),
         ...(idempotencyKey ? { idempotencyKey } : {}),
         profileName: input.profileName,
+        source: "cli_create",
       });
 
       return {
@@ -1383,9 +1389,13 @@ export class AuthRpcEntrypoint extends WorkerEntrypoint<AuthBindings> {
         ownerUserId,
         organizationId,
         createdByUserId,
+        creationActorProfileId: normalizeOptionalText(
+          input.creationActorProfileId
+        ),
         creatorProfileId: normalizeOptionalText(input.creatorProfileId),
         ...(idempotencyKey ? { idempotencyKey } : {}),
         profileName: input.profileName,
+        source: input.source ?? "center_agent_create",
       });
 
       return {
@@ -2546,6 +2556,7 @@ function toOpenMeldProfileRpcItem(
     managedRole?: unknown;
     defaultProjectId?: string | null;
     createdByUserId: string | null;
+    creationActorProfileId: string | null;
     creatorProfileId: string | null;
     lastUsedAt: Date | string | number | null;
     createdAt: Date | string | number;
@@ -2575,6 +2586,7 @@ function toOpenMeldProfileRpcItem(
       ? { defaultProjectId: normalizeOptionalText(profile.defaultProjectId) }
       : {}),
     createdByUserId: profile.createdByUserId,
+    creationActorProfileId: profile.creationActorProfileId,
     creatorProfileId: profile.creatorProfileId,
     lastUsedAt: toIsoString(profile.lastUsedAt),
     createdAt: toIsoString(profile.createdAt),

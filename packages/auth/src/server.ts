@@ -45,7 +45,10 @@ export {
   LAST_USED_LOGIN_METHOD_COOKIE_NAME,
 } from "./configs/constants";
 export { createD1Db } from "./db";
-export type { OpenMeldProfileManagedRole } from "./db/openmeld-profile.schema";
+export type {
+  OpenMeldProfileManagedRole,
+  OpenMeldProfileSource,
+} from "./db/openmeld-profile.schema";
 export type {
   OpenMeldProfileSpaceCreatorKind,
   OpenMeldProfileSpaceHistoryStatus,

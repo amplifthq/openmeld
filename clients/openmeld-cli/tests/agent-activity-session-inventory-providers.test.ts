@@ -650,14 +650,14 @@ describe("Local Agent Session Inventory provider adapters", () => {
       sessions.map((entry) => [entry.session.nativeSessionId, entry.session])
     );
     expect(byId.get("codex-live")).toMatchObject({
-      canFork: false,
+      canFork: true,
       canResume: true,
       nativeSessionTitle: "Native Codex title",
       origin: "local",
       status: "working",
     });
     expect(byId.get("codex-archived")).toMatchObject({
-      canFork: false,
+      canFork: true,
       canResume: false,
       nativeSessionTitle: null,
       origin: "unknown",
@@ -762,7 +762,7 @@ describe("Local Agent Session Inventory provider adapters", () => {
     });
     expect(sessions).toHaveLength(1);
     expect(sessions[0]?.session).toMatchObject({
-      canFork: false,
+      canFork: true,
       canResume: true,
       nativeSessionId: "claude-native-1",
       nativeSessionTitle: "Latest native title",
@@ -855,6 +855,7 @@ describe("Local Agent Session Inventory provider adapters", () => {
     expect(sessions.every((entry) => entry.session.status === "unknown")).toBe(
       true
     );
+    expect(sessions.every((entry) => entry.session.canFork)).toBe(true);
   });
 
   it("adds Grok Build from its metadata-only retained summary index", async () => {

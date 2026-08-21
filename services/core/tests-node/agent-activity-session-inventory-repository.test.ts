@@ -12,6 +12,7 @@ import {
   canResumeAgentActivitySessionSelection,
   readAgentActivitySessionInventory,
   requestAgentActivitySessionInventoryMemberCleanup,
+  resolveAgentActivitySessionInventorySelection,
 } from "../src/agent-activity/activity-session-inventory-repository";
 import { isSessionReconciliationFingerprintCompatible } from "../src/agent-activity/activity-session-inventory-rpc";
 import { forgetComputerRecordAtomically } from "../src/start/infrastructure/d1/current-device-forget-repo";
@@ -273,6 +274,71 @@ describe("Agent Activity Session Inventory repository", () => {
         VALUES (?, 'owner_account', ?, ?, ?, ?, ?)`,
     });
     await expect(validate()).resolves.toBe(false);
+  });
+
+  it("resolves Resume and Fork selections from the same current Session fact", async () => {
+    const harness = createInventoryHarness();
+    await reconcile(harness.db, {
+      sessions: [
+        {
+          ...observedSession("native-selectable", 1000),
+          canFork: true,
+        },
+      ],
+    });
+    const resolve = (
+      capability: "fork" | "resume",
+      overrides: Record<string, unknown> = {}
+    ) =>
+      resolveAgentActivitySessionInventorySelection({
+        agentControllerRef: "builtin:codex",
+        capability,
+        computerId: AUTHORITY.connectedComputerId,
+        db: harness.db,
+        nativeSessionId: "native-selectable",
+        nowMs: NOW_MS,
+        organizationId: "org-1",
+        ownerUserId: "user-1",
+        projectId: "project-1",
+        ...overrides,
+      });
+
+    const expectedSelection = {
+      computerId: AUTHORITY.connectedComputerId,
+      nativeSessionId: "native-selectable",
+      organizationId: "org-1",
+      ownerUserId: "user-1",
+      projectId: "project-1",
+      provider: "codex",
+    };
+    await expect(resolve("resume")).resolves.toEqual(expectedSelection);
+    await expect(resolve("fork")).resolves.toEqual(expectedSelection);
+    await expect(
+      resolve("resume", { computerId: "another-computer" })
+    ).resolves.toBeNull();
+
+    harness.run({
+      params: ["agt_existing", "Existing Agent", "org-1", "user-1", "active"],
+      sql: `INSERT INTO openmeld_profiles
+        (profile_id, profile_name, profile_kind, organization_id, owner_user_id, status)
+        VALUES (?, ?, 'agent', ?, ?, ?)`,
+    });
+    harness.run({
+      params: [
+        "binding-existing-selectable",
+        "user-1",
+        "agt_existing",
+        "builtin:codex",
+        "native-selectable",
+        "enabled_primary",
+      ],
+      sql: `INSERT INTO openMeldDaemon_agent_profile_bindings
+        (binding_id, owner_kind, owner_id, agent_profile_id,
+         agent_controller_ref, agent_controller_conversation_id, binding_state)
+        VALUES (?, 'owner_account', ?, ?, ?, ?, ?)`,
+    });
+    await expect(resolve("resume")).resolves.toBeNull();
+    await expect(resolve("fork")).resolves.toEqual(expectedSelection);
   });
 
   it("keeps the last complete rows stale after an error and removes them after disconnect", async () => {

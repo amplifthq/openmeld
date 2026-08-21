@@ -24,6 +24,10 @@ import { openMeldDaemonAgentExecutionReadinessImpacts } from "./agent-execution-
 import { openMeldDaemonAgentProfileBindings } from "./agent-profile-binding.schema.ts";
 import { agentProfileCreationDefaults } from "./agent-profile-creation-defaults.schema.ts";
 import {
+  agentProfileCreationApprovalPreferences,
+  agentProfileCreationRequests,
+} from "./agent-profile-creation-request.schema.ts";
+import {
   agentControllerTaskLifecycleEvents,
   agentControllerTasks,
   agentDelegationChildren,
@@ -1605,6 +1609,8 @@ export const coreSchema = {
   evalReports,
   openMeldDaemonAgentProfileBindings,
   agentProfileCreationDefaults,
+  agentProfileCreationApprovalPreferences,
+  agentProfileCreationRequests,
   organizationBindingAuthorizations,
   organizationBindingAuthorizationPreferences,
   organizationDocuments,

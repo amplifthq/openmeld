@@ -1,14 +1,20 @@
 import type {
+  AgentProfileCreationRequestMutationResponse,
   BulkAuthorizeAgentProfileBindingsForOrganizationBody,
   BulkAuthorizeAgentProfileBindingsForOrganizationResponse,
   CenterAgentOrganizationMemoryPolicyResponse,
   CenterAgentWipeMemberMemoryResponse,
+  CreateAgentProfileCreationRequestBody,
+  CreateAgentProfileCreationRequestResponse,
+  DecideAgentProfileCreationRequestBody,
+  GetAgentProfileCreationApprovalPreferenceResponse,
   GetAgentProfileCreationDefaultsResponse,
   GetOrganizationBindingAuthorizationPreferenceResponse,
   LarkPlatformActiveRegistrationListResponse,
   LarkPlatformProvider,
   LarkPlatformRegistrationBeginMode,
   LarkPlatformRegistrationResponse,
+  ListAgentProfileCreationRequestsResponse,
   ListOrganizationBindingAuthorizationProfilesResponse,
   MessageChannelConnectionListResponse,
   MessageChannelIdentityLinkConsumeBody,
@@ -28,6 +34,8 @@ import type {
   OrganizationSpaceDirectoryWithMemberCountsResponse,
   SaveOrganizationWakeAccessChoiceBody,
   SaveOrganizationWakeAccessChoiceResponse,
+  SetAgentProfileCreationApprovalPreferenceBody,
+  SetAgentProfileCreationApprovalPreferenceResponse,
   SetAgentProfileCreationDefaultsBody,
   SetAgentProfileCreationDefaultsResponse,
   SetOrganizationBindingAuthorizationPreferenceBody,
@@ -76,6 +84,19 @@ export type SetAgentProfileCreationDefaultsInput =
 export type SaveOrganizationWakeAccessChoiceInput = OrganizationRouteInput &
   SaveOrganizationWakeAccessChoiceBody;
 
+export type CreateAgentProfileCreationRequestInput = OrganizationRouteInput &
+  CreateAgentProfileCreationRequestBody;
+
+export type AgentProfileCreationRequestRouteInput = OrganizationRouteInput & {
+  requestId: string;
+};
+
+export type DecideAgentProfileCreationRequestInput =
+  AgentProfileCreationRequestRouteInput & DecideAgentProfileCreationRequestBody;
+
+export type SetAgentProfileCreationApprovalPreferenceInput =
+  OrganizationRouteInput & SetAgentProfileCreationApprovalPreferenceBody;
+
 export type SetCenterAgentOrganizationMemoryPolicyInput =
   OrganizationRequestInput & UpdateCenterAgentOrganizationMemoryPolicyBody;
 
@@ -107,6 +128,27 @@ export type RequestMessageChannelSetupInput = OrganizationRequestInput &
   MessageChannelSetupRequestBody;
 
 export type OrganizationApi = {
+  createAgentProfileCreationRequest: (
+    input: CreateAgentProfileCreationRequestInput
+  ) => Promise<CreateAgentProfileCreationRequestResponse>;
+  listAgentProfileCreationRequests: (
+    input: OrganizationRouteInput
+  ) => Promise<ListAgentProfileCreationRequestsResponse>;
+  decideAgentProfileCreationRequest: (
+    input: DecideAgentProfileCreationRequestInput
+  ) => Promise<AgentProfileCreationRequestMutationResponse>;
+  cancelAgentProfileCreationRequest: (
+    input: AgentProfileCreationRequestRouteInput
+  ) => Promise<AgentProfileCreationRequestMutationResponse>;
+  retryAgentProfileCreationRequest: (
+    input: AgentProfileCreationRequestRouteInput
+  ) => Promise<AgentProfileCreationRequestMutationResponse>;
+  getAgentProfileCreationApprovalPreference: (
+    input: OrganizationRouteInput
+  ) => Promise<GetAgentProfileCreationApprovalPreferenceResponse>;
+  setAgentProfileCreationApprovalPreference: (
+    input: SetAgentProfileCreationApprovalPreferenceInput
+  ) => Promise<SetAgentProfileCreationApprovalPreferenceResponse>;
   getAgentProfileCreationDefaults: (
     input: AgentProfileCreationDefaultsRouteInput
   ) => Promise<GetAgentProfileCreationDefaultsResponse>;

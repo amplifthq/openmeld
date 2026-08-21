@@ -12,10 +12,16 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
+import {
+	TabsSubtle,
+	TabsSubtleItem,
+	TabsSubtlePanel,
+} from "@openmeld/ui/fluid/tabs-subtle";
 import { FunnelSimpleIcon, PlusIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useMemo, useState } from "react";
+import { AgentProfileCreationRequestsPanel } from "#/components/agents/agent-profile-creation-requests-panel";
 import {
 	type AgentProfileAvailabilityFilter,
 	type AgentProfileAvailabilityFilterCounts,
@@ -77,9 +83,12 @@ const PROFILE_HOME_COPY = {
 } as const satisfies Record<ProfileHomeId, { title: string }>;
 
 export function PeopleAndAgentsPage(input: {
+	activeAgentView?: "agents" | "requests";
 	activeSectionId: ProfileHomeId;
+	focusRequestId?: string | null;
 	focusProfileId: string | null;
 	initialSidebarStates?: AppSidebarPersistedStates;
+	onAgentViewChange?: (view: "agents" | "requests") => void;
 	onFocusConsumed?: () => void;
 }) {
 	const account = useAppShellAccount();
@@ -93,6 +102,11 @@ export function PeopleAndAgentsPage(input: {
 		useState<AgentProfileListFilter>("all");
 	const activeSectionCopy = PROFILE_HOME_COPY[input.activeSectionId];
 	const isOrganizationContext = currentOrganization.isPersonal !== true;
+	const activeAgentView = resolveActiveAgentView({
+		activeAgentView: input.activeAgentView,
+		activeSectionId: input.activeSectionId,
+		isOrganizationContext,
+	});
 	const fallbackOwnerLabel =
 		(account.name ?? account.email ?? "This member").trim() || "This member";
 	const recovery = useLocalAgentRecoveryController({
@@ -136,6 +150,29 @@ export function PeopleAndAgentsPage(input: {
 			directoryQueryState: organizationDirectoryQuery,
 			isOrganizationContext,
 		});
+	if (activeAgentView === "requests") {
+		return (
+			<AgentRequestsHome
+				currentUserId={currentUserId}
+				directoryQuery={organizationDirectoryQuery}
+				focusRequestId={input.focusRequestId ?? null}
+				initialSidebarStates={input.initialSidebarStates}
+				onOpenAgent={(profileId) => {
+					navigate({
+						search: { profileId },
+						to: profileHomeRoutes.agents,
+					}).catch((error: unknown) => {
+						console.error("Failed to open the created Agent.", error);
+					});
+				}}
+				onViewChange={input.onAgentViewChange}
+				organizationId={currentOrganization.id}
+				organizationName={currentOrganization.name}
+				orgSlug={orgSlug}
+				recovery={recovery}
+			/>
+		);
+	}
 
 	const handleProfileCreated = (profile: AuthProfileView) => {
 		queryClient
@@ -217,7 +254,6 @@ export function PeopleAndAgentsPage(input: {
 									className="w-full sm:w-auto"
 									onClick={() => setIsCreateProfileOpen(true)}
 									size="sm"
-									type="button"
 								>
 									<PlusIcon aria-hidden="true" data-icon="inline-start" />
 									Create Agent
@@ -233,16 +269,50 @@ export function PeopleAndAgentsPage(input: {
 					) : undefined
 				}
 				description={resolveProfilesSectionDescription({
+					agentView: activeAgentView,
 					isOrganizationContext,
 					organizationName: currentOrganization.name,
 					sectionId: input.activeSectionId,
 				})}
 				title={activeSectionCopy.title}
 			>
-				{profilesContent}
+				{input.activeSectionId === "agents" && isOrganizationContext ? (
+					<>
+						<TabsSubtle
+							className="w-fit max-w-full"
+							idPrefix="agents-view"
+							onSelect={(index) =>
+								input.onAgentViewChange?.(index === 1 ? "requests" : "agents")
+							}
+							selectedIndex={0}
+						>
+							<TabsSubtleItem index={0} label="Agents" />
+							<TabsSubtleItem index={1} label="Requests" />
+						</TabsSubtle>
+						<TabsSubtlePanel idPrefix="agents-view" index={0} selectedIndex={0}>
+							{profilesContent}
+						</TabsSubtlePanel>
+					</>
+				) : (
+					profilesContent
+				)}
 			</ProfilesSectionLayout>
 			{isCreateProfileOpen ? (
 				<CreateProfileDialog
+					allowTeammateRequests={isOrganizationContext}
+					currentUserId={currentUserId}
+					onAgentRequestCreated={(request) => {
+						if (request.createdAgentProfileId) {
+							navigate({
+								search: { profileId: request.createdAgentProfileId },
+								to: profileHomeRoutes.agents,
+							}).catch((error: unknown) => {
+								console.error("Failed to open the created Agent.", error);
+							});
+							return;
+						}
+						input.onAgentViewChange?.("requests");
+					}}
 					onOpenChange={setIsCreateProfileOpen}
 					onProfileCreated={handleProfileCreated}
 					open={true}
@@ -262,12 +332,123 @@ export function PeopleAndAgentsPage(input: {
 	);
 }
 
+function resolveActiveAgentView(input: {
+	activeAgentView: "agents" | "requests" | undefined;
+	activeSectionId: ProfileHomeId;
+	isOrganizationContext: boolean;
+}): "agents" | "requests" {
+	return input.activeSectionId === "agents" &&
+		input.activeAgentView === "requests" &&
+		input.isOrganizationContext
+		? "requests"
+		: "agents";
+}
+
+function AgentRequestsHome(input: {
+	currentUserId: string;
+	directoryQuery: {
+		data?: OrganizationDirectoryResponse;
+		error: { message: string } | null;
+		isError: boolean;
+	};
+	focusRequestId: string | null;
+	initialSidebarStates?: AppSidebarPersistedStates;
+	onOpenAgent: (profileId: string) => void;
+	onViewChange?: (view: "agents" | "requests") => void;
+	organizationId: string;
+	organizationName: string;
+	orgSlug: string;
+	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
+}) {
+	const [isCreateAgentOpen, setIsCreateAgentOpen] = useState(false);
+	let content: ReactNode;
+	if (input.directoryQuery.data) {
+		content = (
+			<AgentProfileCreationRequestsPanel
+				currentUserId={input.currentUserId}
+				directory={input.directoryQuery.data}
+				focusRequestId={input.focusRequestId}
+				onCreateAgent={() => setIsCreateAgentOpen(true)}
+				onOpenAgent={input.onOpenAgent}
+				organizationId={input.organizationId}
+			/>
+		);
+	} else if (input.directoryQuery.isError) {
+		content = (
+			<p className="rounded-md border border-destructive/30 px-4 py-4 text-destructive text-sm">
+				{input.directoryQuery.error?.message ?? "Couldn’t load requests."}
+			</p>
+		);
+	} else {
+		content = (
+			<p className="rounded-md border border-border/70 px-4 py-6 text-muted-foreground text-sm">
+				Loading requests…
+			</p>
+		);
+	}
+
+	return (
+		<AppFullWidthLayout
+			initialOuterSidebarState={
+				input.initialSidebarStates?.outer ?? APP_SIDEBAR_DEFAULT_STATES.outer
+			}
+		>
+			<ProfilesSectionLayout
+				description="Review Agent creation requests that need your approval and track requests you sent to teammates."
+				title="Agents"
+			>
+				<TabsSubtle
+					className="w-fit max-w-full"
+					idPrefix="agents-view"
+					onSelect={(index) =>
+						input.onViewChange?.(index === 1 ? "requests" : "agents")
+					}
+					selectedIndex={1}
+				>
+					<TabsSubtleItem index={0} label="Agents" />
+					<TabsSubtleItem index={1} label="Requests" />
+				</TabsSubtle>
+				<TabsSubtlePanel idPrefix="agents-view" index={1} selectedIndex={1}>
+					{content}
+				</TabsSubtlePanel>
+			</ProfilesSectionLayout>
+			{isCreateAgentOpen ? (
+				<CreateProfileDialog
+					allowTeammateRequests={true}
+					currentUserId={input.currentUserId}
+					onAgentRequestCreated={(request) => {
+						if (request.createdAgentProfileId) {
+							input.onOpenAgent(request.createdAgentProfileId);
+						}
+					}}
+					onOpenChange={setIsCreateAgentOpen}
+					onProfileCreated={(profile) =>
+						input.onOpenAgent(profile.openMeldProfileId)
+					}
+					open={true}
+					organizationAuthorizationContext={{
+						organizationId: input.organizationId,
+						organizationName: input.organizationName,
+					}}
+					organizationId={input.organizationId}
+					orgSlug={input.orgSlug}
+					recovery={input.recovery}
+				/>
+			) : null}
+		</AppFullWidthLayout>
+	);
+}
+
 function resolveProfilesSectionDescription(input: {
+	agentView: "agents" | "requests";
 	isOrganizationContext: boolean;
 	organizationName: string;
 	sectionId: ProfileHomeId;
 }): string {
 	if (input.sectionId === "agents") {
+		if (input.agentView === "requests") {
+			return "Review Agent creation requests that need your approval and track requests you sent to teammates.";
+		}
 		return input.isOrganizationContext
 			? `Agents are the AI teammates in ${input.organizationName}. See who manages each one and whether it’s ready to work in Spaces.`
 			: "Agents are your AI teammates. See whether each one is ready to work in Spaces.";

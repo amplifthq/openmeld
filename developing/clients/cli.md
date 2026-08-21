@@ -358,6 +358,36 @@ request fails before mutation with Auth's stable capability error. A missing or
 invalid capability response fails closed for Human creation; Auth remains the
 final enforcement boundary for older CLI versions.
 
+`openmeld profiles create` is the one CLI and Local Agent creation entry for
+both self-owned and teammate-owned Agent Profiles. Supplying `--owner` routes
+the intent through the shared Agent Profile Creation Request capability:
+
+```text
+openmeld profiles create "Release Reviewer" --kind agent --owner <user-id> --computer <computer-id> --agent-controller builtin:codex --session new
+openmeld profiles create "API Debugger" --kind agent --owner self --computer <computer-id> --agent-controller builtin:codex --session resume --native-session <provider-native-id>
+openmeld profiles create "Release Investigator" --kind agent --owner self --computer <computer-id> --agent-controller builtin:codex --session fork --native-session <provider-native-id>
+openmeld profiles requests list
+openmeld profiles requests approve <request-id>
+openmeld profiles requests decline <request-id>
+openmeld profiles requests cancel <request-id>
+openmeld profiles requests retry <request-id>
+openmeld profiles requests preferences get
+openmeld profiles requests preferences set --new-session ask-every-time --existing-session ask-every-time
+```
+
+The creation command resolves the current or explicit Organization, accepts `self` or an
+exact target owner user ID, preserves the exact provider-native Session ID, and
+supports a caller-supplied stable request key for safe retries. Human View
+explains current status and next action. Agent View emits the shared strict
+request envelopes. Local Agents set source `local-agent`; ordinary terminal
+use defaults to `cli`.
+
+The executor completes new-Session identity creation, exact native Resume, and
+provider-native Fork after Agent Activity and the local Binding path verify the
+selected Session. The CLI must never replace either existing-Session strategy
+with new-Session creation. An optional Space ID records intent only and does not
+grant membership.
+
 Agent Profile creation and maintenance may also set the Binding's Agent
 Controller Permission Mode:
 
@@ -639,9 +669,10 @@ readable directory to its canonical path, rejects a path already bound to any
 other Organization or Project, stores only local mode-0600 binding state, and
 uploads at most the Project id plus an optional safe repository fingerprint.
 The same successful `bind` action installs OpenMeld-owned Codex and Claude Code
-hooks, Cursor hooks, and the OpenCode plugin. Grok Build retained Sessions are
-discovered through its provider-native local surface; it does not require an
-invented OpenMeld hook. If compare-and-swap protection rejects a
+hooks, Cursor hooks, and the OpenCode plugin. Grok Build does not add a managed
+hook or become an Agent Activity provider in this phase; its Wake lifecycle
+events remain execution telemetry, and direct user-started Grok sessions are
+not observed. If compare-and-swap protection rejects a
 configuration edit, the binding remains valid and the command reports
 `integrationSetup.status = needs_attention`; `openmeld activity install` is the
 explicit repair command. `unbind` stops new observation and removes unsent
@@ -655,20 +686,6 @@ explicit `--json` emits the strict shared `activity.read` envelope. The managed
 also use the closed shared CLI envelope union. Hook commands are hidden
 provider adapters, not public data readers.
 
-`openmeld activity sessions` is the complete paginated current Inventory read.
-Human View prints the native title and id, Owner, Project, Computer, Local
-Agent, status, last activity, origin, Resume/Fork capability, and bound Agent
-Profile without exposing an internal runtime or path. `--view agent` and
-`--json` emit the strict shared `activity.sessions` envelope unchanged except
-for the ordinary CLI success wrapper. Filters and `--cursor` map directly to
-the shared Core query; the CLI never reconstructs a next page from local rows.
-
-OpenMeld-managed Local Agent skills direct agents to the same command. A Local
-Agent may cite the tuple `owner.userId + localAgent.agentControllerRef +
-nativeSessionId`, but it must treat the response as read-only evidence and use
-the relevant authoritative command for any later Profile, Binding, Resume,
-Fork, or Space mutation.
-
 OpenMeld Service observes only sessions inside an explicitly bound Project and
 delivers them through a bounded durable outbox. A 404 or unavailable service
 keeps retryable evidence locally and does not break Wake. Context injection
@@ -677,11 +694,9 @@ ceiling, labels the content as awareness rather than authority, and emits
 nothing on missing, stale, or malformed cache data.
 
 Watcher roots that do not exist when the Service starts are retried after the
-provider creates them. The npm CLI supports Node 20 and Node 22 through 25;
-Node 21 and Node 26 or newer remain outside the declared range while the native
-OpenCode SQLite reader does not support them. OpenCode SQLite reconciliation is
-optional capability detection, while the managed OpenCode plugin is the
-low-latency primary path.
+provider creates them. The CLI remains startable on its declared Node 20 floor;
+OpenCode SQLite reconciliation is optional capability detection, while the
+managed OpenCode plugin is the low-latency primary path.
 
 ### Center Agent Routines
 
@@ -962,24 +977,6 @@ These commands are read-only owner tools for Local Agents; they do not make CLI
 inventory or current-computer diagnostics authoritative for Agent Profile
 readiness, Wake availability, or execution outcome.
 
-The same Agent View includes each reported controller's optional
-`agentControllerInterface.usageLimits` list. Local Agents read this normalized
-owner projection directly by requesting the additive Usage Limit field; older
-CLI versions omit that request and continue to receive their strict legacy
-shape. Local Agents must not invoke a provider independently,
-scrape the Computers UI, or infer quota from Wake failures. The list uses the
-shared stable key, label, 0–100 used percentage, nullable reset time,
-observation time, and status contract. It is capacity information only and does
-not grant execution, routing, or Computer mutation authority.
-
-`org computers --view agent` and `org computers --json` read the active
-Organization's existing team-safe Computers projection with Usage Limits
-explicitly requested. This gives authorized Local Agents the same normalized
-member-computer capacity facts as OpenMeld Web and the Center Agent without
-exposing provider account identity, credentials, executable paths, setup
-commands, or Computer controls. The command does not query providers directly
-or derive facts from the Web UI.
-
 The CLI may expose the authenticated user's local owner inventory because it is
 the user's direct local Agent View. The Center Agent RPC is a separate
 model-facing boundary: even in a requester-private conversation it receives
@@ -1082,11 +1079,14 @@ Profile Report drafts, or another member's owner-self controls through this
 Directory command. Missing `lastActiveAt` stays absent; the CLI never fills it
 from Computer, login/session, or Agent Activity timestamps.
 
-`org computers` reads current member Computers and their team-safe Local Agent
-details. Agent View preserves the validated Organization Computers response;
-`org computers --json` emits the strict versioned `organization.computers`
-envelope. Usage Limits are opt-in on this compatibility-sensitive endpoint so
-older CLI readers retain the legacy response shape.
+`org computers` reads the same team-safe Organization Computers projection used
+by Web and the Center Agent. Agent View exposes the exact validated Computer,
+owner, local-agent controller, readiness, version, model, and capability fields
+that the Organization contract permits; `--json` emits the strict versioned
+`organization.computers` envelope. Usage Limits are requested explicitly on
+this compatibility-sensitive endpoint so older readers keep the legacy shape.
+The command never expands the projection with private local paths, account
+identities, launch commands, or private skills.
 
 `org invite-link get|create|revoke` manages the active Organization invite link
 through Auth's owner/admin permission boundary. The CLI sends only the active

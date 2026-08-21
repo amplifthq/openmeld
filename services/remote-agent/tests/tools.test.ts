@@ -1,6 +1,7 @@
 import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   centerAgentCheckAgentProfileReadinessResponseSchema,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
   FEEDBACK_ISSUE_INVALID_TRANSITION_ERROR_CODE,
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
 } from "@openmeld/schemas";
@@ -4194,6 +4195,64 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentCreateAgentProfile).toHaveBeenCalledOnce();
   });
 
+  it("creates Agent Profile requests through the represented member and Center Agent actor", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const response = createAgentProfileCreationRequestResponse();
+    const centerAgentCreateAgentProfileCreationRequest = vi.fn(
+      async () => response
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_create_agent_profile_request", {
+        profileName: "Review Agent",
+        requestedSpaceId: SPACE_ID,
+        sessionStrategy: "new",
+        targetOwnerUserId: "user-2",
+      })
+    ).resolves.toEqual(response);
+    expect(centerAgentCreateAgentProfileCreationRequest).toHaveBeenCalledWith({
+      onBehalfOf: { profileId: request.author.profileId },
+      profileName: "Review Agent",
+      requestedSpaceId: SPACE_ID,
+      sessionStrategy: "new",
+      targetOwnerUserId: "user-2",
+      context: expect.any(Object),
+    });
+  });
+
+  it("manages an Agent Profile request through Core-owned authority", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const response = {
+      request: createAgentProfileCreationRequestResponse().request,
+    };
+    const centerAgentManageAgentProfileCreationRequest = vi.fn(
+      async () => response
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentManageAgentProfileCreationRequest },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_manage_agent_profile_creation_request", {
+        action: "approve",
+        requestId: "request-1",
+      })
+    ).resolves.toEqual(response);
+    expect(centerAgentManageAgentProfileCreationRequest).toHaveBeenCalledWith({
+      action: "approve",
+      context: expect.any(Object),
+      onBehalfOf: { profileId: request.author.profileId },
+      requestId: "request-1",
+    });
+  });
+
   it("refuses product tools without submission owner context", async () => {
     const request = createSubmitTurnRequest();
     const storage = new InMemoryDurableObjectStorage();
@@ -5882,6 +5941,33 @@ function createSpaceResponse() {
     ...actionResponseBase({ id: SPACE_ID, type: "space" }),
     spaceId: SPACE_ID,
   };
+}
+
+function createAgentProfileCreationRequestResponse() {
+  return {
+    replayed: false,
+    request: {
+      actorProfileId: "center-agent-profile",
+      completedAt: null,
+      configuration: DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+      createdAgentProfileId: null,
+      createdAt: ISO_NOW,
+      decidedAt: null,
+      failureMessage: null,
+      id: "request-1",
+      nativeSessionId: null,
+      organizationId: "org_123",
+      profileName: "Review Agent",
+      requestedSpaceId: SPACE_ID,
+      requesterUserId: "user_1",
+      sessionStrategy: "new",
+      source: "center_agent",
+      status: "pending",
+      statusReason: "approval_required",
+      targetOwnerUserId: "user-2",
+      updatedAt: ISO_NOW,
+    },
+  } as const;
 }
 
 function createAgentProfileResponse() {

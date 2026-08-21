@@ -17,6 +17,7 @@ import {
 } from "../dispatch/infrastructure/runtime-transport/runtime-coordinator-client";
 import {
   discoverRuntimeTransportProjects,
+  forkRuntimeTransportAgentSession,
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoute,
   lookupRuntimeTransportRoutesBatch,
@@ -533,6 +534,60 @@ describe("runtime transport split clients call fallback behavior", () => {
         method: "POST",
       })
     );
+  });
+
+  it("forks the exact native Session through its owner's selected Computer", async () => {
+    const { env, stub } = createEnv();
+    stub.fetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          agentControllerRef: "builtin:codex",
+          childNativeSessionId: "child-session-1",
+          operationId: "request-1",
+          organizationId: "organization-1",
+          profileName: "Research Agent",
+          projectId: "project-1",
+          sourceNativeSessionId: "source-session-1",
+          status: "completed",
+        }),
+        { status: 200 }
+      )
+    );
+
+    const result = await forkRuntimeTransportAgentSession({
+      agentControllerRef: "builtin:codex",
+      deviceId: "device-1",
+      env,
+      operationId: "request-1",
+      organizationId: "organization-1",
+      ownerUserId: "owner-1",
+      profileName: "Research Agent",
+      projectId: "project-1",
+      runtimeLane: "dev-local",
+      sourceNativeSessionId: "source-session-1",
+    });
+
+    expect(result).toMatchObject({
+      childNativeSessionId: "child-session-1",
+      status: "completed",
+    });
+    expect(stub.fetch).toHaveBeenCalledWith(
+      "https://runtime-transport.internal/local-agent-control/fork-session",
+      expect.objectContaining({ method: "POST" })
+    );
+    const requestInit = stub.fetch.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(requestInit.body))).toEqual({
+      agentControllerRef: "builtin:codex",
+      deviceId: "device-1",
+      lane: "dev-local",
+      operationId: "request-1",
+      organizationId: "organization-1",
+      ownerUserId: "owner-1",
+      profileName: "Research Agent",
+      projectId: "project-1",
+      sourceNativeSessionId: "source-session-1",
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+    });
   });
 
   it("sends canonical Project facts through the dedicated current-device operation", async () => {

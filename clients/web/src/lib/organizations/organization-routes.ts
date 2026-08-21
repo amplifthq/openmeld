@@ -101,6 +101,21 @@ export function buildOrganizationAgentsPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/agents`;
 }
 
+export function buildOrganizationAgentCreationRequestsPath(input: {
+	orgSlug: string;
+	requestId?: string | null;
+}): string {
+	const url = new URL(
+		buildOrganizationAgentsPath(input.orgSlug),
+		"http://localhost"
+	);
+	url.searchParams.set("view", "requests");
+	if (input.requestId) {
+		url.searchParams.set("requestId", input.requestId);
+	}
+	return `${url.pathname}${url.search}`;
+}
+
 export function buildOrganizationComputersPath(orgSlug: string): string {
 	return `${buildOrganizationRootPath(orgSlug)}/computers`;
 }

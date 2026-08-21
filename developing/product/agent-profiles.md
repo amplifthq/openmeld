@@ -98,12 +98,89 @@ with an explicit conflict. A client-side in-flight guard improves immediate
 feedback, but Auth's durable idempotency boundary remains authoritative when
 rendering, transport, or network retries overlap.
 
+Every created Agent Profile keeps immutable creation attribution: the exact
+Profile that acted and the surface that initiated the action (`web`, `cli`,
+`local_agent`, or `center_agent`). The owner and actor are separate facts. A
+Center Agent or Local Agent may act for a human requester without becoming the
+new Agent Profile's owner. Profile Details shows the human-readable creator and
+source; exact internal identifiers remain an Advanced detail.
+
+## Agent Profile Creation Requests
+
+An Agent Profile Creation Request is the one Organization-scoped coordination
+flow for creating an Agent Profile owned by the requester or by another member.
+Web, CLI, Local Agents, and the Center Agent use the same Core-owned request
+state machine rather than implementing separate approval rules.
+
+Each request freezes these product facts:
+
+- requester user and acting Profile
+- target owner user
+- initiation source
+- Agent Profile name
+- Session strategy: `new`, `resume`, or `fork`
+- the exact provider-native Session ID for `resume` or `fork`
+- the selected Computer and Agent Controller, when known
+- the requested Binding settings, Default Project, and Organization Wake access
+- an optional intended Space
+- one requester-scoped idempotency key
+
+OpenMeld does not mint, translate, normalize, or replace provider-native
+Session IDs. A Project's Agent Activity authorization boundary decides which
+local Sessions the Organization may see; creation callers pass the exact native
+ID from that projection.
+
+`new` starts with a separate local Session. `resume` continues the selected
+Session. `fork` creates an independent child Session that inherits the selected
+Session's context without interrupting it. UI copy may give a light warning
+before resuming a currently working Session, while Center Agent and Local Agent
+guidance should prefer fork for that case. The request contract does not add a
+second policy engine that guesses or rejects the user's choice.
+
+OpenMeld publishes each built-in Agent Controller's native conversation
+capabilities through the team-safe Organization Computers projection. Resume
+is supported by reference ID for Codex, Claude Code, Cursor, Grok Build,
+OpenCode, and OpenClaw. Native fork by reference ID is currently confirmed for
+Codex, Claude Code, and OpenCode. Grok Build, Cursor, and OpenClaw report fork
+as unsupported until their installed controller contract exposes an operation
+that returns a new native Session ID while preserving the source context.
+Clients must render this fact honestly and must not imitate Fork by injecting a
+summary into a new Session.
+Capability reporting informs selection; it does not authorize Session access
+or perform the operation.
+
+Each member controls two independent per-Organization policies: one for new
+Sessions and one for existing Sessions. Each policy is **Ask every time**,
+**Automatically allow**, or **Never allow**; both default to **Ask every
+time**. A self-request does not require redundant approval. A pending teammate
+request creates one Inbox action for the target owner. Only that owner may
+approve or decline it, and only the requester may cancel it. Both participants
+can see current progress and immutable origin attribution.
+
+Approval authorizes the request's complete frozen creation intent. Core still
+uses the existing owner contracts for each operation: Auth creates the Agent
+Profile identity, Space membership uses the normal Space mutation, and Binding,
+Default Project, and Organization Wake access use their existing Core-owned
+operations. The request state machine coordinates those operations; it does not
+create parallel mutation or authorization paths.
+
+The creation-request executor completes `new`, `resume`, and provider-native
+`fork`. Resume binds the selected native Session. Fork asks the selected local
+controller to create one native child, records that child as OpenMeld-origin,
+and binds the child while leaving the source Session unchanged. The request ID
+is the durable Fork operation key: a retry may replay the recorded child but
+must never ask the provider to create a second child after an uncertain
+outcome. New OpenMeld-created child titles use `OpenMeld · <Profile name>`;
+later provider title changes remain native Session truth. Clients must not
+silently fall back to `new`.
+
 Creation surfaces return one explicit outcome for the committed Profile and
-each requested follow-up. When creation starts from a Space, the client adds
-the committed Profile to that Space before optional local setup so a temporary
-computer or Agent Controller failure cannot leave a hidden Profile outside the
+each requested follow-up. When creation includes a Space, the executor adds the
+committed Profile to that Space before optional local setup so a temporary
+Computer or Agent Controller failure cannot leave a hidden Profile outside the
 Space. Any failed follow-up stays visible as a precise recovery issue against
-the already-created Profile.
+the already-created Profile, and retry continues setup without creating a
+second identity.
 
 Human Profiles and the Center Agent use deterministic Dither artwork derived
 from their stable Profile kind and Profile ID. A Human Profile's uploaded image

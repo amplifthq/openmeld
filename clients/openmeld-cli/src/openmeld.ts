@@ -231,6 +231,15 @@ import {
 import { formatAgentControllerPermissionModeHelp } from "./profile/controller-permission-mode-input";
 import { hasExplicitProfileUpdateField } from "./profile/profile-update-cli-options";
 import {
+  runProfileCreationRequestCancel,
+  runProfileCreationRequestCreate,
+  runProfileCreationRequestDecide,
+  runProfileCreationRequestList,
+  runProfileCreationRequestPreferenceGet,
+  runProfileCreationRequestPreferenceSet,
+  runProfileCreationRequestRetry,
+} from "./profile-creation-request/command";
+import {
   runRoutinesCreate,
   runRoutinesDelete,
   runRoutinesList,
@@ -4539,6 +4548,38 @@ profileCmd
     "Confirm a dangerous Agent Controller Permission Mode without prompting",
     false
   )
+  .option(
+    "--owner <userId>",
+    "Create for a member from `openmeld org directory --view agent`, or self"
+  )
+  .option(
+    "--computer <computerId>",
+    "Exact Organization-visible Computer for a teammate-owned Agent"
+  )
+  .option("--project <projectId>", "Default Project for the new Agent")
+  .option(
+    "--session <strategy>",
+    "Session strategy for an owner request: new, resume, or fork",
+    "new"
+  )
+  .option(
+    "--native-session <id>",
+    "Native provider Session ID required for resume or fork"
+  )
+  .option("--space <spaceId>", "Add the created Agent to this Space")
+  .option("--source <source>", "Request source: cli or local-agent", "cli")
+  .option(
+    "--request-key <key>",
+    "Stable idempotency key for safely retrying an owner request"
+  )
+  .option(
+    "--organization <slugOrId>",
+    "Organization slug or ID; defaults to the current Organization"
+  )
+  .option(
+    "--no-organization-wake-access",
+    "Do not request Organization Wake access for the selected Binding"
+  )
   .action(async (profileName, opts) => {
     const outputView = await resolveEffectiveViewForOutput();
     const targetName =
@@ -4563,6 +4604,39 @@ profileCmd
       routeTokens: ["profile", "create"],
       view,
       run: async () => {
+        if (typeof opts.owner === "string") {
+          if (
+            typeof opts.kind === "string" &&
+            opts.kind.trim().toLowerCase() !== "agent"
+          ) {
+            throw createProfileCreateGuideError(
+              "--owner can only create an Agent Profile; pass --kind agent."
+            );
+          }
+          await runProfileCreationRequestCreate({
+            agentController: opts.agentController,
+            agentControllerPermissionModeInput:
+              opts.agentControllerPermissionMode,
+            authorizeForOrganization: opts.organizationWakeAccess,
+            confirmDangerousAgentControllerPermissionMode: Boolean(
+              opts.confirmDangerousAgentControllerPermissionMode
+            ),
+            defaultProjectId: opts.project,
+            idempotencyKey: opts.requestKey,
+            modelId: opts.model,
+            nativeSessionId: opts.nativeSession,
+            organization: opts.organization,
+            profileName: targetName,
+            reasoningLevel: opts.reasoningEffort,
+            requestedSpaceId: opts.space,
+            sessionStrategy: opts.session,
+            source: opts.source,
+            targetComputerId: opts.computer,
+            targetOwner: opts.owner,
+            view,
+          });
+          return;
+        }
         await runProfileCreate({
           profileName: targetName,
           kind: opts.kind,
@@ -4605,6 +4679,198 @@ profileCmd
           entryChecksHandled: true,
         });
         await maybeRunAgentViewRecoveryAfterSuccess({
+          view,
+        });
+      },
+    });
+  });
+
+const profileRequestsCmd = profileCmd
+  .command("requests")
+  .description(
+    "Create and manage Organization Agent Profile creation requests."
+  );
+
+profileRequestsCmd
+  .command("create")
+  .description("Request an Agent Profile for yourself or a teammate.")
+  .argument("<profileName>", "Agent Profile name")
+  .requiredOption(
+    "--owner <userId>",
+    "Target member user ID from `openmeld org directory --view agent`, or self"
+  )
+  .option(
+    "--session <strategy>",
+    "Session strategy: new, resume, or fork",
+    "new"
+  )
+  .option(
+    "--native-session <id>",
+    "Native provider Session ID required for resume or fork"
+  )
+  .option("--space <spaceId>", "Intended Space to record on the request")
+  .option("--source <source>", "Request source: cli or local-agent", "cli")
+  .option(
+    "--request-key <key>",
+    "Stable idempotency key to safely retry this request"
+  )
+  .option(
+    "--organization <slugOrId>",
+    "Organization slug or ID; defaults to the current Organization"
+  )
+  .action(async (profileName, opts) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "requests", "create"],
+      view,
+      run: async () => {
+        await runProfileCreationRequestCreate({
+          idempotencyKey: opts.requestKey,
+          nativeSessionId: opts.nativeSession,
+          organization: opts.organization,
+          profileName,
+          requestedSpaceId: opts.space,
+          sessionStrategy: opts.session,
+          source: opts.source,
+          targetOwner: opts.owner,
+          view,
+        });
+      },
+    });
+  });
+
+profileRequestsCmd
+  .command("list")
+  .alias("ls")
+  .description("List Agent Profile creation requests involving you.")
+  .option(
+    "--organization <slugOrId>",
+    "Organization slug or ID; defaults to the current Organization"
+  )
+  .action(async (opts) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "requests", "list"],
+      view,
+      run: async () => {
+        await runProfileCreationRequestList({
+          organization: opts.organization,
+          view,
+        });
+      },
+    });
+  });
+
+for (const decision of ["approve", "decline"] as const) {
+  profileRequestsCmd
+    .command(decision)
+    .description(
+      `${decision === "approve" ? "Approve" : "Decline"} an Agent Profile creation request for you.`
+    )
+    .argument("<requestId>", "Agent Profile creation request ID")
+    .option(
+      "--organization <slugOrId>",
+      "Organization slug or ID; defaults to the current Organization"
+    )
+    .action(async (requestId, opts) => {
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["profile", "requests", decision],
+        view,
+        run: async () => {
+          await runProfileCreationRequestDecide({
+            decision,
+            organization: opts.organization,
+            requestId,
+            view,
+          });
+        },
+      });
+    });
+}
+
+for (const action of ["cancel", "retry"] as const) {
+  profileRequestsCmd
+    .command(action)
+    .description(
+      `${action === "cancel" ? "Cancel" : "Retry"} an Agent Profile creation request.`
+    )
+    .argument("<requestId>", "Agent Profile creation request ID")
+    .option(
+      "--organization <slugOrId>",
+      "Organization slug or ID; defaults to the current Organization"
+    )
+    .action(async (requestId, opts) => {
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["profile", "requests", action],
+        view,
+        run: async () => {
+          const input = {
+            organization: opts.organization,
+            requestId,
+            view,
+          };
+          if (action === "cancel") {
+            await runProfileCreationRequestCancel(input);
+          } else {
+            await runProfileCreationRequestRetry(input);
+          }
+        },
+      });
+    });
+}
+
+const profileRequestPreferencesCmd = profileRequestsCmd
+  .command("preferences")
+  .description("Manage approvals for teammate Agent Profile requests.");
+
+profileRequestPreferencesCmd
+  .command("get")
+  .description("Show your Agent Profile creation approval preferences.")
+  .option(
+    "--organization <slugOrId>",
+    "Organization slug or ID; defaults to the current Organization"
+  )
+  .action(async (opts) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "requests", "preferences", "get"],
+      view,
+      run: async () => {
+        await runProfileCreationRequestPreferenceGet({
+          organization: opts.organization,
+          view,
+        });
+      },
+    });
+  });
+
+profileRequestPreferencesCmd
+  .command("set")
+  .description("Update your Agent Profile creation approval preferences.")
+  .requiredOption(
+    "--new-session <policy>",
+    "New-session policy: never-allow, ask-every-time, or automatically-allow"
+  )
+  .requiredOption(
+    "--existing-session <policy>",
+    "Existing-session policy: never-allow, ask-every-time, or automatically-allow"
+  )
+  .option(
+    "--organization <slugOrId>",
+    "Organization slug or ID; defaults to the current Organization"
+  )
+  .action(async (opts) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "requests", "preferences", "set"],
+      view,
+      run: async () => {
+        await runProfileCreationRequestPreferenceSet({
+          existingSessionPolicy: opts.existingSession,
+          newSessionPolicy: opts.newSession,
+          organization: opts.organization,
           view,
         });
       },

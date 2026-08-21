@@ -21,6 +21,7 @@ const FELIX_ID = "11111111-1111-4111-8111-111111111111";
 const NEW_HUMAN_ID = "55555555-5555-4555-8555-555555555555";
 const NEW_AGENT_ID = "agt_99999999-9999-4999-8999-999999999999";
 const CREATE_PROFILE_BUTTON_PATTERN = /create profile/i;
+const CHOOSE_LATER_PATTERN = /Choose later/i;
 const HUMAN_PROFILE_CARD_PATTERN = /Human profile/i;
 const AGENT_PROFILE_CARD_PATTERN = /Agent profile/i;
 const OPENCODE_AGENT_PATTERN = /opencode/i;
@@ -28,6 +29,7 @@ const USE_AGENT_PROFILE_IN_ACME_PATTERN = /Use this Agent in Acme/;
 const AUTO_AUTHORIZE_NEW_AGENT_PROFILES_IN_ACME_PATTERN =
 	/Automatically authorize my new Agents in Acme/;
 const BORDER_CLASS_PATTERN = /\bborder\b/;
+const ASHLEY_RELEASE_SESSION_PATTERN = /Prepare the release · Codex · OpenMeld/;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a human profile to this account before bringing profiles into this Space.";
 
@@ -54,6 +56,10 @@ const setOrganizationBindingAuthorizationPreferenceMock = vi.hoisted(() =>
 const getAgentProfileCreationDefaultsMock = vi.hoisted(() => vi.fn());
 const setAgentProfileCreationDefaultsMock = vi.hoisted(() => vi.fn());
 const listProjectsMock = vi.hoisted(() => vi.fn());
+const readOrganizationDirectoryMock = vi.hoisted(() => vi.fn());
+const readOrganizationComputersMock = vi.hoisted(() => vi.fn());
+const readCurrentAgentActivitySessionsMock = vi.hoisted(() => vi.fn());
+const createAgentProfileCreationRequestMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
 
@@ -181,6 +187,40 @@ vi.mock("#/query/organizations/projects", () => ({
 		staleTime: Number.POSITIVE_INFINITY,
 	}),
 }));
+
+vi.mock("#/lib/organizations/organization-directory", () => ({
+	readCurrentOrganizationDirectory: (
+		...args: Parameters<typeof readOrganizationDirectoryMock>
+	) => readOrganizationDirectoryMock(...args),
+}));
+
+vi.mock("#/lib/organizations/organization-computers", () => ({
+	readCurrentOrganizationComputers: (
+		...args: Parameters<typeof readOrganizationComputersMock>
+	) => readOrganizationComputersMock(...args),
+}));
+
+vi.mock("#/lib/organizations/agent-activity", () => ({
+	readCurrentAgentActivitySessions: (
+		...args: Parameters<typeof readCurrentAgentActivitySessionsMock>
+	) => readCurrentAgentActivitySessionsMock(...args),
+}));
+
+vi.mock(
+	"#/lib/profiles/agent-profile-creation-requests",
+	async (importOriginal) => {
+		const actual =
+			await importOriginal<
+				typeof import("#/lib/profiles/agent-profile-creation-requests")
+			>();
+		return {
+			...actual,
+			createAgentProfileCreationRequest: (
+				...args: Parameters<typeof createAgentProfileCreationRequestMock>
+			) => createAgentProfileCreationRequestMock(...args),
+		};
+	}
+);
 
 vi.mock("#/query/config/model-catalog", () => ({
 	modelCatalogQueryOptions: () => ({
@@ -476,6 +516,12 @@ async function fillProfileForm(input: { kind: RegExp; name: string }) {
 	fireEvent.click(submitButton);
 }
 
+async function selectAgentProfileKind() {
+	fireEvent.click(
+		await screen.findByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
+	);
+}
+
 describe("CreateProfileDialog", () => {
 	beforeEach(() => {
 		getProfileCapabilitiesMock.mockReset().mockResolvedValue({
@@ -552,6 +598,78 @@ describe("CreateProfileDialog", () => {
 				autoAuthorizeAgentProfileBindings: true,
 			});
 		listProjectsMock.mockReset().mockResolvedValue({ projects: [] });
+		readOrganizationDirectoryMock.mockReset().mockResolvedValue({
+			agentProfiles: [],
+			generatedAt: "2026-08-20T00:00:00.000Z",
+			members: [
+				{ user: { name: "Felix" }, userId: "user-123" },
+				{ user: { name: "Ashley" }, userId: "user-ashley" },
+			],
+			organizationId: "organization-123",
+		});
+		readOrganizationComputersMock.mockReset().mockResolvedValue({
+			computers: [
+				{
+					computerId: "device-ashley",
+					deviceDisplayName: "Ashley's Mac Studio",
+					deviceType: "desktop",
+					lastSeenAtMs: 1_775_952_000_000,
+					localAgents: [
+						{
+							agentControllerRef: "builtin:codex",
+							enabled: true,
+							status: "ready",
+						},
+					],
+					osVersion: "25.5.0",
+					ownerUserId: "user-ashley",
+					platformFamily: "macOS",
+					serviceState: "connected",
+				},
+			],
+			generatedAt: "2026-08-20T00:00:00.000Z",
+			organizationId: "organization-123",
+		});
+		readCurrentAgentActivitySessionsMock.mockReset().mockResolvedValue({
+			asOfMs: 1_787_220_000_000,
+			coverage: [],
+			nextCursor: null,
+			organization: { id: "organization-123", name: "Acme" },
+			sessions: [],
+		});
+		createAgentProfileCreationRequestMock.mockReset().mockResolvedValue({
+			replayed: false,
+			request: {
+				actorProfileId: FELIX_ID,
+				completedAt: null,
+				configuration: {
+					agentControllerPermissionMode: "codex:askForApproval",
+					agentControllerRef: "builtin:codex",
+					authorizeForOrganization: true,
+					defaultProjectId: "project-1",
+					modelId: "gpt-5.4-mini",
+					openCodePermission: null,
+					reasoningLevel: "high",
+					targetComputerId: "device-ashley",
+				},
+				createdAgentProfileId: null,
+				createdAt: "2026-08-20T00:00:00.000Z",
+				decidedAt: null,
+				failureMessage: null,
+				id: "apcr-teammate",
+				nativeSessionId: null,
+				organizationId: "organization-123",
+				profileName: "Release Agent",
+				requestedSpaceId: null,
+				requesterUserId: "user-123",
+				sessionStrategy: "new",
+				source: "web",
+				status: "pending",
+				statusReason: "approval_required",
+				targetOwnerUserId: "user-ashley",
+				updatedAt: "2026-08-20T00:00:00.000Z",
+			},
+		});
 		getAgentProfileCreationDefaultsMock
 			.mockReset()
 			.mockImplementation(async ({ agentControllerRef, organizationId }) => ({
@@ -595,14 +713,14 @@ describe("CreateProfileDialog", () => {
 
 		expect(
 			await screen.findByText(
-				"Connect this working Session to a new Agent Profile. Forking preserves the current work when your Local Agent supports it."
+				"Connect this working Session to a new Agent. Fork it instead when you want to preserve the work already in progress."
 			)
 		).toBeTruthy();
 		expect(
 			(screen.getByLabelText("Profile name") as HTMLInputElement).value
 		).toBe("Build Session Inventory");
 		expect(
-			screen.getByRole("heading", { name: "Create a new Agent Profile" })
+			screen.getByRole("heading", { name: "Create a new Agent" })
 		).toBeTruthy();
 		expect(
 			screen.queryByRole("tab", { name: HUMAN_PROFILE_CARD_PATTERN })
@@ -655,12 +773,6 @@ describe("CreateProfileDialog", () => {
 		const submitButton = await screen.findByRole("button", {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
 		});
-		fireEvent.click(
-			await screen.findByRole("combobox", { name: "Working folder" })
-		);
-		fireEvent.click(
-			screen.getByRole("option", { name: "Let OpenMeld choose" })
-		);
 		await waitFor(() => {
 			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
 		});
@@ -723,12 +835,6 @@ describe("CreateProfileDialog", () => {
 		const submitButton = await screen.findByRole("button", {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
 		});
-		fireEvent.click(
-			await screen.findByRole("combobox", { name: "Working folder" })
-		);
-		fireEvent.click(
-			screen.getByRole("option", { name: "Let OpenMeld choose" })
-		);
 		await waitFor(() => {
 			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
 		});
@@ -778,7 +884,304 @@ describe("CreateProfileDialog", () => {
 		});
 	});
 
-	it("keeps Agent creation available while hiding Human creation when the capability is disabled", async () => {
+	it("uses the existing Create Agent form to request a teammate-owned Agent with the selected configuration", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		renderCreateProfileDialog({
+			allowTeammateRequests: true,
+			currentUserId: "user-123",
+			organizationAuthorizationContext: {
+				organizationId: "organization-123",
+				organizationName: "Acme",
+			},
+		});
+
+		fireEvent.click(
+			await screen.findByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
+		);
+		await waitFor(() => {
+			expect(readOrganizationDirectoryMock).toHaveBeenCalled();
+		});
+		const teammateOwnerChoice = screen.getByRole("radio", {
+			name: "A teammate",
+		});
+		await waitFor(() => {
+			expect(teammateOwnerChoice.getAttribute("aria-disabled")).toBeNull();
+		});
+		fireEvent.click(teammateOwnerChoice);
+		await screen.findByRole("combobox", { name: "Agent owner" });
+		await waitFor(() => {
+			expect(
+				screen.getByRole("combobox", { name: "Agent owner" }).textContent
+			).toContain("Ashley");
+		});
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Release Agent" },
+		});
+		fireEvent.click(await screen.findByRole("radio", { name: "Codex" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Default Project" }));
+		fireEvent.click(await screen.findByRole("option", { name: "OpenMeld" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+		fireEvent.click(
+			await screen.findByRole("option", { name: "GPT-5.4 Mini" })
+		);
+		fireEvent.click(screen.getByRole("combobox", { name: "Reasoning effort" }));
+		fireEvent.click(await screen.findByRole("option", { name: "High" }));
+		fireEvent.click(screen.getByRole("button", { name: "Request Agent" }));
+
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith({
+				configuration: {
+					agentControllerPermissionMode: "codex:askForApproval",
+					agentControllerRef: "builtin:codex",
+					authorizeForOrganization: true,
+					defaultProjectId: "project-1",
+					modelId: "gpt-5.4-mini",
+					openCodePermission: null,
+					reasoningLevel: "high",
+					targetComputerId: "device-ashley",
+				},
+				idempotencyKey: expect.any(String),
+				nativeSessionId: null,
+				organizationId: "organization-123",
+				profileName: "Release Agent",
+				requestedSpaceId: null,
+				sessionStrategy: "new",
+				targetOwnerUserId: "user-ashley",
+			});
+		});
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
+	});
+
+	it("requests a teammate-owned Agent by resuming a Session chosen in the same dialog", async () => {
+		getProfileCapabilitiesMock.mockResolvedValue({
+			additionalHumanProfileCreationEnabled: false,
+			ok: true,
+		});
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		readCurrentAgentActivitySessionsMock.mockResolvedValue({
+			asOfMs: 1_787_220_000_000,
+			coverage: [],
+			nextCursor: null,
+			organization: { id: "organization-123", name: "Acme" },
+			sessions: [
+				{
+					bindingState: "unbound",
+					boundAgentProfileId: null,
+					canFork: false,
+					canResume: true,
+					computer: {
+						id: "device-ashley",
+						lastSeenAtMs: 1_787_220_000_000,
+						name: "Ashley's Mac Studio",
+						state: "online",
+					},
+					dataState: "current",
+					inventoryUpdatedAtMs: 1_787_220_000_000,
+					lastActiveAtMs: 1_787_219_000_000,
+					localAgent: {
+						agentControllerRef: "builtin:codex",
+						name: "Codex",
+						provider: "codex",
+					},
+					nativeSessionId: "native-ashley-release",
+					nativeSessionTitle: "Prepare the release",
+					organization: { id: "organization-123", name: "Acme" },
+					origin: "local",
+					owner: { name: "Ashley", userId: "user-ashley" },
+					project: { id: "project-1", name: "OpenMeld", slug: "openmeld" },
+					startedAtMs: 1_787_218_000_000,
+					status: "idle",
+				},
+			],
+		});
+		const { onOpenChange } = renderCreateProfileDialog({
+			allowTeammateRequests: true,
+			currentUserId: "user-123",
+			organizationAuthorizationContext: {
+				organizationId: "organization-123",
+				organizationName: "Acme",
+			},
+		});
+
+		await waitFor(() => {
+			expect(readOrganizationDirectoryMock).toHaveBeenCalled();
+		});
+		const teammateOwnerChoice = screen.getByRole("radio", {
+			name: "A teammate",
+		});
+		await waitFor(() => {
+			expect(teammateOwnerChoice.getAttribute("aria-disabled")).toBeNull();
+		});
+		fireEvent.click(teammateOwnerChoice);
+		expect(onOpenChange).not.toHaveBeenCalled();
+		await screen.findByRole("combobox", { name: "Agent owner" });
+		fireEvent.click(
+			await screen.findByRole("radio", { name: "Use an existing Session" })
+		);
+		fireEvent.click(await screen.findByRole("combobox", { name: "Session" }));
+		fireEvent.click(
+			await screen.findByRole("option", {
+				name: ASHLEY_RELEASE_SESSION_PATTERN,
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Request Agent" }));
+
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						agentControllerRef: "builtin:codex",
+						defaultProjectId: "project-1",
+						targetComputerId: "device-ashley",
+					}),
+					nativeSessionId: "native-ashley-release",
+					profileName: "Prepare the release",
+					sessionStrategy: "resume",
+					targetOwnerUserId: "user-ashley",
+				})
+			);
+		});
+	});
+
+	it("defaults a working forkable teammate Session to Fork", async () => {
+		getProfileCapabilitiesMock.mockResolvedValue({
+			additionalHumanProfileCreationEnabled: false,
+			ok: true,
+		});
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		readCurrentAgentActivitySessionsMock.mockResolvedValue({
+			asOfMs: 1_787_220_000_000,
+			coverage: [],
+			nextCursor: null,
+			organization: { id: "organization-123", name: "Acme" },
+			sessions: [
+				{
+					bindingState: "unbound",
+					boundAgentProfileId: null,
+					canFork: true,
+					canResume: true,
+					computer: {
+						id: "device-ashley",
+						lastSeenAtMs: 1_787_220_000_000,
+						name: "Ashley's Mac Studio",
+						state: "online",
+					},
+					dataState: "current",
+					inventoryUpdatedAtMs: 1_787_220_000_000,
+					lastActiveAtMs: 1_787_219_000_000,
+					localAgent: {
+						agentControllerRef: "builtin:codex",
+						name: "Codex",
+						provider: "codex",
+					},
+					nativeSessionId: "native-ashley-release",
+					nativeSessionTitle: "Prepare the release",
+					organization: { id: "organization-123", name: "Acme" },
+					origin: "local",
+					owner: { name: "Ashley", userId: "user-ashley" },
+					project: { id: "project-1", name: "OpenMeld", slug: "openmeld" },
+					startedAtMs: 1_787_218_000_000,
+					status: "working",
+				},
+			],
+		});
+		renderCreateProfileDialog({
+			allowTeammateRequests: true,
+			currentUserId: "user-123",
+			organizationAuthorizationContext: {
+				organizationId: "organization-123",
+				organizationName: "Acme",
+			},
+		});
+
+		await waitFor(() => {
+			expect(readOrganizationDirectoryMock).toHaveBeenCalled();
+		});
+		const teammateChoice = screen.getByRole("radio", { name: "A teammate" });
+		await waitFor(() => {
+			expect(teammateChoice.getAttribute("aria-disabled")).toBeNull();
+		});
+		fireEvent.click(teammateChoice);
+		await screen.findByRole("combobox", { name: "Agent owner" });
+		fireEvent.click(
+			await screen.findByRole("radio", { name: "Use an existing Session" })
+		);
+		fireEvent.click(await screen.findByRole("combobox", { name: "Session" }));
+		fireEvent.click(
+			await screen.findByRole("option", {
+				name: ASHLEY_RELEASE_SESSION_PATTERN,
+			})
+		);
+
+		expect(
+			screen.getByRole("radio", { name: "Fork" }).getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("button", { name: "Request Agent" }));
+
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					nativeSessionId: "native-ashley-release",
+					profileName: "Prepare the release",
+					sessionStrategy: "fork",
+					targetOwnerUserId: "user-ashley",
+				})
+			);
+		});
+	});
+
+	it("opens a teammate Session from Agent Activity as an approval request", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		renderCreateProfileDialog({
+			agentActivitySessionPreset: {
+				agentControllerRef: "builtin:codex",
+				computerId: "connected-computer-ashley",
+				localAgentName: "Codex",
+				mode: "fork",
+				nativeSessionId: "native-ashley-release",
+				nativeSessionTitle: "Prepare the release",
+				organizationId: "organization-123",
+				ownerUserId: "user-ashley",
+				projectId: "project-1",
+				provider: "codex",
+				status: "working",
+			},
+			allowTeammateRequests: true,
+			currentUserId: "user-123",
+			organizationAuthorizationContext: {
+				organizationId: "organization-123",
+				organizationName: "Acme",
+			},
+		});
+
+		expect(
+			await screen.findByText(
+				"Request an Agent for Ashley from a copy of this Session. The original stays unchanged."
+			)
+		).toBeTruthy();
+		const submitButton = await screen.findByRole("button", {
+			name: "Request Agent",
+		});
+		await waitFor(() => {
+			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
+		});
+		fireEvent.click(submitButton);
+
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						targetComputerId: "connected-computer-ashley",
+					}),
+					nativeSessionId: "native-ashley-release",
+					sessionStrategy: "fork",
+					targetOwnerUserId: "user-ashley",
+				})
+			);
+		});
+	});
+
+	it("opens directly as Agent creation when additional Human creation is disabled", async () => {
 		getProfileCapabilitiesMock.mockResolvedValue({
 			additionalHumanProfileCreationEnabled: false,
 			ok: true,
@@ -789,12 +1192,16 @@ describe("CreateProfileDialog", () => {
 			expect(getProfileCapabilitiesMock).toHaveBeenCalled();
 		});
 		expect(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		).toBeTruthy();
+			screen.queryByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
+		).toBeNull();
 		expect(
 			screen.queryByRole("tab", { name: HUMAN_PROFILE_CARD_PATTERN })
 		).toBeNull();
 		expect(screen.getByText("Create an Agent on this account.")).toBeTruthy();
+		expect(screen.getByLabelText("Profile name")).toBeTruthy();
+		expect(
+			screen.getByRole("radio", { name: CHOOSE_LATER_PATTERN })
+		).toBeTruthy();
 	});
 
 	it("explains why Create profile is disabled until a profile kind is chosen", async () => {
@@ -815,9 +1222,7 @@ describe("CreateProfileDialog", () => {
 			screen.getByText("Choose an Agent Profile or Human Profile.")
 		).toBeTruthy();
 
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 
 		await waitFor(() => {
 			expect(submitButton.disabled).toBe(false);
@@ -878,9 +1283,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1017,9 +1420,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1144,9 +1545,7 @@ describe("CreateProfileDialog", () => {
 			]),
 		});
 
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 
 		await waitFor(() => {
 			expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
@@ -1226,9 +1625,7 @@ describe("CreateProfileDialog", () => {
 			recovery: buildFakeRecovery([], { fetchStatus: "fetching" }),
 		});
 
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 
 		await waitFor(() => {
 			expect(
@@ -1258,9 +1655,7 @@ describe("CreateProfileDialog", () => {
 			]),
 		});
 
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
@@ -1283,9 +1678,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1343,9 +1736,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1397,9 +1788,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1453,9 +1842,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1500,9 +1887,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1540,9 +1925,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1588,9 +1971,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "OpenCode Agent" },
 		});
@@ -1732,9 +2113,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "OpenClaw Agent" },
 		});
@@ -1782,9 +2161,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1828,9 +2205,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
 		await waitFor(() => {
 			expect(
@@ -1857,9 +2232,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
 
 		const modelSelect = await screen.findByRole("combobox", {
@@ -1888,9 +2261,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.click(screen.getByRole("radio", { name: "Cursor" }));
 
 		expect(await screen.findByRole("combobox", { name: "Model" })).toBeTruthy();
@@ -1919,9 +2290,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});

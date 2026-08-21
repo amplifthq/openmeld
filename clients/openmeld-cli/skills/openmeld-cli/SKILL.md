@@ -1,6 +1,6 @@
 ---
 name: openmeld-cli
-description: Official public OpenMeld Skill for agents using the `openmeld` CLI to consult the Center Agent, set up OpenMeld, connect local agents, work in Organizations and Spaces, observe or stop Wakes, trace delivery, and repair local state.
+description: Official public OpenMeld Skill for agents using the `openmeld` CLI to consult the Center Agent, set up OpenMeld, connect local agents, create or request Agent Profiles, work in Organizations and Spaces, observe or stop Wakes, trace delivery, and repair local state.
 ---
 
 # OpenMeld CLI Guide
@@ -411,6 +411,69 @@ Create or select an Agent Profile through setup:
 openmeld start --view agent --kind agent --profile-name "Codex Agent"
 ```
 
+### Create Or Request An Agent Profile
+
+`openmeld profiles create` is the one creation entry for your own Agent Profile
+and for requesting a teammate-owned Agent Profile. Read the Organization
+directory for member user IDs, then read the team-safe Computer projection for
+the exact Computer and local-agent controller references available to that owner:
+
+```bash
+openmeld org directory --view agent
+openmeld org computers --view agent
+```
+
+Create or request a new-session Agent Profile with the same configuration:
+
+```bash
+openmeld profiles create "Review Agent" --kind agent --owner self --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create "Review Agent" --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
+```
+
+Use `--source local-agent` when a supported Local Agent is making the request;
+ordinary terminal use defaults to `--source cli`. The server derives the real
+requester and actor from the signed-in OpenMeld identity. Source is attribution,
+not authority. Reuse the same `--request-key` only when retrying the same logical
+request.
+
+Resume and Fork use the exact provider-native Session ID:
+
+```bash
+openmeld profiles create "Review Agent" --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session resume --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create "Review Agent" --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session fork --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
+```
+
+Pass only a Session exposed by OpenMeld Agent Activity for the selected Project.
+Keep the provider-native ID unchanged. OpenMeld currently fails these requests
+clearly until it can verify that Session; use `--session new` when verification
+is unavailable. Prefer Fork when preserving an active working Session matters;
+prefer Resume when continuing the original Session is intentional. Check the
+selected local agent's `conversationCapabilities` from `openmeld org computers`
+before requesting Fork. Never simulate Fork by summarizing context into a new
+Session.
+
+Track and manage requests:
+
+```bash
+openmeld profiles requests list --view agent
+openmeld profiles requests approve <request-id> --view agent
+openmeld profiles requests decline <request-id> --view agent
+openmeld profiles requests cancel <request-id> --view agent
+openmeld profiles requests retry <request-id> --view agent
+```
+
+Set separate approval policies for new and existing Sessions:
+
+```bash
+openmeld profiles requests preferences get --view agent
+openmeld profiles requests preferences set --new-session automatically-allow --existing-session ask-every-time --view agent
+```
+
+Approval policy values are `never-allow`, `ask-every-time`, and
+`automatically-allow`. The target owner controls these settings. Approval does
+not silently grant Space membership; when the request records an intended
+Space, use the normal Space membership flow after the Agent Profile exists.
+
 Select a profile for the current terminal:
 
 ```bash
@@ -642,6 +705,18 @@ Read the active Organization directory in Agent View or as one JSON envelope:
 openmeld org directory --view agent
 openmeld org directory --json
 ```
+
+Read the Organization-visible Computer and local-agent readiness projection:
+
+```bash
+openmeld org computers --view agent
+openmeld org computers --json
+```
+
+Join `ownerUserId` to the directory member `user.id`, then use the exact
+`computerId` and `agentControllerRef` when creating a teammate-owned Agent.
+This projection is deliberately team-safe: do not expect private account names,
+local paths, launch commands, or private skills.
 
 Use the directory before answering questions such as:
 

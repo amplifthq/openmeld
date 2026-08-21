@@ -286,6 +286,21 @@ export type RemoteAgentCoreWorkerBinding = {
     input: RemoteAgentStreamPartCallbackBody
   ): Promise<unknown>;
   centerAgentCreateAgentProfile?(input: unknown): Promise<unknown>;
+  centerAgentCreateAgentProfileCreationRequest?(
+    input: unknown
+  ): Promise<unknown>;
+  centerAgentListAgentProfileCreationRequests?(
+    input: unknown
+  ): Promise<unknown>;
+  centerAgentManageAgentProfileCreationRequest?(
+    input: unknown
+  ): Promise<unknown>;
+  centerAgentGetAgentProfileCreationApprovalPreference?(
+    input: unknown
+  ): Promise<unknown>;
+  centerAgentSetAgentProfileCreationApprovalPreference?(
+    input: unknown
+  ): Promise<unknown>;
   centerAgentCreateOrganizationInviteLink?(
     input: CenterAgentCreateOrganizationInviteLinkToolRpcInput
   ): Promise<CenterAgentCreateOrganizationInviteLinkResponse>;

@@ -94,9 +94,22 @@ export type RuntimeTransportSetProfileWorkspaceResponse =
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportSetProfileWorkspaceResponseSchema"]
   >;
 
+export type RuntimeTransportForkAgentSessionRequest = import("zod/v4").infer<
+  typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportForkAgentSessionRequestSchema"]
+>;
+
+export type RuntimeTransportForkAgentSessionResult = import("zod/v4").infer<
+  typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportForkAgentSessionResultSchema"]
+>;
+
 export type RuntimeTransportLocalAgentControlSetEnabledFramePayload =
   import("zod/v4").infer<
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema"]
+  >;
+
+export type RuntimeTransportLocalAgentControlForkSessionFramePayload =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportLocalAgentControlForkSessionFramePayloadSchema"]
   >;
 
 export type RuntimeTransportLocalAgentControlManageInstallationFramePayload =

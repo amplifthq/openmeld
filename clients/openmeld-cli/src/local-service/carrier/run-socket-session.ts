@@ -23,6 +23,7 @@ import {
   localFolderPickerDaemonFrameSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportHeartbeatRequestSchema,
+  runtimeTransportLocalAgentControlForkSessionFramePayloadSchema,
   runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema,
@@ -120,6 +121,8 @@ import {
   summarizeSkippedDaemonProfiles,
   syncDaemonRouteCatalogState,
 } from "../routing/route-catalog";
+import { forkAgentSession } from "../session-control/fork-agent-session";
+import { runAgentSessionForkOperation } from "../session-control/session-fork-operation-store";
 import { readDaemonCatalogSyncSignal } from "../state/catalog-sync-signal";
 import { createDaemonStreamKeepalive } from "./daemon-stream-keepalive";
 import {
@@ -444,6 +447,7 @@ export async function runDaemonSocketSession(input: {
   onRuntimeReportingAuthenticationFailure?: (
     failure: RuntimeReportingAuthenticationFailure
   ) => Promise<void> | void;
+  onAgentActivitySessionsChanged?: () => void;
   onLocalProjectConnectionsChanged?: () => void;
   profileOwnerName: string | null;
   presenter: Presenter;
@@ -1758,6 +1762,50 @@ export async function runDaemonSocketSession(input: {
     });
   };
 
+  const handleLocalAgentControlForkSessionFrame = async (
+    payload: Record<string, unknown>
+  ): Promise<void> => {
+    const parsed =
+      runtimeTransportLocalAgentControlForkSessionFramePayloadSchema.safeParse(
+        payload
+      );
+    if (!parsed.success) {
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.agent_session_fork_frame_invalid",
+        text: "ignored invalid Agent Session Fork frame",
+      });
+      return;
+    }
+    const result = await runAgentSessionForkOperation({
+      execute: () => forkAgentSession({ request: parsed.data.request }),
+      ledgerRootPath: input.ledgerPaths.rootDirPath,
+      request: parsed.data.request,
+    });
+    sendDaemonFrame(input.socket, {
+      code: "daemon.local_agent_control.result",
+      payload: {
+        requestId: parsed.data.requestId,
+        payload: result,
+      },
+    });
+    emitRunLine({
+      presenter: input.presenter,
+      code:
+        result.status === "completed"
+          ? "daemon.run.agent_session_fork_completed"
+          : "daemon.run.agent_session_fork_failed",
+      text:
+        result.status === "completed"
+          ? `forked ${result.agentControllerRef} Session ${result.sourceNativeSessionId}.`
+          : `Agent Session Fork ${result.status}: ${result.reasonCode}.`,
+      payload: result,
+    });
+    if (result.status === "completed") {
+      input.onAgentActivitySessionsChanged?.();
+    }
+  };
+
   const handleLocalAgentControlManageInstallationFrame = async (
     payload: Record<string, unknown>
   ): Promise<void> => {
@@ -2151,6 +2199,16 @@ export async function runDaemonSocketSession(input: {
           presenter: input.presenter,
           code: "daemon.run.local_agent_control_failed",
           text: `local agent control failed: ${toErrorMessage(error)}`,
+        });
+      });
+      return true;
+    }
+    if (frame.code === "daemon.local_agent_control.fork_session") {
+      handleLocalAgentControlForkSessionFrame(frame.payload).catch((error) => {
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.agent_session_fork_failed",
+          text: `Agent Session Fork failed: ${toErrorMessage(error)}`,
         });
       });
       return true;

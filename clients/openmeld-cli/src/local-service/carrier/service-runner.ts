@@ -1046,6 +1046,7 @@ export const runDaemonServiceLoop = async (
                 failure,
               });
             },
+            onAgentActivitySessionsChanged: requestAgentActivitySync,
             onLocalProjectConnectionsChanged:
               refreshAgentActivityForProjectConnectionChange,
             ownerUserId,

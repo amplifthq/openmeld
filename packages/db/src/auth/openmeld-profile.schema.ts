@@ -14,7 +14,10 @@ export type OpenMeldProfileKind = (typeof OPENMELD_PROFILE_KINDS)[number];
 
 export const OPENMELD_PROFILE_SOURCES = [
   "auth_bootstrap",
+  "web_create",
   "cli_create",
+  "local_agent_create",
+  "center_agent_create",
   "migration",
 ] as const;
 export type OpenMeldProfileSource = (typeof OPENMELD_PROFILE_SOURCES)[number];
@@ -73,6 +76,7 @@ export const openMeldProfiles = sqliteTable(
       onDelete: "set null",
     }),
     creatorProfileId: text("creator_profile_id"),
+    creationActorProfileId: text("creation_actor_profile_id"),
     source: text("source").$type<OpenMeldProfileSource>().notNull(),
     managedRole: text("managed_role").$type<OpenMeldProfileManagedRole>(),
     creationIdempotencyKey: text("creation_idempotency_key"),
@@ -132,7 +136,7 @@ export const openMeldProfiles = sqliteTable(
     ),
     check(
       "openmeld_profiles_source_check",
-      sql`"source" in ('auth_bootstrap', 'cli_create', 'migration')`
+      sql`"source" in ('auth_bootstrap', 'web_create', 'cli_create', 'local_agent_create', 'center_agent_create', 'migration')`
     ),
     check(
       "openmeld_profiles_managed_role_check",

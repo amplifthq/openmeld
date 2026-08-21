@@ -64,13 +64,6 @@ the designated managed profile's owner in the shared D1 database. This bounded
 referential read exists only to prevent removal of the Center Agent execution
 host and must fail closed. It gives Auth no write authority over Center Agent or
 Agent Profile state; Core remains the only owner and writer of those facts.
-For Agent Activity Session Inventory, the same lifecycle must obtain Core's
-durable cleanup acceptance before deleting membership. Core owns the cleanup
-request and immediately purges its current and staged projections, Auth commits
-the membership removal, and Core purges again before finalizing. A Core
-scheduled retry closes a failed post-removal call. This handshake gives Auth no
-write authority over Agent Activity and does not change historical Activity
-retention.
 
 ## Durable Data Domains
 
@@ -91,10 +84,11 @@ membership in that Organization.
 | Center Agent Tasks                 | Organization-scoped canonical requester-private Tasks, immutable requester and origin provenance, product event streams, lifecycle, native-delivery attempt links, and authorized read projections. | Core-owned D1 source of truth and sole product writer. Remote Agent owns the isolated runtime conversation; native delivery, Message Channel, and Inbox owners retain their existing truth. Task freezes the verified requester snapshot and bounded carrier attribution from its parent delivery, then links and projects those facts without replacing their owners. |
 | Agent Task Coordination            | Durable exact-task subscriptions, delegation topology, and observed terminal outcomes used to continue work across Agent executions.                                                                | Core owns coordination state only; RuntimeCoordinator, native delivery, and controller-native task owners remain execution authority.                                                                                                                                                                                                                                  |
 | Agent Activity                     | Organization-scoped Project definitions, immutable safe activity evidence, current-session projections, digests, and daily aggregates.                                                              | Core-owned D1 source of truth; local provider files and the OpenMeld Service outbox are observation and delivery inputs, not Organization truth.                                                                                                                                                                                                                       |
-| Organization Member Activity       | Latest accepted Human-authored activity used by the People directory.                                                                                                                               | Core owns one monotonic `(organizationId, userId)` projection tied to the current Human Profile. Only an accepted, persisted Human text Signal advances it; Computer heartbeats, login/session refresh, presence, and Agent Activity never write it.                                                                                                                   |
-| Center Agent Routines              | Organization-owned Routine definitions, immutable creation attribution, and durable Run history.                                                                                                    | Core-owned D1 source of truth; each new definition freezes its verified represented-human display name and optional bounded Local Agent carrier, while `nextDueAt` and Run native-delivery linkage remain projections rather than parallel schedulers.                                                                                                                 |
+| Agent Profile Creation Requests    | Organization-scoped coordination for creating an Agent Profile owned by the requester or another member, including immutable origin, Session strategy, approval progress, and completion linkage.    | Core-owned D1 request and per-member approval-preference truth. Auth owns the final Agent Profile identity write; Agent Activity owns authorized Session observation; Inbox is only the target owner's attention projection; Space and Binding owners retain membership and execution authority.                                                                         |
+| Organization Member Activity       | Latest accepted Human-authored activity used by the People directory.                                                                                                                               | Core owns one monotonic `(organizationId, userId)` projection tied to the current Human Profile. Only an accepted, persisted Human text Signal advances it; Computer heartbeats, login/session refresh, presence, and Agent Activity never write it.                                                                                                                    |
+| Center Agent Routines              | Organization-owned Routine definitions, immutable creation attribution, and durable Run history.                                                                                                    | Core-owned D1 source of truth; each new definition freezes its verified represented-human display name and optional bounded Local Agent carrier, while `nextDueAt` and Run native-delivery linkage remain projections rather than parallel schedulers.                                                                                                                   |
 | Center Agent Model Preference      | Organization choice between the OpenMeld default and one explicit hosted model.                                                                                                                     | The Core-owned hosted Binding's nullable model id and configuration revision are the only durable preference; the repo-owned catalog defines defaults and runtime policy, while each native-delivery request freezes execution-time truth.                                                                                                                             |
-| Organization Working Language      | Optional Organization-wide advisory for Center Agent and Local Agent language judgment.                                                                                                             | Core owns the optional `automatic` or `selected` D1 record, revision, represented-member authorization, conditional trusted observation, and audit. Remote Agent turns and compatible workstation dispatches receive a frozen optional projection; messages, prompts, Channels, clients, and Local Services never become parallel preference stores.                   |
+| Organization Working Language      | Optional Organization-wide advisory for Center Agent and Local Agent language judgment.                                                                                                            | Core owns the optional `automatic` or `selected` D1 record, revision, represented-member authorization, conditional trusted observation, and audit. Remote Agent turns and compatible workstation dispatches receive a frozen optional projection; messages, prompts, Channels, clients, and Local Services never become parallel preference stores.                                                                                 |
 | Organization Skills                | Organization-owned portable Skill identities, permissions, immutable releases, provenance, and activation evidence.                                                                                 | Core owns D1 metadata and private immutable R2 release bytes; Flue is the hosted model-visible runtime, while Web, CLI, Remote Agent, and local agents consume Core-authorized exact-release projections.                                                                                                                                                              |
 | Center Agent Memory                | Member- and organization-scoped semantic memory.                                                                                                                                                    | Core owns policy, subject identity, and lifecycle; Zep Cloud stores semantic content behind Core's adapter.                                                                                                                                                                                                                                                            |
 | Center Agent Context Manifests     | Auditable records of bounded requester-private context supplied to a Local Agent.                                                                                                                   | Space Signals remain canonical message truth. Core stores only request metadata, budget outcome, cursor, source refs and hashes, plus the linked Audit Log row; it never copies message bodies into D1.                                                                                                                                                                |
@@ -109,7 +103,7 @@ membership in that Organization.
 | Space Attachments                  | Private image bytes and their authorization metadata.                                                                                                                                               | Core owns D1 metadata; Gateway owns writes and authenticated user byte transfer; the Remote Agent worker is a read-only internal consumer for Core-authorized native delivery; Space DO membership remains the access truth.                                                                                                                                           |
 | Organization Logos                 | Organization identity image reference and public versioned bytes.                                                                                                                                   | Auth owns the canonical `organizations.logo` reference and owner-only mutation decision; Gateway owns image validation, Cloudflare Images transformation, and R2 object lifecycle. Personal workspaces have no Organization logo mutation path.                                                                                                                        |
 | Feedback                           | Organization-scoped Feedback Inboxes, submitted Feedback Issues, and Center Agent reporting policy.                                                                                                 | Core owns runtime writes; the guarded admin ensure command provisions inboxes.                                                                                                                                                                                                                                                                                         |
-| Opportunities                      | Member-private, Organization-scoped evidence-backed recommendations and their current decision.                                                                                                     | Core-owned D1 source of truth and sole writer. Source domains own cited facts; Inbox is only a recipient attention projection; downstream capabilities own execution and authorization.                                                                                                                                                                                |
+| Opportunities                      | Member-private, Organization-scoped evidence-backed recommendations and their current decision.                                                                                                     | Core-owned D1 source of truth and sole writer. Source domains own cited facts; Inbox is only a recipient attention projection; downstream capabilities own execution and authorization.                                                                                                                                                                                 |
 | Inbox                              | Member-private, workspace-scoped attention items, per-Space read-through watermarks, read state, delivery preferences, and notification delivery attempts.                                          | Core owns item, watermark, state, preference, and delivery-ledger writes in D1. Source domains remain authoritative for represented work. Auth owns account email identity and performs Cloudflare Email Service sends through a strict internal RPC.                                                                                                                  |
 | Space Index                        | Cross-Space list projection.                                                                                                                                                                        | Rebuildable projection from Space truth.                                                                                                                                                                                                                                                                                                                               |
 | Ephemeral                          | Short-lived handoff/session state.                                                                                                                                                                  | Temporary state, not a permanent domain.                                                                                                                                                                                                                                                                                                                               |
@@ -170,39 +164,12 @@ Snapshot and daily-aggregate reads may project one Project inside the already
 authorized Organization; this is a read filter, not a second Project authority
 or permission path.
 
-`agent_activity_session_inventory` is the separate Core-owned current
-Inventory projection for Agent Activity → Sessions. It is not historical
-evidence and is not derived from `agent_activity_events`.
-`agent_activity_session_inventory_candidates` is private staging for one
-incomplete reconciliation; readers never query it.
-`agent_activity_session_inventory_sources` owns the last complete coverage and
-current page cursor per authenticated owner, Computer, Project connection, and
-Local Agent. Publishing a terminal reconciliation and hiding rows absent from
-that exact source is one D1 transaction. A failed or interrupted producer
-cannot expose a partial set as current.
-
-Inventory row uniqueness is Organization, owner user id,
-`agentControllerRef`, and native Session id. Project, connected Computer,
-device, and local connection locate the current authorized environment but are
-not another identity. When two sources claim one identity with inconsistent
-environment evidence, publication fails closed and preserves the prior
-complete row.
-
-Legacy Activity snapshots continue to use a separate opaque projection id.
-The current Inventory intentionally returns the provider-native Session id and
-does not mint another public id. Neither contract returns local paths, device
-ids, OpenMeld Service runtime ids, prompts, responses, transcripts, tools,
-commands, file contents, or arbitrary provider objects. Local observer files
-and the mode-0600 outbox are delivery evidence only and cannot authorize an
-Organization, member, Project, or runtime.
-
-Inventory reads join active Organization membership, active Project rows,
-owner profile, `connectedComputerId`, and current Computer name. They derive
-`boundAgentProfileId` from the authoritative enabled primary Binding and active
-Agent Profile on every read. Inventory storage has no bound column. Internal
-device and runtime ids may support those joins but are never projected. Current
-Computer connectivity is an explicit reporting-evidence projection and must
-not be presented as Agent Profile Wake readiness.
+Raw provider session ids remain private ingestion keys. Public snapshots use a
+separate opaque session id and never return provider session ids, local paths,
+device ids, OpenMeld Service runtime ids, prompts, responses, transcripts,
+tools, commands, file contents, or arbitrary provider objects. Local observer
+files and the mode-0600 outbox are delivery evidence only and cannot authorize
+an Organization, member, Project, or runtime.
 
 Raw events expire after 14 days. Scheduled retention aggregates the exact
 event and session counts before bounded deletion; a session split across
@@ -869,10 +836,7 @@ state, local-agent ref/enabled/readiness status, and an optional sanitized
 Agent Controller Interface detail projection. That detail projection permits
 controller state, native interface, installed version and update status, launch
 status and install count, model display names, native capability flags, check
-status and timestamps, and sanitized provider Usage Limits. Usage Limits contain
-only stable key, label, used percentage, reset time, observation time, and
-status; they carry no provider identity, credential, subscription, payment,
-balance, monetary, or history data. It never emits controller accounts, executable
+status, and check timestamps. It never emits controller accounts, executable
 or installation paths, launch arguments, update commands, diagnostic messages,
 private skills, local policy, credentials, or raw lookup errors. One member's
 failed live lookup is logged
@@ -880,13 +844,6 @@ with Organization/member correlation and projects `unknown` without hiding
 their registry-backed Computers or failing the remaining batch. The signed-in
 member's complete mutable inventory still comes from the owner-scoped
 local-runtimes contract.
-
-Usage Limits remain part of the existing Runtime Agent Controller Report JSON
-and Core-owned Computer projection; Core does not create a second usage store.
-Core derives `stale` from `observedAt` or an expired Computer report while
-preserving the last-known value. An unsupported provider stays `unsupported`,
-and a supported provider with no usable observation stays `unavailable`.
-Capacity evidence never changes readiness or execution status.
 
 When a matching live Runtime Transport session reports local-component facts,
 the same Organization Computers projection may emit a sanitized OpenMeld Tools

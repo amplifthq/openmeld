@@ -17,7 +17,6 @@ import { XIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
-import { toast } from "sonner";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import {
 	type CreateProfileAgentActivitySessionPreset,
@@ -58,7 +57,7 @@ export type AgentActivitySessionsFilters = {
 };
 
 type ProfileDialogState = {
-	mode: "create" | "resume";
+	mode: "create" | "fork" | "resume";
 	session: AgentActivityInventorySession;
 };
 
@@ -133,9 +132,7 @@ export function AgentActivitySessions(input: {
 			return;
 		}
 		if (action === "fork_profile") {
-			// canFork stays false until the provider-native Fork command is wired
-			// through the authoritative Agent Profile creation owner.
-			toast.info("Provider-native Fork is not available from Web yet.");
+			setProfileDialog({ mode: "fork", session });
 			return;
 		}
 		setProfileDialog({
@@ -314,6 +311,7 @@ export function AgentActivitySessions(input: {
 			</Card>
 			{profileDialog ? (
 				<SessionCreateProfileDialog
+					currentUserId={currentUserId}
 					onClose={() => setProfileDialog(null)}
 					onCreated={(profileId) => {
 						queryClient
@@ -357,6 +355,7 @@ export function AgentActivitySessions(input: {
 }
 
 function SessionCreateProfileDialog(input: {
+	currentUserId: string;
 	onClose: () => void;
 	onCreated: (profileId: string) => void;
 	organizationId: string;
@@ -371,6 +370,13 @@ function SessionCreateProfileDialog(input: {
 	return (
 		<CreateProfileDialog
 			agentActivitySessionPreset={toCreationPreset(input.profileDialog)}
+			allowTeammateRequests={true}
+			currentUserId={input.currentUserId}
+			onAgentRequestCreated={(request) => {
+				if (request.createdAgentProfileId) {
+					input.onCreated(request.createdAgentProfileId);
+				}
+			}}
 			onOpenChange={(open) => {
 				if (!open) {
 					input.onClose();

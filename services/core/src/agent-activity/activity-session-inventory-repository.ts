@@ -28,6 +28,10 @@ export type AgentActivitySessionResumeEligibility = {
   selection: AgentProfileBindingSessionInventorySelection;
 };
 
+export type AgentActivitySessionInventorySelectionCapability =
+  | "fork"
+  | "resume";
+
 type InventorySourceAuthority = {
   connectedComputerId: string;
   deviceId: string;
@@ -48,6 +52,7 @@ type InventoryRow = {
   can_fork: number;
   can_resume: number;
   computer_id: string;
+  device_id: string;
   computer_last_seen_at_ms: number | null;
   computer_name: string;
   computer_state: AgentActivityInventorySession["computer"]["state"];
@@ -270,6 +275,94 @@ export async function canResumeAgentActivitySessionSelection(
     .bind(...query.bindings)
     .first<{ allowed: number }>();
   return row?.allowed === 1;
+}
+
+export async function resolveAgentActivitySessionInventorySelection(input: {
+  agentControllerRef: string;
+  capability: AgentActivitySessionInventorySelectionCapability;
+  computerId: string;
+  db: D1Database;
+  nativeSessionId: string;
+  nowMs: number;
+  organizationId: string;
+  ownerUserId: string;
+  projectId: string;
+}): Promise<AgentProfileBindingSessionInventorySelection | null> {
+  const connectedComputerId =
+    (await readConnectedComputerId({
+      db: input.db,
+      deviceId: input.computerId,
+      ownerUserId: input.ownerUserId,
+    })) ?? input.computerId;
+  const inventory = await readAgentActivitySessionInventory({
+    db: input.db,
+    nowMs: input.nowMs,
+    organizationId: input.organizationId,
+    query: {
+      limit: 100,
+      memberUserId: input.ownerUserId,
+      nativeSessionId: input.nativeSessionId,
+      projectId: input.projectId,
+    },
+  });
+  const session = inventory.sessions.find(
+    (candidate) =>
+      candidate.computer.id === connectedComputerId &&
+      candidate.localAgent.agentControllerRef === input.agentControllerRef
+  );
+  if (
+    !session ||
+    session.dataState !== "current" ||
+    (input.capability === "resume" &&
+      (!session.canResume || session.bindingState !== "unbound")) ||
+    (input.capability === "fork" && !session.canFork)
+  ) {
+    return null;
+  }
+  return {
+    computerId: session.computer.id,
+    nativeSessionId: session.nativeSessionId,
+    organizationId: session.organization.id,
+    ownerUserId: session.owner.userId,
+    projectId: session.project.id,
+    provider: session.localAgent.provider,
+  };
+}
+
+export async function resolveAgentActivitySessionInventoryExecutionSelection(
+  input: Parameters<typeof resolveAgentActivitySessionInventorySelection>[0]
+): Promise<{
+  runtimeDeviceId: string;
+  selection: AgentProfileBindingSessionInventorySelection;
+} | null> {
+  const selection = await resolveAgentActivitySessionInventorySelection(input);
+  if (!selection) {
+    return null;
+  }
+  const row = await input.db
+    .prepare(
+      `SELECT device_id
+       FROM agent_activity_session_inventory
+       WHERE organization_id = ?
+         AND owner_user_id = ?
+         AND project_id = ?
+         AND connected_computer_id = ?
+         AND agent_controller_ref = ?
+         AND native_session_id = ?
+         AND visible = 1
+       LIMIT 1`
+    )
+    .bind(
+      selection.organizationId,
+      selection.ownerUserId,
+      selection.projectId,
+      selection.computerId,
+      input.agentControllerRef,
+      selection.nativeSessionId
+    )
+    .first<{ device_id: string }>();
+  const runtimeDeviceId = row?.device_id?.trim();
+  return runtimeDeviceId ? { runtimeDeviceId, selection } : null;
 }
 
 export function buildAgentActivitySessionResumeEligibilityQuery(
@@ -1047,6 +1140,7 @@ export async function readAgentActivitySessionInventory(input: {
           projects.name AS project_name,
           projects.slug AS project_slug,
           inventory.connected_computer_id AS computer_id,
+          inventory.device_id,
           coalesce(owned.user_display_name, owned.observed_display_name, 'Computer') AS computer_name,
           owned.last_observed_at_ms AS computer_last_seen_at_ms,
           CASE

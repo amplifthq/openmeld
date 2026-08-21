@@ -202,6 +202,27 @@ describe("openmeld-cli skill docs contract", () => {
     }
   });
 
+  it("teaches Local Agents the auditable Agent Profile request workflow", async () => {
+    const docs = [
+      await readFile(SKILL_FILE_PATH, "utf8"),
+      await readFile(COMMANDS_REFERENCE_PATH, "utf8"),
+    ].map(normalizeMarkdownWhitespace);
+
+    for (const raw of docs) {
+      expect(raw).toContain("openmeld profiles create");
+      expect(raw).toContain("openmeld profiles requests list");
+      expect(raw).toContain("openmeld profiles requests approve");
+      expect(raw).toContain("openmeld profiles requests cancel");
+      expect(raw).toContain("--native-session");
+      expect(raw).toContain("provider-native Session ID");
+      expect(raw).toContain("--source local-agent");
+      expect(raw).toContain("--request-key");
+      expect(raw).toContain("never-allow");
+      expect(raw).toContain("ask-every-time");
+      expect(raw).toContain("automatically-allow");
+    }
+  });
+
   it("documents Cursor ACP setup, model, and permission semantics", async () => {
     const docs = [
       await readFile(SKILL_FILE_PATH, "utf8"),

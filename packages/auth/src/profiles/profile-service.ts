@@ -1,6 +1,9 @@
 import { resolveAvailableProfileHandle } from "@openmeld/protocol";
 import { AGENT_PROFILE_CREATION_IDEMPOTENCY_KEY_MAX_LENGTH } from "@openmeld/schemas";
-import type { OpenMeldProfileManagedRole } from "../db/openmeld-profile.schema";
+import type {
+  OpenMeldProfileManagedRole,
+  OpenMeldProfileSource,
+} from "../db/openmeld-profile.schema";
 import { isProfileHandleUniqueConstraintError } from "../profile-identity/profile-handle-conflict";
 import type { AuthProfileKind } from "../types/auth-claims";
 import {
@@ -60,8 +63,10 @@ export type CreateAgentProfileInput = {
   organizationId: string;
   profileName: string;
   createdByUserId?: string | null;
+  creationActorProfileId?: string | null;
   creatorProfileId?: string | null;
   idempotencyKey?: string | null;
+  source?: OpenMeldProfileSource;
 };
 
 export type EnsureManagedAgentProfileInput = {
@@ -686,11 +691,16 @@ export function createOpenMeldProfileService(
         ownerUserId,
         creatorProfileId: normalizeOptionalText(input.creatorProfileId),
       });
+      const creationActorProfileId =
+        normalizeOptionalText(input.creationActorProfileId) ?? creatorProfileId;
+      const source = input.source ?? "cli_create";
       const creationIntent = {
         createdByUserId: createdByUserId ?? ownerUserId,
+        creationActorProfileId,
         creatorProfileId,
         organizationId,
         profileName,
+        source,
       };
       const replayedProfile = await findAgentProfileCreationReplay({
         repository,
@@ -719,9 +729,10 @@ export function createOpenMeldProfileService(
           organizationId,
           ownerUserId,
           createdByUserId: createdByUserId ?? ownerUserId,
+          creationActorProfileId,
           creatorProfileId,
           creationIdempotencyKey,
-          source: "cli_create",
+          source,
         });
 
         const inserted = await findCommittedAgentProfile({
@@ -1024,9 +1035,11 @@ export function createOpenMeldProfileService(
 
 type AgentProfileCreationIntent = {
   createdByUserId: string;
+  creationActorProfileId: string;
   creatorProfileId: string;
   organizationId: string;
   profileName: string;
+  source: OpenMeldProfileSource;
 };
 
 function normalizeAgentProfileCreationIdempotencyKey(
@@ -1089,6 +1102,8 @@ function requireMatchingAgentProfileCreationReplay(
     profile.organizationId !== expected.organizationId ||
     profile.profileName !== expected.profileName ||
     profile.creatorProfileId !== expected.creatorProfileId ||
+    profile.creationActorProfileId !== expected.creationActorProfileId ||
+    profile.source !== expected.source ||
     (profile.createdByUserId ?? profile.ownerUserId) !==
       expected.createdByUserId
   ) {

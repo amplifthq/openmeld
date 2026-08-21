@@ -8,6 +8,7 @@ import {
   AUTH_DB_SCHEMA_GLOB_PATH,
 } from "../auth/fact-metadata.ts";
 import {
+  CORE_AGENT_PROFILE_CREATION_REQUEST_SCHEMA_DEFINITION_PATH,
   CORE_CENTER_AGENT_ORGANIZATION_DOCUMENT_OPERATION_SCHEMA_DEFINITION_PATH,
   CORE_CENTER_AGENT_PUBLICATION_SCHEMA_DEFINITION_PATH,
   CORE_CENTER_AGENT_TASKS_SCHEMA_DEFINITION_PATH,
@@ -33,7 +34,7 @@ export const SHARED_DB_DATABASE_NAME = "openmeld-db-prod";
  * Keep in sync with packages/db/drizzle/meta/_journal.json; the shared migration
  * history integrity test guards the two against drift.
  */
-export const LATEST_SHARED_MIGRATION_ID = 135;
+export const LATEST_SHARED_MIGRATION_ID = 136;
 export const SHARED_DB_SCHEMA_ENTRYPOINT_PATH = "packages/db/src/schema.ts";
 export const SHARED_DB_RELEASE_NOTES = [
   "Root db:* commands now report the shared OPENMELD_DB schema and migration contract instead of an auth-only view.",
@@ -45,6 +46,12 @@ export const SHARED_DB_RELEASE_NOTES = [
 
 export const getSharedDbSchemaSources = (): DbFactSource[] => {
   return [
+    {
+      kind: "core_schema_module",
+      owner: "packages/db",
+      path: CORE_AGENT_PROFILE_CREATION_REQUEST_SCHEMA_DEFINITION_PATH,
+      note: "Core-owned Agent Profile creation requests and member approval preferences are part of the shared OPENMELD_DB aggregate.",
+    },
     {
       kind: "core_schema_module",
       owner: "packages/db",

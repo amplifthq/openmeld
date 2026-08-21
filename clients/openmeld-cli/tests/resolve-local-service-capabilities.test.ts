@@ -38,6 +38,7 @@ describe("resolve local service capabilities", () => {
       workingLanguagePrompt: true,
       localAgentControl: {
         cancel: true,
+        forkSession: true,
         interrupt: true,
         manageInstallations: true,
         refreshCatalog: true,
@@ -104,6 +105,7 @@ describe("resolve local service capabilities", () => {
       workingLanguagePrompt: true,
       localAgentControl: {
         cancel: true,
+        forkSession: true,
         interrupt: true,
         manageInstallations: true,
         refreshCatalog: true,

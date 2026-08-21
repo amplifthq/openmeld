@@ -113,6 +113,7 @@ import { ProfileDetailsDialog } from "#/components/profiles/profile-details-dial
 import { ProfileCard } from "#/components/profiles/profile-list-item";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
+	buildOrganizationAgentActivitySessionsPath,
 	buildOrganizationComputerPath,
 	buildOrganizationDirectMessagePath,
 } from "#/lib/organizations/organization-routes";
@@ -136,6 +137,7 @@ import {
 	refreshWebAgentReadinessSharedCaches,
 } from "#/query/agents/execution-readiness";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
+import { agentActivitySessionsQueryOptions } from "#/query/organizations/agent-activity";
 import {
 	currentUserAgentProfileOrganizationWakeAccessQueryOptions,
 	organizationBindingAuthorizationProfilesQueryOptions,
@@ -2162,6 +2164,10 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 			primaryAgentControllerRef={
 				input.row.primaryBinding?.executionTarget?.agentControllerRef ?? null
 			}
+			primaryNativeSessionId={
+				input.row.primaryBinding?.executionTarget
+					?.agentControllerConversationId ?? null
+			}
 			profile={input.row.profile}
 			profileName={input.row.profile.profileName}
 			runtimeComputer={
@@ -2694,6 +2700,7 @@ function AgentProfileRowMoreMenu(input: {
 	profile: AuthProfileView;
 	profileName: string;
 	primaryAgentControllerRef: string | null;
+	primaryNativeSessionId: string | null;
 	pendingState: AgentProfileActionPendingState;
 	runtimeComputer: { deviceId: string; displayName: string } | null;
 }) {
@@ -2717,6 +2724,29 @@ function AgentProfileRowMoreMenu(input: {
 		managedRole: input.profile.managedRole,
 	});
 	const { currentOrganization } = useAppOrganization();
+	const currentSessionQuery = useQuery(
+		agentActivitySessionsQueryOptions({
+			enabled: isDetailsDialogOpen && Boolean(input.primaryNativeSessionId),
+			limit: 1,
+			nativeSessionId: input.primaryNativeSessionId ?? undefined,
+			organizationId: input.organizationId,
+		})
+	);
+	const currentSession = input.primaryNativeSessionId
+		? (currentSessionQuery.data?.sessions.find(
+				(session) => session.nativeSessionId === input.primaryNativeSessionId
+			) ?? null)
+		: null;
+	const currentSessionLink = input.primaryNativeSessionId
+		? {
+				href: `${buildOrganizationAgentActivitySessionsPath(currentOrganization.slug)}?query=${encodeURIComponent(input.primaryNativeSessionId)}`,
+				nativeSessionId: input.primaryNativeSessionId,
+				title:
+					currentSession?.nativeSessionTitle?.trim() ||
+					currentSession?.localAgent.name ||
+					"Local Agent Session",
+			}
+		: undefined;
 	const runtimeControllerLabel =
 		input.controllerChangeOptions.find(
 			(option) => option.agentControllerRef === input.primaryAgentControllerRef
@@ -2866,6 +2896,7 @@ function AgentProfileRowMoreMenu(input: {
 				</Popover.Root>
 			</div>
 			<ProfileDetailsDialog
+				currentSession={currentSessionLink}
 				details={input.details}
 				isDirectMessagePending={input.pendingState.directMessage}
 				onOpenChange={setIsDetailsDialogOpen}

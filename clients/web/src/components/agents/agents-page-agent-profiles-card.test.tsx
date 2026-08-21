@@ -57,6 +57,7 @@ const updatePrimaryBindingAgentControllerCollaborationModeMock = vi.hoisted(
 );
 const updatePrimaryBindingModelSelectionMock = vi.hoisted(() => vi.fn());
 const openCurrentDirectMessageSpaceMock = vi.hoisted(() => vi.fn());
+const readCurrentAgentActivitySessionsMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const toastMock = vi.hoisted(() =>
 	Object.assign(vi.fn(), {
@@ -68,6 +69,12 @@ const toastMock = vi.hoisted(() =>
 
 vi.mock("sonner", () => ({
 	toast: toastMock,
+}));
+
+vi.mock("#/lib/organizations/agent-activity", () => ({
+	readCurrentAgentActivitySessions: (
+		...args: Parameters<typeof readCurrentAgentActivitySessionsMock>
+	) => readCurrentAgentActivitySessionsMock(...args),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -293,6 +300,13 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			spaceId: "space-research-agent-dm",
 			targetProfileId: AGENT_PROFILE_ID,
 		});
+		readCurrentAgentActivitySessionsMock.mockReset().mockResolvedValue({
+			asOfMs: 1_787_220_000_000,
+			coverage: [],
+			nextCursor: null,
+			organization: { id: "org-acme", name: "Acme" },
+			sessions: [],
+		});
 		navigateMock.mockReset();
 		toastMock.mockReset();
 		toastMock.error.mockReset();
@@ -326,6 +340,70 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(screen.getByText("Agent Controller Permission Mode")).toBeTruthy();
 		expect(screen.getByText("Permissions mode")).toBeTruthy();
 		expect(screen.getAllByText("Approve for me").length).toBeGreaterThan(0);
+	});
+
+	it("shows the current native Session title and links back to Agent Activity", async () => {
+		const baseBinding =
+			createPrimaryBindingResponse("codex:approveForMe").binding;
+		const primaryBinding = {
+			...baseBinding,
+			executionTarget: {
+				...baseBinding.executionTarget,
+				agentControllerConversationId: "native-session-1",
+			},
+		};
+		readCurrentAgentActivitySessionsMock.mockResolvedValue({
+			asOfMs: 1_787_220_000_000,
+			coverage: [],
+			nextCursor: null,
+			organization: { id: "org-acme", name: "Acme" },
+			sessions: [
+				{
+					bindingState: "bound",
+					boundAgentProfileId: AGENT_PROFILE_ID,
+					canFork: true,
+					canResume: false,
+					computer: {
+						id: "computer-1",
+						lastSeenAtMs: 1_787_220_000_000,
+						name: "Mira's MacBook Pro",
+						state: "online",
+					},
+					dataState: "current",
+					inventoryUpdatedAtMs: 1_787_220_000_000,
+					lastActiveAtMs: 1_787_219_000_000,
+					localAgent: {
+						agentControllerRef: "builtin:codex",
+						name: "Codex",
+						provider: "codex",
+					},
+					nativeSessionId: "native-session-1",
+					nativeSessionTitle: "Ship the Agent Profile upgrade",
+					organization: { id: "org-acme", name: "Acme" },
+					origin: "openmeld",
+					owner: { name: "Mira", userId: "user-1" },
+					project: { id: "project-1", name: "OpenMeld", slug: "openmeld" },
+					startedAtMs: 1_787_218_000_000,
+					status: "idle",
+				},
+			],
+		});
+		renderAgentProfilesCard({}, primaryBinding);
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Agent options for Research Agent",
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "About profile" }));
+
+		expect(
+			await screen.findByText("Ship the Agent Profile upgrade")
+		).toBeTruthy();
+		const sessionLink = screen.getByRole("link", { name: "View Session" });
+		expect(sessionLink.getAttribute("href")).toBe(
+			"/o/acme/agent-activity/sessions?query=native-session-1"
+		);
 	});
 
 	it("shows a large create card when there are no Agents", () => {

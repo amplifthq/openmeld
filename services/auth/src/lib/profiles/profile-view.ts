@@ -17,6 +17,7 @@ export function toProfileView(
     managedRole?: unknown;
     defaultProjectId?: string | null;
     createdByUserId: string | null;
+    creationActorProfileId: string | null;
     creatorProfileId: string | null;
     lastUsedAt: Date | null;
     createdAt: Date;
@@ -41,6 +42,7 @@ export function toProfileView(
       ? { defaultProjectId: normalizeOptionalText(profile.defaultProjectId) }
       : {}),
     createdByUserId: profile.createdByUserId,
+    creationActorProfileId: profile.creationActorProfileId,
     creatorProfileId: profile.creatorProfileId,
     lastUsedAt: toIsoString(profile.lastUsedAt),
     createdAt: toIsoString(profile.createdAt),

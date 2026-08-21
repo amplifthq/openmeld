@@ -592,9 +592,70 @@ describe("auth session resolution", () => {
       ownerUserId: "user-123",
       organizationId: "organization-amplift",
       createdByUserId: "user-123",
+      creationActorProfileId: undefined,
       creatorProfileId: undefined,
       idempotencyKey: "agent-profile-create:request-123",
       profileName: "Research Agent",
+      source: "web_create",
+    });
+  });
+
+  it("records bearer-authenticated direct creation as CLI creation", async () => {
+    authMock.api.getSession.mockResolvedValue({
+      session: {
+        id: "session-123",
+        activeOrganizationId: "organization-amplift",
+      },
+      user: {
+        id: "user-123",
+        name: "Felix",
+        email: "felix@openmeld.invalid",
+      },
+    });
+    profileServiceMock.createAgentProfile.mockResolvedValue({
+      profileId: "agt_11111111-1111-4111-8111-111111111111",
+      profileName: "Research Agent",
+      profileHandle: "research-agent",
+      profileKind: "agent",
+      isDefault: false,
+      status: "active",
+      ownerUserId: "user-123",
+      createdByUserId: "user-123",
+      source: "cli_create",
+      managedRole: null,
+      creatorProfileId: null,
+      lastUsedAt: null,
+      createdAt: new Date("2026-08-18T00:00:00.000Z"),
+      updatedAt: new Date("2026-08-18T00:00:00.000Z"),
+    });
+    const app = createHonoApp();
+
+    const response = await app.fetch(
+      new Request("http://local/v1/profiles/agents", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer cli-access-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          idempotencyKey: "agent-profile-create:request-456",
+          profileName: "Research Agent",
+        }),
+      }),
+      TEST_ENV,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(201);
+    expect(profileServiceMock.createAgentProfile).toHaveBeenCalledWith({
+      ownerUserId: "user-123",
+      organizationId: "organization-amplift",
+      createdByUserId: "user-123",
+      creationActorProfileId: undefined,
+      creatorProfileId: undefined,
+      idempotencyKey: "agent-profile-create:request-456",
+      profileName: "Research Agent",
+      source: "cli_create",
     });
   });
 
@@ -860,9 +921,11 @@ describe("auth session resolution", () => {
     expect(profileServiceMock.createAgentProfile).toHaveBeenCalledWith({
       ownerUserId: "user-123",
       createdByUserId: "user-123",
+      creationActorProfileId: null,
       creatorProfileId: null,
       organizationId: "org-123",
       profileName: "Research Agent",
+      source: "cli_create",
     });
   });
 
@@ -915,10 +978,12 @@ describe("auth session resolution", () => {
     await expect(
       rpc.createAgentProfileInOrganization({
         createdByUserId: "user-123",
+        creationActorProfileId: "agt_11111111-1111-4111-8111-111111111111",
         creatorProfileId: "agt_11111111-1111-4111-8111-111111111111",
         organizationId: "org-123",
         ownerUserId: "user-123",
         profileName: "Release Agent",
+        source: "center_agent_create",
       })
     ).resolves.toEqual({
       ok: true,
@@ -930,10 +995,12 @@ describe("auth session resolution", () => {
     expect(authMock.api.getSession).not.toHaveBeenCalled();
     expect(profileServiceMock.createAgentProfile).toHaveBeenCalledWith({
       createdByUserId: "user-123",
+      creationActorProfileId: "agt_11111111-1111-4111-8111-111111111111",
       creatorProfileId: "agt_11111111-1111-4111-8111-111111111111",
       organizationId: "org-123",
       ownerUserId: "user-123",
       profileName: "Release Agent",
+      source: "center_agent_create",
     });
   });
 

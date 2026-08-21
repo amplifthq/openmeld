@@ -1070,6 +1070,15 @@ this release.
   Setting Default Project is limited to that member's local Agent Profiles.
   Role-scoped actions use the represented member's current server-side role;
   they are not autonomous Center Agent privileges.
+- Direct configured Agent Profile creation is limited to a Profile owned by the
+  represented member. When the represented member asks for a Profile owned by
+  another Organization member, the Center Agent submits an Agent Profile
+  Creation Request through Core with the represented member as requester and
+  the designated Center Agent Profile as actor. The target member's separate
+  new-Session or existing-Session policy decides whether it is rejected,
+  approved automatically, or sent to Inbox for a decision. Center Agent tools
+  list and manage the same requests as Web and CLI; they do not implement a
+  parallel approval path.
 - The audited Organization Directory read is the shared People identity surface
   for Web, Center Agent, and local agents using the signed-in member's CLI
   authority. It includes current members, Human and Agent Profiles, roles, and

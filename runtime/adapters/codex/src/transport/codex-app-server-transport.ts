@@ -435,6 +435,66 @@ export async function verifyCodexAppServerThread(input: {
   );
 }
 
+export async function forkCodexAppServerThread(input: {
+  codexTimeoutMs: number | null;
+  codexWorkdir: string;
+  env?: Record<string, string | undefined>;
+  launchContract: RuntimeAgentControllerLaunchContract;
+  sourceThreadId: string;
+  title?: string;
+}): Promise<{ threadId: string }> {
+  const sourceThreadId = normalizeOptionalText(input.sourceThreadId);
+  if (!sourceThreadId) {
+    throw new CodexAppServerTransportError({
+      code: "schema.invalid",
+      errorType: "config",
+      message: "schema.invalid: sourceThreadId is required",
+    });
+  }
+
+  return await withCodexAppServerSession(
+    {
+      codexTimeoutMs: input.codexTimeoutMs,
+      codexWorkdir: input.codexWorkdir,
+      env: input.env,
+      launchContract: input.launchContract,
+    },
+    async (session) => {
+      const response = await session.requestControl(
+        "thread/fork",
+        {
+          excludeTurns: true,
+          threadId: sourceThreadId,
+        },
+        {
+          code: "context.fork_timeout",
+          operation: "thread/fork",
+        }
+      );
+      const threadId = readThreadIdFromResponse(response);
+      const title = normalizeOptionalText(input.title);
+      if (title) {
+        try {
+          await session.requestControl(
+            "thread/name/set",
+            { name: title, threadId },
+            {
+              code: "context.name_timeout",
+              operation: "thread/name/set",
+            }
+          );
+        } catch (error) {
+          console.warn("[openmeld.codex.fork_title_sync_failed]", {
+            error,
+            threadId,
+          });
+        }
+      }
+      return { threadId };
+    }
+  );
+}
+
 async function resolveDispatchThreadContext(input: {
   conversationPolicyParams: CodexAppServerConversationPolicyParams;
   codexWorkdir: string;

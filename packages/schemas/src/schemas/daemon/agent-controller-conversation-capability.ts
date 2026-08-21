@@ -9,6 +9,11 @@ export const agentControllerConversationResumeCapabilitySchema = z.enum([
   "by_ref_id",
 ]);
 
+export const agentControllerConversationForkCapabilitySchema = z.enum([
+  "unsupported",
+  "by_ref_id",
+]);
+
 export const agentControllerConversationDiscoverCapabilitySchema =
   z.literal("unsupported");
 
@@ -21,6 +26,7 @@ export const agentControllerConversationTurnOverrideCapabilitySchema = z.enum([
 export const agentControllerConversationCapabilitySchema = z.strictObject({
   discover: agentControllerConversationDiscoverCapabilitySchema,
   externalImport: agentControllerConversationExternalImportCapabilitySchema,
+  fork: agentControllerConversationForkCapabilitySchema,
   resume: agentControllerConversationResumeCapabilitySchema,
   turnOverride: agentControllerConversationTurnOverrideCapabilitySchema,
 });
@@ -35,36 +41,42 @@ export const BUILTIN_AGENT_CONTROLLER_CONVERSATION_CAPABILITY_BY_CONTROLLER_ID: 
   codex: {
     discover: "unsupported",
     externalImport: "by_ref_id",
+    fork: "by_ref_id",
     resume: "by_ref_id",
     turnOverride: "unsupported",
   },
   "claude-code": {
     discover: "unsupported",
     externalImport: "by_ref_id",
+    fork: "by_ref_id",
     resume: "by_ref_id",
     turnOverride: "unsupported",
   },
   cursor: {
     discover: "unsupported",
     externalImport: "by_ref_id",
+    fork: "unsupported",
     resume: "by_ref_id",
     turnOverride: "unsupported",
   },
   "grok-build": {
     discover: "unsupported",
     externalImport: "by_ref_id",
+    fork: "unsupported",
     resume: "by_ref_id",
     turnOverride: "unsupported",
   },
   opencode: {
     discover: "unsupported",
     externalImport: "unsupported",
+    fork: "by_ref_id",
     resume: "by_ref_id",
     turnOverride: "unsupported",
   },
   openclaw: {
     discover: "unsupported",
     externalImport: "unsupported",
+    fork: "unsupported",
     resume: "by_ref_id",
     turnOverride: "unsupported",
   },

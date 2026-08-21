@@ -3015,7 +3015,7 @@ describe("organization Core RPC", () => {
       agentProfiles: [
         {
           organizationId: "org-a",
-          ownerUserId: "user-a",
+          ownerUserId: "owner-user",
           profileHandle: "codex",
           profileId: AGENT_PROFILE_ID,
           profileName: "Codex",
@@ -3025,11 +3025,14 @@ describe("organization Core RPC", () => {
       centerAgentDesignations: [
         centerAgentDesignationRow({
           agentProfileId: AGENT_PROFILE_ID,
-          designatedBy: "user-a",
+          designatedBy: "owner-user",
           organizationId: "org-a",
         }),
       ],
-      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      members: [
+        memberRow("member-owner", "org-a", "owner-user", "owner"),
+        memberRow("member-a", "org-a", "user-a", "member"),
+      ],
     });
     const authWorker = {
       createAgentProfileInOrganization: vi.fn(async () => ({
@@ -3060,8 +3063,10 @@ describe("organization Core RPC", () => {
           activeOrganizationId: "org-a",
           profileId: AGENT_PROFILE_ID,
           profileKind: "agent",
-          userId: "user-a",
+          requestId: "request-create-release-agent",
+          userId: "owner-user",
         }),
+        onBehalfOf: { profileId: HUMAN_PROFILE_ID },
         profileName: "Release Agent",
       })
     ).resolves.toMatchObject({
@@ -3074,10 +3079,13 @@ describe("organization Core RPC", () => {
     });
     expect(authWorker.createAgentProfileInOrganization).toHaveBeenCalledWith({
       createdByUserId: "user-a",
-      creatorProfileId: AGENT_PROFILE_ID,
+      creationActorProfileId: AGENT_PROFILE_ID,
+      idempotencyKey:
+        "center-agent:create-agent-profile:request-create-release-agent:Release Agent",
       organizationId: "org-a",
       ownerUserId: "user-a",
       profileName: "Release Agent",
+      source: "center_agent_create",
     });
     expect(db.centerAgentAuditRows).toEqual([
       expect.objectContaining({

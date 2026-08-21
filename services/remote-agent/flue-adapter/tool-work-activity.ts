@@ -29,6 +29,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_check_agent_profile_readiness", "agent_profile.readiness.check"],
   ["openmeld_connect_agent_profile_to_local_agent", "agent_profile.connect"],
   ["openmeld_create_agent_profile", "agent_profile.create"],
+  ["openmeld_create_agent_profile_request", "agent_profile.create"],
   ["openmeld_create_configured_agent_profile", "agent_profile.configure"],
   ["openmeld_create_organization_invite_link", "organization.invite.create"],
   ["openmeld_create_project", "project.create"],
@@ -66,8 +67,20 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_list_agent_activity_sessions", "agent.activity.read"],
   ["openmeld_read_changelog", "documentation.read"],
   ["openmeld_list_opportunities", "center_agent.activity.read"],
+  [
+    "openmeld_list_agent_profile_creation_requests",
+    "center_agent.activity.read",
+  ],
+  [
+    "openmeld_get_agent_profile_creation_approval_preferences",
+    "center_agent.activity.read",
+  ],
   ["openmeld_recommend_opportunity", "center_agent.attention.request"],
   ["openmeld_respond_to_opportunity", "center_agent.attention.request"],
+  [
+    "openmeld_manage_agent_profile_creation_request",
+    "center_agent.attention.request",
+  ],
   ["openmeld_read_center_agent_activity", "center_agent.activity.read"],
   ["openmeld_request_member_attention", "center_agent.attention.request"],
   ["openmeld_read_dispatch_history", "dispatch.history.read"],
@@ -89,6 +102,10 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_remember_for_organization", "organization.memory.update"],
   [
     "openmeld_set_organization_working_language",
+    "organization.settings.update",
+  ],
+  [
+    "openmeld_set_agent_profile_creation_approval_preferences",
     "organization.settings.update",
   ],
   ["openmeld_require_identity_for_action", "navigation.prepare"],
@@ -189,6 +206,10 @@ const SUBJECT_RULE_BY_TOOL_NAME = new Map<
 >([
   [
     "openmeld_create_agent_profile",
+    { fields: ["profileName"], kind: "agent_profile" },
+  ],
+  [
+    "openmeld_create_agent_profile_request",
     { fields: ["profileName"], kind: "agent_profile" },
   ],
   [

@@ -1296,6 +1296,148 @@ describe("shared drizzle migration history integrity", () => {
     }
   });
 
+  it("adds Agent Profile creation requests while preserving existing Profiles", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const migrationFileName = listSqlMigrationFiles().find((fileName) =>
+        fs
+          .readFileSync(path.join(migrationDirectoryPath, fileName), "utf8")
+          .includes("CREATE TABLE `agent_profile_creation_requests`")
+      );
+      expect(migrationFileName).toBeDefined();
+      if (!migrationFileName) {
+        return;
+      }
+
+      applyMigrationFiles(
+        database,
+        listSqlMigrationFiles().filter(
+          (fileName) => fileName.localeCompare(migrationFileName) < 0
+        )
+      );
+      database.exec(`
+        INSERT INTO organizations (id, name, slug, created_at)
+        VALUES ('org-creation-request-migration', 'Migration Org', 'migration-org', 1000);
+        INSERT INTO users (
+          id, name, email, email_verified, created_at, updated_at
+        ) VALUES
+          ('creation-requester', 'Requester', 'requester@example.com', 1, 1000, 1000),
+          ('creation-owner', 'Owner', 'owner@example.com', 1, 1000, 1000);
+        INSERT INTO openmeld_profiles (
+          profile_id,
+          profile_name,
+          profile_handle,
+          profile_kind,
+          organization_id,
+          owner_user_id,
+          source
+        ) VALUES (
+          'agt_00000000-0000-0000-0000-000000000001',
+          'Existing Agent',
+          'existing-agent',
+          'agent',
+          'org-creation-request-migration',
+          'creation-requester',
+          'cli_create'
+        );
+      `);
+
+      applyMigrationFiles(database, [migrationFileName]);
+
+      expect(
+        database
+          .prepare(
+            `SELECT profile_name, creation_actor_profile_id
+             FROM openmeld_profiles
+             WHERE profile_id = 'agt_00000000-0000-0000-0000-000000000001'`
+          )
+          .get()
+      ).toEqual({
+        creation_actor_profile_id: null,
+        profile_name: "Existing Agent",
+      });
+
+      database.exec(`
+        INSERT INTO agent_profile_creation_requests (
+          id,
+          organization_id,
+          requester_user_id,
+          actor_profile_id,
+          target_owner_user_id,
+          source,
+          profile_name,
+          session_strategy,
+          idempotency_key,
+          status,
+          status_reason,
+          failure_message,
+          created_at,
+          updated_at
+        ) VALUES
+          (
+            'request-failed',
+            'org-creation-request-migration',
+            'creation-requester',
+            'requester-profile',
+            'creation-owner',
+            'web',
+            'Failed Agent',
+            'new',
+            'failed-key',
+            'failed',
+            'profile_creation_failed',
+            'OpenMeld couldn''t finish creating this Agent.',
+            1000,
+            1000
+          ),
+          (
+            'request-pending',
+            'org-creation-request-migration',
+            'creation-requester',
+            'requester-profile',
+            'creation-owner',
+            'cli',
+            'Pending Agent',
+            'new',
+            'pending-key',
+            'pending',
+            'approval_required',
+            NULL,
+            1000,
+            1000
+          );
+      `);
+
+      const rows = database
+        .prepare(
+          `SELECT id, configuration_json, failure_message
+           FROM agent_profile_creation_requests
+           ORDER BY id ASC`
+        )
+        .all() as Array<{
+        configuration_json: string;
+        failure_message: string | null;
+        id: string;
+      }>;
+      expect(rows).toEqual([
+        {
+          configuration_json:
+            '{"agentControllerPermissionMode":null,"agentControllerRef":null,"authorizeForOrganization":true,"defaultProjectId":null,"modelId":null,"openCodePermission":null,"reasoningLevel":null,"targetComputerId":null}',
+          failure_message: "OpenMeld couldn't finish creating this Agent.",
+          id: "request-failed",
+        },
+        {
+          configuration_json:
+            '{"agentControllerPermissionMode":null,"agentControllerRef":null,"authorizeForOrganization":true,"defaultProjectId":null,"modelId":null,"openCodePermission":null,"reasoningLevel":null,"targetComputerId":null}',
+          failure_message: null,
+          id: "request-pending",
+        },
+      ]);
+    } finally {
+      database.close();
+    }
+  });
+
   it("keeps every SQL migration registered exactly once in the drizzle journal", () => {
     const journal = readJournal();
     const sqlFiles = listSqlMigrationFiles();

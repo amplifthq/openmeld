@@ -18,6 +18,7 @@ export type RuntimeTransportApiPath =
   | "/computer-file-access/update-policy"
   | "/local-folder-picker/select-folders"
   | "/local-agent-control/installations"
+  | "/local-agent-control/fork-session"
   | "/local-agent-control/refresh-catalog"
   | "/local-agent-control/set-enabled"
   | "/local-agent-control/set-profile-workspace"
@@ -161,6 +162,9 @@ const resolveRuntimeTransportApiRestartingFallback = (input: {
       code: "service_offline",
       message: "The current local OpenMeld Service is not connected.",
     };
+  }
+  if (input.path === "/local-agent-control/fork-session") {
+    return null;
   }
   if (input.path === "/runtime-coordinator/head/accept") {
     return {
@@ -385,6 +389,9 @@ const resolveRuntimeTransportApiTimeoutMs = (input: {
     return 610_000;
   }
   if (input.path.startsWith("/local-project-control/")) {
+    return 38_000;
+  }
+  if (input.path === "/local-agent-control/fork-session") {
     return 38_000;
   }
   if (

@@ -173,15 +173,20 @@ add an Agent Profile to a Space.
 
 ### `openmeld org computers`
 
-List member Computers and their team-safe Local Agent details in the active
-Organization. When a provider reports Usage Limits, the same normalized limits
-shown in OpenMeld Web and available to the Center Agent are included. Use
-`--json` for one scriptable JSON envelope.
+List the active Organization's team-visible Computers and supported Local
+Agents. Agent View preserves the validated Organization Computers projection;
+`--json` emits one scriptable JSON envelope. When a provider reports Usage
+Limits, the same normalized limits shown in Web and available to the Center
+Agent are included.
 
 ```bash
 openmeld org computers --view agent
 openmeld org computers --json
 ```
+
+Join `ownerUserId` to `openmeld org directory`, then use the exact `computerId`
+and `agentControllerRef` with `openmeld profiles create`. Private local paths,
+account identities, launch commands, and private skills are not exposed.
 
 ### `openmeld org invite-link`
 
@@ -562,6 +567,29 @@ openmeld profiles show <profile-id> --view agent
 openmeld profiles update <profile-id> --name <profile-name>
 openmeld profiles delete <profile-id> --force
 ```
+
+Create your own Agent Profile or request one for a teammate through the same
+entry, then manage requests separately:
+
+```bash
+openmeld profiles create <profile-name> --kind agent --owner self --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create <profile-name> --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session new --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create <profile-name> --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session resume --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
+openmeld profiles create <profile-name> --kind agent --owner <member-user-id> --agent-controller builtin:codex --computer <computer-id> --session fork --native-session <native-session-id> --source local-agent --request-key <stable-key> --view agent
+openmeld profiles requests list --view agent
+openmeld profiles requests approve <request-id> --view agent
+openmeld profiles requests decline <request-id> --view agent
+openmeld profiles requests cancel <request-id> --view agent
+openmeld profiles requests retry <request-id> --view agent
+openmeld profiles requests preferences get --view agent
+openmeld profiles requests preferences set --new-session automatically-allow --existing-session ask-every-time --view agent
+```
+
+Resume and Fork accept the exact provider-native Session ID. They fail clearly
+until OpenMeld Agent Activity can verify the selected Project Session. Approval
+policy values are `never-allow`, `ask-every-time`, and `automatically-allow`.
+Read `conversationCapabilities` from `openmeld org computers` before choosing
+Fork; never substitute a generated summary for a controller-native Fork.
 
 ### `openmeld agents`
 
