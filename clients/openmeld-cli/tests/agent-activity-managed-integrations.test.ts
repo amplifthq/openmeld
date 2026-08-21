@@ -330,6 +330,48 @@ trusted_hash = "sha256:example"`;
     expect(await readFile(paths.codexConfigPath, "utf8")).toContain(trustState);
   });
 
+  it("preserves Codex trust state inserted between managed hooks", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-managed-activity-"));
+    const paths = defaultManagedIntegrationPaths(root);
+    vi.stubEnv("OPENMELD_USER_FACING_CLI_COMMAND", "openmeld-dev");
+    await installAgentActivityIntegrations({ paths });
+
+    const trustState = `[hooks.state]
+[hooks.state."/Users/example/.codex/config.toml:session_start:0:0"]
+trusted_hash = "sha256:session-start"
+
+[hooks.state."/Users/example/.codex/config.toml:stop:0:0"]
+enabled = false
+trusted_hash = "sha256:stop"`;
+    const installed = await readFile(paths.codexConfigPath, "utf8");
+    await writeFile(
+      paths.codexConfigPath,
+      installed.replace(
+        "\n\n[[hooks.Stop]]",
+        `\n\n${trustState}\n\n[[hooks.Stop]]`
+      )
+    );
+
+    await expect(readAgentActivityIntegrationStatus(paths)).resolves.toEqual({
+      claude: true,
+      codex: true,
+      cursor: true,
+      openCode: true,
+    });
+    await expect(installAgentActivityIntegrations({ paths })).resolves.toEqual({
+      claude: "reused",
+      codex: "changed",
+      cursor: "reused",
+      openCode: "reused",
+    });
+
+    const repaired = await readFile(paths.codexConfigPath, "utf8");
+    expect(repaired).toContain(
+      `# openmeld-agent-activity:end:v1\n${trustState}`
+    );
+    expect(repaired).not.toContain(`${trustState}\n\n[[hooks.Stop]]`);
+  });
+
   it("still refuses to overwrite a modified OpenMeld-owned Codex hook", async () => {
     root = await mkdtemp(join(tmpdir(), "openmeld-managed-activity-"));
     const paths = defaultManagedIntegrationPaths(root);
