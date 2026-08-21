@@ -45,19 +45,29 @@ export async function resolveLocalProjectConnectionForPath<
   organizationId?: string;
   path: string;
 }): Promise<Connection | null> {
-  const canonicalPath = await canonicalizeLocalProjectPath(input.path);
-  if (canonicalPath === null) {
-    return null;
-  }
   const sameLaneConnections =
     input.organizationId === undefined
       ? input.connections
       : input.connections.filter(
           (connection) => connection.organizationId === input.organizationId
         );
+  const resolvedPath = resolve(input.path);
+  const pathAliases = localPathAliases(resolvedPath);
+  const possibleConnections = sameLaneConnections.filter((connection) =>
+    pathAliases.some((candidate) =>
+      isPathWithin(candidate, connection.repositoryPath)
+    )
+  );
+  if (possibleConnections.length === 0) {
+    return null;
+  }
+  const canonicalPath = await canonicalizeLocalProjectPath(resolvedPath);
+  if (canonicalPath === null) {
+    return null;
+  }
   return resolveCanonicalLocalProjectConnection(
     canonicalPath,
-    sameLaneConnections
+    possibleConnections
   );
 }
 
@@ -85,6 +95,21 @@ export function findExactLocalProjectConnection<
 
 function isPathWithin(candidate: string, root: string): boolean {
   return candidate === root || candidate.startsWith(`${root}${sep}`);
+}
+
+function localPathAliases(path: string): string[] {
+  const privatePrefix = `${sep}private`;
+  if (path.startsWith(`${privatePrefix}${sep}`)) {
+    return [path, path.slice(privatePrefix.length)];
+  }
+  if (
+    [`${sep}etc`, `${sep}tmp`, `${sep}var`].some(
+      (root) => path === root || path.startsWith(`${root}${sep}`)
+    )
+  ) {
+    return [path, `${privatePrefix}${path}`];
+  }
+  return [path];
 }
 
 function isNodeError(error: unknown, code: string): boolean {
