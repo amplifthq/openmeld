@@ -1064,13 +1064,6 @@ function hasOnlyRetryableControllerCheckFailureEvidence(
   let hasCheckFailure = false;
   for (const capability of target.capabilities) {
     if (capability.status === "ready") {
-      if (
-        capability.reasonCodes.some(
-          (reasonCode) => reasonCode !== "runtime.agent_controller_report.ready"
-        )
-      ) {
-        return false;
-      }
       continue;
     }
 

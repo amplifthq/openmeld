@@ -440,6 +440,15 @@ After the client refresh budget expires, it may offer `Check again` without
 changing the public state. It must not relabel an existing Binding as `Connect
 local agent`; connection copy and connection actions are reserved for a
 genuinely missing Binding.
+
+A temporary Agent Controller check failure is also recovery evidence, not
+proof that setup is damaged. When Core reports `check_status` because every
+non-ready controller is blocked only by a retryable check failure, Agent
+Profile and Space surfaces keep Wake blocked and offer `Check again`. They must
+not send the user through setup or reinterpret diagnostic reason codes into a
+second recovery verdict. Ready controllers do not change that decision merely
+because they carry additional non-blocking diagnostic reason codes.
+
 Concrete setup failures name the controller and computer, such as `OpenCode
 needs setup on Felix's MacBook Pro`, while a healthy Binding describes where the
 profile runs.
