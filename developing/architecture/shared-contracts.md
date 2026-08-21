@@ -694,18 +694,27 @@ bounded local-agent availability. Its optional local-agent `details` object is
 a sanitized projection of canonical Agent Controller Interface evidence and
 permits controller state, native interface, installed version and update
 status, launch status and install count, model display names, native capability
-flags, check status, and check timestamps. Controller accounts, executable or
+flags, check status and timestamps, and sanitized provider Usage Limits. Each
+Usage Limit contains only its stable key, label, 0–100 used percentage when
+known, reset time when known, observation time, and status. Controller accounts, executable or
 installation paths, launch arguments, update commands, diagnostic messages,
 private skills, local policy, credentials, and raw lookup failures are not
 members of this schema. Owner-scoped local runtimes remain authoritative for
 the signed-in member's complete inventory and controls.
 
 The Center Agent single-member Computer read reuses this exact response schema
-and adds only the requested `memberUserId`. Core first verifies that exact user
-is a current member, then builds the same filtered team-safe projection; it
-does not introduce another Computer query, state store, or visibility policy.
-The RPC is additive and audited behind Center Agent audit action set `v19`, so
-older strict audit readers exclude the new action row.
+and adds only the requested `memberUserId`. Its optional
+`includeUsageLimits=true` request selects the same sanitized list that Web
+selects. Core first verifies that exact user is a current member, then builds
+the same filtered team-safe projection; it does not introduce another Computer
+query, state store, or visibility policy. The RPC is additive and audited
+behind Center Agent audit action set `v19`, so older strict audit readers
+exclude the new action row.
+
+The CLI `org computers` Agent View and strict `organization.computers` JSON
+envelope use this same current-Organization HTTP response. They explicitly
+request Usage Limits and preserve the team-safe projection; they do not call a
+provider, scrape Web, expose Computer controls, or define a second schema.
 
 Its optional `openMeldTools` object is also a sanitized live-session
 projection. It permits component installed/latest versions, required Service
@@ -713,15 +722,23 @@ version, update status/policy, Wake-blocking state, bounded reason codes, and
 managed skill target count. Setup commands, component hashes, runtime lanes,
 credentials, and actions are not members of the Organization schema.
 
-`details` and its nested `openMeldTools` are additive optional response fields.
-Web
-and Gateway receivers that use the strict Organization Computer schema must be
-deployed before Core begins writing them. New receivers accept the old Core
-projection; old receivers reject the expanded projection instead of silently
-dropping fields. Rollback reverses that order: roll back Core before Gateway
-or Web. CLI and local Service wire contracts do not change; Core only projects
-existing canonical registry and live-session evidence into the team-safe read
-model.
+Both `details` and `openMeldTools` are additive optional response fields. The
+optional `usageLimits` member inside `details` is additionally protected by the
+explicit `includeUsageLimits=true` query or Center Agent tool input. New Web
+and Remote Agent readers plus the CLI `org computers` reader opt in; older
+strict readers omit the flag, so new Core keeps returning their legacy shape.
+New readers against older Gateway/Core
+receive the existing response without usage evidence. The new Remote Agent
+deploys after Core because old Core rejects the new strict tool input; Web,
+Gateway, and Core otherwise roll independently through the opt-in. Core only
+projects existing canonical registry evidence into the team-safe read model.
+
+Owner Local Runtimes keeps old published CLI readers compatible through the
+optional `includeUsageLimits=true` query. New Web and CLI readers request the
+field; Core omits it for callers that do not opt in, so their older strict ACI
+schema continues to parse the otherwise unchanged owner response. This is a
+versioned projection choice on the same Core-owned read model, not a second
+Usage Limit store or payload authority.
 
 These Auth methods and schemas are additive private contracts. Deploy Auth
 before Core, and roll back Core before Auth. New Core against old Auth exposes
@@ -3469,7 +3486,29 @@ openmeld agents show <agent-id> --json -> agentControllerInterface -> Desktop/UI
 ACI evidence belongs on the Agent Controller capability in the local runtimes
 read model. It may describe install selection, version, controller version
 advisory, controller sign-in, native control capabilities, models, skills, and
-diagnostics. Version advisory is read-only controller maintenance evidence:
+diagnostics. Its optional `usageLimits` list is the one provider-capacity
+contract shared by Service reporting, owner reads, Organization Computers, Web,
+Center Agent, and Local Agent JSON. Each item has one stable key and label,
+`usedPercent` with 0–100 used semantics, nullable `resetsAt`, `observedAt`, and
+one of `available`, `exhausted`, `stale`, `unavailable`, or `unsupported`.
+`Low` is derived by presentation code and is not stored. Missing provider facts
+remain null; they must not become zero, 100, or unlimited capacity.
+
+Provider adapters may add evidence either from a dedicated native non-task
+probe or from a provider-native event passively observed during an ordinary
+already-running controller turn. Both sources must normalize into this same
+list before crossing the local Service boundary. A passive observation must
+not start work, modify the turn, retain its raw event, or create a second usage
+store. Claude Code's Agent SDK event is partial: a missing utilization value
+creates no percentage evidence, while allowlisted 0–1 utilization is normalized
+to 0–100 and all session, account, overage, credit, and payment fields are
+discarded. The local Service separately confirms the current account through
+the existing non-task ACI authentication probe before merging a passive event.
+That owner-only comparison evidence never becomes part of the Usage Limit item
+or crosses into Organization Computers; an unknown or different account fails
+closed instead of reusing the observation.
+
+Version advisory is read-only controller maintenance evidence:
 current version, latest known version, advisory status, and an optional manual
 update command for the install method OpenMeld detected. It must not become an
 automatic Web/Desktop command runner, Agent Profile identity, Binding truth,
@@ -3495,12 +3534,23 @@ arguments, authentication type, controller-provided model and skill inventories,
 and free-text local messages. It preserves only the controller identity, coarse
 authentication status, optional provider email or bounded account label, static
 capabilities, native interface, version/update evidence, launch status/count,
-bounded check evidence, and stable readiness fields needed by Core and
+bounded check evidence, Usage Limits, and stable readiness fields needed by Core and
 owner-facing clients. Provider account evidence is allowed only because the
 authenticated owner-only `listLocalRuntimes` surface needs to identify which
 local account OpenMeld will use; it must not flow into Organization computer
 directories or another member's read model. Do not make every schema field
 cloud-visible merely because a local adapter can populate it.
+
+The Usage Limit allowlist never includes credentials, provider account identity,
+subscription or payment state, balances, monetary values, history, or raw
+provider responses. Core may compare already-existing owner-only ACI
+authentication evidence solely to prevent last-known capacity from crossing a
+provider account change; that evidence never enters the Usage Limit projection
+or Organization Computers. Core derives staleness from the provider observation
+time and the existing report expiry. Unsupported and never-observed unavailable
+evidence remain distinct; only account-bound last-known percentage evidence
+becomes stale. This projection does not change readiness, Wake, Binding,
+routing, Agent Activity, or RuntimeCoordinator contracts.
 
 A redacted field is not negative evidence. Clients must omit local-only command
 paths that are null in the cloud projection instead of describing them as

@@ -1013,6 +1013,7 @@ export const centerAgentListLocalAgentConnectionCandidatesResponseSchema =
 
 export const centerAgentListComputersBodySchema = z.strictObject({
   includeDiagnostics: z.boolean().optional(),
+  includeUsageLimits: z.literal("true").optional(),
   speakerMember: centerAgentToolSpeakerSchema,
 });
 
@@ -1023,6 +1024,7 @@ export const centerAgentListComputersResponseSchema = z.strictObject({
 });
 
 export const centerAgentReadMemberComputersBodySchema = z.strictObject({
+  includeUsageLimits: z.literal("true").optional(),
   memberUserId: trimmedNonEmptyStringSchema,
 });
 

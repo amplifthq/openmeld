@@ -206,11 +206,12 @@ describe("api-client current device api", () => {
 
     await api.listLocalRuntimes({
       connectionIdentityAdoption: "safe_legacy_current",
+      includeUsageLimits: "true",
     });
 
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/local-runtimes?connectionIdentityAdoption=safe_legacy_current",
+        url: "https://gateway.openmeld.invalid/v1/local-runtimes?connectionIdentityAdoption=safe_legacy_current&includeUsageLimits=true",
         operation: "local_runtime.list",
         init: expect.objectContaining({
           method: "GET",

@@ -34,6 +34,7 @@ import type {
 } from "@openmeld/adapter-core";
 import { materializeCliLaunchCommand } from "@openmeld/adapter-core";
 import { createClaudeAgentSdkToolActivityTracker } from "../output/claude-tool-activity.js";
+import { projectClaudeCodeUsageLimits } from "../usage/claude-code-usage-limits.js";
 import {
   createClaudeCanUseTool,
   createClaudeOnElicitation,
@@ -207,6 +208,10 @@ export async function invokeClaudeAgentSdkTransport(input: {
     }
 
     for await (const message of queryRuntime) {
+      await emitClaudeCodeUsageLimits({
+        message,
+        onRuntimeEvent: input.onRuntimeEvent,
+      });
       await emitClaudeAgentSdkToolActivity({
         message,
         onRuntimeEvent: input.onRuntimeEvent,
@@ -347,6 +352,25 @@ export async function invokeClaudeAgentSdkTransport(input: {
       timeoutTriggeredAtMs,
     }),
   };
+}
+
+async function emitClaudeCodeUsageLimits(input: {
+  message: SDKMessage;
+  onRuntimeEvent?: AdapterRuntimeEventCallback;
+}): Promise<void> {
+  const observedAtMs = Date.now();
+  const usageLimits = projectClaudeCodeUsageLimits({
+    event: input.message,
+    observedAt: new Date(observedAtMs).toISOString(),
+  });
+  if (usageLimits.length === 0) {
+    return;
+  }
+  await input.onRuntimeEvent?.({
+    phase: "provider_usage_limits_observed",
+    tsMs: observedAtMs,
+    usageLimits,
+  });
 }
 
 function buildClaudeAgentSdkTelemetry(input: {

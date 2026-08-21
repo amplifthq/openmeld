@@ -705,8 +705,21 @@ describe("remote agent OpenMeld tool catalog", () => {
         memberUserId: "user_1",
       })
     ).resolves.toEqual(memberComputersResponse());
+    expect(
+      memberComputersResponse().computers[0]?.localAgents[0]?.details
+        ?.usageLimits
+    ).toEqual([
+      expect.objectContaining({
+        key: "codex:primary",
+        status: "available",
+        usedPercent: 42,
+      }),
+    ]);
     expect(centerAgentReadMemberComputers).toHaveBeenCalledWith(
-      expect.objectContaining({ memberUserId: "user_1" })
+      expect.objectContaining({
+        includeUsageLimits: "true",
+        memberUserId: "user_1",
+      })
     );
   });
 
@@ -1920,6 +1933,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentListComputers).toHaveBeenCalledWith(
       expect.objectContaining({
         includeDiagnostics: true,
+        includeUsageLimits: "true",
         speakerMember: { memberId: "member_123", userId: "user_1" },
       })
     );
@@ -4669,7 +4683,10 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_read_organization_directory",
     },
     {
-      expectedPayload: { memberUserId: "user_1" },
+      expectedPayload: {
+        includeUsageLimits: "true",
+        memberUserId: "user_1",
+      },
       input: { memberUserId: "user_1" },
       response: memberComputersResponse(),
       rpcName: "centerAgentReadMemberComputers",
@@ -5120,6 +5137,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         includeDiagnostics: true,
+        includeUsageLimits: "true",
         speakerMember: { memberId: "member_123", userId: "user_1" },
       },
       input: {},
@@ -5440,7 +5458,55 @@ function memberOpenMeldServiceStatusResponse() {
 
 function memberComputersResponse() {
   return {
-    computers: [],
+    computers: [
+      {
+        computerId: "computer_1",
+        deviceDisplayName: "Ari's MacBook Pro",
+        deviceType: "laptop" as const,
+        lastSeenAtMs: 1000,
+        localAgents: [
+          {
+            agentControllerRef: "builtin:codex",
+            details: {
+              capabilities: {
+                approvals: true,
+                cancel: true,
+                interrupt: true,
+                modelSelection: true,
+                nativeEventStream: true,
+                permissionModes: true,
+                structuredUserInput: false,
+              },
+              checkedAt: ISO_NOW,
+              launch: {
+                installChoiceCount: 1,
+                status: "ready" as const,
+              },
+              models: [{ displayName: "GPT-5.5" }],
+              nativeInterface: "codex-app-server" as const,
+              status: "ready" as const,
+              usageLimits: [
+                {
+                  key: "codex:primary",
+                  label: "5-hour usage",
+                  observedAt: ISO_NOW,
+                  resetsAt: "2026-08-20T12:00:00.000Z",
+                  status: "available" as const,
+                  usedPercent: 42,
+                },
+              ],
+              version: "0.148.0",
+            },
+            enabled: true,
+            status: "ready" as const,
+          },
+        ],
+        osVersion: "15.6",
+        ownerUserId: "user_1",
+        platformFamily: "macOS" as const,
+        serviceState: "connected" as const,
+      },
+    ],
     generatedAt: ISO_NOW,
     memberUserId: "user_1",
     organizationId: "org_123",

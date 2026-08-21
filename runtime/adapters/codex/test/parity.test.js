@@ -1938,7 +1938,8 @@ test("invokeCodexAppServer rolls forward after stalled resume and transient fres
       },
       onProcessControlEvent: (event) => processEvents.push(event),
       prompt: "continue the current Wake after automatic rollover",
-      startupTimeoutMs: 200,
+      // This test exercises control-request recovery, not process startup timing.
+      startupTimeoutMs: 5000,
       taskId: "task-app-server-resume-heal",
       threadId: "thread-stalled-1",
     });

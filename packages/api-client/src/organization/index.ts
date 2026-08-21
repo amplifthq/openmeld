@@ -20,6 +20,7 @@ export type {
   BulkAuthorizeAgentProfileBindingsForOrganizationInput,
   CreateOrganizationApi,
   OrganizationApi,
+  OrganizationComputersRequestInput,
   OrganizationRequestInput,
   OrganizationRouteInput,
   SaveOrganizationWakeAccessChoiceInput,

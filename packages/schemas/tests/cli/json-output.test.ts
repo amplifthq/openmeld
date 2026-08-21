@@ -5,6 +5,7 @@ import {
   cliJsonEntryCheckBlockedErrorCodeSchema,
   cliJsonErrorEnvelopeSchema,
   cliJsonFeedbackSubmittedEnvelopeSchema,
+  cliJsonOrganizationComputersEnvelopeSchema,
   cliJsonOrganizationDirectoryEnvelopeSchema,
   cliJsonOutputEnvelopeSchema,
   cliJsonProjectsConnectionsListEnvelopeSchema,
@@ -690,6 +691,28 @@ describe("cli --json output envelope contract", () => {
         }).success
       ).toBe(false);
     });
+
+    it("validates Organization Computers envelopes through the shared team-safe response schema", () => {
+      expect(
+        cliJsonOrganizationComputersEnvelopeSchema.safeParse({
+          schemaVersion: VERSION,
+          type: "organization.computers",
+          organizationId: "org-1",
+          generatedAt: "2026-08-20T10:00:00.000Z",
+          computers: [],
+        }).success
+      ).toBe(true);
+      expect(
+        cliJsonOrganizationComputersEnvelopeSchema.safeParse({
+          schemaVersion: VERSION,
+          type: "organization.computers",
+          organizationId: "org-1",
+          generatedAt: "2026-08-20T10:00:00.000Z",
+          computers: [],
+          providerCredential: "secret",
+        }).success
+      ).toBe(false);
+    });
   });
 
   describe("entry-check blocked error codes", () => {
@@ -757,6 +780,7 @@ describe("cli --json output envelope contract", () => {
       "space.members",
       "space.list.organization",
       "organization.directory",
+      "organization.computers",
       "organization.invite_link.get",
       "organization.invite_link.create",
       "organization.invite_link.revoke",

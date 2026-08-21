@@ -90,6 +90,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "reading the Organization Directory",
     serviceAction: null,
   },
+  "organization.computers": {
+    signInAction: "reading Organization Computers",
+    profileAction: null,
+    cliUpdateAction: "reading Organization Computers",
+    serviceAction: null,
+  },
   "organization.invite_link.get": {
     signInAction: "reading the Organization invite link",
     profileAction: null,

@@ -40,6 +40,7 @@ export {
   CLI_JSON_OUTPUT_TYPES,
   type CliJsonEntryCheckBlockedErrorCode,
   type CliJsonErrorEnvelope,
+  type CliJsonOrganizationComputersEnvelope,
   type CliJsonOrganizationDirectoryEnvelope,
   type CliJsonOrganizationInviteLinkCreateEnvelope,
   type CliJsonOrganizationInviteLinkGetEnvelope,
@@ -69,6 +70,7 @@ export {
   cliJsonEntryCheckBlockedErrorCodeSchema,
   cliJsonErrorEnvelopeSchema,
   cliJsonFeedbackSubmittedEnvelopeSchema,
+  cliJsonOrganizationComputersEnvelopeSchema,
   cliJsonOrganizationDirectoryEnvelopeSchema,
   cliJsonOrganizationInviteLinkCreateEnvelopeSchema,
   cliJsonOrganizationInviteLinkGetEnvelopeSchema,
@@ -2340,6 +2342,7 @@ export {
   targetWakeLifecycleIdentitySchema,
 } from "./protocol/target-wake-lifecycle";
 export {
+  AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS,
   agentControllerInterfaceAuthSnapshotSchema,
   agentControllerInterfaceAuthStatusSchema,
   agentControllerInterfaceCapabilitiesSchema,
@@ -2351,6 +2354,9 @@ export {
   agentControllerInterfaceStatusSchema,
   agentControllerInterfaceVersionAdvisorySchema,
   agentControllerInterfaceVersionAdvisoryStatusSchema,
+  agentControllerUsageLimitSchema,
+  agentControllerUsageLimitStatusSchema,
+  agentControllerUsageLimitsSchema,
 } from "./runtime/agent-controller-interface";
 export {
   AGENT_TASK_COORDINATION_SCHEMA_VERSION,

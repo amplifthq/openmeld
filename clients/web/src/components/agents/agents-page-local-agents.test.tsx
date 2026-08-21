@@ -2,8 +2,10 @@ import type {
 	AgentControllerInterfaceSnapshot,
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
+	OrganizationComputerLocalAgentDetails,
 } from "@openmeld/schemas/types";
 import type { ComputerReplyReadiness } from "@openmeld/start";
+import { TooltipProvider } from "@openmeld/ui/components/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
@@ -22,6 +24,12 @@ import {
 } from "./agents-page-local-agents";
 
 const HOMEBREW_INSTALLATION_NAME = /Homebrew installation/;
+const LOW_CODEX_USAGE_GAUGE_NAME = /Codex 5-hour usage, 84% used, Low/u;
+const OWNED_USAGE_SUMMARY_ORDER = /v0\.38\.0.*84%/u;
+const TEAM_USAGE_SUMMARY_ORDER = /v0\.148\.0.*84%/u;
+const LOW_CODEX_USAGE_SUMMARY_NAME = /Codex usage limits, 84% used, Low/u;
+const LOCAL_AGENT_ROW_TEST_ID =
+	/^settings-local-agent-row-(?:codex|claude-code|grok-build|cursor|opencode)$/u;
 
 const toastMock = vi.hoisted(() =>
 	Object.assign(vi.fn(), {
@@ -113,6 +121,185 @@ describe("LocalAgentsCard", () => {
 		cleanup();
 		vi.useRealTimers();
 		vi.clearAllMocks();
+	});
+
+	it("uses the shared product order for owned and teammate local agents", () => {
+		const localAgentCatalogEntries: LocalRuntimeExecutionTarget["localAgentCatalog"]["entries"] =
+			[
+				["opencode", "OpenCode"],
+				["cursor", "Cursor"],
+				["grok-build", "Grok Build"],
+				["claude-code", "Claude Code"],
+				["codex", "Codex"],
+			].map(([agentId, displayName]) => ({
+				agentId,
+				detected: true,
+				displayName,
+				enabled: true,
+				lifecycleStatus: "active",
+				launchStatus: "ready",
+				selectable: true,
+				selectableReason: null,
+				targetKind: "builtin",
+			}));
+		const expectedOrder = [
+			"settings-local-agent-row-codex",
+			"settings-local-agent-row-claude-code",
+			"settings-local-agent-row-grok-build",
+			"settings-local-agent-row-cursor",
+			"settings-local-agent-row-opencode",
+		];
+		renderLocalAgentsCard({
+			localAgentCatalogEntries,
+			setEnabledSupported: true,
+		});
+		expect(
+			screen
+				.getAllByTestId(LOCAL_AGENT_ROW_TEST_ID)
+				.map((row) => row.getAttribute("data-testid"))
+		).toEqual(expectedOrder);
+		cleanup();
+
+		render(
+			<TooltipProvider>
+				<LocalAgentsCard
+					computer={{
+						deviceDisplayName: "Maya's Mac",
+						localAgents: localAgentCatalogEntries.map((entry) => ({
+							agentId: entry.agentId,
+							displayName: entry.displayName,
+							enabled: entry.enabled,
+							status: "ready" as const,
+						})),
+					}}
+					view="team"
+				/>
+			</TooltipProvider>
+		);
+		expect(
+			screen
+				.getAllByTestId(LOCAL_AGENT_ROW_TEST_ID)
+				.map((row) => row.getAttribute("data-testid"))
+		).toEqual(expectedOrder);
+	});
+
+	it("keeps usage in existing owned and teammate agent rows", () => {
+		const usageLimits: NonNullable<
+			AgentControllerInterfaceSnapshot["usageLimits"]
+		> = [
+			{
+				key: "codex:primary",
+				label: "5-hour usage",
+				observedAt: "2026-08-20T07:55:00.000Z",
+				resetsAt: "2026-08-20T12:00:00.000Z",
+				status: "available",
+				usedPercent: 84,
+			},
+		];
+		renderLocalAgentsCard({
+			includeAgentControllerInterface: true,
+			setEnabledSupported: true,
+			usageLimits,
+		});
+
+		const ownedRow = screen.getByTestId("settings-local-agent-row-codex");
+		const ownedSummary = within(ownedRow).getByRole("progressbar", {
+			name: LOW_CODEX_USAGE_SUMMARY_NAME,
+		});
+		expect(ownedSummary.textContent).toBe("84%");
+		expect(ownedSummary.getAttribute("aria-valuenow")).toBe("84");
+		expect(ownedRow.textContent).toMatch(OWNED_USAGE_SUMMARY_ORDER);
+		fireEvent.click(ownedSummary);
+		expect(
+			screen.getByRole("progressbar", {
+				name: LOW_CODEX_USAGE_GAUGE_NAME,
+			})
+		).toBeTruthy();
+		cleanup();
+
+		const details: OrganizationComputerLocalAgentDetails = {
+			capabilities: {
+				approvals: true,
+				cancel: true,
+				interrupt: true,
+				modelSelection: true,
+				nativeEventStream: true,
+				permissionModes: true,
+				structuredUserInput: false,
+			},
+			checkedAt: "2026-08-20T08:00:00.000Z",
+			launch: { installChoiceCount: 1, status: "ready" },
+			models: [{ displayName: "GPT-5.5" }],
+			nativeInterface: "codex-app-server",
+			status: "ready",
+			usageLimits,
+			version: "0.148.0",
+		};
+		render(
+			<TooltipProvider>
+				<LocalAgentsCard
+					computer={{
+						deviceDisplayName: "Maya's Mac",
+						localAgents: [
+							{
+								agentId: "codex",
+								details,
+								displayName: "Codex",
+								enabled: true,
+								status: "ready",
+							},
+						],
+					}}
+					view="team"
+				/>
+			</TooltipProvider>
+		);
+
+		const teammateRow = screen.getByTestId("settings-local-agent-row-codex");
+		const teammateSummary = within(teammateRow).getByRole("progressbar", {
+			name: LOW_CODEX_USAGE_SUMMARY_NAME,
+		});
+		expect(teammateSummary.textContent).toBe("84%");
+		expect(teammateSummary.getAttribute("aria-valuenow")).toBe("84");
+		expect(teammateRow.textContent).toMatch(TEAM_USAGE_SUMMARY_ORDER);
+		fireEvent.click(
+			within(teammateRow)
+				.getByTestId("settings-local-agent-row-trigger")
+				.querySelector("button") as HTMLButtonElement
+		);
+		expect(
+			screen.getByRole("progressbar", {
+				name: LOW_CODEX_USAGE_GAUGE_NAME,
+			})
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("switch", { name: "Codex local agent" })
+				.hasAttribute("data-disabled")
+		).toBe(true);
+	});
+
+	it("does not advertise unsupported usage in collapsed agent rows", () => {
+		renderLocalAgentsCard({
+			includeAgentControllerInterface: true,
+			setEnabledSupported: true,
+			usageLimits: [
+				{
+					key: "codex:usage-limits",
+					label: "Usage limits",
+					observedAt: "2026-08-20T07:55:00.000Z",
+					resetsAt: null,
+					status: "unsupported",
+					usedPercent: null,
+				},
+			],
+		});
+
+		const ownedRow = screen.getByTestId("settings-local-agent-row-codex");
+		expect(
+			within(ownedRow).queryByTestId("local-agent-usage-summary")
+		).toBeNull();
+		expect(ownedRow.textContent).not.toContain("Usage unsupported");
 	});
 
 	it("confirms before disabling a supported installed local agent", async () => {
@@ -942,6 +1129,7 @@ function renderLocalAgentsCard(input: {
 	agentControllerCheck?: AgentControllerInterfaceSnapshot["check"];
 	agentControllerMessage?: string | null;
 	agentControllerStatus?: AgentControllerInterfaceSnapshot["status"];
+	usageLimits?: AgentControllerInterfaceSnapshot["usageLimits"];
 	codexEnabled?: boolean;
 	includeAgentControllerInterface?: boolean;
 	installChoiceCount?: number;
@@ -967,6 +1155,7 @@ function renderLocalAgentsCard(input: {
 		agentControllerCheck: input.agentControllerCheck,
 		agentControllerMessage: input.agentControllerMessage,
 		agentControllerStatus: input.agentControllerStatus,
+		usageLimits: input.usageLimits,
 		codexEnabled: input.codexEnabled ?? true,
 		includeAgentControllerInterface: input.includeAgentControllerInterface,
 		installChoiceCount: input.installChoiceCount,
@@ -986,27 +1175,29 @@ function renderLocalAgentsCard(input: {
 		defaultOptions: { queries: { retry: false } },
 	});
 	render(
-		<QueryClientProvider client={queryClient}>
-			<LocalAgentsCard
-				computer={buildComputer(executionTarget)}
-				isCurrentComputer={true}
-				recovery={
-					{
-						agentProfiles: [],
-						refreshAll:
-							input.refreshAll ?? vi.fn().mockResolvedValue(undefined),
-						refreshLocalAgentCatalog:
-							input.refreshLocalAgentCatalog ??
-							vi.fn().mockResolvedValue(undefined),
-						selectedExecutionTarget: executionTarget,
-						setLocalAgentEnabled:
-							input.setLocalAgentEnabled ??
-							vi.fn().mockResolvedValue(undefined),
-					} as unknown as LocalAgentsCardOwnerProps["recovery"]
-				}
-				replyReadiness={input.replyReadiness ?? READY_REPLY_READINESS}
-			/>
-		</QueryClientProvider>
+		<TooltipProvider>
+			<QueryClientProvider client={queryClient}>
+				<LocalAgentsCard
+					computer={buildComputer(executionTarget)}
+					isCurrentComputer={true}
+					recovery={
+						{
+							agentProfiles: [],
+							refreshAll:
+								input.refreshAll ?? vi.fn().mockResolvedValue(undefined),
+							refreshLocalAgentCatalog:
+								input.refreshLocalAgentCatalog ??
+								vi.fn().mockResolvedValue(undefined),
+							selectedExecutionTarget: executionTarget,
+							setLocalAgentEnabled:
+								input.setLocalAgentEnabled ??
+								vi.fn().mockResolvedValue(undefined),
+						} as unknown as LocalAgentsCardOwnerProps["recovery"]
+					}
+					replyReadiness={input.replyReadiness ?? READY_REPLY_READINESS}
+				/>
+			</QueryClientProvider>
+		</TooltipProvider>
 	);
 
 	return { executionTarget };
@@ -1034,6 +1225,7 @@ function buildExecutionTarget(input: {
 	agentControllerCheck?: AgentControllerInterfaceSnapshot["check"];
 	agentControllerMessage?: string | null;
 	agentControllerStatus?: AgentControllerInterfaceSnapshot["status"];
+	usageLimits?: AgentControllerInterfaceSnapshot["usageLimits"];
 	codexEnabled: boolean;
 	includeAgentControllerInterface?: boolean;
 	installChoiceCount?: number;
@@ -1118,6 +1310,7 @@ function buildExecutionTarget(input: {
 							schemaVersion: 1,
 							skills: [],
 							status: input.agentControllerStatus ?? "ready",
+							...(input.usageLimits ? { usageLimits: input.usageLimits } : {}),
 							version: "0.38.0",
 						}
 					: null,

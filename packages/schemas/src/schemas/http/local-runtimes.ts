@@ -156,6 +156,7 @@ export const localRuntimesConnectionIdentityAdoptionSchema = z.enum([
 export const localRuntimesQuerySchema = z.strictObject({
   connectionIdentityAdoption:
     localRuntimesConnectionIdentityAdoptionSchema.optional(),
+  includeUsageLimits: z.literal("true").optional(),
 });
 
 export const localRuntimesResponseSchema = z.strictObject({

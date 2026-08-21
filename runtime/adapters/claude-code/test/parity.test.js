@@ -617,6 +617,76 @@ test("claude Agent SDK waits for OpenMeld permission and applies session suggest
   }
 });
 
+test("claude Agent SDK publishes sanitized passive usage-limit evidence", async () => {
+  const { invokeClaudeAgentSdkTransport } = await import("../dist/index.js");
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "claude-sdk-usage-limits-dispatch-")
+  );
+  const runtimeEvents = [];
+
+  try {
+    await invokeClaudeAgentSdkTransport({
+      launchContract: {
+        kind: "executable",
+        commandPath: process.execPath,
+      },
+      claudeTimeoutMs: 5000,
+      claudeWorkdir: dispatchDir,
+      createQuery: createFakeClaudeAgentQueryFactory({
+        messages: [
+          {
+            rate_limit_info: {
+              canUserPurchaseCredits: true,
+              rateLimitType: "five_hour",
+              resetsAt: 1_787_191_200,
+              status: "allowed_warning",
+              utilization: 0.91,
+            },
+            session_id: "private-provider-session",
+            type: "rate_limit_event",
+            uuid: "private-provider-event",
+          },
+          {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            result: "completed",
+            session_id: "sdk-usage-limits-session",
+          },
+        ],
+      }),
+      onRuntimeEvent: (event) => {
+        runtimeEvents.push(event);
+      },
+      prompt: "continue the existing task",
+      sessionId: null,
+      taskId: "task-sdk-usage-limits",
+    });
+
+    const usageEvent = runtimeEvents.find(
+      (event) => event.phase === "provider_usage_limits_observed"
+    );
+    assert.ok(usageEvent);
+    assert.deepEqual(usageEvent.usageLimits, [
+      {
+        key: "claude-code:five-hour",
+        label: "5-hour usage limit",
+        observedAt: new Date(usageEvent.tsMs).toISOString(),
+        resetsAt: "2026-08-20T02:00:00.000Z",
+        status: "available",
+        usedPercent: 91,
+      },
+    ]);
+    assert.equal(
+      JSON.stringify(usageEvent).includes("private-provider"),
+      false
+    );
+    assert.equal("canUserPurchaseCredits" in usageEvent, false);
+  } finally {
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
 test("claude Agent SDK releases and retries an aborted permission request", async () => {
   const { invokeClaudeAgentSdkTransport } = await import("../dist/index.js");
   const dispatchDir = await mkdtemp(

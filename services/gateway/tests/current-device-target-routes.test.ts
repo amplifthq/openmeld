@@ -7,6 +7,7 @@ type CoreRpcMock = {
   forgetCurrentComputer: ReturnType<typeof vi.fn>;
   listLocalRuntimes: ReturnType<typeof vi.fn>;
   getCurrentDeviceTarget: ReturnType<typeof vi.fn>;
+  getCurrentOrganizationComputers: ReturnType<typeof vi.fn>;
   selectLocalFolders: ReturnType<typeof vi.fn>;
   setLocalRuntimeDisplayName: ReturnType<typeof vi.fn>;
   updateComputerFileAccessPolicy: ReturnType<typeof vi.fn>;
@@ -65,6 +66,11 @@ function makeEnv(input?: {
     })),
     getCurrentDeviceTarget: vi.fn(async () => ({
       availability: "missing",
+    })),
+    getCurrentOrganizationComputers: vi.fn(async () => ({
+      computers: [],
+      generatedAt: "2026-08-20T00:00:00.000Z",
+      organizationId: "organization-1",
     })),
     selectLocalFolders: vi.fn(async () => ({
       deviceId: "device-123",
@@ -146,6 +152,23 @@ function makeEnv(input?: {
 }
 
 describe("current device target routes", () => {
+  it("forwards the Organization Computers usage-limit opt-in", async () => {
+    const { coreRpc, env } = makeEnv();
+
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/computers?includeUsageLimits=true"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    expect(coreRpc.getCurrentOrganizationComputers).toHaveBeenCalledWith(
+      expect.objectContaining({ includeUsageLimits: "true" })
+    );
+  });
+
   it("opens Local Folder Picker on the exact current Computer", async () => {
     const { coreRpc, env } = makeEnv();
 
@@ -320,7 +343,7 @@ describe("current device target routes", () => {
 
     const response = await app.fetch(
       new Request(
-        "http://local/v1/local-runtimes?connectionIdentityAdoption=safe_legacy_current"
+        "http://local/v1/local-runtimes?connectionIdentityAdoption=safe_legacy_current&includeUsageLimits=true"
       ),
       env,
       TEST_EXECUTION_CONTEXT
@@ -330,6 +353,7 @@ describe("current device target routes", () => {
     expect(coreRpc.listLocalRuntimes).toHaveBeenCalledWith(
       expect.objectContaining({
         connectionIdentityAdoption: "safe_legacy_current",
+        includeUsageLimits: "true",
       })
     );
   });

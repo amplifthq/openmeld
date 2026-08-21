@@ -216,6 +216,7 @@ import {
   stripViewArgs,
 } from "./openmeld-cli-view";
 import {
+  runOrgComputers,
   runOrgCurrent,
   runOrgDirectory,
   runOrgInviteLink,
@@ -879,6 +880,23 @@ orgCmd
       view,
       run: async () => {
         await runOrgDirectory({ json, view });
+      },
+    });
+  });
+
+orgCmd
+  .command("computers")
+  .description("List member Computers and team-safe Local Agent details.")
+  .option("--json", "Print one machine-readable JSON envelope.", false)
+  .action(async (opts: { json?: boolean }) => {
+    const json = opts.json === true;
+    const view = json ? "agent" : getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      jsonOutput: json,
+      routeTokens: ["org", "computers"],
+      view,
+      run: async () => {
+        await runOrgComputers({ json, view });
       },
     });
   });

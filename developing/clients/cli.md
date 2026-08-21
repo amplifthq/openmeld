@@ -962,6 +962,24 @@ These commands are read-only owner tools for Local Agents; they do not make CLI
 inventory or current-computer diagnostics authoritative for Agent Profile
 readiness, Wake availability, or execution outcome.
 
+The same Agent View includes each reported controller's optional
+`agentControllerInterface.usageLimits` list. Local Agents read this normalized
+owner projection directly by requesting the additive Usage Limit field; older
+CLI versions omit that request and continue to receive their strict legacy
+shape. Local Agents must not invoke a provider independently,
+scrape the Computers UI, or infer quota from Wake failures. The list uses the
+shared stable key, label, 0–100 used percentage, nullable reset time,
+observation time, and status contract. It is capacity information only and does
+not grant execution, routing, or Computer mutation authority.
+
+`org computers --view agent` and `org computers --json` read the active
+Organization's existing team-safe Computers projection with Usage Limits
+explicitly requested. This gives authorized Local Agents the same normalized
+member-computer capacity facts as OpenMeld Web and the Center Agent without
+exposing provider account identity, credentials, executable paths, setup
+commands, or Computer controls. The command does not query providers directly
+or derive facts from the Web UI.
+
 The CLI may expose the authenticated user's local owner inventory because it is
 the user's direct local Agent View. The Center Agent RPC is a separate
 model-facing boundary: even in a requester-private conversation it receives
@@ -1063,6 +1081,12 @@ paths, credentials, Connected Channel management authority, provisional
 Profile Report drafts, or another member's owner-self controls through this
 Directory command. Missing `lastActiveAt` stays absent; the CLI never fills it
 from Computer, login/session, or Agent Activity timestamps.
+
+`org computers` reads current member Computers and their team-safe Local Agent
+details. Agent View preserves the validated Organization Computers response;
+`org computers --json` emits the strict versioned `organization.computers`
+envelope. Usage Limits are opt-in on this compatibility-sensitive endpoint so
+older CLI readers retain the legacy response shape.
 
 `org invite-link get|create|revoke` manages the active Organization invite link
 through Auth's owner/admin permission boundary. The CLI sends only the active

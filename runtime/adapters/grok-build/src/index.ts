@@ -81,6 +81,7 @@ export {
   invokeGrokBuildAcpTransport,
   probeGrokBuildAcpInterface,
 } from "./transport/grok-build-acp-transport.js";
+export { projectGrokBuildUsageLimits } from "./usage/grok-build-usage-limits.js";
 
 export function createGrokBuildAdapter(
   options: GrokBuildAdapterOptions

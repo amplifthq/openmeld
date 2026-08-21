@@ -102,6 +102,9 @@ describe("command entry name", () => {
     expect(resolveCommandEntryNameFromTokens(["org", "directory"])).toBe(
       "organization.directory"
     );
+    expect(resolveCommandEntryNameFromTokens(["org", "computers"])).toBe(
+      "organization.computers"
+    );
     expect(
       resolveCommandEntryNameFromTokens(["org", "invite-link", "create"])
     ).toBe("organization.invite_link.create");

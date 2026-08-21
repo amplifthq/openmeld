@@ -701,19 +701,39 @@ async function submitAgentControllerReportsWithCompatibilityRetry(input: {
   try {
     return await input.api.submitAgentControllerReports(input.initialInput);
   } catch (error) {
+    let retryInput = input.initialInput;
+    let compatibilityError = error;
     if (
-      !shouldRetryWithoutAgentControllerInterface({
+      shouldRetryWithoutUsageLimits({
         error,
         requestedReports: input.requestedReports,
       })
     ) {
-      throw error;
+      warnDaemonEvent("[openmeld.runtime_reporting.usage_limits_downgraded]", {
+        error: toErrorMessage(error),
+        event: "cli.runtime_reporting.usage_limits_downgraded",
+        reportCount: input.requestedReports.length,
+      });
+      retryInput = omitUsageLimitsFromReports(input.initialInput);
+      try {
+        return await input.api.submitAgentControllerReports(retryInput);
+      } catch (retryError) {
+        compatibilityError = retryError;
+      }
+    }
+    if (
+      !shouldRetryWithoutAgentControllerInterface({
+        error: compatibilityError,
+        requestedReports: input.requestedReports,
+      })
+    ) {
+      throw compatibilityError;
     }
 
     warnDaemonEvent(
       "[openmeld.runtime_reporting.agent_controller_interface_downgraded]",
       {
-        error: toErrorMessage(error),
+        error: toErrorMessage(compatibilityError),
         event: "cli.runtime_reporting.agent_controller_interface_downgraded",
         profileIds: input.requestedReports
           .map((report) => report.diagnosticProfileId)
@@ -723,13 +743,47 @@ async function submitAgentControllerReportsWithCompatibilityRetry(input: {
     );
 
     return await input.api.submitAgentControllerReports({
-      ...input.initialInput,
-      reports: input.initialInput.reports.map(
+      ...retryInput,
+      reports: retryInput.reports.map(
         ({ agentControllerInterface: _agentControllerInterface, ...report }) =>
           report
       ),
     });
   }
+}
+
+function omitUsageLimitsFromReports(
+  input: SubmitRuntimeAgentControllerReportsInput
+): SubmitRuntimeAgentControllerReportsInput {
+  return {
+    ...input,
+    reports: input.reports.map((report) => {
+      if (!report.agentControllerInterface?.usageLimits) {
+        return report;
+      }
+      const { usageLimits: _usageLimits, ...agentControllerInterface } =
+        report.agentControllerInterface;
+      return { ...report, agentControllerInterface };
+    }),
+  };
+}
+
+function shouldRetryWithoutUsageLimits(input: {
+  error: unknown;
+  requestedReports: readonly RuntimeAgentControllerReportInput[];
+}): boolean {
+  if (
+    !input.requestedReports.some(
+      (report) => report.agentControllerInterface?.usageLimits
+    )
+  ) {
+    return false;
+  }
+  const failure = toStructuredApiClientFailure(input.error);
+  if (failure.status !== 400) {
+    return false;
+  }
+  return collectCompatibilityDiagnosticText(failure).includes("usagelimits");
 }
 
 function shouldRetryWithoutAgentControllerInterface(input: {
@@ -747,7 +801,15 @@ function shouldRetryWithoutAgentControllerInterface(input: {
     return false;
   }
 
-  const diagnosticText = [
+  return collectCompatibilityDiagnosticText(failure).includes(
+    "agentcontrollerinterface"
+  );
+}
+
+function collectCompatibilityDiagnosticText(
+  failure: ReturnType<typeof toStructuredApiClientFailure>
+): string {
+  return [
     failure.message,
     failure.schemaIssueMessage,
     failure.schemaIssuePath,
@@ -756,8 +818,6 @@ function shouldRetryWithoutAgentControllerInterface(input: {
     .filter((value): value is string => Boolean(value))
     .join(" ")
     .toLowerCase();
-
-  return diagnosticText.includes("agentcontrollerinterface");
 }
 
 type RuntimeAgentControllerReportsSubmission = {

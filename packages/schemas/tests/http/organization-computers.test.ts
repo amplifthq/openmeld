@@ -19,6 +19,24 @@ const TEAM_SAFE_DETAILS = {
   models: [{ displayName: "Claude Sonnet" }],
   nativeInterface: "claude-cli",
   status: "ready",
+  usageLimits: [
+    {
+      key: "codex:primary",
+      label: "5-hour usage",
+      observedAt: "2026-08-18T05:00:00.000Z",
+      resetsAt: "2026-08-18T08:00:00.000Z",
+      status: "available",
+      usedPercent: 42,
+    },
+    {
+      key: "codex:secondary",
+      label: "Weekly usage",
+      observedAt: "2026-08-18T05:00:00.000Z",
+      resetsAt: null,
+      status: "stale",
+      usedPercent: 88,
+    },
+  ],
   version: "2.1.234",
   versionAdvisory: {
     checkedAt: "2026-08-18T05:00:00.000Z",
@@ -120,10 +138,24 @@ describe("Organization Computers contracts", () => {
     ["launch path", { commandPath: "/Users/private/.local/bin/claude" }],
     ["update command", { updateCommand: "npm install -g private" }],
     ["private skill", { skills: [{ displayName: "Private skill" }] }],
+    ["subscription tier", { subscriptionTier: "private-plan" }],
+    ["provider balance", { prepaidBalance: 99 }],
   ])("rejects %s from the team-safe detail projection", (_label, privateField) => {
     expect(
       organizationComputersResponseSchema.safeParse(
         responseWithDetails({ ...TEAM_SAFE_DETAILS, ...privateField })
+      ).success
+    ).toBe(false);
+  });
+
+  it("rejects sensitive provider fields nested inside usage limits", () => {
+    const usageLimit = TEAM_SAFE_DETAILS.usageLimits[0];
+    expect(
+      organizationComputersResponseSchema.safeParse(
+        responseWithDetails({
+          ...TEAM_SAFE_DETAILS,
+          usageLimits: [{ ...usageLimit, accountEmail: "private@example.com" }],
+        })
       ).success
     ).toBe(false);
   });

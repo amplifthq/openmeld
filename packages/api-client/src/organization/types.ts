@@ -41,6 +41,10 @@ export type OrganizationRequestInput = {
   timeoutMs?: number;
 };
 
+export type OrganizationComputersRequestInput = OrganizationRequestInput & {
+  includeUsageLimits?: "true";
+};
+
 export type OrganizationRouteInput = OrganizationRequestInput & {
   organizationId: string;
 };
@@ -120,7 +124,7 @@ export type OrganizationApi = {
     input?: GetCurrentOrganizationDirectoryInput
   ) => Promise<OrganizationDirectoryResponse>;
   getCurrentComputers: (
-    input?: OrganizationRequestInput
+    input?: OrganizationComputersRequestInput
   ) => Promise<OrganizationComputersResponse>;
   getCurrentMemberOpenMeldServiceStatuses: (
     input?: OrganizationRequestInput

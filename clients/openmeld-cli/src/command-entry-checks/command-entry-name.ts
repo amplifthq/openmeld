@@ -19,6 +19,7 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   "org current": "organization.current",
   "org switch": "organization.switch",
   "org directory": "organization.directory",
+  "org computers": "organization.computers",
   "org invite-link get": "organization.invite_link.get",
   "org invite-link create": "organization.invite_link.create",
   "org invite-link revoke": "organization.invite_link.revoke",
