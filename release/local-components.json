@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-20T18:29:52.457Z",
+  "updatedAt": "2026-08-21T13:56:49.751Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.77",
+      "packageVersion": "0.3.78",
       "updatePolicy": "available",
-      "reason": "Adds organization-wide Human Profile activity, Profile Reports, Agent Profile and Computer summaries, and the same People directory for Center Agent and local agents."
+      "reason": "Adds unified Agent Profile creation, Local Agent Session resume and fork support, Agent Activity visibility, and Local Agent usage limits."
     },
     "service": {
-      "bundleHash": "7b77b8386266d948f3c35745f09c09fbe8bda98b10c1e9d7e5b700261be3d33d",
-      "bundleVersion": "0.3.77",
+      "bundleHash": "a2f170cbae5dcfdb1eb4f68b80a169a52b7f25e11164b3bf8f6f68204bb5baae",
+      "bundleVersion": "0.3.78",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Adds organization-wide Human Profile activity, Profile Reports, Agent Profile and Computer summaries, and the same People directory for Center Agent and local agents."
+      "reason": "Adds unified Agent Profile creation, Local Agent Session resume and fork support, Agent Activity visibility, and Local Agent usage limits."
     },
     "skills": {
-      "bundleHash": "1ee99d104ba0f2e410df02c4966ea996888d87961e726e7c5b179bb038e0e62e",
+      "bundleHash": "5dd9f2f5bd322b54aa5ae09cae2189e79e75d17f39c9bc50583a80c083fd6d9a",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Adds organization-wide Human Profile activity, Profile Reports, Agent Profile and Computer summaries, and the same People directory for Center Agent and local agents."
+      "reason": "Adds unified Agent Profile creation, Local Agent Session resume and fork support, Agent Activity visibility, and Local Agent usage limits."
     }
   }
 }
