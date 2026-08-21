@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-21T13:56:49.751Z",
+  "updatedAt": "2026-08-21T15:37:26.761Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.78",
+      "packageVersion": "0.3.79",
       "updatePolicy": "available",
-      "reason": "Adds unified Agent Profile creation, Local Agent Session resume and fork support, Agent Activity visibility, and Local Agent usage limits."
+      "reason": "Keeps Codex Agent Activity observers repairable when Codex updates hook trust state."
     },
     "service": {
-      "bundleHash": "a2f170cbae5dcfdb1eb4f68b80a169a52b7f25e11164b3bf8f6f68204bb5baae",
-      "bundleVersion": "0.3.78",
+      "bundleHash": "e238e6eda531f0a4dd70728c47bfcef569cae60c1162341de4378c7cb301035f",
+      "bundleVersion": "0.3.79",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Adds unified Agent Profile creation, Local Agent Session resume and fork support, Agent Activity visibility, and Local Agent usage limits."
+      "reason": "Keeps Codex Agent Activity observers repairable when Codex updates hook trust state."
     },
     "skills": {
       "bundleHash": "5dd9f2f5bd322b54aa5ae09cae2189e79e75d17f39c9bc50583a80c083fd6d9a",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Adds unified Agent Profile creation, Local Agent Session resume and fork support, Agent Activity visibility, and Local Agent usage limits."
+      "reason": "Keeps Codex Agent Activity observers repairable when Codex updates hook trust state."
     }
   }
 }
