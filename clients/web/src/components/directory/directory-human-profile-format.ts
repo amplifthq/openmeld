@@ -95,6 +95,15 @@ export function resolveDirectoryIdentityAccountLabel(
 	}
 }
 
+export function resolveDirectoryIdentityAccountCardLabel(
+	account: DirectoryIdentityAccount
+): string | null {
+	if (account.action) {
+		return account.action.label;
+	}
+	return resolveDirectoryIdentityAccountLabel(account);
+}
+
 export function resolveDirectoryRoleLabel(
 	role: DirectoryHumanProfileRow["role"]
 ): string {

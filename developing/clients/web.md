@@ -1198,9 +1198,12 @@ After authentication, Web previews the exact Organization, Slack account,
 Slack workspace, and OpenMeld account before one confirmation. The primary
 action is **Join and continue** when Auth reports no current membership and
 **Connect and continue** for an existing member. Success says that the original
-request is continuing in the same Slack thread. If identity linking succeeds
-but the continuation reaches a known retryable failure, Web preserves the
-completed linked state and offers one **Try continuing again** action. A
+request is continuing in the same Slack thread and offers **Open Slack thread**
+when Core returns the exact source-message permalink. Web does not construct a
+Slack URL from workspace, channel, or timestamp fields, and a missing permalink
+does not turn a completed identity link into a failure. If identity linking
+succeeds but the continuation reaches a known retryable failure, Web preserves
+the completed linked state and offers one **Try continuing again** action. A
 consume failure before linking keeps the confirmation action available for an
 idempotent retry; Web never invents a successful continuation. An older private
 token without source-delivery evidence reports that Slack was connected but
@@ -1448,8 +1451,10 @@ actions, **Direct Message** for another active Human Profile, and **More**. The
 Computer summary and provider-logo identity-link states share one aligned footer
 below one divider instead of competing with profile actions.
 
-Selecting the avatar, name, or **More → View profile** opens a right-side
-**Profile** drawer. It owns the member account details, Organization role, join
+Selecting any non-action area of a Human Profile card, or **More → View
+profile**, opens a right-side **Profile** drawer. Buttons, links, and menus keep
+their own actions and do not also open the drawer. The drawer owns the member
+account details, Organization role, join
 time, an ordinary Agent Profile count with up to three controller icons and an
 overflow count, Computer access, Connected Channels, shared Profile details,
 and the permitted Direct Message, edit, connect, or manage actions. The Work
@@ -1502,12 +1507,18 @@ People reads Message Channel connections and their Core-owned identity-link
 projection together. Connected identity state is absent when the Organization
 has no Slack, Lark, or Feishu Channel. Otherwise every card footer shows the
 same provider logos with a coarse linked, not-linked, or needs-attention state.
-The drawer exposes **Connect** only for a currently connected provider missing
-from the signed-in member's own profile, and keeps a mapped identity visible as
-unavailable when that provider connection needs repair. The drawer presents an
-account email only when the canonical projection provides one; it never uses a
-provider display name as the account identifier or guesses an email. Until the
-projection carries the provider email, Web says **Account email unavailable**.
+For the signed-in member only, a ready Organization Channel with no member link
+becomes a provider-specific card action such as **Connect Slack**, **Connect
+Lark**, or **Connect Feishu**. It opens the existing private provider-proof
+flow; it never assigns a Channel account merely because the card was selected.
+Teammates retain the non-actionable coarse state. The drawer exposes the same
+self-only connection action and keeps a mapped identity visible as unavailable
+when that provider connection needs repair. The drawer presents an account
+email only when the canonical projection provides one; it never uses a provider
+display name as the account identifier or guesses an email. For Slack, Core
+resolves the email for the exact linked Slack user through the connected
+Organization workspace; if Slack does not return one, Web says **Account email
+unavailable**.
 Self and Channel managers may disconnect a wrong mapping; replacement still
 requires a private provider proof and confirmation by the intended signed-in
 account. Disconnecting this relationship never disconnects the Organization

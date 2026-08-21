@@ -70,13 +70,42 @@ describe("directory Human Profile model", () => {
 			messageChannelsStatus: "ready",
 		});
 
-		expect(member?.identityAccounts).toEqual([
-			expect.objectContaining({
-				accountEmail: null,
-				provider: "slack",
-				state: "connected",
+		expect(member?.identityAccounts).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					accountEmail: null,
+					provider: "slack",
+					state: "connected",
+				}),
+			])
+		);
+	});
+
+	it("uses the canonical provider account email for a connected identity", () => {
+		const [member] = buildOrganizationRows({
+			messageChannels: buildMessageChannels({
+				connections: [buildConnection({ provider: "slack" })],
+				identityLinks: [
+					buildIdentityLink({
+						openMeldUserId: "user-a",
+						provider: "slack",
+						providerAccountEmail: "ari@amplift.ai",
+						providerAccountName: "Ari",
+					}),
+				],
 			}),
-		]);
+			messageChannelsStatus: "ready",
+		});
+
+		expect(member?.identityAccounts).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					accountEmail: "ari@amplift.ai",
+					provider: "slack",
+					state: "connected",
+				}),
+			])
+		);
 	});
 
 	it("preserves a cached linked provider across every card after refresh failure", () => {
@@ -96,23 +125,27 @@ describe("directory Human Profile model", () => {
 		const linkedMember = rows.find((row) => row.userId === "user-a");
 		const otherMember = rows.find((row) => row.userId === "user-b");
 
-		expect(linkedMember?.identityAccounts).toEqual([
-			expect.objectContaining({
-				canDisconnect: true,
-				channelsPath: null,
-				id: expect.any(String),
-				provider: "slack",
-				state: "unavailable",
-			}),
-		]);
-		expect(otherMember?.identityAccounts).toEqual([
-			expect.objectContaining({
-				channelsPath: null,
-				id: null,
-				provider: "slack",
-				state: "unavailable",
-			}),
-		]);
+		expect(linkedMember?.identityAccounts).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					canDisconnect: true,
+					channelsPath: null,
+					id: expect.any(String),
+					provider: "slack",
+					state: "unavailable",
+				}),
+			])
+		);
+		expect(otherMember?.identityAccounts).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					channelsPath: null,
+					id: null,
+					provider: "slack",
+					state: "unavailable",
+				}),
+			])
+		);
 	});
 
 	it("surfaces a repair-required provider as unavailable instead of not connected", () => {
@@ -126,13 +159,15 @@ describe("directory Human Profile model", () => {
 			messageChannelsStatus: "ready",
 		});
 
-		expect(member?.identityAccounts).toEqual([
-			expect.objectContaining({
-				channelsPath: null,
-				provider: "lark",
-				state: "unavailable",
-			}),
-		]);
+		expect(member?.identityAccounts).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					channelsPath: "/o/acme/center-agent/channels",
+					provider: "lark",
+					state: "unavailable",
+				}),
+			])
+		);
 	});
 
 	it("groups ordinary Agent Profiles by owner and excludes the Center Agent", () => {
@@ -250,6 +285,7 @@ function buildOrganizationRows(input: {
 	return buildOrganizationHumanProfileRows({
 		agentProfiles: input.agentProfiles ?? [],
 		canManageConnectedAccounts: true,
+		canManageMessageChannels: true,
 		computers: null,
 		computersStatus: "ready",
 		currentUserId: "user-a",
@@ -370,6 +406,7 @@ function buildMessageChannels(input: {
 		id: string;
 		openMeldUserId: string;
 		provider: MessageChannelConnectionProjection["provider"];
+		providerAccountEmail?: string | null;
 		providerAccountName: string | null;
 	}>;
 }) {
@@ -403,6 +440,7 @@ function buildConnection(input: {
 function buildIdentityLink(input: {
 	openMeldUserId: string;
 	provider: MessageChannelConnectionProjection["provider"];
+	providerAccountEmail?: string | null;
 	providerAccountName: string | null;
 }) {
 	return {

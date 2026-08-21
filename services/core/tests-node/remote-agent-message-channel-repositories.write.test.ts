@@ -609,6 +609,13 @@ describe("Remote Agent Message Channel repositories", () => {
           connections: [projectRemoteAgentLarkPlatformConnection(connection)],
           identityDb: harness.db,
           organizationId: "org_1",
+          resolveProviderAccountEmails: async ({ providerUserIds }) =>
+            new Map(
+              providerUserIds.map((providerUserId) => [
+                providerUserId,
+                providerUserId === "ou_user_1" ? "ari@amplift.ai" : null,
+              ])
+            ),
           stateDb: harness.db,
         });
       expect(identityLinks).toContainEqual({
@@ -616,6 +623,7 @@ describe("Remote Agent Message Channel repositories", () => {
         id: expect.stringMatching(MESSAGE_CHANNEL_IDENTITY_LINK_ID_PATTERN),
         openMeldUserId: "user_1",
         provider: "lark",
+        providerAccountEmail: "ari@amplift.ai",
         providerAccountName: null,
       });
       const identityLinkId = identityLinks.find(

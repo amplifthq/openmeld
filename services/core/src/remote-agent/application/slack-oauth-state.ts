@@ -8,13 +8,15 @@ export const SLACK_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 
 const SLACK_OAUTH_STATE_BYTE_LENGTH = 32;
 const SLACK_OAUTH_STATE_PREFIX = "slackoauth_";
-const SLACK_OAUTH_STATE_PATTERN = /^slackoauth_[0-9a-f]{64}$/u;
+const SLACK_IDENTITY_STATE_PREFIX = "slackidentity_";
+const SLACK_OAUTH_STATE_PATTERN = /^slack(?:oauth|identity)_[0-9a-f]{64}$/u;
 
 export type ConsumedSlackOAuthState =
   | {
       actorProfileId: string;
       moveFromOrganizationId: string | null;
       organizationId: string;
+      purpose: "member_identity" | "organization_install";
       returnPath: string;
       status: "valid";
       userId: string;
@@ -29,12 +31,20 @@ export function buildSlackOAuthChannelsReturnPath(
   return `/o/${encodeURIComponent(slug)}/center-agent/channels`;
 }
 
+export function buildSlackOAuthPeopleReturnPath(
+  organizationSlug: string
+): string {
+  const slug = requireNonEmptyText(organizationSlug, "organization slug");
+  return `/o/${encodeURIComponent(slug)}/people`;
+}
+
 export async function createSlackOAuthState(input: {
   actorProfileId: string;
   db: D1Database;
   moveFromOrganizationId?: string | null;
   nowMs: number;
   organizationId: string;
+  purpose?: "member_identity" | "organization_install";
   returnPath: string;
   userId: string;
 }): Promise<{ expiresAtMs: number; state: string }> {
@@ -51,7 +61,8 @@ export async function createSlackOAuthState(input: {
   );
   const returnPath = requireReturnPath(input.returnPath);
   const userId = requireNonEmptyText(input.userId, "user id");
-  const state = createOpaqueSlackOAuthState();
+  const purpose = input.purpose ?? "organization_install";
+  const state = createOpaqueSlackOAuthState(purpose);
   const stateDigest = await digestSlackOAuthState(state);
   const expiresAtMs = input.nowMs + SLACK_OAUTH_STATE_TTL_MS;
 
@@ -98,16 +109,31 @@ export async function consumeSlackOAuthState(input: {
     actorProfileId: record.actorProfileId,
     moveFromOrganizationId: record.moveFromOrganizationId,
     organizationId: record.organizationId,
+    purpose: resolveSlackOAuthPurpose(input.state),
     returnPath: record.returnPath,
     status: "valid",
     userId: record.userId,
   };
 }
 
-function createOpaqueSlackOAuthState(): string {
+function createOpaqueSlackOAuthState(
+  purpose: "member_identity" | "organization_install"
+): string {
   const bytes = new Uint8Array(SLACK_OAUTH_STATE_BYTE_LENGTH);
   crypto.getRandomValues(bytes);
-  return `${SLACK_OAUTH_STATE_PREFIX}${toHex(bytes)}`;
+  const prefix =
+    purpose === "member_identity"
+      ? SLACK_IDENTITY_STATE_PREFIX
+      : SLACK_OAUTH_STATE_PREFIX;
+  return `${prefix}${toHex(bytes)}`;
+}
+
+function resolveSlackOAuthPurpose(
+  state: string
+): "member_identity" | "organization_install" {
+  return state.startsWith(SLACK_IDENTITY_STATE_PREFIX)
+    ? "member_identity"
+    : "organization_install";
 }
 
 async function digestSlackOAuthState(state: string): Promise<string> {

@@ -246,6 +246,9 @@ export function DirectoryMembersOverview(input: {
 	const canManageConnectedAccounts = canManageOrganizationArea(roleQuery.data, {
 		channel: ["disconnect"],
 	});
+	const canManageMessageChannels = canManageOrganizationArea(roleQuery.data, {
+		channel: ["connect"],
+	});
 	const directMessageMutation = useMutation({
 		mutationFn: async (intent: HumanDirectMessageIntent) =>
 			await openCurrentDirectMessageSpace({
@@ -361,6 +364,7 @@ export function DirectoryMembersOverview(input: {
 		: buildOrganizationHumanProfileRows({
 				agentProfiles: input.directoryQuery.data?.agentProfiles ?? [],
 				canManageConnectedAccounts,
+				canManageMessageChannels,
 				computers: computersQuery.data ?? null,
 				computersStatus,
 				currentUserId: input.currentUserId,

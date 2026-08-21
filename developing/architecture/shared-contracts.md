@@ -2948,7 +2948,16 @@ actions and cannot invalidate a source-bound continuation for another request.
 The strict preview response adds `alreadyMember` and
 `replacesExistingLink`; the strict consume response adds
 `joinedOrganization`, `continued`, `continuationRetryable`, and
-`replacedExistingLink`. Their consumer schemas supply rollout defaults for an
+`replacedExistingLink`. A consume caller may opt into
+`includeReturnTarget = true`; Core then adds the optional nullable
+`slackThreadPermalink`, resolved from the exact source native delivery through
+Slack `chat.getPermalink`. The permalink is a convenience projection, not
+identity, membership, continuation, or native-delivery authority. Lookup
+failure is logged and returns `null` without rolling back any completed link or
+continuation. Core omits this additive field unless the caller opts in, so an
+older strict Web consumer keeps its frozen response shape while Core rolls out
+first. A newer Web consumer accepts an omitted or nullable field while older
+Core is still deployed. Their consumer schemas supply rollout defaults for an
 older Core producer: an omitted `alreadyMember` means `true`, because the
 previous flow admitted only current members, while the other omitted fields
 mean `false`. Auth is the only
@@ -2987,10 +2996,13 @@ tool authority.
 
 The Message Channel connection-list response may include the Core-owned
 `identityLinks` projection. Each row exposes only an opaque link id, provider,
-mapped OpenMeld user id, provider-account display name, and connection time; it
-never exposes the provider user id or token. The opaque id is stable for the
-provider, connection, and provider user tuple and is the only Web deletion
-target. Deletion authorizes either the mapped signed-in member or an
+mapped OpenMeld user id, nullable exact provider-account email, provider-account
+display name, and connection time; it never exposes the provider user id or
+token. The email is optional display metadata resolved by Core from the exact
+linked provider identity and never inferred from the display name or provider
+identifier. The opaque id is stable for the provider, connection, and provider
+user tuple and is the only Web deletion target. Deletion authorizes either the
+mapped signed-in member or an
 Organization role with Channel-disconnect permission, re-resolves the target
 inside the active Organization, removes only the exact mapping, and returns the
 refreshed strict connection-list response. It never disconnects the provider
@@ -2998,14 +3010,16 @@ Channel, assigns a replacement member, or mutates Auth membership.
 
 This additive HTTP/RPC rollout is receiver-first: deploy the new Web schema and
 UI, then Gateway, then Core. New consumers default omitted `identityLinks`,
-`replacesExistingLink`, and `replacedExistingLink` to empty or false, so they
-remain compatible with old Core. Old strict consumers may reject those new
-fields, so Core must not emit them before Web and Gateway are ready. Before the
-Core step, the new Web sees no mappings and therefore exposes no deletion
-caller. No Auth, D1 migration, CLI, OpenMeld Service, Runtime Transport,
+`providerAccountEmail`, `replacesExistingLink`, and `replacedExistingLink` to
+empty, null, or false, so they remain compatible with old Core. Old strict
+consumers may reject those new fields, so Core must not emit them before Web and
+Gateway are ready. Before the Core step, the new Web sees no mappings and
+therefore exposes no deletion caller or provider-account email. No Auth, D1
+migration, CLI, OpenMeld Service, Runtime Transport,
 Prepare, Wake, Space Action, status, trace, diagnostic, or self-rescue contract
-changes; existing local components continue without an update. Rollback removes
-the Web caller before rolling Gateway or Core back.
+changes; existing local components continue without an update. Rollback first
+stops the new Core fields, then rolls Gateway and Web back so no old strict
+consumer observes an unknown response field.
 
 The agent-assisted account-connection increment stays inside the existing
 provider-neutral handoff contract. `messageChannelParticipantIdentitySchema`

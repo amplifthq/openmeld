@@ -87,6 +87,7 @@ const messageChannelIdentityLinkProjectionSchema = z.strictObject({
   id: messageChannelIdentityLinkIdSchema,
   openMeldUserId: nonEmptyStringSchema.max(256),
   provider: messageChannelProviderSchema,
+  providerAccountEmail: z.email().max(320).nullable().default(null),
   providerAccountName: nonEmptyStringSchema.max(256).nullable(),
 });
 

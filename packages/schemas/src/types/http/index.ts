@@ -836,11 +836,14 @@ export type {
 } from "./slack-channel-reads";
 export type {
   SlackOAuthErrorCode,
+  SlackOAuthIdentityLinkInput,
+  SlackOAuthIdentityLinkResult,
   SlackOAuthInstallationInput,
   SlackOAuthInstallationResult,
   SlackOAuthInstallationStatus,
   SlackOAuthOrganizationMembershipInput,
   SlackOAuthOrganizationMembershipResult,
+  SlackOAuthPurpose,
   SlackOAuthState,
   SlackOAuthStateConsumeResponse,
   SlackOAuthStateCreateResponse,

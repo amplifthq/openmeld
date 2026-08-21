@@ -270,6 +270,7 @@ import type {
   SetOrganizationSkillMaintainersRpcInput,
   SlackIdentityLinkConsumeResponse,
   SlackIdentityLinkPreviewResponse,
+  SlackOAuthIdentityLinkResult,
   SlackOAuthInstallationResult,
   SlackOAuthStateConsumeResponse,
   SlackOAuthStateCreateResponse,
@@ -565,6 +566,7 @@ import {
   type GetSpaceWakeTraceWaterfallInput,
   type InspectExecutionRecoveryInput,
   type InstallSlackWorkspaceFromOAuthInput,
+  type IssueSlackIdentityLinkFromOAuthInput,
   type JoinOrganizationPublicSpaceInput,
   type LeaveSpaceInput,
   type ListAccountSpaceActiveWakeSummaryInput,
@@ -748,6 +750,7 @@ import {
   rpcGetSpaceWakeTraceWaterfall,
   rpcInspectExecutionRecovery,
   rpcInstallSlackWorkspaceFromOAuth,
+  rpcIssueSlackIdentityLinkFromOAuth,
   rpcJoinOrganizationPublicSpace,
   rpcLeaveSpace,
   rpcListAccountSpaceActiveWakeSummary,
@@ -2244,6 +2247,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: InstallSlackWorkspaceFromOAuthInput
   ): Promise<SlackOAuthInstallationResult> {
     return rpcInstallSlackWorkspaceFromOAuth(this.env, input);
+  }
+
+  issueSlackIdentityLinkFromOAuth(
+    input: IssueSlackIdentityLinkFromOAuthInput
+  ): Promise<SlackOAuthIdentityLinkResult> {
+    return rpcIssueSlackIdentityLinkFromOAuth(this.env, input);
   }
 
   disconnectCenterAgentSlackWorkspace(
@@ -3820,6 +3829,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: InstallSlackWorkspaceFromOAuthInput
   ): Promise<SlackOAuthInstallationResult> {
     return super.installSlackWorkspaceFromOAuth(input);
+  }
+
+  issueSlackIdentityLinkFromOAuth(
+    input: IssueSlackIdentityLinkFromOAuthInput
+  ): Promise<SlackOAuthIdentityLinkResult> {
+    return super.issueSlackIdentityLinkFromOAuth(input);
   }
 
   disconnectCenterAgentSlackWorkspace(
