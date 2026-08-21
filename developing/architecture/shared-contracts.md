@@ -78,6 +78,49 @@ The portable `SKILL.md` frontmatter remains an Agent Skills content contract.
 OpenMeld ownership, enablement, maintainers, source provenance, audit, and
 release state stay outside portable frontmatter in Core-owned schemas.
 
+### Agent Activity Session Inventory Contracts
+
+`packages/schemas` owns the strict Local Agent Session provider, status,
+origin, capability, coverage, reconciliation-page, paginated read, CLI JSON,
+and Center Agent tool shapes. The five provider values are `codex`,
+`claude-code`, `cursor`, `opencode`, and `grok-build`; consumers cannot add a
+provider or reinterpret a capability locally. Every provider value has exactly
+one canonical built-in Agent Controller ref, and strict reconciliation,
+coverage, and read schemas reject mismatched pairs.
+
+Core owns Organization authorization, public owner/Project/Computer joins,
+atomic publication, stable keyset pagination, staleness, and the read-time
+Agent Profile Binding projection. OpenMeld Service owns provider discovery and
+maps native evidence into the shared observed-Session shape before transport.
+Web, CLI, Local Agents, and Remote Agent may filter or render the response, but
+they must not rebuild Session identity, status, title, Binding, origin,
+Computer liveness, or Resume/Fork capability.
+Pagination cursors bind both the complete filter set and the authorized
+Organization, so a cursor issued in one tenant is invalid in another even when
+all visible filters match.
+
+The stable product identity is `(owner, agentControllerRef,
+nativeSessionId)`. The public contract intentionally contains the native id and
+never contains an OpenMeld-generated Session id, internal device id, Service
+runtime id, local connection id, absolute path, transcript locator, or mutation
+token. Every later operation re-authorizes its complete target; possession of a
+read response grants no execution authority.
+
+The Agent Profile Binding ensure body has an additive optional
+`sessionInventorySelection` for Resume. It carries only Organization, Owner,
+Project, public Computer, provider, and native Session ids; its native id must
+equal the Binding conversation id. Gateway forwards the strict shape unchanged,
+and Core accepts the Binding write only while the matching canonical inventory
+row remains current, fresh, authorized, resumable, on the submitted runtime
+device, and not actively bound to another Agent Profile. Callers without this
+field retain the existing Binding contract.
+
+Reconciliation pages are bounded and ordered. Core stages one source's pages
+under a reconciliation id and makes no user-readable change until the terminal
+page succeeds. A complete terminal page replaces that source's current set.
+Unsupported, error, and disconnected outcomes are explicit terminal facts,
+not empty arrays with implied success.
+
 ## Contract Rule
 
 Any payload that crosses a service, package, process, HTTP boundary, RPC

@@ -1,5 +1,10 @@
 import { openCodePermissionConfigSchema } from "@openmeld/schemas";
 import type { OpenCodePermissionConfig } from "@openmeld/schemas/types";
+import {
+  type AgentActivitySessionResumeEligibility,
+  buildAgentActivitySessionResumeEligibilityQuery,
+  canResumeAgentActivitySessionSelection,
+} from "../../../agent-activity/activity-session-inventory-repository";
 import type {
   AgentProfileBindingAgentControllerCollaborationModePatch,
   AgentProfileBindingAgentControllerPermissionModePatch,
@@ -48,8 +53,11 @@ export type EnsurePrimaryAgentProfileBindingResult =
       status: "accepted";
     }
   | {
-      existingBinding: AgentProfileBindingRecord;
-      reason: "controller_conversation_conflict" | "primary_conflict";
+      existingBinding?: AgentProfileBindingRecord;
+      reason:
+        | "controller_conversation_conflict"
+        | "primary_conflict"
+        | "session_resume_unavailable";
       status: "rejected";
     };
 
@@ -79,7 +87,19 @@ type AgentProfileBindingRow = {
 
 export function createD1AgentProfileBindingCommandStore(input: {
   db: D1Database;
+  readNowMs?: () => number;
+  sessionInventoryEligibility?: Omit<
+    AgentActivitySessionResumeEligibility,
+    "nowMs"
+  >;
 }): AgentProfileBindingCommandStore {
+  const resolveSessionInventoryEligibility = () =>
+    input.sessionInventoryEligibility
+      ? {
+          ...input.sessionInventoryEligibility,
+          nowMs: (input.readNowMs ?? Date.now)(),
+        }
+      : undefined;
   return {
     readPrimaryBinding: ({ agentProfileId, owner }) =>
       readPrimaryAgentProfileBindingRecord({
@@ -105,6 +125,7 @@ export function createD1AgentProfileBindingCommandStore(input: {
         ...(modelSelectionPatch ? { modelSelectionPatch } : {}),
         ...(openCodePermissionPatch ? { openCodePermissionPatch } : {}),
         record,
+        sessionInventoryEligibility: resolveSessionInventoryEligibility(),
       }),
     reconnectPrimaryBinding: ({
       agentControllerCollaborationModePatch,
@@ -124,6 +145,7 @@ export function createD1AgentProfileBindingCommandStore(input: {
         ...(modelSelectionPatch ? { modelSelectionPatch } : {}),
         ...(openCodePermissionPatch ? { openCodePermissionPatch } : {}),
         record,
+        sessionInventoryEligibility: resolveSessionInventoryEligibility(),
       }),
     updatePrimaryBindingAgentControllerCollaborationMode: ({
       agentProfileId,
@@ -206,14 +228,19 @@ function isSameEnabledPrimaryBindingTarget(input: {
   );
 }
 
-export async function ensurePrimaryAgentProfileBindingRecord(input: {
+type AgentProfileBindingWriteRequest = {
   agentControllerCollaborationModePatch?: AgentProfileBindingAgentControllerCollaborationModePatch;
   agentControllerPermissionModePatch?: AgentProfileBindingAgentControllerPermissionModePatch;
   db: D1Database;
   modelSelectionPatch?: AgentProfileBindingModelSelectionPatch;
   openCodePermissionPatch?: AgentProfileBindingOpenCodePermissionPatch;
   record: EnabledPrimaryAgentProfileBindingInput;
-}): Promise<EnsurePrimaryAgentProfileBindingResult> {
+  sessionInventoryEligibility?: AgentActivitySessionResumeEligibility;
+};
+
+export async function ensurePrimaryAgentProfileBindingRecord(
+  input: AgentProfileBindingWriteRequest
+): Promise<EnsurePrimaryAgentProfileBindingResult> {
   const current = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: input.record.agentProfileId,
     db: input.db,
@@ -226,6 +253,9 @@ export async function ensurePrimaryAgentProfileBindingRecord(input: {
       record: input.record,
     })
   ) {
+    if (!(await isSessionInventoryEligibilityCurrent(input))) {
+      return sessionResumeUnavailableResult();
+    }
     const updated = await maybeUpdatePrimaryAgentProfileBindingMetadata({
       agentControllerCollaborationModePatch:
         input.agentControllerCollaborationModePatch,
@@ -251,26 +281,18 @@ export async function ensurePrimaryAgentProfileBindingRecord(input: {
     };
   }
 
-  const conversationConflict =
-    await readPrimaryAgentProfileBindingRecordByControllerConversation({
-      agentControllerConversationId:
-        input.record.agentControllerConversationId ?? null,
-      agentControllerRef: input.record.agentControllerRef,
-      db: input.db,
-      excludeAgentProfileId: input.record.agentProfileId,
-      owner: input.record.owner,
-    });
+  const conversationConflict = await readControllerConversationConflict({
+    db: input.db,
+    record: input.record,
+  });
   if (conversationConflict) {
-    return {
-      existingBinding: conversationConflict,
-      reason: "controller_conversation_conflict",
-      status: "rejected",
-    };
+    return conversationConflict;
   }
 
   const agentControllerCollaborationMode = normalizeNullableText(
     input.record.agentControllerCollaborationMode
   );
+  const sessionEligibility = buildSessionInventoryEligibilityClause(input);
   const insertResult = await input.db
     .prepare(
       `
@@ -296,7 +318,18 @@ export async function ensurePrimaryAgentProfileBindingRecord(input: {
 	          opencode_permission,
 	          reasoning_level
 	        )
-	        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'enabled_primary', ?, ?, null, ?, ?, ?, ?, ?, ?, ?)
+	        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'enabled_primary', ?, ?, null, ?, ?, ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM openMeldDaemon_agent_profile_bindings existing
+          WHERE existing.owner_kind = ?
+            AND existing.owner_id = ?
+            AND existing.agent_controller_ref = ?
+            AND existing.agent_controller_conversation_id = ?
+            AND existing.binding_state = 'enabled_primary'
+            AND existing.agent_profile_id <> ?
+        )
+        ${sessionEligibility.sql}
         ON CONFLICT(owner_kind, owner_id, agent_profile_id)
           WHERE binding_state = 'enabled_primary'
           DO NOTHING
@@ -320,75 +353,26 @@ export async function ensurePrimaryAgentProfileBindingRecord(input: {
       input.record.agentControllerPermissionMode ?? null,
       input.record.modelId ?? null,
       serializeOpenCodePermission(input.record.openCodePermission),
-      input.record.reasoningLevel ?? null
+      input.record.reasoningLevel ?? null,
+      input.record.owner.kind,
+      input.record.owner.id,
+      input.record.agentControllerRef,
+      input.record.agentControllerConversationId ?? null,
+      input.record.agentProfileId,
+      ...sessionEligibility.bindings
     )
     .run();
 
-  const binding =
-    current ??
-    (await readPrimaryAgentProfileBindingRecord({
-      agentProfileId: input.record.agentProfileId,
-      db: input.db,
-      owner: input.record.owner,
-    }));
-  if (!binding) {
-    throw new Error("Agent Profile Binding write did not produce a row");
-  }
-
-  if (getChangedRows(insertResult) > 0) {
-    return {
-      binding,
-      outcome: "created",
-      status: "accepted",
-    };
-  }
-
-  if (
-    isSameEnabledPrimaryBindingTarget({
-      binding,
-      record: input.record,
-    })
-  ) {
-    const updated = await maybeUpdatePrimaryAgentProfileBindingMetadata({
-      agentControllerCollaborationModePatch:
-        input.agentControllerCollaborationModePatch,
-      agentControllerPermissionModePatch:
-        input.agentControllerPermissionModePatch,
-      current: binding,
-      db: input.db,
-      modelSelectionPatch: input.modelSelectionPatch,
-      openCodePermissionPatch: input.openCodePermissionPatch,
-      record: input.record,
-    });
-    if (updated) {
-      return {
-        binding: updated,
-        outcome: "reused",
-        status: "accepted",
-      };
-    }
-    return {
-      binding,
-      outcome: "reused",
-      status: "accepted",
-    };
-  }
-
-  return {
-    existingBinding: binding,
-    reason: "primary_conflict",
-    status: "rejected",
-  };
+  return await resolveEnsuredPrimaryAgentProfileBinding({
+    current,
+    insertResult,
+    request: input,
+  });
 }
 
-export async function reconnectPrimaryAgentProfileBindingRecord(input: {
-  agentControllerCollaborationModePatch?: AgentProfileBindingAgentControllerCollaborationModePatch;
-  agentControllerPermissionModePatch?: AgentProfileBindingAgentControllerPermissionModePatch;
-  db: D1Database;
-  modelSelectionPatch?: AgentProfileBindingModelSelectionPatch;
-  openCodePermissionPatch?: AgentProfileBindingOpenCodePermissionPatch;
-  record: EnabledPrimaryAgentProfileBindingInput;
-}): Promise<EnsurePrimaryAgentProfileBindingResult> {
+export async function reconnectPrimaryAgentProfileBindingRecord(
+  input: AgentProfileBindingWriteRequest
+): Promise<EnsurePrimaryAgentProfileBindingResult> {
   const current = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: input.record.agentProfileId,
     db: input.db,
@@ -405,6 +389,9 @@ export async function reconnectPrimaryAgentProfileBindingRecord(input: {
     normalizeNullableText(current.agentControllerConversationId) ===
       normalizeNullableText(input.record.agentControllerConversationId)
   ) {
+    if (!(await isSessionInventoryEligibilityCurrent(input))) {
+      return sessionResumeUnavailableResult();
+    }
     const updated = await maybeUpdatePrimaryAgentProfileBindingMetadata({
       agentControllerCollaborationModePatch:
         input.agentControllerCollaborationModePatch,
@@ -430,24 +417,16 @@ export async function reconnectPrimaryAgentProfileBindingRecord(input: {
     };
   }
 
-  const conversationConflict =
-    await readPrimaryAgentProfileBindingRecordByControllerConversation({
-      agentControllerConversationId:
-        input.record.agentControllerConversationId ?? null,
-      agentControllerRef: input.record.agentControllerRef,
-      db: input.db,
-      excludeAgentProfileId: input.record.agentProfileId,
-      owner: input.record.owner,
-    });
+  const conversationConflict = await readControllerConversationConflict({
+    db: input.db,
+    record: input.record,
+  });
   if (conversationConflict) {
-    return {
-      existingBinding: conversationConflict,
-      reason: "controller_conversation_conflict",
-      status: "rejected",
-    };
+    return conversationConflict;
   }
 
-  await input.db.batch([
+  const sessionEligibility = buildSessionInventoryEligibilityClause(input);
+  const writeResults = await input.db.batch([
     input.db
       .prepare(
         `
@@ -461,6 +440,17 @@ export async function reconnectPrimaryAgentProfileBindingRecord(input: {
             AND agent_profile_id = ?
             AND binding_id = ?
             AND binding_state = 'enabled_primary'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM openMeldDaemon_agent_profile_bindings existing
+              WHERE existing.owner_kind = ?
+                AND existing.owner_id = ?
+                AND existing.agent_controller_ref = ?
+                AND existing.agent_controller_conversation_id = ?
+                AND existing.binding_state = 'enabled_primary'
+                AND existing.agent_profile_id <> ?
+            )
+            ${sessionEligibility.sql}
         `
       )
       .bind(
@@ -469,7 +459,13 @@ export async function reconnectPrimaryAgentProfileBindingRecord(input: {
         input.record.owner.kind,
         input.record.owner.id,
         input.record.agentProfileId,
-        current.bindingId
+        current.bindingId,
+        input.record.owner.kind,
+        input.record.owner.id,
+        input.record.agentControllerRef,
+        input.record.agentControllerConversationId ?? null,
+        input.record.agentProfileId,
+        ...sessionEligibility.bindings
       ),
     input.db
       .prepare(
@@ -496,7 +492,18 @@ export async function reconnectPrimaryAgentProfileBindingRecord(input: {
 	            opencode_permission,
 	            reasoning_level
 	          )
-	          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'enabled_primary', ?, ?, null, ?, ?, ?, ?, ?, ?, ?)
+	          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'enabled_primary', ?, ?, null, ?, ?, ?, ?, ?, ?, ?
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM openMeldDaemon_agent_profile_bindings existing
+            WHERE existing.owner_kind = ?
+              AND existing.owner_id = ?
+              AND existing.agent_controller_ref = ?
+              AND existing.agent_controller_conversation_id = ?
+              AND existing.binding_state = 'enabled_primary'
+              AND existing.agent_profile_id <> ?
+          )
+          ${sessionEligibility.sql}
           ON CONFLICT(owner_kind, owner_id, agent_profile_id)
             WHERE binding_state = 'enabled_primary'
             DO NOTHING
@@ -526,24 +533,48 @@ export async function reconnectPrimaryAgentProfileBindingRecord(input: {
         input.record.agentControllerPermissionMode ?? null,
         input.record.modelId ?? null,
         serializeOpenCodePermission(input.record.openCodePermission),
-        input.record.reasoningLevel ?? null
+        input.record.reasoningLevel ?? null,
+        input.record.owner.kind,
+        input.record.owner.id,
+        input.record.agentControllerRef,
+        input.record.agentControllerConversationId ?? null,
+        input.record.agentProfileId,
+        ...sessionEligibility.bindings
       ),
   ]);
 
-  const binding = await readPrimaryAgentProfileBindingRecord({
-    agentProfileId: input.record.agentProfileId,
-    db: input.db,
-    owner: input.record.owner,
+  return await resolveReconnectedPrimaryAgentProfileBinding({
+    ...input,
+    writeResults,
   });
+}
+
+async function resolveEnsuredPrimaryAgentProfileBinding(context: {
+  current: AgentProfileBindingRecord | null;
+  insertResult: D1Result;
+  request: AgentProfileBindingWriteRequest;
+}): Promise<EnsurePrimaryAgentProfileBindingResult> {
+  const binding =
+    context.current ??
+    (await readPrimaryAgentProfileBindingRecord({
+      agentProfileId: context.request.record.agentProfileId,
+      db: context.request.db,
+      owner: context.request.record.owner,
+    }));
   if (!binding) {
-    throw new Error("Agent Profile Binding reconnect did not produce a row");
+    return await rejectControllerConversationConflictOrThrow({
+      errorMessage: "Agent Profile Binding write did not produce a row",
+      request: context.request,
+    });
+  }
+  if (getChangedRows(context.insertResult) > 0) {
+    return { binding, outcome: "created", status: "accepted" };
   }
   if (
-    binding.openMeldServiceRuntimeId !==
-      input.record.openMeldServiceRuntimeId ||
-    binding.agentControllerRef !== input.record.agentControllerRef ||
-    normalizeNullableText(binding.agentControllerConversationId) !==
-      normalizeNullableText(input.record.agentControllerConversationId)
+    !isSameEnabledPrimaryBindingTarget({
+      binding,
+      record: context.request.record,
+    })
   ) {
     return {
       existingBinding: binding,
@@ -551,12 +582,141 @@ export async function reconnectPrimaryAgentProfileBindingRecord(input: {
       status: "rejected",
     };
   }
-
+  if (!(await isSessionInventoryEligibilityCurrent(context.request))) {
+    return sessionResumeUnavailableResult();
+  }
+  const updated = await maybeUpdatePrimaryAgentProfileBindingMetadata({
+    agentControllerCollaborationModePatch:
+      context.request.agentControllerCollaborationModePatch,
+    agentControllerPermissionModePatch:
+      context.request.agentControllerPermissionModePatch,
+    current: binding,
+    db: context.request.db,
+    modelSelectionPatch: context.request.modelSelectionPatch,
+    openCodePermissionPatch: context.request.openCodePermissionPatch,
+    record: context.request.record,
+  });
   return {
-    binding,
-    outcome: "reconnected",
+    binding: updated ?? binding,
+    outcome: "reused",
     status: "accepted",
   };
+}
+
+async function resolveReconnectedPrimaryAgentProfileBinding(
+  input: AgentProfileBindingWriteRequest & { writeResults: D1Result[] }
+): Promise<EnsurePrimaryAgentProfileBindingResult> {
+  const binding = await readPrimaryAgentProfileBindingRecord({
+    agentProfileId: input.record.agentProfileId,
+    db: input.db,
+    owner: input.record.owner,
+  });
+  if (!binding) {
+    return await rejectControllerConversationConflictOrThrow({
+      errorMessage: "Agent Profile Binding reconnect did not produce a row",
+      request: input,
+    });
+  }
+  if (!isSameEnabledPrimaryBindingTarget({ binding, record: input.record })) {
+    const conversationConflict = await readControllerConversationConflict({
+      db: input.db,
+      record: input.record,
+    });
+    if (conversationConflict) {
+      return conversationConflict;
+    }
+    if (
+      input.writeResults.every((result) => getChangedRows(result) === 0) &&
+      !(await isSessionInventoryEligibilityCurrent(input))
+    ) {
+      return sessionResumeUnavailableResult();
+    }
+    return {
+      existingBinding: binding,
+      reason: "primary_conflict",
+      status: "rejected",
+    };
+  }
+  return { binding, outcome: "reconnected", status: "accepted" };
+}
+
+async function rejectControllerConversationConflictOrThrow(input: {
+  errorMessage: string;
+  request: AgentProfileBindingWriteRequest;
+}): Promise<
+  Extract<EnsurePrimaryAgentProfileBindingResult, { status: "rejected" }>
+> {
+  const conversationConflict = await readControllerConversationConflict({
+    db: input.request.db,
+    record: input.request.record,
+  });
+  if (conversationConflict) {
+    return conversationConflict;
+  }
+  if (!(await isSessionInventoryEligibilityCurrent(input.request))) {
+    return sessionResumeUnavailableResult();
+  }
+  throw new Error(input.errorMessage);
+}
+
+function buildSessionInventoryEligibilityClause(
+  input: AgentProfileBindingWriteRequest
+): { bindings: unknown[]; sql: string } {
+  if (!input.sessionInventoryEligibility) {
+    return { bindings: [], sql: "" };
+  }
+  const query = buildAgentActivitySessionResumeEligibilityQuery(
+    input.sessionInventoryEligibility
+  );
+  return query
+    ? { bindings: query.bindings, sql: `AND EXISTS (${query.sql})` }
+    : { bindings: [], sql: "AND 0 = 1" };
+}
+
+async function isSessionInventoryEligibilityCurrent(
+  input: AgentProfileBindingWriteRequest
+): Promise<boolean> {
+  return input.sessionInventoryEligibility
+    ? await canResumeAgentActivitySessionSelection({
+        ...input.sessionInventoryEligibility,
+        db: input.db,
+      })
+    : true;
+}
+
+function sessionResumeUnavailableResult(): Extract<
+  EnsurePrimaryAgentProfileBindingResult,
+  { status: "rejected" }
+> {
+  return {
+    reason: "session_resume_unavailable",
+    status: "rejected",
+  };
+}
+
+async function readControllerConversationConflict(input: {
+  db: D1Database;
+  record: EnabledPrimaryAgentProfileBindingInput;
+}): Promise<Extract<
+  EnsurePrimaryAgentProfileBindingResult,
+  { status: "rejected" }
+> | null> {
+  const existingBinding =
+    await readPrimaryAgentProfileBindingRecordByControllerConversation({
+      agentControllerConversationId:
+        input.record.agentControllerConversationId ?? null,
+      agentControllerRef: input.record.agentControllerRef,
+      db: input.db,
+      excludeAgentProfileId: input.record.agentProfileId,
+      owner: input.record.owner,
+    });
+  return existingBinding
+    ? {
+        existingBinding,
+        reason: "controller_conversation_conflict",
+        status: "rejected",
+      }
+    : null;
 }
 
 export async function readPrimaryAgentProfileBindingRecord(input: {

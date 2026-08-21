@@ -1643,13 +1643,33 @@ accordion or second session-detail surface. Whole-hour ticks that would sit
 within four percent of the Now tick are omitted. Its empty state keeps the
 copyable Project bind guidance.
 
-**Sessions** owns the full public session table. Provider and
-Working/Idle/Offline controls consume locally derived facet counts and use URL
-search state, including member deep links from Activity timeline. Project is intentionally
-absent from the Sessions toolbar because the shared header is its single source
-of scope. The table renders member, session, provider, Project, branch, model,
-duration, and status plus one compact reviewed provider-metadata row. It does
-not render provider session ids, device ids, or local paths.
+**Sessions** owns the complete current Local Agent Session Inventory. It uses
+the separate shared paginated Core query rather than the bounded Activity
+snapshot. Provider, Working/Idle/Ended/Error/Unknown, Owner, origin, and search
+controls are URL state and are sent to Core. Project remains absent from its
+toolbar because the shared header is its single source of Project scope. Next
+page navigation uses the opaque Core cursor; a later page can return directly
+to the first page, and every filter change resets the cursor.
+
+Each row renders the provider-native title, copyable native Session id, Owner,
+Project, public Computer name, Local Agent, status, last activity, origin,
+Resume/Fork capability, and authoritative bound Agent Profile. It never renders
+an internal device id, Service runtime id, local connection hash, local path,
+prompt preview, branch, model, transcript-derived summary, or arbitrary
+provider metadata. Missing native title is **No native title**; Web does not
+invent a provider-name title.
+
+Coverage facts own honest empty and degraded states: waiting for first sync,
+syncing, current empty, stale data, disconnected Project, offline Computer,
+unsupported provider, and reconciliation error are distinct. Web does not turn
+a failed or unsupported source into “No sessions.”
+
+Bound Sessions open the authoritative Agent Profile. Eligible unbound Sessions
+offer Create Agent Profile. Resume as Agent Profile and Fork as Agent Profile
+are shown only from the returned capabilities and delegate all mutation and
+authorization to Agent Profile creation. Add to Space delegates to canonical
+Space membership. A Working Resume may show one lightweight suggestion to Fork
+when available, but Web neither blocks it nor builds a recommendation score.
 
 **Changes** owns the full current state-transition list. Heartbeats and generic
 session updates remain folded, with the heartbeat count disclosed below the
@@ -1658,7 +1678,7 @@ same member, provider, and Project becomes one **started working** entry.
 Changes is not capped below the snapshot's existing 100-event boundary.
 
 `clients/web/src/components/organizations/agent-activity-derive.ts` remains the
-single browser derivation entry for all three pages. It owns current-active
+single browser derivation entry for Overview and Changes. It owns current-active
 evaluation, local-day span totals, peak concurrency, busiest Project, longest
 visible run, facets, timeline clipping, and Changes folding. An expired
 `isActive` claim is never displayed as current. Durations below one minute use
@@ -1676,7 +1696,7 @@ completed summary visible and says the new summary failed; Web never generates
 a fallback summary. Provider or status filtering hides Project digests rather
 than presenting an unfiltered summary beside filtered activity.
 
-Public rendering receives provider-supplied session titles and explicitly opts
+Legacy snapshot rendering receives provider-supplied session titles and explicitly opts
 in to the optional, strict provider-specific source metadata projection. It
 renders every reviewed field that Core returns. A missing title is displayed as
 `{Provider} session`; Web never introduces an `Untitled session` state. Readers

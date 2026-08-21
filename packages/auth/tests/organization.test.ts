@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 import { betterAuth } from "better-auth";
 import { hashPassword } from "better-auth/crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAuthConfig } from "../src/configs/auth.config";
+import {
+  type AuthConfigEnv,
+  createAuthConfig,
+} from "../src/configs/auth.config";
 import { organizationRoles } from "../src/organization/access-control";
 import type { CloudflareEmailSender } from "../src/utils/email";
 
@@ -1137,7 +1140,31 @@ describe("organization identity foundation", () => {
   });
 
   it("allows removing a member who does not host the designated Center Agent", async () => {
-    const { auth, harness } = createTestAuth();
+    const requestSessionInventoryCleanup = vi
+      .fn()
+      .mockResolvedValueOnce({
+        accepted: true,
+        deleted: { candidateCount: 1, inventoryCount: 2, sourceCount: 1 },
+        ok: true,
+        pending: true,
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        deleted: { candidateCount: 0, inventoryCount: 0, sourceCount: 0 },
+        ok: true,
+        pending: false,
+      });
+    const coreWorker = {
+      requestAgentActivitySessionInventoryCleanupForOrganizationMember:
+        requestSessionInventoryCleanup,
+      deleteCenterAgentMemberMemory: vi
+        .fn()
+        .mockResolvedValue({ ok: true, status: "not_found" }),
+      deleteCenterAgentOrganizationMemory: vi
+        .fn()
+        .mockResolvedValue({ ok: true, status: "not_found" }),
+    } satisfies NonNullable<AuthConfigEnv["OPENMELD_CORE_WORKER"]>;
+    const { auth, harness } = createTestAuth({ coreWorker });
     const membership = await createOrganizationWithAcceptedMember({
       auth,
       harness,
@@ -1166,6 +1193,11 @@ describe("organization identity foundation", () => {
         sql: "select id from members where id = ?",
       })
     ).toBeNull();
+    expect(requestSessionInventoryCleanup).toHaveBeenCalledTimes(2);
+    expect(requestSessionInventoryCleanup).toHaveBeenCalledWith({
+      organizationId: membership.organizationId,
+      userId: membership.memberUserId,
+    });
   });
 
   it("enforces the default owner, admin, and member organization statements", () => {
@@ -1229,6 +1261,7 @@ describe("organization identity foundation", () => {
 function createTestAuth(
   input: {
     centerAgentRemovalGuardDatabase?: "bound" | "query_failure" | "unbound";
+    coreWorker?: AuthConfigEnv["OPENMELD_CORE_WORKER"];
     enforceOriginCheck?: boolean;
     sender?: CloudflareEmailSender;
   } = {}
@@ -1263,6 +1296,7 @@ function createTestAuth(
       : harness.db;
   const databaseConfig = createAuthConfig({
     ...authConfigInput,
+    OPENMELD_CORE_WORKER: input.coreWorker,
     OPENMELD_DB: guardDatabase,
   });
   const baseAuthConfig =

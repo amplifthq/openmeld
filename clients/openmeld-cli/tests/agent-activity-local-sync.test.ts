@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   submitAgentActivityEvents: vi.fn(),
   submitAgentControllerTaskLifecycleEvents: vi.fn(),
   submitRegistration: vi.fn(),
+  syncLocalAgentSessionInventory: vi.fn(),
 }));
 
 vi.mock("@openmeld/api-client", () => ({
@@ -73,6 +74,9 @@ vi.mock("../src/agent-activity/local-observer", () => ({
   ),
   startAgentActivityTranscriptWatchers: vi.fn(() => () => Promise.resolve()),
 }));
+vi.mock("../src/agent-activity/session-inventory-sync", () => ({
+  syncLocalAgentSessionInventory: mocks.syncLocalAgentSessionInventory,
+}));
 
 let root: string | null = null;
 
@@ -98,6 +102,13 @@ beforeEach(() => {
       },
     ],
     status: "accepted",
+  });
+  mocks.syncLocalAgentSessionInventory.mockResolvedValue({
+    reason: null,
+    sessionCount: 0,
+    sourceCount: 0,
+    status: "idle",
+    submittedSourceCount: 0,
   });
 });
 
@@ -413,6 +424,60 @@ describe("Agent Activity local delivery", () => {
 
     releaseUpload?.();
     await Promise.all([syncing, unbinding]);
+    await expect(
+      listProjectBindings({ rootDir: requireRoot() })
+    ).resolves.toHaveLength(0);
+  });
+
+  it("keeps the delivery lock until both sync branches settle after a failure", async () => {
+    await seedLocalEvent();
+    let releaseActivity: (() => void) | undefined;
+    let rejectInventory: (() => void) | undefined;
+    mocks.submitAgentActivityEvents.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseActivity = () =>
+            resolve({
+              events: [{ eventId: "event-1", index: 0, outcome: "accepted" }],
+              status: "accepted",
+            });
+        })
+    );
+    mocks.syncLocalAgentSessionInventory.mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectInventory = () => reject(new Error("Session Inventory failed"));
+        })
+    );
+
+    const syncing = syncLocalAgentActivity({
+      refreshContext: false,
+      rootDir: requireRoot(),
+    });
+    const syncingFailure = expect(syncing).rejects.toThrow(
+      "Session Inventory failed"
+    );
+    await until(
+      () =>
+        mocks.submitAgentActivityEvents.mock.calls.length === 1 &&
+        mocks.syncLocalAgentSessionInventory.mock.calls.length === 1
+    );
+    rejectInventory?.();
+    let unbound = false;
+    const unbinding = unbindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      rootDir: requireRoot(),
+    }).then(() => {
+      unbound = true;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(unbound).toBe(false);
+
+    releaseActivity?.();
+    await syncingFailure;
+    await unbinding;
     await expect(
       listProjectBindings({ rootDir: requireRoot() })
     ).resolves.toHaveLength(0);

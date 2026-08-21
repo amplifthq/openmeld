@@ -424,7 +424,7 @@ describe("local service runner dual-write", () => {
     writeDaemonRuntimeLeaseMock.mockReset().mockResolvedValue(undefined);
     clearDaemonServiceRuntimeStateMock.mockReset().mockResolvedValue(undefined);
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
-      input.onLocalProjectConnected?.();
+      input.onLocalProjectConnectionsChanged?.();
       await input.touchRuntimeState(
         {
           heartbeatAt: "2026-03-14T00:00:05.000Z",

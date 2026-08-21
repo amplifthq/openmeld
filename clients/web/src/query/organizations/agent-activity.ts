@@ -1,4 +1,6 @@
 import type {
+	AgentActivitySessionInventoryQuery,
+	AgentActivitySessionInventoryResponse,
 	AgentActivitySnapshotQuery,
 	AgentActivitySnapshotResponse,
 	AgentActivityStatsQuery,
@@ -7,6 +9,7 @@ import type {
 import { queryOptions } from "@tanstack/react-query";
 import {
 	type AgentActivityFailure,
+	readCurrentAgentActivitySessions,
 	readCurrentAgentActivitySnapshot,
 	readCurrentAgentActivityStats,
 } from "#/lib/organizations/agent-activity";
@@ -22,6 +25,15 @@ export const agentActivityQueryKeys = {
 			"snapshot",
 			query,
 		] as const,
+	sessions: (
+		organizationId: string,
+		query: AgentActivitySessionInventoryQuery
+	) =>
+		[
+			...agentActivityQueryKeys.organization(organizationId),
+			"sessions",
+			query,
+		] as const,
 	stats: (organizationId: string, query: AgentActivityStatsQuery = {}) =>
 		[
 			...agentActivityQueryKeys.organization(organizationId),
@@ -29,6 +41,45 @@ export const agentActivityQueryKeys = {
 			query,
 		] as const,
 };
+
+export function agentActivitySessionsQueryOptions(
+	input: {
+		enabled?: boolean;
+		organizationId: string;
+	} & AgentActivitySessionInventoryQuery
+) {
+	const query = {
+		...(input.cursor ? { cursor: input.cursor } : {}),
+		limit: input.limit,
+		...(input.memberUserId ? { memberUserId: input.memberUserId } : {}),
+		...(input.nativeSessionId
+			? { nativeSessionId: input.nativeSessionId }
+			: {}),
+		...(input.origin ? { origin: input.origin } : {}),
+		...(input.projectId ? { projectId: input.projectId } : {}),
+		...(input.provider ? { provider: input.provider } : {}),
+		...(input.query ? { query: input.query } : {}),
+		...(input.status ? { status: input.status } : {}),
+	};
+	return queryOptions<
+		AgentActivitySessionInventoryResponse,
+		AgentActivityFailure
+	>({
+		enabled: input.enabled ?? true,
+		gcTime: baseQueryOptions.gcTime,
+		queryFn: async ({ signal }) =>
+			await readCurrentAgentActivitySessions({
+				...query,
+				organizationId: input.organizationId,
+				signal,
+			}),
+		queryKey: agentActivityQueryKeys.sessions(input.organizationId, query),
+		refetchInterval: 15_000,
+		refetchOnWindowFocus: true,
+		retry: baseQueryOptions.retry,
+		staleTime: 5000,
+	});
+}
 
 export function agentActivitySnapshotQueryOptions(
 	input: {

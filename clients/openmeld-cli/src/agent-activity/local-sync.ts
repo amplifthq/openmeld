@@ -36,6 +36,10 @@ import {
   listProjectBindings,
   removeAgentActivityBindingsWhileDeliveryLocked,
 } from "./project-bindings";
+import {
+  type LocalAgentSessionInventorySyncResult,
+  syncLocalAgentSessionInventory,
+} from "./session-inventory-sync";
 
 export type AgentActivityLocalSyncResult = {
   controllerTaskEventSubmittedCount: number;
@@ -45,6 +49,7 @@ export type AgentActivityLocalSyncResult = {
   health: Awaited<ReturnType<typeof readAgentActivityOutboxHealth>>;
   observedCount: number;
   reason: string | null;
+  sessionInventory: LocalAgentSessionInventorySyncResult;
   status: "idle" | "submitted" | "unavailable";
   submittedCount: number;
 };
@@ -71,16 +76,61 @@ export async function syncLocalAgentActivity(input?: {
           rootDir: input?.rootDir,
         });
   const observedCount = inbox.observedCount + reconciliation.observedCount;
-  const result = await withAgentActivityDeliveryLock(
+  const [result, sessionInventory] = await withAgentActivityDeliveryLock(
     { rootDir: input?.rootDir },
-    async () => await submitDueAgentActivity(input, observedCount)
+    async () => {
+      const [activityResult, inventoryResult] = await Promise.allSettled([
+        submitDueAgentActivity(input, observedCount),
+        input?.reconcile === false
+          ? Promise.resolve(idleSessionInventoryResult())
+          : syncLocalAgentSessionInventory({ rootDir: input?.rootDir }),
+      ]);
+      if (activityResult.status === "rejected") {
+        throw activityResult.reason;
+      }
+      if (inventoryResult.status === "rejected") {
+        throw inventoryResult.reason;
+      }
+      return [activityResult.value, inventoryResult.value] as const;
+    }
   );
   if (input?.refreshContext !== false) {
     await refreshAgentActivityContextCaches({ rootDir: input?.rootDir }).catch(
       () => undefined
     );
   }
-  return result;
+  return {
+    ...result,
+    reason:
+      result.reason ??
+      (sessionInventory.status === "unavailable"
+        ? sessionInventory.reason
+        : null),
+    sessionInventory,
+    status: resolveCombinedAgentActivitySyncStatus({
+      activityStatus: result.status,
+      sessionInventoryStatus: sessionInventory.status,
+    }),
+  };
+}
+
+export function resolveCombinedAgentActivitySyncStatus(input: {
+  activityStatus: AgentActivityLocalSyncResult["status"];
+  sessionInventoryStatus: LocalAgentSessionInventorySyncResult["status"];
+}): AgentActivityLocalSyncResult["status"] {
+  if (
+    input.activityStatus === "unavailable" ||
+    input.sessionInventoryStatus === "unavailable"
+  ) {
+    return "unavailable";
+  }
+  if (
+    input.activityStatus === "submitted" ||
+    input.sessionInventoryStatus === "submitted"
+  ) {
+    return "submitted";
+  }
+  return "idle";
 }
 
 async function submitDueAgentActivity(
@@ -135,6 +185,7 @@ async function submitDueAgentActivity(
       health,
       observedCount,
       reason: null,
+      sessionInventory: idleSessionInventoryResult(),
       status: "idle",
       submittedCount: 0,
     };
@@ -237,6 +288,7 @@ async function submitDueAgentActivity(
       health,
       observedCount,
       reason: null,
+      sessionInventory: idleSessionInventoryResult(),
       status: "submitted",
       submittedCount:
         response?.events.filter(
@@ -505,7 +557,7 @@ export function startLocalAgentActivitySyncLoop(input: {
       nextContextRefreshAtMs = nowMs + 60_000;
     }
     if (reconcile) {
-      nextReconciliationAtMs = nowMs + 15 * 60_000;
+      nextReconciliationAtMs = nowMs + 5 * 60_000;
     }
     inFlight = syncLocalAgentActivity({ reconcile, refreshContext })
       .then((result) => input.onResult?.(result))
@@ -554,8 +606,19 @@ async function unavailable(
     health,
     observedCount,
     reason,
+    sessionInventory: idleSessionInventoryResult(),
     status: "unavailable",
     submittedCount: 0,
+  };
+}
+
+function idleSessionInventoryResult(): LocalAgentSessionInventorySyncResult {
+  return {
+    reason: null,
+    sessionCount: 0,
+    sourceCount: 0,
+    status: "idle",
+    submittedSourceCount: 0,
   };
 }
 

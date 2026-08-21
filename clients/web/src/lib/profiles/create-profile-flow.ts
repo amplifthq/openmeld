@@ -2,6 +2,7 @@ import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	AgentControllerPermissionMode,
 	AgentProfileBindingOpenCodePermission,
+	AgentProfileBindingSessionInventorySelection,
 	AuthProfileView,
 	DaemonServiceLane,
 } from "@openmeld/schemas/types";
@@ -31,12 +32,21 @@ export type NewProfileErrorState = {
 };
 
 export class NewProfileLocalSetupError extends Error {
+	bindingEstablished: boolean;
+	reasonCodes: readonly string[];
 	setupRefreshActionLabel: string;
 	setupRefreshAvailable: boolean;
 
-	constructor(input: NewProfileErrorState) {
+	constructor(
+		input: NewProfileErrorState & {
+			bindingEstablished?: boolean;
+			reasonCodes?: readonly string[];
+		}
+	) {
 		super(input.message);
 		this.name = "NewProfileLocalSetupError";
+		this.bindingEstablished = input.bindingEstablished ?? false;
+		this.reasonCodes = [...(input.reasonCodes ?? [])];
 		this.setupRefreshActionLabel = input.setupRefreshActionLabel;
 		this.setupRefreshAvailable = input.setupRefreshAvailable;
 	}
@@ -51,6 +61,7 @@ export type NewProfileCreationInput = {
 };
 
 export type NewAgentProfileLocalSetupInput = {
+	agentControllerConversationId?: string | null;
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	boundAgentId: string;
 	currentServiceCanSetProfileWorkspace?: boolean;
@@ -64,6 +75,7 @@ export type NewAgentProfileLocalSetupInput = {
 	reasoningLevel?: string | null;
 	runtimeLane: DaemonServiceLane | null;
 	selectedHumanProfileId: string | null;
+	sessionInventorySelection?: AgentProfileBindingSessionInventorySelection;
 };
 
 export async function createNewProfile(
@@ -133,6 +145,7 @@ export async function setupNewAgentProfileLocalState(
 		if (input.currentServiceCanSetProfileWorkspace === true) {
 			await configureNewAgentProfileWorkspace({
 				agentProfileId: input.profile.openMeldProfileId,
+				bindingEstablished: false,
 				projectFolderPath: input.projectFolderPath ?? null,
 				selectedHumanProfileId: input.selectedHumanProfileId,
 			});
@@ -141,6 +154,7 @@ export async function setupNewAgentProfileLocalState(
 	}
 
 	await bindNewAgentProfileToLocalAgent({
+		agentControllerConversationId: input.agentControllerConversationId ?? null,
 		...(input.agentControllerPermissionMode
 			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
 			: {}),
@@ -152,9 +166,13 @@ export async function setupNewAgentProfileLocalState(
 		reasoningLevel: input.reasoningLevel ?? null,
 		runtimeLane: input.runtimeLane,
 		selectedHumanProfileId: input.selectedHumanProfileId,
+		...(input.sessionInventorySelection
+			? { sessionInventorySelection: input.sessionInventorySelection }
+			: {}),
 	});
 	await configureNewAgentProfileWorkspace({
 		agentProfileId: input.profile.openMeldProfileId,
+		bindingEstablished: true,
 		projectFolderPath: input.projectFolderPath ?? null,
 		selectedHumanProfileId: input.selectedHumanProfileId,
 	});
@@ -162,6 +180,7 @@ export async function setupNewAgentProfileLocalState(
 		return input.profile;
 	}
 	return await configureNewAgentProfileDefaultProject({
+		bindingEstablished: true,
 		defaultProjectId: input.defaultProjectId,
 		organizationId,
 		profile: input.profile,
@@ -180,6 +199,7 @@ function requireNewAgentProfileOrganizationId(
 }
 
 async function bindNewAgentProfileToLocalAgent(input: {
+	agentControllerConversationId: string | null;
 	agentControllerPermissionMode?: AgentControllerPermissionMode;
 	agentProfileId: string;
 	agentControllerRef: string;
@@ -189,6 +209,7 @@ async function bindNewAgentProfileToLocalAgent(input: {
 	reasoningLevel: string | null;
 	runtimeLane: DaemonServiceLane | null;
 	selectedHumanProfileId: string | null;
+	sessionInventorySelection?: AgentProfileBindingSessionInventorySelection;
 }): Promise<void> {
 	const bindingResult = await ensureWebAgentProfileRuntimeBinding({
 		actorProfileId: input.selectedHumanProfileId,
@@ -197,15 +218,22 @@ async function bindNewAgentProfileToLocalAgent(input: {
 			? { agentControllerPermissionMode: input.agentControllerPermissionMode }
 			: {}),
 		agentControllerRef: input.agentControllerRef,
+		...(input.agentControllerConversationId
+			? { agentControllerConversationId: input.agentControllerConversationId }
+			: {}),
 		deviceId: input.deviceId,
 		modelId: input.modelId,
 		openCodePermission: input.openCodePermission,
 		reasoningLevel: input.reasoningLevel,
 		runtimeLane: input.runtimeLane,
+		...(input.sessionInventorySelection
+			? { sessionInventorySelection: input.sessionInventorySelection }
+			: {}),
 	});
 	if (bindingResult.status !== "accepted") {
 		throw new NewProfileLocalSetupError({
 			message: formatWebAgentProfileRuntimeBindingFailure(bindingResult),
+			reasonCodes: bindingResult.reasonCodes,
 			setupRefreshActionLabel:
 				formatWebAgentProfileRuntimeBindingFailureActionLabel(bindingResult),
 			setupRefreshAvailable:
@@ -216,6 +244,7 @@ async function bindNewAgentProfileToLocalAgent(input: {
 
 async function configureNewAgentProfileWorkspace(input: {
 	agentProfileId: string;
+	bindingEstablished: boolean;
 	projectFolderPath: string | null;
 	selectedHumanProfileId: string | null;
 }): Promise<void> {
@@ -230,6 +259,7 @@ async function configureNewAgentProfileWorkspace(input: {
 	} catch (error) {
 		const failure = toStructuredApiClientFailure(error);
 		throw new NewProfileLocalSetupError({
+			bindingEstablished: input.bindingEstablished,
 			message:
 				failure.message ||
 				"OpenMeld created the Agent, but couldn't prepare its working folder on this computer.",
@@ -240,6 +270,7 @@ async function configureNewAgentProfileWorkspace(input: {
 }
 
 async function configureNewAgentProfileDefaultProject(input: {
+	bindingEstablished: boolean;
 	defaultProjectId: string;
 	organizationId: string;
 	profile: AuthProfileView;
@@ -255,6 +286,7 @@ async function configureNewAgentProfileDefaultProject(input: {
 	} catch (error) {
 		const failure = toStructuredApiClientFailure(error);
 		throw new NewProfileLocalSetupError({
+			bindingEstablished: input.bindingEstablished,
 			message:
 				failure.message ||
 				"OpenMeld created the Agent, but couldn't set its Default Project.",

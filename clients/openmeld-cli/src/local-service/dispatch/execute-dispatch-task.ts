@@ -73,6 +73,7 @@ import {
   resolveSpacePublicationRequirement,
   tryExtractTrailingStructuredSpaceActionBlock,
 } from "@openmeld/space-mesh";
+import { recordOpenMeldCreatedLocalAgentSession } from "../../agent-activity/session-inventory-origin-store";
 import { resolveBaseUrl } from "../../config/base-url";
 import { buildOpenMeldRequestContextFromProfileIdentity } from "../../config/openmeld-request-context";
 import { emitDaemonDispatchJournalEvent } from "../../local-service/dispatch/daemon-dispatch-journal";
@@ -1279,6 +1280,7 @@ export async function handleDispatchDeliverFrame(input: {
           "dispatch.ledger.unavailable: dispatch ledger is not initialized",
       });
     }
+    let recordedOpenMeldCreatedSessionId: string | null = null;
     const recordProviderConversationObservation = (observation: {
       agentControllerConversationId: string | null | undefined;
       agentControllerConversation?: AgentControllerConversationRef | null;
@@ -1298,6 +1300,28 @@ export async function handleDispatchDeliverFrame(input: {
         });
       observedProviderConversationId = agentControllerConversationId;
       observedProviderConversation = agentControllerConversation;
+      if (
+        contextIdForDispatch === null &&
+        recordedOpenMeldCreatedSessionId !== agentControllerConversationId
+      ) {
+        recordedOpenMeldCreatedSessionId = agentControllerConversationId;
+        recordOpenMeldCreatedLocalAgentSession({
+          agentControllerRef: parsedTask.agentControllerRef,
+          nativeSessionId: agentControllerConversationId,
+        }).catch((error) => {
+          emitRunLine({
+            presenter: input.presenter,
+            code: "daemon.run.session_inventory_origin_record_failed",
+            text: `Session Inventory origin could not be recorded for task ${parsedTask.taskId}`,
+            payload: {
+              dispatchId: parsedTask.dispatchId,
+              errorMessage: toErrorMessage(error),
+              targetProfileId: parsedTask.targetProfileId,
+              taskId: parsedTask.taskId,
+            },
+          });
+        });
+      }
       const persistProviderConversationObservation = withLedgerStateTransaction(
         {
           invalidStateStrategy: "backup_and_reset",

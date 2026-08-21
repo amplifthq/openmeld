@@ -35,6 +35,7 @@ const listStartProfilesMock = vi.hoisted(() => vi.fn());
 const getProfileCapabilitiesMock = vi.hoisted(() => vi.fn());
 const createStartHumanProfileMock = vi.hoisted(() => vi.fn());
 const createStartAgentProfileMock = vi.hoisted(() => vi.fn());
+const deleteStartAgentProfileMock = vi.hoisted(() => vi.fn());
 const addMembersMock = vi.hoisted(() => vi.fn());
 const recordProfileSpaceHistoryMock = vi.hoisted(() => vi.fn());
 const refreshAllMock = vi.hoisted(() => vi.fn());
@@ -100,6 +101,12 @@ vi.mock("#/lib/profiles/create-agent-profile", () => ({
 	createStartAgentProfile: (
 		...args: Parameters<typeof createStartAgentProfileMock>
 	) => createStartAgentProfileMock(...args),
+}));
+
+vi.mock("#/lib/profiles/delete-agent-profile", () => ({
+	deleteStartAgentProfile: (
+		...args: Parameters<typeof deleteStartAgentProfileMock>
+	) => deleteStartAgentProfileMock(...args),
 }));
 
 vi.mock("#/lib/spaces/api", () => ({
@@ -320,6 +327,45 @@ function buildFakeRecovery(
 	} as unknown as DialogRecovery;
 }
 
+function buildCrossComputerRecovery(): DialogRecovery {
+	const codexCatalog = [
+		buildCatalogEntry({
+			agentId: "codex",
+			launchStatus: "ready",
+			selectable: true,
+		}),
+	];
+	const recovery = buildFakeRecovery(codexCatalog);
+	const currentComputer = recovery.localRuntimesQuery.data?.localRuntimes[0];
+	if (!currentComputer) {
+		throw new Error("Expected the fake current Computer.");
+	}
+	return {
+		...recovery,
+		localRuntimesQuery: {
+			...recovery.localRuntimesQuery,
+			data: {
+				...recovery.localRuntimesQuery.data,
+				localRuntimes: [
+					{ ...currentComputer, connectedComputerId: "computer-current" },
+					{
+						...currentComputer,
+						connectedComputerId: "computer-session",
+						deviceId: "device-session",
+						executionTargets: [
+							{
+								...currentComputer.executionTargets[0],
+								deviceId: "device-session",
+								runtimeLane: "canary",
+							},
+						],
+					},
+				],
+			},
+		},
+	} as DialogRecovery;
+}
+
 function buildCatalogEntry(input: {
 	agentId: string;
 	detected?: boolean;
@@ -448,6 +494,9 @@ describe("CreateProfileDialog", () => {
 		createStartAgentProfileMock
 			.mockReset()
 			.mockResolvedValue(buildAgentProfileFixture());
+		deleteStartAgentProfileMock
+			.mockReset()
+			.mockResolvedValue(buildAgentProfileFixture());
 		addMembersMock.mockReset().mockResolvedValue({
 			addedMemberIds: [NEW_AGENT_ID],
 			alreadyMemberIds: [],
@@ -525,6 +574,184 @@ describe("CreateProfileDialog", () => {
 			}));
 		toastErrorMock.mockReset();
 		toastWarningMock.mockReset();
+	});
+
+	it("prefills a working Session Resume and gives only the lightweight Fork suggestion", async () => {
+		renderCreateProfileDialog({
+			agentActivitySessionPreset: {
+				agentControllerRef: "builtin:codex",
+				computerId: "computer-1",
+				localAgentName: "Codex",
+				mode: "resume",
+				nativeSessionId: "native-codex-thread-1",
+				nativeSessionTitle: "Build Session Inventory",
+				organizationId: "organization-123",
+				ownerUserId: "user-123",
+				projectId: "project-1",
+				provider: "codex",
+				status: "working",
+			},
+		});
+
+		expect(
+			await screen.findByText(
+				"Connect this working Session to a new Agent Profile. Forking preserves the current work when your Local Agent supports it."
+			)
+		).toBeTruthy();
+		expect(
+			(screen.getByLabelText("Profile name") as HTMLInputElement).value
+		).toBe("Build Session Inventory");
+		expect(
+			screen.getByRole("heading", { name: "Create a new Agent Profile" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("tab", { name: HUMAN_PROFILE_CARD_PATTERN })
+		).toBeNull();
+		expect(
+			screen.queryByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
+		).toBeNull();
+		expect(screen.getByText("Local agent for this Session")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"This Session stays connected to Codex on this computer."
+			)
+		).toBeTruthy();
+		expect(screen.queryByText("Choose later")).toBeNull();
+		expect(
+			(
+				screen.getByRole("button", {
+					name: CREATE_PROFILE_BUTTON_PATTERN,
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		expect(
+			await screen.findByText(
+				"Connect this Session's computer and make Codex available before creating the profile."
+			)
+		).toBeTruthy();
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
+		expect(screen.queryByText("Recommended score")).toBeNull();
+	});
+
+	it("targets Session Resume at the selected Session Computer", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		renderCreateProfileDialog({
+			agentActivitySessionPreset: {
+				agentControllerRef: "builtin:codex",
+				computerId: "computer-session",
+				localAgentName: "Codex",
+				mode: "resume",
+				nativeSessionId: "native-codex-thread-1",
+				nativeSessionTitle: "Build Session Inventory",
+				organizationId: "organization-123",
+				ownerUserId: "user-123",
+				projectId: "project-1",
+				provider: "codex",
+				status: "idle",
+			},
+			recovery: buildCrossComputerRecovery(),
+		});
+
+		const submitButton = await screen.findByRole("button", {
+			name: CREATE_PROFILE_BUTTON_PATTERN,
+		});
+		fireEvent.click(
+			await screen.findByRole("combobox", { name: "Working folder" })
+		);
+		fireEvent.click(
+			screen.getByRole("option", { name: "Let OpenMeld choose" })
+		);
+		await waitFor(() => {
+			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
+		});
+		fireEvent.click(submitButton);
+
+		await waitFor(() => {
+			expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					agentControllerConversationId: "native-codex-thread-1",
+					deviceId: "device-session",
+					runtimeLane: "canary",
+					sessionInventorySelection: expect.objectContaining({
+						computerId: "computer-session",
+					}),
+				})
+			);
+		});
+	});
+
+	it("uses a fresh creation key after stale Resume cleanup", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		ensureRuntimeBindingMock
+			.mockResolvedValueOnce({
+				agentControllerRef: "builtin:codex",
+				reason: "binding_rejected",
+				reasonCodes: ["agent_profile_binding.session_resume_unavailable"],
+				routable: false,
+				status: "rejected",
+			})
+			.mockResolvedValueOnce({
+				agentControllerRef: "builtin:codex",
+				deviceId: "device-session",
+				lane: "canary",
+				outcome: "created",
+				reasonCodes: ["agent_profile_binding.command_eligible"],
+				routable: true,
+				openMeldServiceRuntimeId: {
+					source: "runtime_registry_authority",
+					value: "runtime-123",
+				},
+				status: "accepted",
+			});
+		renderCreateProfileDialog({
+			agentActivitySessionPreset: {
+				agentControllerRef: "builtin:codex",
+				computerId: "computer-session",
+				localAgentName: "Codex",
+				mode: "resume",
+				nativeSessionId: "native-codex-thread-1",
+				nativeSessionTitle: "Build Session Inventory",
+				organizationId: "organization-123",
+				ownerUserId: "user-123",
+				projectId: "project-1",
+				provider: "codex",
+				status: "idle",
+			},
+			recovery: buildCrossComputerRecovery(),
+		});
+
+		const submitButton = await screen.findByRole("button", {
+			name: CREATE_PROFILE_BUTTON_PATTERN,
+		});
+		fireEvent.click(
+			await screen.findByRole("combobox", { name: "Working folder" })
+		);
+		fireEvent.click(
+			screen.getByRole("option", { name: "Let OpenMeld choose" })
+		);
+		await waitFor(() => {
+			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
+		});
+		fireEvent.click(submitButton);
+
+		await waitFor(() => {
+			expect(deleteStartAgentProfileMock).toHaveBeenCalledWith({
+				data: NEW_AGENT_ID,
+			});
+			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
+		});
+		const firstKey =
+			createStartAgentProfileMock.mock.calls[0]?.[0].data.idempotencyKey;
+		fireEvent.click(submitButton);
+
+		await waitFor(() => {
+			expect(createStartAgentProfileMock).toHaveBeenCalledTimes(2);
+		});
+		const secondKey =
+			createStartAgentProfileMock.mock.calls[1]?.[0].data.idempotencyKey;
+		expect(firstKey).toEqual(expect.any(String));
+		expect(secondKey).toEqual(expect.any(String));
+		expect(secondKey).not.toBe(firstKey);
 	});
 
 	afterEach(() => {

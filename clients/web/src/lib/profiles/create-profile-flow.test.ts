@@ -110,6 +110,80 @@ describe("new Agent Profile local setup", () => {
 		});
 	});
 
+	it("binds a resumed Agent Profile to the selected Native Session ID", async () => {
+		const sessionInventorySelection = {
+			computerId: "computer-1",
+			nativeSessionId: "native-codex-thread-1",
+			organizationId: "organization-1",
+			ownerUserId: "user-1",
+			projectId: "project-1",
+			provider: "codex" as const,
+		};
+		await createAndSetupAgent({
+			agentControllerConversationId: "native-codex-thread-1",
+			boundAgentId: "codex",
+			deviceId: "device-1",
+			organizationId: "organization-1",
+			profileName: "Research Agent",
+			runtimeLane: "dev-local",
+			selectedHumanProfileId: "profile-human",
+			sessionInventorySelection,
+		});
+
+		expect(ensureRuntimeBindingMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentControllerConversationId: "native-codex-thread-1",
+				agentControllerRef: "builtin:codex",
+				sessionInventorySelection,
+			})
+		);
+	});
+
+	it("marks a rejected runtime Binding as not established", async () => {
+		ensureRuntimeBindingMock.mockResolvedValue({
+			reasonCodes: ["agent_profile_binding.runtime_offline"],
+			status: "rejected",
+		});
+
+		await expect(
+			createAndSetupAgent({
+				agentControllerConversationId: "native-codex-thread-1",
+				boundAgentId: "codex",
+				deviceId: "device-1",
+				organizationId: "organization-1",
+				profileName: "Research Agent",
+				runtimeLane: "dev-local",
+				selectedHumanProfileId: "profile-human",
+			})
+		).rejects.toMatchObject({
+			bindingEstablished: false,
+			message: "Binding failed.",
+			reasonCodes: ["agent_profile_binding.runtime_offline"],
+		});
+		expect(updateWorkspaceMock).not.toHaveBeenCalled();
+	});
+
+	it("marks a workspace failure after an accepted runtime Binding", async () => {
+		updateWorkspaceMock.mockRejectedValue(
+			new Error("Computer workspace is unavailable.")
+		);
+
+		await expect(
+			createAndSetupAgent({
+				agentControllerConversationId: "native-codex-thread-1",
+				boundAgentId: "codex",
+				deviceId: "device-1",
+				organizationId: "organization-1",
+				profileName: "Research Agent",
+				runtimeLane: "dev-local",
+				selectedHumanProfileId: "profile-human",
+			})
+		).rejects.toMatchObject({
+			bindingEstablished: true,
+			message: "Computer workspace is unavailable.",
+		});
+	});
+
 	it("preserves the existing managed-workspace behavior when no Project is selected", async () => {
 		await createAndSetupAgent({
 			boundAgentId: "codex",

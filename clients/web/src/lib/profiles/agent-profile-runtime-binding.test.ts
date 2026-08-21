@@ -12,6 +12,9 @@ const getExecutionReadinessMock = vi.hoisted(() => vi.fn());
 const getPrepareReadinessMock = vi.hoisted(() => vi.fn());
 const notifyRouteCatalogChangedMock = vi.hoisted(() => vi.fn());
 const createWebOpenMeldApiFoundationMock = vi.hoisted(() => vi.fn());
+const createOrganizationScopedWebOpenMeldApiFoundationMock = vi.hoisted(() =>
+	vi.fn()
+);
 
 vi.mock("@openmeld/api-client", async () => {
 	const actual = await vi.importActual<typeof import("@openmeld/api-client")>(
@@ -32,6 +35,8 @@ vi.mock("@openmeld/api-client", async () => {
 });
 
 vi.mock("#/lib/openmeld-api/client", () => ({
+	createOrganizationScopedWebOpenMeldApiFoundation:
+		createOrganizationScopedWebOpenMeldApiFoundationMock,
 	createUnscopedWebOpenMeldApiFoundation: createWebOpenMeldApiFoundationMock,
 }));
 
@@ -40,6 +45,9 @@ describe("ensureWebAgentProfileRuntimeBinding", () => {
 		createWebOpenMeldApiFoundationMock.mockReset().mockReturnValue({
 			requestJson: vi.fn(),
 		});
+		createOrganizationScopedWebOpenMeldApiFoundationMock
+			.mockReset()
+			.mockReturnValue({ requestJson: vi.fn() });
 		getExecutionReadinessMock
 			.mockReset()
 			.mockResolvedValue(readyExecutionReadiness());
@@ -144,6 +152,40 @@ describe("ensureWebAgentProfileRuntimeBinding", () => {
 				reasoningLevel: "medium",
 			})
 		);
+	});
+
+	it("passes the provider-native Session ID into the authoritative Binding request", async () => {
+		const sessionInventorySelection = {
+			computerId: "computer-1",
+			nativeSessionId: "native-codex-thread-1",
+			organizationId: "organization-1",
+			ownerUserId: "user-1",
+			projectId: "project-1",
+			provider: "codex" as const,
+		};
+		await ensureWebAgentProfileRuntimeBinding({
+			actorProfileId: "human-1",
+			agentControllerConversationId: "native-codex-thread-1",
+			agentProfileId: "agt-codex",
+			agentControllerRef: "builtin:codex",
+			deviceId: "device-1",
+			runtimeLane: "canary",
+			sessionInventorySelection,
+		});
+
+		expect(ensurePrimaryBindingMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentControllerConversationId: "native-codex-thread-1",
+				agentProfileId: "agt-codex",
+				sessionInventorySelection,
+			})
+		);
+		expect(
+			createOrganizationScopedWebOpenMeldApiFoundationMock
+		).toHaveBeenCalledWith({
+			openMeldProfileId: "human-1",
+			organizationId: "organization-1",
+		});
 	});
 
 	it("passes selected Agent Controller Permission Mode into the Binding request", async () => {
@@ -516,6 +558,20 @@ describe("ensureWebAgentProfileRuntimeBinding", () => {
 			status: "rejected",
 		});
 		expect(ensurePrimaryBindingMock).toHaveBeenCalledTimes(1);
+	});
+
+	it("explains when the authoritative Session is no longer resumable", () => {
+		expect(
+			formatWebAgentProfileRuntimeBindingFailure({
+				agentControllerRef: "builtin:codex",
+				reason: "binding_rejected",
+				reasonCodes: ["agent_profile_binding.session_resume_unavailable"],
+				routable: false,
+				status: "rejected",
+			})
+		).toBe(
+			"This Session changed or is no longer available to resume. Refresh Agent Activity and choose it again."
+		);
 	});
 
 	it("explains the missing local agent report after bounded retries are exhausted", async () => {

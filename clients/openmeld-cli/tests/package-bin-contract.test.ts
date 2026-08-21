@@ -7,4 +7,8 @@ describe("package public bin contract", () => {
       openmeld: "dist/openmeld.js",
     });
   });
+
+  it("declares only Node releases supported by its native SQLite reader", () => {
+    expect(packageJson.engines.node).toBe("20.x || >=22 <26");
+  });
 });

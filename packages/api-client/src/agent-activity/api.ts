@@ -1,4 +1,6 @@
 import {
+  agentActivitySessionInventoryQuerySchema,
+  agentActivitySessionInventoryResponseSchema,
   agentActivitySnapshotQuerySchema,
   agentActivitySnapshotResponseSchema,
   agentActivityStatsQuerySchema,
@@ -6,6 +8,7 @@ import {
 } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
 import {
+  buildAgentActivitySessionsPath,
   buildAgentActivitySnapshotPath,
   buildAgentActivityStatsPath,
 } from "./routes";
@@ -17,6 +20,37 @@ import type {
 export const createAgentActivityApi: CreateAgentActivityApi = (
   client: OpenMeldApiClientFoundation
 ) => ({
+  readSessions: async (input = {}) => {
+    const query = requireValidInput(
+      agentActivitySessionInventoryQuerySchema,
+      {
+        ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+        ...(input.limit === undefined ? {} : { limit: input.limit }),
+        ...(input.memberUserId === undefined
+          ? {}
+          : { memberUserId: input.memberUserId }),
+        ...(input.nativeSessionId === undefined
+          ? {}
+          : { nativeSessionId: input.nativeSessionId }),
+        ...(input.origin === undefined ? {} : { origin: input.origin }),
+        ...(input.projectId === undefined
+          ? {}
+          : { projectId: input.projectId }),
+        ...(input.provider === undefined ? {} : { provider: input.provider }),
+        ...(input.query === undefined ? {} : { query: input.query }),
+        ...(input.status === undefined ? {} : { status: input.status }),
+      },
+      "Agent Activity Session Inventory request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      invalidMessage: "invalid Agent Activity Session Inventory response",
+      method: "GET",
+      operation: "agent_activity.sessions.read",
+      schema: agentActivitySessionInventoryResponseSchema,
+      url: buildAgentActivitySessionsPath(query),
+    });
+  },
   readSnapshot: async (input = {}) => {
     const query = requireValidInput(
       agentActivitySnapshotQuerySchema,

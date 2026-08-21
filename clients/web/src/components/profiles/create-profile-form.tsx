@@ -71,8 +71,10 @@ export function CreateProfileForm(input: {
 	isResolvingAccount: boolean;
 	isResolvingLocalAgents: boolean;
 	isSubmitting: boolean;
+	lockLocalAgentSelection?: boolean;
 	modelCatalog: ModelCatalog | null;
 	localFolderPickerDeviceId: string | null;
+	allowProfileKindSelection: boolean;
 	organizationWakeAccessSlot?: ReactNode;
 	projectSelectionBlockReason?: string | null;
 	projectSelectionSlot?: ReactNode;
@@ -105,6 +107,7 @@ export function CreateProfileForm(input: {
 	const agentBindingHelpText = resolveAgentBindingHelpText({
 		availableLocalAgentCount: input.availableLocalAgentIds.length,
 		isResolvingLocalAgents: input.isResolvingLocalAgents,
+		locked: input.lockLocalAgentSelection === true,
 	});
 
 	return (
@@ -112,13 +115,15 @@ export function CreateProfileForm(input: {
 			className="grid w-full min-w-0 gap-4"
 			data-testid="create-profile-panel"
 		>
-			<ProfileKindTabs
-				additionalHumanProfileCreationEnabled={
-					input.additionalHumanProfileCreationEnabled
-				}
-				onSelect={input.onSelectProfileKind}
-				value={input.profileKind}
-			/>
+			{input.allowProfileKindSelection ? (
+				<ProfileKindTabs
+					additionalHumanProfileCreationEnabled={
+						input.additionalHumanProfileCreationEnabled
+					}
+					onSelect={input.onSelectProfileKind}
+					value={input.profileKind}
+				/>
+			) : null}
 			<form className="grid min-w-0 gap-4" onSubmit={input.onSubmit}>
 				<div className="grid min-w-0 gap-2">
 					<Label htmlFor="create-profile-name-input">Profile name</Label>
@@ -139,6 +144,7 @@ export function CreateProfileForm(input: {
 						availableLocalAgentIds={input.availableLocalAgentIds}
 						disabled={input.isSubmitting}
 						isResolving={input.isResolvingLocalAgents}
+						locked={input.lockLocalAgentSelection}
 						onChange={input.onChangeBoundAgentId}
 						value={input.boundAgentId}
 					/>
@@ -312,7 +318,11 @@ function ProjectFolderField(input: {
 function resolveAgentBindingHelpText(input: {
 	availableLocalAgentCount: number;
 	isResolvingLocalAgents: boolean;
+	locked: boolean;
 }) {
+	if (input.locked) {
+		return "The Agent Profile must use the same local agent as this Session.";
+	}
 	if (input.isResolvingLocalAgents) {
 		return "Checking local agents on this computer.";
 	}

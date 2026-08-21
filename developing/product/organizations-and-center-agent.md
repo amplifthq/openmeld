@@ -1314,10 +1314,13 @@ delivery before every connected-member operation.
 
 Project listing and Agent Activity use explicit ordinary-member read
 projections. An unlinked connected member may list Organization Projects but
-receives no creator-specific management authority. The Agent Activity tool
-returns only the existing public snapshot, which excludes paths, prompts,
-transcripts, and private provider metadata. Project mutations and member-owned
-Activity or local context remain identity-gated.
+receives no creator-specific management authority. The historical Agent
+Activity tool returns the public bounded snapshot. The Session Inventory tool
+returns the same paginated public Session contract used by Web and CLI,
+including provider-native Session ids but excluding paths, prompts,
+transcripts, internal runtime identity, and private provider metadata. Project
+mutations and member-owned Activity or local context remain identity-gated;
+seeing a Session id never grants Resume, Fork, Binding, or Space authority.
 
 Personal memory, member Apps, owner-level Local Agent or Computer details,
 role-restricted actions, destructive confirmation, durable member-owned
@@ -2374,10 +2377,11 @@ presence, retention, ingestion, digest, and read-surface rules are owned by
 `developing/product/agent-activity.md` and must not be re-derived here.
 
 The earlier Session Sync framing is retired. Provider-supplied session titles,
-including provider-generated thread names, and reviewed source metadata are
-shared Organization context. Full prompts, transcripts, replies, reasoning,
-file contents, local paths, raw session ids, and arbitrary provider metadata
-are not Agent Activity inputs.
+including provider-generated thread names, reviewed source metadata, and the
+provider-native Session id in the current Session Inventory are shared
+Organization context. Full prompts, transcripts, replies, reasoning, file
+contents, local paths, internal device/runtime ids, and arbitrary provider
+metadata are not Agent Activity inputs.
 
 Agent Activity is separate from Agent Profile Wake readiness and
 RuntimeCoordinator execution truth. Organization directory presence cannot be

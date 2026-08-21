@@ -1444,6 +1444,14 @@ surface adopts official features where they are free**:
   session, claim work, Wake an Agent Profile, or turn activity into execution
   authority. It remains available during interactive member and Routine turns.
 
+  The read-only `openmeld_list_agent_activity_sessions` tool uses the same
+  verified speaker or reauthorized Routine member path and calls Core's
+  canonical paginated Session Inventory projection. It returns the same public
+  Owner, Project, Computer, Local Agent, native Session id/title, status,
+  origin, capability, Binding, and coverage facts as Web and CLI. It cannot
+  infer a capability, read Session content, or turn a visible Session id into
+  Resume, Fork, Binding, or Space authority.
+
   The read-only `openmeld_read_changelog` tool uses the same verified current
   human speaker or reauthorized delegated member path and a private Core RPC.
   Core reads and validates the official GitHub-backed machine index; Remote

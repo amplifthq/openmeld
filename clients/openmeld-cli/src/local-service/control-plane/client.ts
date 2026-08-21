@@ -3,6 +3,8 @@ import type {
   OpenMeldDaemonControlPlaneRequest,
   OpenMeldDaemonConversationExecutionStatusPayload,
   OpenMeldDaemonConversationExecutionStatusRequestPayload,
+  OpenMeldDaemonRequestAgentActivitySyncPayload,
+  OpenMeldDaemonRequestAgentActivitySyncRequestPayload,
   OpenMeldDaemonSetLocalAgentEnabledPayload,
   OpenMeldDaemonSetLocalAgentEnabledRequestPayload,
   OpenMeldDaemonShutdownRequestPayload,
@@ -122,6 +124,34 @@ export async function requestLocalSyncRouteCatalog(input: {
     throw new LocalDaemonControlPlaneClientError(
       "daemon.control.invalid_response",
       "local daemon control returned an unexpected response for route catalog sync"
+    );
+  }
+  return response.payload;
+}
+
+export async function requestLocalAgentActivitySync(input: {
+  endpoint?: string;
+  payload: OpenMeldDaemonRequestAgentActivitySyncRequestPayload;
+  timeoutMs?: number;
+}): Promise<OpenMeldDaemonRequestAgentActivitySyncPayload> {
+  let response: OpenMeldDaemonControlPlaneResponse;
+  try {
+    response = await sendLocalDaemonControlPlaneRequest({
+      endpoint: input.endpoint,
+      timeoutMs: input.timeoutMs,
+      request: {
+        v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
+        command: "request_agent_activity_sync",
+        payload: input.payload,
+      },
+    });
+  } catch (error) {
+    throw rewriteDaemonControlPlaneContractMismatch(error);
+  }
+  if (response.code !== "service.agent_activity_sync_requested") {
+    throw new LocalDaemonControlPlaneClientError(
+      "daemon.control.invalid_response",
+      "local daemon control returned an unexpected response for Agent Activity sync"
     );
   }
   return response.payload;

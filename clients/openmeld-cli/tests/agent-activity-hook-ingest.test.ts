@@ -6,6 +6,7 @@ import { ingestRoutedAgentActivityHook } from "../src/agent-activity/activity-co
 import { readDueControllerTaskLifecycleOutbox } from "../src/agent-activity/controller-task-lifecycle-store";
 import { drainAgentActivityHookInbox } from "../src/agent-activity/hook-inbox";
 import { ingestAgentActivityHook } from "../src/agent-activity/hook-ingest";
+import { readRecentAgentActivityHookStatus } from "../src/agent-activity/hook-projection-store";
 import { readDueAgentActivityOutbox } from "../src/agent-activity/local-event-store";
 import { bindProject } from "../src/agent-activity/project-bindings";
 import { registerAgentActivityRoute } from "../src/agent-activity/route-registry";
@@ -152,6 +153,169 @@ describe("Agent Activity hook ingestion", () => {
     expect(JSON.stringify(records)).not.toContain("PRIVACY_CANARY");
     expect(JSON.stringify(records)).not.toContain("/private/");
     expect(JSON.stringify(records)).not.toContain(repositoryPath);
+  });
+
+  it("uses only explicit Claude hooks for top-level Session lifecycle status", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-activity-hook-"));
+    const repositoryPath = join(root, "repository");
+    const openMeldRoot = join(root, "openmeld-home");
+    await mkdir(repositoryPath);
+    await bindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      projectSlug: "openmeld",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir: openMeldRoot,
+    });
+
+    for (const [hookEventName, sessionId] of [
+      ["Notification", "claude-notification"],
+      ["SessionEnd", "claude-session-end"],
+      ["StopFailure", "claude-stop-failure"],
+      ["SubagentStop", "claude-subagent-stop"],
+      ["Stop", "claude-stop"],
+    ] as const) {
+      await expect(
+        ingestAgentActivityHook({
+          nowMs: 1000,
+          payload: {
+            cwd: repositoryPath,
+            hook_event_name: hookEventName,
+            session_id: sessionId,
+          },
+          provider: "claude-code",
+          rootDir: openMeldRoot,
+        })
+      ).resolves.toBe("queued");
+    }
+    await drainAgentActivityHookInbox({ nowMs: 1000, rootDir: openMeldRoot });
+
+    const records = await readDueAgentActivityOutbox({
+      nowMs: 1000,
+      rootDir: openMeldRoot,
+    });
+    expect(
+      records
+        .map(({ event }) => ({
+          eventType: event.eventType,
+          providerSessionId: event.providerSessionId,
+          status: event.status,
+        }))
+        .sort((left, right) =>
+          left.providerSessionId.localeCompare(right.providerSessionId)
+        )
+    ).toEqual([
+      {
+        eventType: "session_updated",
+        providerSessionId: "claude-notification",
+        status: "unknown",
+      },
+      {
+        eventType: "session_ended",
+        providerSessionId: "claude-session-end",
+        status: "ended",
+      },
+      {
+        eventType: "session_idle",
+        providerSessionId: "claude-stop",
+        status: "idle",
+      },
+      {
+        eventType: "session_error",
+        providerSessionId: "claude-stop-failure",
+        status: "error",
+      },
+      {
+        eventType: "session_updated",
+        providerSessionId: "claude-subagent-stop",
+        status: "unknown",
+      },
+    ]);
+    await expect(
+      Promise.all(
+        [
+          "claude-notification",
+          "claude-session-end",
+          "claude-stop-failure",
+          "claude-subagent-stop",
+          "claude-stop",
+        ].map((providerSessionId) =>
+          readRecentAgentActivityHookStatus({
+            nowMs: 1000,
+            provider: "claude-code",
+            providerSessionId,
+            rootDir: openMeldRoot,
+          })
+        )
+      )
+    ).resolves.toEqual([null, "ended", "error", null, "idle"]);
+  });
+
+  it("keeps the newest hook lifecycle and fails closed on conflicting timestamp ties", async () => {
+    root = await mkdtemp(join(tmpdir(), "openmeld-activity-hook-"));
+    const repositoryPath = join(root, "repository");
+    const openMeldRoot = join(root, "openmeld-home");
+    await mkdir(repositoryPath);
+    await bindProject({
+      organizationId: "org-1",
+      projectId: "project-1",
+      projectSlug: "openmeld",
+      repositoryFingerprint: null,
+      repositoryPath,
+      rootDir: openMeldRoot,
+    });
+
+    for (const observation of [
+      {
+        hookEventName: "Stop",
+        nowMs: 2000,
+        sessionId: "claude-out-of-order",
+      },
+      {
+        hookEventName: "UserPromptSubmit",
+        nowMs: 1000,
+        sessionId: "claude-out-of-order",
+      },
+      {
+        hookEventName: "Stop",
+        nowMs: 3000,
+        sessionId: "claude-ambiguous-tie",
+      },
+      {
+        hookEventName: "UserPromptSubmit",
+        nowMs: 3000,
+        sessionId: "claude-ambiguous-tie",
+      },
+    ] as const) {
+      await expect(
+        ingestAgentActivityHook({
+          nowMs: observation.nowMs,
+          payload: {
+            cwd: repositoryPath,
+            hook_event_name: observation.hookEventName,
+            session_id: observation.sessionId,
+          },
+          provider: "claude-code",
+          rootDir: openMeldRoot,
+        })
+      ).resolves.toBe("queued");
+    }
+    await drainAgentActivityHookInbox({ nowMs: 3000, rootDir: openMeldRoot });
+
+    await expect(
+      Promise.all(
+        ["claude-out-of-order", "claude-ambiguous-tie"].map(
+          (providerSessionId) =>
+            readRecentAgentActivityHookStatus({
+              nowMs: 3000,
+              provider: "claude-code",
+              providerSessionId,
+              rootDir: openMeldRoot,
+            })
+        )
+      )
+    ).resolves.toEqual(["idle", null]);
   });
 
   it("attributes OpenCode events by each verified session directory and never treats metadata updates as active", async () => {

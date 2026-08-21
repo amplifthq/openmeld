@@ -2,6 +2,8 @@ import type {
   AgentActivityEvent,
   SubmitAgentActivityEventsBody,
   SubmitAgentActivityEventsResponse,
+  SubmitAgentActivitySessionReconciliationBody,
+  SubmitAgentActivitySessionReconciliationResponse,
   SubmitAgentControllerTaskLifecycleEventsBody,
   SubmitAgentControllerTaskLifecycleEventsResponse,
   SubmitRuntimeAgentControllerReportsBody,
@@ -19,6 +21,11 @@ export type SubmitAgentActivityEventsInput = Omit<
   deviceId: string;
   events: AgentActivityEvent[];
 };
+
+export type SubmitAgentActivitySessionReconciliationInput =
+  SubmitAgentActivitySessionReconciliationBody & {
+    deviceId: string;
+  };
 
 export type SubmitRuntimeRegistrationInput = SubmitRuntimeRegistrationBody & {
   deviceId: string;
@@ -48,6 +55,9 @@ export type CreateRuntimeReportingApi = (
   submitAgentActivityEvents: (
     input: SubmitAgentActivityEventsInput
   ) => Promise<SubmitAgentActivityEventsResponse>;
+  submitAgentActivitySessionReconciliation: (
+    input: SubmitAgentActivitySessionReconciliationInput
+  ) => Promise<SubmitAgentActivitySessionReconciliationResponse>;
   submitAgentControllerTaskLifecycleEvents: (
     input: SubmitAgentControllerTaskLifecycleEventsInput
   ) => Promise<SubmitAgentControllerTaskLifecycleEventsResponse>;

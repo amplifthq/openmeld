@@ -11,6 +11,7 @@ import {
 } from "./agent-activity/activity-command";
 import {
   runAgentActivityRead,
+  runAgentActivitySessions,
   runProjectsArchive,
   runProjectsBind,
   runProjectsCreate,
@@ -1538,6 +1539,7 @@ registerAgentActivityCommands(program, {
   hook: runActivityHook,
   install: runActivityInstall,
   read: runAgentActivityRead,
+  sessions: runAgentActivitySessions,
   status: runActivityStatus,
   sync: runActivitySync,
   uninstall: runActivityUninstall,

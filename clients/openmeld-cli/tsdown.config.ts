@@ -19,7 +19,7 @@ export default defineConfig({
   // The embedded-assets island uses Bun `with { type: "file" }` imports that
   // only the binary build resolves. Keep it external so the npm/tsdown bundle
   // never parses those imports; the npm runtime never reaches that branch.
-  external: [/bundled-assets-embedded/],
+  external: [/bundled-assets-embedded/, "bun:sqlite"],
   // For a Node CLI in a "type: module" package, we want dist/openmeld.js (not .mjs).
   outExtensions: () => ({ js: ".js" }),
   banner: {
