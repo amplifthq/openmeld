@@ -1015,7 +1015,9 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(teammateOwnerChoice);
 		expect(onOpenChange).not.toHaveBeenCalled();
 		await screen.findByRole("combobox", { name: "Agent owner" });
-		fireEvent.click(await screen.findByRole("radio", { name: "Use existing" }));
+		fireEvent.click(
+			await screen.findByRole("radio", { name: "Use an existing Session" })
+		);
 		fireEvent.click(await screen.findByRole("combobox", { name: "Session" }));
 		fireEvent.click(
 			await screen.findByRole("option", {
@@ -1101,7 +1103,9 @@ describe("CreateProfileDialog", () => {
 		});
 		fireEvent.click(teammateChoice);
 		await screen.findByRole("combobox", { name: "Agent owner" });
-		fireEvent.click(await screen.findByRole("radio", { name: "Use existing" }));
+		fireEvent.click(
+			await screen.findByRole("radio", { name: "Use an existing Session" })
+		);
 		fireEvent.click(await screen.findByRole("combobox", { name: "Session" }));
 		fireEvent.click(
 			await screen.findByRole("option", {

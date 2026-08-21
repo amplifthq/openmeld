@@ -52,7 +52,7 @@ export function AgentProfileSessionChoice(input: {
 					className="min-w-0 flex-1 px-4 py-3"
 					description="Open a fresh Session with the local agent you choose below."
 					index={0}
-					label="Start new"
+					label="Start a new Session"
 					onSelect={() => {
 						if (!input.disabled) {
 							input.onModeChange("new");
@@ -64,7 +64,7 @@ export function AgentProfileSessionChoice(input: {
 					className="min-w-0 flex-1 px-4 py-3"
 					description="Continue the context from one visible Local Agent Session."
 					index={1}
-					label="Use existing"
+					label="Use an existing Session"
 					onSelect={() => {
 						if (!input.disabled) {
 							input.onModeChange(input.mode === "new" ? "resume" : input.mode);
