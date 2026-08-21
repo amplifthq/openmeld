@@ -1,7 +1,6 @@
 "use client";
 
 import type {
-	AuthProfileView,
 	CenterAgentMemberResearchBatch,
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
@@ -340,9 +339,6 @@ export function DirectoryMembersOverview(input: {
 			storageScope: input.storageScope,
 		})
 	);
-	const personalHumanProfiles = listDirectoryHumanProfiles(
-		personalProfilesQuery.data ?? []
-	);
 	const documentsStatus = resolveDirectoryDocumentsStatus({
 		isError: documentsQuery.isError,
 		isSuccess: documentsQuery.isSuccess,
@@ -359,10 +355,11 @@ export function DirectoryMembersOverview(input: {
 				documents: documentsQuery.data?.documents ?? [],
 				documentsStatus,
 				orgSlug: input.currentOrganization.slug,
-				profiles: personalHumanProfiles,
+				profiles: personalProfilesQuery.data ?? [],
 				subjectUserId: input.currentUserId,
 			})
 		: buildOrganizationHumanProfileRows({
+				agentProfiles: input.directoryQuery.data?.agentProfiles ?? [],
 				canManageConnectedAccounts,
 				computers: computersQuery.data ?? null,
 				computersStatus,
@@ -449,12 +446,6 @@ export function DirectoryMembersOverview(input: {
 			{profilesSection}
 		</div>
 	);
-}
-
-function listDirectoryHumanProfiles(
-	profiles: readonly AuthProfileView[]
-): readonly AuthProfileView[] {
-	return profiles.filter((profile) => profile.profileKind === "human");
 }
 
 function resolveDirectoryProjectionStatus(input: {

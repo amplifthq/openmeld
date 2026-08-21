@@ -613,6 +613,37 @@ openmeld org directory --view agent
 openmeld org directory --json
 ```
 
+Use the directory before answering questions such as:
+
+- who belongs to the Organization and whether they are an owner, admin, or
+  member
+- which Human Profile represents a person
+- which Agent Profiles a member owns and whether one is currently ready for
+  work
+- when OpenMeld last accepted real Human activity from a member
+
+The response contains active members, Organization roles, user identity,
+Human Profiles, Agent Profiles, and an optional `lastActiveAt`. Agent Profiles
+are returned as Organization-level records; match an Agent Profile's
+`ownerUserId` to the member's `userId` instead of guessing from names.
+
+Treat a missing `lastActiveAt` literally: OpenMeld has no authoritative Human
+activity timestamp for that member. Never substitute a Computer heartbeat,
+login/session refresh, or Agent Activity timestamp.
+
+The directory is intentionally not a dump of every People drawer field. It
+does not expose Connected Channel management, private Computer paths or file
+access, Profile Report drafts or bodies, credentials, or private local-agent
+state. Use the Center Agent when approved Organization documents, Profile
+Report context, or another Organization-owned capability is needed. Use
+team-safe Computer reads only after resolving the exact member from the
+directory.
+
+For example, to find an admin who owns a ready Agent Profile, read the
+directory, filter members by `role`, then join Agent Profiles by `ownerUserId`
+and inspect their returned readiness. Do not infer role, ownership, or
+readiness from display names.
+
 Read the same team-safe Organization Computers projection used by OpenMeld Web
 and the Center Agent. Usage Limits are included when providers report them:
 

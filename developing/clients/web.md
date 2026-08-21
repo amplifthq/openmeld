@@ -759,6 +759,13 @@ rows and conditionally omits private fields. Accounts, executable or
 installation paths, launch arguments, update commands, private skills,
 owner-only actions, and Agent Profile lists remain absent.
 
+An Organization Computer summary uses the concise status label **Not
+connected** because the card already establishes the Computer context. Its
+detail diagnostics keep the precise **OpenMeld Service is not connected**
+language so the owner knows which product component needs recovery. Both
+surfaces derive the tone and state from the same Organization Computer
+projection; copy brevity never creates a second status source.
+
 Connecting a computer, understanding which supported local tools it provides,
 and repairing that execution path are prerequisite product jobs rather than
 appearance or account preferences. Agent readiness remains separate and
@@ -1429,18 +1436,26 @@ editor in Settings. Organization switching preserves the Documents route
 family while replacing all document data with the target Organization's scope.
 
 Each People card uses a prominent Human Profile avatar, name, email, explicit
-`(you)` marker, Organization role, and a concrete **Last used {time}** value or
-**Activity unavailable**. The signed-in member sorts first; the remaining cards
+`(you)` marker, Organization role, and a concrete **Last active {time}** value
+when the Directory provides one. This value comes only from the Core-owned,
+Organization-scoped Human activity projection; Auth Profile use, session
+refreshes, Computer heartbeats, and Agent Activity are not substitutes.
+Undefined activity is omitted instead of rendering a placeholder. The
+signed-in member sorts first; the remaining cards
 sort owner, admin, member, and unknown, then by name and user ID. The top-right
-icon row owns the contextual **Profile Report** or **Learn about {member}**
-action, **Direct Message** for another active Human Profile, and **More**. The
+icon row owns the contextual **Profile Report** and **Learn about {member}**
+actions, **Direct Message** for another active Human Profile, and **More**. The
 Computer summary and provider-logo identity-link states share one aligned footer
 below one divider instead of competing with profile actions.
 
 Selecting the avatar, name, or **More → View profile** opens a right-side
 **Profile** drawer. It owns the member account details, Organization role, join
-time, Computer access, Connected Channels, shared Profile details, and the
-permitted Direct Message, edit, connect, or manage actions. **More → Edit
+time, an ordinary Agent Profile count with up to three controller icons and an
+overflow count, Computer access, Connected Channels, shared Profile details,
+and the permitted Direct Message, edit, connect, or manage actions. The Work
+access row uses the same Computer projection and status tone as Computers and
+links to the member's sole Computer detail, or the Computers home when the
+member has multiple Computers. **More → Edit
 profile** remains available only for the signed-in member's own active default
 Human Profile. The drawer and card omit the internal Handle, undefined recent
 activity, and the ubiquitous **Active** state; only an exceptional disabled
@@ -1457,11 +1472,15 @@ Core runs the serial batch. A member currently queued or running shows
 **Learning…**; other starts stay disabled until the batch is terminal.
 People polls the Core-owned status and document list while work is active.
 When a Profile Report exists, the document icon opens the latest report; amber
-indicates that it has updates to review and save. Only a successful Documents read that
-contains no report may replace that icon with **Learn about {member}**. Loading
-or failed evidence shows neither action. **Profile Report** is the user-facing
-document term; the persisted `member_profile` kind and member-research
-orchestration names remain compatibility contracts.
+indicates that it has updates to review and save. **Learn about {member}**
+remains available beside it so a member can create a fresh dated report. A
+successful Documents read that contains no report shows only **Learn about
+{member}**. Loading or failed evidence shows neither action because Web cannot
+yet prove whether a report exists. The drawer follows the same evidence rule
+and keeps the learning action beside Direct Message when both are available.
+**Profile Report** is the user-facing document term; the persisted
+`member_profile` kind and member-research orchestration names remain
+compatibility contracts.
 
 In an Organization workspace, People reads the Organization Computer
 projection and shows a concrete summary on every Human Profile card: **1
@@ -1475,7 +1494,9 @@ none receives **Connect a computer** and the normal setup route; teammates have
 no setup or management action. A failed or incomplete response never blanks
 People or changes a member's identity; missing evidence stays unavailable
 rather than being presented as not connected. Computer state never claims that
-the Human Profile is online.
+the Human Profile is online. The Profile drawer adds the matching colored dot
+to the same summary so status and navigation remain legible in the denser
+detail layout.
 
 People reads Message Channel connections and their Core-owned identity-link
 projection together. Connected identity state is absent when the Organization

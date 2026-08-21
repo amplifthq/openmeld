@@ -85,7 +85,7 @@ const ORGANIZATION_UPDATE_STATUS = {
 } as const satisfies ComputerSummaryStatus;
 
 const ORGANIZATION_NOT_CONNECTED_STATUS = {
-	label: "OpenMeld Tools are not connected",
+	label: "Not connected",
 	reason: "service_not_connected",
 	showLabel: true,
 	tone: "danger",

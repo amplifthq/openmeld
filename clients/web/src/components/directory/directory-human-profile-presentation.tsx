@@ -1,11 +1,20 @@
+import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
+import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
+import { resolveStatusToneRingIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
-import { DesktopTowerIcon } from "@phosphor-icons/react";
+import {
+	CaretRightIcon,
+	DesktopTowerIcon,
+	RobotIcon,
+} from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import {
+	resolveDirectoryComputerStatusTone,
 	resolveDirectoryComputerToneClassName,
 	resolveDirectoryIdentityAccountLabel,
 } from "#/components/directory/directory-human-profile-format";
 import type {
+	DirectoryAgentProfileSummary,
 	DirectoryHumanProfileRow,
 	DirectoryIdentityAccount,
 } from "#/components/directory/directory-human-profile-model";
@@ -20,12 +29,15 @@ export function DirectoryComputerSummary(input: {
 	member: DirectoryHumanProfileRow;
 	size?: "card" | "detail";
 }) {
+	if (input.size === "detail") {
+		return <DirectoryComputerDetailSummary member={input.member} />;
+	}
 	const content = (
 		<>
 			<DesktopTowerIcon
 				aria-hidden="true"
 				className={cn(
-					input.size === "detail" ? "size-5" : "size-4",
+					"size-4",
 					"shrink-0",
 					resolveDirectoryComputerToneClassName(input.member.computer.state)
 				)}
@@ -33,10 +45,7 @@ export function DirectoryComputerSummary(input: {
 			<span>{input.member.computer.label}</span>
 		</>
 	);
-	const className = cn(
-		"inline-flex min-w-0 items-center gap-2",
-		input.size === "detail" ? "text-sm" : "text-xs"
-	);
+	const className = cn("inline-flex min-w-0 items-center gap-2", "text-xs");
 	if (!input.member.computer.path) {
 		return (
 			<div className={cn(className, "text-muted-foreground")}>{content}</div>
@@ -54,6 +63,138 @@ export function DirectoryComputerSummary(input: {
 			{content}
 		</Link>
 	);
+}
+
+function DirectoryComputerDetailSummary(input: {
+	member: DirectoryHumanProfileRow;
+}) {
+	const computer = input.member.computer;
+	const showStatusIndicator =
+		computer.count > 0 ||
+		computer.state === "checking" ||
+		computer.state === "unknown";
+	const content = (
+		<>
+			<DesktopTowerIcon
+				aria-hidden="true"
+				className="size-5 shrink-0 text-muted-foreground"
+			/>
+			<span className="flex min-w-0 flex-1 items-center gap-2 text-sm">
+				{showStatusIndicator ? (
+					<span
+						aria-hidden="true"
+						className={cn(
+							"size-2 shrink-0 rounded-full ring-2",
+							resolveStatusToneRingIndicatorClassName(
+								resolveDirectoryComputerStatusTone(computer.state)
+							)
+						)}
+						data-testid="human-profile-computer-status"
+					/>
+				) : null}
+				<span className="min-w-0 break-words">{computer.label}</span>
+			</span>
+			{computer.path ? (
+				<CaretRightIcon
+					aria-hidden="true"
+					className="size-4 shrink-0 text-muted-foreground"
+				/>
+			) : null}
+		</>
+	);
+	const className =
+		"flex min-h-12 w-full min-w-0 items-center gap-3 px-4 py-3 text-left";
+	if (!computer.path) {
+		return <div className={className}>{content}</div>;
+	}
+	return (
+		<Link
+			aria-label={`Open ${input.member.name}'s computer details: ${computer.label}`}
+			className={cn(
+				className,
+				"hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50 focus-visible:ring-inset"
+			)}
+			to={computer.path}
+		>
+			{content}
+		</Link>
+	);
+}
+
+const MAX_VISIBLE_AGENT_PROFILES = 3;
+
+export function DirectoryAgentProfilesSummary(input: {
+	profiles: readonly DirectoryAgentProfileSummary[];
+}) {
+	const visibleProfiles = input.profiles.slice(0, MAX_VISIBLE_AGENT_PROFILES);
+	const overflowCount = input.profiles.length - visibleProfiles.length;
+	return (
+		<div className="flex min-h-14 min-w-0 items-center justify-between gap-4 px-4 py-3">
+			<div className="flex min-w-0 items-center -space-x-2">
+				{visibleProfiles.length > 0 ? (
+					visibleProfiles.map((profile) => (
+						<AgentProfileSummaryIcon key={profile.id} profile={profile} />
+					))
+				) : (
+					<span
+						aria-hidden="true"
+						className="grid size-8 place-items-center rounded-full bg-muted text-muted-foreground ring-2 ring-background"
+					>
+						<RobotIcon className="size-4" />
+					</span>
+				)}
+				{overflowCount > 0 ? (
+					<span className="grid size-8 place-items-center rounded-full bg-muted font-medium text-muted-foreground text-xs ring-2 ring-background">
+						+{overflowCount}
+					</span>
+				) : null}
+			</div>
+			<p className="shrink-0 text-sm">
+				{formatAgentProfileCount(input.profiles.length)}
+			</p>
+		</div>
+	);
+}
+
+function AgentProfileSummaryIcon(input: {
+	profile: DirectoryAgentProfileSummary;
+}) {
+	let content = (
+		<RobotIcon aria-hidden="true" className="size-4 text-muted-foreground" />
+	);
+	if (input.profile.avatarImageUrl) {
+		content = (
+			<img
+				alt=""
+				className="size-full object-cover"
+				data-testid="agent-profile-summary-avatar"
+				height={32}
+				referrerPolicy="no-referrer"
+				src={input.profile.avatarImageUrl}
+				width={32}
+			/>
+		);
+	} else if (
+		input.profile.agentId &&
+		hasLocalAgentLogo(input.profile.agentId)
+	) {
+		content = <LocalAgentLogo agentId={input.profile.agentId} size="sm" />;
+	}
+	return (
+		<span
+			aria-label={input.profile.name}
+			className="grid size-8 place-items-center overflow-hidden rounded-full bg-muted ring-2 ring-background"
+			data-testid="agent-profile-summary-icon"
+			role="img"
+			title={input.profile.name}
+		>
+			{content}
+		</span>
+	);
+}
+
+function formatAgentProfileCount(count: number): string {
+	return `${count} Agent ${count === 1 ? "Profile" : "Profiles"}`;
 }
 
 export function DirectoryIdentityLogo(input: {

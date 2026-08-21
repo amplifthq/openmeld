@@ -5353,6 +5353,7 @@ describe("space signal service", () => {
     };
     const waitUntil = vi.fn();
     const flush = vi.fn().mockResolvedValue(undefined);
+    const recordHumanActivity = vi.fn().mockResolvedValue(undefined);
     const broadcast = vi.fn();
 
     await publishTextSignalUseCase({
@@ -5363,13 +5364,44 @@ describe("space signal service", () => {
         persistedSignal: true,
       }),
       flushPendingDispatchOutbox: flush,
+      recordHumanActivity,
       waitUntil,
       broadcast,
     });
 
     expect(flush).toHaveBeenCalledTimes(1);
-    expect(waitUntil).toHaveBeenCalledTimes(1);
+    expect(recordHumanActivity).toHaveBeenCalledWith(signal);
+    expect(waitUntil).toHaveBeenCalledTimes(2);
     expect(broadcast).toHaveBeenCalledWith(signal);
+  });
+
+  it("does not record Agent-authored text as Human activity", async () => {
+    const signal: SignalEnvelope = {
+      ...createSignal(),
+      profile: {
+        kind: "agent",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
+        profileName: "Codex",
+      },
+    };
+    const waitUntil = vi.fn();
+    const recordHumanActivity = vi.fn().mockResolvedValue(undefined);
+
+    await publishTextSignalUseCase({
+      signal,
+      persistSignalWithOptionalOutbox: async () => ({
+        dispatchMessages: [],
+        duplicateFinalReplyBlocked: false,
+        persistedSignal: true,
+      }),
+      flushPendingDispatchOutbox: vi.fn().mockResolvedValue(undefined),
+      recordHumanActivity,
+      waitUntil,
+      broadcast: vi.fn(),
+    });
+
+    expect(recordHumanActivity).not.toHaveBeenCalled();
+    expect(waitUntil).toHaveBeenCalledTimes(1);
   });
 
   it("publishes malformed internal text signals without crashing on activation target logging", async () => {
@@ -5530,6 +5562,7 @@ describe("space signal service", () => {
     const signal = createSignal();
     const waitUntil = vi.fn();
     const flush = vi.fn().mockResolvedValue(undefined);
+    const recordHumanActivity = vi.fn().mockResolvedValue(undefined);
     const broadcast = vi.fn();
 
     await publishTextSignalUseCase({
@@ -5540,12 +5573,14 @@ describe("space signal service", () => {
         persistedSignal: false,
       }),
       flushPendingDispatchOutbox: flush,
+      recordHumanActivity,
       waitUntil,
       broadcast,
     });
 
     expect(waitUntil).not.toHaveBeenCalled();
     expect(flush).not.toHaveBeenCalled();
+    expect(recordHumanActivity).not.toHaveBeenCalled();
     expect(broadcast).not.toHaveBeenCalled();
   });
 

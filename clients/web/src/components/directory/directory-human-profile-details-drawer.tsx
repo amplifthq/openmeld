@@ -1,14 +1,17 @@
 "use client";
 
 import type { ProfileDetailsField } from "@openmeld/schemas/types";
-import { Button } from "@openmeld/ui/components/button";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
 	CopyIcon,
+	FileTextIcon,
 	PencilSimpleIcon,
+	UserFocusIcon,
 	XIcon,
 } from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
@@ -24,12 +27,20 @@ import type {
 	DirectoryIdentityAccount,
 } from "#/components/directory/directory-human-profile-model";
 import {
+	DirectoryAgentProfilesSummary,
 	DirectoryComputerSummary,
 	DirectoryIdentityAccountSummary,
 } from "#/components/directory/directory-human-profile-presentation";
 import { DirectoryHumanProfileRoleBadge } from "#/components/directory/directory-human-profile-role-badge";
 import { HumanProfileNameEditor } from "#/components/profiles/human-profile-name-editor";
 import { copyTextToClipboard } from "#/lib/clipboard";
+
+export type DirectoryHumanProfileResearchAction = {
+	description: string;
+	disabled: boolean;
+	label: string;
+	onSelect: () => void;
+};
 
 export function DirectoryHumanProfileDetailsDrawer(input: {
 	activityNowMs: number;
@@ -42,6 +53,7 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 	onOpenChange: (open: boolean) => void;
 	onOpenDirectMessage: () => void;
 	open: boolean;
+	researchAction: DirectoryHumanProfileResearchAction | null;
 }) {
 	const canOpenDirectMessage =
 		input.member.profileStatus === "active" && !input.member.isCurrentUser;
@@ -94,19 +106,12 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 									member={input.member}
 									onEditingChange={input.onEditingChange}
 								/>
-								{canOpenDirectMessage ? (
-									<Button
-										className="w-full"
-										disabled={input.directMessageIsPending}
-										onClick={input.onOpenDirectMessage}
-										size="lg"
-										type="button"
-										variant="outline"
-									>
-										<ChatCircleTextIcon aria-hidden="true" />
-										Direct Message
-									</Button>
-								) : null}
+								<ProfileActions
+									canOpenDirectMessage={canOpenDirectMessage}
+									directMessageIsPending={input.directMessageIsPending}
+									onOpenDirectMessage={input.onOpenDirectMessage}
+									researchAction={input.researchAction}
+								/>
 
 								<DetailSection title="Member account">
 									<DetailRow
@@ -125,13 +130,17 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 									/>
 								</DetailSection>
 
+								<DetailSection title="Agent Profiles">
+									<DirectoryAgentProfilesSummary
+										profiles={input.member.agentProfiles}
+									/>
+								</DetailSection>
+
 								<DetailSection title="Work access">
-									<div className="px-4 py-3">
-										<DirectoryComputerSummary
-											member={input.member}
-											size="detail"
-										/>
-									</div>
+									<DirectoryComputerSummary
+										member={input.member}
+										size="detail"
+									/>
 								</DetailSection>
 
 								<ConnectedIdentities
@@ -139,6 +148,8 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 									onConnectAccount={input.onConnectAccount}
 									onManageAccount={input.onManageAccount}
 								/>
+
+								<ProfileReportSection member={input.member} />
 
 								{input.member.details?.sections.map((section) => (
 									<DetailSection key={section.id} title={section.title}>
@@ -159,12 +170,67 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 	);
 }
 
+function ProfileActions(input: {
+	canOpenDirectMessage: boolean;
+	directMessageIsPending: boolean;
+	onOpenDirectMessage: () => void;
+	researchAction: DirectoryHumanProfileResearchAction | null;
+}) {
+	if (!(input.canOpenDirectMessage || input.researchAction)) {
+		return null;
+	}
+	const hasTwoActions =
+		input.canOpenDirectMessage && Boolean(input.researchAction);
+	return (
+		<div
+			className={cn(
+				"grid gap-2",
+				hasTwoActions ? "sm:grid-cols-2" : "grid-cols-1"
+			)}
+			data-testid="human-profile-primary-actions"
+		>
+			{input.canOpenDirectMessage ? (
+				<Button
+					className="w-full"
+					disabled={input.directMessageIsPending}
+					onClick={input.onOpenDirectMessage}
+					size="lg"
+					type="button"
+					variant="outline"
+				>
+					<ChatCircleTextIcon aria-hidden="true" data-icon="inline-start" />
+					Direct Message
+				</Button>
+			) : null}
+			{input.researchAction ? (
+				<Button
+					aria-description={input.researchAction.description}
+					aria-label={input.researchAction.label}
+					className="w-full"
+					disabled={input.researchAction.disabled}
+					onClick={input.researchAction.onSelect}
+					size="lg"
+					type="button"
+				>
+					<UserFocusIcon aria-hidden="true" data-icon="inline-start" />
+					{input.researchAction.label}
+				</Button>
+			) : null}
+		</div>
+	);
+}
+
 function ProfileHero(input: {
 	activityNowMs: number;
 	editing: boolean;
 	member: DirectoryHumanProfileRow;
 	onEditingChange: (editing: boolean) => void;
 }) {
+	const activityLabel = resolveDirectoryHumanProfileActivityLabel({
+		lastActiveAt: input.member.lastActiveAt,
+		nowMs: input.activityNowMs,
+		profileStatus: input.member.profileStatus,
+	});
 	return (
 		<div className="flex min-w-0 items-start gap-4">
 			<DirectoryHumanProfileAvatar context="detail" member={input.member} />
@@ -201,20 +267,18 @@ function ProfileHero(input: {
 				<p className="mt-1 break-all text-muted-foreground text-sm">
 					{resolveDirectoryEmailLabel(input.member.email)}
 				</p>
-				<p
-					className={cn(
-						"mt-3 text-sm",
-						input.member.profileStatus === "disabled"
-							? "text-destructive"
-							: "text-muted-foreground"
-					)}
-				>
-					{resolveDirectoryHumanProfileActivityLabel({
-						lastUsedAt: input.member.lastUsedAt,
-						nowMs: input.activityNowMs,
-						profileStatus: input.member.profileStatus,
-					})}
-				</p>
+				{activityLabel ? (
+					<p
+						className={cn(
+							"mt-3 text-sm",
+							input.member.profileStatus === "disabled"
+								? "text-destructive"
+								: "text-muted-foreground"
+						)}
+					>
+						{activityLabel}
+					</p>
+				) : null}
 			</div>
 		</div>
 	);
@@ -270,6 +334,46 @@ function ConnectedIdentities(input: {
 			</div>
 		</section>
 	);
+}
+
+function ProfileReportSection(input: { member: DirectoryHumanProfileRow }) {
+	const report = input.member.profileReport;
+	let content: React.ReactNode;
+	if (report.state === "available") {
+		content = (
+			<div className="flex min-w-0 items-center gap-3 px-4 py-3">
+				<div className="min-w-0 flex-1 space-y-1">
+					<p className="font-medium text-sm">Latest Profile Report</p>
+					<p className="text-muted-foreground text-xs">
+						{report.hasDraft
+							? "Updates are ready to review and save."
+							: "Ready to open."}
+					</p>
+				</div>
+				<Link
+					aria-label={`Open ${input.member.name}'s Profile Report`}
+					className={cn(
+						buttonVariants({ size: "sm", variant: "outline" }),
+						"shrink-0"
+					)}
+					to={report.path}
+				>
+					<FileTextIcon aria-hidden="true" data-icon="inline-start" />
+					Open report
+				</Link>
+			</div>
+		);
+	} else {
+		content = (
+			<p className="px-4 py-3 text-muted-foreground text-sm">
+				{report.state === "missing"
+					? "No Profile Report yet"
+					: "Profile Report status unavailable"}
+			</p>
+		);
+	}
+
+	return <DetailSection title="Profile Report">{content}</DetailSection>;
 }
 
 function DetailSection(input: { children: React.ReactNode; title: string }) {

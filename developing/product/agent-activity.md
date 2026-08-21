@@ -183,6 +183,14 @@ the target is personal.
 Future per-Project or per-member permissions may narrow reads. MVP code must
 not invent hidden ACL state before that shared permission system exists.
 
+The People directory's member `lastActiveAt` is not Agent Activity. It is a
+separate Core-owned, Organization-scoped projection of the latest accepted,
+persisted text Signal authored by that member's current Human Profile. Agent
+Activity provider events, Computer heartbeats, OpenMeld Service presence, login
+or session refresh, and Agent Profile work must never update or backfill it.
+When no authoritative Human Signal has been observed, clients omit recent
+Human activity instead of borrowing a timestamp from this product.
+
 ## Retention And Digests
 
 - Level-zero events are retained for 14 days.

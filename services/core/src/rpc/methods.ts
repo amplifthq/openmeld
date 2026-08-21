@@ -818,6 +818,7 @@ import {
   readOrganizationInformationProtectionPolicy,
   saveOrganizationInformationProtectionPolicy,
 } from "../organizations/organization-information-protection-repository";
+import { listOrganizationMemberActivity } from "../organizations/organization-member-activity-repository";
 import { listOrganizationMemberOpenMeldServiceStatuses } from "../organizations/organization-member-openmeld-service-status-service";
 import { updateAgentProfileDefaultProjectForAuthority } from "../projects/agent-profile-default-project-service";
 import {
@@ -2242,6 +2243,7 @@ export type SaveOrganizationWakeAccessChoiceInput =
 
 export type GetCurrentOrganizationDirectoryInput = {
   context?: CoreRpcContextInput;
+  includeMemberLastActiveAt?: boolean;
 };
 
 export type GetCurrentOrganizationComputersInput = {
@@ -2661,6 +2663,7 @@ export type CenterAgentUpdateSpaceSettingsInput =
 
 export type CenterAgentReadOrganizationDirectoryInput = {
   context?: CoreRpcContextInput;
+  includeMemberLastActiveAt?: boolean;
   speakerMember?: CenterAgentToolSpeaker;
 };
 
@@ -4927,12 +4930,39 @@ export async function rpcGetCurrentOrganizationDirectory(
         requestId,
       })
     );
-  const [members, centerAgentDesignation, agentProfileProjection] =
-    await Promise.all([
-      membersPromise,
-      centerAgentDesignationPromise,
-      agentProfileProjectionPromise,
-    ]);
+  const memberActivityPromise = input.includeMemberLastActiveAt
+    ? listOrganizationMemberActivity({
+        db: requireIdentityDb(env),
+        organizationId,
+      })
+    : Promise.resolve([]);
+  const [
+    directoryMembers,
+    centerAgentDesignation,
+    agentProfileProjection,
+    memberActivity,
+  ] = await Promise.all([
+    membersPromise,
+    centerAgentDesignationPromise,
+    agentProfileProjectionPromise,
+    memberActivityPromise,
+  ]);
+  const memberActivityByUserId = new Map(
+    memberActivity.map((activity) => [activity.userId, activity])
+  );
+  const members = directoryMembers.map((member) => {
+    const activity = memberActivityByUserId.get(member.userId);
+    if (
+      !activity ||
+      activity.humanProfileId !== member.humanProfile?.profileId
+    ) {
+      return member;
+    }
+    return {
+      ...member,
+      lastActiveAt: new Date(activity.lastActiveAtMs).toISOString(),
+    };
+  });
   const agentProfilesById = new Map(
     agentProfileProjection.organizationAgentProfiles.map((profile) => [
       profile.profileId,
@@ -4991,6 +5021,15 @@ export async function rpcGetCurrentOrganizationDirectory(
       `failed to build Organization directory response: ${validated.error.message}`
     );
   }
+  console.info("[core.organization_directory.read]", {
+    actorProfileKind: context.actorContext.profileKind,
+    agentProfileCount: validated.data.agentProfiles.length,
+    event: "organization_directory.read",
+    includeMemberLastActiveAt: input.includeMemberLastActiveAt === true,
+    memberCount: validated.data.members.length,
+    organizationId,
+    requestId,
+  });
   return validated.data;
 }
 
@@ -9877,6 +9916,9 @@ export async function rpcCenterAgentGetOrganizationDirectory(
   const { authorization } = prepared;
   const response = await rpcGetCurrentOrganizationDirectory(env, {
     context: authorization.context,
+    ...(input.includeMemberLastActiveAt
+      ? { includeMemberLastActiveAt: true }
+      : {}),
   });
   await writeCenterAgentAuditEntry({
     action: "read_org_directory",

@@ -25,6 +25,7 @@ export function buildOrganizationDirectoryFixture(input?: {
         userId: "user-2",
         role: "member",
         joinedAt: "2026-07-18T12:00:00.000Z",
+        lastActiveAt: "2026-07-19T11:30:00.000Z",
         user: {
           id: "user-2",
           name: "Mira Chen",

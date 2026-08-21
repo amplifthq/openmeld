@@ -139,6 +139,17 @@ openmeld org directory --view agent
 openmeld org directory --json
 ```
 
+The directory returns active members, roles, user identity, Human Profiles,
+Organization-level Agent Profiles, and optional authoritative Human
+`lastActiveAt` timestamps. Match Agent Profiles to members with `ownerUserId`.
+A missing `lastActiveAt` means that OpenMeld has no authoritative Human
+activity timestamp; do not replace it with Computer, session, or Agent
+Activity time.
+
+This command does not expose Connected Channel management, private Computer
+paths or file access, Profile Report drafts or bodies, credentials, or private
+local-agent state.
+
 ### `openmeld org computers`
 
 List member Computers and their team-safe Local Agent details in the active
