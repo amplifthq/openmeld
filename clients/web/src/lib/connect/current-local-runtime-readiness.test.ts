@@ -1,5 +1,7 @@
 import type { CurrentLocalRuntimeReplyReadinessResponse } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
+import { resolveCurrentLocalRuntimeServiceActionLabel } from "#/components/agents/agents-page-service-action";
+import { resolveCurrentLocalRuntimeComputerSummaryStatus } from "../computer-summary-status";
 import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "./current-local-runtime-readiness";
 
 const disconnectedReadiness: CurrentLocalRuntimeReplyReadinessResponse = {
@@ -117,6 +119,49 @@ const updateRequiredReadiness: CurrentLocalRuntimeReplyReadinessResponse = {
 	status: "ready",
 };
 
+const retryableControllerCheckReadiness: CurrentLocalRuntimeReplyReadinessResponse =
+	{
+		...disconnectedReadiness,
+		canReplyFromThisComputer: false,
+		localComponents: {
+			...disconnectedReadiness.localComponents,
+			service: {
+				...disconnectedReadiness.localComponents.service,
+				reasonCodes: [],
+				status: "current",
+				updatePolicy: "ok",
+			},
+		},
+		message:
+			"OpenMeld could not finish checking one or more local agents on this computer. Check again before they reply in Spaces.",
+		nextAction: "check_status",
+		primaryBlocker: "agent_controller_report_not_ready",
+		runtime: {
+			...disconnectedReadiness.runtime,
+			executionTargetStatus: "partial",
+			reasonCodes: [
+				"runtime.agent_controller_report.ready",
+				"controller.interface.check_failed",
+			],
+		},
+		service: {
+			connected: true,
+			executionCompatibility: {
+				expectedEpoch:
+					"daemon-runtime-epoch-2026-05-runtime-coordinator-execution-token",
+				observedEpoch:
+					"daemon-runtime-epoch-2026-05-runtime-coordinator-execution-token",
+				reasonCode: "daemon.runtime_contract.compatible",
+				status: "compatible",
+			},
+			matchingCurrentRuntime: true,
+			reasonCodes: [],
+			sessionDeviceId: "device-office",
+			sessionLane: "prod",
+		},
+		status: "blocked",
+	};
+
 describe("mapCurrentLocalRuntimeReplyReadinessQueryState", () => {
 	it("keeps hard disconnected service evidence actionable while a fresh check is running", () => {
 		expect(
@@ -158,5 +203,29 @@ describe("mapCurrentLocalRuntimeReplyReadinessQueryState", () => {
 			reasonCode: "background_helper.update_required",
 			status: "needs_repair",
 		});
+	});
+
+	it("keeps Computers, Agents, and Spaces aligned on a retryable controller check", () => {
+		expect(
+			resolveCurrentLocalRuntimeComputerSummaryStatus({
+				readiness: retryableControllerCheckReadiness,
+			})
+		).toMatchObject({
+			reason: "status_unavailable",
+			tone: "muted",
+		});
+		const mappedReadiness = mapCurrentLocalRuntimeReplyReadinessQueryState({
+			isFetching: false,
+			isPending: false,
+			readiness: retryableControllerCheckReadiness,
+		});
+		expect(mappedReadiness).toMatchObject({
+			detailReasonCode: "runtime.agent_controller_report.ready",
+			reasonCode: "device_reply_readiness.unknown",
+			status: "unknown",
+		});
+		expect(
+			resolveCurrentLocalRuntimeServiceActionLabel(mappedReadiness)
+		).toBeNull();
 	});
 });

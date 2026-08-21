@@ -1234,6 +1234,137 @@ describe("current device target service", () => {
     });
   });
 
+  it.each([
+    {
+      description:
+        "keeps an incomplete local-agent check blocked without sending the member through setup",
+      expectedNextAction: "check_status" as const,
+      expectedExecutionTargetStatus: "partial" as const,
+      failedReasonCodes: ["controller.interface.check_failed"],
+      includeReadyController: true,
+      readyReasonCodes: ["runtime.agent_controller_report.ready"],
+    },
+    {
+      description:
+        "ignores diagnostic reason codes from ready local agents when another check is retryable",
+      expectedNextAction: "check_status" as const,
+      expectedExecutionTargetStatus: "partial" as const,
+      failedReasonCodes: ["controller.interface.check_failed"],
+      includeReadyController: true,
+      readyReasonCodes: ["runtime.ready"],
+    },
+    {
+      description:
+        "keeps an entirely not-ready set of retryable local-agent checks out of setup",
+      expectedNextAction: "check_status" as const,
+      expectedExecutionTargetStatus: "not_ready" as const,
+      failedReasonCodes: ["controller.interface.check_failed"],
+      includeReadyController: false,
+      readyReasonCodes: [],
+    },
+    {
+      description:
+        "keeps setup guidance when an incomplete check also has real repair evidence",
+      expectedNextAction: "run_setup" as const,
+      expectedExecutionTargetStatus: "partial" as const,
+      failedReasonCodes: [
+        "controller.interface.check_failed",
+        "controller.interface.error",
+      ],
+      includeReadyController: true,
+      readyReasonCodes: ["runtime.agent_controller_report.ready"],
+    },
+  ])("$description", async ({
+    expectedExecutionTargetStatus,
+    expectedNextAction,
+    failedReasonCodes,
+    includeReadyController,
+    readyReasonCodes,
+  }) => {
+    const store = createInMemoryCurrentDeviceTargetStore({
+      executionTargetsByUserId: {
+        "owner-1": [
+          ...(includeReadyController
+            ? [
+                {
+                  agentControllerRef: "builtin:codex",
+                  capabilityReasonCodes: readyReasonCodes,
+                  capabilityStatus: "ready" as const,
+                  deviceId: "device-owner-1",
+                  lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+                  openMeldServiceRuntimeId:
+                    "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+                  runtimeLane: "dev-local" as const,
+                },
+              ]
+            : []),
+          {
+            agentControllerRef: "builtin:claude-code",
+            capabilityReasonCodes: failedReasonCodes,
+            capabilityStatus: "not_ready",
+            deviceId: "device-owner-1",
+            lastObservedAtMs: Date.parse("2026-04-10T00:05:00.000Z"),
+            openMeldServiceRuntimeId: "rt_authority_01JZ3W9BQQ7N8JH4Y4A7B2C3D4",
+            runtimeLane: "dev-local",
+          },
+        ],
+      },
+      ownedDevicesByUserId: {
+        "owner-1": [
+          createOwnedDeviceRecord({
+            deviceId: "device-owner-1",
+            ownerUserId: "owner-1",
+          }),
+        ],
+      },
+    });
+    await seedCurrentDeviceTarget({
+      store,
+      userId: "owner-1",
+      deviceId: "device-owner-1",
+      runtimeLane: "dev-local",
+      now: new Date("2026-04-10T00:00:00.000Z"),
+    });
+
+    await expect(
+      getCurrentLocalRuntimeReplyReadinessUseCase({
+        lookupOwnerService: () =>
+          Promise.resolve({
+            online: true,
+            sessions: [
+              {
+                capabilities: {
+                  localComponents: CURRENT_LOCAL_COMPONENTS_STATUS,
+                },
+                connectionGeneration: 1,
+                daemonSessionId: "daemon-session-1",
+                deviceId: "device-owner-1",
+                executionCompatibility: COMPATIBLE_SERVICE,
+                lane: "dev-local",
+                lastHeartbeatMs: Date.parse("2026-04-10T00:05:00.000Z"),
+                serviceVersion: "999.0.0",
+              },
+            ],
+          }),
+        now: new Date("2026-04-10T00:10:00.000Z"),
+        store,
+        userId: "owner-1",
+      })
+    ).resolves.toMatchObject({
+      canReplyFromThisComputer: false,
+      nextAction: expectedNextAction,
+      primaryBlocker: "agent_controller_report_not_ready",
+      runtime: {
+        executionTargetStatus: expectedExecutionTargetStatus,
+        reasonCodes: [
+          ...(includeReadyController ? readyReasonCodes : []),
+          ...failedReasonCodes,
+        ],
+      },
+      status: "blocked",
+    });
+  });
+
   it("reports a connected computer as ready from ServiceRuntime liveness even before any Agent Profile is bound", async () => {
     // Regression: a freshly connected computer (OpenMeld Service + local agents up)
     // has no enabled-primary Binding yet, so the Binding-derived current-device

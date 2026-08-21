@@ -1,11 +1,11 @@
 ---
 id: retryable-computer-check-status
-title: Keep retryable Agent checks out of repair alerts
+title: Keep retryable Agent checks out of repair guidance
 kind: fixed
-areas: ["computers", "web"]
+areas: ["agents", "computers", "spaces", "web"]
 audiences: ["members"]
 ---
 
 When OpenMeld temporarily cannot finish checking one or more local Agents, the
-Computers navigation now stays consistent with the retryable status shown on
-each Agent instead of escalating it to a red repair alert.
+Computers, Agents, and Spaces surfaces now keep Wake safely blocked while showing
+one retryable status instead of a red repair alert or unnecessary setup action.
