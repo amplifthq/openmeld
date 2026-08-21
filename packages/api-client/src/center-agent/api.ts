@@ -196,7 +196,10 @@ export const createCenterAgentApi: CreateCenterAgentApi = (
       signal: request.signal,
       timeoutMs: request.timeoutMs,
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: request.token }),
+      body: JSON.stringify({
+        includeReturnTarget: request.includeReturnTarget,
+        token: request.token,
+      }),
       schema: slackIdentityLinkConsumeResponseSchema,
       invalidMessage: "Invalid Slack identity link consume response.",
     });
@@ -457,6 +460,7 @@ function validateSlackIdentityLinkConsumeInput(
   input: SlackIdentityLinkConsumeInput
 ): SlackIdentityLinkConsumeInput {
   const parsed = slackIdentityLinkConsumeBodySchema.safeParse({
+    includeReturnTarget: input.includeReturnTarget,
     token: input.token,
   });
   if (!parsed.success) {

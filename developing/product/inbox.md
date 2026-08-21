@@ -172,6 +172,10 @@ The first release creates items for these explicit user-visible events:
     The item opens the canonical **Agents → Requests** view. Approve, decline,
     cancel, retry, and creation status remain owned by the request domain;
     reading or dismissing the Inbox projection never decides the request.
+11. An ordinary Organization member's explicit request for owners and admins to
+    set up one Message Channel provider. The Message Channel setup-request
+    record owns deduplication and resolution; Inbox projects the request to each
+    current owner or admin and links to the Organization Channels page.
 
 Producers must identify one or more exact recipients from source-owned identity
 facts. They must not guess from display names, notify every administrator as a

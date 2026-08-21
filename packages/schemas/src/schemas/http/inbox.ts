@@ -42,6 +42,7 @@ export const inboxItemKindSchema = z.enum([
   "center_agent_update",
   "center_agent_task",
   "document_review",
+  "organization_request",
   "system_issue",
 ]);
 
@@ -53,6 +54,7 @@ export const inboxSourceKindSchema = z.enum([
   "center_agent_task_event",
   "organization_document_draft",
   "organization_opportunity",
+  "organization_member_request",
   "system_attention_event",
 ]);
 
@@ -132,7 +134,7 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
   centerAgentInboxSourceTargetSchema,
   z.strictObject({
     kind: z.literal("settings"),
-    section: z.enum(["computers", "notifications"]),
+    section: z.enum(["channels", "computers", "notifications"]),
   }),
 ]);
 

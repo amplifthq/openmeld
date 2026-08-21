@@ -222,6 +222,7 @@ import type {
   MessageChannelConnectionListResponse,
   MessageChannelIdentityLinkConsumeResponse,
   MessageChannelIdentityLinkPreviewResponse,
+  MessageChannelSetupRequestResponse,
   NotifyAgentProfileRouteCatalogChangedResponse,
   OpenCenterAgentDirectMessageSpaceResponse,
   OpenDirectMessageSpaceResponse,
@@ -275,6 +276,7 @@ import type {
   SetOrganizationSkillMaintainersRpcInput,
   SlackIdentityLinkConsumeResponse,
   SlackIdentityLinkPreviewResponse,
+  SlackOAuthIdentityLinkResult,
   SlackOAuthInstallationResult,
   SlackOAuthStateConsumeResponse,
   SlackOAuthStateCreateResponse,
@@ -603,6 +605,7 @@ import {
   type GetSpaceWakeTraceWaterfallInput,
   type InspectExecutionRecoveryInput,
   type InstallSlackWorkspaceFromOAuthInput,
+  type IssueSlackIdentityLinkFromOAuthInput,
   type JoinOrganizationPublicSpaceInput,
   type LeaveSpaceInput,
   type ListAccountSpaceActiveWakeSummaryInput,
@@ -654,6 +657,7 @@ import {
   type RemoveConnectionInput,
   type RemoveMissingConnectionsInput,
   type RemoveSpaceMembersInput,
+  type RequestMessageChannelSetupInput,
   type ResolveSpaceAttachmentForDownloadInput,
   type RespondToSpaceAgentInteractionInput,
   type ResumeRoutineInput,
@@ -788,6 +792,7 @@ import {
   rpcGetSpaceWakeTraceWaterfall,
   rpcInspectExecutionRecovery,
   rpcInstallSlackWorkspaceFromOAuth,
+  rpcIssueSlackIdentityLinkFromOAuth,
   rpcJoinOrganizationPublicSpace,
   rpcLeaveSpace,
   rpcListAccountSpaceActiveWakeSummary,
@@ -839,6 +844,7 @@ import {
   rpcRemoveConnection,
   rpcRemoveMissingConnections,
   rpcRemoveSpaceMembers,
+  rpcRequestMessageChannelSetup,
   rpcResolveSpaceAttachmentForDownload,
   rpcRespondToSpaceAgentInteraction,
   rpcResumeRoutine,
@@ -2330,6 +2336,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcListMessageChannelConnections(this.env, input);
   }
 
+  requestMessageChannelSetup(
+    input: RequestMessageChannelSetupInput
+  ): Promise<MessageChannelSetupRequestResponse> {
+    return rpcRequestMessageChannelSetup(this.env, input);
+  }
+
   listActiveLarkPlatformRegistrations(
     input: ListActiveLarkPlatformRegistrationsInput
   ): Promise<LarkPlatformActiveRegistrationListResponse> {
@@ -2436,6 +2448,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: InstallSlackWorkspaceFromOAuthInput
   ): Promise<SlackOAuthInstallationResult> {
     return rpcInstallSlackWorkspaceFromOAuth(this.env, input);
+  }
+
+  issueSlackIdentityLinkFromOAuth(
+    input: IssueSlackIdentityLinkFromOAuthInput
+  ): Promise<SlackOAuthIdentityLinkResult> {
+    return rpcIssueSlackIdentityLinkFromOAuth(this.env, input);
   }
 
   disconnectCenterAgentSlackWorkspace(
@@ -3960,6 +3978,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.listMessageChannelConnections(input);
   }
 
+  requestMessageChannelSetup(
+    input: RequestMessageChannelSetupInput
+  ): Promise<MessageChannelSetupRequestResponse> {
+    return super.requestMessageChannelSetup(input);
+  }
+
   listActiveLarkPlatformRegistrations(
     input: ListActiveLarkPlatformRegistrationsInput
   ): Promise<LarkPlatformActiveRegistrationListResponse> {
@@ -4066,6 +4090,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: InstallSlackWorkspaceFromOAuthInput
   ): Promise<SlackOAuthInstallationResult> {
     return super.installSlackWorkspaceFromOAuth(input);
+  }
+
+  issueSlackIdentityLinkFromOAuth(
+    input: IssueSlackIdentityLinkFromOAuthInput
+  ): Promise<SlackOAuthIdentityLinkResult> {
+    return super.issueSlackIdentityLinkFromOAuth(input);
   }
 
   disconnectCenterAgentSlackWorkspace(

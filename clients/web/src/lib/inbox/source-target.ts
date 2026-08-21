@@ -3,6 +3,7 @@ import {
 	buildOrganizationAgentCreationRequestsPath,
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentTaskPath,
+	buildOrganizationChannelsPath,
 	buildOrganizationComputersPath,
 	buildOrganizationDocumentPath,
 	buildOrganizationNotificationsSettingsPath,
@@ -74,14 +75,30 @@ export function buildInboxItemSourceNavigation(input: {
 			return { href: target.permalink, openInNewTab: true };
 		case "settings":
 			return {
-				href:
-					target.section === "computers"
-						? buildOrganizationComputersPath(input.orgSlug)
-						: buildOrganizationNotificationsSettingsPath(input.orgSlug),
+				href: resolveSettingsTargetPath({
+					orgSlug: input.orgSlug,
+					section: target.section,
+				}),
 				openInNewTab: false,
 			};
 		default:
 			return assertNever(target);
+	}
+}
+
+function resolveSettingsTargetPath(input: {
+	orgSlug: string;
+	section: "channels" | "computers" | "notifications";
+}): string {
+	switch (input.section) {
+		case "channels":
+			return buildOrganizationChannelsPath(input.orgSlug);
+		case "computers":
+			return buildOrganizationComputersPath(input.orgSlug);
+		case "notifications":
+			return buildOrganizationNotificationsSettingsPath(input.orgSlug);
+		default:
+			return assertNever(input.section);
 	}
 }
 

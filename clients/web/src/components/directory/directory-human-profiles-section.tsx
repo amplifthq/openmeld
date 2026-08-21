@@ -51,6 +51,7 @@ import {
 import {
 	resolveDirectoryEmailLabel,
 	resolveDirectoryHumanProfileActivityLabel,
+	resolveDirectoryIdentityAccountCardLabel,
 	resolveDirectoryIdentityAccountLabel,
 } from "#/components/directory/directory-human-profile-format";
 import type {
@@ -97,6 +98,9 @@ export function DirectoryHumanProfilesSection(input: {
 	onCreateProfile: () => void;
 	onFocusConsumed?: () => void;
 	onOpenDirectMessage: (profileId: string) => Promise<void>;
+	onRequestChannelSetup: (
+		provider: DirectoryIdentityAccount["provider"]
+	) => Promise<void>;
 	onDisconnectConnectedAccount: (identityLinkId: string) => void;
 	onResearch: (subjectUserId: string) => void;
 	onResearchAll: () => void;
@@ -140,9 +144,15 @@ export function DirectoryHumanProfilesSection(input: {
 			return;
 		}
 		setHighlightedProfileId(focusedProfile.id);
-		rowElementsRef.current
-			.get(focusedProfile.id)
-			?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+		const focusedRow = rowElementsRef.current.get(focusedProfile.id);
+		const openProfileButton = focusedRow?.querySelector<HTMLButtonElement>(
+			"[data-profile-card-open]"
+		);
+		if (!openProfileButton) {
+			return;
+		}
+		focusedRow?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+		openProfileButton.click();
 		input.onFocusConsumed?.();
 	}, [
 		input.focusProfileId,
@@ -171,6 +181,7 @@ export function DirectoryHumanProfilesSection(input: {
 							memberResearchError={input.memberResearchError}
 							onDisconnectConnectedAccount={input.onDisconnectConnectedAccount}
 							onOpenDirectMessage={input.onOpenDirectMessage}
+							onRequestChannelSetup={input.onRequestChannelSetup}
 							onResearch={input.onResearch}
 							pendingResearch={input.pendingResearch}
 							rowRef={(node) => {
@@ -247,6 +258,9 @@ function DirectoryHumanProfileCard(input: {
 	memberResearchError: { message: string; subjectUserId: string } | null;
 	onDisconnectConnectedAccount: (identityLinkId: string) => void;
 	onOpenDirectMessage: (profileId: string) => Promise<void>;
+	onRequestChannelSetup: (
+		provider: DirectoryIdentityAccount["provider"]
+	) => Promise<void>;
 	onResearch: (subjectUserId: string) => void;
 	pendingResearch: DirectoryMemberResearchRequest | undefined;
 	rowRef: (node: HTMLElement | null) => void;
@@ -254,8 +268,9 @@ function DirectoryHumanProfileCard(input: {
 }) {
 	const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 	const [isEditingDetails, setIsEditingDetails] = useState(false);
-	const [connectableAccount, setConnectableAccount] =
-		useState<DirectoryIdentityAccount | null>(null);
+	const [connectableAccounts, setConnectableAccounts] = useState<
+		readonly DirectoryIdentityAccount[] | null
+	>(null);
 	const [connectedAccount, setConnectedAccount] =
 		useState<DirectoryIdentityAccount | null>(null);
 	const task = input.latestTasks.find(
@@ -314,6 +329,7 @@ function DirectoryHumanProfileCard(input: {
 				footerRight={
 					<HumanProfileIdentitySummary
 						accounts={input.member.identityAccounts}
+						onConnectAccounts={setConnectableAccounts}
 						onOpenDetails={() => openProfile(false)}
 					/>
 				}
@@ -332,6 +348,7 @@ function DirectoryHumanProfileCard(input: {
 						researchAction={researchAction}
 					/>
 				}
+				onCardClick={() => openProfile(false)}
 				onProfileSummaryClick={() => openProfile(false)}
 				profileSummaryAriaLabel={`Open ${input.member.name}'s profile`}
 				rowRef={input.rowRef}
@@ -366,7 +383,7 @@ function DirectoryHumanProfileCard(input: {
 				onConnectAccount={(account) => {
 					setIsDetailsOpen(false);
 					setIsEditingDetails(false);
-					setConnectableAccount(account);
+					setConnectableAccounts([account]);
 				}}
 				onEditingChange={setIsEditingDetails}
 				onManageAccount={(account) => {
@@ -389,12 +406,13 @@ function DirectoryHumanProfileCard(input: {
 				researchAction={researchAction}
 			/>
 			<ConnectChannelAccountDialog
-				account={connectableAccount}
+				accounts={connectableAccounts}
 				onOpenChange={(open) => {
 					if (!open) {
-						setConnectableAccount(null);
+						setConnectableAccounts(null);
 					}
 				}}
+				onRequestSetup={input.onRequestChannelSetup}
 			/>
 			<ManageChannelAccountDialog
 				account={connectedAccount}
@@ -439,87 +457,222 @@ function HumanProfileCardNotice(input: {
 
 function HumanProfileIdentitySummary(input: {
 	accounts: readonly DirectoryIdentityAccount[];
+	onConnectAccounts: (accounts: readonly DirectoryIdentityAccount[]) => void;
 	onOpenDetails: () => void;
 }) {
 	if (input.accounts.length === 0) {
 		return null;
 	}
+	const setupAccounts = input.accounts.filter(
+		(account) =>
+			account.action?.kind === "ask_admin" ||
+			account.action?.kind === "manage_channels"
+	);
+	if (
+		setupAccounts.length > 0 &&
+		setupAccounts.length === input.accounts.length
+	) {
+		return (
+			<button
+				aria-label="Connect a channel"
+				className="inline-flex items-center gap-2 rounded-sm text-muted-foreground text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+				onClick={() => input.onConnectAccounts(setupAccounts)}
+				type="button"
+			>
+				<PlusIcon aria-hidden="true" className="size-4" />
+				Connect a channel
+			</button>
+		);
+	}
 	return (
 		<div className="flex flex-wrap items-center justify-end gap-2">
-			{input.accounts.map((account) => (
-				<button
-					aria-label={`${account.providerLabel} account: ${resolveDirectoryIdentityAccountLabel(account)}`}
-					className="inline-flex items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-					key={account.provider}
-					onClick={input.onOpenDetails}
-					type="button"
-				>
-					<DirectoryIdentityAccountSummary account={account} context="card" />
-				</button>
-			))}
+			{input.accounts.map((account) => {
+				const cardLabel = resolveDirectoryIdentityAccountCardLabel(account);
+				const canConnect = account.action !== null;
+				if (
+					account.action?.path &&
+					account.action.kind !== "connect_via_center_agent"
+				) {
+					return (
+						<Link
+							aria-label={cardLabel ?? account.action.label}
+							className="inline-flex items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+							key={account.provider}
+							to={account.action.path}
+						>
+							<DirectoryIdentityAccountSummary
+								account={account}
+								context="card"
+							/>
+						</Link>
+					);
+				}
+				return (
+					<button
+						aria-label={
+							canConnect && cardLabel
+								? cardLabel
+								: `${account.providerLabel} account: ${resolveDirectoryIdentityAccountLabel(account)}`
+						}
+						className="inline-flex items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+						key={account.provider}
+						onClick={() => {
+							if (canConnect) {
+								input.onConnectAccounts([account]);
+								return;
+							}
+							input.onOpenDetails();
+						}}
+						type="button"
+					>
+						<DirectoryIdentityAccountSummary account={account} context="card" />
+					</button>
+				);
+			})}
 		</div>
 	);
 }
 
 function ConnectChannelAccountDialog(input: {
-	account: DirectoryIdentityAccount | null;
+	accounts: readonly DirectoryIdentityAccount[] | null;
 	onOpenChange: (open: boolean) => void;
+	onRequestSetup: (
+		provider: DirectoryIdentityAccount["provider"]
+	) => Promise<void>;
 }) {
 	const [copied, setCopied] = useState(false);
-	const providerLabel = input.account?.providerLabel ?? "Channel";
+	const [pendingProvider, setPendingProvider] = useState<
+		DirectoryIdentityAccount["provider"] | null
+	>(null);
+	const account = input.accounts?.length === 1 ? input.accounts[0] : null;
+	const providerLabel = account?.providerLabel ?? "Channel";
 	const requestText = `Connect this ${providerLabel} account to my OpenMeld profile`;
+	const isProviderProof = account?.action?.kind === "connect_via_center_agent";
 	return (
 		<Dialog
 			onOpenChange={(open) => {
 				if (!open) {
 					setCopied(false);
+					setPendingProvider(null);
 				}
 				input.onOpenChange(open);
 			}}
-			open={input.account !== null}
+			open={input.accounts !== null}
 		>
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
-					<DialogTitle>Connect your {providerLabel} account</DialogTitle>
+					<DialogTitle>
+						{input.accounts && input.accounts.length > 1
+							? "Connect a channel"
+							: (account?.action?.label ??
+								`Connect your ${providerLabel} account`)}
+					</DialogTitle>
 					<DialogDescription>
-						Open {providerLabel}, send the Center Agent the message below, then
-						use the private connection button it sends you. You will review both
-						accounts before anything changes.
+						{isProviderProof
+							? `Open ${providerLabel}, send the Center Agent the message below, then use the private connection button it sends you. You will review both accounts before anything changes.`
+							: "Choose the Channel you want to use with your OpenMeld profile."}
 					</DialogDescription>
 				</DialogHeader>
-				<div className="rounded-md border border-border bg-muted/30 px-3 py-2 font-medium text-sm">
-					{requestText}
-				</div>
-				<DialogFooter className="sm:justify-between">
-					{input.account?.channelsPath ? (
-						<Link
-							className={buttonVariants({ size: "sm", variant: "ghost" })}
-							to={input.account.channelsPath}
+				{isProviderProof ? (
+					<div className="rounded-md border border-border bg-muted/30 px-3 py-2 font-medium text-sm">
+						{requestText}
+					</div>
+				) : (
+					<div className="space-y-2">
+						{input.accounts?.map((candidate) => (
+							<ChannelSetupChoice
+								account={candidate}
+								key={candidate.provider}
+								onRequestSetup={async () => {
+									setPendingProvider(candidate.provider);
+									try {
+										await input.onRequestSetup(candidate.provider);
+										input.onOpenChange(false);
+									} finally {
+										setPendingProvider(null);
+									}
+								}}
+								pending={pendingProvider === candidate.provider}
+							/>
+						))}
+					</div>
+				)}
+				{isProviderProof ? (
+					<DialogFooter className="sm:justify-between">
+						{account?.channelsPath ? (
+							<Link
+								className={buttonVariants({ size: "sm", variant: "ghost" })}
+								to={account.channelsPath}
+							>
+								View Channels
+							</Link>
+						) : null}
+						<Button
+							onClick={() => {
+								navigator.clipboard
+									.writeText(requestText)
+									.then(() => setCopied(true))
+									.catch((error: unknown) => {
+										console.error(
+											"Could not copy the Message Channel account connection request.",
+											error
+										);
+									});
+							}}
+							size="sm"
+							type="button"
 						>
-							View Channels
-						</Link>
-					) : null}
-					<Button
-						onClick={() => {
-							navigator.clipboard
-								.writeText(requestText)
-								.then(() => setCopied(true))
-								.catch((error: unknown) => {
-									console.error(
-										"Could not copy the Message Channel account connection request.",
-										error
-									);
-								});
-						}}
-						size="sm"
-						type="button"
-					>
-						{copied ? "Copied" : "Copy message"}
-					</Button>
-				</DialogFooter>
+							{copied ? "Copied" : "Copy message"}
+						</Button>
+					</DialogFooter>
+				) : null}
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function ChannelSetupChoice(input: {
+	account: DirectoryIdentityAccount;
+	onRequestSetup: () => Promise<void>;
+	pending: boolean;
+}) {
+	const action = input.account.action;
+	if (!action) {
+		return null;
+	}
+	const content = (
+		<>
+			<DirectoryIdentityAccountSummary
+				account={input.account}
+				context="detail"
+			/>
+			<span className="ml-auto font-medium text-sm">{action.label}</span>
+		</>
+	);
+	const className =
+		"flex min-h-12 w-full items-center gap-3 rounded-md border border-border px-3 py-2 text-left transition-colors hover:bg-muted/40";
+	if (action.path) {
+		return (
+			<Link className={className} to={action.path}>
+				{content}
+			</Link>
+		);
+	}
+	if (action.kind === "ask_admin") {
+		return (
+			<button
+				className={className}
+				disabled={input.pending}
+				onClick={() => {
+					input.onRequestSetup().catch(() => undefined);
+				}}
+				type="button"
+			>
+				{content}
+			</button>
+		);
+	}
+	return <div className={className}>{content}</div>;
 }
 
 function ManageChannelAccountDialog(input: {

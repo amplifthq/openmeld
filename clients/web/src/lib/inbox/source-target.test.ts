@@ -93,6 +93,10 @@ describe("buildInboxItemSourceNavigation", () => {
 		],
 		[{ kind: "center_agent" } as const, "/o/amplift/center-agent/chat"],
 		[
+			{ kind: "settings", section: "channels" } as const,
+			"/o/amplift/center-agent/channels",
+		],
+		[
 			{ kind: "settings", section: "computers" } as const,
 			"/o/amplift/computers",
 		],

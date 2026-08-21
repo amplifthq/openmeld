@@ -89,6 +89,7 @@ describe("LinkSlackCard", () => {
 			expiresAt: "2026-07-09T12:15:00.000Z",
 			organizationId: "org_1",
 			organizationName: "OpenMeld Labs",
+			slackAccountEmail: null,
 			slackDisplayName: "ari",
 			slackTeamId: "T123",
 			slackUserId: "U123",
@@ -101,10 +102,14 @@ describe("LinkSlackCard", () => {
 			continued: true,
 			joinedOrganization: true,
 			linked: true,
+			openMeldProfileId: "human-1",
 			organizationId: "org_1",
 			organizationName: "OpenMeld Labs",
+			organizationSlug: "acme",
 			slackDisplayName: "ari",
 			slackTeamId: "T123",
+			slackThreadPermalink:
+				"https://acme.slack.com/archives/C123/p1710000000000100",
 			slackUserId: "U123",
 			replacedExistingLink: false,
 			openMeldUserId: "user_member",
@@ -137,6 +142,7 @@ describe("LinkSlackCard", () => {
 
 		await waitFor(() => {
 			expect(consumeSlackIdentityLinkMock).toHaveBeenCalledWith({
+				includeReturnTarget: true,
 				token:
 					"slacklink_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			});
@@ -145,6 +151,46 @@ describe("LinkSlackCard", () => {
 		expect(
 			screen.getByText(
 				"I'm continuing your original request in the same Slack thread now."
+			)
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("link", { name: "Open Slack thread" })
+				.getAttribute("href")
+		).toBe("https://acme.slack.com/archives/C123/p1710000000000100");
+		expect(
+			screen
+				.getByRole("link", { name: "View my OpenMeld profile" })
+				.getAttribute("href")
+		).toBe("/o/acme/people?profileId=human-1");
+	});
+
+	it("shows the verified Slack email returned by the direct authorization flow", async () => {
+		previewSlackIdentityLinkMock.mockResolvedValueOnce({
+			alreadyMember: true,
+			continuesRequest: false,
+			expiresAt: "2026-07-09T12:15:00.000Z",
+			organizationId: "org_1",
+			organizationName: "OpenMeld Labs",
+			slackAccountEmail: "felix@amplift.ai",
+			slackDisplayName: "felix@amplift.ai",
+			slackTeamId: "T123",
+			slackUserId: "U123",
+			slackWorkspaceLabel: "Acme HQ",
+			openMeldAccountEmail: "felix@openmeld.ai",
+			replacesExistingLink: false,
+		});
+
+		render(
+			<TestQueryClientProvider>
+				<LinkSlackCard token={`slacklink_${"f".repeat(64)}`} />
+			</TestQueryClientProvider>
+		);
+
+		expect(await screen.findByText("felix@amplift.ai")).toBeTruthy();
+		expect(
+			screen.getByText(
+				"Connect Slack account felix@amplift.ai to felix@openmeld.ai."
 			)
 		).toBeTruthy();
 	});

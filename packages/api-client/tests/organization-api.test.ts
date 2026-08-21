@@ -292,6 +292,47 @@ describe("api-client organization api", () => {
     );
   });
 
+  it("requests Message Channel setup for the current Organization", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        jsonResponse({
+          organizationId: "org-1",
+          provider: "slack",
+          recipientCount: 2,
+          requestId: "request-1",
+          status: "created",
+        })
+      )
+    );
+    const api = createOrganizationApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.requestMessageChannelSetup({
+        provider: "slack",
+        requestContext: REQUEST_CONTEXT,
+      })
+    ).resolves.toMatchObject({
+      organizationId: "org-1",
+      provider: "slack",
+      status: "created",
+    });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        init: expect.objectContaining({
+          body: JSON.stringify({ provider: "slack" }),
+          method: "POST",
+        }),
+        operation: "organization.message_channel.setup.request",
+        url: "https://gateway.openmeld.invalid/v1/organizations/current/message-channels/setup-requests",
+      })
+    );
+  });
+
   it("reads and saves Agent Profile creation defaults per Local Agent", async () => {
     const defaults = {
       agentControllerPermissionMode: "codex:approveForMe" as const,

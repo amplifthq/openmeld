@@ -91,6 +91,7 @@ import {
   openMeldRemoteAgentLarkPlatformRegistrationAttempts,
   openMeldRemoteAgentMessageChannelEventIngress,
   openMeldRemoteAgentMessageChannelIdentityLinkTokens,
+  organizationMessageChannelSetupRequests,
 } from "./message-channel.schema.ts";
 import { organizationOpportunities } from "./opportunity.schema.ts";
 import { organizationBindingAuthorizations } from "./organization-binding-authorization.schema.ts";
@@ -1656,6 +1657,7 @@ export const coreSchema = {
   openMeldRemoteAgentNativeDeliveryLedger,
   openMeldRemoteAgentDailyAdmissions,
   openMeldRemoteAgentConversationGenerations,
+  organizationMessageChannelSetupRequests,
   openMeldRemoteAgentLarkPlatformChannelConnections,
   openMeldRemoteAgentLarkPlatformChannelCredentials,
   openMeldRemoteAgentLarkPlatformContextCursors,

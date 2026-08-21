@@ -1114,6 +1114,15 @@ the active Organization, deletes only the exact mapping, records the human
 audit action, and returns the refreshed projection. It never writes Auth
 membership or provider connection state.
 
+Core also owns the durable Organization Message Channel setup-request record.
+One open row is unique to Organization, requester, and provider; it is the
+deduplication and resolution truth for an ordinary member's explicit **Ask an
+admin** action. Inbox owns only the recipient projection for current owners and
+admins. Connecting that provider resolves the open request and its Inbox items;
+failure to reconcile an already successful external connection is logged with
+Organization and provider context and never turns the provider connection into
+a false failure.
+
 ### Agent-assisted account-connection evidence
 
 The initial agent-assisted flow adds no Candidate ledger, background scanner,

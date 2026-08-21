@@ -66,6 +66,7 @@ import { upsertRemoteAgentSlackWorkspaceBinding } from "../src/remote-agent/infr
 import {
   rpcConnectCenterAgentSlackWorkspace,
   rpcConsumeSlackIdentityLink,
+  rpcIssueSlackIdentityLinkFromOAuth,
   rpcPreviewSlackIdentityLink,
 } from "../src/rpc/methods";
 import {
@@ -3433,6 +3434,65 @@ describe("Remote Agent Slack signal service", () => {
     }
   });
 
+  it("issues a verified Slack identity link only for the Organization workspace", async () => {
+    const harness = createSqliteD1Harness();
+    applySlackMigrations(harness);
+    seedSlackOrganization(harness);
+    try {
+      await upsertRemoteAgentSlackWorkspaceBinding({
+        db: harness.db,
+        nowMs: 1000,
+        organizationId: "org_1",
+        slackTeamId: "T123",
+      });
+
+      const result = await rpcIssueSlackIdentityLinkFromOAuth(
+        buildEnv(harness.db),
+        {
+          actorProfileId: "22222222-2222-4222-8222-222222222222",
+          organizationId: "org_1",
+          slackAccountEmail: "ari@amplift.ai",
+          slackTeamId: "T123",
+          slackUserId: "U123",
+          userId: "user_member",
+        }
+      );
+
+      expect(result).toMatchObject({
+        openMeldProfileId: "22222222-2222-4222-8222-222222222222",
+        organizationSlug: "openmeld-labs",
+      });
+      await expect(
+        rpcPreviewSlackIdentityLink(buildEnv(harness.db), {
+          context: buildHumanContext(),
+          token: result.token,
+        })
+      ).resolves.toMatchObject({
+        alreadyMember: true,
+        organizationId: "org_1",
+        slackAccountEmail: "ari@amplift.ai",
+        slackTeamId: "T123",
+        slackUserId: "U123",
+      });
+
+      await expect(
+        rpcIssueSlackIdentityLinkFromOAuth(buildEnv(harness.db), {
+          actorProfileId: "22222222-2222-4222-8222-222222222222",
+          organizationId: "org_1",
+          slackAccountEmail: "ari@amplift.ai",
+          slackTeamId: "T_OTHER",
+          slackUserId: "U123",
+          userId: "user_member",
+        })
+      ).rejects.toMatchObject({
+        code: "slack.identity_workspace_mismatch",
+        status: 409,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("moves a Slack account after the Slack user proves control with a private token", async () => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
@@ -4748,16 +4808,42 @@ describe("Remote Agent Slack signal service", () => {
   });
 
   it.each([
-    { expectedVersion: 4 as const, sourceVersion: 4 as const },
-    { expectedVersion: 1 as const, sourceVersion: 1 as const },
-  ])("issues an Organization-scoped one-time identity-link action and preserves the source v$sourceVersion worker semantics", async ({
+    {
+      chatGetPermalinkResponse: undefined,
+      expectedPermalink:
+        "https://acme.slack.com/archives/C123/p1710000000000100",
+      expectedVersion: 4 as const,
+      permalinkCase: "available",
+      sourceVersion: 4 as const,
+    },
+    {
+      chatGetPermalinkResponse: undefined,
+      expectedPermalink:
+        "https://acme.slack.com/archives/C123/p1710000000000100",
+      expectedVersion: 1 as const,
+      permalinkCase: "available",
+      sourceVersion: 1 as const,
+    },
+    {
+      chatGetPermalinkResponse: { error: "missing_scope", ok: false },
+      expectedPermalink: null,
+      expectedVersion: 4 as const,
+      permalinkCase: "unavailable",
+      sourceVersion: 4 as const,
+    },
+  ])("issues an Organization-scoped one-time identity-link action and preserves the source v$sourceVersion worker semantics when the return target is $permalinkCase", async ({
+    chatGetPermalinkResponse,
+    expectedPermalink,
     expectedVersion,
     sourceVersion,
   }) => {
     const harness = createSqliteD1Harness();
     applySlackMigrations(harness);
     seedSlackOrganization(harness);
-    const fetchMock = stubSlackFetch({ email: "new-member@example.test" });
+    const fetchMock = stubSlackFetch({
+      chatGetPermalinkResponse,
+      email: "new-member@example.test",
+    });
     const workerSubmit = vi.fn(async (_request: unknown) => ({
       accepted: true,
       createdAt: 1_710_000_001,
@@ -4899,6 +4985,7 @@ describe("Remote Agent Slack signal service", () => {
       });
       const consumeInput = {
         context: buildHumanContext(),
+        includeReturnTarget: true as const,
         token: token ?? "",
       };
       await expect(
@@ -4911,6 +4998,7 @@ describe("Remote Agent Slack signal service", () => {
           continued: true,
           linked: true,
           organizationId: "org_1",
+          slackThreadPermalink: expectedPermalink,
           slackUserId: "U123",
           openMeldUserId: "user_member",
         }),
@@ -7067,6 +7155,7 @@ function stubSlackFetch(input: {
   chatEphemeralResponse?: Record<string, unknown>;
   chatPostError?: Error;
   chatPostResponse?: Record<string, unknown>;
+  chatGetPermalinkResponse?: Record<string, unknown>;
   conversationsHistoryResponse?:
     | Record<string, unknown>
     | Response
@@ -7191,6 +7280,14 @@ function stubSlackFetch(input: {
           input.chatPostResponse ?? {
             ok: true,
             ts: "1710000001.000200",
+          }
+        );
+      }
+      if (url.includes("/chat.getPermalink")) {
+        return Response.json(
+          input.chatGetPermalinkResponse ?? {
+            ok: true,
+            permalink: "https://acme.slack.com/archives/C123/p1710000000000100",
           }
         );
       }

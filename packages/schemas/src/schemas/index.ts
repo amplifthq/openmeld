@@ -1442,6 +1442,8 @@ export {
   messageChannelIdentityLinkPreviewBodySchema,
   messageChannelIdentityLinkPreviewResponseSchema,
   messageChannelIdentityLinkTokenSchema,
+  messageChannelSetupRequestBodySchema,
+  messageChannelSetupRequestResponseSchema,
 } from "./http/message-channels";
 export type { ProjectObservabilityWakeCorrelationInput } from "./http/observability-correlation";
 export {
@@ -1816,11 +1818,14 @@ export {
 export {
   SLACK_DIRECT_MESSAGE_REQUIRED_BOT_SCOPES,
   slackOAuthErrorCodeSchema,
+  slackOAuthIdentityLinkInputSchema,
+  slackOAuthIdentityLinkResultSchema,
   slackOAuthInstallationInputSchema,
   slackOAuthInstallationResultSchema,
   slackOAuthInstallationStatusSchema,
   slackOAuthOrganizationMembershipInputSchema,
   slackOAuthOrganizationMembershipResultSchema,
+  slackOAuthPurposeSchema,
   slackOAuthStateConsumeResponseSchema,
   slackOAuthStateCreateResponseSchema,
   slackOAuthStateSchema,

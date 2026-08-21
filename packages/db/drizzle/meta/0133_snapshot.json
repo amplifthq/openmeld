@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "677d42d2-c68a-4de2-baa5-b2eed2824fe4",
+  "id": "ca245ff2-5c80-4c96-92df-13c9d1c69d2c",
   "prevId": "070c8b68-e902-4bb0-bc29-b553d0006af5",
   "tables": {
     "accounts": {
@@ -2301,104 +2301,6 @@
         }
       }
     },
-    "agent_profile_creation_approval_preferences": {
-      "name": "agent_profile_creation_approval_preferences",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "new_session_policy": {
-          "name": "new_session_policy",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'ask_every_time'"
-        },
-        "existing_session_policy": {
-          "name": "existing_session_policy",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'ask_every_time'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "agent_profile_creation_approval_prefs_org_user_uq_idx": {
-          "name": "agent_profile_creation_approval_prefs_org_user_uq_idx",
-          "columns": ["organization_id", "user_id"],
-          "isUnique": true
-        },
-        "agent_profile_creation_approval_prefs_user_idx": {
-          "name": "agent_profile_creation_approval_prefs_user_idx",
-          "columns": ["user_id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "agent_profile_creation_approval_preferences_organization_id_organizations_id_fk": {
-          "name": "agent_profile_creation_approval_preferences_organization_id_organizations_id_fk",
-          "tableFrom": "agent_profile_creation_approval_preferences",
-          "tableTo": "organizations",
-          "columnsFrom": ["organization_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "agent_profile_creation_approval_preferences_user_id_users_id_fk": {
-          "name": "agent_profile_creation_approval_preferences_user_id_users_id_fk",
-          "tableFrom": "agent_profile_creation_approval_preferences",
-          "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "agent_profile_creation_approval_prefs_policy_check": {
-          "name": "agent_profile_creation_approval_prefs_policy_check",
-          "value": "\"new_session_policy\" in ('never_allow', 'ask_every_time', 'automatically_allow') and \"existing_session_policy\" in ('never_allow', 'ask_every_time', 'automatically_allow')"
-        }
-      }
-    },
     "agent_profile_creation_defaults": {
       "name": "agent_profile_creation_defaults",
       "columns": {
@@ -2547,250 +2449,6 @@
         "agent_profile_creation_defaults_updated_at_check": {
           "name": "agent_profile_creation_defaults_updated_at_check",
           "value": "\"updated_at_ms\" >= \"created_at_ms\""
-        }
-      }
-    },
-    "agent_profile_creation_requests": {
-      "name": "agent_profile_creation_requests",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "requester_user_id": {
-          "name": "requester_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "actor_profile_id": {
-          "name": "actor_profile_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "target_owner_user_id": {
-          "name": "target_owner_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "profile_name": {
-          "name": "profile_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "configuration_json": {
-          "name": "configuration_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'{\"agentControllerPermissionMode\":null,\"agentControllerRef\":null,\"authorizeForOrganization\":true,\"defaultProjectId\":null,\"modelId\":null,\"openCodePermission\":null,\"reasoningLevel\":null,\"targetComputerId\":null}'"
-        },
-        "session_strategy": {
-          "name": "session_strategy",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "native_session_id": {
-          "name": "native_session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "requested_space_id": {
-          "name": "requested_space_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "idempotency_key": {
-          "name": "idempotency_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status_reason": {
-          "name": "status_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_agent_profile_id": {
-          "name": "created_agent_profile_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "failure_message": {
-          "name": "failure_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "decided_at": {
-          "name": "decided_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsecond') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "agent_profile_creation_requests_requester_key_uq_idx": {
-          "name": "agent_profile_creation_requests_requester_key_uq_idx",
-          "columns": [
-            "organization_id",
-            "requester_user_id",
-            "idempotency_key"
-          ],
-          "isUnique": true
-        },
-        "agent_profile_creation_requests_requester_status_idx": {
-          "name": "agent_profile_creation_requests_requester_status_idx",
-          "columns": [
-            "organization_id",
-            "requester_user_id",
-            "status",
-            "updated_at"
-          ],
-          "isUnique": false
-        },
-        "agent_profile_creation_requests_target_status_idx": {
-          "name": "agent_profile_creation_requests_target_status_idx",
-          "columns": [
-            "organization_id",
-            "target_owner_user_id",
-            "status",
-            "updated_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "agent_profile_creation_requests_organization_id_organizations_id_fk": {
-          "name": "agent_profile_creation_requests_organization_id_organizations_id_fk",
-          "tableFrom": "agent_profile_creation_requests",
-          "tableTo": "organizations",
-          "columnsFrom": ["organization_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "agent_profile_creation_requests_requester_user_id_users_id_fk": {
-          "name": "agent_profile_creation_requests_requester_user_id_users_id_fk",
-          "tableFrom": "agent_profile_creation_requests",
-          "tableTo": "users",
-          "columnsFrom": ["requester_user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "agent_profile_creation_requests_target_owner_user_id_users_id_fk": {
-          "name": "agent_profile_creation_requests_target_owner_user_id_users_id_fk",
-          "tableFrom": "agent_profile_creation_requests",
-          "tableTo": "users",
-          "columnsFrom": ["target_owner_user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "agent_profile_creation_requests_source_check": {
-          "name": "agent_profile_creation_requests_source_check",
-          "value": "\"source\" in ('web', 'cli', 'local_agent', 'center_agent')"
-        },
-        "agent_profile_creation_requests_strategy_check": {
-          "name": "agent_profile_creation_requests_strategy_check",
-          "value": "\"session_strategy\" in ('new', 'resume', 'fork')"
-        },
-        "agent_profile_creation_requests_session_check": {
-          "name": "agent_profile_creation_requests_session_check",
-          "value": "(\"session_strategy\" = 'new' and \"native_session_id\" is null) or (\"session_strategy\" in ('resume', 'fork') and \"native_session_id\" is not null and length(trim(\"native_session_id\")) > 0)"
-        },
-        "agent_profile_creation_requests_status_check": {
-          "name": "agent_profile_creation_requests_status_check",
-          "value": "\"status\" in ('pending', 'approved', 'declined', 'cancelled', 'completed', 'failed')"
-        },
-        "agent_profile_creation_requests_status_reason_check": {
-          "name": "agent_profile_creation_requests_status_reason_check",
-          "value": "\"status_reason\" in ('approval_required', 'automatically_allowed', 'self_request', 'target_policy_denied', 'target_approved', 'target_declined', 'requester_cancelled', 'profile_created', 'profile_creation_failed')"
-        },
-        "agent_profile_creation_requests_completion_check": {
-          "name": "agent_profile_creation_requests_completion_check",
-          "value": "(\"status\" = 'completed' and \"created_agent_profile_id\" is not null and \"completed_at\" is not null) or (\"status\" = 'failed' and \"completed_at\" is null) or (\"status\" not in ('completed', 'failed') and \"created_agent_profile_id\" is null and \"completed_at\" is null)"
-        },
-        "agent_profile_creation_requests_failure_check": {
-          "name": "agent_profile_creation_requests_failure_check",
-          "value": "(\"status\" = 'failed' and \"failure_message\" is not null and length(trim(\"failure_message\")) > 0) or (\"status\" != 'failed' and \"failure_message\" is null)"
-        },
-        "agent_profile_creation_requests_required_text_check": {
-          "name": "agent_profile_creation_requests_required_text_check",
-          "value": "length(trim(\"id\")) > 0 and length(trim(\"actor_profile_id\")) > 0 and length(trim(\"profile_name\")) > 0 and length(trim(\"idempotency_key\")) > 0"
         }
       }
     },
@@ -7852,7 +7510,7 @@
         },
         "inbox_items_kind_check": {
           "name": "inbox_items_kind_check",
-          "value": "\"kind\" in ('space_message', 'space_reference', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'system_issue')"
+          "value": "\"kind\" in ('space_message', 'space_reference', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue')"
         },
         "inbox_items_attention_check": {
           "name": "inbox_items_attention_check",
@@ -7864,7 +7522,7 @@
         },
         "inbox_items_source_kind_check": {
           "name": "inbox_items_source_kind_check",
-          "value": "\"source_kind\" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'system_attention_event')"
+          "value": "\"source_kind\" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'organization_member_request', 'system_attention_event')"
         },
         "inbox_items_resolution_check": {
           "name": "inbox_items_resolution_check",
@@ -11593,13 +11251,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "creation_actor_profile_id": {
-          "name": "creation_actor_profile_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "source": {
           "name": "source",
           "type": "text",
@@ -11750,7 +11401,7 @@
         },
         "openmeld_profiles_source_check": {
           "name": "openmeld_profiles_source_check",
-          "value": "\"source\" in ('auth_bootstrap', 'web_create', 'cli_create', 'local_agent_create', 'center_agent_create', 'migration')"
+          "value": "\"source\" in ('auth_bootstrap', 'cli_create', 'migration')"
         },
         "openmeld_profiles_managed_role_check": {
           "name": "openmeld_profiles_managed_role_check",

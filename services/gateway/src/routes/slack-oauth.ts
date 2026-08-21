@@ -7,10 +7,15 @@ import type {
 } from "@openmeld/schemas/types";
 import type { Context, Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
-import { exchangeSlackOAuthCode } from "../lib/slack-oauth-client";
+import {
+  exchangeSlackIdentityCode,
+  exchangeSlackOAuthCode,
+} from "../lib/slack-oauth-client";
 import { resolveGatewayStructuredRpcErrorResponse } from "./rpc-http.helpers";
 
 const SLACK_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize";
+const SLACK_IDENTITY_AUTHORIZE_URL =
+  "https://slack.com/openid/connect/authorize";
 export const SLACK_BOT_SCOPES = [
   "app_mentions:read",
   "bookmarks:read",
@@ -43,6 +48,48 @@ export const SLACK_BOT_SCOPES = [
 ] as const;
 
 export function registerSlackOAuthRoutes(app: Hono<HonoBindings>): void {
+  app.get("/slack/identity/start", async (c) => {
+    const configuration = readSlackOAuthConfiguration(c);
+    if (!configuration) {
+      return redirectToSlackOAuthResult(c, {
+        error: "configuration_missing",
+      });
+    }
+    let state: SlackOAuthStateCreateResponse;
+    try {
+      state = await c.var.coreRpc.createSlackOAuthState({
+        context: c.var.openMeldRequestContext,
+        purpose: "member_identity",
+      });
+    } catch (error) {
+      const requestId = c.var.ingressOpenMeldContext.requestId;
+      console.warn("[gateway.slack.identity_state_creation_failed]", {
+        error: toSafeOAuthErrorMessage(error),
+        requestId,
+      });
+      return redirectToSlackOAuthResult(c, {
+        error: resolveSlackOAuthCoreError({
+          error,
+          fallback: "state_creation_failed",
+          requestId,
+        }),
+      });
+    }
+    if (!(state.purpose === "member_identity" && state.slackTeamId)) {
+      return redirectToManagement(c, "/", {
+        error: "identity_workspace_mismatch",
+      });
+    }
+    const authorizeUrl = new URL(SLACK_IDENTITY_AUTHORIZE_URL);
+    authorizeUrl.searchParams.set("client_id", configuration.clientId);
+    authorizeUrl.searchParams.set("redirect_uri", configuration.redirectUri);
+    authorizeUrl.searchParams.set("response_type", "code");
+    authorizeUrl.searchParams.set("scope", "openid email profile");
+    authorizeUrl.searchParams.set("state", state.state);
+    authorizeUrl.searchParams.set("team", state.slackTeamId);
+    return c.redirect(authorizeUrl.toString(), 302);
+  });
+
   app.get("/slack/oauth/start", async (c) => {
     const configuration = readSlackOAuthConfiguration(c);
     if (!configuration) {
@@ -123,6 +170,14 @@ async function handleSlackOAuthCallback(
     return authorization.response;
   }
 
+  if (stateResolution.state.purpose === "member_identity") {
+    return await finishSlackIdentityAuthorization(c, {
+      code: authorization.code,
+      configuration: authorization.configuration,
+      state: stateResolution.state,
+    });
+  }
+
   let access: Awaited<ReturnType<typeof exchangeSlackOAuthCode>>;
   try {
     access = await exchangeSlackOAuthCode({
@@ -145,6 +200,52 @@ async function handleSlackOAuthCallback(
     access,
     state: stateResolution.state,
   });
+}
+
+async function finishSlackIdentityAuthorization(
+  c: Context<HonoBindings>,
+  input: {
+    code: string;
+    configuration: SlackOAuthConfiguration;
+    state: ValidSlackOAuthState;
+  }
+): Promise<Response> {
+  try {
+    const identity = await exchangeSlackIdentityCode({
+      clientId: input.configuration.clientId,
+      clientSecret: input.configuration.clientSecret,
+      code: input.code,
+      redirectUri: input.configuration.redirectUri,
+    });
+    const issued = await c.var.coreRpc.issueSlackIdentityLinkFromOAuth({
+      actorProfileId: input.state.actorProfileId,
+      organizationId: input.state.organizationId,
+      slackAccountEmail: identity.accountEmail,
+      slackTeamId: identity.slackTeamId,
+      slackUserId: identity.slackUserId,
+      userId: input.state.userId,
+    });
+    const webAppUrl = normalizeHttpUrl(c.env.WEB_APP_URL);
+    if (!webAppUrl) {
+      return c.text("OpenMeld Web is not configured.", 503);
+    }
+    const target = new URL("/link-slack", webAppUrl);
+    target.searchParams.set("token", issued.token);
+    return c.redirect(target.toString(), 302);
+  } catch (error) {
+    const requestId = c.var.ingressOpenMeldContext.requestId;
+    console.warn("[gateway.slack.identity_authorization_failed]", {
+      error: toSafeOAuthErrorMessage(error),
+      requestId,
+    });
+    return redirectToManagement(c, input.state.returnPath, {
+      error: resolveSlackOAuthCoreError({
+        error,
+        fallback: "identity_link_failed",
+        requestId,
+      }),
+    });
+  }
 }
 
 async function resolveSlackOAuthCallbackState(

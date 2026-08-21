@@ -133,6 +133,7 @@ export {
   openMeldRemoteAgentLarkPlatformRegistrationAttempts,
   openMeldRemoteAgentMessageChannelEventIngress,
   openMeldRemoteAgentMessageChannelIdentityLinkTokens,
+  organizationMessageChannelSetupRequests,
 } from "./message-channel.schema.ts";
 export { organizationOpportunities } from "./opportunity.schema.ts";
 export { organizationBindingAuthorizations } from "./organization-binding-authorization.schema.ts";

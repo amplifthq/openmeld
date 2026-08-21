@@ -390,6 +390,7 @@ export const slackIdentityLinkPreviewResponseSchema = z.strictObject({
   expiresAt: ISO_DATE_TIME_SCHEMA,
   organizationId: trimmedNonEmptyStringSchema,
   organizationName: trimmedNonEmptyStringSchema,
+  slackAccountEmail: z.email().nullable().default(null),
   slackDisplayName: trimmedNonEmptyStringSchema,
   slackTeamId: trimmedNonEmptyStringSchema,
   slackUserId: trimmedNonEmptyStringSchema,
@@ -399,6 +400,7 @@ export const slackIdentityLinkPreviewResponseSchema = z.strictObject({
 });
 
 export const slackIdentityLinkConsumeBodySchema = z.strictObject({
+  includeReturnTarget: z.literal(true).optional(),
   token: slackIdentityLinkTokenSchema,
 });
 
@@ -407,10 +409,13 @@ export const slackIdentityLinkConsumeResponseSchema = z.strictObject({
   continued: z.boolean().default(false),
   joinedOrganization: z.boolean().default(false),
   linked: z.literal(true),
+  openMeldProfileId: trimmedNonEmptyStringSchema.nullable().default(null),
   organizationId: trimmedNonEmptyStringSchema,
   organizationName: trimmedNonEmptyStringSchema,
+  organizationSlug: trimmedNonEmptyStringSchema.nullable().default(null),
   slackDisplayName: trimmedNonEmptyStringSchema,
   slackTeamId: trimmedNonEmptyStringSchema,
+  slackThreadPermalink: slackMessagePermalinkSchema.nullable().optional(),
   slackUserId: trimmedNonEmptyStringSchema,
   replacedExistingLink: z.boolean().default(false),
   openMeldUserId: trimmedNonEmptyStringSchema,

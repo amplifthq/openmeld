@@ -48,6 +48,7 @@ import { Route as V1AccountLastSelectedOrganizationRouteImport } from './routes/
 import { Route as V1AccountDisplayNameRouteImport } from './routes/v1/account/display-name'
 import { Route as SlackOauthStartRouteImport } from './routes/slack/oauth/start'
 import { Route as SlackOauthResultRouteImport } from './routes/slack/oauth/result'
+import { Route as SlackIdentityStartRouteImport } from './routes/slack/identity/start'
 import { Route as OOrgSlugSettingsRouteImport } from './routes/o/$orgSlug/settings'
 import { Route as OOrgSlugProjectsRouteImport } from './routes/o/$orgSlug/projects'
 import { Route as OOrgSlugPeopleRouteImport } from './routes/o/$orgSlug/people'
@@ -307,6 +308,11 @@ const SlackOauthStartRoute = SlackOauthStartRouteImport.update({
 const SlackOauthResultRoute = SlackOauthResultRouteImport.update({
   id: '/slack/oauth/result',
   path: '/slack/oauth/result',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SlackIdentityStartRoute = SlackIdentityStartRouteImport.update({
+  id: '/slack/identity/start',
+  path: '/slack/identity/start',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OOrgSlugSettingsRoute = OOrgSlugSettingsRouteImport.update({
@@ -707,6 +713,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/people': typeof OOrgSlugPeopleRoute
   '/o/$orgSlug/projects': typeof OOrgSlugProjectsRouteWithChildren
   '/o/$orgSlug/settings': typeof OOrgSlugSettingsRouteWithChildren
+  '/slack/identity/start': typeof SlackIdentityStartRoute
   '/slack/oauth/result': typeof SlackOauthResultRoute
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
@@ -804,6 +811,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/onboarding': typeof OOrgSlugOnboardingRoute
   '/o/$orgSlug/organizations': typeof OOrgSlugOrganizationsRoute
   '/o/$orgSlug/people': typeof OOrgSlugPeopleRoute
+  '/slack/identity/start': typeof SlackIdentityStartRoute
   '/slack/oauth/result': typeof SlackOauthResultRoute
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
@@ -905,6 +913,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/people': typeof OOrgSlugPeopleRoute
   '/o/$orgSlug/projects': typeof OOrgSlugProjectsRouteWithChildren
   '/o/$orgSlug/settings': typeof OOrgSlugSettingsRouteWithChildren
+  '/slack/identity/start': typeof SlackIdentityStartRoute
   '/slack/oauth/result': typeof SlackOauthResultRoute
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
@@ -1010,6 +1019,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/people'
     | '/o/$orgSlug/projects'
     | '/o/$orgSlug/settings'
+    | '/slack/identity/start'
     | '/slack/oauth/result'
     | '/slack/oauth/start'
     | '/v1/account/display-name'
@@ -1107,6 +1117,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/onboarding'
     | '/o/$orgSlug/organizations'
     | '/o/$orgSlug/people'
+    | '/slack/identity/start'
     | '/slack/oauth/result'
     | '/slack/oauth/start'
     | '/v1/account/display-name'
@@ -1207,6 +1218,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/people'
     | '/o/$orgSlug/projects'
     | '/o/$orgSlug/settings'
+    | '/slack/identity/start'
     | '/slack/oauth/result'
     | '/slack/oauth/start'
     | '/v1/account/display-name'
@@ -1292,6 +1304,7 @@ export interface RootRouteChildren {
   V1SplatRoute: typeof V1SplatRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   CliDownloadArtifactRoute: typeof CliDownloadArtifactRoute
+  SlackIdentityStartRoute: typeof SlackIdentityStartRoute
   SlackOauthResultRoute: typeof SlackOauthResultRoute
   SlackOauthStartRoute: typeof SlackOauthStartRoute
   V1AccountDisplayNameRoute: typeof V1AccountDisplayNameRoute
@@ -1573,6 +1586,13 @@ declare module '@tanstack/react-router' {
       path: '/slack/oauth/result'
       fullPath: '/slack/oauth/result'
       preLoaderRoute: typeof SlackOauthResultRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/slack/identity/start': {
+      id: '/slack/identity/start'
+      path: '/slack/identity/start'
+      fullPath: '/slack/identity/start'
+      preLoaderRoute: typeof SlackIdentityStartRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/o/$orgSlug/settings': {
@@ -2378,6 +2398,7 @@ const rootRouteChildren: RootRouteChildren = {
   V1SplatRoute: V1SplatRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   CliDownloadArtifactRoute: CliDownloadArtifactRoute,
+  SlackIdentityStartRoute: SlackIdentityStartRoute,
   SlackOauthResultRoute: SlackOauthResultRoute,
   SlackOauthStartRoute: SlackOauthStartRoute,
   V1AccountDisplayNameRoute: V1AccountDisplayNameRoute,

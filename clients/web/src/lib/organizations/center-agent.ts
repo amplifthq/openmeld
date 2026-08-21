@@ -232,6 +232,7 @@ export async function previewSlackIdentityLink(input: {
 }
 
 export async function consumeSlackIdentityLink(input: {
+	includeReturnTarget?: true;
 	token: string;
 }): Promise<SlackIdentityLinkConsumeResponse> {
 	try {

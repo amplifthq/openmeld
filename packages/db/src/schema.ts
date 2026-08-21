@@ -40,6 +40,7 @@ export const {
   inboxEmailDeliveries,
   inboxItems,
   inboxNotificationPreferences,
+  organizationMessageChannelSetupRequests,
   agentActivityDailyAggregates,
   agentActivityDailySessionKeys,
   agentActivityDigests,

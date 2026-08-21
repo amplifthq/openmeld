@@ -4,7 +4,8 @@ export type SlackUserIdentityLinkSource = "explicit" | "email_auto";
 
 export type SlackIdentityLinkDeliveryScope =
   | "slack_direct_message"
-  | "slack_ephemeral";
+  | "slack_ephemeral"
+  | "slack_oidc";
 
 export type SlackUserIdentityLinkRecord = {
   createdAtMs: number;
@@ -672,7 +673,11 @@ export async function readActiveSlackIdentityLinkToken(input: {
         FROM slack_user_identity_link_tokens
         WHERE token_hash = ?
           AND organization_id IS NOT NULL
-          AND delivery_scope IN ('slack_direct_message', 'slack_ephemeral')
+          AND delivery_scope IN (
+            'slack_direct_message',
+            'slack_ephemeral',
+            'slack_oidc'
+          )
           AND consumed_at_ms IS NULL
           AND expires_at_ms > ?
         LIMIT 1
@@ -712,7 +717,11 @@ export async function readSlackIdentityLinkTokenForUser(input: {
         FROM slack_user_identity_link_tokens
         WHERE token_hash = ?
           AND organization_id IS NOT NULL
-          AND delivery_scope IN ('slack_direct_message', 'slack_ephemeral')
+          AND delivery_scope IN (
+            'slack_direct_message',
+            'slack_ephemeral',
+            'slack_oidc'
+          )
           AND expires_at_ms > ?
           AND (
             claimed_by_user_id IS NULL
@@ -756,7 +765,11 @@ export async function claimSlackIdentityLinkTokenForUser(input: {
           AND organization_id = ?
           AND slack_team_id = ?
           AND slack_user_id = ?
-          AND delivery_scope IN ('slack_direct_message', 'slack_ephemeral')
+          AND delivery_scope IN (
+            'slack_direct_message',
+            'slack_ephemeral',
+            'slack_oidc'
+          )
           AND claimed_by_user_id IS NULL
           AND consumed_at_ms IS NULL
           AND expires_at_ms > ?
@@ -1112,7 +1125,8 @@ function mapSlackIdentityLinkTokenRow(
 ): SlackIdentityLinkTokenRecord {
   if (
     row.delivery_scope !== "slack_direct_message" &&
-    row.delivery_scope !== "slack_ephemeral"
+    row.delivery_scope !== "slack_ephemeral" &&
+    row.delivery_scope !== "slack_oidc"
   ) {
     throw new Error("Slack identity link token has an unsupported delivery");
   }

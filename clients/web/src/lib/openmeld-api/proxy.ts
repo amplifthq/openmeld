@@ -25,6 +25,7 @@ import {
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 const OPENMELD_PUBLIC_ROUTE_PREFIX = "/v1/";
 const OPENMELD_SLACK_OAUTH_START_ROUTE = "/slack/oauth/start";
+const OPENMELD_SLACK_IDENTITY_START_ROUTE = "/slack/identity/start";
 const OPENMELD_SPACE_ROUTE_PATTERN = /^\/v1\/spaces\/([^/]+)(?:\/|$)/u;
 const ALLOWED_PROXY_REQUEST_HEADERS = new Set([
 	"accept",
@@ -55,7 +56,8 @@ export function buildOpenMeldGatewayUpstreamUrl(input: {
 	if (
 		incomingUrl.pathname !== "/v1" &&
 		!incomingUrl.pathname.startsWith(OPENMELD_PUBLIC_ROUTE_PREFIX) &&
-		incomingUrl.pathname !== OPENMELD_SLACK_OAUTH_START_ROUTE
+		incomingUrl.pathname !== OPENMELD_SLACK_OAUTH_START_ROUTE &&
+		incomingUrl.pathname !== OPENMELD_SLACK_IDENTITY_START_ROUTE
 	) {
 		throw new Error(
 			`OpenMeld proxy does not support route: ${incomingUrl.pathname}`
@@ -67,7 +69,10 @@ export function buildOpenMeldGatewayUpstreamUrl(input: {
 	upstreamUrl.searchParams.delete(
 		WEB_SPACE_ATTACHMENT_ORGANIZATION_SLUG_SEARCH_PARAM
 	);
-	if (incomingUrl.pathname === OPENMELD_SLACK_OAUTH_START_ROUTE) {
+	if (
+		incomingUrl.pathname === OPENMELD_SLACK_OAUTH_START_ROUTE ||
+		incomingUrl.pathname === OPENMELD_SLACK_IDENTITY_START_ROUTE
+	) {
 		upstreamUrl.searchParams.delete(SLACK_OAUTH_ORGANIZATION_SLUG_SEARCH_PARAM);
 	}
 	return upstreamUrl;
@@ -267,7 +272,10 @@ function readWebSlackOAuthOrganizationSlug(request: Request): string | null {
 		return null;
 	}
 	const requestUrl = new URL(request.url);
-	if (requestUrl.pathname !== OPENMELD_SLACK_OAUTH_START_ROUTE) {
+	if (
+		requestUrl.pathname !== OPENMELD_SLACK_OAUTH_START_ROUTE &&
+		requestUrl.pathname !== OPENMELD_SLACK_IDENTITY_START_ROUTE
+	) {
 		return null;
 	}
 	const organizationSlug = requestUrl.searchParams

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildSlackOAuthChannelsReturnPath,
+  buildSlackOAuthPeopleReturnPath,
   consumeSlackOAuthState,
   createSlackOAuthState,
   SLACK_OAUTH_STATE_TTL_MS,
@@ -9,11 +10,18 @@ import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support"
 
 const NOW_MS = Date.parse("2026-07-10T00:00:00.000Z");
 const SLACK_OAUTH_STATE_PATTERN = /^slackoauth_[0-9a-f]{64}$/u;
+const SLACK_IDENTITY_STATE_PATTERN = /^slackidentity_[0-9a-f]{64}$/u;
 
 describe("Slack OAuth state", () => {
   it("returns directly to the canonical Center Agent Channels page", () => {
     expect(buildSlackOAuthChannelsReturnPath("acme/team")).toBe(
       "/o/acme%2Fteam/center-agent/channels"
+    );
+  });
+
+  it("returns a member identity flow to the canonical People page", () => {
+    expect(buildSlackOAuthPeopleReturnPath("acme/team")).toBe(
+      "/o/acme%2Fteam/people"
     );
   });
 
@@ -58,6 +66,7 @@ describe("Slack OAuth state", () => {
       actorProfileId: "human-1",
       moveFromOrganizationId: "org-existing",
       organizationId: "org-new",
+      purpose: "organization_install",
       returnPath: "/o/new/center-agent/channels",
       status: "valid",
       userId: "user-1",
@@ -88,6 +97,7 @@ describe("Slack OAuth state", () => {
       actorProfileId: "human-1",
       moveFromOrganizationId: null,
       organizationId: "org-1",
+      purpose: "organization_install",
       returnPath: "/o/acme/center-agent/channels",
       status: "valid",
       userId: "user-1",
@@ -99,6 +109,35 @@ describe("Slack OAuth state", () => {
         state: created.state,
       })
     ).resolves.toEqual({ status: "invalid" });
+  });
+
+  it("keeps member identity state distinct from organization installation", async () => {
+    const created = await createSlackOAuthState({
+      actorProfileId: "human-1",
+      db: harness.db,
+      nowMs: NOW_MS,
+      organizationId: "org-1",
+      purpose: "member_identity",
+      returnPath: "/o/acme/people",
+      userId: "user-1",
+    });
+
+    expect(created.state).toMatch(SLACK_IDENTITY_STATE_PATTERN);
+    await expect(
+      consumeSlackOAuthState({
+        db: harness.db,
+        nowMs: NOW_MS + 1,
+        state: created.state,
+      })
+    ).resolves.toEqual({
+      actorProfileId: "human-1",
+      moveFromOrganizationId: null,
+      organizationId: "org-1",
+      purpose: "member_identity",
+      returnPath: "/o/acme/people",
+      status: "valid",
+      userId: "user-1",
+    });
   });
 
   it("rejects a tampered state", async () => {

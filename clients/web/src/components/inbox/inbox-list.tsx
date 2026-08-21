@@ -309,6 +309,8 @@ function InboxKindIcon(input: { item: InboxItem }): ReactNode {
 			return <RobotIcon aria-hidden="true" className="size-4" />;
 		case "document_review":
 			return <FileTextIcon aria-hidden="true" className="size-4" />;
+		case "organization_request":
+			return <ChatCircleTextIcon aria-hidden="true" className="size-4" />;
 		case "wake_outcome":
 			return input.item.importance === "urgent" ? (
 				<WarningCircleIcon aria-hidden="true" className="size-4" />
