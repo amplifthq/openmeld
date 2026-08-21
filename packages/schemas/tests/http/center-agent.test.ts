@@ -22,6 +22,7 @@ import {
   getCenterAgentDesignationResponseSchema,
   isCenterAgentDirectMessageSpaceProjection,
   listCenterAgentAuditJournalQuerySchema,
+  slackIdentityLinkConsumeBodySchema,
   slackIdentityLinkConsumeResponseSchema,
   slackIdentityLinkPreviewResponseSchema,
   updateCenterAgentModelBodySchema,
@@ -530,6 +531,34 @@ describe("Center Agent HTTP schemas", () => {
       continuationRetryable: false,
       continued: false,
       joinedOrganization: false,
+    });
+  });
+
+  it("accepts an exact Slack thread return target for a requested identity-link handoff", () => {
+    const token = `slacklink_${"a".repeat(64)}`;
+
+    expect(
+      slackIdentityLinkConsumeBodySchema.parse({
+        includeReturnTarget: true,
+        token,
+      })
+    ).toEqual({ includeReturnTarget: true, token });
+
+    expect(
+      slackIdentityLinkConsumeResponseSchema.parse({
+        linked: true,
+        organizationId: "org-a",
+        organizationName: "Amplift",
+        slackDisplayName: "Mira",
+        slackTeamId: "T123",
+        slackThreadPermalink:
+          "https://amplift.slack.com/archives/C123/p1710000000000100",
+        slackUserId: "U123",
+        openMeldUserId: "user-a",
+      })
+    ).toMatchObject({
+      slackThreadPermalink:
+        "https://amplift.slack.com/archives/C123/p1710000000000100",
     });
   });
 

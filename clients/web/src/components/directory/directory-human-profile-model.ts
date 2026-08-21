@@ -17,6 +17,7 @@ import {
 	buildOrganizationComputersPath,
 	buildOrganizationDocumentPath,
 } from "#/lib/organizations/organization-routes";
+import { buildSlackIdentityStartPath } from "#/lib/slack-oauth-start";
 
 type DirectoryHumanProfileRole = "admin" | "member" | "owner" | "unknown";
 
@@ -47,6 +48,15 @@ export type DirectoryAgentProfileSummary = {
 
 export type DirectoryIdentityAccount = {
 	accountEmail: string | null;
+	action: {
+		kind:
+			| "ask_admin"
+			| "authorize"
+			| "connect_via_center_agent"
+			| "manage_channels";
+		label: string;
+		path: string | null;
+	} | null;
 	canDisconnect: boolean;
 	channelsPath: string | null;
 	id: string | null;
@@ -95,6 +105,7 @@ export type DirectoryHumanProfileRow = {
 export function buildOrganizationHumanProfileRows(input: {
 	agentProfiles: OrganizationDirectoryResponse["agentProfiles"];
 	canManageConnectedAccounts: boolean;
+	canManageMessageChannels: boolean;
 	computers: OrganizationComputersResponse | null;
 	computersStatus: DirectoryProjectionStatus;
 	currentUserId: string;
@@ -125,6 +136,7 @@ export function buildOrganizationHumanProfileRows(input: {
 				}),
 				identityAccounts: resolveIdentityAccounts({
 					canManageConnectedAccounts: input.canManageConnectedAccounts,
+					canManageMessageChannels: input.canManageMessageChannels,
 					isCurrentUser,
 					messageChannels: input.messageChannels,
 					messageChannelsStatus: input.messageChannelsStatus,
@@ -496,6 +508,7 @@ function formatComputerCount(
 
 function resolveIdentityAccounts(input: {
 	canManageConnectedAccounts: boolean;
+	canManageMessageChannels: boolean;
 	isCurrentUser: boolean;
 	messageChannels: MessageChannelConnectionListResponse | null;
 	messageChannelsStatus: DirectoryProjectionStatus;
@@ -521,7 +534,9 @@ function resolveIdentityAccounts(input: {
 			linkByProvider.set(link.provider, link);
 		}
 	}
-	const providers = new Set([
+	const providers = new Set<DirectoryIdentityAccount["provider"]>([
+		"slack",
+		...input.messageChannels.availableLarkPlatformProviders,
 		...connectionByProvider.keys(),
 		...input.messageChannels.identityLinks.map((link) => link.provider),
 	]);
@@ -532,8 +547,20 @@ function resolveIdentityAccounts(input: {
 			const connectionIsReady =
 				hasFreshConnections && connection?.status === "connected";
 			if (link) {
+				const action =
+					input.isCurrentUser &&
+					provider === "slack" &&
+					connectionIsReady &&
+					!link.providerAccountEmail
+						? {
+								kind: "authorize" as const,
+								label: "Reconnect Slack",
+								path: buildSlackIdentityStartPath(input.orgSlug),
+							}
+						: null;
 				return {
-					accountEmail: null,
+					accountEmail: link.providerAccountEmail,
+					action,
 					canDisconnect:
 						input.isCurrentUser || input.canManageConnectedAccounts,
 					channelsPath: null,
@@ -543,22 +570,75 @@ function resolveIdentityAccounts(input: {
 					state: connectionIsReady ? "connected" : "unavailable",
 				};
 			}
+			const action =
+				hasFreshConnections && input.isCurrentUser
+					? resolveIdentityAccountAction({
+							canManageMessageChannels: input.canManageMessageChannels,
+							connectionIsReady,
+							connectionStatus: connection?.status ?? null,
+							orgSlug: input.orgSlug,
+							provider,
+							providerLabel: resolveProviderLabel(provider),
+						})
+					: null;
 			return {
 				accountEmail: null,
+				action,
 				canDisconnect: false,
-				channelsPath:
-					input.isCurrentUser && connectionIsReady
-						? buildOrganizationChannelsPath(input.orgSlug)
-						: null,
+				channelsPath: action?.path ?? null,
 				id: null,
 				provider,
 				providerLabel: resolveProviderLabel(provider),
-				state: connectionIsReady ? "not_connected" : "unavailable",
+				state:
+					hasFreshConnections && connectionIsReady
+						? "not_connected"
+						: "unavailable",
 			};
 		})
 		.sort((left, right) =>
 			left.providerLabel.localeCompare(right.providerLabel)
 		);
+}
+
+function resolveIdentityAccountAction(input: {
+	canManageMessageChannels: boolean;
+	connectionIsReady: boolean;
+	connectionStatus: MessageChannelConnectionProjection["status"] | null;
+	orgSlug: string;
+	provider: DirectoryIdentityAccount["provider"];
+	providerLabel: string;
+}): NonNullable<DirectoryIdentityAccount["action"]> {
+	if (input.connectionIsReady) {
+		return input.provider === "slack"
+			? {
+					kind: "authorize",
+					label: "Connect Slack",
+					path: buildSlackIdentityStartPath(input.orgSlug),
+				}
+			: {
+					kind: "connect_via_center_agent",
+					label: `Connect ${input.providerLabel}`,
+					path: buildOrganizationChannelsPath(input.orgSlug),
+				};
+	}
+	if (input.canManageMessageChannels) {
+		return {
+			kind: "manage_channels",
+			label:
+				input.connectionStatus === "repair_required"
+					? `Repair ${input.providerLabel}`
+					: `Set up ${input.providerLabel}`,
+			path: buildOrganizationChannelsPath(input.orgSlug),
+		};
+	}
+	return {
+		kind: "ask_admin",
+		label:
+			input.connectionStatus === "repair_required"
+				? `${input.providerLabel} needs attention`
+				: `Ask an admin to set up ${input.providerLabel}`,
+		path: null,
+	};
 }
 
 const DIRECTORY_ROLE_PRIORITY: Record<DirectoryHumanProfileRole, number> = {

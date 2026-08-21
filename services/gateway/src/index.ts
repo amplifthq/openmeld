@@ -20,6 +20,8 @@ app.use("/v1/*", gatewayContextMiddleware);
 app.use("/v1/*", gatewayAuthMiddleware);
 app.use("/slack/oauth/*", gatewayContextMiddleware);
 app.use("/slack/oauth/start", gatewayAuthMiddleware);
+app.use("/slack/identity/*", gatewayContextMiddleware);
+app.use("/slack/identity/start", gatewayAuthMiddleware);
 app.use("/github/app/*", gatewayContextMiddleware);
 
 registerRootRoute(app);

@@ -19,3 +19,15 @@ export function buildSlackOAuthStartPath(input: {
 
 	return `/slack/oauth/start?${searchParams.toString()}`;
 }
+
+export function buildSlackIdentityStartPath(organizationSlug: string): string {
+	const normalizedSlug = organizationSlug.trim();
+	if (!normalizedSlug) {
+		throw new Error(
+			"Slack identity authorization requires an organization slug."
+		);
+	}
+	return `/slack/identity/start?${new URLSearchParams({
+		[SLACK_OAUTH_ORGANIZATION_SLUG_SEARCH_PARAM]: normalizedSlug,
+	}).toString()}`;
+}

@@ -21,13 +21,21 @@ import {
 } from "../infrastructure/d1/slack-workspace-binding-repo";
 import type { MessageChannelIdentityLinkAuditRecord } from "./message-channel-identity-link-audit";
 
+const PROVIDER_ACCOUNT_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
 export type MessageChannelIdentityLinkProjection = {
   connectedAt: string;
   id: string;
   openMeldUserId: string;
   provider: MessageChannelConnectionProjection["provider"];
+  providerAccountEmail: string | null;
   providerAccountName: string | null;
 };
+
+export type MessageChannelProviderAccountEmailsResolver = (input: {
+  provider: MessageChannelConnectionProjection["provider"];
+  providerUserIds: readonly string[];
+}) => Promise<ReadonlyMap<string, string | null>>;
 
 export type MessageChannelIdentityLinkTarget =
   | {
@@ -101,6 +109,7 @@ export async function listRemoteAgentMessageChannelIdentityLinkProjections(input
   connections: readonly MessageChannelConnectionProjection[];
   identityDb: D1Database;
   organizationId: string;
+  resolveProviderAccountEmails?: MessageChannelProviderAccountEmailsResolver;
   stateDb: D1Database;
 }): Promise<MessageChannelIdentityLinkProjection[]> {
   const records = await Promise.all(
@@ -117,6 +126,12 @@ export async function listRemoteAgentMessageChannelIdentityLinkProjections(input
           organizationId: input.organizationId,
           slackTeamId,
         });
+        const providerAccountEmails = input.resolveProviderAccountEmails
+          ? await input.resolveProviderAccountEmails({
+              provider: connection.provider,
+              providerUserIds: links.map((link) => link.slackUserId),
+            })
+          : new Map<string, string | null>();
         return await Promise.all(
           links.map(async (link) => ({
             connectedAt: new Date(link.createdAtMs).toISOString(),
@@ -127,6 +142,11 @@ export async function listRemoteAgentMessageChannelIdentityLinkProjections(input
             }),
             openMeldUserId: link.openmeldUserId,
             provider: connection.provider,
+            providerAccountEmail:
+              providerAccountEmails.get(link.slackUserId) ??
+              resolveStoredProviderAccountEmail(
+                link.providerUserDisplayName ?? null
+              ),
             providerAccountName: link.providerUserDisplayName ?? null,
           }))
         );
@@ -137,6 +157,12 @@ export async function listRemoteAgentMessageChannelIdentityLinkProjections(input
         organizationId: input.organizationId,
         provider: connection.provider,
       });
+      const providerAccountEmails = input.resolveProviderAccountEmails
+        ? await input.resolveProviderAccountEmails({
+            provider: connection.provider,
+            providerUserIds: links.map((link) => link.providerUserId),
+          })
+        : new Map<string, string | null>();
       return await Promise.all(
         links.map(async (link) => ({
           connectedAt: new Date(link.createdAtMs).toISOString(),
@@ -147,6 +173,8 @@ export async function listRemoteAgentMessageChannelIdentityLinkProjections(input
           }),
           openMeldUserId: link.openmeldUserId,
           provider: connection.provider,
+          providerAccountEmail:
+            providerAccountEmails.get(link.providerUserId) ?? null,
           providerAccountName: link.providerUserDisplayName ?? null,
         }))
       );
@@ -160,6 +188,13 @@ export async function listRemoteAgentMessageChannelIdentityLinkProjections(input
           left.id.localeCompare(right.id)
       : providerComparison;
   });
+}
+
+function resolveStoredProviderAccountEmail(
+  value: string | null
+): string | null {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  return PROVIDER_ACCOUNT_EMAIL_PATTERN.test(normalized) ? normalized : null;
 }
 
 export async function findRemoteAgentMessageChannelIdentityLinkTarget(input: {

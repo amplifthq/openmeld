@@ -309,16 +309,10 @@ function ConnectedIdentities(input: {
 								context="detail"
 							/>
 						</div>
-						{account.state === "not_connected" && account.channelsPath ? (
-							<Button
-								onClick={() => input.onConnectAccount(account)}
-								size="sm"
-								type="button"
-								variant="outline"
-							>
-								Connect
-							</Button>
-						) : null}
+						<ConnectedIdentityAction
+							account={account}
+							onConnectAccount={input.onConnectAccount}
+						/>
 						{account.id && account.canDisconnect ? (
 							<Button
 								onClick={() => input.onManageAccount(account)}
@@ -333,6 +327,36 @@ function ConnectedIdentities(input: {
 				))}
 			</div>
 		</section>
+	);
+}
+
+function ConnectedIdentityAction(input: {
+	account: DirectoryIdentityAccount;
+	onConnectAccount: (account: DirectoryIdentityAccount) => void;
+}) {
+	const action = input.account.action;
+	if (!action) {
+		return null;
+	}
+	if (action.path && action.kind !== "connect_via_center_agent") {
+		return (
+			<Link
+				className={buttonVariants({ size: "sm", variant: "outline" })}
+				to={action.path}
+			>
+				{action.label}
+			</Link>
+		);
+	}
+	return (
+		<Button
+			onClick={() => input.onConnectAccount(input.account)}
+			size="sm"
+			type="button"
+			variant="outline"
+		>
+			{action.label}
+		</Button>
 	);
 }
 

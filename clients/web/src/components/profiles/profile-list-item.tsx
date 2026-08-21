@@ -11,6 +11,7 @@ export function ProfileCard(input: {
 	footerRight?: ReactNode;
 	icon: ReactNode;
 	menu?: ReactNode;
+	onCardClick?: () => void;
 	onProfileSummaryClick?: () => void;
 	profileSummaryAriaLabel?: string;
 	rowRef?: Ref<HTMLElement>;
@@ -29,6 +30,7 @@ export function ProfileCard(input: {
 		footerRight,
 		icon,
 		menu,
+		onCardClick,
 		onProfileSummaryClick,
 		profileSummaryAriaLabel,
 		rowRef,
@@ -80,44 +82,58 @@ export function ProfileCard(input: {
 	return (
 		<article
 			className={cn(
-				"group flex h-full min-w-0 flex-col rounded-md border border-border/70 bg-transparent px-4 py-4 transition-[background-color,border-color,box-shadow] hover:border-border",
+				"group relative flex h-full min-w-0 flex-col rounded-md border border-border/70 bg-transparent px-4 py-4 transition-[background-color,border-color,box-shadow] hover:border-border",
+				onCardClick ? "cursor-pointer" : null,
 				className
 			)}
 			data-testid={testId}
 			ref={rowRef}
 		>
-			<div className="flex min-w-0 items-start justify-between gap-3">
-				{onProfileSummaryClick ? (
-					<button
-						aria-label={profileSummaryAriaLabel ?? `About ${title}`}
-						className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-						onClick={onProfileSummaryClick}
-						type="button"
-					>
-						{summaryContent}
-					</button>
-				) : (
-					<div className="flex min-w-0 flex-1 items-start gap-3">
-						{summaryContent}
+			{onCardClick ? (
+				<button
+					aria-label={profileSummaryAriaLabel ?? `About ${title}`}
+					className="absolute inset-0 z-0 cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+					data-profile-card-open=""
+					onClick={onCardClick}
+					type="button"
+				/>
+			) : null}
+			<div className="pointer-events-none relative z-10 flex h-full min-w-0 flex-col [&_a]:pointer-events-auto [&_button]:pointer-events-auto [&_input]:pointer-events-auto [&_select]:pointer-events-auto [&_textarea]:pointer-events-auto">
+				<div className="flex min-w-0 items-start justify-between gap-3">
+					{onProfileSummaryClick && !onCardClick ? (
+						<button
+							aria-label={profileSummaryAriaLabel ?? `About ${title}`}
+							className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+							onClick={onProfileSummaryClick}
+							type="button"
+						>
+							{summaryContent}
+						</button>
+					) : (
+						<div className="flex min-w-0 flex-1 items-start gap-3">
+							{summaryContent}
+						</div>
+					)}
+					{menu ? (
+						<div className="flex shrink-0 items-start justify-end">{menu}</div>
+					) : null}
+				</div>
+				{actions ? <div className="mt-4">{actions}</div> : null}
+				{hasFooter ? (
+					<div className="mt-auto pt-3">
+						<div className="flex min-w-0 flex-col gap-1.5 border-border/70 border-t pt-2.5 text-xs sm:flex-row sm:items-center sm:justify-between">
+							{footerLeft ? (
+								<div className="min-w-0 text-muted-foreground">
+									{footerLeft}
+								</div>
+							) : null}
+							{footerRight ? (
+								<div className="shrink-0 sm:ml-auto">{footerRight}</div>
+							) : null}
+						</div>
 					</div>
-				)}
-				{menu ? (
-					<div className="flex shrink-0 items-start justify-end">{menu}</div>
 				) : null}
 			</div>
-			{actions ? <div className="mt-4">{actions}</div> : null}
-			{hasFooter ? (
-				<div className="mt-auto pt-3">
-					<div className="flex min-w-0 flex-col gap-1.5 border-border/70 border-t pt-2.5 text-xs sm:flex-row sm:items-center sm:justify-between">
-						{footerLeft ? (
-							<div className="min-w-0 text-muted-foreground">{footerLeft}</div>
-						) : null}
-						{footerRight ? (
-							<div className="shrink-0 sm:ml-auto">{footerRight}</div>
-						) : null}
-					</div>
-				</div>
-			) : null}
 		</article>
 	);
 }

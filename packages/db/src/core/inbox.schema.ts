@@ -77,7 +77,7 @@ export const inboxItems = sqliteTable(
     ),
     check(
       "inbox_items_kind_check",
-      sql`"kind" in ('space_message', 'space_reference', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'system_issue')`
+      sql`"kind" in ('space_message', 'space_reference', 'agent_reply', 'agent_interaction', 'wake_outcome', 'center_agent_update', 'center_agent_task', 'document_review', 'organization_request', 'system_issue')`
     ),
     check(
       "inbox_items_attention_check",
@@ -89,7 +89,7 @@ export const inboxItems = sqliteTable(
     ),
     check(
       "inbox_items_source_kind_check",
-      sql`"source_kind" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'system_attention_event')`
+      sql`"source_kind" in ('space_signal', 'runtime_coordinator_interaction', 'remote_agent_native_delivery', 'remote_agent_native_interaction', 'center_agent_task_event', 'organization_document_draft', 'organization_opportunity', 'organization_member_request', 'system_attention_event')`
     ),
     check(
       "inbox_items_resolution_check",

@@ -571,6 +571,8 @@ export type {
   MessageChannelIdentityLinkPreviewBody,
   MessageChannelIdentityLinkPreviewResponse,
   MessageChannelIdentityLinkToken,
+  MessageChannelSetupRequestBody,
+  MessageChannelSetupRequestResponse,
 } from "./message-channels";
 export type {
   ObservabilityCloudflareRuntimeEvidence,
@@ -850,11 +852,14 @@ export type {
 } from "./slack-channel-reads";
 export type {
   SlackOAuthErrorCode,
+  SlackOAuthIdentityLinkInput,
+  SlackOAuthIdentityLinkResult,
   SlackOAuthInstallationInput,
   SlackOAuthInstallationResult,
   SlackOAuthInstallationStatus,
   SlackOAuthOrganizationMembershipInput,
   SlackOAuthOrganizationMembershipResult,
+  SlackOAuthPurpose,
   SlackOAuthState,
   SlackOAuthStateConsumeResponse,
   SlackOAuthStateCreateResponse,

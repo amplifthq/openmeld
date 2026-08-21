@@ -34,6 +34,10 @@ export function buildCurrentOrganizationMessageChannelsPath(): string {
   return "/v1/organizations/current/message-channels";
 }
 
+export function buildCurrentOrganizationMessageChannelSetupRequestsPath(): string {
+  return `${buildCurrentOrganizationMessageChannelsPath()}/setup-requests`;
+}
+
 export function buildCurrentOrganizationMessageChannelIdentityLinkPath(
   identityLinkId: string
 ): string {

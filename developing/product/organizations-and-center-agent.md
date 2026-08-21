@@ -1472,7 +1472,12 @@ create a new verified-member turn in the same Slack thread. Its idempotency key
 is deterministic from the source delivery and OpenMeld user, so concurrent
 clicks and response-loss retries cannot submit the request twice. Web says that
 the original request is continuing; it never asks the user to mention the
-Center Agent again. During a mixed-version rollout, an action already delivered
+Center Agent again. The completed Web handoff also offers **Open Slack thread**
+using the permalink resolved by Core from that exact source delivery, so the
+person can return directly to the continuing conversation. Permalink lookup is
+navigation only: failure is observable but never rolls back the completed
+identity link or the continuation attempt. During a mixed-version rollout, an
+action already delivered
 by the earlier pre-confirmation sequence may have an `outcome_unknown` source.
 The signed-in user's confirmation with that exact consumed, source-bound action
 proves only that this recipient received the handoff. Core may create the same
@@ -1665,6 +1670,15 @@ exact Slack user ID for a real
 those IDs through a structured field, verifies that the same turn's directory
 read returned them, and constructs the mention tokens outside model-authored
 text. It rejects display-name mentions and guessed IDs.
+
+People may show the exact Slack account email for an existing Message Channel
+Identity Link. Core resolves that optional display metadata from the currently
+connected Organization Slack workspace and the exact linked Slack user ID; Web
+never treats a provider display name or identifier as an email. This read does
+not create or change the identity link, and an existing connection does not
+need to be disconnected or reconnected merely to populate the email. If Slack
+does not return an email, the projection remains explicitly unavailable rather
+than guessing.
 
 Core records the exact bot scopes returned by Slack for every OAuth installation.
 `im:history`, `im:read`, and `im:write` are all required before Web presents
@@ -1908,7 +1922,11 @@ Management location follows the owner instead of repeating mutation controls:
   the Center Agent path themselves.
 - All Organization members may view Channel and shared App status. Only owners
   and admins may mutate Organization-owned access; members may manage their own
-  member app connections.
+  member app connections. An ordinary member may request that owners and admins
+  set up one available Message Channel provider. Core creates one deduplicated
+  Organization Inbox request per requester and provider; it grants no setup
+  authority, links recipients to **Center Agent → Channels**, and resolves the
+  request after that provider becomes connected.
 - The personal workspace uses the same Center Agent pages. Only content, available
   actions, and role-appropriate guidance differ.
 
@@ -2241,14 +2259,17 @@ controls.
 **Connected Channels** appears when the Organization currently has at least
 one Slack, Lark, or Feishu Channel connection or a preserved link whose Channel
 needs repair. Every Human Profile card footer shows the same provider logos and
-one coarse link state per provider: linked, not linked, or needs attention. This
-makes another member's missing link visible without exposing a connect action.
-The details surface names the provider and account email when the canonical
-projection provides it. It must not present a provider display name as an
-account identifier or infer an email; until the projection carries the email,
-the details surface says **Account email unavailable**. **Connect** remains
-self-only and explains how to ask that provider's Center Agent for the private
-proof action. The linked member may manage and disconnect their own identity;
+one coarse link state per provider: linked, not linked, or needs attention. A
+ready Channel missing from the signed-in member's own profile renders a
+provider-specific action such as **Connect Slack**, **Connect Lark**, or
+**Connect Feishu** on the card and in details. That action starts the existing
+private provider-proof flow; it does not bind an account by card selection
+alone. Another member's missing link remains visible without exposing a connect
+action. The details surface names the provider and account email when the
+canonical projection provides it. It must not present a provider display name
+as an account identifier or infer an email; until the projection carries the
+email, the details surface says **Account email unavailable**. The linked member
+may manage and disconnect their own identity;
 owners and admins may manage another member's wrong link without gaining the
 ability to assign a replacement. If the Organization has no supported Channel,
 People omits identity state instead of advertising unavailable providers.

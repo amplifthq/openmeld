@@ -9,12 +9,19 @@ export const SLACK_DIRECT_MESSAGE_REQUIRED_BOT_SCOPES = [
   "im:write",
 ] as const;
 
+export const slackOAuthPurposeSchema = z.enum([
+  "organization_install",
+  "member_identity",
+]);
+
 export const slackOAuthStateSchema = z
   .string()
-  .regex(/^slackoauth_[0-9a-f]{64}$/u);
+  .regex(/^slack(?:oauth|identity)_[0-9a-f]{64}$/u);
 
 export const slackOAuthStateCreateResponseSchema = z.strictObject({
   expiresAtMs: timestampMsSchema,
+  purpose: slackOAuthPurposeSchema,
+  slackTeamId: trimmedNonEmptyStringSchema.max(256).nullable(),
   state: slackOAuthStateSchema,
 });
 
@@ -30,6 +37,7 @@ export const slackOAuthStateConsumeResponseSchema = z.discriminatedUnion(
       actorProfileId: trimmedNonEmptyStringSchema,
       moveFromOrganizationId: trimmedNonEmptyStringSchema.nullable(),
       organizationId: trimmedNonEmptyStringSchema,
+      purpose: slackOAuthPurposeSchema,
       returnPath: trimmedNonEmptyStringSchema,
       status: z.literal("valid"),
       userId: trimmedNonEmptyStringSchema,
@@ -51,6 +59,21 @@ export const slackOAuthInstallationInputSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,
   slackInstallerUserId: trimmedNonEmptyStringSchema.max(256).optional(),
   slackTeamId: trimmedNonEmptyStringSchema.max(256),
+});
+
+export const slackOAuthIdentityLinkInputSchema = z.strictObject({
+  actorProfileId: trimmedNonEmptyStringSchema,
+  organizationId: trimmedNonEmptyStringSchema,
+  slackAccountEmail: z.email().max(320),
+  slackTeamId: trimmedNonEmptyStringSchema.max(256),
+  slackUserId: trimmedNonEmptyStringSchema.max(256),
+  userId: trimmedNonEmptyStringSchema,
+});
+
+export const slackOAuthIdentityLinkResultSchema = z.strictObject({
+  openMeldProfileId: trimmedNonEmptyStringSchema,
+  organizationSlug: trimmedNonEmptyStringSchema,
+  token: z.string().regex(/^slacklink_[0-9a-f]{64}$/u),
 });
 
 export const slackOAuthOrganizationMembershipInputSchema = z.strictObject({
@@ -102,6 +125,9 @@ export const slackOAuthErrorCodeSchema = z.enum([
   "configuration_missing",
   "expired_state",
   "installation_failed",
+  "identity_exchange_failed",
+  "identity_link_failed",
+  "identity_workspace_mismatch",
   "invalid_state",
   "missing_code",
   "oauth_exchange_failed",

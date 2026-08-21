@@ -30,6 +30,9 @@ export const MESSAGE_CHANNEL_ERROR_CODES = [
   "message_channel.repair_unavailable",
   "message_channel.registration_not_found",
   "message_channel.store_unavailable",
+  "message_channel.setup_request_already_connected",
+  "message_channel.setup_request_forbidden",
+  "message_channel.setup_request_recipient_unavailable",
 ] as const;
 export const LARK_PLATFORM_WEBHOOK_RAW_BODY_MAX_BYTES = 262_144;
 export const LARK_PLATFORM_WEBHOOK_RAW_BODY_MAX_CHARS =
@@ -46,6 +49,16 @@ const reasonCodeSchema = nonEmptyStringSchema
 export const messageChannelConnectionStatusSchema = z.enum(
   MESSAGE_CHANNEL_CONNECTION_STATUSES
 );
+export const messageChannelSetupRequestBodySchema = z.strictObject({
+  provider: messageChannelProviderSchema,
+});
+export const messageChannelSetupRequestResponseSchema = z.strictObject({
+  organizationId: nonEmptyStringSchema.max(256),
+  provider: messageChannelProviderSchema,
+  recipientCount: z.number().int().positive(),
+  requestId: nonEmptyStringSchema.max(256),
+  status: z.enum(["created", "already_requested"]),
+});
 export const messageChannelIdentityLinkIdSchema = nonEmptyStringSchema
   .max(82)
   .regex(/^channel_identity_[0-9a-f]{64}$/u);
@@ -87,6 +100,7 @@ const messageChannelIdentityLinkProjectionSchema = z.strictObject({
   id: messageChannelIdentityLinkIdSchema,
   openMeldUserId: nonEmptyStringSchema.max(256),
   provider: messageChannelProviderSchema,
+  providerAccountEmail: z.email().max(320).nullable().default(null),
   providerAccountName: nonEmptyStringSchema.max(256).nullable(),
 });
 

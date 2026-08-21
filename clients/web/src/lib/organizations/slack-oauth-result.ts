@@ -110,6 +110,27 @@ export function resolveSlackOAuthResultMessage(
 				title: "OpenMeld could not finish connecting Slack",
 				tone: "error",
 			};
+		case "identity_exchange_failed":
+			return {
+				description:
+					"Try Connect Slack again and allow OpenMeld to read your verified Slack account identity.",
+				title: "OpenMeld could not verify your Slack account",
+				tone: "error",
+			};
+		case "identity_link_failed":
+			return {
+				description:
+					"Try Connect Slack again. If the problem continues, ask an OpenMeld administrator to review the connection logs.",
+				title: "OpenMeld could not prepare your Slack connection",
+				tone: "error",
+			};
+		case "identity_workspace_mismatch":
+			return {
+				description:
+					"Choose an account from the Slack workspace connected to this OpenMeld organization, then try again.",
+				title: "That Slack account belongs to a different workspace",
+				tone: "error",
+			};
 		case "state_creation_failed":
 			return {
 				description:
