@@ -324,6 +324,7 @@ export type RemoteAgentCoreWorkerBinding = {
     input: CenterAgentReadOrganizationSkillsRpcInput
   ): Promise<CenterAgentReadOrganizationSkillsResponse>;
   centerAgentReadAgentActivity?(input: unknown): Promise<unknown>;
+  centerAgentListAgentActivitySessions?(input: unknown): Promise<unknown>;
   centerAgentReadChangelog?(
     input: CenterAgentReadChangelogToolRpcInput
   ): Promise<ChangelogQueryResponse>;

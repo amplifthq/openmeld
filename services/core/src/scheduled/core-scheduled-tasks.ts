@@ -3,6 +3,7 @@ import {
   runAgentActivityDailyAggregation,
   runAgentActivityRetention,
 } from "../agent-activity/activity-retention-service";
+import { retryAgentActivitySessionInventoryMemberCleanups } from "../agent-activity/activity-session-inventory-member-cleanup-service";
 import { retryReadyAgentTaskContinuations } from "../agent-task-coordination/application/agent-task-terminal-outcome-service";
 import { runAgentControllerTaskRetention } from "../agent-task-coordination/infrastructure/d1/agent-controller-task-retention";
 import { retryPendingCenterAgentWakePublications } from "../center-agent/application/center-agent-wake-publication-service";
@@ -29,7 +30,10 @@ import {
   wakeEvidenceDb,
 } from "../lib/bindings";
 import { reconcileOrganizationDocumentDraftInbox } from "../organization-documents/organization-document-inbox-reconciler";
-import { readOrganizationPersonalClassification } from "../organizations/organization-context";
+import {
+  readOrganizationPersonalClassification,
+  resolveOrganizationMembershipById,
+} from "../organizations/organization-context";
 import { resolveOrganizationDirectoryMembers } from "../organizations/organization-directory";
 import { runLarkPlatformRegistrationTick } from "../remote-agent/application/lark-platform-registration-scheduler";
 import {
@@ -91,6 +95,7 @@ export async function runCoreScheduledTasks(input: {
   recoverCenterAgentTasks?: typeof recoverCenterAgentTaskWork;
   retryCenterAgentTaskTerminalProjections?: typeof retryPendingCenterAgentTaskTerminalProjections;
   retryInboxEmailDeliveries?: typeof retryInboxUrgentEmailDeliveries;
+  retrySessionInventoryMemberCleanups?: typeof retryAgentActivitySessionInventoryMemberCleanups;
 }): Promise<void> {
   if (input.cron === EVAL_WEEKLY_REPORT_CRON) {
     await (input.runWeeklyEvalReport ?? runWeeklyEvalReport)({
@@ -101,6 +106,7 @@ export async function runCoreScheduledTasks(input: {
   }
 
   if (input.cron === ROUTINE_TICK_CRON) {
+    await runAgentActivitySessionInventoryMemberCleanup(input);
     await runLarkPlatformRegistrationContinuation(input);
     await reportStrandedRemoteAgentSlackEventIngress(input);
     await runAgentTaskContinuationRedrive(input);
@@ -221,6 +227,50 @@ export async function runCoreScheduledTasks(input: {
     scheduledRetentionFailures.push(error);
   }
   throwScheduledRetentionFailures(scheduledRetentionFailures);
+}
+
+async function runAgentActivitySessionInventoryMemberCleanup(
+  input: Parameters<typeof runCoreScheduledTasks>[0]
+): Promise<void> {
+  const db = agentActivityDb(input.env);
+  if (!db) {
+    return;
+  }
+  try {
+    const result = await (
+      input.retrySessionInventoryMemberCleanups ??
+      retryAgentActivitySessionInventoryMemberCleanups
+    )({
+      db,
+      nowMs: input.nowMs,
+      resolveMembershipState: async (subject) => {
+        const membership = await resolveOrganizationMembershipById({
+          env: input.env,
+          organizationId: subject.organizationId,
+          userId: subject.ownerUserId,
+        });
+        if (membership.ok) {
+          return "active";
+        }
+        return membership.code === "organization.membership_required"
+          ? "removed"
+          : "unavailable";
+      },
+    });
+    if (result.scanned > 0 || result.errors > 0) {
+      console.log(
+        JSON.stringify({
+          event: "core.agent_activity.session_inventory.member_cleanup",
+          ...result,
+        })
+      );
+    }
+  } catch (error) {
+    console.error(
+      "[core.agent_activity.session_inventory.member_cleanup_failed]",
+      { error: error instanceof Error ? error.message : String(error) }
+    );
+  }
 }
 
 async function runSlackWelcomePreparationContinuation(

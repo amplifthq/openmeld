@@ -18,6 +18,11 @@ import {
   organizationAccessControl,
   organizationRoles,
 } from "../organization/access-control";
+import {
+  type AgentActivitySessionInventoryLifecycleWorker,
+  finalizeAgentActivitySessionInventoryCleanupAfterOrganizationMemberRemoval,
+  requireAgentActivitySessionInventoryCleanupBeforeOrganizationMemberRemoval,
+} from "../organization/agent-activity-session-inventory-lifecycle";
 import { assertMemberDoesNotHostCenterAgent } from "../organization/center-agent-member-removal-guard";
 import {
   type CenterAgentMemoryLifecycleWorker,
@@ -65,7 +70,8 @@ import {
 
 export type AuthConfigEnv = AuthConfigInput & {
   AUTH_EMAIL?: CloudflareEmailSender;
-  OPENMELD_CORE_WORKER?: CenterAgentMemoryLifecycleWorker;
+  OPENMELD_CORE_WORKER?: AgentActivitySessionInventoryLifecycleWorker &
+    CenterAgentMemoryLifecycleWorker;
   OPENMELD_DB?: D1Database;
 };
 
@@ -726,18 +732,38 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
           ? { data: { ...organization, metadata: personalMetadata } }
           : undefined;
       },
-      beforeRemoveMember: ({ member, organization, user }) =>
-        assertMemberDoesNotHostCenterAgent({
+      beforeRemoveMember: async ({ member, organization, user }) => {
+        const userId = user.id ?? member.userId;
+        await assertMemberDoesNotHostCenterAgent({
           db: env.OPENMELD_DB,
           organizationId: organization.id,
-          userId: user.id ?? member.userId,
-        }),
-      afterRemoveMember: ({ member, organization, user }) =>
-        deleteCenterAgentMemberMemoryOnOrganizationRemoval({
-          coreWorker: env.OPENMELD_CORE_WORKER,
-          organizationId: organization.id,
-          userId: user.id ?? member.userId,
-        }),
+          userId,
+        });
+        await requireAgentActivitySessionInventoryCleanupBeforeOrganizationMemberRemoval(
+          {
+            coreWorker: env.OPENMELD_CORE_WORKER,
+            organizationId: organization.id,
+            userId,
+          }
+        );
+      },
+      afterRemoveMember: async ({ member, organization, user }) => {
+        const userId = user.id ?? member.userId;
+        await Promise.all([
+          finalizeAgentActivitySessionInventoryCleanupAfterOrganizationMemberRemoval(
+            {
+              coreWorker: env.OPENMELD_CORE_WORKER,
+              organizationId: organization.id,
+              userId,
+            }
+          ),
+          deleteCenterAgentMemberMemoryOnOrganizationRemoval({
+            coreWorker: env.OPENMELD_CORE_WORKER,
+            organizationId: organization.id,
+            userId,
+          }),
+        ]);
+      },
       afterDeleteOrganization: ({ organization }) =>
         deleteCenterAgentOrganizationMemoryOnOrganizationDeletion({
           coreWorker: env.OPENMELD_CORE_WORKER,

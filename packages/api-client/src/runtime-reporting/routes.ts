@@ -4,6 +4,11 @@ export const buildRuntimeRegistrationRoute = (deviceId: string): string =>
 export const buildAgentActivityEventsRoute = (deviceId: string): string =>
   `/v1/devices/${encodeURIComponent(deviceId)}/agent-activity-events`;
 
+export const buildAgentActivitySessionReconciliationRoute = (
+  deviceId: string
+): string =>
+  `/v1/devices/${encodeURIComponent(deviceId)}/agent-activity-session-reconciliation`;
+
 export const buildAgentControllerTaskLifecycleEventsRoute = (
   deviceId: string
 ): string =>

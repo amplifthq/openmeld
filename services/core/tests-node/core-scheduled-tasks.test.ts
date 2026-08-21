@@ -58,6 +58,12 @@ describe("Core scheduled task dispatcher", () => {
       processed: 1,
       scanned: 1,
     }));
+    const retrySessionInventoryMemberCleanups = vi.fn(async () => ({
+      errors: 0,
+      finalized: 1,
+      scanned: 1,
+      waitingForRemoval: 0,
+    }));
     const retryRoutineSubmissions = vi.fn(async () => ({
       errors: 0,
       recovered: 0,
@@ -192,6 +198,7 @@ describe("Core scheduled task dispatcher", () => {
       retryInboxEmailDeliveries,
       retryPreHeadFailurePublications,
       retryRoutineFailurePublications,
+      retrySessionInventoryMemberCleanups,
       retryRoutineSubmissions,
       retryRoutineWorkflowStarts,
       runMemberResearchTick,
@@ -203,6 +210,11 @@ describe("Core scheduled task dispatcher", () => {
     });
 
     expect(runRoutineTick).toHaveBeenCalledTimes(1);
+    expect(retrySessionInventoryMemberCleanups).toHaveBeenCalledWith({
+      db: routineDatabase,
+      nowMs: 1000,
+      resolveMembershipState: expect.any(Function),
+    });
     expect(retryCenterAgentTaskTerminalProjections).toHaveBeenCalledWith({
       deliveryDb: routineDatabase,
       env: expect.anything(),

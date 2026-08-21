@@ -9,10 +9,10 @@ import {
   type BetterSqliteDatabase,
   createCanonicalSharedInMemoryDatabase,
   createCanonicalSharedLocalFixture,
+  DB_TOOLING_CONTRACT_TEST_TIMEOUT_MS,
 } from "./helpers/shared-sqlite-fixture.ts";
 
 const cleanupFns: Array<() => void> = [];
-const SPLIT_LOCAL_WORKER_CLEANUP_TEST_TIMEOUT_MS = 30_000;
 
 afterEach(() => {
   while (cleanupFns.length > 0) {
@@ -21,97 +21,154 @@ afterEach(() => {
 });
 
 describe("fresh Web Start user cleanup", () => {
-  it("deletes OpenMeld product state for one account and preserves auth identity", () => {
-    const fixture = createCanonicalSharedLocalFixture(
-      "fresh-web-start-cleanup"
-    );
-    cleanupFns.push(fixture.cleanup);
-    const database = new Database(fixture.sqlitePath);
+  it(
+    "deletes OpenMeld product state for one account and preserves auth identity",
+    () => {
+      const fixture = createCanonicalSharedLocalFixture(
+        "fresh-web-start-cleanup"
+      );
+      cleanupFns.push(fixture.cleanup);
+      const database = new Database(fixture.sqlitePath);
 
-    try {
-      seedAuthUser(database, {
-        email: "fresh@example.com",
-        userId: "user-fresh",
-      });
-      seedAuthUser(database, {
-        email: "other@example.com",
-        userId: "user-other",
-      });
-      seedOpenMeldProductState(database, "user-fresh");
-      seedOpenMeldProductState(database, "user-other");
+      try {
+        seedAuthUser(database, {
+          email: "fresh@example.com",
+          userId: "user-fresh",
+        });
+        seedAuthUser(database, {
+          email: "other@example.com",
+          userId: "user-other",
+        });
+        seedOpenMeldProductState(database, "user-fresh");
+        seedOpenMeldProductState(database, "user-other");
+        seedAgentActivitySessionInventory(database, "user-fresh");
+        seedAgentActivitySessionInventory(database, "user-other");
 
-      const localDbTargets: FreshWebStartLocalDbTarget[] = [
-        {
-          localDbPath: fixture.sqlitePath,
-          services: ["auth", "core"],
-        },
-      ];
-      const result = runFreshWebStartUserCleanup({
-        databasesByPath: new Map([[fixture.sqlitePath, database]]),
-        email: " Fresh@Example.com ",
-        localDbTargets,
-      });
+        const localDbTargets: FreshWebStartLocalDbTarget[] = [
+          {
+            localDbPath: fixture.sqlitePath,
+            services: ["auth", "core"],
+          },
+        ];
+        const result = runFreshWebStartUserCleanup({
+          databasesByPath: new Map([[fixture.sqlitePath, database]]),
+          email: " Fresh@Example.com ",
+          localDbTargets,
+        });
 
-      expect(result).toMatchObject({
-        clearAuthSessions: false,
-        email: "fresh@example.com",
-        localDbTargets,
-        userId: "user-fresh",
-      });
-      expect(result.counts).toMatchObject({
-        openMeldProfiles: 2,
-        openMeldProfileSpaceHistory: 2,
-        openMeldSpaceDeletionTombstones: 1,
-        openMeldDaemonOwnedDevices: 1,
-        openMeldDaemonCurrentDeviceTargets: 1,
-        authOneTimeTokenVerifications: 0,
-        authSessions: 0,
-      });
+        expect(result).toMatchObject({
+          clearAuthSessions: false,
+          email: "fresh@example.com",
+          localDbTargets,
+          userId: "user-fresh",
+        });
+        expect(result.counts).toMatchObject({
+          agentActivitySessionInventory: 1,
+          agentActivitySessionInventoryCandidates: 1,
+          agentActivitySessionInventoryMemberCleanupRequests: 1,
+          agentActivitySessionInventorySources: 1,
+          openMeldProfiles: 2,
+          openMeldProfileSpaceHistory: 2,
+          openMeldSpaceDeletionTombstones: 1,
+          openMeldDaemonOwnedDevices: 1,
+          openMeldDaemonCurrentDeviceTargets: 1,
+          authOneTimeTokenVerifications: 0,
+          authSessions: 0,
+        });
 
-      expect(readCount(database, "users", "id = 'user-fresh'")).toBe(1);
-      expect(readCount(database, "accounts", "user_id = 'user-fresh'")).toBe(1);
-      expect(readCount(database, "sessions", "user_id = 'user-fresh'")).toBe(1);
+        expect(readCount(database, "users", "id = 'user-fresh'")).toBe(1);
+        expect(readCount(database, "accounts", "user_id = 'user-fresh'")).toBe(
+          1
+        );
+        expect(readCount(database, "sessions", "user_id = 'user-fresh'")).toBe(
+          1
+        );
 
-      expect(
-        readCount(database, "openmeld_profiles", "owner_user_id = 'user-fresh'")
-      ).toBe(0);
-      expect(readCount(database, "openmeld_profile_space_history")).toBe(2);
-      expect(
-        readCount(
-          database,
-          "openmeld_space_deletion_tombstones",
-          "deleted_by_owner_user_id = 'user-fresh'"
-        )
-      ).toBe(0);
-      expect(
-        readCount(
-          database,
-          "openMeldDaemon_owned_devices",
-          "owner_user_id = 'user-fresh'"
-        )
-      ).toBe(0);
-      expect(
-        readCount(
-          database,
-          "openMeldDaemon_current_device_targets",
-          "owner_user_id = 'user-fresh'"
-        )
-      ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "openmeld_profiles",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "agent_activity_session_inventory",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "agent_activity_session_inventory_candidates",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "agent_activity_session_inventory_sources",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "agent_activity_session_inventory_member_cleanup_requests",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(readCount(database, "openmeld_profile_space_history")).toBe(2);
+        expect(
+          readCount(
+            database,
+            "openmeld_space_deletion_tombstones",
+            "deleted_by_owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "openMeldDaemon_owned_devices",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
+        expect(
+          readCount(
+            database,
+            "openMeldDaemon_current_device_targets",
+            "owner_user_id = 'user-fresh'"
+          )
+        ).toBe(0);
 
-      expect(
-        readCount(database, "openmeld_profiles", "owner_user_id = 'user-other'")
-      ).toBe(2);
-      expect(
-        readCount(
-          database,
-          "openMeldDaemon_owned_devices",
-          "owner_user_id = 'user-other'"
-        )
-      ).toBe(1);
-    } finally {
-      database.close();
-    }
-  });
+        expect(
+          readCount(
+            database,
+            "openmeld_profiles",
+            "owner_user_id = 'user-other'"
+          )
+        ).toBe(2);
+        expect(
+          readCount(
+            database,
+            "openMeldDaemon_owned_devices",
+            "owner_user_id = 'user-other'"
+          )
+        ).toBe(1);
+        expect(
+          readCount(
+            database,
+            "agent_activity_session_inventory",
+            "owner_user_id = 'user-other'"
+          )
+        ).toBe(1);
+      } finally {
+        database.close();
+      }
+    },
+    DB_TOOLING_CONTRACT_TEST_TIMEOUT_MS
+  );
 
   it("optionally clears auth sessions for the user", () => {
     const database = createCanonicalSharedInMemoryDatabase();
@@ -158,32 +215,36 @@ describe("fresh Web Start user cleanup", () => {
     }
   });
 
-  it("fails fast when the test account does not exist", () => {
-    const fixture = createCanonicalSharedLocalFixture(
-      "fresh-web-start-missing-user"
-    );
-    cleanupFns.push(fixture.cleanup);
-    const database = new Database(fixture.sqlitePath);
-
-    try {
-      expect(() =>
-        runFreshWebStartUserCleanup({
-          databasesByPath: new Map([[fixture.sqlitePath, database]]),
-          email: "missing@example.com",
-          localDbTargets: [
-            {
-              localDbPath: fixture.sqlitePath,
-              services: ["auth", "core"],
-            },
-          ],
-        })
-      ).toThrow(
-        "fresh Web Start cleanup could not find a local auth user for missing@example.com"
+  it(
+    "fails fast when the test account does not exist",
+    () => {
+      const fixture = createCanonicalSharedLocalFixture(
+        "fresh-web-start-missing-user"
       );
-    } finally {
-      database.close();
-    }
-  });
+      cleanupFns.push(fixture.cleanup);
+      const database = new Database(fixture.sqlitePath);
+
+      try {
+        expect(() =>
+          runFreshWebStartUserCleanup({
+            databasesByPath: new Map([[fixture.sqlitePath, database]]),
+            email: "missing@example.com",
+            localDbTargets: [
+              {
+                localDbPath: fixture.sqlitePath,
+                services: ["auth", "core"],
+              },
+            ],
+          })
+        ).toThrow(
+          "fresh Web Start cleanup could not find a local auth user for missing@example.com"
+        );
+      } finally {
+        database.close();
+      }
+    },
+    DB_TOOLING_CONTRACT_TEST_TIMEOUT_MS
+  );
 
   it("normalizes and validates the email input", () => {
     expect(normalizeFreshWebStartCleanupEmail(" Demo@Example.com ")).toBe(
@@ -298,7 +359,7 @@ describe("fresh Web Start user cleanup", () => {
         coreDatabase.close();
       }
     },
-    SPLIT_LOCAL_WORKER_CLEANUP_TEST_TIMEOUT_MS
+    DB_TOOLING_CONTRACT_TEST_TIMEOUT_MS
   );
 });
 
@@ -552,6 +613,121 @@ function seedCoreSideOpenMeldProductState(
       ) VALUES (?, ?, ?)`
     )
     .run(ownerUserId, `device-${ownerUserId}`, now);
+}
+
+function seedAgentActivitySessionInventory(
+  database: BetterSqliteDatabase,
+  ownerUserId: string
+): void {
+  const now = 1_700_000_100_000;
+  const organizationId =
+    ownerUserId === "user-fresh" ? "org-fresh" : "org-other";
+  const projectId = `project-${ownerUserId}`;
+  const sourceScopeKey = `source-${ownerUserId}`;
+  const nativeSessionId = `native-${ownerUserId}`;
+  const localConnectionId = `sha256:${"a".repeat(64)}`;
+
+  database
+    .prepare(
+      `INSERT INTO projects (
+        id, organization_id, name, slug, created_by_user_id,
+        created_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      projectId,
+      organizationId,
+      `Project for ${ownerUserId}`,
+      `project-${ownerUserId}`,
+      ownerUserId,
+      now,
+      now
+    );
+  database
+    .prepare(
+      `INSERT INTO agent_activity_session_inventory (
+        id, organization_id, owner_user_id, agent_controller_ref,
+        native_session_id, project_id, device_id, connected_computer_id,
+        local_connection_id, source_scope_key, provider, native_session_title,
+        status, last_active_at_ms, started_at_ms, origin, can_resume, can_fork,
+        visible, source_reconciliation_id, observed_at_ms, published_at_ms,
+        updated_at_ms
+      ) VALUES (?, ?, ?, 'builtin:codex', ?, ?, ?, ?, ?, ?, 'codex',
+        'Private native title', 'unknown', ?, ?, 'local', 1, 0, 1,
+        'reconcile-1', ?, ?, ?)`
+    )
+    .run(
+      `inventory-${ownerUserId}`,
+      organizationId,
+      ownerUserId,
+      nativeSessionId,
+      projectId,
+      `device-${ownerUserId}`,
+      `computer-${ownerUserId}`,
+      localConnectionId,
+      sourceScopeKey,
+      now,
+      now - 1000,
+      now,
+      now,
+      now
+    );
+  database
+    .prepare(
+      `INSERT INTO agent_activity_session_inventory_candidates (
+        id, source_scope_key, reconciliation_id, page_index, organization_id,
+        owner_user_id, agent_controller_ref, native_session_id, project_id,
+        device_id, connected_computer_id, local_connection_id, provider,
+        native_session_title, status, last_active_at_ms, started_at_ms, origin,
+        can_resume, can_fork, observed_at_ms, created_at_ms
+      ) VALUES (?, ?, 'reconcile-2', 0, ?, ?, 'builtin:codex', ?, ?, ?, ?, ?,
+        'codex', 'Private candidate title', 'unknown', ?, ?, 'local', 1, 0, ?, ?)`
+    )
+    .run(
+      `candidate-${ownerUserId}`,
+      sourceScopeKey,
+      organizationId,
+      ownerUserId,
+      nativeSessionId,
+      projectId,
+      `device-${ownerUserId}`,
+      `computer-${ownerUserId}`,
+      localConnectionId,
+      now,
+      now - 1000,
+      now,
+      now
+    );
+  database
+    .prepare(
+      `INSERT INTO agent_activity_session_inventory_sources (
+        source_scope_key, organization_id, owner_user_id, project_id,
+        device_id, connected_computer_id, local_connection_id,
+        agent_controller_ref, provider, state, current_reconciliation_id,
+        next_page_index, last_attempt_at_ms, last_complete_at_ms, updated_at_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'builtin:codex', 'codex', 'current',
+        null, 0, ?, ?, ?)`
+    )
+    .run(
+      sourceScopeKey,
+      organizationId,
+      ownerUserId,
+      projectId,
+      `device-${ownerUserId}`,
+      `computer-${ownerUserId}`,
+      localConnectionId,
+      now,
+      now,
+      now
+    );
+  database
+    .prepare(
+      `INSERT INTO agent_activity_session_inventory_member_cleanup_requests (
+        organization_id, owner_user_id, requested_at_ms, last_attempt_at_ms,
+        attempt_count, last_error
+      ) VALUES (?, ?, ?, ?, 0, null)`
+    )
+    .run(organizationId, ownerUserId, now, now);
 }
 
 function readCount(

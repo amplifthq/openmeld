@@ -259,6 +259,52 @@ export function createBeforeMatchingBatchD1Database(input: {
   } as D1Database;
 }
 
+export function createDuplicateMatchingBatchD1Database(input: {
+  db: D1Database;
+  matches(sql: string): boolean;
+}): D1Database {
+  const delegateByStatement = new WeakMap<object, D1PreparedStatement>();
+  const sqlByStatement = new WeakMap<object, string>();
+  let duplicated = false;
+  const wrap = (
+    delegate: D1PreparedStatement,
+    sql: string
+  ): D1PreparedStatement => {
+    const wrapped = {
+      all: <TRow>() => delegate.all<TRow>(),
+      bind: (...values: unknown[]) => wrap(delegate.bind(...values), sql),
+      first: <TRow>(columnName?: string) =>
+        columnName === undefined
+          ? delegate.first<TRow>()
+          : delegate.first<TRow>(columnName),
+      run: () => delegate.run(),
+    } as D1PreparedStatement;
+    delegateByStatement.set(wrapped, delegate);
+    sqlByStatement.set(wrapped, sql);
+    return wrapped;
+  };
+
+  return {
+    batch: async (statements: D1PreparedStatement[]) => {
+      const delegates = statements.map(
+        (statement) => delegateByStatement.get(statement) ?? statement
+      );
+      const results = await input.db.batch(delegates);
+      if (
+        !duplicated &&
+        statements.some((statement) =>
+          input.matches(sqlByStatement.get(statement) ?? "")
+        )
+      ) {
+        duplicated = true;
+        await input.db.batch(delegates);
+      }
+      return results;
+    },
+    prepare: (sql: string) => wrap(input.db.prepare(sql), sql),
+  } as D1Database;
+}
+
 export function createAfterMatchingBatchD1Database(input: {
   afterBatch(): void;
   db: D1Database;

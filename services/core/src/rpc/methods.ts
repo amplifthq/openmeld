@@ -273,6 +273,7 @@ import type {
   AccountSpaceIndexQuery,
   AccountSpaceIndexResponse,
   AddOrganizationDirectoryProfilesToSpaceBody,
+  AgentActivitySessionInventoryRpcInput,
   AgentActivitySnapshotRpcInput,
   AgentActivityStatsRpcInput,
   AgentControllerPermissionMode,
@@ -308,6 +309,7 @@ import type {
   CenterAgentDispatchHistoryEntry,
   CenterAgentEnableAgentProfileBody,
   CenterAgentEnableAgentProfileResponse,
+  CenterAgentListAgentActivitySessionsToolRpcInput,
   CenterAgentListAgentTasksBody,
   CenterAgentListAgentTasksResponse,
   CenterAgentListComputersBody,
@@ -544,6 +546,7 @@ import type {
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
   SubmitAgentActivityEventsRpcInput,
+  SubmitAgentActivitySessionReconciliationRpcInput,
   SubmitAgentControllerTaskLifecycleEventItem,
   SubmitAgentControllerTaskLifecycleEventsResponse,
   SubmitAgentControllerTaskLifecycleEventsRpcInput,
@@ -576,8 +579,16 @@ import {
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   type SpaceAccessContext,
 } from "@openmeld/space";
-import { rpcCenterAgentReadAgentActivity as centerAgentReadAgentActivity } from "../agent-activity/activity-center-agent-rpc";
+import {
+  rpcCenterAgentListAgentActivitySessions as centerAgentListAgentActivitySessions,
+  rpcCenterAgentReadAgentActivity as centerAgentReadAgentActivity,
+} from "../agent-activity/activity-center-agent-rpc";
 import { rpcSubmitAgentActivityEvents as submitAgentActivityEvents } from "../agent-activity/activity-event-rpc";
+import { canResumeAgentActivitySessionSelection } from "../agent-activity/activity-session-inventory-repository";
+import {
+  rpcReadAgentActivitySessionInventory as readAgentActivitySessionInventory,
+  rpcSubmitAgentActivitySessionReconciliation as submitAgentActivitySessionReconciliation,
+} from "../agent-activity/activity-session-inventory-rpc";
 import { rpcReadAgentActivitySnapshot as readAgentActivitySnapshot } from "../agent-activity/activity-snapshot-rpc";
 import { rpcReadAgentActivityStats as readAgentActivityStats } from "../agent-activity/activity-stats-rpc";
 import {
@@ -1085,14 +1096,20 @@ export type RemoveConnectionInput = LocalProjectControlRemoveConnectionRpcInput;
 export type RemoveMissingConnectionsInput =
   LocalProjectControlRemoveMissingConnectionsRpcInput;
 export type SubmitAgentActivityEventsInput = SubmitAgentActivityEventsRpcInput;
+export type SubmitAgentActivitySessionReconciliationInput =
+  SubmitAgentActivitySessionReconciliationRpcInput;
 export type SubmitAgentControllerTaskLifecycleEventsInput =
   SubmitAgentControllerTaskLifecycleEventsRpcInput;
 export type ReadAgentActivitySnapshotInput = AgentActivitySnapshotRpcInput;
+export type ReadAgentActivitySessionInventoryInput =
+  AgentActivitySessionInventoryRpcInput;
 export type ReadAgentActivityStatsInput = AgentActivityStatsRpcInput;
 export type ReadOrganizationUsageOverviewInput =
   OrganizationUsageOverviewRpcInput;
 export type CenterAgentReadAgentActivityInput =
   CenterAgentReadAgentActivityToolRpcInput;
+export type CenterAgentListAgentActivitySessionsInput =
+  CenterAgentListAgentActivitySessionsToolRpcInput;
 export type CenterAgentReadChangelogInput =
   CenterAgentReadChangelogToolRpcInput;
 export type CenterAgentListOpportunitiesInput =
@@ -1274,6 +1291,13 @@ export function rpcSubmitAgentActivityEvents(
   return submitAgentActivityEvents(env, input);
 }
 
+export function rpcSubmitAgentActivitySessionReconciliation(
+  env: CoreBindings,
+  input: SubmitAgentActivitySessionReconciliationInput
+) {
+  return submitAgentActivitySessionReconciliation(env, input);
+}
+
 export function rpcSubmitAgentControllerTaskLifecycleEvents(
   env: CoreBindings,
   input: SubmitAgentControllerTaskLifecycleEventsInput
@@ -1286,6 +1310,13 @@ export function rpcReadAgentActivitySnapshot(
   input: ReadAgentActivitySnapshotInput
 ) {
   return readAgentActivitySnapshot(env, input);
+}
+
+export function rpcReadAgentActivitySessionInventory(
+  env: CoreBindings,
+  input: ReadAgentActivitySessionInventoryInput
+) {
+  return readAgentActivitySessionInventory(env, input);
 }
 
 export function rpcReadAgentActivityStats(
@@ -1307,6 +1338,13 @@ export function rpcCenterAgentReadAgentActivity(
   input: CenterAgentReadAgentActivityInput
 ) {
   return centerAgentReadAgentActivity(env, input);
+}
+
+export function rpcCenterAgentListAgentActivitySessions(
+  env: CoreBindings,
+  input: CenterAgentListAgentActivitySessionsInput
+) {
+  return centerAgentListAgentActivitySessions(env, input);
 }
 
 export function rpcCenterAgentReadChangelog(
@@ -13857,6 +13895,7 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
     modelId: input.modelId,
     openCodePermission: input.openCodePermission,
     reasoningLevel: input.reasoningLevel,
+    sessionInventorySelection: input.sessionInventorySelection,
     writeMode: input.writeMode,
   });
   if (!body.success) {
@@ -13886,6 +13925,26 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
     ]);
   }
 
+  if (
+    body.data.sessionInventorySelection &&
+    !(await canResumeAgentActivitySessionSelection({
+      activeOrganizationId: normalizeOptionalText(
+        request.context.activeOrganizationId
+      ),
+      agentControllerRef: body.data.agentControllerRef,
+      agentProfileId: request.agentProfileId,
+      db,
+      deviceId: body.data.deviceId,
+      nowMs: Date.now(),
+      ownerUserId: request.owner.id,
+      selection: body.data.sessionInventorySelection,
+    }))
+  ) {
+    return buildRejectedAgentProfileBindingResponse([
+      "agent_profile_binding.session_resume_unavailable",
+    ]);
+  }
+
   const profileOwnerValidation = await resolveProfileOwnerValidationEvidence({
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
@@ -13902,7 +13961,23 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
   try {
     result = await ensurePrimaryAgentProfileBinding({
       agentProfileId: request.agentProfileId,
-      bindingStore: createD1AgentProfileBindingCommandStore({ db }),
+      bindingStore: createD1AgentProfileBindingCommandStore({
+        db,
+        ...(body.data.sessionInventorySelection
+          ? {
+              sessionInventoryEligibility: {
+                activeOrganizationId: normalizeOptionalText(
+                  request.context.activeOrganizationId
+                ),
+                agentControllerRef: body.data.agentControllerRef,
+                agentProfileId: request.agentProfileId,
+                deviceId: body.data.deviceId,
+                ownerUserId: request.owner.id,
+                selection: body.data.sessionInventorySelection,
+              },
+            }
+          : {}),
+      }),
       agentControllerConversationId: body.data.agentControllerConversationId,
       agentControllerRef: body.data.agentControllerRef,
       createdByProfileId: request.context.actorContext.openMeldProfileId,

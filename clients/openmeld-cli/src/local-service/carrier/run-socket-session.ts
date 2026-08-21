@@ -34,7 +34,6 @@ import {
 } from "@openmeld/schemas";
 import type {
   LocalComponentsStatus,
-  LocalProjectControlDaemonFrame,
   OpenMeldDaemonManageLocalAgentInstallationPayload,
   OpenMeldDaemonSetLocalAgentEnabledPayload,
   OpenMeldDaemonSetProfileWorkspacePayload,
@@ -106,6 +105,7 @@ import {
   resolveNextRuntimeAgentControllerReportSyncAtMs,
 } from "../inventory/agent-controller-interface-keeper";
 import { resolveCurrentDaemonExpectedVersion } from "../lifecycle/current-daemon-version";
+import { didLocalProjectConnectionsChange } from "../projects/local-project-activity-sync";
 import { handleLocalProjectControlFrame } from "../projects/local-project-control-handler";
 import { syncLocalServiceProviderConversationProofs } from "../reporting/provider-conversation-proof-sync";
 import {
@@ -336,7 +336,7 @@ function handleComputerFileAccessSocketFrame(input: {
 function handleLocalProjectControlSocketFrame(input: {
   deviceId: string;
   frame: ParsedDaemonFrame;
-  onLocalProjectConnected?: () => void;
+  onLocalProjectConnectionsChanged?: () => void;
   presenter: Presenter;
   socket: WsClient;
 }): boolean {
@@ -349,11 +349,11 @@ function handleLocalProjectControlSocketFrame(input: {
   })
     .then((resultFrame) => {
       input.socket.send(JSON.stringify(resultFrame));
-      if (!isConnectedLocalProjectResult(resultFrame)) {
+      if (!didLocalProjectConnectionsChange(resultFrame)) {
         return;
       }
       try {
-        input.onLocalProjectConnected?.();
+        input.onLocalProjectConnectionsChanged?.();
       } catch (error) {
         emitRunLine({
           presenter: input.presenter,
@@ -370,20 +370,6 @@ function handleLocalProjectControlSocketFrame(input: {
       });
     });
   return true;
-}
-
-function isConnectedLocalProjectResult(
-  frame: LocalProjectControlDaemonFrame
-): boolean {
-  if (
-    frame.code !== "daemon.local_project_control.connect_candidate_result" &&
-    frame.code !== "daemon.local_project_control.connect_declared_path_result"
-  ) {
-    return false;
-  }
-  return (
-    "result" in frame.payload && frame.payload.result.status === "connected"
-  );
 }
 
 function handleLocalFolderPickerSocketFrame(input: {
@@ -458,7 +444,7 @@ export async function runDaemonSocketSession(input: {
   onRuntimeReportingAuthenticationFailure?: (
     failure: RuntimeReportingAuthenticationFailure
   ) => Promise<void> | void;
-  onLocalProjectConnected?: () => void;
+  onLocalProjectConnectionsChanged?: () => void;
   profileOwnerName: string | null;
   presenter: Presenter;
   persistRouteCatalogCache?: (catalog: RouteCatalog) => Promise<void>;
@@ -2273,7 +2259,8 @@ export async function runDaemonSocketSession(input: {
       handleLocalProjectControlSocketFrame({
         deviceId: input.deviceId,
         frame: parsedFrame,
-        onLocalProjectConnected: input.onLocalProjectConnected,
+        onLocalProjectConnectionsChanged:
+          input.onLocalProjectConnectionsChanged,
         presenter: input.presenter,
         socket: input.socket,
       }) ||

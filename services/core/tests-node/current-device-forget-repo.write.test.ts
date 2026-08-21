@@ -5,6 +5,7 @@ import {
 } from "../src/start/infrastructure/d1/current-device-forget-repo";
 import {
   applyDrizzleMigrationForTable,
+  applyDrizzleMigrationsForTables,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
 
@@ -149,6 +150,17 @@ function seedCurrentDeviceState(
     ownerUserId: string;
   }
 ) {
+  for (const sql of [
+    "CREATE TABLE organizations (id TEXT PRIMARY KEY)",
+    "CREATE TABLE projects (id TEXT PRIMARY KEY)",
+  ]) {
+    harness.run({ sql });
+  }
+  applyDrizzleMigrationsForTables(harness, [
+    "agent_activity_session_inventory",
+    "agent_activity_session_inventory_candidates",
+    "agent_activity_session_inventory_sources",
+  ]);
   applyDrizzleMigrationForTable(
     harness,
     "openMeldDaemon_agent_profile_bindings"

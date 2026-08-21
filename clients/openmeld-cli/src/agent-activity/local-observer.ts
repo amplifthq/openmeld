@@ -25,6 +25,7 @@ import {
   parseOpenCodeSessionRow,
   resolveObservedAgentActivityBinding,
 } from "./observer-adapters";
+import { resolveOpenCodeDatabasePath } from "./opencode-storage";
 import { listProjectBindings } from "./project-bindings";
 import { readCodexSessionTitles } from "./provider-session-titles";
 
@@ -374,13 +375,7 @@ async function scanOpenCode(
   }
 ) {
   const result = { driftCount: 0, observedCount: 0, queuedCount: 0 };
-  const databasePath = join(
-    input.home,
-    ".local",
-    "share",
-    "opencode",
-    "opencode.db"
-  );
+  const databasePath = resolveOpenCodeDatabasePath({ homeDir: input.home });
   const metadata = await stat(databasePath).catch(() => null);
   if (!metadata?.isFile()) {
     return result;
@@ -469,7 +464,7 @@ export async function collectObservedSessionWorkingDirectories(
     }
   }
 
-  const databasePath = join(home, ".local", "share", "opencode", "opencode.db");
+  const databasePath = resolveOpenCodeDatabasePath({ homeDir: home });
   throwIfCandidateCollectionAborted(input.signal);
   const metadata = await stat(databasePath).catch((error: unknown) => {
     if (isMissingPathError(error)) {

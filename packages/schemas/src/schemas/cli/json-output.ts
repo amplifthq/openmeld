@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 import { localProjectControlConnectionSchema } from "../daemon/local-project-control";
 import { agentActivitySnapshotResponseSchema } from "../http/agent-activity";
+import { agentActivitySessionInventoryResponseSchema } from "../http/agent-activity-sessions";
 import {
   createCenterAgentRoutineResponseSchema,
   deleteCenterAgentRoutineResponseSchema,
@@ -316,6 +317,12 @@ export const cliJsonAgentActivityReadEnvelopeSchema =
     agentActivitySnapshotResponseSchema.shape
   );
 
+export const cliJsonAgentActivitySessionsEnvelopeSchema =
+  defineStrictSuccessEnvelope(
+    "activity.sessions",
+    agentActivitySessionInventoryResponseSchema.shape
+  );
+
 const cliJsonAgentActivityIntegrationStatusSchema = z.strictObject({
   claude: z.boolean(),
   codex: z.boolean(),
@@ -370,8 +377,29 @@ export const cliJsonAgentActivitySyncEnvelopeSchema =
           "write_response_invalid",
           "write_timeout",
           "write_transport_failure",
+          "inventory_write_auth_rejected",
+          "inventory_endpoint_unavailable",
+          "inventory_write_retryable_http_failure",
+          "inventory_write_transport_failure",
         ])
         .nullable(),
+      sessionInventory: z.strictObject({
+        reason: z
+          .enum([
+            "service_contract_unavailable",
+            "auth_unavailable",
+            "registration_rejected",
+            "inventory_write_auth_rejected",
+            "inventory_endpoint_unavailable",
+            "inventory_write_retryable_http_failure",
+            "inventory_write_transport_failure",
+          ])
+          .nullable(),
+        sessionCount: z.number().int().nonnegative(),
+        sourceCount: z.number().int().nonnegative(),
+        status: z.enum(["idle", "submitted", "unavailable"]),
+        submittedSourceCount: z.number().int().nonnegative(),
+      }),
       status: z.enum(["idle", "submitted", "unavailable"]),
       submittedCount: z.number().int().nonnegative(),
     }),
@@ -578,6 +606,7 @@ export const cliJsonOutputEnvelopeSchema = z.discriminatedUnion("type", [
   cliJsonProjectsConnectionsSetDefaultEnvelopeSchema,
   cliJsonProjectsConnectionsRemoveEnvelopeSchema,
   cliJsonAgentActivityReadEnvelopeSchema,
+  cliJsonAgentActivitySessionsEnvelopeSchema,
   cliJsonAgentActivityInstallEnvelopeSchema,
   cliJsonAgentActivityUninstallEnvelopeSchema,
   cliJsonAgentActivityStatusEnvelopeSchema,
@@ -637,6 +666,7 @@ export const CLI_JSON_OUTPUT_TYPES = [
   "projects.connections.set_default",
   "projects.connections.remove",
   "activity.read",
+  "activity.sessions",
   "activity.install",
   "activity.uninstall",
   "activity.status",

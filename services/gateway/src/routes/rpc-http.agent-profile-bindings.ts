@@ -400,6 +400,12 @@ export function registerAgentProfileBindingRoutes(
           ...(parsedBody.data.openCodePermission
             ? { openCodePermission: parsedBody.data.openCodePermission }
             : {}),
+          ...(parsedBody.data.sessionInventorySelection
+            ? {
+                sessionInventorySelection:
+                  parsedBody.data.sessionInventorySelection,
+              }
+            : {}),
           writeMode: parsedBody.data.writeMode,
         }),
     });

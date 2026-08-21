@@ -3,7 +3,9 @@ import { Command } from "commander";
 import { describe, expect, it, vi } from "vitest";
 import {
   activateAgentActivityIntegrations,
+  emitAgentActivitySessionInventory,
   emitAgentActivitySnapshot,
+  emitHumanAgentActivitySessionInventory,
   emitHumanAgentActivitySnapshot,
   resolveProjectId,
   toPublicAgentActivityBinding,
@@ -80,6 +82,42 @@ describe("Agent Activity CLI presentation", () => {
       expect.objectContaining({
         json: true,
         project: "openmeld",
+        view: "agent",
+      })
+    );
+  });
+
+  it("parses Session Inventory filters without changing their public names", async () => {
+    const handlers = createActivityHandlers();
+    const program = new Command().exitOverride();
+    registerAgentActivityCommands(program, handlers);
+
+    await program.parseAsync([
+      "node",
+      "openmeld",
+      "activity",
+      "sessions",
+      "--provider",
+      "grok-build",
+      "--status",
+      "unknown",
+      "--origin",
+      "openmeld",
+      "--native-session",
+      "native-1",
+      "--limit",
+      "25",
+      "--view",
+      "agent",
+    ]);
+
+    expect(handlers.sessions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        limit: "25",
+        nativeSession: "native-1",
+        origin: "openmeld",
+        provider: "grok-build",
+        status: "unknown",
         view: "agent",
       })
     );
@@ -430,6 +468,38 @@ describe("Agent Activity CLI presentation", () => {
       "activity.event",
     ]);
   });
+
+  it("emits the same Session contract in Human and Agent views", () => {
+    const inventory = sessionInventoryFixture();
+    const data = vi.fn<Presenter["data"]>();
+    emitAgentActivitySessionInventory(
+      { data, event: vi.fn(), line: vi.fn(), view: "agent" },
+      inventory
+    );
+    expect(data.mock.calls.map(([entry]) => entry.code)).toEqual([
+      "activity.sessions.inventory",
+      "activity.sessions.coverage",
+      "activity.sessions.session",
+    ]);
+    expect(data.mock.calls.at(-1)?.[0].payload).toEqual(inventory.sessions[0]);
+
+    const lines: Array<{ code: string; text: string }> = [];
+    emitHumanAgentActivitySessionInventory({
+      inventory,
+      presenter: {
+        data: vi.fn(),
+        event: vi.fn(),
+        line: (line) => lines.push(line),
+        view: "human",
+      },
+    });
+    const text = lines.map((line) => line.text).join("\n");
+    expect(text).toContain("Native title");
+    expect(text).toContain("ID native-1");
+    expect(text).toContain("Felix's MacBook Pro");
+    expect(text).toContain("Agent Profile agt-1");
+    expect(text).toContain("--cursor next-page");
+  });
 });
 
 function createActivityProgram(
@@ -455,9 +525,60 @@ function createActivityHandlers() {
     hook: vi.fn(() => Promise.resolve()),
     install: vi.fn(() => Promise.resolve()),
     read: vi.fn(() => Promise.resolve()),
+    sessions: vi.fn(() => Promise.resolve()),
     status: vi.fn(() => Promise.resolve()),
     sync: vi.fn(() => Promise.resolve()),
     uninstall: vi.fn(() => Promise.resolve()),
+  };
+}
+
+function sessionInventoryFixture() {
+  return {
+    asOfMs: 1000,
+    coverage: [
+      {
+        agentControllerRef: "builtin:codex" as const,
+        computerId: "computer-1",
+        lastAttemptAtMs: 1000,
+        lastCompleteAtMs: 1000,
+        problemCode: null,
+        projectId: "project-1",
+        provider: "codex" as const,
+        state: "current" as const,
+      },
+    ],
+    nextCursor: "next-page",
+    organization: { id: "org-1", name: "Amplift" },
+    sessions: [
+      {
+        bindingState: "bound" as const,
+        boundAgentProfileId: "agt-1",
+        canFork: false,
+        canResume: true,
+        computer: {
+          id: "computer-1",
+          lastSeenAtMs: 1000,
+          name: "Felix's MacBook Pro",
+          state: "online" as const,
+        },
+        dataState: "current" as const,
+        inventoryUpdatedAtMs: 1000,
+        lastActiveAtMs: 1000,
+        localAgent: {
+          agentControllerRef: "builtin:codex" as const,
+          name: "Codex",
+          provider: "codex" as const,
+        },
+        nativeSessionId: "native-1",
+        nativeSessionTitle: "Native title",
+        organization: { id: "org-1", name: "Amplift" },
+        origin: "openmeld" as const,
+        owner: { name: "Felix", userId: "user-1" },
+        project: { id: "project-1", name: "OpenMeld", slug: "openmeld" },
+        startedAtMs: 500,
+        status: "working" as const,
+      },
+    ],
   };
 }
 

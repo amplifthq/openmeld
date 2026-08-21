@@ -18,7 +18,11 @@ const HOOK_RECONCILIATION_GRACE_MS = 2 * 60_000;
 type HookProjectionStore = {
   entries: Record<
     string,
-    { observedAtMs: number; status: AgentActivityEvent["status"] }
+    {
+      eventType?: AgentActivityEvent["eventType"];
+      observedAtMs: number;
+      status: AgentActivityEvent["status"];
+    }
   >;
   version: 1;
 };
@@ -29,10 +33,15 @@ export async function recordAgentActivityHookProjection(input: {
 }) {
   await withAgentActivityLocalStateLock(input, async () => {
     const store = await readStore(input);
-    store.entries[projectionKey(input.event)] = {
-      observedAtMs: input.event.observedAtMs,
-      status: input.event.status,
-    };
+    const key = projectionKey(input.event);
+    store.entries[key] = selectCurrentHookProjection({
+      existing: store.entries[key],
+      incoming: {
+        eventType: input.event.eventType,
+        observedAtMs: input.event.observedAtMs,
+        status: input.event.status,
+      },
+    });
     const entries = Object.entries(store.entries)
       .sort((left, right) => right[1].observedAtMs - left[1].observedAtMs)
       .slice(0, STORE_LIMIT);
@@ -41,6 +50,31 @@ export async function recordAgentActivityHookProjection(input: {
       version: 1,
     });
   });
+}
+
+function selectCurrentHookProjection(input: {
+  existing: HookProjectionStore["entries"][string] | undefined;
+  incoming: HookProjectionStore["entries"][string];
+}): HookProjectionStore["entries"][string] {
+  if (
+    !input.existing ||
+    input.incoming.observedAtMs > input.existing.observedAtMs
+  ) {
+    return input.incoming;
+  }
+  if (input.incoming.observedAtMs < input.existing.observedAtMs) {
+    return input.existing;
+  }
+  if (
+    input.incoming.eventType === input.existing.eventType &&
+    input.incoming.status === input.existing.status
+  ) {
+    return input.existing;
+  }
+  return {
+    observedAtMs: input.incoming.observedAtMs,
+    status: "unknown",
+  };
 }
 
 export async function isCoveredByRecentAgentActivityHook(input: {
@@ -63,9 +97,52 @@ export async function isCoveredByRecentAgentActivityHook(input: {
     ];
   return Boolean(
     projection &&
+      projection.eventType !== undefined &&
       projection.status === input.status &&
       projection.observedAtMs <= input.nowMs &&
       input.nowMs - projection.observedAtMs <= HOOK_RECONCILIATION_GRACE_MS
+  );
+}
+
+export async function readRecentAgentActivityHookStatus(input: {
+  nowMs: number;
+  provider: AgentActivityEvent["provider"];
+  providerSessionId: string;
+  rootDir?: string;
+}): Promise<AgentActivityEvent["status"] | null> {
+  const store = await readStore(input).catch(() => null);
+  const projection =
+    store?.entries[
+      projectionKey({
+        provider: input.provider,
+        providerSessionId: input.providerSessionId,
+      })
+    ];
+  if (
+    !(
+      projection &&
+      isSessionInventoryLifecycleProjection(projection) &&
+      projection.observedAtMs <= input.nowMs &&
+      input.nowMs - projection.observedAtMs <= HOOK_RECONCILIATION_GRACE_MS
+    )
+  ) {
+    return null;
+  }
+  return projection.status;
+}
+
+function isSessionInventoryLifecycleProjection(
+  projection: HookProjectionStore["entries"][string]
+): boolean {
+  return (
+    (projection.eventType === "session_started" &&
+      projection.status === "active") ||
+    (projection.eventType === "session_active" &&
+      projection.status === "active") ||
+    (projection.eventType === "session_idle" && projection.status === "idle") ||
+    (projection.eventType === "session_ended" &&
+      projection.status === "ended") ||
+    (projection.eventType === "session_error" && projection.status === "error")
   );
 }
 

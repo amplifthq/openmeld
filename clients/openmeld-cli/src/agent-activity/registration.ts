@@ -58,6 +58,19 @@ export type AgentActivityCommandHandlers = {
     status?: string;
     view?: string;
   }) => Promise<void>;
+  sessions: (options: {
+    cursor?: string;
+    json?: boolean;
+    limit?: string;
+    member?: string;
+    nativeSession?: string;
+    origin?: string;
+    project?: string;
+    provider?: string;
+    query?: string;
+    status?: string;
+    view?: string;
+  }) => Promise<void>;
   status: (options: ProjectOutputOptions) => Promise<void>;
   sync: (options: ProjectOutputOptions) => Promise<void>;
   uninstall: (options: ProjectOutputOptions) => Promise<void>;
@@ -65,6 +78,9 @@ export type AgentActivityCommandHandlers = {
 
 type AgentActivityReadOptions = Parameters<
   AgentActivityCommandHandlers["read"]
+>[0];
+type AgentActivitySessionsOptions = Parameters<
+  AgentActivityCommandHandlers["sessions"]
 >[0];
 
 export function registerAgentActivityCommands(
@@ -109,6 +125,17 @@ export function registerAgentActivityCommands(
         "Read the current Organization's safe Agent Activity snapshot."
       )
   ).action(runRead);
+  addActivitySessionsOptions(
+    activity
+      .command("sessions")
+      .description(
+        "List the Organization's authorized Local Agent Session Inventory."
+      )
+  ).action(async (_options: AgentActivitySessionsOptions, command: Command) => {
+    await handlers.sessions(
+      command.optsWithGlobals<AgentActivitySessionsOptions>()
+    );
+  });
   activity
     .command("install")
     .description(
@@ -162,6 +189,27 @@ function addActivityReadOptions(command: Command) {
       "--status <status>",
       "Filter by active, idle, ended, error, or unknown"
     )
+    .option("--view <mode>", "Output view: human or agent", "human")
+    .option("--json", "Print one machine-readable JSON envelope.", false);
+}
+
+function addActivitySessionsOptions(command: Command) {
+  return command
+    .option("--project <project-slug>", "Filter by Project slug")
+    .option("--member <member-user-id>", "Filter by member user id")
+    .option(
+      "--provider <provider>",
+      "Filter by codex, claude-code, cursor, opencode, or grok-build"
+    )
+    .option(
+      "--status <status>",
+      "Filter by working, idle, ended, error, or unknown"
+    )
+    .option("--origin <origin>", "Filter by openmeld, local, or unknown")
+    .option("--native-session <id>", "Locate one Native Session ID")
+    .option("--query <text>", "Search Native Session title or ID")
+    .option("--limit <count>", "Page size, from 1 through 100", "50")
+    .option("--cursor <cursor>", "Continue from a prior page cursor")
     .option("--view <mode>", "Output view: human or agent", "human")
     .option("--json", "Print one machine-readable JSON envelope.", false);
 }

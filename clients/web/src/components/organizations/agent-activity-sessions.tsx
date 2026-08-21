@@ -1,41 +1,65 @@
-import { agentActivityProviderSchema } from "@openmeld/schemas";
+import type {
+	AgentActivityInventorySession,
+	AgentActivityInventorySessionOrigin,
+	AgentActivityInventorySessionStatus,
+	LocalAgentSessionProvider,
+} from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Card,
-	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
+import { Input } from "@openmeld/ui/components/input";
+import { XIcon } from "@phosphor-icons/react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
+import { type FormEvent, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@openmeld/ui/components/tooltip";
+	type CreateProfileAgentActivitySessionPreset,
+	CreateProfileDialog,
+} from "#/components/profiles/create-profile-dialog";
+import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { buildAgentProfilePath } from "#/lib/profile-routes";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-} from "@openmeld/ui/fluid/select";
-import { InfoIcon, XIcon } from "@phosphor-icons/react";
-import type { ActivityViewFilters } from "./agent-activity-derive";
-import { AgentActivityEmptySetup } from "./agent-activity-empty-setup";
+	agentActivityQueryKeys,
+	agentActivitySessionsQueryOptions,
+} from "#/query/organizations/agent-activity";
+import { AgentActivityAddToSpaceDialog } from "./agent-activity-add-to-space-dialog";
+import { useAgentActivityData } from "./agent-activity-page";
 import {
-	useAgentActivityData,
-	useAgentActivityView,
-} from "./agent-activity-page";
-import { AgentActivitySessionTable } from "./agent-activity-session-table";
+	CoverageNotice,
+	SessionFilterSelect,
+	SessionsEmptyMessage,
+} from "./agent-activity-session-inventory-controls";
+import {
+	ORIGIN_OPTIONS,
+	PROVIDER_OPTIONS,
+	STATUS_OPTIONS,
+} from "./agent-activity-session-inventory-options";
+import {
+	type AgentActivitySessionAction,
+	AgentActivitySessionInventoryTable,
+} from "./agent-activity-session-inventory-table";
 
-const ALL_VALUE = "all";
-const FOUR_HOURS_MS = 4 * 60 * 60_000;
+const PAGE_SIZE = 50;
 
-export type AgentActivitySessionsFilters = Omit<
-	ActivityViewFilters,
-	"projectId"
-> & {
+export type AgentActivitySessionsFilters = {
+	cursor: string | null;
 	memberUserId: string | null;
+	origin: AgentActivityInventorySessionOrigin | null;
+	provider: LocalAgentSessionProvider | null;
+	query: string | null;
+	status: AgentActivityInventorySessionStatus | null;
+};
+
+type ProfileDialogState = {
+	mode: "create" | "resume";
+	session: AgentActivityInventorySession;
 };
 
 export function AgentActivitySessions(input: {
@@ -43,29 +67,83 @@ export function AgentActivitySessions(input: {
 	onFiltersChange: (filters: AgentActivitySessionsFilters) => void;
 }) {
 	const data = useAgentActivityData();
-	const view = useAgentActivityView(input.filters, FOUR_HOURS_MS);
-	const memberName = input.filters.memberUserId
-		? (data.membersByUserId.get(input.filters.memberUserId)?.name ?? "Member")
-		: null;
-	const isTruncated =
-		data.snapshotQuery.data?.sessionsTruncated === true ||
-		data.snapshotQuery.data?.digestsTruncated === true;
+	const { currentOrganization, currentUserId } = useAppOrganization();
+	const navigate = useNavigate();
+	const queryClient = useQueryClient();
+	const [searchValue, setSearchValue] = useState(input.filters.query ?? "");
+	const [profileDialog, setProfileDialog] = useState<ProfileDialogState | null>(
+		null
+	);
+	const [spaceSession, setSpaceSession] =
+		useState<AgentActivityInventorySession | null>(null);
+	const inventoryQuery = useQuery(
+		agentActivitySessionsQueryOptions({
+			...(input.filters.cursor ? { cursor: input.filters.cursor } : {}),
+			limit: PAGE_SIZE,
+			...(input.filters.memberUserId
+				? { memberUserId: input.filters.memberUserId }
+				: {}),
+			...(input.filters.origin ? { origin: input.filters.origin } : {}),
+			...(data.projectScopeId ? { projectId: data.projectScopeId } : {}),
+			...(input.filters.provider ? { provider: input.filters.provider } : {}),
+			...(input.filters.query ? { query: input.filters.query } : {}),
+			...(input.filters.status ? { status: input.filters.status } : {}),
+			organizationId: data.organizationId,
+		})
+	);
+
+	useEffect(() => {
+		setSearchValue(input.filters.query ?? "");
+	}, [input.filters.query]);
+
 	const hasFilters =
 		input.filters.memberUserId !== null ||
+		input.filters.origin !== null ||
 		input.filters.provider !== null ||
+		input.filters.query !== null ||
 		input.filters.status !== null;
-	const emptyMessage = resolveSessionsEmptyMessage({
-		clearFilters: () =>
-			input.onFiltersChange({
-				memberUserId: null,
-				provider: null,
-				status: null,
-			}),
-		hasFilters,
-		isError: data.snapshotQuery.isError,
-		isPending: data.snapshotQuery.isPending,
-		setupState: view?.setupState ?? null,
-	});
+	const emptyMessage = (
+		<SessionsEmptyMessage
+			clearFilters={() =>
+				input.onFiltersChange({
+					cursor: null,
+					memberUserId: null,
+					origin: null,
+					provider: null,
+					query: null,
+					status: null,
+				})
+			}
+			coverage={inventoryQuery.data?.coverage ?? []}
+			hasFilters={hasFilters}
+			isError={inventoryQuery.isError}
+			isPending={inventoryQuery.isPending}
+			projectCount={data.projects.length}
+		/>
+	);
+	const updateFilters = (patch: Partial<AgentActivitySessionsFilters>) => {
+		input.onFiltersChange({ ...input.filters, ...patch, cursor: null });
+	};
+	const handleSessionAction = (
+		action: AgentActivitySessionAction,
+		session: AgentActivityInventorySession
+	) => {
+		if (action === "add_to_space") {
+			setSpaceSession(session);
+			return;
+		}
+		if (action === "fork_profile") {
+			// canFork stays false until the provider-native Fork command is wired
+			// through the authoritative Agent Profile creation owner.
+			toast.info("Provider-native Fork is not available from Web yet.");
+			return;
+		}
+		setProfileDialog({
+			mode: action === "resume_profile" ? "resume" : "create",
+			session,
+		});
+	};
+
 	return (
 		<section
 			aria-labelledby="agent-activity-sessions-heading"
@@ -79,169 +157,252 @@ export function AgentActivitySessions(input: {
 					Sessions
 				</h2>
 				<p className="text-muted-foreground text-sm">
-					Review public session metadata across this Organization.
+					Browse the Local Agent Sessions shared by connected Projects in this
+					Organization. Session content stays on each member’s computer.
 				</p>
 			</div>
+			<CoverageNotice coverage={inventoryQuery.data?.coverage ?? []} />
 			<Card className="rounded-md py-0">
 				<CardHeader className="border-b py-3">
-					<CardTitle>Session history</CardTitle>
+					<CardTitle>Session inventory</CardTitle>
 					<CardDescription>
-						{String(view?.sessions.length ?? 0)} matching sessions
+						{String(inventoryQuery.data?.sessions.length ?? 0)} Sessions on this
+						page
 					</CardDescription>
-					{isTruncated ? (
-						<CardAction>
-							<Tooltip>
-								<TooltipTrigger
-									aria-label="About the Session history limit"
-									className="text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:text-foreground"
-								>
-									<InfoIcon aria-hidden="true" className="size-3.5" />
-								</TooltipTrigger>
-								<TooltipContent className="max-w-72 text-left leading-5">
-									This view contains the newest 500 matching records. Use the
-									filters below to narrow the activity shown.
-								</TooltipContent>
-							</Tooltip>
-						</CardAction>
-					) : null}
 				</CardHeader>
 				<CardContent className="px-0">
 					<div className="flex flex-wrap items-end gap-2 border-b px-3 py-3">
 						<SessionFilterSelect
-							label="Provider"
+							label="Owner"
+							onChange={(memberUserId) => updateFilters({ memberUserId })}
+							options={Array.from(data.membersByUserId.entries())
+								.map(([value, member]) => ({ label: member.name, value }))
+								.sort((left, right) => left.label.localeCompare(right.label))}
+							placeholder="All Owners"
+							value={input.filters.memberUserId}
+						/>
+						<SessionFilterSelect
+							label="Local Agent"
 							onChange={(provider) =>
-								input.onFiltersChange({
-									...input.filters,
-									provider:
-										provider === null
-											? null
-											: agentActivityProviderSchema.parse(provider),
+								updateFilters({
+									provider: provider as LocalAgentSessionProvider | null,
 								})
 							}
-							options={
-								view?.facets.providers.map((facet) => ({
-									label: `${facet.label} · ${String(facet.count)}`,
-									value: facet.id,
-								})) ?? []
-							}
-							placeholder="All Providers"
+							options={PROVIDER_OPTIONS}
+							placeholder="All Local Agents"
 							value={input.filters.provider}
 						/>
 						<SessionFilterSelect
 							label="Status"
 							onChange={(status) =>
-								input.onFiltersChange({ ...input.filters, status })
+								updateFilters({
+									status: status as AgentActivityInventorySessionStatus | null,
+								})
 							}
-							options={
-								view?.facets.statuses.map((facet) => ({
-									label: `${facet.label} · ${String(facet.count)}`,
-									value: facet.id,
-								})) ?? []
-							}
+							options={STATUS_OPTIONS}
 							placeholder="All Statuses"
 							value={input.filters.status}
 						/>
-						{memberName ? (
-							<Button
-								onClick={() =>
-									input.onFiltersChange({
-										...input.filters,
-										memberUserId: null,
-									})
-								}
-								size="sm"
-								variant="secondary"
+						<SessionFilterSelect
+							label="Origin"
+							onChange={(origin) =>
+								updateFilters({
+									origin: origin as AgentActivityInventorySessionOrigin | null,
+								})
+							}
+							options={ORIGIN_OPTIONS}
+							placeholder="All Origins"
+							value={input.filters.origin}
+						/>
+						<form
+							className="flex min-w-64 flex-1 items-end gap-2"
+							onSubmit={(event: FormEvent) => {
+								event.preventDefault();
+								updateFilters({ query: searchValue.trim() || null });
+							}}
+						>
+							<label
+								className="grid flex-1 gap-1 text-muted-foreground text-xs"
+								htmlFor="agent-activity-session-search"
 							>
-								Member: {memberName} <XIcon aria-hidden="true" />
+								Title or Native Session ID
+								<Input
+									className="h-8"
+									id="agent-activity-session-search"
+									onChange={(event) => setSearchValue(event.target.value)}
+									placeholder="Find a Session"
+									type="search"
+									value={searchValue}
+								/>
+							</label>
+							<Button size="sm" type="submit" variant="outline">
+								Search
+							</Button>
+						</form>
+						{hasFilters ? (
+							<Button
+								onClick={() => {
+									setSearchValue("");
+									input.onFiltersChange({
+										cursor: null,
+										memberUserId: null,
+										origin: null,
+										provider: null,
+										query: null,
+										status: null,
+									});
+								}}
+								size="sm"
+								type="button"
+								variant="ghost"
+							>
+								<XIcon aria-hidden="true" /> Clear
 							</Button>
 						) : null}
 					</div>
-					<AgentActivitySessionTable
+					<AgentActivitySessionInventoryTable
+						currentUserId={currentUserId}
 						emptyMessage={emptyMessage}
-						membersByUserId={data.membersByUserId}
-						mode="all"
 						nowMs={data.currentTimeMs}
-						projects={data.projects}
-						sessions={view?.sessions ?? []}
+						onAction={handleSessionAction}
+						onOpenProfile={(profileId) => {
+							navigate({
+								to: buildAgentProfilePath({
+									orgSlug: currentOrganization.slug,
+									profileId,
+								}),
+							}).catch((error: unknown) => {
+								console.error("Failed to open Agent Profile.", error);
+							});
+						}}
+						sessions={inventoryQuery.data?.sessions ?? []}
 					/>
+					<div className="flex items-center justify-between gap-3 border-t px-3 py-3">
+						<p className="text-muted-foreground text-xs">
+							Stable pages are ordered by most recent activity.
+						</p>
+						<div className="flex gap-2">
+							{input.filters.cursor ? (
+								<Button
+									onClick={() =>
+										input.onFiltersChange({ ...input.filters, cursor: null })
+									}
+									size="sm"
+									type="button"
+									variant="outline"
+								>
+									First page
+								</Button>
+							) : null}
+							{inventoryQuery.data?.nextCursor ? (
+								<Button
+									onClick={() =>
+										input.onFiltersChange({
+											...input.filters,
+											cursor: inventoryQuery.data?.nextCursor ?? null,
+										})
+									}
+									size="sm"
+									type="button"
+								>
+									Next page
+								</Button>
+							) : null}
+						</div>
+					</div>
 				</CardContent>
 			</Card>
+			{profileDialog ? (
+				<SessionCreateProfileDialog
+					onClose={() => setProfileDialog(null)}
+					onCreated={(profileId) => {
+						queryClient
+							.invalidateQueries({
+								queryKey: agentActivityQueryKeys.organization(
+									data.organizationId
+								),
+							})
+							.catch((error: unknown) => {
+								console.error("Failed to refresh Session Inventory.", error);
+							});
+						navigate({
+							to: buildAgentProfilePath({
+								orgSlug: currentOrganization.slug,
+								profileId,
+							}),
+						}).catch((error: unknown) => {
+							console.error("Failed to open the new Agent Profile.", error);
+						});
+					}}
+					organizationId={currentOrganization.id}
+					organizationName={currentOrganization.name}
+					orgSlug={currentOrganization.slug}
+					profileDialog={profileDialog}
+				/>
+			) : null}
+			{spaceSession ? (
+				<AgentActivityAddToSpaceDialog
+					onOpenChange={(open) => {
+						if (!open) {
+							setSpaceSession(null);
+						}
+					}}
+					open={true}
+					organizationId={currentOrganization.id}
+					session={spaceSession}
+				/>
+			) : null}
 		</section>
 	);
 }
 
-function resolveSessionsEmptyMessage(input: {
-	clearFilters: () => void;
-	hasFilters: boolean;
-	isError: boolean;
-	isPending: boolean;
-	setupState: "active" | "awaiting_first_session" | "no_projects" | null;
+function SessionCreateProfileDialog(input: {
+	onClose: () => void;
+	onCreated: (profileId: string) => void;
+	organizationId: string;
+	organizationName: string;
+	orgSlug: string;
+	profileDialog: ProfileDialogState;
 }) {
-	if (input.isPending) {
-		return "Loading sessions…";
-	}
-	if (input.isError) {
-		return "Sessions are unavailable.";
-	}
-	if (
-		input.setupState === "no_projects" ||
-		input.setupState === "awaiting_first_session"
-	) {
-		return <AgentActivityEmptySetup setupState={input.setupState} />;
-	}
+	const recovery = useLocalAgentRecoveryController({
+		agentExecutionReadinessScope: "bound_runtime",
+		loadSetupState: false,
+	});
 	return (
-		<span className="inline-flex flex-col items-center gap-3 py-2">
-			<span>No sessions match these filters.</span>
-			{input.hasFilters ? (
-				<Button onClick={input.clearFilters} size="sm" variant="outline">
-					Clear filters
-				</Button>
-			) : null}
-		</span>
+		<CreateProfileDialog
+			agentActivitySessionPreset={toCreationPreset(input.profileDialog)}
+			onOpenChange={(open) => {
+				if (!open) {
+					input.onClose();
+				}
+			}}
+			onProfileCreated={(profile) => input.onCreated(profile.openMeldProfileId)}
+			open={true}
+			organizationAuthorizationContext={{
+				organizationId: input.organizationId,
+				organizationName: input.organizationName,
+			}}
+			organizationId={input.organizationId}
+			orgSlug={input.orgSlug}
+			recovery={recovery}
+		/>
 	);
 }
 
-function SessionFilterSelect(input: {
-	label: string;
-	onChange: (value: string | null) => void;
-	options: { label: string; value: string }[];
-	placeholder: string;
-	value: string | null;
-}) {
-	return (
-		<div className="grid min-w-40 gap-1 text-muted-foreground text-xs">
-			<span>{input.label}</span>
-			<Select
-				onValueChange={(value) =>
-					input.onChange(value === ALL_VALUE ? null : value)
-				}
-				value={input.value ?? ALL_VALUE}
-			>
-				<SelectTrigger
-					aria-label={`Filter by ${input.label}`}
-					className="h-8 rounded-md"
-					displayValue={
-						input.value
-							? input.options.find((option) => option.value === input.value)
-									?.label
-							: input.placeholder
-					}
-				/>
-				<SelectContent>
-					<SelectItem index={0} value={ALL_VALUE}>
-						{input.placeholder}
-					</SelectItem>
-					{input.options.map((option, index) => (
-						<SelectItem
-							index={index + 1}
-							key={option.value}
-							value={option.value}
-						>
-							{option.label}
-						</SelectItem>
-					))}
-				</SelectContent>
-			</Select>
-		</div>
-	);
+function toCreationPreset(
+	input: ProfileDialogState
+): CreateProfileAgentActivitySessionPreset {
+	return {
+		agentControllerRef: input.session.localAgent.agentControllerRef,
+		computerId: input.session.computer.id,
+		localAgentName: input.session.localAgent.name,
+		mode: input.mode,
+		nativeSessionId: input.session.nativeSessionId,
+		nativeSessionTitle: input.session.nativeSessionTitle,
+		organizationId: input.session.organization.id,
+		ownerUserId: input.session.owner.userId,
+		projectId: input.session.project.id,
+		provider: input.session.localAgent.provider,
+		status: input.session.status,
+	};
 }

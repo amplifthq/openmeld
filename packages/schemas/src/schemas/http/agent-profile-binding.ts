@@ -2,6 +2,10 @@ import { z } from "zod/v4";
 import { agentControllerCollaborationModeSchema } from "../agent-controller-collaboration-mode";
 import { agentControllerPermissionModeSchema } from "../agent-controller-permission-mode";
 import { openCodePermissionConfigSchema } from "../open-code-permission";
+import {
+  agentActivityNativeSessionIdSchema,
+  localAgentSessionProviderSchema,
+} from "./agent-activity-sessions";
 
 const boundedIdentifierSchema = z.string().trim().min(1).max(256);
 const reasonCodeSchema = z.string().trim().min(1).max(256);
@@ -32,10 +36,21 @@ export const agentProfileBindingWriteModeSchema = z.enum([
   "reconnect",
 ]);
 
+export const agentProfileBindingSessionInventorySelectionSchema =
+  z.strictObject({
+    computerId: boundedIdentifierSchema,
+    nativeSessionId: agentActivityNativeSessionIdSchema,
+    organizationId: boundedIdentifierSchema,
+    ownerUserId: boundedIdentifierSchema,
+    projectId: boundedIdentifierSchema,
+    provider: localAgentSessionProviderSchema,
+  });
+
 export const ensureAgentProfilePrimaryBindingBodySchema = z
   .strictObject({
     agentControllerRef: boundedIdentifierSchema,
-    agentControllerConversationId: boundedIdentifierSchema.optional(),
+    agentControllerConversationId:
+      agentActivityNativeSessionIdSchema.optional(),
     deviceId: boundedIdentifierSchema,
     lane: boundedIdentifierSchema,
     openMeldServiceRuntimeId: agentProfileBindingRuntimeIdSchema,
@@ -46,6 +61,8 @@ export const ensureAgentProfilePrimaryBindingBodySchema = z
     modelId: boundedIdentifierSchema.optional(),
     openCodePermission: agentProfileBindingOpenCodePermissionSchema.optional(),
     reasoningLevel: boundedIdentifierSchema.optional(),
+    sessionInventorySelection:
+      agentProfileBindingSessionInventorySelectionSchema.optional(),
     writeMode: agentProfileBindingWriteModeSchema.optional(),
   })
   .superRefine((value, context) => {
@@ -54,6 +71,18 @@ export const ensureAgentProfilePrimaryBindingBodySchema = z
         code: "custom",
         message: "reasoningLevel requires modelId",
         path: ["reasoningLevel"],
+      });
+    }
+    if (
+      value.sessionInventorySelection &&
+      value.agentControllerConversationId !==
+        value.sessionInventorySelection.nativeSessionId
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "sessionInventorySelection requires the matching agentControllerConversationId",
+        path: ["sessionInventorySelection", "nativeSessionId"],
       });
     }
   });

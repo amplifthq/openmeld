@@ -8,13 +8,25 @@ import {
   listProjectBindings,
 } from "../src/agent-activity/project-bindings";
 
-const { getAuthSessionState } = vi.hoisted(() => ({
-  getAuthSessionState: vi.fn(() => {
-    throw new Error("offline unbind must not read authentication state");
-  }),
-}));
+const { getAuthSessionState, requestLocalAgentActivitySync } = vi.hoisted(
+  () => ({
+    getAuthSessionState: vi.fn(() => {
+      throw new Error("offline unbind must not read authentication state");
+    }),
+    requestLocalAgentActivitySync: vi.fn(() =>
+      Promise.resolve({ accepted: true })
+    ),
+  })
+);
 
 vi.mock("../src/config/auth-session", () => ({ getAuthSessionState }));
+vi.mock(
+  "../src/local-service/control-plane/client",
+  async (importOriginal) => ({
+    ...(await importOriginal()),
+    requestLocalAgentActivitySync,
+  })
+);
 
 let temporaryRoot: string | null = null;
 const originalOpenMeldHome = process.env.OPENMELD_HOME;
@@ -22,6 +34,7 @@ const originalOpenMeldHome = process.env.OPENMELD_HOME;
 afterEach(async () => {
   process.exitCode = 0;
   getAuthSessionState.mockClear();
+  requestLocalAgentActivitySync.mockClear();
   if (originalOpenMeldHome === undefined) {
     process.env.OPENMELD_HOME = undefined;
   } else {
@@ -86,6 +99,9 @@ describe("projects unbind command", () => {
 
     expect(process.exitCode).toBeUndefined();
     await expect(listProjectBindings({})).resolves.toEqual([]);
+    expect(requestLocalAgentActivitySync).toHaveBeenCalledWith({
+      payload: { reason: "project_connection_disconnected" },
+    });
   });
 
   it("uses project id to disambiguate a reused slug in one Organization", async () => {
