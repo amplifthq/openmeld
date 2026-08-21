@@ -16,6 +16,10 @@ type MessageChannelIdentityLinkPreviewResponseSchema =
   typeof import("../../schemas/http/message-channels")["messageChannelIdentityLinkPreviewResponseSchema"];
 type MessageChannelIdentityLinkTokenSchema =
   typeof import("../../schemas/http/message-channels")["messageChannelIdentityLinkTokenSchema"];
+type MessageChannelSetupRequestBodySchema =
+  typeof import("../../schemas/http/message-channels")["messageChannelSetupRequestBodySchema"];
+type MessageChannelSetupRequestResponseSchema =
+  typeof import("../../schemas/http/message-channels")["messageChannelSetupRequestResponseSchema"];
 type LarkPlatformWebhookVerificationInputSchema =
   typeof import("../../schemas/http/message-channels")["larkPlatformWebhookVerificationInputSchema"];
 type LarkPlatformWebhookVerificationResponseSchema =
@@ -49,6 +53,10 @@ export type MessageChannelIdentityLinkPreviewResponse =
   z.infer<MessageChannelIdentityLinkPreviewResponseSchema>;
 export type MessageChannelIdentityLinkToken =
   z.infer<MessageChannelIdentityLinkTokenSchema>;
+export type MessageChannelSetupRequestBody =
+  z.infer<MessageChannelSetupRequestBodySchema>;
+export type MessageChannelSetupRequestResponse =
+  z.infer<MessageChannelSetupRequestResponseSchema>;
 export type LarkPlatformWebhookVerificationInput =
   z.infer<LarkPlatformWebhookVerificationInputSchema>;
 export type LarkPlatformWebhookVerificationResponse =

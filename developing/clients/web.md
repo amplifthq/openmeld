@@ -1511,6 +1511,13 @@ For the signed-in member only, a ready Organization Channel with no member link
 becomes a provider-specific card action such as **Connect Slack**, **Connect
 Lark**, or **Connect Feishu**. It opens the existing private provider-proof
 flow; it never assigns a Channel account merely because the card was selected.
+When the Organization has not configured that provider, the same connection
+panel gives an owner or admin **Set up Slack**, **Set up Lark**, or **Set up
+Feishu** and gives an ordinary member **Ask an admin to set up {provider}**.
+The member action creates one deduplicated Organization Inbox request for every
+current owner and admin instead of granting Organization mutation authority.
+That request links directly to **Center Agent → Channels** and resolves when the
+Organization connects the provider.
 Teammates retain the non-actionable coarse state. The drawer exposes the same
 self-only connection action and keeps a mapped identity visible as unavailable
 when that provider connection needs repair. The drawer presents an account
@@ -1518,7 +1525,9 @@ email only when the canonical projection provides one; it never uses a provider
 display name as the account identifier or guesses an email. For Slack, Core
 resolves the email for the exact linked Slack user through the connected
 Organization workspace; if Slack does not return one, Web says **Account email
-unavailable**.
+unavailable**. The current member can use **Reconnect Slack** to refresh a
+legacy identity proof without disconnecting first. An admin cannot perform that
+provider identity proof on another member's behalf.
 Self and Channel managers may disconnect a wrong mapping; replacement still
 requires a private provider proof and confirmation by the intended signed-in
 account. Disconnecting this relationship never disconnects the Organization

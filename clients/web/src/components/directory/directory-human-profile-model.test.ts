@@ -108,6 +108,63 @@ describe("directory Human Profile model", () => {
 		);
 	});
 
+	it("lets the current member refresh a legacy Slack link without disconnecting it", () => {
+		const [member] = buildOrganizationRows({
+			messageChannels: buildMessageChannels({
+				connections: [buildConnection({ provider: "slack" })],
+				identityLinks: [
+					buildIdentityLink({
+						openMeldUserId: "user-a",
+						provider: "slack",
+						providerAccountName: "Ari",
+					}),
+				],
+			}),
+			messageChannelsStatus: "ready",
+		});
+
+		expect(member?.identityAccounts).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					action: {
+						kind: "authorize",
+						label: "Reconnect Slack",
+						path: "/slack/identity/start?organization_slug=acme",
+					},
+					canDisconnect: true,
+					provider: "slack",
+					state: "connected",
+				}),
+			])
+		);
+	});
+
+	it("does not let an admin reauthorize another member's Slack identity", () => {
+		const member = buildOrganizationRows({
+			messageChannels: buildMessageChannels({
+				connections: [buildConnection({ provider: "slack" })],
+				identityLinks: [
+					buildIdentityLink({
+						openMeldUserId: "user-b",
+						provider: "slack",
+						providerAccountName: "Grace",
+					}),
+				],
+			}),
+			messageChannelsStatus: "ready",
+		}).find((row) => row.userId === "user-b");
+
+		expect(member?.identityAccounts).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					action: null,
+					provider: "slack",
+					state: "connected",
+				}),
+			])
+		);
+	});
+
 	it("preserves a cached linked provider across every card after refresh failure", () => {
 		const rows = buildOrganizationRows({
 			messageChannels: buildMessageChannels({

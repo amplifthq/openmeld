@@ -1809,6 +1809,13 @@ The provider set is `slack | lark | feishu`. The transport set is
 one internal Lark-platform implementation serves both brands. `connector` is
 not a Message Channel domain term.
 
+The additive setup-request HTTP contract accepts one provider and returns its
+Organization, stable request id, recipient count, and `created` or
+`already_requested` result. It never returns credentials or grants Channel
+mutation authority. Gateway validates the shared schema, Core reauthorizes the
+active ordinary member and current owner/admin recipients, and Web treats the
+response as a durable Organization Inbox request rather than local UI state.
+
 The public connection lifecycle has exactly these states:
 
 ```text

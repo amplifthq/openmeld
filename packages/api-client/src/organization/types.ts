@@ -15,6 +15,8 @@ import type {
   MessageChannelIdentityLinkConsumeResponse,
   MessageChannelIdentityLinkPreviewBody,
   MessageChannelIdentityLinkPreviewResponse,
+  MessageChannelSetupRequestBody,
+  MessageChannelSetupRequestResponse,
   OpenMeldRequestContext,
   OrganizationComputersResponse,
   OrganizationDirectoryResponse,
@@ -101,6 +103,9 @@ export type DisconnectMessageChannelIdentityLinkInput =
     identityLinkId: string;
   };
 
+export type RequestMessageChannelSetupInput = OrganizationRequestInput &
+  MessageChannelSetupRequestBody;
+
 export type OrganizationApi = {
   getAgentProfileCreationDefaults: (
     input: AgentProfileCreationDefaultsRouteInput
@@ -138,6 +143,9 @@ export type OrganizationApi = {
   listCurrentMessageChannels: (
     input?: OrganizationRequestInput
   ) => Promise<MessageChannelConnectionListResponse>;
+  requestMessageChannelSetup: (
+    input: RequestMessageChannelSetupInput
+  ) => Promise<MessageChannelSetupRequestResponse>;
   listCurrentLarkPlatformRegistrations: (
     input?: OrganizationRequestInput
   ) => Promise<LarkPlatformActiveRegistrationListResponse>;

@@ -547,9 +547,20 @@ function resolveIdentityAccounts(input: {
 			const connectionIsReady =
 				hasFreshConnections && connection?.status === "connected";
 			if (link) {
+				const action =
+					input.isCurrentUser &&
+					provider === "slack" &&
+					connectionIsReady &&
+					!link.providerAccountEmail
+						? {
+								kind: "authorize" as const,
+								label: "Reconnect Slack",
+								path: buildSlackIdentityStartPath(input.orgSlug),
+							}
+						: null;
 				return {
 					accountEmail: link.providerAccountEmail,
-					action: null,
+					action,
 					canDisconnect:
 						input.isCurrentUser || input.canManageConnectedAccounts,
 					channelsPath: null,

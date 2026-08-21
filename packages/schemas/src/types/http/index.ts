@@ -571,6 +571,8 @@ export type {
   MessageChannelIdentityLinkPreviewBody,
   MessageChannelIdentityLinkPreviewResponse,
   MessageChannelIdentityLinkToken,
+  MessageChannelSetupRequestBody,
+  MessageChannelSetupRequestResponse,
 } from "./message-channels";
 export type {
   ObservabilityCloudflareRuntimeEvidence,

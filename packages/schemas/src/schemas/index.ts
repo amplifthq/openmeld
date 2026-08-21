@@ -1419,6 +1419,8 @@ export {
   messageChannelIdentityLinkPreviewBodySchema,
   messageChannelIdentityLinkPreviewResponseSchema,
   messageChannelIdentityLinkTokenSchema,
+  messageChannelSetupRequestBodySchema,
+  messageChannelSetupRequestResponseSchema,
 } from "./http/message-channels";
 export type { ProjectObservabilityWakeCorrelationInput } from "./http/observability-correlation";
 export {

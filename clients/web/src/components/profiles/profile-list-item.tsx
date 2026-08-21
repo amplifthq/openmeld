@@ -93,6 +93,7 @@ export function ProfileCard(input: {
 				<button
 					aria-label={profileSummaryAriaLabel ?? `About ${title}`}
 					className="absolute inset-0 z-0 cursor-pointer rounded-md focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+					data-profile-card-open=""
 					onClick={onCardClick}
 					type="button"
 				/>

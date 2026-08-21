@@ -2,6 +2,7 @@
 
 import type {
 	CenterAgentMemberResearchBatch,
+	MessageChannelProvider,
 	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
@@ -46,6 +47,7 @@ import {
 } from "#/lib/organizations/auth-organizations";
 import {
 	disconnectCurrentMessageChannelIdentityLink,
+	requestCurrentOrganizationMessageChannelSetup,
 	resolveMessageChannelErrorMessage,
 } from "#/lib/organizations/message-channels";
 import {
@@ -323,6 +325,43 @@ export function DirectoryMembersOverview(input: {
 			toast.success("Connected account disconnected.");
 		},
 	});
+	const requestMessageChannelSetupMutation = useMutation({
+		mutationFn: async (provider: MessageChannelProvider) =>
+			await requestCurrentOrganizationMessageChannelSetup({
+				organizationId: input.currentOrganization.id,
+				provider,
+			}),
+		onError: (error) => {
+			console.error("Failed to request Message Channel setup.", error);
+			toast.error(
+				resolveMessageChannelErrorMessage(
+					error,
+					"OpenMeld could not send this setup request. Try again."
+				)
+			);
+		},
+		onSuccess: (response) => {
+			queryClient
+				.invalidateQueries({
+					queryKey: messageChannelQueryKeys.list(input.currentOrganization.id),
+				})
+				.catch((error: unknown) => {
+					console.error(
+						"Failed to refresh Message Channel status after requesting setup.",
+						error
+					);
+				});
+			if (response.status === "already_requested") {
+				toast.success("An organization admin already has this setup request.");
+				return;
+			}
+			toast.success(
+				response.recipientCount === 1
+					? "Setup request sent to an organization admin."
+					: `Setup request sent to ${response.recipientCount} organization admins.`
+			);
+		},
+	});
 	const {
 		activeResearchBatch,
 		documentsQuery,
@@ -409,6 +448,9 @@ export function DirectoryMembersOverview(input: {
 			}
 			onFocusConsumed={input.onFocusConsumed}
 			onOpenDirectMessage={openHumanDirectMessage}
+			onRequestChannelSetup={async (provider) => {
+				await requestMessageChannelSetupMutation.mutateAsync(provider);
+			}}
 			onResearch={(subjectUserId) =>
 				researchMutation.mutate({ scope: "member", subjectUserId })
 			}

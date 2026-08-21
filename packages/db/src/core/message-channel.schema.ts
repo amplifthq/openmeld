@@ -20,6 +20,52 @@ const messageChannelConnectionStatuses = sql`(
   'disconnected'
 )`;
 
+export const organizationMessageChannelSetupRequests = sqliteTable(
+  "organization_message_channel_setup_requests",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    requesterUserId: text("requester_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider", {
+      enum: ["slack", "lark", "feishu"],
+    }).notNull(),
+    status: text("status", { enum: ["open", "resolved"] }).notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+    resolvedAtMs: integer("resolved_at_ms"),
+  },
+  (table) => [
+    uniqueIndex("organization_message_channel_setup_requests_open_unique")
+      .on(table.organizationId, table.requesterUserId, table.provider)
+      .where(sql`${table.status} = 'open'`),
+    index("organization_message_channel_setup_requests_resolution_idx").on(
+      table.organizationId,
+      table.provider,
+      table.status
+    ),
+    check(
+      "organization_message_channel_setup_requests_identity_check",
+      sql`length(trim("id")) > 0 and length(trim("organization_id")) > 0 and length(trim("requester_user_id")) > 0`
+    ),
+    check(
+      "organization_message_channel_setup_requests_provider_check",
+      sql`"provider" in ('slack', 'lark', 'feishu')`
+    ),
+    check(
+      "organization_message_channel_setup_requests_status_check",
+      sql`("status" = 'open' and "resolved_at_ms" is null) or ("status" = 'resolved' and "resolved_at_ms" is not null)`
+    ),
+    check(
+      "organization_message_channel_setup_requests_timestamps_check",
+      sql`"created_at_ms" >= 0 and "updated_at_ms" >= "created_at_ms" and ("resolved_at_ms" is null or "resolved_at_ms" >= "created_at_ms")`
+    ),
+  ]
+);
+
 export const openMeldRemoteAgentLarkPlatformChannelConnections = sqliteTable(
   "openMeldRemoteAgent_lark_platform_channel_connections",
   {

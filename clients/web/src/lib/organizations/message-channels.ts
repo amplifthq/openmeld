@@ -11,6 +11,8 @@ import type {
 	MessageChannelConnectionListResponse,
 	MessageChannelIdentityLinkConsumeResponse,
 	MessageChannelIdentityLinkPreviewResponse,
+	MessageChannelProvider,
+	MessageChannelSetupRequestResponse,
 } from "@openmeld/schemas/types";
 import {
 	createOrganizationScopedWebOpenMeldApiFoundation,
@@ -27,6 +29,23 @@ export async function listCurrentOrganizationMessageChannels(input: {
 		return await createMessageChannelApi(
 			input.organizationId
 		).listCurrentMessageChannels({ signal: input.signal });
+	} catch (error) {
+		throw toStructuredApiClientFailure(error);
+	}
+}
+
+export async function requestCurrentOrganizationMessageChannelSetup(input: {
+	organizationId: string;
+	provider: MessageChannelProvider;
+	signal?: AbortSignal;
+}): Promise<MessageChannelSetupRequestResponse> {
+	try {
+		return await createMessageChannelApi(
+			input.organizationId
+		).requestMessageChannelSetup({
+			provider: input.provider,
+			signal: input.signal,
+		});
 	} catch (error) {
 		throw toStructuredApiClientFailure(error);
 	}
@@ -167,6 +186,12 @@ export function resolveMessageChannelErrorMessage(
 			return "This link has expired. Ask the Center Agent again in Lark or Feishu.";
 		case "message_channel.provider_disabled":
 			return "This channel is not enabled in the current environment yet.";
+		case "message_channel.setup_request_already_connected":
+			return "This channel is already connected. Refresh People to see its current status.";
+		case "message_channel.setup_request_forbidden":
+			return "Only organization members can ask an admin to set up this channel.";
+		case "message_channel.setup_request_recipient_unavailable":
+			return "No organization admin is available to receive this setup request.";
 		case "message_channel.repair_unavailable":
 			return "OpenMeld can no longer repair this saved app. Disconnect it, then connect again.";
 		case "message_channel.registration_not_found":

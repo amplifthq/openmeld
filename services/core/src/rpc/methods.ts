@@ -182,6 +182,8 @@ import {
   messageChannelIdentityLinkIdSchema,
   messageChannelIdentityLinkPreviewBodySchema,
   messageChannelIdentityLinkPreviewResponseSchema,
+  messageChannelSetupRequestBodySchema,
+  messageChannelSetupRequestResponseSchema,
   normalizeSpaceCursorPatch,
   normalizeSpacePasswordText,
   notifyAgentProfileRouteCatalogChangedBodySchema,
@@ -472,6 +474,9 @@ import type {
   MessageChannelIdentityLinkConsumeResponse,
   MessageChannelIdentityLinkPreviewBody,
   MessageChannelIdentityLinkPreviewResponse,
+  MessageChannelProvider,
+  MessageChannelSetupRequestBody,
+  MessageChannelSetupRequestResponse,
   NotifyAgentProfileRouteCatalogChangedBody,
   NotifyAgentProfileRouteCatalogChangedResponse,
   NotifyAgentProfilesRouteCatalogChangedBody,
@@ -873,6 +878,11 @@ import {
 import { digestMessageChannelIdentityLinkToken } from "../remote-agent/application/message-channel-identity-link-token";
 import { continueMessageChannelIdentityOnboardingRequest } from "../remote-agent/application/message-channel-native-delivery-service";
 import { createConfiguredMessageChannelProviderRegistry } from "../remote-agent/application/message-channel-provider-runtime";
+import {
+  createMessageChannelSetupRequest,
+  formatMessageChannelProviderName,
+  resolveMessageChannelSetupRequests,
+} from "../remote-agent/application/message-channel-setup-request-service";
 import { REMOTE_AGENT_ACTIVE_EXECUTION_EVIDENCE_FRESHNESS_MS } from "../remote-agent/application/native-delivery-execution-evidence";
 import { continueSlackIdentityOnboardingRequest } from "../remote-agent/application/native-delivery-service";
 import {
@@ -2417,6 +2427,10 @@ export type UpdateCenterAgentModelInput = UpdateCenterAgentModelBody & {
 };
 
 export type ListMessageChannelConnectionsInput = {
+  context?: CoreRpcContextInput;
+};
+
+export type RequestMessageChannelSetupInput = MessageChannelSetupRequestBody & {
   context?: CoreRpcContextInput;
 };
 
@@ -6366,6 +6380,135 @@ export async function rpcListMessageChannelConnections(
   });
 }
 
+export async function rpcRequestMessageChannelSetup(
+  env: CoreBindings,
+  input: RequestMessageChannelSetupInput
+): Promise<MessageChannelSetupRequestResponse> {
+  const parsed = messageChannelSetupRequestBodySchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason:
+        parsed.error.issues[0]?.message ??
+        "The Channel setup request is invalid.",
+      status: 400,
+    });
+  }
+  const context = requireRpcContext(input.context);
+  const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  if (activeOrganization.role !== "member") {
+    throw createCoreRpcHttpError({
+      code: "message_channel.setup_request_forbidden",
+      reason:
+        "Organization owners and admins can set up this Channel directly.",
+      status: 403,
+    });
+  }
+  await requireOrganizationForMessageChannels({
+    env,
+    organizationId: activeOrganization.organizationId,
+    requestId: context.actorContext.requestId,
+  });
+  const enabledLarkProviders = listLarkPlatformProvidersEnabledForOrganization({
+    env,
+    organizationId: activeOrganization.organizationId,
+  });
+  if (
+    parsed.data.provider !== "slack" &&
+    !enabledLarkProviders.includes(parsed.data.provider)
+  ) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.provider_disabled",
+      reason: "This Channel provider is unavailable for this Organization.",
+      status: 404,
+    });
+  }
+
+  const db = requireCenterAgentDb(env);
+  const stateDatabase = localStateDb(env);
+  if (!stateDatabase) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.store_unavailable",
+      reason: "Message Channel connection state is unavailable.",
+      status: 503,
+    });
+  }
+  const connections = await listRemoteAgentMessageChannelConnectionProjections({
+    identityDb: db,
+    organizationId: activeOrganization.organizationId,
+    stateDb: stateDatabase,
+  });
+  if (
+    connections.some(
+      (connection) =>
+        connection.provider === parsed.data.provider &&
+        connection.status === "connected"
+    )
+  ) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.setup_request_already_connected",
+      reason: `${formatMessageChannelProviderName(parsed.data.provider)} is already connected for this Organization.`,
+      status: 409,
+    });
+  }
+
+  const members = await resolveOrganizationDirectoryMembers({
+    authWorker: env.OPENMELD_AUTH_WORKER,
+    organizationId: activeOrganization.organizationId,
+    requestId: context.actorContext.requestId,
+  });
+  const requester = members.find(
+    (member) => member.userId === activeOrganization.userId
+  );
+  const recipients = members
+    .filter((member) => member.role === "owner" || member.role === "admin")
+    .map((member) => member.userId);
+  if (!(requester && recipients.length > 0)) {
+    throw createCoreRpcHttpError({
+      code: "message_channel.setup_request_recipient_unavailable",
+      reason:
+        "No Organization owner or admin is available to receive this request.",
+      status: 503,
+    });
+  }
+  const result = await createMessageChannelSetupRequest({
+    db,
+    nowMs: Date.now(),
+    organizationId: activeOrganization.organizationId,
+    provider: parsed.data.provider,
+    recipients,
+    requester: {
+      displayName: requester.user.name,
+      userId: requester.userId,
+    },
+  });
+  return messageChannelSetupRequestResponseSchema.parse({
+    organizationId: activeOrganization.organizationId,
+    provider: parsed.data.provider,
+    ...result,
+  });
+}
+
+async function resolveMessageChannelSetupRequestsAfterConnection(input: {
+  db: D1Database;
+  organizationId: string;
+  provider: MessageChannelProvider;
+  resolvedAtMs: number;
+}): Promise<void> {
+  try {
+    await resolveMessageChannelSetupRequests(input);
+  } catch (error) {
+    console.error("[core.message_channel.setup_request_resolution_failed]", {
+      error: toErrorMessage(error),
+      organizationId: input.organizationId,
+      provider: input.provider,
+    });
+  }
+}
+
 export async function rpcDisconnectMessageChannelIdentityLink(
   env: CoreBindings,
   input: DisconnectMessageChannelIdentityLinkInput
@@ -6719,12 +6862,21 @@ export async function rpcBeginLarkPlatformRegistration(
 ): Promise<LarkPlatformRegistrationResponse> {
   const request = await requireLarkPlatformRegistrationRequest(env, input);
   try {
-    return await beginRemoteAgentLarkPlatformRegistration({
+    const response = await beginRemoteAgentLarkPlatformRegistration({
       ...request,
       repairExisting: input.mode === "repair",
       env,
       restartPending: input.mode === "restart",
     });
+    if (response.connection?.status === "connected") {
+      await resolveMessageChannelSetupRequestsAfterConnection({
+        db: requireCenterAgentDb(env),
+        organizationId: response.organizationId,
+        provider: request.provider,
+        resolvedAtMs: Date.now(),
+      });
+    }
+    return response;
   } catch (error) {
     throwLarkPlatformRegistrationRpcError(error, request.provider);
   }
@@ -6748,11 +6900,20 @@ export async function rpcPollLarkPlatformRegistration(
     });
   }
   try {
-    return await pollRemoteAgentLarkPlatformRegistration({
+    const response = await pollRemoteAgentLarkPlatformRegistration({
       ...request,
       attemptId: attemptId.data,
       env,
     });
+    if (response.connection?.status === "connected") {
+      await resolveMessageChannelSetupRequestsAfterConnection({
+        db: requireCenterAgentDb(env),
+        organizationId: response.organizationId,
+        provider: request.provider,
+        resolvedAtMs: Date.now(),
+      });
+    }
+    return response;
   } catch (error) {
     throwLarkPlatformRegistrationRpcError(error, request.provider);
   }
@@ -8139,6 +8300,14 @@ export async function rpcInstallSlackWorkspaceFromOAuth(
         });
       }
     }
+  }
+  if ("record" in result) {
+    await resolveMessageChannelSetupRequestsAfterConnection({
+      db,
+      organizationId: parsed.data.organizationId,
+      provider: "slack",
+      resolvedAtMs: nowMs,
+    });
   }
   const response: SlackOAuthInstallationResult =
     "existing" in result

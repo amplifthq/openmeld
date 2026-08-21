@@ -218,6 +218,7 @@ import type {
   MessageChannelConnectionListResponse,
   MessageChannelIdentityLinkConsumeResponse,
   MessageChannelIdentityLinkPreviewResponse,
+  MessageChannelSetupRequestResponse,
   NotifyAgentProfileRouteCatalogChangedResponse,
   OpenCenterAgentDirectMessageSpaceResponse,
   OpenDirectMessageSpaceResponse,
@@ -626,6 +627,7 @@ import {
   type RemoveConnectionInput,
   type RemoveMissingConnectionsInput,
   type RemoveSpaceMembersInput,
+  type RequestMessageChannelSetupInput,
   type ResolveSpaceAttachmentForDownloadInput,
   type RespondToSpaceAgentInteractionInput,
   type ResumeRoutineInput,
@@ -812,6 +814,7 @@ import {
   rpcRemoveConnection,
   rpcRemoveMissingConnections,
   rpcRemoveSpaceMembers,
+  rpcRequestMessageChannelSetup,
   rpcResolveSpaceAttachmentForDownload,
   rpcRespondToSpaceAgentInteraction,
   rpcResumeRoutine,
@@ -2223,6 +2226,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ListMessageChannelConnectionsInput
   ): Promise<MessageChannelConnectionListResponse> {
     return rpcListMessageChannelConnections(this.env, input);
+  }
+
+  requestMessageChannelSetup(
+    input: RequestMessageChannelSetupInput
+  ): Promise<MessageChannelSetupRequestResponse> {
+    return rpcRequestMessageChannelSetup(this.env, input);
   }
 
   listActiveLarkPlatformRegistrations(
@@ -3817,6 +3826,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ListMessageChannelConnectionsInput
   ): Promise<MessageChannelConnectionListResponse> {
     return super.listMessageChannelConnections(input);
+  }
+
+  requestMessageChannelSetup(
+    input: RequestMessageChannelSetupInput
+  ): Promise<MessageChannelSetupRequestResponse> {
+    return super.requestMessageChannelSetup(input);
   }
 
   listActiveLarkPlatformRegistrations(

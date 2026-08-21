@@ -1922,7 +1922,11 @@ Management location follows the owner instead of repeating mutation controls:
   the Center Agent path themselves.
 - All Organization members may view Channel and shared App status. Only owners
   and admins may mutate Organization-owned access; members may manage their own
-  member app connections.
+  member app connections. An ordinary member may request that owners and admins
+  set up one available Message Channel provider. Core creates one deduplicated
+  Organization Inbox request per requester and provider; it grants no setup
+  authority, links recipients to **Center Agent → Channels**, and resolves the
+  request after that provider becomes connected.
 - The personal workspace uses the same Center Agent pages. Only content, available
   actions, and role-appropriate guidance differ.
 

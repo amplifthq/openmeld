@@ -332,6 +332,20 @@ describe("DirectoryMembersOverview", () => {
 		expect(screen.getByText("Last active 1 minute ago")).toBeTruthy();
 	});
 
+	it("opens a focused Human Profile through the same whole-card interaction", async () => {
+		const onFocusConsumed = vi.fn();
+		renderOverview({
+			currentUserProfile: true,
+			focusProfileId: CURRENT_HUMAN_PROFILE_ID,
+			isPersonal: false,
+			onFocusConsumed,
+		});
+
+		const drawer = await screen.findByRole("dialog", { name: "Profile" });
+		expect(within(drawer).getByText("Felix (you)")).toBeTruthy();
+		expect(onFocusConsumed).toHaveBeenCalledOnce();
+	});
+
 	it("explains how to create the first Human Profile in a personal workspace", async () => {
 		renderOverview({ isPersonal: true, personalProfiles: [] });
 
@@ -1196,15 +1210,20 @@ describe("DirectoryMembersOverview", () => {
 		if (!currentCard) {
 			throw new Error("Expected the current member's Human Profile card.");
 		}
-		const identityButton = await within(currentCard).findByRole("button", {
-			name: "Slack account: Account email unavailable",
+		const reconnectLink = await within(currentCard).findByRole("link", {
+			name: "Reconnect Slack",
 		});
+		expect(reconnectLink.getAttribute("href")).toBe(
+			"/slack/identity/start?organization_slug=acme"
+		);
 		expect(within(currentCard).queryByText("felix@amplift.ai")).toBeNull();
-		expect(
-			within(currentCard).getByText("Account email unavailable")
-		).toBeTruthy();
+		expect(within(currentCard).getByText("Reconnect Slack")).toBeTruthy();
 
-		fireEvent.click(identityButton);
+		fireEvent.click(
+			within(currentCard).getByRole("button", {
+				name: "Open Felix's profile",
+			})
+		);
 		const profileDrawer = await screen.findByRole("dialog", {
 			name: "Profile",
 		});
@@ -1915,8 +1934,10 @@ function renderOverview(
 		agentProfiles?: OrganizationDirectoryResponse["agentProfiles"];
 		currentUserLastActiveAt?: string;
 		currentUserProfile?: boolean;
+		focusProfileId?: string | null;
 		graceProfileStatus?: "active" | "disabled";
 		isPersonal: boolean;
+		onFocusConsumed?: () => void;
 		personalProfiles?: readonly AuthProfileView[];
 	},
 	queryClient = createTestQueryClient()
@@ -2004,8 +2025,9 @@ function renderOverview(
 					isError: false,
 					isPending: false,
 				}}
-				focusProfileId={null}
+				focusProfileId={input.focusProfileId ?? null}
 				onCreateProfile={onCreateProfileMock}
+				onFocusConsumed={input.onFocusConsumed}
 				storageScope="user-current"
 			/>
 		</TestQueryClientProvider>

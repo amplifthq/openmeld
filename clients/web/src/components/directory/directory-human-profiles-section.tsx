@@ -98,6 +98,9 @@ export function DirectoryHumanProfilesSection(input: {
 	onCreateProfile: () => void;
 	onFocusConsumed?: () => void;
 	onOpenDirectMessage: (profileId: string) => Promise<void>;
+	onRequestChannelSetup: (
+		provider: DirectoryIdentityAccount["provider"]
+	) => Promise<void>;
 	onDisconnectConnectedAccount: (identityLinkId: string) => void;
 	onResearch: (subjectUserId: string) => void;
 	onResearchAll: () => void;
@@ -141,9 +144,15 @@ export function DirectoryHumanProfilesSection(input: {
 			return;
 		}
 		setHighlightedProfileId(focusedProfile.id);
-		rowElementsRef.current
-			.get(focusedProfile.id)
-			?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+		const focusedRow = rowElementsRef.current.get(focusedProfile.id);
+		const openProfileButton = focusedRow?.querySelector<HTMLButtonElement>(
+			"[data-profile-card-open]"
+		);
+		if (!openProfileButton) {
+			return;
+		}
+		focusedRow?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+		openProfileButton.click();
 		input.onFocusConsumed?.();
 	}, [
 		input.focusProfileId,
@@ -172,8 +181,8 @@ export function DirectoryHumanProfilesSection(input: {
 							memberResearchError={input.memberResearchError}
 							onDisconnectConnectedAccount={input.onDisconnectConnectedAccount}
 							onOpenDirectMessage={input.onOpenDirectMessage}
+							onRequestChannelSetup={input.onRequestChannelSetup}
 							onResearch={input.onResearch}
-							openOnFocus={input.focusProfileId === member.id}
 							pendingResearch={input.pendingResearch}
 							rowRef={(node) => {
 								if (node) {
@@ -247,9 +256,11 @@ function DirectoryHumanProfileCard(input: {
 	latestTasks: readonly CenterAgentMemberResearchTask[];
 	member: DirectoryHumanProfileRow;
 	memberResearchError: { message: string; subjectUserId: string } | null;
-	openOnFocus: boolean;
 	onDisconnectConnectedAccount: (identityLinkId: string) => void;
 	onOpenDirectMessage: (profileId: string) => Promise<void>;
+	onRequestChannelSetup: (
+		provider: DirectoryIdentityAccount["provider"]
+	) => Promise<void>;
 	onResearch: (subjectUserId: string) => void;
 	pendingResearch: DirectoryMemberResearchRequest | undefined;
 	rowRef: (node: HTMLElement | null) => void;
@@ -262,12 +273,6 @@ function DirectoryHumanProfileCard(input: {
 	>(null);
 	const [connectedAccount, setConnectedAccount] =
 		useState<DirectoryIdentityAccount | null>(null);
-	useEffect(() => {
-		if (input.openOnFocus) {
-			setIsEditingDetails(false);
-			setIsDetailsOpen(true);
-		}
-	}, [input.openOnFocus]);
 	const task = input.latestTasks.find(
 		(candidate) => candidate.subjectUserId === input.member.userId
 	);
@@ -407,6 +412,7 @@ function DirectoryHumanProfileCard(input: {
 						setConnectableAccounts(null);
 					}
 				}}
+				onRequestSetup={input.onRequestChannelSetup}
 			/>
 			<ManageChannelAccountDialog
 				account={connectedAccount}
@@ -530,8 +536,14 @@ function HumanProfileIdentitySummary(input: {
 function ConnectChannelAccountDialog(input: {
 	accounts: readonly DirectoryIdentityAccount[] | null;
 	onOpenChange: (open: boolean) => void;
+	onRequestSetup: (
+		provider: DirectoryIdentityAccount["provider"]
+	) => Promise<void>;
 }) {
 	const [copied, setCopied] = useState(false);
+	const [pendingProvider, setPendingProvider] = useState<
+		DirectoryIdentityAccount["provider"] | null
+	>(null);
 	const account = input.accounts?.length === 1 ? input.accounts[0] : null;
 	const providerLabel = account?.providerLabel ?? "Channel";
 	const requestText = `Connect this ${providerLabel} account to my OpenMeld profile`;
@@ -541,6 +553,7 @@ function ConnectChannelAccountDialog(input: {
 			onOpenChange={(open) => {
 				if (!open) {
 					setCopied(false);
+					setPendingProvider(null);
 				}
 				input.onOpenChange(open);
 			}}
@@ -570,6 +583,16 @@ function ConnectChannelAccountDialog(input: {
 							<ChannelSetupChoice
 								account={candidate}
 								key={candidate.provider}
+								onRequestSetup={async () => {
+									setPendingProvider(candidate.provider);
+									try {
+										await input.onRequestSetup(candidate.provider);
+										input.onOpenChange(false);
+									} finally {
+										setPendingProvider(null);
+									}
+								}}
+								pending={pendingProvider === candidate.provider}
 							/>
 						))}
 					</div>
@@ -608,7 +631,11 @@ function ConnectChannelAccountDialog(input: {
 	);
 }
 
-function ChannelSetupChoice(input: { account: DirectoryIdentityAccount }) {
+function ChannelSetupChoice(input: {
+	account: DirectoryIdentityAccount;
+	onRequestSetup: () => Promise<void>;
+	pending: boolean;
+}) {
 	const action = input.account.action;
 	if (!action) {
 		return null;
@@ -629,6 +656,20 @@ function ChannelSetupChoice(input: { account: DirectoryIdentityAccount }) {
 			<Link className={className} to={action.path}>
 				{content}
 			</Link>
+		);
+	}
+	if (action.kind === "ask_admin") {
+		return (
+			<button
+				className={className}
+				disabled={input.pending}
+				onClick={() => {
+					input.onRequestSetup().catch(() => undefined);
+				}}
+				type="button"
+			>
+				{content}
+			</button>
 		);
 	}
 	return <div className={className}>{content}</div>;

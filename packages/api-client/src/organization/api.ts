@@ -16,6 +16,8 @@ import {
   messageChannelIdentityLinkConsumeResponseSchema,
   messageChannelIdentityLinkPreviewBodySchema,
   messageChannelIdentityLinkPreviewResponseSchema,
+  messageChannelSetupRequestBodySchema,
+  messageChannelSetupRequestResponseSchema,
   ORGANIZATION_LOGO_MAX_SIZE_BYTES,
   organizationComputersResponseSchema,
   organizationDirectoryResponseSchema,
@@ -49,6 +51,7 @@ import {
   buildCurrentOrganizationMessageChannelRegistrationPath,
   buildCurrentOrganizationMessageChannelRegistrationPollPath,
   buildCurrentOrganizationMessageChannelRegistrationsPath,
+  buildCurrentOrganizationMessageChannelSetupRequestsPath,
   buildCurrentOrganizationMessageChannelsPath,
   buildCurrentOrganizationSpacesPath,
   buildCurrentOrganizationSpacesWithMemberCountsPath,
@@ -230,6 +233,23 @@ export const createOrganizationApi: CreateOrganizationApi = (
       schema: messageChannelConnectionListResponseSchema,
       invalidMessage: "invalid Organization Message Channels response",
     }),
+  requestMessageChannelSetup: async (input) => {
+    const body = messageChannelSetupRequestBodySchema.parse({
+      provider: input.provider,
+    });
+    return await client.requestJson({
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "invalid Message Channel setup request response",
+      method: "POST",
+      operation: "organization.message_channel.setup.request",
+      requestContext: input.requestContext,
+      schema: messageChannelSetupRequestResponseSchema,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      url: buildCurrentOrganizationMessageChannelSetupRequestsPath(),
+    });
+  },
   disconnectMessageChannelIdentityLink: async (input) =>
     await client.requestJson({
       url: buildCurrentOrganizationMessageChannelIdentityLinkPath(
