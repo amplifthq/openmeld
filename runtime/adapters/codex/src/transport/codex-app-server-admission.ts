@@ -1,5 +1,7 @@
 export type CodexAppServerControlOperation =
   | "collaborationMode/list"
+  | "thread/fork"
+  | "thread/name/set"
   | "thread/resume"
   | "thread/start"
   | "turn/start";
@@ -15,6 +17,8 @@ const CONTROL_REQUEST_TIMEOUT_MS_BY_OPERATION: Record<
   number
 > = {
   "collaborationMode/list": FAST_METADATA_ADMISSION_TIMEOUT_MS,
+  "thread/fork": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
+  "thread/name/set": FAST_METADATA_ADMISSION_TIMEOUT_MS,
   "thread/resume": FAST_METADATA_ADMISSION_TIMEOUT_MS,
   "thread/start": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
   "turn/start": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,

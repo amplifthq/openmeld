@@ -54,9 +54,12 @@ import {
   runtimeTransportDispatchPreviewRequestSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchToolActivityRequestSchema,
+  runtimeTransportForkAgentSessionRequestSchema,
+  runtimeTransportForkAgentSessionResultSchema,
   runtimeTransportHeartbeatRequestSchema,
   runtimeTransportInspectExecutionRecoveryRequestSchema,
   runtimeTransportInspectExecutionRecoveryResponseSchema,
+  runtimeTransportLocalAgentControlForkSessionFramePayloadSchema,
   runtimeTransportLocalAgentControlManageInstallationFramePayloadSchema,
   runtimeTransportLocalAgentControlRefreshCatalogFramePayloadSchema,
   runtimeTransportLocalAgentControlResultFramePayloadSchema,
@@ -152,9 +155,11 @@ import type {
   RuntimeTransportDispatchPreviewRequest,
   RuntimeTransportDispatchRuntimeEvidenceRequest,
   RuntimeTransportDispatchToolActivityRequest,
+  RuntimeTransportForkAgentSessionResult,
   RuntimeTransportInspectExecutionRecoveryRequest,
   RuntimeTransportInspectExecutionRecoveryResponse,
   RuntimeTransportLocalAgentControlCancelFramePayload,
+  RuntimeTransportLocalAgentControlForkSessionFramePayload,
   RuntimeTransportLocalAgentControlInterruptFramePayload,
   RuntimeTransportLocalAgentControlManageInstallationFramePayload,
   RuntimeTransportLocalAgentControlRefreshCatalogFramePayload,
@@ -562,6 +567,7 @@ type RuntimeCoordinatorStoppedTaskProjectionIndex = {
   publicationIds: string[];
 };
 export type LocalAgentControlResultPayloadKind =
+  | "fork_session"
   | "manage_installation"
   | "refresh_catalog"
   | "set_profile_workspace"
@@ -572,6 +578,9 @@ export function resolveLocalAgentControlResponseTimeoutMs(
 ): number {
   if (expectedPayload === "refresh_catalog") {
     return LOCAL_AGENT_CONTROL_REFRESH_CATALOG_RESPONSE_TIMEOUT_MS;
+  }
+  if (expectedPayload === "fork_session") {
+    return 35_000;
   }
   return LOCAL_AGENT_CONTROL_SET_ENABLED_RESPONSE_TIMEOUT_MS;
 }
@@ -2065,6 +2074,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       case "daemon.dispatch.deliver":
       case "daemon.dispatch.interaction_response":
       case "daemon.local_agent_control.refresh_catalog":
+      case "daemon.local_agent_control.fork_session":
       case "daemon.local_agent_control.manage_installation":
       case "daemon.local_agent_control.set_enabled":
       case "daemon.local_agent_control.set_profile_workspace":
@@ -8310,6 +8320,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       | undefined = {
       "/local-agent-control/set-enabled": (input: Request) =>
         this.handleSetLocalAgentEnabledRequest(input),
+      "/local-agent-control/fork-session": (input: Request) =>
+        this.handleForkAgentSessionRequest(input),
       "/local-agent-control/installations": (input: Request) =>
         this.handleManageLocalAgentInstallationRequest(input),
       "/local-agent-control/refresh-catalog": (input: Request) =>
@@ -8625,6 +8637,91 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
               ? error.message
               : "Timed out waiting for the local OpenMeld Service.",
         } satisfies RuntimeTransportSetLocalAgentEnabledResponse,
+        { status: 504 }
+      );
+    }
+  }
+
+  private async handleForkAgentSessionRequest(
+    request: Request
+  ): Promise<Response> {
+    const parsed = runtimeTransportForkAgentSessionRequestSchema.safeParse(
+      await readJsonBody(request)
+    );
+    if (!parsed.success) {
+      return Response.json(
+        {
+          message:
+            parsed.error.issues[0]?.message ??
+            "The Agent Session Fork request is invalid.",
+          reasonCode: "agent_session_fork.invalid_request",
+          status: "rejected",
+        },
+        { status: 400 }
+      );
+    }
+    this.reapExpiredLeases(Date.now());
+    const session = this.resolveLocalAgentControlSession({
+      ...parsed.data,
+      capability: "forkSession",
+      unsupportedMessage:
+        "Update OpenMeld Service before forking a local Agent Session.",
+      updateRequiredMessage:
+        "Update OpenMeld Service before forking a local Agent Session.",
+    });
+    if (!session.ok) {
+      return Response.json({
+        agentControllerRef: parsed.data.agentControllerRef,
+        message: session.message,
+        operationId: parsed.data.operationId,
+        organizationId: parsed.data.organizationId,
+        profileName: parsed.data.profileName,
+        projectId: parsed.data.projectId,
+        reasonCode: session.reasonCode,
+        sourceNativeSessionId: parsed.data.sourceNativeSessionId,
+        status: "rejected",
+      } satisfies RuntimeTransportForkAgentSessionResult);
+    }
+    const requestId = crypto.randomUUID();
+    const frame =
+      runtimeTransportLocalAgentControlForkSessionFramePayloadSchema.parse({
+        requestId,
+        request: {
+          agentControllerRef: parsed.data.agentControllerRef,
+          operationId: parsed.data.operationId,
+          organizationId: parsed.data.organizationId,
+          profileName: parsed.data.profileName,
+          projectId: parsed.data.projectId,
+          sourceNativeSessionId: parsed.data.sourceNativeSessionId,
+        },
+      });
+    try {
+      const result = await this.sendLocalAgentControlForkSessionAndWait({
+        payload: frame,
+        requestId,
+        session: session.session,
+      });
+      if (
+        result.operationId !== parsed.data.operationId ||
+        result.agentControllerRef !== parsed.data.agentControllerRef ||
+        result.sourceNativeSessionId !== parsed.data.sourceNativeSessionId
+      ) {
+        throw new Error("Agent Session Fork result identity does not match.");
+      }
+      return Response.json(result);
+    } catch (error) {
+      return Response.json(
+        {
+          agentControllerRef: parsed.data.agentControllerRef,
+          message: error instanceof Error ? error.message : String(error),
+          operationId: parsed.data.operationId,
+          organizationId: parsed.data.organizationId,
+          profileName: parsed.data.profileName,
+          projectId: parsed.data.projectId,
+          reasonCode: "agent_session_fork.transport_outcome_unknown",
+          sourceNativeSessionId: parsed.data.sourceNativeSessionId,
+          status: "outcome_unknown",
+        } satisfies RuntimeTransportForkAgentSessionResult,
         { status: 504 }
       );
     }
@@ -16565,6 +16662,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
 
   private resolveLocalAgentControlSession(input: {
     capability:
+      | "forkSession"
       | "manageInstallations"
       | "refreshCatalog"
       | "setEnabled"
@@ -16637,6 +16735,23 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       requestId: input.requestId,
       session: input.session,
       timeoutMs: resolveLocalAgentControlResponseTimeoutMs("set_enabled"),
+    });
+  }
+
+  private async sendLocalAgentControlForkSessionAndWait(input: {
+    requestId: string;
+    session: RuntimeTransportSessionState & { socket: WebSocket };
+    payload: RuntimeTransportLocalAgentControlForkSessionFramePayload;
+  }): Promise<RuntimeTransportForkAgentSessionResult> {
+    return await this.sendCurrentDeviceOperationAndWait({
+      code: "daemon.local_agent_control.fork_session",
+      expectedResponseCode: "daemon.local_agent_control.result",
+      isExpectedPayload: (value) =>
+        runtimeTransportForkAgentSessionResultSchema.safeParse(value).success,
+      payload: input.payload as unknown as Record<string, unknown>,
+      requestId: input.requestId,
+      session: input.session,
+      timeoutMs: resolveLocalAgentControlResponseTimeoutMs("fork_session"),
     });
   }
 

@@ -193,6 +193,43 @@ describe("Agent Profile creation request RPC", () => {
     });
   });
 
+  it("accepts a Fork request addressed to the Session's public Computer", async () => {
+    const fixture = await seedFixture();
+    const session = await seedResumeSession(fixture);
+    const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
+
+    const created = await rpcCreateAgentProfileCreationRequest(bindings, {
+      configuration: {
+        agentControllerPermissionMode: null,
+        agentControllerRef: "builtin:codex",
+        authorizeForOrganization: true,
+        defaultProjectId: session.projectId,
+        modelId: null,
+        openCodePermission: null,
+        reasoningLevel: null,
+        targetComputerId: session.computerId,
+      },
+      context: contextFor(fixture.requesterUserId, fixture.requesterProfileId),
+      idempotencyKey: `fork-${fixture.suffix}`,
+      nativeSessionId: session.nativeSessionId,
+      organizationId: fixture.organizationId,
+      profileName: "Release Fork",
+      sessionStrategy: "fork",
+      source: "web",
+      targetOwnerUserId: fixture.targetUserId,
+    });
+
+    expect(created.request).toMatchObject({
+      configuration: {
+        agentControllerRef: "builtin:codex",
+        targetComputerId: session.computerId,
+      },
+      nativeSessionId: session.nativeSessionId,
+      sessionStrategy: "fork",
+      status: "pending",
+    });
+  });
+
   it("rejects Resume when the selected Session is not current and matching", async () => {
     const fixture = await seedFixture();
     const bindings = { OPENMELD_DB: env.OPENMELD_DB } as CoreBindings;
@@ -382,7 +419,7 @@ async function seedResumeSession(
         visible, source_reconciliation_id, observed_at_ms, published_at_ms,
         updated_at_ms
       ) VALUES (?, ?, ?, 'builtin:codex', ?, ?, ?, ?, ?, ?, 'codex',
-        'Existing release work', 'idle', ?, ?, 'local', 1, 0, 1, ?, ?, ?, ?)`
+        'Existing release work', 'idle', ?, ?, 'local', 1, 1, 1, ?, ?, ?, ?)`
     ).bind(
       `inventory-${fixture.suffix}`,
       fixture.organizationId,

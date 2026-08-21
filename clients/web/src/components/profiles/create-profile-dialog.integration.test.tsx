@@ -1041,6 +1041,142 @@ describe("CreateProfileDialog", () => {
 		});
 	});
 
+	it("defaults a working forkable teammate Session to Fork", async () => {
+		getProfileCapabilitiesMock.mockResolvedValue({
+			additionalHumanProfileCreationEnabled: false,
+			ok: true,
+		});
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		readCurrentAgentActivitySessionsMock.mockResolvedValue({
+			asOfMs: 1_787_220_000_000,
+			coverage: [],
+			nextCursor: null,
+			organization: { id: "organization-123", name: "Acme" },
+			sessions: [
+				{
+					bindingState: "unbound",
+					boundAgentProfileId: null,
+					canFork: true,
+					canResume: true,
+					computer: {
+						id: "device-ashley",
+						lastSeenAtMs: 1_787_220_000_000,
+						name: "Ashley's Mac Studio",
+						state: "online",
+					},
+					dataState: "current",
+					inventoryUpdatedAtMs: 1_787_220_000_000,
+					lastActiveAtMs: 1_787_219_000_000,
+					localAgent: {
+						agentControllerRef: "builtin:codex",
+						name: "Codex",
+						provider: "codex",
+					},
+					nativeSessionId: "native-ashley-release",
+					nativeSessionTitle: "Prepare the release",
+					organization: { id: "organization-123", name: "Acme" },
+					origin: "local",
+					owner: { name: "Ashley", userId: "user-ashley" },
+					project: { id: "project-1", name: "OpenMeld", slug: "openmeld" },
+					startedAtMs: 1_787_218_000_000,
+					status: "working",
+				},
+			],
+		});
+		renderCreateProfileDialog({
+			allowTeammateRequests: true,
+			currentUserId: "user-123",
+			organizationAuthorizationContext: {
+				organizationId: "organization-123",
+				organizationName: "Acme",
+			},
+		});
+
+		await waitFor(() => {
+			expect(readOrganizationDirectoryMock).toHaveBeenCalled();
+		});
+		const teammateChoice = screen.getByRole("radio", { name: "A teammate" });
+		await waitFor(() => {
+			expect(teammateChoice.getAttribute("aria-disabled")).toBeNull();
+		});
+		fireEvent.click(teammateChoice);
+		await screen.findByRole("combobox", { name: "Agent owner" });
+		fireEvent.click(await screen.findByRole("radio", { name: "Use existing" }));
+		fireEvent.click(await screen.findByRole("combobox", { name: "Session" }));
+		fireEvent.click(
+			await screen.findByRole("option", {
+				name: ASHLEY_RELEASE_SESSION_PATTERN,
+			})
+		);
+
+		expect(
+			screen.getByRole("radio", { name: "Fork" }).getAttribute("aria-checked")
+		).toBe("true");
+		fireEvent.click(screen.getByRole("button", { name: "Request Agent" }));
+
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					nativeSessionId: "native-ashley-release",
+					profileName: "Prepare the release",
+					sessionStrategy: "fork",
+					targetOwnerUserId: "user-ashley",
+				})
+			);
+		});
+	});
+
+	it("opens a teammate Session from Agent Activity as an approval request", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		renderCreateProfileDialog({
+			agentActivitySessionPreset: {
+				agentControllerRef: "builtin:codex",
+				computerId: "connected-computer-ashley",
+				localAgentName: "Codex",
+				mode: "fork",
+				nativeSessionId: "native-ashley-release",
+				nativeSessionTitle: "Prepare the release",
+				organizationId: "organization-123",
+				ownerUserId: "user-ashley",
+				projectId: "project-1",
+				provider: "codex",
+				status: "working",
+			},
+			allowTeammateRequests: true,
+			currentUserId: "user-123",
+			organizationAuthorizationContext: {
+				organizationId: "organization-123",
+				organizationName: "Acme",
+			},
+		});
+
+		expect(
+			await screen.findByText(
+				"Request an Agent for Ashley from a copy of this Session. The original stays unchanged."
+			)
+		).toBeTruthy();
+		const submitButton = await screen.findByRole("button", {
+			name: "Request Agent",
+		});
+		await waitFor(() => {
+			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
+		});
+		fireEvent.click(submitButton);
+
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						targetComputerId: "connected-computer-ashley",
+					}),
+					nativeSessionId: "native-ashley-release",
+					sessionStrategy: "fork",
+					targetOwnerUserId: "user-ashley",
+				})
+			);
+		});
+	});
+
 	it("opens directly as Agent creation when additional Human creation is disabled", async () => {
 		getProfileCapabilitiesMock.mockResolvedValue({
 			additionalHumanProfileCreationEnabled: false,

@@ -101,6 +101,7 @@ export { processCodexStdoutLine } from "./output/codex-output-parser.js";
 export { extractCodexToolActivityEvent } from "./output/codex-tool-activity.js";
 export {
   CodexAppServerTransportError,
+  forkCodexAppServerThread,
   invokeCodexAppServerTransport,
   verifyCodexAppServerThread,
 } from "./transport/codex-app-server-transport.js";

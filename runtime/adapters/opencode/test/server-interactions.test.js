@@ -104,6 +104,18 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "    sendJson(response, 200, { id: sessionID });",
       "    return;",
       "  }",
+      "  if (request.method === 'POST' && url.pathname === '/session/' + sessionID + '/fork') {",
+      "    const body = await readBody(request);",
+      "    log({ body, method: request.method, path: url.pathname });",
+      "    sendJson(response, 200, { id: 'opencode-session-fork-1' });",
+      "    return;",
+      "  }",
+      "  if (request.method === 'PATCH' && url.pathname === '/session/opencode-session-fork-1') {",
+      "    const body = await readBody(request);",
+      "    log({ body, method: request.method, path: url.pathname });",
+      "    sendJson(response, 200, { id: 'opencode-session-fork-1', title: body.title });",
+      "    return;",
+      "  }",
       "  if (request.method === 'GET' && url.pathname === '/session/' + sessionID) {",
       "    log({ method: request.method, path: url.pathname });",
       "    sendJson(response, 200, { id: sessionID });",
@@ -227,6 +239,39 @@ async function withServerFixture(callback) {
     await rm(fixtureDir, { force: true, recursive: true });
   }
 }
+
+test("OpenCode forks the native Session and applies the OpenMeld title", async () => {
+  const { forkOpenCodeServerSession } = await import("../dist/index.js");
+  await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
+    const result = await forkOpenCodeServerSession({
+      env: { OPENMELD_FAKE_OPENCODE_SERVER_LOG: logPath },
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      openCodeTimeoutMs: 5000,
+      openCodeWorkdir: fixtureDir,
+      sourceSessionId: "opencode-session-server",
+      title: "OpenMeld · Release Agent",
+    });
+    const requests = await readLog(logPath);
+
+    assert.equal(result.sessionId, "opencode-session-fork-1");
+    assert.deepEqual(
+      requests.find((request) => request.path?.endsWith("/fork")),
+      {
+        body: null,
+        method: "POST",
+        path: "/session/opencode-session-server/fork",
+      }
+    );
+    assert.deepEqual(
+      requests.find((request) => request.method === "PATCH"),
+      {
+        body: { title: "OpenMeld · Release Agent" },
+        method: "PATCH",
+        path: "/session/opencode-session-fork-1",
+      }
+    );
+  });
+});
 
 test("OpenCode carries permission approval through its official server API", async () => {
   const { createOpenCodeAdapter } = await import("../dist/index.js");

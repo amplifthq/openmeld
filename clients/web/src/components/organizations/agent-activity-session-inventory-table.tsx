@@ -132,7 +132,7 @@ export function AgentActivitySessionInventoryTable(input: {
 							</TableCell>
 							<TableCell className="align-top">
 								<SessionProfileActions
-									canOperate={session.owner.userId === input.currentUserId}
+									isOwner={session.owner.userId === input.currentUserId}
 									onAction={(action) => input.onAction(action, session)}
 									onOpenProfile={input.onOpenProfile}
 									session={session}
@@ -156,7 +156,7 @@ export function AgentActivitySessionInventoryTable(input: {
 }
 
 function SessionProfileActions(input: {
-	canOperate: boolean;
+	isOwner: boolean;
 	onAction: (action: AgentActivitySessionAction) => void;
 	onOpenProfile: (profileId: string) => void;
 	session: AgentActivityInventorySession;
@@ -192,14 +192,6 @@ function SessionProfileActions(input: {
 			</div>
 		);
 	}
-	if (!input.canOperate) {
-		return (
-			<span className="text-muted-foreground text-xs">
-				Only the Session owner can connect it.
-			</span>
-		);
-	}
-
 	return (
 		<div className="flex min-w-44 flex-wrap gap-1.5">
 			{input.session.canResume && input.session.dataState === "current" ? (
@@ -209,7 +201,7 @@ function SessionProfileActions(input: {
 					type="button"
 					variant="outline"
 				>
-					Resume as Agent Profile
+					{input.isOwner ? "Resume as Agent Profile" : "Request Resume Profile"}
 				</Button>
 			) : (
 				<Button
@@ -218,7 +210,7 @@ function SessionProfileActions(input: {
 					type="button"
 					variant="outline"
 				>
-					Create Agent Profile
+					{input.isOwner ? "Create Agent Profile" : "Request Agent Profile"}
 				</Button>
 			)}
 			{input.session.canFork ? (
@@ -228,7 +220,7 @@ function SessionProfileActions(input: {
 					type="button"
 					variant="ghost"
 				>
-					Fork as Agent Profile
+					{input.isOwner ? "Fork as Agent Profile" : "Request Fork Profile"}
 				</Button>
 			) : null}
 		</div>

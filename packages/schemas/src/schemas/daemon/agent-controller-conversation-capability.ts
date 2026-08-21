@@ -62,7 +62,7 @@ export const BUILTIN_AGENT_CONTROLLER_CONVERSATION_CAPABILITY_BY_CONTROLLER_ID: 
   "grok-build": {
     discover: "unsupported",
     externalImport: "by_ref_id",
-    fork: "by_ref_id",
+    fork: "unsupported",
     resume: "by_ref_id",
     turnOverride: "unsupported",
   },

@@ -34,6 +34,7 @@ export function resolveDaemonCapabilities(input: {
       : {}),
     localAgentControl: {
       cancel: true,
+      forkSession: true,
       interrupt: true,
       manageInstallations: true,
       refreshCatalog: true,

@@ -29,6 +29,7 @@ import { targetWakeLifecycleIdentitySchema } from "../protocol/target-wake-lifec
 import { workingLanguageGuidanceSchema } from "../runtime/working-language";
 import { spaceContractSchema } from "../space-mesh/space-contract";
 import { spaceThreadContextSchema } from "../space-mesh/space-thread";
+import { agentControllerRefSchema } from "./agent-controller-ref";
 import {
   openMeldDaemonCancelPayloadSchema,
   openMeldDaemonCancelRequestPayloadSchema,
@@ -150,6 +151,7 @@ export const runtimeTransportBaseCapabilitiesSchema = z.strictObject({
       cancel: z.literal(true).optional(),
       interrupt: z.literal(true).optional(),
       manageInstallations: z.literal(true).optional(),
+      forkSession: z.literal(true).optional(),
       refreshCatalog: z.literal(true).optional(),
       resumeControllerConversation: z.literal(true).optional(),
       setEnabled: z.literal(true).optional(),
@@ -501,6 +503,47 @@ export const runtimeTransportSetProfileWorkspaceResponseSchema =
     }),
   ]);
 
+const agentSessionForkOperationSchema = z.strictObject({
+  agentControllerRef: agentControllerRefSchema,
+  operationId: z.string().trim().min(1).max(256),
+  organizationId: z.string().trim().min(1).max(256),
+  profileName: z.string().trim().min(1).max(MAX_PROFILE_NAME_LENGTH),
+  projectId: z.string().trim().min(1).max(256),
+  sourceNativeSessionId: z.string().trim().min(1).max(512),
+});
+
+export const runtimeTransportForkAgentSessionRequestSchema =
+  agentSessionForkOperationSchema.extend({
+    v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
+    ownerUserId: z.string().trim().min(1),
+    deviceId: z.string().trim().min(1),
+    lane: daemonServiceLaneSchema,
+  });
+
+export const runtimeTransportForkAgentSessionResultSchema =
+  z.discriminatedUnion("status", [
+    agentSessionForkOperationSchema.extend({
+      childNativeSessionId: z.string().trim().min(1).max(512),
+      status: z.literal("completed"),
+    }),
+    agentSessionForkOperationSchema.extend({
+      message: z.string().trim().min(1).max(1000),
+      reasonCode: z.string().trim().min(1).max(256),
+      status: z.literal("rejected"),
+    }),
+    agentSessionForkOperationSchema.extend({
+      message: z.string().trim().min(1).max(1000),
+      reasonCode: z.string().trim().min(1).max(256),
+      status: z.literal("outcome_unknown"),
+    }),
+  ]);
+
+export const runtimeTransportLocalAgentControlForkSessionFramePayloadSchema =
+  z.strictObject({
+    requestId: z.string().min(1),
+    request: agentSessionForkOperationSchema,
+  });
+
 export const runtimeTransportLocalAgentControlSetEnabledFramePayloadSchema =
   z.strictObject({
     requestId: z.string().min(1),
@@ -547,6 +590,7 @@ export const runtimeTransportLocalAgentControlResultFramePayloadSchema =
       openMeldDaemonSyncRouteCatalogPayloadSchema,
       openMeldDaemonCancelPayloadSchema,
       openMeldDaemonInterruptPayloadSchema,
+      runtimeTransportForkAgentSessionResultSchema,
     ]),
   });
 
@@ -1681,6 +1725,7 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.route_catalog.changed",
   "daemon.local_agent_control.cancel",
   "daemon.local_agent_control.interrupt",
+  "daemon.local_agent_control.fork_session",
   "daemon.local_agent_control.manage_installation",
   "daemon.local_agent_control.refresh_catalog",
   "daemon.local_agent_control.set_enabled",

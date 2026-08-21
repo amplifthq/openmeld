@@ -73,7 +73,7 @@ describe("agent controller conversation capability schema", () => {
     ).toMatchObject({ fork: "unsupported", resume: "by_ref_id" });
     expect(
       resolveBuiltinAgentControllerConversationCapability("grok-build")
-    ).toMatchObject({ fork: "by_ref_id", resume: "by_ref_id" });
+    ).toMatchObject({ fork: "unsupported", resume: "by_ref_id" });
     expect(
       resolveBuiltinAgentControllerConversationCapability("custom")
     ).toBeNull();

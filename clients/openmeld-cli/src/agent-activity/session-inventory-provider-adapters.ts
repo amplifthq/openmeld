@@ -183,7 +183,7 @@ async function mapCodexThread(input: {
   return {
     binding,
     session: observedLocalAgentSessionSchema.parse({
-      canFork: false,
+      canFork: true,
       canResume: !(input.archived || input.thread.ephemeral === true),
       lastActiveAtMs,
       nativeSessionId,
@@ -491,7 +491,7 @@ export async function discoverClaudeRetainedSessions(input: {
     result.push({
       binding,
       session: observedLocalAgentSessionSchema.parse({
-        canFork: false,
+        canFork: true,
         canResume: true,
         lastActiveAtMs: metadata.lastActiveAtMs,
         nativeSessionId: metadata.nativeSessionId,
@@ -521,7 +521,7 @@ export async function discoverClaudeRetainedSessions(input: {
     result.push({
       binding,
       session: observedLocalAgentSessionSchema.parse({
-        canFork: false,
+        canFork: true,
         canResume: true,
         lastActiveAtMs: registrySession.lastActiveAtMs,
         nativeSessionId: registrySession.nativeSessionId,
@@ -788,7 +788,7 @@ export async function discoverOpenCodeRetainedSessions(input: {
     result.push({
       binding,
       session: observedLocalAgentSessionSchema.parse({
-        canFork: false,
+        canFork: true,
         canResume: archivedAtMs === null,
         lastActiveAtMs,
         nativeSessionId,

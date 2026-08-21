@@ -142,6 +142,14 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread(message.params.threadId, threadSource), ...model, modelProvider: 'openai', serviceTier: null, cwd: message.params.cwd, instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'client', sandbox: { mode: 'read-only' }, reasoningEffort: null } });",
       "    return;",
       "  }",
+      "  if (message.method === 'thread/fork') {",
+      "    write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread('thread-fork-1') } });",
+      "    return;",
+      "  }",
+      "  if (message.method === 'thread/name/set') {",
+      "    write({ jsonrpc: '2.0', id: message.id, result: {} });",
+      "    return;",
+      "  }",
       "  if (message.method === 'thread/start') {",
       "    const hangingThreadStartAttempts = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_HANG_THREAD_START_ATTEMPTS ?? '0');",
       "    if (startupAttempt <= hangingThreadStartAttempts) return;",
@@ -2519,6 +2527,48 @@ test("verifyCodexAppServerThread proves thread control without starting a turn",
       messages.find((message) => message.method === "thread/resume").params
         .excludeTurns,
       true
+    );
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("forkCodexAppServerThread forks the native thread and applies the OpenMeld title", async () => {
+  const { forkCodexAppServerThread } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-fork-"));
+  const dispatchDir = await mkdtemp(join(tmpdir(), "codex-fork-cwd-"));
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const result = await forkCodexAppServerThread({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      codexTimeoutMs: 5000,
+      codexWorkdir: dispatchDir,
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+      },
+      sourceThreadId: "thread-source-1",
+      title: "OpenMeld · Release Agent",
+    });
+    const messages = await readFakeAppServerMessages(logPath);
+
+    assert.equal(result.threadId, "thread-fork-1");
+    assert.deepEqual(
+      messages.map((message) => message.method),
+      ["initialize", "initialized", "thread/fork", "thread/name/set"]
+    );
+    assert.deepEqual(
+      messages.find((message) => message.method === "thread/fork").params,
+      { excludeTurns: true, threadId: "thread-source-1" }
+    );
+    assert.deepEqual(
+      messages.find((message) => message.method === "thread/name/set").params,
+      { name: "OpenMeld · Release Agent", threadId: "thread-fork-1" }
     );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });

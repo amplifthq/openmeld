@@ -747,6 +747,50 @@ describe("Agent Activity pages", () => {
 		).toBeTruthy();
 	});
 
+	it("offers native Fork when the Session reports that capability", async () => {
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects: [project({ id: "project-active" })],
+		});
+		readSessions.mockResolvedValue(
+			sessionInventory({
+				sessions: [inventorySession({ canFork: true })],
+			})
+		);
+
+		renderPage("sessions");
+
+		expect(
+			await screen.findByRole("button", { name: "Fork as Agent Profile" })
+		).toBeTruthy();
+	});
+
+	it("lets a member request an Agent from a teammate's visible Session", async () => {
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects: [project({ id: "project-active" })],
+		});
+		readSessions.mockResolvedValue(
+			sessionInventory({
+				sessions: [
+					inventorySession({
+						canFork: true,
+						owner: { name: "Ashley", userId: "user-2" },
+					}),
+				],
+			})
+		);
+
+		renderPage("sessions");
+
+		expect(
+			await screen.findByRole("button", { name: "Request Resume Profile" })
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Request Fork Profile" })
+		).toBeTruthy();
+	});
+
 	it.each([
 		{
 			message:

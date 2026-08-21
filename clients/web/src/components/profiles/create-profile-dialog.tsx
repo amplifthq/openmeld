@@ -127,7 +127,7 @@ export type CreateProfileAgentActivitySessionPreset = {
 	agentControllerRef: string;
 	computerId: string;
 	localAgentName: string;
-	mode: "create" | "resume";
+	mode: "create" | "fork" | "resume";
 	nativeSessionId: string;
 	nativeSessionTitle: string | null;
 	organizationId: string;
@@ -159,15 +159,24 @@ export function CreateProfileDialog(input: {
 	spaceContext?: CreateProfileSpaceContext;
 }) {
 	const initialSessionPreset = input.agentActivitySessionPreset;
+	const currentUserId = input.currentUserId ?? "";
+	const initialOwnerMode: AgentProfileOwnerMode =
+		initialSessionPreset &&
+		currentUserId &&
+		initialSessionPreset.ownerUserId !== currentUserId
+			? "teammate"
+			: "self";
 	const [sessionPreset, setSessionPreset] = useState(initialSessionPreset);
 	const [sessionMode, setSessionMode] = useState<AgentProfileSessionMode>(() =>
-		initialSessionPreset?.mode === "resume" ? "resume" : "new"
+		initialSessionPreset?.mode === "resume" ||
+		initialSessionPreset?.mode === "fork"
+			? initialSessionPreset.mode
+			: "new"
 	);
 	const sessionPresetAgentId = resolveSessionPresetAgentId(
 		sessionPreset?.agentControllerRef ?? ""
 	);
 	const queryClient = useQueryClient();
-	const currentUserId = input.currentUserId ?? "";
 	const { selectedHumanProfile, profilesQuery } = useSelectedHumanProfile({
 		selectDefaultWhenMissing: true,
 	});
@@ -177,9 +186,18 @@ export function CreateProfileDialog(input: {
 	const [profileKind, setProfileKind] = useState<NewProfileKind | null>(() =>
 		sessionPreset ? "agent" : null
 	);
-	const [ownerMode, setOwnerMode] = useState<AgentProfileOwnerMode>("self");
-	const [targetOwnerUserId, setTargetOwnerUserId] = useState("");
-	const [agentBindingValue, setAgentBindingValue] = useState("");
+	const [ownerMode, setOwnerMode] =
+		useState<AgentProfileOwnerMode>(initialOwnerMode);
+	const [targetOwnerUserId, setTargetOwnerUserId] = useState(() =>
+		initialOwnerMode === "teammate"
+			? (initialSessionPreset?.ownerUserId ?? "")
+			: ""
+	);
+	const [agentBindingValue, setAgentBindingValue] = useState(() =>
+		initialOwnerMode === "teammate" && initialSessionPreset
+			? `${initialSessionPreset.computerId}:${initialSessionPreset.agentControllerRef}`
+			: ""
+	);
 	const selectableProfileKind = resolveSelectableProfileKind({
 		additionalHumanProfileCreationEnabled,
 		profileKind,
@@ -247,9 +265,10 @@ export function CreateProfileDialog(input: {
 		hasSessionPreset: Boolean(sessionPreset),
 	});
 	const canRequestForTeammate = canRequestTeammateAgent({
-		allowTeammateRequests: initialSessionPreset
-			? false
-			: input.allowTeammateRequests,
+		allowTeammateRequests:
+			!initialSessionPreset || initialOwnerMode === "teammate"
+				? input.allowTeammateRequests
+				: false,
 		currentUserId,
 	});
 	const teammateQueriesEnabled = input.open && canRequestForTeammate;
@@ -331,9 +350,15 @@ export function CreateProfileDialog(input: {
 		() =>
 			resolveTeammateBindingOptions({
 				computers: organizationComputersQuery.data ?? null,
+				sessionPreset: ownerMode === "teammate" ? sessionPreset : undefined,
 				targetOwnerUserId,
 			}),
-		[organizationComputersQuery.data, targetOwnerUserId]
+		[
+			organizationComputersQuery.data,
+			ownerMode,
+			sessionPreset,
+			targetOwnerUserId,
+		]
 	);
 	const selectedTeammateBinding = teammateBindingOptions.find(
 		(option) => option.choice.value === agentBindingValue
@@ -412,12 +437,25 @@ export function CreateProfileDialog(input: {
 		creationDefaultsEditedRef.current = false;
 		setProfileKind(null);
 		setSessionPreset(initialSessionPreset);
-		setSessionMode(initialSessionPreset?.mode === "resume" ? "resume" : "new");
-		setOwnerMode("self");
-		setTargetOwnerUserId("");
-		setAgentBindingValue("");
-		setProfileName("");
-		setBoundAgentId("");
+		setSessionMode(
+			initialSessionPreset?.mode === "resume" ||
+				initialSessionPreset?.mode === "fork"
+				? initialSessionPreset.mode
+				: "new"
+		);
+		setOwnerMode(initialOwnerMode);
+		setTargetOwnerUserId(
+			initialOwnerMode === "teammate"
+				? (initialSessionPreset?.ownerUserId ?? "")
+				: ""
+		);
+		setAgentBindingValue(
+			initialOwnerMode === "teammate" && initialSessionPreset
+				? `${initialSessionPreset.computerId}:${initialSessionPreset.agentControllerRef}`
+				: ""
+		);
+		setProfileName(resolveSessionPresetProfileName(initialSessionPreset));
+		setBoundAgentId(sessionPresetAgentId ?? "");
 		setBoundAgentControllerPermissionMode(
 			DEFAULT_AGENT_CONTROLLER_PERMISSION_MODE
 		);
@@ -454,6 +492,7 @@ export function CreateProfileDialog(input: {
 				boundOpenCodePermission,
 				boundReasoningLevel,
 				enableFutureOrganizationAuthorization,
+				currentUserId,
 				idempotencyKey: submission.idempotencyKey,
 				onAfterJoin: input.onAfterJoin,
 				organizationAuthorizationContext,
@@ -470,7 +509,8 @@ export function CreateProfileDialog(input: {
 				selectedProjectId,
 				selectedTeammateBinding,
 				sessionInventorySelection,
-				sessionStrategy: sessionPreset?.mode === "resume" ? "resume" : "new",
+				sessionPreset,
+				sessionStrategy: sessionMode,
 				sessionPresetBindingBlockReason,
 				spaceContext,
 				targetOwnerUserId,
@@ -534,7 +574,9 @@ export function CreateProfileDialog(input: {
 	const projectSelectionSlot = renderProjectSelectionSlot({
 		creationDefaultsEditedRef,
 		disabled:
-			createProfileMutation.isPending || sessionPreset?.mode === "resume",
+			createProfileMutation.isPending ||
+			sessionPreset?.mode === "resume" ||
+			sessionPreset?.mode === "fork",
 		onErrorClear: () => setErrorState(null),
 		organizationId,
 		ownerMode,
@@ -605,6 +647,7 @@ export function CreateProfileDialog(input: {
 				nextMode,
 				onErrorClear: () => setErrorState(null),
 				ownerMode,
+				sessionPreset,
 				setAgentBindingValue,
 				setBoundAgentId,
 				setBoundModelId,
@@ -616,13 +659,14 @@ export function CreateProfileDialog(input: {
 				setSessionMode,
 				setSessionPreset,
 			}),
-		onSessionChange: (session) =>
+		onSessionChange: (session, mode) =>
 			applyAgentProfileSessionSelection({
 				creationDefaultsEditedRef,
 				onErrorClear: () => setErrorState(null),
 				ownerMode,
 				profileName,
 				session,
+				mode,
 				setAgentBindingValue,
 				setBoundAgentControllerPermissionMode,
 				setBoundAgentControllerPermissionModeConfirmed,
@@ -916,7 +960,10 @@ function resolveAgentProfileProjectSelectionBlockReason(
 		sessionPreset: CreateProfileAgentActivitySessionPreset | undefined;
 	}
 ): string | null {
-	if (input.sessionPreset?.mode === "resume") {
+	if (
+		input.sessionPreset?.mode === "resume" ||
+		input.sessionPreset?.mode === "fork"
+	) {
 		return null;
 	}
 	return resolveOwnerProjectSelectionBlockReason(input);
@@ -928,7 +975,10 @@ function renderAgentProfileSessionChoice(input: {
 	isError: boolean;
 	isPending: boolean;
 	onModeChange: (mode: AgentProfileSessionMode) => void;
-	onSessionChange: (session: AgentActivityInventorySession) => void;
+	onSessionChange: (
+		session: AgentActivityInventorySession,
+		mode: Exclude<AgentProfileSessionMode, "new">
+	) => void;
 	selectedSessionKey: string | null;
 	sessionMode: AgentProfileSessionMode;
 	sessions: readonly AgentActivityInventorySession[];
@@ -955,6 +1005,7 @@ function handleAgentProfileSessionModeChange(input: {
 	nextMode: AgentProfileSessionMode;
 	onErrorClear: () => void;
 	ownerMode: AgentProfileOwnerMode;
+	sessionPreset: CreateProfileAgentActivitySessionPreset | undefined;
 	setAgentBindingValue: (value: string) => void;
 	setBoundAgentId: (value: string) => void;
 	setBoundModelId: (value: string) => void;
@@ -972,7 +1023,13 @@ function handleAgentProfileSessionModeChange(input: {
 }) {
 	input.setSessionMode(input.nextMode);
 	input.onErrorClear();
-	if (input.nextMode === "resume") {
+	if (input.nextMode !== "new") {
+		if (input.sessionPreset) {
+			input.setSessionPreset({
+				...input.sessionPreset,
+				mode: input.nextMode,
+			});
+		}
 		return;
 	}
 	input.creationDefaultsEditedRef.current = false;
@@ -995,6 +1052,7 @@ function applyAgentProfileSessionSelection(input: {
 	ownerMode: AgentProfileOwnerMode;
 	profileName: string;
 	session: AgentActivityInventorySession;
+	mode: Exclude<AgentProfileSessionMode, "new">;
 	setAgentBindingValue: (value: string) => void;
 	setBoundAgentControllerPermissionMode: (
 		mode: AgentControllerPermissionMode
@@ -1020,8 +1078,10 @@ function applyAgentProfileSessionSelection(input: {
 		input.session.localAgent.agentControllerRef
 	);
 	input.creationDefaultsEditedRef.current = true;
-	input.setSessionPreset(toCreateProfileSessionPreset(input.session, "resume"));
-	input.setSessionMode("resume");
+	input.setSessionPreset(
+		toCreateProfileSessionPreset(input.session, input.mode)
+	);
+	input.setSessionMode(input.mode);
 	input.setAgentBindingValue(
 		resolveSelectedSessionAgentBindingValue({
 			agentId,
@@ -1070,8 +1130,8 @@ function resolveAgentProfileSubmitBlockReason(input: {
 	if (input.sessionPresetBindingBlockReason) {
 		return input.sessionPresetBindingBlockReason;
 	}
-	if (input.sessionMode === "resume" && !input.sessionPreset) {
-		return "Choose a Session to resume.";
+	if (input.sessionMode !== "new" && !input.sessionPreset) {
+		return "Choose a Session to use.";
 	}
 	return input.ownerBlockReason;
 }
@@ -1088,6 +1148,7 @@ type CreateProfileSubmissionInput = {
 	boundOpenCodePermission: AgentProfileBindingOpenCodePermission | null;
 	boundReasoningLevel: string;
 	enableFutureOrganizationAuthorization: boolean;
+	currentUserId: string;
 	idempotencyKey: string;
 	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
 	organizationAuthorizationContext:
@@ -1111,7 +1172,8 @@ type CreateProfileSubmissionInput = {
 	sessionInventorySelection:
 		| AgentProfileBindingSessionInventorySelection
 		| undefined;
-	sessionStrategy: "new" | "resume";
+	sessionPreset: CreateProfileAgentActivitySessionPreset | undefined;
+	sessionStrategy: "fork" | "new" | "resume";
 	sessionPresetBindingBlockReason: string | null;
 	spaceContext: CreateProfileSpaceContext | undefined;
 	targetOwnerUserId: string;
@@ -1119,8 +1181,8 @@ type CreateProfileSubmissionInput = {
 
 async function submitProfileCreation(input: CreateProfileSubmissionInput) {
 	assertSessionPresetBindingReady(input.sessionPresetBindingBlockReason);
-	if (input.ownerMode === "teammate") {
-		return await requestTeammateAgentProfile(input);
+	if (input.ownerMode === "teammate" || input.sessionStrategy === "fork") {
+		return await requestAgentProfile(input);
 	}
 	return await createOwnProfile(input);
 }
@@ -1164,14 +1226,14 @@ async function handleProfileCreationSuccess(input: {
 	input.onClose();
 }
 
-async function requestTeammateAgentProfile(
-	input: CreateProfileSubmissionInput
-) {
+async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 	const result = await createAgentProfileCreationRequest({
 		configuration: {
 			agentControllerPermissionMode: input.agentControllerPermissionMode,
 			agentControllerRef:
-				input.selectedTeammateBinding?.agentControllerRef ?? null,
+				input.ownerMode === "self"
+					? input.agentControllerRef || null
+					: (input.selectedTeammateBinding?.agentControllerRef ?? null),
 			authorizeForOrganization: input.authorizeForOrganization,
 			defaultProjectId: input.selectedProjectId || null,
 			modelId:
@@ -1184,18 +1246,24 @@ async function requestTeammateAgentProfile(
 				input.boundAgentId && input.boundReasoningLevel
 					? input.boundReasoningLevel
 					: null,
-			targetComputerId: input.selectedTeammateBinding?.targetComputerId ?? null,
+			targetComputerId:
+				input.ownerMode === "self"
+					? input.profileCreationExecutionTarget.deviceId
+					: (input.selectedTeammateBinding?.targetComputerId ?? null),
 		},
 		idempotencyKey: input.idempotencyKey,
 		nativeSessionId:
-			input.sessionStrategy === "resume"
-				? (input.sessionInventorySelection?.nativeSessionId ?? null)
-				: null,
+			input.sessionStrategy === "new"
+				? null
+				: (input.sessionPreset?.nativeSessionId ?? null),
 		organizationId: input.organizationId,
 		profileName: input.profileName,
 		requestedSpaceId: input.spaceContext?.spaceId ?? null,
 		sessionStrategy: input.sessionStrategy,
-		targetOwnerUserId: input.targetOwnerUserId,
+		targetOwnerUserId:
+			input.ownerMode === "self"
+				? (input.sessionPreset?.ownerUserId ?? input.currentUserId)
+				: input.targetOwnerUserId,
 	});
 	return { kind: "request" as const, request: result.request };
 }
@@ -1760,9 +1828,18 @@ function resolveCreateProfileDialogDescription(input: {
 	targetOwnerName: string | null;
 }): string {
 	if (input.agentActivitySessionPreset?.mode === "resume") {
+		if (input.ownerMode === "teammate") {
+			return `Request an Agent for ${input.targetOwnerName ?? "this teammate"} that continues this Session.`;
+		}
 		return input.agentActivitySessionPreset.status === "working"
 			? "Connect this working Session to a new Agent Profile. Fork it instead when you want to preserve the work already in progress."
 			: "Connect this Session to a new Agent Profile so it can continue with the same Local Agent context.";
+	}
+	if (input.agentActivitySessionPreset?.mode === "fork") {
+		if (input.ownerMode === "teammate") {
+			return `Request an Agent for ${input.targetOwnerName ?? "this teammate"} from a copy of this Session. The original stays unchanged.`;
+		}
+		return "Create a new Agent Profile from a copy of this Session. The original Session stays unchanged.";
 	}
 	if (input.agentActivitySessionPreset?.mode === "create") {
 		return "Create a new Agent Profile with this Local Agent and Project. The existing Session stays unchanged.";
@@ -1855,7 +1932,7 @@ function resolveSessionPresetKey(
 function resolveSelectedSessionKey(
 	preset: CreateProfileAgentActivitySessionPreset | undefined
 ): string | null {
-	if (preset?.mode !== "resume") {
+	if (!preset || preset.mode === "create") {
 		return null;
 	}
 	return `${preset.computerId}:${preset.agentControllerRef}:${preset.nativeSessionId}`;
@@ -1921,6 +1998,7 @@ type TeammateBindingOption = {
 
 function resolveTeammateBindingOptions(input: {
 	computers: OrganizationComputersResponse | null;
+	sessionPreset: CreateProfileAgentActivitySessionPreset | undefined;
 	targetOwnerUserId: string;
 }): TeammateBindingOption[] {
 	const options: TeammateBindingOption[] = [];
@@ -1949,6 +2027,31 @@ function resolveTeammateBindingOptions(input: {
 					value: `${computer.computerId}:${controller.ref}`,
 				},
 				targetComputerId: computer.computerId,
+			});
+		}
+	}
+	if (
+		input.sessionPreset &&
+		input.sessionPreset.ownerUserId === input.targetOwnerUserId
+	) {
+		const controller = parseAgentControllerRef(
+			input.sessionPreset.agentControllerRef
+		);
+		const value = `${input.sessionPreset.computerId}:${input.sessionPreset.agentControllerRef}`;
+		if (
+			controller?.kind === "builtin" &&
+			!options.some((option) => option.choice.value === value)
+		) {
+			options.push({
+				agentControllerRef: controller.ref,
+				agentId: controller.id,
+				choice: {
+					agentId: controller.id,
+					description: `${input.sessionPreset.localAgentName} for the selected Session.`,
+					label: input.sessionPreset.localAgentName,
+					value,
+				},
+				targetComputerId: input.sessionPreset.computerId,
 			});
 		}
 	}

@@ -10,6 +10,8 @@ import {
   runtimeTransportComputerFileAccessReadRequestSchema,
   runtimeTransportComputerFileAccessUpdateRequestSchema,
   runtimeTransportDisconnectRatesResponseSchema,
+  runtimeTransportForkAgentSessionRequestSchema,
+  runtimeTransportForkAgentSessionResultSchema,
   runtimeTransportLocalFolderPickerRequestSchema,
   runtimeTransportLocalProjectControlConnectCandidateRequestSchema,
   runtimeTransportLocalProjectControlConnectDeclaredPathRequestSchema,
@@ -55,6 +57,7 @@ import type {
   LocalProjectControlSetDefaultConnectionRequest,
   LocalProjectControlSetDefaultConnectionResponse,
   RuntimeTransportDisconnectRatesResponse,
+  RuntimeTransportForkAgentSessionResult,
   RuntimeTransportLookupOwnerServiceResponse,
   RuntimeTransportLookupRouteResponse,
   RuntimeTransportLookupRoutesBatchResponse,
@@ -323,6 +326,54 @@ export const manageRuntimeTransportLocalAgentInstallation = async (input: {
     };
   }
   return parsed.data;
+};
+
+export const forkRuntimeTransportAgentSession = async (input: {
+  agentControllerRef: string;
+  deviceId: string;
+  env: CoreBindings;
+  operationId: string;
+  organizationId: string;
+  ownerUserId: string;
+  profileName: string;
+  projectId: string;
+  runtimeLane: DaemonServiceLane;
+  sourceNativeSessionId: string;
+}): Promise<RuntimeTransportForkAgentSessionResult> => {
+  const request = runtimeTransportForkAgentSessionRequestSchema.parse({
+    v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+    agentControllerRef: input.agentControllerRef,
+    deviceId: input.deviceId,
+    lane: input.runtimeLane,
+    operationId: input.operationId,
+    organizationId: input.organizationId,
+    ownerUserId: input.ownerUserId,
+    profileName: input.profileName,
+    projectId: input.projectId,
+    sourceNativeSessionId: input.sourceNativeSessionId,
+  });
+  const response = await callRuntimeTransportApi({
+    body: request,
+    env: input.env,
+    ownerUserId: input.ownerUserId,
+    path: "/local-agent-control/fork-session",
+  });
+  const parsed =
+    runtimeTransportForkAgentSessionResultSchema.safeParse(response);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  return runtimeTransportForkAgentSessionResultSchema.parse({
+    agentControllerRef: input.agentControllerRef,
+    message: "OpenMeld could not confirm the local Agent Session Fork result.",
+    operationId: input.operationId,
+    organizationId: input.organizationId,
+    profileName: input.profileName,
+    projectId: input.projectId,
+    reasonCode: "agent_session_fork.transport_unavailable",
+    sourceNativeSessionId: input.sourceNativeSessionId,
+    status: "outcome_unknown",
+  });
 };
 
 export const setRuntimeTransportProfileWorkspace = async (input: {
