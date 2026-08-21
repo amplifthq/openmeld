@@ -715,6 +715,12 @@ describe("cli --json output envelope contract", () => {
           privatePath: "/Users/private",
         }).success
       ).toBe(false);
+      expect(
+        cliJsonOrganizationComputersEnvelopeSchema.safeParse({
+          ...envelope,
+          providerCredential: "secret",
+        }).success
+      ).toBe(false);
     });
   });
 

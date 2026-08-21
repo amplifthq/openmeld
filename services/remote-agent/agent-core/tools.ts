@@ -1,5 +1,6 @@
 import { resolveCenterAgentContextScopePlan } from "@openmeld/agent-runtime";
 import {
+  agentActivitySessionInventoryResponseSchema,
   agentActivitySnapshotResponseSchema,
   agentControllerCollaborationModeSchema,
   agentProfileCreationRequestMutationResponseSchema,
@@ -1055,6 +1056,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_prepare_remove_project",
   "openmeld_remove_project",
   "openmeld_read_agent_activity",
+  "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
   "openmeld_list_opportunities",
   "openmeld_recommend_opportunity",
@@ -1135,6 +1137,7 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_list_spaces",
   "openmeld_list_projects",
   "openmeld_read_agent_activity",
+  "openmeld_list_agent_activity_sessions",
   "openmeld_read_changelog",
   "openmeld_list_opportunities",
   "openmeld_read_center_agent_activity",
@@ -1191,6 +1194,7 @@ export const REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES = [
   "openmeld_read_org_documents",
   "openmeld_draft_org_document",
   "openmeld_read_agent_activity",
+  "openmeld_list_agent_activity_sessions",
   "openmeld_list_connected_apps",
   "openmeld_list_app_actions",
   "openmeld_execute_app_action",
@@ -1474,7 +1478,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           await callCoreRpc(
             input.coreWorker,
             "centerAgentReadMemberComputers",
-            { ...request, ...toolContext },
+            {
+              ...request,
+              includeUsageLimits: "true" as const,
+              ...toolContext,
+            },
             (binding, rpcInput) =>
               binding.centerAgentReadMemberComputers?.(rpcInput)
           )
@@ -2491,6 +2499,42 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           "centerAgentReadAgentActivity"
         );
         return agentActivitySnapshotResponseSchema.parse(
+          await rpc({ ...payload, ...toolContext })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_list_agent_activity_sessions",
+      description:
+        "List the current Organization's authorized, metadata-only Local Agent Session Inventory. Use this to find stable Native Session IDs, owner, Project, Computer, Local Agent, status, provider-native title, resume/fork capability, and current Agent Profile Binding. This is read-only inventory evidence; visibility does not grant operation authority. Continue with cursor when nextCursor is present.",
+      input: object({
+        cursor: optional(nonEmptyStringSchema),
+        limit: optional(pipe(number(), integer(), minValue(1), maxValue(100))),
+        memberUserId: optionalNonEmptyStringSchema,
+        nativeSessionId: optionalNonEmptyStringSchema,
+        origin: optional(picklist(["openmeld", "local", "unknown"])),
+        projectId: optionalNonEmptyStringSchema,
+        provider: optional(
+          picklist(["codex", "claude-code", "cursor", "opencode", "grok-build"])
+        ),
+        query: optionalNonEmptyStringSchema,
+        status: optional(
+          picklist(["working", "idle", "ended", "error", "unknown"])
+        ),
+      }),
+      execute: async (payload) => {
+        const toolContext = await buildOrganizationMemberToolContext({
+          missingSpeakerMessage:
+            "Agent Activity Session Inventory requires a current Organization member speaker.",
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_list_agent_activity_sessions",
+        });
+        const rpc = requireCoreRpc(
+          input.coreWorker.centerAgentListAgentActivitySessions,
+          "centerAgentListAgentActivitySessions"
+        );
+        return agentActivitySessionInventoryResponseSchema.parse(
           await rpc({ ...payload, ...toolContext })
         );
       },
@@ -3890,7 +3934,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           "centerAgentListComputers"
         );
         return centerAgentListComputersResponseSchema.parse(
-          await rpc({ ...toolContext, includeDiagnostics: true })
+          await rpc({
+            ...toolContext,
+            includeDiagnostics: true,
+            includeUsageLimits: "true",
+          })
         );
       },
     }),
@@ -4182,7 +4230,8 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
   const exposedDefinitions = definitions.filter(
     (definition) =>
       (input.agentActivityReadEnabled ||
-        definition.name !== "openmeld_read_agent_activity") &&
+        (definition.name !== "openmeld_read_agent_activity" &&
+          definition.name !== "openmeld_list_agent_activity_sessions")) &&
       (slackSearchAvailable ||
         definition.name !== "openmeld_search_slack_messages") &&
       (input.turnEnvelope?.trigger.source !== "routine" ||

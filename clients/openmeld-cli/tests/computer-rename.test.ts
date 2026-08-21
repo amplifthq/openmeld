@@ -285,6 +285,9 @@ describe("openmeld computer rename", () => {
 
     await runComputerList({ view: "agent" });
 
+    expect(listLocalRuntimesMock).toHaveBeenCalledWith({
+      includeUsageLimits: "true",
+    });
     expect(agentPresenter.data).toHaveBeenCalledWith({
       code: "computer.list.completed",
       payload: buildLocalRuntimesResponse(),

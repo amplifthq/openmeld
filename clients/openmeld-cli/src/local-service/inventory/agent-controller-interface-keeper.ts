@@ -1,7 +1,11 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { areAgentControllerInterfaceAccountsSame } from "@openmeld/agent-runtime";
 import type {
+  AgentControllerInterfaceAuthSnapshot,
   AgentControllerInterfaceSnapshot,
+  AgentControllerUsageLimit,
+  AgentControllerUsageLimits,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/schemas/types";
 
@@ -32,6 +36,8 @@ type AgentControllerInterfaceKeeperEntry = {
   lastGoodSnapshot: AgentControllerInterfaceSnapshot | null;
   lastSuccessfulCheckAt: string | null;
   lastSuccessAtMs: number;
+  passiveUsageLimits: AgentControllerUsageLimits;
+  passiveUsageLimitsAuth: AgentControllerInterfaceAuthSnapshot | null;
   reuseInvalidatedByProbeFailure: boolean;
   reprobe: AgentControllerInterfaceReprobeState;
 };
@@ -77,6 +83,26 @@ export function readLastSuccessfulAgentControllerInterfaceCheckAt(input: {
   );
 }
 
+export function readLastKnownAgentControllerUsageLimits(input: {
+  commandFingerprint: AgentControllerCommandFingerprint | null;
+  keeperKey: string;
+}): AgentControllerUsageLimits | null {
+  return (
+    readMatchingAgentControllerInterfaceKeeperEntry(input)?.lastGoodSnapshot
+      ?.usageLimits ?? null
+  );
+}
+
+export function readLastKnownAgentControllerAuthSnapshot(input: {
+  commandFingerprint: AgentControllerCommandFingerprint | null;
+  keeperKey: string;
+}): AgentControllerInterfaceAuthSnapshot | null {
+  return (
+    readMatchingAgentControllerInterfaceKeeperEntry(input)?.lastGoodSnapshot
+      ?.auth ?? null
+  );
+}
+
 function readMatchingAgentControllerInterfaceKeeperEntry(input: {
   commandFingerprint: AgentControllerCommandFingerprint | null;
   keeperKey: string;
@@ -102,18 +128,110 @@ export function recordAgentControllerInterfaceProbeSuccess(input: {
   keeperKey: string;
   nowMs: number;
   snapshot: AgentControllerInterfaceSnapshot;
-}): void {
+}): AgentControllerInterfaceSnapshot {
+  const existingEntry = readMatchingAgentControllerInterfaceKeeperEntry({
+    commandFingerprint: input.commandFingerprint,
+    keeperKey: input.keeperKey,
+  });
+  const passiveUsageLimits = existingEntry?.passiveUsageLimits ?? [];
+  const canBindPassiveUsageLimits = areAgentControllerInterfaceAccountsSame(
+    existingEntry?.passiveUsageLimitsAuth,
+    input.snapshot.auth
+  );
+  let authenticatedSnapshot: AgentControllerInterfaceSnapshot | null =
+    input.snapshot;
+  if (input.snapshot.auth.status === "unauthenticated") {
+    authenticatedSnapshot = null;
+  } else if (canBindPassiveUsageLimits && passiveUsageLimits.length > 0) {
+    authenticatedSnapshot = {
+      ...input.snapshot,
+      usageLimits: mergeObservedUsageLimits({
+        existing: input.snapshot.usageLimits,
+        observed: passiveUsageLimits,
+      }),
+    };
+  }
   // A completed probe clears the re-probe lifecycle and establishes current
   // controller evidence again.
   keeperEntries.set(input.keeperKey, {
     commandFingerprint: input.commandFingerprint,
-    lastGoodSnapshot:
-      input.snapshot.auth.status === "unauthenticated" ? null : input.snapshot,
+    lastGoodSnapshot: authenticatedSnapshot,
     lastSuccessfulCheckAt: input.snapshot.checkedAt,
     lastSuccessAtMs: input.nowMs,
+    passiveUsageLimits:
+      authenticatedSnapshot && canBindPassiveUsageLimits
+        ? passiveUsageLimits
+        : [],
+    passiveUsageLimitsAuth:
+      authenticatedSnapshot && canBindPassiveUsageLimits
+        ? input.snapshot.auth
+        : null,
     reuseInvalidatedByProbeFailure: false,
     reprobe: "idle",
   });
+  return authenticatedSnapshot ?? input.snapshot;
+}
+
+export function recordAgentControllerUsageLimitsObservation(input: {
+  authSnapshot: AgentControllerInterfaceAuthSnapshot;
+  commandFingerprint: AgentControllerCommandFingerprint;
+  keeperKey: string;
+  usageLimits: AgentControllerUsageLimits;
+}): boolean {
+  if (
+    input.usageLimits.length === 0 ||
+    !hasStableProviderAccountIdentity(input.authSnapshot)
+  ) {
+    return false;
+  }
+  const existingEntry = readMatchingAgentControllerInterfaceKeeperEntry({
+    commandFingerprint: input.commandFingerprint,
+    keeperKey: input.keeperKey,
+  });
+  const entry: AgentControllerInterfaceKeeperEntry = existingEntry ?? {
+    commandFingerprint: input.commandFingerprint,
+    lastGoodSnapshot: null,
+    lastSuccessfulCheckAt: null,
+    lastSuccessAtMs: 0,
+    passiveUsageLimits: [],
+    passiveUsageLimitsAuth: null,
+    reuseInvalidatedByProbeFailure: false,
+    reprobe: "idle",
+  };
+  const previousPassiveUsageLimits = areAgentControllerInterfaceAccountsSame(
+    entry.passiveUsageLimitsAuth,
+    input.authSnapshot
+  )
+    ? entry.passiveUsageLimits
+    : [];
+  entry.passiveUsageLimits = mergeObservedUsageLimits({
+    existing: previousPassiveUsageLimits,
+    observed: input.usageLimits,
+  });
+  entry.passiveUsageLimitsAuth = input.authSnapshot;
+  if (
+    entry.lastGoodSnapshot &&
+    areAgentControllerInterfaceAccountsSame(
+      entry.lastGoodSnapshot.auth,
+      input.authSnapshot
+    )
+  ) {
+    entry.lastGoodSnapshot = {
+      ...entry.lastGoodSnapshot,
+      usageLimits: mergeObservedUsageLimits({
+        existing: entry.lastGoodSnapshot.usageLimits,
+        observed: input.usageLimits,
+      }),
+    };
+  }
+  keeperEntries.set(input.keeperKey, entry);
+  return true;
+}
+
+function hasStableProviderAccountIdentity(
+  authSnapshot: AgentControllerInterfaceAuthSnapshot
+): boolean {
+  return areAgentControllerInterfaceAccountsSame(authSnapshot, authSnapshot);
 }
 
 export function recordAgentControllerInterfaceProbeFailure(input: {
@@ -126,6 +244,8 @@ export function recordAgentControllerInterfaceProbeFailure(input: {
     lastGoodSnapshot: null,
     lastSuccessfulCheckAt: null,
     lastSuccessAtMs: 0,
+    passiveUsageLimits: [],
+    passiveUsageLimitsAuth: null,
     reuseInvalidatedByProbeFailure: false,
     reprobe: "idle" as AgentControllerInterfaceReprobeState,
   };
@@ -133,6 +253,8 @@ export function recordAgentControllerInterfaceProbeFailure(input: {
     entry.lastGoodSnapshot = null;
     entry.lastSuccessfulCheckAt = null;
     entry.lastSuccessAtMs = 0;
+    entry.passiveUsageLimits = [];
+    entry.passiveUsageLimitsAuth = null;
   }
   // Keep same-binary completed evidence for diagnostics, but never reuse it as
   // current truth after a failed check. Each completed-success-to-failure cycle
@@ -144,6 +266,28 @@ export function recordAgentControllerInterfaceProbeFailure(input: {
     entry.reprobe = "armed";
   }
   keeperEntries.set(input.keeperKey, entry);
+}
+
+function mergeObservedUsageLimits(input: {
+  existing: AgentControllerUsageLimits | undefined;
+  observed: AgentControllerUsageLimits;
+}): AgentControllerUsageLimits {
+  const limitsByKey = new Map<string, AgentControllerUsageLimit>();
+  for (const limit of input.existing ?? []) {
+    if (limit.key !== "provider") {
+      limitsByKey.set(limit.key, limit);
+    }
+  }
+  for (const limit of input.observed) {
+    const existingLimit = limitsByKey.get(limit.key);
+    if (
+      !existingLimit ||
+      Date.parse(limit.observedAt) > Date.parse(existingLimit.observedAt)
+    ) {
+      limitsByKey.set(limit.key, limit);
+    }
+  }
+  return [...limitsByKey.values()];
 }
 
 export async function resolveAgentControllerCommandFingerprint(input: {

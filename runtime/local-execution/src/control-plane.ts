@@ -6,6 +6,7 @@ import type {
   OpenMeldDaemonHealthPayload,
   OpenMeldDaemonHistoryEntry,
   OpenMeldDaemonInterruptRequestPayload,
+  OpenMeldDaemonRequestAgentActivitySyncRequestPayload,
   OpenMeldDaemonSetLocalAgentEnabledRequestPayload,
   OpenMeldDaemonShutdownRequestPayload,
   OpenMeldDaemonStatusPayload,
@@ -32,6 +33,10 @@ type OpenMeldDaemonConversationExecutionStatusResponsePayload = Extract<
 type OpenMeldDaemonSyncRouteCatalogResponsePayload = Extract<
   OpenMeldDaemonControlPlaneResponse,
   { code: "service.sync_route_catalog" }
+>["payload"];
+type OpenMeldDaemonRequestAgentActivitySyncResponsePayload = Extract<
+  OpenMeldDaemonControlPlaneResponse,
+  { code: "service.agent_activity_sync_requested" }
 >["payload"];
 type OpenMeldDaemonSetLocalAgentEnabledResponsePayload = Extract<
   OpenMeldDaemonControlPlaneResponse,
@@ -65,6 +70,11 @@ export type OpenMeldDaemonControlPlaneContext = {
   ) =>
     | OpenMeldDaemonSyncRouteCatalogResponsePayload
     | Promise<OpenMeldDaemonSyncRouteCatalogResponsePayload>;
+  requestAgentActivitySyncHandler?: (
+    payload: OpenMeldDaemonRequestAgentActivitySyncRequestPayload
+  ) =>
+    | OpenMeldDaemonRequestAgentActivitySyncResponsePayload
+    | Promise<OpenMeldDaemonRequestAgentActivitySyncResponsePayload>;
   setLocalAgentEnabledHandler?: (
     payload: OpenMeldDaemonSetLocalAgentEnabledRequestPayload
   ) =>
@@ -136,6 +146,12 @@ export async function buildControlPlaneResponse(input: {
       });
     case "sync_route_catalog":
       return await buildSyncRouteCatalogControlPlaneResponse({
+        context: input.context,
+        payload: request.payload,
+        requestMeta,
+      });
+    case "request_agent_activity_sync":
+      return await buildRequestAgentActivitySyncControlPlaneResponse({
         context: input.context,
         payload: request.payload,
         requestMeta,
@@ -357,6 +373,25 @@ async function buildSyncRouteCatalogControlPlaneResponse(input: {
   return parseControlPlaneResponse({
     ...input.requestMeta,
     code: "service.sync_route_catalog",
+    payload,
+  });
+}
+
+async function buildRequestAgentActivitySyncControlPlaneResponse(input: {
+  context: OpenMeldDaemonControlPlaneContext;
+  payload: OpenMeldDaemonRequestAgentActivitySyncRequestPayload;
+  requestMeta: {
+    requestId?: string;
+    v: OpenMeldDaemonControlPlaneRequest["v"];
+  };
+}): Promise<OpenMeldDaemonControlPlaneResponse> {
+  const payload: OpenMeldDaemonRequestAgentActivitySyncResponsePayload = input
+    .context.requestAgentActivitySyncHandler
+    ? await input.context.requestAgentActivitySyncHandler(input.payload)
+    : { accepted: false };
+  return parseControlPlaneResponse({
+    ...input.requestMeta,
+    code: "service.agent_activity_sync_requested",
     payload,
   });
 }

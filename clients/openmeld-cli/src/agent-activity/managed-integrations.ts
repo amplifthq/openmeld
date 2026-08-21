@@ -15,7 +15,9 @@ const LEGACY_AGENT_ACTIVITY_INTEGRATION_OWNER = "openmeld-agent-activity-v0";
 
 const CLAUDE_EVENTS = [
   "Notification",
+  "SessionEnd",
   "SessionStart",
+  "StopFailure",
   "SubagentStart",
   "SubagentStop",
   "Stop",

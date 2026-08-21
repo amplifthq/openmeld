@@ -1,4 +1,6 @@
 import type {
+  AgentActivitySessionInventoryQuery,
+  AgentActivitySessionInventoryResponse,
   AgentActivitySnapshotQuery,
   AgentActivitySnapshotResponse,
   AgentActivityStatsQuery,
@@ -15,10 +17,17 @@ export type AgentActivityRequestInput = {
 
 export type ReadAgentActivitySnapshotInput = AgentActivityRequestInput &
   AgentActivitySnapshotQuery;
+export type ReadAgentActivitySessionsInput = AgentActivityRequestInput &
+  Omit<AgentActivitySessionInventoryQuery, "limit"> & {
+    limit?: AgentActivitySessionInventoryQuery["limit"];
+  };
 export type ReadAgentActivityStatsInput = AgentActivityRequestInput &
   AgentActivityStatsQuery;
 
 export type AgentActivityApi = {
+  readSessions: (
+    input?: ReadAgentActivitySessionsInput
+  ) => Promise<AgentActivitySessionInventoryResponse>;
   readSnapshot: (
     input?: ReadAgentActivitySnapshotInput
   ) => Promise<AgentActivitySnapshotResponse>;

@@ -474,10 +474,10 @@ release readiness against `origin/main`.
 One planner reads Turbo's affected test graph before scheduling unit work. It
 installs only the pinned Node.js and pnpm toolchain, then runs the repository's
 exact Turbo version without restoring the full dependency cache or installing
-workspace dependencies. Web
-uses three Vitest shards, CLI uses two, and the Core Node boundary suite uses
-two; a heavy suite is scheduled only when that package has an affected `test`
-task. All remaining affected workspace tests stay in one Turbo lane. Turbo
+workspace dependencies. Web uses three Vitest shards; CLI, the Core Node
+boundary suite, and Gateway each use two. A heavy suite is scheduled only when
+that package has an affected `test` task. All remaining affected workspace
+tests stay in one Turbo lane. Turbo
 still builds the upstream workspace dependencies required by those tasks, but
 Web unit tests resolve their workspace dependencies from source and use a
 dependency-graph transit task for cache invalidation instead of materializing

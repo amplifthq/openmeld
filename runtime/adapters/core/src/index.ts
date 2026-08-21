@@ -15,6 +15,7 @@
 import type {
   AgentControllerConversationRef,
   AgentControllerPermissionMode,
+  AgentControllerUsageLimit,
   AgentInteractionRequest,
   AgentInteractionResponse,
   ComputerFileAccessPolicy,
@@ -111,6 +112,11 @@ export {
   verifyLaunchContractFiles,
 } from "./launch-contract.js";
 export {
+  type AdapterProviderUsageLimit,
+  createUnavailableProviderUsageLimits,
+  createUnsupportedProviderUsageLimits,
+} from "./provider-usage-limits.js";
+export {
   type AdapterRuntimeFailure,
   buildProviderExitError,
   classifyCliDriverTimeoutFailure,
@@ -186,9 +192,15 @@ export type AdapterProviderConversationObservedEvent = {
   agentControllerConversation?: AgentControllerConversationRef | null;
   tsMs: number;
 };
+export type AdapterProviderUsageLimitsObservedEvent = {
+  phase: "provider_usage_limits_observed";
+  tsMs: number;
+  usageLimits: AgentControllerUsageLimit[];
+};
 export type AdapterRuntimeEvent =
   | CliDriverLifecycleEvent
   | AdapterProviderConversationObservedEvent
+  | AdapterProviderUsageLimitsObservedEvent
   | AdapterToolActivityEvent;
 export type AdapterRuntimeEventCallback = (
   event: AdapterRuntimeEvent

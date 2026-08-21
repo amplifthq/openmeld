@@ -1,4 +1,6 @@
 import {
+  agentActivitySessionInventoryQuerySchema,
+  agentActivitySessionInventoryResponseSchema,
   agentActivitySnapshotQuerySchema,
   agentActivitySnapshotResponseSchema,
   agentActivityStatsQuerySchema,
@@ -13,9 +15,38 @@ import {
 } from "./rpc-http.helpers";
 
 const SNAPSHOT_ROUTE = "/v1/organizations/current/agent-activity";
+const SESSIONS_ROUTE = "/v1/organizations/current/agent-activity/sessions";
 const STATS_ROUTE = "/v1/organizations/current/agent-activity/stats";
 
 export function registerAgentActivityRoutes(app: Hono<HonoBindings>): void {
+  app.get(SESSIONS_ROUTE, (c) => {
+    const query = agentActivitySessionInventoryQuerySchema.safeParse(
+      c.req.query()
+    );
+    if (!query.success) {
+      return respondBadRequest({
+        c,
+        code: "invalid_payload",
+        message:
+          query.error.issues[0]?.message ??
+          "Invalid Agent Activity Session Inventory request.",
+        method: "GET",
+        route: SESSIONS_ROUTE,
+      });
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.readAgentActivitySessionInventory({
+          ...query.data,
+          context: buildCoreRpcContext(c),
+        }),
+      method: "GET",
+      responseSchema: agentActivitySessionInventoryResponseSchema,
+      route: SESSIONS_ROUTE,
+    });
+  });
+
   app.get(STATS_ROUTE, (c) => {
     const query = agentActivityStatsQuerySchema.safeParse(c.req.query());
     if (!query.success) {

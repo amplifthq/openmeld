@@ -108,6 +108,7 @@ export {
   CodexCliTransportError,
   invokeCodexCliTransport,
 } from "./transport/codex-cli-transport.js";
+export { projectCodexUsageLimits } from "./usage/codex-usage-limits.js";
 
 const CODEX_CONVERSATION_BRIDGE_SPEC =
   resolveBuiltinAdapterConversationBridgeSpec("codex");

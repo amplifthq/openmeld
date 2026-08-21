@@ -13,6 +13,7 @@ export type {
 } from "./account-space-index/types";
 export { createAgentActivityApi } from "./agent-activity/api";
 export {
+  buildAgentActivitySessionsPath,
   buildAgentActivitySnapshotPath,
   buildAgentActivityStatsPath,
 } from "./agent-activity/routes";
@@ -20,6 +21,7 @@ export type {
   AgentActivityApi,
   AgentActivityRequestInput,
   CreateAgentActivityApi,
+  ReadAgentActivitySessionsInput,
   ReadAgentActivitySnapshotInput,
   ReadAgentActivityStatsInput,
 } from "./agent-activity/types";
@@ -335,6 +337,7 @@ export { createRuntimeReportingApi } from "./runtime-reporting/api";
 export type {
   CreateRuntimeReportingApi,
   SubmitAgentActivityEventsInput,
+  SubmitAgentActivitySessionReconciliationInput,
   SubmitAgentControllerTaskLifecycleEventsInput,
   SubmitRuntimeAgentControllerReportsInput,
   SubmitRuntimeProviderConversationProofsInput,

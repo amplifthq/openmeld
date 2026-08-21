@@ -15,6 +15,7 @@ import {
   type agentControllerInterfaceSnapshotSchema,
   agentControllerInterfaceStatusSchema,
   agentControllerInterfaceVersionAdvisoryStatusSchema,
+  agentControllerUsageLimitsSchema,
 } from "../runtime/agent-controller-interface";
 import { localAgentCatalogLaunchStatusSchema } from "../runtime/local-agent-catalog";
 import {
@@ -73,6 +74,7 @@ export const organizationComputerLocalAgentDetailsSchema = z.strictObject({
     .max(256),
   nativeInterface: agentControllerInterfaceNativeInterfaceSchema,
   status: agentControllerInterfaceStatusSchema,
+  usageLimits: agentControllerUsageLimitsSchema.optional(),
   version: BOUNDED_ID_SCHEMA.nullable(),
   versionAdvisory: z
     .strictObject({
@@ -107,6 +109,7 @@ export function projectOrganizationComputerLocalAgentDetails(
     })),
     nativeInterface: snapshot.nativeInterface,
     status: snapshot.status,
+    ...(snapshot.usageLimits ? { usageLimits: snapshot.usageLimits } : {}),
     version: snapshot.version,
     ...(snapshot.versionAdvisory
       ? {

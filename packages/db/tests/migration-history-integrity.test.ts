@@ -1300,7 +1300,7 @@ describe("shared drizzle migration history integrity", () => {
     const database = new DatabaseSync(":memory:");
     try {
       const migrationFileName = listSqlMigrationFiles().find((fileName) =>
-        fileName.startsWith("0131_")
+        fileName.startsWith("0133_")
       );
       expect(migrationFileName).toBeDefined();
       if (!migrationFileName) {

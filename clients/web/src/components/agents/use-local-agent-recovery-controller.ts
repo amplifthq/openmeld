@@ -837,23 +837,21 @@ function useLocalRuntimeActions(input: {
 		deviceId: string;
 		displayName: string | null;
 	}) => {
-		const response = await setLocalRuntimeDisplayName(target);
-		input.queryClient.setQueryData(
-			startQueryKeys.localRuntimes(input.storageScope),
-			response
-		);
+		await setLocalRuntimeDisplayName(target);
+		await input.queryClient.invalidateQueries({
+			queryKey: startQueryKeys.localRuntimes(input.storageScope),
+		});
 	};
 
 	const setLocalAgentEnabled = async (target: {
 		agentId: string;
 		enabled: boolean;
 	}) => {
-		const response = await setCurrentLocalAgentEnabled(target);
-		input.queryClient.setQueryData(
-			startQueryKeys.localRuntimes(input.storageScope),
-			response.localRuntimes
-		);
+		await setCurrentLocalAgentEnabled(target);
 		await Promise.all([
+			input.queryClient.invalidateQueries({
+				queryKey: startQueryKeys.localRuntimes(input.storageScope),
+			}),
 			input.queryClient.invalidateQueries({
 				queryKey: startQueryKeys.currentLocalRuntimeReplyReadiness(
 					input.storageScope
@@ -867,11 +865,7 @@ function useLocalRuntimeActions(input: {
 	};
 
 	const refreshLocalAgentCatalog = async () => {
-		const response = await refreshCurrentLocalAgentCatalog();
-		input.queryClient.setQueryData(
-			startQueryKeys.localRuntimes(input.storageScope),
-			response.localRuntimes
-		);
+		await refreshCurrentLocalAgentCatalog();
 		await Promise.all([
 			input.queryClient.invalidateQueries({
 				queryKey: startQueryKeys.localRuntimes(input.storageScope),

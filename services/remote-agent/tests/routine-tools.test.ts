@@ -66,6 +66,8 @@ describe("Remote Agent Routine management tools", () => {
     }
     expect(interactiveNames).toContain("openmeld_read_agent_activity");
     expect(routineNames).toContain("openmeld_read_agent_activity");
+    expect(interactiveNames).toContain("openmeld_list_agent_activity_sessions");
+    expect(routineNames).toContain("openmeld_list_agent_activity_sessions");
   });
 
   it("keeps explicit organization memory unavailable to Routine turns without an original conversation", () => {

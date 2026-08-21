@@ -73,6 +73,7 @@ import {
   resolveSpacePublicationRequirement,
   tryExtractTrailingStructuredSpaceActionBlock,
 } from "@openmeld/space-mesh";
+import { recordOpenMeldCreatedLocalAgentSession } from "../../agent-activity/session-inventory-origin-store";
 import { resolveBaseUrl } from "../../config/base-url";
 import { buildOpenMeldRequestContextFromProfileIdentity } from "../../config/openmeld-request-context";
 import { emitDaemonDispatchJournalEvent } from "../../local-service/dispatch/daemon-dispatch-journal";
@@ -120,6 +121,8 @@ import { DaemonServiceRunError } from "../core/types";
 import { resolveComputerFileAccessAdmission } from "../file-access/computer-file-access-admission";
 import { applyComputerFileAccessAwareness } from "../file-access/computer-file-access-prompt";
 import { readComputerFileAccessPolicy } from "../file-access/computer-file-access-store";
+import { probeAgentControllerUsageObservationAuth } from "../inventory/agent-controller-interface";
+import { recordRuntimeProviderUsageLimits } from "../inventory/runtime-provider-usage-limits";
 import {
   buildRuntimeRouteTargets,
   resolveLocalRuntimeControllerSupport,
@@ -1277,6 +1280,7 @@ export async function handleDispatchDeliverFrame(input: {
           "dispatch.ledger.unavailable: dispatch ledger is not initialized",
       });
     }
+    let recordedOpenMeldCreatedSessionId: string | null = null;
     const recordProviderConversationObservation = (observation: {
       agentControllerConversationId: string | null | undefined;
       agentControllerConversation?: AgentControllerConversationRef | null;
@@ -1296,6 +1300,28 @@ export async function handleDispatchDeliverFrame(input: {
         });
       observedProviderConversationId = agentControllerConversationId;
       observedProviderConversation = agentControllerConversation;
+      if (
+        contextIdForDispatch === null &&
+        recordedOpenMeldCreatedSessionId !== agentControllerConversationId
+      ) {
+        recordedOpenMeldCreatedSessionId = agentControllerConversationId;
+        recordOpenMeldCreatedLocalAgentSession({
+          agentControllerRef: parsedTask.agentControllerRef,
+          nativeSessionId: agentControllerConversationId,
+        }).catch((error) => {
+          emitRunLine({
+            presenter: input.presenter,
+            code: "daemon.run.session_inventory_origin_record_failed",
+            text: `Session Inventory origin could not be recorded for task ${parsedTask.taskId}`,
+            payload: {
+              dispatchId: parsedTask.dispatchId,
+              errorMessage: toErrorMessage(error),
+              targetProfileId: parsedTask.targetProfileId,
+              taskId: parsedTask.taskId,
+            },
+          });
+        });
+      }
       const persistProviderConversationObservation = withLedgerStateTransaction(
         {
           invalidStateStrategy: "backup_and_reset",
@@ -1337,6 +1363,9 @@ export async function handleDispatchDeliverFrame(input: {
       return agentControllerConversationId;
     };
     let agentToolActivitySequence = 0;
+    let usageObservationAuthPromise: ReturnType<
+      typeof probeAgentControllerUsageObservationAuth
+    > | null = null;
     const runtimeExecutionPromise = Promise.resolve(
       runDispatchRuntimeExecution({
         computerFileAccessBoundary,
@@ -1379,6 +1408,66 @@ export async function handleDispatchDeliverFrame(input: {
                 event.agentControllerConversationId,
               source: "runtime_event",
             });
+          }
+          if (
+            event.phase === "provider_usage_limits_observed" &&
+            routeConfig?.launchContract
+          ) {
+            const agentId =
+              runtimeControllerSupport.runtimeAdapterMatch.adapterId;
+            const launchContract = routeConfig.launchContract;
+            usageObservationAuthPromise ??=
+              probeAgentControllerUsageObservationAuth({
+                agentId,
+                launchContract,
+              });
+            const recordUsageLimits = usageObservationAuthPromise.then(
+              (authSnapshot) =>
+                recordRuntimeProviderUsageLimits({
+                  agentId,
+                  authSnapshot,
+                  launchContract,
+                  usageLimits: event.usageLimits,
+                })
+            );
+            recordUsageLimits
+              .then((retained) => {
+                if (retained) {
+                  return;
+                }
+                emitRunLine({
+                  presenter: input.presenter,
+                  code: "daemon.run.provider_usage_limits_observation_ignored",
+                  text: `provider usage limit observation could not be retained for task ${parsedTask.taskId}`,
+                  payload: {
+                    agentControllerRef: parsedTask.agentControllerRef,
+                    dispatchId: parsedTask.dispatchId,
+                    observedLimitKeys: event.usageLimits.map(
+                      (limit) => limit.key
+                    ),
+                    reasonCode: "provider_account_unconfirmed",
+                    targetProfileId: parsedTask.targetProfileId,
+                    taskId: parsedTask.taskId,
+                  },
+                });
+              })
+              .catch((error) => {
+                emitRunLine({
+                  presenter: input.presenter,
+                  code: "daemon.run.provider_usage_limits_observation_ignored",
+                  text: `provider usage limit observation could not be retained for task ${parsedTask.taskId}`,
+                  payload: {
+                    agentControllerRef: parsedTask.agentControllerRef,
+                    dispatchId: parsedTask.dispatchId,
+                    errorMessage: toErrorMessage(error),
+                    observedLimitKeys: event.usageLimits.map(
+                      (limit) => limit.key
+                    ),
+                    targetProfileId: parsedTask.targetProfileId,
+                    taskId: parsedTask.taskId,
+                  },
+                });
+              });
           }
           if (
             !firstOutputEvidenceSent &&

@@ -620,6 +620,9 @@ describe("Space Inbox projection", () => {
           persistedSignal: true as const,
         });
       }),
+      recordOrganizationMemberHumanActivity: vi
+        .fn()
+        .mockResolvedValue(undefined),
       spaceId: "space-1",
       syncSpaceBackgroundAlarm: vi
         .fn()
@@ -632,6 +635,9 @@ describe("Space Inbox projection", () => {
 
     expect(persistedSignals).toEqual([signal]);
     expect(durableInboxOutboxSignalIds).toEqual([signal.id]);
+    expect(target.recordOrganizationMemberHumanActivity).toHaveBeenCalledWith(
+      signal
+    );
     expect(target.broadcastSignal).toHaveBeenCalledOnce();
     expect(warn).toHaveBeenCalledWith(
       "[core.openmeld.space.inbox_projection_failed]",

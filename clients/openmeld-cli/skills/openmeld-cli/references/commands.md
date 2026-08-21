@@ -150,11 +150,34 @@ This command does not expose Connected Channel management, private Computer
 paths or file access, Profile Report drafts or bodies, credentials, or private
 local-agent state.
 
+### `openmeld activity sessions`
+
+List the active Organization's authorized Local Agent Session Inventory. Agent
+View emits the shared Session contract as stable result codes; `--json` emits
+one `activity.sessions` envelope. Continue with the opaque cursor until
+`nextCursor` is null when a complete inventory is required.
+
+```bash
+openmeld activity sessions --view human
+openmeld activity sessions --view agent --limit 100
+openmeld activity sessions --project openmeld --provider codex --view agent
+openmeld activity sessions --status working --origin openmeld --json
+openmeld activity sessions --native-session <provider-native-session-id> --json
+openmeld activity sessions --cursor <opaque-cursor> --view agent
+```
+
+Filters: `--project`, `--member`, `--provider`, `--status`, `--origin`,
+`--native-session`, `--query`, `--limit`, and `--cursor`. A returned Native
+Session ID is a locator, not permission to resume, fork, create a Binding, or
+add an Agent Profile to a Space.
+
 ### `openmeld org computers`
 
-List the active Organization's team-visible Computers and supported local
-agents. Agent View preserves the validated Organization Computers projection;
-`--json` emits one scriptable JSON envelope.
+List the active Organization's team-visible Computers and supported Local
+Agents. Agent View preserves the validated Organization Computers projection;
+`--json` emits one scriptable JSON envelope. When a provider reports Usage
+Limits, the same normalized limits shown in Web and available to the Center
+Agent are included.
 
 ```bash
 openmeld org computers --view agent

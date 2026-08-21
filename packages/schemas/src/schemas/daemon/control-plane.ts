@@ -18,6 +18,7 @@ export const openMeldDaemonControlPlaneCommandSchema = z.enum([
   "interrupt",
   "cancel",
   "conversation_execution_status",
+  "request_agent_activity_sync",
   "sync_route_catalog",
   "set_local_agent_enabled",
   "set_profile_workspace",
@@ -89,6 +90,11 @@ export const openMeldDaemonConversationExecutionStatusRequestPayloadSchema =
 export const openMeldDaemonSyncRouteCatalogRequestPayloadSchema =
   z.strictObject({
     reason: z.string().min(1),
+  });
+
+export const openMeldDaemonRequestAgentActivitySyncRequestPayloadSchema =
+  z.strictObject({
+    reason: z.string().trim().min(1).max(128),
   });
 
 export const openMeldDaemonSetLocalAgentEnabledRequestPayloadSchema =
@@ -287,6 +293,11 @@ export const openMeldDaemonSyncRouteCatalogPayloadSchema = z.strictObject({
   errorMessage: z.string().min(1).optional(),
 });
 
+export const openMeldDaemonRequestAgentActivitySyncPayloadSchema =
+  z.strictObject({
+    accepted: z.boolean(),
+  });
+
 export const openMeldDaemonSetLocalAgentEnabledPayloadSchema = z.strictObject({
   accepted: z.boolean(),
   agentControllerRef: z.string().min(1).optional(),
@@ -375,6 +386,10 @@ export const openMeldDaemonControlPlaneRequestSchema = z.discriminatedUnion(
     openMeldDaemonControlPlaneRequestBaseSchema.extend({
       command: z.literal("sync_route_catalog"),
       payload: openMeldDaemonSyncRouteCatalogRequestPayloadSchema,
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("request_agent_activity_sync"),
+      payload: openMeldDaemonRequestAgentActivitySyncRequestPayloadSchema,
     }),
     openMeldDaemonControlPlaneRequestBaseSchema.extend({
       command: z.literal("set_local_agent_enabled"),
@@ -499,6 +514,12 @@ export const openMeldDaemonSyncRouteCatalogResponseSchema =
     payload: openMeldDaemonSyncRouteCatalogPayloadSchema,
   });
 
+export const openMeldDaemonRequestAgentActivitySyncResponseSchema =
+  openMeldDaemonControlPlaneResponseBaseSchema.extend({
+    code: z.literal("service.agent_activity_sync_requested"),
+    payload: openMeldDaemonRequestAgentActivitySyncPayloadSchema,
+  });
+
 export const openMeldDaemonSetLocalAgentEnabledResponseSchema =
   openMeldDaemonControlPlaneResponseBaseSchema.extend({
     code: z.literal("service.set_local_agent_enabled"),
@@ -533,6 +554,7 @@ export const openMeldDaemonControlPlaneResponseSchema = z.discriminatedUnion(
     openMeldDaemonCancelResponseSchema,
     openMeldDaemonConversationExecutionStatusResponseSchema,
     openMeldDaemonSyncRouteCatalogResponseSchema,
+    openMeldDaemonRequestAgentActivitySyncResponseSchema,
     openMeldDaemonSetLocalAgentEnabledResponseSchema,
     openMeldDaemonSetProfileWorkspaceResponseSchema,
     openMeldDaemonShutdownResponseSchema,

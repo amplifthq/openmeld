@@ -1,6 +1,48 @@
 import type { z } from "zod/v4";
 
 type AgentActivitySchemas = typeof import("../../schemas/http/agent-activity");
+type AgentActivitySessionSchemas =
+  typeof import("../../schemas/http/agent-activity-sessions");
+
+export type AgentActivityInventorySession = z.infer<
+  AgentActivitySessionSchemas["agentActivityInventorySessionSchema"]
+>;
+export type AgentActivityInventorySessionStatus = z.infer<
+  AgentActivitySessionSchemas["agentActivityInventorySessionStatusSchema"]
+>;
+export type AgentActivityInventorySessionOrigin = z.infer<
+  AgentActivitySessionSchemas["agentActivityInventorySessionOriginSchema"]
+>;
+export type AgentActivityInventoryCoverage = z.infer<
+  AgentActivitySessionSchemas["agentActivityInventoryCoverageSchema"]
+>;
+export type AgentActivitySessionInventoryQuery = z.infer<
+  AgentActivitySessionSchemas["agentActivitySessionInventoryQuerySchema"]
+>;
+export type AgentActivitySessionInventoryResponse = z.infer<
+  AgentActivitySessionSchemas["agentActivitySessionInventoryResponseSchema"]
+>;
+export type AgentActivitySessionInventoryRpcInput = z.infer<
+  AgentActivitySessionSchemas["agentActivitySessionInventoryRpcInputSchema"]
+>;
+export type CenterAgentListAgentActivitySessionsToolRpcInput = z.infer<
+  AgentActivitySessionSchemas["centerAgentListAgentActivitySessionsToolRpcInputSchema"]
+>;
+export type LocalAgentSessionProvider = z.infer<
+  AgentActivitySessionSchemas["localAgentSessionProviderSchema"]
+>;
+export type ObservedLocalAgentSession = z.infer<
+  AgentActivitySessionSchemas["observedLocalAgentSessionSchema"]
+>;
+export type SubmitAgentActivitySessionReconciliationBody = z.infer<
+  AgentActivitySessionSchemas["submitAgentActivitySessionReconciliationBodySchema"]
+>;
+export type SubmitAgentActivitySessionReconciliationResponse = z.infer<
+  AgentActivitySessionSchemas["submitAgentActivitySessionReconciliationResponseSchema"]
+>;
+export type SubmitAgentActivitySessionReconciliationRpcInput = z.infer<
+  AgentActivitySessionSchemas["submitAgentActivitySessionReconciliationRpcInputSchema"]
+>;
 
 export type AgentActivityEvent = z.infer<
   AgentActivitySchemas["agentActivityEventSchema"]

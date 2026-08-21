@@ -271,6 +271,7 @@ import type {
   AccountSpaceIndexQuery,
   AccountSpaceIndexResponse,
   AddOrganizationDirectoryProfilesToSpaceBody,
+  AgentActivitySessionInventoryRpcInput,
   AgentActivitySnapshotRpcInput,
   AgentActivityStatsRpcInput,
   AgentControllerPermissionMode,
@@ -306,6 +307,7 @@ import type {
   CenterAgentDispatchHistoryEntry,
   CenterAgentEnableAgentProfileBody,
   CenterAgentEnableAgentProfileResponse,
+  CenterAgentListAgentActivitySessionsToolRpcInput,
   CenterAgentListAgentTasksBody,
   CenterAgentListAgentTasksResponse,
   CenterAgentListComputersBody,
@@ -539,6 +541,7 @@ import type {
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
   SubmitAgentActivityEventsRpcInput,
+  SubmitAgentActivitySessionReconciliationRpcInput,
   SubmitAgentControllerTaskLifecycleEventItem,
   SubmitAgentControllerTaskLifecycleEventsResponse,
   SubmitAgentControllerTaskLifecycleEventsRpcInput,
@@ -571,8 +574,16 @@ import {
   OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
   type SpaceAccessContext,
 } from "@openmeld/space";
-import { rpcCenterAgentReadAgentActivity as centerAgentReadAgentActivity } from "../agent-activity/activity-center-agent-rpc";
+import {
+  rpcCenterAgentListAgentActivitySessions as centerAgentListAgentActivitySessions,
+  rpcCenterAgentReadAgentActivity as centerAgentReadAgentActivity,
+} from "../agent-activity/activity-center-agent-rpc";
 import { rpcSubmitAgentActivityEvents as submitAgentActivityEvents } from "../agent-activity/activity-event-rpc";
+import { canResumeAgentActivitySessionSelection } from "../agent-activity/activity-session-inventory-repository";
+import {
+  rpcReadAgentActivitySessionInventory as readAgentActivitySessionInventory,
+  rpcSubmitAgentActivitySessionReconciliation as submitAgentActivitySessionReconciliation,
+} from "../agent-activity/activity-session-inventory-rpc";
 import { rpcReadAgentActivitySnapshot as readAgentActivitySnapshot } from "../agent-activity/activity-snapshot-rpc";
 import { rpcReadAgentActivityStats as readAgentActivityStats } from "../agent-activity/activity-stats-rpc";
 import {
@@ -1073,14 +1084,20 @@ export type RemoveConnectionInput = LocalProjectControlRemoveConnectionRpcInput;
 export type RemoveMissingConnectionsInput =
   LocalProjectControlRemoveMissingConnectionsRpcInput;
 export type SubmitAgentActivityEventsInput = SubmitAgentActivityEventsRpcInput;
+export type SubmitAgentActivitySessionReconciliationInput =
+  SubmitAgentActivitySessionReconciliationRpcInput;
 export type SubmitAgentControllerTaskLifecycleEventsInput =
   SubmitAgentControllerTaskLifecycleEventsRpcInput;
 export type ReadAgentActivitySnapshotInput = AgentActivitySnapshotRpcInput;
+export type ReadAgentActivitySessionInventoryInput =
+  AgentActivitySessionInventoryRpcInput;
 export type ReadAgentActivityStatsInput = AgentActivityStatsRpcInput;
 export type ReadOrganizationUsageOverviewInput =
   OrganizationUsageOverviewRpcInput;
 export type CenterAgentReadAgentActivityInput =
   CenterAgentReadAgentActivityToolRpcInput;
+export type CenterAgentListAgentActivitySessionsInput =
+  CenterAgentListAgentActivitySessionsToolRpcInput;
 export type CenterAgentReadChangelogInput =
   CenterAgentReadChangelogToolRpcInput;
 export type CenterAgentListOpportunitiesInput =
@@ -1262,6 +1279,13 @@ export function rpcSubmitAgentActivityEvents(
   return submitAgentActivityEvents(env, input);
 }
 
+export function rpcSubmitAgentActivitySessionReconciliation(
+  env: CoreBindings,
+  input: SubmitAgentActivitySessionReconciliationInput
+) {
+  return submitAgentActivitySessionReconciliation(env, input);
+}
+
 export function rpcSubmitAgentControllerTaskLifecycleEvents(
   env: CoreBindings,
   input: SubmitAgentControllerTaskLifecycleEventsInput
@@ -1274,6 +1298,13 @@ export function rpcReadAgentActivitySnapshot(
   input: ReadAgentActivitySnapshotInput
 ) {
   return readAgentActivitySnapshot(env, input);
+}
+
+export function rpcReadAgentActivitySessionInventory(
+  env: CoreBindings,
+  input: ReadAgentActivitySessionInventoryInput
+) {
+  return readAgentActivitySessionInventory(env, input);
 }
 
 export function rpcReadAgentActivityStats(
@@ -1295,6 +1326,13 @@ export function rpcCenterAgentReadAgentActivity(
   input: CenterAgentReadAgentActivityInput
 ) {
   return centerAgentReadAgentActivity(env, input);
+}
+
+export function rpcCenterAgentListAgentActivitySessions(
+  env: CoreBindings,
+  input: CenterAgentListAgentActivitySessionsInput
+) {
+  return centerAgentListAgentActivitySessions(env, input);
 }
 
 export function rpcCenterAgentReadChangelog(
@@ -2092,6 +2130,7 @@ export type ForgetComputerInput = {
 export type GetLocalRuntimesInput = {
   connectionIdentityAdoption?: LocalRuntimesQuery["connectionIdentityAdoption"];
   context?: CoreRpcContextInput;
+  includeUsageLimits?: LocalRuntimesQuery["includeUsageLimits"];
 };
 
 export type GetCurrentLocalRuntimeReplyReadinessInput = {
@@ -2247,6 +2286,7 @@ export type GetCurrentOrganizationDirectoryInput = {
 
 export type GetCurrentOrganizationComputersInput = {
   context?: CoreRpcContextInput;
+  includeUsageLimits?: "true";
 };
 
 export type GetCurrentOrganizationMemberOpenMeldServiceStatusesInput = {
@@ -2783,13 +2823,52 @@ export async function rpcListLocalRuntimes(
   env: CoreBindings,
   input: GetLocalRuntimesInput
 ): Promise<LocalRuntimesResponse> {
-  return await listLocalRuntimesForOwnerUser({
+  const response = await listLocalRuntimesForOwnerUser({
     ...(input.connectionIdentityAdoption === undefined
       ? {}
       : { connectionIdentityAdoption: input.connectionIdentityAdoption }),
     env,
     userId: requireAuthenticatedOwnerUserId(input.context),
   });
+  return input.includeUsageLimits === "true"
+    ? response
+    : omitLocalRuntimeUsageLimits(response);
+}
+
+function omitLocalRuntimeUsageLimits(
+  response: LocalRuntimesResponse
+): LocalRuntimesResponse {
+  const omitFromComputer = <
+    T extends
+      | LocalRuntimesResponse["localRuntimes"][number]
+      | NonNullable<LocalRuntimesResponse["legacyDeviceEvidence"]>[number],
+  >(
+    computer: T
+  ): T => ({
+    ...computer,
+    executionTargets: computer.executionTargets.map((target) => ({
+      ...target,
+      capabilities: target.capabilities.map((capability) => {
+        if (!capability.agentControllerInterface?.usageLimits) {
+          return capability;
+        }
+        const { usageLimits: _usageLimits, ...agentControllerInterface } =
+          capability.agentControllerInterface;
+        return { ...capability, agentControllerInterface };
+      }),
+    })),
+  });
+
+  return {
+    ...response,
+    localRuntimes: response.localRuntimes.map(omitFromComputer),
+    ...(response.legacyDeviceEvidence
+      ? {
+          legacyDeviceEvidence:
+            response.legacyDeviceEvidence.map(omitFromComputer),
+        }
+      : {}),
+  };
 }
 
 async function listLocalRuntimesForOwnerUser(input: {
@@ -2858,6 +2937,7 @@ async function getCurrentLocalRuntimeReplyReadinessForOwnerUser(input: {
 
 async function buildOwnerComputerDiagnostics(input: {
   env: CoreBindings;
+  includeUsageLimits: boolean;
   localRuntimes: LocalRuntimesResponse;
   userId: string;
 }): Promise<OwnerComputerDiagnostics> {
@@ -2872,7 +2952,11 @@ async function buildOwnerComputerDiagnostics(input: {
   return ownerComputerDiagnosticsSchema.parse({
     currentComputerFileAccess,
     currentLocalRuntimeReplyReadiness,
-    localRuntimes: projectOwnerComputerLocalRuntimes(input.localRuntimes),
+    localRuntimes: projectOwnerComputerLocalRuntimes(
+      input.includeUsageLimits
+        ? input.localRuntimes
+        : omitLocalRuntimeUsageLimits(input.localRuntimes)
+    ),
   });
 }
 
@@ -3139,7 +3223,7 @@ export async function rpcSetCurrentLocalAgentEnabled(
     agentId: acceptedPayload.agentId,
     changed: acceptedPayload.changed,
     enabled: acceptedPayload.enabled,
-    localRuntimes: refreshedLocalRuntimes,
+    localRuntimes: omitLocalRuntimeUsageLimits(refreshedLocalRuntimes),
     reportSyncStatus: acceptedPayload.reportSyncStatus,
     status: acceptedPayload.status,
   };
@@ -3264,7 +3348,7 @@ export async function rpcSelectCurrentLocalAgentInstallation(
     agentId: acceptedPayload.agentId,
     changed: acceptedPayload.changed,
     installations: acceptedPayload.installations,
-    localRuntimes: refreshedLocalRuntimes,
+    localRuntimes: omitLocalRuntimeUsageLimits(refreshedLocalRuntimes),
     reportSyncStatus: acceptedPayload.reportSyncStatus,
     selectedInstallationId: acceptedPayload.selectedInstallationId,
     status:
@@ -3416,7 +3500,7 @@ export async function rpcRefreshCurrentLocalAgentCatalog(
     userId,
   });
   const response: RefreshCurrentLocalAgentCatalogResponse = {
-    localRuntimes: refreshedLocalRuntimes,
+    localRuntimes: omitLocalRuntimeUsageLimits(refreshedLocalRuntimes),
     sync: transportResult.payload,
   };
   const validated =
@@ -3471,7 +3555,7 @@ export async function rpcSetLocalRuntimeDisplayName(
     );
   }
 
-  return validated.data;
+  return omitLocalRuntimeUsageLimits(validated.data);
 }
 
 export async function rpcEnrollLocalRuntime(
@@ -5033,6 +5117,7 @@ export async function rpcGetCurrentOrganizationComputers(
   return await buildOrganizationComputersResponse({
     env,
     generatedAt,
+    includeUsageLimits: input.includeUsageLimits === "true",
     memberUserIds: members.map((member) => member.userId),
     organizationId: activeOrganization.organizationId,
   });
@@ -5041,6 +5126,7 @@ export async function rpcGetCurrentOrganizationComputers(
 async function buildOrganizationComputersResponse(input: {
   env: CoreBindings;
   generatedAt: string;
+  includeUsageLimits?: boolean;
   memberUserIds: string[];
   organizationId: string;
 }): Promise<OrganizationComputersResponse> {
@@ -5057,6 +5143,7 @@ async function buildOrganizationComputersResponse(input: {
 
   const response = await listOrganizationComputers({
     generatedAt,
+    includeUsageLimits: input.includeUsageLimits,
     lookupMemberComputerInventory: async ({ userId }) => {
       const [devices, executionTargets] = await Promise.all([
         listOwnedDeviceRegistryRecords({ db, userId }),
@@ -8973,6 +9060,9 @@ export async function rpcCenterAgentListComputers(
     ...(input.includeDiagnostics === undefined
       ? {}
       : { includeDiagnostics: input.includeDiagnostics }),
+    ...(input.includeUsageLimits === undefined
+      ? {}
+      : { includeUsageLimits: input.includeUsageLimits }),
     speakerMember: input.speakerMember,
   });
   if (!parsed.success) {
@@ -9002,6 +9092,7 @@ export async function rpcCenterAgentListComputers(
   const diagnostics = parsed.data.includeDiagnostics
     ? await buildOwnerComputerDiagnostics({
         env,
+        includeUsageLimits: parsed.data.includeUsageLimits === "true",
         localRuntimes,
         userId: representedHuman.userId,
       })
@@ -9956,6 +10047,7 @@ export async function rpcCenterAgentReadMemberComputers(
   const computers = await buildOrganizationComputersResponse({
     env,
     generatedAt,
+    includeUsageLimits: input.includeUsageLimits === "true",
     memberUserIds: [targetMembership.userId],
     organizationId: targetMembership.organizationId,
   });
@@ -13578,6 +13670,7 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
     modelId: input.modelId,
     openCodePermission: input.openCodePermission,
     reasoningLevel: input.reasoningLevel,
+    sessionInventorySelection: input.sessionInventorySelection,
     writeMode: input.writeMode,
   });
   if (!body.success) {
@@ -13607,6 +13700,26 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
     ]);
   }
 
+  if (
+    body.data.sessionInventorySelection &&
+    !(await canResumeAgentActivitySessionSelection({
+      activeOrganizationId: normalizeOptionalText(
+        request.context.activeOrganizationId
+      ),
+      agentControllerRef: body.data.agentControllerRef,
+      agentProfileId: request.agentProfileId,
+      db,
+      deviceId: body.data.deviceId,
+      nowMs: Date.now(),
+      ownerUserId: request.owner.id,
+      selection: body.data.sessionInventorySelection,
+    }))
+  ) {
+    return buildRejectedAgentProfileBindingResponse([
+      "agent_profile_binding.session_resume_unavailable",
+    ]);
+  }
+
   const profileOwnerValidation = await resolveProfileOwnerValidationEvidence({
     agentProfileId: request.agentProfileId,
     authWorker: env.OPENMELD_AUTH_WORKER,
@@ -13623,7 +13736,23 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
   try {
     result = await ensurePrimaryAgentProfileBinding({
       agentProfileId: request.agentProfileId,
-      bindingStore: createD1AgentProfileBindingCommandStore({ db }),
+      bindingStore: createD1AgentProfileBindingCommandStore({
+        db,
+        ...(body.data.sessionInventorySelection
+          ? {
+              sessionInventoryEligibility: {
+                activeOrganizationId: normalizeOptionalText(
+                  request.context.activeOrganizationId
+                ),
+                agentControllerRef: body.data.agentControllerRef,
+                agentProfileId: request.agentProfileId,
+                deviceId: body.data.deviceId,
+                ownerUserId: request.owner.id,
+                selection: body.data.sessionInventorySelection,
+              },
+            }
+          : {}),
+      }),
       agentControllerConversationId: body.data.agentControllerConversationId,
       agentControllerRef: body.data.agentControllerRef,
       createdByProfileId: request.context.actorContext.openMeldProfileId,

@@ -378,6 +378,54 @@ describe("Runtime Agent Controller reporting submission", () => {
     }
   });
 
+  it("retries without usage limits when an older Core rejects only the nested capacity field", async () => {
+    submitAgentControllerReportsMock.mockRejectedValueOnce(
+      Object.assign(new Error('Unrecognized key: "usageLimits"'), {
+        code: "invalid_payload",
+        status: 400,
+      })
+    );
+    const { submitRuntimeAgentControllerReport } = await import(
+      "../src/local-service/reporting/runtime-agent-controller-reporting-submission"
+    );
+
+    await submitRuntimeAgentControllerReport({
+      agentControllerRef: "builtin:codex",
+      agentControllerInterface: {
+        ...CODEX_AGENT_CONTROLLER_INTERFACE,
+        usageLimits: [
+          {
+            key: "codex:primary",
+            label: "5-hour usage",
+            observedAt: "2026-06-28T00:00:00.000Z",
+            resetsAt: "2026-06-28T05:00:00.000Z",
+            status: "available",
+            usedPercent: 42,
+          },
+        ],
+      },
+      localParticipationState: "ready",
+      reasonCodes: [],
+    });
+
+    expect(submitAgentControllerReportsMock).toHaveBeenCalledTimes(2);
+    expect(
+      submitAgentControllerReportsMock.mock.calls[0]?.[0]?.reports?.[0]
+        ?.agentControllerInterface?.usageLimits
+    ).toHaveLength(1);
+    expect(
+      submitAgentControllerReportsMock.mock.calls[1]?.[0]?.reports?.[0]
+        ?.agentControllerInterface
+    ).toMatchObject({
+      agentControllerRef: "builtin:codex",
+      status: "ready",
+    });
+    expect(
+      submitAgentControllerReportsMock.mock.calls[1]?.[0]?.reports?.[0]
+        ?.agentControllerInterface
+    ).not.toHaveProperty("usageLimits");
+  });
+
   it("submits selected Runtime Agent Controller Reports in one write after one Runtime registration", async () => {
     submitAgentControllerReportsMock.mockResolvedValueOnce({
       reports: [

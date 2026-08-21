@@ -319,7 +319,7 @@ export async function runOrgComputers(input: {
   try {
     computers = await createOrganizationApi(
       createCliApiClientFoundation(await resolveBaseUrl())
-    ).getCurrentComputers();
+    ).getCurrentComputers({ includeUsageLimits: "true" });
   } catch (error) {
     emitOrganizationApiError({
       presenter: context.presenter,
@@ -345,7 +345,10 @@ export async function runOrgComputers(input: {
     });
     return;
   }
-  renderOrganizationComputersCard({ computers, presenter: context.presenter });
+  renderOrganizationComputersCard({
+    presenter: context.presenter,
+    computers,
+  });
 }
 
 export async function runOrgInviteLink(input: {
@@ -684,33 +687,40 @@ function renderOrganizationDirectoryCard(input: {
 }
 
 function renderOrganizationComputersCard(input: {
-  computers: OrganizationComputersResponse;
   presenter: Presenter;
+  computers: OrganizationComputersResponse;
 }): void {
   renderInfoCard({
     presenter: input.presenter,
     title: "Organization Computers",
     codePrefix: "organization.computers.card",
-    rows: input.computers.computers.map((computer) => ({
-      label: computer.deviceDisplayName,
-      value: `${computer.serviceState} · ${formatOrganizationComputerLocalAgents(computer.localAgents)}`,
-    })),
+    rows:
+      input.computers.computers.length === 0
+        ? [{ label: "Computers", value: "No member computers reported" }]
+        : input.computers.computers.flatMap((computer) => [
+            {
+              label: "Computer",
+              value: `${computer.deviceDisplayName} · ${computer.serviceState}`,
+            },
+            ...computer.localAgents.flatMap((agent) => {
+              const usageLimits = agent.details?.usageLimits ?? [];
+              if (usageLimits.length === 0) {
+                return [
+                  {
+                    label: "Local Agent",
+                    value: `${agent.agentControllerRef} · ${agent.status}`,
+                  },
+                ];
+              }
+              return usageLimits.map((limit) => ({
+                label: "Local Agent",
+                value: `${agent.agentControllerRef} · ${agent.status} · ${limit.label} · ${limit.usedPercent === null ? limit.status : `${limit.usedPercent}% used · ${limit.status}`}`,
+              }));
+            }),
+          ]),
     sanitize: true,
     minContentWidth: 72,
   });
-}
-
-function formatOrganizationComputerLocalAgents(
-  localAgents: OrganizationComputersResponse["computers"][number]["localAgents"]
-): string {
-  if (localAgents.length === 0) {
-    return "No reported local agents";
-  }
-  return localAgents
-    .map(
-      (localAgent) => `${localAgent.agentControllerRef} (${localAgent.status})`
-    )
-    .join(", ");
 }
 
 function renderOrganizationInviteLinkCard(input: {

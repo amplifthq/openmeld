@@ -125,6 +125,65 @@ describe("agent profile binding http schemas", () => {
     ).toThrow();
   });
 
+  it("requires a resumed Session selection to match the Binding conversation", () => {
+    const body = {
+      agentControllerConversationId: "native-session-1",
+      agentControllerRef: "builtin:codex",
+      deviceId: "device-1",
+      lane: "openmeld-dev",
+      openMeldServiceRuntimeId: {
+        source: "runtime_registry_authority" as const,
+        value: "runtime_opaque_1",
+      },
+      sessionInventorySelection: {
+        computerId: "computer-1",
+        nativeSessionId: "native-session-1",
+        organizationId: "org-1",
+        ownerUserId: "user-1",
+        projectId: "project-1",
+        provider: "codex" as const,
+      },
+    };
+
+    expect(ensureAgentProfilePrimaryBindingBodySchema.parse(body)).toEqual(
+      body
+    );
+    expect(
+      ensureAgentProfilePrimaryBindingBodySchema.safeParse({
+        ...body,
+        agentControllerConversationId: "another-native-session",
+      }).success
+    ).toBe(false);
+    expect(
+      ensureAgentProfilePrimaryBindingBodySchema.safeParse({
+        ...body,
+        agentControllerConversationId: undefined,
+      }).success
+    ).toBe(false);
+
+    const longestNativeSessionId = "s".repeat(512);
+    expect(
+      ensureAgentProfilePrimaryBindingBodySchema.safeParse({
+        ...body,
+        agentControllerConversationId: longestNativeSessionId,
+        sessionInventorySelection: {
+          ...body.sessionInventorySelection,
+          nativeSessionId: longestNativeSessionId,
+        },
+      }).success
+    ).toBe(true);
+    expect(
+      ensureAgentProfilePrimaryBindingBodySchema.safeParse({
+        ...body,
+        agentControllerConversationId: `${longestNativeSessionId}s`,
+        sessionInventorySelection: {
+          ...body.sessionInventorySelection,
+          nativeSessionId: `${longestNativeSessionId}s`,
+        },
+      }).success
+    ).toBe(false);
+  });
+
   it("keeps Codex Collaboration Mode separate from Permission Mode", () => {
     expect(agentControllerCollaborationModeSchema.options).toEqual([
       "codex:default",

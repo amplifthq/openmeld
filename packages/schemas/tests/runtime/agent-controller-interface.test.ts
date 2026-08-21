@@ -107,4 +107,133 @@ describe("agent controller interface schema", () => {
 
     expect(result.success).toBe(true);
   });
+
+  it("accepts multiple honest usage-limit windows", () => {
+    const result = agentControllerInterfaceSnapshotSchema.safeParse({
+      ...createValidAgentControllerInterfaceSnapshot(),
+      usageLimits: [
+        {
+          key: "codex:primary",
+          label: "5-hour usage",
+          observedAt: "2026-06-29T12:00:00.000Z",
+          resetsAt: "2026-06-29T15:00:00.000Z",
+          status: "available",
+          usedPercent: 82,
+        },
+        {
+          key: "codex:secondary",
+          label: "Weekly usage",
+          observedAt: "2026-06-29T12:00:00.000Z",
+          resetsAt: null,
+          status: "stale",
+          usedPercent: 96,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it.each([
+    "unsupported",
+    "unavailable",
+  ] as const)("accepts %s evidence without invented usage facts", (status) => {
+    const result = agentControllerInterfaceSnapshotSchema.safeParse({
+      ...createValidAgentControllerInterfaceSnapshot(),
+      usageLimits: [
+        {
+          key: "provider",
+          label: "Usage limits",
+          observedAt: "2026-06-29T12:00:00.000Z",
+          resetsAt: null,
+          status,
+          usedPercent: null,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it.each([
+    {
+      name: "a percentage above 100",
+      usageLimit: {
+        key: "codex:primary",
+        label: "5-hour usage",
+        observedAt: "2026-06-29T12:00:00.000Z",
+        resetsAt: null,
+        status: "available",
+        usedPercent: 101,
+      },
+    },
+    {
+      name: "an exhausted limit below 100 percent",
+      usageLimit: {
+        key: "codex:primary",
+        label: "5-hour usage",
+        observedAt: "2026-06-29T12:00:00.000Z",
+        resetsAt: null,
+        status: "exhausted",
+        usedPercent: 99,
+      },
+    },
+    {
+      name: "an available limit at 100 percent",
+      usageLimit: {
+        key: "codex:primary",
+        label: "5-hour usage",
+        observedAt: "2026-06-29T12:00:00.000Z",
+        resetsAt: null,
+        status: "available",
+        usedPercent: 100,
+      },
+    },
+    {
+      name: "an unavailable limit with fabricated usage",
+      usageLimit: {
+        key: "provider",
+        label: "Usage limits",
+        observedAt: "2026-06-29T12:00:00.000Z",
+        resetsAt: null,
+        status: "unavailable",
+        usedPercent: 0,
+      },
+    },
+    {
+      name: "stale evidence without a last-known percentage",
+      usageLimit: {
+        key: "codex:primary",
+        label: "5-hour usage",
+        observedAt: "2026-06-29T12:00:00.000Z",
+        resetsAt: null,
+        status: "stale",
+        usedPercent: null,
+      },
+    },
+  ])("rejects $name", ({ usageLimit }) => {
+    const result = agentControllerInterfaceSnapshotSchema.safeParse({
+      ...createValidAgentControllerInterfaceSnapshot(),
+      usageLimits: [usageLimit],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects duplicate usage-limit keys", () => {
+    const usageLimit = {
+      key: "codex:primary",
+      label: "5-hour usage",
+      observedAt: "2026-06-29T12:00:00.000Z",
+      resetsAt: null,
+      status: "available",
+      usedPercent: 42,
+    } as const;
+    const result = agentControllerInterfaceSnapshotSchema.safeParse({
+      ...createValidAgentControllerInterfaceSnapshot(),
+      usageLimits: [usageLimit, usageLimit],
+    });
+
+    expect(result.success).toBe(false);
+  });
 });

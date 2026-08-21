@@ -6,6 +6,7 @@ import type {
   AdapterInteractionCallback,
   AdapterModelNegotiationDiagnostics,
   AdapterPreviewCallback,
+  AdapterProviderUsageLimit,
   AdapterRuntimeEvent,
   AdapterRuntimeEventCallback,
   AdapterRuntimeProcessCallback,
@@ -17,7 +18,9 @@ import type {
 import {
   AcpProcessSession,
   createAcpToolActivityTracker,
+  createUnavailableProviderUsageLimits,
 } from "@openmeld/adapter-core";
+import { projectGrokBuildUsageLimits } from "../usage/grok-build-usage-limits.js";
 import {
   isGrokBuildPlanMethod,
   isGrokBuildQuestionMethod,
@@ -69,6 +72,7 @@ export type GrokBuildAcpTransportResult = {
 export type GrokBuildAcpInterfaceProbeResult = {
   authMethodId: "cached_token" | "xai.api_key";
   models: Array<{ displayName: string; id: string }>;
+  usageLimits: AdapterProviderUsageLimit[];
 };
 
 const ACP_PROTOCOL_VERSION = 1;
@@ -114,7 +118,7 @@ export async function probeGrokBuildAcpInterface(input: {
   const session = new GrokBuildAcpSession({ ...input, workdir });
   try {
     session.start();
-    return await session.initialize();
+    return await session.initialize({ collectUsageLimits: true });
   } catch (error) {
     throw toGrokBuildTransportError(error, session.readStderr(), null);
   } finally {
@@ -152,7 +156,7 @@ export async function invokeGrokBuildAcpTransport(input: {
   const session = new GrokBuildAcpSession({ ...input, workdir });
   try {
     session.start();
-    await session.initialize();
+    await session.initialize({ collectUsageLimits: false });
     const existingSessionId = normalizeOptionalText(input.sessionId);
     const descriptor = await session.openSession({
       requestedModelId: normalizeOptionalText(input.conversationPolicy?.model),
@@ -270,7 +274,9 @@ class GrokBuildAcpSession {
     this.#process.start();
   }
 
-  async initialize(): Promise<GrokBuildAcpInterfaceProbeResult> {
+  async initialize(input: {
+    collectUsageLimits: boolean;
+  }): Promise<GrokBuildAcpInterfaceProbeResult> {
     const initializeResult = toRecord(
       await this.request("initialize", {
         clientCapabilities: {
@@ -321,6 +327,9 @@ class GrokBuildAcpSession {
       _meta: { headless: true },
       methodId: authMethodId,
     });
+    const usageLimits = input.collectUsageLimits
+      ? await this.readUsageLimits()
+      : [];
     return {
       authMethodId,
       models:
@@ -328,7 +337,19 @@ class GrokBuildAcpSession {
           displayName: model.displayName,
           id: model.modelId,
         })) ?? [],
+      usageLimits,
     };
+  }
+
+  private async readUsageLimits(): Promise<AdapterProviderUsageLimit[]> {
+    return await this.request("_x.ai/billing", {}).then(
+      (response) =>
+        projectGrokBuildUsageLimits({
+          observedAt: new Date().toISOString(),
+          response,
+        }),
+      () => createUnavailableProviderUsageLimits(new Date().toISOString())
+    );
   }
 
   async openSession(input: {

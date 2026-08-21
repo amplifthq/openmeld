@@ -49,7 +49,9 @@ export async function runComputerList(
     createCliApiClientFoundation(gatewayUrl)
   );
   await syncCurrentComputerObservationIfAvailable({ currentDeviceApi });
-  const response = await currentDeviceApi.listLocalRuntimes();
+  const response = await currentDeviceApi.listLocalRuntimes({
+    includeUsageLimits: "true",
+  });
 
   if (presenter.view === "agent") {
     presenter.data({
@@ -102,7 +104,9 @@ export async function runComputerCurrent(
     now: input.now,
   });
 
-  const response = await currentDeviceApi.listLocalRuntimes();
+  const response = await currentDeviceApi.listLocalRuntimes({
+    includeUsageLimits: "true",
+  });
   const currentComputer = findLocalRuntime(response, deviceId);
 
   if (presenter.view === "agent") {

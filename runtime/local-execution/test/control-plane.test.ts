@@ -222,6 +222,27 @@ describe("local execution control-plane helper", () => {
     }
   });
 
+  it("requests an immediate Agent Activity reconciliation when provided", async () => {
+    const response = await buildControlPlaneResponse({
+      request: {
+        v: 1,
+        command: "request_agent_activity_sync",
+        payload: {
+          reason: "project_connection_disconnected",
+        },
+      },
+      context: {
+        ...BASE_CONTEXT,
+        requestAgentActivitySyncHandler: () => ({ accepted: true }),
+      },
+    });
+
+    expect(response).toMatchObject({
+      code: "service.agent_activity_sync_requested",
+      payload: { accepted: true },
+    });
+  });
+
   it("throws for invalid request", () => {
     expect(() =>
       parseControlPlaneRequest({

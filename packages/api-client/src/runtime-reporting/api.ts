@@ -2,6 +2,8 @@ import {
   agentActivityEventSchema,
   submitAgentActivityEventsBodySchema,
   submitAgentActivityEventsResponseSchema,
+  submitAgentActivitySessionReconciliationBodySchema,
+  submitAgentActivitySessionReconciliationResponseSchema,
   submitAgentControllerTaskLifecycleEventsBodySchema,
   submitAgentControllerTaskLifecycleEventsResponseSchema,
   submitRuntimeAgentControllerReportsBodySchema,
@@ -14,6 +16,7 @@ import {
 import type { OpenMeldApiClientFoundation } from "../client";
 import {
   buildAgentActivityEventsRoute,
+  buildAgentActivitySessionReconciliationRoute,
   buildAgentControllerTaskLifecycleEventsRoute,
   buildRuntimeAgentControllerReportsRoute,
   buildRuntimeProviderConversationProofsRoute,
@@ -22,6 +25,7 @@ import {
 import type {
   CreateRuntimeReportingApi,
   SubmitAgentActivityEventsInput,
+  SubmitAgentActivitySessionReconciliationInput,
   SubmitAgentControllerTaskLifecycleEventsInput,
   SubmitRuntimeAgentControllerReportsInput,
   SubmitRuntimeProviderConversationProofsInput,
@@ -49,6 +53,21 @@ function requireValidAgentActivityEventsBody(
     throw new Error(
       parsed.error.issues[0]?.message ??
         "Invalid Agent Activity event submission."
+    );
+  }
+  return parsed.data;
+}
+
+function requireValidAgentActivitySessionReconciliationBody(
+  input: SubmitAgentActivitySessionReconciliationInput
+) {
+  const { deviceId: _deviceId, ...body } = input;
+  const parsed =
+    submitAgentActivitySessionReconciliationBodySchema.safeParse(body);
+  if (!parsed.success) {
+    throw new Error(
+      parsed.error.issues[0]?.message ??
+        "Invalid Agent Activity Session reconciliation."
     );
   }
   return parsed.data;
@@ -133,6 +152,19 @@ export const createRuntimeReportingApi: CreateRuntimeReportingApi = (
         operation: "agent_activity.events.submit",
         schema: submitAgentActivityEventsResponseSchema,
         url: buildAgentActivityEventsRoute(input.deviceId),
+      });
+    },
+    submitAgentActivitySessionReconciliation: async (input) => {
+      const body = requireValidAgentActivitySessionReconciliationBody(input);
+      return await client.requestJson({
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json" },
+        invalidMessage:
+          "Invalid Agent Activity Session reconciliation response.",
+        method: "PUT",
+        operation: "agent_activity.sessions.reconcile",
+        schema: submitAgentActivitySessionReconciliationResponseSchema,
+        url: buildAgentActivitySessionReconciliationRoute(input.deviceId),
       });
     },
     submitAgentControllerTaskLifecycleEvents: async (input) => {

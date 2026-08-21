@@ -343,6 +343,8 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.getCurrentOrganizationComputers({
           context: buildCoreRpcContext(c),
+          includeUsageLimits:
+            c.req.query("includeUsageLimits") === "true" ? "true" : undefined,
         }),
     })
   );

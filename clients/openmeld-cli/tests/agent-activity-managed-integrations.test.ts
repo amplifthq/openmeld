@@ -56,7 +56,9 @@ describe("Agent Activity managed integrations", () => {
     );
     for (const event of [
       "Notification",
+      "SessionEnd",
       "SessionStart",
+      "StopFailure",
       "SubagentStart",
       "SubagentStop",
       "Stop",

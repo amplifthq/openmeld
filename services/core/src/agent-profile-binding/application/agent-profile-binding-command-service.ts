@@ -126,8 +126,11 @@ export type AgentProfileBindingWriteResult =
       status: "accepted";
     }
   | {
-      existingBinding: AgentProfileBindingCommandRecord;
-      reason: "controller_conversation_conflict" | "primary_conflict";
+      existingBinding?: AgentProfileBindingCommandRecord;
+      reason:
+        | "controller_conversation_conflict"
+        | "primary_conflict"
+        | "session_resume_unavailable";
       status: "rejected";
     };
 
@@ -1080,13 +1083,21 @@ function resolveWriteResult(input: {
   writeResult: AgentProfileBindingWriteResult;
 }): AgentProfileBindingCommandResult {
   if (input.writeResult.status === "rejected") {
+    const reasonCode = (() => {
+      switch (input.writeResult.reason) {
+        case "controller_conversation_conflict":
+          return "agent_profile_binding.controller_conversation_conflict";
+        case "session_resume_unavailable":
+          return "agent_profile_binding.session_resume_unavailable";
+        default:
+          return "agent_profile_binding.primary_conflict";
+      }
+    })();
     return {
-      existingBinding: input.writeResult.existingBinding,
-      reasonCodes: [
-        input.writeResult.reason === "controller_conversation_conflict"
-          ? "agent_profile_binding.controller_conversation_conflict"
-          : "agent_profile_binding.primary_conflict",
-      ],
+      ...(input.writeResult.existingBinding
+        ? { existingBinding: input.writeResult.existingBinding }
+        : {}),
+      reasonCodes: [reasonCode],
       routable: false,
       status: "rejected",
     };

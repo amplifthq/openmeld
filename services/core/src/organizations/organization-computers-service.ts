@@ -19,6 +19,7 @@ export type OrganizationComputerLiveSession = {
 
 export async function listOrganizationComputers(input: {
   generatedAt: string;
+  includeUsageLimits?: boolean;
   lookupMemberComputerInventory: (input: { userId: string }) => Promise<{
     devices: readonly OwnedDeviceRegistryRecord[];
     executionTargets: readonly OwnedDeviceExecutionTargetRecord[];
@@ -44,6 +45,7 @@ export async function listOrganizationComputers(input: {
       const inventory = await input.lookupMemberComputerInventory({ userId });
       computersByMember[index] = projectMemberComputers({
         ...inventory,
+        includeUsageLimits: input.includeUsageLimits === true,
         ownerUserId: userId,
       });
     }
@@ -72,6 +74,7 @@ function projectMemberComputers(input: {
   devices: readonly OwnedDeviceRegistryRecord[];
   executionTargets: readonly OwnedDeviceExecutionTargetRecord[];
   liveSessions: readonly OrganizationComputerLiveSession[] | null;
+  includeUsageLimits: boolean;
   ownerUserId: string;
 }): OrganizationComputerRecord[] {
   const targetsByDeviceId = new Map<
@@ -96,7 +99,8 @@ function projectMemberComputers(input: {
       deviceType: device.deviceType ?? "unknown",
       lastSeenAtMs: device.lastObservedAtMs,
       localAgents: projectTeamSafeLocalAgents(
-        targetsByDeviceId.get(device.deviceId) ?? []
+        targetsByDeviceId.get(device.deviceId) ?? [],
+        input.includeUsageLimits
       ),
       ...(openMeldTools ? { openMeldTools } : {}),
       osVersion: device.osVersion,
@@ -136,7 +140,8 @@ function resolveComputerOpenMeldTools(input: {
 }
 
 function projectTeamSafeLocalAgents(
-  targets: readonly OwnedDeviceExecutionTargetRecord[]
+  targets: readonly OwnedDeviceExecutionTargetRecord[],
+  includeUsageLimits: boolean
 ): OrganizationComputerRecord["localAgents"] {
   const byRef = new Map<
     string,
@@ -146,7 +151,10 @@ function projectTeamSafeLocalAgents(
     if (!target.agentControllerRef) {
       continue;
     }
-    const details = projectTeamSafeLocalAgentDetails(target);
+    const details = projectTeamSafeLocalAgentDetails(
+      target,
+      includeUsageLimits
+    );
     const candidate: OrganizationComputerRecord["localAgents"][number] = {
       agentControllerRef: target.agentControllerRef,
       ...(details ? { details } : {}),
@@ -164,7 +172,8 @@ function projectTeamSafeLocalAgents(
 }
 
 function projectTeamSafeLocalAgentDetails(
-  target: OwnedDeviceExecutionTargetRecord
+  target: OwnedDeviceExecutionTargetRecord,
+  includeUsageLimits: boolean
 ): NonNullable<
   OrganizationComputerRecord["localAgents"][number]["details"]
 > | null {
@@ -175,7 +184,12 @@ function projectTeamSafeLocalAgentDetails(
   ) {
     return null;
   }
-  return projectOrganizationComputerLocalAgentDetails(snapshot);
+  const details = projectOrganizationComputerLocalAgentDetails(snapshot);
+  if (includeUsageLimits) {
+    return details;
+  }
+  const { usageLimits: _usageLimits, ...legacyDetails } = details;
+  return legacyDetails;
 }
 
 function compareLocalAgentEvidence(

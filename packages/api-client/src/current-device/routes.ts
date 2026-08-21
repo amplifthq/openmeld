@@ -30,13 +30,18 @@ export const LOCAL_RUNTIMES_ROUTE = "/v1/local-runtimes";
 
 export function buildLocalRuntimesRoute(input?: {
   connectionIdentityAdoption?: string;
+  includeUsageLimits?: "true";
 }): string {
-  if (!input?.connectionIdentityAdoption) {
+  if (!(input?.connectionIdentityAdoption || input?.includeUsageLimits)) {
     return LOCAL_RUNTIMES_ROUTE;
   }
-  const params = new URLSearchParams({
-    connectionIdentityAdoption: input.connectionIdentityAdoption,
-  });
+  const params = new URLSearchParams();
+  if (input.connectionIdentityAdoption) {
+    params.set("connectionIdentityAdoption", input.connectionIdentityAdoption);
+  }
+  if (input.includeUsageLimits) {
+    params.set("includeUsageLimits", input.includeUsageLimits);
+  }
   return `${LOCAL_RUNTIMES_ROUTE}?${params.toString()}`;
 }
 

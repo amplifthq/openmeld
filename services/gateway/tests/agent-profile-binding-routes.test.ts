@@ -500,12 +500,21 @@ describe("agent profile binding routes", () => {
         `http://local/v1/agent-profiles/${encodeURIComponent(AGENT_PROFILE_ID)}/primary-binding`,
         {
           body: JSON.stringify({
+            agentControllerConversationId: "native-session-1",
             agentControllerRef: "builtin:codex",
             deviceId: "device-1",
             lane: "openmeld-dev",
             openMeldServiceRuntimeId: {
               source: "runtime_registry_authority",
               value: "runtime_opaque_1",
+            },
+            sessionInventorySelection: {
+              computerId: "computer-1",
+              nativeSessionId: "native-session-1",
+              organizationId: "org-1",
+              ownerUserId: "owner-1",
+              projectId: "project-1",
+              provider: "codex",
             },
           }),
           headers: { "content-type": "application/json" },
@@ -524,12 +533,21 @@ describe("agent profile binding routes", () => {
     expect(coreRpc.ensureAgentProfilePrimaryBinding).toHaveBeenCalledWith(
       expect.objectContaining({
         agentProfileId: AGENT_PROFILE_ID,
+        agentControllerConversationId: "native-session-1",
         agentControllerRef: "builtin:codex",
         deviceId: "device-1",
         lane: "openmeld-dev",
         openMeldServiceRuntimeId: {
           source: "runtime_registry_authority",
           value: "runtime_opaque_1",
+        },
+        sessionInventorySelection: {
+          computerId: "computer-1",
+          nativeSessionId: "native-session-1",
+          organizationId: "org-1",
+          ownerUserId: "owner-1",
+          projectId: "project-1",
+          provider: "codex",
         },
       })
     );

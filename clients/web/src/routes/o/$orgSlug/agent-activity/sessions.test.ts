@@ -13,15 +13,21 @@ describe("Agent Activity Sessions search", () => {
 		);
 		expect(
 			validateSearch({
+				cursor: "cursor-page-2",
 				member: "user-1",
+				origin: "openmeld",
 				project: "project-one",
-				provider: "codex",
-				status: "working",
+				provider: "grok-build",
+				query: "native-session-1",
+				status: "unknown",
 			})
 		).toEqual({
+			cursor: "cursor-page-2",
 			member: "user-1",
-			provider: "codex",
-			status: "working",
+			origin: "openmeld",
+			provider: "grok-build",
+			query: "native-session-1",
+			status: "unknown",
 		});
 	});
 

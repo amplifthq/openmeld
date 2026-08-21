@@ -52,6 +52,9 @@ type SignalPublisherTarget = {
     dispatchId: string;
   }) => Promise<void>;
   flushPendingDispatchOutbox: () => Promise<void>;
+  recordOrganizationMemberHumanActivity: (
+    signal: SignalEnvelope
+  ) => Promise<void>;
   broadcast?: (signal: SignalEnvelope) => void;
   broadcastSignal?: (
     signal: SignalEnvelope,
@@ -3027,6 +3030,9 @@ describe("space signal consistency matrix", () => {
 
   it("publishes signal.text as persist success -> broadcast", async () => {
     const order: string[] = [];
+    const recordOrganizationMemberHumanActivity = vi
+      .fn()
+      .mockResolvedValue(undefined);
     const target: SignalPublisherTarget = {
       assertRemoteAgentFinalReplyWasNotStopped: vi.fn(),
       persistSignal: () => {
@@ -3039,6 +3045,7 @@ describe("space signal consistency matrix", () => {
       },
       enqueueDispatchMessageWithRetry: vi.fn().mockResolvedValue(undefined),
       flushPendingDispatchOutbox: vi.fn().mockResolvedValue(undefined),
+      recordOrganizationMemberHumanActivity,
       broadcastSignal: () => {
         order.push("broadcast");
       },
@@ -3051,6 +3058,7 @@ describe("space signal consistency matrix", () => {
 
     await publishTextSignal.call(target, makeSignal("signal.text"));
     expect(order).toEqual(["persist", "broadcast"]);
+    expect(recordOrganizationMemberHumanActivity).toHaveBeenCalledOnce();
   });
 
   it("emits retention warning only on main signal.text path and applies debounce", () => {
@@ -3169,6 +3177,9 @@ describe("space signal consistency matrix", () => {
       },
       enqueueDispatchMessageWithRetry: vi.fn().mockResolvedValue(undefined),
       flushPendingDispatchOutbox: vi.fn().mockResolvedValue(undefined),
+      recordOrganizationMemberHumanActivity: vi
+        .fn()
+        .mockResolvedValue(undefined),
       broadcastSignal: vi.fn(),
       ctx: {
         waitUntil: vi.fn(),
@@ -3193,6 +3204,9 @@ describe("space signal consistency matrix", () => {
       persistSignalWithOptionalOutbox,
       enqueueDispatchMessageWithRetry: vi.fn().mockResolvedValue(undefined),
       flushPendingDispatchOutbox: vi.fn().mockResolvedValue(undefined),
+      recordOrganizationMemberHumanActivity: vi
+        .fn()
+        .mockResolvedValue(undefined),
       broadcastSignal: vi.fn(),
       ctx: {
         waitUntil,
@@ -3242,6 +3256,9 @@ describe("space signal consistency matrix", () => {
   it("uses the outbox flush sender as the only queue writer when outbox message exists", async () => {
     const waitUntil = vi.fn();
     const pending: Promise<void>[] = [];
+    const recordOrganizationMemberHumanActivity = vi
+      .fn()
+      .mockResolvedValue(undefined);
     const target: SignalPublisherTarget = {
       assertRemoteAgentFinalReplyWasNotStopped: vi.fn(),
       persistSignal: vi.fn(),
@@ -3297,6 +3314,7 @@ describe("space signal consistency matrix", () => {
         }),
       enqueueDispatchMessageWithRetry: vi.fn().mockResolvedValue(undefined),
       flushPendingDispatchOutbox: vi.fn().mockResolvedValue(undefined),
+      recordOrganizationMemberHumanActivity,
       broadcastSignal: vi.fn(),
       ctx: {
         waitUntil: (promise) => {
@@ -3310,7 +3328,8 @@ describe("space signal consistency matrix", () => {
 
     await publishTextSignal.call(target, makeSignal("signal.text"));
     expect(target.broadcastSignal).toHaveBeenCalledTimes(1);
-    expect(waitUntil).toHaveBeenCalledTimes(1);
+    expect(recordOrganizationMemberHumanActivity).toHaveBeenCalledOnce();
+    expect(waitUntil).toHaveBeenCalledTimes(2);
     await Promise.all(pending);
     expect(target.enqueueDispatchMessageWithRetry).not.toHaveBeenCalled();
     expect(target.flushPendingDispatchOutbox).toHaveBeenCalledTimes(1);

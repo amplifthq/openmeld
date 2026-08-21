@@ -732,6 +732,7 @@ export const runDaemonServiceLoop = async (
   const controlPlaneDaemonVersion =
     daemonServiceContract?.daemonVersion ?? "unknown";
   const controlPlaneToken = await ensureDaemonControlPlaneToken();
+  let requestAgentActivitySync: (() => void) | null = null;
   const controlPlaneServer = await startLocalDaemonControlPlaneServer({
     expectedToken: controlPlaneToken,
     getContext: async () => ({
@@ -760,6 +761,13 @@ export const runDaemonServiceLoop = async (
         }),
       conversationExecutionStatusHandler: async (payload) =>
         await resolveLocalConversationExecutionStatus(payload),
+      requestAgentActivitySyncHandler: () => {
+        if (!requestAgentActivitySync) {
+          return { accepted: false };
+        }
+        requestAgentActivitySync();
+        return { accepted: true };
+      },
       syncRouteCatalogHandler: async (payload) =>
         await handleLocalControlPlaneRouteCatalogSync({
           payload,
@@ -881,7 +889,7 @@ export const runDaemonServiceLoop = async (
             : "daemon.run.agent_activity_sync_unavailable",
         text:
           result.status === "submitted"
-            ? `Local Agent reporting submitted ${String(result.submittedCount)} activity event(s) and ${String(result.controllerTaskEventSubmittedCount)} task callback event(s).`
+            ? `Local Agent reporting submitted ${String(result.submittedCount)} activity event(s), ${String(result.controllerTaskEventSubmittedCount)} task callback event(s), and ${String(result.sessionInventory.submittedSourceCount)} Session Inventory source(s).`
             : `Agent Activity sync deferred: ${result.reason ?? "unavailable"}.`,
         payload: {
           ...result.health,
@@ -890,12 +898,19 @@ export const runDaemonServiceLoop = async (
           controllerTaskHealth: result.controllerTaskHealth,
           observedCount: result.observedCount,
           reason: result.reason,
+          sessionInventory: result.sessionInventory,
           status: result.status,
           submittedCount: result.submittedCount,
         },
       });
     },
   });
+  requestAgentActivitySync = () => {
+    agentActivitySync.requestSync({
+      reconcile: true,
+      refreshContext: true,
+    });
+  };
   const agentActivityIntegrationRefresh =
     createManagedAgentActivityIntegrationRefreshScheduler({
       onError: (error) => {
@@ -917,7 +932,7 @@ export const runDaemonServiceLoop = async (
         });
       },
     });
-  const activateAgentActivityForProjectConnection = () => {
+  const refreshAgentActivityForProjectConnectionChange = () => {
     agentActivitySync.requestSync({
       reconcile: true,
       refreshContext: true,
@@ -1031,7 +1046,8 @@ export const runDaemonServiceLoop = async (
                 failure,
               });
             },
-            onLocalProjectConnected: activateAgentActivityForProjectConnection,
+            onLocalProjectConnectionsChanged:
+              refreshAgentActivityForProjectConnectionChange,
             ownerUserId,
             profileOwnerName,
             presenter: input.presenter,

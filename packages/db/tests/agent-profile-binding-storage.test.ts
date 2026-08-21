@@ -77,6 +77,9 @@ describe("Agent Profile Binding storage schema", () => {
       expect(indexes).toContain(
         "openMeldDaemon_agent_profile_bindings_enabled_primary_unique"
       );
+      expect(indexes).not.toContain(
+        "openMeldDaemon_agent_profile_bindings_enabled_controller_conversation_unique"
+      );
       expect(indexes).toContain(
         "idx_openMeldDaemon_agent_profile_bindings_openmeld_service_runtime_agent_controller"
       );
@@ -88,7 +91,7 @@ describe("Agent Profile Binding storage schema", () => {
     }
   });
 
-  it("enforces lifecycle checks and one enabled primary Binding per owner/profile", () => {
+  it("enforces lifecycle checks without rewriting historical conversation duplicates", () => {
     const database = new DatabaseSync(":memory:");
     try {
       applySharedMigrations(database);
@@ -130,13 +133,26 @@ describe("Agent Profile Binding storage schema", () => {
         openMeldServiceRuntimeId: "runtime_opaque_old_2",
       });
 
+      insertBinding(database, {
+        agentControllerConversationId: "native-session-1",
+        agentProfileId: "agent-profile-2",
+        bindingId: "binding_conversation_1",
+        openMeldServiceRuntimeId: "runtime_conversation_1",
+      });
+      insertBinding(database, {
+        agentControllerConversationId: "native-session-1",
+        agentProfileId: "agent-profile-3",
+        bindingId: "binding_conversation_2",
+        openMeldServiceRuntimeId: "runtime_conversation_2",
+      });
+
       expect(
         database
           .prepare(
             "SELECT binding_id FROM openMeldDaemon_agent_profile_bindings"
           )
           .all()
-      ).toHaveLength(3);
+      ).toHaveLength(5);
     } finally {
       database.close();
     }
@@ -146,6 +162,9 @@ describe("Agent Profile Binding storage schema", () => {
 function insertBinding(
   database: DatabaseSync,
   input: {
+    agentControllerConversationId?: string | null;
+    agentControllerRef?: string;
+    agentProfileId?: string;
     bindingId: string;
     bindingState?: "enabled_primary" | "disabled_historical";
     disabledAtMs?: number | null;
@@ -163,6 +182,7 @@ function insertBinding(
           agent_profile_id,
           openmeld_service_runtime_id,
           agent_controller_ref,
+          agent_controller_conversation_id,
           binding_state,
           created_at_ms,
           updated_at_ms,
@@ -170,13 +190,16 @@ function insertBinding(
           created_by_profile_id,
           reason_code
         )
-        VALUES (?, ?, 'owner-1', 'agent-profile-1', ?, 'builtin:codex', ?, 1000, 1000, ?, 'profile-1', 'agent_profile_binding.test')
+        VALUES (?, ?, 'owner-1', ?, ?, ?, ?, ?, 1000, 1000, ?, 'profile-1', 'agent_profile_binding.test')
       `
     )
     .run(
       input.bindingId,
       input.ownerKind ?? "owner_account",
+      input.agentProfileId ?? "agent-profile-1",
       input.openMeldServiceRuntimeId ?? "runtime_opaque_1",
+      input.agentControllerRef ?? "builtin:codex",
+      input.agentControllerConversationId ?? null,
       input.bindingState ?? "enabled_primary",
       input.disabledAtMs ?? null
     );

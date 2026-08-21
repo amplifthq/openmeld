@@ -6,6 +6,7 @@ export {
   listAgentControllerCollaborationModeOptions,
   resolveNativeAgentControllerCollaborationModeForController,
 } from "./agent-controller-collaboration-mode";
+export { areAgentControllerInterfaceAccountsSame } from "./agent-controller-interface-auth";
 export {
   type AgentControllerInterfaceDisplayRow,
   type AgentControllerVersionAdvisoryPresentation,

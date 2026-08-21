@@ -310,6 +310,7 @@ import type {
   UpdateOrganizationSkillRpcInput,
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
+import { acceptAgentActivitySessionInventoryMemberCleanup } from "./agent-activity/activity-session-inventory-member-cleanup-service";
 import { reconcileDeletedAgentProfile } from "./agent-profile-binding/application/deleted-profile-reconcile-service";
 import {
   type CenterAgentCreateAgentProfileCreationRequestRpcInput,
@@ -382,7 +383,12 @@ import {
   rpcMarkSpaceInboxReadThrough,
   rpcUpdateInboxNotificationPreferences,
 } from "./inbox/transport/rpc/inbox-rpc";
-import { type CoreBindings, localStateDb, projectionsDb } from "./lib/bindings";
+import {
+  agentActivityDb,
+  type CoreBindings,
+  localStateDb,
+  projectionsDb,
+} from "./lib/bindings";
 import { rpcCenterAgentManageOrganizationDocuments } from "./organization-documents/center-agent-document-rpc";
 import {
   rpcApproveOrganizationDocumentDraft,
@@ -423,6 +429,7 @@ import {
   rpcCenterAgentGetOrganizationInviteLink,
 } from "./organizations/center-agent-organization-invite-link-rpc";
 import { rpcCenterAgentSetOrganizationWorkingLanguage } from "./organizations/center-agent-working-language-rpc";
+import { resolveOrganizationMembershipById } from "./organizations/organization-context";
 import { PrepareSessionHub } from "./prepare-session/transport/do/prepare-session-hub";
 import {
   type CreatePrepareSessionInput,
@@ -490,6 +497,7 @@ import {
   type CenterAgentCreateConfiguredAgentProfileInput,
   type CenterAgentCreateSpaceInput,
   type CenterAgentEnableAgentProfileInput,
+  type CenterAgentListAgentActivitySessionsInput,
   type CenterAgentListAgentTasksInput,
   type CenterAgentListComputersInput,
   type CenterAgentListLocalAgentConnectionCandidatesInput,
@@ -629,6 +637,7 @@ import {
   type PreviewMessageChannelIdentityLinkInput,
   type PreviewSlackIdentityLinkInput,
   type PutSpaceContractInput,
+  type ReadAgentActivitySessionInventoryInput,
   type ReadAgentActivitySnapshotInput,
   type ReadAgentActivityStatsInput,
   type ReadCenterAgentOrganizationMemoryPolicyInput,
@@ -672,6 +681,7 @@ import {
   rpcCenterAgentEnableAgentProfile,
   rpcCenterAgentGetOrganizationDirectory,
   rpcCenterAgentGetOrganizationSpaceDirectory,
+  rpcCenterAgentListAgentActivitySessions,
   rpcCenterAgentListAgentTasks,
   rpcCenterAgentListComputers,
   rpcCenterAgentListLocalAgentConnectionCandidates,
@@ -812,6 +822,7 @@ import {
   rpcPreviewMessageChannelIdentityLink,
   rpcPreviewSlackIdentityLink,
   rpcPutSpaceContract,
+  rpcReadAgentActivitySessionInventory,
   rpcReadAgentActivitySnapshot,
   rpcReadAgentActivityStats,
   rpcReadCenterAgentOrganizationMemoryPolicy,
@@ -846,6 +857,7 @@ import {
   rpcSetOrganizationInformationProtectionPolicy,
   rpcSetSpaceAccessMode,
   rpcSubmitAgentActivityEvents,
+  rpcSubmitAgentActivitySessionReconciliation,
   rpcSubmitAgentControllerTaskLifecycleEvents,
   rpcSubmitRuntimeAgentControllerReports,
   rpcSubmitRuntimeProviderConversationProofs,
@@ -883,6 +895,7 @@ import {
   type SpaceAccessModeStateResult,
   type SpacePasswordStateResult,
   type SubmitAgentActivityEventsInput,
+  type SubmitAgentActivitySessionReconciliationInput,
   type SubmitAgentControllerTaskLifecycleEventsInput,
   type SubmitRuntimeAgentControllerReportsInput,
   type SubmitRuntimeProviderConversationProofsInput,
@@ -934,6 +947,65 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ProjectSpaceIndexMembershipOverlayRpcInput
   ): Promise<ProjectSpaceIndexMembershipOverlayRpcResult> {
     return rpcProjectSpaceIndexMembershipOverlay(this.env, input);
+  }
+
+  async requestAgentActivitySessionInventoryCleanupForOrganizationMember(input: {
+    organizationId?: string | null;
+    userId?: string | null;
+  }): Promise<{
+    accepted?: boolean;
+    code?: string;
+    deleted?: {
+      candidateCount: number;
+      inventoryCount: number;
+      sourceCount: number;
+    };
+    ok: boolean;
+    pending?: boolean;
+  }> {
+    const organizationId = normalizeOptionalRpcText(input.organizationId);
+    const userId = normalizeOptionalRpcText(input.userId);
+    if (!(organizationId && userId)) {
+      return { code: "invalid_payload", ok: false };
+    }
+    const db = agentActivityDb(this.env);
+    if (!db) {
+      return { code: "agent_activity.store_unavailable", ok: false };
+    }
+    const result = await acceptAgentActivitySessionInventoryMemberCleanup({
+      db,
+      nowMs: Date.now(),
+      organizationId,
+      ownerUserId: userId,
+      resolveMembershipState: async (subject) => {
+        const membership = await resolveOrganizationMembershipById({
+          env: this.env,
+          organizationId: subject.organizationId,
+          userId: subject.ownerUserId,
+        });
+        if (membership.ok) {
+          return "active";
+        }
+        return membership.code === "organization.membership_required"
+          ? "removed"
+          : "unavailable";
+      },
+    });
+    return {
+      accepted: true,
+      deleted: result.deleted,
+      ok: true,
+      pending: result.pending,
+    };
+  }
+
+  deleteAgentActivitySessionInventoryForOrganizationMember(input: {
+    organizationId?: string | null;
+    userId?: string | null;
+  }) {
+    return this.requestAgentActivitySessionInventoryCleanupForOrganizationMember(
+      input
+    );
   }
 
   async deleteCenterAgentMemberMemory(input: {
@@ -1103,6 +1175,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcSubmitAgentActivityEvents(this.env, input);
   }
 
+  submitAgentActivitySessionReconciliation(
+    input: SubmitAgentActivitySessionReconciliationInput
+  ) {
+    return rpcSubmitAgentActivitySessionReconciliation(this.env, input);
+  }
+
   submitAgentControllerTaskLifecycleEvents(
     input: SubmitAgentControllerTaskLifecycleEventsInput
   ) {
@@ -1111,6 +1189,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
 
   readAgentActivitySnapshot(input: ReadAgentActivitySnapshotInput) {
     return rpcReadAgentActivitySnapshot(this.env, input);
+  }
+
+  readAgentActivitySessionInventory(
+    input: ReadAgentActivitySessionInventoryInput
+  ) {
+    return rpcReadAgentActivitySessionInventory(this.env, input);
   }
 
   readAgentActivityStats(input: ReadAgentActivityStatsInput) {
@@ -2967,8 +3051,20 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.submitAgentActivityEvents(input);
   }
 
+  submitAgentActivitySessionReconciliation(
+    input: SubmitAgentActivitySessionReconciliationInput
+  ) {
+    return super.submitAgentActivitySessionReconciliation(input);
+  }
+
   readAgentActivitySnapshot(input: ReadAgentActivitySnapshotInput) {
     return super.readAgentActivitySnapshot(input);
+  }
+
+  readAgentActivitySessionInventory(
+    input: ReadAgentActivitySessionInventoryInput
+  ) {
+    return super.readAgentActivitySessionInventory(input);
   }
 
   readAgentActivityStats(input: ReadAgentActivityStatsInput) {
@@ -4460,6 +4556,12 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
 
   centerAgentReadAgentActivity(input: CenterAgentReadAgentActivityInput) {
     return rpcCenterAgentReadAgentActivity(this.env, input);
+  }
+
+  centerAgentListAgentActivitySessions(
+    input: CenterAgentListAgentActivitySessionsInput
+  ) {
+    return rpcCenterAgentListAgentActivitySessions(this.env, input);
   }
 
   centerAgentReadChangelog(input: CenterAgentReadChangelogInput) {

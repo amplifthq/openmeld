@@ -1082,8 +1082,10 @@ from Computer, login/session, or Agent Activity timestamps.
 by Web and the Center Agent. Agent View exposes the exact validated Computer,
 owner, local-agent controller, readiness, version, model, and capability fields
 that the Organization contract permits; `--json` emits the strict versioned
-`organization.computers` envelope. It never expands the projection with private
-local paths, account identities, launch commands, or private skills.
+`organization.computers` envelope. Usage Limits are requested explicitly on
+this compatibility-sensitive endpoint so older readers keep the legacy shape.
+The command never expands the projection with private local paths, account
+identities, launch commands, or private skills.
 
 `org invite-link get|create|revoke` manages the active Organization invite link
 through Auth's owner/admin permission boundary. The CLI sends only the active

@@ -242,6 +242,17 @@ export function emitProviderRuntimePhaseLine(input: {
         },
       });
       return;
+    case "provider_usage_limits_observed":
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.provider_usage_limits_observed",
+        text: `provider usage limits observed for task ${input.taskId}`,
+        payload: {
+          ...basePayload,
+          observedLimitKeys: input.event.usageLimits.map((limit) => limit.key),
+        },
+      });
+      return;
     default:
       return;
   }

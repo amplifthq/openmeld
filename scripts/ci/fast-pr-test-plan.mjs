@@ -26,6 +26,14 @@ const HEAVY_UNIT_SUITES = [
     slug: "core",
     shardCount: 2,
   },
+  {
+    config: "vitest.config.ts",
+    label: "Gateway",
+    package: "@openmeld/gateway",
+    requiresDependencyBuild: true,
+    slug: "gateway",
+    shardCount: 2,
+  },
 ];
 
 const HEAVY_UNIT_PACKAGE_NAMES = new Set(

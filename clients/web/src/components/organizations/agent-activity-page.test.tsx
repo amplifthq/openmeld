@@ -1,5 +1,8 @@
 import type {
+	AgentActivityInventoryCoverage,
+	AgentActivityInventorySession,
 	AgentActivityPublicSession,
+	AgentActivitySessionInventoryResponse,
 	AgentActivitySnapshotResponse,
 	AgentActivityStatsResponse,
 	ListProjectsResponse,
@@ -36,10 +39,6 @@ const PRIVACY_COPY_PATTERN =
 const REFRESH_FAILURE_PATTERN = /could not refresh current agent activity/iu;
 const TRUNCATED_ACTIVITY_PATTERN = /newest 500 matching records/iu;
 const FELIX_LANE_PATTERN = /Felix · Codex · working 26m/iu;
-const CLI_VERSION_PATTERN = /cli 0\.144\.1/iu;
-const CONTEXT_WINDOW_PATTERN = /272k ctx/iu;
-const SANDBOX_PATTERN = /sandbox: danger-full-access/iu;
-const REASONING_PATTERN = /reasoning: xhigh/iu;
 const SINCE_DATE_PATTERN = /since Jan 2, 2026/iu;
 const TILDE_VALUE_PATTERN = /^~/u;
 const COPY_PATTERN = /Copy/iu;
@@ -73,6 +72,7 @@ const {
 	navigateToSessions,
 	organization,
 	readDirectory,
+	readSessions,
 	readSnapshot,
 	readStats,
 } = vi.hoisted(() => ({
@@ -90,6 +90,14 @@ const {
 	})),
 	navigateToSessions: vi.fn(),
 	readDirectory: vi.fn<() => Promise<OrganizationDirectoryResponse>>(),
+	readSessions:
+		vi.fn<
+			(input: {
+				organizationId: string;
+				projectId?: string;
+				provider?: string;
+			}) => Promise<AgentActivitySessionInventoryResponse>
+		>(),
 	readSnapshot:
 		vi.fn<
 			(input: {
@@ -108,13 +116,17 @@ const {
 }));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
-	useAppOrganization: () => ({ currentOrganization: organization }),
+	useAppOrganization: () => ({
+		currentOrganization: organization,
+		currentUserId: "user-1",
+	}),
 }));
 vi.mock("#/lib/organizations/agent-activity", async (importOriginal) => {
 	const original =
 		await importOriginal<typeof import("#/lib/organizations/agent-activity")>();
 	return {
 		...original,
+		readCurrentAgentActivitySessions: readSessions,
 		readCurrentAgentActivitySnapshot: readSnapshot,
 		readCurrentAgentActivityStats: readStats,
 	};
@@ -157,6 +169,9 @@ afterEach(() => {
 	readSnapshot.mockImplementation(async (input) =>
 		snapshot({ organizationId: input.organizationId })
 	);
+	readSessions.mockImplementation(async (input) =>
+		sessionInventory({ organizationId: input.organizationId })
+	);
 	readStats.mockImplementation(async (input) =>
 		stats({ organizationId: input.organizationId })
 	);
@@ -165,6 +180,9 @@ afterEach(() => {
 readDirectory.mockResolvedValue(directory());
 readSnapshot.mockImplementation(async (input) =>
 	snapshot({ organizationId: input.organizationId })
+);
+readSessions.mockImplementation(async (input) =>
+	sessionInventory({ organizationId: input.organizationId })
 );
 readStats.mockImplementation(async (input) =>
 	stats({ organizationId: input.organizationId })
@@ -347,23 +365,28 @@ describe("Agent Activity pages", () => {
 		readSnapshot.mockResolvedValue(
 			snapshot({ projects, sessions: [session({ provider: "codex" })] })
 		);
-
 		renderPage("sessions", {
 			onSessionFiltersChange,
 			sessionFilters: {
+				cursor: null,
 				memberUserId: null,
+				origin: null,
 				provider: "claude-code",
+				query: null,
 				status: null,
 			},
 		});
 
 		expect(
-			await screen.findByText("No sessions match these filters.")
+			await screen.findByText("No Sessions match these filters.")
 		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
 		expect(onSessionFiltersChange).toHaveBeenCalledWith({
+			cursor: null,
 			memberUserId: null,
+			origin: null,
 			provider: null,
+			query: null,
 			status: null,
 		});
 	});
@@ -412,6 +435,24 @@ describe("Agent Activity pages", () => {
 									id: "project-two-session",
 									projectId: "project-two",
 									title: "Project Two work",
+								}),
+							]
+						: [],
+			})
+		);
+		readSessions.mockImplementation(async (input) =>
+			sessionInventory({
+				organizationId: input.organizationId,
+				sessions:
+					input.projectId === "project-two"
+						? [
+								inventorySession({
+									nativeSessionTitle: "Project Two work",
+									project: {
+										id: "project-two",
+										name: "Agent Router",
+										slug: "agent-router",
+									},
 								}),
 							]
 						: [],
@@ -595,6 +636,18 @@ describe("Agent Activity pages", () => {
 				sessions,
 			})
 		);
+		readSessions.mockResolvedValue(
+			sessionInventory({
+				asOfMs: nowMs,
+				sessions: [
+					inventorySession({
+						lastActiveAtMs: nowMs,
+						nativeSessionId: "native-codex-thread-1",
+						nativeSessionTitle: "Build Agent Activity",
+					}),
+				],
+			})
+		);
 
 		const overview = renderPage("overview");
 		await waitFor(() => {
@@ -615,25 +668,22 @@ describe("Agent Activity pages", () => {
 		overview.unmount();
 		const sessionsPage = renderPage("sessions");
 		expect(await screen.findByText("Build Agent Activity")).toBeTruthy();
-		expect(screen.getByText(CLI_VERSION_PATTERN)).toBeTruthy();
-		expect(screen.getByText(CONTEXT_WINDOW_PATTERN)).toBeTruthy();
-		expect(screen.getByText(SANDBOX_PATTERN)).toBeTruthy();
-		expect(screen.getByText(REASONING_PATTERN)).toBeTruthy();
-		expect(screen.getByText("Codex session")).toBeTruthy();
-		expect(screen.queryByText("Untitled session")).toBeNull();
-		expect(screen.queryByText("Untitled coding session")).toBeNull();
+		expect(screen.getByText("native-codex-thread-1")).toBeTruthy();
+		expect(screen.getByText("Felix’s Mac")).toBeTruthy();
+		expect(screen.getAllByText("Created locally").length).toBeGreaterThan(0);
 		expect(
-			sessionsPage.container.querySelector(
-				'img[src="https://example.test/felix.png"]'
-			)
+			screen.getByRole("button", { name: "Copy Native Session ID" })
 		).toBeTruthy();
 		expect(
 			screen
-				.getByText("Session history")
+				.getByText("Session inventory")
 				.closest('[data-slot="card"]')
 				?.className.includes("rounded-md")
 		).toBe(true);
 		expect(screen.queryByText(PROVIDER_SESSION_ID_PATTERN)).toBeNull();
+		expect(sessionsPage.container.textContent).not.toContain(
+			"danger-full-access"
+		);
 	});
 
 	it("shows dashboard stats from snapshot and STATS1 without blocking on aggregate failure", async () => {
@@ -668,22 +718,160 @@ describe("Agent Activity pages", () => {
 		expect(screen.queryByText(TRUNCATED_ACTIVITY_PATTERN)).toBeNull();
 	});
 
-	it("keeps the newest-record limit in the Session history tooltip", async () => {
-		readSnapshot.mockResolvedValueOnce(
-			snapshot({
-				sessionsTruncated: true,
+	it("does not offer Resume for a stale Session", async () => {
+		const nowMs = Date.now();
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects: [project({ id: "project-active" })],
+		});
+		readSessions.mockResolvedValue(
+			sessionInventory({
+				asOfMs: nowMs,
+				sessions: [
+					inventorySession({
+						dataState: "stale",
+						inventoryUpdatedAtMs: nowMs - 10 * 60_000,
+					}),
+				],
 			})
 		);
+
 		renderPage("sessions");
 
-		const limitInformation = await screen.findByRole("button", {
-			name: "About the Session history limit",
+		expect(await screen.findByText("Data may be stale")).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Resume as Agent Profile" })
+		).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Create Agent Profile" })
+		).toBeTruthy();
+	});
+
+	it.each([
+		{
+			message:
+				"OpenMeld couldn't establish the current Session Inventory. No Sessions are shown until the connected computer reports a complete inventory.",
+			state: "error" as const,
+		},
+		{
+			message:
+				"Session Inventory is stale, so OpenMeld isn't claiming there are no Sessions. Wait for a fresh sync from the connected computer.",
+			state: "stale" as const,
+		},
+	])("keeps $state empty inventory coverage explicit", async ({
+		message,
+		state,
+	}) => {
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects: [project({ id: "project-active" })],
 		});
-		expect(screen.queryByText(TRUNCATED_ACTIVITY_PATTERN)).toBeNull();
+		readSessions.mockResolvedValue(
+			sessionInventory({ coverage: [inventoryCoverage(state)] })
+		);
 
-		fireEvent.focus(limitInformation);
+		renderPage("sessions");
 
-		expect(await screen.findByText(TRUNCATED_ACTIVITY_PATTERN)).toBeTruthy();
+		expect(await screen.findByText(message)).toBeTruthy();
+		expect(
+			screen.queryByText(
+				"No Sessions are currently available from connected Projects."
+			)
+		).toBeNull();
+	});
+
+	it.each([
+		{
+			message:
+				"OpenMeld couldn't establish the current Session Inventory. No Sessions are shown until the connected computer reports a complete inventory.",
+			state: "error" as const,
+		},
+		{
+			message:
+				"Session Inventory is stale, so OpenMeld isn't claiming there are no Sessions. Wait for a fresh sync from the connected computer.",
+			state: "stale" as const,
+		},
+	])("shows $state coverage before a filtered-empty explanation", async ({
+		message,
+		state,
+	}) => {
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects: [project({ id: "project-active" })],
+		});
+		readSessions.mockResolvedValue(
+			sessionInventory({ coverage: [inventoryCoverage(state)] })
+		);
+
+		renderPage("sessions", {
+			sessionFilters: {
+				cursor: null,
+				memberUserId: null,
+				origin: null,
+				provider: "codex",
+				query: null,
+				status: null,
+			},
+		});
+
+		expect(await screen.findByText(message)).toBeTruthy();
+		expect(screen.queryByText("No Sessions match these filters.")).toBeNull();
+		expect(screen.getByRole("button", { name: "Clear filters" })).toBeTruthy();
+	});
+
+	it("does not offer Agent Profile actions for a Session with conflicting connections", async () => {
+		listProjects.mockResolvedValue({
+			organizationId: "org-acme",
+			projects: [project({ id: "project-active" })],
+		});
+		readSessions.mockResolvedValue(
+			sessionInventory({
+				sessions: [inventorySession({ bindingState: "conflict" })],
+			})
+		);
+
+		renderPage("sessions");
+
+		expect(
+			await screen.findByText(
+				"This Session has conflicting Agent Profile connections."
+			)
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Resume as Agent Profile" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Create Agent Profile" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Fork as Agent Profile" })
+		).toBeNull();
+	});
+
+	it("uses the Core cursor for stable Session Inventory pagination", async () => {
+		const onSessionFiltersChange = vi.fn();
+		listProjects.mockResolvedValueOnce({
+			organizationId: "org-acme",
+			projects: [project({ id: "project-active" })],
+		});
+		readSessions.mockResolvedValueOnce(
+			sessionInventory({
+				nextCursor: "cursor-page-2",
+				sessions: [inventorySession()],
+			})
+		);
+		renderPage("sessions", { onSessionFiltersChange });
+
+		fireEvent.click(await screen.findByRole("button", { name: "Next page" }));
+
+		expect(onSessionFiltersChange).toHaveBeenCalledWith({
+			cursor: "cursor-page-2",
+			memberUserId: null,
+			origin: null,
+			provider: null,
+			query: null,
+			status: null,
+		});
 	});
 
 	it("distinguishes earlier daily aggregates from today's live agent time", async () => {
@@ -1005,8 +1193,11 @@ function renderSection(
 		return <AgentActivityChanges />;
 	}
 	const filters: AgentActivitySessionsFilters = options.sessionFilters ?? {
+		cursor: null,
 		memberUserId: null,
+		origin: null,
 		provider: null,
+		query: null,
 		status: null,
 	};
 	return (
@@ -1030,6 +1221,73 @@ function snapshot(
 		sessions: [],
 		sessionsTruncated: false,
 		stalenessThresholdMs: 300_000,
+		...overrides,
+	};
+}
+
+function sessionInventory(
+	overrides: Partial<AgentActivitySessionInventoryResponse> & {
+		organizationId?: string;
+	} = {}
+): AgentActivitySessionInventoryResponse {
+	const organizationId = overrides.organizationId ?? "org-acme";
+	return {
+		asOfMs: Date.now(),
+		coverage: [],
+		nextCursor: null,
+		organization: { id: organizationId, name: "Acme" },
+		sessions: [],
+		...overrides,
+	};
+}
+
+function inventoryCoverage(
+	state: AgentActivityInventoryCoverage["state"]
+): AgentActivityInventoryCoverage {
+	const nowMs = Date.now();
+	return {
+		agentControllerRef: "builtin:codex",
+		computerId: "computer-public-1",
+		lastAttemptAtMs: nowMs,
+		lastCompleteAtMs: state === "stale" ? nowMs - 60_000 : null,
+		problemCode: state === "error" ? "provider_error" : "inventory_stale",
+		projectId: "project-active",
+		provider: "codex",
+		state,
+	};
+}
+
+function inventorySession(
+	overrides: Partial<AgentActivityInventorySession> = {}
+): AgentActivityInventorySession {
+	const nowMs = Date.now();
+	return {
+		boundAgentProfileId: null,
+		bindingState: "unbound",
+		canFork: false,
+		canResume: true,
+		computer: {
+			id: "computer-public-1",
+			lastSeenAtMs: nowMs,
+			name: "Felix’s Mac",
+			state: "online",
+		},
+		dataState: "current",
+		inventoryUpdatedAtMs: nowMs,
+		lastActiveAtMs: nowMs,
+		localAgent: {
+			agentControllerRef: "builtin:codex",
+			name: "Codex",
+			provider: "codex",
+		},
+		nativeSessionId: "native-thread-1",
+		nativeSessionTitle: "Build Agent Activity",
+		organization: { id: "org-acme", name: "Acme" },
+		origin: "local",
+		owner: { name: "Felix", userId: "user-1" },
+		project: { id: "project-active", name: "OpenMeld", slug: "openmeld" },
+		startedAtMs: nowMs - 60_000,
+		status: "working",
 		...overrides,
 	};
 }

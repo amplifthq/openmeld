@@ -206,26 +206,49 @@ describe("org commands", () => {
     });
   });
 
-  it("returns the exact team-safe Organization Computers contract in agent view", async () => {
+  it("returns the team-safe Organization Computers contract with Usage Limits in JSON output", async () => {
     const computers = buildOrganizationComputersFixture();
     const calls = mockOrganizationFetch({ computers });
 
     await withTempHome(async () => {
-      await writeSignedInSession();
+      await writeSignedInSession({ role: "member" });
 
       const result = await runCommandAndCapture(() =>
-        runOrgComputers({ json: false, view: "agent" })
+        runOrgComputers({ json: true, view: "agent" })
       );
 
       expect(result.exitCode).toBeUndefined();
-      expect(
-        parseJsonLine(result.stdout, "organization.computers")?.payload
-      ).toEqual(computers);
+      expect(JSON.parse(result.stdout.trim())).toEqual({
+        schemaVersion: 1,
+        type: "organization.computers",
+        ...computers,
+      });
     });
 
-    expect(calls.map((call) => call.pathname)).toContain(
-      "/v1/organizations/current/computers"
-    );
+    expect(calls).toContainEqual({
+      pathname: "/v1/organizations/current/computers",
+      search: "?includeUsageLimits=true",
+      method: "GET",
+      body: null,
+    });
+  });
+
+  it("keeps Local Agent readiness visible beside Usage Limits in human output", async () => {
+    const computers = buildOrganizationComputersFixture();
+    mockOrganizationFetch({ computers });
+
+    await withTempHome(async () => {
+      await writeSignedInSession({ role: "member" });
+
+      const result = await runCommandAndCapture(() =>
+        runOrgComputers({ json: false, view: "human" })
+      );
+
+      expect(result.exitCode).toBeUndefined();
+      expect(result.plainStdout).toContain(
+        "builtin:codex · not_ready · 5-hour usage · 42% used · available"
+      );
+    });
   });
 
   it("keeps unauthenticated directory failures machine-readable in JSON output", async () => {
@@ -611,24 +634,51 @@ function buildOrganizationComputersFixture() {
   return {
     computers: [
       {
-        computerId: "computer-1",
-        deviceDisplayName: "Design Mac",
+        computerId: "computer-teammate",
+        deviceDisplayName: "Teammate Mac",
         deviceType: "laptop" as const,
-        lastSeenAtMs: 1_777_000_000_000,
+        lastSeenAtMs: 1_777_777_777_777,
         localAgents: [
           {
             agentControllerRef: "builtin:codex",
+            details: {
+              capabilities: {
+                approvals: true,
+                cancel: true,
+                interrupt: true,
+                modelSelection: true,
+                nativeEventStream: true,
+                permissionModes: true,
+                structuredUserInput: true,
+              },
+              checkedAt: "2026-08-20T10:00:00.000Z",
+              launch: { installChoiceCount: 1, status: "ready" as const },
+              models: [{ displayName: "GPT-5" }],
+              nativeInterface: "codex-app-server" as const,
+              status: "ready" as const,
+              usageLimits: [
+                {
+                  key: "codex:primary",
+                  label: "5-hour usage",
+                  observedAt: "2026-08-20T10:00:00.000Z",
+                  resetsAt: "2026-08-20T12:00:00.000Z",
+                  status: "available" as const,
+                  usedPercent: 42,
+                },
+              ],
+              version: "0.148.0",
+            },
             enabled: true,
-            status: "ready" as const,
+            status: "not_ready" as const,
           },
         ],
-        osVersion: "15.5",
-        ownerUserId: "user-2",
+        osVersion: "15.6",
+        ownerUserId: "user-teammate",
         platformFamily: "macOS" as const,
         serviceState: "connected" as const,
       },
     ],
-    generatedAt: "2026-08-20T05:00:00.000Z",
+    generatedAt: "2026-08-20T10:00:00.000Z",
     organizationId: "org-1",
   };
 }

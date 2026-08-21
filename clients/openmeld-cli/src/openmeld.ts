@@ -11,6 +11,7 @@ import {
 } from "./agent-activity/activity-command";
 import {
   runAgentActivityRead,
+  runAgentActivitySessions,
   runProjectsArchive,
   runProjectsBind,
   runProjectsCreate,
@@ -894,7 +895,7 @@ orgCmd
 
 orgCmd
   .command("computers")
-  .description("List Organization-visible Computers and local agents.")
+  .description("List member Computers and team-safe Local Agent details.")
   .option("--json", "Print one machine-readable JSON envelope.", false)
   .action(async (opts: { json?: boolean }) => {
     const json = opts.json === true;
@@ -1547,6 +1548,7 @@ registerAgentActivityCommands(program, {
   hook: runActivityHook,
   install: runActivityInstall,
   read: runAgentActivityRead,
+  sessions: runAgentActivitySessions,
   status: runActivityStatus,
   sync: runActivitySync,
   uninstall: runActivityUninstall,

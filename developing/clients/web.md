@@ -716,12 +716,36 @@ last-seen time, coarse Service state, team-safe local-agent availability, and
 visible Agents that use it. A reported local agent may also expose operational
 details that help teammates understand compatibility: controller state, native
 interface, installed version and update status, launch readiness and install
-count, reported model names, native capabilities, and last-check time. It does
+count, reported model names, native capabilities, last-check time, and
+provider-reported Usage Limits. It does
 not expose controller accounts, executable or installation paths, launch
 arguments, update commands, private skills, local policy, credentials, raw
 errors, or mutation controls. A live Service may expose team-safe OpenMeld
 Tools component versions and update states; setup commands, hashes, and
 owner-only controls remain private.
+
+Each Local Agent renders its `usageLimits` list inside the existing expandable
+row. Usage Limit evidence does not create a separate page or make the row expand
+automatically. In the collapsed row, a compact summary follows the existing
+version and update metadata; its tooltip previews every reported window, and
+selecting the existing row reveals the full gauges in its details. Owned and
+teammate Computers use the same shared summary and accessible gauge component.
+A provider with no quantified evidence does not add a collapsed-row badge or
+placeholder gauge. Web explicitly opts in to both owner and Organization
+projections and refreshes them while the Computers surface is active.
+A gauge names the limit, exposes its 0–100 used value to assistive technology,
+shows the used percentage in text, shows reset and last-observed time, and names
+the state so color is never the only signal. The UI derives **Low** when a fresh
+available limit is at least 80% used; it does not store a second status or
+remaining percentage. Unknown values have no gauge and never appear as 0%,
+100%, or unlimited.
+
+The UI keeps multiple provider windows separate and handles offline Computers,
+expired evidence, temporary provider failure, permanent lack of support, and a
+supported provider that has never returned evidence. Last-known percentages on
+an offline or expired Computer are **Stale**. A temporary first-read failure is
+**Unavailable**; no native provider source is **Unsupported**. Copy states that
+capacity information does not control whether the Local Agent can run.
 
 Owned and teammate Computers reuse the same Computer summary, **OpenMeld
 Tools**, and **Local agents** presentation components. Web applies visibility
@@ -1619,13 +1643,33 @@ accordion or second session-detail surface. Whole-hour ticks that would sit
 within four percent of the Now tick are omitted. Its empty state keeps the
 copyable Project bind guidance.
 
-**Sessions** owns the full public session table. Provider and
-Working/Idle/Offline controls consume locally derived facet counts and use URL
-search state, including member deep links from Activity timeline. Project is intentionally
-absent from the Sessions toolbar because the shared header is its single source
-of scope. The table renders member, session, provider, Project, branch, model,
-duration, and status plus one compact reviewed provider-metadata row. It does
-not render provider session ids, device ids, or local paths.
+**Sessions** owns the complete current Local Agent Session Inventory. It uses
+the separate shared paginated Core query rather than the bounded Activity
+snapshot. Provider, Working/Idle/Ended/Error/Unknown, Owner, origin, and search
+controls are URL state and are sent to Core. Project remains absent from its
+toolbar because the shared header is its single source of Project scope. Next
+page navigation uses the opaque Core cursor; a later page can return directly
+to the first page, and every filter change resets the cursor.
+
+Each row renders the provider-native title, copyable native Session id, Owner,
+Project, public Computer name, Local Agent, status, last activity, origin,
+Resume/Fork capability, and authoritative bound Agent Profile. It never renders
+an internal device id, Service runtime id, local connection hash, local path,
+prompt preview, branch, model, transcript-derived summary, or arbitrary
+provider metadata. Missing native title is **No native title**; Web does not
+invent a provider-name title.
+
+Coverage facts own honest empty and degraded states: waiting for first sync,
+syncing, current empty, stale data, disconnected Project, offline Computer,
+unsupported provider, and reconciliation error are distinct. Web does not turn
+a failed or unsupported source into “No sessions.”
+
+Bound Sessions open the authoritative Agent Profile. Eligible unbound Sessions
+offer Create Agent Profile. Resume as Agent Profile and Fork as Agent Profile
+are shown only from the returned capabilities and delegate all mutation and
+authorization to Agent Profile creation. Add to Space delegates to canonical
+Space membership. A Working Resume may show one lightweight suggestion to Fork
+when available, but Web neither blocks it nor builds a recommendation score.
 
 **Changes** owns the full current state-transition list. Heartbeats and generic
 session updates remain folded, with the heartbeat count disclosed below the
@@ -1634,7 +1678,7 @@ same member, provider, and Project becomes one **started working** entry.
 Changes is not capped below the snapshot's existing 100-event boundary.
 
 `clients/web/src/components/organizations/agent-activity-derive.ts` remains the
-single browser derivation entry for all three pages. It owns current-active
+single browser derivation entry for Overview and Changes. It owns current-active
 evaluation, local-day span totals, peak concurrency, busiest Project, longest
 visible run, facets, timeline clipping, and Changes folding. An expired
 `isActive` claim is never displayed as current. Durations below one minute use
@@ -1652,7 +1696,7 @@ completed summary visible and says the new summary failed; Web never generates
 a fallback summary. Provider or status filtering hides Project digests rather
 than presenting an unfiltered summary beside filtered activity.
 
-Public rendering receives provider-supplied session titles and explicitly opts
+Legacy snapshot rendering receives provider-supplied session titles and explicitly opts
 in to the optional, strict provider-specific source metadata projection. It
 renders every reviewed field that Core returns. A missing title is displayed as
 `{Provider} session`; Web never introduces an `Untitled session` state. Readers

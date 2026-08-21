@@ -119,6 +119,30 @@ function buildForgetComputerStatements(input: {
     input.db
       .prepare(
         `
+          DELETE FROM agent_activity_session_inventory_candidates
+          WHERE owner_user_id = ? AND device_id = ?
+        `
+      )
+      .bind(input.userId, deviceId),
+    input.db
+      .prepare(
+        `
+          DELETE FROM agent_activity_session_inventory
+          WHERE owner_user_id = ? AND device_id = ?
+        `
+      )
+      .bind(input.userId, deviceId),
+    input.db
+      .prepare(
+        `
+          DELETE FROM agent_activity_session_inventory_sources
+          WHERE owner_user_id = ? AND device_id = ?
+        `
+      )
+      .bind(input.userId, deviceId),
+    input.db
+      .prepare(
+        `
           DELETE FROM openMeldDaemon_owned_devices
           WHERE owner_user_id = ? AND device_id = ?
         `

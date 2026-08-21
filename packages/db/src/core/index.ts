@@ -5,6 +5,10 @@ export {
   agentActivityDailySessionKeys,
   agentActivityDigests,
   agentActivityEvents,
+  agentActivitySessionInventory,
+  agentActivitySessionInventoryCandidates,
+  agentActivitySessionInventoryMemberCleanupRequests,
+  agentActivitySessionInventorySources,
   agentActivitySessions,
 } from "./agent-activity.schema.ts";
 export { openMeldDaemonAgentExecutionReadinessImpacts } from "./agent-execution-readiness-impact.schema.ts";

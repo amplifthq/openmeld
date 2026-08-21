@@ -28,6 +28,7 @@ export type {
   CreateOrganizationApi,
   DecideAgentProfileCreationRequestInput,
   OrganizationApi,
+  OrganizationComputersRequestInput,
   OrganizationRequestInput,
   OrganizationRouteInput,
   SaveOrganizationWakeAccessChoiceInput,

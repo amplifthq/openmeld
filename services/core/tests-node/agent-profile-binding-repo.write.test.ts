@@ -930,6 +930,52 @@ describe("Agent Profile Binding repo write-side", () => {
     }
   });
 
+  it("atomically converges concurrent Agent Profiles claiming the same controller conversation", async () => {
+    const harness = createSqliteD1Harness();
+    applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
+    try {
+      const results = await Promise.all([
+        ensurePrimaryAgentProfileBindingRecord({
+          db: harness.db,
+          record: createBindingRecord({
+            agentControllerConversationId: "ctx-shared",
+            agentProfileId: "agent-profile-1",
+            bindingId: "binding_opaque_1",
+            agentControllerRef: "builtin:codex",
+            openMeldServiceRuntimeId: "runtime_opaque_1",
+          }),
+        }),
+        ensurePrimaryAgentProfileBindingRecord({
+          db: harness.db,
+          record: createBindingRecord({
+            agentControllerConversationId: "ctx-shared",
+            agentProfileId: "agent-profile-2",
+            bindingId: "binding_opaque_2",
+            agentControllerRef: "builtin:codex",
+            openMeldServiceRuntimeId: "runtime_opaque_1",
+          }),
+        }),
+      ]);
+
+      expect(
+        results.filter((result) => result.status === "accepted")
+      ).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toEqual([
+        expect.objectContaining({
+          reason: "controller_conversation_conflict",
+          status: "rejected",
+        }),
+      ]);
+      expect(
+        harness.queryAll<{ binding_id: string }>({
+          sql: "SELECT binding_id FROM openMeldDaemon_agent_profile_bindings",
+        })
+      ).toHaveLength(1);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("reuses this Agent Profile's existing Binding without repairing historical duplicate conversations", async () => {
     const harness = createSqliteD1Harness();
     applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");

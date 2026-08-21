@@ -73,6 +73,7 @@ export function registerCurrentDeviceTargetRoutes(
   app.get(LOCAL_RUNTIMES_ROUTE, (c) => {
     const parsedQuery = localRuntimesQuerySchema.safeParse({
       connectionIdentityAdoption: c.req.query("connectionIdentityAdoption"),
+      includeUsageLimits: c.req.query("includeUsageLimits"),
     });
     if (!parsedQuery.success) {
       return respondBadRequest({

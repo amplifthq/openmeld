@@ -1323,10 +1323,13 @@ delivery before every connected-member operation.
 
 Project listing and Agent Activity use explicit ordinary-member read
 projections. An unlinked connected member may list Organization Projects but
-receives no creator-specific management authority. The Agent Activity tool
-returns only the existing public snapshot, which excludes paths, prompts,
-transcripts, and private provider metadata. Project mutations and member-owned
-Activity or local context remain identity-gated.
+receives no creator-specific management authority. The historical Agent
+Activity tool returns the public bounded snapshot. The Session Inventory tool
+returns the same paginated public Session contract used by Web and CLI,
+including provider-native Session ids but excluding paths, prompts,
+transcripts, internal runtime identity, and private provider metadata. Project
+mutations and member-owned Activity or local context remain identity-gated;
+seeing a Session id never grants Resume, Fork, Binding, or Space authority.
 
 Personal memory, member Apps, owner-level Local Agent or Computer details,
 role-restricted actions, destructive confirmation, durable member-owned
@@ -2272,7 +2275,12 @@ accounts, executable or installation paths, launch arguments, update commands,
 private skills, local policy, raw failure evidence, credentials, or management
 controls. Team-safe local-agent details may include controller state, native
 interface, installed version and update status, launch readiness and install
-count, reported model names, native capabilities, and last-check time.
+count, reported model names, native capabilities, last-check time, and
+provider-reported Usage Limits. Each visible limit names the window, shows its
+used percentage and reset when reported, says when it was observed, and
+explicitly distinguishes available, low, exhausted, stale, temporarily
+unavailable, and unsupported states. Historical values may remain visible while
+a Computer is offline only when clearly marked stale.
 Team-safe OpenMeld Tools details may include Service and CLI installed/latest
 versions plus Service, CLI, and skill update state. Setup commands, component
 hashes, and owner-only actions remain private.
@@ -2288,6 +2296,12 @@ teammate Computers; they do not add a teammate-only visible name or replace
 identities with a generic count. Privacy is enforced by omitting private fields
 and actions, not by duplicating or simplifying the component hierarchy.
 
+Usage Limits are shared capacity information only. Seeing them grants no
+Computer action, provider account access, Wake authority, routing preference,
+or ability to change another member's Local Agent. Account identity,
+credentials, subscription, payment, balances, costs, and raw provider responses
+remain absent from teammate and Center Agent reads.
+
 The designated Center Agent may read that same coarse projection for one active
 Organization member through
 `openmeld_read_member_openmeld_service_status`. It must first resolve the exact
@@ -2299,12 +2313,15 @@ exposes device details.
 
 When the request genuinely requires another member's Computer details, the
 designated Center Agent may instead call `openmeld_read_member_computers` with
-the exact directory `userId`. Core reuses the same strict team-safe Organization
-Computer projection shown to teammates, filters it to that current member, and
-records an `organization_member` audit entry. This tool never upgrades to the
-owner projection, even when the target happens to match the requester; private
-File Access, paths, commands, accounts, policies, and management controls stay
-absent.
+the exact directory `userId`. The current Remote Agent explicitly requests
+Usage Limits through the same additive projection flag used by Web. Core reuses
+the strict team-safe Organization Computer projection shown to teammates,
+filters it to that current member, and records an `organization_member` audit
+entry. This tool never upgrades to the owner projection, even when the target
+happens to match the requester; private File Access, paths, commands, accounts,
+policies, and management controls stay absent. Its Local Agent Usage Limits are
+the same sanitized fields used by the Computers UI, not a Center-Agent-only
+query or inference.
 
 **Profile Report** is the stable product term for this document so it does not
 collide with Agent Profile or Human Profile identity. The persisted document
@@ -2369,10 +2386,11 @@ presence, retention, ingestion, digest, and read-surface rules are owned by
 `developing/product/agent-activity.md` and must not be re-derived here.
 
 The earlier Session Sync framing is retired. Provider-supplied session titles,
-including provider-generated thread names, and reviewed source metadata are
-shared Organization context. Full prompts, transcripts, replies, reasoning,
-file contents, local paths, raw session ids, and arbitrary provider metadata
-are not Agent Activity inputs.
+including provider-generated thread names, reviewed source metadata, and the
+provider-native Session id in the current Session Inventory are shared
+Organization context. Full prompts, transcripts, replies, reasoning, file
+contents, local paths, internal device/runtime ids, and arbitrary provider
+metadata are not Agent Activity inputs.
 
 Agent Activity is separate from Agent Profile Wake readiness and
 RuntimeCoordinator execution truth. Organization directory presence cannot be

@@ -78,6 +78,8 @@ export function CreateProfileForm(input: {
 	isResolvingAccount: boolean;
 	isResolvingLocalAgents: boolean;
 	isSubmitting: boolean;
+	allowProfileKindSelection?: boolean;
+	lockLocalAgentSelection?: boolean;
 	modelCatalog: ModelCatalog | null;
 	localFolderPickerDeviceId: string | null;
 	organizationWakeAccessSlot?: ReactNode;
@@ -114,6 +116,7 @@ export function CreateProfileForm(input: {
 	const agentBindingHelpText = resolveAgentBindingHelpText({
 		availableLocalAgentCount: input.availableLocalAgentIds.length,
 		isResolvingLocalAgents: input.isResolvingLocalAgents,
+		locked: input.lockLocalAgentSelection === true,
 	});
 
 	return (
@@ -121,7 +124,8 @@ export function CreateProfileForm(input: {
 			className="grid w-full min-w-0 gap-4"
 			data-testid="create-profile-panel"
 		>
-			{input.additionalHumanProfileCreationEnabled ? (
+			{input.additionalHumanProfileCreationEnabled &&
+			input.allowProfileKindSelection !== false ? (
 				<ProfileKindTabs
 					onSelect={input.onSelectProfileKind}
 					value={input.profileKind}
@@ -205,6 +209,7 @@ function AgentProfileFields(input: {
 				choices={form.agentBindingChoices}
 				disabled={form.isSubmitting}
 				isResolving={form.isResolvingLocalAgents}
+				locked={form.lockLocalAgentSelection}
 				onChange={form.onChangeAgentBindingValue ?? form.onChangeBoundAgentId}
 				value={form.agentBindingValue ?? form.boundAgentId}
 			/>
@@ -330,7 +335,11 @@ function ProjectFolderField(input: {
 function resolveAgentBindingHelpText(input: {
 	availableLocalAgentCount: number;
 	isResolvingLocalAgents: boolean;
+	locked: boolean;
 }) {
+	if (input.locked) {
+		return "The Agent Profile must use the same local agent as this Session.";
+	}
 	if (input.isResolvingLocalAgents) {
 		return "Checking local agents on this computer.";
 	}

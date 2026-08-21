@@ -317,6 +317,12 @@ test("keeps one fast PR gate and makes exhaustive confidence manual", () => {
   assert.ok(prChecks.includes("--exclude-package=openmeld-web"));
   assert.ok(prChecks.includes("--exclude-package=openmeld"));
   assert.ok(prChecks.includes("--exclude-package=@openmeld/core"));
+  assert.ok(prChecks.includes("--exclude-package=@openmeld/gateway"));
+  assert.ok(
+    prChecks.includes(
+      "--exclude-package=@openmeld/gateway test -- --concurrency=1 --output-logs=errors-only"
+    )
+  );
   assert.equal(
     prChecks.match(/uses: \.\/\.github\/actions\/cache-fast-pr-turbo/gmu)
       ?.length,

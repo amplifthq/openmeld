@@ -7,6 +7,7 @@ import type { CoreBindings } from "../src/lib/bindings";
 import {
   rpcEnrollLocalRuntime,
   rpcListLocalRuntimes,
+  rpcSetLocalRuntimeDisplayName,
   rpcSubmitRuntimeAgentControllerReports,
   rpcWriteCurrentDeviceObservedMetadata,
 } from "../src/rpc/methods";
@@ -43,6 +44,16 @@ describe("current device local runtimes RPC read model", () => {
     schemaVersion: 1,
     skills: [],
     status: "ready",
+    usageLimits: [
+      {
+        key: "codex:primary",
+        label: "5-hour usage",
+        observedAt: "2026-06-28T00:00:00.000Z",
+        resetsAt: "2026-06-28T05:00:00.000Z",
+        status: "available",
+        usedPercent: 42,
+      },
+    ],
     version: "0.1.0",
   } satisfies AgentControllerInterfaceSnapshot;
 
@@ -69,7 +80,6 @@ describe("current device local runtimes RPC read model", () => {
         `,
         params: ["owner-1", "computer-existing", 1, 1],
       });
-
       await rpcEnrollLocalRuntime(env, {
         connectedComputerId: "computer-existing",
         context,
@@ -223,9 +233,18 @@ describe("current device local runtimes RPC read model", () => {
         ],
       });
 
+      const compatibilityResponse = await rpcListLocalRuntimes(env, {
+        context,
+      });
+      expect(
+        compatibilityResponse.localRuntimes[0]?.executionTargets[0]
+          ?.capabilities[0]?.agentControllerInterface?.usageLimits
+      ).toBeUndefined();
+
       await expect(
         rpcListLocalRuntimes(env, {
           context,
+          includeUsageLimits: "true",
         })
       ).resolves.toMatchObject({
         localRuntimes: [
@@ -236,7 +255,13 @@ describe("current device local runtimes RPC read model", () => {
                 capabilities: [
                   {
                     agentControllerRef: "builtin:codex",
-                    agentControllerInterface: CODEX_AGENT_CONTROLLER_INTERFACE,
+                    agentControllerInterface: {
+                      ...CODEX_AGENT_CONTROLLER_INTERFACE,
+                      usageLimits:
+                        CODEX_AGENT_CONTROLLER_INTERFACE.usageLimits.map(
+                          (limit) => ({ ...limit, status: "stale" })
+                        ),
+                    },
                     status: "ready",
                   },
                 ],
@@ -245,6 +270,62 @@ describe("current device local runtimes RPC read model", () => {
           },
         ],
       });
+
+      const resetExpiredReportObservedAtMs = observedAtMs + 1;
+      const resetExpiredUsageObservedAt = new Date(observedAtMs).toISOString();
+      const [resetExpiredUsageLimit] =
+        CODEX_AGENT_CONTROLLER_INTERFACE.usageLimits;
+      if (!resetExpiredUsageLimit) {
+        throw new Error("Codex Usage Limit fixture is missing");
+      }
+      await rpcSubmitRuntimeAgentControllerReports(env, {
+        openMeldServiceRuntimeId: {
+          source: "runtime_registry_authority",
+          value: "runtime-macbook",
+        },
+        context,
+        deviceId: "device-macbook",
+        lane: "dev-local",
+        reports: [
+          {
+            agentControllerRef: "builtin:codex",
+            agentControllerInterface: {
+              ...CODEX_AGENT_CONTROLLER_INTERFACE,
+              usageLimits: [
+                {
+                  ...resetExpiredUsageLimit,
+                  observedAt: resetExpiredUsageObservedAt,
+                  resetsAt: new Date(observedAtMs - 1).toISOString(),
+                  status: "available",
+                },
+              ],
+            },
+            observedAtMs: resetExpiredReportObservedAtMs,
+            expiresAtMs: resetExpiredReportObservedAtMs + 60 * 60_000,
+            reasonCodes: ["runtime.agent_controller_report.ready"],
+            status: "ready",
+          },
+        ],
+      });
+
+      const resetExpiredResponse = await rpcListLocalRuntimes(env, {
+        context,
+        includeUsageLimits: "true",
+      });
+      expect(
+        resetExpiredResponse.localRuntimes[0]?.executionTargets[0]
+          ?.capabilities[0]?.agentControllerInterface?.usageLimits?.[0]?.status
+      ).toBe("stale");
+
+      const mutationResponse = await rpcSetLocalRuntimeDisplayName(env, {
+        context,
+        deviceId: "device-macbook",
+        displayName: "Studio Mac",
+      });
+      expect(
+        mutationResponse.localRuntimes[0]?.executionTargets[0]?.capabilities[0]
+          ?.agentControllerInterface?.usageLimits
+      ).toBeUndefined();
     } finally {
       harness.close();
     }
