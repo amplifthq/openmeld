@@ -365,6 +365,7 @@ the intent through the shared Agent Profile Creation Request capability:
 ```text
 openmeld profiles create "Release Reviewer" --kind agent --owner <user-id> --computer <computer-id> --agent-controller builtin:codex --session new
 openmeld profiles create "API Debugger" --kind agent --owner self --computer <computer-id> --agent-controller builtin:codex --session resume --native-session <provider-native-id>
+openmeld profiles create "Release Investigator" --kind agent --owner self --computer <computer-id> --agent-controller builtin:codex --session fork --native-session <provider-native-id>
 openmeld profiles requests list
 openmeld profiles requests approve <request-id>
 openmeld profiles requests decline <request-id>
@@ -381,11 +382,11 @@ explains current status and next action. Agent View emits the shared strict
 request envelopes. Local Agents set source `local-agent`; ordinary terminal
 use defaults to `cli`.
 
-The current executor completes new-Session identity creation. Resume and fork
-requests return an explicit unavailable outcome until Agent Activity and the
-local Binding path can verify and perform that exact Session strategy. The CLI
-must never replace either strategy with new-Session creation. An optional Space
-ID records intent only and does not grant membership.
+The executor completes new-Session identity creation, exact native Resume, and
+provider-native Fork after Agent Activity and the local Binding path verify the
+selected Session. The CLI must never replace either existing-Session strategy
+with new-Session creation. An optional Space ID records intent only and does not
+grant membership.
 
 Agent Profile creation and maintenance may also set the Binding's Agent
 Controller Permission Mode:

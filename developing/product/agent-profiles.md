@@ -141,10 +141,11 @@ OpenMeld publishes each built-in Agent Controller's native conversation
 capabilities through the team-safe Organization Computers projection. Resume
 is supported by reference ID for Codex, Claude Code, Cursor, Grok Build,
 OpenCode, and OpenClaw. Native fork by reference ID is currently confirmed for
-Codex, Claude Code, Grok Build, and OpenCode. Cursor and OpenClaw report fork as
-unsupported until OpenMeld has a controller-native operation that returns a new
-Session ID while preserving the source context. Clients must render this fact
-honestly and must not imitate Fork by injecting a summary into a new Session.
+Codex, Claude Code, and OpenCode. Grok Build, Cursor, and OpenClaw report fork
+as unsupported until their installed controller contract exposes an operation
+that returns a new native Session ID while preserving the source context.
+Clients must render this fact honestly and must not imitate Fork by injecting a
+summary into a new Session.
 Capability reporting informs selection; it does not authorize Session access
 or perform the operation.
 
@@ -163,10 +164,15 @@ Default Project, and Organization Wake access use their existing Core-owned
 operations. The request state machine coordinates those operations; it does not
 create parallel mutation or authorization paths.
 
-The current creation-request executor completes `new` identity creation.
-`resume` and `fork` remain explicit, validated inputs but fail visibly until
-Agent Activity supplies an authorized exact Session and the local Binding path
-can perform that strategy. Clients must not silently fall back to `new`.
+The creation-request executor completes `new`, `resume`, and provider-native
+`fork`. Resume binds the selected native Session. Fork asks the selected local
+controller to create one native child, records that child as OpenMeld-origin,
+and binds the child while leaving the source Session unchanged. The request ID
+is the durable Fork operation key: a retry may replay the recorded child but
+must never ask the provider to create a second child after an uncertain
+outcome. New OpenMeld-created child titles use `OpenMeld · <Profile name>`;
+later provider title changes remain native Session truth. Clients must not
+silently fall back to `new`.
 
 Creation surfaces return one explicit outcome for the committed Profile and
 each requested follow-up. When creation includes a Space, the executor adds the
