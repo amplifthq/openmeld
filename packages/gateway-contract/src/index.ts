@@ -55,4 +55,7 @@ export {
   readOpenMeldRequestContext,
   readOpenMeldRequestedOrganizationSelector,
 } from "./headers";
-export { ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER } from "./query-parameters";
+export {
+  ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER,
+  ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER,
+} from "./query-parameters";

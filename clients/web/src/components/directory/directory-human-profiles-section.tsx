@@ -44,7 +44,10 @@ import {
 	DirectoryCardItem,
 } from "#/components/directory/directory-card-grid";
 import { DirectoryHumanProfileAvatar } from "#/components/directory/directory-human-profile-avatar";
-import { DirectoryHumanProfileDetailsDrawer } from "#/components/directory/directory-human-profile-details-drawer";
+import {
+	DirectoryHumanProfileDetailsDrawer,
+	type DirectoryHumanProfileResearchAction,
+} from "#/components/directory/directory-human-profile-details-drawer";
 import {
 	resolveDirectoryEmailLabel,
 	resolveDirectoryHumanProfileActivityLabel,
@@ -266,6 +269,26 @@ function DirectoryHumanProfileCard(input: {
 		input.memberResearchError?.subjectUserId === input.member.userId
 			? input.memberResearchError.message
 			: null;
+	const researchAction: DirectoryHumanProfileResearchAction | null =
+		input.member.profileReport.state === "unavailable"
+			? null
+			: {
+					description: `Learn about ${input.member.name} and update their Profile Report.`,
+					disabled:
+						!input.member.userId ||
+						Boolean(input.activeBatch) ||
+						input.state.research === "pending",
+					label: resolveLearnActionLabel({
+						displayName: input.member.name,
+						hasDraft:
+							input.member.profileReport.state === "available" &&
+							input.member.profileReport.hasDraft,
+						hasStartError: Boolean(memberResearchError),
+						isStarting,
+						task,
+					}),
+					onSelect: () => input.onResearch(input.member.userId),
+				};
 	const openProfile = (editing: boolean) => {
 		setIsEditingDetails(editing);
 		setIsDetailsOpen(true);
@@ -299,29 +322,26 @@ function DirectoryHumanProfileCard(input: {
 				}
 				menu={
 					<HumanProfileCardActions
-						activeBatch={input.activeBatch}
 						directMessageIsPending={input.state.directMessage === "pending"}
-						isResearchPending={input.state.research === "pending"}
-						isStarting={isStarting}
 						member={input.member}
-						memberResearchError={memberResearchError}
 						onEdit={() => openProfile(true)}
 						onOpenDirectMessage={async () => {
 							await input.onOpenDirectMessage(input.member.id);
 						}}
 						onOpenProfile={() => openProfile(false)}
-						onResearch={input.onResearch}
-						task={task}
+						researchAction={researchAction}
 					/>
 				}
 				onProfileSummaryClick={() => openProfile(false)}
 				profileSummaryAriaLabel={`Open ${input.member.name}'s profile`}
 				rowRef={input.rowRef}
-				secondarySubtitle={resolveDirectoryHumanProfileActivityLabel({
-					lastUsedAt: input.member.lastUsedAt,
-					nowMs: input.activityNowMs,
-					profileStatus: input.member.profileStatus,
-				})}
+				secondarySubtitle={
+					resolveDirectoryHumanProfileActivityLabel({
+						lastActiveAt: input.member.lastActiveAt,
+						nowMs: input.activityNowMs,
+						profileStatus: input.member.profileStatus,
+					}) ?? undefined
+				}
 				subtitle={resolveDirectoryEmailLabel(input.member.email)}
 				testId={
 					input.state.context === "organization"
@@ -366,6 +386,7 @@ function DirectoryHumanProfileCard(input: {
 					});
 				}}
 				open={isDetailsOpen}
+				researchAction={researchAction}
 			/>
 			<ConnectChannelAccountDialog
 				account={connectableAccount}
@@ -539,34 +560,21 @@ function ManageChannelAccountDialog(input: {
 }
 
 function HumanProfileCardActions(input: {
-	activeBatch: CenterAgentMemberResearchBatch | null;
 	directMessageIsPending: boolean;
-	isResearchPending: boolean;
-	isStarting: boolean;
 	member: DirectoryHumanProfileRow;
-	memberResearchError: string | null;
 	onEdit: () => void;
 	onOpenDirectMessage: () => Promise<void>;
 	onOpenProfile: () => void;
-	onResearch: (subjectUserId: string) => void;
-	task: CenterAgentMemberResearchTask | undefined;
+	researchAction: DirectoryHumanProfileResearchAction | null;
 }) {
-	const learnActionLabel = resolveLearnActionLabel({
-		displayName: input.member.name,
-		hasDraft: input.member.hasDraft,
-		hasStartError: Boolean(input.memberResearchError),
-		isStarting: input.isStarting,
-		task: input.task,
-	});
-	const learnActionDescription = `Learn about ${input.member.name} and update their Profile Report.`;
 	const canOpenDirectMessage =
 		input.member.profileStatus === "active" && !input.member.isCurrentUser;
-	let profileKnowledgeAction: ReactNode = null;
-	if (input.member.reportAction.kind === "link") {
-		const profileReportActionLabel = input.member.hasDraft
+	let profileReportAction: ReactNode = null;
+	if (input.member.profileReport.state === "available") {
+		const profileReportActionLabel = input.member.profileReport.hasDraft
 			? `Open ${input.member.name}'s Profile Report — updates to review and save`
 			: `Open ${input.member.name}'s Profile Report`;
-		profileKnowledgeAction = (
+		profileReportAction = (
 			<Tooltip>
 				<TooltipTrigger
 					render={
@@ -574,51 +582,48 @@ function HumanProfileCardActions(input: {
 							aria-label={profileReportActionLabel}
 							className={cn(
 								buttonVariants({ size: "icon", variant: "ghost" }),
-								input.member.hasDraft ? "text-amber-500" : null
+								input.member.profileReport.hasDraft ? "text-amber-500" : null
 							)}
-							to={input.member.reportAction.path}
+							to={input.member.profileReport.path}
 						/>
 					}
 				>
 					<FileTextIcon aria-hidden="true" />
 				</TooltipTrigger>
 				<TooltipContent side="bottom">
-					{input.member.hasDraft
+					{input.member.profileReport.hasDraft
 						? "Profile Report has updates to review and save"
 						: "Profile Report"}
 				</TooltipContent>
-			</Tooltip>
-		);
-	} else if (input.member.reportAction.kind === "learn") {
-		profileKnowledgeAction = (
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						<Button
-							aria-description={learnActionDescription}
-							aria-label={learnActionLabel}
-							disabled={
-								!input.member.userId ||
-								Boolean(input.activeBatch) ||
-								input.isResearchPending
-							}
-							onClick={() => input.onResearch(input.member.userId)}
-							size="icon"
-							type="button"
-							variant="ghost"
-						>
-							<UserFocusIcon aria-hidden="true" />
-						</Button>
-					}
-				/>
-				<TooltipContent side="bottom">{learnActionLabel}</TooltipContent>
 			</Tooltip>
 		);
 	}
 
 	return (
 		<div className="flex items-center justify-end gap-1">
-			{profileKnowledgeAction}
+			{profileReportAction}
+			{input.researchAction ? (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-description={input.researchAction.description}
+								aria-label={input.researchAction.label}
+								disabled={input.researchAction.disabled}
+								onClick={input.researchAction.onSelect}
+								size="icon"
+								type="button"
+								variant="ghost"
+							>
+								<UserFocusIcon aria-hidden="true" />
+							</Button>
+						}
+					/>
+					<TooltipContent side="bottom">
+						{input.researchAction.label}
+					</TooltipContent>
+				</Tooltip>
+			) : null}
 			{canOpenDirectMessage ? (
 				<Tooltip>
 					<TooltipTrigger

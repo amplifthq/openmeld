@@ -1296,11 +1296,11 @@ describe("shared drizzle migration history integrity", () => {
     }
   });
 
-  it("preserves existing Agent Profile creation requests while adding frozen configuration", () => {
+  it("adds Agent Profile creation requests while preserving existing Profiles", () => {
     const database = new DatabaseSync(":memory:");
     try {
       const migrationFileName = listSqlMigrationFiles().find((fileName) =>
-        fileName.startsWith("0132_")
+        fileName.startsWith("0131_")
       );
       expect(migrationFileName).toBeDefined();
       if (!migrationFileName) {
@@ -1321,6 +1321,41 @@ describe("shared drizzle migration history integrity", () => {
         ) VALUES
           ('creation-requester', 'Requester', 'requester@example.com', 1, 1000, 1000),
           ('creation-owner', 'Owner', 'owner@example.com', 1, 1000, 1000);
+        INSERT INTO openmeld_profiles (
+          profile_id,
+          profile_name,
+          profile_handle,
+          profile_kind,
+          organization_id,
+          owner_user_id,
+          source
+        ) VALUES (
+          'agt_00000000-0000-0000-0000-000000000001',
+          'Existing Agent',
+          'existing-agent',
+          'agent',
+          'org-creation-request-migration',
+          'creation-requester',
+          'cli_create'
+        );
+      `);
+
+      applyMigrationFiles(database, [migrationFileName]);
+
+      expect(
+        database
+          .prepare(
+            `SELECT profile_name, creation_actor_profile_id
+             FROM openmeld_profiles
+             WHERE profile_id = 'agt_00000000-0000-0000-0000-000000000001'`
+          )
+          .get()
+      ).toEqual({
+        creation_actor_profile_id: null,
+        profile_name: "Existing Agent",
+      });
+
+      database.exec(`
         INSERT INTO agent_profile_creation_requests (
           id,
           organization_id,
@@ -1333,6 +1368,7 @@ describe("shared drizzle migration history integrity", () => {
           idempotency_key,
           status,
           status_reason,
+          failure_message,
           created_at,
           updated_at
         ) VALUES
@@ -1348,6 +1384,7 @@ describe("shared drizzle migration history integrity", () => {
             'failed-key',
             'failed',
             'profile_creation_failed',
+            'OpenMeld couldn''t finish creating this Agent.',
             1000,
             1000
           ),
@@ -1363,12 +1400,11 @@ describe("shared drizzle migration history integrity", () => {
             'pending-key',
             'pending',
             'approval_required',
+            NULL,
             1000,
             1000
           );
       `);
-
-      applyMigrationFiles(database, [migrationFileName]);
 
       const rows = database
         .prepare(

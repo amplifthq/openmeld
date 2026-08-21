@@ -19,6 +19,7 @@ export const organizationDirectoryHumanProfileSchema = z.strictObject({
 });
 
 export const organizationDirectoryMemberSchema = z.strictObject({
+  lastActiveAt: z.union([ISO_DATE_TIME_SCHEMA, z.null()]).optional(),
   memberId: trimmedNonEmptyStringSchema,
   organizationId: trimmedNonEmptyStringSchema,
   userId: trimmedNonEmptyStringSchema,

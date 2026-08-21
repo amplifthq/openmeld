@@ -1423,7 +1423,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_read_organization_directory",
       description:
-        "Read the current OpenMeld Organization directory, including members and profiles the Center Agent is allowed to see.",
+        "Read the current OpenMeld Organization directory, including members, Human and Agent Profiles, roles, and the latest accepted Human activity that the Center Agent is allowed to see. Missing lastActiveAt means OpenMeld has no authoritative Organization activity for that member; Computer, session, and Agent Activity timestamps are never substitutes.",
       input: object({}),
       execute: async () => {
         const toolContext =
@@ -1437,7 +1437,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           "centerAgentGetOrganizationDirectory"
         );
         const response = organizationDirectoryResponseSchema.parse(
-          await rpc(toolContext)
+          await rpc({
+            ...toolContext,
+            includeMemberLastActiveAt: true,
+          })
         );
         await rememberOrganizationDirectoryMembers({
           memberUserIds: response.members.map((member) => member.userId),

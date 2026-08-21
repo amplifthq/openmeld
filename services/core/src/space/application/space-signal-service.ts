@@ -267,6 +267,7 @@ export async function publishTextSignalUseCase(input: {
     persistedSignal: boolean;
   }>;
   flushPendingDispatchOutbox: () => Promise<void>;
+  recordHumanActivity?: (signal: SignalEnvelope) => Promise<void>;
   waitUntil: (promise: Promise<unknown>) => void;
   broadcast: (signal: SignalEnvelope) => void;
 }): Promise<void> {
@@ -295,6 +296,13 @@ export async function publishTextSignalUseCase(input: {
         : 0,
     dispatchMessageCount: persistResult.dispatchMessages.length,
   });
+  if (
+    input.signal.type === "signal.text" &&
+    input.signal.profile?.kind === "human" &&
+    input.recordHumanActivity
+  ) {
+    input.waitUntil(input.recordHumanActivity(input.signal));
+  }
   input.waitUntil(input.flushPendingDispatchOutbox());
   input.broadcast(input.signal);
 }

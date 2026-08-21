@@ -102,6 +102,7 @@ export {
   CORE_OPPORTUNITY_SCHEMA_DEFINITION_PATH,
   CORE_ORGANIZATION_DOCUMENT_SCHEMA_DEFINITION_PATH,
   CORE_ORGANIZATION_INFORMATION_PROTECTION_SCHEMA_DEFINITION_PATH,
+  CORE_ORGANIZATION_MEMBER_ACTIVITY_SCHEMA_DEFINITION_PATH,
   CORE_PROJECT_SCHEMA_DEFINITION_PATH,
   CORE_ROUTINE_SCHEMA_DEFINITION_PATH,
   CORE_SPACE_ATTACHMENT_SCHEMA_DEFINITION_PATH,
@@ -136,6 +137,7 @@ export { organizationDocuments } from "./organization-document.schema.ts";
 export { organizationDocumentFolders } from "./organization-document-folder.schema.ts";
 export { centerAgentOrganizationDocumentOperations } from "./organization-document-operation.schema.ts";
 export { organizationInformationProtectionPolicies } from "./organization-information-protection.schema.ts";
+export { organizationMemberActivity } from "./organization-member-activity.schema.ts";
 export {
   centerAgentOrganizationSkillOperations,
   organizationSkillActivations,

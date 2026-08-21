@@ -29,6 +29,8 @@ export const CORE_CENTER_AGENT_PUBLICATION_SCHEMA_DEFINITION_PATH =
   "packages/db/src/core/center-agent-publication.schema.ts";
 export const CORE_ORGANIZATION_INFORMATION_PROTECTION_SCHEMA_DEFINITION_PATH =
   "packages/db/src/core/organization-information-protection.schema.ts";
+export const CORE_ORGANIZATION_MEMBER_ACTIVITY_SCHEMA_DEFINITION_PATH =
+  "packages/db/src/core/organization-member-activity.schema.ts";
 export const CORE_OPPORTUNITY_SCHEMA_DEFINITION_PATH =
   "packages/db/src/core/opportunity.schema.ts";
 export const CORE_AGENT_ACTIVITY_SCHEMA_DEFINITION_PATH =
@@ -63,6 +65,12 @@ export const getCoreDbSchemaSources = (): DbFactSource[] => {
       owner: "packages/db",
       path: CORE_INBOX_SCHEMA_DEFINITION_PATH,
       note: "Core owns member-private Inbox items, account notification preferences, and durable email delivery attempts in shared D1.",
+    },
+    {
+      kind: "schema_module",
+      owner: "packages/db",
+      path: CORE_ORGANIZATION_MEMBER_ACTIVITY_SCHEMA_DEFINITION_PATH,
+      note: "Core owns the Organization-scoped last Human activity projection derived only from accepted Human-authored text Signals.",
     },
     {
       kind: "schema_module",

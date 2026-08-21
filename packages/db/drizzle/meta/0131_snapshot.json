@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b66058d9-0a5f-486f-bbf8-d7fb29aec7ae",
-  "prevId": "7e57052c-71ad-4e29-90ff-35e5ca24d7d7",
+  "id": "b0e1e9aa-ef71-496e-bdfb-058b2527e4d5",
+  "prevId": "a5404528-b7da-46dd-bf08-1ebd87effa30",
   "tables": {
     "accounts": {
       "name": "accounts",
@@ -1903,6 +1903,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "configuration_json": {
+          "name": "configuration_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{\"agentControllerPermissionMode\":null,\"agentControllerRef\":null,\"authorizeForOrganization\":true,\"defaultProjectId\":null,\"modelId\":null,\"openCodePermission\":null,\"reasoningLevel\":null,\"targetComputerId\":null}'"
+        },
         "session_strategy": {
           "name": "session_strategy",
           "type": "text",
@@ -1947,6 +1955,13 @@
         },
         "created_agent_profile_id": {
           "name": "created_agent_profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "failure_message": {
+          "name": "failure_message",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -2068,7 +2083,11 @@
         },
         "agent_profile_creation_requests_completion_check": {
           "name": "agent_profile_creation_requests_completion_check",
-          "value": "(\"status\" = 'completed' and \"created_agent_profile_id\" is not null and \"completed_at\" is not null) or (\"status\" != 'completed' and \"created_agent_profile_id\" is null and \"completed_at\" is null)"
+          "value": "(\"status\" = 'completed' and \"created_agent_profile_id\" is not null and \"completed_at\" is not null) or (\"status\" = 'failed' and \"completed_at\" is null) or (\"status\" not in ('completed', 'failed') and \"created_agent_profile_id\" is null and \"completed_at\" is null)"
+        },
+        "agent_profile_creation_requests_failure_check": {
+          "name": "agent_profile_creation_requests_failure_check",
+          "value": "(\"status\" = 'failed' and \"failure_message\" is not null and length(trim(\"failure_message\")) > 0) or (\"status\" != 'failed' and \"failure_message\" is null)"
         },
         "agent_profile_creation_requests_required_text_check": {
           "name": "agent_profile_creation_requests_required_text_check",
@@ -14413,6 +14432,88 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "organization_member_activity": {
+      "name": "organization_member_activity",
+      "columns": {
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "human_profile_id": {
+          "name": "human_profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_active_at_ms": {
+          "name": "last_active_at_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at_ms": {
+          "name": "updated_at_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "organization_member_activity_organization_id_organizations_id_fk": {
+          "name": "organization_member_activity_organization_id_organizations_id_fk",
+          "tableFrom": "organization_member_activity",
+          "tableTo": "organizations",
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "organization_member_activity_user_id_users_id_fk": {
+          "name": "organization_member_activity_user_id_users_id_fk",
+          "tableFrom": "organization_member_activity",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "organization_member_activity_organization_id_user_id_pk": {
+          "columns": ["organization_id", "user_id"],
+          "name": "organization_member_activity_organization_id_user_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "organization_member_activity_profile_id_check": {
+          "name": "organization_member_activity_profile_id_check",
+          "value": "length(trim(\"human_profile_id\")) > 0"
+        },
+        "organization_member_activity_last_active_at_check": {
+          "name": "organization_member_activity_last_active_at_check",
+          "value": "\"last_active_at_ms\" >= 0"
+        },
+        "organization_member_activity_updated_at_check": {
+          "name": "organization_member_activity_updated_at_check",
+          "value": "\"updated_at_ms\" >= \"last_active_at_ms\""
+        }
+      }
     },
     "organization_opportunities": {
       "name": "organization_opportunities",

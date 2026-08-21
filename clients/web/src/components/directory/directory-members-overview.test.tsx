@@ -4,6 +4,7 @@ import type {
 	MessageChannelConnectionProjection,
 	OpenDirectMessageSpaceResponse,
 	OrganizationComputerRecord,
+	OrganizationDirectoryResponse,
 } from "@openmeld/schemas/types";
 import {
 	act,
@@ -319,20 +320,16 @@ describe("DirectoryMembersOverview", () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true });
 		vi.setSystemTime("2026-07-15T00:00:30.000Z");
 		renderOverview({
-			isPersonal: true,
-			personalProfiles: [
-				{
-					...buildHumanProfile(),
-					lastUsedAt: "2026-07-15T00:00:15.000Z",
-				},
-			],
+			currentUserLastActiveAt: "2026-07-15T00:00:15.000Z",
+			currentUserProfile: true,
+			isPersonal: false,
 		});
 
-		expect(await screen.findByText("Last used just now")).toBeTruthy();
+		expect(await screen.findByText("Last active just now")).toBeTruthy();
 		act(() => {
 			vi.advanceTimersByTime(60_000);
 		});
-		expect(screen.getByText("Last used 1 minute ago")).toBeTruthy();
+		expect(screen.getByText("Last active 1 minute ago")).toBeTruthy();
 	});
 
 	it("explains how to create the first Human Profile in a personal workspace", async () => {
@@ -404,7 +401,7 @@ describe("DirectoryMembersOverview", () => {
 		expect(getOrganizationJoinLinkMock).not.toHaveBeenCalled();
 	});
 
-	it("does not guess between Learn and Report when Documents fail to load", async () => {
+	it("hides Profile Report and Learn actions when Documents fail", async () => {
 		listCurrentOrganizationDocumentsMock.mockRejectedValue(
 			new Error("Documents unavailable")
 		);
@@ -424,6 +421,19 @@ describe("DirectoryMembersOverview", () => {
 		expect(within(adaCard).queryByText(REPORT_UNAVAILABLE_PATTERN)).toBeNull();
 		expect(
 			within(adaCard).queryByRole("button", {
+				name: "Learn about Ada Lovelace",
+			})
+		).toBeNull();
+		fireEvent.click(
+			within(adaCard).getByRole("button", {
+				name: "Open Ada Lovelace's profile",
+			})
+		);
+		const profileDrawer = await screen.findByRole("dialog", {
+			name: "Profile",
+		});
+		expect(
+			within(profileDrawer).queryByRole("button", {
 				name: "Learn about Ada Lovelace",
 			})
 		).toBeNull();
@@ -628,7 +638,33 @@ describe("DirectoryMembersOverview", () => {
 	});
 
 	it("opens a complete Human Profile drawer from the member card", async () => {
-		renderOverview({ isPersonal: false });
+		renderOverview({
+			agentProfiles: [
+				buildDirectoryAgentProfile({
+					agentControllerRef: "builtin:codex",
+					avatarUrl: "https://example.com/grace-agent.png",
+					profileId: "agent-grace-codex",
+				}),
+				buildDirectoryAgentProfile({
+					agentControllerRef: "builtin:claude-code",
+					profileId: "agent-grace-claude",
+				}),
+				buildDirectoryAgentProfile({
+					agentControllerRef: "builtin:grok-build",
+					profileId: "agent-grace-grok",
+				}),
+				buildDirectoryAgentProfile({
+					agentControllerRef: "builtin:opencode",
+					profileId: "agent-grace-opencode",
+				}),
+				buildDirectoryAgentProfile({
+					agentControllerRef: "builtin:codex",
+					isCenterAgent: true,
+					profileId: "agent-center",
+				}),
+			],
+			isPersonal: false,
+		});
 
 		const graceCard = (
 			await screen.findAllByTestId("organization-human-profile-row")
@@ -652,8 +688,13 @@ describe("DirectoryMembersOverview", () => {
 		const directMessageButton = within(detailsDialog).getByRole("button", {
 			name: "Direct Message",
 		});
+		const learnButton = within(detailsDialog).getByRole("button", {
+			name: "Learn about Grace Hopper",
+		});
 		expect(directMessageButton.classList.contains("w-full")).toBe(true);
 		expect(directMessageButton.classList.contains("h-9")).toBe(true);
+		expect(learnButton.classList.contains("w-full")).toBe(true);
+		expect(directMessageButton.parentElement).toBe(learnButton.parentElement);
 		const drawerRoleBadge = detailsDialog.querySelector(
 			'[data-slot="human-profile-role-badge"]'
 		);
@@ -661,10 +702,34 @@ describe("DirectoryMembersOverview", () => {
 		expect(drawerRoleBadge?.className).toBe(cardRoleBadge?.className);
 		expect(within(detailsDialog).getByText("Member account")).toBeTruthy();
 		expect(within(detailsDialog).getByText("Work access")).toBeTruthy();
-		expect(within(detailsDialog).getByText("Jul 2, 2026")).toBeTruthy();
+		const computerLink = within(detailsDialog).getByRole("link", {
+			name: "Open Grace Hopper's computer details: 1 computer needs attention",
+		});
+		expect(computerLink.getAttribute("href")).toBe(
+			"/o/acme/computers/computer%3Acomputer-grace"
+		);
 		expect(
-			within(detailsDialog).getAllByText("Human Profile").length
-		).toBeGreaterThan(0);
+			within(computerLink).getByTestId("human-profile-computer-status")
+				.className
+		).toContain("bg-amber");
+		expect(within(detailsDialog).getByText("Agent Profiles")).toBeTruthy();
+		expect(within(detailsDialog).getByText("4 Agent Profiles")).toBeTruthy();
+		expect(
+			within(detailsDialog).getAllByTestId("agent-profile-summary-icon")
+		).toHaveLength(3);
+		expect(
+			within(detailsDialog)
+				.getByTestId("agent-profile-summary-avatar")
+				.getAttribute("src")
+		).toBe("https://example.com/grace-agent.png");
+		expect(within(detailsDialog).getByText("+1")).toBeTruthy();
+		expect(within(detailsDialog).getByText("Jul 2, 2026")).toBeTruthy();
+		expect(within(detailsDialog).getByText("Profile Report")).toBeTruthy();
+		expect(
+			within(detailsDialog).getByText("No Profile Report yet")
+		).toBeTruthy();
+		expect(within(detailsDialog).queryByText("Profile type")).toBeNull();
+		expect(within(detailsDialog).queryByText("Human Profile")).toBeNull();
 		expect(
 			screen.getByText("11111111-1111-4111-8111-111111111111")
 		).toBeTruthy();
@@ -1367,7 +1432,7 @@ describe("DirectoryMembersOverview", () => {
 		});
 	});
 
-	it("shows only Profile Reports that already exist", async () => {
+	it("keeps Learn available when a Profile Report already exists", async () => {
 		listCurrentOrganizationDocumentsMock.mockResolvedValue({
 			canManage: true,
 			currentUserId: "user-owner",
@@ -1415,12 +1480,44 @@ describe("DirectoryMembersOverview", () => {
 			).getAttribute("href")
 		).toBe("/o/acme/documents/document-ada-latest");
 		expect(
+			screen.getByRole("button", { name: "Learn about Ada Lovelace" })
+		).toBeTruthy();
+		expect(
 			screen.queryByRole("link", {
 				name: "Open Grace Hopper's Profile Report",
 			})
 		).toBeNull();
 		expect(
 			screen.getByRole("button", { name: "Learn about Grace Hopper" })
+		).toBeTruthy();
+
+		const adaCard = (
+			await screen.findAllByTestId("organization-human-profile-row")
+		).find((card) => within(card).queryByText("Ada Lovelace"));
+		if (!adaCard) {
+			throw new Error("Expected Ada's Human Profile card.");
+		}
+		fireEvent.click(
+			within(adaCard).getByRole("button", {
+				name: "Open Ada Lovelace's profile",
+			})
+		);
+		const profileDrawer = await screen.findByRole("dialog", {
+			name: "Profile",
+		});
+		expect(within(profileDrawer).getByText("Profile Report")).toBeTruthy();
+		expect(
+			within(profileDrawer).getByText("Latest Profile Report")
+		).toBeTruthy();
+		expect(
+			within(profileDrawer).getByRole("link", {
+				name: "Open Ada Lovelace's Profile Report",
+			})
+		).toBeTruthy();
+		expect(
+			within(profileDrawer).getByRole("button", {
+				name: "Learn about Ada Lovelace",
+			})
 		).toBeTruthy();
 	});
 
@@ -1595,7 +1692,7 @@ describe("DirectoryMembersOverview", () => {
 		expect(screen.queryByText("Old Felix")).toBeNull();
 	});
 
-	it("shows one draft review action without a duplicate Draft badge", async () => {
+	it("keeps Learn status beside one draft review action without a duplicate Draft badge", async () => {
 		getCurrentCenterAgentMemberResearchStatusMock.mockResolvedValue({
 			latestBatch: {
 				completedCount: 2,
@@ -1694,9 +1791,10 @@ describe("DirectoryMembersOverview", () => {
 		expect(adaCard.firstElementChild?.contains(profileReportAction)).toBe(true);
 		expect(within(adaCard).queryByText("Draft available")).toBeNull();
 		expect(within(adaCard).queryByText("Draft ready")).toBeNull();
-		expect(
-			within(adaCard).queryByRole("button", { name: "Finishing…" })
-		).toBeNull();
+		const finishingAction = within(adaCard).getByRole("button", {
+			name: "Finishing…",
+		});
+		expect(finishingAction.hasAttribute("disabled")).toBe(true);
 	});
 
 	it("toasts once when research observed on this page reaches a terminal result", async () => {
@@ -1809,6 +1907,8 @@ function renderOverview(
 	input: {
 		account?: AppShellAccount;
 		additionalHumanProfileCreationEnabled?: boolean;
+		agentProfiles?: OrganizationDirectoryResponse["agentProfiles"];
+		currentUserLastActiveAt?: string;
 		currentUserProfile?: boolean;
 		graceProfileStatus?: "active" | "disabled";
 		isPersonal: boolean;
@@ -1840,6 +1940,7 @@ function renderOverview(
 						}
 					: null,
 				joinedAt: "2026-07-01T00:00:00.000Z",
+				lastActiveAt: input.currentUserLastActiveAt,
 				memberId: "member-ada",
 				organizationId: "org-acme",
 				role: input.currentUserProfile ? "member" : "owner",
@@ -1876,6 +1977,7 @@ function renderOverview(
 		],
 		organizationId: "org-acme",
 	});
+	directory.agentProfiles = input.agentProfiles ?? [];
 	if (input.currentUserProfile) {
 		directory.members.reverse();
 	}
@@ -1903,6 +2005,23 @@ function renderOverview(
 			/>
 		</TestQueryClientProvider>
 	);
+}
+
+function buildDirectoryAgentProfile(input: {
+	agentControllerRef: string;
+	avatarUrl?: string;
+	isCenterAgent?: boolean;
+	profileId: string;
+}): OrganizationDirectoryResponse["agentProfiles"][number] {
+	return {
+		avatarUrl: input.avatarUrl,
+		isCenterAgent: input.isCenterAgent,
+		ownerUserId: "user-grace",
+		profileId: input.profileId,
+		profileName: input.profileId,
+		readiness: { agentControllerRef: input.agentControllerRef },
+		status: "active",
+	} as OrganizationDirectoryResponse["agentProfiles"][number];
 }
 
 function buildHumanProfile(): AuthProfileView {

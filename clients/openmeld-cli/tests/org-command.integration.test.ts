@@ -181,7 +181,7 @@ describe("org commands", () => {
 
   it("returns the exact Organization Directory contract in JSON output", async () => {
     const directory = buildOrganizationDirectoryFixture();
-    mockOrganizationFetch({ directory });
+    const calls = mockOrganizationFetch({ directory });
 
     await withTempHome(async () => {
       await writeSignedInSession();
@@ -196,6 +196,13 @@ describe("org commands", () => {
         type: "organization.directory",
         ...directory,
       });
+    });
+
+    expect(calls).toContainEqual({
+      body: null,
+      method: "GET",
+      pathname: "/v1/organizations/current/directory",
+      search: "?includeMemberLastActiveAt=true",
     });
   });
 

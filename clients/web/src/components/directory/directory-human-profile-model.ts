@@ -1,4 +1,5 @@
 import { buildProfileDetailsSnapshotFromHumanProfile } from "@openmeld/agent-profile";
+import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import type {
 	AuthProfileView,
 	ListOrganizationDocumentsResponse,
@@ -37,6 +38,13 @@ export type DirectoryHumanProfileComputer = {
 	state: DirectoryComputerDisplayState;
 };
 
+export type DirectoryAgentProfileSummary = {
+	agentId: string | null;
+	avatarImageUrl: string | null;
+	id: string;
+	name: string;
+};
+
 export type DirectoryIdentityAccount = {
 	accountEmail: string | null;
 	canDisconnect: boolean;
@@ -58,33 +66,34 @@ type DirectoryProfileReportDocument = Pick<
 	| "updatedAt"
 >;
 
-type DirectoryProfileReportAction =
-	| { kind: "link"; path: string }
-	| { kind: "learn" }
-	| { kind: "none" };
+export type DirectoryProfileReport =
+	| { hasDraft: boolean; path: string; state: "available" }
+	| { state: "missing" }
+	| { state: "unavailable" };
 
 export type DirectoryHumanProfileRow = {
+	agentProfiles: readonly DirectoryAgentProfileSummary[];
 	avatarImageUrl: string | null;
 	canEdit: boolean;
 	computer: DirectoryHumanProfileComputer;
 	details: ProfileDetailsSnapshot | null;
 	email: string | null;
-	hasDraft: boolean;
 	id: string;
 	identityAccounts: readonly DirectoryIdentityAccount[];
 	isDefault: boolean;
 	isCurrentUser: boolean;
 	joinedAt: string | null;
-	lastUsedAt: string | null;
+	lastActiveAt: string | null;
 	name: string;
 	notice: string | null;
-	reportAction: DirectoryProfileReportAction;
+	profileReport: DirectoryProfileReport;
 	profileStatus: "active" | "disabled" | null;
 	role: DirectoryHumanProfileRole | null;
 	userId: string;
 };
 
 export function buildOrganizationHumanProfileRows(input: {
+	agentProfiles: OrganizationDirectoryResponse["agentProfiles"];
 	canManageConnectedAccounts: boolean;
 	computers: OrganizationComputersResponse | null;
 	computersStatus: DirectoryProjectionStatus;
@@ -97,12 +106,14 @@ export function buildOrganizationHumanProfileRows(input: {
 	orgSlug: string;
 }): DirectoryHumanProfileRow[] {
 	const reportsBySubject = indexProfileReportDocuments(input.documents);
+	const agentProfilesByOwner = indexAgentProfilesByOwner(input.agentProfiles);
 	return input.members
 		.map((member) => {
 			const document = reportsBySubject.get(member.user.id);
 			const humanProfile = member.humanProfile;
 			const isCurrentUser = member.user.id === input.currentUserId;
 			return {
+				agentProfiles: agentProfilesByOwner.get(member.user.id) ?? [],
 				avatarImageUrl: member.user.image,
 				canEdit: isCurrentUser && humanProfile?.status === "active",
 				computer: resolveHumanProfileComputer({
@@ -128,16 +139,15 @@ export function buildOrganizationHumanProfileRows(input: {
 						})
 					: null,
 				email: member.user.email,
-				hasDraft: document?.hasDraft ?? false,
 				id: humanProfile?.profileId ?? `member:${member.memberId}`,
 				isDefault: false,
 				isCurrentUser,
 				joinedAt: member.joinedAt,
-				lastUsedAt: humanProfile?.lastUsedAt ?? null,
+				lastActiveAt: member.lastActiveAt ?? null,
 				name:
 					humanProfile?.profileName || member.user.name || member.user.email,
 				notice: null,
-				reportAction: resolveProfileReportAction({
+				profileReport: resolveProfileReport({
 					document,
 					documentsStatus: input.documentsStatus,
 					orgSlug: input.orgSlug,
@@ -163,18 +173,21 @@ export function buildPersonalHumanProfileRows(input: {
 }): DirectoryHumanProfileRow[] {
 	const reportsBySubject = indexProfileReportDocuments(input.documents);
 	const document = reportsBySubject.get(input.subjectUserId);
-	const reportAction = resolveProfileReportAction({
+	const humanProfiles = input.profiles.filter(
+		(candidate) => candidate.profileKind === "human"
+	);
+	const agentProfiles = buildPersonalAgentProfileSummaries(input.profiles);
+	const profileReport = resolveProfileReport({
 		document,
 		documentsStatus: input.documentsStatus,
 		orgSlug: input.orgSlug,
 	});
-	const hasDraft = document?.hasDraft ?? false;
 	const profile =
-		input.profiles.find((candidate) => candidate.isDefault) ??
-		input.profiles[0];
+		humanProfiles.find((candidate) => candidate.isDefault) ?? humanProfiles[0];
 	if (!profile) {
 		return [
 			{
+				agentProfiles,
 				avatarImageUrl: null,
 				canEdit: false,
 				computer: resolveHumanProfileComputer({
@@ -186,13 +199,12 @@ export function buildPersonalHumanProfileRows(input: {
 				}),
 				details: null,
 				email: input.account.email?.trim() || null,
-				hasDraft,
 				id: `member:${input.subjectUserId || input.orgSlug}`,
 				identityAccounts: [],
 				isDefault: false,
 				isCurrentUser: true,
 				joinedAt: null,
-				lastUsedAt: null,
+				lastActiveAt: null,
 				name:
 					input.account.name?.trim() ||
 					input.account.email?.trim() ||
@@ -200,7 +212,7 @@ export function buildPersonalHumanProfileRows(input: {
 				notice: resolveMissingPersonalHumanProfileMessage(
 					input.canCreateHumanProfile
 				),
-				reportAction,
+				profileReport,
 				profileStatus: null,
 				role: null,
 				userId: input.subjectUserId,
@@ -209,6 +221,7 @@ export function buildPersonalHumanProfileRows(input: {
 	}
 	return [
 		{
+			agentProfiles,
 			avatarImageUrl: profile.avatarUrl ?? null,
 			canEdit: profile.isDefault && profile.status === "active",
 			computer: resolveHumanProfileComputer({
@@ -224,21 +237,77 @@ export function buildPersonalHumanProfileRows(input: {
 				viewerScope: "owner_self",
 			}),
 			email: input.account.email?.trim() || null,
-			hasDraft,
 			id: profile.openMeldProfileId,
 			identityAccounts: [],
 			isDefault: profile.isDefault,
 			isCurrentUser: true,
 			joinedAt: null,
-			lastUsedAt: profile.lastUsedAt,
+			lastActiveAt: null,
 			name: profile.profileName,
 			notice: null,
-			reportAction,
+			profileReport,
 			profileStatus: profile.status,
 			role: null,
 			userId: input.subjectUserId,
 		},
 	];
+}
+
+function buildPersonalAgentProfileSummaries(
+	profiles: readonly AuthProfileView[]
+): readonly DirectoryAgentProfileSummary[] {
+	const agentProfiles: DirectoryAgentProfileSummary[] = [];
+	for (const profile of profiles) {
+		if (profile.profileKind !== "agent" || profile.managedRole !== null) {
+			continue;
+		}
+		agentProfiles.push({
+			agentId: null,
+			avatarImageUrl: profile.avatarUrl ?? null,
+			id: profile.openMeldProfileId,
+			name: profile.profileName,
+		});
+	}
+	return sortAgentProfileSummaries(agentProfiles);
+}
+
+function indexAgentProfilesByOwner(
+	agentProfiles: OrganizationDirectoryResponse["agentProfiles"]
+): ReadonlyMap<string, readonly DirectoryAgentProfileSummary[]> {
+	const profilesByOwner = new Map<string, DirectoryAgentProfileSummary[]>();
+	for (const profile of agentProfiles) {
+		if (profile.isCenterAgent === true) {
+			continue;
+		}
+		const profiles = profilesByOwner.get(profile.ownerUserId) ?? [];
+		profiles.push({
+			agentId:
+				parseAgentControllerRef(profile.readiness.agentControllerRef)?.id ??
+				null,
+			avatarImageUrl: profile.avatarUrl ?? null,
+			id: profile.profileId,
+			name: profile.profileName,
+		});
+		profilesByOwner.set(profile.ownerUserId, profiles);
+	}
+	for (const profiles of profilesByOwner.values()) {
+		sortAgentProfileSummaries(profiles);
+	}
+	return profilesByOwner;
+}
+
+function sortAgentProfileSummaries(
+	profiles: DirectoryAgentProfileSummary[]
+): DirectoryAgentProfileSummary[] {
+	return profiles.sort((left, right) => {
+		const nameComparison = left.name.localeCompare(right.name, "en", {
+			numeric: true,
+			sensitivity: "base",
+		});
+		return nameComparison === 0
+			? left.id.localeCompare(right.id)
+			: nameComparison;
+	});
 }
 
 export function resolveMissingPersonalHumanProfileMessage(
@@ -249,24 +318,25 @@ export function resolveMissingPersonalHumanProfileMessage(
 		: "You don't have a Human Profile in this workspace yet.";
 }
 
-function resolveProfileReportAction(input: {
+function resolveProfileReport(input: {
 	document: DirectoryProfileReportDocument | undefined;
 	documentsStatus: DirectoryDocumentsStatus;
 	orgSlug: string;
-}): DirectoryProfileReportAction {
+}): DirectoryProfileReport {
 	if (input.documentsStatus !== "ready") {
-		return { kind: "none" };
+		return { state: "unavailable" };
 	}
 	if (input.document) {
 		return {
-			kind: "link",
+			hasDraft: input.document.hasDraft,
 			path: buildOrganizationDocumentPath({
 				documentId: input.document.id,
 				orgSlug: input.orgSlug,
 			}),
+			state: "available",
 		};
 	}
-	return { kind: "learn" };
+	return { state: "missing" };
 }
 
 function indexProfileReportDocuments(

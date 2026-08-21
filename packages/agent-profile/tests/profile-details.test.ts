@@ -20,13 +20,8 @@ describe("Profile Details snapshot", () => {
       profileName: "Grace Hopper",
       viewerScope: "observer",
     });
-    expect(listSectionTitles(snapshot)).toEqual([
-      "Profile",
-      "Advanced details",
-    ]);
-    expect(findRowValue(snapshot, "profile", "Profile type")).toBe(
-      "Human Profile"
-    );
+    expect(listSectionTitles(snapshot)).toEqual(["Advanced details"]);
+    expect(findRowValue(snapshot, "profile", "Profile type")).toBeNull();
     expect(findRowValue(snapshot, "profile", "Handle")).toBeNull();
     expect(findRowValue(snapshot, "profile", "Status")).toBeNull();
     expect(findRowValue(snapshot, "advanced", "Profile ID")).toBe(

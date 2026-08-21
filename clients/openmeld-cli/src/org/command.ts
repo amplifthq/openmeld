@@ -262,7 +262,7 @@ export async function runOrgDirectory(input: {
   try {
     directory = await createOrganizationApi(
       createCliApiClientFoundation(await resolveBaseUrl())
-    ).getCurrentDirectory();
+    ).getCurrentDirectory({ includeMemberLastActiveAt: true });
   } catch (error) {
     emitOrganizationApiError({
       presenter: context.presenter,

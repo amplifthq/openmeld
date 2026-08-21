@@ -1585,7 +1585,7 @@ describe("gateway http forwarding", () => {
     });
   });
 
-  it("only exposes Human Profile activity to clients that request it", async () => {
+  it("only exposes requested Organization directory activity fields", async () => {
     const getCurrentOrganizationDirectory = vi.fn(async () => ({
       organizationId: "org-1",
       generatedAt: "2026-08-01T00:00:00.000Z",
@@ -1596,6 +1596,7 @@ describe("gateway http forwarding", () => {
           userId: "user-1",
           role: "member",
           joinedAt: "2026-07-01T00:00:00.000Z",
+          lastActiveAt: "2026-08-01T00:00:00.000Z",
           user: {
             id: "user-1",
             name: "Mira",
@@ -1624,7 +1625,7 @@ describe("gateway http forwarding", () => {
     );
     const enrichedResponse = await app.fetch(
       new Request(
-        "http://local/v1/organizations/current/directory?includeHumanProfileLastUsedAt=true"
+        "http://local/v1/organizations/current/directory?includeHumanProfileLastUsedAt=true&includeMemberLastActiveAt=true"
       ),
       env,
       TEST_EXECUTION_CONTEXT
@@ -1646,15 +1647,24 @@ describe("gateway http forwarding", () => {
     expect(legacyPayload.members[0]?.humanProfile).not.toHaveProperty(
       "lastUsedAt"
     );
+    expect(legacyPayload.members[0]).not.toHaveProperty("lastActiveAt");
     await expect(enrichedResponse.json()).resolves.toMatchObject({
       members: [
         {
+          lastActiveAt: "2026-08-01T00:00:00.000Z",
           humanProfile: {
             lastUsedAt: "2026-07-31T23:59:00.000Z",
             profileId: VALID_HUMAN_PROFILE_ID,
           },
         },
       ],
+    });
+    expect(getCurrentOrganizationDirectory).toHaveBeenNthCalledWith(1, {
+      context: EXPECTED_CORE_CONTEXT,
+    });
+    expect(getCurrentOrganizationDirectory).toHaveBeenNthCalledWith(2, {
+      context: EXPECTED_CORE_CONTEXT,
+      includeMemberLastActiveAt: true,
     });
   });
 
