@@ -552,7 +552,12 @@ function projectUsageLimitFreshness(input: {
         Number.isFinite(observedAtMs) &&
         observedAtMs + AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS <=
           input.nowMs;
-      return input.reportExpired || observationExpired
+      const resetsAtMs = limit.resetsAt
+        ? Date.parse(limit.resetsAt)
+        : Number.NaN;
+      const resetExpired =
+        Number.isFinite(resetsAtMs) && resetsAtMs <= input.nowMs;
+      return input.reportExpired || observationExpired || resetExpired
         ? { ...limit, status: "stale" as const }
         : limit;
     }),

@@ -714,7 +714,7 @@ function renderOrganizationComputersCard(input: {
               }
               return usageLimits.map((limit) => ({
                 label: "Local Agent",
-                value: `${agent.agentControllerRef} · ${limit.label} · ${limit.usedPercent === null ? limit.status : `${limit.usedPercent}% used · ${limit.status}`}`,
+                value: `${agent.agentControllerRef} · ${agent.status} · ${limit.label} · ${limit.usedPercent === null ? limit.status : `${limit.usedPercent}% used · ${limit.status}`}`,
               }));
             }),
           ]),

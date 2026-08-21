@@ -233,6 +233,24 @@ describe("org commands", () => {
     });
   });
 
+  it("keeps Local Agent readiness visible beside Usage Limits in human output", async () => {
+    const computers = buildOrganizationComputersFixture();
+    mockOrganizationFetch({ computers });
+
+    await withTempHome(async () => {
+      await writeSignedInSession({ role: "member" });
+
+      const result = await runCommandAndCapture(() =>
+        runOrgComputers({ json: false, view: "human" })
+      );
+
+      expect(result.exitCode).toBeUndefined();
+      expect(result.plainStdout).toContain(
+        "builtin:codex · not_ready · 5-hour usage · 42% used · available"
+      );
+    });
+  });
+
   it("keeps unauthenticated directory failures machine-readable in JSON output", async () => {
     await withTempHome(async () => {
       const result = await runCommandAndCapture(() =>
@@ -651,7 +669,7 @@ function buildOrganizationComputersFixture() {
               version: "0.148.0",
             },
             enabled: true,
-            status: "ready" as const,
+            status: "not_ready" as const,
           },
         ],
         osVersion: "15.6",

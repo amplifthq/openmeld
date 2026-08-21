@@ -271,6 +271,52 @@ describe("current device local runtimes RPC read model", () => {
         ],
       });
 
+      const resetExpiredReportObservedAtMs = observedAtMs + 1;
+      const resetExpiredUsageObservedAt = new Date(observedAtMs).toISOString();
+      const [resetExpiredUsageLimit] =
+        CODEX_AGENT_CONTROLLER_INTERFACE.usageLimits;
+      if (!resetExpiredUsageLimit) {
+        throw new Error("Codex Usage Limit fixture is missing");
+      }
+      await rpcSubmitRuntimeAgentControllerReports(env, {
+        openMeldServiceRuntimeId: {
+          source: "runtime_registry_authority",
+          value: "runtime-macbook",
+        },
+        context,
+        deviceId: "device-macbook",
+        lane: "dev-local",
+        reports: [
+          {
+            agentControllerRef: "builtin:codex",
+            agentControllerInterface: {
+              ...CODEX_AGENT_CONTROLLER_INTERFACE,
+              usageLimits: [
+                {
+                  ...resetExpiredUsageLimit,
+                  observedAt: resetExpiredUsageObservedAt,
+                  resetsAt: new Date(observedAtMs - 1).toISOString(),
+                  status: "available",
+                },
+              ],
+            },
+            observedAtMs: resetExpiredReportObservedAtMs,
+            expiresAtMs: resetExpiredReportObservedAtMs + 60 * 60_000,
+            reasonCodes: ["runtime.agent_controller_report.ready"],
+            status: "ready",
+          },
+        ],
+      });
+
+      const resetExpiredResponse = await rpcListLocalRuntimes(env, {
+        context,
+        includeUsageLimits: "true",
+      });
+      expect(
+        resetExpiredResponse.localRuntimes[0]?.executionTargets[0]
+          ?.capabilities[0]?.agentControllerInterface?.usageLimits?.[0]?.status
+      ).toBe("stale");
+
       const mutationResponse = await rpcSetLocalRuntimeDisplayName(env, {
         context,
         deviceId: "device-macbook",
