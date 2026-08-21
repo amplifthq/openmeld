@@ -3747,7 +3747,11 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           "centerAgentListComputers"
         );
         return centerAgentListComputersResponseSchema.parse(
-          await rpc({ ...toolContext, includeDiagnostics: true })
+          await rpc({
+            ...toolContext,
+            includeDiagnostics: true,
+            includeUsageLimits: "true",
+          })
         );
       },
     }),

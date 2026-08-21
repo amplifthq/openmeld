@@ -1013,6 +1013,7 @@ export const centerAgentListLocalAgentConnectionCandidatesResponseSchema =
 
 export const centerAgentListComputersBodySchema = z.strictObject({
   includeDiagnostics: z.boolean().optional(),
+  includeUsageLimits: z.literal("true").optional(),
   speakerMember: centerAgentToolSpeakerSchema,
 });
 

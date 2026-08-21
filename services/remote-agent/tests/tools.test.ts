@@ -1931,6 +1931,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentListComputers).toHaveBeenCalledWith(
       expect.objectContaining({
         includeDiagnostics: true,
+        includeUsageLimits: "true",
         speakerMember: { memberId: "member_123", userId: "user_1" },
       })
     );
@@ -5122,6 +5123,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
     {
       expectedPayload: {
         includeDiagnostics: true,
+        includeUsageLimits: "true",
         speakerMember: { memberId: "member_123", userId: "user_1" },
       },
       input: {},

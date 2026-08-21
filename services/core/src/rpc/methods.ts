@@ -2899,6 +2899,7 @@ async function getCurrentLocalRuntimeReplyReadinessForOwnerUser(input: {
 
 async function buildOwnerComputerDiagnostics(input: {
   env: CoreBindings;
+  includeUsageLimits: boolean;
   localRuntimes: LocalRuntimesResponse;
   userId: string;
 }): Promise<OwnerComputerDiagnostics> {
@@ -2913,7 +2914,11 @@ async function buildOwnerComputerDiagnostics(input: {
   return ownerComputerDiagnosticsSchema.parse({
     currentComputerFileAccess,
     currentLocalRuntimeReplyReadiness,
-    localRuntimes: projectOwnerComputerLocalRuntimes(input.localRuntimes),
+    localRuntimes: projectOwnerComputerLocalRuntimes(
+      input.includeUsageLimits
+        ? input.localRuntimes
+        : omitLocalRuntimeUsageLimits(input.localRuntimes)
+    ),
   });
 }
 
@@ -9017,6 +9022,9 @@ export async function rpcCenterAgentListComputers(
     ...(input.includeDiagnostics === undefined
       ? {}
       : { includeDiagnostics: input.includeDiagnostics }),
+    ...(input.includeUsageLimits === undefined
+      ? {}
+      : { includeUsageLimits: input.includeUsageLimits }),
     speakerMember: input.speakerMember,
   });
   if (!parsed.success) {
@@ -9046,6 +9054,7 @@ export async function rpcCenterAgentListComputers(
   const diagnostics = parsed.data.includeDiagnostics
     ? await buildOwnerComputerDiagnostics({
         env,
+        includeUsageLimits: parsed.data.includeUsageLimits === "true",
         localRuntimes,
         userId: representedHuman.userId,
       })

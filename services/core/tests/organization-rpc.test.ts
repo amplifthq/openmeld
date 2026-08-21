@@ -9,6 +9,7 @@ import type {
   GetSpaceThreadResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
+  LocalRuntimesResponse,
   OpenMeldRequestContext,
   SignalTextEnvelope,
 } from "@openmeld/schemas/types";
@@ -1491,6 +1492,60 @@ describe("organization Core RPC", () => {
       },
       organizationId: "org-a",
     });
+  });
+
+  it("requires an explicit opt-in before owner diagnostics include usage limits", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [managedCenterAgentProfileRow()],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+    });
+    const env = buildEnv({ db });
+    vi.spyOn(
+      currentDeviceTargetService,
+      "listLocalRuntimesUseCase"
+    ).mockResolvedValue(createOwnerLocalRuntimesWithUsageLimits());
+    vi.spyOn(
+      currentDeviceTargetService,
+      "getCurrentLocalRuntimeReplyReadinessUseCase"
+    ).mockResolvedValue(createMissingCurrentComputerReadiness());
+    const request = {
+      context: buildContext({
+        activeOrganizationId: "org-a",
+        agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+        profileId: AGENT_PROFILE_ID,
+        profileKind: "agent" as const,
+        userId: "user-a",
+      }),
+      includeDiagnostics: true,
+      speakerMember: { memberId: "member-a", userId: "user-a" },
+    };
+
+    const legacyResponse = await rpcCenterAgentListComputers(env, request);
+    expect(
+      legacyResponse.diagnostics?.localRuntimes.localRuntimes[0]
+        ?.executionTargets[0]?.capabilities[0]?.details
+    ).not.toHaveProperty("usageLimits");
+
+    const optedInResponse = await rpcCenterAgentListComputers(env, {
+      ...request,
+      includeUsageLimits: "true",
+    });
+    expect(
+      optedInResponse.diagnostics?.localRuntimes.localRuntimes[0]
+        ?.executionTargets[0]?.capabilities[0]?.details?.usageLimits
+    ).toEqual([
+      expect.objectContaining({
+        key: "codex:primary",
+        usedPercent: 62,
+      }),
+    ]);
   });
 
   it("reads one teammate's Computers through the existing team-safe projection", async () => {
@@ -12238,6 +12293,114 @@ function createD1RunResult(changes: number): D1Result {
     results: [],
     success: true,
   } as unknown as D1Result;
+}
+
+function createOwnerLocalRuntimesWithUsageLimits(): LocalRuntimesResponse {
+  return {
+    currentDeviceId: null,
+    currentRuntimeLane: null,
+    localRuntimes: [
+      {
+        deviceDisplayName: "Owner Mac",
+        deviceDisplayNameSource: "user",
+        deviceId: "computer-owner",
+        deviceType: "laptop",
+        executionTargets: [
+          {
+            capabilities: [
+              {
+                agentControllerInterface: {
+                  agentControllerRef: "builtin:codex",
+                  auth: { status: "authenticated" },
+                  capabilities: {
+                    approvals: true,
+                    cancel: true,
+                    interrupt: true,
+                    modelSelection: true,
+                    nativeEventStream: true,
+                    permissionModes: true,
+                    structuredUserInput: true,
+                  },
+                  check: {
+                    lastSucceededAt: "2026-08-19T00:00:00.000Z",
+                    status: "succeeded",
+                  },
+                  checkedAt: "2026-08-19T00:00:00.000Z",
+                  controllerId: "codex",
+                  displayName: "Codex",
+                  launch: {
+                    argsPrefix: [],
+                    commandPath: "/private/codex",
+                    installChoiceCount: 1,
+                    status: "ready",
+                  },
+                  message: null,
+                  models: [],
+                  nativeInterface: "codex-app-server",
+                  schemaVersion: 1,
+                  skills: [],
+                  status: "ready",
+                  usageLimits: [
+                    {
+                      key: "codex:primary",
+                      label: "5-hour usage",
+                      observedAt: "2026-08-19T00:00:00.000Z",
+                      resetsAt: "2026-08-19T05:00:00.000Z",
+                      status: "available",
+                      usedPercent: 62,
+                    },
+                  ],
+                  version: "0.148.0",
+                },
+                agentControllerRef: "builtin:codex",
+                enabled: true,
+                reasonCodes: [],
+                status: "ready",
+              },
+            ],
+            deviceId: "computer-owner",
+            isCurrent: false,
+            lastObservedAtMs: 1,
+            localAgentCatalog: {
+              detectedNotSupportedYet: 0,
+              detectedSupported: 1,
+              entries: [
+                {
+                  agentId: "codex",
+                  detected: true,
+                  displayName: "Codex",
+                  enabled: true,
+                  launchStatus: "ready",
+                  lifecycleStatus: "active",
+                  selectable: true,
+                  selectableReason: null,
+                  targetKind: "builtin",
+                },
+              ],
+              needsChoice: 0,
+              needsRepair: 0,
+              notDetected: 0,
+              totalBuiltins: 1,
+            },
+            localAgentControl: {
+              refreshCatalog: true,
+              setEnabled: true,
+            },
+            openMeldServiceRuntimeId: null,
+            reasonCodes: [],
+            runtimeLane: "prod",
+            status: "ready",
+            userFacingCommand: "openmeld",
+          },
+        ],
+        firstSeenAtMs: 1,
+        isCurrent: false,
+        lastObservedAtMs: 1,
+        osVersion: "15.6",
+        platformFamily: "macOS",
+      },
+    ],
+  };
 }
 
 function createMissingCurrentComputerReadiness() {
