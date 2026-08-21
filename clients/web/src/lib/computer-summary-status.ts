@@ -112,10 +112,7 @@ export function resolveCurrentLocalRuntimeComputerSummaryStatus(input: {
 	if (isCurrentLocalRuntimeServiceDisconnected(readiness)) {
 		return SERVICE_NOT_CONNECTED_STATUS;
 	}
-	if (
-		readiness.nextAction === "run_setup" &&
-		!hasOnlyIncompleteControllerCheckEvidence(readiness)
-	) {
+	if (readiness.nextAction === "run_setup") {
 		return AGENT_NEEDS_SETUP_STATUS;
 	}
 	if (
@@ -197,21 +194,6 @@ export function isCurrentLocalRuntimeServiceDisconnected(
 	return (
 		readiness.service.connected !== true ||
 		readiness.primaryBlocker === "service_not_connected"
-	);
-}
-
-function hasOnlyIncompleteControllerCheckEvidence(
-	readiness: CurrentLocalRuntimeReplyReadinessResponse
-): boolean {
-	const reasonCodes = readiness.runtime.reasonCodes;
-	return (
-		readiness.primaryBlocker === "agent_controller_report_not_ready" &&
-		reasonCodes.includes("controller.interface.check_failed") &&
-		reasonCodes.every(
-			(reasonCode) =>
-				reasonCode === "controller.interface.check_failed" ||
-				reasonCode === "runtime.agent_controller_report.ready"
-		)
 	);
 }
 

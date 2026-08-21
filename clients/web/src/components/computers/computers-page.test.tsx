@@ -913,7 +913,7 @@ describe("ComputersPage", () => {
 			buildRecoveryControllerStub({
 				currentReadiness: buildCurrentRuntimeReadiness({
 					deviceId: "device-current",
-					nextAction: "run_setup",
+					nextAction: "check_status",
 					primaryBlocker: "agent_controller_report_not_ready",
 					runtimeReasonCodes: ["controller.interface.check_failed"],
 					status: "blocked",

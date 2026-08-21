@@ -202,7 +202,7 @@ describe("computer summary status", () => {
 		const status = resolveCurrentLocalRuntimeComputerSummaryStatus({
 			readiness: buildReadiness({
 				canReplyFromThisComputer: false,
-				nextAction: "run_setup",
+				nextAction: "check_status",
 				primaryBlocker: "agent_controller_report_not_ready",
 				runtime: {
 					...buildReadiness().runtime,
@@ -223,7 +223,7 @@ describe("computer summary status", () => {
 	it("does not escalate mixed ready and incomplete controller checks to global attention", () => {
 		const readiness = buildReadiness({
 			canReplyFromThisComputer: false,
-			nextAction: "run_setup",
+			nextAction: "check_status",
 			primaryBlocker: "agent_controller_report_not_ready",
 			runtime: {
 				...buildReadiness().runtime,

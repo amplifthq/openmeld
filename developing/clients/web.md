@@ -3071,6 +3071,12 @@ An incomplete controller check is row-scoped retryable evidence, not global
 Computers attention and not proof of repair. Web must show `Checking` only while
 an actual local-agent check request is running; it must not manufacture a
 checking state from an unrelated readiness fetch or a fixed grace timer.
+Computers, Agents, and Space recovery surfaces must consume the Core-owned
+current-local-runtime `nextAction` for the completed outcome. A completed
+`check_status` verdict remains unavailable without repair attention or a setup
+action; Web may retain the raw reason code for diagnostics and the affected
+local-agent row, but must not maintain a reason-code allowlist that independently
+decides whether setup is required.
 
 Computers may let the user turn an already reported local agent on or
 off, but Web is only the intent surface. The write must go through Core to the
