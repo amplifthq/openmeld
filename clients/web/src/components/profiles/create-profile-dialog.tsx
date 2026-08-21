@@ -1160,11 +1160,8 @@ function resolveSelectableProfileKind(input: {
 	additionalHumanProfileCreationEnabled: boolean;
 	profileKind: NewProfileKind | null;
 }): NewProfileKind | null {
-	if (
-		input.profileKind === "human" &&
-		!input.additionalHumanProfileCreationEnabled
-	) {
-		return null;
+	if (!input.additionalHumanProfileCreationEnabled) {
+		return "agent";
 	}
 	return input.profileKind;
 }

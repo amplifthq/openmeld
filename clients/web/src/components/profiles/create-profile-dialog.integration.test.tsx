@@ -21,6 +21,7 @@ const FELIX_ID = "11111111-1111-4111-8111-111111111111";
 const NEW_HUMAN_ID = "55555555-5555-4555-8555-555555555555";
 const NEW_AGENT_ID = "agt_99999999-9999-4999-8999-999999999999";
 const CREATE_PROFILE_BUTTON_PATTERN = /create profile/i;
+const CHOOSE_LATER_PATTERN = /Choose later/i;
 const HUMAN_PROFILE_CARD_PATTERN = /Human profile/i;
 const AGENT_PROFILE_CARD_PATTERN = /Agent profile/i;
 const OPENCODE_AGENT_PATTERN = /opencode/i;
@@ -461,6 +462,12 @@ async function fillProfileForm(input: { kind: RegExp; name: string }) {
 	fireEvent.click(submitButton);
 }
 
+async function selectAgentProfileKind() {
+	fireEvent.click(
+		await screen.findByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
+	);
+}
+
 describe("CreateProfileDialog", () => {
 	beforeEach(() => {
 		getProfileCapabilitiesMock.mockReset().mockResolvedValue({
@@ -703,7 +710,7 @@ describe("CreateProfileDialog", () => {
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
 	});
 
-	it("keeps Agent creation available while hiding Human creation when the capability is disabled", async () => {
+	it("opens directly as Agent creation when additional Human creation is disabled", async () => {
 		getProfileCapabilitiesMock.mockResolvedValue({
 			additionalHumanProfileCreationEnabled: false,
 			ok: true,
@@ -714,12 +721,16 @@ describe("CreateProfileDialog", () => {
 			expect(getProfileCapabilitiesMock).toHaveBeenCalled();
 		});
 		expect(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		).toBeTruthy();
+			screen.queryByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
+		).toBeNull();
 		expect(
 			screen.queryByRole("tab", { name: HUMAN_PROFILE_CARD_PATTERN })
 		).toBeNull();
 		expect(screen.getByText("Create an Agent on this account.")).toBeTruthy();
+		expect(screen.getByLabelText("Profile name")).toBeTruthy();
+		expect(
+			screen.getByRole("radio", { name: CHOOSE_LATER_PATTERN })
+		).toBeTruthy();
 	});
 
 	it("explains why Create profile is disabled until a profile kind is chosen", async () => {
@@ -740,9 +751,7 @@ describe("CreateProfileDialog", () => {
 			screen.getByText("Choose an Agent Profile or Human Profile.")
 		).toBeTruthy();
 
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 
 		await waitFor(() => {
 			expect(submitButton.disabled).toBe(false);
@@ -803,9 +812,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -942,9 +949,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1069,9 +1074,7 @@ describe("CreateProfileDialog", () => {
 			]),
 		});
 
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 
 		await waitFor(() => {
 			expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
@@ -1151,9 +1154,7 @@ describe("CreateProfileDialog", () => {
 			recovery: buildFakeRecovery([], { fetchStatus: "fetching" }),
 		});
 
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 
 		await waitFor(() => {
 			expect(
@@ -1183,9 +1184,7 @@ describe("CreateProfileDialog", () => {
 			]),
 		});
 
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
@@ -1208,9 +1207,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1268,9 +1265,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1322,9 +1317,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1378,9 +1371,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1425,9 +1416,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1465,9 +1454,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1513,9 +1500,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "OpenCode Agent" },
 		});
@@ -1657,9 +1642,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "OpenClaw Agent" },
 		});
@@ -1707,9 +1690,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});
@@ -1753,9 +1734,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
 		await waitFor(() => {
 			expect(
@@ -1782,9 +1761,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
 
 		const modelSelect = await screen.findByRole("combobox", {
@@ -1813,9 +1790,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.click(screen.getByRole("radio", { name: "Cursor" }));
 
 		expect(await screen.findByRole("combobox", { name: "Model" })).toBeTruthy();
@@ -1844,9 +1819,7 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() => {
 			expect(listStartProfilesMock).toHaveBeenCalled();
 		});
-		fireEvent.click(
-			screen.getByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
-		);
+		await selectAgentProfileKind();
 		fireEvent.change(screen.getByLabelText("Profile name"), {
 			target: { value: "Research Agent" },
 		});

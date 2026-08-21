@@ -2071,8 +2071,10 @@ explicit visible stopped outcome, or explicit visible failure.
 
 Every Web surface that can open Profile creation reads Auth's
 `GET /v1/profiles/capabilities` projection. When additional Human Profile
-creation is disabled, Web hides the Human kind in the shared creation dialog
-and hides Human-only creation buttons while leaving Agent creation available.
+creation is disabled, Web opens the shared creation dialog directly as Agent
+creation without rendering a redundant single-option kind selector, and hides
+Human-only creation buttons. When both kinds are available, Web renders the
+kind selector.
 Loading or failed capability reads fail closed for Human creation. UI gating is
 presentation only; Auth still rejects direct or stale-client Human creation
 requests.
