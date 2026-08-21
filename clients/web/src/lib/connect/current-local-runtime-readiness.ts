@@ -99,6 +99,15 @@ export function mapCurrentLocalRuntimeReplyReadiness(
 	}
 
 	if (readiness.primaryBlocker === "agent_controller_report_not_ready") {
+		if (readiness.nextAction === "check_status") {
+			return {
+				detailReasonCode,
+				executionTargetStatus,
+				reasonCode: "device_reply_readiness.unknown",
+				service: null,
+				status: "unknown",
+			};
+		}
 		return {
 			detailReasonCode,
 			executionTargetStatus,

@@ -1036,6 +1036,15 @@ function resolveExecutionTargetReplyBlocker(
       status: "unknown",
     };
   }
+  if (hasOnlyRetryableControllerCheckFailureEvidence(target)) {
+    return {
+      message:
+        "OpenMeld could not finish checking one or more local agents on this computer. Check again before they reply in Spaces.",
+      nextAction: "check_status",
+      primaryBlocker: "agent_controller_report_not_ready",
+      status: "blocked",
+    };
+  }
   return {
     message:
       "Set up local agents on this computer before they can reply in Spaces.",
@@ -1043,6 +1052,41 @@ function resolveExecutionTargetReplyBlocker(
     primaryBlocker: "agent_controller_report_not_ready",
     status: "blocked",
   };
+}
+
+function hasOnlyRetryableControllerCheckFailureEvidence(
+  target: LocalRuntimeExecutionTarget
+): boolean {
+  if (target.status !== "partial" && target.status !== "not_ready") {
+    return false;
+  }
+
+  let hasCheckFailure = false;
+  for (const capability of target.capabilities) {
+    if (capability.status === "ready") {
+      if (
+        capability.reasonCodes.some(
+          (reasonCode) => reasonCode !== "runtime.agent_controller_report.ready"
+        )
+      ) {
+        return false;
+      }
+      continue;
+    }
+
+    if (
+      capability.status !== "not_ready" ||
+      capability.reasonCodes.length === 0 ||
+      capability.reasonCodes.some(
+        (reasonCode) => reasonCode !== "controller.interface.check_failed"
+      )
+    ) {
+      return false;
+    }
+    hasCheckFailure = true;
+  }
+
+  return hasCheckFailure;
 }
 
 function isRegistryFreshnessBlocker(

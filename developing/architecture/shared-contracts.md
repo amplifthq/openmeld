@@ -3527,6 +3527,15 @@ needs repair. Clients must present it as a retryable check failure and may show
 the last successful timestamp without treating historical evidence as current
 readiness.
 
+Core owns the recovery verdict in the current-local-runtime reply-readiness
+response. When every non-ready capability is blocked only by
+`controller.interface.check_failed`, Core must keep Wake fail closed with
+`canReplyFromThisComputer: false` and `status: blocked`, while publishing
+`nextAction: check_status` instead of `run_setup`. Clients must consume that
+owner verdict for summary status and recovery actions; they may expose raw
+reason codes as diagnostic or row-scoped evidence, but must not reinterpret
+them into a second setup-or-retry decision.
+
 The shared schema supports both the rich local snapshot and its cloud-bound
 projection, but runtime reporting must construct the cloud projection through
 one shared allowlist. The cloud projection clears local command paths and launch
