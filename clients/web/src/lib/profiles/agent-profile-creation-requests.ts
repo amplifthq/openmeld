@@ -25,9 +25,11 @@ function createApi(organizationId: string) {
 export async function createAgentProfileCreationRequest(input: {
 	configuration: AgentProfileCreationConfiguration;
 	idempotencyKey: string;
+	nativeSessionId?: string | null;
 	organizationId: string;
 	profileName: string;
 	requestedSpaceId?: string | null;
+	sessionStrategy?: "new" | "resume" | "fork";
 	targetOwnerUserId: string;
 }): Promise<CreateAgentProfileCreationRequestResponse> {
 	try {
@@ -36,10 +38,11 @@ export async function createAgentProfileCreationRequest(input: {
 		).createAgentProfileCreationRequest({
 			configuration: input.configuration,
 			idempotencyKey: input.idempotencyKey,
+			nativeSessionId: input.nativeSessionId,
 			organizationId: input.organizationId,
 			profileName: input.profileName,
 			requestedSpaceId: input.requestedSpaceId,
-			sessionStrategy: "new",
+			sessionStrategy: input.sessionStrategy ?? "new",
 			source: "web",
 			targetOwnerUserId: input.targetOwnerUserId,
 		});

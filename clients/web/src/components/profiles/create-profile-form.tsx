@@ -67,6 +67,7 @@ export function CreateProfileForm(input: {
 	agentBindingChoices?: readonly AgentProfileBindingChoice[];
 	agentBindingValue?: string;
 	agentOwnershipSlot?: ReactNode;
+	agentSessionSlot?: ReactNode;
 	availableLocalAgentIds: readonly string[];
 	boundAgentId: string;
 	boundAgentControllerPermissionMode: AgentControllerPermissionMode;
@@ -133,6 +134,7 @@ export function CreateProfileForm(input: {
 			) : null}
 			<form className="grid min-w-0 gap-4" onSubmit={input.onSubmit}>
 				{input.profileKind === "agent" ? input.agentOwnershipSlot : null}
+				{input.profileKind === "agent" ? input.agentSessionSlot : null}
 				<div className="grid min-w-0 gap-2">
 					<Label htmlFor="create-profile-name-input">Profile name</Label>
 					<Input

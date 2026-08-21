@@ -29,6 +29,7 @@ const USE_AGENT_PROFILE_IN_ACME_PATTERN = /Use this Agent in Acme/;
 const AUTO_AUTHORIZE_NEW_AGENT_PROFILES_IN_ACME_PATTERN =
 	/Automatically authorize my new Agents in Acme/;
 const BORDER_CLASS_PATTERN = /\bborder\b/;
+const ASHLEY_RELEASE_SESSION_PATTERN = /Prepare the release · Codex · OpenMeld/;
 const SPACE_JOIN_REQUIRES_HUMAN_MESSAGE =
 	"Add a human profile to this account before bringing profiles into this Space.";
 
@@ -57,6 +58,7 @@ const setAgentProfileCreationDefaultsMock = vi.hoisted(() => vi.fn());
 const listProjectsMock = vi.hoisted(() => vi.fn());
 const readOrganizationDirectoryMock = vi.hoisted(() => vi.fn());
 const readOrganizationComputersMock = vi.hoisted(() => vi.fn());
+const readCurrentAgentActivitySessionsMock = vi.hoisted(() => vi.fn());
 const createAgentProfileCreationRequestMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
@@ -196,6 +198,12 @@ vi.mock("#/lib/organizations/organization-computers", () => ({
 	readCurrentOrganizationComputers: (
 		...args: Parameters<typeof readOrganizationComputersMock>
 	) => readOrganizationComputersMock(...args),
+}));
+
+vi.mock("#/lib/organizations/agent-activity", () => ({
+	readCurrentAgentActivitySessions: (
+		...args: Parameters<typeof readCurrentAgentActivitySessionsMock>
+	) => readCurrentAgentActivitySessionsMock(...args),
 }));
 
 vi.mock(
@@ -622,6 +630,13 @@ describe("CreateProfileDialog", () => {
 			generatedAt: "2026-08-20T00:00:00.000Z",
 			organizationId: "organization-123",
 		});
+		readCurrentAgentActivitySessionsMock.mockReset().mockResolvedValue({
+			asOfMs: 1_787_220_000_000,
+			coverage: [],
+			nextCursor: null,
+			organization: { id: "organization-123", name: "Acme" },
+			sessions: [],
+		});
 		createAgentProfileCreationRequestMock.mockReset().mockResolvedValue({
 			replayed: false,
 			request: {
@@ -698,7 +713,7 @@ describe("CreateProfileDialog", () => {
 
 		expect(
 			await screen.findByText(
-				"Connect this working Session to a new Agent Profile. Forking preserves the current work when your Local Agent supports it."
+				"Connect this working Session to a new Agent Profile. Fork it instead when you want to preserve the work already in progress."
 			)
 		).toBeTruthy();
 		expect(
@@ -758,12 +773,6 @@ describe("CreateProfileDialog", () => {
 		const submitButton = await screen.findByRole("button", {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
 		});
-		fireEvent.click(
-			await screen.findByRole("combobox", { name: "Working folder" })
-		);
-		fireEvent.click(
-			screen.getByRole("option", { name: "Let OpenMeld choose" })
-		);
 		await waitFor(() => {
 			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
 		});
@@ -826,12 +835,6 @@ describe("CreateProfileDialog", () => {
 		const submitButton = await screen.findByRole("button", {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
 		});
-		fireEvent.click(
-			await screen.findByRole("combobox", { name: "Working folder" })
-		);
-		fireEvent.click(
-			screen.getByRole("option", { name: "Let OpenMeld choose" })
-		);
 		await waitFor(() => {
 			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
 		});
@@ -895,7 +898,17 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			await screen.findByRole("tab", { name: AGENT_PROFILE_CARD_PATTERN })
 		);
-		fireEvent.click(await screen.findByRole("radio", { name: "A teammate" }));
+		await waitFor(() => {
+			expect(readOrganizationDirectoryMock).toHaveBeenCalled();
+		});
+		const teammateOwnerChoice = screen.getByRole("radio", {
+			name: "A teammate",
+		});
+		await waitFor(() => {
+			expect(teammateOwnerChoice.getAttribute("aria-disabled")).toBeNull();
+		});
+		fireEvent.click(teammateOwnerChoice);
+		await screen.findByRole("combobox", { name: "Agent owner" });
 		await waitFor(() => {
 			expect(
 				screen.getByRole("combobox", { name: "Agent owner" }).textContent
@@ -928,13 +941,104 @@ describe("CreateProfileDialog", () => {
 					targetComputerId: "device-ashley",
 				},
 				idempotencyKey: expect.any(String),
+				nativeSessionId: null,
 				organizationId: "organization-123",
 				profileName: "Release Agent",
 				requestedSpaceId: null,
+				sessionStrategy: "new",
 				targetOwnerUserId: "user-ashley",
 			});
 		});
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
+	});
+
+	it("requests a teammate-owned Agent by resuming a Session chosen in the same dialog", async () => {
+		getProfileCapabilitiesMock.mockResolvedValue({
+			additionalHumanProfileCreationEnabled: false,
+			ok: true,
+		});
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		readCurrentAgentActivitySessionsMock.mockResolvedValue({
+			asOfMs: 1_787_220_000_000,
+			coverage: [],
+			nextCursor: null,
+			organization: { id: "organization-123", name: "Acme" },
+			sessions: [
+				{
+					bindingState: "unbound",
+					boundAgentProfileId: null,
+					canFork: false,
+					canResume: true,
+					computer: {
+						id: "device-ashley",
+						lastSeenAtMs: 1_787_220_000_000,
+						name: "Ashley's Mac Studio",
+						state: "online",
+					},
+					dataState: "current",
+					inventoryUpdatedAtMs: 1_787_220_000_000,
+					lastActiveAtMs: 1_787_219_000_000,
+					localAgent: {
+						agentControllerRef: "builtin:codex",
+						name: "Codex",
+						provider: "codex",
+					},
+					nativeSessionId: "native-ashley-release",
+					nativeSessionTitle: "Prepare the release",
+					organization: { id: "organization-123", name: "Acme" },
+					origin: "local",
+					owner: { name: "Ashley", userId: "user-ashley" },
+					project: { id: "project-1", name: "OpenMeld", slug: "openmeld" },
+					startedAtMs: 1_787_218_000_000,
+					status: "idle",
+				},
+			],
+		});
+		const { onOpenChange } = renderCreateProfileDialog({
+			allowTeammateRequests: true,
+			currentUserId: "user-123",
+			organizationAuthorizationContext: {
+				organizationId: "organization-123",
+				organizationName: "Acme",
+			},
+		});
+
+		await waitFor(() => {
+			expect(readOrganizationDirectoryMock).toHaveBeenCalled();
+		});
+		const teammateOwnerChoice = screen.getByRole("radio", {
+			name: "A teammate",
+		});
+		await waitFor(() => {
+			expect(teammateOwnerChoice.getAttribute("aria-disabled")).toBeNull();
+		});
+		fireEvent.click(teammateOwnerChoice);
+		expect(onOpenChange).not.toHaveBeenCalled();
+		await screen.findByRole("combobox", { name: "Agent owner" });
+		fireEvent.click(await screen.findByRole("radio", { name: "Use existing" }));
+		fireEvent.click(await screen.findByRole("combobox", { name: "Session" }));
+		fireEvent.click(
+			await screen.findByRole("option", {
+				name: ASHLEY_RELEASE_SESSION_PATTERN,
+			})
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Request Agent" }));
+
+		await waitFor(() => {
+			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					configuration: expect.objectContaining({
+						agentControllerRef: "builtin:codex",
+						defaultProjectId: "project-1",
+						targetComputerId: "device-ashley",
+					}),
+					nativeSessionId: "native-ashley-release",
+					profileName: "Prepare the release",
+					sessionStrategy: "resume",
+					targetOwnerUserId: "user-ashley",
+				})
+			);
+		});
 	});
 
 	it("opens directly as Agent creation when additional Human creation is disabled", async () => {
