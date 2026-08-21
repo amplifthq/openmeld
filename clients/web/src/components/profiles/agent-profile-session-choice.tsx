@@ -170,12 +170,6 @@ function SessionReuseStrategy(input: {
 	);
 }
 
-export function agentActivitySessionKey(
-	session: AgentActivityInventorySession
-): string {
-	return sessionKey(session);
-}
-
 function SessionChoiceHelp(input: {
 	isError: boolean;
 	isPending: boolean;
