@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-21T15:37:26.761Z",
+  "updatedAt": "2026-08-21T16:28:06.774Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.79",
+      "packageVersion": "0.3.80",
       "updatePolicy": "available",
-      "reason": "Keeps Codex Agent Activity observers repairable when Codex updates hook trust state."
+      "reason": "Keeps Agent Activity Session Inventory moving past unrelated unavailable local paths."
     },
     "service": {
-      "bundleHash": "e238e6eda531f0a4dd70728c47bfcef569cae60c1162341de4378c7cb301035f",
-      "bundleVersion": "0.3.79",
+      "bundleHash": "f197d6a662b41b15460de2163bbf5a85a4728a4f49174d254ad68578e961a4d1",
+      "bundleVersion": "0.3.80",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Keeps Codex Agent Activity observers repairable when Codex updates hook trust state."
+      "reason": "Keeps Agent Activity Session Inventory moving past unrelated unavailable local paths."
     },
     "skills": {
       "bundleHash": "5dd9f2f5bd322b54aa5ae09cae2189e79e75d17f39c9bc50583a80c083fd6d9a",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Keeps Codex Agent Activity observers repairable when Codex updates hook trust state."
+      "reason": "Keeps Agent Activity Session Inventory moving past unrelated unavailable local paths."
     }
   }
 }
