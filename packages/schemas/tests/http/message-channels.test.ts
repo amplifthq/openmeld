@@ -82,6 +82,29 @@ describe("Message Channel HTTP contracts", () => {
     ).toBe(false);
   });
 
+  it("exposes a provider account email separately from its display name", () => {
+    const response = messageChannelConnectionListResponseSchema.parse({
+      availableLarkPlatformProviders: [],
+      connections: [],
+      identityLinks: [
+        {
+          connectedAt: "2026-08-20T00:00:00.000Z",
+          id: `channel_identity_${"a".repeat(64)}`,
+          openMeldUserId: "user_123",
+          provider: "slack",
+          providerAccountEmail: "felix@amplift.ai",
+          providerAccountName: "Felix Lu",
+        },
+      ],
+      organizationId: "org_123",
+    });
+
+    expect(response.identityLinks[0]).toMatchObject({
+      providerAccountEmail: "felix@amplift.ai",
+      providerAccountName: "Felix Lu",
+    });
+  });
+
   it("rejects duplicate lifecycle facts, secrets, raw scopes, and invalid timestamps", () => {
     expect(
       messageChannelConnectionProjectionSchema.safeParse({

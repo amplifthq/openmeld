@@ -5,6 +5,7 @@ import { SLACK_BOT_SCOPES } from "../src/routes/slack-oauth";
 
 const HUMAN_PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const OAUTH_STATE = `slackoauth_${"a".repeat(64)}`;
+const IDENTITY_STATE = `slackidentity_${"b".repeat(64)}`;
 const RETURN_PATH = "/o/acme/center-agent/channels";
 const SLACK_MANIFEST_BOT_SCOPE_BLOCK_PATTERN =
   /^ {4}bot:\n((?: {6}- .+\n?)+)/mu;
@@ -44,6 +45,7 @@ type CoreRpcMock = {
   consumeSlackOAuthState: ReturnType<typeof vi.fn>;
   createSlackOAuthState: ReturnType<typeof vi.fn>;
   installSlackWorkspaceFromOAuth: ReturnType<typeof vi.fn>;
+  issueSlackIdentityLinkFromOAuth: ReturnType<typeof vi.fn>;
 };
 
 type AuthRpcMock = {
@@ -110,6 +112,36 @@ describe("Slack OAuth routes", () => {
           openMeldProfileId: HUMAN_PROFILE_ID,
         }),
       }),
+    });
+  });
+
+  it("starts member identity authorization in the Organization Slack workspace", async () => {
+    const { coreRpc, env } = makeEnv({
+      stateCreateResult: {
+        expiresAtMs: Date.now() + 600_000,
+        purpose: "member_identity",
+        slackTeamId: "T9TK3CUKW",
+        state: IDENTITY_STATE,
+      },
+    });
+
+    const response = await app.fetch(
+      new Request("https://gateway.test/slack/identity/start"),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(302);
+    const location = new URL(requireLocation(response));
+    expect(location.origin + location.pathname).toBe(
+      "https://slack.com/openid/connect/authorize"
+    );
+    expect(location.searchParams.get("scope")).toBe("openid email profile");
+    expect(location.searchParams.get("state")).toBe(IDENTITY_STATE);
+    expect(location.searchParams.get("team")).toBe("T9TK3CUKW");
+    expect(coreRpc.createSlackOAuthState).toHaveBeenCalledWith({
+      context: expect.any(Object),
+      purpose: "member_identity",
     });
   });
 
@@ -278,6 +310,62 @@ describe("Slack OAuth routes", () => {
       slackInstallerUserId: "U1234",
       slackTeamId: "T9TK3CUKW",
     });
+  });
+
+  it("exchanges a verified Slack identity and opens the existing confirmation flow", async () => {
+    const slackFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({
+          access_token: "xoxp-identity-token",
+          id_token: "signed-id-token",
+          ok: true,
+          token_type: "Bearer",
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          "https://slack.com/team_id": "T9TK3CUKW",
+          "https://slack.com/user_id": "U1234",
+          email: "Felix@Amplift.ai",
+          email_verified: true,
+          ok: true,
+          sub: "https://slack.com/user/T9TK3CUKW/U1234",
+        })
+      );
+    vi.stubGlobal("fetch", slackFetch);
+    const { coreRpc, env } = makeEnv({
+      stateResult: {
+        actorProfileId: HUMAN_PROFILE_ID,
+        moveFromOrganizationId: null,
+        organizationId: "org-1",
+        purpose: "member_identity",
+        returnPath: "/o/acme/people",
+        status: "valid",
+        userId: "user-1",
+      },
+    });
+
+    const response = await app.fetch(
+      new Request(
+        `https://gateway.test/slack/oauth/callback?code=temporary-code&state=${IDENTITY_STATE}`
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(requireLocation(response)).toBe(
+      `https://openmeld.test/link-slack?token=slacklink_${"c".repeat(64)}`
+    );
+    expect(coreRpc.issueSlackIdentityLinkFromOAuth).toHaveBeenCalledWith({
+      actorProfileId: HUMAN_PROFILE_ID,
+      organizationId: "org-1",
+      slackAccountEmail: "felix@amplift.ai",
+      slackTeamId: "T9TK3CUKW",
+      slackUserId: "U1234",
+      userId: "user-1",
+    });
+    expect(coreRpc.installSlackWorkspaceFromOAuth).not.toHaveBeenCalled();
   });
 
   it("offers an informed move when the installer belongs to the previous organization", async () => {
@@ -519,6 +607,7 @@ function makeEnv(input?: {
   installationResult?: unknown;
   previousOrganizationMembership?: unknown;
   stateCreationError?: Error;
+  stateCreateResult?: unknown;
   stateResult?: unknown;
   stateValidationError?: Error;
 }) {
@@ -533,7 +622,9 @@ function makeEnv(input?: {
           ? input.stateResult
           : {
               actorProfileId: HUMAN_PROFILE_ID,
+              moveFromOrganizationId: null,
               organizationId: "org-1",
+              purpose: "organization_install",
               returnPath: RETURN_PATH,
               status: "valid",
               userId: "user-1",
@@ -545,8 +636,12 @@ function makeEnv(input?: {
         return Promise.reject(input.stateCreationError);
       }
       return Promise.resolve({
-        expiresAtMs: Date.now() + 600_000,
-        state: OAUTH_STATE,
+        ...(input?.stateCreateResult ?? {
+          expiresAtMs: Date.now() + 600_000,
+          purpose: "organization_install",
+          slackTeamId: null,
+          state: OAUTH_STATE,
+        }),
       });
     }),
     installSlackWorkspaceFromOAuth: vi.fn(() => {
@@ -559,6 +654,11 @@ function makeEnv(input?: {
           : { status: "created" }
       );
     }),
+    issueSlackIdentityLinkFromOAuth: vi.fn(async () => ({
+      openMeldProfileId: HUMAN_PROFILE_ID,
+      organizationSlug: "acme",
+      token: `slacklink_${"c".repeat(64)}`,
+    })),
   };
   const authResult = {
     claims: {

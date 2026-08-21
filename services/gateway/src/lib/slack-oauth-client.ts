@@ -1,6 +1,9 @@
 import { z } from "zod/v4";
 
 const SLACK_OAUTH_ACCESS_URL = "https://slack.com/api/oauth.v2.access";
+const SLACK_OIDC_TOKEN_URL = "https://slack.com/api/openid.connect.token";
+const SLACK_OIDC_USER_INFO_URL =
+  "https://slack.com/api/openid.connect.userInfo";
 
 const slackOAuthSuccessResponseSchema = z.object({
   access_token: z.string().min(1),
@@ -31,6 +34,22 @@ const slackOAuthSuccessResponseSchema = z.object({
 const slackOAuthErrorResponseSchema = z.object({
   error: z.string().min(1),
   ok: z.literal(false),
+});
+
+const slackOidcTokenSuccessSchema = z.object({
+  access_token: z.string().min(1),
+  id_token: z.string().min(1),
+  ok: z.literal(true),
+  token_type: z.string().min(1),
+});
+
+const slackOidcUserInfoSchema = z.object({
+  "https://slack.com/team_id": z.string().min(1),
+  "https://slack.com/user_id": z.string().min(1),
+  email: z.email(),
+  email_verified: z.literal(true),
+  ok: z.literal(true),
+  sub: z.string().min(1),
 });
 
 export type SlackOAuthAccess = {
@@ -83,6 +102,67 @@ export async function exchangeSlackOAuthCode(input: {
     slackInstallerUserId: slackSuccess.data.authed_user.id,
     slackTeamId: slackSuccess.data.team.id,
   };
+}
+
+export async function exchangeSlackIdentityCode(input: {
+  clientId: string;
+  clientSecret: string;
+  code: string;
+  fetch?: typeof globalThis.fetch;
+  redirectUri: string;
+}): Promise<{
+  accountEmail: string;
+  slackTeamId: string;
+  slackUserId: string;
+}> {
+  const fetchImplementation = input.fetch ?? globalThis.fetch;
+  const tokenResponse = await fetchImplementation(SLACK_OIDC_TOKEN_URL, {
+    body: new URLSearchParams({
+      client_id: input.clientId,
+      client_secret: input.clientSecret,
+      code: input.code,
+      redirect_uri: input.redirectUri,
+    }),
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    method: "POST",
+  });
+  const tokenPayload = await readSlackJson(tokenResponse);
+  const tokenError = slackOAuthErrorResponseSchema.safeParse(tokenPayload);
+  if (tokenError.success) {
+    throw new Error(`Slack identity exchange failed: ${tokenError.data.error}`);
+  }
+  const token = slackOidcTokenSuccessSchema.safeParse(tokenPayload);
+  if (!(tokenResponse.ok && token.success)) {
+    throw new Error("Slack identity exchange returned an invalid response");
+  }
+  const userInfoResponse = await fetchImplementation(SLACK_OIDC_USER_INFO_URL, {
+    headers: { authorization: `Bearer ${token.data.access_token}` },
+  });
+  const userInfoPayload = await readSlackJson(userInfoResponse);
+  const userInfoError =
+    slackOAuthErrorResponseSchema.safeParse(userInfoPayload);
+  if (userInfoError.success) {
+    throw new Error(
+      `Slack identity lookup failed: ${userInfoError.data.error}`
+    );
+  }
+  const userInfo = slackOidcUserInfoSchema.safeParse(userInfoPayload);
+  if (!(userInfoResponse.ok && userInfo.success)) {
+    throw new Error("Slack identity lookup returned an invalid response");
+  }
+  return {
+    accountEmail: userInfo.data.email.toLowerCase(),
+    slackTeamId: userInfo.data["https://slack.com/team_id"],
+    slackUserId: userInfo.data["https://slack.com/user_id"],
+  };
+}
+
+async function readSlackJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    throw new Error("Slack returned an invalid response");
+  }
 }
 
 function normalizeSlackScopes(value: string): string[] {

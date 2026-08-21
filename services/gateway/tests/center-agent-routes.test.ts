@@ -21,6 +21,7 @@ type CoreRpcMock = {
   listMessageChannelConnections: ReturnType<typeof vi.fn>;
   openCenterAgentDirectMessageSpace: ReturnType<typeof vi.fn>;
   pollLarkPlatformRegistration: ReturnType<typeof vi.fn>;
+  requestMessageChannelSetup: ReturnType<typeof vi.fn>;
   updateCenterAgentOperatingState: ReturnType<typeof vi.fn>;
   updateCenterAgentModel: ReturnType<typeof vi.fn>;
 };
@@ -188,6 +189,13 @@ function makeEnv(input?: {
     pollLarkPlatformRegistration: vi.fn(async () =>
       registrationResponse("connected")
     ),
+    requestMessageChannelSetup: vi.fn(async () => ({
+      organizationId: "org-1",
+      provider: "slack",
+      recipientCount: 2,
+      requestId: "request-1",
+      status: "created",
+    })),
     updateCenterAgentOperatingState: vi.fn(async () => ({
       affectedTaskCount: 2,
       canChangeOperatingState: true,
@@ -351,6 +359,34 @@ describe("Center Agent routes", () => {
     expect(coreRpc.disconnectMessageChannelIdentityLink).toHaveBeenCalledWith({
       context: expect.objectContaining({ activeOrganizationId: "org-1" }),
       identityLinkId,
+    });
+  });
+
+  it("forwards a member's Message Channel setup request", async () => {
+    const { coreRpc, env } = makeEnv();
+
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/organizations/current/message-channels/setup-requests",
+        {
+          body: JSON.stringify({ provider: "slack" }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      organizationId: "org-1",
+      provider: "slack",
+      status: "created",
+    });
+    expect(coreRpc.requestMessageChannelSetup).toHaveBeenCalledWith({
+      context: expect.objectContaining({ activeOrganizationId: "org-1" }),
+      provider: "slack",
     });
   });
 

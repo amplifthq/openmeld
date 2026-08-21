@@ -2299,9 +2299,12 @@ export async function continueSlackIdentityOnboardingRequest(input: {
   sourceDeliveryId: string | null;
   tokenHash: string;
   openmeldUserId: string;
-}): Promise<"legacy" | "retryable_failure" | "submitted"> {
+}): Promise<{
+  slackThreadTarget: { channelId: string; messageTs: string } | null;
+  status: "legacy" | "retryable_failure" | "submitted";
+}> {
   if (!input.sourceDeliveryId) {
-    return "legacy";
+    return { slackThreadTarget: null, status: "legacy" };
   }
   const token = await readSlackIdentityLinkTokenForUser({
     db: input.db,
@@ -2434,7 +2437,14 @@ export async function continueSlackIdentityOnboardingRequest(input: {
     nowMs: input.nowMs,
     request: continuationRequest,
   });
-  return submission.status === "submitted" ? "submitted" : "retryable_failure";
+  return {
+    slackThreadTarget: {
+      channelId: slackChannelId,
+      messageTs: slackThreadTs,
+    },
+    status:
+      submission.status === "submitted" ? "submitted" : "retryable_failure",
+  };
 }
 
 function buildSlackIdentityContinuationKey(input: {

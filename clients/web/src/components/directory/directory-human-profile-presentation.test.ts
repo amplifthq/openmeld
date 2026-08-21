@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { formatDirectoryActivity } from "./directory-human-profile-format";
+import {
+	formatDirectoryActivity,
+	resolveDirectoryIdentityAccountCardLabel,
+} from "./directory-human-profile-format";
 
 describe("formatDirectoryActivity", () => {
 	const nowMs = Date.parse("2026-08-20T12:00:00.000Z");
@@ -22,5 +25,41 @@ describe("formatDirectoryActivity", () => {
 		expect(formatDirectoryActivity("2026-08-12T12:00:00.000Z", nowMs)).toBe(
 			"Last active Aug 12, 2026"
 		);
+	});
+});
+
+describe("resolveDirectoryIdentityAccountCardLabel", () => {
+	it("offers the current member a provider-specific connect action", () => {
+		expect(
+			resolveDirectoryIdentityAccountCardLabel({
+				action: {
+					kind: "authorize",
+					label: "Connect Slack",
+					path: "/api/openmeld/slack/identity/start?organization_slug=acme",
+				},
+				canDisconnect: false,
+				channelsPath: "/o/acme/channels",
+				id: null,
+				provider: "slack",
+				accountEmail: null,
+				providerLabel: "Slack",
+				state: "not_connected",
+			})
+		).toBe("Connect Slack");
+	});
+
+	it("describes an unconnected account without inventing an action", () => {
+		expect(
+			resolveDirectoryIdentityAccountCardLabel({
+				action: null,
+				canDisconnect: false,
+				channelsPath: null,
+				id: null,
+				provider: "lark",
+				accountEmail: null,
+				providerLabel: "Lark",
+				state: "not_connected",
+			})
+		).toBe("No account connected");
 	});
 });

@@ -10,6 +10,8 @@ import {
   messageChannelIdentityLinkIdSchema,
   messageChannelIdentityLinkPreviewBodySchema,
   messageChannelIdentityLinkPreviewResponseSchema,
+  messageChannelSetupRequestBodySchema,
+  messageChannelSetupRequestResponseSchema,
 } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
 import type { z } from "zod/v4";
@@ -22,6 +24,7 @@ import {
 
 export const MESSAGE_CHANNEL_CONNECTIONS_ROUTE =
   "/v1/organizations/current/message-channels";
+export const MESSAGE_CHANNEL_SETUP_REQUESTS_ROUTE = `${MESSAGE_CHANNEL_CONNECTIONS_ROUTE}/setup-requests`;
 export const LARK_PLATFORM_ACTIVE_REGISTRATIONS_ROUTE = `${MESSAGE_CHANNEL_CONNECTIONS_ROUTE}/registrations`;
 export const LARK_PLATFORM_REGISTRATION_ATTEMPTS_ROUTE = `${MESSAGE_CHANNEL_CONNECTIONS_ROUTE}/:provider/registration-attempts`;
 export const LARK_PLATFORM_REGISTRATION_POLL_ROUTE = `${LARK_PLATFORM_REGISTRATION_ATTEMPTS_ROUTE}/:attemptId/poll`;
@@ -45,6 +48,23 @@ export function registerMessageChannelRoutes(app: Hono<HonoBindings>): void {
       route: MESSAGE_CHANNEL_CONNECTIONS_ROUTE,
     })
   );
+  app.post(MESSAGE_CHANNEL_SETUP_REQUESTS_ROUTE, async (c) => {
+    const parsed = await parseJsonBody(c, messageChannelSetupRequestBodySchema);
+    if (!parsed.ok) {
+      return parsed.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: async () =>
+        await c.var.coreRpc.requestMessageChannelSetup({
+          ...parsed.data,
+          context: buildCoreRpcContext(c),
+        }),
+      method: "POST",
+      responseSchema: messageChannelSetupRequestResponseSchema,
+      route: MESSAGE_CHANNEL_SETUP_REQUESTS_ROUTE,
+    });
+  });
   app.delete(MESSAGE_CHANNEL_IDENTITY_LINK_ROUTE, (c) => {
     const identityLinkId = c.req.param("identityLinkId").trim();
     if (!messageChannelIdentityLinkIdSchema.safeParse(identityLinkId).success) {

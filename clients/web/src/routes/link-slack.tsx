@@ -1,4 +1,4 @@
-import { Button } from "@openmeld/ui/components/button";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Card,
 	CardContent,
@@ -6,7 +6,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { z } from "zod/v4";
@@ -30,6 +30,10 @@ type LinkSlackSearch = {
 type SlackSetupPreview = Awaited<ReturnType<typeof previewSlackIdentityLink>>;
 type SlackSetupResult = Awaited<ReturnType<typeof consumeSlackIdentityLink>>;
 
+function slackIdentityLinkPreviewQueryKey(token: string | null) {
+	return ["slack-identity-link", "preview", token] as const;
+}
+
 function resolveSlackSetupTitle(
 	preview: SlackSetupPreview | undefined
 ): string {
@@ -50,20 +54,22 @@ function resolveSlackSetupSummary(
 	accountEmail: string | null
 ): string {
 	const openMeldAccount = accountEmail ?? "this OpenMeld account";
+	const slackAccount =
+		preview.slackAccountEmail ?? `@${preview.slackDisplayName}`;
 	if (preview.replacesExistingLink) {
 		const continuation = preview.continuesRequest
 			? " OpenMeld will then continue your original request automatically."
 			: "";
-		return `Slack account @${preview.slackDisplayName} is connected to another OpenMeld profile. Continue to move it to ${openMeldAccount}; the previous profile will lose this connection.${continuation}`;
+		return `Slack account ${slackAccount} is connected to another OpenMeld profile. Continue to move it to ${openMeldAccount}; the previous profile will lose this connection.${continuation}`;
 	}
 	if (preview.alreadyMember) {
 		return preview.continuesRequest
-			? `Connect Slack account @${preview.slackDisplayName} to ${openMeldAccount} and continue your request.`
-			: `Connect Slack account @${preview.slackDisplayName} to ${openMeldAccount}.`;
+			? `Connect Slack account ${slackAccount} to ${openMeldAccount} and continue your request.`
+			: `Connect Slack account ${slackAccount} to ${openMeldAccount}.`;
 	}
 	return preview.continuesRequest
-		? `Join ${preview.organizationName} as ${openMeldAccount}, connect Slack account @${preview.slackDisplayName}, and continue your request.`
-		: `Join ${preview.organizationName} as ${openMeldAccount} and connect Slack account @${preview.slackDisplayName}.`;
+		? `Join ${preview.organizationName} as ${openMeldAccount}, connect Slack account ${slackAccount}, and continue your request.`
+		: `Join ${preview.organizationName} as ${openMeldAccount} and connect Slack account ${slackAccount}.`;
 }
 
 function resolveSlackSetupButtonLabel(input: {
@@ -115,6 +121,10 @@ function SlackSetupCompleted(input: {
 	onRetry: () => void;
 	result: SlackSetupResult;
 }) {
+	const openMeldProfilePath =
+		input.result.organizationSlug && input.result.openMeldProfileId
+			? `/o/${encodeURIComponent(input.result.organizationSlug)}/people?profileId=${encodeURIComponent(input.result.openMeldProfileId)}`
+			: "/";
 	return (
 		<div className="space-y-3">
 			<p className="font-medium text-foreground text-sm">You're ready.</p>
@@ -129,14 +139,38 @@ function SlackSetupCompleted(input: {
 					{resolveCenterAgentErrorMessage(input.error, "slack_link_consume")}
 				</p>
 			) : null}
-			{input.result.continuationRetryable ? (
-				<Button
-					disabled={input.isPending}
-					onClick={input.onRetry}
-					type="button"
-				>
-					{input.isPending ? "Continuing..." : "Try continuing again"}
-				</Button>
+			{input.result.continuationRetryable || openMeldProfilePath ? (
+				<div className="flex flex-wrap gap-2">
+					{input.result.continuationRetryable ? (
+						<Button
+							disabled={input.isPending}
+							onClick={input.onRetry}
+							type="button"
+						>
+							{input.isPending ? "Continuing..." : "Try continuing again"}
+						</Button>
+					) : null}
+					{input.result.slackThreadPermalink ? (
+						<a
+							className={buttonVariants()}
+							href={input.result.slackThreadPermalink}
+							rel="noreferrer"
+							target="_blank"
+						>
+							Open Slack thread
+						</a>
+					) : null}
+					<a
+						className={buttonVariants({
+							variant: input.result.slackThreadPermalink
+								? "outline"
+								: "default",
+						})}
+						href={openMeldProfilePath}
+					>
+						View my OpenMeld profile
+					</a>
+				</div>
 			) : null}
 		</div>
 	);
@@ -181,6 +215,7 @@ export function LinkSlackCard(input: { token: string | null }) {
 	const [completedSetup, setCompletedSetup] = useState<SlackSetupResult | null>(
 		null
 	);
+	const queryClient = useQueryClient();
 	const sessionQuery = useAuthSession();
 	const previewQuery = useQuery({
 		enabled: Boolean(input.token),
@@ -190,7 +225,7 @@ export function LinkSlackCard(input: { token: string | null }) {
 			}
 			return await previewSlackIdentityLink({ token: input.token });
 		},
-		queryKey: ["slack-identity-link", "preview", input.token],
+		queryKey: slackIdentityLinkPreviewQueryKey(input.token),
 		retry: false,
 	});
 	const consumeMutation = useMutation({
@@ -198,9 +233,19 @@ export function LinkSlackCard(input: { token: string | null }) {
 			if (!input.token) {
 				throw new Error("Slack link token is missing.");
 			}
-			return await consumeSlackIdentityLink({ token: input.token });
+			return await consumeSlackIdentityLink({
+				includeReturnTarget: true,
+				token: input.token,
+			});
 		},
-		onSuccess: setCompletedSetup,
+		onSuccess: async (result) => {
+			setCompletedSetup(result);
+			await queryClient.invalidateQueries({
+				exact: true,
+				queryKey: slackIdentityLinkPreviewQueryKey(input.token),
+				refetchType: "none",
+			});
+		},
 	});
 
 	const sessionEmail = sessionQuery.data?.user.email ?? null;
@@ -252,7 +297,7 @@ export function LinkSlackCard(input: { token: string | null }) {
 						<div className="space-y-2 border border-border/70 bg-card/30 p-3">
 							<p className="text-muted-foreground text-xs">Slack account</p>
 							<p className="font-medium text-foreground text-sm">
-								@{preview.slackDisplayName}
+								{preview.slackAccountEmail ?? `@${preview.slackDisplayName}`}
 							</p>
 							<p className="text-muted-foreground text-xs">
 								Workspace {preview.slackWorkspaceLabel}

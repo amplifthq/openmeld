@@ -11,6 +11,7 @@ import { Link } from "@tanstack/react-router";
 import {
 	resolveDirectoryComputerStatusTone,
 	resolveDirectoryComputerToneClassName,
+	resolveDirectoryIdentityAccountCardLabel,
 	resolveDirectoryIdentityAccountLabel,
 } from "#/components/directory/directory-human-profile-format";
 import type {
@@ -219,9 +220,10 @@ export function DirectoryIdentityAccountSummary(input: {
 	account: DirectoryIdentityAccount;
 	context: "card" | "detail";
 }) {
-	const label = resolveDirectoryIdentityAccountLabel(input.account);
-	const showLabel =
-		input.context === "detail" || input.account.state !== "not_connected";
+	const label =
+		input.context === "card"
+			? resolveDirectoryIdentityAccountCardLabel(input.account)
+			: resolveDirectoryIdentityAccountLabel(input.account);
 	return (
 		<div className="inline-flex min-w-0 items-center gap-2">
 			<DirectoryIdentityLogo
@@ -230,7 +232,7 @@ export function DirectoryIdentityAccountSummary(input: {
 				muted={input.account.state !== "connected"}
 				size={input.context === "card" ? "sm" : "md"}
 			/>
-			{showLabel ? (
+			{label ? (
 				<span
 					className={cn(
 						"min-w-0 break-all",
