@@ -4225,6 +4225,99 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it("preserves the selected Session lane when the Center Agent requests a fork", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const response = createAgentProfileCreationRequestResponse();
+    const centerAgentCreateAgentProfileCreationRequest = vi.fn(
+      async () => response
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_create_agent_profile_request", {
+        profileName: "Forked Reviewer",
+        sessionSelection: {
+          agentControllerRef: "builtin:codex",
+          computerId: "computer-1",
+          nativeSessionId: "native-session-1",
+          projectId: "project-1",
+        },
+        sessionStrategy: "fork",
+        targetOwnerUserId: "user-2",
+      })
+    ).resolves.toEqual(response);
+    expect(centerAgentCreateAgentProfileCreationRequest).toHaveBeenCalledWith({
+      configuration: {
+        agentControllerPermissionMode: null,
+        agentControllerRef: "builtin:codex",
+        authorizeForOrganization: true,
+        defaultProjectId: "project-1",
+        modelId: null,
+        openCodePermission: null,
+        reasoningLevel: null,
+        targetComputerId: "computer-1",
+      },
+      context: expect.any(Object),
+      nativeSessionId: "native-session-1",
+      onBehalfOf: { profileId: request.author.profileId },
+      profileName: "Forked Reviewer",
+      sessionStrategy: "fork",
+      targetOwnerUserId: "user-2",
+    });
+  });
+
+  it("rejects an incomplete Center Agent fork before calling Core", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const centerAgentCreateAgentProfileCreationRequest = vi.fn();
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_create_agent_profile_request", {
+        profileName: "Forked Reviewer",
+        sessionStrategy: "fork",
+        targetOwnerUserId: "user-2",
+      })
+    ).rejects.toThrow(
+      "Resume and Fork require one complete Session selection from Agent Activity."
+    );
+    expect(centerAgentCreateAgentProfileCreationRequest).not.toHaveBeenCalled();
+  });
+
+  it("rejects an existing Session selection for a new-session request", async () => {
+    const request = createSubmitTurnRequest();
+    const storage = await createStorageWithPendingContext(request);
+    const centerAgentCreateAgentProfileCreationRequest = vi.fn();
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentCreateAgentProfileCreationRequest },
+      storage,
+    });
+
+    await expect(
+      executeTool(tools, "openmeld_create_agent_profile_request", {
+        profileName: "New Reviewer",
+        sessionSelection: {
+          agentControllerRef: "builtin:codex",
+          computerId: "computer-1",
+          nativeSessionId: "native-session-1",
+          projectId: "project-1",
+        },
+        sessionStrategy: "new",
+        targetOwnerUserId: "user-2",
+      })
+    ).rejects.toThrow(
+      "A new Session request must not include an existing Session selection."
+    );
+    expect(centerAgentCreateAgentProfileCreationRequest).not.toHaveBeenCalled();
+  });
+
   it("manages an Agent Profile request through Core-owned authority", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorageWithPendingContext(request);

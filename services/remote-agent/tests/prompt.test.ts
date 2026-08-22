@@ -325,6 +325,18 @@ describe("remote agent system prompt", () => {
     );
   });
 
+  it("teaches the Center Agent to preserve one complete Session selection", () => {
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "copy nativeSessionId, projectId, computerId, and agentControllerRef from that same current Session row"
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      'bindingState "unbound" is valid and expected for Fork'
+    );
+    expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
+      "Never fall back to a new Session or claim that Fork is unavailable before Core evaluates the complete selection."
+    );
+  });
+
   it("keeps Opportunity recommendations evidence-backed and separate from execution", () => {
     expect(REMOTE_AGENT_TOOLS_GUIDANCE_PROMPT).toContain(
       "one concrete, evidence-backed recommendation for the current verified member"
