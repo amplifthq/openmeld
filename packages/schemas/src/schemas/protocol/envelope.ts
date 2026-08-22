@@ -78,6 +78,7 @@ export const spaceLiveInvalidationFrameSchema = z.strictObject({
   type: z.enum([
     "space.members.changed",
     "space.meta.changed",
+    "space.files.changed",
     "agent.readiness.invalidated",
   ]),
   spaceId: nonEmptyTrimmedStringFromUnknown,

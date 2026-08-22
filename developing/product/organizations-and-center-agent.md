@@ -2100,6 +2100,11 @@ persists as plain CommonMark + GFM text so humans, the Center Agent, and
 local agents all read the same clean Markdown; the Web editor must not
 introduce storage syntax outside that contract. It has three document kinds:
 
+Space Files do not change this product or appear here as a projection. They are
+owned by their Space and remain available from that Space's Files surface. A
+future explicit copy may create a new Organization-owned resource, but it is a
+new identity with provenance rather than synchronization or shared storage.
+
 - one canonical **Organization Brief** per organization, used to tell the
   Center Agent who the organization is, how it works, and how work is assigned;
 - dated **Profile Reports** associated with an organization member's user

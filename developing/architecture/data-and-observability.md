@@ -768,6 +768,41 @@ failure is unreachable without its Core metadata row and may be cleaned up by
 a future maintenance process. A metadata row whose object is missing resolves
 to an explicit not-found response at the byte boundary.
 
+## Space File Data Boundary
+
+The Space Durable Object is the only writer for Space File identity, folder
+hierarchy, current placement, revision sequence, Trash state, and actor
+attribution. Its SQLite tables are canonical business state, not a D1
+projection. No Resources, Organization Documents, Center Agent Computer, or
+Space Index table mirrors this tree.
+
+Private immutable revision bytes live in the Space file R2 binding under the
+shared key constructor:
+
+```text
+org/{organizationId}/space/{spaceId}/files/{fileId}/revisions/{revisionId}
+```
+
+Gateway owns authenticated raw-byte upload and download. Before accepting bytes
+it asks Core and the Space Durable Object to authorize the actor against current
+Space truth. Gateway writes a new immutable object, then asks Space to commit
+the matching metadata with the supplied base revision. The commit rechecks
+authorization and the base revision. On rejection, Gateway deletes the
+unreferenced object best-effort and preserves the structured conflict. A read
+first resolves the authorized canonical revision descriptor and only then reads
+the exact object. An R2 key or file id alone never grants access.
+
+Trash is a reversible metadata state in the MVP. Trashing a folder requires it
+to be empty, so one mutation cannot silently hide a subtree. Revision objects
+remain private and retained; physical reclamation is a later explicitly-owned
+maintenance lifecycle, not part of an interactive delete request.
+
+File audit events include Organization id, Space id, stable entry id, revision
+id when relevant, operation, actor Profile, represented human when applicable,
+and result. Logs and diagnostics never include file bytes, text bodies, or user
+file names. `space.files.changed` is a live invalidation only; clients re-read
+the Space-owned tree and never derive file state from the frame.
+
 ## Agent Profile Deletion Lifecycle
 
 Deleting an agent profile is an auth-owned identity decision with cross-domain

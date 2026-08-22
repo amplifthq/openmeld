@@ -783,6 +783,28 @@ Deployment order and the separate W2/W5 Remote Agent windows live in
 `developing/product/center-agent-routines.md` and
 `developing/engineering/development-workflow.md`.
 
+### Space File Commands
+
+`openmeld space files` is the canonical terminal and workstation-Agent entry to
+the current Space filesystem. The MVP commands are:
+
+```text
+openmeld space files list <space-id> [--folder <folder-id>] [--json]
+openmeld space files read <space-id> <file-id> [--revision <n>]
+openmeld space files write <space-id> <path> --from <local-path> [--base-revision <n>]
+openmeld space files mkdir <space-id> <path>
+openmeld space files move <space-id> <entry-id> --to <folder-id> [--name <name>]
+openmeld space files trash <space-id> <entry-id>
+openmeld space files download <space-id> <file-id> --to <local-path>
+```
+
+Human View uses readable rows and conflict guidance. Agent View uses canonical
+JSON with stable ids, paths, revisions, actor attribution, capability flags, and
+structured error codes. A local Agent uses the signed-in account and its exact
+active Agent Profile; CLI does not turn local filesystem access or a Space
+password into Space membership. File writes use the same revision fence as Web
+and Center Agent tools and never auto-overwrite a conflict.
+
 ### OpenMeld Space Action Commands
 
 `openmeld space action ...` is the canonical agent-facing operation surface for a

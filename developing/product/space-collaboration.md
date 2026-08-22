@@ -120,6 +120,55 @@ explicit freshness; a durable `running` row by itself is insufficient. Missing,
 stale, or unavailable execution evidence must stay visible instead of being
 presented as live work.
 
+## Space Files
+
+Space Files are the shared working files of one Space. Humans, the hosted Center
+Agent, and authorized workstation Agents use the same Space-owned file contract;
+none receives a private or privileged copy of the file tree.
+
+A Space File has one stable id, one current name and folder placement, and an
+ordered history of immutable content revisions. Renaming or moving a file does
+not change its id. Every content write names the current revision it started
+from. Space atomically rejects a stale base revision with an explicit conflict,
+preserves both collaborators' work, and requires the writer to read the current
+revision before trying again. This is the MVP multi-player safety boundary. It
+does not claim character-by-character live co-editing or CRDT semantics.
+
+Space access owns file access. A viewer who may read the Space may list folders,
+read metadata, and download files. Only an active Space member may create a
+folder, upload a file, create a new revision, rename or move an entry, or move an
+entry to Trash. Folder placement grants no additional permission and there is no
+per-file ACL in the MVP. Agent writes use an authenticated active Agent Profile
+member or an authorized continuation of that member's accepted execution; a
+Center Agent designation is not an access bypass.
+
+Space File metadata, hierarchy, revision order, optimistic concurrency, actor
+attribution, and Trash state are canonical in that Space's Durable Object
+SQLite database. Immutable revision bytes use the private Space file object
+store. An object key is storage addressing only; it is not file identity or
+authorization. A failed byte write never creates a visible revision, and a
+failed metadata commit cleans up the unreferenced object best-effort while
+reporting cleanup failure for operations.
+
+Organization Documents, Space Files, message Attachments, and the Center Agent
+Computer remain separate owners:
+
+- Organization Documents are approved Organization-scoped Markdown context.
+- Space Files are the ordinary shared filesystem for one collaboration room.
+- Attachments are immutable message media references, not entries in Files.
+- the Center Agent Computer is its private durable working environment.
+
+The Space Files MVP does not project files into Resources/Documents or the
+Center Agent Computer. A later explicit **Copy to Organization Files** action
+may create a new Organization-owned file with clear provenance; it must not
+create bidirectional synchronization, shared identity, or hidden write-through.
+
+Web presents **Messages | Graph | Files** in one Space. Files opens at the Space
+root and supports folder navigation, upload, download, text-file editing,
+rename, move, Trash, visible revision and actor information, and explicit
+conflict recovery. CLI and Agent tools expose the same ids, paths, revisions,
+and error codes instead of maintaining a terminal-only filesystem model.
+
 ## Direct Messages
 
 A Direct Message is a Space with immutable DM origin plus current derived DM

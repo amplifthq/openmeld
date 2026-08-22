@@ -2293,6 +2293,26 @@ surface may infer that identity from a Profile name or the Space kind.
 
 It should keep the familiar conversation model clear:
 
+The authenticated Space header exposes **Messages | Graph | Files** as one
+keyboard-accessible tab list. Files keeps the same Space header and membership
+context; it is not a Resources redirect or a second app shell. Opening Files
+loads the Space root, and opening folders uses breadcrumb navigation without
+changing file identity.
+
+The initial Files surface supports native file upload, folder creation,
+download, text-file create/edit, rename, move, and move to Trash. Each row shows
+the concrete type, size when applicable, latest revision, last editor, and
+update time. Empty, loading, permission, network-failure, upload-progress, and
+conflict states use plain product language and one next action. Read-only Space
+viewers see the same tree without mutation controls.
+
+Text editing keeps the loaded revision. Save sends that revision as the base;
+on `space_file.conflict`, Web keeps the user's unsaved text, explains that a
+collaborator saved a newer version, and offers to reload the latest content or
+copy the local draft. Web never retries a stale save automatically. A
+`space.files.changed` frame invalidates the current file query and never edits
+browser state directly.
+
 - the main timeline shows root conversation messages
 - `Reply to` creates a normal reply relation to a message
 - `Reply in thread` opens the thread panel

@@ -1007,6 +1007,33 @@ the durable metadata descriptor. Clients consume the shared upload response and
 construct only authenticated Gateway download paths; the contract does not
 define a public attachment URL.
 
+### Space File Contracts
+
+`packages/schemas` owns the Space File entry and revision descriptors, mutation
+bodies and responses, raw upload query, list query, content limits, error-code
+set, R2 key constructor, and Center Agent tool inputs. `packages/api-client`
+owns the host-agnostic Web/CLI adapter over those schemas. Web, CLI, Gateway,
+Core, and Remote Agent must not hand-build alternate file shapes or paths.
+
+The shared file contract uses stable entry ids and immutable revision ids.
+Content writes carry `baseRevision` (`null` only when creating a file) plus a
+client mutation id. The canonical response returns the committed revision. A
+stale base is `space_file.conflict`; name collisions, invalid parents, and
+missing entries remain separate explicit outcomes. Upload and download bodies
+are raw bytes, not base64 JSON. Agent-facing text reads and writes adapt through
+Core but preserve the same ids and revision fence.
+
+`space.files.changed` is an additive invalidation topic. It carries no file
+metadata and grants no access. Clients refresh the shared file-list contract.
+Older clients safely ignore the topic and continue to observe current state on
+their next read.
+
+The MVP accepts individual files up to 10 MiB. Browser text editing is limited
+to UTF-8 text files no larger than 1 MiB. Binary files remain upload, download,
+rename, move, and Trash capable. There is no multipart upload, public object URL,
+per-file ACL, Resources projection, automatic Computer materialization, CRDT,
+or live character stream in this contract.
+
 The first rollout is an explicit exception to the default cloud deploy order:
 apply D1 migration 0020, deploy Core's new attachment RPC methods, deploy
 Gateway's routes and R2 binding, and only then release a client that calls the
