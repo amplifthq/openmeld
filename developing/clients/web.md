@@ -2300,18 +2300,29 @@ loads the Space root, and opening folders uses breadcrumb navigation without
 changing file identity.
 
 The initial Files surface supports native file upload, folder creation,
-download, text-file create/edit, rename, move, and move to Trash. Each row shows
-the concrete type, size when applicable, latest revision, last editor, and
-update time. Empty, loading, permission, network-failure, upload-progress, and
-conflict states use plain product language and one next action. Read-only Space
-viewers see the same tree without mutation controls.
+download, Markdown-file creation, supported text-file editing, rename, move,
+and move to Trash. Each row shows the concrete type, size when applicable,
+latest revision, last editor, and update time. Empty, loading, permission,
+network-failure, upload-progress, and conflict states use plain product language
+and one next action. Read-only Space viewers see the same tree without mutation
+controls.
+
+Markdown creation and editing reuse the exact rich Plate surface owned by the
+Organization Documents experience. Both surfaces persist one CommonMark + GFM
+string, expose only formatting that round-trips through that contract, and use
+the same toolbar, slash commands, keyboard behavior, placeholder language, and
+read-only presentation. JSON, YAML, XML, and plain-text files stay in a source
+editor so Web never presents structured source as rich prose. Shared MIME
+inference recognizes common file extensions when browsers omit `File.type`, so
+an uploaded `.md` file opens in the Markdown editor consistently with CLI.
 
 Text editing keeps the loaded revision. Save sends that revision as the base;
 on `space_file.conflict`, Web keeps the user's unsaved text, explains that a
 collaborator saved a newer version, and offers to reload the latest content or
 copy the local draft. Web never retries a stale save automatically. A
 `space.files.changed` frame invalidates the current file query and never edits
-browser state directly.
+browser state directly. Returning to the Space file list with a local draft
+uses the same save, discard, or cancel confirmation as Organization Documents.
 
 - the main timeline shows root conversation messages
 - `Reply to` creates a normal reply relation to a message

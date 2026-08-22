@@ -8,6 +8,23 @@ export const SPACE_FILE_MAX_FOLDER_DEPTH = 20;
 const PATH_SEPARATOR_PATTERN = /[\\/]/u;
 const MEDIA_TYPE_PATTERN =
   /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/u;
+const MIME_TYPES_BY_EXTENSION: Readonly<Record<string, string>> = {
+  ".csv": "text/csv",
+  ".gif": "image/gif",
+  ".html": "text/html",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".json": "application/json",
+  ".md": "text/markdown",
+  ".markdown": "text/markdown",
+  ".pdf": "application/pdf",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".txt": "text/plain",
+  ".xml": "application/xml",
+  ".yaml": "application/yaml",
+  ".yml": "application/yaml",
+};
 const scopeIdSchema = z.string().trim().min(1).max(512);
 
 export const spaceFileEntryIdSchema = z.string().trim().min(1).max(128);
@@ -257,6 +274,20 @@ export function isSpaceFileTextEditable(input: {
       input.mimeType === "application/x-yaml" ||
       input.mimeType === "application/xml")
   );
+}
+
+export function resolveSpaceFileMimeType(input: {
+  declaredMimeType?: string | null;
+  fileName: string;
+}): string {
+  const declaredMimeType = input.declaredMimeType?.trim().toLowerCase();
+  if (declaredMimeType) {
+    return declaredMimeType;
+  }
+  const fileName = input.fileName.toLowerCase();
+  const extensionStart = fileName.lastIndexOf(".");
+  const extension = extensionStart >= 0 ? fileName.slice(extensionStart) : "";
+  return MIME_TYPES_BY_EXTENSION[extension] ?? "application/octet-stream";
 }
 
 function hasControlCharacter(value: string): boolean {

@@ -4,7 +4,9 @@ import type { SpaceApi, SpaceFileContent } from "@openmeld/api-client";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import {
 	isSpaceFileTextEditable,
+	resolveSpaceFileMimeType,
 	SPACE_FILE_MAX_SIZE_BYTES,
+	SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
 } from "@openmeld/schemas";
 import type {
 	SpaceFileDescriptor,
@@ -46,6 +48,7 @@ import {
 	ArrowClockwiseIcon,
 	ArrowLeftIcon,
 	CaretRightIcon,
+	CopyIcon,
 	DotsThreeIcon,
 	DownloadSimpleIcon,
 	FileIcon,
@@ -62,6 +65,8 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { MarkdownEditor } from "#/components/editor/markdown-editor";
+import { UnsavedChangesDialog } from "#/components/forms/unsaved-changes-guard";
 import {
 	createOrganizationScopedWebSpaceApi,
 	createUnscopedWebSpaceApi,
@@ -83,6 +88,10 @@ type EntryDialogState =
 	| { entry: SpaceFileEntry; kind: "trash" };
 
 const ROOT_FOLDER_ID: null = null;
+const SPACE_FILE_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	dateStyle: "medium",
+	timeZone: "UTC",
+});
 
 export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 	const api = useMemo(
@@ -108,7 +117,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 		null
 	);
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
-	const [textFileDialogOpen, setTextFileDialogOpen] = useState(false);
+	const [markdownFileDialogOpen, setMarkdownFileDialogOpen] = useState(false);
 	const [entryDialog, setEntryDialog] = useState<EntryDialogState>({
 		kind: "closed",
 	});
@@ -170,7 +179,10 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 					name: file.name,
 					parentId,
 					clientMutationId: crypto.randomUUID(),
-					mimeType: file.type || "application/octet-stream",
+					mimeType: resolveSpaceFileMimeType({
+						declaredMimeType: file.type,
+						fileName: file.name,
+					}),
 					bytes: file,
 				});
 			}
@@ -370,9 +382,11 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 									New
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end">
-									<DropdownMenuItem onClick={() => setTextFileDialogOpen(true)}>
+									<DropdownMenuItem
+										onClick={() => setMarkdownFileDialogOpen(true)}
+									>
 										<FileTextIcon aria-hidden="true" />
-										Text file
+										Markdown file
 									</DropdownMenuItem>
 									<DropdownMenuItem onClick={() => setFolderDialogOpen(true)}>
 										<FolderPlusIcon aria-hidden="true" />
@@ -442,12 +456,12 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				open={folderDialogOpen}
 				pending={pendingAction === "create-folder"}
 			/>
-			<NewTextFileDialog
-				onOpenChange={setTextFileDialogOpen}
+			<NewMarkdownFileDialog
+				onOpenChange={setMarkdownFileDialogOpen}
 				onSubmit={async ({ content, name }) => {
 					let createdFile: SpaceFileDescriptor | null = null;
 					const succeeded = await runAction(
-						"create-text-file",
+						"create-markdown-file",
 						async () =>
 							await api.uploadFile({
 								spaceId: input.spaceId,
@@ -462,12 +476,12 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 						}
 					);
 					if (succeeded) {
-						setTextFileDialogOpen(false);
+						setMarkdownFileDialogOpen(false);
 						setSelectedFile(createdFile);
 					}
 				}}
-				open={textFileDialogOpen}
-				pending={pendingAction === "create-text-file"}
+				open={markdownFileDialogOpen}
+				pending={pendingAction === "create-markdown-file"}
 			/>
 			<RenameEntryDialog
 				entry={entryDialog.kind === "rename" ? entryDialog.entry : null}
@@ -567,7 +581,7 @@ function SpaceFileBrowserContent(input: {
 				<h2 className="mt-3 font-medium">This folder is empty</h2>
 				<p className="mt-1 max-w-md text-muted-foreground text-sm">
 					{input.canWrite
-						? "Create a text file, upload a file, or add a folder to start working together."
+						? "Create a Markdown file, upload a file, or add a folder to start working together."
 						: "There aren’t any shared files here yet."}
 				</p>
 			</div>
@@ -688,6 +702,13 @@ function renderSpaceFileEntryIcon(entry: SpaceFileEntry) {
 	return <FileIcon aria-hidden="true" className="size-4.5" weight="duotone" />;
 }
 
+function isMarkdownSpaceFile(file: SpaceFileDescriptor): boolean {
+	return (
+		file.latestRevision.mimeType === "text/markdown" ||
+		file.latestRevision.mimeType === "text/x-markdown"
+	);
+}
+
 function SpaceFileDetail(input: {
 	api: SpaceApi;
 	canWrite: boolean;
@@ -700,11 +721,14 @@ function SpaceFileDetail(input: {
 	spaceId: string;
 }) {
 	const editable = isSpaceFileTextEditable(input.file.latestRevision);
+	const markdown = isMarkdownSpaceFile(input.file);
 	const [draft, setDraft] = useState("");
+	const [savedDraft, setSavedDraft] = useState("");
 	const [loadedRevision, setLoadedRevision] = useState<number | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [saveError, setSaveError] = useState<string | null>(null);
 	const [conflict, setConflict] = useState(false);
+	const [backConfirmationOpen, setBackConfirmationOpen] = useState(false);
 	const [downloadingRevision, setDownloadingRevision] = useState<number | null>(
 		null
 	);
@@ -743,7 +767,9 @@ function SpaceFileDetail(input: {
 		if (!contentQuery.data || loadedRevision === contentQuery.data.revision) {
 			return;
 		}
-		setDraft(new TextDecoder().decode(contentQuery.data.bytes));
+		const content = new TextDecoder().decode(contentQuery.data.bytes);
+		setDraft(content);
+		setSavedDraft(content);
 		setLoadedRevision(contentQuery.data.revision);
 		setConflict(false);
 		setSaveError(null);
@@ -782,7 +808,19 @@ function SpaceFileDetail(input: {
 			setSaveError(resolveSpaceFileErrorMessage(error));
 		}
 	};
-	const save = async () => {
+	const draftSizeBytes = utf8ByteLength(draft);
+	const draftOverLimit = draftSizeBytes > SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES;
+	const hasUnsavedChanges = draft !== savedDraft;
+	const save = async (): Promise<boolean> => {
+		if (
+			!input.canWrite ||
+			saving ||
+			!hasUnsavedChanges ||
+			draftOverLimit ||
+			conflict
+		) {
+			return false;
+		}
 		setSaving(true);
 		setSaveError(null);
 		setConflict(false);
@@ -795,8 +833,10 @@ function SpaceFileDetail(input: {
 				mimeType: input.file.latestRevision.mimeType,
 				bytes: new TextEncoder().encode(draft),
 			});
+			setSavedDraft(draft);
 			input.onFileChanged(file);
 			toast.success("File saved");
+			return true;
 		} catch (error) {
 			const failure = toStructuredApiClientFailure(error);
 			if (failure.code === "space_file.conflict") {
@@ -804,9 +844,27 @@ function SpaceFileDetail(input: {
 			} else {
 				setSaveError(resolveSpaceFileErrorMessage(error));
 			}
+			return false;
 		} finally {
 			setSaving(false);
 		}
+	};
+	const copyDraft = async () => {
+		try {
+			await navigator.clipboard.writeText(draft);
+			toast.success("Draft copied");
+		} catch {
+			setSaveError(
+				"OpenMeld couldn’t copy your draft. Select the text and copy it manually."
+			);
+		}
+	};
+	const returnToFiles = () => {
+		if (hasUnsavedChanges) {
+			setBackConfirmationOpen(true);
+			return;
+		}
+		input.onBack();
 	};
 
 	return (
@@ -818,7 +876,7 @@ function SpaceFileDetail(input: {
 				<div className="flex min-w-0 items-center gap-3">
 					<Button
 						aria-label="Back to files"
-						onClick={input.onBack}
+						onClick={returnToFiles}
 						size="icon-sm"
 						type="button"
 						variant="ghost"
@@ -891,18 +949,29 @@ function SpaceFileDetail(input: {
 							A newer version was saved by someone else.
 						</p>
 						<p className="text-muted-foreground">
-							Your edits are still here. Reload the latest version before
-							editing again.
+							Your edits are still here. Copy your draft, then reload the latest
+							version before editing again.
 						</p>
 					</div>
-					<Button
-						onClick={() => reloadLatest()}
-						size="sm"
-						type="button"
-						variant="outline"
-					>
-						Reload latest
-					</Button>
+					<div className="flex items-center gap-2">
+						<Button
+							onClick={() => copyDraft()}
+							size="sm"
+							type="button"
+							variant="outline"
+						>
+							<CopyIcon aria-hidden="true" />
+							Copy your draft
+						</Button>
+						<Button
+							onClick={() => reloadLatest()}
+							size="sm"
+							type="button"
+							variant="outline"
+						>
+							Reload latest
+						</Button>
+					</div>
 				</div>
 			) : null}
 			{saveError ? (
@@ -919,12 +988,17 @@ function SpaceFileDetail(input: {
 					{editable ? (
 						<FileTextEditor
 							canWrite={input.canWrite}
+							contentLimitExceeded={draftOverLimit}
 							draft={draft}
+							editorKey={`${input.file.id}:${loadedRevision ?? "loading"}`}
+							hasUnsavedChanges={hasUnsavedChanges}
 							isError={contentQuery.isError}
 							isLoading={contentQuery.isPending}
+							markdown={markdown}
 							onChange={setDraft}
 							onRetry={() => contentQuery.refetch()}
 							onSave={save}
+							saveBlockedByConflict={conflict}
 							saving={saving}
 						/>
 					) : (
@@ -966,6 +1040,24 @@ function SpaceFileDetail(input: {
 					})}
 				</aside>
 			</div>
+			<UnsavedChangesDialog
+				description="Your changes to this file haven't been saved."
+				onCancel={() => setBackConfirmationOpen(false)}
+				onDiscard={() => {
+					setBackConfirmationOpen(false);
+					input.onBack();
+				}}
+				onSaveAndLeave={async () => {
+					const saved = await save();
+					if (saved) {
+						setBackConfirmationOpen(false);
+						input.onBack();
+					}
+					return saved;
+				}}
+				open={backConfirmationOpen}
+				saving={saving}
+			/>
 		</section>
 	);
 }
@@ -1021,12 +1113,17 @@ function renderVersionHistory(input: {
 
 function FileTextEditor(input: {
 	canWrite: boolean;
+	contentLimitExceeded: boolean;
 	draft: string;
+	editorKey: string;
+	hasUnsavedChanges: boolean;
 	isError: boolean;
 	isLoading: boolean;
+	markdown: boolean;
 	onChange: (value: string) => void;
 	onRetry: () => void;
-	onSave: () => void;
+	onSave: () => Promise<boolean>;
+	saveBlockedByConflict: boolean;
 	saving: boolean;
 }) {
 	if (input.isLoading) {
@@ -1058,17 +1155,50 @@ function FileTextEditor(input: {
 	}
 	return (
 		<div className="flex min-h-0 flex-1 flex-col gap-3">
-			<Textarea
-				aria-label="File contents"
-				className="min-h-80 flex-1 resize-none font-mono text-sm leading-6"
-				onChange={(event) => input.onChange(event.currentTarget.value)}
-				readOnly={!input.canWrite}
-				spellCheck={false}
-				value={input.draft}
-			/>
+			{input.markdown ? (
+				<MarkdownEditor
+					ariaLabel="File contents"
+					disabled={!input.canWrite || input.saving}
+					key={input.editorKey}
+					maxBytes={SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES}
+					onChange={input.onChange}
+					value={input.draft}
+				/>
+			) : (
+				<>
+					<Textarea
+						aria-label="File contents"
+						className="min-h-80 flex-1 resize-none font-mono text-sm leading-6"
+						onChange={(event) => input.onChange(event.currentTarget.value)}
+						readOnly={!input.canWrite}
+						spellCheck={false}
+						value={input.draft}
+					/>
+					<p
+						className={cn(
+							"text-muted-foreground text-xs",
+							input.contentLimitExceeded && "text-destructive"
+						)}
+					>
+						{formatFileSize(utf8ByteLength(input.draft))} / 1 MB
+						{input.contentLimitExceeded ? " — too long to save" : ""}
+					</p>
+				</>
+			)}
 			{input.canWrite ? (
-				<div className="flex justify-end">
-					<Button disabled={input.saving} onClick={input.onSave} type="button">
+				<div className="flex justify-end border-t pt-4">
+					<Button
+						disabled={
+							input.saving ||
+							!input.hasUnsavedChanges ||
+							input.contentLimitExceeded ||
+							input.saveBlockedByConflict
+						}
+						onClick={() => {
+							input.onSave().catch(() => undefined);
+						}}
+						type="button"
+					>
 						{input.saving ? "Saving…" : "Save changes"}
 					</Button>
 				</div>
@@ -1131,7 +1261,7 @@ function FolderNameDialog(input: {
 	);
 }
 
-function NewTextFileDialog(input: {
+function NewMarkdownFileDialog(input: {
 	onOpenChange: (open: boolean) => void;
 	onSubmit: (input: { content: string; name: string }) => Promise<void>;
 	open: boolean;
@@ -1139,6 +1269,8 @@ function NewTextFileDialog(input: {
 }) {
 	const [name, setName] = useState("untitled.md");
 	const [content, setContent] = useState("");
+	const contentOverLimit =
+		utf8ByteLength(content) > SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES;
 	useEffect(() => {
 		if (input.open) {
 			setName("untitled.md");
@@ -1159,7 +1291,7 @@ function NewTextFileDialog(input: {
 					}}
 				>
 					<DialogHeader>
-						<DialogTitle>New text file</DialogTitle>
+						<DialogTitle>New Markdown file</DialogTitle>
 					</DialogHeader>
 					<div className="grid gap-4 py-5">
 						<div className="grid gap-2">
@@ -1173,12 +1305,13 @@ function NewTextFileDialog(input: {
 							/>
 						</div>
 						<div className="grid gap-2">
-							<Label htmlFor="space-text-file-content">Contents</Label>
-							<Textarea
-								className="min-h-56 font-mono text-sm"
-								id="space-text-file-content"
-								onChange={(event) => setContent(event.currentTarget.value)}
-								placeholder="Start writing…"
+							<Label>Contents</Label>
+							<MarkdownEditor
+								ariaLabel="File contents"
+								disabled={input.pending}
+								maxBytes={SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES}
+								onChange={setContent}
+								placeholder="Start writing, or press '/' for commands…"
 								value={content}
 							/>
 						</div>
@@ -1193,7 +1326,9 @@ function NewTextFileDialog(input: {
 							Cancel
 						</Button>
 						<Button
-							disabled={input.pending || name.trim().length === 0}
+							disabled={
+								input.pending || name.trim().length === 0 || contentOverLimit
+							}
 							type="submit"
 						>
 							{input.pending ? "Creating…" : "Create file"}
@@ -1518,7 +1653,9 @@ function formatFileSize(sizeBytes: number): string {
 }
 
 function formatShortDate(value: string): string {
-	return new Intl.DateTimeFormat(undefined, {
-		dateStyle: "medium",
-	}).format(new Date(value));
+	return SPACE_FILE_DATE_FORMATTER.format(new Date(value));
+}
+
+function utf8ByteLength(value: string): number {
+	return new TextEncoder().encode(value).byteLength;
 }

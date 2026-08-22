@@ -55,6 +55,14 @@ const FILE = {
 	},
 };
 
+const PLAIN_TEXT_FILE = {
+	...FILE,
+	latestRevision: {
+		...FILE.latestRevision,
+		mimeType: "text/plain",
+	},
+};
+
 const FOLDER = {
 	id: "folder-1",
 	spaceId: "space-1",
@@ -133,7 +141,67 @@ describe("SpaceFilesPanel", () => {
 		);
 	});
 
+	it("opens Markdown files in the shared WYSIWYG editor", async () => {
+		renderPanel();
+
+		fireEvent.click(await screen.findByText("launch-notes.md"));
+
+		const editor = await screen.findByLabelText("File contents");
+		expect(editor.getAttribute("contenteditable")).toBe("true");
+		expect(screen.getByRole("toolbar")).toBeTruthy();
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Save changes",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+	});
+
+	it("uses the shared WYSIWYG editor when creating a Markdown file", async () => {
+		renderPanel();
+
+		fireEvent.click(await screen.findByRole("button", { name: "New" }));
+		fireEvent.click(await screen.findByText("Markdown file"));
+
+		expect(await screen.findByText("New Markdown file")).toBeTruthy();
+		expect(
+			screen.getByLabelText("File contents").getAttribute("contenteditable")
+		).toBe("true");
+		expect(screen.getByRole("toolbar")).toBeTruthy();
+	});
+
+	it("infers Markdown uploads through the shared file contract", async () => {
+		spaceApiMocks.uploadFile.mockResolvedValue(FILE);
+		renderPanel();
+
+		const upload = await screen.findByLabelText("Upload files");
+		const file = new File(["# Launch"], "brief.md", { type: "" });
+		fireEvent.change(upload, { target: { files: [file] } });
+
+		await waitFor(() =>
+			expect(spaceApiMocks.uploadFile).toHaveBeenCalledOnce()
+		);
+		expect(spaceApiMocks.uploadFile).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mimeType: "text/markdown",
+				name: "brief.md",
+			})
+		);
+	});
+
 	it("keeps a writer’s draft when another player saved a newer revision", async () => {
+		spaceApiMocks.listFiles.mockResolvedValue({
+			spaceId: "space-1",
+			parentId: null,
+			breadcrumbs: [{ id: null, name: "Files" }],
+			entries: [PLAIN_TEXT_FILE],
+			capabilities: { canRead: true, canWrite: true },
+		});
+		spaceApiMocks.listFileRevisions.mockResolvedValue({
+			file: PLAIN_TEXT_FILE,
+			revisions: [PLAIN_TEXT_FILE.latestRevision],
+		});
 		spaceApiMocks.updateFileContent.mockRejectedValue(
 			Object.assign(new Error("This file changed after you opened it."), {
 				code: "space_file.conflict",
@@ -153,6 +221,37 @@ describe("SpaceFilesPanel", () => {
 		expect(
 			(screen.getByLabelText("File contents") as HTMLTextAreaElement).value
 		).toBe("My unsaved revision");
+	});
+
+	it("protects an unsaved draft before returning to the file list", async () => {
+		spaceApiMocks.listFiles.mockResolvedValue({
+			spaceId: "space-1",
+			parentId: null,
+			breadcrumbs: [{ id: null, name: "Files" }],
+			entries: [PLAIN_TEXT_FILE],
+			capabilities: { canRead: true, canWrite: true },
+		});
+		renderPanel();
+
+		fireEvent.click(await screen.findByText("launch-notes.md"));
+		fireEvent.change(await screen.findByLabelText("File contents"), {
+			target: { value: "Keep this draft" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Back to files" }));
+
+		expect(
+			await screen.findByRole("heading", {
+				name: "Save changes before leaving?",
+			})
+		).toBeTruthy();
+		expect(screen.getByText("launch-notes.md")).toBeTruthy();
+
+		fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+		expect(
+			await screen.findByText(
+				"Shared with the people and agents in this Space."
+			)
+		).toBeTruthy();
 	});
 
 	it("lets a member move a file to a visible Space folder", async () => {

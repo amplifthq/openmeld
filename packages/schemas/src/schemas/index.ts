@@ -1983,6 +1983,7 @@ export {
   prepareSpaceFileWriteResponseSchema,
   resolveSpaceFileContentInputSchema,
   resolveSpaceFileContentResponseSchema,
+  resolveSpaceFileMimeType,
   SPACE_FILE_ERROR_CODES,
   SPACE_FILE_MAX_FOLDER_DEPTH,
   SPACE_FILE_MAX_NAME_LENGTH,

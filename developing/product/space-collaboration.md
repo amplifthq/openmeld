@@ -164,10 +164,13 @@ may create a new Organization-owned file with clear provenance; it must not
 create bidirectional synchronization, shared identity, or hidden write-through.
 
 Web presents **Messages | Graph | Files** in one Space. Files opens at the Space
-root and supports folder navigation, upload, download, text-file editing,
-rename, move, Trash, visible revision and actor information, and explicit
-conflict recovery. CLI and Agent tools expose the same ids, paths, revisions,
-and error codes instead of maintaining a terminal-only filesystem model.
+root and supports folder navigation, upload, download, Markdown creation and
+editing, source editing for other supported text formats, rename, move, Trash,
+visible revision and actor information, and explicit conflict recovery.
+Markdown files use the same WYSIWYG CommonMark + GFM editor as Organization
+Documents; this shared editing surface does not merge the two storage owners.
+CLI and Agent tools expose the same ids, paths, revisions, MIME inference, and
+error codes instead of maintaining a terminal-only filesystem model.
 
 ## Direct Messages
 

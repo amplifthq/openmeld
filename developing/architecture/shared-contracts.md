@@ -1011,9 +1011,10 @@ define a public attachment URL.
 
 `packages/schemas` owns the Space File entry and revision descriptors, mutation
 bodies and responses, raw upload query, list query, content limits, error-code
-set, R2 key constructor, and Center Agent tool inputs. `packages/api-client`
-owns the host-agnostic Web/CLI adapter over those schemas. Web, CLI, Gateway,
-Core, and Remote Agent must not hand-build alternate file shapes or paths.
+set, R2 key constructor, common extension-to-MIME inference, and Center Agent
+tool inputs. `packages/api-client` owns the host-agnostic Web/CLI adapter over
+those schemas. Web, CLI, Gateway, Core, and Remote Agent must not hand-build
+alternate file shapes, paths, or MIME maps.
 
 The shared file contract uses stable entry ids and immutable revision ids.
 Content writes carry `baseRevision` (`null` only when creating a file) plus a

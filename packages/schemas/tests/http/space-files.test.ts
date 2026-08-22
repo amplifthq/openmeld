@@ -3,6 +3,7 @@ import {
   buildSpaceFileObjectKey,
   createSpaceFolderBodySchema,
   isSpaceFileTextEditable,
+  resolveSpaceFileMimeType,
   spaceFileNameSchema,
   updateSpaceFileEntryBodySchema,
 } from "../../src";
@@ -60,5 +61,20 @@ describe("Space Files contracts", () => {
         sizeBytes: 1024 * 1024 + 1,
       })
     ).toBe(false);
+  });
+
+  it("resolves the same upload type for Web and CLI clients", () => {
+    expect(
+      resolveSpaceFileMimeType({ declaredMimeType: "", fileName: "notes.md" })
+    ).toBe("text/markdown");
+    expect(
+      resolveSpaceFileMimeType({
+        declaredMimeType: " TEXT/PLAIN ",
+        fileName: "notes.md",
+      })
+    ).toBe("text/plain");
+    expect(resolveSpaceFileMimeType({ fileName: "archive.unknown" })).toBe(
+      "application/octet-stream"
+    );
   });
 });

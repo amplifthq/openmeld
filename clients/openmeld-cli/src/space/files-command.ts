@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
-import { basename, extname } from "node:path";
+import { basename } from "node:path";
 import {
   isSpaceFileTextEditable,
+  resolveSpaceFileMimeType,
   SPACE_FILE_MAX_SIZE_BYTES,
 } from "@openmeld/schemas";
 import type {
@@ -539,12 +540,10 @@ export function resolveMimeType(
   explicitMimeType: string | undefined,
   path: string | undefined
 ): string {
-  const explicit = explicitMimeType?.trim().toLowerCase();
-  if (explicit) {
-    return explicit;
-  }
-  const extension = extname(path ?? "").toLowerCase();
-  return MIME_TYPES_BY_EXTENSION[extension] ?? "application/octet-stream";
+  return resolveSpaceFileMimeType({
+    declaredMimeType: explicitMimeType,
+    fileName: path ?? "",
+  });
 }
 
 function isInteractiveHumanOutput(
@@ -555,20 +554,3 @@ function isInteractiveHumanOutput(
     context.interactive && context.runtime.resolvedView === "human" && !json
   );
 }
-
-const MIME_TYPES_BY_EXTENSION: Readonly<Record<string, string>> = {
-  ".csv": "text/csv",
-  ".gif": "image/gif",
-  ".html": "text/html",
-  ".jpeg": "image/jpeg",
-  ".jpg": "image/jpeg",
-  ".json": "application/json",
-  ".md": "text/markdown",
-  ".pdf": "application/pdf",
-  ".png": "image/png",
-  ".svg": "image/svg+xml",
-  ".txt": "text/plain",
-  ".xml": "application/xml",
-  ".yaml": "application/yaml",
-  ".yml": "application/yaml",
-};
