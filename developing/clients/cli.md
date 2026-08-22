@@ -791,11 +791,13 @@ the current Space filesystem. The MVP commands are:
 ```text
 openmeld space files list <space-id> [--folder <folder-id>] [--json]
 openmeld space files read <space-id> <file-id> [--revision <n>]
-openmeld space files write <space-id> <path> --from <local-path> [--base-revision <n>]
-openmeld space files mkdir <space-id> <path>
-openmeld space files move <space-id> <entry-id> --to <folder-id> [--name <name>]
+openmeld space files upload <space-id> <local-path> [--name <name>] [--folder <folder-id>]
+openmeld space files write <space-id> <file-id> --base-revision <n> (--file <local-path> | --stdin)
+openmeld space files mkdir <space-id> <name> [--folder <folder-id>]
+openmeld space files rename <space-id> <entry-id> <name>
+openmeld space files move <space-id> <entry-id> [--folder <folder-id>]
 openmeld space files trash <space-id> <entry-id>
-openmeld space files download <space-id> <file-id> --to <local-path>
+openmeld space files download <space-id> <file-id> --output <local-path> [--force]
 ```
 
 Human View uses readable rows and conflict guidance. Agent View uses canonical

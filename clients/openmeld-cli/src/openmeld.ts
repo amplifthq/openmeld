@@ -325,6 +325,7 @@ import { isSpaceCommandOutputHandledError } from "./space/command-output-handled
 import { runSpaceContract } from "./space/contract-command";
 import { runSpaceContractSet } from "./space/contract-set-command";
 import { normalizePublicationModeCliValue } from "./space/contract-set-options";
+import { registerSpaceFilesCommands } from "./space/files-registration";
 import {
   runSpaceGuideClear,
   runSpaceGuideRead,
@@ -2714,6 +2715,8 @@ spaceCmd
       },
     });
   });
+
+registerSpaceFilesCommands(spaceCmd);
 
 const spaceActionCmd = spaceCmd
   .command("action")

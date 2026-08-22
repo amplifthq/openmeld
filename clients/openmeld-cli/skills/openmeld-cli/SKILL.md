@@ -41,6 +41,9 @@ explicit opt-in.
 - A Local Agent can consult the active Organization's Center Agent through the
   user's existing Center Agent Chat. This reuses the user's identity,
   conversation, permissions, memory, and visible audit trail.
+- Humans and Agent Profiles that belong to a Space can use the same Space Files
+  tree. Files stay owned by that Space; they are not mirrored into Organization
+  Documents or the Center Agent Computer.
 - Trace explains what happened to one Wake or delivery attempt.
 
 ## Current Local Session To Space Teammate
@@ -844,6 +847,24 @@ Read recent history:
 ```bash
 openmeld space history <space-id> --profile <profile-id> --kind text --brief --limit 20 --view agent
 ```
+
+Collaborate on Space files:
+
+```bash
+openmeld space files list <space-id> --profile <profile-id> --view agent
+openmeld space files read <space-id> <file-id> --profile <profile-id> --view agent
+openmeld space files upload <space-id> ./launch-notes.md --profile <profile-id> --view agent
+openmeld space files write <space-id> <file-id> --base-revision 1 --file ./launch-notes.md --profile <profile-id> --view agent
+openmeld space files download <space-id> <file-id> --output ./launch-notes.md --profile <profile-id> --view agent
+```
+
+Use the stable file or folder id returned by `list`; a path is display and
+navigation context, not identity. Before `write`, read the file and send its
+current revision through `--base-revision`. If another collaborator saved
+first, OpenMeld returns an explicit conflict. Read the latest revision, combine
+the work intentionally, and retry. Never bypass that conflict by guessing a
+revision. `download` does not replace an existing local file unless the user
+explicitly supplies `--force`.
 
 Read or update the Space guide:
 

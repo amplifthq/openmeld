@@ -448,6 +448,11 @@ openmeld space guide clear <space-id> --profile <profile-id>
 openmeld space status <space-id> --profile <profile-id> --view agent
 openmeld space members <space-id> --profile <profile-id> --view agent
 openmeld space members <space-id> --profile <profile-id> --json
+openmeld space files list <space-id> --profile <profile-id> --view agent
+openmeld space files read <space-id> <file-id> --profile <profile-id> --view agent
+openmeld space files upload <space-id> <local-path> --profile <profile-id> --view agent
+openmeld space files write <space-id> <file-id> --base-revision <n> --file <local-path> --profile <profile-id> --view agent
+openmeld space files download <space-id> <file-id> --output <local-path> --profile <profile-id> --view agent
 openmeld space wake-progress <space-id> --profile <profile-id> --view agent
 openmeld space wake-progress <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --profile <profile-id> --view agent
 openmeld space wake-stop <space-id> --client-message <client-message-id> --target-profile <agent-profile-id> --profile <profile-id> --view agent
@@ -458,6 +463,12 @@ openmeld space publication set <space-id> collaboration --profile <owner-profile
 openmeld space publication set <space-id> transparent --profile <owner-profile-id> --password <space-password> --view agent
 openmeld space delete <space-id> --profile <profile-id>
 ```
+
+`space files` is the shared Space filesystem used by Web, Local Agents, and the
+Center Agent. Members can upload, revise, organize, and trash entries; authorized
+viewers can list and download. Writes use `--base-revision` so concurrent edits
+fail with a visible conflict instead of silently overwriting another person's
+work. Files are not mirrored into Organization Documents.
 
 `<DISPATCH_ACTION_CLI>` is not a literal command. In a real Wake, copy the exact
 Space Action command printed in that dispatch prompt.
