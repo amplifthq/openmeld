@@ -3558,6 +3558,13 @@ async function ensureFormalBindingsForReadySpaceMemberCandidates(
       continue;
     }
 
+    // This same add-members operation already read Core's current primary
+    // Binding verdict. Do not submit the same runtime evidence and Binding again.
+    if (candidate.localParticipationBindingConfirmed === true) {
+      nextCandidates.push(candidate);
+      continue;
+    }
+
     const candidateOpenMeldProfile = candidate.openMeldProfile;
     if (progress) {
       emitAgentSpaceAddMembersProgress({
@@ -3602,7 +3609,10 @@ async function ensureFormalBindingsForReadySpaceMemberCandidates(
           profileIds: [candidate.profileId],
         });
       }
-      nextCandidates.push(candidate);
+      nextCandidates.push({
+        ...candidate,
+        localParticipationBindingConfirmed: true,
+      });
       continue;
     }
 
@@ -3620,6 +3630,7 @@ async function ensureFormalBindingsForReadySpaceMemberCandidates(
     }
     nextCandidates.push({
       ...candidate,
+      localParticipationBindingConfirmed: false,
       localParticipationReadiness: null,
       localParticipationReasonCodes: result.reasonCodes,
       localParticipationReasonText: result.reasonText,
@@ -3784,6 +3795,7 @@ async function enrichSpaceMemberCandidateLocalParticipationReadiness(
   ) {
     return {
       ...candidate,
+      localParticipationBindingConfirmed: false,
       localParticipationChecked: true,
       localParticipationReadiness: null,
       localParticipationReasonCodes: [],
@@ -3837,6 +3849,7 @@ async function enrichSpaceMemberCandidateLocalParticipationReadiness(
   if (!snapshot) {
     return {
       ...candidate,
+      localParticipationBindingConfirmed: false,
       localParticipationChecked: true,
       localParticipationReadiness: null,
       localParticipationReasonCodes: [],
@@ -3852,6 +3865,8 @@ async function enrichSpaceMemberCandidateLocalParticipationReadiness(
 
   return {
     ...candidate,
+    localParticipationBindingConfirmed:
+      snapshot.agentReplyReadiness?.replyReadiness === "ready",
     localParticipationChecked: true,
     localParticipationReadiness: readinessSummary.serviceReadiness,
     localParticipationReasonCodes: [
