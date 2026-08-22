@@ -400,17 +400,30 @@ only as refresh signals and re-reads Core.
 
 The Center Agent outer-rail destination independently shows a static amber
 unread dot for final replies in the current member's Center Agent Direct
-Message. Full rails place it immediately after the label; compact and collapsed
-rails attach it to the icon corner. Web clears this projection only after the
-Center Agent conversation is visible and held at the latest message for the
-read debounce, then writes the Core-owned monotonic read-through watermark.
-Inbox deep links include the exact source Signal selector so opening an item
-returns to the relevant reply instead of merely opening the conversation root.
+Message. Core excludes converted Direct Messages from this summary; their
+unread replies activate only the Spaces destination that now owns the
+conversation. Full rails place the Center Agent dot immediately after the label;
+compact and collapsed rails attach it to the icon corner. Web clears this
+projection only after the Center Agent conversation is visible and held at the
+latest message for the read debounce, then writes the Core-owned monotonic
+read-through watermark. Inbox deep links include the exact source Signal
+selector so opening an item returns to the relevant reply instead of merely
+opening the conversation root.
 
 The Spaces secondary sidebar consumes the Core-owned grouped unread Space
 message summary alongside the Account Space Index. It shows one static amber
 dot and an accessible unread label on visible Space rows. Unpinned unread Spaces
 appear first by newest unread Signal occurrence; pinned order remains member-controlled.
+The Spaces destination in the outer app rail consumes the Core summary's
+complete `ordinarySpaceUnreadCount` aggregate. It shows one static amber dot
+whenever at least one ordinary Space has unread messages, including while the
+member is elsewhere in OpenMeld. Its accessible label reports the total unread
+ordinary Space message count. Web does not derive this total by intersecting the
+independently bounded grouped summary and Account Space Index, and it shows no
+dot while an older Core omits the additive aggregate. Full rails place the dot
+after the Spaces label; compact and collapsed rails attach it to the icon
+corner. The outer dot is an aggregate wayfinding cue only: the Spaces secondary
+sidebar remains the surface that identifies the exact unread Spaces.
 Each row presents exactly one trailing visual status: current agent work first,
 then unread attention, then the persistent pin for an otherwise idle pinned
 Space. Hover or keyboard focus replaces that status with the pin action so the

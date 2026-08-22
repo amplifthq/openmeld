@@ -106,7 +106,10 @@ import {
 	type SidebarTier,
 	writeOuterSidebarStateCookie,
 } from "#/lib/sidebar-width-cookie";
-import { centerAgentInboxSummaryQueryOptions } from "#/query/organizations/inbox";
+import {
+	centerAgentInboxSummaryQueryOptions,
+	spaceInboxSummaryQueryOptions,
+} from "#/query/organizations/inbox";
 
 type AppOuterRailAccount = {
 	email?: string | null;
@@ -116,13 +119,13 @@ type AppOuterRailAccount = {
 
 type AppRailDestination = {
 	attentionCount?: number;
-	centerAgentUnreadCount?: number;
 	compactLabel?: string;
 	icon: ReactNode;
 	id: AppOuterRailDestination;
 	label: string;
 	onIntentPrefetch?: () => void;
 	to: string;
+	unreadCount?: number;
 };
 
 type AppRailGroup = {
@@ -157,6 +160,7 @@ function buildAppRailGroups(input: {
 	orgSlug: string;
 	centerAgentUnreadCount: number;
 	prefetchCenterAgentConversation: () => void;
+	spacesUnreadCount: number;
 }): readonly AppRailGroup[] {
 	return [
 		{
@@ -176,17 +180,18 @@ function buildAppRailGroups(input: {
 			label: "Work",
 			destinations: [
 				{
-					centerAgentUnreadCount: input.centerAgentUnreadCount,
 					id: "centerAgent",
 					label: "Center Agent",
 					onIntentPrefetch: input.prefetchCenterAgentConversation,
 					to: buildOrganizationCenterAgentChatPath(input.orgSlug),
 					icon: <RobotIcon aria-hidden="true" className="size-4" />,
+					unreadCount: input.centerAgentUnreadCount,
 				},
 				{
 					id: "spaces",
 					label: "Spaces",
 					to: buildOrganizationSpacesPath(input.orgSlug),
+					unreadCount: input.spacesUnreadCount,
 					icon: (
 						<HashIcon
 							aria-hidden="true"
@@ -291,8 +296,17 @@ export function AppOuterRail({
 		0,
 		centerAgentInboxSummary.data?.unreadCount ?? 0
 	);
-	const { data: currentAccountAvatar } = useAccountAvatar();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
+	const spaceInboxSummary = useQuery(
+		spaceInboxSummaryQueryOptions({
+			organizationId: currentOrganization.id,
+		})
+	);
+	const spacesUnreadCount = Math.max(
+		0,
+		spaceInboxSummary.data?.ordinarySpaceUnreadCount ?? 0
+	);
+	const { data: currentAccountAvatar } = useAccountAvatar();
 	const accountAvatarImage = currentAccountAvatar?.avatar ?? null;
 	const humanProfileAvatar: HumanProfileAvatarIdentity | null =
 		defaultHumanProfile
@@ -396,6 +410,7 @@ export function AppOuterRail({
 						orgSlug,
 						centerAgentUnreadCount,
 						prefetchCenterAgentConversation,
+						spacesUnreadCount,
 					}).map((group, index) => (
 						<AppRailNavigationGroup
 							activeDestination={activeDestination}
@@ -977,16 +992,16 @@ function AppRailLink(input: {
 	const isIcon = input.tier === "collapsed";
 	const isCompact = input.tier === "compact";
 	const attentionCount = Math.max(0, input.destination.attentionCount ?? 0);
-	const centerAgentUnreadCount = Math.max(
-		0,
-		input.destination.centerAgentUnreadCount ?? 0
-	);
+	const unreadCount = Math.max(0, input.destination.unreadCount ?? 0);
 	const computerAttentionTone =
 		input.destination.id === "computers" ? input.computerAttentionTone : null;
 	let statusIndicator: AppRailStatusIndicator | null = null;
-	if (centerAgentUnreadCount > 0) {
+	const unreadIndicatorKind = resolveAppRailUnreadIndicatorKind(
+		input.destination.id
+	);
+	if (unreadCount > 0 && unreadIndicatorKind) {
 		statusIndicator = {
-			kind: "center-agent-unread",
+			kind: unreadIndicatorKind,
 			tone: "warning",
 		};
 	} else if (computerAttentionTone) {
@@ -997,9 +1012,10 @@ function AppRailLink(input: {
 	}
 	const accessibleLabel = buildAppRailAccessibleLabel({
 		attentionCount,
-		centerAgentUnreadCount,
 		computerAttentionTone,
+		destinationId: input.destination.id,
 		label: input.destination.label,
+		unreadCount,
 	});
 	const children = (
 		<>
@@ -1151,7 +1167,10 @@ function AppRailAttentionBadge(input: {
 	);
 }
 
-type AppRailStatusIndicatorKind = "center-agent-unread" | "computer-attention";
+type AppRailStatusIndicatorKind =
+	| "center-agent-unread"
+	| "computer-attention"
+	| "spaces-unread";
 
 type AppRailStatusIndicator = {
 	kind: AppRailStatusIndicatorKind;
@@ -1178,13 +1197,17 @@ function AppRailStatusDot(input: {
 
 function buildAppRailAccessibleLabel(input: {
 	attentionCount: number;
-	centerAgentUnreadCount: number;
 	computerAttentionTone: ComputerAttentionTone | null;
+	destinationId: AppOuterRailDestination;
 	label: string;
+	unreadCount: number;
 }): string {
-	if (input.centerAgentUnreadCount > 0) {
-		const replyCopy = input.centerAgentUnreadCount === 1 ? "reply" : "replies";
-		return `${input.label}, ${input.centerAgentUnreadCount} unread ${replyCopy}`;
+	if (input.unreadCount > 0) {
+		const unreadCopy = resolveAppRailUnreadCopy({
+			count: input.unreadCount,
+			destinationId: input.destinationId,
+		});
+		return `${input.label}, ${input.unreadCount} unread ${unreadCopy}`;
 	}
 	if (input.computerAttentionTone) {
 		return `${input.label}, needs attention`;
@@ -1194,4 +1217,26 @@ function buildAppRailAccessibleLabel(input: {
 	}
 	const itemCopy = input.attentionCount === 1 ? "item needs" : "items need";
 	return `${input.label}, ${input.attentionCount} ${itemCopy} your attention`;
+}
+
+function resolveAppRailUnreadIndicatorKind(
+	destinationId: AppOuterRailDestination
+): AppRailStatusIndicatorKind | null {
+	if (destinationId === "centerAgent") {
+		return "center-agent-unread";
+	}
+	if (destinationId === "spaces") {
+		return "spaces-unread";
+	}
+	return null;
+}
+
+function resolveAppRailUnreadCopy(input: {
+	count: number;
+	destinationId: AppOuterRailDestination;
+}): string {
+	if (input.destinationId === "centerAgent") {
+		return input.count === 1 ? "reply" : "replies";
+	}
+	return input.count === 1 ? "message" : "messages";
 }

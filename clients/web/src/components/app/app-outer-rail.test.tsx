@@ -32,6 +32,7 @@ let routerLocation = {
 };
 let appShellSection: AppShellSection = "space";
 let centerAgentUnreadCount = 0;
+let ordinarySpaceUnreadCount: number | undefined = 0;
 let appOrganization: {
 	activeOrganization: OrganizationSummary | null;
 	currentOrganization: OrganizationSummary;
@@ -117,6 +118,13 @@ vi.mock("#/lib/organizations/inbox", () => ({
 		organizationId: appOrganization.currentOrganization.id,
 		unreadCount: centerAgentUnreadCount,
 	}),
+	getCurrentSpaceInboxSummary: async () => ({
+		...(ordinarySpaceUnreadCount === undefined
+			? {}
+			: { ordinarySpaceUnreadCount }),
+		organizationId: appOrganization.currentOrganization.id,
+		spaces: [],
+	}),
 }));
 
 vi.mock("#/lib/profiles/use-default-human-profile", () => ({
@@ -197,6 +205,7 @@ describe("AppOuterRail", () => {
 		});
 		appShellSection = "space";
 		centerAgentUnreadCount = 0;
+		ordinarySpaceUnreadCount = 0;
 		routerLocation = {
 			pathname: "/o/acme/spaces",
 			searchStr: "",
@@ -759,6 +768,39 @@ describe("AppOuterRail", () => {
 		});
 		const indicator = link.querySelector(
 			'[data-app-rail-status-indicator="center-agent-unread"]'
+		);
+		expect(indicator).toBeTruthy();
+		expect(indicator?.className).toContain("bg-amber-400");
+		expect(indicator?.textContent).toBe("");
+	});
+
+	it("waits for the complete ordinary Space aggregate instead of inferring from bounded rows", async () => {
+		ordinarySpaceUnreadCount = undefined;
+		renderRail();
+
+		const link = await screen.findByRole("link", { name: "Spaces" });
+		expect(
+			link.querySelector('[data-app-rail-status-indicator="spaces-unread"]')
+		).toBeNull();
+	});
+
+	it.each([
+		"collapsed",
+		"compact",
+		"full",
+	] as const)("shows an accessible amber Spaces unread dot in the %s tier", async (tier) => {
+		ordinarySpaceUnreadCount = 3;
+		rememberClientSidebarState("outer", {
+			tier,
+			width: tier === "collapsed" ? "8rem" : "9rem",
+		});
+		renderRail({ tier });
+
+		const link = await screen.findByRole("link", {
+			name: "Spaces, 3 unread messages",
+		});
+		const indicator = link.querySelector(
+			'[data-app-rail-status-indicator="spaces-unread"]'
 		);
 		expect(indicator).toBeTruthy();
 		expect(indicator?.className).toContain("bg-amber-400");

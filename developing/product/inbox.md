@@ -280,14 +280,26 @@ Unpinned Spaces with unread messages sort before read Spaces, newest unread
 first; pinned Spaces keep the member's explicit pin order. The indicator is
 accessible without color, does not pulse, and Direct Messages remain in their
 owning navigation surface instead of reappearing in the Spaces sidebar.
+While any ordinary Space message remains unread, the Spaces destination in the
+outer app rail shows one static amber dot across OpenMeld. Its accessible label
+reports the complete unread ordinary Space message count. Core derives that
+aggregate before the grouped summary's 500-Space presentation limit and
+excludes current Direct Messages and legacy welcoming Spaces through the Space
+Index classification; converted Direct Messages count as ordinary Spaces. The
+outer dot does not identify a second unread owner or replace the per-Space
+indicators; it guides the member into Spaces, where the secondary sidebar shows
+which exact Spaces are unread.
 
-Every final Center Agent reply in its member Direct Message is projected as an
-ordinary Inbox update with a canonical Center Agent target containing both the
-source Space id and source Signal id. While any such item is unread, the Center
-Agent destination in the outer rail independently shows one static amber dot.
-The dot sits immediately after the label in the full rail and on the icon corner
-in compact or collapsed tiers; it includes an accessible unread-count label and
-does not pulse.
+Every final Center Agent reply in its current, unconverted member Direct Message
+is projected as an ordinary Inbox update with a canonical Center Agent target
+containing both the source Space id and source Signal id. While any such item is
+unread, the Center Agent destination in the outer rail independently shows one
+static amber dot. Conversion makes the Space Index classify that conversation
+as an ordinary Space, so its unread items contribute only to the Spaces
+destination even when their durable target remains `center_agent`. The dot sits
+immediately after the label in the full rail and on the icon corner in compact
+or collapsed tiers; it includes an accessible unread-count label and does not
+pulse.
 
 Opening any Space destination does not clear unread state on route entry alone.
 Web writes one monotonic per-Space read-through watermark only after the
