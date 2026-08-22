@@ -1680,13 +1680,14 @@ those IDs through a structured field, verifies that the same turn's directory
 read returned them, and constructs the mention tokens outside model-authored
 text. It rejects display-name mentions and guessed IDs.
 
-People may show the exact Slack account email for an existing Message Channel
-Identity Link. Core resolves that optional display metadata from the currently
-connected Organization Slack workspace and the exact linked Slack user ID; Web
-never treats a provider display name or identifier as an email. This read does
-not create or change the identity link, and an existing connection does not
-need to be disconnected or reconnected merely to populate the email. If Slack
-does not return an email, the projection remains explicitly unavailable rather
+People may show the exact Slack account display name and email for an existing
+Message Channel Identity Link. Core resolves that optional display metadata
+from the currently connected Organization Slack workspace and the exact linked
+Slack user ID; Web presents distinct values together when both exist and never
+treats a provider display name or identifier as an email. This read does not
+create or change the identity link, and an existing connection does not need to
+be disconnected or reconnected merely to populate the metadata. If Slack does
+not return either value, the projection remains explicitly unavailable rather
 than guessing.
 
 Core records the exact bot scopes returned by Slack for every OAuth installation.
@@ -2239,12 +2240,13 @@ future extensions of this same workflow, not alternate document writers.
 
 Human Profile cards reserve the top-right icon row for the contextual **Profile
 Report** and **Learn about {member}** actions, **Direct Message** for another
-active Human Profile, and an overflow menu. Selecting the avatar, name, or
-**View profile** opens the right-side **Profile** details surface. That surface
+active Human Profile, and an overflow menu. Selecting any non-action area of a
+card or **View profile** opens the right-side **Profile** details surface. That surface
 owns member account details, Organization role, join time, ordinary Agent
 Profile count and icons, Computer access, **Connected Channels**, shared Profile
 details, and the permitted Direct Message, learn, edit, connect, or manage
-actions. The overflow menu keeps **Edit profile** for
+actions. Its Agent Profile count links to the Agents surface and focuses the
+first Agent Profile in that member's owner group. The overflow menu keeps **Edit profile** for
 the signed-in member's own active default Human Profile. Self-Direct Messages
 are unavailable, and owners or admins do not receive an edit action for another
 member's Human Profile. Editing the current member's default Human Profile
@@ -2252,9 +2254,11 @@ reuses the paired Account Display Name mutation rather than introducing a
 second identity writer.
 
 In an Organization workspace, each Human Profile card also shows one coarse
-**Computer** summary: the number connected, needs attention, none connected, or
-status unavailable. The footer colors the Computer icon green for connected,
-amber for attention, and muted otherwise, with no separate status dot. A member
+**Computer** summary. One online Computer is **Computer connected**; two or more
+online Computers show the connected count; a mixed set summarizes only the
+online count; and an all-offline set is **Computer offline** without a count.
+Attention and unavailable states remain explicit. The footer colors the Computer
+icon green for connected, amber for attention, and muted otherwise, with no separate status dot. A member
 with one Computer opens that Computer directly; multiple Computers open the
 Computers home. A signed-in member with none sees **Connect a computer** and
 reaches the normal setup path, while another member sees only **No computer
@@ -2265,23 +2269,21 @@ may see this coarse state. The card never exposes another member's device id,
 executable paths, credentials, private setup instructions, or management
 controls.
 
-**Connected Channels** appears when the Organization currently has at least
-one Slack, Lark, or Feishu Channel connection or a preserved link whose Channel
-needs repair. Every Human Profile card footer shows the same provider logos and
-one coarse link state per provider: linked, not linked, or needs attention. A
-ready Channel missing from the signed-in member's own profile renders a
-provider-specific action such as **Connect Slack**, **Connect Lark**, or
-**Connect Feishu** on the card and in details. That action starts the existing
-private provider-proof flow; it does not bind an account by card selection
-alone. Another member's missing link remains visible without exposing a connect
-action. The details surface names the provider and account email when the
-canonical projection provides it. It must not present a provider display name
-as an account identifier or infer an email; until the projection carries the
-email, the details surface says **Account email unavailable**. The linked member
+Every Human Profile card footer shows the relevant Slack, Lark, and Feishu
+provider logos. A missing, unavailable, or unconfigured account is a muted
+logo-only state on the card; card copy does not announce **Set up**, **Connection
+unavailable**, or **No account connected**. A connected identity may show the
+provider account name or handle followed by the exact email, separated by a
+middle dot, when Core provides those fields. Missing account metadata is never
+inferred. The details surface keeps the corresponding neutral gray status and
+the permitted **Connect**, **Set up**, **Ask an admin**, or **Manage** action.
+Those actions start the existing authorization or private provider-proof flow;
+they do not bind an account by card selection alone. Another member's missing
+link remains non-actionable. The linked member
 may manage and disconnect their own identity;
 owners and admins may manage another member's wrong link without gaining the
-ability to assign a replacement. If the Organization has no supported Channel,
-People omits identity state instead of advertising unavailable providers.
+ability to assign a replacement. Provider account and member account values in
+the details surface remain text-selectable for ordinary copy and inspection.
 
 The first-level **Computers** home is a separate Organization member surface,
 not an expansion of this coarse Human Profile status. It groups Core's

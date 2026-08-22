@@ -51,7 +51,6 @@ import {
 import {
 	resolveDirectoryEmailLabel,
 	resolveDirectoryHumanProfileActivityLabel,
-	resolveDirectoryIdentityAccountCardLabel,
 	resolveDirectoryIdentityAccountLabel,
 } from "#/components/directory/directory-human-profile-format";
 import type {
@@ -427,6 +426,7 @@ function DirectoryHumanProfileCard(input: {
 						setConnectedAccount(null);
 					}
 				}}
+				profileName={input.member.name}
 			/>
 		</>
 	);
@@ -463,31 +463,9 @@ function HumanProfileIdentitySummary(input: {
 	if (input.accounts.length === 0) {
 		return null;
 	}
-	const setupAccounts = input.accounts.filter(
-		(account) =>
-			account.action?.kind === "ask_admin" ||
-			account.action?.kind === "manage_channels"
-	);
-	if (
-		setupAccounts.length > 0 &&
-		setupAccounts.length === input.accounts.length
-	) {
-		return (
-			<button
-				aria-label="Connect a channel"
-				className="inline-flex items-center gap-2 rounded-sm text-muted-foreground text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
-				onClick={() => input.onConnectAccounts(setupAccounts)}
-				type="button"
-			>
-				<PlusIcon aria-hidden="true" className="size-4" />
-				Connect a channel
-			</button>
-		);
-	}
 	return (
 		<div className="flex flex-wrap items-center justify-end gap-2">
 			{input.accounts.map((account) => {
-				const cardLabel = resolveDirectoryIdentityAccountCardLabel(account);
 				const canConnect = account.action !== null;
 				if (
 					account.action?.path &&
@@ -495,7 +473,7 @@ function HumanProfileIdentitySummary(input: {
 				) {
 					return (
 						<Link
-							aria-label={cardLabel ?? account.action.label}
+							aria-label={account.action.label}
 							className="inline-flex items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
 							key={account.provider}
 							to={account.action.path}
@@ -510,8 +488,8 @@ function HumanProfileIdentitySummary(input: {
 				return (
 					<button
 						aria-label={
-							canConnect && cardLabel
-								? cardLabel
+							canConnect
+								? account.action?.label
 								: `${account.providerLabel} account: ${resolveDirectoryIdentityAccountLabel(account)}`
 						}
 						className="inline-flex items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
@@ -679,25 +657,21 @@ function ManageChannelAccountDialog(input: {
 	account: DirectoryIdentityAccount | null;
 	onDisconnect: () => void;
 	onOpenChange: (open: boolean) => void;
+	profileName: string;
 }) {
 	return (
 		<Dialog onOpenChange={input.onOpenChange} open={input.account !== null}>
 			<DialogContent className="sm:max-w-md">
 				<DialogHeader>
-					<DialogTitle>Manage connected account</DialogTitle>
+					<DialogTitle>
+						Manage {input.account?.providerLabel ?? "Channel"} account
+					</DialogTitle>
 					<DialogDescription>
 						{input.account
-							? `This ${input.account.providerLabel} account is linked to the OpenMeld profile.`
-							: "This account is linked to the OpenMeld profile."}
+							? `Disconnect this account from ${input.profileName}. The Organization's ${input.account.providerLabel} connection will stay active.`
+							: `Disconnect this account from ${input.profileName}. The Organization's Channel connection will stay active.`}
 					</DialogDescription>
 				</DialogHeader>
-				<p className="text-muted-foreground text-sm leading-6">
-					If this is the wrong account, disconnect it here. Then prove the
-					correct account from that channel to connect again. This does not
-					disconnect the Organization's{" "}
-					{input.account?.providerLabel ?? "Channel"}
-					connection.
-				</p>
 				<DialogFooter>
 					<Button
 						onClick={input.onDisconnect}

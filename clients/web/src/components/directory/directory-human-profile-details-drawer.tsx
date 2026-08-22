@@ -132,6 +132,8 @@ export function DirectoryHumanProfileDetailsDrawer(input: {
 
 								<DetailSection title="Agent Profiles">
 									<DirectoryAgentProfilesSummary
+										ownerName={input.member.name}
+										path={input.member.agentProfilesPath}
 										profiles={input.member.agentProfiles}
 									/>
 								</DetailSection>
@@ -244,7 +246,7 @@ function ProfileHero(input: {
 				) : (
 					<div className="flex min-w-0 items-start gap-2">
 						<div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-							<h2 className="break-words font-semibold text-xl leading-7">
+							<h2 className="select-text break-words font-semibold text-xl leading-7">
 								{input.member.name}
 								{input.member.isCurrentUser ? " (you)" : ""}
 							</h2>
@@ -264,13 +266,13 @@ function ProfileHero(input: {
 						) : null}
 					</div>
 				)}
-				<p className="mt-1 break-all text-muted-foreground text-sm">
+				<p className="mt-1 select-text break-all text-muted-foreground text-sm">
 					{resolveDirectoryEmailLabel(input.member.email)}
 				</p>
 				{activityLabel ? (
 					<p
 						className={cn(
-							"mt-3 text-sm",
+							"mt-3 select-text text-sm",
 							input.member.profileStatus === "disabled"
 								? "text-destructive"
 								: "text-muted-foreground"
@@ -318,7 +320,7 @@ function ConnectedIdentities(input: {
 								onClick={() => input.onManageAccount(account)}
 								size="sm"
 								type="button"
-								variant="ghost"
+								variant="outline"
 							>
 								Manage
 							</Button>
@@ -417,7 +419,7 @@ function DetailRow(input: { label: string; value: string }) {
 	return (
 		<div className="grid min-w-0 grid-cols-[8rem_minmax(0,1fr)] gap-3 px-4 py-3 text-sm">
 			<p className="text-muted-foreground">{input.label}</p>
-			<p className="min-w-0 break-words">{input.value}</p>
+			<p className="min-w-0 select-text break-words">{input.value}</p>
 		</div>
 	);
 }
@@ -426,7 +428,7 @@ function ProfileDetailRow(input: { row: ProfileDetailsField }) {
 	const value = (
 		<span
 			className={cn(
-				"min-w-0 whitespace-pre-wrap break-all text-xs [overflow-wrap:anywhere]",
+				"min-w-0 select-text whitespace-pre-wrap break-all text-xs [overflow-wrap:anywhere]",
 				input.row.valueKind === "identifier" || input.row.valueKind === "path"
 					? "font-mono"
 					: null

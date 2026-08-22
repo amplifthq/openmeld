@@ -85,7 +85,7 @@ const ORGANIZATION_UPDATE_STATUS = {
 } as const satisfies ComputerSummaryStatus;
 
 const ORGANIZATION_NOT_CONNECTED_STATUS = {
-	label: "Not connected",
+	label: "Computer offline",
 	reason: "service_not_connected",
 	showLabel: true,
 	tone: "danger",

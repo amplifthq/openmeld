@@ -74,6 +74,7 @@ describe("directory Human Profile model", () => {
 			expect.arrayContaining([
 				expect.objectContaining({
 					accountEmail: null,
+					accountName: "ari@example.com",
 					provider: "slack",
 					state: "connected",
 				}),
@@ -101,6 +102,7 @@ describe("directory Human Profile model", () => {
 			expect.arrayContaining([
 				expect.objectContaining({
 					accountEmail: "ari@amplift.ai",
+					accountName: "Ari",
 					provider: "slack",
 					state: "connected",
 				}),
@@ -277,6 +279,9 @@ describe("directory Human Profile model", () => {
 				name: "Ari Codex",
 			},
 		]);
+		expect(rows.find((row) => row.userId === "user-a")?.agentProfilesPath).toBe(
+			"/o/acme/agents?profileId=agent-claude"
+		);
 		expect(rows.find((row) => row.userId === "user-b")?.agentProfiles).toEqual([
 			{
 				agentId: "grok-build",
@@ -313,6 +318,7 @@ describe("directory Human Profile model", () => {
 				name: "Ari Agent",
 			},
 		]);
+		expect(member?.agentProfilesPath).toBe("/o/ari/agents?profileId=agent-ari");
 	});
 });
 

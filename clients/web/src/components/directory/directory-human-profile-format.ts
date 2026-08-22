@@ -16,6 +16,7 @@ const DIRECTORY_RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat("en-US", {
 const MINUTE_IN_MS = 60_000;
 const HOUR_IN_MS = 60 * MINUTE_IN_MS;
 const DAY_IN_MS = 24 * HOUR_IN_MS;
+const WHITESPACE_PATTERN = /\s/;
 
 export function formatDirectoryActivity(
 	lastActiveAt: string | null,
@@ -87,7 +88,10 @@ export function resolveDirectoryIdentityAccountLabel(
 ): string {
 	switch (account.state) {
 		case "connected":
-			return account.accountEmail ?? "Account email unavailable";
+			return (
+				resolveDirectoryIdentityAccountIdentity(account) ??
+				"Account details unavailable"
+			);
 		case "unavailable":
 			return "Connection unavailable";
 		default:
@@ -98,10 +102,31 @@ export function resolveDirectoryIdentityAccountLabel(
 export function resolveDirectoryIdentityAccountCardLabel(
 	account: DirectoryIdentityAccount
 ): string | null {
-	if (account.action) {
-		return account.action.label;
+	return account.state === "connected"
+		? resolveDirectoryIdentityAccountIdentity(account)
+		: null;
+}
+
+export function resolveDirectoryIdentityAccountIdentity(
+	account: Pick<DirectoryIdentityAccount, "accountEmail" | "accountName">
+): string | null {
+	const email = account.accountEmail?.trim() || null;
+	const rawName = account.accountName?.trim() || null;
+	const nameLooksLikeEmail = rawName?.includes("@") && !rawName.startsWith("@");
+	const distinctName =
+		rawName &&
+		!nameLooksLikeEmail &&
+		rawName.toLowerCase() !== email?.toLowerCase()
+			? formatProviderAccountName(rawName)
+			: null;
+	return [distinctName, email].filter(Boolean).join(" · ") || null;
+}
+
+function formatProviderAccountName(name: string): string {
+	if (name.startsWith("@") || WHITESPACE_PATTERN.test(name)) {
+		return name;
 	}
-	return resolveDirectoryIdentityAccountLabel(account);
+	return `@${name}`;
 }
 
 export function resolveDirectoryRoleLabel(
