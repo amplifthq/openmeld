@@ -229,6 +229,7 @@ type SpaceConversationPanelProps = {
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 	firstUnreadSignalId: string | null;
+	files?: ReactNode;
 	hasEarlierHistory: boolean;
 	historyActionErrorMessage: string | null;
 	historyErrorMessage: string | null;
@@ -957,6 +958,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 
 			<SpacePrimaryView
 				activeView={input.activeSpaceView}
+				files={input.files}
 				graph={
 					<SpaceGraph
 						focusRequest={spaceGraphFocusRequest}
@@ -1115,11 +1117,18 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 
 function SpacePrimaryView(input: {
 	activeView: SpaceView;
+	files?: ReactNode;
 	graph: ReactNode;
 	idPrefix: string;
 	messages: ReactNode;
 }) {
 	const selectedIndex = getSpaceViewIndex(input.activeView);
+	let activeContent = input.files;
+	if (input.activeView === "messages") {
+		activeContent = input.messages;
+	} else if (input.activeView === "graph") {
+		activeContent = input.graph;
+	}
 	return (
 		<div
 			aria-labelledby={`${input.idPrefix}-tab-${selectedIndex}`}
@@ -1127,7 +1136,7 @@ function SpacePrimaryView(input: {
 			id={`${input.idPrefix}-panel-${selectedIndex}`}
 			role="tabpanel"
 		>
-			{input.activeView === "messages" ? input.messages : input.graph}
+			{activeContent}
 		</div>
 	);
 }

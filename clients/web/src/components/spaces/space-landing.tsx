@@ -101,6 +101,7 @@ import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participatio
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
+import { SpaceFilesPanel } from "./space-files-panel";
 import { SpaceHeader } from "./space-header";
 import {
 	isSameOwnerUserId,
@@ -1611,6 +1612,14 @@ function SpaceLandingConversation({
 			}
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
+			files={
+				<SpaceFilesPanel
+					key={controller.spaceId}
+					openMeldProfileId={controller.profileId}
+					organizationSlug={input.orgSlug}
+					spaceId={controller.spaceId}
+				/>
+			}
 			firstUnreadSignalId={controller.firstUnreadSignalId}
 			hasEarlierHistory={controller.hasEarlierHistory}
 			historyActionErrorMessage={controller.historyActionErrorMessage}

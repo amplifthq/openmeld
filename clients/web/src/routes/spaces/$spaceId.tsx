@@ -41,6 +41,7 @@ import {
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 } from "#/components/app/shell-layout";
 import { SpaceConversationPanel } from "#/components/spaces/space-conversation-panel";
+import { SpaceFilesPanel } from "#/components/spaces/space-files-panel";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { SpaceThreadPanel } from "#/components/spaces/space-thread-panel";
 import type { SpaceView } from "#/components/spaces/space-view";
@@ -396,6 +397,13 @@ export function PublicSpacePage(input: {
 						emptyStateDescription={null}
 						emptyStateTitle="No messages yet."
 						ephemeralActivityItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
+						files={
+							<SpaceFilesPanel
+								key={input.spaceId}
+								readOnly={true}
+								spaceId={input.spaceId}
+							/>
+						}
 						firstUnreadSignalId={null}
 						hasEarlierHistory={false}
 						historyActionErrorMessage={null}

@@ -20,6 +20,7 @@ import {
 	readSpaceUpdates,
 	type SpaceHistorySnapshot,
 } from "#/query/spaces/history";
+import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { useSpaceLandingFeed } from "./use-space-landing-feed";
 
@@ -562,6 +563,33 @@ describe("useSpaceLandingFeed transport freshness", () => {
 
 		expect(invalidateQueries).toHaveBeenCalledWith({
 			queryKey: accountSpaceQueryKeys.all,
+		});
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(301);
+		});
+		expect(statusRefetch).toHaveBeenCalledTimes(1);
+		expect(membersRefetch).not.toHaveBeenCalled();
+	});
+
+	it("refreshes Space Files without refetching members after file changes", async () => {
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+		await openLatestSocket();
+
+		await act(async () => {
+			await FakeWebSocket.latest.emitMessage(
+				JSON.stringify({
+					type: "space.files.changed",
+					spaceId: "space-123",
+					version: 9,
+					reason: "space_file.content_committed",
+				})
+			);
+		});
+		await flushMicrotasks();
+
+		expect(invalidateQueries).toHaveBeenCalledWith({
+			queryKey: spaceFileQueryKeys.space("space-123"),
 		});
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(301);

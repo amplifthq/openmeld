@@ -25,6 +25,7 @@ export function SpaceViewTabs(input: {
 		>
 			<TabsSubtleItem index={0} label="Messages" labelClassName="text-sm" />
 			<TabsSubtleItem index={1} label="Graph" labelClassName="text-sm" />
+			<TabsSubtleItem index={2} label="Files" labelClassName="text-sm" />
 		</TabsSubtle>
 	);
 }
