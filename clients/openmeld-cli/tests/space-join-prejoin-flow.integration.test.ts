@@ -1557,7 +1557,7 @@ describe("space join pre-join flow", () => {
     expect(runConnectMock).toHaveBeenCalledTimes(1);
   });
 
-  it("ensures formal Binding before bringing a ready local agent into the space", async () => {
+  it("reuses a current Core Binding verdict before bringing a ready local agent into the space", async () => {
     listOpenMeldProfilesMock.mockResolvedValue([
       buildProfile({
         openMeldProfileId: CURRENT_PROFILE_ID,
@@ -1598,11 +1598,7 @@ describe("space join pre-join flow", () => {
 
     expect(
       syncAgentProfileRuntimeBindingFromCurrentReadinessMock
-    ).toHaveBeenCalledWith({
-      profile: expect.objectContaining({
-        openMeldProfileId: OTHER_AGENT_PROFILE_ID,
-      }),
-    });
+    ).not.toHaveBeenCalled();
     const workbenchPrompt = promptSearchMultiselectWorkbenchMock.mock
       .calls[0]?.[0] as WorkbenchPromptInput | undefined;
     const workbenchDetails = (workbenchPrompt?.items ?? [])
@@ -1613,6 +1609,24 @@ describe("space join pre-join flow", () => {
   });
 
   it("brings a ready local agent as membership-only when formal Binding cannot be confirmed", async () => {
+    const resolveReadySnapshot =
+      resolveCurrentReplyReadinessSnapshotMock.getMockImplementation();
+    if (!resolveReadySnapshot) {
+      throw new Error("expected a default reply readiness implementation");
+    }
+    resolveCurrentReplyReadinessSnapshotMock.mockImplementation(
+      async (...args: unknown[]) => {
+        const snapshot = await resolveReadySnapshot(...args);
+        return {
+          ...snapshot,
+          agentReplyReadiness: {
+            replyReadiness: "blocked",
+            reasonCodes: ["agent_profile_binding.not_ready"],
+            reasonText: "Agent Profile Binding is not ready.",
+          },
+        };
+      }
+    );
     syncAgentProfileRuntimeBindingFromCurrentReadinessMock.mockResolvedValueOnce(
       {
         agentProfileBindingEnsure: {
@@ -1679,6 +1693,13 @@ describe("space join pre-join flow", () => {
     expect(stdout).toContain(
       "Ops Agent joined this space. OpenMeld has not confirmed its local reply path on this device yet."
     );
+    expect(
+      syncAgentProfileRuntimeBindingFromCurrentReadinessMock
+    ).toHaveBeenCalledWith({
+      profile: expect.objectContaining({
+        openMeldProfileId: OTHER_AGENT_PROFILE_ID,
+      }),
+    });
   });
 
   it("keeps created human profiles selected in the workbench before join", async () => {
