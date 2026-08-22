@@ -4,6 +4,8 @@ import {
   runAgentActivityRetention,
 } from "../agent-activity/activity-retention-service";
 import { retryAgentActivitySessionInventoryMemberCleanups } from "../agent-activity/activity-session-inventory-member-cleanup-service";
+import { retryAgentProfileCreationRequestInboxProjections } from "../agent-profile-creation-request/agent-profile-creation-request-inbox-projection";
+import { recoverStaleAgentProfileCreationRequests } from "../agent-profile-creation-request/agent-profile-creation-request-recovery";
 import { retryReadyAgentTaskContinuations } from "../agent-task-coordination/application/agent-task-terminal-outcome-service";
 import { runAgentControllerTaskRetention } from "../agent-task-coordination/infrastructure/d1/agent-controller-task-retention";
 import { retryPendingCenterAgentWakePublications } from "../center-agent/application/center-agent-wake-publication-service";
@@ -23,6 +25,7 @@ import {
   agentActivityDb,
   agentTaskCoordinationDb,
   dispatchRecoveryDb,
+  identityDb,
   inboxDb,
   localStateDb,
   organizationDocumentsDb,
@@ -95,6 +98,8 @@ export async function runCoreScheduledTasks(input: {
   recoverCenterAgentTasks?: typeof recoverCenterAgentTaskWork;
   retryCenterAgentTaskTerminalProjections?: typeof retryPendingCenterAgentTaskTerminalProjections;
   retryInboxEmailDeliveries?: typeof retryInboxUrgentEmailDeliveries;
+  retryAgentProfileCreationRequestInboxProjections?: typeof retryAgentProfileCreationRequestInboxProjections;
+  recoverStaleAgentProfileCreationRequests?: typeof recoverStaleAgentProfileCreationRequests;
   retrySessionInventoryMemberCleanups?: typeof retryAgentActivitySessionInventoryMemberCleanups;
 }): Promise<void> {
   if (input.cron === EVAL_WEEKLY_REPORT_CRON) {
@@ -106,6 +111,8 @@ export async function runCoreScheduledTasks(input: {
   }
 
   if (input.cron === ROUTINE_TICK_CRON) {
+    await runStaleAgentProfileCreationRequestRecovery(input);
+    await runAgentProfileCreationRequestInboxProjectionRedrive(input);
     await runAgentActivitySessionInventoryMemberCleanup(input);
     await runLarkPlatformRegistrationContinuation(input);
     await reportStrandedRemoteAgentSlackEventIngress(input);
@@ -227,6 +234,62 @@ export async function runCoreScheduledTasks(input: {
     scheduledRetentionFailures.push(error);
   }
   throwScheduledRetentionFailures(scheduledRetentionFailures);
+}
+
+async function runStaleAgentProfileCreationRequestRecovery(
+  input: Parameters<typeof runCoreScheduledTasks>[0]
+): Promise<void> {
+  const db = identityDb(input.env);
+  if (!db) {
+    return;
+  }
+  try {
+    const result = await (
+      input.recoverStaleAgentProfileCreationRequests ??
+      recoverStaleAgentProfileCreationRequests
+    )({ db, nowMs: input.nowMs });
+    if (result.scanned > 0) {
+      console.log(
+        JSON.stringify({
+          event: "core.agent_profile_creation_request.stale_recovery",
+          ...result,
+        })
+      );
+    }
+  } catch (error) {
+    console.error(
+      "[core.agent_profile_creation_request.stale_recovery_failed]",
+      { error: error instanceof Error ? error.message : String(error) }
+    );
+  }
+}
+
+async function runAgentProfileCreationRequestInboxProjectionRedrive(
+  input: Parameters<typeof runCoreScheduledTasks>[0]
+): Promise<void> {
+  const db = identityDb(input.env);
+  if (!db) {
+    return;
+  }
+  try {
+    const result = await (
+      input.retryAgentProfileCreationRequestInboxProjections ??
+      retryAgentProfileCreationRequestInboxProjections
+    )({ db, nowMs: input.nowMs });
+    if (result.scanned > 0 || result.failed > 0) {
+      console.log(
+        JSON.stringify({
+          event: "core.agent_profile_creation_request.inbox_projection_redrive",
+          ...result,
+        })
+      );
+    }
+  } catch (error) {
+    console.error(
+      "[core.agent_profile_creation_request.inbox_projection_redrive_failed]",
+      { error: error instanceof Error ? error.message : String(error) }
+    );
+  }
 }
 
 async function runAgentActivitySessionInventoryMemberCleanup(

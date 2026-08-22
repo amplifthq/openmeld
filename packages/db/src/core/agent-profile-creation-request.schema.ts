@@ -76,6 +76,27 @@ export const agentProfileCreationRequests = sqliteTable(
     failureMessage: text("failure_message"),
     decidedAt: integer("decided_at", { mode: "timestamp_ms" }),
     completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+    profileCreationAttempt: integer("profile_creation_attempt")
+      .default(0)
+      .notNull(),
+    profileCreationStartedAt: integer("profile_creation_started_at", {
+      mode: "timestamp_ms",
+    }),
+    inboxProjectionOperation: text("inbox_projection_operation"),
+    inboxProjectionGeneration: integer("inbox_projection_generation")
+      .default(0)
+      .notNull(),
+    inboxProjectionStatus: text("inbox_projection_status"),
+    inboxProjectionAttemptCount: integer("inbox_projection_attempt_count")
+      .default(0)
+      .notNull(),
+    inboxProjectionLastError: text("inbox_projection_last_error"),
+    inboxProjectionNextRetryAt: integer("inbox_projection_next_retry_at", {
+      mode: "timestamp_ms",
+    }),
+    inboxProjectionCompletedAt: integer("inbox_projection_completed_at", {
+      mode: "timestamp_ms",
+    }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),
@@ -100,6 +121,15 @@ export const agentProfileCreationRequests = sqliteTable(
       table.targetOwnerUserId,
       table.status,
       table.updatedAt
+    ),
+    index("agent_profile_creation_requests_inbox_projection_due_idx").on(
+      table.inboxProjectionStatus,
+      table.inboxProjectionNextRetryAt,
+      table.updatedAt
+    ),
+    index("agent_profile_creation_requests_stale_execution_idx").on(
+      table.status,
+      table.profileCreationStartedAt
     ),
     check(
       "agent_profile_creation_requests_source_check",

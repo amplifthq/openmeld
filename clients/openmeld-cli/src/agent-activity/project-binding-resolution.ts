@@ -12,7 +12,7 @@ export async function canonicalizeLocalProjectPath(
   path: string
 ): Promise<string | null> {
   return await realpath(resolve(path)).catch((error: unknown) => {
-    if (isNodeError(error, "ENOENT")) {
+    if (isUnavailablePathError(error)) {
       return null;
     }
     throw error;
@@ -52,22 +52,13 @@ export async function resolveLocalProjectConnectionForPath<
           (connection) => connection.organizationId === input.organizationId
         );
   const resolvedPath = resolve(input.path);
-  const pathAliases = localPathAliases(resolvedPath);
-  const possibleConnections = sameLaneConnections.filter((connection) =>
-    pathAliases.some((candidate) =>
-      isPathWithin(candidate, connection.repositoryPath)
-    )
-  );
-  if (possibleConnections.length === 0) {
-    return null;
-  }
   const canonicalPath = await canonicalizeLocalProjectPath(resolvedPath);
   if (canonicalPath === null) {
     return null;
   }
   return resolveCanonicalLocalProjectConnection(
     canonicalPath,
-    possibleConnections
+    sameLaneConnections
   );
 }
 
@@ -97,23 +88,21 @@ function isPathWithin(candidate: string, root: string): boolean {
   return candidate === root || candidate.startsWith(`${root}${sep}`);
 }
 
-function localPathAliases(path: string): string[] {
-  const privatePrefix = `${sep}private`;
-  if (path.startsWith(`${privatePrefix}${sep}`)) {
-    return [path, path.slice(privatePrefix.length)];
-  }
-  if (
-    [`${sep}etc`, `${sep}tmp`, `${sep}var`].some(
-      (root) => path === root || path.startsWith(`${root}${sep}`)
-    )
-  ) {
-    return [path, `${privatePrefix}${path}`];
-  }
-  return [path];
-}
-
-function isNodeError(error: unknown, code: string): boolean {
+function isUnavailablePathError(error: unknown): boolean {
   return Boolean(
-    error && typeof error === "object" && "code" in error && error.code === code
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      UNAVAILABLE_PATH_ERROR_CODES.has(error.code)
   );
 }
+
+const UNAVAILABLE_PATH_ERROR_CODES = new Set([
+  "EACCES",
+  "ELOOP",
+  "ENOENT",
+  "ENOTDIR",
+  "EPERM",
+  "ESTALE",
+]);

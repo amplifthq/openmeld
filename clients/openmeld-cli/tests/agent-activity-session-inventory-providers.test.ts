@@ -665,6 +665,34 @@ describe("Local Agent Session Inventory provider adapters", () => {
     });
   });
 
+  it("keeps Codex Sessions visible when their cwd uses an arbitrary symlink alias", async () => {
+    const aliasPath = join(root, "workspace-shortcut");
+    await symlink(repositoryPath, aliasPath, "dir");
+    const serverPath = join(root, "fake-codex-symlink-app-server.mjs");
+    await writeFile(serverPath, buildFakeCodexAppServer(aliasPath), "utf8");
+
+    const sessions = await discoverCodexThreads({
+      bindings: [binding],
+      launchContract: {
+        argsPrefix: [serverPath],
+        commandPath: process.execPath,
+        kind: "executable",
+      },
+      nowMs: NOW_MS,
+      rootDir: root,
+    });
+
+    expect(sessions).toHaveLength(2);
+    expect(sessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          binding: expect.objectContaining({ projectId: "project-1" }),
+          session: expect.objectContaining({ nativeSessionId: "codex-live" }),
+        }),
+      ])
+    );
+  });
+
   it("rejects a malformed non-null Codex pagination cursor", async () => {
     const serverPath = join(root, "fake-codex-invalid-cursor.mjs");
     await writeFile(

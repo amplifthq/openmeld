@@ -41,10 +41,7 @@ import {
   rpcUpdateAgentProfileDefaultProject,
 } from "../rpc/methods";
 import { runAgentProfileCreationPostBindingFollowUps } from "./agent-profile-creation-post-binding-follow-ups";
-import {
-  projectAgentProfileCreationRequestInbox,
-  resolveAgentProfileCreationRequestInbox,
-} from "./agent-profile-creation-request-inbox";
+import { createD1AgentProfileCreationRequestInboxProjectionService } from "./agent-profile-creation-request-inbox-projection";
 import { createD1AgentProfileCreationRequestRepository } from "./agent-profile-creation-request-repository";
 import {
   AgentProfileCreationRequestConflictError,
@@ -454,22 +451,13 @@ export async function rpcSetAgentProfileCreationApprovalPreference(
 }
 
 function createService(env: CoreBindings, db: D1Database) {
+  const inboxProjection =
+    createD1AgentProfileCreationRequestInboxProjectionService({ db });
   return createAgentProfileCreationRequestService({
+    attemptInboxProjection: inboxProjection.attemptForRequest,
     createAgentProfile: async (request) =>
       await createRequestedAgentProfile(env, request),
-    projectApprovalInbox: async (request) =>
-      await projectAgentProfileCreationRequestInbox({
-        db,
-        nowMs: Date.now(),
-        request,
-      }),
     repository: createD1AgentProfileCreationRequestRepository(db),
-    resolveApprovalInbox: async (request) =>
-      await resolveAgentProfileCreationRequestInbox({
-        db,
-        nowMs: Date.now(),
-        request,
-      }),
   });
 }
 

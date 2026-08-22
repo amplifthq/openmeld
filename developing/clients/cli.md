@@ -693,6 +693,13 @@ reads only a fresh mode-0600 cache, uses a provider-independent 300-byte UTF-8
 ceiling, labels the content as awareness rather than authority, and emits
 nothing on missing, stale, or malformed cache data.
 
+Session discovery canonicalizes each provider-reported working directory before
+matching the target against every legal Project connection in the current lane.
+A Session whose lexical path starts inside one Project but resolves through a
+symlink into another is attributed only to the canonical target owner. A
+missing, looping, or unreadable path is skipped fail-closed. The CLI reads path
+metadata only and never uploads the local path.
+
 Watcher roots that do not exist when the Service starts are retried after the
 provider creates them. The CLI remains startable on its declared Node 20 floor;
 OpenCode SQLite reconciliation is optional capability detection, while the

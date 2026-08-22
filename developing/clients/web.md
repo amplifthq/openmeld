@@ -2191,6 +2191,12 @@ shows their source and current status, and exposes only the actions the member
 may perform: approve or decline as target owner, cancel as requester, retry a
 failed request, or open the created Agent. A request deep link from Inbox opens
 and focuses this same view; Web does not add another request-management home.
+An approved request is shown as **Creating Agent** and offers no cancellation
+action because Web treats approval as an active creation handoff. Core may still
+be between the durable approval write and its compare-and-swap creation claim;
+the recovery scan covers that gap as well as an abandoned claimed attempt. Any
+handoff that Core cannot finish becomes an explicit failed request with Retry
+instead of remaining indefinitely approved.
 
 **Request Agent for teammate** starts a new-Session request for an exact member
 from the current Organization directory. Existing-Session selection belongs on

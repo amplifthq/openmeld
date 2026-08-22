@@ -23,10 +23,11 @@ beforeEach(() => {
 });
 
 describe("Agent Activity Project binding resolution", () => {
-  it("does not access the filesystem for a Session outside every authorized Project", async () => {
-    realpathMock.mockRejectedValue(
-      new Error("Unrelated historical Session paths must not be inspected.")
-    );
+  it("fails closed when a Session path cannot be resolved", async () => {
+    const missingPath = Object.assign(new Error("Path is unavailable."), {
+      code: "ENOENT",
+    });
+    realpathMock.mockRejectedValue(missingPath);
 
     await expect(
       resolveLocalProjectConnectionForPath({
@@ -34,7 +35,21 @@ describe("Agent Activity Project binding resolution", () => {
         path: "/Volumes/offline/old-project",
       })
     ).resolves.toBeNull();
-    expect(realpathMock).not.toHaveBeenCalled();
+    expect(realpathMock).toHaveBeenCalledOnce();
+  });
+
+  it("matches a Project through an arbitrary symlink alias", async () => {
+    realpathMock.mockResolvedValue("/work/openmeld/packages/web");
+
+    await expect(
+      resolveLocalProjectConnectionForPath({
+        connections: [connection],
+        path: "/Volumes/team-project/packages/web",
+      })
+    ).resolves.toEqual(connection);
+    expect(realpathMock).toHaveBeenCalledWith(
+      "/Volumes/team-project/packages/web"
+    );
   });
 
   it("still canonicalizes a Session path inside an authorized Project", async () => {

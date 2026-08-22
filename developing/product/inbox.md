@@ -177,6 +177,14 @@ The first release creates items for these explicit user-visible events:
     record owns deduplication and resolution; Inbox projects the request to each
     current owner or admin and links to the Organization Channels page.
 
+Agent Profile Creation Requests persist their current Inbox projection intent
+with the source request mutation. A failed projection remains retryable and is
+redriven from that durable intent; replaying the same request also retries it.
+Core reconciles rows written during a mixed-version rollout to the request's
+current state, so a pending request converges to one action item and any later
+decision converges to that item's resolution. Inbox remains a projection and
+never becomes approval or request-state authority.
+
 Producers must identify one or more exact recipients from source-owned identity
 facts. They must not guess from display names, notify every administrator as a
 fallback, or create an item when the target identity is unknown.

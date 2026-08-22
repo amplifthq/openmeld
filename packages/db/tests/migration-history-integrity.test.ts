@@ -1438,6 +1438,93 @@ describe("shared drizzle migration history integrity", () => {
     }
   });
 
+  it("preserves Agent Profile creation requests when adding execution and Inbox recovery state", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const migrationFileName = listSqlMigrationFiles().find((fileName) =>
+        fs
+          .readFileSync(path.join(migrationDirectoryPath, fileName), "utf8")
+          .includes("ADD `profile_creation_attempt`")
+      );
+      expect(migrationFileName).toBeDefined();
+      if (!migrationFileName) {
+        return;
+      }
+
+      applyMigrationFiles(
+        database,
+        listSqlMigrationFiles().filter(
+          (fileName) => fileName.localeCompare(migrationFileName) < 0
+        )
+      );
+      database.exec(`
+        INSERT INTO organizations (id, name, slug, created_at)
+        VALUES ('org-creation-recovery', 'Recovery Org', 'recovery-org', 1000);
+        INSERT INTO users (
+          id, name, email, email_verified, created_at, updated_at
+        ) VALUES
+          ('creation-recovery-requester', 'Requester', 'recovery-requester@example.com', 1, 1000, 1000),
+          ('creation-recovery-owner', 'Owner', 'recovery-owner@example.com', 1, 1000, 1000);
+        INSERT INTO agent_profile_creation_requests (
+          id,
+          organization_id,
+          requester_user_id,
+          actor_profile_id,
+          target_owner_user_id,
+          source,
+          profile_name,
+          session_strategy,
+          idempotency_key,
+          status,
+          status_reason,
+          created_at,
+          updated_at
+        ) VALUES (
+          'request-recovery-existing',
+          'org-creation-recovery',
+          'creation-recovery-requester',
+          'requester-profile',
+          'creation-recovery-owner',
+          'web',
+          'Existing Pending Agent',
+          'new',
+          'recovery-key',
+          'pending',
+          'approval_required',
+          1000,
+          1000
+        );
+      `);
+
+      applyMigrationFiles(database, [migrationFileName]);
+
+      expect(
+        database
+          .prepare(
+            `SELECT
+               id,
+               profile_creation_attempt,
+               profile_creation_started_at,
+               inbox_projection_operation,
+               inbox_projection_generation,
+               inbox_projection_status
+             FROM agent_profile_creation_requests
+             WHERE id = 'request-recovery-existing'`
+          )
+          .get()
+      ).toEqual({
+        id: "request-recovery-existing",
+        inbox_projection_generation: 0,
+        inbox_projection_operation: null,
+        inbox_projection_status: null,
+        profile_creation_attempt: 0,
+        profile_creation_started_at: null,
+      });
+    } finally {
+      database.close();
+    }
+  });
+
   it("keeps every SQL migration registered exactly once in the drizzle journal", () => {
     const journal = readJournal();
     const sqlFiles = listSqlMigrationFiles();

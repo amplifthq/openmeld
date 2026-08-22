@@ -18,6 +18,7 @@ import type {
 } from "@openmeld/schemas/types";
 
 const DEFAULT_APPROVAL_POLICY = "ask_every_time" as const;
+export const AGENT_PROFILE_CREATION_STALE_AFTER_MS = 30 * 60 * 1000;
 
 export type AgentProfileCreationRequestRecord = {
   actorProfileId: string;
@@ -31,6 +32,8 @@ export type AgentProfileCreationRequestRecord = {
   failureMessage: string | null;
   nativeSessionId: string | null;
   organizationId: string;
+  profileCreationAttempt: number;
+  profileCreationStartedAtMs: number | null;
   profileName: string;
   requestedSpaceId: string | null;
   requesterUserId: string;
@@ -50,6 +53,20 @@ export type AgentProfileCreationApprovalPreferenceRecord = {
   userId: string;
 };
 
+export type AgentProfileCreationRequestInboxProjectionOperation =
+  | "project"
+  | "resolve";
+
+export type AgentProfileCreationRequestInboxProjectionRecord = {
+  attemptCount: number;
+  generation: number;
+  lastError: string | null;
+  nextRetryAtMs: number | null;
+  operation: AgentProfileCreationRequestInboxProjectionOperation;
+  request: AgentProfileCreationRequestRecord;
+  status: "completed" | "failed" | "pending";
+};
+
 export type AgentProfileCreationRequestRepository = {
   findByIdempotencyKey(input: {
     idempotencyKey: string;
@@ -64,15 +81,53 @@ export type AgentProfileCreationRequestRepository = {
     organizationId: string;
     userId: string;
   }): Promise<AgentProfileCreationApprovalPreferenceRecord | null>;
+  getInboxProjectionByRequestId(
+    requestId: string
+  ): Promise<AgentProfileCreationRequestInboxProjectionRecord | null>;
+  listDueInboxProjections(input: {
+    limit: number;
+    nowMs: number;
+  }): Promise<AgentProfileCreationRequestInboxProjectionRecord[]>;
+  listStaleProfileCreations(input: {
+    limit: number;
+    staleBeforeMs: number;
+  }): Promise<AgentProfileCreationRequestRecord[]>;
   insert(
-    record: AgentProfileCreationRequestRecord
+    record: AgentProfileCreationRequestRecord,
+    input?: {
+      inboxProjection?: AgentProfileCreationRequestInboxProjectionOperation;
+    }
   ): Promise<AgentProfileCreationRequestRecord>;
   listForParticipant(input: {
     organizationId: string;
     userId: string;
   }): Promise<AgentProfileCreationRequestRecord[]>;
+  claimProfileCreation(input: {
+    expectedProfileCreationStartedAtMs: number | null;
+    expectedUpdatedAtMs: number;
+    requestId: string;
+    startedAtMs: number;
+  }): Promise<AgentProfileCreationRequestRecord | null>;
+  markInboxProjectionCompleted(input: {
+    completedAtMs: number;
+    generation: number;
+    requestId: string;
+  }): Promise<boolean>;
+  markInboxProjectionFailed(input: {
+    failedAtMs: number;
+    generation: number;
+    lastError: string;
+    nextRetryAtMs: number;
+    requestId: string;
+  }): Promise<boolean>;
+  synchronizeInboxProjectionIntents(input?: {
+    requestId?: string;
+  }): Promise<number>;
   transition(input: {
+    expectedProfileCreationAttempt?: number;
     expectedStatuses: AgentProfileCreationRequestStatus[];
+    expectedUpdatedAtMs: number;
+    inboxProjection?: AgentProfileCreationRequestInboxProjectionOperation;
     requestId: string;
     update: Partial<AgentProfileCreationRequestRecord>;
   }): Promise<AgentProfileCreationRequestRecord | null>;
@@ -131,15 +186,48 @@ export class AgentProfileCreationRequestExecutionError extends Error {
   }
 }
 
+export async function failStaleAgentProfileCreationRequests(input: {
+  limit?: number;
+  nowMs: number;
+  repository: AgentProfileCreationRequestRepository;
+}): Promise<{ markedFailed: number; scanned: number; superseded: number }> {
+  const stale = await input.repository.listStaleProfileCreations({
+    limit: input.limit ?? 25,
+    staleBeforeMs: input.nowMs - AGENT_PROFILE_CREATION_STALE_AFTER_MS,
+  });
+  let markedFailed = 0;
+  let superseded = 0;
+  for (const record of stale) {
+    const failed = await input.repository.transition({
+      expectedProfileCreationAttempt: record.profileCreationAttempt,
+      expectedStatuses: ["approved"],
+      expectedUpdatedAtMs: record.updatedAtMs,
+      requestId: record.id,
+      update: {
+        failureMessage:
+          "OpenMeld lost contact while creating this Agent. Retry to continue safely.",
+        status: "failed",
+        statusReason: "profile_creation_failed",
+        updatedAtMs: Math.max(input.nowMs, record.updatedAtMs + 1),
+      },
+    });
+    if (failed) {
+      markedFailed += 1;
+    } else {
+      superseded += 1;
+    }
+  }
+  return { markedFailed, scanned: stale.length, superseded };
+}
+
 export function createAgentProfileCreationRequestService(input: {
+  attemptInboxProjection: (requestId: string) => Promise<void>;
   createAgentProfile: (
     request: AgentProfileCreationRequestRecord
   ) => Promise<string>;
   now?: () => number;
-  projectApprovalInbox: (request: AgentProfileCreationRequest) => Promise<void>;
   randomUuid?: () => string;
   repository: AgentProfileCreationRequestRepository;
-  resolveApprovalInbox: (request: AgentProfileCreationRequest) => Promise<void>;
 }) {
   const now = input.now ?? Date.now;
   const randomUuid = input.randomUuid ?? (() => crypto.randomUUID());
@@ -150,17 +238,29 @@ export function createAgentProfileCreationRequestService(input: {
     if (record.status !== "approved") {
       return toPublicRequest(record);
     }
-    const nowMs = now();
+    const startedAtMs = Math.max(now(), record.updatedAtMs + 1);
+    const claimed = await input.repository.claimProfileCreation({
+      expectedProfileCreationStartedAtMs: record.profileCreationStartedAtMs,
+      expectedUpdatedAtMs: record.updatedAtMs,
+      requestId: record.id,
+      startedAtMs,
+    });
+    if (!claimed) {
+      return toPublicRequest(await requireRequest(record));
+    }
     let createdAgentProfileId: string;
     try {
-      createdAgentProfileId = await input.createAgentProfile(record);
+      createdAgentProfileId = await input.createAgentProfile(claimed);
     } catch (error) {
+      const failedAtMs = Math.max(now(), claimed.updatedAtMs + 1);
       const executionError =
         error instanceof AgentProfileCreationRequestExecutionError
           ? error
           : null;
       const failed = await input.repository.transition({
+        expectedProfileCreationAttempt: claimed.profileCreationAttempt,
         expectedStatuses: ["approved"],
+        expectedUpdatedAtMs: claimed.updatedAtMs,
         requestId: record.id,
         update: {
           createdAgentProfileId:
@@ -169,30 +269,29 @@ export function createAgentProfileCreationRequestService(input: {
           failureMessage: normalizeFailureMessage(error),
           status: "failed",
           statusReason: "profile_creation_failed",
-          updatedAtMs: nowMs,
+          updatedAtMs: failedAtMs,
         },
       });
       const current = failed ?? (await requireRequest(record));
-      const response = toPublicRequest(current);
-      await projectInboxSafely("resolve", response, input.resolveApprovalInbox);
-      return response;
+      return toPublicRequest(current);
     }
+    const completedAtMs = Math.max(now(), claimed.updatedAtMs + 1);
     const completed = await input.repository.transition({
+      expectedProfileCreationAttempt: claimed.profileCreationAttempt,
       expectedStatuses: ["approved"],
+      expectedUpdatedAtMs: claimed.updatedAtMs,
       requestId: record.id,
       update: {
-        completedAtMs: nowMs,
+        completedAtMs,
         createdAgentProfileId,
         failureMessage: null,
         status: "completed",
         statusReason: "profile_created",
-        updatedAtMs: nowMs,
+        updatedAtMs: completedAtMs,
       },
     });
     const current = completed ?? (await requireRequest(record));
-    const response = toPublicRequest(current);
-    await projectInboxSafely("resolve", response, input.resolveApprovalInbox);
-    return response;
+    return toPublicRequest(current);
   };
 
   const requireRequest = async (selector: {
@@ -207,6 +306,33 @@ export function createAgentProfileCreationRequestService(input: {
       throw new AgentProfileCreationRequestNotFoundError();
     }
     return record;
+  };
+
+  const replayExistingRequest = async (
+    record: AgentProfileCreationRequestRecord,
+    actorProfileId: string,
+    body: CreateAgentProfileCreationRequestBody
+  ) => {
+    assertSameIntent(record, actorProfileId, body);
+    await input.attemptInboxProjection(record.id);
+    return { replayed: true, request: toPublicRequest(record) } as const;
+  };
+
+  const completeInsertedRequest = async (
+    record: AgentProfileCreationRequestRecord
+  ) => {
+    if (record.status === "pending") {
+      const response = toPublicRequest(record);
+      await input.attemptInboxProjection(record.id);
+      return { replayed: false, request: response } as const;
+    }
+    return {
+      replayed: false,
+      request:
+        record.status === "approved"
+          ? await completeApprovedRequest(record)
+          : toPublicRequest(record),
+    } as const;
   };
 
   return {
@@ -224,13 +350,24 @@ export function createAgentProfileCreationRequestService(input: {
           "Only the requester can cancel this request."
         );
       }
-      const nowMs = now();
+      if (
+        current.status === "approved" &&
+        current.profileCreationStartedAtMs !== null
+      ) {
+        throw new AgentProfileCreationRequestStateError(
+          "This request can no longer be cancelled."
+        );
+      }
+      const nowMs = Math.max(now(), current.updatedAtMs + 1);
       const cancelled = await input.repository.transition({
         expectedStatuses: ["pending", "approved", "failed"],
+        expectedUpdatedAtMs: current.updatedAtMs,
+        inboxProjection: "resolve",
         requestId: current.id,
         update: {
           decidedAtMs: current.decidedAtMs ?? nowMs,
           failureMessage: null,
+          profileCreationStartedAtMs: null,
           status: "cancelled",
           statusReason: "requester_cancelled",
           updatedAtMs: nowMs,
@@ -242,7 +379,7 @@ export function createAgentProfileCreationRequestService(input: {
         );
       }
       const response = toPublicRequest(cancelled);
-      await projectInboxSafely("resolve", response, input.resolveApprovalInbox);
+      await input.attemptInboxProjection(cancelled.id);
       return response;
     },
 
@@ -266,8 +403,11 @@ export function createAgentProfileCreationRequestService(input: {
         requesterUserId: request.requesterUserId,
       });
       if (existing) {
-        assertSameIntent(existing, request.actorProfileId, body);
-        return { replayed: true, request: toPublicRequest(existing) };
+        return await replayExistingRequest(
+          existing,
+          request.actorProfileId,
+          body
+        );
       }
 
       const preference = await input.repository.getPreference({
@@ -293,6 +433,8 @@ export function createAgentProfileCreationRequestService(input: {
         failureMessage: null,
         nativeSessionId: body.nativeSessionId ?? null,
         organizationId: request.organizationId,
+        profileCreationAttempt: 0,
+        profileCreationStartedAtMs: null,
         profileName: body.profileName,
         requestedSpaceId: body.requestedSpaceId ?? null,
         requesterUserId: request.requesterUserId,
@@ -306,7 +448,12 @@ export function createAgentProfileCreationRequestService(input: {
 
       let inserted: AgentProfileCreationRequestRecord;
       try {
-        inserted = await input.repository.insert(record);
+        inserted = await input.repository.insert(
+          record,
+          record.status === "pending"
+            ? { inboxProjection: "project" }
+            : undefined
+        );
       } catch (error) {
         const raced = await input.repository.findByIdempotencyKey({
           idempotencyKey: body.idempotencyKey,
@@ -316,26 +463,9 @@ export function createAgentProfileCreationRequestService(input: {
         if (!raced) {
           throw error;
         }
-        assertSameIntent(raced, request.actorProfileId, body);
-        return { replayed: true, request: toPublicRequest(raced) };
+        return await replayExistingRequest(raced, request.actorProfileId, body);
       }
-
-      if (inserted.status === "pending") {
-        const response = toPublicRequest(inserted);
-        await projectInboxSafely(
-          "create",
-          response,
-          input.projectApprovalInbox
-        );
-        return { replayed: false, request: response };
-      }
-      if (inserted.status === "approved") {
-        return {
-          replayed: false,
-          request: await completeApprovedRequest(inserted),
-        };
-      }
-      return { replayed: false, request: toPublicRequest(inserted) };
+      return await completeInsertedRequest(inserted);
     },
 
     decide: async (request: {
@@ -353,10 +483,12 @@ export function createAgentProfileCreationRequestService(input: {
           "Only the requested member can decide this request."
         );
       }
-      const nowMs = now();
+      const nowMs = Math.max(now(), current.updatedAtMs + 1);
       if (request.decision === "decline") {
         const declined = await input.repository.transition({
           expectedStatuses: ["pending"],
+          expectedUpdatedAtMs: current.updatedAtMs,
+          inboxProjection: "resolve",
           requestId: current.id,
           update: {
             decidedAtMs: nowMs,
@@ -371,16 +503,14 @@ export function createAgentProfileCreationRequestService(input: {
           );
         }
         const response = toPublicRequest(declined);
-        await projectInboxSafely(
-          "resolve",
-          response,
-          input.resolveApprovalInbox
-        );
+        await input.attemptInboxProjection(declined.id);
         return response;
       }
 
       const approved = await input.repository.transition({
         expectedStatuses: ["pending"],
+        expectedUpdatedAtMs: current.updatedAtMs,
+        inboxProjection: "resolve",
         requestId: current.id,
         update: {
           decidedAtMs: nowMs,
@@ -394,6 +524,7 @@ export function createAgentProfileCreationRequestService(input: {
           "This request has already been decided."
         );
       }
+      await input.attemptInboxProjection(approved.id);
       return await completeApprovedRequest(approved);
     },
 
@@ -437,12 +568,22 @@ export function createAgentProfileCreationRequestService(input: {
           "Only a participant can retry this request."
         );
       }
-      const nowMs = now();
+      if (current.status === "approved") {
+        if (current.profileCreationStartedAtMs !== null) {
+          throw new AgentProfileCreationRequestStateError(
+            "This Agent is already being created."
+          );
+        }
+        return await completeApprovedRequest(current);
+      }
+      const nowMs = Math.max(now(), current.updatedAtMs + 1);
       const approved = await input.repository.transition({
-        expectedStatuses: ["failed", "approved"],
+        expectedStatuses: ["failed"],
+        expectedUpdatedAtMs: current.updatedAtMs,
         requestId: current.id,
         update: {
           failureMessage: null,
+          profileCreationStartedAtMs: null,
           status: "approved",
           statusReason:
             current.statusReason === "target_approved"
@@ -504,27 +645,6 @@ function resolveInitialStatus(input: {
   }
 }
 
-async function projectInboxSafely(
-  operation: "create" | "resolve",
-  request: AgentProfileCreationRequest,
-  project: (request: AgentProfileCreationRequest) => Promise<void>
-): Promise<void> {
-  try {
-    await project(request);
-  } catch (error) {
-    console.error(
-      "[core.agent_profile_creation_request.inbox_projection_failed]",
-      {
-        error: error instanceof Error ? error.message : String(error),
-        operation,
-        organizationId: request.organizationId,
-        requestId: request.id,
-        targetOwnerUserId: request.targetOwnerUserId,
-      }
-    );
-  }
-}
-
 function assertSameIntent(
   record: AgentProfileCreationRequestRecord,
   actorProfileId: string,
@@ -547,7 +667,7 @@ function assertSameIntent(
   }
 }
 
-function toPublicRequest(
+export function toPublicRequest(
   record: AgentProfileCreationRequestRecord
 ): AgentProfileCreationRequest {
   return agentProfileCreationRequestSchema.parse({

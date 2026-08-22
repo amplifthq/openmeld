@@ -109,6 +109,16 @@ membership in that Organization.
 | Ephemeral                          | Short-lived handoff/session state.                                                                                                                                                                  | Temporary state, not a permanent domain.                                                                                                                                                                                                                                                                                                                               |
 | Space Truth                        | Space collaboration truth.                                                                                                                                                                          | Space Durable Object source of truth.                                                                                                                                                                                                                                                                                                                                  |
 
+Agent Profile Creation Requests keep the approval/update time, execution attempt
+number, and optional start time on the Core-owned request row. Recovery covers
+both an approval abandoned before claim and a claimed execution abandoned
+before its terminal write. Compare-and-swap claims and terminal writes make that
+row the single execution coordinator for request retries. The same row also
+carries a generation-fenced durable Inbox projection intent. Core repairs
+missing or stale intent left by mixed-version writers and redrives the
+idempotent Inbox projection; this operational state is not a second request or
+Inbox authority.
+
 Start is orchestration. It is not a permanent data owner and must not become a
 long-term database domain.
 
