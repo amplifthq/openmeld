@@ -394,7 +394,8 @@ export type RuntimeCoordinatorHeadNoExecutionDecision = {
     | "binding_required"
     | "local_connection_mismatch"
     | "service_not_connected"
-    | "update_required";
+    | "update_required"
+    | "wake_route_registration_pending";
   reasonCode: RuntimeTransportRuntimeCoordinatorHeadNoExecutionReasonCode;
   source:
     | "dispatch_preflight"
@@ -407,7 +408,8 @@ export type RuntimeCoordinatorHeadNoExecutionDecision = {
     | "authorize_agent_binding_for_organization"
     | "reconnect_agent_binding"
     | "start_or_restart_openmeld_service"
-    | "update_openmeld_service";
+    | "update_openmeld_service"
+    | "wait_for_wake_route_report";
 };
 
 export type RuntimeCoordinatorHeadPublicationIntent =
@@ -418,7 +420,8 @@ export type RuntimeCoordinatorHeadPublicationIntent =
         | "binding_required"
         | "local_connection_mismatch"
         | "service_not_connected"
-        | "update_required";
+        | "update_required"
+        | "wake_route_registration_pending";
       readyAtMs: number;
       reasonCode: RuntimeTransportRuntimeCoordinatorHeadNoExecutionReasonCode;
       status: "ready_for_phase_6";
@@ -429,7 +432,8 @@ export type RuntimeCoordinatorHeadPublicationIntent =
         | "authorize_agent_binding_for_organization"
         | "reconnect_agent_binding"
         | "start_or_restart_openmeld_service"
-        | "update_openmeld_service";
+        | "update_openmeld_service"
+        | "wait_for_wake_route_report";
     }
   | {
       intentId: string;
@@ -471,20 +475,102 @@ export type RuntimeCoordinatorHeadTargetDisplay = {
   targetProfileName: string | null;
 };
 
-export type RuntimeCoordinatorHeadWaitingBoundary = {
+type RuntimeCoordinatorHeadWaitingBoundaryCommon = {
   deadlineAtMs: number;
   deadlineOutcome: "publication_intent_ready";
   observedAtMs: number;
-  reasonCode: "daemon.profile.offline";
   softDeadlineAtMs: number;
-  trigger: "openmeld_service_route_connected";
   triggerOwner: "runtime_coordinator";
-  userRecoveryAction: "start_or_restart_openmeld_service";
-  userVisibleState: "waiting_for_openmeld_service";
-  waitingCategory: "service_not_connected";
-  waitingFor: "openmeld_service_route_connection";
   waitingSinceMs: number;
 };
+
+export type RuntimeCoordinatorHeadWaitingBoundary =
+  | (RuntimeCoordinatorHeadWaitingBoundaryCommon & {
+      reasonCode: "daemon.profile.offline";
+      trigger: "openmeld_service_route_connected";
+      userRecoveryAction: "start_or_restart_openmeld_service";
+      userVisibleState: "waiting_for_openmeld_service";
+      waitingCategory: "service_not_connected";
+      waitingFor: "openmeld_service_route_connection";
+    })
+  | (RuntimeCoordinatorHeadWaitingBoundaryCommon & {
+      reasonCode: "daemon.profile.pending_first_report";
+      trigger: "wake_route_reported";
+      userRecoveryAction: "wait_for_wake_route_report";
+      userVisibleState: "waiting_for_wake_route_report";
+      waitingCategory: "wake_route_registration_pending";
+      waitingFor: "wake_route_report";
+    });
+
+export type RuntimeCoordinatorHeadWaitingPolicy =
+  | {
+      reasonCode: "daemon.profile.offline";
+      trigger: "openmeld_service_route_connected";
+      userRecoveryAction: "start_or_restart_openmeld_service";
+      userVisibleState: "waiting_for_openmeld_service";
+      waitingCategory: "service_not_connected";
+      waitingFor: "openmeld_service_route_connection";
+    }
+  | {
+      reasonCode: "daemon.profile.pending_first_report";
+      trigger: "wake_route_reported";
+      userRecoveryAction: "wait_for_wake_route_report";
+      userVisibleState: "waiting_for_wake_route_report";
+      waitingCategory: "wake_route_registration_pending";
+      waitingFor: "wake_route_report";
+    };
+
+export type RuntimeCoordinatorHeadWaitingDecision =
+  | Pick<
+      Extract<
+        RuntimeCoordinatorHeadWaitingPolicy,
+        { reasonCode: "daemon.profile.offline" }
+      >,
+      "reasonCode" | "userRecoveryAction" | "waitingCategory"
+    >
+  | Pick<
+      Extract<
+        RuntimeCoordinatorHeadWaitingPolicy,
+        { reasonCode: "daemon.profile.pending_first_report" }
+      >,
+      "reasonCode" | "userRecoveryAction" | "waitingCategory"
+    >;
+
+export const resolveRuntimeCoordinatorHeadWaitingDecision = (
+  reasonCode: RuntimeCoordinatorHeadWaitingBoundary["reasonCode"]
+): RuntimeCoordinatorHeadWaitingDecision =>
+  reasonCode === "daemon.profile.pending_first_report"
+    ? {
+        reasonCode,
+        userRecoveryAction: "wait_for_wake_route_report",
+        waitingCategory: "wake_route_registration_pending",
+      }
+    : {
+        reasonCode,
+        userRecoveryAction: "start_or_restart_openmeld_service",
+        waitingCategory: "service_not_connected",
+      };
+
+export const resolveRuntimeCoordinatorHeadWaitingPolicy = (
+  reasonCode: RuntimeCoordinatorHeadWaitingBoundary["reasonCode"]
+): RuntimeCoordinatorHeadWaitingPolicy =>
+  reasonCode === "daemon.profile.pending_first_report"
+    ? {
+        reasonCode,
+        trigger: "wake_route_reported",
+        userRecoveryAction: "wait_for_wake_route_report",
+        userVisibleState: "waiting_for_wake_route_report",
+        waitingCategory: "wake_route_registration_pending",
+        waitingFor: "wake_route_report",
+      }
+    : {
+        reasonCode,
+        trigger: "openmeld_service_route_connected",
+        userRecoveryAction: "start_or_restart_openmeld_service",
+        userVisibleState: "waiting_for_openmeld_service",
+        waitingCategory: "service_not_connected",
+        waitingFor: "openmeld_service_route_connection",
+      };
 
 export type RuntimeCoordinatorHeadLifecycleRecord = {
   createdAtMs: number;
@@ -2159,9 +2245,6 @@ export const isRuntimeCoordinatorHeadWaitingRecoveryCandidate = (input: {
     return false;
   }
   if (input.record.ownerUserId !== input.ownerUserId) {
-    return false;
-  }
-  if (input.record.waitingBoundary.reasonCode !== "daemon.profile.offline") {
     return false;
   }
   if (input.record.waitingBoundary.deadlineAtMs <= input.nowMs) {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   incrementRuntimeCoordinatorFinalizationRetryEntry,
   isRuntimeCoordinatorFinalizationRetryParkLimitReached,
+  isRuntimeCoordinatorHeadWaitingRecoveryCandidate,
   isRuntimeCoordinatorLateResultRecoverable,
   parkRuntimeCoordinatorFinalizationRetryEntry,
   planRuntimeCoordinatorFinalizationRetryAlarmWork,
@@ -55,7 +56,12 @@ const buildHeadLifecycleRecord = (
 });
 
 const buildWaitingBoundary = (
-  overrides: Partial<RuntimeCoordinatorHeadWaitingBoundary> = {}
+  overrides: Partial<
+    Extract<
+      RuntimeCoordinatorHeadWaitingBoundary,
+      { reasonCode: "daemon.profile.offline" }
+    >
+  > = {}
 ): RuntimeCoordinatorHeadWaitingBoundary => ({
   deadlineAtMs: NOW_MS + 1000,
   deadlineOutcome: "publication_intent_ready",
@@ -169,6 +175,45 @@ describe("RuntimeCoordinator late-result recovery policy", () => {
         terminalReasonCode: "runtime.progress_stale",
         tokenValidationReasonCode: "execution_token_terminal_late",
         tokenRunMatched: false,
+      })
+    ).toBe(false);
+  });
+});
+
+describe("RuntimeCoordinator head waiting recovery policy", () => {
+  it("redrives a pending first-report Wake when its target route reports before the deadline", () => {
+    const record = buildHeadLifecycleRecord({
+      status: "waiting",
+      waitingBoundary: {
+        deadlineAtMs: NOW_MS + 1000,
+        deadlineOutcome: "publication_intent_ready",
+        observedAtMs: NOW_MS,
+        reasonCode: "daemon.profile.pending_first_report",
+        softDeadlineAtMs: NOW_MS + 500,
+        trigger: "wake_route_reported",
+        triggerOwner: "runtime_coordinator",
+        userRecoveryAction: "wait_for_wake_route_report",
+        userVisibleState: "waiting_for_wake_route_report",
+        waitingCategory: "wake_route_registration_pending",
+        waitingFor: "wake_route_report",
+        waitingSinceMs: NOW_MS - 1000,
+      },
+    });
+
+    expect(
+      isRuntimeCoordinatorHeadWaitingRecoveryCandidate({
+        nowMs: NOW_MS,
+        ownerUserId: "owner-1",
+        profileIdSet: new Set(["agent-1"]),
+        record,
+      })
+    ).toBe(true);
+    expect(
+      isRuntimeCoordinatorHeadWaitingRecoveryCandidate({
+        nowMs: NOW_MS,
+        ownerUserId: "owner-1",
+        profileIdSet: new Set(["another-agent"]),
+        record,
       })
     ).toBe(false);
   });

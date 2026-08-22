@@ -75,6 +75,7 @@ import {
   rpcPostSystemNoticeSignal,
   rpcPostTransientSignal,
 } from "../rpc/methods";
+import { resolveRuntimeCoordinatorHeadWaitingDecision } from "../runtime-transport/application/runtime-coordinator-authority";
 import { CORE_LOG_EVENTS } from "../shared/observability/log-events";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as spaceFinalOutcomeClaimReader from "../space/application/space-final-outcome-claim-reader";
@@ -2068,20 +2069,23 @@ describe("handleDispatchQueueBatch", () => {
     vi.spyOn(
       runtimeCoordinatorClient,
       "recordRuntimeTransportRuntimeCoordinatorHeadWaiting"
-    ).mockImplementation(async (input) => ({
-      deadlineAtMs: Date.now() + 300_000,
-      nextTriggerAtMs: Date.now() + 30_000,
-      ok: true,
-      primaryDispatchId: input.waiting.dispatchId,
-      reasonCode: input.waiting.reasonCode,
-      runtimeCoordinatorExecutionId: null,
-      softDeadlineAtMs: Date.now() + 30_000,
-      status: "waiting",
-      targetWakeLifecycleId:
-        input.waiting.targetWakeLifecycleIdentity.targetWakeLifecycleId,
-      userRecoveryAction: input.waiting.userRecoveryAction,
-      waitingCategory: input.waiting.waitingCategory,
-    }));
+    ).mockImplementation((input) => {
+      const waitingDecision = resolveRuntimeCoordinatorHeadWaitingDecision(
+        input.waiting.reasonCode
+      );
+      return Promise.resolve({
+        deadlineAtMs: Date.now() + 300_000,
+        nextTriggerAtMs: Date.now() + 30_000,
+        ok: true,
+        primaryDispatchId: input.waiting.dispatchId,
+        runtimeCoordinatorExecutionId: null,
+        softDeadlineAtMs: Date.now() + 30_000,
+        status: "waiting",
+        targetWakeLifecycleId:
+          input.waiting.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+        ...waitingDecision,
+      });
+    });
     vi.spyOn(
       runtimeCoordinatorClient,
       "deliverRuntimeTransportDispatch"
@@ -5930,6 +5934,79 @@ describe("handleDispatchQueueBatch", () => {
             dispatchId: "dispatch-offline-retry-1",
           }),
           text: "Waiting for @Codex to reconnect...",
+        })
+      );
+    } finally {
+      lookupRouteSpy.mockRestore();
+      randomSpy.mockRestore();
+    }
+  });
+
+  it("keeps a connected service pending its first route report inside the RuntimeCoordinator waiting boundary", async () => {
+    const lookupRouteSpy = vi
+      .spyOn(daemonTransportClient, "lookupRuntimeTransportRoute")
+      .mockResolvedValue({
+        online: false,
+        reasonCode: "daemon.profile.pending_first_report",
+      });
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    try {
+      const message = createQueueMessage(
+        createDispatchBody({
+          dispatchId: "dispatch-pending-first-report-1",
+          enqueuedAtMs: Date.now() - 90_000,
+          sourceEventId: "evt-pending-first-report-1",
+          sourceClientMessageId: "client-pending-first-report-1",
+          targetProfileId: "agt-pending-first-report-1",
+          targetProfileNameSnapshot: "Codex",
+          visitedProfileIdsHash: "stable32:pending-first-report-1",
+        }),
+        DISPATCH_OFFLINE_RETRY_MAX_ATTEMPTS
+      );
+      const authRpc = createAuthRpcWithBindingSnapshot({
+        bindingState: "bound",
+        bindingEnabled: true,
+        agentControllerRef: "builtin:codex",
+        ownerUserId: "owner-pending-first-report-1",
+        profileName: "pending-first-report-agent-1",
+      });
+
+      await handleDispatchQueueBatch({
+        batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+        env: makeEnvWithBindings(undefined, authRpc),
+      });
+
+      expect(message.retry).toHaveBeenCalledTimes(1);
+      expect(message.ack).not.toHaveBeenCalled();
+      expect(writeDispatchDlq).not.toHaveBeenCalled();
+      expect(rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
+      expect(
+        runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadWaiting
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ownerUserId: "owner-pending-first-report-1",
+          waiting: expect.objectContaining({
+            dispatchId: "dispatch-pending-first-report-1",
+            reasonCode: "daemon.profile.pending_first_report",
+            userRecoveryAction: "wait_for_wake_route_report",
+            waitingCategory: "wake_route_registration_pending",
+          }),
+        })
+      );
+      expect(markDispatchStatus).toHaveBeenCalledWith(
+        expect.objectContaining({
+          errorCode: "daemon.profile.pending_first_report",
+          status: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
+        })
+      );
+      expect(rpcPostTransientSignal).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          meta: expect.objectContaining({
+            purpose: "dispatch_activity_retrying",
+            dispatchId: "dispatch-pending-first-report-1",
+          }),
+          text: "Waiting for @Codex to become ready...",
         })
       );
     } finally {

@@ -24,7 +24,12 @@ const buildTargetWakeLifecycleIdentity = (dispatchId: string) =>
   });
 
 const buildWaitingBoundary = (
-  overrides: Partial<RuntimeCoordinatorHeadWaitingBoundary> = {}
+  overrides: Partial<
+    Extract<
+      RuntimeCoordinatorHeadWaitingBoundary,
+      { reasonCode: "daemon.profile.offline" }
+    >
+  > = {}
 ): RuntimeCoordinatorHeadWaitingBoundary => ({
   deadlineAtMs: NOW_MS - 1,
   deadlineOutcome: "publication_intent_ready",

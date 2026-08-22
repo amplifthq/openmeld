@@ -963,11 +963,22 @@ function toRuntimeCoordinatorHeadLifecycleTraceRecord(
   }
 
   const sourcePublicationIntent = response.lifecycle.publicationIntent;
+  const sourceWaitingBoundary = response.lifecycle.waitingBoundary;
+  // Published CLI versions parse RuntimeCoordinator head details with strict
+  // enums. Keep pending-first-report-only details internal until a versioned
+  // public trace contract can expose them without breaking existing clients.
   let publicationIntent: Extract<
     DispatchTraceRuntimeCoordinatorHeadLifecycleRecord,
     { readStatus: "found" }
   >["publicationIntent"] = null;
-  if (sourcePublicationIntent?.kind === "no_execution_failure") {
+  if (
+    sourcePublicationIntent?.kind === "no_execution_failure" &&
+    sourcePublicationIntent.reasonCode !==
+      "daemon.profile.pending_first_report" &&
+    sourcePublicationIntent.publicationCategory !==
+      "wake_route_registration_pending" &&
+    sourcePublicationIntent.userRecoveryAction !== "wait_for_wake_route_report"
+  ) {
     publicationIntent = {
       intentId: sourcePublicationIntent.intentId,
       kind: sourcePublicationIntent.kind,
@@ -995,19 +1006,26 @@ function toRuntimeCoordinatorHeadLifecycleTraceRecord(
     ),
     factSource: "runtime_coordinator_head_lifecycle",
     modelVersion: response.lifecycle.modelVersion,
-    noExecutionDecision: response.lifecycle.noExecutionDecision
-      ? {
-          decidedAt: toIsoDateTime(
-            response.lifecycle.noExecutionDecision.decidedAtMs
-          ),
-          publicationCategory:
-            response.lifecycle.noExecutionDecision.publicationCategory,
-          reasonCode: response.lifecycle.noExecutionDecision.reasonCode,
-          source: response.lifecycle.noExecutionDecision.source,
-          userRecoveryAction:
-            response.lifecycle.noExecutionDecision.userRecoveryAction,
-        }
-      : null,
+    noExecutionDecision:
+      response.lifecycle.noExecutionDecision &&
+      response.lifecycle.noExecutionDecision.reasonCode !==
+        "daemon.profile.pending_first_report" &&
+      response.lifecycle.noExecutionDecision.publicationCategory !==
+        "wake_route_registration_pending" &&
+      response.lifecycle.noExecutionDecision.userRecoveryAction !==
+        "wait_for_wake_route_report"
+        ? {
+            decidedAt: toIsoDateTime(
+              response.lifecycle.noExecutionDecision.decidedAtMs
+            ),
+            publicationCategory:
+              response.lifecycle.noExecutionDecision.publicationCategory,
+            reasonCode: response.lifecycle.noExecutionDecision.reasonCode,
+            source: response.lifecycle.noExecutionDecision.source,
+            userRecoveryAction:
+              response.lifecycle.noExecutionDecision.userRecoveryAction,
+          }
+        : null,
     ownerUserId: response.lifecycle.ownerUserId,
     primaryDispatchId: response.lifecycle.primaryDispatchId,
     publicationIntent,
@@ -1056,31 +1074,25 @@ function toRuntimeCoordinatorHeadLifecycleTraceRecord(
       ? { targetDisplay: response.lifecycle.targetDisplay }
       : {}),
     updatedAt: toIsoDateTime(response.lifecycle.updatedAtMs),
-    waitingBoundary: response.lifecycle.waitingBoundary
-      ? {
-          deadlineAt: toIsoDateTime(
-            response.lifecycle.waitingBoundary.deadlineAtMs
-          ),
-          deadlineOutcome: response.lifecycle.waitingBoundary.deadlineOutcome,
-          observedAt: toIsoDateTime(
-            response.lifecycle.waitingBoundary.observedAtMs
-          ),
-          reasonCode: response.lifecycle.waitingBoundary.reasonCode,
-          softDeadlineAt: toIsoDateTime(
-            response.lifecycle.waitingBoundary.softDeadlineAtMs
-          ),
-          trigger: response.lifecycle.waitingBoundary.trigger,
-          triggerOwner: response.lifecycle.waitingBoundary.triggerOwner,
-          userRecoveryAction:
-            response.lifecycle.waitingBoundary.userRecoveryAction,
-          userVisibleState: response.lifecycle.waitingBoundary.userVisibleState,
-          waitingCategory: response.lifecycle.waitingBoundary.waitingCategory,
-          waitingFor: response.lifecycle.waitingBoundary.waitingFor,
-          waitingSince: toIsoDateTime(
-            response.lifecycle.waitingBoundary.waitingSinceMs
-          ),
-        }
-      : null,
+    waitingBoundary:
+      sourceWaitingBoundary?.reasonCode === "daemon.profile.offline"
+        ? {
+            deadlineAt: toIsoDateTime(sourceWaitingBoundary.deadlineAtMs),
+            deadlineOutcome: sourceWaitingBoundary.deadlineOutcome,
+            observedAt: toIsoDateTime(sourceWaitingBoundary.observedAtMs),
+            reasonCode: "daemon.profile.offline",
+            softDeadlineAt: toIsoDateTime(
+              sourceWaitingBoundary.softDeadlineAtMs
+            ),
+            trigger: "openmeld_service_route_connected",
+            triggerOwner: "runtime_coordinator",
+            userRecoveryAction: "start_or_restart_openmeld_service",
+            userVisibleState: "waiting_for_openmeld_service",
+            waitingCategory: "service_not_connected",
+            waitingFor: "openmeld_service_route_connection",
+            waitingSince: toIsoDateTime(sourceWaitingBoundary.waitingSinceMs),
+          }
+        : null,
   };
 }
 

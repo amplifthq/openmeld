@@ -6,16 +6,6 @@ import {
   runtimeCoordinatorExecutionEventSchema,
   runtimeCoordinatorExecutionRecordSchema,
 } from "../daemon/runtime-coordinator-execution";
-import {
-  runtimeTransportRuntimeCoordinatorHeadLifecycleStatusSchema,
-  runtimeTransportRuntimeCoordinatorHeadNoExecutionDecisionSourceSchema,
-  runtimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategorySchema,
-  runtimeTransportRuntimeCoordinatorHeadNoExecutionReasonCodeSchema,
-  runtimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryActionSchema,
-  runtimeTransportRuntimeCoordinatorHeadWaitingCategorySchema,
-  runtimeTransportRuntimeCoordinatorHeadWaitingReasonCodeSchema,
-  runtimeTransportRuntimeCoordinatorHeadWaitingRecoveryActionSchema,
-} from "../daemon/runtime-transport";
 import { openMeldDaemonTaskResultProjectFailureContextSchema } from "../daemon/task-result";
 import {
   MAX_PROFILE_NAME_LENGTH,
@@ -414,17 +404,54 @@ export const spaceDispatchTraceRuntimeCoordinatorEventSchema =
     factSource: z.literal("runtime_coordinator_projection"),
   });
 
+// Space dispatch trace is consumed by already-published strict CLI schemas.
+// Keep this public projection independent from the wider internal transport
+// lifecycle so new internal states cannot become a breaking response by import.
+const publishedRuntimeCoordinatorHeadLifecycleStatusSchema = z.enum([
+  "accepted",
+  "execution_linked",
+  "publication_intent_ready",
+  "stopped_before_execution",
+  "waiting",
+]);
+const publishedRuntimeCoordinatorHeadDecisionSourceSchema = z.enum([
+  "dispatch_preflight",
+  "dispatch_delivery_pre_execution",
+  "runtime_coordinator_head_waiting_deadline",
+]);
+const publishedRuntimeCoordinatorHeadPublicationCategorySchema = z.enum([
+  "binding_required",
+  "local_connection_mismatch",
+  "service_not_connected",
+  "update_required",
+]);
+const publishedRuntimeCoordinatorHeadReasonCodeSchema = z.enum([
+  "agent_profile_binding.missing",
+  "agent_profile_binding.disabled",
+  "agent_profile_binding.owner_mismatch",
+  "organization_binding_authorization.required",
+  "local_service.identity_mismatch",
+  "daemon.profile.offline",
+  "service.update_required",
+]);
+const publishedRuntimeCoordinatorHeadRecoveryActionSchema = z.enum([
+  "set_up_agent_binding",
+  "enable_agent_binding",
+  "repair_agent_binding",
+  "authorize_agent_binding_for_organization",
+  "reconnect_agent_binding",
+  "start_or_restart_openmeld_service",
+  "update_openmeld_service",
+]);
+
 const spaceDispatchTraceRuntimeCoordinatorHeadNoExecutionDecisionSchema =
   z.strictObject({
     decidedAt: ISO_DATE_TIME_SCHEMA,
     publicationCategory:
-      runtimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategorySchema,
-    reasonCode:
-      runtimeTransportRuntimeCoordinatorHeadNoExecutionReasonCodeSchema,
-    source:
-      runtimeTransportRuntimeCoordinatorHeadNoExecutionDecisionSourceSchema,
-    userRecoveryAction:
-      runtimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryActionSchema,
+      publishedRuntimeCoordinatorHeadPublicationCategorySchema,
+    reasonCode: publishedRuntimeCoordinatorHeadReasonCodeSchema,
+    source: publishedRuntimeCoordinatorHeadDecisionSourceSchema,
+    userRecoveryAction: publishedRuntimeCoordinatorHeadRecoveryActionSchema,
   });
 
 const spaceDispatchTraceRuntimeCoordinatorHeadPublicationIntentSchema = z.union(
@@ -433,13 +460,11 @@ const spaceDispatchTraceRuntimeCoordinatorHeadPublicationIntentSchema = z.union(
       intentId: trimmedNonEmptyStringSchema.max(4096),
       kind: z.literal("no_execution_failure"),
       publicationCategory:
-        runtimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategorySchema,
+        publishedRuntimeCoordinatorHeadPublicationCategorySchema,
       readyAt: ISO_DATE_TIME_SCHEMA,
-      reasonCode:
-        runtimeTransportRuntimeCoordinatorHeadNoExecutionReasonCodeSchema,
+      reasonCode: publishedRuntimeCoordinatorHeadReasonCodeSchema,
       status: z.literal("ready_for_phase_6"),
-      userRecoveryAction:
-        runtimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryActionSchema,
+      userRecoveryAction: publishedRuntimeCoordinatorHeadRecoveryActionSchema,
     }),
     z.strictObject({
       intentId: trimmedNonEmptyStringSchema.max(4096),
@@ -492,15 +517,13 @@ const spaceDispatchTraceRuntimeCoordinatorHeadWaitingBoundarySchema =
     deadlineAt: ISO_DATE_TIME_SCHEMA,
     deadlineOutcome: z.literal("publication_intent_ready"),
     observedAt: ISO_DATE_TIME_SCHEMA,
-    reasonCode: runtimeTransportRuntimeCoordinatorHeadWaitingReasonCodeSchema,
+    reasonCode: z.literal("daemon.profile.offline"),
     softDeadlineAt: ISO_DATE_TIME_SCHEMA,
     trigger: z.literal("openmeld_service_route_connected"),
     triggerOwner: z.literal("runtime_coordinator"),
-    userRecoveryAction:
-      runtimeTransportRuntimeCoordinatorHeadWaitingRecoveryActionSchema,
+    userRecoveryAction: z.literal("start_or_restart_openmeld_service"),
     userVisibleState: z.literal("waiting_for_openmeld_service"),
-    waitingCategory:
-      runtimeTransportRuntimeCoordinatorHeadWaitingCategorySchema,
+    waitingCategory: z.literal("service_not_connected"),
     waitingFor: z.literal("openmeld_service_route_connection"),
     waitingSince: ISO_DATE_TIME_SCHEMA,
   });
@@ -530,7 +553,7 @@ export const spaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema =
       readStatus: z.literal("found"),
       runtimeCoordinatorExecutionId:
         runtimeCoordinatorExecutionRecordSchema.shape.runtimeCoordinatorExecutionId.nullable(),
-      status: runtimeTransportRuntimeCoordinatorHeadLifecycleStatusSchema,
+      status: publishedRuntimeCoordinatorHeadLifecycleStatusSchema,
       targetWakeLifecycleIdentity: targetWakeLifecycleIdentitySchema,
       targetWakeLifecycleId: trimmedNonEmptyStringSchema.max(2048),
       targetDisplay:
