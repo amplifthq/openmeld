@@ -78,6 +78,7 @@ type SpaceFilesPanelProps = {
 
 type EntryDialogState =
 	| { kind: "closed" }
+	| { entry: SpaceFileEntry; kind: "move" }
 	| { entry: SpaceFileEntry; kind: "rename" }
 	| { entry: SpaceFileEntry; kind: "trash" };
 
@@ -197,6 +198,32 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 			setEntryDialog({ kind: "closed" });
 		}
 	};
+	const moveEntry = async (
+		entry: SpaceFileEntry,
+		destinationId: string | null
+	) => {
+		const succeeded = await runAction(
+			"move-entry",
+			async () =>
+				await api.updateFileEntry({
+					spaceId: input.spaceId,
+					entryId: entry.id,
+					body: {
+						parentId: destinationId,
+						clientMutationId: crypto.randomUUID(),
+					},
+				}),
+			(updatedEntry) => {
+				if (updatedEntry.kind === "file" && selectedFile?.id === entry.id) {
+					setSelectedFile(updatedEntry);
+				}
+			}
+		);
+		if (succeeded) {
+			setEntryDialog({ kind: "closed" });
+			toast.success(`Moved ${entry.name}`);
+		}
+	};
 	const trashEntry = async (entry: SpaceFileEntry) => {
 		const succeeded = await runAction("trash-entry", async () =>
 			api.trashFileEntry({
@@ -225,6 +252,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 						setSelectedFile(file);
 						refreshFiles().catch(() => undefined);
 					}}
+					onMove={() => setEntryDialog({ entry: selectedFile, kind: "move" })}
 					onRename={() =>
 						setEntryDialog({ entry: selectedFile, kind: "rename" })
 					}
@@ -240,6 +268,18 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 					}}
 					onSubmit={renameEntry}
 					pending={pendingAction === "rename-entry"}
+				/>
+				<MoveEntryDialog
+					api={api}
+					entry={entryDialog.kind === "move" ? entryDialog.entry : null}
+					onOpenChange={(open) => {
+						if (!open) {
+							setEntryDialog({ kind: "closed" });
+						}
+					}}
+					onSubmit={moveEntry}
+					pending={pendingAction === "move-entry"}
+					spaceId={input.spaceId}
 				/>
 				<TrashEntryDialog
 					entry={entryDialog.kind === "trash" ? entryDialog.entry : null}
@@ -368,6 +408,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 					entries={filesQuery.data?.entries ?? []}
 					error={filesQuery.isError ? filesQuery.error : null}
 					isPending={filesQuery.isPending}
+					onMove={(entry) => setEntryDialog({ entry, kind: "move" })}
 					onOpen={(entry) => {
 						if (entry.kind === "folder") {
 							setParentId(entry.id);
@@ -438,6 +479,18 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				onSubmit={renameEntry}
 				pending={pendingAction === "rename-entry"}
 			/>
+			<MoveEntryDialog
+				api={api}
+				entry={entryDialog.kind === "move" ? entryDialog.entry : null}
+				onOpenChange={(open) => {
+					if (!open) {
+						setEntryDialog({ kind: "closed" });
+					}
+				}}
+				onSubmit={moveEntry}
+				pending={pendingAction === "move-entry"}
+				spaceId={input.spaceId}
+			/>
 			<TrashEntryDialog
 				entry={entryDialog.kind === "trash" ? entryDialog.entry : null}
 				onConfirm={trashEntry}
@@ -458,6 +511,7 @@ function SpaceFileBrowserContent(input: {
 	error: unknown;
 	isPending: boolean;
 	onOpen: (entry: SpaceFileEntry) => void;
+	onMove: (entry: SpaceFileEntry) => void;
 	onRename: (entry: SpaceFileEntry) => void;
 	onRetry: () => void;
 	onTrash: (entry: SpaceFileEntry) => void;
@@ -564,6 +618,7 @@ function SpaceFileBrowserContent(input: {
 						{input.canWrite ? (
 							<EntryActions
 								entry={entry}
+								onMove={() => input.onMove(entry)}
 								onRename={() => input.onRename(entry)}
 								onTrash={() => input.onTrash(entry)}
 							/>
@@ -579,6 +634,7 @@ function SpaceFileBrowserContent(input: {
 
 function EntryActions(input: {
 	entry: SpaceFileEntry;
+	onMove: () => void;
 	onRename: () => void;
 	onTrash: () => void;
 }) {
@@ -600,6 +656,10 @@ function EntryActions(input: {
 				<DropdownMenuItem onClick={input.onRename}>
 					<PencilSimpleIcon aria-hidden="true" />
 					Rename
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={input.onMove}>
+					<FolderOpenIcon aria-hidden="true" />
+					Move to folder…
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuItem
@@ -634,6 +694,7 @@ function SpaceFileDetail(input: {
 	file: SpaceFileDescriptor;
 	onBack: () => void;
 	onFileChanged: (file: SpaceFileDescriptor) => void;
+	onMove: () => void;
 	onRename: () => void;
 	onTrash: () => void;
 	spaceId: string;
@@ -801,6 +862,10 @@ function SpaceFileDetail(input: {
 								<DropdownMenuItem onClick={input.onRename}>
 									<PencilSimpleIcon aria-hidden="true" />
 									Rename
+								</DropdownMenuItem>
+								<DropdownMenuItem onClick={input.onMove}>
+									<FolderOpenIcon aria-hidden="true" />
+									Move to folder…
 								</DropdownMenuItem>
 								<DropdownMenuSeparator />
 								<DropdownMenuItem
@@ -1191,6 +1256,175 @@ function RenameEntryDialog(input: {
 				</form>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+const ROOT_DESTINATION_VALUE = "__openmeld_space_files_root__";
+const MAX_MOVE_DESTINATION_FOLDERS = 500;
+
+function MoveEntryDialog(input: {
+	api: SpaceApi;
+	entry: SpaceFileEntry | null;
+	onOpenChange: (open: boolean) => void;
+	onSubmit: (
+		entry: SpaceFileEntry,
+		destinationId: string | null
+	) => Promise<void>;
+	pending: boolean;
+	spaceId: string;
+}) {
+	const [destinationValue, setDestinationValue] = useState(
+		ROOT_DESTINATION_VALUE
+	);
+	useEffect(() => {
+		setDestinationValue(input.entry?.parentId ?? ROOT_DESTINATION_VALUE);
+	}, [input.entry]);
+	const destinationsQuery = useQuery({
+		enabled: input.entry !== null,
+		queryKey: [
+			"space-files",
+			input.spaceId,
+			"move-destinations",
+			input.entry?.id,
+		],
+		queryFn: async () =>
+			await loadMoveDestinations({
+				api: input.api,
+				excludedFolderId:
+					input.entry?.kind === "folder" ? input.entry.id : undefined,
+				spaceId: input.spaceId,
+			}),
+		gcTime: baseQueryOptions.gcTime,
+		retry: baseQueryOptions.retry,
+		staleTime: 3000,
+	});
+	const loading = input.entry !== null && destinationsQuery.isPending;
+	const loadError = destinationsQuery.isError
+		? resolveSpaceFileErrorMessage(destinationsQuery.error)
+		: null;
+	const destinations = destinationsQuery.data ?? [];
+
+	const currentValue = input.entry?.parentId ?? ROOT_DESTINATION_VALUE;
+	return (
+		<Dialog onOpenChange={input.onOpenChange} open={input.entry !== null}>
+			<DialogContent className="sm:max-w-md">
+				<form
+					onSubmit={(event) => {
+						event.preventDefault();
+						if (input.entry && destinationValue !== currentValue) {
+							input
+								.onSubmit(
+									input.entry,
+									destinationValue === ROOT_DESTINATION_VALUE
+										? null
+										: destinationValue
+								)
+								.catch(() => undefined);
+						}
+					}}
+				>
+					<DialogHeader>
+						<DialogTitle>Move “{input.entry?.name}”</DialogTitle>
+					</DialogHeader>
+					<div className="grid gap-2 py-5">
+						<Label htmlFor="space-entry-destination">Destination folder</Label>
+						<select
+							className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							disabled={loading || input.pending || loadError !== null}
+							id="space-entry-destination"
+							onChange={(event) =>
+								setDestinationValue(event.currentTarget.value)
+							}
+							value={destinationValue}
+						>
+							<option value={ROOT_DESTINATION_VALUE}>Files (root)</option>
+							{destinations.map((folder) => (
+								<option key={folder.id} value={folder.id}>
+									{folder.path}
+								</option>
+							))}
+						</select>
+						{loading ? (
+							<p className="text-muted-foreground text-xs">Loading folders…</p>
+						) : null}
+						{loadError ? (
+							<div
+								className="flex items-center justify-between gap-3"
+								role="alert"
+							>
+								<p className="text-destructive text-xs">{loadError}</p>
+								<Button
+									onClick={() => destinationsQuery.refetch()}
+									size="sm"
+									type="button"
+									variant="outline"
+								>
+									Try again
+								</Button>
+							</div>
+						) : null}
+					</div>
+					<DialogFooter>
+						<Button
+							disabled={input.pending}
+							onClick={() => input.onOpenChange(false)}
+							type="button"
+							variant="ghost"
+						>
+							Cancel
+						</Button>
+						<Button
+							disabled={
+								input.pending ||
+								loading ||
+								loadError !== null ||
+								destinationValue === currentValue
+							}
+							type="submit"
+						>
+							{input.pending ? "Moving…" : "Move"}
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+async function loadMoveDestinations(input: {
+	api: SpaceApi;
+	excludedFolderId?: string;
+	spaceId: string;
+}): Promise<readonly { id: string; path: string }[]> {
+	const destinations: { id: string; path: string }[] = [];
+	const pendingParentIds: Array<string | null> = [ROOT_FOLDER_ID];
+	const visited = new Set<string>();
+	while (pendingParentIds.length > 0) {
+		const parentId = pendingParentIds.shift() ?? ROOT_FOLDER_ID;
+		const result = await input.api.listFiles({
+			spaceId: input.spaceId,
+			query: { parentId },
+		});
+		for (const entry of result.entries) {
+			if (
+				entry.kind !== "folder" ||
+				entry.id === input.excludedFolderId ||
+				visited.has(entry.id)
+			) {
+				continue;
+			}
+			visited.add(entry.id);
+			destinations.push({ id: entry.id, path: entry.path });
+			pendingParentIds.push(entry.id);
+			if (destinations.length > MAX_MOVE_DESTINATION_FOLDERS) {
+				throw new Error(
+					"This Space has too many folders to show here. Use the CLI to move this item."
+				);
+			}
+		}
+	}
+	return destinations.sort((left, right) =>
+		left.path.localeCompare(right.path)
 	);
 }
 

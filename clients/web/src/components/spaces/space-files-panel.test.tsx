@@ -55,6 +55,19 @@ const FILE = {
 	},
 };
 
+const FOLDER = {
+	id: "folder-1",
+	spaceId: "space-1",
+	parentId: null,
+	name: "Research",
+	path: "/Research",
+	kind: "folder" as const,
+	createdAt: "2026-08-22T08:00:00.000Z",
+	updatedAt: "2026-08-22T08:00:00.000Z",
+	createdBy: ACTOR,
+	updatedBy: ACTOR,
+};
+
 describe("SpaceFilesPanel", () => {
 	afterEach(cleanup);
 
@@ -140,6 +153,46 @@ describe("SpaceFilesPanel", () => {
 		expect(
 			(screen.getByLabelText("File contents") as HTMLTextAreaElement).value
 		).toBe("My unsaved revision");
+	});
+
+	it("lets a member move a file to a visible Space folder", async () => {
+		spaceApiMocks.listFiles.mockImplementation(
+			async ({ query }: { query: { parentId: string | null } }) => ({
+				spaceId: "space-1",
+				parentId: query.parentId,
+				breadcrumbs: [{ id: null, name: "Files" }],
+				entries: query.parentId === null ? [FOLDER, FILE] : [],
+				capabilities: { canRead: true, canWrite: true },
+			})
+		);
+		spaceApiMocks.updateFileEntry.mockResolvedValue({
+			...FILE,
+			parentId: FOLDER.id,
+			path: "/Research/launch-notes.md",
+		});
+		renderPanel();
+
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Actions for launch-notes.md" })
+		);
+		fireEvent.click(screen.getByRole("menuitem", { name: "Move to folder…" }));
+		const destination = await screen.findByLabelText("Destination folder");
+		await waitFor(() =>
+			expect(screen.getByRole("option", { name: "/Research" })).toBeTruthy()
+		);
+		fireEvent.change(destination, { target: { value: FOLDER.id } });
+		fireEvent.click(screen.getByRole("button", { name: "Move" }));
+
+		await waitFor(() =>
+			expect(spaceApiMocks.updateFileEntry).toHaveBeenCalledOnce()
+		);
+		expect(spaceApiMocks.updateFileEntry).toHaveBeenCalledWith(
+			expect.objectContaining({
+				entryId: FILE.id,
+				spaceId: "space-1",
+				body: expect.objectContaining({ parentId: FOLDER.id }),
+			})
+		);
 	});
 });
 
