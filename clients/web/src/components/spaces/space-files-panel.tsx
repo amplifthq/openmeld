@@ -209,18 +209,22 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				if (file.size > SPACE_FILE_MAX_SIZE_BYTES) {
 					throw new Error(`${file.name} is larger than 10 MiB.`);
 				}
-				await api.uploadFile({
-					spaceId: input.spaceId,
-					name: file.name,
-					parentId,
-					clientMutationId: crypto.randomUUID(),
-					mimeType: resolveSpaceFileMimeType({
-						declaredMimeType: file.type,
-						fileName: file.name,
-					}),
-					bytes: file,
-				});
 			}
+			await Promise.all(
+				files.map((file) =>
+					api.uploadFile({
+						spaceId: input.spaceId,
+						name: file.name,
+						parentId,
+						clientMutationId: crypto.randomUUID(),
+						mimeType: resolveSpaceFileMimeType({
+							declaredMimeType: file.type,
+							fileName: file.name,
+						}),
+						bytes: file,
+					})
+				)
+			);
 		});
 	};
 	const renameEntry = async (entry: SpaceFileEntry, name: string) => {
