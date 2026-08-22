@@ -1126,6 +1126,8 @@ function buildDispatchSourceSignalSnapshot(input: {
     input.signal.type === "signal.text"
       ? input.signal.data.attachments
       : undefined;
+  const files =
+    input.signal.type === "signal.text" ? input.signal.data.files : undefined;
   const centerAgentInteractionSource =
     input.signal.type === "signal.text"
       ? input.signal.data.meta?.centerAgentInteractionSource
@@ -1144,6 +1146,7 @@ function buildDispatchSourceSignalSnapshot(input: {
           null)
         : null,
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    ...(files && files.length > 0 ? { files } : {}),
   };
 }
 
@@ -3491,6 +3494,7 @@ export class Space extends DurableObject<CoreBindings> {
         workingDirectory: input.workingDirectory,
       });
       return this.buildTextSignal(publishedProfile, input.plan.text, {
+        ...this.resolveAgentTransportMessageFiles(input.plan),
         messageEnvelope: input.messageEnvelope ?? input.plan.messageEnvelope,
         ...(input.dispatchMessage.replyToSnapshot
           ? { replyTo: input.dispatchMessage.replyToSnapshot }
@@ -3574,6 +3578,17 @@ export class Space extends DurableObject<CoreBindings> {
         generatedBy: "openmeld",
       }
     );
+  }
+
+  private resolveAgentTransportMessageFiles(
+    plan: Extract<
+      AgentTransportSpaceActionDeliveryInput["plan"],
+      { kind: "message" }
+    >
+  ): { files?: NonNullable<SignalText["data"]["files"]> } {
+    return plan.files
+      ? { files: this.resolveSpaceMessageFileReferences(plan.files) }
+      : {};
   }
 
   private async quarantineLegacyAcceptedDispatchResult(input: {
@@ -14317,6 +14332,9 @@ export class Space extends DurableObject<CoreBindings> {
         signal.profile.kind === "system"
           ? signal.profile.kind
           : null,
+      ...(signal.data.files && signal.data.files.length > 0
+        ? { files: signal.data.files }
+        : {}),
       ...(signal.data.meta?.centerAgentInteractionSource
         ? {
             centerAgentInteractionSource:

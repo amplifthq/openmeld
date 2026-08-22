@@ -12035,6 +12035,7 @@ export async function rpcCenterAgentPostSpaceMessage(
     env,
   });
   const parsed = centerAgentPostSpaceMessageBodySchema.safeParse({
+    ...(input.files === undefined ? {} : { files: input.files }),
     ...(input.onBehalfOf === undefined ? {} : { onBehalfOf: input.onBehalfOf }),
     ...(input.referenceProfileIds === undefined
       ? {}
@@ -12091,6 +12092,7 @@ export async function rpcCenterAgentPostSpaceMessage(
     }),
     spaceId: parsed.data.spaceId,
     text: parsed.data.text,
+    ...(parsed.data.files ? { files: parsed.data.files } : {}),
   });
   if (signal.type !== "signal.text") {
     throw new Error(

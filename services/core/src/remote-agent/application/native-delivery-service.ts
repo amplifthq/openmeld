@@ -1291,6 +1291,27 @@ async function stopCenterAgentTaskBeforeWorkerAdmissionIfRequested(input: {
   return true;
 }
 
+function buildRemoteAgentSourceText(
+  message: OpenMeldDaemonDispatchQueueMessage
+): string | null {
+  const text = normalizeOptionalText(message.sourceSignalSnapshot?.text);
+  const files = message.sourceSignalSnapshot?.files ?? [];
+  if (files.length === 0) {
+    return text;
+  }
+  return [
+    ...(text ? [text] : []),
+    [
+      "Files shared with this message (canonical Space Files):",
+      ...files.map(
+        (file) =>
+          `- ${JSON.stringify(file.name)} — fileId=${file.fileId}, revision=${file.revision}, type=${file.mimeType}, size=${file.sizeBytes} bytes.`
+      ),
+      "Use openmeld_read_space_file for text content and openmeld_save_space_file to create or update text files. The fileId and revision identify the exact bytes that were sent.",
+    ].join("\n"),
+  ].join("\n\n");
+}
+
 export async function submitRemoteAgentNativeDelivery(input: {
   db: D1Database;
   env: CoreBindings;
@@ -1305,9 +1326,7 @@ export async function submitRemoteAgentNativeDelivery(input: {
   status: "submitted" | "failed" | "stopped";
 }> {
   const author = buildRemoteAgentAuthorContext(input.message);
-  const sourceText = normalizeOptionalText(
-    input.message.sourceSignalSnapshot?.text
-  );
+  const sourceText = buildRemoteAgentSourceText(input.message);
   const existingDelivery = await measureRemoteAgentAdmissionStage(
     input,
     {

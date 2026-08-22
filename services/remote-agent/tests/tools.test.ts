@@ -4049,6 +4049,37 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentPostSpaceMessage).toHaveBeenCalledOnce();
   });
 
+  it("sends exact canonical Space File revisions from the Center Agent", async () => {
+    const request = createSubmitTurnRequest();
+    const centerAgentPostSpaceMessage = vi.fn(async () =>
+      postSpaceMessageResponse([])
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentPostSpaceMessage },
+      storage: await createStorageWithPendingContext(request),
+    });
+    const files = [
+      {
+        fileId: "file-1",
+        revision: 2,
+        name: "decision.md",
+        mimeType: "text/markdown",
+        sizeBytes: 128,
+      },
+    ];
+
+    await executeTool(tools, "openmeld_post_space_message", {
+      files,
+      referenceProfileIds: [],
+      spaceId: SPACE_ID,
+      text: "I shared the decision record.",
+    });
+
+    expect(centerAgentPostSpaceMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ files })
+    );
+  });
+
   it("checks the structured Space authoring contract before any publication", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorageWithPendingContext(request);

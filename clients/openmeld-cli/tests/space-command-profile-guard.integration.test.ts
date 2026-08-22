@@ -203,11 +203,11 @@ describe("space command profile guardrail", () => {
             }),
         },
         {
-          label: "send_file",
+          label: "send_text_file",
           run: () =>
             runSpaceSend({
               space: VALID_SPACE_ID,
-              file: "/tmp/missing-profile-guard.txt",
+              textFile: "/tmp/missing-profile-guard.txt",
               view: "agent",
             }),
         },

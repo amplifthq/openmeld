@@ -140,7 +140,9 @@ import {
   REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
   recordCenterAgentMemberResearchComputerFileResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
+  SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
+  SPACE_MESSAGE_FILE_MAX_COUNT,
   SPACE_PASSWORD_MIN_LENGTH,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   setOrganizationWorkingLanguagePreferenceBodySchema,
@@ -402,11 +404,6 @@ const referenceProfileIdsInputSchema = pipe(
     "Every exact Human or Agent Profile ID that this Space message includes as context without assigning work. Pass an empty array only when no context-only profile is requested."
   )
 );
-const postSpaceMessageToolInputSchema = object({
-  referenceProfileIds: referenceProfileIdsInputSchema,
-  spaceId: nonEmptyStringSchema,
-  text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
-});
 const spaceFileIdToolInputSchema = pipe(
   string(),
   trim(),
@@ -432,6 +429,29 @@ const spaceFileTextContentToolInputSchema = pipe(
   string(),
   maxLength(SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES)
 );
+const spaceMessageFileReferenceToolInputSchema = strictObject({
+  fileId: spaceFileIdToolInputSchema,
+  revision: pipe(number(), integer(), minValue(1)),
+  name: spaceFileNameToolInputSchema,
+  mimeType: pipe(string(), trim(), minLength(3), maxLength(255)),
+  sizeBytes: pipe(
+    number(),
+    integer(),
+    minValue(0),
+    maxValue(SPACE_FILE_MAX_SIZE_BYTES)
+  ),
+});
+const postSpaceMessageToolInputSchema = object({
+  files: optional(
+    pipe(
+      array(spaceMessageFileReferenceToolInputSchema),
+      maxLength(SPACE_MESSAGE_FILE_MAX_COUNT)
+    )
+  ),
+  referenceProfileIds: referenceProfileIdsInputSchema,
+  spaceId: nonEmptyStringSchema,
+  text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+});
 const listSpaceFilesToolInputSchema = strictObject({
   parentId: optional(nullable(spaceFileIdToolInputSchema)),
   spaceId: nonEmptyStringSchema,
@@ -3583,7 +3603,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_post_space_message",
       description:
-        "Post a plain Center Agent-authored message to a Space in the current Organization without waking other agents. This is an ordinary external write. Use this for one-time checklists, tasks, updates, notes, and other conversation content, including content requested immediately after creating a Space. Always pass referenceProfileIds: include every exact Human or Agent Profile ID that is context only, or [] when there are none. Reference does not assign work or require a reply.",
+        "Post a Center Agent-authored message to a Space in the current Organization without waking other agents. This is an ordinary external write. Use this for one-time checklists, tasks, updates, notes, and other conversation content, including content requested immediately after creating a Space. To share files, first create or update them with the Space Files tools, then pass their exact canonical fileId, revision, name, mimeType, and sizeBytes in files. Always pass referenceProfileIds: include every exact Human or Agent Profile ID that is context only, or [] when there are none. Reference does not assign work or require a reply.",
       input: postSpaceMessageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(postSpaceMessageToolInputSchema, payload);

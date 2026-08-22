@@ -7,6 +7,9 @@ import {
   assertNoRemovedCcSpaceAddressingSyntax,
   type SpaceMemberDirectorySendTargetEntry,
 } from "@openmeld/space";
+import { resolveBaseUrl } from "../config/base-url";
+import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
+import { requireOpenMeldProfile } from "../config/resolve-openmeld-profile";
 import { formatOpenMeldCliCommand } from "../runtime/cli-entry-command";
 import {
   type DispatchSpaceActionContext,
@@ -16,6 +19,11 @@ import {
   writeDispatchSpaceActionRecord,
 } from "../runtime/dispatch-space-action-context";
 import { outLine } from "../ui/io";
+import { createCliSpaceApi } from "./cli-space-api";
+import {
+  prepareRequestedSpaceSendFiles,
+  uploadPreparedSpaceFiles,
+} from "./send-files";
 
 type Relation = "wake" | "reference";
 
@@ -33,10 +41,11 @@ const DISPATCH_ACTION_CLI_PLACEHOLDER = "<DISPATCH_ACTION_CLI>";
 const SPACE_ACTION_REPLY_TIMING_EVENT = "openmeld.space_action.reply_timing";
 
 export function runSpaceActionReply(input: {
+  filePaths?: readonly string[];
   messageParts: readonly string[];
   referenceTargets?: readonly string[];
   wakeTargets?: readonly string[];
-}): void {
+}): void | Promise<void> {
   // OPENMELD_SETUP_TO_WAKE_PATH: HIGHEST_FACT dispatch-scoped-space-action
   // Local agents speak to Spaces through the dispatch-scoped Space Action CLI,
   // never by inventing ad hoc publication payloads.
@@ -64,23 +73,92 @@ export function runSpaceActionReply(input: {
     messageLength: text.length,
     referenceTargetCount: targetIds.referenceTargets.length,
   });
+  const filePaths = input.filePaths ?? [];
+  if (filePaths.length === 0) {
+    recordSpaceActionReply({
+      context,
+      files: [],
+      targetIds,
+      text,
+      timing,
+    });
+    return;
+  }
+  return uploadAndRecordSpaceActionReply({
+    context,
+    filePaths,
+    targetIds,
+    text,
+    timing,
+  });
+}
+
+async function uploadAndRecordSpaceActionReply(input: {
+  context: DispatchSpaceActionContext;
+  filePaths: readonly string[];
+  targetIds: { activationTargets: string[]; referenceTargets: string[] };
+  text: string;
+  timing: ReturnType<typeof createSpaceActionReplyTiming>;
+}): Promise<void> {
+  const files = await uploadSpaceActionReplyFiles({
+    context: input.context,
+    filePaths: input.filePaths,
+  });
+  recordSpaceActionReply({ ...input, files });
+}
+
+function recordSpaceActionReply(input: {
+  context: DispatchSpaceActionContext;
+  files: Awaited<ReturnType<typeof uploadSpaceActionReplyFiles>>;
+  targetIds: { activationTargets: string[]; referenceTargets: string[] };
+  text: string;
+  timing: ReturnType<typeof createSpaceActionReplyTiming>;
+}): void {
   const action: OpenMeldSpaceEgressAction = {
     type: "post_message",
+    ...(input.files.length > 0 ? { files: [...input.files] } : {}),
     messageEnvelope: {
-      activationTargets: targetIds.activationTargets,
-      referenceTargets: targetIds.referenceTargets,
-      ...(context.replyToSignalId
-        ? { replyToSignalId: context.replyToSignalId }
+      activationTargets: input.targetIds.activationTargets,
+      referenceTargets: input.targetIds.referenceTargets,
+      ...(input.context.replyToSignalId
+        ? { replyToSignalId: input.context.replyToSignalId }
         : {}),
-      text,
+      text: input.text,
     },
   };
-  const record = recordAction({ action, command: "reply", context });
-  timing.emit("record_written", context, {
+  const record = recordAction({
+    action,
+    command: "reply",
+    context: input.context,
+  });
+  input.timing.emit("record_written", input.context, {
     actionType: record.action.type,
   });
-  timing.emit("done", context, {
+  input.timing.emit("done", input.context, {
     actionType: record.action.type,
+  });
+}
+
+async function uploadSpaceActionReplyFiles(input: {
+  context: DispatchSpaceActionContext;
+  filePaths: readonly string[];
+}) {
+  const prepared = await prepareRequestedSpaceSendFiles({
+    filePaths: input.filePaths,
+  });
+  if (prepared.length === 0) {
+    return [];
+  }
+  const openMeldProfile = await requireOpenMeldProfile({
+    openMeldProfileId: input.context.targetProfileId,
+    persistSelection: false,
+    authAction: "sharing files in a Space reply",
+  });
+  return await uploadPreparedSpaceFiles({
+    files: prepared,
+    requestContext: buildOpenMeldRequestContextFromProfile({ openMeldProfile }),
+    spaceApi: createCliSpaceApi(await resolveBaseUrl()),
+    spaceId: input.context.spaceId,
   });
 }
 

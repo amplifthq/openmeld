@@ -17,6 +17,7 @@ import type {
   OpenMeldSpaceEgressAction,
   ResultArchiveMode,
   SpaceAllowedAction,
+  SpaceMessageFileReference,
   SpaceStatus,
   SpaceThreadContext,
 } from "@openmeld/schemas/types";
@@ -34,6 +35,7 @@ export type DispatchPublicationPlan =
       blockedExplicitAction: boolean;
       kind: "message";
       messageEnvelope: MessageEnvelope;
+      files?: SpaceMessageFileReference[];
       observedThroughSignalId?: string | null;
       publicOutcome: "post_message" | "raw_context_sharing";
       shouldArchive: boolean;
@@ -440,6 +442,7 @@ function resolveExplicitActionPlan(input: {
         blockedExplicitAction: false,
         kind: "message",
         messageEnvelope: input.action.messageEnvelope,
+        ...(input.action.files ? { files: input.action.files } : {}),
         observedThroughSignalId: normalizeOptionalText(
           input.action.observedThroughSignalId
         ),

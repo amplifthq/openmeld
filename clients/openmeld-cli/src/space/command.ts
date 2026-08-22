@@ -8496,11 +8496,11 @@ export async function runSpaceSend(input: {
   profile?: string;
   baseUrl?: string;
   space: string;
-  attachmentPaths?: readonly string[];
+  filePaths?: readonly string[];
   password?: string;
   text?: string;
   stdin?: boolean;
-  file?: string;
+  textFile?: string;
   plainText?: boolean;
   replyToSignalId?: string;
   view?: string;
@@ -8548,7 +8548,7 @@ export async function runSpaceSend(input: {
   const text = await resolveSpaceSendText({
     text: input.text,
     stdin: input.stdin,
-    file: input.file,
+    file: input.textFile,
   });
   if (runtime.resolvedView === "agent") {
     const workflowAckHint = resolveWorkflowAckHint(text);
@@ -8564,7 +8564,7 @@ export async function runSpaceSend(input: {
       profile: openMeldProfile.openMeldProfileId,
       baseUrl,
       space: normalizedSpace,
-      attachmentPaths: input.attachmentPaths,
+      filePaths: input.filePaths,
       password: input.password,
       plainText: input.plainText === true,
       replyToSignalId: input.replyToSignalId,

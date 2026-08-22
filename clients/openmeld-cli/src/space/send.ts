@@ -19,15 +19,15 @@ import { createCliSpaceApi } from "./cli-space-api";
 import { assertFullSignalIdArgument } from "./command-context";
 import { prepareCliSpaceComposerSubmission } from "./composer-submission-adapter";
 import {
-  prepareRequestedSpaceSendAttachments,
-  uploadPreparedSpaceAttachments,
-} from "./send-attachments";
+  prepareRequestedSpaceSendFiles,
+  uploadPreparedSpaceFiles,
+} from "./send-files";
 
 export async function runSend(input: {
   profile?: string;
   baseUrl?: string;
   space: string;
-  attachmentPaths?: readonly string[];
+  filePaths?: readonly string[];
   password?: string;
   plainText?: boolean;
   replyToSignalId?: string;
@@ -61,9 +61,8 @@ export async function runSend(input: {
     flag: "--reply-to",
     resolvedView: runtime.resolvedView,
   });
-  const preparedAttachments = await prepareRequestedSpaceSendAttachments({
-    attachmentPaths: input.attachmentPaths ?? [],
-    replyToSignalId: input.replyToSignalId,
+  const preparedFiles = await prepareRequestedSpaceSendFiles({
+    filePaths: input.filePaths ?? [],
   });
 
   const owner =
@@ -127,14 +126,14 @@ export async function runSend(input: {
   const requestContext = buildOpenMeldRequestContextFromProfile({
     openMeldProfile,
   });
-  emitAttachmentUploadProgress({
-    attachmentCount: preparedAttachments.length,
+  emitFileUploadProgress({
+    fileCount: preparedFiles.length,
     presenter,
     resolvedView: runtime.resolvedView,
     spaceId: space,
   });
-  const attachments = await uploadPreparedSpaceAttachments({
-    attachments: preparedAttachments,
+  const files = await uploadPreparedSpaceFiles({
+    files: preparedFiles,
     password: input.password,
     requestContext,
     spaceApi,
@@ -159,6 +158,7 @@ export async function runSend(input: {
         outboundText,
         outboundMessageEnvelope,
         clientMessageId,
+        files,
       })
     : await spaceApi.postNormalMessage({
         spaceId: space,
@@ -167,7 +167,7 @@ export async function runSend(input: {
           ? {}
           : { spacePassword: input.password }),
         text: outboundText,
-        ...toSpaceMessageAttachmentsField(attachments),
+        ...toSpaceMessageFilesField(files),
         meta: {
           clientMessageId,
         },
@@ -180,8 +180,8 @@ export async function runSend(input: {
     code: "send.response",
     payload,
   });
-  emitSentAttachmentResult({
-    attachmentCount: attachments.length,
+  emitSentFileResult({
+    fileCount: files.length,
     presenter,
     signalId: payload.id,
   });
@@ -206,6 +206,7 @@ async function postReplyIntoThread(input: {
     ReturnType<typeof prepareCliSpaceComposerSubmission>
   >["outboundMessageEnvelope"];
   clientMessageId: string;
+  files: Awaited<ReturnType<typeof uploadPreparedSpaceFiles>>;
 }) {
   const threadsResponse = await input.spaceApi.listThreads({
     spaceId: input.space,
@@ -236,6 +237,7 @@ async function postReplyIntoThread(input: {
     body: {
       text: input.outboundText,
       clientMessageId: input.clientMessageId,
+      ...toSpaceMessageFilesField(input.files),
       ...(input.outboundMessageEnvelope
         ? { messageEnvelope: input.outboundMessageEnvelope }
         : {}),
@@ -479,11 +481,7 @@ function emitBareMentionDiagnostics(input: {
 function emitAgentSendProgress(input: {
   presenter: ReturnType<typeof createPresenter>;
   resolvedView: "human" | "agent";
-  stage:
-    | "prepare_message"
-    | "load_members"
-    | "upload_attachments"
-    | "post_message";
+  stage: "prepare_message" | "load_members" | "upload_files" | "post_message";
   summary: string;
   spaceId: string;
 }): void {
@@ -500,49 +498,47 @@ function emitAgentSendProgress(input: {
   });
 }
 
-function emitAttachmentUploadProgress(input: {
-  attachmentCount: number;
+function emitFileUploadProgress(input: {
+  fileCount: number;
   presenter: ReturnType<typeof createPresenter>;
   resolvedView: "human" | "agent";
   spaceId: string;
 }): void {
-  if (input.attachmentCount === 0) {
+  if (input.fileCount === 0) {
     return;
   }
   emitAgentSendProgress({
     presenter: input.presenter,
     resolvedView: input.resolvedView,
-    stage: "upload_attachments",
-    summary: `Uploading ${input.attachmentCount} Space attachment${input.attachmentCount === 1 ? "" : "s"} before sending the message.`,
+    stage: "upload_files",
+    summary: `Adding ${input.fileCount} file${input.fileCount === 1 ? "" : "s"} to this Space before sending the message.`,
     spaceId: input.spaceId,
   });
 }
 
-function toSpaceMessageAttachmentsField(
-  attachments: Awaited<ReturnType<typeof uploadPreparedSpaceAttachments>>
+function toSpaceMessageFilesField(
+  files: Awaited<ReturnType<typeof uploadPreparedSpaceFiles>>
 ):
   | {
-      attachments: Awaited<
-        ReturnType<typeof uploadPreparedSpaceAttachments>
-      >[number][];
+      files: Awaited<ReturnType<typeof uploadPreparedSpaceFiles>>[number][];
     }
   | Record<string, never> {
-  return attachments.length > 0 ? { attachments: [...attachments] } : {};
+  return files.length > 0 ? { files: [...files] } : {};
 }
 
-function emitSentAttachmentResult(input: {
-  attachmentCount: number;
+function emitSentFileResult(input: {
+  fileCount: number;
   presenter: ReturnType<typeof createPresenter>;
   signalId: string;
 }): void {
-  if (input.attachmentCount === 0) {
+  if (input.fileCount === 0) {
     return;
   }
   input.presenter.line({
-    code: "send.attachments_sent",
-    text: `Sent Space message ${input.signalId} with ${input.attachmentCount} attachment${input.attachmentCount === 1 ? "" : "s"}.`,
+    code: "send.files_sent",
+    text: `Sent Space message ${input.signalId} with ${input.fileCount} file${input.fileCount === 1 ? "" : "s"}.`,
     data: {
-      attachmentCount: input.attachmentCount,
+      fileCount: input.fileCount,
       signalId: input.signalId,
     },
   });
