@@ -379,6 +379,7 @@ import type {
   CenterAgentWipeMemberMemoryResponse,
   ChangelogQuery,
   ChangelogQueryResponse,
+  CommitSpaceFileWriteInput,
   ComputerFileAccessPolicyResponse,
   ComputerFileAccessReadRpcInput,
   ComputerFileAccessUpdateRpcInput,
@@ -399,6 +400,8 @@ import type {
   CreateProjectRpcInput,
   CreateSpaceDiagnosticReportBody,
   CreateSpaceDiagnosticReportResponse,
+  CreateSpaceFolderBody,
+  CreateSpaceFolderResponse,
   CurrentDeviceTargetResponse,
   CurrentLocalAgentInstallationsResponse,
   CurrentLocalRuntimeReplyReadinessResponse,
@@ -452,6 +455,9 @@ import type {
   ListOrganizationBindingAuthorizationProfilesResponse,
   ListOrganizationBindingAuthorizationsResponse,
   ListProjectsRpcInput,
+  ListSpaceFileRevisionsResponse,
+  ListSpaceFilesQuery,
+  ListSpaceFilesResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsQuery,
   ListSpaceThreadSignalsResponse,
@@ -498,12 +504,15 @@ import type {
   PostSpaceMembersResponse,
   PostSpaceWakeStopBody,
   PostSpaceWakeStopResponse,
+  PrepareSpaceFileWriteResponse,
   PutSpaceContractBody,
   RecordSpaceAttachmentPayload,
   RefreshCurrentLocalAgentCatalogResponse,
   RemoveSpaceMembersResponse,
   ResolvedSpaceMemberProfile,
   ResolveSpaceAttachmentForDownloadPayload,
+  ResolveSpaceFileContentInput,
+  ResolveSpaceFileContentResponse,
   RespondToSpaceAgentInteractionBody,
   RespondToSpaceAgentInteractionResponse,
   RevokeAgentProfileBindingForOrganizationResponse,
@@ -542,6 +551,7 @@ import type {
   SpaceBootstrapResponse,
   SpaceContract,
   SpaceDispatchTraceResponse,
+  SpaceFileDescriptor,
   SpaceIdentityDirectory,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
@@ -560,6 +570,7 @@ import type {
   SubmitRuntimeProviderConversationProofResult,
   SubmitRuntimeProviderConversationProofsResponse,
   SubmitRuntimeRegistrationResponse,
+  TrashSpaceFileEntryResponse,
   UpdateAgentProfileDefaultProjectResponse,
   UpdateAgentProfileDefaultProjectRpcInput,
   UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeBody,
@@ -574,6 +585,8 @@ import type {
   UpdateFeedbackReportingPolicyBody,
   UpdateOrganizationInformationProtectionPolicyBody,
   UpdateProjectRpcInput,
+  UpdateSpaceFileEntryBody,
+  UpdateSpaceFileEntryResponse,
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
 import {
@@ -1678,6 +1691,36 @@ export type DeleteSpaceAttachmentRecordResult =
 export type ResolveSpaceAttachmentForDownloadInput =
   SpaceAttachmentAccessInput &
     Omit<ResolveSpaceAttachmentForDownloadPayload, "spaceId">;
+
+export type ListSpaceFilesInput = SpaceAttachmentAccessInput & {
+  query?: ListSpaceFilesQuery;
+};
+
+export type GetSpaceFileInput = SpaceAttachmentAccessInput & {
+  fileId: string;
+};
+
+export type CreateSpaceFolderInput = SpaceAttachmentAccessInput & {
+  body: CreateSpaceFolderBody;
+};
+
+export type UpdateSpaceFileEntryInput = SpaceAttachmentAccessInput & {
+  body: UpdateSpaceFileEntryBody;
+  entryId: string;
+};
+
+export type TrashSpaceFileEntryInput = SpaceAttachmentAccessInput & {
+  clientMutationId: string;
+  entryId: string;
+};
+
+export type SpaceFileWriteInput = SpaceAttachmentAccessInput & {
+  write: CommitSpaceFileWriteInput;
+};
+
+export type ResolveSpaceFileContentRpcInput = SpaceAttachmentAccessInput & {
+  content: ResolveSpaceFileContentInput;
+};
 
 export type CreateSpaceDiagnosticReportInput = CoreRpcSpaceAccessInput & {
   body: CreateSpaceDiagnosticReportBody;
@@ -15648,6 +15691,122 @@ export async function rpcResolveSpaceAttachmentForDownload(
     throwAttachmentNotFound();
   }
   return attachment;
+}
+
+export async function rpcListSpaceFiles(
+  env: CoreBindings,
+  input: ListSpaceFilesInput
+): Promise<ListSpaceFilesResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcListSpaceFiles({
+    spaceAccess,
+    spaceId,
+    query: input.query,
+  });
+}
+
+export async function rpcGetSpaceFile(
+  env: CoreBindings,
+  input: GetSpaceFileInput
+): Promise<SpaceFileDescriptor> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcGetSpaceFile({
+    fileId: input.fileId,
+    spaceAccess,
+    spaceId,
+  });
+}
+
+export async function rpcListSpaceFileRevisions(
+  env: CoreBindings,
+  input: GetSpaceFileInput
+): Promise<ListSpaceFileRevisionsResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcListSpaceFileRevisions({
+    fileId: input.fileId,
+    spaceAccess,
+    spaceId,
+  });
+}
+
+export async function rpcCreateSpaceFolder(
+  env: CoreBindings,
+  input: CreateSpaceFolderInput
+): Promise<CreateSpaceFolderResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcCreateSpaceFolder({
+    body: input.body,
+    spaceAccess,
+    spaceId,
+  });
+}
+
+export async function rpcUpdateSpaceFileEntry(
+  env: CoreBindings,
+  input: UpdateSpaceFileEntryInput
+): Promise<UpdateSpaceFileEntryResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcUpdateSpaceFileEntry({
+    body: input.body,
+    entryId: input.entryId,
+    spaceAccess,
+    spaceId,
+  });
+}
+
+export async function rpcTrashSpaceFileEntry(
+  env: CoreBindings,
+  input: TrashSpaceFileEntryInput
+): Promise<TrashSpaceFileEntryResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcTrashSpaceFileEntry({
+    clientMutationId: input.clientMutationId,
+    entryId: input.entryId,
+    spaceAccess,
+    spaceId,
+  });
+}
+
+export async function rpcPrepareSpaceFileWrite(
+  env: CoreBindings,
+  input: SpaceFileWriteInput
+): Promise<PrepareSpaceFileWriteResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcPrepareSpaceFileWrite({
+    spaceAccess,
+    write: input.write,
+  });
+}
+
+export async function rpcCommitSpaceFileWrite(
+  env: CoreBindings,
+  input: SpaceFileWriteInput
+): Promise<SpaceFileDescriptor> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcCommitSpaceFileWrite({
+    spaceAccess,
+    write: input.write,
+  });
+}
+
+export async function rpcResolveSpaceFileContent(
+  env: CoreBindings,
+  input: ResolveSpaceFileContentRpcInput
+): Promise<ResolveSpaceFileContentResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcResolveSpaceFileContent({
+    content: input.content,
+    spaceAccess,
+  });
 }
 
 async function requireSpaceAttachmentAccess(

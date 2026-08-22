@@ -1,5 +1,5 @@
-export const SPACE_SQL_SCHEMA_VERSION = 25;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v25";
+export const SPACE_SQL_SCHEMA_VERSION = 26;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v26";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -272,6 +272,50 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     )
   `);
 
+  sql.exec(`
+    CREATE TABLE IF NOT EXISTS space_file_entries (
+      entry_id TEXT PRIMARY KEY,
+      space_id TEXT NOT NULL,
+      kind TEXT NOT NULL
+        CHECK (kind IN ('file', 'folder')),
+      parent_id TEXT NULL,
+      parent_key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      name_key TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL,
+      created_by_json TEXT NOT NULL,
+      updated_by_json TEXT NOT NULL,
+      trashed_at_ms INTEGER NULL,
+      trashed_by_json TEXT NULL
+    )
+  `);
+
+  sql.exec(`
+    CREATE TABLE IF NOT EXISTS space_file_revisions (
+      revision_id TEXT PRIMARY KEY,
+      file_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      created_by_json TEXT NOT NULL,
+      client_mutation_id TEXT NOT NULL,
+      UNIQUE (file_id, revision),
+      UNIQUE (file_id, client_mutation_id)
+    )
+  `);
+
+  sql.exec(`
+    CREATE TABLE IF NOT EXISTS space_file_mutations (
+      client_mutation_id TEXT PRIMARY KEY,
+      action TEXT NOT NULL,
+      request_fingerprint TEXT NOT NULL,
+      response_json TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL
+    )
+  `);
+
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_signals_ts_id ON space_signals (ts, id)"
   );
@@ -335,6 +379,18 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   );
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_thread_events_thread_created ON space_thread_events (thread_id, created_at_ms, event_id)"
+  );
+  sql.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_space_file_entries_active_parent_name ON space_file_entries (parent_key, name_key) WHERE trashed_at_ms IS NULL"
+  );
+  sql.exec(
+    "CREATE INDEX IF NOT EXISTS idx_space_file_entries_parent_updated ON space_file_entries (parent_key, updated_at_ms, entry_id)"
+  );
+  sql.exec(
+    "CREATE INDEX IF NOT EXISTS idx_space_file_revisions_file_revision ON space_file_revisions (file_id, revision DESC)"
+  );
+  sql.exec(
+    "CREATE INDEX IF NOT EXISTS idx_space_file_mutations_created_at ON space_file_mutations (created_at_ms)"
   );
 
   sql.exec(

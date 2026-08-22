@@ -180,15 +180,18 @@ export const spaceFileContentQuerySchema = z.strictObject({
   revision: queryIntegerSchema.pipe(spaceFileRevisionNumberSchema).optional(),
 });
 
-export const spaceFileMutationErrorCodeSchema = z.enum([
+export const SPACE_FILE_ERROR_CODES = [
   "space_file.conflict",
   "space_file.folder_not_empty",
   "space_file.invalid_parent",
   "space_file.name_conflict",
   "space_file.not_found",
   "space_file.storage_failed",
+  "space_file.too_large",
   "space_file.type_unsupported",
-]);
+] as const;
+
+export const spaceFileMutationErrorCodeSchema = z.enum(SPACE_FILE_ERROR_CODES);
 
 export const spaceFileMutationErrorResponseSchema = z.strictObject({
   error: z.strictObject({
