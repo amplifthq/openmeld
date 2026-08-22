@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-21T16:28:06.774Z",
+  "updatedAt": "2026-08-22T06:58:39.786Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.80",
+      "packageVersion": "0.3.81",
       "updatePolicy": "available",
-      "reason": "Keeps Agent Activity Session Inventory moving past unrelated unavailable local paths."
+      "reason": "Improves Agent creation, existing Session reuse, and Space member refresh behavior."
     },
     "service": {
-      "bundleHash": "f197d6a662b41b15460de2163bbf5a85a4728a4f49174d254ad68578e961a4d1",
-      "bundleVersion": "0.3.80",
+      "bundleHash": "08b186df68981267a1dda4ce7da7101d0d97dc7668899774791656b4459b0a64",
+      "bundleVersion": "0.3.81",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Keeps Agent Activity Session Inventory moving past unrelated unavailable local paths."
+      "reason": "Improves Agent creation, existing Session reuse, and Space member refresh behavior."
     },
     "skills": {
       "bundleHash": "5dd9f2f5bd322b54aa5ae09cae2189e79e75d17f39c9bc50583a80c083fd6d9a",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Keeps Agent Activity Session Inventory moving past unrelated unavailable local paths."
+      "reason": "Improves Agent creation, existing Session reuse, and Space member refresh behavior."
     }
   }
 }
