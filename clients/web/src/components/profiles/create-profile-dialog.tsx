@@ -62,6 +62,7 @@ import {
 	type CreateProfileSpaceContext,
 	createProfileWithFollowUps,
 	SessionProfileCreationRolledBackError,
+	type SpaceJoinedProfileReference,
 } from "#/lib/profiles/create-profile-orchestration";
 import {
 	bulkAuthorizeAgentProfileBindingsForOrganization,
@@ -150,7 +151,7 @@ export function CreateProfileDialog(input: {
 	agentActivitySessionPreset?: CreateProfileAgentActivitySessionPreset;
 	allowTeammateRequests?: boolean;
 	currentUserId?: string;
-	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
+	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	onAgentRequestCreated?: (request: AgentProfileCreationRequest) => void;
 	onOpenChange: (open: boolean) => void;
 	onProfileCreated?: (profile: AuthProfileView) => void;
@@ -533,6 +534,7 @@ export function CreateProfileDialog(input: {
 		},
 		onSuccess: (result) =>
 			handleProfileCreationSuccess({
+				onAfterJoin: input.onAfterJoin,
 				onAgentRequestCreated: input.onAgentRequestCreated,
 				onClose: () => input.onOpenChange(false),
 				onProfileCreated: input.onProfileCreated,
@@ -1153,7 +1155,7 @@ type CreateProfileSubmissionInput = {
 	enableFutureOrganizationAuthorization: boolean;
 	currentUserId: string;
 	idempotencyKey: string;
-	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
+	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	organizationAuthorizationContext:
 		| CreateProfileOrganizationAuthorizationContext
 		| undefined;
@@ -1191,6 +1193,7 @@ async function submitProfileCreation(input: CreateProfileSubmissionInput) {
 }
 
 function handleProfileCreationSuccess(input: {
+	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	onAgentRequestCreated?: (request: AgentProfileCreationRequest) => void;
 	onClose: () => void;
 	onProfileCreated?: (profile: AuthProfileView) => void;
@@ -1208,8 +1211,12 @@ function handleProfileCreationSuccess(input: {
 		input.onClose();
 		refreshAgentProfileCreationRequestCaches({
 			createdAgentProfileId: input.result.request.createdAgentProfileId,
+			onAfterJoin: input.onAfterJoin,
 			organizationId: input.organizationId,
 			queryClient: input.queryClient,
+			requestStatus: input.result.request.status,
+			requestedSpaceId: input.result.request.requestedSpaceId,
+			spaceContext: input.spaceContext,
 			storageScope: input.storageScope,
 		}).catch((error) => {
 			console.warn(
@@ -1233,8 +1240,12 @@ function handleProfileCreationSuccess(input: {
 
 async function refreshAgentProfileCreationRequestCaches(input: {
 	createdAgentProfileId: string | null;
+	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	organizationId: string;
 	queryClient: QueryClient;
+	requestStatus: AgentProfileCreationRequest["status"];
+	requestedSpaceId: string | null;
+	spaceContext: CreateProfileSpaceContext | undefined;
 	storageScope: string;
 }) {
 	const refreshes: Promise<unknown>[] = [
@@ -1245,20 +1256,42 @@ async function refreshAgentProfileCreationRequestCaches(input: {
 			refetchType: "active",
 		}),
 	];
-	if (input.createdAgentProfileId) {
+	const createdAgentProfileId = input.createdAgentProfileId;
+	if (createdAgentProfileId) {
 		refreshes.push(
 			input.queryClient.invalidateQueries({
 				queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
 				refetchType: "active",
 			}),
 			refreshWebAgentReadinessSharedCaches({
-				agentProfileIds: [input.createdAgentProfileId],
+				agentProfileIds: [createdAgentProfileId],
 				includeLocalRuntimeCaches: false,
 				organizationId: input.organizationId,
 				queryClient: input.queryClient,
 				storageScope: input.storageScope,
 			})
 		);
+		if (
+			input.requestStatus === "completed" &&
+			input.spaceContext &&
+			input.requestedSpaceId === input.spaceContext.spaceId
+		) {
+			refreshes.push(
+				Promise.resolve()
+					.then(() =>
+						input.onAfterJoin?.({
+							openMeldProfileId: createdAgentProfileId,
+							profileKind: "agent",
+						})
+					)
+					.catch((error) => {
+						console.warn(
+							"OpenMeld created and added the Agent but could not refresh the Space members panel.",
+							error
+						);
+					})
+			);
+		}
 	} else {
 		refreshes.push(
 			input.queryClient.invalidateQueries({
@@ -2568,7 +2601,7 @@ function buildBuiltinAgentControllerRef(agentId: string): string {
 async function refreshCreatedProfileCaches(input: {
 	boundAgentId: string;
 	createdProfile: AuthProfileView;
-	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
+	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	organizationAuthorization: CreatedProfileOrganizationAuthorizationResult;
 	queryClient: QueryClient;
 	recovery: RecoveryController;

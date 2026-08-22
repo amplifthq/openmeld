@@ -1,11 +1,11 @@
 "use client";
 
-import type { AuthProfileView } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { PlusIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
+import type { SpaceJoinedProfileReference } from "#/lib/profiles/create-profile-orchestration";
 import { CreateProfileDialog } from "./create-profile-dialog";
 
 // Self-contained launcher for the Create Profile dialog from inside a Space.
@@ -17,7 +17,7 @@ import { CreateProfileDialog } from "./create-profile-dialog";
 export function SpaceCreateProfileButton(input: {
 	className?: string;
 	label?: string;
-	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
+	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	orgSlug: string;
 	spaceId: string;
 	spaceName: string | null;
@@ -54,7 +54,7 @@ export function SpaceCreateProfileButton(input: {
 }
 
 function SpaceCreateProfileDialogMount(input: {
-	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
+	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	onClose: () => void;
 	orgSlug: string;
 	spaceId: string;

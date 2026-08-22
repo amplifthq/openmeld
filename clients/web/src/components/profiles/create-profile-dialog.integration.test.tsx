@@ -886,15 +886,18 @@ describe("CreateProfileDialog", () => {
 		});
 	});
 
-	it("uses the existing Create Agent form to request a teammate-owned Agent with the selected configuration", async () => {
+	it("keeps a teammate-owned Space request out of the members panel until approval", async () => {
 		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		const onAfterJoin = vi.fn().mockResolvedValue(undefined);
 		renderCreateProfileDialog({
 			allowTeammateRequests: true,
 			currentUserId: "user-123",
+			onAfterJoin,
 			organizationAuthorizationContext: {
 				organizationId: "organization-123",
 				organizationName: "Acme",
 			},
+			spaceContext: { spaceId: "space-123", spaceName: "Design Room" },
 		});
 
 		fireEvent.click(
@@ -946,12 +949,13 @@ describe("CreateProfileDialog", () => {
 				nativeSessionId: null,
 				organizationId: "organization-123",
 				profileName: "Release Agent",
-				requestedSpaceId: null,
+				requestedSpaceId: "space-123",
 				sessionStrategy: "new",
 				targetOwnerUserId: "user-ashley",
 			});
 		});
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
+		expect(onAfterJoin).not.toHaveBeenCalled();
 	});
 
 	it("requests a teammate-owned Agent by resuming a Session chosen in the same dialog", async () => {
@@ -1185,6 +1189,7 @@ describe("CreateProfileDialog", () => {
 
 	it("refreshes the new Agent and its readiness after a completed Fork request", async () => {
 		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		const onAfterJoin = vi.fn().mockResolvedValue(undefined);
 		createAgentProfileCreationRequestMock.mockResolvedValue({
 			replayed: false,
 			request: {
@@ -1208,7 +1213,7 @@ describe("CreateProfileDialog", () => {
 				nativeSessionId: "native-codex-thread-1",
 				organizationId: "organization-123",
 				profileName: "Build Session Inventory",
-				requestedSpaceId: null,
+				requestedSpaceId: "space-123",
 				requesterUserId: "user-123",
 				sessionStrategy: "fork",
 				source: "web",
@@ -1233,7 +1238,9 @@ describe("CreateProfileDialog", () => {
 				status: "working",
 			},
 			currentUserId: "user-123",
+			onAfterJoin,
 			recovery: buildCrossComputerRecovery(),
+			spaceContext: { spaceId: "space-123", spaceName: "Design Room" },
 		});
 		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
 
@@ -1258,6 +1265,10 @@ describe("CreateProfileDialog", () => {
 						),
 				})
 			);
+			expect(onAfterJoin).toHaveBeenCalledWith({
+				openMeldProfileId: NEW_AGENT_ID,
+				profileKind: "agent",
+			});
 		});
 	});
 
