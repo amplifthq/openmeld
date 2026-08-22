@@ -150,12 +150,16 @@ authorization. A failed byte write never creates a visible revision, and a
 failed metadata commit cleans up the unreferenced object best-effort while
 reporting cleanup failure for operations.
 
-Organization Documents, Space Files, message Attachments, and the Center Agent
-Computer remain separate owners:
+Organization Documents, Space Files, legacy message Attachments, and the Center
+Agent Computer remain separate owners:
 
 - Organization Documents are approved Organization-scoped Markdown context.
 - Space Files are the ordinary shared filesystem for one collaboration room.
-- Attachments are immutable message media references, not entries in Files.
+- New chat uploads are Space Files. A message references the exact immutable
+  revision that was sent; it does not create a second attachment object.
+- Legacy Attachments remain readable for existing messages only. The MVP does
+  not migrate them into Files or use that legacy write path for new Web/CLI
+  uploads.
 - the Center Agent Computer is its private durable working environment.
 
 The Space Files MVP does not project files into Resources/Documents or the
@@ -171,6 +175,30 @@ Markdown files use the same WYSIWYG CommonMark + GFM editor as Organization
 Documents; this shared editing surface does not merge the two storage owners.
 CLI and Agent tools expose the same ids, paths, revisions, MIME inference, and
 error codes instead of maintaining a terminal-only filesystem model.
+
+Every Space-shaped conversation uses this same owner, including ordinary
+Spaces, Human Direct Messages, Agent Direct Messages, the Center Agent Direct
+Message, and threads. The shared Composer accepts up to ten files of any
+supported MIME type through **Add to message > Files**, file picker, paste, or
+drag and drop. Text is optional when at least one file is present. Upload begins
+before send and creates the canonical root-level Space File; the message is
+published only after every selected upload succeeds. A failed upload never
+degrades into a text-only or partially attached message.
+
+The timeline renders each canonical reference as a file card. Image files may
+show a bounded thumbnail. Selecting a card opens that same file in the current
+Space's Files view. The card's name, MIME type, size, and revision are the
+server-resolved send-time snapshot, while Files shows the current entry and its
+revision history. Renaming or revising the file therefore cannot rewrite
+message history, and no projection or bidirectional synchronization exists.
+
+Local Agents receive the exact file ids and sent revisions in the Wake source
+snapshot, together with the canonical CLI read/download commands. Their Space
+Action reply may upload files and publish the returned canonical references.
+The hosted Center Agent reads and updates text files through its Space File
+tools and can reference those canonical revisions in a Space message. All of
+these paths are authorized as the acting Space member; none receives direct
+Durable Object storage access or a Center Agent Computer shortcut.
 
 ## Direct Messages
 
@@ -726,7 +754,7 @@ when their presentation is grouped with the relevant target.
 
 The primary composer belongs to Messages and is not rendered over Graph. Graph
 uses the full remaining Space surface for inspection and arrangement. Switching
-to Graph does not clear the browser-side composer draft, attachments, or reply
+to Graph does not clear the browser-side composer draft, selected files, or reply
 target; returning to Messages restores that same composer state.
 
 The retryable state between a failed publication attempt and its Core-owned

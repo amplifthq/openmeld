@@ -2091,9 +2091,10 @@ presentation-specific state.
 A Space draft retains text, structured Wake/Reference mentions, and the reply
 target together. Restoring visible `@` text without its structured relation is
 forbidden because it would silently change who is woken or referenced. Browser
-`File` objects and local attachment preview URLs are not serializable draft
-state; cross-refresh attachment recovery requires a separate uploaded-attachment
-ownership, retention, deletion, and privacy contract.
+`File` objects and local preview URLs are not serializable draft state. Selected
+files upload immediately and remain visible as canonical Space Files, but the
+unsent message association and local preview are not restored across refresh in
+the MVP.
 
 The send path clears the draft once it takes ownership of the submission and
 restores it when a definitive unsent failure returns control to the Composer.
@@ -2400,27 +2401,34 @@ timeline. In a one-to-one Agent Direct Message, both the main composer and its
 thread composer explain that `@` is optional and sending wakes the Agent.
 Ordinary Space threads keep the standard explicit-mention guidance.
 
-The primary Space composer accepts up to four images from the file picker,
-clipboard paste, or drag and drop. Selection starts browser-side canvas
-conversion and authenticated upload immediately: transparent images become PNG,
-opaque images become JPEG, metadata such as EXIF is removed, and oversized
-output is reduced until it fits the shared 5 MB limit or fails visibly. The
-composer keeps a removable local preview and processing/upload state, but blob
-URLs and failures are browser presentation state only. Sending still requires
-non-empty message text; when images are present without text, Web disables send
-and asks the user to add a note. Failed images do not block a text-only message.
+Every writable Space composer — ordinary Space, Direct Message, Center Agent
+Direct Message, and thread — uses the same file control. The former paperclip
+is a Plus button labeled **Add to message**. It opens the shared Fluid dropdown
+above the composer with a **Files** item so later composer actions can be added
+without changing the primary control. The file picker accepts arbitrary files;
+paste and drag and drop use the same path.
 
-After upload, Web submits only the shared message attachment descriptors. A
-pending outgoing message may use its local blob preview until the canonical
-signal with the same client message ID arrives. Durable timeline images render
-from the structured attachment field through the authenticated same-origin
-download path, open the original in a new tab, and settle into a visible broken
-state after a load error. Web must not enable Markdown images as an alternate
-path. Attachment-bearing messages still Wake from their text, while the
-canonical descriptors — never image bytes or credentials — stay in the Wake
-source snapshot. Compatible workstation routes materialize authenticated local
-files; hosted Center Agent delivery forwards references through its separate
-image-input contract. Legacy or unsupported routes receive text only.
+A composer accepts up to ten files, each up to the shared 10 MiB limit.
+Selection immediately uploads each file as a canonical root-level Space File
+and keeps a removable local row with image thumbnail when available, file name,
+progress, failure, and request id. Sending waits for every selected upload and
+allows a file-only message without invented caption text. A failure never
+silently publishes a text-only or partially attached message.
+
+After upload, Web submits only server-returned Space File references. A pending
+outgoing message may use a local image preview until the canonical signal with
+the same client message id arrives. Durable message cards fetch an image
+thumbnail from the exact sent revision when appropriate and otherwise show a
+file icon, name, size, revision, and **Open in Files** affordance. Selecting a
+card changes the same Space to Files and opens the canonical entry; public
+viewers receive the same navigation in read-only mode. Image entries render an
+in-product preview, Markdown entries reuse the shared rich editor, and other
+binary entries retain the explicit download path.
+
+Existing `attachments` fields remain a read-only compatibility surface for old
+messages and are not migrated. New Composer uploads use `files`; Web must not
+derive either contract from Markdown, project Space Files into Organization
+Documents, or maintain a second message-owned byte copy.
 
 Full message bodies recognize the canonical relative Space reference
 `/spaces/<64-character hexadecimal spaceId>`. Web renders that reference as an
@@ -2726,7 +2734,7 @@ Messages.
 
 The primary Space composer renders only in Messages. Graph receives the full
 remaining panel without a duplicate composer, while the existing browser-side
-draft, attachments, and reply target stay intact for the user's return to
+draft, selected files, and reply target stay intact for the user's return to
 Messages.
 
 Available contextual setup guidance also renders only in **Messages**. In an

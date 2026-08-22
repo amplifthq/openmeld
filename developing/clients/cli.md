@@ -814,6 +814,15 @@ active Agent Profile; CLI does not turn local filesystem access or a Space
 password into Space membership. File writes use the same revision fence as Web
 and Center Agent tools and never auto-overwrite a conflict.
 
+`openmeld space send <space-id> [text...] --file <path>` and the top-level
+`openmeld send --space <space-id>` alias accept repeatable local paths and may
+send files with or without message text. `--text-file <path>` is the distinct
+UTF-8 message-body input; it must never be confused with a file being shared.
+The CLI validates and uploads every selected file as a canonical root-level
+Space File before publishing the message, then sends only the server-returned
+file ids and revisions. A validation or upload failure leaves the message
+unsent. Thread replies use the same message file contract.
+
 ### OpenMeld Space Action Commands
 
 `openmeld space action ...` is the canonical agent-facing operation surface for a
@@ -822,6 +831,7 @@ exact Space Action command prefix printed in the current Wake dispatch prompt:
 
 ```text
 <DISPATCH_ACTION_CLI> space action reply "message"
+<DISPATCH_ACTION_CLI> space action reply --file <path> "message"
 <DISPATCH_ACTION_CLI> space action wake "@Agent Name" "summary and request"
 <DISPATCH_ACTION_CLI> space action reply --wake "@Agent Name" "message"
 <DISPATCH_ACTION_CLI> space action status done "short completion update"
@@ -1053,12 +1063,13 @@ not membership, readiness, presence, or execution authority. Agent View emits
 the full validated directory through the presenter protocol; explicit `--json`
 emits the strict versioned `space.members` envelope.
 
-`space send --attach <path>` accepts repeatable local JPEG/PNG paths up to the
-shared per-message count. The CLI validates every file before upload and uploads
-every attachment before posting the normal Space message. A validation or
-upload failure must leave the message unsent and preserve a structured error;
-the command must never downgrade to an attachment-free success. Thread replies
-fail closed until their shared HTTP body supports attachment references.
+`space send --file <path>` accepts up to ten repeatable local paths of any MIME
+type admitted by the shared Space File contract. The CLI validates every file,
+uploads every canonical Space File, and only then posts the normal or thread
+message with the returned references. A validation or upload failure must leave
+the message unsent and preserve a structured error; the command must never
+downgrade to a file-free success. `space action reply --file <path>` provides
+the same output path to a Local Agent handling a Wake.
 
 `space wake-progress <space-id>` is the live, polling-oriented Wake read. With
 no selector it returns the active Wake summary for the Space. With
@@ -1330,8 +1341,9 @@ Use scoped owner documents for deeper rules:
   from local or historical evidence.
 - `space members` consumes the shared member-directory projection and must not
   reinterpret it as membership, readiness, presence, or execution authority.
-- `space send --attach` uploads all validated images before posting the message;
-  attachment failure must not publish a text-only fallback.
+- `space send --file` and `space action reply --file` upload all validated
+  canonical Space Files before posting; file failure must not publish a
+  file-free fallback.
 - Status commands must remain read-only.
 - Mutating commands must be explicit and lane-scoped.
 - `openmeld routines` exposes exactly eight commands, uses an explicit target

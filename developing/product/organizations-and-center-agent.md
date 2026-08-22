@@ -1094,7 +1094,11 @@ this release.
   Designation never bypasses Space membership. Its file tools use stable ids,
   immutable revisions, and the same base-revision conflict fence as Web and
   CLI; they do not copy files into Organization Documents or the Center Agent
-  Computer.
+  Computer. To send a file, the Center Agent first creates or updates the
+  canonical Space File, then includes that exact file id and revision in its
+  Space message. Receiving a file in a Space Wake provides the same canonical
+  reference and tool guidance. Neither direction grants raw Durable Object or
+  object-store access.
 - Selecting or resetting the Organization working language is a represented
   owner/admin configuration action. The Center Agent does not receive
   autonomous authority to change it, and member research may write only the

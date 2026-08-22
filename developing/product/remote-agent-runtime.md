@@ -574,6 +574,18 @@ bounded to valid UTF-8 content up to 1 MiB; larger or binary files stay
 available through Web and CLI. Core owns byte storage and reauthorizes Space
 access for every call. The runtime never receives a bucket key, filesystem
 mount, Organization Documents projection, or designation-based access bypass.
+When a Space message carries files, native delivery appends the server-resolved
+file ids, sent revisions, names, MIME types, and sizes to the untrusted source
+text so the Center Agent can deliberately read the exact text revision. To
+publish a file, it creates or revises a Space File first and passes the returned
+canonical reference to `openmeld_post_space_message`; that message does not
+copy the bytes or create a Resources projection.
+
+Referenced JPEG and PNG revisions also enter the existing image-understanding
+path. Core resolves the exact immutable revision under the Center Agent's Space
+membership, and Remote Agent reads that private object without creating or
+deleting a legacy attachment. Other binary formats remain explicit file
+references rather than being presented as content the model understood.
 
 `web_dm` is used for the Center Agent DM, `space_wake` for ordinary Space Wake
 delivery to the hosted Center Agent, `slack` for the legacy Slack channel
