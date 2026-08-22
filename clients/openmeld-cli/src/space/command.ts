@@ -8546,6 +8546,7 @@ export async function runSpaceSend(input: {
     });
   }
   const text = await resolveSpaceSendText({
+    allowEmpty: (input.filePaths?.length ?? 0) > 0,
     text: input.text,
     stdin: input.stdin,
     file: input.textFile,

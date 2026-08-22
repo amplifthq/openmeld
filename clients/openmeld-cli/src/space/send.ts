@@ -82,7 +82,10 @@ export async function runSend(input: {
     ...(ownerName ? { ownerName } : {}),
   };
 
-  const text = sanitizeText(input.text);
+  const text =
+    input.text.trim().length === 0 && preparedFiles.length > 0
+      ? { ok: true as const, value: "" }
+      : sanitizeText(input.text);
   if (!text.ok) {
     throw new Error(text.reason);
   }
@@ -97,16 +100,18 @@ export async function runSend(input: {
     spaceId: space,
   });
   const { outboundMessageEnvelope, outboundText } =
-    await resolveOutboundSubmission({
-      openMeldProfile,
-      password: input.password,
-      plainText: input.plainText === true,
-      presenter,
-      resolvedView: runtime.resolvedView,
-      space,
-      spaceApi,
-      text: text.value,
-    });
+    text.value.length === 0
+      ? { outboundMessageEnvelope: undefined, outboundText: "" }
+      : await resolveOutboundSubmission({
+          openMeldProfile,
+          password: input.password,
+          plainText: input.plainText === true,
+          presenter,
+          resolvedView: runtime.resolvedView,
+          space,
+          spaceApi,
+          text: text.value,
+        });
   emitSendAddressingSummary({
     outboundMessageEnvelope,
     presenter,

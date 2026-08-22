@@ -1,20 +1,19 @@
-import type { SpaceMessageAttachment } from "@openmeld/schemas/types";
+import type { SpaceMessageFileReference } from "@openmeld/schemas/types";
 
-export type SpaceComposerAttachment = {
-	descriptor: SpaceMessageAttachment | null;
+export type SpaceComposerFile = {
+	descriptor: SpaceMessageFileReference | null;
 	errorMessage: string | null;
 	errorRequestId: string | null;
 	fileName: string;
 	localId: string;
-	previewUrl: string;
+	mimeType: string;
+	previewUrl: string | null;
 	progress: number;
-	status: "processing" | "uploading" | "ready" | "failed";
+	status: "uploading" | "ready" | "failed";
 };
 
-export function isSpaceComposerAttachmentInProgress(
-	attachment: SpaceComposerAttachment
+export function isSpaceComposerFileInProgress(
+	file: SpaceComposerFile
 ): boolean {
-	return (
-		attachment.status === "processing" || attachment.status === "uploading"
-	);
+	return file.status === "uploading";
 }

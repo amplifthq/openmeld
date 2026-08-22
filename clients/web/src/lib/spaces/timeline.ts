@@ -13,6 +13,7 @@ import type {
 	SpaceMemberHumanSnapshot,
 	SpaceMembersSnapshot,
 	SpaceMessageAttachment,
+	SpaceMessageFileReference,
 	SpaceStatus,
 } from "@openmeld/schemas/types";
 import {
@@ -46,6 +47,7 @@ export type SpaceTimelineItem = {
 	spaceStatus?: SpaceStatus;
 	deliveryState: "pending" | "sent";
 	attachments: readonly SpaceTimelineAttachment[];
+	files?: readonly SpaceTimelineFile[];
 	createdAtMs: number;
 	actorName: string;
 	actorAvatarImageUrl: string | null;
@@ -103,6 +105,10 @@ export type SpaceTimelineItem = {
 };
 
 export type SpaceTimelineAttachment = SpaceMessageAttachment & {
+	localPreviewUrl: string | null;
+};
+
+export type SpaceTimelineFile = SpaceMessageFileReference & {
 	localPreviewUrl: string | null;
 };
 
@@ -180,6 +186,7 @@ export function buildSpaceTimelineItems(input: {
 		| { kind: "main" }
 		| { kind: "thread"; rootSignalId: string };
 	pendingAttachmentPreviewUrlsById?: ReadonlyMap<string, string>;
+	pendingFilePreviewUrlsById?: ReadonlyMap<string, string>;
 }): readonly SpaceTimelineItem[] {
 	const signalIndex = buildSignalIndex(input.envelopes);
 	const targetCatalog = input.membersSnapshot
@@ -191,6 +198,7 @@ export function buildSpaceTimelineItems(input: {
 				membersSnapshot: input.membersSnapshot,
 				pendingAttachmentPreviewUrlsById:
 					input.pendingAttachmentPreviewUrlsById,
+				pendingFilePreviewUrlsById: input.pendingFilePreviewUrlsById,
 				signal,
 				signalIndex,
 				targetCatalog,
@@ -221,6 +229,7 @@ export function buildSpaceTimelineItems(input: {
 		const timelineItem = buildSpaceTimelineItem({
 			membersSnapshot: input.membersSnapshot,
 			pendingAttachmentPreviewUrlsById: input.pendingAttachmentPreviewUrlsById,
+			pendingFilePreviewUrlsById: input.pendingFilePreviewUrlsById,
 			signal,
 			signalIndex,
 			targetCatalog,
@@ -287,6 +296,7 @@ export function mergeSpaceTimelineItems(input: {
 function buildSpaceTimelineItem(input: {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	pendingAttachmentPreviewUrlsById?: ReadonlyMap<string, string>;
+	pendingFilePreviewUrlsById?: ReadonlyMap<string, string>;
 	signal: SpaceTimelineVisibleEnvelope;
 	signalIndex: ReturnType<typeof buildSignalIndex>;
 	targetCatalog: ReturnType<typeof createSpaceTargetCatalog> | null;
@@ -313,6 +323,10 @@ function buildSpaceTimelineItem(input: {
 		deliveryState: input.signal.id.startsWith("pending:") ? "pending" : "sent",
 		attachments: readTimelineAttachments({
 			pendingAttachmentPreviewUrlsById: input.pendingAttachmentPreviewUrlsById,
+			signal: input.signal,
+		}),
+		files: readTimelineFiles({
+			pendingFilePreviewUrlsById: input.pendingFilePreviewUrlsById,
 			signal: input.signal,
 		}),
 		createdAtMs: input.signal.ts,
@@ -413,6 +427,22 @@ function readTimelineAttachments(input: {
 		...attachment,
 		localPreviewUrl: isPending
 			? (input.pendingAttachmentPreviewUrlsById?.get(attachment.id) ?? null)
+			: null,
+	}));
+}
+
+function readTimelineFiles(input: {
+	pendingFilePreviewUrlsById?: ReadonlyMap<string, string>;
+	signal: SpaceTimelineVisibleEnvelope;
+}): readonly SpaceTimelineFile[] {
+	if (input.signal.type !== "signal.text") {
+		return [];
+	}
+	const isPending = input.signal.id.startsWith("pending:");
+	return (input.signal.data.files ?? []).map((file) => ({
+		...file,
+		localPreviewUrl: isPending
+			? (input.pendingFilePreviewUrlsById?.get(file.fileId) ?? null)
 			: null,
 	}));
 }

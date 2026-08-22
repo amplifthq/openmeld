@@ -1226,6 +1226,21 @@ describe("SpaceThreadPanel", () => {
 		);
 	});
 
+	it("lets a person send a ready file in a thread without filler text", async () => {
+		const onSend = vi.fn(async () => undefined);
+		renderThreadPanel({
+			composerFiles: [createReadyComposerFile()],
+			onSend,
+		});
+
+		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		const sendButton = screen.getByRole("button", { name: "Send reply" });
+		expect(sendButton.hasAttribute("disabled")).toBe(false);
+		fireEvent.click(sendButton);
+
+		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
+	});
+
 	it("keeps a recently completed root Wake terminal when its thread omits the top-level reply", () => {
 		const wakeSignal = createWakeTextSignal();
 		vi.useFakeTimers();
@@ -1428,6 +1443,8 @@ function renderThreadPanel(
 		composerErrorMessage: null,
 		composerSelection: { end: 0, start: 0 },
 		composerText: "",
+		composerFiles: [],
+		composerFileLimitReached: false,
 		ephemeralActivityItems: [],
 		isAgentRecoveryPending: () => false,
 		isDiagnosticReportPending: () => false,
@@ -1440,10 +1457,13 @@ function renderThreadPanel(
 		onComposerChange: () => undefined,
 		onComposerKeyDown: async () => undefined,
 		onComposerSelectionChange: () => undefined,
+		onAddComposerFiles: async () => undefined,
+		onRemoveComposerFile: () => undefined,
 		onMentionItemHover: () => undefined,
 		onMentionItemSelect: () => undefined,
 		onMentionPopoverClose: () => undefined,
 		onReportMessage: async () => undefined,
+		onOpenSpaceFile: () => undefined,
 		onSend: async () => undefined,
 		readOnly: false,
 		selfAvatarImageUrl: "https://example.com/felix.png",
@@ -1466,6 +1486,26 @@ function renderThreadPanel(
 			renderResult.rerender(
 				<SpaceThreadPanel {...defaultProps} {...overrides} {...nextOverrides} />
 			),
+	};
+}
+
+function createReadyComposerFile() {
+	return {
+		descriptor: {
+			fileId: "file-1",
+			mimeType: "application/pdf",
+			name: "launch-brief.pdf",
+			revision: 1,
+			sizeBytes: 4096,
+		},
+		errorMessage: null,
+		errorRequestId: null,
+		fileName: "launch-brief.pdf",
+		localId: "local-file-1",
+		mimeType: "application/pdf",
+		previewUrl: null,
+		progress: 1,
+		status: "ready" as const,
 	};
 }
 

@@ -63,6 +63,20 @@ const PLAIN_TEXT_FILE = {
 	},
 };
 
+const IMAGE_FILE = {
+	...FILE,
+	id: "image-1",
+	name: "launch-diagram.png",
+	path: "/launch-diagram.png",
+	latestRevision: {
+		...FILE.latestRevision,
+		fileId: "image-1",
+		id: "image-revision-1",
+		mimeType: "image/png",
+		sizeBytes: 4,
+	},
+};
+
 const FOLDER = {
 	id: "folder-1",
 	spaceId: "space-1",
@@ -81,6 +95,14 @@ describe("SpaceFilesPanel", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		Object.defineProperty(URL, "createObjectURL", {
+			configurable: true,
+			value: vi.fn(() => "blob:space-file-preview"),
+		});
+		Object.defineProperty(URL, "revokeObjectURL", {
+			configurable: true,
+			value: vi.fn(),
+		});
 		spaceApiMocks.listFiles.mockResolvedValue({
 			spaceId: "space-1",
 			parentId: null,
@@ -156,6 +178,29 @@ describe("SpaceFilesPanel", () => {
 				}) as HTMLButtonElement
 			).disabled
 		).toBe(true);
+	});
+
+	it("opens a linked chat image directly in the Space Files preview", async () => {
+		spaceApiMocks.getFile.mockResolvedValue({ file: IMAGE_FILE });
+		spaceApiMocks.downloadFileContent.mockResolvedValue({
+			bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47]).buffer,
+			mimeType: "image/png",
+			revision: 1,
+		});
+		spaceApiMocks.listFileRevisions.mockResolvedValue({
+			file: IMAGE_FILE,
+			revisions: [IMAGE_FILE.latestRevision],
+		});
+
+		renderPanel({ fileToOpen: { fileId: IMAGE_FILE.id, requestId: "open-1" } });
+
+		expect(
+			await screen.findByRole("img", { name: "launch-diagram.png" })
+		).toBeTruthy();
+		expect(spaceApiMocks.getFile).toHaveBeenCalledWith({
+			fileId: "image-1",
+			spaceId: "space-1",
+		});
 	});
 
 	it("uses the shared WYSIWYG editor when creating a Markdown file", async () => {
@@ -295,13 +340,17 @@ describe("SpaceFilesPanel", () => {
 	});
 });
 
-function renderPanel(input?: { readOnly?: boolean }) {
+function renderPanel(input?: {
+	fileToOpen?: { fileId: string; requestId: string };
+	readOnly?: boolean;
+}) {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	});
 	return render(
 		<QueryClientProvider client={queryClient}>
 			<SpaceFilesPanel
+				fileToOpen={input?.fileToOpen}
 				openMeldProfileId="human-files-test"
 				organizationSlug="ampli-lift"
 				readOnly={input?.readOnly}

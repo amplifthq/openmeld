@@ -63,7 +63,14 @@ import {
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type FormEvent,
+	type ReactNode,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { MarkdownEditor } from "#/components/editor/markdown-editor";
 import { UnsavedChangesDialog } from "#/components/forms/unsaved-changes-guard";
@@ -75,6 +82,7 @@ import { baseQueryOptions } from "#/query/query-config";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 
 type SpaceFilesPanelProps = {
+	fileToOpen?: { fileId: string; requestId: string } | null;
 	openMeldProfileId?: string;
 	organizationSlug?: string;
 	readOnly?: boolean;
@@ -123,6 +131,33 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 	});
 	const [pendingAction, setPendingAction] = useState<string | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
+	useEffect(() => {
+		if (!input.fileToOpen) {
+			return;
+		}
+		let cancelled = false;
+		api
+			.getFile({ fileId: input.fileToOpen.fileId, spaceId: input.spaceId })
+			.then(({ file }) => {
+				if (cancelled) {
+					return;
+				}
+				setParentId(file.parentId);
+				setSelectedFile(file);
+				setActionError(null);
+			})
+			.catch((error: unknown) => {
+				if (cancelled) {
+					return;
+				}
+				const message = resolveSpaceFileErrorMessage(error);
+				setActionError(message);
+				toast.error(message);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [api, input.fileToOpen, input.spaceId]);
 	const filesQuery = useQuery({
 		queryKey: spaceFileQueryKeys.folder(input.spaceId, parentId),
 		queryFn: async ({ signal }) =>
@@ -722,6 +757,8 @@ function SpaceFileDetail(input: {
 }) {
 	const editable = isSpaceFileTextEditable(input.file.latestRevision);
 	const markdown = isMarkdownSpaceFile(input.file);
+	const imagePreviewable =
+		input.file.latestRevision.mimeType.startsWith("image/");
 	const [draft, setDraft] = useState("");
 	const [savedDraft, setSavedDraft] = useState("");
 	const [loadedRevision, setLoadedRevision] = useState<number | null>(null);
@@ -733,7 +770,7 @@ function SpaceFileDetail(input: {
 		null
 	);
 	const contentQuery = useQuery({
-		enabled: editable,
+		enabled: editable || imagePreviewable,
 		queryKey: spaceFileQueryKeys.content(
 			input.spaceId,
 			input.file.id,
@@ -750,6 +787,18 @@ function SpaceFileDetail(input: {
 		retry: baseQueryOptions.retry,
 		staleTime: Number.POSITIVE_INFINITY,
 	});
+	const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+	useEffect(() => {
+		if (!(imagePreviewable && contentQuery.data)) {
+			setImagePreviewUrl(null);
+			return;
+		}
+		const objectUrl = URL.createObjectURL(
+			new Blob([contentQuery.data.bytes], { type: contentQuery.data.mimeType })
+		);
+		setImagePreviewUrl(objectUrl);
+		return () => URL.revokeObjectURL(objectUrl);
+	}, [contentQuery.data, imagePreviewable]);
 	const revisionsQuery = useQuery({
 		queryKey: spaceFileQueryKeys.revisions(input.spaceId, input.file.id),
 		queryFn: async ({ signal }) =>
@@ -764,7 +813,10 @@ function SpaceFileDetail(input: {
 	});
 
 	useEffect(() => {
-		if (!contentQuery.data || loadedRevision === contentQuery.data.revision) {
+		if (
+			!(editable && contentQuery.data) ||
+			loadedRevision === contentQuery.data.revision
+		) {
 			return;
 		}
 		const content = new TextDecoder().decode(contentQuery.data.bytes);
@@ -773,7 +825,7 @@ function SpaceFileDetail(input: {
 		setLoadedRevision(contentQuery.data.revision);
 		setConflict(false);
 		setSaveError(null);
-	}, [contentQuery.data, loadedRevision]);
+	}, [contentQuery.data, editable, loadedRevision]);
 
 	const downloadRevision = async (revision?: number) => {
 		const targetRevision = revision ?? input.file.latestRevision.revision;
@@ -866,6 +918,61 @@ function SpaceFileDetail(input: {
 		}
 		input.onBack();
 	};
+	let fileContent: ReactNode;
+	if (editable) {
+		fileContent = (
+			<FileTextEditor
+				canWrite={input.canWrite}
+				contentLimitExceeded={draftOverLimit}
+				draft={draft}
+				editorKey={`${input.file.id}:${loadedRevision ?? "loading"}`}
+				hasUnsavedChanges={hasUnsavedChanges}
+				isError={contentQuery.isError}
+				isLoading={contentQuery.isPending}
+				markdown={markdown}
+				onChange={setDraft}
+				onRetry={() => contentQuery.refetch()}
+				onSave={save}
+				saveBlockedByConflict={conflict}
+				saving={saving}
+			/>
+		);
+	} else if (imagePreviewable) {
+		fileContent = (
+			<SpaceFileImagePreview
+				fileName={input.file.name}
+				isError={contentQuery.isError}
+				isLoading={contentQuery.isPending}
+				onRetry={() => contentQuery.refetch()}
+				previewUrl={imagePreviewUrl}
+			/>
+		);
+	} else {
+		fileContent = (
+			<div className="flex min-h-64 flex-1 flex-col items-center justify-center rounded-md border border-border/70 bg-muted/15 px-6 text-center">
+				<FileIcon
+					aria-hidden="true"
+					className="size-10 text-muted-foreground"
+					weight="duotone"
+				/>
+				<h3 className="mt-3 font-medium">
+					Preview isn’t available for this file
+				</h3>
+				<p className="mt-1 text-muted-foreground text-sm">
+					Download it to open it in an app on your computer.
+				</p>
+				<Button
+					className="mt-4"
+					onClick={() => downloadRevision()}
+					size="sm"
+					type="button"
+				>
+					<DownloadSimpleIcon aria-hidden="true" />
+					Download file
+				</Button>
+			</div>
+		);
+	}
 
 	return (
 		<section
@@ -985,46 +1092,7 @@ function SpaceFileDetail(input: {
 
 			<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_17rem] max-lg:grid-cols-1">
 				<div className="flex min-h-0 flex-col overflow-hidden p-5">
-					{editable ? (
-						<FileTextEditor
-							canWrite={input.canWrite}
-							contentLimitExceeded={draftOverLimit}
-							draft={draft}
-							editorKey={`${input.file.id}:${loadedRevision ?? "loading"}`}
-							hasUnsavedChanges={hasUnsavedChanges}
-							isError={contentQuery.isError}
-							isLoading={contentQuery.isPending}
-							markdown={markdown}
-							onChange={setDraft}
-							onRetry={() => contentQuery.refetch()}
-							onSave={save}
-							saveBlockedByConflict={conflict}
-							saving={saving}
-						/>
-					) : (
-						<div className="flex min-h-64 flex-1 flex-col items-center justify-center rounded-md border border-border/70 bg-muted/15 px-6 text-center">
-							<FileIcon
-								aria-hidden="true"
-								className="size-10 text-muted-foreground"
-								weight="duotone"
-							/>
-							<h3 className="mt-3 font-medium">
-								Preview isn’t available for this file
-							</h3>
-							<p className="mt-1 text-muted-foreground text-sm">
-								Download it to open it in an app on your computer.
-							</p>
-							<Button
-								className="mt-4"
-								onClick={() => downloadRevision()}
-								size="sm"
-								type="button"
-							>
-								<DownloadSimpleIcon aria-hidden="true" />
-								Download file
-							</Button>
-						</div>
-					)}
+					{fileContent}
 				</div>
 				<aside
 					aria-label="Version history"
@@ -1059,6 +1127,58 @@ function SpaceFileDetail(input: {
 				saving={saving}
 			/>
 		</section>
+	);
+}
+
+function SpaceFileImagePreview(input: {
+	fileName: string;
+	isError: boolean;
+	isLoading: boolean;
+	onRetry: () => void;
+	previewUrl: string | null;
+}) {
+	if (input.isLoading) {
+		return (
+			<Skeleton
+				aria-label="Loading image"
+				className="min-h-80 flex-1 rounded-md"
+			/>
+		);
+	}
+	if (input.isError || !input.previewUrl) {
+		return (
+			<div className="flex min-h-64 flex-1 flex-col items-center justify-center rounded-md border border-border/70 bg-muted/15 px-6 text-center">
+				<WarningCircleIcon
+					aria-hidden="true"
+					className="size-10 text-muted-foreground"
+					weight="duotone"
+				/>
+				<h3 className="mt-3 font-medium">Image preview couldn’t be loaded</h3>
+				<p className="mt-1 text-muted-foreground text-sm">
+					The file is still available in this Space.
+				</p>
+				<Button
+					className="mt-4"
+					onClick={input.onRetry}
+					size="sm"
+					type="button"
+				>
+					<ArrowClockwiseIcon aria-hidden="true" />
+					Try again
+				</Button>
+			</div>
+		);
+	}
+	return (
+		<div className="flex min-h-0 flex-1 items-center justify-center overflow-auto rounded-md border border-border/70 bg-muted/15 p-4">
+			<img
+				alt={input.fileName}
+				className="max-h-full max-w-full object-contain"
+				height={900}
+				src={input.previewUrl}
+				width={1600}
+			/>
+		</div>
 	);
 }
 

@@ -9,17 +9,22 @@ import {
 	MorphingDialogTrigger,
 } from "@openmeld/ui/components/morphing-dialog";
 import { cn } from "@openmeld/ui/lib/utils";
-import { XIcon } from "@phosphor-icons/react";
+import { FileIcon, ImageIcon, XIcon } from "@phosphor-icons/react";
 import { useReducedMotionConfig } from "framer-motion";
 import {
 	type ComponentProps,
 	memo,
 	type ReactNode,
 	useCallback,
+	useEffect,
 	useMemo,
 	useState,
 } from "react";
 import { MessageResponse } from "#/components/ai/message-response";
+import {
+	createOrganizationScopedWebSpaceApi,
+	createUnscopedWebSpaceApi,
+} from "#/lib/spaces/api";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { buildWebSpaceAttachmentDownloadPath } from "#/lib/spaces/web-space-attachment-path";
 import {
@@ -55,8 +60,13 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		| "text"
 	> &
 		Partial<
-			Pick<SpaceTimelineItem, "actorProfileKind" | "attachments" | "spaceId">
+			Pick<
+				SpaceTimelineItem,
+				"actorProfileKind" | "attachments" | "files" | "spaceId"
+			>
 		>;
+	onOpenSpaceFile?: (fileId: string, revision: number) => void;
+	openMeldProfileId?: string;
 	orgSlug?: string;
 	spaceReferencesById?: SpaceMessageReferencesById;
 }) {
@@ -117,6 +127,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		computerSetupSourceSignalId: input.computerSetupSourceSignalId,
 	});
 	const attachments = input.item.attachments ?? [];
+	const files = input.item.files ?? [];
 	const centerAgentTaskReferences = input.item.centerAgentTaskReferences ?? [];
 	const body = renderSpaceMessageTextContent({
 		additionalRemarkPlugins,
@@ -132,6 +143,7 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 		Boolean(navigationActionContent) ||
 		centerAgentTaskReferences.length > 0 ||
 		attachments.length > 0 ||
+		files.length > 0 ||
 		textProjection.serverTruncated;
 	if (!hasVisibleContent) {
 		return null;
@@ -152,6 +164,13 @@ export const SpaceMessageBody = memo(function SpaceMessageBody(input: {
 			) : null}
 			<SpaceMessageAttachmentGrid
 				attachments={attachments}
+				organizationSlug={input.orgSlug}
+				spaceId={input.item.spaceId ?? ""}
+			/>
+			<SpaceMessageFileList
+				files={files}
+				onOpenSpaceFile={input.onOpenSpaceFile}
+				openMeldProfileId={input.openMeldProfileId}
 				organizationSlug={input.orgSlug}
 				spaceId={input.item.spaceId ?? ""}
 			/>
@@ -285,6 +304,143 @@ function SpaceMessageAttachmentGrid(input: {
 			))}
 		</fieldset>
 	);
+}
+
+function SpaceMessageFileList(input: {
+	files: NonNullable<SpaceTimelineItem["files"]>;
+	onOpenSpaceFile?: (fileId: string, revision: number) => void;
+	openMeldProfileId?: string;
+	organizationSlug?: string;
+	spaceId: string;
+}) {
+	if (input.files.length === 0) {
+		return null;
+	}
+
+	return (
+		<fieldset
+			aria-label="Shared files"
+			className="m-0 grid w-full max-w-2xl gap-2 border-0 p-0"
+		>
+			{input.files.map((file) => {
+				return (
+					<button
+						className="group flex min-w-0 items-center gap-3 rounded-md border border-border bg-background p-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
+						key={`${file.fileId}:${String(file.revision)}`}
+						onClick={() => input.onOpenSpaceFile?.(file.fileId, file.revision)}
+						type="button"
+					>
+						<SpaceMessageFileThumbnail
+							file={file}
+							openMeldProfileId={input.openMeldProfileId}
+							organizationSlug={input.organizationSlug}
+							spaceId={input.spaceId}
+						/>
+						<div className="min-w-0 flex-1">
+							<p className="truncate font-medium text-sm">{file.name}</p>
+							<p className="mt-0.5 truncate text-muted-foreground text-xs">
+								{formatMessageFileSize(file.sizeBytes)} · Version{" "}
+								{file.revision}
+							</p>
+						</div>
+						<span className="shrink-0 text-muted-foreground text-xs group-hover:text-foreground">
+							Open in Files
+						</span>
+					</button>
+				);
+			})}
+		</fieldset>
+	);
+}
+
+function SpaceMessageFileThumbnail(input: {
+	file: NonNullable<SpaceTimelineItem["files"]>[number];
+	openMeldProfileId?: string;
+	organizationSlug?: string;
+	spaceId: string;
+}) {
+	const [remotePreviewUrl, setRemotePreviewUrl] = useState<string | null>(null);
+	const isImage = input.file.mimeType.startsWith("image/");
+	useEffect(() => {
+		if (!isImage || input.file.localPreviewUrl || !input.spaceId) {
+			setRemotePreviewUrl(null);
+			return;
+		}
+		const controller = new AbortController();
+		let cancelled = false;
+		let objectUrl: string | null = null;
+		const api = input.organizationSlug
+			? createOrganizationScopedWebSpaceApi({
+					openMeldProfileId: input.openMeldProfileId,
+					organizationSlug: input.organizationSlug,
+				})
+			: createUnscopedWebSpaceApi({
+					openMeldProfileId: input.openMeldProfileId,
+				});
+		api
+			.downloadFileContent({
+				fileId: input.file.fileId,
+				revision: input.file.revision,
+				signal: controller.signal,
+				spaceId: input.spaceId,
+			})
+			.then((content) => {
+				if (cancelled) {
+					return;
+				}
+				objectUrl = URL.createObjectURL(
+					new Blob([content.bytes], { type: content.mimeType })
+				);
+				setRemotePreviewUrl(objectUrl);
+			})
+			.catch(() => undefined);
+		return () => {
+			cancelled = true;
+			controller.abort();
+			if (objectUrl) {
+				URL.revokeObjectURL(objectUrl);
+			}
+		};
+	}, [
+		input.file.fileId,
+		input.file.localPreviewUrl,
+		input.file.revision,
+		input.openMeldProfileId,
+		input.organizationSlug,
+		input.spaceId,
+		isImage,
+	]);
+	const previewUrl = input.file.localPreviewUrl ?? remotePreviewUrl;
+	if (previewUrl) {
+		return (
+			<img
+				alt=""
+				className="size-11 shrink-0 rounded-sm border border-border object-cover"
+				height={44}
+				src={previewUrl}
+				width={44}
+			/>
+		);
+	}
+	return (
+		<div className="flex size-11 shrink-0 items-center justify-center rounded-sm border border-border bg-muted text-muted-foreground">
+			{isImage ? (
+				<ImageIcon aria-hidden="true" className="size-5" />
+			) : (
+				<FileIcon aria-hidden="true" className="size-5" />
+			)}
+		</div>
+	);
+}
+
+function formatMessageFileSize(sizeBytes: number): string {
+	if (sizeBytes < 1024) {
+		return `${String(sizeBytes)} B`;
+	}
+	if (sizeBytes < 1024 * 1024) {
+		return `${(sizeBytes / 1024).toFixed(1)} KB`;
+	}
+	return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function SpaceMessageAttachmentImage(input: {

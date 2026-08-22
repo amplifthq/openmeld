@@ -12,10 +12,7 @@ import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
 import { OpenMeldLetterLogoStrong } from "@openmeld/ui/components/openmeld-letter-logo-strong";
 import { ProgressiveBlur } from "@openmeld/ui/components/progressive-blur";
-import {
-	resolveStatusToneIndicatorClassName,
-	resolveStatusToneStrongTextClassName,
-} from "@openmeld/ui/lib/status-tone";
+import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowBendUpLeftIcon,
@@ -50,15 +47,15 @@ import {
 	PromptInputTextarea,
 } from "#/components/ibelick/prompt-input";
 import {
-	SpaceComposerAttachmentTray,
-	SpaceComposerImagePickerAction,
-	useSpaceComposerImageInput,
+	SpaceComposerFileMenu,
+	SpaceComposerFileTray,
+	useSpaceComposerFileInput,
 } from "#/components/spaces/space-composer-attachments";
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
 import { buildCenterAgentOptimisticReplyItem } from "#/lib/spaces/center-agent-optimistic-reply";
 import {
-	isSpaceComposerAttachmentInProgress,
-	type SpaceComposerAttachment,
+	isSpaceComposerFileInProgress,
+	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
 import {
@@ -205,8 +202,8 @@ type SpaceConversationPanelProps = {
 	centerAgentProfileId: string | null;
 	className?: string;
 	composerErrorMessage: string | null;
-	composerAttachments: readonly SpaceComposerAttachment[];
-	composerAttachmentLimitReached: boolean;
+	composerFiles: readonly SpaceComposerFile[];
+	composerFileLimitReached: boolean;
 	composerAddressingSummary?: string | null;
 	composerAddressingTargets?: readonly SpaceComposerAddressingTarget[];
 	composerBlockedWakeProfileId: string | null;
@@ -249,7 +246,7 @@ type SpaceConversationPanelProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
 	onComposerChange: (value: string, selection: SpaceComposerSelection) => void;
-	onAddComposerImages: (files: readonly File[]) => Promise<void>;
+	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onClearComposerReplyTo: () => void;
 	onComposerKeyDown: (
 		event: KeyboardEvent<HTMLTextAreaElement>
@@ -263,8 +260,9 @@ type SpaceConversationPanelProps = {
 	) => Promise<void>;
 	onAgentInteractionResponse?: SpaceAgentInteractionResponseHandler;
 	onOpenThread: (threadId: string) => void;
+	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
-	onRemoveComposerAttachment: (localId: string) => void;
+	onRemoveComposerFile: (localId: string) => void;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onRetryWakeTarget?: SpaceWakeRetryHandler;
@@ -346,13 +344,13 @@ function hasCurrentUserAuthoredSpaceMessage(input: {
 }
 
 function hasSpaceComposerDraft(input: {
-	attachments: readonly SpaceComposerAttachment[];
+	files: readonly SpaceComposerFile[];
 	replyToSignalId: string | null;
 	text: string;
 }): boolean {
 	return (
 		input.text.trim().length > 0 ||
-		input.attachments.length > 0 ||
+		input.files.length > 0 ||
 		input.replyToSignalId !== null
 	);
 }
@@ -396,14 +394,13 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 	const isReadOnly = input.readOnly === true;
 	const canSendMessage =
 		!isReadOnly && input.allowedActions.includes("post_message");
-	const composerAttachmentUploadInProgress = input.composerAttachments.some(
-		isSpaceComposerAttachmentInProgress
+	const composerFileUploadInProgress = input.composerFiles.some(
+		isSpaceComposerFileInProgress
 	);
-	const composerAttachmentNeedsNote =
-		input.composerAttachments.length > 0 &&
-		input.composerText.trim().length === 0;
-	const composerAttachmentSendBlocked =
-		composerAttachmentUploadInProgress || composerAttachmentNeedsNote;
+	const composerSendBlocked =
+		composerFileUploadInProgress ||
+		(input.composerFiles.length === 0 &&
+			input.composerText.trim().length === 0);
 	const showComposer = shouldRenderSpaceComposer({
 		activeView: input.activeSpaceView,
 		isReadOnly,
@@ -506,7 +503,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		selfProfileId: input.selfProfileId,
 	});
 	const hasComposerDraft = hasSpaceComposerDraft({
-		attachments: input.composerAttachments,
+		files: input.composerFiles,
 		replyToSignalId: input.composerReplyToSignalId,
 		text: input.composerText,
 	});
@@ -744,6 +741,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		onJumpToMessage,
 		onOpenMessageDetails: setMessageDetailsItem,
 		onOpenThread,
+		onOpenSpaceFile: input.onOpenSpaceFile,
 		onReplyToMessage,
 		onReportMessage,
 		// The details panel renders the same exact recovery action. Suppress the
@@ -888,7 +886,7 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 		}
 	}, [input.activeSpaceView, input.onViewingLatestChange]);
 	const submitComposer = () => {
-		if (composerAttachmentSendBlocked) {
+		if (composerSendBlocked) {
 			return;
 		}
 		input.onSend().catch((error) => {
@@ -1054,8 +1052,8 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 			{showComposer ? (
 				<SpaceComposerSection
 					canSendMessage={canSendMessage}
-					composerAttachmentSendBlocked={composerAttachmentSendBlocked}
 					composerPlaceholder={composerPlaceholder}
+					composerSendBlocked={composerSendBlocked}
 					handleComposerKeyDown={handleComposerKeyDown}
 					input={input}
 					sendButtonLabel={sendButtonLabel}
@@ -1371,7 +1369,7 @@ function SpaceConversationTopOverlay(input: {
 
 function SpaceComposerSection(input: {
 	canSendMessage: boolean;
-	composerAttachmentSendBlocked: boolean;
+	composerSendBlocked: boolean;
 	composerPlaceholder: string;
 	handleComposerKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
 	input: SpaceConversationPanelProps;
@@ -1380,31 +1378,25 @@ function SpaceComposerSection(input: {
 	wakeTextHint: string | null;
 }) {
 	const panel = input.input;
-	const attachmentUploadInProgress = panel.composerAttachments.some(
-		isSpaceComposerAttachmentInProgress
+	const fileUploadInProgress = panel.composerFiles.some(
+		isSpaceComposerFileInProgress
 	);
-	const attachmentNeedsNote =
-		panel.composerAttachments.length > 0 &&
-		panel.composerText.trim().length === 0;
-	const attachmentActionsDisabled =
-		panel.isSendingMessage ||
-		!input.canSendMessage ||
-		panel.composerAttachmentLimitReached;
+	const fileActionsDisabled = panel.isSendingMessage || !input.canSendMessage;
 	const {
-		addImages,
+		addFiles,
 		handleDragLeave,
 		handleDragOver,
 		handleDrop,
 		handlePaste,
-		isDraggingImages,
-	} = useSpaceComposerImageInput({
-		disabled: attachmentActionsDisabled,
-		onAddImages: panel.onAddComposerImages,
+		isDraggingFiles,
+	} = useSpaceComposerFileInput({
+		disabled: fileActionsDisabled,
+		onAddFiles: panel.onAddComposerFiles,
 	});
-	const attachmentHint = resolveSpaceComposerAttachmentHint({
-		attachmentLimitReached: panel.composerAttachmentLimitReached,
-		attachmentNeedsNote,
-		attachmentUploadInProgress,
+	const fileHint = resolveSpaceComposerFileHint({
+		fileCount: panel.composerFiles.length,
+		fileLimitReached: panel.composerFileLimitReached,
+		fileUploadInProgress,
 	});
 	const defaultComposerHint = panel.agentDirectConversationKind
 		? resolveSpaceAgentDirectConversationComposerHint(
@@ -1412,14 +1404,13 @@ function SpaceComposerSection(input: {
 			)
 		: SPACE_WAKE_COMPOSER_HINT;
 	const composerHint =
-		attachmentHint ??
+		fileHint ??
 		panel.composerAddressingSummary ??
 		input.wakeTextHint ??
 		defaultComposerHint;
-	const composerHintClassName = resolveSpaceComposerHintClassName({
-		attachmentNeedsNote,
-		wakeTextHint: input.wakeTextHint,
-	});
+	const composerHintClassName = input.wakeTextHint
+		? "text-foreground"
+		: "text-muted-foreground";
 
 	return (
 		<div className="shrink-0 bg-background" data-slot="space-composer-section">
@@ -1428,9 +1419,9 @@ function SpaceComposerSection(input: {
 				data-space-conversation-content-width=""
 			>
 				<div className="relative">
-					{isDraggingImages ? (
+					{isDraggingFiles ? (
 						<div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-md border border-foreground/30 bg-background/90 text-foreground text-sm shadow-sm backdrop-blur-sm">
-							Drop images to attach
+							Drop files to add them
 						</div>
 					) : null}
 					<SpaceMentionPopover
@@ -1477,10 +1468,10 @@ function SpaceComposerSection(input: {
 						onSubmit={input.submitComposer}
 						value={panel.composerText}
 					>
-						<SpaceComposerAttachmentTray
-							attachments={panel.composerAttachments}
+						<SpaceComposerFileTray
 							disabled={panel.isSendingMessage}
-							onRemove={panel.onRemoveComposerAttachment}
+							files={panel.composerFiles}
+							onRemove={panel.onRemoveComposerFile}
 						/>
 						<PromptInputTextarea
 							aria-label="Message this space"
@@ -1519,10 +1510,10 @@ function SpaceComposerSection(input: {
 						/>
 						<PromptInputActions className="min-w-0 justify-between gap-3 border-border border-t pt-2">
 							<div className="flex min-w-0 flex-1 items-center gap-2">
-								<SpaceComposerImagePickerAction
-									addImages={addImages}
-									disabled={attachmentActionsDisabled}
-									limitReached={panel.composerAttachmentLimitReached}
+								<SpaceComposerFileMenu
+									addFiles={addFiles}
+									disabled={fileActionsDisabled}
+									limitReached={panel.composerFileLimitReached}
 								/>
 								<p
 									aria-live="polite"
@@ -1545,7 +1536,7 @@ function SpaceComposerSection(input: {
 										disabled={
 											panel.isSendingMessage ||
 											!input.canSendMessage ||
-											input.composerAttachmentSendBlocked
+											input.composerSendBlocked
 										}
 										onClick={input.submitComposer}
 										size="icon-sm"
@@ -1577,31 +1568,21 @@ function SpaceComposerSection(input: {
 	);
 }
 
-function resolveSpaceComposerAttachmentHint(input: {
-	attachmentLimitReached: boolean;
-	attachmentNeedsNote: boolean;
-	attachmentUploadInProgress: boolean;
+function resolveSpaceComposerFileHint(input: {
+	fileCount: number;
+	fileLimitReached: boolean;
+	fileUploadInProgress: boolean;
 }): string | null {
-	if (input.attachmentNeedsNote) {
-		return "Add a note about the image(s)";
+	if (input.fileUploadInProgress) {
+		return "Uploading files before sending…";
 	}
-	if (input.attachmentUploadInProgress) {
-		return "Preparing images before sending…";
+	if (input.fileLimitReached) {
+		return "You can add up to 10 files.";
 	}
-	if (input.attachmentLimitReached) {
-		return "You can attach up to 4 images.";
+	if (input.fileCount > 0) {
+		return `${input.fileCount} ${input.fileCount === 1 ? "file" : "files"} ready to send`;
 	}
 	return null;
-}
-
-function resolveSpaceComposerHintClassName(input: {
-	attachmentNeedsNote: boolean;
-	wakeTextHint: string | null;
-}): string {
-	if (input.attachmentNeedsNote) {
-		return resolveStatusToneStrongTextClassName("warning");
-	}
-	return input.wakeTextHint ? "text-foreground" : "text-muted-foreground";
 }
 
 function renderConversationBody(input: {
@@ -1640,6 +1621,7 @@ function renderConversationBody(input: {
 	onJumpToMessage: (signalId: string) => void;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onOpenThread: (threadId: string) => void;
+	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -1853,6 +1835,7 @@ function renderConversationBody(input: {
 						onCreateThread={input.onCreateThread}
 						onJumpToMessage={input.onJumpToMessage}
 						onOpenMessageDetails={input.onOpenMessageDetails}
+						onOpenSpaceFile={input.onOpenSpaceFile}
 						onOpenThread={input.onOpenThread}
 						onRecoverExecution={input.onRecoverExecution}
 						onReplyToMessage={input.onReplyToMessage}
@@ -2038,6 +2021,7 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 	onJumpToMessage: (signalId: string) => void;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onOpenThread: (threadId: string) => void;
+	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onRetryWakeTarget?: SpaceWakeRetryHandler;
@@ -2350,6 +2334,8 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(input: {
 													computerSetupSourceSignalId={item.id}
 													containerClassName={selfBodyContainerClassName}
 													item={item}
+													onOpenSpaceFile={input.onOpenSpaceFile}
+													openMeldProfileId={input.selfProfileId}
 													orgSlug={input.orgSlug}
 													spaceReferencesById={input.spaceReferencesById}
 												/>

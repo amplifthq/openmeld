@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   isSpaceComposerSubmissionError,
   prepareSpaceComposerSubmission,
+  prepareSpaceFileOnlySubmission,
 } from "../src/index";
 
 const HUMAN_ANALYST_ID = "11111111-1111-4111-8111-111111111111";
@@ -20,6 +21,25 @@ const HUMAN_LEGAL_ID = "22222222-2222-4222-8222-222222222222";
 const AGENT_BUDGET_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 describe("space composer submission", () => {
+  it("prepares a file-only message without inventing visible text", () => {
+    expect(
+      prepareSpaceFileOnlySubmission({
+        replyTo: { signalId: "signal-1" },
+      })
+    ).toEqual({
+      authoredMentionsInTextOrder: [],
+      canonicalMentionsInTextOrder: [],
+      hasStructuredTargets: false,
+      messageEnvelope: null,
+      replyTo: { signalId: "signal-1" },
+      resolvedStructuredTargets: {
+        canonicalMentionsInTextOrder: [],
+        profileIdsInTextOrder: [],
+      },
+      text: "",
+    });
+  });
+
   it("keeps plain text without canonical mentions free of message envelopes", () => {
     expect(
       prepareSpaceComposerSubmission({

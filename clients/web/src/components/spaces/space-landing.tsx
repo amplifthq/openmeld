@@ -398,6 +398,14 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	const generatedSpaceViewId = useId();
 	const spaceViewIdPrefix = `space-view-${generatedSpaceViewId}`;
 	const [spaceView, setSpaceView] = useState<SpaceView>("messages");
+	const [spaceFileToOpen, setSpaceFileToOpen] = useState<{
+		fileId: string;
+		requestId: string;
+	} | null>(null);
+	const openSpaceFile = useCallback((fileId: string) => {
+		setSpaceFileToOpen({ fileId, requestId: crypto.randomUUID() });
+		setSpaceView("files");
+	}, []);
 	const accountProfiles = resolveSpaceLandingAccountProfiles(
 		input.accountProfiles
 	);
@@ -1266,6 +1274,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		membersOpen,
 		membersPanelWidth,
 		modelCatalog,
+		openSpaceFile,
 		navigate,
 		organizationId,
 		recovery,
@@ -1274,6 +1283,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		setupRecallNonce,
 		spaceMemberRemovalHandler,
 		spaceName,
+		spaceFileToOpen,
 		spaceReferencesById,
 		spaceView,
 		spaceViewIdPrefix,
@@ -1579,9 +1589,11 @@ function SpaceLandingConversation({
 		handleSetupVisibilityChange,
 		isDirectMessage,
 		modelCatalog,
+		openSpaceFile,
 		recovery,
 		setupRecallNonce,
 		spaceName,
+		spaceFileToOpen,
 		spaceReferencesById,
 		spaceView,
 		spaceViewIdPrefix,
@@ -1598,10 +1610,10 @@ function SpaceLandingConversation({
 			className="min-w-0"
 			composerAddressingSummary={controller.composerAddressingSummary}
 			composerAddressingTargets={controller.composerAddressingTargets}
-			composerAttachmentLimitReached={controller.composerAttachmentLimitReached}
-			composerAttachments={controller.composerAttachments}
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
 			composerErrorMessage={controller.composerErrorMessage}
+			composerFileLimitReached={controller.composerFileLimitReached}
+			composerFiles={controller.composerFiles}
 			composerHasAuthoredMentions={controller.composerHasAuthoredMentions}
 			composerReplyToSignalId={controller.composerReplyToSignalId}
 			composerSelection={controller.composerSelection}
@@ -1614,6 +1626,7 @@ function SpaceLandingConversation({
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			files={
 				<SpaceFilesPanel
+					fileToOpen={spaceFileToOpen}
 					key={controller.spaceId}
 					openMeldProfileId={controller.profileId}
 					organizationSlug={input.orgSlug}
@@ -1639,7 +1652,7 @@ function SpaceLandingConversation({
 			membersSnapshot={controller.membersSnapshot}
 			mentionPopoverState={controller.mentionPopoverState}
 			modelCatalog={modelCatalog}
-			onAddComposerImages={controller.onAddComposerImages}
+			onAddComposerFiles={controller.onAddComposerFiles}
 			onAgentInteractionResponse={controller.onAgentInteractionResponse}
 			onAgentRecoveryAction={handleAgentRecoveryAction}
 			onClearComposerReplyTo={controller.onClearComposerReplyTo}
@@ -1653,9 +1666,10 @@ function SpaceLandingConversation({
 			onMentionItemSelect={controller.onMentionItemSelect}
 			onMentionPopoverClose={controller.onMentionPopoverClose}
 			onMentionRelationChange={controller.onMentionRelationChange}
+			onOpenSpaceFile={openSpaceFile}
 			onOpenThread={controller.onOpenThread}
 			onRecoverExecution={controller.onRecoverExecution}
-			onRemoveComposerAttachment={controller.onRemoveComposerAttachment}
+			onRemoveComposerFile={controller.onRemoveComposerFile}
 			onReplyToMessage={controller.onReplyToMessage}
 			onReportMessage={controller.onReportMessage}
 			onRetryWakeTarget={controller.onRetryWakeTarget}
@@ -1751,6 +1765,7 @@ function SpaceLandingSecondaryPanels({
 		membersOpen,
 		membersPanelWidth,
 		modelCatalog,
+		openSpaceFile,
 		refreshCurrentSpaceMemberFacts,
 		spaceMemberRemovalHandler,
 		spaceReferencesById,
@@ -1802,12 +1817,15 @@ function SpaceLandingSecondaryPanels({
 					controller.threadComposerBlockedWakeProfileId
 				}
 				composerErrorMessage={controller.threadComposerErrorMessage}
+				composerFileLimitReached={controller.threadComposerFileLimitReached}
+				composerFiles={controller.threadComposerFiles}
 				composerHasAuthoredMentions={
 					controller.threadComposerHasAuthoredMentions
 				}
 				composerSelection={controller.threadComposerSelection}
 				composerText={controller.threadComposerText}
 				ephemeralActivityItems={controller.threadEphemeralActivityItems}
+				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
 				initialFocusSignalId={input.initialFocusSignalId}
 				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 				isAgentRecoveryPending={controller.isAgentRecoveryPending}
@@ -1818,6 +1836,7 @@ function SpaceLandingSecondaryPanels({
 				isSendingMessage={controller.isSendingThreadMessage}
 				membersSnapshot={controller.membersSnapshot}
 				mentionPopoverState={controller.threadMentionPopoverState}
+				onAddComposerFiles={controller.onAddThreadComposerFiles}
 				onAgentInteractionResponse={controller.onAgentInteractionResponse}
 				onAgentRecoveryAction={handleAgentRecoveryAction}
 				onClose={controller.onCloseThread}
@@ -1828,7 +1847,12 @@ function SpaceLandingSecondaryPanels({
 				onMentionItemSelect={controller.onThreadMentionItemSelect}
 				onMentionPopoverClose={controller.onThreadMentionPopoverClose}
 				onMentionRelationChange={controller.onThreadMentionRelationChange}
+				onOpenSpaceFile={(fileId) => {
+					controller.onCloseThread();
+					openSpaceFile(fileId);
+				}}
 				onRecoverExecution={controller.onRecoverExecution}
+				onRemoveComposerFile={controller.onRemoveThreadComposerFile}
 				onReportMessage={controller.onReportMessage}
 				onRetryWakeTarget={controller.onRetryWakeTarget}
 				onSend={controller.onThreadSend}

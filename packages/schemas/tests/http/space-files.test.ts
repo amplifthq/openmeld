@@ -3,6 +3,8 @@ import {
   buildSpaceFileObjectKey,
   createSpaceFolderBodySchema,
   isSpaceFileTextEditable,
+  postNormalMessageBodySchema,
+  postSpaceThreadSignalBodySchema,
   resolveSpaceFileMimeType,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceFileNameSchema,
@@ -117,5 +119,28 @@ describe("Space Files contracts", () => {
         Array.from({ length: SPACE_MESSAGE_FILE_MAX_COUNT + 1 }, () => file)
       ).success
     ).toBe(false);
+  });
+
+  it("allows file-only Space and thread messages but rejects empty messages", () => {
+    const file = {
+      fileId: "file-1",
+      revision: 1,
+      name: "brief.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 128,
+    };
+    expect(
+      postNormalMessageBodySchema.safeParse({ text: "", files: [file] }).success
+    ).toBe(true);
+    expect(
+      postSpaceThreadSignalBodySchema.safeParse({
+        clientMessageId: "message-1",
+        text: "",
+        files: [file],
+      }).success
+    ).toBe(true);
+    expect(postNormalMessageBodySchema.safeParse({ text: "" }).success).toBe(
+      false
+    );
   });
 });

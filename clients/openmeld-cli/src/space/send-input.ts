@@ -7,6 +7,7 @@ import {
 } from "../runtime/dual-view-guide-catalog";
 
 type ResolveSpaceSendTextInput = {
+  allowEmpty?: boolean;
   text?: string;
   stdin?: boolean;
   file?: string;
@@ -27,6 +28,9 @@ export async function resolveSpaceSendText(
     Number(hasTextSource) + Number(stdinEnabled) + Number(hasFileSource);
 
   if (sourceCount === 0) {
+    if (input.allowEmpty) {
+      return "";
+    }
     throw createSpaceSendInputRequiredGuideError();
   }
   if (sourceCount > 1) {
@@ -50,7 +54,7 @@ export async function resolveSpaceSendText(
     resolvedText = await readFromStdin();
   }
 
-  if (resolvedText.trim().length === 0) {
+  if (resolvedText.trim().length === 0 && !input.allowEmpty) {
     throw createSpaceSendInputEmptyGuideError();
   }
 

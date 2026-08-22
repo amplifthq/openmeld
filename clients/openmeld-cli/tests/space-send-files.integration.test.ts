@@ -156,6 +156,52 @@ describe("space send files", () => {
     });
   });
 
+  it("sends a file without requiring filler message text", async () => {
+    await withTempHome(async (home) => {
+      const filePath = join(home, "launch-brief.pdf");
+      const bytes = Uint8Array.from([0x25, 0x50, 0x44, 0x46]);
+      await writeFile(filePath, bytes);
+      const file = createFileDescriptor({
+        mimeType: "application/pdf",
+        name: "launch-brief.pdf",
+        sizeBytes: bytes.byteLength,
+      });
+      const fetchMock = vi.fn((request: string | URL, init?: RequestInit) => {
+        const url = new URL(String(request));
+        const method = String(init?.method ?? "GET").toUpperCase();
+        if (method === "POST" && url.pathname.endsWith("/files")) {
+          return new Response(JSON.stringify({ file }), {
+            status: 201,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (method === "POST" && url.pathname.endsWith("/signals")) {
+          const body = JSON.parse(String(init?.body)) as {
+            files?: unknown[];
+            text?: string;
+          };
+          expect(body.text).toBe("");
+          expect(body.files).toHaveLength(1);
+          return createSignalResponse(body.files ?? []);
+        }
+        throw new Error(`unexpected request: ${method} ${url.toString()}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await runSend({
+        openMeldProfile: PROFILE,
+        baseUrl: "https://gateway.openmeld.invalid",
+        space: "demo",
+        filePaths: [filePath],
+        plainText: true,
+        text: "",
+        view: "human",
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it("supports files in Space thread replies", async () => {
     await withTempHome(async (home) => {
       const filePath = join(home, "notes.txt");

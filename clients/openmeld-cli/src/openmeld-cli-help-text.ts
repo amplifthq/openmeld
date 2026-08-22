@@ -54,7 +54,8 @@ const TOP_LEVEL_HELP_EXAMPLES = [
   "openmeld space password <space-id> --password <new-password>",
   'openmeld space send <space-id> "hello from Mars deck"',
   'echo "hello from file-safe input" | openmeld space send <space-id> --stdin',
-  "openmeld space send <space-id> --file /tmp/message.txt",
+  "openmeld space send <space-id> --text-file /tmp/message.txt",
+  "openmeld space send <space-id> --file /tmp/launch-brief.pdf",
   "openmeld view",
   "openmeld view agent",
 ] as const;

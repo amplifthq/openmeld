@@ -260,6 +260,21 @@ export function prepareSpaceComposerSubmission(input: {
   };
 }
 
+export function prepareSpaceFileOnlySubmission(input?: {
+  replyTo?: SpaceComposerReplyTarget | null;
+}): PreparedSpaceComposerSubmission {
+  const replyToSignalId = normalizeReplyToSignalId(input?.replyTo);
+  return {
+    authoredMentionsInTextOrder: [],
+    canonicalMentionsInTextOrder: [],
+    hasStructuredTargets: false,
+    messageEnvelope: null,
+    replyTo: replyToSignalId ? { signalId: replyToSignalId } : null,
+    resolvedStructuredTargets: emptyResolvedStructuredTargets(),
+    text: "",
+  };
+}
+
 function normalizeAuthoredMentionsInTextOrder(input: {
   mentions:
     | readonly SpaceComposerAuthoredMentionInTextOrder[]

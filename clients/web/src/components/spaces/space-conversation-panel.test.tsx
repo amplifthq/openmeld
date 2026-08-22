@@ -1828,6 +1828,64 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
+	it("lets a person send a ready file without adding filler text", async () => {
+		const onSend = vi.fn(async () => undefined);
+		renderSpaceConversationPanel({
+			allowedActions: ["post_message"],
+			composerFiles: [createReadyComposerFile()],
+			onSend,
+			readOnly: false,
+		});
+
+		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		const sendButton = screen.getByRole("button", { name: "Send message" });
+		expect(sendButton.hasAttribute("disabled")).toBe(false);
+		fireEvent.click(sendButton);
+
+		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
+	});
+
+	it("opens an upward Files menu from the composer plus button", async () => {
+		renderSpaceConversationPanel({
+			allowedActions: ["post_message"],
+			readOnly: false,
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Add to message" }));
+
+		expect(await screen.findByRole("menuitem", { name: "Files" })).toBeTruthy();
+	});
+
+	it("opens a conversation file in the same Space Files view", () => {
+		const onOpenSpaceFile = vi.fn();
+		renderSpaceConversationPanel({
+			onOpenSpaceFile,
+			timelineItems: [
+				createTimelineItem({
+					files: [
+						{
+							fileId: "file-1",
+							localPreviewUrl: null,
+							mimeType: "application/pdf",
+							name: "launch-brief.pdf",
+							revision: 3,
+							sizeBytes: 4096,
+						},
+					],
+					text: "",
+				}),
+			],
+		});
+
+		const fileButton = screen.getByText("launch-brief.pdf").closest("button");
+		expect(fileButton).not.toBeNull();
+		if (fileButton) {
+			fireEvent.click(fileButton);
+		}
+
+		expect(onOpenSpaceFile).toHaveBeenCalledWith("file-1", 3);
+	});
+
 	it("keeps the @ composer hint in ordinary Spaces", () => {
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
@@ -4427,8 +4485,8 @@ function createSpaceConversationPanelProps(
 		agentRecoveryPlansByProfileId: new Map(),
 		allowedActions: [],
 		centerAgentProfileId: "agent-profile-center",
-		composerAttachmentLimitReached: false,
-		composerAttachments: [],
+		composerFileLimitReached: false,
+		composerFiles: [],
 		composerBlockedWakeProfileId: null,
 		composerErrorMessage: null,
 		composerReplyToSignalId: null,
@@ -4454,7 +4512,7 @@ function createSpaceConversationPanelProps(
 		mentionPopoverState: { kind: "closed" },
 		modelCatalog: null,
 		onAgentRecoveryAction: async () => undefined,
-		onAddComposerImages: async () => undefined,
+		onAddComposerFiles: async () => undefined,
 		onClearComposerReplyTo: () => undefined,
 		onComposerChange: () => undefined,
 		onComposerKeyDown: async () => undefined,
@@ -4465,8 +4523,9 @@ function createSpaceConversationPanelProps(
 		onMentionItemSelect: () => undefined,
 		onMentionPopoverClose: () => undefined,
 		onOpenThread: () => undefined,
+		onOpenSpaceFile: () => undefined,
 		onReplyToMessage: () => undefined,
-		onRemoveComposerAttachment: () => undefined,
+		onRemoveComposerFile: () => undefined,
 		onReportMessage: async () => undefined,
 		onSend: async () => undefined,
 		onSendStarterPrompt: async () => undefined,
@@ -4483,6 +4542,26 @@ function createSpaceConversationPanelProps(
 		unreadStateReady: false,
 		wakeFailureTargetContextsByProfileId: new Map(),
 		...overrides,
+	};
+}
+
+function createReadyComposerFile() {
+	return {
+		descriptor: {
+			fileId: "file-1",
+			mimeType: "application/pdf",
+			name: "launch-brief.pdf",
+			revision: 1,
+			sizeBytes: 4096,
+		},
+		errorMessage: null,
+		errorRequestId: null,
+		fileName: "launch-brief.pdf",
+		localId: "local-file-1",
+		mimeType: "application/pdf",
+		previewUrl: null,
+		progress: 1,
+		status: "ready" as const,
 	};
 }
 
