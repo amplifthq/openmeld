@@ -148,6 +148,8 @@ export const buildRetryingActivityText = (input: {
     input.targetProfileLabel
   );
   switch (input.errorCode) {
+    case "daemon.profile.pending_first_report":
+      return `Waiting for ${targetLabel} to become ready...`;
     case "daemon.profile.offline":
     case "daemon.session.connection_replaced":
     case "daemon.session.not_found":

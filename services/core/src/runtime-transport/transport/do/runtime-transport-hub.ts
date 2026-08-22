@@ -381,6 +381,8 @@ import {
   resolveRuntimeCoordinatorHeadDuplicateAcceptStatus,
   resolveRuntimeCoordinatorHeadDuplicateReasonCode,
   resolveRuntimeCoordinatorHeadTargetDisplay,
+  resolveRuntimeCoordinatorHeadWaitingDecision,
+  resolveRuntimeCoordinatorHeadWaitingPolicy,
   resolveRuntimeCoordinatorLocalProgressDecisionReason,
   resolveRuntimeCoordinatorPreAcceptRedeliveryExpiry,
   resolveRuntimeCoordinatorPublicationStatus,
@@ -10211,6 +10213,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     }
 
+    const waitingPolicy = resolveRuntimeCoordinatorHeadWaitingPolicy(
+      request.reasonCode
+    );
+    const waitingDecision = resolveRuntimeCoordinatorHeadWaitingDecision(
+      request.reasonCode
+    );
     const existingBoundary = existing.waitingBoundary;
     const waitingSinceMs =
       existingBoundary?.waitingSinceMs ?? existing.createdAtMs;
@@ -10226,9 +10234,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           decisionSource: "runtime_coordinator_head_waiting_deadline",
           existing,
           nowMs,
-          publicationCategory: "service_not_connected",
+          publicationCategory: waitingPolicy.waitingCategory,
           reasonCode: request.reasonCode,
-          userRecoveryAction: request.userRecoveryAction,
+          userRecoveryAction: waitingPolicy.userRecoveryAction,
         });
       await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
       await this.publishRuntimeCoordinatorHeadFailureNotice(nextRecord);
@@ -10251,15 +10259,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       deadlineAtMs,
       deadlineOutcome: "publication_intent_ready",
       observedAtMs: request.observedAtMs,
-      reasonCode: request.reasonCode,
       softDeadlineAtMs,
-      trigger: "openmeld_service_route_connected",
       triggerOwner: "runtime_coordinator",
-      userRecoveryAction: request.userRecoveryAction,
-      userVisibleState: "waiting_for_openmeld_service",
-      waitingCategory: request.waitingCategory,
-      waitingFor: "openmeld_service_route_connection",
       waitingSinceMs,
+      ...waitingPolicy,
     };
     await this.writeRuntimeCoordinatorHeadLifecycleRecord({
       ...existing,
@@ -10276,13 +10279,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         softDeadlineAtMs > nowMs ? softDeadlineAtMs : deadlineAtMs,
       ok: true,
       primaryDispatchId: existing.primaryDispatchId,
-      reasonCode: request.reasonCode,
       runtimeCoordinatorExecutionId: null,
       softDeadlineAtMs,
       status: "waiting",
       targetWakeLifecycleId: identity.targetWakeLifecycleId,
-      userRecoveryAction: request.userRecoveryAction,
-      waitingCategory: request.waitingCategory,
+      ...waitingDecision,
     };
   }
 
@@ -10606,13 +10607,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     nowMs: number;
     record: RuntimeCoordinatorHeadWaitingAlarmWorkItem;
   }): Promise<void> {
+    const waitingPolicy = resolveRuntimeCoordinatorHeadWaitingPolicy(
+      input.record.waitingBoundary.reasonCode
+    );
     const nextRecord = buildRuntimeCoordinatorHeadPublicationIntentReadyRecord({
       decisionSource: "runtime_coordinator_head_waiting_deadline",
       existing: input.record,
       nowMs: input.nowMs,
-      publicationCategory: "service_not_connected",
+      publicationCategory: waitingPolicy.waitingCategory,
       reasonCode: input.record.waitingBoundary.reasonCode,
-      userRecoveryAction: input.record.waitingBoundary.userRecoveryAction,
+      userRecoveryAction: waitingPolicy.userRecoveryAction,
     });
     await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
     await this.publishRuntimeCoordinatorHeadFailureNotice(nextRecord);
@@ -15015,7 +15019,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       "[core.runtime_transport.runtime_coordinator_head_waiting_recovery_triggered]",
       {
         dispatchId: input.record.primaryDispatchId,
-        reasonCode: `runtime_coordinator.head_waiting_route_reconnect_redrive_${parsedResponse.status}`,
+        reasonCode: `runtime_coordinator.head_waiting_recovery_redrive_${parsedResponse.status}`,
         softDeadlineAtMs: input.record.waitingBoundary?.softDeadlineAtMs,
         deadlineAtMs: input.record.waitingBoundary?.deadlineAtMs,
         redriveStatus: parsedResponse.status,

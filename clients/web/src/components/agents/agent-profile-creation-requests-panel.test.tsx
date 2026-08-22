@@ -122,6 +122,23 @@ describe("AgentProfileCreationRequestsPanel", () => {
 			});
 		});
 	});
+
+	it("shows an active creation honestly and removes cancellation", async () => {
+		listRequestsMock.mockResolvedValueOnce({
+			organizationId: "org-1",
+			requests: [
+				{
+					...BASE_REQUEST,
+					status: "approved",
+				},
+			],
+		});
+
+		renderPanel();
+
+		expect(await screen.findByText("Creating Agent…")).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Cancel request" })).toBeNull();
+	});
 });
 
 function renderPanel() {

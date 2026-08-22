@@ -1000,6 +1000,122 @@ describe("space dispatch read repo", () => {
     });
   });
 
+  it("keeps pending route registration compatible with the published strict CLI trace schema", async () => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const readRuntimeCoordinatorHeadLifecycleTrace = vi
+      .fn()
+      .mockImplementation(({ request }) =>
+        Promise.resolve({
+          lifecycle: {
+            createdAtMs: 1_700_000_001_100,
+            duplicateDispatchCount: 0,
+            executionLinkedAtMs: null,
+            modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+            noExecutionDecision: null,
+            ownerUserId: "owner-1",
+            primaryDispatchId: "dispatch-1",
+            publicationIntent: null,
+            runtimeCoordinatorExecutionId: null,
+            status: "waiting",
+            targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+            targetWakeLifecycleId:
+              request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+            updatedAtMs: 1_700_000_001_300,
+            waitingBoundary: {
+              deadlineAtMs: 1_700_000_300_000,
+              deadlineOutcome: "publication_intent_ready",
+              observedAtMs: 1_700_000_001_200,
+              reasonCode: "daemon.profile.pending_first_report",
+              softDeadlineAtMs: 1_700_000_030_000,
+              trigger: "wake_route_reported",
+              triggerOwner: "runtime_coordinator",
+              userRecoveryAction: "wait_for_wake_route_report",
+              userVisibleState: "waiting_for_wake_route_report",
+              waitingCategory: "wake_route_registration_pending",
+              waitingFor: "wake_route_report",
+              waitingSinceMs: 1_700_000_001_100,
+            },
+          },
+          ok: true,
+          readStatus: "found",
+        })
+      );
+
+    const result = await readSpaceDispatchTrace({
+      db: createTraceDb({
+        runtimeCoordinatorExecutionRow: undefined,
+      }),
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      readRuntimeCoordinatorHeadLifecycleTrace,
+      spaceId: "space-1",
+    });
+
+    expect(result.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject({
+      readStatus: "found",
+      status: "waiting",
+      waitingBoundary: null,
+    });
+
+    readRuntimeCoordinatorHeadLifecycleTrace.mockImplementation(({ request }) =>
+      Promise.resolve({
+        lifecycle: {
+          createdAtMs: 1_700_000_001_100,
+          duplicateDispatchCount: 0,
+          executionLinkedAtMs: null,
+          modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+          noExecutionDecision: {
+            decidedAtMs: 1_700_000_300_000,
+            publicationCategory: "wake_route_registration_pending",
+            reasonCode: "daemon.profile.pending_first_report",
+            source: "runtime_coordinator_head_waiting_deadline",
+            userRecoveryAction: "wait_for_wake_route_report",
+          },
+          ownerUserId: "owner-1",
+          primaryDispatchId: "dispatch-1",
+          publicationIntent: {
+            intentId: "pending-first-report-failure-1",
+            kind: "no_execution_failure",
+            publicationCategory: "wake_route_registration_pending",
+            readyAtMs: 1_700_000_300_000,
+            reasonCode: "daemon.profile.pending_first_report",
+            status: "ready_for_phase_6",
+            userRecoveryAction: "wait_for_wake_route_report",
+          },
+          runtimeCoordinatorExecutionId: null,
+          status: "publication_intent_ready",
+          targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+          targetWakeLifecycleId:
+            request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+          updatedAtMs: 1_700_000_300_000,
+          waitingBoundary: null,
+        },
+        ok: true,
+        readStatus: "found",
+      })
+    );
+
+    const terminalResult = await readSpaceDispatchTrace({
+      db: createTraceDb({
+        runtimeCoordinatorExecutionRow: undefined,
+      }),
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      readRuntimeCoordinatorHeadLifecycleTrace,
+      spaceId: "space-1",
+    });
+
+    expect(terminalResult.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject(
+      {
+        noExecutionDecision: null,
+        publicationIntent: null,
+        readStatus: "found",
+        status: "publication_intent_ready",
+        waitingBoundary: null,
+      }
+    );
+  });
+
   it("surfaces the runtime token diagnostic trace matrix without token secrets", async () => {
     vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
     const rawToken = "rcet_v1_never_persist_this_runtime_execution_token";

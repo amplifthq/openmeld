@@ -1062,6 +1062,13 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       body: (targetName) =>
+        `OpenMeld Service is connected, but ${formatObjectTargetName(targetName)} did not become ready in time for this Wake. Try waking the agent again in a moment.`,
+      kind: "system_retry",
+      patterns: ["=daemon.profile.pending_first_report"],
+      recoveryTarget: null,
+    },
+    {
+      body: (targetName) =>
         `OpenMeld could not reach ${formatObjectTargetName(targetName)} on this computer for this Wake. Reconnect OpenMeld Service, then try again.`,
       kind: "local_service",
       patterns: [

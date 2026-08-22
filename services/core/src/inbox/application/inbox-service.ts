@@ -18,7 +18,10 @@ import type {
   MarkInboxItemReadResponse,
   SpaceInboxSummaryResponse,
 } from "@openmeld/schemas/types";
-import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
+import {
+  OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+  OPENMELD_WELCOMING_SPACE_PURPOSE,
+} from "@openmeld/space";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
 
 const INBOX_ITEM_NOT_FOUND_CODE = "inbox.item_not_found";
@@ -44,6 +47,42 @@ const INBOX_CENTER_AGENT_MESSAGE_FILTER = `
   AND attention = 'update'
   AND json_extract(source_target_json, '$.kind') = 'center_agent'
   AND json_extract(source_target_json, '$.spaceId') IS NOT NULL
+`;
+const INBOX_CURRENT_DIRECT_MESSAGE_SPACE_ROW_FILTER = `
+  unread_space.space_purpose IS ?
+  AND unread_space.direct_message_converted_at_ms IS NULL
+  AND COALESCE(
+    unread_space.active_member_count,
+    (
+      SELECT count(*)
+      FROM space_index_memberships AS unread_space_member
+      WHERE unread_space_member.space_id = unread_space.space_id
+        AND unread_space_member.status = 'active'
+    )
+  ) = 2
+`;
+const INBOX_CURRENT_DIRECT_MESSAGE_SPACE_FILTER = `
+  EXISTS (
+    SELECT 1
+    FROM space_index_spaces AS unread_space
+    WHERE unread_space.space_id =
+        json_extract(inbox_items.source_target_json, '$.spaceId')
+      AND unread_space.organization_id = inbox_items.organization_id
+      AND unread_space.status = 'active'
+      AND ${INBOX_CURRENT_DIRECT_MESSAGE_SPACE_ROW_FILTER}
+  )
+`;
+const INBOX_ORDINARY_SPACE_FILTER = `
+  EXISTS (
+    SELECT 1
+    FROM space_index_spaces AS unread_space
+    WHERE unread_space.space_id =
+        json_extract(inbox_items.source_target_json, '$.spaceId')
+      AND unread_space.organization_id = inbox_items.organization_id
+      AND unread_space.status = 'active'
+      AND unread_space.space_purpose IS NOT ?
+      AND NOT (${INBOX_CURRENT_DIRECT_MESSAGE_SPACE_ROW_FILTER})
+  )
 `;
 
 type InboxItemRow = {
@@ -105,9 +144,14 @@ export function createInboxService(input: {
               AND read_at_ms IS NULL
               AND ${INBOX_CENTER_AGENT_MESSAGE_FILTER}
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
+              AND ${INBOX_CURRENT_DIRECT_MESSAGE_SPACE_FILTER}
           `
         )
-        .bind(summaryInput.organizationId, summaryInput.recipientUserId)
+        .bind(
+          summaryInput.organizationId,
+          summaryInput.recipientUserId,
+          OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
+        )
         .first<{ unread_count: number }>();
       return {
         organizationId: summaryInput.organizationId,
@@ -150,7 +194,31 @@ export function createInboxService(input: {
           space_id: string;
           unread_count: number;
         }>();
+      const ordinarySpaceUnreadRow = await input.db
+        .prepare(
+          `
+            SELECT count(*) AS unread_count
+            FROM inbox_items
+            WHERE organization_id = ?
+              AND recipient_user_id = ?
+              AND cleared_at_ms IS NULL
+              AND read_at_ms IS NULL
+              AND ${INBOX_SPACE_MESSAGE_FILTER}
+              AND ${CURRENT_SOURCE_ACCESS_FILTER}
+              AND ${INBOX_ORDINARY_SPACE_FILTER}
+          `
+        )
+        .bind(
+          summaryInput.organizationId,
+          summaryInput.recipientUserId,
+          OPENMELD_WELCOMING_SPACE_PURPOSE,
+          OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE
+        )
+        .first<{ unread_count: number }>();
       return {
+        ordinarySpaceUnreadCount: countValue(
+          ordinarySpaceUnreadRow?.unread_count
+        ),
         organizationId: summaryInput.organizationId,
         spaces: (result.results ?? []).map((row) => ({
           latestUnreadOccurredAtMs: nonnegativeIntegerValue(

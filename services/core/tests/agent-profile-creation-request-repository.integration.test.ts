@@ -2,7 +2,11 @@ import { env } from "cloudflare:test";
 import { DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import { createD1AgentProfileCreationRequestRepository } from "../src/agent-profile-creation-request/agent-profile-creation-request-repository";
-import type { AgentProfileCreationRequestRecord } from "../src/agent-profile-creation-request/agent-profile-creation-request-service";
+import {
+  AGENT_PROFILE_CREATION_STALE_AFTER_MS,
+  type AgentProfileCreationRequestRecord,
+  failStaleAgentProfileCreationRequests,
+} from "../src/agent-profile-creation-request/agent-profile-creation-request-service";
 
 describe("Agent Profile creation request repository", () => {
   it("persists participant visibility, idempotency, transitions, and preferences", async () => {
@@ -14,30 +18,16 @@ describe("Agent Profile creation request repository", () => {
     const repository = createD1AgentProfileCreationRequestRepository(
       env.OPENMELD_DB
     );
-    const record: AgentProfileCreationRequestRecord = {
-      actorProfileId: `human-${suffix}`,
-      completedAtMs: null,
-      configuration: DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
-      createdAgentProfileId: null,
-      createdAtMs: 1_787_220_000_000,
-      decidedAtMs: null,
-      id: `apcr_${suffix}`,
-      idempotencyKey: `key-${suffix}`,
-      failureMessage: null,
-      nativeSessionId: null,
+    const record = buildRequestRecord({
       organizationId,
-      profileName: "Release Reviewer",
-      requestedSpaceId: null,
       requesterUserId,
-      sessionStrategy: "new",
-      source: "web",
-      status: "pending",
-      statusReason: "approval_required",
+      suffix,
       targetOwnerUserId,
-      updatedAtMs: 1_787_220_000_000,
-    };
+    });
 
-    await expect(repository.insert(record)).resolves.toEqual(record);
+    await expect(
+      repository.insert(record, { inboxProjection: "project" })
+    ).resolves.toEqual(record);
     await expect(
       repository.findByIdempotencyKey({
         idempotencyKey: record.idempotencyKey,
@@ -57,17 +47,79 @@ describe("Agent Profile creation request repository", () => {
         userId: targetOwnerUserId,
       })
     ).resolves.toEqual([record]);
+    await expect(
+      repository.getInboxProjectionByRequestId(record.id)
+    ).resolves.toMatchObject({
+      attemptCount: 0,
+      generation: 1,
+      operation: "project",
+      status: "pending",
+    });
+    await expect(
+      repository.markInboxProjectionFailed({
+        failedAtMs: record.updatedAtMs + 100,
+        generation: 1,
+        lastError: "temporary Inbox failure",
+        nextRetryAtMs: record.updatedAtMs + 200,
+        requestId: record.id,
+      })
+    ).resolves.toBe(true);
+    await expect(
+      repository.listDueInboxProjections({
+        limit: 10,
+        nowMs: record.updatedAtMs + 199,
+      })
+    ).resolves.toEqual([]);
+    await expect(
+      repository.listDueInboxProjections({
+        limit: 10,
+        nowMs: record.updatedAtMs + 200,
+      })
+    ).resolves.toHaveLength(1);
 
-    const completed = await repository.transition({
+    const approved = await repository.transition({
       expectedStatuses: ["pending"],
+      expectedUpdatedAtMs: record.updatedAtMs,
+      inboxProjection: "resolve",
       requestId: record.id,
       update: {
-        completedAtMs: 1_787_220_001_000,
-        createdAgentProfileId: "agt_11111111-1111-4111-8111-111111111111",
         decidedAtMs: 1_787_220_001_000,
+        status: "approved",
+        statusReason: "target_approved",
+        updatedAtMs: 1_787_220_001_000,
+      },
+    });
+    const claimed = await repository.claimProfileCreation({
+      expectedProfileCreationStartedAtMs: null,
+      expectedUpdatedAtMs: approved?.updatedAtMs ?? 0,
+      requestId: record.id,
+      startedAtMs: 1_787_220_002_000,
+    });
+
+    await expect(
+      repository.listStaleProfileCreations({
+        limit: 10,
+        staleBeforeMs: 1_787_220_001_999,
+      })
+    ).resolves.toEqual([]);
+    await expect(
+      repository.listStaleProfileCreations({
+        limit: 10,
+        staleBeforeMs: 1_787_220_002_000,
+      })
+    ).resolves.toEqual([claimed]);
+
+    const completed = await repository.transition({
+      expectedProfileCreationAttempt: claimed?.profileCreationAttempt,
+      expectedStatuses: ["approved"],
+      expectedUpdatedAtMs: claimed?.updatedAtMs ?? 0,
+      requestId: record.id,
+      update: {
+        completedAtMs: 1_787_220_003_000,
+        createdAgentProfileId: "agt_11111111-1111-4111-8111-111111111111",
         status: "completed",
         statusReason: "profile_created",
-        updatedAtMs: 1_787_220_001_000,
+        updatedAtMs: 1_787_220_003_000,
       },
     });
 
@@ -76,8 +128,34 @@ describe("Agent Profile creation request repository", () => {
       statusReason: "profile_created",
     });
     await expect(
+      repository.getInboxProjectionByRequestId(record.id)
+    ).resolves.toMatchObject({
+      attemptCount: 0,
+      generation: 2,
+      operation: "resolve",
+      status: "pending",
+    });
+    await expect(
+      repository.markInboxProjectionCompleted({
+        completedAtMs: record.updatedAtMs + 250,
+        generation: 2,
+        requestId: record.id,
+      })
+    ).resolves.toBe(true);
+    await expect(
+      repository.markInboxProjectionCompleted({
+        completedAtMs: record.updatedAtMs + 300,
+        generation: 1,
+        requestId: record.id,
+      })
+    ).resolves.toBe(false);
+    await expect(
+      repository.getInboxProjectionByRequestId(record.id)
+    ).resolves.toMatchObject({ generation: 2, status: "pending" });
+    await expect(
       repository.transition({
         expectedStatuses: ["pending"],
+        expectedUpdatedAtMs: completed?.updatedAtMs ?? 0,
         requestId: record.id,
         update: { status: "cancelled" },
       })
@@ -102,7 +180,156 @@ describe("Agent Profile creation request repository", () => {
       newSessionPolicy: "automatically_allow",
     });
   });
+
+  it("repairs projection intent for requests written without the new outbox columns", async () => {
+    const suffix = crypto.randomUUID();
+    const organizationId = `org-apcr-legacy-${suffix}`;
+    const requesterUserId = `user-requester-${suffix}`;
+    const targetOwnerUserId = `user-target-${suffix}`;
+    await seedIdentity({ organizationId, requesterUserId, targetOwnerUserId });
+    const repository = createD1AgentProfileCreationRequestRepository(
+      env.OPENMELD_DB
+    );
+    const record = buildRequestRecord({
+      organizationId,
+      requesterUserId,
+      suffix,
+      targetOwnerUserId,
+    });
+    await repository.insert(record);
+
+    await expect(
+      repository.synchronizeInboxProjectionIntents({ requestId: record.id })
+    ).resolves.toBe(1);
+    await expect(
+      repository.getInboxProjectionByRequestId(record.id)
+    ).resolves.toMatchObject({
+      generation: 1,
+      operation: "project",
+      status: "pending",
+    });
+
+    const declined = await repository.transition({
+      expectedStatuses: ["pending"],
+      expectedUpdatedAtMs: record.updatedAtMs,
+      requestId: record.id,
+      update: {
+        decidedAtMs: record.updatedAtMs + 1,
+        status: "declined",
+        statusReason: "target_declined",
+        updatedAtMs: record.updatedAtMs + 1,
+      },
+    });
+    expect(declined?.status).toBe("declined");
+    await expect(repository.synchronizeInboxProjectionIntents()).resolves.toBe(
+      1
+    );
+    await expect(
+      repository.getInboxProjectionByRequestId(record.id)
+    ).resolves.toMatchObject({
+      generation: 2,
+      operation: "resolve",
+      status: "pending",
+    });
+  });
+
+  it("recovers an approved durable request abandoned before its creation claim", async () => {
+    const suffix = crypto.randomUUID();
+    const organizationId = `org-apcr-unclaimed-${suffix}`;
+    const requesterUserId = `user-requester-${suffix}`;
+    const targetOwnerUserId = `user-target-${suffix}`;
+    await seedIdentity({ organizationId, requesterUserId, targetOwnerUserId });
+    const repository = createD1AgentProfileCreationRequestRepository(
+      env.OPENMELD_DB
+    );
+    const pending = buildRequestRecord({
+      organizationId,
+      requesterUserId,
+      suffix,
+      targetOwnerUserId,
+    });
+    await repository.insert(pending, { inboxProjection: "project" });
+    const approvedAtMs = pending.updatedAtMs + 1000;
+    const approved = await repository.transition({
+      expectedStatuses: ["pending"],
+      expectedUpdatedAtMs: pending.updatedAtMs,
+      inboxProjection: "resolve",
+      requestId: pending.id,
+      update: {
+        decidedAtMs: approvedAtMs,
+        status: "approved",
+        statusReason: "target_approved",
+        updatedAtMs: approvedAtMs,
+      },
+    });
+    expect(approved).toMatchObject({
+      profileCreationAttempt: 0,
+      profileCreationStartedAtMs: null,
+      status: "approved",
+    });
+
+    await expect(
+      failStaleAgentProfileCreationRequests({
+        nowMs: approvedAtMs + AGENT_PROFILE_CREATION_STALE_AFTER_MS - 1,
+        repository,
+      })
+    ).resolves.toEqual({ markedFailed: 0, scanned: 0, superseded: 0 });
+    await expect(
+      failStaleAgentProfileCreationRequests({
+        nowMs: approvedAtMs + AGENT_PROFILE_CREATION_STALE_AFTER_MS,
+        repository,
+      })
+    ).resolves.toEqual({ markedFailed: 1, scanned: 1, superseded: 0 });
+    await expect(
+      repository.getById({ organizationId, requestId: pending.id })
+    ).resolves.toMatchObject({
+      failureMessage:
+        "OpenMeld lost contact while creating this Agent. Retry to continue safely.",
+      profileCreationAttempt: 0,
+      profileCreationStartedAtMs: null,
+      status: "failed",
+      statusReason: "profile_creation_failed",
+    });
+    await expect(
+      failStaleAgentProfileCreationRequests({
+        nowMs: approvedAtMs + AGENT_PROFILE_CREATION_STALE_AFTER_MS + 1,
+        repository,
+      })
+    ).resolves.toEqual({ markedFailed: 0, scanned: 0, superseded: 0 });
+  });
 });
+
+function buildRequestRecord(input: {
+  organizationId: string;
+  requesterUserId: string;
+  suffix: string;
+  targetOwnerUserId: string;
+}): AgentProfileCreationRequestRecord {
+  return {
+    actorProfileId: `human-${input.suffix}`,
+    completedAtMs: null,
+    configuration: DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+    createdAgentProfileId: null,
+    createdAtMs: 1_787_220_000_000,
+    decidedAtMs: null,
+    failureMessage: null,
+    id: `apcr_${input.suffix}`,
+    idempotencyKey: `key-${input.suffix}`,
+    nativeSessionId: null,
+    organizationId: input.organizationId,
+    profileCreationAttempt: 0,
+    profileCreationStartedAtMs: null,
+    profileName: "Release Reviewer",
+    requestedSpaceId: null,
+    requesterUserId: input.requesterUserId,
+    sessionStrategy: "new",
+    source: "web",
+    status: "pending",
+    statusReason: "approval_required",
+    targetOwnerUserId: input.targetOwnerUserId,
+    updatedAtMs: 1_787_220_000_000,
+  };
+}
 
 async function seedIdentity(input: {
   organizationId: string;

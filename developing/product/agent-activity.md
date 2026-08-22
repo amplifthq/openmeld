@@ -207,6 +207,13 @@ Session available through that provider's documented local surface, maps it to
 exactly one authorized connection, and uploads bounded pages containing only
 the shared metadata contract.
 
+Provider-reported working directories are resolved to their canonical local
+paths before connection matching. This includes arbitrary user-created symlink
+aliases, not only known macOS path aliases. An unavailable or unreadable path
+fails closed for that Session without blocking the rest of the reconciliation;
+the canonical target is matched against every legal same-lane Project
+connection, and the lexical path never constrains the authorization decision.
+
 - There is no ten-minute startup window, fixed file-count cap, or fixed cloud
   snapshot cap.
 - Reconciliation pages are staged privately. Core publishes the new set only

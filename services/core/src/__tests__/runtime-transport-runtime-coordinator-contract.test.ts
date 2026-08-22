@@ -1635,7 +1635,12 @@ const buildRuntimeCoordinatorHeadPreAgentStopRequest = (
 };
 
 const buildRuntimeCoordinatorHeadWaitingRequest = (
-  overrides: Partial<RuntimeTransportRuntimeCoordinatorHeadWaitingRequest> = {}
+  overrides: Partial<
+    Extract<
+      RuntimeTransportRuntimeCoordinatorHeadWaitingRequest,
+      { reasonCode: "daemon.profile.offline" }
+    >
+  > = {}
 ): RuntimeTransportRuntimeCoordinatorHeadWaitingRequest => {
   const dispatchId = overrides.dispatchId ?? "dispatch-1";
   const targetWakeLifecycleIdentity =
@@ -1653,11 +1658,10 @@ const buildRuntimeCoordinatorHeadWaitingRequest = (
     idempotencyKey: overrides.idempotencyKey ?? "idempotency-1",
     observedAtMs: overrides.observedAtMs ?? 1_700_000_005_000,
     ownerUserId: overrides.ownerUserId ?? "owner-1",
-    reasonCode: overrides.reasonCode ?? "daemon.profile.offline",
+    reasonCode: "daemon.profile.offline",
     targetWakeLifecycleIdentity,
-    userRecoveryAction:
-      overrides.userRecoveryAction ?? "start_or_restart_openmeld_service",
-    waitingCategory: overrides.waitingCategory ?? "service_not_connected",
+    userRecoveryAction: "start_or_restart_openmeld_service",
+    waitingCategory: "service_not_connected",
   };
 };
 
@@ -3714,6 +3718,102 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
+  it("keeps a connected Service pending its first route report recoverable until the hard deadline", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const {
+        appliedFailurePublicationCommands,
+        hub,
+        state,
+        storageRecords,
+        storageSetAlarm,
+      } = createHarness();
+      state.pendingDispatches.clear();
+      const acceptRequest = buildRuntimeCoordinatorHeadAcceptRequest();
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        acceptRequest
+      );
+
+      nowSpy.mockReturnValue(1_700_000_005_000);
+      const waitingResponse = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/waiting",
+        {
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          dispatchId: "dispatch-1",
+          idempotencyKey: "idempotency-1",
+          observedAtMs: 1_700_000_005_000,
+          ownerUserId: "owner-1",
+          reasonCode: "daemon.profile.pending_first_report",
+          targetWakeLifecycleIdentity:
+            acceptRequest.targetWakeLifecycleIdentity,
+          userRecoveryAction: "wait_for_wake_route_report",
+          waitingCategory: "wake_route_registration_pending",
+        } satisfies RuntimeTransportRuntimeCoordinatorHeadWaitingRequest
+      );
+
+      expect(waitingResponse.status).toBe(200);
+      await expect(waitingResponse.json()).resolves.toMatchObject({
+        deadlineAtMs: 1_700_000_300_000,
+        nextTriggerAtMs: 1_700_000_030_000,
+        ok: true,
+        reasonCode: "daemon.profile.pending_first_report",
+        softDeadlineAtMs: 1_700_000_030_000,
+        status: "waiting",
+        userRecoveryAction: "wait_for_wake_route_report",
+        waitingCategory: "wake_route_registration_pending",
+      });
+      expect(storageSetAlarm).toHaveBeenCalledWith(1_700_000_030_000);
+      expect(
+        findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+      ).toMatchObject({
+        runtimeCoordinatorExecutionId: null,
+        status: "waiting",
+        waitingBoundary: {
+          reasonCode: "daemon.profile.pending_first_report",
+          trigger: "wake_route_reported",
+          userRecoveryAction: "wait_for_wake_route_report",
+          userVisibleState: "waiting_for_wake_route_report",
+          waitingCategory: "wake_route_registration_pending",
+          waitingFor: "wake_route_report",
+        },
+      });
+
+      nowSpy.mockReturnValue(1_700_000_301_000);
+      await (
+        hub as unknown as {
+          alarm: () => Promise<void>;
+        }
+      ).alarm();
+
+      expect(
+        findRuntimeCoordinatorHeadLifecycleRecord(storageRecords)
+      ).toMatchObject({
+        noExecutionDecision: {
+          publicationCategory: "wake_route_registration_pending",
+          reasonCode: "daemon.profile.pending_first_report",
+          source: "runtime_coordinator_head_waiting_deadline",
+          userRecoveryAction: "wait_for_wake_route_report",
+        },
+        publicationIntent: {
+          publicationCategory: "wake_route_registration_pending",
+          reasonCode: "daemon.profile.pending_first_report",
+          status: "ready_for_phase_6",
+          userRecoveryAction: "wait_for_wake_route_report",
+        },
+        status: "publication_intent_ready",
+      });
+      expect(appliedFailurePublicationCommands).toHaveLength(1);
+      expect(appliedFailurePublicationCommands[0]).toMatchObject({
+        reasonCode: "daemon.profile.pending_first_report",
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("moves an accepted Wake head without execution into service wait after the handoff window", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
@@ -3856,7 +3956,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("re-enqueues a RuntimeCoordinator-owned waiting Wake when the service route reconnects", async () => {
+  it("re-enqueues a pending-first-report Wake when the route report arrives", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
       const { hub, spaceFetchRequests, waitUntilTasks } = createHarness();
@@ -3865,7 +3965,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
         "/runtime-coordinator/head/accept",
         buildRuntimeCoordinatorHeadAcceptRequest()
       );
-      const waitingRequest = buildRuntimeCoordinatorHeadWaitingRequest();
+      const waitingRequest = {
+        ...buildRuntimeCoordinatorHeadWaitingRequest(),
+        reasonCode: "daemon.profile.pending_first_report",
+        userRecoveryAction: "wait_for_wake_route_report",
+        waitingCategory: "wake_route_registration_pending",
+      } satisfies RuntimeTransportRuntimeCoordinatorHeadWaitingRequest;
       await fetchRuntimeTransportJson(
         hub,
         "/runtime-coordinator/head/waiting",

@@ -331,6 +331,20 @@ ledger. The canonical Center Agent target contains both `spaceId` and `signalId`
 the legacy target with neither remains readable during rollout, while a target
 with only one is invalid.
 
+The grouped summary also carries the optional `ordinarySpaceUnreadCount`
+aggregate. Core derives it across every accessible unread message in an ordinary
+Space before applying the 500-Space grouped-row limit, using the Account Space
+Index projection to exclude current Direct Messages and legacy welcoming
+Spaces while retaining converted Direct Messages as ordinary Spaces. The
+Center Agent summary uses the same Space Index classification in the opposite
+direction: it counts only current, unconverted Direct Messages, so one unread
+item cannot activate both outer-rail destinations. The field does not duplicate
+names, ordering, or Space metadata. Web uses only this complete aggregate for
+the outer Spaces navigation dot and fails closed while an older Core omits it;
+it never intersects two independently bounded lists to guess the total. Roll
+out the optional strict-response field consumer first: Web, then Gateway, then
+Core. Rollback removes the Core producer first, then Gateway and Web consumers.
+
 The account active Wake summary is an additive read contract scoped by
 `gatewayHost` and `selectedProfileId`. The shared schema owns both the public
 query and Gateway-to-Core RPC input. Core returns `generatedAtMs` with the

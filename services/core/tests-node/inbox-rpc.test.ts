@@ -47,6 +47,7 @@ describe("Inbox Core RPC", () => {
       await expect(
         rpcGetSpaceInboxSummary(env, { context: contextFor("user-1") })
       ).resolves.toEqual({
+        ordinarySpaceUnreadCount: 1,
         organizationId: "org-1",
         spaces: [
           {

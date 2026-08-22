@@ -297,10 +297,7 @@ function RequestActions(input: {
 			</div>
 		);
 	}
-	if (
-		isRequester &&
-		(input.request.status === "pending" || input.request.status === "approved")
-	) {
+	if (isRequester && input.request.status === "pending") {
 		return (
 			<Button
 				disabled={input.isPending}
@@ -320,7 +317,7 @@ function statusLabel(request: AgentProfileCreationRequest): string {
 		return "Waiting for approval";
 	}
 	if (request.status === "approved") {
-		return "Approved";
+		return "Creating Agent…";
 	}
 	if (request.status === "completed") {
 		return "Agent created";

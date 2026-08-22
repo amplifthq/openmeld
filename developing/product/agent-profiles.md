@@ -157,6 +157,15 @@ request creates one Inbox action for the target owner. Only that owner may
 approve or decline it, and only the requester may cancel it. Both participants
 can see current progress and immutable origin attribution.
 
+Core atomically claims an approved request before starting any Profile creation
+side effect. An `approved` request is therefore presented as **Creating Agent**,
+and cancellation is no longer available after that claim. Completion and
+failure writes are fenced to the exact creation attempt so concurrent retries
+cannot run the executor twice or overwrite a newer outcome. If approval remains
+unclaimed for 30 minutes, or a claimed attempt has no terminal result for that
+long, Core changes the durable request to an explicit retryable failure. Retry
+makes a new fenced attempt instead of leaving the request permanently stuck.
+
 Approval authorizes the request's complete frozen creation intent. Core still
 uses the existing owner contracts for each operation: Auth creates the Agent
 Profile identity, Space membership uses the normal Space mutation, and Binding,

@@ -125,6 +125,8 @@ function DirectoryComputerDetailSummary(input: {
 const MAX_VISIBLE_AGENT_PROFILES = 3;
 
 export function DirectoryAgentProfilesSummary(input: {
+	ownerName: string;
+	path: string;
 	profiles: readonly DirectoryAgentProfileSummary[];
 }) {
 	const visibleProfiles = input.profiles.slice(0, MAX_VISIBLE_AGENT_PROFILES);
@@ -150,9 +152,13 @@ export function DirectoryAgentProfilesSummary(input: {
 					</span>
 				) : null}
 			</div>
-			<p className="shrink-0 text-sm">
+			<Link
+				aria-label={`View ${input.ownerName}'s Agent Profiles`}
+				className="shrink-0 rounded-sm text-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/50"
+				to={input.path}
+			>
 				{formatAgentProfileCount(input.profiles.length)}
-			</p>
+			</Link>
 		</div>
 	);
 }
@@ -235,11 +241,8 @@ export function DirectoryIdentityAccountSummary(input: {
 			{label ? (
 				<span
 					className={cn(
-						"min-w-0 break-all",
-						input.context === "detail" ? "text-sm" : "text-xs",
-						input.account.state === "unavailable"
-							? "text-amber-600 dark:text-amber-400"
-							: "text-muted-foreground"
+						"min-w-0 select-text break-all text-muted-foreground",
+						input.context === "detail" ? "text-sm" : "text-xs"
 					)}
 				>
 					{label}

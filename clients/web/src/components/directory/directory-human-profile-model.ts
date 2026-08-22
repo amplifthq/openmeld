@@ -12,11 +12,13 @@ import type {
 import type { AppShellAccount } from "#/components/app/app-shell-account";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
+	buildOrganizationAgentsPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationComputerPath,
 	buildOrganizationComputersPath,
 	buildOrganizationDocumentPath,
 } from "#/lib/organizations/organization-routes";
+import { buildAgentProfilePath } from "#/lib/profile-routes";
 import { buildSlackIdentityStartPath } from "#/lib/slack-oauth-start";
 
 type DirectoryHumanProfileRole = "admin" | "member" | "owner" | "unknown";
@@ -48,6 +50,7 @@ export type DirectoryAgentProfileSummary = {
 
 export type DirectoryIdentityAccount = {
 	accountEmail: string | null;
+	accountName: string | null;
 	action: {
 		kind:
 			| "ask_admin"
@@ -83,6 +86,7 @@ export type DirectoryProfileReport =
 
 export type DirectoryHumanProfileRow = {
 	agentProfiles: readonly DirectoryAgentProfileSummary[];
+	agentProfilesPath: string;
 	avatarImageUrl: string | null;
 	canEdit: boolean;
 	computer: DirectoryHumanProfileComputer;
@@ -123,8 +127,13 @@ export function buildOrganizationHumanProfileRows(input: {
 			const document = reportsBySubject.get(member.user.id);
 			const humanProfile = member.humanProfile;
 			const isCurrentUser = member.user.id === input.currentUserId;
+			const agentProfiles = agentProfilesByOwner.get(member.user.id) ?? [];
 			return {
-				agentProfiles: agentProfilesByOwner.get(member.user.id) ?? [],
+				agentProfiles,
+				agentProfilesPath: resolveAgentProfilesPath({
+					agentProfiles,
+					orgSlug: input.orgSlug,
+				}),
 				avatarImageUrl: member.user.image,
 				canEdit: isCurrentUser && humanProfile?.status === "active",
 				computer: resolveHumanProfileComputer({
@@ -200,6 +209,10 @@ export function buildPersonalHumanProfileRows(input: {
 		return [
 			{
 				agentProfiles,
+				agentProfilesPath: resolveAgentProfilesPath({
+					agentProfiles,
+					orgSlug: input.orgSlug,
+				}),
 				avatarImageUrl: null,
 				canEdit: false,
 				computer: resolveHumanProfileComputer({
@@ -234,6 +247,10 @@ export function buildPersonalHumanProfileRows(input: {
 	return [
 		{
 			agentProfiles,
+			agentProfilesPath: resolveAgentProfilesPath({
+				agentProfiles,
+				orgSlug: input.orgSlug,
+			}),
 			avatarImageUrl: profile.avatarUrl ?? null,
 			canEdit: profile.isDefault && profile.status === "active",
 			computer: resolveHumanProfileComputer({
@@ -320,6 +337,19 @@ function sortAgentProfileSummaries(
 			? left.id.localeCompare(right.id)
 			: nameComparison;
 	});
+}
+
+function resolveAgentProfilesPath(input: {
+	agentProfiles: readonly DirectoryAgentProfileSummary[];
+	orgSlug: string;
+}): string {
+	const firstProfile = input.agentProfiles[0];
+	return firstProfile
+		? buildAgentProfilePath({
+				orgSlug: input.orgSlug,
+				profileId: firstProfile.id,
+			})
+		: buildOrganizationAgentsPath(input.orgSlug);
 }
 
 export function resolveMissingPersonalHumanProfileMessage(
@@ -428,10 +458,7 @@ function resolveHumanProfileComputer(input: {
 	if (connectedCount > 0) {
 		return {
 			count: computers.length,
-			label:
-				connectedCount === computers.length
-					? formatComputerCount(connectedCount, "connected")
-					: `${connectedCount} of ${computers.length} computers connected`,
+			label: formatComputerCount(connectedCount, "connected"),
 			path: resolveComputerPath({ ...input, computers }),
 			state: "connected",
 		};
@@ -458,7 +485,7 @@ function resolveHumanProfileComputer(input: {
 	if (computers.length > 0) {
 		return {
 			count: computers.length,
-			label: `${computers.length} ${computers.length === 1 ? "computer" : "computers"} not connected`,
+			label: "Computer offline",
 			path: resolveComputerPath({ ...input, computers }),
 			state: "not_connected",
 		};
@@ -501,7 +528,7 @@ function formatComputerCount(
 	state: "connected" | "needs attention"
 ): string {
 	if (count === 1) {
-		return `1 computer ${state === "needs attention" ? "needs attention" : state}`;
+		return `Computer ${state === "needs attention" ? "needs attention" : state}`;
 	}
 	return `${count} computers ${state === "needs attention" ? "need attention" : state}`;
 }
@@ -560,6 +587,7 @@ function resolveIdentityAccounts(input: {
 						: null;
 				return {
 					accountEmail: link.providerAccountEmail,
+					accountName: link.providerAccountName,
 					action,
 					canDisconnect:
 						input.isCurrentUser || input.canManageConnectedAccounts,
@@ -583,6 +611,7 @@ function resolveIdentityAccounts(input: {
 					: null;
 			return {
 				accountEmail: null,
+				accountName: null,
 				action,
 				canDisconnect: false,
 				channelsPath: action?.path ?? null,

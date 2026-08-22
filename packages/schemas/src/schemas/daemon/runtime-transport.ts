@@ -1046,6 +1046,7 @@ export const runtimeTransportRuntimeCoordinatorHeadNoExecutionReasonCodeSchema =
     "organization_binding_authorization.required",
     "local_service.identity_mismatch",
     "daemon.profile.offline",
+    "daemon.profile.pending_first_report",
     "service.update_required",
   ]);
 
@@ -1055,6 +1056,7 @@ export const runtimeTransportRuntimeCoordinatorHeadNoExecutionPublicationCategor
     "local_connection_mismatch",
     "service_not_connected",
     "update_required",
+    "wake_route_registration_pending",
   ]);
 
 export const runtimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryActionSchema =
@@ -1066,6 +1068,7 @@ export const runtimeTransportRuntimeCoordinatorHeadNoExecutionRecoveryActionSche
     "reconnect_agent_binding",
     "start_or_restart_openmeld_service",
     "update_openmeld_service",
+    "wait_for_wake_route_report",
   ]);
 
 export const runtimeTransportRuntimeCoordinatorHeadNoExecutionDecisionSourceSchema =
@@ -1116,63 +1119,94 @@ export const runtimeTransportRuntimeCoordinatorHeadNoExecutionResponseSchema =
   ]);
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingReasonCodeSchema =
-  z.enum(["daemon.profile.offline"]);
+  z.enum(["daemon.profile.offline", "daemon.profile.pending_first_report"]);
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingCategorySchema =
-  z.enum(["service_not_connected"]);
+  z.enum(["service_not_connected", "wake_route_registration_pending"]);
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingRecoveryActionSchema =
-  z.enum(["start_or_restart_openmeld_service"]);
+  z.enum(["start_or_restart_openmeld_service", "wait_for_wake_route_report"]);
+
+const runtimeCoordinatorOfflineWaitingDecisionShape = {
+  reasonCode: z.literal("daemon.profile.offline"),
+  userRecoveryAction: z.literal("start_or_restart_openmeld_service"),
+  waitingCategory: z.literal("service_not_connected"),
+} as const;
+
+const runtimeCoordinatorPendingFirstReportWaitingDecisionShape = {
+  reasonCode: z.literal("daemon.profile.pending_first_report"),
+  userRecoveryAction: z.literal("wait_for_wake_route_report"),
+  waitingCategory: z.literal("wake_route_registration_pending"),
+} as const;
+
+const runtimeCoordinatorHeadWaitingBoundaryCommonShape = {
+  deadlineAtMs: z.number().int().nonnegative(),
+  deadlineOutcome: z.literal("publication_intent_ready"),
+  observedAtMs: z.number().int().nonnegative(),
+  softDeadlineAtMs: z.number().int().nonnegative(),
+  triggerOwner: z.literal("runtime_coordinator"),
+  waitingSinceMs: z.number().int().nonnegative(),
+} as const;
 
 const runtimeTransportRuntimeCoordinatorHeadWaitingBoundarySchema =
-  z.strictObject({
-    deadlineAtMs: z.number().int().nonnegative(),
-    deadlineOutcome: z.literal("publication_intent_ready"),
-    observedAtMs: z.number().int().nonnegative(),
-    reasonCode: runtimeTransportRuntimeCoordinatorHeadWaitingReasonCodeSchema,
-    softDeadlineAtMs: z.number().int().nonnegative(),
-    trigger: z.literal("openmeld_service_route_connected"),
-    triggerOwner: z.literal("runtime_coordinator"),
-    userRecoveryAction:
-      runtimeTransportRuntimeCoordinatorHeadWaitingRecoveryActionSchema,
-    userVisibleState: z.literal("waiting_for_openmeld_service"),
-    waitingCategory:
-      runtimeTransportRuntimeCoordinatorHeadWaitingCategorySchema,
-    waitingFor: z.literal("openmeld_service_route_connection"),
-    waitingSinceMs: z.number().int().nonnegative(),
-  });
+  z.discriminatedUnion("reasonCode", [
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingBoundaryCommonShape,
+      ...runtimeCoordinatorOfflineWaitingDecisionShape,
+      trigger: z.literal("openmeld_service_route_connected"),
+      userVisibleState: z.literal("waiting_for_openmeld_service"),
+      waitingFor: z.literal("openmeld_service_route_connection"),
+    }),
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingBoundaryCommonShape,
+      ...runtimeCoordinatorPendingFirstReportWaitingDecisionShape,
+      trigger: z.literal("wake_route_reported"),
+      userVisibleState: z.literal("waiting_for_wake_route_report"),
+      waitingFor: z.literal("wake_route_report"),
+    }),
+  ]);
+
+const runtimeCoordinatorHeadWaitingRequestCommonShape = {
+  v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
+  ownerUserId: z.string().min(1),
+  dispatchId: z.string().min(1),
+  idempotencyKey: z.string().min(1).max(512),
+  observedAtMs: z.number().int().nonnegative(),
+  targetWakeLifecycleIdentity: targetWakeLifecycleIdentitySchema,
+} as const;
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingRequestSchema =
-  z.strictObject({
-    v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
-    ownerUserId: z.string().min(1),
-    dispatchId: z.string().min(1),
-    idempotencyKey: z.string().min(1).max(512),
-    observedAtMs: z.number().int().nonnegative(),
-    reasonCode: runtimeTransportRuntimeCoordinatorHeadWaitingReasonCodeSchema,
-    targetWakeLifecycleIdentity: targetWakeLifecycleIdentitySchema,
-    userRecoveryAction:
-      runtimeTransportRuntimeCoordinatorHeadWaitingRecoveryActionSchema,
-    waitingCategory:
-      runtimeTransportRuntimeCoordinatorHeadWaitingCategorySchema,
-  });
+  z.discriminatedUnion("reasonCode", [
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingRequestCommonShape,
+      ...runtimeCoordinatorOfflineWaitingDecisionShape,
+    }),
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingRequestCommonShape,
+      ...runtimeCoordinatorPendingFirstReportWaitingDecisionShape,
+    }),
+  ]);
+
+const runtimeCoordinatorHeadWaitingResponseCommonShape = {
+  deadlineAtMs: z.number().int().nonnegative(),
+  nextTriggerAtMs: z.number().int().nonnegative(),
+  ok: z.literal(true),
+  primaryDispatchId: z.string().min(1),
+  runtimeCoordinatorExecutionId: z.null(),
+  softDeadlineAtMs: z.number().int().nonnegative(),
+  status: z.literal("waiting"),
+  targetWakeLifecycleId: z.string().min(1).max(2048),
+} as const;
 
 export const runtimeTransportRuntimeCoordinatorHeadWaitingResponseSchema =
-  z.discriminatedUnion("status", [
+  z.union([
     z.strictObject({
-      deadlineAtMs: z.number().int().nonnegative(),
-      nextTriggerAtMs: z.number().int().nonnegative(),
-      ok: z.literal(true),
-      primaryDispatchId: z.string().min(1),
-      reasonCode: runtimeTransportRuntimeCoordinatorHeadWaitingReasonCodeSchema,
-      runtimeCoordinatorExecutionId: z.null(),
-      softDeadlineAtMs: z.number().int().nonnegative(),
-      status: z.literal("waiting"),
-      targetWakeLifecycleId: z.string().min(1).max(2048),
-      userRecoveryAction:
-        runtimeTransportRuntimeCoordinatorHeadWaitingRecoveryActionSchema,
-      waitingCategory:
-        runtimeTransportRuntimeCoordinatorHeadWaitingCategorySchema,
+      ...runtimeCoordinatorHeadWaitingResponseCommonShape,
+      ...runtimeCoordinatorOfflineWaitingDecisionShape,
+    }),
+    z.strictObject({
+      ...runtimeCoordinatorHeadWaitingResponseCommonShape,
+      ...runtimeCoordinatorPendingFirstReportWaitingDecisionShape,
     }),
     z.strictObject({
       ok: z.literal(true),

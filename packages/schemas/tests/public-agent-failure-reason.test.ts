@@ -686,6 +686,26 @@ describe("public agent failure reason mapping", () => {
     );
   });
 
+  it("does not tell users to reconnect a Service that is waiting on its first route report", () => {
+    expect(
+      resolvePublicAgentFailureRecovery({
+        errorCode: "daemon.profile.pending_first_report",
+        targetLabel: "Runner",
+      })
+    ).toEqual({
+      body: "OpenMeld Service is connected, but Runner did not become ready in time for this Wake. Try waking the agent again in a moment.",
+      kind: "system_retry",
+      recoveryTarget: null,
+    });
+    expect(
+      resolveMappedPublicAgentFailureReason(
+        "daemon.profile.pending_first_report"
+      )
+    ).toBe(
+      "OpenMeld Service is connected, but this agent did not become ready in time for this Wake. Try waking the agent again in a moment."
+    );
+  });
+
   it.each([
     [
       "daemon.delivery.start_timeout",

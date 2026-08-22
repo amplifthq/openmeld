@@ -31,7 +31,11 @@ import {
 } from "../../remote-agent/application/native-delivery-service";
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import { emitSpaceSystemNoticeSignal } from "../../rpc/space-signal-emitter";
-import { RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE } from "../../runtime-transport/application/runtime-coordinator-authority";
+import {
+  RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
+  resolveRuntimeCoordinatorHeadWaitingDecision,
+  resolveRuntimeCoordinatorHeadWaitingPolicy,
+} from "../../runtime-transport/application/runtime-coordinator-authority";
 import { emitCoreCloudflareRuntimeEvidence } from "../../shared/observability/cloudflare-runtime-evidence";
 import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import {
@@ -3226,6 +3230,7 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
 }): Promise<{ handled: boolean; shouldAck: boolean }> => {
   if (
     input.errorCode !== "daemon.profile.offline" &&
+    input.errorCode !== "daemon.profile.pending_first_report" &&
     input.errorCode !== "service.update_required" &&
     input.errorCode !== "local_service.identity_mismatch"
   ) {
@@ -3312,7 +3317,7 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
     });
   }
 
-  return await recordOfflineRouteHeadWaiting({
+  return await recordUnavailableRouteHeadWaiting({
     db: input.db,
     dispatchMessage: input.dispatchMessage,
     env: input.env,
@@ -3416,11 +3421,11 @@ const resolvePreExecutionVisibleFailureTargetLabel = (
     : "the agent";
 };
 
-const recordOfflineRouteHeadWaiting = async (input: {
+const recordUnavailableRouteHeadWaiting = async (input: {
   db: D1Database;
   dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
   env: CoreBindings;
-  errorCode: string;
+  errorCode: "daemon.profile.offline" | "daemon.profile.pending_first_report";
   errorMessage: string;
   executionAttemptId: string;
   failureAtMs: number;
@@ -3428,6 +3433,12 @@ const recordOfflineRouteHeadWaiting = async (input: {
   ownerUserId: string;
   queueAttempt: number;
 }): Promise<{ handled: boolean; shouldAck: boolean }> => {
+  const waitingPolicy = resolveRuntimeCoordinatorHeadWaitingPolicy(
+    input.errorCode
+  );
+  const waitingDecision = resolveRuntimeCoordinatorHeadWaitingDecision(
+    input.errorCode
+  );
   const targetWakeLifecycleIdentity = projectTargetWakeLifecycleIdentity({
     clientMessageId: input.dispatchMessage.sourceClientMessageId ?? null,
     dispatchId: input.dispatchMessage.dispatchId,
@@ -3444,10 +3455,8 @@ const recordOfflineRouteHeadWaiting = async (input: {
       idempotencyKey: input.dispatchMessage.idempotencyKey,
       observedAtMs: input.failureAtMs,
       ownerUserId: input.ownerUserId,
-      reasonCode: "daemon.profile.offline",
       targetWakeLifecycleIdentity,
-      userRecoveryAction: "start_or_restart_openmeld_service",
-      waitingCategory: "service_not_connected",
+      ...waitingDecision,
     },
   });
 
@@ -3531,15 +3540,14 @@ const recordOfflineRouteHeadWaiting = async (input: {
       softDeadlineAtMs: response.softDeadlineAtMs,
       targetProfileId: input.dispatchMessage.targetProfileId,
       targetWakeLifecycleId: response.targetWakeLifecycleId,
-      trigger: "openmeld_service_route_connected",
+      trigger: waitingPolicy.trigger,
       queueRedeliveryRole: "fallback_trigger",
       userRecoveryAction: response.userRecoveryAction,
       waitingCategory: response.waitingCategory,
     },
     decidedBy: "core.dispatch_queue.runtime_coordinator_head",
     decidedAtMs: input.failureAtMs,
-    expectedRecoveryCriteria:
-      "RuntimeCoordinator head owns the service-offline waiting boundary; OpenMeld Service route reconnect is the primary recovery trigger and Queue redelivery is only a fallback.",
+    expectedRecoveryCriteria: `RuntimeCoordinator head owns this waiting boundary; ${waitingPolicy.trigger} is the primary recovery trigger and Queue redelivery is only a fallback.`,
     source: "dispatch_queue",
     correlationId: input.dispatchMessage.dispatchId,
   });

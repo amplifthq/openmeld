@@ -400,17 +400,30 @@ only as refresh signals and re-reads Core.
 
 The Center Agent outer-rail destination independently shows a static amber
 unread dot for final replies in the current member's Center Agent Direct
-Message. Full rails place it immediately after the label; compact and collapsed
-rails attach it to the icon corner. Web clears this projection only after the
-Center Agent conversation is visible and held at the latest message for the
-read debounce, then writes the Core-owned monotonic read-through watermark.
-Inbox deep links include the exact source Signal selector so opening an item
-returns to the relevant reply instead of merely opening the conversation root.
+Message. Core excludes converted Direct Messages from this summary; their
+unread replies activate only the Spaces destination that now owns the
+conversation. Full rails place the Center Agent dot immediately after the label;
+compact and collapsed rails attach it to the icon corner. Web clears this
+projection only after the Center Agent conversation is visible and held at the
+latest message for the read debounce, then writes the Core-owned monotonic
+read-through watermark. Inbox deep links include the exact source Signal
+selector so opening an item returns to the relevant reply instead of merely
+opening the conversation root.
 
 The Spaces secondary sidebar consumes the Core-owned grouped unread Space
 message summary alongside the Account Space Index. It shows one static amber
 dot and an accessible unread label on visible Space rows. Unpinned unread Spaces
 appear first by newest unread Signal occurrence; pinned order remains member-controlled.
+The Spaces destination in the outer app rail consumes the Core summary's
+complete `ordinarySpaceUnreadCount` aggregate. It shows one static amber dot
+whenever at least one ordinary Space has unread messages, including while the
+member is elsewhere in OpenMeld. Its accessible label reports the total unread
+ordinary Space message count. Web does not derive this total by intersecting the
+independently bounded grouped summary and Account Space Index, and it shows no
+dot while an older Core omits the additive aggregate. Full rails place the dot
+after the Spaces label; compact and collapsed rails attach it to the icon
+corner. The outer dot is an aggregate wayfinding cue only: the Spaces secondary
+sidebar remains the surface that identifies the exact unread Spaces.
 Each row presents exactly one trailing visual status: current agent work first,
 then unread attention, then the persistent pin for an otherwise idle pinned
 Space. Hover or keyboard focus replaces that status with the pin action so the
@@ -759,8 +772,8 @@ rows and conditionally omits private fields. Accounts, executable or
 installation paths, launch arguments, update commands, private skills,
 owner-only actions, and Agent Profile lists remain absent.
 
-An Organization Computer summary uses the concise status label **Not
-connected** because the card already establishes the Computer context. Its
+An Organization Computer summary uses the concise status label **Computer
+offline**. Its
 detail diagnostics keep the precise **OpenMeld Service is not connected**
 language so the owner knows which product component needs recovery. Both
 surfaces derive the tone and state from the same Organization Computer
@@ -1460,7 +1473,10 @@ overflow count, Computer access, Connected Channels, shared Profile details,
 and the permitted Direct Message, edit, connect, or manage actions. The Work
 access row uses the same Computer projection and status tone as Computers and
 links to the member's sole Computer detail, or the Computers home when the
-member has multiple Computers. **More → Edit
+member has multiple Computers. The Agent Profile count links to Agents and
+focuses the first Agent Profile in that member's owner group. Member-account,
+Channel-account, Profile, and advanced-detail values are text-selectable.
+**More → Edit
 profile** remains available only for the signed-in member's own active default
 Human Profile. The drawer and card omit the internal Handle, undefined recent
 activity, and the ubiquitous **Active** state; only an exceptional disabled
@@ -1488,10 +1504,13 @@ and keeps the learning action beside Direct Message when both are available.
 compatibility contracts.
 
 In an Organization workspace, People reads the Organization Computer
-projection and shows a concrete summary on every Human Profile card: **1
-computer connected**, **2 computers connected**, **1 computer needs
-attention**, **No computer connected**, **2 computers not connected**, or
-**Computer status unavailable**.
+projection and shows a concrete summary on every Human Profile card. Exactly
+one online Computer is **Computer connected**. Two or more online Computers are
+**2 computers connected**, **3 computers connected**, and so on. A mixed set
+summarizes only the online count, while an all-offline set is **Computer
+offline** without a number. Zero registered Computers remains **Connect a
+computer** for the signed-in member and **No computer connected** for a
+teammate. Attention and unavailable states remain explicit.
 The footer Computer icon uses the same state without a separate dot: green
 for connected, amber for attention, and muted otherwise. One Computer opens its
 detail; multiple Computers open the Computers home. The signed-in member with
@@ -1504,13 +1523,13 @@ to the same summary so status and navigation remain legible in the denser
 detail layout.
 
 People reads Message Channel connections and their Core-owned identity-link
-projection together. Connected identity state is absent when the Organization
-has no Slack, Lark, or Feishu Channel. Otherwise every card footer shows the
-same provider logos with a coarse linked, not-linked, or needs-attention state.
-For the signed-in member only, a ready Organization Channel with no member link
-becomes a provider-specific card action such as **Connect Slack**, **Connect
-Lark**, or **Connect Feishu**. It opens the existing private provider-proof
-flow; it never assigns a Channel account merely because the card was selected.
+projection together. Every card footer shows the relevant provider logos. A
+missing, unavailable, or unconfigured account renders as a muted logo without
+card copy; **Set up**, **Connection unavailable**, and **No account connected**
+belong only in the details flow. For the signed-in member, the logo remains a
+provider-specific action such as **Connect Slack**, **Connect Lark**, or
+**Connect Feishu** when that action is available. It opens the existing private
+provider-proof flow; it never assigns a Channel account merely because the card was selected.
 When the Organization has not configured that provider, the same connection
 panel gives an owner or admin **Set up Slack**, **Set up Lark**, or **Set up
 Feishu** and gives an ordinary member **Ask an admin to set up {provider}**.
@@ -1518,14 +1537,16 @@ The member action creates one deduplicated Organization Inbox request for every
 current owner and admin instead of granting Organization mutation authority.
 That request links directly to **Center Agent → Channels** and resolves when the
 Organization connects the provider.
-Teammates retain the non-actionable coarse state. The drawer exposes the same
+Teammates retain the non-actionable muted logo. The drawer exposes the same
 self-only connection action and keeps a mapped identity visible as unavailable
-when that provider connection needs repair. The drawer presents an account
-email only when the canonical projection provides one; it never uses a provider
-display name as the account identifier or guesses an email. For Slack, Core
-resolves the email for the exact linked Slack user through the connected
-Organization workspace; if Slack does not return one, Web says **Account email
-unavailable**. The current member can use **Reconnect Slack** to refresh a
+when that provider connection needs repair. All status copy remains neutral
+gray rather than amber. When available, the drawer and connected card state
+show the provider account name or handle first and the exact provider email
+second, separated by a middle dot. Either field may be absent, and Web never
+infers one from the other. For Slack, Core
+resolves the display metadata for the exact linked Slack user through the
+connected Organization workspace; if neither field is available, Web says
+**Account details unavailable**. The current member can use **Reconnect Slack** to refresh a
 legacy identity proof without disconnecting first. An admin cannot perform that
 provider identity proof on another member's behalf.
 Self and Channel managers may disconnect a wrong mapping; replacement still
@@ -2170,6 +2191,12 @@ shows their source and current status, and exposes only the actions the member
 may perform: approve or decline as target owner, cancel as requester, retry a
 failed request, or open the created Agent. A request deep link from Inbox opens
 and focuses this same view; Web does not add another request-management home.
+An approved request is shown as **Creating Agent** and offers no cancellation
+action because Web treats approval as an active creation handoff. Core may still
+be between the durable approval write and its compare-and-swap creation claim;
+the recovery scan covers that gap as well as an abandoned claimed attempt. Any
+handoff that Core cannot finish becomes an explicit failed request with Retry
+instead of remaining indefinitely approved.
 
 **Request Agent for teammate** starts a new-Session request for an exact member
 from the current Organization directory. Existing-Session selection belongs on

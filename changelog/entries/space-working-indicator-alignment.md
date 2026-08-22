@@ -1,11 +1,12 @@
 ---
 id: space-working-indicator-alignment
-title: Keep Space working indicators in sync
-kind: fixed
+title: See active and unread Spaces at a glance
+kind: improved
 areas: ["spaces", "web"]
 audiences: ["members"]
 ---
 
-When an open Space shows that an agent is working, its sidebar row now shows
-the same Working orb instead of the idle pin. Finished or expired work still
-clears the orb.
+The Spaces sidebar now shows a Working orb for every Space with an active agent,
+even before you open it. A static amber dot on the main Spaces navigation also
+lets you know when any Space has unread messages, then the Spaces sidebar shows
+which conversations need your attention.

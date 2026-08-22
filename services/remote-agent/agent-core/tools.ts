@@ -96,6 +96,7 @@ import {
   createAgentProfileCreationRequestResponseSchema,
   createCenterAgentRoutineResponseSchema,
   createCenterAgentTaskResponseSchema,
+  DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
   deleteCenterAgentRoutineResponseSchema,
   executeExecutionRecoveryBodySchema,
   executeExecutionRecoveryResponseSchema,
@@ -362,12 +363,21 @@ const createSpaceToolInputSchema = object({
   ...createSpaceCommonInputEntries,
   access: optional(createSpaceAccessInputSchema),
 });
-const createAgentProfileRequestToolInputSchema = strictObject({
-  nativeSessionId: optional(trimmedNonEmptyStringSchema),
+const createAgentProfileRequestCommonInputEntries = {
   profileName: trimmedNonEmptyStringSchema,
   requestedSpaceId: optional(trimmedNonEmptyStringSchema),
-  sessionStrategy: picklist(["new", "resume", "fork"]),
   targetOwnerUserId: trimmedNonEmptyStringSchema,
+};
+const agentProfileRequestSessionSelectionInputSchema = strictObject({
+  agentControllerRef: trimmedNonEmptyStringSchema,
+  computerId: trimmedNonEmptyStringSchema,
+  nativeSessionId: trimmedNonEmptyStringSchema,
+  projectId: trimmedNonEmptyStringSchema,
+});
+const createAgentProfileRequestToolInputSchema = strictObject({
+  ...createAgentProfileRequestCommonInputEntries,
+  sessionSelection: optional(agentProfileRequestSessionSelectionInputSchema),
+  sessionStrategy: picklist(["new", "resume", "fork"]),
 });
 const manageAgentProfileRequestToolInputSchema = strictObject({
   action: picklist(["approve", "decline", "cancel", "retry"]),
@@ -3918,7 +3928,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_create_agent_profile_request",
       description:
-        "Create one auditable Agent Profile request for the represented member or a teammate in the current Organization. Use openmeld_read_organization_directory first and pass the exact target member user ID. New-session requests may complete immediately or follow the target owner's approval preference. Resume and Fork require the exact provider-native Session ID exposed by Agent Activity; preserve it unchanged. OpenMeld currently returns an explicit unavailable result until that Session can be verified. requestedSpaceId records the intended collaboration Space but does not grant membership. Use this request tool instead of openmeld_create_agent_profile when the target owner is another teammate.",
+        'Create one auditable Agent Profile request for the represented member or a teammate in the current Organization. Use openmeld_read_organization_directory first and pass the exact target member user ID. New-session requests may complete immediately or follow the target owner\'s approval preference. For Resume or Fork, first call openmeld_list_agent_activity_sessions and copy nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row into sessionSelection. Preserve every value unchanged. A Session with bindingState "unbound" is valid and expected for Fork; Fork requires canFork, while Resume requires canResume and an unbound Session. requestedSpaceId records the intended collaboration Space but does not grant membership. Use this request tool instead of openmeld_create_agent_profile when the target owner is another teammate.',
       input: createAgentProfileRequestToolInputSchema,
       execute: async (payload) => {
         const requestInput = parseValibot(
@@ -3934,8 +3944,41 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
           input.coreWorker.centerAgentCreateAgentProfileCreationRequest,
           "centerAgentCreateAgentProfileCreationRequest"
         );
+        const coreRequestInput = (() => {
+          if (requestInput.sessionStrategy === "new") {
+            if (requestInput.sessionSelection !== undefined) {
+              throw new Error(
+                "A new Session request must not include an existing Session selection."
+              );
+            }
+            const { sessionSelection: _sessionSelection, ...newSessionInput } =
+              requestInput;
+            return newSessionInput;
+          }
+          const sessionSelection = requestInput.sessionSelection;
+          if (!sessionSelection) {
+            throw new Error(
+              "Resume and Fork require one complete Session selection from Agent Activity."
+            );
+          }
+          return {
+            configuration: {
+              ...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+              agentControllerRef: sessionSelection.agentControllerRef,
+              defaultProjectId: sessionSelection.projectId,
+              targetComputerId: sessionSelection.computerId,
+            },
+            nativeSessionId: sessionSelection.nativeSessionId,
+            profileName: requestInput.profileName,
+            ...(requestInput.requestedSpaceId === undefined
+              ? {}
+              : { requestedSpaceId: requestInput.requestedSpaceId }),
+            sessionStrategy: requestInput.sessionStrategy,
+            targetOwnerUserId: requestInput.targetOwnerUserId,
+          };
+        })();
         return createAgentProfileCreationRequestResponseSchema.parse(
-          await rpc({ ...requestInput, ...toolContext })
+          await rpc({ ...coreRequestInput, ...toolContext })
         );
       },
     }),

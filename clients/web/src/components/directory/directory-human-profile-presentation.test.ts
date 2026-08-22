@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	formatDirectoryActivity,
 	resolveDirectoryIdentityAccountCardLabel,
+	resolveDirectoryIdentityAccountIdentity,
 } from "./directory-human-profile-format";
 
 describe("formatDirectoryActivity", () => {
@@ -28,10 +29,12 @@ describe("formatDirectoryActivity", () => {
 	});
 });
 
-describe("resolveDirectoryIdentityAccountCardLabel", () => {
-	it("offers the current member a provider-specific connect action", () => {
+describe("Message Channel identity labels", () => {
+	it("keeps setup and unavailable copy off the profile card", () => {
 		expect(
 			resolveDirectoryIdentityAccountCardLabel({
+				accountEmail: null,
+				accountName: null,
 				action: {
 					kind: "authorize",
 					label: "Connect Slack",
@@ -41,25 +44,40 @@ describe("resolveDirectoryIdentityAccountCardLabel", () => {
 				channelsPath: "/o/acme/channels",
 				id: null,
 				provider: "slack",
-				accountEmail: null,
 				providerLabel: "Slack",
 				state: "not_connected",
 			})
-		).toBe("Connect Slack");
+		).toBeNull();
 	});
 
-	it("describes an unconnected account without inventing an action", () => {
+	it("keeps an unconnected provider as a logo-only card state", () => {
 		expect(
 			resolveDirectoryIdentityAccountCardLabel({
+				accountEmail: null,
+				accountName: null,
 				action: null,
 				canDisconnect: false,
 				channelsPath: null,
 				id: null,
 				provider: "lark",
-				accountEmail: null,
 				providerLabel: "Lark",
 				state: "not_connected",
 			})
-		).toBe("No account connected");
+		).toBeNull();
+	});
+
+	it("combines a provider handle and verified email without duplicating legacy email-shaped names", () => {
+		expect(
+			resolveDirectoryIdentityAccountIdentity({
+				accountEmail: "felix@amplift.ai",
+				accountName: "@felix",
+			})
+		).toBe("@felix · felix@amplift.ai");
+		expect(
+			resolveDirectoryIdentityAccountIdentity({
+				accountEmail: null,
+				accountName: "felix@amplift.ai",
+			})
+		).toBeNull();
 	});
 });

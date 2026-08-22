@@ -6,7 +6,7 @@ areas: ["agent-activity", "cli"]
 audiences: ["members"]
 ---
 
-OpenMeld now skips retained Local Agent Sessions that are clearly outside every
-connected Project before accessing their local paths. An unavailable old
-workspace no longer blocks the current Project's Session Inventory from
-syncing.
+OpenMeld now keeps Session Inventory syncing when an old workspace path is
+unavailable, and correctly attributes Sessions opened through arbitrary symlink
+aliases to the Project that owns the real target path. Path lookup failures
+affect only that Session instead of blocking the current Project's inventory.

@@ -298,7 +298,7 @@ describe("DirectoryMembersOverview", () => {
 		expect(
 			(
 				await screen.findByRole("link", {
-					name: "Felix: 1 computer connected",
+					name: "Felix: Computer connected",
 				})
 			).getAttribute("href")
 		).toBe("/o/felix/computers/computer-felix");
@@ -477,9 +477,7 @@ describe("DirectoryMembersOverview", () => {
 		}
 		expect(within(adaCard).getByText("Ada Lovelace")).toBeTruthy();
 		expect(within(adaCard).getByText("ada@example.com")).toBeTruthy();
-		expect(
-			await within(adaCard).findByText("1 computer connected")
-		).toBeTruthy();
+		expect(await within(adaCard).findByText("Computer connected")).toBeTruthy();
 		expect(within(adaCard).queryByText(HANDLE_PATTERN)).toBeNull();
 		expect(within(adaCard).queryByText(RECENT_ACTIVITY_PATTERN)).toBeNull();
 		expect(within(adaCard).queryByText("Active")).toBeNull();
@@ -506,7 +504,7 @@ describe("DirectoryMembersOverview", () => {
 			throw new Error("Expected Grace's Human Profile card.");
 		}
 		expect(
-			await within(graceCard).findByText("1 computer needs attention")
+			await within(graceCard).findByText("Computer needs attention")
 		).toBeTruthy();
 		expect(within(graceCard).queryByText(HANDLE_PATTERN)).toBeNull();
 		expect(within(graceCard).queryByText("Active")).toBeNull();
@@ -717,7 +715,7 @@ describe("DirectoryMembersOverview", () => {
 		expect(within(detailsDialog).getByText("Member account")).toBeTruthy();
 		expect(within(detailsDialog).getByText("Work access")).toBeTruthy();
 		const computerLink = within(detailsDialog).getByRole("link", {
-			name: "Open Grace Hopper's computer details: 1 computer needs attention",
+			name: "Open Grace Hopper's computer details: Computer needs attention",
 		});
 		expect(computerLink.getAttribute("href")).toBe(
 			"/o/acme/computers/computer%3Acomputer-grace"
@@ -727,7 +725,13 @@ describe("DirectoryMembersOverview", () => {
 				.className
 		).toContain("bg-amber");
 		expect(within(detailsDialog).getByText("Agent Profiles")).toBeTruthy();
-		expect(within(detailsDialog).getByText("4 Agent Profiles")).toBeTruthy();
+		const agentProfilesLink = within(detailsDialog).getByRole("link", {
+			name: "View Grace Hopper's Agent Profiles",
+		});
+		expect(agentProfilesLink.textContent).toBe("4 Agent Profiles");
+		expect(agentProfilesLink.getAttribute("href")).toBe(
+			"/o/acme/agents?profileId=agent-grace-claude"
+		);
 		expect(
 			within(detailsDialog).getAllByTestId("agent-profile-summary-icon")
 		).toHaveLength(3);
@@ -940,16 +944,15 @@ describe("DirectoryMembersOverview", () => {
 		if (!(adaCard && graceCard)) {
 			throw new Error("Expected both Organization Human Profile cards.");
 		}
-		const connectedStatus = await within(adaCard).findByText(
-			"1 computer connected"
-		);
+		const connectedStatus =
+			await within(adaCard).findByText("Computer connected");
 		const needsAttentionStatus = await within(graceCard).findByText(
-			"1 computer needs attention"
+			"Computer needs attention"
 		);
 		expect(connectedStatus).toBeTruthy();
 		expect(needsAttentionStatus).toBeTruthy();
 		const computerLink = within(adaCard).getByRole("link", {
-			name: "Ada Lovelace: 1 computer connected",
+			name: "Ada Lovelace: Computer connected",
 		});
 		expect(computerLink.getAttribute("href")).toBe(
 			"/o/acme/computers/computer%3Acomputer-ada"
@@ -983,7 +986,7 @@ describe("DirectoryMembersOverview", () => {
 		const queryClient = createTestQueryClient();
 		renderOverview({ isPersonal: false }, queryClient);
 
-		expect(await screen.findByText("1 computer connected")).toBeTruthy();
+		expect(await screen.findByText("Computer connected")).toBeTruthy();
 		readCurrentOrganizationComputersMock.mockRejectedValue(
 			new Error("Runtime Transport refresh failed")
 		);
@@ -995,7 +998,7 @@ describe("DirectoryMembersOverview", () => {
 		});
 
 		await waitFor(() => {
-			expect(screen.queryByText("1 computer connected")).toBeNull();
+			expect(screen.queryByText("Computer connected")).toBeNull();
 		});
 		expect(
 			await screen.findAllByText("Computer status unavailable")
@@ -1021,7 +1024,7 @@ describe("DirectoryMembersOverview", () => {
 		});
 		renderOverview({ isPersonal: false });
 
-		expect(await screen.findByText("1 computer not connected")).toBeTruthy();
+		expect(await screen.findByText("Computer offline")).toBeTruthy();
 		expect(screen.getByText("Computer status unavailable")).toBeTruthy();
 		const profileCards = await screen.findAllByTestId(
 			"organization-human-profile-row"
@@ -1035,6 +1038,46 @@ describe("DirectoryMembersOverview", () => {
 				name: "Grace Hopper: Computer status unavailable",
 			})
 		).toBeTruthy();
+	});
+
+	it("counts only multiple online Computers and summarizes an all-offline set without a number", async () => {
+		readCurrentOrganizationComputersMock.mockResolvedValue({
+			computers: [
+				buildComputer({
+					computerId: "computer-ada-primary",
+					ownerUserId: "user-ada",
+					serviceState: "connected",
+				}),
+				buildComputer({
+					computerId: "computer-ada-secondary",
+					ownerUserId: "user-ada",
+					serviceState: "connected",
+				}),
+				buildComputer({
+					computerId: "computer-ada-offline",
+					ownerUserId: "user-ada",
+					serviceState: "not_connected",
+				}),
+				buildComputer({
+					computerId: "computer-grace-primary",
+					ownerUserId: "user-grace",
+					serviceState: "not_connected",
+				}),
+				buildComputer({
+					computerId: "computer-grace-secondary",
+					ownerUserId: "user-grace",
+					serviceState: "not_connected",
+				}),
+			],
+			generatedAt: "2026-07-16T00:00:00.000Z",
+			organizationId: "org-acme",
+		});
+		renderOverview({ isPersonal: false });
+
+		expect(await screen.findByText("2 computers connected")).toBeTruthy();
+		expect(screen.getByText("Computer offline")).toBeTruthy();
+		expect(screen.queryByText("2 computers offline")).toBeNull();
+		expect(screen.queryByText("2 of 3 computers connected")).toBeNull();
 	});
 
 	it("opens an existing current-user Computer instead of offering first-time setup", async () => {
@@ -1060,7 +1103,7 @@ describe("DirectoryMembersOverview", () => {
 		expect(
 			(
 				await within(currentCard).findByRole("link", {
-					name: "Felix: 1 computer not connected",
+					name: "Felix: Computer offline",
 				})
 			).getAttribute("href")
 		).toBe("/o/acme/computers/computer-felix");
@@ -1134,7 +1177,7 @@ describe("DirectoryMembersOverview", () => {
 		}
 		expect(
 			await within(currentCard).findByRole("button", {
-				name: "Slack account: felix@amplift.ai",
+				name: "Slack account: @felix · felix@amplift.ai",
 			})
 		).toBeTruthy();
 		expect(
@@ -1142,7 +1185,7 @@ describe("DirectoryMembersOverview", () => {
 				name: "Connect Lark",
 			})
 		).toBeTruthy();
-		expect(within(currentCard).getByText("Connect Lark")).toBeTruthy();
+		expect(within(currentCard).queryByText("Connect Lark")).toBeNull();
 		expect(
 			within(currentCard)
 				.getByTestId("app-logo-slack")
@@ -1153,21 +1196,32 @@ describe("DirectoryMembersOverview", () => {
 				.getByTestId("app-logo-lark")
 				.classList.contains("grayscale")
 		).toBe(true);
-		expect(within(currentCard).getByText("felix@amplift.ai")).toBeTruthy();
+		expect(
+			within(currentCard).getByText("@felix · felix@amplift.ai")
+		).toBeTruthy();
 		expect(within(currentCard).queryByText("Linked")).toBeNull();
 		fireEvent.click(
 			within(currentCard).getByRole("button", {
-				name: "Slack account: felix@amplift.ai",
+				name: "Slack account: @felix · felix@amplift.ai",
 			})
 		);
 		const identityDrawer = await screen.findByRole("dialog", {
 			name: "Profile",
 		});
-		expect(within(identityDrawer).getByText("felix@amplift.ai")).toBeTruthy();
+		expect(
+			within(identityDrawer).getByText("@felix · felix@amplift.ai")
+		).toBeTruthy();
 		expect(within(identityDrawer).queryByText("Linked")).toBeNull();
-		fireEvent.click(
-			within(identityDrawer).getByRole("button", { name: "Manage" })
-		);
+		const manageButton = within(identityDrawer).getByRole("button", {
+			name: "Manage",
+		});
+		expect(manageButton.className).toContain("border-input");
+		fireEvent.click(manageButton);
+		expect(
+			await screen.findByText(
+				"Disconnect this account from Felix. The Organization's Slack connection will stay active."
+			)
+		).toBeTruthy();
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Disconnect account" })
 		);
@@ -1217,7 +1271,7 @@ describe("DirectoryMembersOverview", () => {
 			"/slack/identity/start?organization_slug=acme"
 		);
 		expect(within(currentCard).queryByText("felix@amplift.ai")).toBeNull();
-		expect(within(currentCard).getByText("Reconnect Slack")).toBeTruthy();
+		expect(within(currentCard).queryByText("Reconnect Slack")).toBeNull();
 
 		fireEvent.click(
 			within(currentCard).getByRole("button", {
@@ -1229,7 +1283,7 @@ describe("DirectoryMembersOverview", () => {
 		});
 		expect(within(profileDrawer).queryByText("felix@amplift.ai")).toBeNull();
 		expect(
-			within(profileDrawer).getByText("Account email unavailable")
+			within(profileDrawer).getByText("Account details unavailable")
 		).toBeTruthy();
 	});
 
@@ -1278,7 +1332,7 @@ describe("DirectoryMembersOverview", () => {
 				.getByTestId("app-logo-slack")
 				.classList.contains("grayscale")
 		).toBe(true);
-		expect(within(currentCard).getByText("Connect Slack")).toBeTruthy();
+		expect(within(currentCard).queryByText("Connect Slack")).toBeNull();
 		expect(within(currentCard).queryByText("@grace")).toBeNull();
 		expect(screen.queryByRole("dialog", { name: "Profile" })).toBeNull();
 	});
@@ -1332,13 +1386,18 @@ describe("DirectoryMembersOverview", () => {
 				throw new Error("Expected the refreshed current member card.");
 			}
 			expect(
-				within(refreshedCurrentCard).getAllByText("Connection unavailable")
-					.length
-			).toBeGreaterThan(0);
+				within(refreshedCurrentCard).queryByText("Connection unavailable")
+			).toBeNull();
 		});
+		const unavailableLabels = within(identityDrawer).getAllByText(
+			"Connection unavailable"
+		);
+		expect(unavailableLabels.length).toBeGreaterThan(0);
 		expect(
-			within(identityDrawer).getAllByText("Connection unavailable").length
-		).toBeGreaterThan(0);
+			unavailableLabels.every(
+				(label) => !label.className.includes("text-amber")
+			)
+		).toBe(true);
 		expect(
 			within(identityDrawer).queryByRole("link", { name: "Connect Slack" })
 		).toBeNull();
@@ -1375,12 +1434,12 @@ describe("DirectoryMembersOverview", () => {
 		}
 		expect(
 			await within(graceCard).findByRole("button", {
-				name: "Slack account: Account email unavailable",
+				name: "Slack account: @grace",
 			})
 		).toBeTruthy();
 		fireEvent.click(
 			within(graceCard).getByRole("button", {
-				name: "Slack account: Account email unavailable",
+				name: "Slack account: @grace",
 			})
 		);
 		expect(
@@ -1403,9 +1462,10 @@ describe("DirectoryMembersOverview", () => {
 		expect(screen.queryByText("Connected Channels")).toBeNull();
 		expect(
 			await within(currentCard).findByRole("button", {
-				name: "Connect a channel",
+				name: "Ask an admin to set up Slack",
 			})
 		).toBeTruthy();
+		expect(within(currentCard).queryByText("Set up Slack")).toBeNull();
 		fireEvent.click(
 			within(currentCard).getByRole("button", {
 				name: "Open Felix's profile",

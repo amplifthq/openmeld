@@ -201,6 +201,9 @@ export const spaceInboxSummaryItemSchema = z.strictObject({
 });
 
 export const spaceInboxSummaryResponseSchema = z.strictObject({
+  // Optional for consumer-first rollout: older Core deployments omit this
+  // aggregate while newer Web and Gateway readers already accept the shape.
+  ordinarySpaceUnreadCount: z.number().int().nonnegative().optional(),
   organizationId: identifierSchema,
   spaces: z
     .array(spaceInboxSummaryItemSchema)

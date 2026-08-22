@@ -1,3 +1,4 @@
+import { INBOX_SPACE_SUMMARY_MAX_SPACES } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 import { createInboxService } from "../src/inbox/application/inbox-service";
@@ -548,6 +549,7 @@ describe("Inbox service", () => {
           recipientUserId: "user_one",
         })
       ).resolves.toEqual({
+        ordinarySpaceUnreadCount: 4,
         organizationId: "org_one",
         spaces: [
           {
@@ -562,6 +564,77 @@ describe("Inbox service", () => {
           },
         ],
       });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("keeps the ordinary Space unread total complete beyond the grouped summary limit", async () => {
+    const harness = createInboxHarness();
+    try {
+      const unreadSpaceCount = INBOX_SPACE_SUMMARY_MAX_SPACES + 1;
+      seedBulkUnreadOrdinarySpaces(harness, unreadSpaceCount);
+      const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
+
+      const summary = await service.spaceSummary({
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      });
+      expect(summary.ordinarySpaceUnreadCount).toBe(unreadSpaceCount);
+      expect(summary.spaces).toHaveLength(INBOX_SPACE_SUMMARY_MAX_SPACES);
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("moves a converted Center Agent Direct Message unread update to only the Spaces destination", async () => {
+    const harness = createInboxHarness();
+    try {
+      seedCenterAgentDirectMessageSpace(harness, {
+        recipientProfileId: "profile_one",
+        spaceId: "space_one",
+      });
+      await seedCenterAgentSpaceItem(harness.db, {
+        occurredAtMs: 1000,
+        recipientUserId: "user_one",
+        sourceKey: "center_agent_direct_message_update",
+        spaceId: "space_one",
+      });
+      const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
+
+      await expect(
+        service.spaceSummary({
+          organizationId: "org_one",
+          recipientUserId: "user_one",
+        })
+      ).resolves.toMatchObject({ ordinarySpaceUnreadCount: 0 });
+      await expect(
+        service.centerAgentSummary({
+          organizationId: "org_one",
+          recipientUserId: "user_one",
+        })
+      ).resolves.toEqual({ organizationId: "org_one", unreadCount: 1 });
+
+      harness.run({
+        params: [3000, "space_one"],
+        sql: `
+          UPDATE space_index_spaces
+          SET direct_message_converted_at_ms = ?
+          WHERE space_id = ?
+        `,
+      });
+      await expect(
+        service.spaceSummary({
+          organizationId: "org_one",
+          recipientUserId: "user_one",
+        })
+      ).resolves.toMatchObject({ ordinarySpaceUnreadCount: 1 });
+      await expect(
+        service.centerAgentSummary({
+          organizationId: "org_one",
+          recipientUserId: "user_one",
+        })
+      ).resolves.toEqual({ organizationId: "org_one", unreadCount: 0 });
     } finally {
       harness.close();
     }
@@ -641,6 +714,7 @@ describe("Inbox service", () => {
           recipientUserId: "user_one",
         })
       ).resolves.toEqual({
+        ordinarySpaceUnreadCount: 1,
         organizationId: "org_one",
         spaces: [
           {
@@ -689,6 +763,7 @@ describe("Inbox service", () => {
           recipientUserId: "user_one",
         })
       ).resolves.toEqual({
+        ordinarySpaceUnreadCount: 1,
         organizationId: "org_one",
         spaces: [
           {
@@ -833,6 +908,126 @@ async function seedCenterAgentSpaceItem(
     },
     db,
     nowMs: 2000,
+  });
+}
+
+function seedBulkUnreadOrdinarySpaces(
+  harness: ReturnType<typeof createSqliteD1Harness>,
+  count: number
+): void {
+  harness.run({
+    params: [count],
+    sql: `
+      WITH RECURSIVE sequence(value) AS (
+        SELECT 0
+        UNION ALL
+        SELECT value + 1 FROM sequence WHERE value + 1 < ?
+      )
+      INSERT INTO space_index_spaces (
+        space_id,
+        organization_id,
+        organization_visibility,
+        status,
+        active_member_count,
+        source_updated_at_ms,
+        projected_at_ms,
+        projection_event_id
+      )
+      SELECT
+        'bulk_space_' || value,
+        'org_one',
+        'private',
+        'active',
+        1,
+        value + 1,
+        value + 1,
+        'bulk_space_projection_' || value
+      FROM sequence
+    `,
+  });
+  harness.run({
+    params: [count],
+    sql: `
+      WITH RECURSIVE sequence(value) AS (
+        SELECT 0
+        UNION ALL
+        SELECT value + 1 FROM sequence WHERE value + 1 < ?
+      )
+      INSERT INTO space_index_memberships (
+        space_id,
+        profile_id,
+        profile_kind_snapshot,
+        profile_name_snapshot,
+        owner_user_id_snapshot,
+        status,
+        member_source,
+        added_at_ms,
+        source_updated_at_ms,
+        projected_at_ms,
+        projection_event_id
+      )
+      SELECT
+        'bulk_space_' || value,
+        'bulk_profile_' || value,
+        'human',
+        'Bulk member',
+        'user_one',
+        'active',
+        'space',
+        value + 1,
+        value + 1,
+        value + 1,
+        'bulk_membership_projection_' || value
+      FROM sequence
+    `,
+  });
+  harness.run({
+    params: [count],
+    sql: `
+      WITH RECURSIVE sequence(value) AS (
+        SELECT 0
+        UNION ALL
+        SELECT value + 1 FROM sequence WHERE value + 1 < ?
+      )
+      INSERT INTO inbox_items (
+        id,
+        organization_id,
+        recipient_user_id,
+        kind,
+        attention,
+        importance,
+        title,
+        preview,
+        source_kind,
+        source_key,
+        source_target_json,
+        resolution_status,
+        occurred_at_ms,
+        created_at_ms,
+        updated_at_ms
+      )
+      SELECT
+        'bulk_inbox_' || value,
+        'org_one',
+        'user_one',
+        'space_message',
+        'update',
+        'normal',
+        'Unread Space message',
+        'A new message is waiting.',
+        'space_signal',
+        'bulk_signal_' || value,
+        json_object(
+          'kind', 'space',
+          'signalId', 'bulk_signal_' || value,
+          'spaceId', 'bulk_space_' || value
+        ),
+        'not_applicable',
+        value + 1,
+        value + 1,
+        value + 1
+      FROM sequence
+    `,
   });
 }
 

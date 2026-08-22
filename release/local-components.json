@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-22T06:58:39.786Z",
+  "updatedAt": "2026-08-22T15:24:57.036Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.81",
+      "packageVersion": "0.3.82",
       "updatePolicy": "available",
-      "reason": "Improves Agent creation, existing Session reuse, and Space member refresh behavior."
+      "reason": "Improves Space attention, People profiles, Agent creation recovery, Wake route recovery, and Center Agent session reuse."
     },
     "service": {
-      "bundleHash": "08b186df68981267a1dda4ce7da7101d0d97dc7668899774791656b4459b0a64",
-      "bundleVersion": "0.3.81",
+      "bundleHash": "2e7df95137c77ab0b088ac991255742dde80804a83c829be1dafeaee3e3d0013",
+      "bundleVersion": "0.3.82",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Improves Agent creation, existing Session reuse, and Space member refresh behavior."
+      "reason": "Improves Space attention, People profiles, Agent creation recovery, Wake route recovery, and Center Agent session reuse."
     },
     "skills": {
       "bundleHash": "5dd9f2f5bd322b54aa5ae09cae2189e79e75d17f39c9bc50583a80c083fd6d9a",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Improves Agent creation, existing Session reuse, and Space member refresh behavior."
+      "reason": "Improves Space attention, People profiles, Agent creation recovery, Wake route recovery, and Center Agent session reuse."
     }
   }
 }

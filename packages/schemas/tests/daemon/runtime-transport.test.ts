@@ -999,6 +999,55 @@ describe("runtime transport schema", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("keeps pending first-report waiting semantics distinct from service-offline recovery", () => {
+    const identity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-message-1",
+      dispatchId: "dispatch-pending-first-report-1",
+      sourceSignalId: "signal-1",
+      spaceId: "space-1",
+      targetProfileId: "agent-1",
+    });
+    const request = {
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      dispatchId: "dispatch-pending-first-report-1",
+      idempotencyKey: "signal-1::agent-1",
+      observedAtMs: 1_700_000_000_010,
+      ownerUserId: "owner-1",
+      reasonCode: "daemon.profile.pending_first_report",
+      targetWakeLifecycleIdentity: identity,
+      userRecoveryAction: "wait_for_wake_route_report",
+      waitingCategory: "wake_route_registration_pending",
+    };
+
+    expect(
+      runtimeTransportRuntimeCoordinatorHeadWaitingRequestSchema.safeParse(
+        request
+      ).success
+    ).toBe(true);
+    expect(
+      runtimeTransportRuntimeCoordinatorHeadWaitingResponseSchema.safeParse({
+        deadlineAtMs: 1_700_000_300_000,
+        nextTriggerAtMs: 1_700_000_030_000,
+        ok: true,
+        primaryDispatchId: "dispatch-pending-first-report-1",
+        reasonCode: "daemon.profile.pending_first_report",
+        runtimeCoordinatorExecutionId: null,
+        softDeadlineAtMs: 1_700_000_030_000,
+        status: "waiting",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        userRecoveryAction: "wait_for_wake_route_report",
+        waitingCategory: "wake_route_registration_pending",
+      }).success
+    ).toBe(true);
+    expect(
+      runtimeTransportRuntimeCoordinatorHeadWaitingRequestSchema.safeParse({
+        ...request,
+        userRecoveryAction: "start_or_restart_openmeld_service",
+        waitingCategory: "service_not_connected",
+      }).success
+    ).toBe(false);
+  });
+
   it("accepts legacy pre-execution handoff evidence-only responses", () => {
     const parsed = runtimeTransportPreExecutionHandoffResponseSchema.safeParse({
       deadlineAtMs: 1_700_000_030_000,

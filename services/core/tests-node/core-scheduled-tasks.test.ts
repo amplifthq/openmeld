@@ -105,6 +105,14 @@ describe("Core scheduled task dispatcher", () => {
       sent: 1,
       suppressed: 0,
     }));
+    const retryAgentProfileCreationRequestInboxProjections = vi.fn(
+      async () => ({ completed: 1, failed: 0, scanned: 1 })
+    );
+    const recoverStaleAgentProfileCreationRequests = vi.fn(async () => ({
+      markedFailed: 1,
+      scanned: 1,
+      superseded: 0,
+    }));
     const reconcileOrganizationDocumentInbox = vi.fn(async () => ({
       attempted: 0,
       errors: 0,
@@ -190,10 +198,12 @@ describe("Core scheduled task dispatcher", () => {
       nowMs: 1000,
       countStrandedSlackIngress,
       recoverCenterAgentTasks,
+      recoverStaleAgentProfileCreationRequests,
       retryCenterAgentTaskTerminalProjections,
       reconcileOrganizationDocumentInbox,
       reconcileSlackNativeDeliveryInbox,
       retryAgentTaskContinuations,
+      retryAgentProfileCreationRequestInboxProjections,
       retryCenterAgentWakePublications,
       retryInboxEmailDeliveries,
       retryPreHeadFailurePublications,
@@ -210,6 +220,16 @@ describe("Core scheduled task dispatcher", () => {
     });
 
     expect(runRoutineTick).toHaveBeenCalledTimes(1);
+    expect(recoverStaleAgentProfileCreationRequests).toHaveBeenCalledWith({
+      db: routineDatabase,
+      nowMs: 1000,
+    });
+    expect(
+      retryAgentProfileCreationRequestInboxProjections
+    ).toHaveBeenCalledWith({
+      db: routineDatabase,
+      nowMs: 1000,
+    });
     expect(retrySessionInventoryMemberCleanups).toHaveBeenCalledWith({
       db: routineDatabase,
       nowMs: 1000,

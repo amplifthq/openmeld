@@ -217,6 +217,17 @@ Important execution rules:
   Reconciliation is idempotent. A Wake already in `cancellation_requested`
   settles as cancelled when the task is absent; it must never be converted into
   a recoverable execution failure or resumed after the user's Stop.
+- After RuntimeCoordinator accepts a Wake head, an actual route lookup may
+  return `daemon.profile.pending_first_report` while the intended owner's
+  OpenMeld Service is still heartbeat-fresh but has not reported that Agent
+  Profile's Wake route. RuntimeCoordinator must keep that Wake in its durable
+  head-waiting boundary for the existing five-minute hard deadline and redrive
+  it when the route report arrives. Queue attempt count alone must not
+  terminalize the Wake during this window. If the bounded wait expires, failure
+  publication preserves `daemon.profile.pending_first_report` and explains that
+  the Service was connected but the agent did not become ready; it must not
+  normalize the outcome to `daemon.profile.offline` or tell the user to
+  reconnect the Service.
 - A `running` execution has no fixed total wall-clock timeout. Delivery start,
   reply finalization, and stale progress-evidence policies may have deadlines,
   but fresh accepted/running lifecycle or progress evidence keeps long-running

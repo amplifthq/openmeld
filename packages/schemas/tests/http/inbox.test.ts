@@ -192,6 +192,7 @@ describe("Inbox HTTP contracts", () => {
   it("describes unread Inbox updates by Space without duplicating Space metadata", () => {
     expect(
       spaceInboxSummaryResponseSchema.parse({
+        ordinarySpaceUnreadCount: 3,
         organizationId: "org_1",
         spaces: [
           {
@@ -202,6 +203,7 @@ describe("Inbox HTTP contracts", () => {
         ],
       })
     ).toEqual({
+      ordinarySpaceUnreadCount: 3,
       organizationId: "org_1",
       spaces: [
         {
@@ -211,6 +213,12 @@ describe("Inbox HTTP contracts", () => {
         },
       ],
     });
+    expect(
+      spaceInboxSummaryResponseSchema.parse({
+        organizationId: "org_1",
+        spaces: [],
+      })
+    ).toEqual({ organizationId: "org_1", spaces: [] });
     expect(
       spaceInboxSummaryResponseSchema.safeParse({
         organizationId: "org_1",

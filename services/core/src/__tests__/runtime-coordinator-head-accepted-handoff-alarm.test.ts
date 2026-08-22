@@ -12,6 +12,7 @@ import {
   RUNTIME_COORDINATOR_HEAD_LIFECYCLE_MODEL_VERSION,
   type RuntimeCoordinatorHeadLifecycleRecord,
   type RuntimeCoordinatorHeadWaitingBoundary,
+  resolveRuntimeCoordinatorHeadWaitingDecision,
 } from "../runtime-transport/application/runtime-coordinator-authority";
 import { processRuntimeCoordinatorHeadAcceptedHandoffAlarm } from "../runtime-transport/application/runtime-coordinator-head-accepted-handoff-alarm";
 
@@ -52,7 +53,12 @@ const buildHeadLifecycleRecord = (
 };
 
 const buildWaitingBoundary = (
-  overrides: Partial<RuntimeCoordinatorHeadWaitingBoundary> = {}
+  overrides: Partial<
+    Extract<
+      RuntimeCoordinatorHeadWaitingBoundary,
+      { reasonCode: "daemon.profile.offline" }
+    >
+  > = {}
 ): RuntimeCoordinatorHeadWaitingBoundary => ({
   deadlineAtMs: NOW_MS + 300_000,
   deadlineOutcome: "publication_intent_ready",
@@ -71,20 +77,23 @@ const buildWaitingBoundary = (
 
 const buildHeadWaitingResponse = (
   request: RuntimeTransportRuntimeCoordinatorHeadWaitingRequest
-): RuntimeTransportRuntimeCoordinatorHeadWaitingResponse => ({
-  deadlineAtMs: request.observedAtMs + 300_000,
-  nextTriggerAtMs: request.observedAtMs + 30_000,
-  ok: true,
-  primaryDispatchId: request.dispatchId,
-  reasonCode: request.reasonCode,
-  runtimeCoordinatorExecutionId: null,
-  softDeadlineAtMs: request.observedAtMs + 30_000,
-  status: "waiting",
-  targetWakeLifecycleId:
-    request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
-  userRecoveryAction: request.userRecoveryAction,
-  waitingCategory: request.waitingCategory,
-});
+): RuntimeTransportRuntimeCoordinatorHeadWaitingResponse => {
+  const waitingDecision = resolveRuntimeCoordinatorHeadWaitingDecision(
+    request.reasonCode
+  );
+  return {
+    deadlineAtMs: request.observedAtMs + 300_000,
+    nextTriggerAtMs: request.observedAtMs + 30_000,
+    ok: true,
+    primaryDispatchId: request.dispatchId,
+    runtimeCoordinatorExecutionId: null,
+    softDeadlineAtMs: request.observedAtMs + 30_000,
+    status: "waiting",
+    targetWakeLifecycleId:
+      request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+    ...waitingDecision,
+  };
+};
 
 describe("RuntimeCoordinator head accepted-handoff alarm processor", () => {
   it("records due accepted heads as waiting through explicit ports", async () => {

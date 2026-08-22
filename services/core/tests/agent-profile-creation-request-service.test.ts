@@ -3,13 +3,18 @@ import type {
   CreateAgentProfileCreationRequestBody,
 } from "@openmeld/schemas/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createAgentProfileCreationRequestInboxProjectionService } from "../src/agent-profile-creation-request/agent-profile-creation-request-inbox-projection";
 import {
+  AGENT_PROFILE_CREATION_STALE_AFTER_MS,
   AgentProfileCreationRequestConflictError,
   AgentProfileCreationRequestExecutionError,
   AgentProfileCreationRequestForbiddenError,
+  type AgentProfileCreationRequestInboxProjectionOperation,
+  type AgentProfileCreationRequestInboxProjectionRecord,
   type AgentProfileCreationRequestRecord,
   type AgentProfileCreationRequestRepository,
   createAgentProfileCreationRequestService,
+  failStaleAgentProfileCreationRequests,
 } from "../src/agent-profile-creation-request/agent-profile-creation-request-service";
 
 const NOW_MS = Date.parse("2026-08-20T10:00:00.000Z");
@@ -139,6 +144,26 @@ describe("Agent Profile creation request service", () => {
     ).rejects.toBeInstanceOf(AgentProfileCreationRequestConflictError);
   });
 
+  it("retries a failed Inbox projection when the same request is replayed", async () => {
+    projectApprovalInbox
+      .mockRejectedValueOnce(new Error("Inbox is temporarily unavailable."))
+      .mockResolvedValueOnce(undefined);
+    const service = createService();
+    const input = {
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    };
+
+    const first = await service.create(input);
+    const replay = await service.create(input);
+
+    expect(first.request.status).toBe("pending");
+    expect(replay).toEqual({ replayed: true, request: first.request });
+    expect(projectApprovalInbox).toHaveBeenCalledTimes(2);
+  });
+
   it("lets only the target owner approve and completes the request once", async () => {
     const service = createService();
     const created = await service.create({
@@ -166,7 +191,13 @@ describe("Agent Profile creation request service", () => {
 
     expect(approved.status).toBe("completed");
     expect(createAgentProfile).toHaveBeenCalledTimes(1);
-    expect(resolveApprovalInbox).toHaveBeenCalledWith(approved);
+    expect(resolveApprovalInbox).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: approved.id,
+        status: "approved",
+        statusReason: "target_approved",
+      })
+    );
   });
 
   it("lets the requester cancel a pending request", async () => {
@@ -189,6 +220,133 @@ describe("Agent Profile creation request service", () => {
       statusReason: "requester_cancelled",
     });
     expect(resolveApprovalInbox).toHaveBeenCalledWith(cancelled);
+  });
+
+  it("does not cancel a request after Profile creation has started", async () => {
+    const creation = deferred<string>();
+    createAgentProfile.mockReturnValueOnce(creation.promise);
+    const service = createService();
+    const created = await service.create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+
+    const approval = service.decide({
+      decision: "approve",
+      organizationId: "org-1",
+      requestId: created.request.id,
+      userId: "user-target",
+    });
+    await vi.waitFor(() => {
+      expect(createAgentProfile).toHaveBeenCalledTimes(1);
+    });
+
+    await expect(
+      service.cancel({
+        organizationId: "org-1",
+        requestId: created.request.id,
+        requesterUserId: "user-requester",
+      })
+    ).rejects.toThrow("This request can no longer be cancelled.");
+
+    creation.resolve("agt_11111111-1111-4111-8111-111111111111");
+    await expect(approval).resolves.toMatchObject({
+      createdAgentProfileId: "agt_11111111-1111-4111-8111-111111111111",
+      status: "completed",
+    });
+  });
+
+  it("lets only one concurrent retry execute Profile creation", async () => {
+    const service = createService();
+    const created = await service.create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+    createAgentProfile.mockRejectedValueOnce(new Error("Temporary failure"));
+    await expect(
+      service.decide({
+        decision: "approve",
+        organizationId: "org-1",
+        requestId: created.request.id,
+        userId: "user-target",
+      })
+    ).resolves.toMatchObject({ status: "failed" });
+
+    const retryCreation = deferred<string>();
+    createAgentProfile.mockReturnValue(retryCreation.promise);
+    const retries = Promise.allSettled([
+      service.retry({
+        organizationId: "org-1",
+        requestId: created.request.id,
+        userId: "user-requester",
+      }),
+      service.retry({
+        organizationId: "org-1",
+        requestId: created.request.id,
+        userId: "user-target",
+      }),
+    ]);
+    await vi.waitFor(() => {
+      expect(createAgentProfile).toHaveBeenCalledTimes(2);
+    });
+
+    retryCreation.resolve("agt_11111111-1111-4111-8111-111111111111");
+    const results = await retries;
+
+    expect(createAgentProfile).toHaveBeenCalledTimes(2);
+    expect(
+      results.some(
+        (result) =>
+          result.status === "fulfilled" && result.value.status === "completed"
+      )
+    ).toBe(true);
+  });
+
+  it("turns an abandoned creation claim into an explicit retryable failure", async () => {
+    const creation = deferred<string>();
+    createAgentProfile.mockReturnValueOnce(creation.promise);
+    const service = createService();
+    const created = await service.create({
+      actorProfileId: "human-requester",
+      body: requestBody(),
+      organizationId: "org-1",
+      requesterUserId: "user-requester",
+    });
+    const approval = service.decide({
+      decision: "approve",
+      organizationId: "org-1",
+      requestId: created.request.id,
+      userId: "user-target",
+    });
+    await vi.waitFor(() => {
+      expect(createAgentProfile).toHaveBeenCalledTimes(1);
+    });
+
+    await expect(
+      failStaleAgentProfileCreationRequests({
+        nowMs: NOW_MS + AGENT_PROFILE_CREATION_STALE_AFTER_MS + 10,
+        repository,
+      })
+    ).resolves.toEqual({ markedFailed: 1, scanned: 1, superseded: 0 });
+
+    creation.resolve("agt_11111111-1111-4111-8111-111111111111");
+    await expect(approval).resolves.toMatchObject({
+      failureMessage:
+        "OpenMeld lost contact while creating this Agent. Retry to continue safely.",
+      status: "failed",
+    });
+    await expect(
+      service.retry({
+        organizationId: "org-1",
+        requestId: created.request.id,
+        userId: "user-requester",
+      })
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(createAgentProfile).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the committed Profile visible when its requested setup fails", async () => {
@@ -219,13 +377,19 @@ describe("Agent Profile creation request service", () => {
   });
 
   function createService() {
+    const inboxProjection =
+      createAgentProfileCreationRequestInboxProjectionService({
+        now: () => NOW_MS,
+        project: projectApprovalInbox,
+        repository,
+        resolve: resolveApprovalInbox,
+      });
     return createAgentProfileCreationRequestService({
+      attemptInboxProjection: inboxProjection.attemptForRequest,
       createAgentProfile,
       now: () => NOW_MS,
-      projectApprovalInbox,
       randomUuid: () => "22222222-2222-4222-8222-222222222222",
       repository,
-      resolveApprovalInbox,
     });
   }
 });
@@ -243,11 +407,25 @@ function requestBody(
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 class InMemoryRepository implements AgentProfileCreationRequestRepository {
   preference: {
     existingSessionPolicy: AgentProfileCreationApprovalPolicy;
     newSessionPolicy: AgentProfileCreationApprovalPolicy;
   } | null = null;
+  private readonly inboxProjections = new Map<
+    string,
+    Omit<AgentProfileCreationRequestInboxProjectionRecord, "request">
+  >();
   private readonly records: AgentProfileCreationRequestRecord[] = [];
 
   findByIdempotencyKey(input: {
@@ -288,8 +466,57 @@ class InMemoryRepository implements AgentProfileCreationRequestRepository {
     );
   }
 
-  insert(record: AgentProfileCreationRequestRecord) {
+  getInboxProjectionByRequestId(requestId: string) {
+    const projection = this.inboxProjections.get(requestId);
+    const request = this.records.find((record) => record.id === requestId);
+    return Promise.resolve(
+      projection && request ? { ...projection, request } : null
+    );
+  }
+
+  listDueInboxProjections(input: { limit: number; nowMs: number }) {
+    return Promise.resolve(
+      [...this.inboxProjections.entries()]
+        .filter(
+          ([, projection]) =>
+            (projection.status === "pending" ||
+              projection.status === "failed") &&
+            (projection.nextRetryAtMs === null ||
+              projection.nextRetryAtMs <= input.nowMs)
+        )
+        .slice(0, input.limit)
+        .flatMap(([requestId, projection]) => {
+          const request = this.records.find(
+            (record) => record.id === requestId
+          );
+          return request ? [{ ...projection, request }] : [];
+        })
+    );
+  }
+
+  listStaleProfileCreations(input: { limit: number; staleBeforeMs: number }) {
+    return Promise.resolve(
+      this.records
+        .filter(
+          (record) =>
+            record.status === "approved" &&
+            (record.profileCreationStartedAtMs ?? record.updatedAtMs) <=
+              input.staleBeforeMs
+        )
+        .slice(0, input.limit)
+    );
+  }
+
+  insert(
+    record: AgentProfileCreationRequestRecord,
+    input?: {
+      inboxProjection?: AgentProfileCreationRequestInboxProjectionOperation;
+    }
+  ) {
     this.records.push(record);
+    if (input?.inboxProjection) {
+      this.enqueueInboxProjection(record.id, input.inboxProjection);
+    }
     return Promise.resolve(record);
   }
 
@@ -297,15 +524,126 @@ class InMemoryRepository implements AgentProfileCreationRequestRepository {
     return Promise.resolve([...this.records]);
   }
 
+  claimProfileCreation(input: {
+    expectedProfileCreationStartedAtMs: number | null;
+    expectedUpdatedAtMs: number;
+    requestId: string;
+    startedAtMs: number;
+  }) {
+    const index = this.records.findIndex(
+      (record) =>
+        record.id === input.requestId &&
+        record.status === "approved" &&
+        record.updatedAtMs === input.expectedUpdatedAtMs &&
+        record.profileCreationStartedAtMs ===
+          input.expectedProfileCreationStartedAtMs
+    );
+    const current = this.records[index];
+    if (!current) {
+      return Promise.resolve(null);
+    }
+    const claimed = {
+      ...current,
+      profileCreationAttempt: current.profileCreationAttempt + 1,
+      profileCreationStartedAtMs: input.startedAtMs,
+      updatedAtMs: input.startedAtMs,
+    };
+    this.records[index] = claimed;
+    return Promise.resolve(claimed);
+  }
+
+  markInboxProjectionCompleted(input: {
+    completedAtMs: number;
+    generation: number;
+    requestId: string;
+  }) {
+    const projection = this.inboxProjections.get(input.requestId);
+    if (!(projection && projection.generation === input.generation)) {
+      if (
+        projection &&
+        projection.generation > input.generation &&
+        projection.status === "completed"
+      ) {
+        this.inboxProjections.set(input.requestId, {
+          ...projection,
+          status: "pending",
+        });
+      }
+      return Promise.resolve(false);
+    }
+    this.inboxProjections.set(input.requestId, {
+      ...projection,
+      lastError: null,
+      nextRetryAtMs: null,
+      status: "completed",
+    });
+    return Promise.resolve(true);
+  }
+
+  markInboxProjectionFailed(input: {
+    failedAtMs: number;
+    generation: number;
+    lastError: string;
+    nextRetryAtMs: number;
+    requestId: string;
+  }) {
+    const projection = this.inboxProjections.get(input.requestId);
+    if (!(projection && projection.generation === input.generation)) {
+      if (
+        projection &&
+        projection.generation > input.generation &&
+        projection.status === "completed"
+      ) {
+        this.inboxProjections.set(input.requestId, {
+          ...projection,
+          status: "pending",
+        });
+      }
+      return Promise.resolve(false);
+    }
+    this.inboxProjections.set(input.requestId, {
+      ...projection,
+      attemptCount: projection.attemptCount + 1,
+      lastError: input.lastError,
+      nextRetryAtMs: input.nextRetryAtMs,
+      status: "failed",
+    });
+    return Promise.resolve(true);
+  }
+
+  synchronizeInboxProjectionIntents(input?: { requestId?: string }) {
+    let changed = 0;
+    for (const record of this.records) {
+      if (input?.requestId && input.requestId !== record.id) {
+        continue;
+      }
+      const operation = record.status === "pending" ? "project" : "resolve";
+      const current = this.inboxProjections.get(record.id);
+      if (current?.operation === operation) {
+        continue;
+      }
+      this.enqueueInboxProjection(record.id, operation);
+      changed += 1;
+    }
+    return Promise.resolve(changed);
+  }
+
   transition(input: {
+    expectedProfileCreationAttempt?: number;
     expectedStatuses: AgentProfileCreationRequestRecord["status"][];
+    expectedUpdatedAtMs: number;
+    inboxProjection?: AgentProfileCreationRequestInboxProjectionOperation;
     requestId: string;
     update: Partial<AgentProfileCreationRequestRecord>;
   }) {
     const index = this.records.findIndex(
       (record) =>
         record.id === input.requestId &&
-        input.expectedStatuses.includes(record.status)
+        input.expectedStatuses.includes(record.status) &&
+        record.updatedAtMs === input.expectedUpdatedAtMs &&
+        (input.expectedProfileCreationAttempt === undefined ||
+          record.profileCreationAttempt ===
+            input.expectedProfileCreationAttempt)
     );
     if (index < 0) {
       return Promise.resolve(null);
@@ -316,10 +654,28 @@ class InMemoryRepository implements AgentProfileCreationRequestRepository {
     }
     const updated = { ...current, ...input.update };
     this.records[index] = updated;
+    if (input.inboxProjection) {
+      this.enqueueInboxProjection(updated.id, input.inboxProjection);
+    }
     return Promise.resolve(updated);
   }
 
   upsertPreference(): Promise<never> {
     return Promise.reject(new Error("not implemented in this test"));
+  }
+
+  private enqueueInboxProjection(
+    requestId: string,
+    operation: AgentProfileCreationRequestInboxProjectionOperation
+  ) {
+    const current = this.inboxProjections.get(requestId);
+    this.inboxProjections.set(requestId, {
+      attemptCount: 0,
+      generation: (current?.generation ?? 0) + 1,
+      lastError: null,
+      nextRetryAtMs: null,
+      operation,
+      status: "pending",
+    });
   }
 }
