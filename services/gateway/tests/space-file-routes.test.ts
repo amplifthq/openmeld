@@ -1,8 +1,4 @@
-import {
-  buildSpaceFileObjectKey,
-  SPACE_FILE_MAX_SIZE_BYTES,
-} from "@openmeld/schemas";
-import type { CommitSpaceFileWriteInput } from "@openmeld/schemas/types";
+import { SPACE_FILE_MAX_SIZE_BYTES } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import type { GatewayAuthRpcEntrypoint } from "../../auth/src/index";
 import type { GatewayRpcEntrypoint } from "../../core/src/index";
@@ -56,14 +52,11 @@ const FILE = {
 };
 
 type CoreRpcMock = {
-  commitSpaceFileWrite: ReturnType<
-    typeof vi.fn<GatewayRpcEntrypoint["commitSpaceFileWrite"]>
+  readSpaceFileContent: ReturnType<
+    typeof vi.fn<GatewayRpcEntrypoint["readSpaceFileContent"]>
   >;
-  prepareSpaceFileWrite: ReturnType<
-    typeof vi.fn<GatewayRpcEntrypoint["prepareSpaceFileWrite"]>
-  >;
-  resolveSpaceFileContent: ReturnType<
-    typeof vi.fn<GatewayRpcEntrypoint["resolveSpaceFileContent"]>
+  writeSpaceFileContent: ReturnType<
+    typeof vi.fn<GatewayRpcEntrypoint["writeSpaceFileContent"]>
   >;
 };
 
@@ -77,12 +70,7 @@ type R2PutMock = (
   ...args: Parameters<R2Bucket["put"]>
 ) => ReturnType<R2Bucket["put"]>;
 
-function makeEnv(input?: {
-  commitError?: Error;
-  getResult?: R2ObjectBody | null;
-  preparedObjectKey?: string;
-  resolvedObjectKey?: string;
-}): {
+function makeEnv(input?: { readBytes?: ArrayBuffer; writeError?: Error }): {
   bucket: {
     delete: ReturnType<typeof vi.fn<R2DeleteMock>>;
     get: ReturnType<typeof vi.fn<R2GetMock>>;
@@ -92,39 +80,21 @@ function makeEnv(input?: {
   env: CloudflareBindings;
 } {
   const coreRpc: CoreRpcMock = {
-    prepareSpaceFileWrite: vi.fn<GatewayRpcEntrypoint["prepareSpaceFileWrite"]>(
-      (rpcInput) => {
-        const write = rpcInput.write as CommitSpaceFileWriteInput;
-        return Promise.resolve({
-          organizationId: ORGANIZATION_ID,
-          spaceId: write.spaceId,
-          fileId: write.fileId,
-          revisionId: write.revisionId,
-          objectKey:
-            input?.preparedObjectKey ??
-            buildSpaceFileObjectKey({
-              organizationId: ORGANIZATION_ID,
-              spaceId: write.spaceId,
-              fileId: write.fileId,
-              revisionId: write.revisionId,
-            }),
-        });
-      }
+    readSpaceFileContent: vi.fn<GatewayRpcEntrypoint["readSpaceFileContent"]>(
+      async () => ({
+        bytes: input?.readBytes ?? Uint8Array.from(TEXT_BYTES).buffer,
+        organizationId: ORGANIZATION_ID,
+        objectKey: OBJECT_KEY,
+        file: FILE,
+        revision: FILE.latestRevision,
+      })
     ),
-    commitSpaceFileWrite: vi.fn<GatewayRpcEntrypoint["commitSpaceFileWrite"]>(
+    writeSpaceFileContent: vi.fn<GatewayRpcEntrypoint["writeSpaceFileContent"]>(
       () =>
-        input?.commitError
-          ? Promise.reject(input.commitError)
+        input?.writeError
+          ? Promise.reject(input.writeError)
           : Promise.resolve(FILE)
     ),
-    resolveSpaceFileContent: vi.fn<
-      GatewayRpcEntrypoint["resolveSpaceFileContent"]
-    >(async () => ({
-      organizationId: ORGANIZATION_ID,
-      objectKey: input?.resolvedObjectKey ?? OBJECT_KEY,
-      file: FILE,
-      revision: FILE.latestRevision,
-    })),
   };
   const authenticatedClaims = {
     activeOrganizationId: ORGANIZATION_ID,
@@ -158,7 +128,7 @@ function makeEnv(input?: {
     put: vi.fn<R2PutMock>(async (key, value) =>
       makeR2Object(key, sizeOfR2Value(value))
     ),
-    get: vi.fn<R2GetMock>(async () => input?.getResult ?? null),
+    get: vi.fn<R2GetMock>(async () => null),
     delete: vi.fn<R2DeleteMock>(async () => undefined),
   };
   return {
@@ -173,7 +143,7 @@ function makeEnv(input?: {
 }
 
 describe("Space file routes", () => {
-  it("writes immutable R2 bytes between Space prepare and commit", async () => {
+  it("sends file bytes and metadata to the Core-owned storage operation", async () => {
     const { bucket, coreRpc, env } = makeEnv();
     const response = await app.fetch(
       uploadRequest(),
@@ -183,26 +153,28 @@ describe("Space file routes", () => {
 
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({ file: FILE });
-    expect(coreRpc.prepareSpaceFileWrite).toHaveBeenCalledOnce();
-    expect(bucket.put).toHaveBeenCalledWith(
-      expect.stringMatching(
-        new RegExp(`^org/${ORGANIZATION_ID}/space/${SPACE_ID}/files/`)
-      ),
-      expect.any(ArrayBuffer),
+    expect(coreRpc.writeSpaceFileContent).toHaveBeenCalledOnce();
+    expect(coreRpc.writeSpaceFileContent).toHaveBeenCalledWith(
       expect.objectContaining({
-        httpMetadata: { contentType: "text/markdown" },
+        bytes: expect.any(ArrayBuffer),
+        spaceId: SPACE_ID,
+        write: expect.objectContaining({
+          mimeType: "text/markdown",
+          name: "launch-notes.md",
+          spaceId: SPACE_ID,
+        }),
       })
     );
-    expect(coreRpc.commitSpaceFileWrite).toHaveBeenCalledOnce();
+    expect(bucket.put).not.toHaveBeenCalled();
   });
 
-  it("deletes an orphaned immutable object when the Space commit conflicts", async () => {
+  it("preserves a Core revision conflict for the caller", async () => {
     const conflict = createCoreRpcHttpError({
       status: 409,
       code: "space_file.conflict",
       reason: "This file changed after you opened it.",
     });
-    const { bucket, env } = makeEnv({ commitError: conflict });
+    const { bucket, env } = makeEnv({ writeError: conflict });
     const response = await app.fetch(
       uploadRequest(),
       env,
@@ -213,15 +185,12 @@ describe("Space file routes", () => {
     await expect(readError(response)).resolves.toMatchObject({
       code: "space_file.conflict",
     });
-    const storedObjectKey = bucket.put.mock.calls[0]?.[0];
-    expect(storedObjectKey).toEqual(expect.any(String));
-    expect(bucket.delete).toHaveBeenCalledWith(storedObjectKey);
+    expect(bucket.put).not.toHaveBeenCalled();
+    expect(bucket.delete).not.toHaveBeenCalled();
   });
 
-  it("authorizes metadata before streaming a private revision", async () => {
-    const { bucket, coreRpc, env } = makeEnv({
-      getResult: makeR2ObjectBody(OBJECT_KEY, TEXT_BYTES),
-    });
+  it("asks Core to authorize and read before streaming a private revision", async () => {
+    const { bucket, coreRpc, env } = makeEnv();
     const response = await app.fetch(
       new Request(
         `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/content`
@@ -234,8 +203,8 @@ describe("Space file routes", () => {
     expect(response.headers.get("content-type")).toBe("text/markdown");
     expect(response.headers.get("x-openmeld-file-revision")).toBe("1");
     await expect(response.text()).resolves.toBe("Shared launch notes\n");
-    expect(coreRpc.resolveSpaceFileContent).toHaveBeenCalledOnce();
-    expect(bucket.get).toHaveBeenCalledWith(OBJECT_KEY);
+    expect(coreRpc.readSpaceFileContent).toHaveBeenCalledOnce();
+    expect(bucket.get).not.toHaveBeenCalled();
   });
 
   it("rejects oversized files before contacting Core or R2", async () => {
@@ -250,33 +219,12 @@ describe("Space file routes", () => {
     await expect(readError(response)).resolves.toMatchObject({
       code: "space_file.too_large",
     });
-    expect(coreRpc.prepareSpaceFileWrite).not.toHaveBeenCalled();
+    expect(coreRpc.writeSpaceFileContent).not.toHaveBeenCalled();
     expect(bucket.put).not.toHaveBeenCalled();
   });
 
-  it("fails closed when Core prepares a different storage scope", async () => {
-    const { bucket, coreRpc, env } = makeEnv({
-      preparedObjectKey: `${OBJECT_KEY}-other`,
-    });
-    const response = await app.fetch(
-      uploadRequest(),
-      env,
-      TEST_EXECUTION_CONTEXT
-    );
-
-    expect(response.status).toBe(502);
-    await expect(readError(response)).resolves.toMatchObject({
-      code: "upstream_unreachable",
-    });
-    expect(coreRpc.prepareSpaceFileWrite).toHaveBeenCalledOnce();
-    expect(bucket.put).not.toHaveBeenCalled();
-  });
-
-  it("fails closed when Core resolves a different storage scope", async () => {
-    const { bucket, env } = makeEnv({
-      getResult: makeR2ObjectBody(OBJECT_KEY, TEXT_BYTES),
-      resolvedObjectKey: `${OBJECT_KEY}-other`,
-    });
+  it("fails closed when Core returns incomplete bytes", async () => {
+    const { bucket, env } = makeEnv({ readBytes: new ArrayBuffer(1) });
     const response = await app.fetch(
       new Request(
         `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/content`
@@ -328,30 +276,6 @@ function makeR2Object(key: string, size: number): R2Object {
     uploaded: new Date("2026-08-22T08:00:00.000Z"),
     storageClass: "Standard",
     writeHttpMetadata: () => undefined,
-  };
-}
-
-function makeR2ObjectBody(key: string, bytes: Uint8Array): R2ObjectBody {
-  const copiedBytes = Uint8Array.from(bytes);
-  const response = new Response(copiedBytes);
-  const object = makeR2Object(key, copiedBytes.byteLength);
-  return {
-    ...object,
-    writeHttpMetadata: (headers) => object.writeHttpMetadata(headers),
-    get body() {
-      if (!response.body) {
-        throw new TypeError("test R2 object body is unavailable");
-      }
-      return response.body;
-    },
-    get bodyUsed() {
-      return response.bodyUsed;
-    },
-    arrayBuffer: async () => Uint8Array.from(copiedBytes).buffer,
-    bytes: async () => Uint8Array.from(copiedBytes),
-    text: async () => new TextDecoder().decode(copiedBytes),
-    json: async <T>() => JSON.parse(new TextDecoder().decode(copiedBytes)) as T,
-    blob: async () => new Blob([Uint8Array.from(copiedBytes)]),
   };
 }
 

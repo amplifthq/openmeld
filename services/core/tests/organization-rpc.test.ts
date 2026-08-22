@@ -40,6 +40,7 @@ import {
   rpcCenterAgentCreateSpace,
   rpcCenterAgentListComputers,
   rpcCenterAgentListSlackChannels,
+  rpcCenterAgentListSpaceFiles,
   rpcCenterAgentPostSlackChannelMessage,
   rpcCenterAgentPostSlackThreadMessage,
   rpcCenterAgentPostSpaceMessage,
@@ -5882,6 +5883,72 @@ describe("organization Core RPC", () => {
         resourceType: "space",
       }),
     ]);
+  });
+
+  it("uses the Center Agent's own Space access when listing shared files", async () => {
+    const db = createOrganizationRpcDb({
+      agentProfiles: [
+        {
+          organizationId: "org-a",
+          ownerUserId: "user-a",
+          profileHandle: "codex",
+          profileId: AGENT_PROFILE_ID,
+          profileName: "Codex",
+          status: "active",
+        },
+      ],
+      centerAgentDesignations: [
+        centerAgentDesignationRow({
+          agentProfileId: AGENT_PROFILE_ID,
+          designatedBy: "user-a",
+          organizationId: "org-a",
+        }),
+      ],
+      members: [memberRow("member-a", "org-a", "user-a", "owner")],
+      spaces: [
+        spaceRow({
+          organizationId: "org-a",
+          spaceId: JOINED_PRIVATE_SPACE_ID,
+          spaceName: "Launch Room",
+          visibility: "private",
+        }),
+      ],
+    });
+    const spaceStub = createSpaceStub({ spaces: db.spaces });
+    const env = buildEnv({ db, spaceStub });
+
+    await expect(
+      rpcCenterAgentListSpaceFiles(env, {
+        context: buildContext({
+          activeOrganizationId: "org-a",
+          profileId: AGENT_PROFILE_ID,
+          profileKind: "agent",
+          userId: "user-a",
+        }),
+        parentId: null,
+        spaceId: JOINED_PRIVATE_SPACE_ID,
+      })
+    ).resolves.toMatchObject({
+      capabilities: { canRead: true, canWrite: true },
+      entries: [],
+      parentId: null,
+      spaceId: JOINED_PRIVATE_SPACE_ID,
+    });
+    expect(spaceStub.rpcListSpaceFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: { parentId: null },
+        spaceAccess: expect.objectContaining({
+          actor: expect.objectContaining({
+            kind: "authenticated",
+            requestContext: expect.objectContaining({
+              actorContext: expect.objectContaining({
+                openMeldProfileId: AGENT_PROFILE_ID,
+              }),
+            }),
+          }),
+        }),
+      })
+    );
   });
 
   it("rejects Center Agent Space context reads outside the active Organization", async () => {
@@ -12077,6 +12144,15 @@ function createSpaceStub(
     ),
     rpcPatchMeta: patchSpaceMeta,
     rpcPatchMetaWithPasswordAtomic: patchSpaceMeta,
+    rpcListSpaceFiles: vi.fn((request: { spaceId: string }) =>
+      Promise.resolve({
+        breadcrumbs: [{ id: null, name: "Files" }],
+        capabilities: { canRead: true as const, canWrite: true },
+        entries: [],
+        parentId: null,
+        spaceId: request.spaceId,
+      })
+    ),
     rpcListSignals: vi.fn(listSignals),
     rpcListSignalsResult: vi.fn(
       async (request: Parameters<typeof listSignals>[0]) => ({

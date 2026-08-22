@@ -6,7 +6,6 @@ import {
   withRequestIdHeader,
 } from "@openmeld/gateway-contract";
 import {
-  buildSpaceFileObjectKey,
   commitSpaceFileWriteInputSchema,
   createSpaceFileUploadQuerySchema,
   createSpaceFolderBodySchema,
@@ -15,7 +14,6 @@ import {
   listSpaceFileRevisionsResponseSchema,
   listSpaceFilesQuerySchema,
   listSpaceFilesResponseSchema,
-  prepareSpaceFileWriteResponseSchema,
   resolveSpaceFileContentResponseSchema,
   SPACE_FILE_MAX_SIZE_BYTES,
   spaceFileContentQuerySchema,
@@ -30,7 +28,6 @@ import {
 } from "@openmeld/schemas";
 import type {
   CommitSpaceFileWriteInput,
-  PrepareSpaceFileWriteResponse,
   ResolveSpaceFileContentResponse,
   SpaceFileDescriptor,
 } from "@openmeld/schemas/types";
@@ -387,24 +384,26 @@ async function downloadSpaceFileContent(
       message: query.error.issues[0]?.message ?? "Invalid file revision.",
     });
   }
-  const bucket = c.env.OPENMELD_SPACE_ATTACHMENTS;
-  if (!bucket) {
-    return missingSpaceFileBucket(c, target.spaceId, "GET");
-  }
-  let resolved: ResolveSpaceFileContentResponse;
+  let resolved: ResolveSpaceFileContentResponse & { bytes: ArrayBuffer };
   try {
-    resolved = resolveSpaceFileContentResponseSchema.parse(
-      await c.var.coreRpc.resolveSpaceFileContent({
+    const response = await c.var.coreRpc.readSpaceFileContent({
+      spaceId: target.spaceId,
+      content: {
         spaceId: target.spaceId,
-        content: {
-          spaceId: target.spaceId,
-          fileId: target.entryId,
-          revision: query.data.revision,
-        },
-        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
-        context: buildCoreRpcContext(c),
-      })
-    );
+        fileId: target.entryId,
+        revision: query.data.revision,
+      },
+      spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+      context: buildCoreRpcContext(c),
+    });
+    const { bytes, ...metadata } = response;
+    resolved = {
+      ...resolveSpaceFileContentResponseSchema.parse(metadata),
+      bytes,
+    };
+    if (!(resolved.bytes instanceof ArrayBuffer)) {
+      throw new Error("Core returned invalid Space file bytes.");
+    }
   } catch (error) {
     return respondCoreFileError({
       c,
@@ -414,18 +413,7 @@ async function downloadSpaceFileContent(
       spaceId: target.spaceId,
     });
   }
-  const expectedObjectKey = buildSpaceFileObjectKey({
-    organizationId: resolved.organizationId,
-    spaceId: target.spaceId,
-    fileId: target.entryId,
-    revisionId: resolved.revision.id,
-  });
-  if (
-    resolved.file.spaceId !== target.spaceId ||
-    resolved.file.id !== target.entryId ||
-    resolved.revision.fileId !== target.entryId ||
-    resolved.objectKey !== expectedObjectKey
-  ) {
+  if (resolved.bytes.byteLength !== resolved.revision.sizeBytes) {
     return respondFileError({
       c,
       route: SPACE_FILE_CONTENT_ROUTE,
@@ -434,44 +422,12 @@ async function downloadSpaceFileContent(
       status: 502,
       code: "upstream_unreachable",
       message: "This file could not be read right now.",
-      reason: "core_returned_mismatched_space_file_scope",
-    });
-  }
-  let object: R2ObjectBody | null;
-  try {
-    object = await bucket.get(resolved.objectKey);
-  } catch (error) {
-    logSpaceFileStorageFailure({
-      error,
-      operation: "get",
-      objectKey: resolved.objectKey,
-      requestId: c.var.openMeldRequestContext.actorContext.requestId,
-      spaceId: target.spaceId,
-    });
-    return respondFileError({
-      c,
-      route: SPACE_FILE_CONTENT_ROUTE,
-      method: "GET",
-      spaceId: target.spaceId,
-      status: 503,
-      code: "space_file.storage_failed",
-      message: "This file could not be read right now.",
-    });
-  }
-  if (!object) {
-    return respondFileError({
-      c,
-      route: SPACE_FILE_CONTENT_ROUTE,
-      method: "GET",
-      spaceId: target.spaceId,
-      status: 503,
-      code: "space_file.storage_failed",
-      message: "This file revision is unavailable.",
+      reason: "core_returned_mismatched_space_file_bytes",
     });
   }
   logFileSuccess(c, SPACE_FILE_CONTENT_ROUTE, "GET", target.spaceId, 200);
   return withRequestIdHeader(
-    new Response(object.body, {
+    new Response(resolved.bytes, {
       headers: {
         "cache-control": PRIVATE_CONTENT_CACHE_CONTROL,
         "content-disposition": buildContentDisposition(resolved.file.name),
@@ -493,99 +449,18 @@ async function persistSpaceFileRevision(input: {
 }): Promise<
   { ok: true; file: SpaceFileDescriptor } | { ok: false; response: Response }
 > {
-  const bucket = input.c.env.OPENMELD_SPACE_ATTACHMENTS;
-  if (!bucket) {
-    return {
-      ok: false,
-      response: missingSpaceFileBucket(
-        input.c,
-        input.write.spaceId,
-        input.method
-      ),
-    };
-  }
-  const rpcInput = {
-    spaceId: input.write.spaceId,
-    write: input.write,
-    spaceAccess: buildGatewaySpaceAccessContext(input.c, input.write.spaceId),
-    context: buildCoreRpcContext(input.c),
-  };
-  let prepared: PrepareSpaceFileWriteResponse;
-  try {
-    prepared = prepareSpaceFileWriteResponseSchema.parse(
-      await input.c.var.coreRpc.prepareSpaceFileWrite(rpcInput)
-    );
-  } catch (error) {
-    return {
-      ok: false,
-      response: respondCoreFileError({
-        c: input.c,
-        error,
-        route: input.route,
-        method: input.method,
-        spaceId: input.write.spaceId,
-      }),
-    };
-  }
-  const expectedObjectKey = buildSpaceFileObjectKey({
-    organizationId: prepared.organizationId,
-    spaceId: input.write.spaceId,
-    fileId: input.write.fileId,
-    revisionId: input.write.revisionId,
-  });
-  if (
-    prepared.spaceId !== input.write.spaceId ||
-    prepared.fileId !== input.write.fileId ||
-    prepared.revisionId !== input.write.revisionId ||
-    prepared.objectKey !== expectedObjectKey
-  ) {
-    return {
-      ok: false,
-      response: respondFileError({
-        c: input.c,
-        route: input.route,
-        method: input.method,
-        spaceId: input.write.spaceId,
-        status: 502,
-        code: "upstream_unreachable",
-        message: "This file could not be stored right now.",
-        reason: "core_returned_mismatched_space_file_scope",
-      }),
-    };
-  }
-  try {
-    await bucket.put(prepared.objectKey, input.bytes, {
-      httpMetadata: { contentType: input.write.mimeType },
-      customMetadata: {
-        fileId: input.write.fileId,
-        revisionId: input.write.revisionId,
-        spaceId: input.write.spaceId,
-      },
-    });
-  } catch (error) {
-    logSpaceFileStorageFailure({
-      error,
-      operation: "put",
-      objectKey: prepared.objectKey,
-      requestId: input.c.var.openMeldRequestContext.actorContext.requestId,
-      spaceId: input.write.spaceId,
-    });
-    return {
-      ok: false,
-      response: respondFileError({
-        c: input.c,
-        route: input.route,
-        method: input.method,
-        spaceId: input.write.spaceId,
-        status: 503,
-        code: "space_file.storage_failed",
-        message: "This file could not be stored right now.",
-      }),
-    };
-  }
   try {
     const file = uploadSpaceFileResponseSchema.shape.file.parse(
-      await input.c.var.coreRpc.commitSpaceFileWrite(rpcInput)
+      await input.c.var.coreRpc.writeSpaceFileContent({
+        bytes: input.bytes,
+        spaceId: input.write.spaceId,
+        write: input.write,
+        spaceAccess: buildGatewaySpaceAccessContext(
+          input.c,
+          input.write.spaceId
+        ),
+        context: buildCoreRpcContext(input.c),
+      })
     );
     logFileSuccess(
       input.c,
@@ -596,21 +471,6 @@ async function persistSpaceFileRevision(input: {
     );
     return { ok: true, file };
   } catch (error) {
-    let cleanupError: unknown = null;
-    try {
-      await bucket.delete(prepared.objectKey);
-    } catch (caught) {
-      cleanupError = caught;
-    }
-    if (cleanupError) {
-      logSpaceFileStorageFailure({
-        error: cleanupError,
-        operation: "delete_orphan",
-        objectKey: prepared.objectKey,
-        requestId: input.c.var.openMeldRequestContext.actorContext.requestId,
-        spaceId: input.write.spaceId,
-      });
-    }
     return {
       ok: false,
       response: respondCoreFileError({
@@ -774,22 +634,6 @@ function respondInvalidBody(
   });
 }
 
-function missingSpaceFileBucket(
-  c: Context<HonoBindings>,
-  spaceId: string,
-  method: "GET" | "POST" | "PUT"
-): Response {
-  return respondFileError({
-    c,
-    route: method === "POST" ? SPACE_FILES_ROUTE : SPACE_FILE_CONTENT_ROUTE,
-    method,
-    spaceId,
-    status: 503,
-    code: "gateway.misconfigured",
-    message: "Space file storage is unavailable.",
-  });
-}
-
 function respondCoreFileError(input: {
   c: Context<HonoBindings>;
   error: unknown;
@@ -870,25 +714,6 @@ function logFileSuccess(
     spaceId,
     ...contextAuditFields(c.var.openMeldRequestContext),
   });
-}
-
-function logSpaceFileStorageFailure(input: {
-  error: unknown;
-  objectKey: string;
-  operation: string;
-  requestId: string;
-  spaceId: string;
-}): void {
-  console.error(
-    JSON.stringify({
-      event: "gateway.space_file.storage_failed",
-      requestId: input.requestId,
-      spaceId: input.spaceId,
-      operation: input.operation,
-      objectKey: input.objectKey,
-      error: toErrorMessage(input.error),
-    })
-  );
 }
 
 function buildContentDisposition(fileName: string): string {

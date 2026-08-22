@@ -48,8 +48,12 @@ import type {
   CenterAgentListProjectsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
   CenterAgentListSlackChannelsResponse,
+  CenterAgentListSpaceFilesResponse,
+  CenterAgentListSpaceFilesRpcInput,
   CenterAgentManageOrganizationDocumentsResponse,
   CenterAgentManageOrganizationDocumentsRpcInput,
+  CenterAgentManageSpaceFilesResponse,
+  CenterAgentManageSpaceFilesRpcInput,
   CenterAgentModelConfigurationResponse,
   CenterAgentOrganizationDocumentsComputerSnapshotResponse,
   CenterAgentOrganizationDocumentsComputerSnapshotRpcInput,
@@ -71,6 +75,8 @@ import type {
   CenterAgentReadSlackChannelMembersResponse,
   CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceContextResponse,
+  CenterAgentReadSpaceFileResponse,
+  CenterAgentReadSpaceFileRpcInput,
   CenterAgentRecordConnectorActionAuditResponse,
   CenterAgentRecordConnectorActionOperationResponse,
   CenterAgentRememberForOrganizationResponse,
@@ -80,6 +86,8 @@ import type {
   CenterAgentRequestMemberAttentionResponse,
   CenterAgentRequestMemberAttentionRpcInput,
   CenterAgentResumeRoutineToolRpcInput,
+  CenterAgentSaveSpaceFileResponse,
+  CenterAgentSaveSpaceFileRpcInput,
   CenterAgentSearchSlackMessagesResponse,
   CenterAgentSetAgentProfileDefaultProjectToolResponse,
   CenterAgentSetAgentProfileDefaultProjectToolRpcInput,
@@ -661,6 +669,8 @@ import {
   type ReadOrganizationInformationProtectionPolicyInput,
   type ReadOrganizationUsageOverviewInput,
   type ReadPendingGitHubAppInstallationInput,
+  type ReadSpaceFileContentRpcInput,
+  type ReadSpaceFileContentRpcResponse,
   type ReconcileCurrentOrganizationConnectorConnectionsInput,
   type RecordCenterAgentAuditInput,
   type RecordSpaceAttachmentInput,
@@ -703,6 +713,8 @@ import {
   rpcCenterAgentListLocalAgentConnectionCandidates,
   rpcCenterAgentListOpportunities,
   rpcCenterAgentListSlackChannels,
+  rpcCenterAgentListSpaceFiles,
+  rpcCenterAgentManageSpaceFiles,
   rpcCenterAgentPostSlackChannelMessage,
   rpcCenterAgentPostSlackThreadMessage,
   rpcCenterAgentPostSpaceMessage,
@@ -717,6 +729,7 @@ import {
   rpcCenterAgentReadSlackWorkspaceDirectory,
   rpcCenterAgentReadSpaceAuthoringContract,
   rpcCenterAgentReadSpaceContext,
+  rpcCenterAgentReadSpaceFile,
   rpcCenterAgentRecommendOpportunity,
   rpcCenterAgentRecordConnectorActionAudit,
   rpcCenterAgentRecordConnectorActionOperation,
@@ -724,6 +737,7 @@ import {
   rpcCenterAgentRemoveAgentProfilesFromSpace,
   rpcCenterAgentResolveConnectorConnection,
   rpcCenterAgentRespondToOpportunity,
+  rpcCenterAgentSaveSpaceFile,
   rpcCenterAgentSearchSlackMessages,
   rpcCenterAgentStartSelfMemberResearch,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
@@ -855,6 +869,7 @@ import {
   rpcReadOrganizationInformationProtectionPolicy,
   rpcReadOrganizationUsageOverview,
   rpcReadPendingGitHubAppInstallation,
+  rpcReadSpaceFileContent,
   rpcReconcileCurrentOrganizationConnectorConnections,
   rpcRecordCenterAgentAudit,
   rpcRecordSpaceAttachment,
@@ -905,6 +920,7 @@ import {
   rpcUpsertSpacePassword,
   rpcWipeCurrentMemberCenterAgentMemory,
   rpcWriteCurrentDeviceObservedMetadata,
+  rpcWriteSpaceFileContent,
   runSlackInstallationWelcomePreparationTick,
   type SaveOrganizationWakeAccessChoiceInput,
   type SelectCurrentLocalAgentInstallationInput,
@@ -946,6 +962,7 @@ import {
   type UpsertSpacePasswordInput,
   type WipeCurrentMemberCenterAgentMemoryInput,
   type WriteCurrentDeviceObservedMetadataInput,
+  type WriteSpaceFileContentRpcInput,
 } from "./rpc/methods";
 import { RuntimeTransportHub } from "./runtime-transport/transport/do/runtime-transport-hub";
 import {
@@ -1709,6 +1726,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ResolveSpaceFileContentRpcInput
   ): Promise<ResolveSpaceFileContentResponse> {
     return rpcResolveSpaceFileContent(this.env, input);
+  }
+
+  readSpaceFileContent(
+    input: ReadSpaceFileContentRpcInput
+  ): Promise<ReadSpaceFileContentRpcResponse> {
+    return rpcReadSpaceFileContent(this.env, input);
+  }
+
+  writeSpaceFileContent(
+    input: WriteSpaceFileContentRpcInput
+  ): Promise<SpaceFileDescriptor> {
+    return rpcWriteSpaceFileContent(this.env, input);
   }
 
   listSpaceThreads(
@@ -2842,6 +2871,30 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return withLegacySpaceAddressingRpcOutput(
       rpcCenterAgentReadSpaceContext(this.env, input)
     );
+  }
+
+  centerAgentListSpaceFiles(
+    input: CenterAgentListSpaceFilesRpcInput
+  ): Promise<CenterAgentListSpaceFilesResponse> {
+    return rpcCenterAgentListSpaceFiles(this.env, input);
+  }
+
+  centerAgentReadSpaceFile(
+    input: CenterAgentReadSpaceFileRpcInput
+  ): Promise<CenterAgentReadSpaceFileResponse> {
+    return rpcCenterAgentReadSpaceFile(this.env, input);
+  }
+
+  centerAgentSaveSpaceFile(
+    input: CenterAgentSaveSpaceFileRpcInput
+  ): Promise<CenterAgentSaveSpaceFileResponse> {
+    return rpcCenterAgentSaveSpaceFile(this.env, input);
+  }
+
+  centerAgentManageSpaceFiles(
+    input: CenterAgentManageSpaceFilesRpcInput
+  ): Promise<CenterAgentManageSpaceFilesResponse> {
+    return rpcCenterAgentManageSpaceFiles(this.env, input);
   }
 
   centerAgentReadDispatchHistory(

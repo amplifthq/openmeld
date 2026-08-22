@@ -1087,6 +1087,14 @@ this release.
   access. The Center Agent may combine this directory with its separate
   team-safe Computer and approved Organization Document reads, but those owners
   remain separate and no composite cache becomes another source of truth.
+- Space Files remain ordinary Space-owned collaboration. The Center Agent may
+  list and read files in an Organization-owned Space when that same managed
+  Agent Profile could read the Space, and may create, revise, organize, or
+  trash files only while it is an active member with ordinary write access.
+  Designation never bypasses Space membership. Its file tools use stable ids,
+  immutable revisions, and the same base-revision conflict fence as Web and
+  CLI; they do not copy files into Organization Documents or the Center Agent
+  Computer.
 - Selecting or resetting the Organization working language is a represented
   owner/admin configuration action. The Center Agent does not receive
   autonomous authority to change it, and member research may write only the
@@ -1197,6 +1205,13 @@ mutations. It never accepts Organization or role authority from the model.
 Current-computer Project discovery and Local Project Connections remain outside
 the Center Agent surface because the hosted runtime has no trustworthy current
 computer and local paths must not enter model context.
+
+Space File tools follow the same anti-drift rule. Web, CLI, and the Center Agent
+converge on the Space Durable Object file contract and the Core-owned byte
+storage operation. The hosted runtime receives bounded UTF-8 text, not an R2
+key or filesystem mount, and every mutation is attributed to the designated
+Center Agent Profile under its ordinary Space membership. No runtime-specific
+file tree, write-through cache, or privileged Computer path exists.
 
 Scheduling is an execution mode for existing Center Agent capabilities, not a
 separate agent or authority path. Core reauthorizes the Routine's delegated

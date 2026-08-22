@@ -41,8 +41,12 @@ import type {
   CenterAgentListRoutinesToolRpcInput,
   CenterAgentListSlackChannelsBody,
   CenterAgentListSlackChannelsResponse,
+  CenterAgentListSpaceFilesResponse,
+  CenterAgentListSpaceFilesRpcInput,
   CenterAgentManageOrganizationDocumentsResponse,
   CenterAgentManageOrganizationDocumentsRpcInput,
+  CenterAgentManageSpaceFilesResponse,
+  CenterAgentManageSpaceFilesRpcInput,
   CenterAgentOrganizationDocumentsComputerSnapshotResponse,
   CenterAgentOrganizationDocumentsComputerSnapshotRpcInput,
   CenterAgentPauseRoutineToolRpcInput,
@@ -65,6 +69,8 @@ import type {
   CenterAgentReadSlackChannelMembersResponse,
   CenterAgentReadSlackWorkspaceDirectoryBody,
   CenterAgentReadSlackWorkspaceDirectoryResponse,
+  CenterAgentReadSpaceFileResponse,
+  CenterAgentReadSpaceFileRpcInput,
   CenterAgentRecommendOpportunityToolResponse,
   CenterAgentRecommendOpportunityToolRpcInput,
   CenterAgentRecordConnectorActionAuditBody,
@@ -78,6 +84,8 @@ import type {
   CenterAgentRespondToOpportunityToolResponse,
   CenterAgentRespondToOpportunityToolRpcInput,
   CenterAgentResumeRoutineToolRpcInput,
+  CenterAgentSaveSpaceFileResponse,
+  CenterAgentSaveSpaceFileRpcInput,
   CenterAgentSearchSlackMessagesBody,
   CenterAgentSearchSlackMessagesResponse,
   CenterAgentSetAgentProfileDefaultProjectToolResponse,
@@ -437,6 +445,18 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentListLocalAgentConnectionCandidates?(
     input: unknown
   ): Promise<unknown>;
+  centerAgentListSpaceFiles?(
+    input: CenterAgentListSpaceFilesRpcInput
+  ): Promise<CenterAgentListSpaceFilesResponse>;
+  centerAgentReadSpaceFile?(
+    input: CenterAgentReadSpaceFileRpcInput
+  ): Promise<CenterAgentReadSpaceFileResponse>;
+  centerAgentSaveSpaceFile?(
+    input: CenterAgentSaveSpaceFileRpcInput
+  ): Promise<CenterAgentSaveSpaceFileResponse>;
+  centerAgentManageSpaceFiles?(
+    input: CenterAgentManageSpaceFilesRpcInput
+  ): Promise<CenterAgentManageSpaceFilesResponse>;
   listCenterAgentAuditJournal?(input: unknown): Promise<unknown>;
   centerAgentPostSlackChannelMessage?(input: unknown): Promise<unknown>;
   centerAgentPostSlackThreadMessage?(input: unknown): Promise<unknown>;

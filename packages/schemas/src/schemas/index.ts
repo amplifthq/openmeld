@@ -1179,6 +1179,16 @@ export {
   updateCenterAgentRoutineRpcInputSchema,
 } from "./http/center-agent-routines";
 export {
+  centerAgentListSpaceFilesResponseSchema,
+  centerAgentListSpaceFilesRpcInputSchema,
+  centerAgentManageSpaceFilesResponseSchema,
+  centerAgentManageSpaceFilesRpcInputSchema,
+  centerAgentReadSpaceFileResponseSchema,
+  centerAgentReadSpaceFileRpcInputSchema,
+  centerAgentSaveSpaceFileResponseSchema,
+  centerAgentSaveSpaceFileRpcInputSchema,
+} from "./http/center-agent-space-files";
+export {
   CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
   CENTER_AGENT_OPENMELD_IDENTITY_REQUIRED_CODE,
   centerAgentAnonymousMemberToolNameSchema,

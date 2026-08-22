@@ -565,6 +565,16 @@ every later Space-authoring call in that submission, preventing a model retry
 from duplicating the write. Deploy Core before Remote Agent for this contract
 and reverse that order during rollback.
 
+Space Files use a separate ordinary collaboration contract. The Center Agent
+can list and read the same Space tree as any other viewer, and can save or
+organize files only when its designated Agent Profile is an active member of
+that Space. Tools expose stable entry ids, paths for presentation, current
+revision numbers, and explicit conflict results. Text reads and writes are
+bounded to valid UTF-8 content up to 1 MiB; larger or binary files stay
+available through Web and CLI. Core owns byte storage and reauthorizes Space
+access for every call. The runtime never receives a bucket key, filesystem
+mount, Organization Documents projection, or designation-based access bypass.
+
 `web_dm` is used for the Center Agent DM, `space_wake` for ordinary Space Wake
 delivery to the hosted Center Agent, `slack` for the legacy Slack channel
 surface, and `message_channel` for a provider-neutral Slack, Lark, or Feishu

@@ -783,14 +783,16 @@ shared key constructor:
 org/{organizationId}/space/{spaceId}/files/{fileId}/revisions/{revisionId}
 ```
 
-Gateway owns authenticated raw-byte upload and download. Before accepting bytes
-it asks Core and the Space Durable Object to authorize the actor against current
-Space truth. Gateway writes a new immutable object, then asks Space to commit
-the matching metadata with the supplied base revision. The commit rechecks
-authorization and the base revision. On rejection, Gateway deletes the
-unreferenced object best-effort and preserves the structured conflict. A read
-first resolves the authorized canonical revision descriptor and only then reads
-the exact object. An R2 key or file id alone never grants access.
+Core owns the raw-byte storage operation for every caller. Gateway transports
+authenticated browser and CLI bytes to Core; Center Agent tools call the same
+Core operation. Core asks the Space Durable Object to authorize the actor and
+prepare the canonical object address, writes one immutable object, then asks
+Space to commit the matching metadata with the supplied base revision. The
+commit rechecks authorization and the base revision. On rejection, Core deletes
+the unreferenced object best-effort and preserves the structured conflict. A
+read first resolves the authorized canonical revision descriptor through Space
+and only then reads the exact object. An R2 key or file id alone never grants
+access.
 
 Trash is a reversible metadata state in the MVP. Trashing a folder requires it
 to be empty, so one mutation cannot silently hide a subtree. Revision objects

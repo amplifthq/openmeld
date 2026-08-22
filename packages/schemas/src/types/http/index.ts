@@ -405,6 +405,16 @@ export type {
   UpdateCenterAgentRoutineRpcInput,
 } from "./center-agent-routines";
 export type {
+  CenterAgentListSpaceFilesResponse,
+  CenterAgentListSpaceFilesRpcInput,
+  CenterAgentManageSpaceFilesResponse,
+  CenterAgentManageSpaceFilesRpcInput,
+  CenterAgentReadSpaceFileResponse,
+  CenterAgentReadSpaceFileRpcInput,
+  CenterAgentSaveSpaceFileResponse,
+  CenterAgentSaveSpaceFileRpcInput,
+} from "./center-agent-space-files";
+export type {
   CenterAgentAnonymousMemberToolName,
   CenterAgentAnonymousMemberToolSpeaker,
   CenterAgentAuthorizeAnonymousMemberToolResponse,
