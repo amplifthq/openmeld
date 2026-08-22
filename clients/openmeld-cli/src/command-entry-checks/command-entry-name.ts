@@ -208,6 +208,14 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   "profile update": "profile.update",
   "profiles delete": "profile.delete",
   "profile delete": "profile.delete",
+  "profile requests create": "profile.requests.create",
+  "profile requests list": "profile.requests.list",
+  "profile requests approve": "profile.requests.approve",
+  "profile requests decline": "profile.requests.decline",
+  "profile requests cancel": "profile.requests.cancel",
+  "profile requests retry": "profile.requests.retry",
+  "profile requests preferences get": "profile.requests.preferences.get",
+  "profile requests preferences set": "profile.requests.preferences.set",
 } as const satisfies Record<string, CommandEntryName>;
 
 export const COMMAND_ENTRY_ROUTE_KEYS = Object.freeze(

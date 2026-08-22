@@ -21,6 +21,11 @@ export type CreateProfileSpaceContext = {
 	spaceName: string | null;
 };
 
+export type SpaceJoinedProfileReference = Pick<
+	AuthProfileView,
+	"openMeldProfileId" | "profileKind"
+>;
+
 export type CreatedProfileFollowUpIssue = {
 	kind: "local_setup" | "space_join";
 	message: string;
@@ -63,7 +68,7 @@ export async function createProfileWithFollowUps(input: {
 	idempotencyKey: string;
 	modelId: string | null;
 	openCodePermission: AgentProfileBindingOpenCodePermission | null;
-	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
+	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	organizationId: string | null;
 	profileKind: NewProfileKind | null;
 	profileName: string;
@@ -235,7 +240,7 @@ function requireSpaceOrganizationId(organizationId: string | null): string {
 
 async function joinCreatedProfileToSpace(input: {
 	boundAgentId: string;
-	onAfterJoin?: (profile: AuthProfileView) => void | Promise<void>;
+	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
 	organizationId: string;
 	profile: AuthProfileView;
 	queryClient: QueryClient;

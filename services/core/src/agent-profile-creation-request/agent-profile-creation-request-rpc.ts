@@ -40,6 +40,7 @@ import {
   rpcSetCurrentAgentProfileWorkspace,
   rpcUpdateAgentProfileDefaultProject,
 } from "../rpc/methods";
+import { runAgentProfileCreationPostBindingFollowUps } from "./agent-profile-creation-post-binding-follow-ups";
 import {
   projectAgentProfileCreationRequestInbox,
   resolveAgentProfileCreationRequestInbox,
@@ -709,25 +710,34 @@ async function connectRequestedAgentProfile(input: {
       `OpenMeld couldn't connect the selected local agent: ${binding.reasonCodes.join(", ") || "unknown reason"}.`
     );
   }
-  await rpcSetCurrentAgentProfileWorkspace(input.env, {
-    agentProfileId: input.agentProfileId,
-    context: targetContext,
-    workspaceMode: "openmeld_managed",
+  await runAgentProfileCreationPostBindingFollowUps({
+    setWorkspace: async () =>
+      await rpcSetCurrentAgentProfileWorkspace(input.env, {
+        agentProfileId: input.agentProfileId,
+        context: targetContext,
+        workspaceMode: "openmeld_managed",
+      }),
+    ...(configuration.defaultProjectId
+      ? {
+          updateDefaultProject: async () =>
+            await rpcUpdateAgentProfileDefaultProject(input.env, {
+              agentProfileId: input.agentProfileId,
+              context: targetContext,
+              defaultProjectId: configuration.defaultProjectId,
+              expectedOrganizationId: input.request.organizationId,
+            }),
+        }
+      : {}),
+    ...(configuration.authorizeForOrganization
+      ? {
+          authorizeForOrganization: async () =>
+            await rpcAuthorizeAgentProfileBindingForOrganization(input.env, {
+              agentProfileId: input.agentProfileId,
+              context: targetContext,
+            }),
+        }
+      : {}),
   });
-  if (configuration.defaultProjectId) {
-    await rpcUpdateAgentProfileDefaultProject(input.env, {
-      agentProfileId: input.agentProfileId,
-      context: targetContext,
-      defaultProjectId: configuration.defaultProjectId,
-      expectedOrganizationId: input.request.organizationId,
-    });
-  }
-  if (configuration.authorizeForOrganization) {
-    await rpcAuthorizeAgentProfileBindingForOrganization(input.env, {
-      agentProfileId: input.agentProfileId,
-      context: targetContext,
-    });
-  }
 }
 
 async function forkRequestedAgentSession(input: {

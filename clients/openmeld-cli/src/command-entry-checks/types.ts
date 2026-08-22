@@ -166,7 +166,15 @@ export type CommandEntryName =
   | "profile.set"
   | "profile.show"
   | "profile.update"
-  | "profile.delete";
+  | "profile.delete"
+  | "profile.requests.create"
+  | "profile.requests.list"
+  | "profile.requests.approve"
+  | "profile.requests.decline"
+  | "profile.requests.cancel"
+  | "profile.requests.retry"
+  | "profile.requests.preferences.get"
+  | "profile.requests.preferences.set";
 
 export type CommandEntryJsonError = {
   code: string;

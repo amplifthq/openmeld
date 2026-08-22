@@ -31,6 +31,46 @@ const ANSI_ESCAPE_PATTERN = "\\x1B\\[[0-9;]*m";
 const stripAnsi = (value: string | null): string =>
   (value ?? "").replace(new RegExp(ANSI_ESCAPE_PATTERN, "g"), "");
 
+function buildCurrentReplyReadinessSnapshot(input: {
+  agentBindingReady: boolean;
+  profileId?: string;
+}) {
+  return {
+    agentReplyReadiness: {
+      replyReadiness: input.agentBindingReady ? "ready" : "blocked",
+      reasonCodes: input.agentBindingReady
+        ? []
+        : ["agent_profile_binding.missing"],
+      reasonText: input.agentBindingReady ? "Ready" : "Binding is missing",
+    },
+    daemonRouteObservation: READY_DAEMON_ROUTE_OBSERVATION,
+    daemonStatus: {
+      installed: true,
+      status: "running",
+      version: "0.3.2",
+    },
+    deviceReplyReadiness: {
+      reasonCodes: [],
+      reasonText: "Ready",
+      replyReadiness: "ready",
+      updatedAt: "2026-04-11T00:00:00.000Z",
+      wakeableRouteCount: input.profileId ? 1 : 0,
+    },
+    displayRuntimeStatus: { status: "running" },
+    gatewayChainReadiness: null,
+    inventory: null,
+    observedAt: "2026-04-11T00:00:00.000Z",
+    openClawLocalDiagnostics: null,
+    profileWorkspaceRuntimeResolution: {
+      status: "ready",
+      effectiveRuntimeWorkingDirectory: "/tmp/workspace",
+    },
+    runtimeProjection: null,
+    runtimeStatus: { status: "running" },
+    serviceManagerStatus: null,
+  } as const;
+}
+
 async function flushPendingPromises(count = 20): Promise<void> {
   for (let index = 0; index < count; index += 1) {
     await Promise.resolve();
@@ -466,38 +506,11 @@ describe("space add-members notices", () => {
     resolveCurrentReplyReadinessSnapshotMock
       .mockReset()
       .mockImplementation(
-        async ({ profile }: { profile?: { openMeldProfileId?: string } }) => ({
-          agentReplyReadiness: {
-            replyReadiness: "ready",
-            reasonCodes: [],
-            reasonText: "Ready",
-          },
-          daemonRouteObservation: READY_DAEMON_ROUTE_OBSERVATION,
-          daemonStatus: {
-            installed: true,
-            status: "running",
-            version: "0.3.2",
-          },
-          deviceReplyReadiness: {
-            reasonCodes: [],
-            reasonText: "Ready",
-            replyReadiness: "ready",
-            updatedAt: "2026-04-11T00:00:00.000Z",
-            wakeableRouteCount: profile?.openMeldProfileId ? 1 : 0,
-          },
-          displayRuntimeStatus: { status: "running" },
-          gatewayChainReadiness: null,
-          inventory: null,
-          observedAt: "2026-04-11T00:00:00.000Z",
-          openClawLocalDiagnostics: null,
-          profileWorkspaceRuntimeResolution: {
-            status: "ready",
-            effectiveRuntimeWorkingDirectory: "/tmp/workspace",
-          },
-          runtimeProjection: null,
-          runtimeStatus: { status: "running" },
-          serviceManagerStatus: null,
-        })
+        async ({ profile }: { profile?: { openMeldProfileId?: string } }) =>
+          buildCurrentReplyReadinessSnapshot({
+            agentBindingReady: true,
+            profileId: profile?.openMeldProfileId,
+          })
       );
     syncProfileWorkspaceStateMock.mockReset().mockResolvedValue({
       invalidWorkspaceProfileIds: [],
@@ -2170,7 +2183,7 @@ describe("space add-members notices", () => {
     ).toBe(true);
   });
 
-  it("ensures formal Binding before adding a ready local agent member", async () => {
+  it("reuses the current confirmed Binding when adding a ready local agent member", async () => {
     await withTempHome(async () => {
       await withSilencedStdio(async () => {
         await runSpaceAddMembers({
@@ -2186,14 +2199,17 @@ describe("space add-members notices", () => {
 
     expect(
       syncAgentProfileRuntimeBindingFromCurrentReadinessMock
-    ).toHaveBeenCalledWith({
-      profile: expect.objectContaining({
-        openMeldProfileId: MEMBER_ONE_ID,
-      }),
-    });
+    ).not.toHaveBeenCalled();
   });
 
   it("downgrades a ready local agent member to join-only when formal Binding cannot be confirmed", async () => {
+    resolveCurrentReplyReadinessSnapshotMock.mockImplementation(
+      async ({ profile }: { profile?: { openMeldProfileId?: string } }) =>
+        buildCurrentReplyReadinessSnapshot({
+          agentBindingReady: false,
+          profileId: profile?.openMeldProfileId,
+        })
+    );
     syncAgentProfileRuntimeBindingFromCurrentReadinessMock.mockResolvedValueOnce(
       {
         agentProfileBindingEnsure: {
@@ -2247,6 +2263,13 @@ describe("space add-members notices", () => {
   });
 
   it("keeps formal Binding failure reason codes in agent view follow-up diagnostics", async () => {
+    resolveCurrentReplyReadinessSnapshotMock.mockImplementation(
+      async ({ profile }: { profile?: { openMeldProfileId?: string } }) =>
+        buildCurrentReplyReadinessSnapshot({
+          agentBindingReady: false,
+          profileId: profile?.openMeldProfileId,
+        })
+    );
     syncAgentProfileRuntimeBindingFromCurrentReadinessMock.mockResolvedValueOnce(
       {
         agentProfileBindingEnsure: {
@@ -2380,6 +2403,13 @@ describe("space add-members notices", () => {
 
   it("emits a wait progress phase when formal Binding confirmation takes longer than five seconds", async () => {
     vi.useFakeTimers();
+    resolveCurrentReplyReadinessSnapshotMock.mockImplementation(
+      async ({ profile }: { profile?: { openMeldProfileId?: string } }) =>
+        buildCurrentReplyReadinessSnapshot({
+          agentBindingReady: false,
+          profileId: profile?.openMeldProfileId,
+        })
+    );
     let bindingResolved = false;
     const bindingResult = {
       agentProfileBindingEnsure: {

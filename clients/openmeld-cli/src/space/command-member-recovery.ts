@@ -31,6 +31,7 @@ export type SpaceMemberCandidate = {
   localTargetDisplayName?: string | null;
   localTargetLaunchStatus?: AgentTargetState["launchStatus"] | null;
   localTargetSelectable?: boolean;
+  localParticipationBindingConfirmed?: boolean;
   localParticipationReadiness?: ServiceParticipationReadiness | null;
   localParticipationChecked?: boolean;
   localParticipationReasonCodes?: string[];

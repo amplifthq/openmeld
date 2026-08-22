@@ -689,6 +689,54 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "deleting a profile",
     serviceAction: null,
   },
+  "profile.requests.create": {
+    signInAction: "requesting an Agent Profile",
+    profileAction: null,
+    cliUpdateAction: "requesting an Agent Profile",
+    serviceAction: null,
+  },
+  "profile.requests.list": {
+    signInAction: "listing Agent Profile requests",
+    profileAction: null,
+    cliUpdateAction: "listing Agent Profile requests",
+    serviceAction: null,
+  },
+  "profile.requests.approve": {
+    signInAction: "approving an Agent Profile request",
+    profileAction: null,
+    cliUpdateAction: "approving an Agent Profile request",
+    serviceAction: null,
+  },
+  "profile.requests.decline": {
+    signInAction: "declining an Agent Profile request",
+    profileAction: null,
+    cliUpdateAction: "declining an Agent Profile request",
+    serviceAction: null,
+  },
+  "profile.requests.cancel": {
+    signInAction: "canceling an Agent Profile request",
+    profileAction: null,
+    cliUpdateAction: "canceling an Agent Profile request",
+    serviceAction: null,
+  },
+  "profile.requests.retry": {
+    signInAction: "retrying an Agent Profile request",
+    profileAction: null,
+    cliUpdateAction: "retrying an Agent Profile request",
+    serviceAction: null,
+  },
+  "profile.requests.preferences.get": {
+    signInAction: "showing Agent Profile request preferences",
+    profileAction: null,
+    cliUpdateAction: "showing Agent Profile request preferences",
+    serviceAction: null,
+  },
+  "profile.requests.preferences.set": {
+    signInAction: "updating Agent Profile request preferences",
+    profileAction: null,
+    cliUpdateAction: "updating Agent Profile request preferences",
+    serviceAction: null,
+  },
 });
 
 export function getCommandEntryCopy(
