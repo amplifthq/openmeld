@@ -54,6 +54,7 @@ import {
   centerAgentManageOrganizationDocumentsResponseSchema,
   centerAgentManageOrganizationDocumentsRpcInputSchema,
   centerAgentManageSpaceFilesResponseSchema,
+  centerAgentManageSpaceFilesRpcInputSchema,
   centerAgentMemberResearchReportSchema,
   centerAgentPostSlackChannelMessageResponseSchema,
   centerAgentPostSpaceMessageResponseSchema,
@@ -81,6 +82,7 @@ import {
   centerAgentRequestMemberAttentionResponseSchema,
   centerAgentRespondToOpportunityToolResponseSchema,
   centerAgentSaveSpaceFileResponseSchema,
+  centerAgentSaveSpaceFileRpcInputSchema,
   centerAgentSearchSlackMessagesResponseSchema,
   centerAgentSetAgentProfileDefaultProjectToolResponseSchema,
   centerAgentSetOrganizationWorkingLanguageToolResponseSchema,
@@ -429,55 +431,28 @@ const readSpaceFileToolInputSchema = strictObject({
   revision: optional(pipe(number(), integer(), minValue(1))),
   spaceId: nonEmptyStringSchema,
 });
-const saveSpaceFileToolInputSchema = union([
-  strictObject({
-    action: literal("create"),
-    clientMutationId: spaceFileMutationIdToolInputSchema,
-    content: spaceFileTextContentToolInputSchema,
-    mimeType: pipe(string(), trim(), minLength(3), maxLength(255)),
-    name: spaceFileNameToolInputSchema,
-    parentId: optional(nullable(spaceFileIdToolInputSchema)),
-    spaceId: nonEmptyStringSchema,
-  }),
-  strictObject({
-    action: literal("update"),
-    baseRevision: pipe(number(), integer(), minValue(1)),
-    clientMutationId: spaceFileMutationIdToolInputSchema,
-    content: spaceFileTextContentToolInputSchema,
-    fileId: spaceFileIdToolInputSchema,
-    mimeType: pipe(string(), trim(), minLength(3), maxLength(255)),
-    spaceId: nonEmptyStringSchema,
-  }),
-]);
-const manageSpaceFilesToolInputSchema = union([
-  strictObject({
-    action: literal("create_folder"),
-    clientMutationId: spaceFileMutationIdToolInputSchema,
-    name: spaceFileNameToolInputSchema,
-    parentId: optional(nullable(spaceFileIdToolInputSchema)),
-    spaceId: nonEmptyStringSchema,
-  }),
-  pipe(
-    strictObject({
-      action: literal("update_entry"),
-      clientMutationId: spaceFileMutationIdToolInputSchema,
-      entryId: spaceFileIdToolInputSchema,
-      name: optional(spaceFileNameToolInputSchema),
-      parentId: optional(nullable(spaceFileIdToolInputSchema)),
-      spaceId: nonEmptyStringSchema,
-    }),
-    check(
-      (value) => value.name !== undefined || value.parentId !== undefined,
-      "A new name or folder is required."
-    )
-  ),
-  strictObject({
-    action: literal("trash"),
-    clientMutationId: spaceFileMutationIdToolInputSchema,
-    entryId: spaceFileIdToolInputSchema,
-    spaceId: nonEmptyStringSchema,
-  }),
-]);
+// Flue requires every direct tool to expose one top-level object. The shared
+// RPC schemas remain the action-specific authority and reject missing or
+// irrelevant fields before anything reaches Core.
+const saveSpaceFileToolInputSchema = strictObject({
+  action: picklist(["create", "update"]),
+  baseRevision: optional(pipe(number(), integer(), minValue(1))),
+  clientMutationId: spaceFileMutationIdToolInputSchema,
+  content: spaceFileTextContentToolInputSchema,
+  fileId: optional(spaceFileIdToolInputSchema),
+  mimeType: pipe(string(), trim(), minLength(3), maxLength(255)),
+  name: optional(spaceFileNameToolInputSchema),
+  parentId: optional(nullable(spaceFileIdToolInputSchema)),
+  spaceId: nonEmptyStringSchema,
+});
+const manageSpaceFilesToolInputSchema = strictObject({
+  action: picklist(["create_folder", "update_entry", "trash"]),
+  clientMutationId: spaceFileMutationIdToolInputSchema,
+  entryId: optional(spaceFileIdToolInputSchema),
+  name: optional(spaceFileNameToolInputSchema),
+  parentId: optional(nullable(spaceFileIdToolInputSchema)),
+  spaceId: nonEmptyStringSchema,
+});
 const wakeAgentProfilesInSpaceToolInputSchema = object({
   agentProfileIds: pipe(
     array(nonEmptyStringSchema),
@@ -2855,16 +2830,20 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         "Create a UTF-8 text file in a Space or save a new revision of an existing text file. This is an ordinary external write and uses the Center Agent's own Space membership; there is no privileged bypass. For update, first read the file and pass that exact revision as baseRevision. A concurrent change returns a conflict instead of overwriting another participant. Reuse clientMutationId only when retrying the exact same save.",
       input: saveSpaceFileToolInputSchema,
       execute: async (payload) => {
-        const request = parseValibot(saveSpaceFileToolInputSchema, payload);
+        const toolInput = parseValibot(saveSpaceFileToolInputSchema, payload);
         const context = await buildOpenMeldToolRequestContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_save_space_file",
         });
+        const request = centerAgentSaveSpaceFileRpcInputSchema.parse({
+          ...toolInput,
+          context,
+        });
         const response = await callCoreRpc(
           input.coreWorker,
           "centerAgentSaveSpaceFile",
-          { ...request, context },
+          request,
           (binding, rpcInput) => binding.centerAgentSaveSpaceFile?.(rpcInput)
         );
         return centerAgentSaveSpaceFileResponseSchema.parse(response);
@@ -2876,16 +2855,23 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         "Create a Space folder, rename or move one Space file-system entry, or move an entry to trash. This is an ordinary external write under the Center Agent's own Space membership. Use stable IDs returned by openmeld_list_space_files, pass parentId null for the root, and reuse clientMutationId only when retrying the exact same operation. Trash requires an empty folder and never changes Organization Resources.",
       input: manageSpaceFilesToolInputSchema,
       execute: async (payload) => {
-        const request = parseValibot(manageSpaceFilesToolInputSchema, payload);
+        const toolInput = parseValibot(
+          manageSpaceFilesToolInputSchema,
+          payload
+        );
         const context = await buildOpenMeldToolRequestContext({
           storage: input.storage,
           submissionId: input.submissionId,
           toolName: "openmeld_manage_space_files",
         });
+        const request = centerAgentManageSpaceFilesRpcInputSchema.parse({
+          ...toolInput,
+          context,
+        });
         const response = await callCoreRpc(
           input.coreWorker,
           "centerAgentManageSpaceFiles",
-          { ...request, context },
+          request,
           (binding, rpcInput) => binding.centerAgentManageSpaceFiles?.(rpcInput)
         );
         return centerAgentManageSpaceFilesResponseSchema.parse(response);
