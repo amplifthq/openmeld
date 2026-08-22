@@ -687,6 +687,46 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     AUTO_FIX_LOCAL_RUNTIME,
     REQUIRED_SIGN_IN
   ),
+  "profile.requests.create": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "profile.requests.list": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "profile.requests.approve": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "profile.requests.decline": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "profile.requests.cancel": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "profile.requests.retry": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "profile.requests.preferences.get": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
+  "profile.requests.preferences.set": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN
+  ),
 });
 
 export function getCommandCheckRequirements(

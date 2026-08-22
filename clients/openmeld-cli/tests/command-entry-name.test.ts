@@ -119,6 +119,17 @@ describe("command entry name", () => {
     expect(resolveCommandEntryNameFromTokens(["profile", "show"])).toBe(
       "profile.show"
     );
+    expect(
+      resolveCommandEntryNameFromTokens(["profile", "requests", "list"])
+    ).toBe("profile.requests.list");
+    expect(
+      resolveCommandEntryNameFromTokens([
+        "profile",
+        "requests",
+        "preferences",
+        "set",
+      ])
+    ).toBe("profile.requests.preferences.set");
     expect(resolveCommandEntryNameFromTokens(["skills", "ensure"])).toBe(
       "skills.ensure"
     );
