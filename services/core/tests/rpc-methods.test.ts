@@ -610,6 +610,52 @@ describe("rpc methods (direct DO path)", () => {
     );
   });
 
+  it("allows a canonical Space File to be sent without a text note", async () => {
+    const { env, stub } = createBindingsMock();
+    const files = [
+      {
+        fileId: "44444444-4444-4444-8444-444444444444",
+        revision: 1,
+        name: "brief.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 2048,
+      },
+    ];
+    stub.rpcPostSignal = vi.fn(async () => ({
+      v: 1,
+      id: "sig-file-only",
+      spaceId: SPACE_ID,
+      ts: Date.now(),
+      profile: {
+        kind: "human",
+        profileId: DEFAULT_ACTOR_CONTEXT.openMeldProfileId,
+        profileName: "Mira",
+      },
+      type: "signal.text",
+      data: { text: "", files },
+    }));
+
+    await rpcPostSignal(env, {
+      spaceId: SPACE_ID,
+      profile: {
+        kind: "human",
+        profileId: DEFAULT_ACTOR_CONTEXT.openMeldProfileId,
+        profileName: "Mira",
+      },
+      text: "",
+      files,
+      authoringPolicy: "user_authored",
+      context: DEFAULT_CONTEXT,
+    });
+
+    expect(stub.rpcPostSignal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        files,
+        text: "",
+      })
+    );
+  });
+
   it("forwards signal meta on post signal", async () => {
     const { env, stub } = createBindingsMock();
     stub.rpcPostSignal = vi.fn(async () => ({

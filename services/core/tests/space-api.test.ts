@@ -6961,6 +6961,74 @@ describe("OpenMeld Core", () => {
     expect(patchedCursor.role).toBe("assistant");
   });
 
+  it("publishes a canonical Space File without requiring a text note", async () => {
+    const spaceId = await createSpace({ name: `file-only-${Date.now()}` });
+    const context = createRpcContext({
+      requestId: "rpc-file-only-message",
+      profileId: DEFAULT_HUMAN_PROFILE_ID,
+      profileKind: "human",
+      profileName: "Test User",
+      ownerUserId: "owner-test-default",
+    });
+    const bytes = new TextEncoder().encode("%PDF test brief");
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const spaceAccess = createAuthenticatedSpaceAccessContext({
+      requestContext: context,
+      spaceId,
+    });
+    const write = {
+      spaceId,
+      fileId: randomUUID(),
+      revisionId: randomUUID(),
+      name: "brief.pdf",
+      parentId: null,
+      baseRevision: null,
+      clientMutationId: randomUUID(),
+      mimeType: "application/pdf",
+      sizeBytes: bytes.byteLength,
+    };
+    await stub.rpcPrepareSpaceFileWrite({ spaceAccess, write });
+    const file = await stub.rpcCommitSpaceFileWrite({ spaceAccess, write });
+
+    const posted = await rpcPostSignal(env as unknown as CoreBindings, {
+      authoringPolicy: "user_authored",
+      context,
+      files: [
+        {
+          fileId: file.id,
+          revision: file.latestRevision.revision,
+          name: "untrusted-client-name.pdf",
+          mimeType: "application/octet-stream",
+          sizeBytes: 1,
+        },
+      ],
+      profile: {
+        kind: "human",
+        profileId: DEFAULT_HUMAN_PROFILE_ID,
+        profileName: "Test User",
+      },
+      spaceId,
+      text: "",
+    });
+
+    expect(posted).toMatchObject({
+      type: "signal.text",
+      data: {
+        text: "",
+        files: [
+          {
+            fileId: file.id,
+            revision: 1,
+            name: "brief.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: bytes.byteLength,
+          },
+        ],
+      },
+    });
+  });
+
   it("persists the authenticated agent's Space member name instead of a requested profile display", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,

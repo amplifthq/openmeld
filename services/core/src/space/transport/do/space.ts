@@ -3638,8 +3638,8 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     const agentStreamId = parseOptionalAgentStreamId(input.agentStreamId);
     const normalizedText = String(input.text ?? "").trim();
-    if (normalizedText.length === 0) {
-      throw new Error("text is required");
+    if (normalizedText.length === 0 && (input.files?.length ?? 0) === 0) {
+      throw new Error("A message must include text or at least one file");
     }
 
     const policyResult = validateSpaceSignalClientMessageIdPolicy({

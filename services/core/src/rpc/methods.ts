@@ -15024,8 +15024,8 @@ export async function rpcPostSignal(
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const text = String(input.text ?? "");
   const normalizedText = text.trim();
-  if (normalizedText.length === 0) {
-    throw new Error("text is required");
+  if (normalizedText.length === 0 && (input.files?.length ?? 0) === 0) {
+    throw new Error("A message must include text or at least one file");
   }
   const attachments = await resolvePostSignalAttachments(env, {
     attachments: input.attachments,
@@ -15076,8 +15076,8 @@ export async function rpcPostSignalOnceByClientMessageId(
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const text = String(input.text ?? "");
   const normalizedText = text.trim();
-  if (normalizedText.length === 0) {
-    throw new Error("text is required");
+  if (normalizedText.length === 0 && (input.files?.length ?? 0) === 0) {
+    throw new Error("A message must include text or at least one file");
   }
   const attachments = await resolvePostSignalAttachments(env, {
     attachments: input.attachments,

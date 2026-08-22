@@ -1879,6 +1879,9 @@ describe("SpaceConversationPanel", () => {
 
 		const fileButton = screen.getByText("launch-brief.pdf").closest("button");
 		expect(fileButton).not.toBeNull();
+		expect(
+			fileButton?.closest("[data-slot='bubble']")?.className
+		).not.toContain("hidden");
 		if (fileButton) {
 			fireEvent.click(fileButton);
 		}

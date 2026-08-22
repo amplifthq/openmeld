@@ -2484,7 +2484,8 @@ function resolveSpaceMessageBubbleVisibilityClassName(input: {
 	return input.showProgressInAnswerArea ||
 		input.item.text.trim().length > 0 ||
 		Boolean(input.item.agentStreamState?.thinking) ||
-		input.item.attachments.length > 0
+		input.item.attachments.length > 0 ||
+		(input.item.files?.length ?? 0) > 0
 		? undefined
 		: "hidden";
 }
