@@ -72,7 +72,10 @@ import {
 	resolveProfileBindingCatalogExecutionTarget,
 } from "#/lib/profiles/profile-binding-target";
 import { useSelectedHumanProfile } from "#/lib/profiles/use-selected-human-profile";
-import { refreshWebAgentReadinessFacts } from "#/query/agents/execution-readiness";
+import {
+	refreshWebAgentReadinessFacts,
+	refreshWebAgentReadinessSharedCaches,
+} from "#/query/agents/execution-readiness";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
 import { agentActivitySessionsQueryOptions } from "#/query/organizations/agent-activity";
 import {
@@ -538,6 +541,7 @@ export function CreateProfileDialog(input: {
 				queryClient,
 				result,
 				spaceContext,
+				storageScope: recovery.storageScope,
 			}),
 		onSettled: () => {
 			submissionInFlightRef.current = false;
@@ -1186,7 +1190,7 @@ async function submitProfileCreation(input: CreateProfileSubmissionInput) {
 	return await createOwnProfile(input);
 }
 
-async function handleProfileCreationSuccess(input: {
+function handleProfileCreationSuccess(input: {
 	onAgentRequestCreated?: (request: AgentProfileCreationRequest) => void;
 	onClose: () => void;
 	onProfileCreated?: (profile: AuthProfileView) => void;
@@ -1195,22 +1199,24 @@ async function handleProfileCreationSuccess(input: {
 	queryClient: QueryClient;
 	result: Awaited<ReturnType<typeof submitProfileCreation>>;
 	spaceContext: CreateProfileSpaceContext | undefined;
+	storageScope: string;
 }) {
 	if (input.result.kind === "request") {
-		await Promise.all([
-			input.queryClient.invalidateQueries({
-				queryKey: agentProfileCreationRequestQueryKeys.byOrganization(
-					input.organizationId
-				),
-			}),
-			input.queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.directory(input.organizationId),
-			}),
-		]);
 		toast.success(createdAgentRequestMessage(input.result.request));
 		input.onAgentRequestCreated?.(input.result.request);
 		input.onReset();
 		input.onClose();
+		refreshAgentProfileCreationRequestCaches({
+			createdAgentProfileId: input.result.request.createdAgentProfileId,
+			organizationId: input.organizationId,
+			queryClient: input.queryClient,
+			storageScope: input.storageScope,
+		}).catch((error) => {
+			console.warn(
+				"OpenMeld created the Agent request but could not refresh its current status.",
+				error
+			);
+		});
 		return;
 	}
 	showCreatedProfileToast({
@@ -1223,6 +1229,45 @@ async function handleProfileCreationSuccess(input: {
 	input.onProfileCreated?.(input.result.profile);
 	input.onReset();
 	input.onClose();
+}
+
+async function refreshAgentProfileCreationRequestCaches(input: {
+	createdAgentProfileId: string | null;
+	organizationId: string;
+	queryClient: QueryClient;
+	storageScope: string;
+}) {
+	const refreshes: Promise<unknown>[] = [
+		input.queryClient.invalidateQueries({
+			queryKey: agentProfileCreationRequestQueryKeys.byOrganization(
+				input.organizationId
+			),
+			refetchType: "active",
+		}),
+	];
+	if (input.createdAgentProfileId) {
+		refreshes.push(
+			input.queryClient.invalidateQueries({
+				queryKey: startQueryKeys.profilesForStorageScope(input.storageScope),
+				refetchType: "active",
+			}),
+			refreshWebAgentReadinessSharedCaches({
+				agentProfileIds: [input.createdAgentProfileId],
+				includeLocalRuntimeCaches: false,
+				organizationId: input.organizationId,
+				queryClient: input.queryClient,
+				storageScope: input.storageScope,
+			})
+		);
+	} else {
+		refreshes.push(
+			input.queryClient.invalidateQueries({
+				queryKey: organizationQueryKeys.directory(input.organizationId),
+				refetchType: "active",
+			})
+		);
+	}
+	await Promise.all(refreshes);
 }
 
 async function requestAgentProfile(input: CreateProfileSubmissionInput) {

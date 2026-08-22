@@ -10,7 +10,9 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
+import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { startQueryKeys } from "#/query/query-keys";
 import {
 	createTestQueryClient,
 	TestQueryClientProvider,
@@ -1176,6 +1178,84 @@ describe("CreateProfileDialog", () => {
 					nativeSessionId: "native-ashley-release",
 					sessionStrategy: "fork",
 					targetOwnerUserId: "user-ashley",
+				})
+			);
+		});
+	});
+
+	it("refreshes the new Agent and its readiness after a completed Fork request", async () => {
+		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
+		createAgentProfileCreationRequestMock.mockResolvedValue({
+			replayed: false,
+			request: {
+				actorProfileId: FELIX_ID,
+				completedAt: "2026-08-20T00:00:05.000Z",
+				configuration: {
+					agentControllerPermissionMode: "codex:askForApproval",
+					agentControllerRef: "builtin:codex",
+					authorizeForOrganization: true,
+					defaultProjectId: "project-1",
+					modelId: "gpt-5.4-mini",
+					openCodePermission: null,
+					reasoningLevel: "high",
+					targetComputerId: "computer-session",
+				},
+				createdAgentProfileId: NEW_AGENT_ID,
+				createdAt: "2026-08-20T00:00:00.000Z",
+				decidedAt: "2026-08-20T00:00:01.000Z",
+				failureMessage: null,
+				id: "apcr-self-fork",
+				nativeSessionId: "native-codex-thread-1",
+				organizationId: "organization-123",
+				profileName: "Build Session Inventory",
+				requestedSpaceId: null,
+				requesterUserId: "user-123",
+				sessionStrategy: "fork",
+				source: "web",
+				status: "completed",
+				statusReason: "created",
+				targetOwnerUserId: "user-123",
+				updatedAt: "2026-08-20T00:00:05.000Z",
+			},
+		});
+		const { queryClient } = renderCreateProfileDialog({
+			agentActivitySessionPreset: {
+				agentControllerRef: "builtin:codex",
+				computerId: "computer-session",
+				localAgentName: "Codex",
+				mode: "fork",
+				nativeSessionId: "native-codex-thread-1",
+				nativeSessionTitle: "Build Session Inventory",
+				organizationId: "organization-123",
+				ownerUserId: "user-123",
+				projectId: "project-1",
+				provider: "codex",
+				status: "working",
+			},
+			currentUserId: "user-123",
+			recovery: buildCrossComputerRecovery(),
+		});
+		const invalidateQueriesSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+		const submitButton = await screen.findByRole("button", {
+			name: CREATE_PROFILE_BUTTON_PATTERN,
+		});
+		await waitFor(() => {
+			expect((submitButton as HTMLButtonElement).disabled).toBe(false);
+		});
+		fireEvent.click(submitButton);
+
+		await waitFor(() => {
+			expect(invalidateQueriesSpy).toHaveBeenCalledWith({
+				queryKey: startQueryKeys.profilesForStorageScope("scope-test"),
+				refetchType: "active",
+			});
+			expect(invalidateQueriesSpy).toHaveBeenCalledWith(
+				expect.objectContaining({
+					queryKey:
+						agentExecutionReadinessQueryKeys.batchesForStorageScope(
+							"scope-test"
+						),
 				})
 			);
 		});
