@@ -1025,6 +1025,7 @@ export type {
   SpaceFileMutationErrorCode,
   SpaceFileRevision,
   SpaceFolderDescriptor,
+  SpaceMessageFileReference,
   TrashSpaceFileEntryBody,
   TrashSpaceFileEntryResponse,
   UpdateSpaceFileContentQuery,

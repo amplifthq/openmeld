@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 import { isLegacyAgentActivityWorkCompatible } from "../../agent-work-activity";
+import { spaceMessageFileReferencesSchema } from "../http/space-files";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { signalStatusDataSchema as signalStatusPayloadSchema } from "../space-mesh/signal-status";
 import { signalSystemNoticeDataSchema as signalSystemNoticePayloadSchema } from "../space-mesh/signal-system-notice";
@@ -287,6 +288,7 @@ const buildSignalTextDataSchema = <TMetaSchema extends z.ZodTypeAny>(
     .strictObject({
       text: signalTextContentSchema,
       attachments: spaceMessageAttachmentsSchema.optional(),
+      files: spaceMessageFileReferencesSchema.optional(),
       messageEnvelope: messageEnvelopeSchema.optional(),
       replyTo: signalTextReplyToSchema.optional(),
       meta: metaSchema.optional(),

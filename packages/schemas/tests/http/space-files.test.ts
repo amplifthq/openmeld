@@ -4,7 +4,10 @@ import {
   createSpaceFolderBodySchema,
   isSpaceFileTextEditable,
   resolveSpaceFileMimeType,
+  SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceFileNameSchema,
+  spaceMessageFileReferenceSchema,
+  spaceMessageFileReferencesSchema,
   updateSpaceFileEntryBodySchema,
 } from "../../src";
 
@@ -76,5 +79,43 @@ describe("Space Files contracts", () => {
     expect(resolveSpaceFileMimeType({ fileName: "archive.unknown" })).toBe(
       "application/octet-stream"
     );
+  });
+
+  it("identifies one immutable Space File revision in a message", () => {
+    expect(
+      spaceMessageFileReferenceSchema.parse({
+        fileId: "file-1",
+        revision: 2,
+        name: "  launch-brief.md  ",
+        mimeType: "TEXT/MARKDOWN",
+        sizeBytes: 4096,
+      })
+    ).toEqual({
+      fileId: "file-1",
+      revision: 2,
+      name: "launch-brief.md",
+      mimeType: "text/markdown",
+      sizeBytes: 4096,
+    });
+  });
+
+  it("limits one message to ten canonical Space Files", () => {
+    const file = {
+      fileId: "file-1",
+      revision: 1,
+      name: "brief.md",
+      mimeType: "text/markdown",
+      sizeBytes: 128,
+    };
+    expect(
+      spaceMessageFileReferencesSchema.safeParse(
+        Array.from({ length: SPACE_MESSAGE_FILE_MAX_COUNT }, () => file)
+      ).success
+    ).toBe(true);
+    expect(
+      spaceMessageFileReferencesSchema.safeParse(
+        Array.from({ length: SPACE_MESSAGE_FILE_MAX_COUNT + 1 }, () => file)
+      ).success
+    ).toBe(false);
   });
 });

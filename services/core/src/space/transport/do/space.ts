@@ -6,6 +6,7 @@ import {
 import type {
   Profile,
   SignalEnvelope,
+  SignalText,
   SpaceCreator,
   SpaceCursor,
   SpaceMeta,
@@ -2573,6 +2574,26 @@ export class Space extends DurableObject<CoreBindings> {
     }
   }
 
+  private resolveSpaceMessageFileReferences(
+    files: NonNullable<SignalText["data"]["files"]>
+  ): NonNullable<SignalText["data"]["files"]> {
+    return files.map((reference) => {
+      const resolved = this.runSpaceFileRepositoryOperation(() =>
+        this.spaceFileRepository.resolveRevision({
+          fileId: reference.fileId,
+          revision: reference.revision,
+        })
+      );
+      return {
+        fileId: resolved.file.id,
+        revision: resolved.revision.revision,
+        name: resolved.file.name,
+        mimeType: resolved.revision.mimeType,
+        sizeBytes: resolved.revision.sizeBytes,
+      };
+    });
+  }
+
   // The rpc* methods below are adapters for typed DO RPC calls.
   // They build a local Request and reuse existing dispatch handlers so HTTP and
   // RPC paths keep identical validation and business behavior.
@@ -3643,6 +3664,7 @@ export class Space extends DurableObject<CoreBindings> {
         data: {
           text: normalizedText,
           ...(input.attachments ? { attachments: input.attachments } : {}),
+          ...(input.files ? { files: input.files } : {}),
           ...(input.messageEnvelope
             ? { messageEnvelope: input.messageEnvelope }
             : {}),
@@ -3750,6 +3772,7 @@ export class Space extends DurableObject<CoreBindings> {
       ...(input.input.attachments
         ? { attachments: input.input.attachments }
         : {}),
+      ...(input.input.files ? { files: input.input.files } : {}),
       ...(input.input.context ? { context: input.input.context } : {}),
       ...(input.input.finalOutcomeAuthority
         ? { finalOutcomeAuthority: input.input.finalOutcomeAuthority }
@@ -3885,6 +3908,9 @@ export class Space extends DurableObject<CoreBindings> {
       normalizedText,
       {
         ...(input.attachments ? { attachments: input.attachments } : {}),
+        ...(input.files
+          ? { files: this.resolveSpaceMessageFileReferences(input.files) }
+          : {}),
         ...(input.messageEnvelope
           ? { messageEnvelope: input.messageEnvelope }
           : {}),
@@ -8039,6 +8065,13 @@ export class Space extends DurableObject<CoreBindings> {
           ...(parsed.data.messageEnvelope
             ? { messageEnvelope: parsed.data.messageEnvelope }
             : {}),
+          ...(parsed.data.files
+            ? {
+                files: this.resolveSpaceMessageFileReferences(
+                  parsed.data.files
+                ),
+              }
+            : {}),
           meta: {
             clientMessageId: parsed.data.clientMessageId,
           },
@@ -10549,6 +10582,8 @@ export class Space extends DurableObject<CoreBindings> {
         isDispatchSnapshotOversizeError,
         dispatchSnapshotOversizeErrorCode:
           OPENMELD_DAEMON_DISPATCH_SNAPSHOT_OVERSIZE_ERROR_CODE,
+        resolveMessageFiles: (files) =>
+          this.resolveSpaceMessageFileReferences(files),
       });
     } catch (error) {
       if (error instanceof SpaceFinalOutcomeOwnerRequiredError) {
@@ -12385,6 +12420,7 @@ export class Space extends DurableObject<CoreBindings> {
       data: {
         text,
         ...(options?.attachments ? { attachments: options.attachments } : {}),
+        ...(options?.files ? { files: options.files } : {}),
         ...(options?.messageEnvelope
           ? { messageEnvelope: options.messageEnvelope }
           : {}),

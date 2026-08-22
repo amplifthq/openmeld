@@ -4,6 +4,7 @@ export const SPACE_FILE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 export const SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES = 1024 * 1024;
 export const SPACE_FILE_MAX_NAME_LENGTH = 255;
 export const SPACE_FILE_MAX_FOLDER_DEPTH = 20;
+export const SPACE_MESSAGE_FILE_MAX_COUNT = 10;
 
 const PATH_SEPARATOR_PATTERN = /[\\/]/u;
 const MEDIA_TYPE_PATTERN =
@@ -82,6 +83,23 @@ export const spaceFileRevisionSchema = z.strictObject({
   createdAt: z.iso.datetime({ offset: true }),
   createdBy: spaceFileActorSchema,
 });
+
+/**
+ * Canonical Space File revision embedded in a message. `fileId` and
+ * `revision` identify the immutable bytes; the remaining fields are the
+ * server-resolved send-time presentation snapshot.
+ */
+export const spaceMessageFileReferenceSchema = z.strictObject({
+  fileId: spaceFileEntryIdSchema,
+  revision: spaceFileRevisionNumberSchema,
+  name: spaceFileNameSchema,
+  mimeType: spaceFileMimeTypeSchema,
+  sizeBytes: spaceFileSizeBytesSchema,
+});
+
+export const spaceMessageFileReferencesSchema = z
+  .array(spaceMessageFileReferenceSchema)
+  .max(SPACE_MESSAGE_FILE_MAX_COUNT);
 
 const baseEntryShape = {
   id: spaceFileEntryIdSchema,

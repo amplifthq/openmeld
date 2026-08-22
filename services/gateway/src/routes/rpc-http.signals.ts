@@ -76,6 +76,7 @@ const buildPostSignalCoreRpcInput = (input: {
   ...(input.parsed.attachments
     ? { attachments: input.parsed.attachments }
     : {}),
+  ...(input.parsed.files ? { files: input.parsed.files } : {}),
   ...(input.parsed.messageEnvelope
     ? { messageEnvelope: input.parsed.messageEnvelope }
     : {}),

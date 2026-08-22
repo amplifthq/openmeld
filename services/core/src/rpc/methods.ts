@@ -1805,6 +1805,7 @@ export type PostSignalInput = {
   authoringPolicy: SpaceSignalAuthoringPolicy;
   finalOutcomeAuthority?: FinalOutcomeWriteAuthority;
   attachments?: SignalText["data"]["attachments"];
+  files?: SignalText["data"]["files"];
   messageEnvelope?: SignalText["data"]["messageEnvelope"];
   meta?: SignalText["data"]["meta"];
   replyTo?: SignalText["data"]["replyTo"];
@@ -15040,6 +15041,7 @@ export async function rpcPostSignal(
     text: normalizedText,
     authoringPolicy: input.authoringPolicy,
     ...(attachments ? { attachments } : {}),
+    ...(input.files ? { files: input.files } : {}),
     ...(input.messageEnvelope
       ? { messageEnvelope: input.messageEnvelope }
       : {}),
@@ -15092,6 +15094,7 @@ export async function rpcPostSignalOnceByClientMessageId(
     text: normalizedText,
     authoringPolicy: input.authoringPolicy,
     ...(attachments ? { attachments } : {}),
+    ...(input.files ? { files: input.files } : {}),
     ...(input.messageEnvelope
       ? { messageEnvelope: input.messageEnvelope }
       : {}),

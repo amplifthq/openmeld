@@ -278,6 +278,7 @@ export type SpaceApi = {
     input: SpaceRequestInput & {
       text: PostNormalMessageBody["text"];
       attachments?: PostNormalMessageBody["attachments"];
+      files?: PostNormalMessageBody["files"];
       messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
       replyTo?: PostNormalMessageBody["replyTo"];
       meta?: PostNormalMessageBody["meta"];

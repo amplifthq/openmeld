@@ -4,6 +4,9 @@ type Schemas = typeof import("../../schemas/http/space-files");
 
 export type SpaceFileActor = z.infer<Schemas["spaceFileActorSchema"]>;
 export type SpaceFileRevision = z.infer<Schemas["spaceFileRevisionSchema"]>;
+export type SpaceMessageFileReference = z.infer<
+  Schemas["spaceMessageFileReferenceSchema"]
+>;
 export type SpaceFolderDescriptor = z.infer<
   Schemas["spaceFolderDescriptorSchema"]
 >;
