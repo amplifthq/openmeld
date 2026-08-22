@@ -15,6 +15,7 @@ import {
   remoteAgentCoreCallbackResponseSchema,
   remoteAgentWorkerConversationIdentitySchema,
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
+  SPACE_MESSAGE_FILE_MAX_COUNT,
   sanitizeDispatchErrorSummary,
 } from "@openmeld/schemas";
 import type {
@@ -99,6 +100,7 @@ import type {
   CenterAgentUpdateProjectToolRpcInput,
   CenterAgentUpdateRoutineToolRpcInput,
   ChangelogQueryResponse,
+  CommitSpaceFileWriteInput,
   ConversationCompactionMarker,
   CreateCenterAgentRoutineResponse,
   CreateCenterAgentTaskResponse,
@@ -125,7 +127,9 @@ import type {
   RemoteAgentWorkerSubmitTurnRequest,
   ResumeCenterAgentRoutineResponse,
   SpaceAttachmentDescriptor,
+  SpaceFileDescriptor,
   SpaceMessageAttachment,
+  SpaceMessageFileReference,
   StartCenterAgentMemberResearchResponse,
   UpdateCenterAgentRoutineResponse,
 } from "@openmeld/schemas/types";
@@ -209,6 +213,7 @@ export type RemoteAgentCallbackContext = {
   runtimeConversationId?: string;
   conversationCompaction?: ConversationCompactionMarker;
   outputAttachments?: SpaceMessageAttachment[];
+  outputFiles?: SpaceMessageFileReference[];
   dispatchId: string;
   idempotencyKey: string;
   lastCoreResponse?: RemoteAgentCoreCallbackResponse;
@@ -503,6 +508,12 @@ export type RemoteAgentCoreWorkerBinding = {
     spaceId: string;
     width?: number;
   }): Promise<SpaceAttachmentDescriptor>;
+  writeSpaceFileContent?(input: {
+    bytes: ArrayBuffer;
+    context: OpenMeldRequestContext;
+    spaceId: string;
+    write: CommitSpaceFileWriteInput;
+  }): Promise<SpaceFileDescriptor>;
   deleteSpaceAttachmentRecord?(input: {
     attachmentId: string;
   }): Promise<{ deleted: boolean }>;
@@ -1018,6 +1029,9 @@ export function buildRemoteAgentCoreCallbackBody(input: {
     ...(input.context.outputAttachments?.length
       ? { attachments: input.context.outputAttachments }
       : {}),
+    ...(input.context.outputFiles?.length
+      ? { files: input.context.outputFiles }
+      : {}),
   });
 }
 
@@ -1145,6 +1159,58 @@ export async function appendRemoteAgentOutputAttachment(input: {
   }
   throw new Error(
     "Remote Agent output attachment could not be persisted after concurrent updates."
+  );
+}
+
+export async function appendRemoteAgentOutputFile(input: {
+  file: SpaceMessageFileReference;
+  storage: RemoteAgentStorage;
+  submissionId: string;
+}): Promise<RemoteAgentCallbackContext> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const current = await readRemoteAgentCallbackContext(
+      input.storage,
+      input.submissionId
+    );
+    if (!current) {
+      throw new Error("Remote Agent execution context is unavailable.");
+    }
+    const existing = current.outputFiles ?? [];
+    if (
+      existing.some(
+        (file) =>
+          file.fileId === input.file.fileId &&
+          file.revision === input.file.revision
+      )
+    ) {
+      return current;
+    }
+    const outputFiles = [
+      ...existing,
+      input.file,
+    ] satisfies SpaceMessageFileReference[];
+    if (outputFiles.length > SPACE_MESSAGE_FILE_MAX_COUNT) {
+      throw new Error(
+        `Remote Agent output cannot include more than ${SPACE_MESSAGE_FILE_MAX_COUNT} files.`
+      );
+    }
+    const updated: RemoteAgentCallbackContext = {
+      ...current,
+      outputFiles,
+    };
+    if (
+      await input.storage.compareAndSet(
+        buildRemoteAgentCallbackContextKey(input.submissionId),
+        current,
+        updated
+      )
+    ) {
+      notifyRemoteAgentCallbackContextWaiters(input.submissionId);
+      return updated;
+    }
+  }
+  throw new Error(
+    "Remote Agent output file could not be persisted after concurrent updates."
   );
 }
 

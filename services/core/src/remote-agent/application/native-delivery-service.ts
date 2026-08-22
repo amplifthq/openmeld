@@ -26,11 +26,14 @@ import {
   remoteAgentWorkerAdmissionRejectionCodeSchema,
   remoteAgentWorkerCancellationResponseSchema,
   remoteAgentWorkerExecutionQueryResponseSchema,
+  remoteAgentWorkerInputAttachmentsSchema,
   type remoteAgentWorkerSubmitMessagesResultSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   resolveCenterAgentCallbackFailureMessage,
   resolveCenterAgentCompletedCallbackMessage,
+  resolveSpaceFileContentResponseSchema,
   routineWorkflowContinuationEventPayloadSchema,
+  SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   spaceMessageAttachmentsSchema,
 } from "@openmeld/schemas";
 import type {
@@ -50,10 +53,12 @@ import type {
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
   RemoteAgentTurnEnvelope,
   RemoteAgentWorkerAuthorContext,
+  RemoteAgentWorkerInputAttachment,
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   SpaceAgentStreamTerminal,
   SpaceMessageAttachment,
+  SpaceMessageFileReference,
 } from "@openmeld/schemas/types";
 import {
   createAuthenticatedSpaceAccessContext,
@@ -6908,6 +6913,7 @@ function buildRoutinePublisherActorContext(input: {
 async function publishRemoteAgentRoutineText(input: {
   agentStreamId?: string;
   attachments?: SpaceMessageAttachment[];
+  files?: SpaceMessageFileReference[];
   clientMessageId: string;
   conversationCompaction?: ConversationCompactionMarker;
   delivery: {
@@ -6954,6 +6960,7 @@ async function publishRemoteAgentRoutineText(input: {
       : { agentStreamId: input.agentStreamId }),
     authoringPolicy: "system_emitted",
     ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+    ...(input.files?.length ? { files: input.files } : {}),
     clientMessageId: input.clientMessageId,
     context,
     env: input.env,
@@ -7207,19 +7214,20 @@ async function readRemoteAgentSubmissionAttachments(input: {
   binding: NativeDeliveryBindingSnapshot;
   env: CoreBindings;
   message: OpenMeldDaemonDispatchQueueMessage;
-}): Promise<SpaceMessageAttachment[]> {
+}): Promise<RemoteAgentWorkerInputAttachment[]> {
   try {
     const context = buildRemoteAgentSubmissionContext(input);
+    const spaceAccess = createDispatchContinuationSpaceAccessContext({
+      dispatchId: input.message.dispatchId,
+      requestContext: context,
+      sourceSignalId: input.message.sourceEventId,
+      spaceId: input.message.spaceId,
+      targetProfileId: input.message.targetProfileId,
+    });
     const signal = await readRemoteAgentSpaceSourceSignal({
       env: input.env,
       sourceSignalId: input.message.sourceEventId,
-      spaceAccess: createDispatchContinuationSpaceAccessContext({
-        dispatchId: input.message.dispatchId,
-        requestContext: context,
-        sourceSignalId: input.message.sourceEventId,
-        spaceId: input.message.spaceId,
-        targetProfileId: input.message.targetProfileId,
-      }),
+      spaceAccess,
       spaceId: input.message.spaceId,
     });
     if (signal?.type !== "signal.text") {
@@ -7231,18 +7239,53 @@ async function readRemoteAgentSubmissionAttachments(input: {
       }
       return [];
     }
-    const parsed = spaceMessageAttachmentsSchema.safeParse(
+    const legacyAttachments = spaceMessageAttachmentsSchema.safeParse(
       signal.data.attachments ?? []
     );
-    if (!parsed.success) {
+    if (!legacyAttachments.success) {
       logRemoteAgentAttachmentReferenceDegradation({
         message: input.message,
         reason: "attachment_references_invalid",
-        error: parsed.error.message,
+        error: legacyAttachments.error.message,
       });
       return [];
     }
-    return parsed.data;
+    const availableImageSlots = Math.max(
+      0,
+      SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE - legacyAttachments.data.length
+    );
+    const canonicalImageFiles = (signal.data.files ?? [])
+      .filter(
+        (file) =>
+          file.mimeType === "image/jpeg" || file.mimeType === "image/png"
+      )
+      .slice(0, availableImageSlots);
+    const canonicalImageResults = await Promise.allSettled(
+      canonicalImageFiles.map((file) =>
+        resolveRemoteAgentSpaceFileInputImage({
+          env: input.env,
+          file,
+          spaceAccess,
+          spaceId: input.message.spaceId,
+        })
+      )
+    );
+    const canonicalImages: RemoteAgentWorkerInputAttachment[] = [];
+    for (const [index, result] of canonicalImageResults.entries()) {
+      if (result.status === "fulfilled") {
+        canonicalImages.push(result.value);
+        continue;
+      }
+      logRemoteAgentAttachmentReferenceDegradation({
+        error: toErrorMessage(result.reason),
+        message: input.message,
+        reason: `space_file_image_resolution_failed:${canonicalImageFiles[index]?.fileId ?? "unknown"}`,
+      });
+    }
+    return remoteAgentWorkerInputAttachmentsSchema.parse([
+      ...legacyAttachments.data,
+      ...canonicalImages,
+    ]);
   } catch (error) {
     logRemoteAgentAttachmentReferenceDegradation({
       message: input.message,
@@ -7253,6 +7296,56 @@ async function readRemoteAgentSubmissionAttachments(input: {
     });
     return [];
   }
+}
+
+async function resolveRemoteAgentSpaceFileInputImage(input: {
+  env: CoreBindings;
+  file: SpaceMessageFileReference;
+  spaceAccess: ReturnType<typeof createDispatchContinuationSpaceAccessContext>;
+  spaceId: string;
+}): Promise<RemoteAgentWorkerInputAttachment> {
+  const stub = resolveSpaceStub(input.env.OPENMELD_SPACES, input.spaceId) as {
+    rpcResolveSpaceFileContent(request: {
+      content: {
+        fileId: string;
+        revision: number;
+        spaceId: string;
+      };
+      spaceAccess: ReturnType<
+        typeof createDispatchContinuationSpaceAccessContext
+      >;
+    }): Promise<unknown>;
+  } | null;
+  if (!stub?.rpcResolveSpaceFileContent) {
+    throw new Error(
+      `Space ${input.spaceId} cannot resolve canonical file content.`
+    );
+  }
+  const resolved = resolveSpaceFileContentResponseSchema.parse(
+    await stub.rpcResolveSpaceFileContent({
+      content: {
+        fileId: input.file.fileId,
+        revision: input.file.revision,
+        spaceId: input.spaceId,
+      },
+      spaceAccess: input.spaceAccess,
+    })
+  );
+  if (
+    resolved.revision.mimeType !== input.file.mimeType ||
+    resolved.revision.sizeBytes !== input.file.sizeBytes
+  ) {
+    throw new Error(
+      `Canonical Space File ${input.file.fileId} revision ${input.file.revision} no longer matches its message reference.`
+    );
+  }
+  return {
+    fileName: input.file.name,
+    id: input.file.fileId,
+    mimeType: input.file.mimeType as "image/jpeg" | "image/png",
+    objectKey: resolved.objectKey,
+    sizeBytes: input.file.sizeBytes,
+  };
 }
 
 async function readRemoteAgentSpaceSourceSignal(input: {
@@ -8823,8 +8916,9 @@ function buildRemoteAgentFinalPublicationPayload(input: {
       input.body.status === "failed"
         ? (input.body.failureDetail ?? null)
         : null,
+    files: input.body.status === "failed" ? [] : (input.body.files ?? []),
     resumeStatus: input.resumeStatus,
-    storageVersion: 2,
+    storageVersion: 3,
     text:
       input.body.status === "failed"
         ? resolveCenterAgentCallbackFailureMessage(input.body)
@@ -11433,6 +11527,7 @@ async function publishRemoteAgentCallbackReply(input: {
       ...(input.body.attachments?.length
         ? { attachments: input.body.attachments }
         : {}),
+      ...(input.body.files?.length ? { files: input.body.files } : {}),
       clientMessageId: input.delivery.routineRunId,
       ...(input.body.conversationCompaction
         ? { conversationCompaction: input.body.conversationCompaction }
@@ -11475,6 +11570,7 @@ async function publishRemoteAgentCallbackReply(input: {
     ...(input.body.attachments?.length
       ? { attachments: input.body.attachments }
       : {}),
+    ...(input.body.files?.length ? { files: input.body.files } : {}),
     env: input.env,
     spaceId: input.delivery.spaceId,
     profile,

@@ -3694,6 +3694,131 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
+  it("forwards canonical Space File image bytes without creating a second attachment", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    const workerSubmit = vi.fn(async () => ({
+      accepted: true,
+      createdAt: 1001,
+      requestId: "req_space_file_image",
+      status: "pending" as const,
+      submissionId: "sub_space_file_image",
+    }));
+    const file = {
+      fileId: "space-file-whiteboard",
+      mimeType: "image/png",
+      name: "whiteboard.png",
+      revision: 2,
+      sizeBytes: 4096,
+    } as const;
+    const actor = {
+      displayName: "Ari",
+      ownerUserId: "user_1",
+      profileId: HUMAN_PROFILE_ID,
+      profileKind: "human" as const,
+    };
+    const spaceFileContent = {
+      file: {
+        createdAt: "2026-08-23T00:00:00.000Z",
+        createdBy: actor,
+        id: file.fileId,
+        kind: "file" as const,
+        latestRevision: {
+          createdAt: "2026-08-23T00:00:00.000Z",
+          createdBy: actor,
+          fileId: file.fileId,
+          id: "revision-whiteboard-2",
+          mimeType: file.mimeType,
+          revision: file.revision,
+          sizeBytes: file.sizeBytes,
+        },
+        name: file.name,
+        parentId: null,
+        path: `/${file.name}`,
+        spaceId: SPACE_ID,
+        updatedAt: "2026-08-23T00:00:00.000Z",
+        updatedBy: actor,
+      },
+      objectKey:
+        "org/org_1/space/space-file/files/space-file-whiteboard/revisions/revision-whiteboard-2",
+      organizationId: "org_1",
+      revision: {
+        createdAt: "2026-08-23T00:00:00.000Z",
+        createdBy: actor,
+        fileId: file.fileId,
+        id: "revision-whiteboard-2",
+        mimeType: file.mimeType,
+        revision: file.revision,
+        sizeBytes: file.sizeBytes,
+      },
+    };
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+      sourceSignal: {
+        ...createSignalEnvelope("signal_1"),
+        data: {
+          files: [file],
+          text: "What changed on this whiteboard?",
+        },
+      } as SignalEnvelope,
+      spaceFileContent,
+    });
+
+    try {
+      await submitRemoteAgentNativeDelivery({
+        binding: createBinding(),
+        db: harness.db,
+        env,
+        executionAttemptId: "attempt_1",
+        message: createDispatchMessage({
+          sourceSignalSnapshot: {
+            files: [file],
+            profileId: HUMAN_PROFILE_ID,
+            profileKind: "human",
+            text: "What changed on this whiteboard?",
+          },
+        }),
+        nowMs: 1000,
+      });
+
+      expect(env.__spaceStub.rpcResolveSpaceFileContent).toHaveBeenCalledWith({
+        content: {
+          fileId: file.fileId,
+          revision: file.revision,
+          spaceId: SPACE_ID,
+        },
+        spaceAccess: expect.objectContaining({
+          actor: expect.objectContaining({
+            kind: "dispatch_continuation",
+          }),
+        }),
+      });
+      expect(workerSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messages: [
+            expect.objectContaining({
+              attachments: [
+                {
+                  fileName: file.name,
+                  id: file.fileId,
+                  mimeType: file.mimeType,
+                  objectKey: spaceFileContent.objectKey,
+                  sizeBytes: file.sizeBytes,
+                },
+              ],
+              content: expect.stringContaining(
+                `fileId=${file.fileId}, revision=${file.revision}`
+              ),
+              role: "user",
+            }),
+          ],
+        })
+      );
+    } finally {
+      harness.close();
+    }
+  });
+
   it("reports an older Space RPC receiver while preserving the text-only turn", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
@@ -4614,6 +4739,15 @@ describe("Remote Agent native delivery callback service", () => {
               fileName: "browser-screenshot.png",
             },
           ],
+          files: [
+            {
+              fileId: "space-file-1",
+              mimeType: "image/png",
+              name: "canonical-screenshot.png",
+              revision: 1,
+              sizeBytes: 2048,
+            },
+          ],
         })
       ).resolves.toEqual({
         status: "accepted",
@@ -4631,6 +4765,15 @@ describe("Remote Agent native delivery callback service", () => {
               width: 1440,
               height: 900,
               fileName: "browser-screenshot.png",
+            },
+          ],
+          files: [
+            {
+              fileId: "space-file-1",
+              mimeType: "image/png",
+              name: "canonical-screenshot.png",
+              revision: 1,
+              sizeBytes: 2048,
             },
           ],
           finalOutcomeAuthority: "remote_agent_native_delivery",
@@ -4825,8 +4968,9 @@ describe("Remote Agent native delivery callback service", () => {
           attachments: [],
           failureCode: null,
           failureDetail: null,
+          files: [],
           resumeStatus: "accepted",
-          storageVersion: 2,
+          storageVersion: 3,
           text: "The exact retained result.",
         },
         finalPublicationState: "outcome_unknown",
@@ -10793,6 +10937,7 @@ type BuildEnvOptions = {
   spaceGuide?: string | (() => string | undefined);
   sourceSignal?: SignalEnvelope;
   sourceSignals?: SignalEnvelope[];
+  spaceFileContent?: unknown;
   webAppUrl?: string;
 };
 
@@ -10807,6 +10952,7 @@ type TestSpaceStub = {
   rpcPostWakeStop?: ReturnType<typeof vi.fn>;
   rpcPostSystemNoticeSignal: ReturnType<typeof vi.fn>;
   rpcReadFinalReplyClaimSignalId: ReturnType<typeof vi.fn>;
+  rpcResolveSpaceFileContent: ReturnType<typeof vi.fn>;
 };
 
 function buildEnv(
@@ -10916,6 +11062,12 @@ function buildEnv(
     rpcReadFinalReplyClaimSignalId: vi.fn(async () => ({
       signalId: options.finalReplyClaimSignalId ?? null,
     })),
+    rpcResolveSpaceFileContent: vi.fn(() => {
+      if (!options.spaceFileContent) {
+        throw new Error("space_file.not_found");
+      }
+      return Promise.resolve(options.spaceFileContent);
+    }),
   };
   return {
     __spaceStub: spaceStub,
