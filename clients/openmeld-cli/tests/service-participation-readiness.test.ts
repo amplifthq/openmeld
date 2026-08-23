@@ -156,7 +156,7 @@ describe("service participation readiness", () => {
     );
     expect(summary.runtimeHeadline).toBe("running");
     expect(summary.nextStepSummary).toBe(
-      "OpenMeld Service needs repair. Run `openmeld setup`. If Wake or readiness still looks wrong after setup, run `openmeld service status`."
+      "Run `openmeld setup` to repair OpenMeld Service."
     );
     expect(summary.nextSteps).toEqual(["openmeld setup"]);
   });

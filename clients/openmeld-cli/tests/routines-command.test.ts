@@ -865,7 +865,7 @@ describe("routines commands", () => {
     });
   });
 
-  it("preserves exact pre-epoch quarantine evidence in pagination and presentation", async () => {
+  it("keeps internal failure codes out of Human View while Agent View preserves them", async () => {
     const calls = mockRoutinesFetch({
       routines: [routineFixture()],
       runs: [
@@ -893,7 +893,19 @@ describe("routines commands", () => {
       );
       expect(result.exitCode).toBeUndefined();
       expect(result.plainStdout).toContain("1969-12-31T23:55:00.000Z");
-      expect(result.plainStdout).toContain("routine.schedule_invalid");
+      expect(result.plainStdout).toContain(
+        "The stored schedule is outside the supported horizon."
+      );
+      expect(result.plainStdout).not.toContain("routine.schedule_invalid");
+
+      const agent = await runCommandAndCapture(() =>
+        runRoutinesRuns({
+          beforeScheduledFor: -300_000,
+          routineId: "routine-1",
+          view: "agent",
+        })
+      );
+      expect(agent.stdout).toContain("routine.schedule_invalid");
     });
 
     expect(routineApiCalls(calls)).toContainEqual({
@@ -983,12 +995,12 @@ describe("routines commands", () => {
       );
       expect(human.exitCode).toBe(1);
       expect(human.plainStdout).toContain(
-        "Routine scheduler capacity is unavailable."
+        "What happened: Routine scheduler capacity is unavailable."
       );
-      expect(human.plainStdout).toContain("HTTP Status");
-      expect(human.plainStdout).toContain("503");
-      expect(human.plainStdout).toContain("scheduler.capacity_unknown");
-      expect(human.plainStdout).toContain("req-scheduler-503");
+      expect(human.plainStdout).toContain("Next:");
+      expect(human.plainStdout).not.toContain("HTTP Status");
+      expect(human.plainStdout).not.toContain("scheduler.capacity_unknown");
+      expect(human.plainStdout).not.toContain("req-scheduler-503");
     });
   });
 
@@ -1105,9 +1117,12 @@ describe("routines commands", () => {
         runRoutinesList({ view: "human" })
       );
       expect(human.exitCode).toBe(1);
-      expect(human.plainStdout).toContain("routines.0.status");
-      expect(human.plainStdout).toContain("Invalid option");
-      expect(human.plainStdout).toContain("req-invalid-routine-list");
+      expect(human.plainStdout).toContain("What happened");
+      expect(human.plainStdout).toContain("invalid Routine list response");
+      expect(human.plainStdout).toContain("Next");
+      expect(human.plainStdout).not.toContain("routines.0.status");
+      expect(human.plainStdout).not.toContain("Invalid option");
+      expect(human.plainStdout).not.toContain("req-invalid-routine-list");
     });
   });
 

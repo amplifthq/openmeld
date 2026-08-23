@@ -190,11 +190,12 @@ describe("connect experience enhancements", () => {
     closeResolver();
 
     const { stderr } = await connectPromise;
-    expect(stderr).toContain("closed code=1006 (abnormal_closure)");
-    expect(stderr).toContain("reason=connection dropped unexpectedly");
+    expect(stderr).toContain("The connection closed.");
     expect(stderr).toContain(
-      "hint: this is usually a network issue or a temporary server restart"
+      "This is usually a network issue or a temporary server restart."
     );
+    expect(stderr).not.toContain("code=1006");
+    expect(stderr).not.toContain("connection dropped unexpectedly");
   });
 
   it("groups consecutive chat lines by profile and inserts one blank line on profile switch", async () => {
@@ -2162,7 +2163,8 @@ describe("connect experience enhancements", () => {
 
       const { stderr } = await connectPromise;
       const plain = stripAnsi(stderr);
-      expect(plain).toContain("\n\nclosed code=1006 (abnormal_closure)");
+      expect(plain).toContain("\n\nThe connection closed.");
+      expect(plain).not.toContain("code=1006");
       if (pc.isColorSupported) {
         expect(stderr).toMatch(ANSI_ESCAPE_MATCH_REGEX);
       }
@@ -2239,9 +2241,8 @@ describe("connect experience enhancements", () => {
 
       const { stderr } = await connectPromise;
       const plain = stripAnsi(stderr);
-      expect(plain).toContain(
-        "\n\nerror: connect ECONNREFUSED 127.0.0.1:65535"
-      );
+      expect(plain).toContain("\n\nOpenMeld lost the connection.");
+      expect(plain).not.toContain("ECONNREFUSED");
       if (pc.isColorSupported) {
         expect(stderr).toMatch(ANSI_ESCAPE_MATCH_REGEX);
       }
@@ -2307,8 +2308,9 @@ describe("connect experience enhancements", () => {
       const plainStderr = stripAnsi(stderr);
       expect(plainStdout).not.toContain("@hey-bot wake up");
       expect(plainStderr).toContain(
-        "last message may not have been confirmed before the connection closed"
+        "OpenMeld lost the connection before confirming your message."
       );
+      expect(plainStderr).toContain("Rejoin the space and send it again");
     } finally {
       if (stdoutTtyDescriptor) {
         Object.defineProperty(process.stdout, "isTTY", stdoutTtyDescriptor);
@@ -2869,7 +2871,11 @@ describe("connect experience enhancements", () => {
       const plainStdout = stripAnsi(stdout);
       const plainStderr = stripAnsi(stderr);
       expect(plainStdout).not.toContain(outboundText);
-      expect(plainStderr).toContain("couldn't send the message: socket closed");
+      expect(plainStderr).toContain("OpenMeld couldn't send your message.");
+      expect(plainStderr).toContain(
+        "Rejoin the space and try sending it again"
+      );
+      expect(plainStderr).not.toContain("socket closed");
     } finally {
       if (stdoutTtyDescriptor) {
         Object.defineProperty(process.stdout, "isTTY", stdoutTtyDescriptor);

@@ -16,6 +16,7 @@ import { formatDualViewGuideForDisplay } from "./runtime/dual-view-guide-display
 import { DualViewGuideError } from "./runtime/dual-view-guide-error";
 import { buildStructuredGuidePayload } from "./runtime/structured-guide-payload";
 import { isLocalMachineFailureError } from "./system/local-machine-recovery";
+import { renderHumanTextErrorCard } from "./ui/human-error-card";
 import { renderTextInfoCard } from "./ui/info-card";
 import { errLine, outJsonLine, outLine } from "./ui/io";
 
@@ -81,7 +82,9 @@ export function emitCliError(
   const requestId = readCliErrorRequestId(input.error);
   const authGuidance =
     resolveAuthenticationGuidanceFromError(input.error) ??
-    resolveAuthenticationGuidanceFromMessage(input.message);
+    (shouldResolveAuthenticationGuidanceFromMessage(input.code)
+      ? resolveAuthenticationGuidanceFromMessage(input.message)
+      : null);
   if (input.effectiveView === "agent") {
     emitAgentCliError({
       code: input.code,
@@ -105,13 +108,18 @@ export function emitCliError(
       rows: card.rows,
       emitLine: outLine,
     });
-    emitCliErrorRequestIdLine(requestId);
     return Promise.resolve("none");
   }
 
-  errLine(`error: ${formattedMessage}`);
-  emitCliErrorRequestIdLine(requestId);
+  renderHumanTextErrorCard({
+    emitLine: errLine,
+    message,
+  });
   return Promise.resolve("none");
+}
+
+function shouldResolveAuthenticationGuidanceFromMessage(code: string): boolean {
+  return code === "cli.error" || code.startsWith("auth.");
 }
 
 function emitAgentCliError(input: {
@@ -197,13 +205,6 @@ function emitAgentCliStructuredGuide(input: {
     ...(input.requestId ? { requestId: input.requestId } : {}),
     payload: buildStructuredGuidePayload(input.formattedGuide),
   });
-}
-
-function emitCliErrorRequestIdLine(requestId: string | null): void {
-  if (!requestId) {
-    return;
-  }
-  errLine(`Request ID: ${requestId}`);
 }
 
 export function readCliErrorRequestId(error: unknown): string | null {

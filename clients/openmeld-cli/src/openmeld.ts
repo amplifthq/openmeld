@@ -266,6 +266,7 @@ import {
 import { emitCliErrorJson } from "./runtime/cli-error-json";
 import { emitCliJsonEnvelope } from "./runtime/cli-json-output";
 import { installCliOutputErrorHandlers } from "./runtime/cli-output-error-handler";
+import { isCliOutputHandledError } from "./runtime/cli-output-handled-error";
 import { resolveRuntimeContext } from "./runtime/context";
 import {
   isBinaryDistribution,
@@ -5211,15 +5212,7 @@ async function runLocalCli(argv: string[]): Promise<void> {
 
     await program.parseAsync(argv);
   } catch (err) {
-    if (isUpgradeOutputHandledError(err)) {
-      process.exitCode = 1;
-      return;
-    }
-    if (isSpaceCommandOutputHandledError(err)) {
-      if (err.shouldPrintMessage && err.message.trim()) {
-        errLine(err.message);
-      }
-      process.exitCode = 1;
+    if (handleKnownOutputError(err)) {
       return;
     }
     const effectiveView = await resolveEffectiveViewForError(argv);
@@ -5251,6 +5244,21 @@ async function runLocalCli(argv: string[]): Promise<void> {
     emitHelpfulHints({ argv, effectiveView, message, error: err });
     process.exitCode = 1;
   }
+}
+
+function handleKnownOutputError(error: unknown): boolean {
+  if (isCliOutputHandledError(error) || isUpgradeOutputHandledError(error)) {
+    process.exitCode = 1;
+    return true;
+  }
+  if (!isSpaceCommandOutputHandledError(error)) {
+    return false;
+  }
+  if (error.shouldPrintMessage && error.message.trim()) {
+    errLine(error.message);
+  }
+  process.exitCode = 1;
+  return true;
 }
 
 async function runRootCommand(): Promise<void> {

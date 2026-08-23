@@ -722,11 +722,11 @@ async function runDaemonServiceParticipationRefresh(input: {
       "OpenMeld Service was repaired, but it is not running yet. " +
       "Local Wake work will keep waiting until OpenMeld Service starts. " +
       "Run `openmeld service start`.";
-    renderDaemonStartNeedsAttention({
-      presenter: input.input.presenter,
+    renderRefreshFailureIfVisible({
       codePrefix: input.codePrefix,
+      presenter: input.input.presenter,
       summary,
-      autoRepairAttempted: true,
+      suppressed: input.input.suppressRefreshHumanResultCard === true,
     });
     return {
       errorMessage: toErrorMessage(error),
@@ -758,6 +758,23 @@ async function runDaemonServiceParticipationRefresh(input: {
     });
   }
   return { status: "needs_attention" };
+}
+
+function renderRefreshFailureIfVisible(input: {
+  codePrefix: string;
+  presenter: Presenter;
+  summary: string;
+  suppressed: boolean;
+}): void {
+  if (input.suppressed) {
+    return;
+  }
+  renderDaemonStartNeedsAttention({
+    autoRepairAttempted: true,
+    codePrefix: input.codePrefix,
+    presenter: input.presenter,
+    summary: input.summary,
+  });
 }
 
 function shouldForceDaemonServiceReinstall(input: {

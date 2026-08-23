@@ -566,17 +566,15 @@ describe("space create password prompt", () => {
         });
       });
 
-      expect(stdout).toContain("🚫 Space Create Failed");
+      expect(stdout).toContain("Space couldn't be created");
       expect(stdout).toContain(
-        "Reason: OpenMeld auth service is temporarily unavailable."
+        "What happened: OpenMeld auth service is temporarily unavailable."
       );
-      expect(stdout).toContain(
-        "Next Step: OpenMeld Cloud service is temporarily unavailable. Try again after OpenMeld is reachable."
-      );
-      expect(stdout).toContain("HTTP Status: 502");
-      expect(stdout).toContain("Error Code: upstream_unreachable");
-      expect(stdout).toContain("Request ID: req-space-create-502");
-      expect(stdout).toContain("Details: auth upstream unavailable");
+      expect(stdout).toContain("Next: Try again in a moment.");
+      expect(stdout).not.toContain("HTTP Status");
+      expect(stdout).not.toContain("upstream_unreachable");
+      expect(stdout).not.toContain("req-space-create-502");
+      expect(stdout).not.toContain("auth upstream unavailable");
       expect(stderr).not.toContain("error: HTTP 502");
     });
   });
@@ -635,17 +633,15 @@ describe("space create password prompt", () => {
       expect(promptTextEntryMock).not.toHaveBeenCalled();
       expect(selectMock).not.toHaveBeenCalled();
       expect(passwordPromptMock).not.toHaveBeenCalled();
-      expect(stdout).toContain("🚫 Space Create Blocked");
+      expect(stdout).toContain("Space couldn't be created");
       expect(stdout).toContain(
-        "Reason: OpenMeld auth service is temporarily unavailable."
+        "What happened: OpenMeld auth service is temporarily unavailable."
       );
-      expect(stdout).toContain(
-        "Next Step: OpenMeld Cloud service is temporarily unavailable. Try again after OpenMeld is reachable."
-      );
-      expect(stdout).toContain("HTTP Status: 502");
-      expect(stdout).toContain("Error Code: upstream_unreachable");
-      expect(stdout).toContain("Request ID: req-auth-check-502");
-      expect(stdout).toContain("Details: auth upstream unavailable");
+      expect(stdout).toContain("Next: Try again after OpenMeld is reachable.");
+      expect(stdout).not.toContain("HTTP Status");
+      expect(stdout).not.toContain("upstream_unreachable");
+      expect(stdout).not.toContain("req-auth-check-502");
+      expect(stdout).not.toContain("auth upstream unavailable");
       expect(stderr).not.toContain("error:");
     });
   });

@@ -712,7 +712,7 @@ describe("space send OpenMeld profile identity", () => {
         })
       ).rejects.toMatchObject({
         message: expect.stringContaining(
-          "Cannot validate mention targets right now because current space members could not be loaded."
+          "OpenMeld couldn't check who your mentions refer to."
         ),
         cause: expect.objectContaining({
           message:
@@ -731,7 +731,7 @@ describe("space send OpenMeld profile identity", () => {
           text: "@Budget Analyst(wake) Please propose the rollout plan.",
           view: "human",
         })
-      ).rejects.toThrow("rerun with --plain");
+      ).rejects.toThrow("Use --plain");
     });
   });
 

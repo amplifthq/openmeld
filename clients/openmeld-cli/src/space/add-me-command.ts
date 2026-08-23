@@ -563,7 +563,7 @@ function formatSpaceAddMeBindingReadFailure(input: {
     `openmeld space add-me ${quoteShellArg(input.spaceId)} --project-folder ${quoteShellArg(input.projectFolder.path)}`
   );
   return new Error(
-    `OpenMeld could not read Agent Profile Bindings while preparing add-me. No Space membership was written before this step completed.\n\nTry:\n  ${statusCommand}\n  ${retryCommand}\n\nDetails: ${error.message}`
+    `OpenMeld couldn't add you because it couldn't read Agent Profile Bindings, and no Space membership was changed. Run ${statusCommand}, then retry ${retryCommand}. Details: ${error.message}`
   );
 }
 

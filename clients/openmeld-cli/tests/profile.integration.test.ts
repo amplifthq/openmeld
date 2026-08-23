@@ -1037,7 +1037,7 @@ describe("profiles", () => {
 
       expect(thrown).toBeInstanceOf(Error);
       expect(thrown instanceof Error ? thrown.message : "").toContain(
-        "Missing required argument 'profile' for `openmeld profiles update`"
+        "Add a profile ID after `openmeld profiles update`"
       );
       expect(stdout).toContain("Available profiles to update:");
       expect(stdout).toContain("openmeld profiles update user_1 --name");

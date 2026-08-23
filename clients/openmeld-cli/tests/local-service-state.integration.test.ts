@@ -26,6 +26,7 @@ import {
   readDaemonServiceLifecycleLockMeta,
   readDaemonServiceLifecycleLockMetaWithCleanup,
   resolveDaemonControlPlaneEndpoint,
+  rotateDaemonControlPlaneTokenIfExpired,
   setDaemonServiceRuntimeState,
   uninstallDaemon,
 } from "../src/config/daemon-state";
@@ -418,7 +419,7 @@ describe("local service state", () => {
     });
   });
 
-  it("rotates local service token when existing token is older than 24h", async () => {
+  it("keeps the local service token stable while an installed service may still be running", async () => {
     await withTempHome(async () => {
       await installDaemon({
         daemonVersion: "1.0.0",
@@ -436,7 +437,27 @@ describe("local service state", () => {
       await ensureDaemonInstalledForCliStartup({
         daemonVersion: "1.0.0",
       });
-      const rotatedToken = await readDaemonTokenFixture(tokenPath);
+      const currentToken = await readDaemonTokenFixture(tokenPath);
+
+      expect(currentToken).toEqual(expiredToken);
+    });
+  });
+
+  it("rotates an expired local service token only when lifecycle replacement explicitly requests it", async () => {
+    await withTempHome(async () => {
+      await installDaemon({
+        daemonVersion: "1.0.0",
+        source: "daemon.command.install",
+      });
+      const tokenPath = daemonTokenPath();
+      const firstToken = await readDaemonTokenFixture(tokenPath);
+      const expiredToken = {
+        ...firstToken,
+        updatedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+      };
+      await writeFile(tokenPath, `${JSON.stringify(expiredToken, null, 2)}\n`);
+
+      const rotatedToken = await rotateDaemonControlPlaneTokenIfExpired();
 
       expect(rotatedToken.token).not.toBe(firstToken.token);
       expect(Date.parse(rotatedToken.updatedAt)).toBeGreaterThan(

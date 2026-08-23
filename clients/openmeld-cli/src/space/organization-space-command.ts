@@ -7,6 +7,7 @@ import { buildCommandAuthenticationPromptMessage } from "../auth/command-auth";
 import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
 import { emitCliErrorJson } from "../runtime/cli-error-json";
 import { emitCliJsonEnvelope } from "../runtime/cli-json-output";
+import { renderHumanErrorCard } from "../ui/human-error-card";
 import { renderInfoCard } from "../ui/info-card";
 import { createCliApiClientFoundation } from "./api-client-foundation";
 import { createCliSpaceApi } from "./cli-space-api";
@@ -295,24 +296,12 @@ function emitOrganizationSpaceError(input: {
     });
     return;
   }
-  renderInfoCard({
+  renderHumanErrorCard({
+    message: failure.message,
+    nextStep: "Try again in a moment.",
     presenter: input.presenter,
-    title: "Organization Space Error",
+    title: "Organization Spaces couldn't be loaded",
     codePrefix: `${input.operation}.error.card`,
-    rows: [
-      { label: "Reason", value: failure.message },
-      ...(failure.requestId
-        ? [{ label: "Request ID", value: failure.requestId }]
-        : []),
-      ...(failure.schemaIssuePath
-        ? [{ label: "Schema Path", value: failure.schemaIssuePath }]
-        : []),
-      ...(failure.schemaIssueMessage
-        ? [{ label: "Schema Issue", value: failure.schemaIssueMessage }]
-        : []),
-    ],
-    sanitize: true,
-    minContentWidth: 72,
   });
 }
 

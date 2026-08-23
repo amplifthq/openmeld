@@ -21,7 +21,6 @@ import {
   formatDaemonServiceDowngradeBlockedRecommendation,
   getDaemonDowngradeBlockedTitle,
 } from "../system/local-service-install-attention";
-import { sanitizeSystemServiceErrorMessage } from "./service-error-text";
 import { renderServiceActionCard } from "./service-output";
 import type {
   DaemonRunFailureReason,
@@ -408,25 +407,16 @@ export function buildDaemonReinstallFailureMessage(input: {
   ) {
     if (controlEndpointMissing) {
       return formatInlineOpenMeldCliCommands(
-        [
-          `OpenMeld Service ${actionLabel} could not safely stop the existing Service because its control connection is missing.`,
-          "Run `openmeld service status` to check for local Agent work.",
-          `If none is running, run \`${actionCommand} --force\`.`,
-          "The force option stops the old Service process.",
-        ].join(" ")
+        `OpenMeld couldn't safely stop the running Service. After local Agent work finishes, run \`${actionCommand} --force\`.`
       );
     }
     if (input.errorMessage.includes("test fixture identity")) {
       return formatInlineOpenMeldCliCommands(
-        [
-          `OpenMeld Service ${actionLabel} failed because this production lane contains old test setup identity that cannot be reused.`,
-          "Rerun the setup command from OpenMeld Web so OpenMeld can write a fresh production service contract.",
-          "For diagnostics, run `openmeld service status --view agent`.",
-        ].join(" ")
+        "OpenMeld couldn't use old setup data on this computer. Copy a new setup command from OpenMeld Web and run it."
       );
     }
     return formatInlineOpenMeldCliCommands(
-      `OpenMeld Service ${actionLabel} failed. Run \`${actionCommand}\`. For diagnostics, run \`openmeld service status --view agent\`.`
+      `OpenMeld couldn't ${actionLabel} OpenMeld Service. Run \`${actionCommand}\` again.`
     );
   }
 
@@ -578,9 +568,7 @@ export function buildDaemonReinstallCurrentStateText(
         ? "OpenMeld Service is running in the background for this lane."
         : "OpenMeld Service is installed, but it is not running on this computer.";
     case "stopped_safe":
-      return formatInlineOpenMeldCliCommands(
-        "OpenMeld Service is installed at the current version and safely stopped for this lane. For diagnostics, run `openmeld service status --view agent`."
-      );
+      return "OpenMeld Service is installed and stopped.";
     case "in_progress": {
       const details = [outcome.heldBy, outcome.startedAt].filter(Boolean);
       return details.length > 0
@@ -596,9 +584,7 @@ export function buildDaemonReinstallCurrentStateText(
     case "start_blocked":
       return buildDaemonReinstallStartBlockedCurrentStateText(outcome);
     case "start_failed":
-      return formatInlineOpenMeldCliCommands(
-        "OpenMeld Service is installed, but it is not running for this lane. For diagnostics, run `openmeld service status --view agent`."
-      );
+      return "OpenMeld Service is installed, but it isn't running.";
     default: {
       const unexpectedOutcome: never = outcome;
       throw new Error(
@@ -945,15 +931,11 @@ export function summarizeDaemonReinstallJournalResult(
 }
 
 export function buildDaemonReinstallUnexpectedStartSummary(
-  error: unknown,
+  _error: unknown,
   action: DaemonServiceMaintenanceAction = "repair"
 ): string {
   const actionLabel = formatDaemonServiceMaintenanceActionLabel(action);
-  const detail = sanitizeSystemServiceErrorMessage(toErrorMessage(error));
-  if (!detail) {
-    return `OpenMeld hit a local start error right after service ${actionLabel}.`;
-  }
-  return `OpenMeld hit a local start error right after service ${actionLabel}: ${detail}`;
+  return `OpenMeld Service couldn't start after the ${actionLabel}.`;
 }
 
 export function buildDaemonReinstallUnexpectedStartNextStep(

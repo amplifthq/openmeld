@@ -38,6 +38,7 @@ import {
 import { buildLocalAgentCatalogFromReadiness } from "../local-service/state/current-device-identity";
 import { notifyDaemonRouteCatalogChanged } from "../local-service/state/route-catalog-sync-notifier";
 import { formatOpenMeldCliCommand } from "../runtime/cli-entry-command";
+import { CliOutputHandledError } from "../runtime/cli-output-handled-error";
 import { getCliVersionInfo } from "../runtime/cli-version";
 import type { createPresenter } from "../runtime/presenter/index";
 import { computeRetryDelayMs } from "../runtime/retry-delay";
@@ -54,6 +55,10 @@ import {
 import { runDaemonServiceParticipationGate } from "../system/local-service-participation-gate";
 import { connectWebSocket } from "../transport/ws";
 import { resolveControllingTerminalSession } from "../ui/controlling-terminal";
+import {
+  buildHumanErrorCopy,
+  renderHumanErrorCard,
+} from "../ui/human-error-card";
 import { renderInfoCard } from "../ui/info-card";
 import { promptSearchSelect } from "../ui/search-select";
 import {
@@ -1005,25 +1010,24 @@ async function handleTerminalStepFailure(input: {
       stream: input.input.stream,
     });
   }
-  input.progress.fail(message);
-  const humanLines = [message];
-  if (!localMachineIssue) {
-    humanLines.push(
-      "After fixing this step, copy a fresh setup command from OpenMeld Web and run setup again."
-    );
-  }
-  if (diagnostics !== null) {
-    humanLines.push(
-      `A diagnostic summary was shared with OpenMeld to help fix this (support code: ${reasonCode}).`
-    );
-  }
-  emitHumanStatus(input.input.input, "Setup blocked", humanLines);
+  input.progress.fail("Setup stopped.");
   if (isLocalMachineFailureError(input.error)) {
     throw input.error;
   }
-  const userFacingError = new Error(message);
-  (userFacingError as Error & { cause?: unknown }).cause = input.error;
-  throw userFacingError;
+  if (input.input.input.runtime.resolvedView === "human") {
+    renderHumanErrorCard({
+      codePrefix: "prepare.session.failed",
+      message,
+      presenter: input.input.input.presenter,
+      title: "Setup couldn't finish",
+    });
+    throw new CliOutputHandledError(rawMessage);
+  }
+  const agentError = new Error(rawMessage, { cause: input.error }) as Error & {
+    code: string;
+  };
+  agentError.code = reasonCode;
+  throw agentError;
 }
 
 function assertTerminalStepCompletedOrThrow(input: {
@@ -1045,10 +1049,7 @@ function assertTerminalStepCompletedOrThrow(input: {
   const message =
     blocker?.message ??
     "OpenMeld setup is blocked. Return to OpenMeld Web for details.";
-  emitHumanStatus(input.input, "Setup blocked", [
-    message,
-    ...(blocker?.reasonCode ? [`Support code: ${blocker.reasonCode}`] : []),
-  ]);
+  emitHumanStatus(input.input, "Setup blocked", [message]);
   throw new PrepareSessionBlockedByCoreError(message);
 }
 
@@ -1701,10 +1702,7 @@ async function enforcePrepareSessionTerminalAuth(input: {
       step?.state === "blocked"
     );
   });
-  emitHumanStatus(input.input, "Setup blocked", [
-    result.message,
-    `Support code: ${result.reasonCode}`,
-  ]);
+  emitHumanStatus(input.input, "Setup blocked", [result.message]);
   throw new Error(result.message);
 }
 
@@ -2027,7 +2025,7 @@ function buildSelectedRuntimeReadinessUnreachableError(
   lastError: unknown
 ): Error {
   return new Error(
-    `OpenMeld could not reach OpenMeld to verify selected local agents during the setup verification window. Last network error: ${toErrorMessage(
+    `OpenMeld could not connect to the setup service while checking your local agents. Last network error: ${toErrorMessage(
       lastError
     )}. Support code: ${VERIFY_SETUP_READINESS_UNREACHABLE_SUPPORT_CODE}.`,
     { cause: lastError }
@@ -2130,37 +2128,21 @@ export function formatTerminalStepFailureMessage(input: {
   }
   if (input.stepId === "refresh_service") {
     if (input.serviceJobVerdict === "never_spawned") {
-      return `macOS is blocking the OpenMeld Service background item, so OpenMeld Service never launched. Path A: open System Settings > General > Login Items & Extensions, enable the OpenMeld background item, then copy a fresh setup command from OpenMeld Web and run setup again. Path B: run \`${formatOpenMeldCliCommand(
-        "openmeld service start --mode foreground"
-      )}\` in a separate terminal and keep it open (Wake stops when you close that window), then run setup again.`;
+      return "macOS didn't start OpenMeld Service. Open System Settings > General > Login Items & Extensions, turn on the OpenMeld background item, then copy a new setup command from OpenMeld Web.";
     }
     if (input.serviceJobVerdict === "crashed") {
-      return `OpenMeld Service started but keeps exiting on this Mac. Run \`${formatOpenMeldCliCommand(
+      return `OpenMeld Service keeps stopping after it starts. Run \`${formatOpenMeldCliCommand(
         "openmeld service start --mode foreground"
-      )}\` to see the live error, fix it, then copy a fresh setup command from OpenMeld Web and run setup again.`;
+      )}\` to see the live error, then copy a new setup command from OpenMeld Web.`;
     }
-    const detail = formatTerminalStepFailureDetail(input.rawMessage);
-    return `OpenMeld Service did not report a running local connection during setup. Copy a fresh setup command from OpenMeld Web and run setup again to continue from this step. If it fails again, run \`${formatOpenMeldCliCommand(
-      "openmeld service start --mode foreground"
-    )}\` to see live startup logs, then copy a fresh setup command from OpenMeld Web and run setup again.${
-      detail ? ` Detail: ${detail}` : ""
-    }`;
+    return "OpenMeld couldn't update its background service. Restart your computer, then copy a new setup command from OpenMeld Web.";
   }
-  return input.rawMessage;
-}
-
-function formatTerminalStepFailureDetail(rawMessage: string): string | null {
-  const normalized = rawMessage.replace(/\s+/g, " ").trim();
-  if (
-    normalized.length === 0 ||
-    normalized === "OpenMeld Service is not connected yet."
-  ) {
-    return null;
-  }
-  const maxLength = 220;
-  return normalized.length > maxLength
-    ? `${normalized.slice(0, maxLength - 3)}...`
-    : normalized;
+  const copy = buildHumanErrorCopy(input.rawMessage);
+  return [
+    copy.summary,
+    copy.nextStep ??
+      "Copy a new setup command from OpenMeld Web and run it again.",
+  ].join(" ");
 }
 
 function resolveTerminalStepFailureReasonCode(input: {
@@ -2743,7 +2725,6 @@ function emitTerminalStepCompletionNotice(
       `Run \`${formatOpenMeldCliCommand(
         "openmeld service status"
       )}\` to check progress.`,
-      `Support code: ${notice.supportCode}`,
     ]);
     return;
   }

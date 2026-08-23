@@ -10,17 +10,29 @@ import { resolveDaemonControlPlaneEndpoint } from "../../config/daemon-state";
 
 const MAX_CONTROL_PLANE_REQUEST_SIZE_BYTES = 64 * 1024;
 
-export async function startLocalDaemonControlPlaneServer(input: {
-  endpoint?: string;
-  expectedToken: string;
-  getContext: () =>
-    | Promise<OpenMeldDaemonControlPlaneContext>
-    | OpenMeldDaemonControlPlaneContext;
-}): Promise<{
+type DaemonControlPlaneTokenSource =
+  | {
+      expectedToken: string;
+      resolveExpectedToken?: never;
+    }
+  | {
+      expectedToken?: never;
+      resolveExpectedToken: () => Promise<string> | string;
+    };
+
+export async function startLocalDaemonControlPlaneServer(
+  input: DaemonControlPlaneTokenSource & {
+    endpoint?: string;
+    getContext: () =>
+      | Promise<OpenMeldDaemonControlPlaneContext>
+      | OpenMeldDaemonControlPlaneContext;
+  }
+): Promise<{
   close: () => Promise<void>;
   endpoint: string;
 }> {
   const endpoint = input.endpoint ?? resolveDaemonControlPlaneEndpoint();
+  const resolveExpectedToken = buildExpectedTokenResolver(input);
   if (process.platform !== "win32") {
     await rm(endpoint, { force: true }).catch(() => undefined);
   }
@@ -32,10 +44,10 @@ export async function startLocalDaemonControlPlaneServer(input: {
     const respond = (request: unknown) => {
       const requestId = readOptionalRequestId(request);
       buildResponse({
-        expectedToken: input.expectedToken,
         getContext: input.getContext,
         request,
         requestId,
+        resolveExpectedToken,
       }).then((response) => {
         socket.end(`${JSON.stringify(response)}\n`);
       });
@@ -116,19 +128,29 @@ export async function startLocalDaemonControlPlaneServer(input: {
   };
 }
 
+function buildExpectedTokenResolver(
+  input: DaemonControlPlaneTokenSource
+): () => Promise<string> | string {
+  if (input.resolveExpectedToken) {
+    return input.resolveExpectedToken;
+  }
+  return () => input.expectedToken;
+}
+
 async function buildResponse(input: {
-  expectedToken: string;
   getContext: () =>
     | Promise<OpenMeldDaemonControlPlaneContext>
     | OpenMeldDaemonControlPlaneContext;
   request: unknown;
   requestId?: string;
+  resolveExpectedToken: () => Promise<string> | string;
 }) {
   try {
+    const expectedToken = await input.resolveExpectedToken();
     const context = await input.getContext();
     return await buildAuthenticatedControlPlaneResponse({
       context,
-      expectedToken: input.expectedToken,
+      expectedToken,
       request: input.request,
     });
   } catch (error) {

@@ -26,7 +26,7 @@ describe("auth guidance", () => {
       title: "Sign In Needed",
       rows: [
         {
-          label: "Status",
+          label: "What happened",
           value: "Sign in before joining a space.",
         },
         {
@@ -37,7 +37,7 @@ describe("auth guidance", () => {
     });
   });
 
-  it("builds a mismatch card with current environment context", () => {
+  it("builds a short mismatch card while Agent View keeps environment context", () => {
     vi.stubEnv("OPENMELD_USER_FACING_CLI_COMMAND", "openmeld-dev");
     const guidance = resolveAuthenticationGuidance({
       reason: "mismatch",
@@ -55,17 +55,9 @@ describe("auth guidance", () => {
       title: "Wrong OpenMeld Environment",
       rows: [
         {
-          label: "Status",
+          label: "What happened",
           value:
             "Sign in to the right OpenMeld environment before starting OpenMeld Service.",
-        },
-        {
-          label: "Signed In To",
-          value: "https://auth.one.example",
-        },
-        {
-          label: "This Command Uses",
-          value: "https://gateway.two.example",
         },
         {
           label: "Next",

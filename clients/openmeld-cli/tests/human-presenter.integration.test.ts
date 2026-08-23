@@ -5,7 +5,7 @@ import { withCapturedStdio } from "./helpers/fs";
 const OSC_LINK = "\u001B]8;;https://openmeld.ai\u0007click\u001B]8;;\u0007";
 
 describe("human presenter", () => {
-  it("sanitizes untrusted warning and error fragments before terminal output", async () => {
+  it("hides untrusted error detail and sanitizes terminal output", async () => {
     const presenter = createHumanPresenter({
       context: {
         viewMode: "human",
@@ -24,6 +24,7 @@ describe("human presenter", () => {
     expect(stderr.includes("\u001B")).toBe(false);
     expect(stderr.includes("\r")).toBe(false);
     expect(stderr.includes("\b")).toBe(false);
-    expect(stderr).toContain("error: click boom");
+    expect(stderr).toBe("OpenMeld lost the connection.\n");
+    expect(stderr).not.toContain("click boom");
   });
 });

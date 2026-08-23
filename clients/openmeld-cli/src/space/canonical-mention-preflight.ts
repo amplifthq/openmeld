@@ -14,10 +14,9 @@ export function rethrowCanonicalMentionSnapshotLoadFailure(
 }
 
 function buildMembersSnapshotLoadFailureMessage(error: unknown): string {
-  const prefix =
-    "Cannot validate mention targets right now because current space members could not be loaded.";
+  const prefix = "OpenMeld couldn't check who your mentions refer to.";
   const plainTextHint =
-    "If you meant to send @Name(wake) or @Name(reference) as literal text, rerun with --plain.";
+    "Use --plain if you want to send the text without mentioning anyone.";
   const failure = toStructuredApiClientFailure(error);
   const details: string[] = [];
 

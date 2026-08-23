@@ -114,18 +114,23 @@ describe("system service startup failure diagnostics", () => {
     expect(nextStep).not.toContain("Path B");
     expect(nextStep).not.toContain("--mode foreground");
     expect(nextStep).not.toContain("repair");
-    expect(findRowValue(report.rows, "Last local detail")).toContain("runs=0");
+    expect(report.rows).toHaveLength(2);
+    expect(report.rows.map((row) => row.label)).toEqual([
+      "What happened",
+      "Next",
+    ]);
   });
 
-  it("keeps a service-log detail line over the synthesized launchd evidence when one exists", () => {
+  it("keeps service-log detail out of the Human View card", () => {
     const report = buildSystemServiceStartupFailureReport({
       controller: "launchd",
       error: buildTimeoutError(NEVER_SPAWNED_JOB_DIAGNOSTICS),
       detail: "error: fetch failed",
     });
 
-    expect(findRowValue(report.rows, "Last local detail")).toBe(
-      "error: fetch failed"
+    expect(report.rows).toHaveLength(2);
+    expect(report.rows.some((row) => row.value.includes("fetch failed"))).toBe(
+      false
     );
   });
 
@@ -136,10 +141,13 @@ describe("system service startup failure diagnostics", () => {
     });
 
     expect(report.summary).toBe(
-      "OpenMeld Service launched but keeps exiting (launchd reports 4 runs, last exit code 78)."
+      "OpenMeld Service keeps stopping after it starts."
     );
-    expect(findRowValue(report.rows, "Last local detail")).toContain(
-      "last exit code=78"
+    expect(findRowValue(report.rows, "Next")).toBe(
+      "Run `openmeld service start --mode foreground` to see what stopped it."
+    );
+    expect(report.rows.some((row) => row.value.includes("exit code 78"))).toBe(
+      false
     );
   });
 
@@ -175,7 +183,7 @@ describe("system service startup failure diagnostics", () => {
     const nextStep = findRowValue(report.rows, "Next");
     expect(nextStep).toContain("Login Items & Extensions");
     expect(nextStep).toContain("try again");
-    expect(findRowValue(report.rows, "Automatic Repair")).toContain("repair");
+    expect(report.rows).toHaveLength(2);
   });
 
   it("resolves a verdict carrying launchd job diagnostics from a timeout error", () => {
@@ -187,7 +195,7 @@ describe("system service startup failure diagnostics", () => {
     expect(verdict.jobDiagnostics).toEqual(CRASH_LOOP_JOB_DIAGNOSTICS);
     expect(verdict.localMachineIssue).toBeNull();
     const report = buildSystemServiceStartupFailureReportFromVerdict(verdict);
-    expect(report.summary).toContain("keeps exiting");
+    expect(report.summary).toContain("keeps stopping");
   });
 
   it("keeps a never-spawned job generic without the macOS background marker", () => {

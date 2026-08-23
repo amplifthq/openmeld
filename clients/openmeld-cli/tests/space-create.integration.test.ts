@@ -261,7 +261,9 @@ describe("space create", () => {
       });
 
       expect(stdout).toContain("Sign In Needed");
-      expect(stdout).toContain("Status: Sign in before creating a space.");
+      expect(stdout).toContain(
+        "What happened: Sign in before creating a space."
+      );
       expect(stdout).toContain("Next: Run `openmeld login` to continue.");
       expect(stdout).not.toContain("Space Create Blocked");
       expect(stderr).not.toContain("error:");

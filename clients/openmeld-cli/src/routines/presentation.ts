@@ -274,11 +274,8 @@ function formatRoutineRunSummary(run: CenterAgentRoutineRun): string {
     formatRoutineRunStatus(run.status),
     `Scheduled: ${new Date(run.scheduledFor).toISOString()}`,
   ];
-  if (run.failureCode) {
-    parts.push(`Code: ${run.failureCode}`);
-  }
   if (run.failureDetail) {
-    parts.push(`Detail: ${run.failureDetail}`);
+    parts.push(run.failureDetail);
   }
   return parts.join(" · ");
 }
