@@ -273,6 +273,7 @@ import type {
   RemoveSpaceMembersResponse,
   ResolveSpaceFileContentResponse,
   RespondToSpaceAgentInteractionResponse,
+  RestoreSpaceFileEntryResponse,
   ResumeCenterAgentRoutineResponse,
   RetryCenterAgentTaskRpcInput,
   RevokeAgentProfileBindingForOrganizationResponse,
@@ -682,6 +683,8 @@ import {
   type ResolveSpaceAttachmentForDownloadInput,
   type ResolveSpaceFileContentRpcInput,
   type RespondToSpaceAgentInteractionInput,
+  type RestoreSpaceFileEntryInput,
+  type RestoreSpaceFileRevisionInput,
   type ResumeRoutineInput,
   type RevokeAgentProfileBindingForOrganizationInput,
   rpcAddCenterAgentToSpace,
@@ -881,6 +884,8 @@ import {
   rpcResolveSpaceAttachmentForDownload,
   rpcResolveSpaceFileContent,
   rpcRespondToSpaceAgentInteraction,
+  rpcRestoreSpaceFileEntry,
+  rpcRestoreSpaceFileRevision,
   rpcResumeRoutine,
   rpcRevokeAgentProfileBindingForOrganization,
   rpcSaveOrganizationWakeAccessChoice,
@@ -1708,6 +1713,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: TrashSpaceFileEntryInput
   ): Promise<TrashSpaceFileEntryResponse> {
     return rpcTrashSpaceFileEntry(this.env, input);
+  }
+
+  restoreSpaceFileEntry(
+    input: RestoreSpaceFileEntryInput
+  ): Promise<RestoreSpaceFileEntryResponse> {
+    return rpcRestoreSpaceFileEntry(this.env, input);
+  }
+
+  restoreSpaceFileRevision(
+    input: RestoreSpaceFileRevisionInput
+  ): Promise<SpaceFileDescriptor> {
+    return rpcRestoreSpaceFileRevision(this.env, input);
   }
 
   prepareSpaceFileWrite(
@@ -3584,6 +3601,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: TrashSpaceFileEntryInput
   ): Promise<TrashSpaceFileEntryResponse> {
     return super.trashSpaceFileEntry(input);
+  }
+
+  restoreSpaceFileEntry(
+    input: RestoreSpaceFileEntryInput
+  ): Promise<RestoreSpaceFileEntryResponse> {
+    return super.restoreSpaceFileEntry(input);
+  }
+
+  restoreSpaceFileRevision(
+    input: RestoreSpaceFileRevisionInput
+  ): Promise<SpaceFileDescriptor> {
+    return super.restoreSpaceFileRevision(input);
   }
 
   prepareSpaceFileWrite(

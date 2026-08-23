@@ -101,6 +101,9 @@ describe("command entry name", () => {
       "rename",
       "move",
       "trash",
+      "history",
+      "restore",
+      "restore-version",
     ] as const) {
       expect(
         resolveCommandEntryNameFromTokens(["space", "files", command])

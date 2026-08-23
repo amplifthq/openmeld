@@ -563,6 +563,24 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "moving a Space file or folder to trash",
     serviceAction: null,
   },
+  "space.files.history": {
+    signInAction: "viewing a Space file's history",
+    profileAction: "viewing a Space file's history",
+    cliUpdateAction: "viewing a Space file's history",
+    serviceAction: null,
+  },
+  "space.files.restore": {
+    signInAction: "restoring a Space file or folder",
+    profileAction: "restoring a Space file or folder",
+    cliUpdateAction: "restoring a Space file or folder",
+    serviceAction: null,
+  },
+  "space.files.restore-version": {
+    signInAction: "restoring a Space file version",
+    profileAction: "restoring a Space file version",
+    cliUpdateAction: "restoring a Space file version",
+    serviceAction: null,
+  },
   "space.watch": {
     signInAction: "watching a space",
     profileAction: "watching a space",

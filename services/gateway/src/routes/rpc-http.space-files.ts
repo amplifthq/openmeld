@@ -15,10 +15,15 @@ import {
   listSpaceFilesQuerySchema,
   listSpaceFilesResponseSchema,
   resolveSpaceFileContentResponseSchema,
+  restoreSpaceFileEntryBodySchema,
+  restoreSpaceFileEntryResponseSchema,
+  restoreSpaceFileRevisionBodySchema,
+  restoreSpaceFileRevisionResponseSchema,
   SPACE_FILE_MAX_SIZE_BYTES,
   spaceFileContentQuerySchema,
   spaceFileEntryIdSchema,
   spaceFileMimeTypeSchema,
+  spaceFileRevisionNumberSchema,
   trashSpaceFileEntryBodySchema,
   trashSpaceFileEntryResponseSchema,
   updateSpaceFileContentQuerySchema,
@@ -49,6 +54,9 @@ const SPACE_FILE_FOLDERS_ROUTE = "/v1/spaces/:spaceId/files/folders";
 const SPACE_FILE_ENTRY_ROUTE = "/v1/spaces/:spaceId/files/:entryId";
 const SPACE_FILE_REVISIONS_ROUTE =
   "/v1/spaces/:spaceId/files/:entryId/revisions";
+const SPACE_FILE_REVISION_RESTORE_ROUTE =
+  "/v1/spaces/:spaceId/files/:entryId/revisions/:revision/restore";
+const SPACE_FILE_RESTORE_ROUTE = "/v1/spaces/:spaceId/files/:entryId/restore";
 const SPACE_FILE_CONTENT_ROUTE = "/v1/spaces/:spaceId/files/:entryId/content";
 const PRIVATE_CONTENT_CACHE_CONTROL = "private, no-store";
 
@@ -57,11 +65,101 @@ export function registerSpaceFileRoutes(app: Hono<HonoBindings>): void {
   app.post(SPACE_FILES_ROUTE, uploadSpaceFile);
   app.post(SPACE_FILE_FOLDERS_ROUTE, createSpaceFolder);
   app.get(SPACE_FILE_REVISIONS_ROUTE, listSpaceFileRevisions);
+  app.post(SPACE_FILE_REVISION_RESTORE_ROUTE, restoreSpaceFileRevision);
+  app.post(SPACE_FILE_RESTORE_ROUTE, restoreSpaceFileEntry);
   app.get(SPACE_FILE_CONTENT_ROUTE, downloadSpaceFileContent);
   app.put(SPACE_FILE_CONTENT_ROUTE, updateSpaceFileContent);
   app.get(SPACE_FILE_ENTRY_ROUTE, getSpaceFile);
   app.patch(SPACE_FILE_ENTRY_ROUTE, updateSpaceFileEntry);
   app.delete(SPACE_FILE_ENTRY_ROUTE, trashSpaceFileEntry);
+}
+
+async function restoreSpaceFileEntry(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = parseEntryTarget(c, SPACE_FILE_RESTORE_ROUTE, "POST");
+  if (!target.ok) {
+    return target.response;
+  }
+  const body = restoreSpaceFileEntryBodySchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  if (!body.success) {
+    return respondInvalidBody(
+      c,
+      target.spaceId,
+      SPACE_FILE_RESTORE_ROUTE,
+      "POST",
+      body
+    );
+  }
+  return executeRpcRoute({
+    c,
+    route: SPACE_FILE_RESTORE_ROUTE,
+    method: "POST",
+    spaceId: target.spaceId,
+    responseSchema: restoreSpaceFileEntryResponseSchema,
+    execute: () =>
+      c.var.coreRpc.restoreSpaceFileEntry({
+        body: body.data,
+        entryId: target.entryId,
+        spaceId: target.spaceId,
+        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+        context: buildCoreRpcContext(c),
+      }),
+  });
+}
+
+async function restoreSpaceFileRevision(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = parseEntryTarget(c, SPACE_FILE_REVISION_RESTORE_ROUTE, "POST");
+  if (!target.ok) {
+    return target.response;
+  }
+  const body = restoreSpaceFileRevisionBodySchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  if (!body.success) {
+    return respondInvalidBody(
+      c,
+      target.spaceId,
+      SPACE_FILE_REVISION_RESTORE_ROUTE,
+      "POST",
+      body
+    );
+  }
+  const revision = spaceFileRevisionNumberSchema.safeParse(
+    Number(c.req.param("revision"))
+  );
+  if (!revision.success) {
+    return respondFileError({
+      c,
+      route: SPACE_FILE_REVISION_RESTORE_ROUTE,
+      method: "POST",
+      spaceId: target.spaceId,
+      status: 400,
+      code: "invalid_payload",
+      message: revision.error.issues[0]?.message ?? "Invalid file revision.",
+    });
+  }
+  return executeRpcRoute({
+    c,
+    route: SPACE_FILE_REVISION_RESTORE_ROUTE,
+    method: "POST",
+    spaceId: target.spaceId,
+    responseSchema: restoreSpaceFileRevisionResponseSchema,
+    resolveSuccessPayload: (file) => ({ file }),
+    execute: () =>
+      c.var.coreRpc.restoreSpaceFileRevision({
+        body: body.data,
+        fileId: target.entryId,
+        revision: revision.data,
+        spaceId: target.spaceId,
+        spaceAccess: buildGatewaySpaceAccessContext(c, target.spaceId),
+        context: buildCoreRpcContext(c),
+      }),
+  });
 }
 
 async function listSpaceFiles(c: Context<HonoBindings>): Promise<Response> {
@@ -73,9 +171,7 @@ async function listSpaceFiles(c: Context<HonoBindings>): Promise<Response> {
     ...(c.req.query("parentId") === undefined
       ? {}
       : { parentId: c.req.query("parentId") }),
-    ...(c.req.query("includeTrashed") === undefined
-      ? {}
-      : { includeTrashed: c.req.query("includeTrashed") === "true" }),
+    ...(c.req.query("view") === undefined ? {} : { view: c.req.query("view") }),
   });
   if (!parsed.success) {
     return respondFileError({

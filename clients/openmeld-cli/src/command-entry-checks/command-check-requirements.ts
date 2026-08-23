@@ -550,6 +550,24 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     REQUIRED_SIGN_IN,
     CONFIRM_SELECTED_PROFILE
   ),
+  "space.files.history": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.restore": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.restore-version": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
   "space.watch": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,

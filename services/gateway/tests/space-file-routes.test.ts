@@ -49,6 +49,8 @@ const FILE = {
     createdAt: "2026-08-22T08:00:00.000Z",
     createdBy: ACTOR,
   },
+  trashedAt: null,
+  trashedBy: null,
 };
 
 type CoreRpcMock = {
@@ -143,6 +145,98 @@ function makeEnv(input?: { readBytes?: ArrayBuffer; writeError?: Error }): {
 }
 
 describe("Space file routes", () => {
+  it("preserves the requested Trash view when listing Space files", async () => {
+    const { coreRpc, env } = makeEnv();
+    const listSpaceFiles = vi.fn(async () => ({
+      breadcrumbs: [{ id: null, name: "Files" }],
+      capabilities: { canRead: true as const, canWrite: true },
+      entries: [],
+      parentId: null,
+      spaceId: SPACE_ID,
+      view: "trash" as const,
+    }));
+    Object.assign(coreRpc, { listSpaceFiles });
+
+    const response = await app.fetch(
+      new Request(`http://local/v1/spaces/${SPACE_ID}/files?view=trash`),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ view: "trash" });
+    expect(listSpaceFiles).toHaveBeenCalledWith(
+      expect.objectContaining({ query: { view: "trash" } })
+    );
+  });
+
+  it("restores a trashed entry through the authenticated Gateway route", async () => {
+    const { coreRpc, env } = makeEnv();
+    const restoreSpaceFileEntry = vi.fn(async () => ({ entry: FILE }));
+    Object.assign(coreRpc, { restoreSpaceFileEntry });
+
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/restore`,
+        {
+          body: JSON.stringify({
+            clientMutationId: "restore-entry-route-test",
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ entry: FILE });
+    expect(restoreSpaceFileEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: { clientMutationId: "restore-entry-route-test" },
+        entryId: FILE_ID,
+        spaceId: SPACE_ID,
+      })
+    );
+  });
+
+  it("restores an older revision through the authenticated Gateway route", async () => {
+    const { coreRpc, env } = makeEnv();
+    const restoreSpaceFileRevision = vi.fn(async () => FILE);
+    Object.assign(coreRpc, { restoreSpaceFileRevision });
+
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/revisions/1/restore`,
+        {
+          body: JSON.stringify({
+            baseRevision: 1,
+            clientMutationId: "restore-revision-route-test",
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ file: FILE });
+    expect(restoreSpaceFileRevision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: {
+          baseRevision: 1,
+          clientMutationId: "restore-revision-route-test",
+        },
+        fileId: FILE_ID,
+        revision: 1,
+        spaceId: SPACE_ID,
+      })
+    );
+  });
+
   it("sends file bytes and metadata to the Core-owned storage operation", async () => {
     const { bucket, coreRpc, env } = makeEnv();
     const response = await app.fetch(
