@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	disableInboxBrowserNotifications,
 	enableInboxBrowserNotifications,
+	isInboxBrowserNotificationEligible,
 	readInboxBrowserNotificationSettings,
 	showInboxBrowserNotification,
 	subscribeInboxBrowserNotificationSettings,
@@ -112,10 +113,12 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+				viewingSourceSession: false,
 			}),
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+				viewingSourceSession: false,
 			}),
 		]);
 
@@ -150,18 +153,20 @@ describe("Inbox browser notifications", () => {
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/inbox?item=retry-item",
+				viewingSourceSession: false,
 			})
 		).rejects.toThrow("Notification constructor failed");
 		await expect(
 			showInboxBrowserNotification({
 				item,
 				sourcePath: "/o/amplift/inbox?item=retry-item",
+				viewingSourceSession: false,
 			})
 		).resolves.not.toBeNull();
 		expect(notificationConstructorMock).toHaveBeenCalledTimes(2);
 	});
 
-	it("does not claim or show an item while the tab is visible", async () => {
+	it("suppresses only the viewed conversation on a visible tab and keeps other deliveries", async () => {
 		installNotificationMock({
 			constructorMock: notificationConstructorMock,
 			permission: "granted",
@@ -174,19 +179,101 @@ describe("Inbox browser notifications", () => {
 		const item = createInboxItem();
 
 		await expect(
-			showInboxBrowserNotification({ item, sourcePath: "/o/amplift/inbox" })
+			showInboxBrowserNotification({
+				item,
+				sourcePath: "/o/amplift/inbox",
+				viewingSourceSession: true,
+			})
 		).resolves.toBeNull();
+		expect(notificationConstructorMock).not.toHaveBeenCalled();
+
+		await expect(
+			showInboxBrowserNotification({
+				item,
+				sourcePath: "/o/amplift/inbox",
+				viewingSourceSession: false,
+			})
+		).resolves.not.toBeNull();
+		expect(notificationConstructorMock).toHaveBeenCalledOnce();
+
 		Object.defineProperty(document, "visibilityState", {
 			configurable: true,
 			value: "hidden",
 		});
 		await expect(
-			showInboxBrowserNotification({ item, sourcePath: "/o/amplift/inbox" })
+			showInboxBrowserNotification({
+				item: createInboxItem({ id: "hidden-tab-item" }),
+				sourcePath: "/o/amplift/inbox",
+				viewingSourceSession: true,
+			})
 		).resolves.not.toBeNull();
+	});
+
+	it("delivers directly addressed updates but not ordinary space messages", () => {
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					importance: "normal",
+					kind: "space_reference",
+				})
+			)
+		).toBe(true);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({ importance: "normal", kind: "agent_reply" })
+			)
+		).toBe(true);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({ importance: "normal", kind: "wake_outcome" })
+			)
+		).toBe(true);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({ importance: "urgent" })
+			)
+		).toBe(true);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					importance: "normal",
+					attention: "action_required",
+					resolutionStatus: "open",
+				})
+			)
+		).toBe(true);
+
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					importance: "normal",
+					attention: "update",
+					resolutionStatus: "not_applicable",
+				})
+			)
+		).toBe(false);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					importance: "normal",
+					attention: "action_required",
+					resolutionStatus: "resolved",
+				})
+			)
+		).toBe(false);
+		expect(
+			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					importance: "normal",
+					attention: "update",
+					kind: "agent_interaction",
+				})
+			)
+		).toBe(false);
 	});
 });
 
-function createInboxItem(): InboxItem {
+function createInboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
 	return {
 		attention: "action_required",
 		contextLabel: "Design Room",
@@ -208,6 +295,7 @@ function createInboxItem(): InboxItem {
 		},
 		title: "Agent approval required",
 		updatedAt: "2026-08-04T01:00:00.000Z",
+		...overrides,
 	};
 }
 

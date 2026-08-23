@@ -336,9 +336,16 @@ The in-product Inbox is always available and cannot be disabled. Phase 1 has
 two optional delivery channels:
 
 - **Browser notifications** are off until the member enables them in this
-  browser and grants browser permission. They deliver newly observed urgent or
-  action-required items while OpenMeld Web is open but hidden. They never form
-  a second unread store.
+  browser and grants browser permission. The switch is global for all Spaces
+  and Direct Messages and is reachable from Settings -> Personal ->
+  Notifications and from any Space Info. Phase 1 delivers newly observed
+  unread items that are urgent, open action-required, or directly addressed to
+  the member: references of that member, replies intended for them (including
+  Center Agent replies), and Wake outcomes that end in a visible failure or
+  stopped state. Ordinary Space message updates stay in Inbox without a system
+  notification. A visible tab suppresses delivery only for the conversation it
+  is currently showing; a hidden tab can deliver any eligible item. They never
+  form a second unread store.
 - **Urgent email** is enabled by default at the account level and may be turned
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe

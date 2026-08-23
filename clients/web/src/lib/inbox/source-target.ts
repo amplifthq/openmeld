@@ -102,6 +102,50 @@ function resolveSettingsTargetPath(input: {
 	}
 }
 
+/**
+ * Whether the given app pathname is the canonical source location of the item,
+ * ignoring query params: a member standing inside that conversation is already
+ * seeing its updates, so a system notification would only repeat the screen.
+ * External targets (for example message_channel permalinks) never match.
+ */
+export function isInboxItemSourceLocation(input: {
+	item: InboxItem;
+	orgSlug: string;
+	pathname: string | null;
+}): boolean {
+	if (!input.pathname) {
+		return false;
+	}
+	let sourceHref: string;
+	try {
+		sourceHref = buildInboxItemSourceNavigation({
+			item: input.item,
+			orgSlug: input.orgSlug,
+		}).href;
+	} catch {
+		return false;
+	}
+	const sourcePathname = sourceHref.split("?", 1)[0] ?? sourceHref;
+	return (
+		normalizeSourcePathname(sourcePathname) ===
+		normalizeSourcePathname(input.pathname)
+	);
+}
+
+const TRAILING_SLASHES_PATTERN = /\/+$/;
+
+function normalizeSourcePathname(pathname: string): string {
+	let normalized = pathname;
+	try {
+		normalized = decodeURI(normalized);
+	} catch {
+		// Compare the raw value when the path is not valid percent-encoded text.
+	}
+	return normalized.length > 1
+		? normalized.replace(TRAILING_SLASHES_PATTERN, "")
+		: normalized;
+}
+
 function assertNever(value: never): never {
 	throw new Error(`Unsupported Inbox source target: ${JSON.stringify(value)}`);
 }

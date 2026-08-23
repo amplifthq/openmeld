@@ -4,8 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InboxBrowserNotificationListener } from "./inbox-browser-notification-listener";
 
 const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
+const usePathnameMock = vi.hoisted(() => vi.fn());
 const showInboxBrowserNotificationMock = vi.hoisted(() => vi.fn());
 const invalidateInboxSummaryMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@tanstack/react-router", () => ({
+	useLocation: () => ({ pathname: usePathnameMock() }),
+}));
 
 vi.mock("@tanstack/react-query", () => ({
 	useInfiniteQuery: useInfiniteQueryMock,
@@ -15,13 +20,27 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("#/lib/inbox/browser-notifications", () => ({
 	isInboxBrowserNotificationEligible: (item: InboxItem) =>
 		item.importance === "urgent" ||
-		(item.attention === "action_required" && item.resolutionStatus === "open"),
+		(item.attention === "action_required" &&
+			item.resolutionStatus === "open") ||
+		item.kind === "space_reference" ||
+		item.kind === "agent_reply" ||
+		item.kind === "wake_outcome",
 	readInboxBrowserNotificationSettings: () => ({
 		enabled: true,
 		permission: "granted",
 	}),
 	showInboxBrowserNotification: showInboxBrowserNotificationMock,
 	subscribeInboxBrowserNotificationSettings: () => () => undefined,
+}));
+
+vi.mock("#/lib/inbox/source-target", () => ({
+	isInboxItemSourceLocation: (input: {
+		item: InboxItem;
+		pathname: string | null;
+	}) =>
+		input.pathname?.includes(
+			(input.item.sourceTarget as { spaceId?: string }).spaceId ?? "\u0000"
+		),
 }));
 
 vi.mock("#/query/organizations/inbox", () => ({
@@ -36,6 +55,7 @@ describe("InboxBrowserNotificationListener", () => {
 		currentItems = [];
 		showInboxBrowserNotificationMock.mockReset().mockResolvedValue(null);
 		invalidateInboxSummaryMock.mockReset().mockResolvedValue(undefined);
+		usePathnameMock.mockReset().mockReturnValue("/o/amplift/home");
 		useInfiniteQueryMock.mockReset().mockImplementation(() => ({
 			data: {
 				pageParams: [undefined],
@@ -112,6 +132,66 @@ describe("InboxBrowserNotificationListener", () => {
 
 		expect(showInboxBrowserNotificationMock).not.toHaveBeenCalled();
 		expect(invalidateInboxSummaryMock).toHaveBeenCalledOnce();
+	});
+
+	it("delivers a directly addressed reply and reports whether the source session is being viewed", () => {
+		const existingItem = createInboxItem({ id: "existing-item" });
+		currentItems = [existingItem];
+		const view = renderListener();
+
+		const reference = createInboxItem({
+			id: "reference-item",
+			kind: "space_reference",
+			sourceTarget: {
+				kind: "space",
+				signalId: "signal-reference",
+				spaceId: "space-123",
+			},
+		});
+		currentItems = [reference, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				item: reference,
+				viewingSourceSession: false,
+			})
+		);
+
+		showInboxBrowserNotificationMock.mockClear();
+		usePathnameMock.mockReturnValue("/o/amplift/spaces/space-123");
+		const viewedReply = createInboxItem({
+			id: "viewed-reply",
+			kind: "agent_reply",
+			sourceTarget: {
+				kind: "space",
+				signalId: "signal-viewed",
+				spaceId: "space-123",
+			},
+		});
+		currentItems = [viewedReply, reference, existingItem];
+		view.rerender(
+			<InboxBrowserNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxBrowserNotificationMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				item: viewedReply,
+				viewingSourceSession: true,
+			})
+		);
 	});
 
 	it("re-primes the seen-item set when the signed-in user changes", () => {

@@ -56,22 +56,37 @@ export function readInboxBrowserNotificationPermission(): InboxBrowserNotificati
 }
 
 export function isInboxBrowserNotificationEligible(item: InboxItem): boolean {
+	if (item.importance === "urgent") {
+		return true;
+	}
+	if (
+		item.attention === "action_required" &&
+		item.resolutionStatus === "open"
+	) {
+		return true;
+	}
+	return isDirectlyAddressedInboxUpdate(item.kind);
+}
+
+function isDirectlyAddressedInboxUpdate(kind: InboxItem["kind"]): boolean {
 	return (
-		item.importance === "urgent" ||
-		(item.attention === "action_required" && item.resolutionStatus === "open")
+		kind === "space_reference" ||
+		kind === "agent_reply" ||
+		kind === "wake_outcome"
 	);
 }
 
 export async function showInboxBrowserNotification(input: {
 	item: InboxItem;
 	sourcePath: string;
+	viewingSourceSession: boolean;
 }): Promise<Notification | null> {
 	if (
 		typeof window === "undefined" ||
 		typeof document === "undefined" ||
-		document.visibilityState === "visible" ||
 		readInboxBrowserNotificationPermission() !== "granted" ||
-		!isInboxBrowserNotificationEligible(input.item)
+		!isInboxBrowserNotificationEligible(input.item) ||
+		(document.visibilityState === "visible" && input.viewingSourceSession)
 	) {
 		return null;
 	}

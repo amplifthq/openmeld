@@ -1,6 +1,7 @@
 "use client";
 
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import {
 	isInboxBrowserNotificationEligible,
@@ -8,6 +9,7 @@ import {
 	showInboxBrowserNotification,
 	subscribeInboxBrowserNotificationSettings,
 } from "#/lib/inbox/browser-notifications";
+import { isInboxItemSourceLocation } from "#/lib/inbox/source-target";
 import { buildOrganizationInboxItemPath } from "#/lib/organizations/organization-routes";
 import {
 	inboxItemsInfiniteQueryOptions,
@@ -22,6 +24,7 @@ export function InboxBrowserNotificationListener(input: {
 	userId: string;
 }) {
 	const queryClient = useQueryClient();
+	const { pathname } = useLocation();
 	const [settings, setSettings] = useState(() =>
 		readInboxBrowserNotificationSettings({ userId: input.userId })
 	);
@@ -84,6 +87,11 @@ export function InboxBrowserNotificationListener(input: {
 					itemId: item.id,
 					orgSlug: input.organizationSlug,
 				}),
+				viewingSourceSession: isInboxItemSourceLocation({
+					item,
+					orgSlug: input.organizationSlug,
+					pathname,
+				}),
 			}).catch((error: unknown) => {
 				console.warn("[openmeld.web.inbox.browser_notification_failed]", {
 					error: error instanceof Error ? error.message : String(error),
@@ -108,6 +116,7 @@ export function InboxBrowserNotificationListener(input: {
 		input.organizationId,
 		input.organizationSlug,
 		itemsQuery.data,
+		pathname,
 		queryClient,
 		seenItemIds,
 		settings.enabled,

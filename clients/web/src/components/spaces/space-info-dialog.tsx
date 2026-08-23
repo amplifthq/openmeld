@@ -24,6 +24,7 @@ import {
 	SpaceAccessEditor,
 	type SpaceAccessUpdateInput,
 } from "./space-access-editor";
+import { SpaceInfoNotificationsSection } from "./space-info-notifications-section";
 import { SpaceNameEditor } from "./space-name-editor";
 
 type SpaceInfoLeaveAction = {
@@ -130,6 +131,7 @@ export function SpaceInfoDialog(input: {
 						successMessage="Space ID copied."
 						value={input.spaceId}
 					/>
+					<SpaceInfoNotificationsSection />
 					{showSpaceAccessControls ? (
 						<SpaceInfoCopyField
 							ariaLabel="Copy CLI join command"
