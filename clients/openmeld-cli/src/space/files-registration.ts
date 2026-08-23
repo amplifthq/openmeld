@@ -6,11 +6,14 @@ import { getGlobalViewOption } from "../openmeld-cli-view";
 import { resolveSpaceCommandCliOptions } from "./command-cli-options";
 import {
   runSpaceFilesDownload,
+  runSpaceFilesHistory,
   runSpaceFilesList,
   runSpaceFilesMkdir,
   runSpaceFilesMove,
   runSpaceFilesRead,
   runSpaceFilesRename,
+  runSpaceFilesRestore,
+  runSpaceFilesRestoreVersion,
   runSpaceFilesTrash,
   runSpaceFilesUpload,
   runSpaceFilesWrite,
@@ -28,6 +31,7 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
         .description("List files and folders in a Space.")
         .argument("<space>", "Space ID (64-character hex)")
         .option("--folder <folder-id>", "Folder ID, or root", "root")
+        .option("--trash", "List items in Trash", false)
     )
   ).action(async (space, opts, command: Command) => {
     await runFilesCommand(command, opts, "list", async (common) => {
@@ -35,6 +39,7 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
         ...common,
         space: String(space).trim(),
         folder: opts.folder,
+        trash: opts.trash === true,
       });
     });
   });
@@ -55,6 +60,24 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
         space: String(space).trim(),
         fileId: String(fileId).trim(),
         revision: parseRevision(opts.revision, "--revision"),
+      });
+    });
+  });
+
+  withSpaceProfileOption(
+    withCommonOptions(
+      filesCommand
+        .command("history")
+        .description("List the saved versions of a Space file.")
+        .argument("<space>", "Space ID (64-character hex)")
+        .argument("<file-id>", "File ID")
+    )
+  ).action(async (space, fileId, opts, command: Command) => {
+    await runFilesCommand(command, opts, "history", async (common) => {
+      await runSpaceFilesHistory({
+        ...common,
+        space: String(space).trim(),
+        fileId: String(fileId).trim(),
       });
     });
   });
@@ -225,6 +248,52 @@ export function registerSpaceFilesCommands(spaceCommand: Command): void {
         ...common,
         space: String(space).trim(),
         entryId: String(entryId).trim(),
+      });
+    });
+  });
+
+  withSpaceProfileOption(
+    withCommonOptions(
+      filesCommand
+        .command("restore")
+        .description("Restore a Space file or folder from Trash.")
+        .argument("<space>", "Space ID (64-character hex)")
+        .argument("<entry-id>", "File or folder ID")
+    )
+  ).action(async (space, entryId, opts, command: Command) => {
+    await runFilesCommand(command, opts, "restore", async (common) => {
+      await runSpaceFilesRestore({
+        ...common,
+        space: String(space).trim(),
+        entryId: String(entryId).trim(),
+      });
+    });
+  });
+
+  withSpaceProfileOption(
+    withCommonOptions(
+      filesCommand
+        .command("restore-version")
+        .description("Restore an older version as the newest version.")
+        .argument("<space>", "Space ID (64-character hex)")
+        .argument("<file-id>", "File ID")
+        .argument("<revision>", "Version to restore")
+        .requiredOption(
+          "--base-revision <number>",
+          "Current revision before restoring"
+        )
+    )
+  ).action(async (space, fileId, revision, opts, command: Command) => {
+    await runFilesCommand(command, opts, "restore-version", async (common) => {
+      await runSpaceFilesRestoreVersion({
+        ...common,
+        space: String(space).trim(),
+        fileId: String(fileId).trim(),
+        revision: parseRequiredRevision(String(revision), "<revision>"),
+        baseRevision: parseRequiredRevision(
+          opts.baseRevision,
+          "--base-revision"
+        ),
       });
     });
   });

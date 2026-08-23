@@ -66,6 +66,7 @@ import {
   resolveSpaceFileContentInputSchema,
   respondToSpaceAgentInteractionInputSchema,
   respondToSpaceAgentInteractionResponseSchema,
+  restoreSpaceFileEntryBodySchema,
   runtimeCoordinatorFailurePublicationCommandSchema,
   runtimeCoordinatorFinalizationCommandSchema,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
@@ -128,6 +129,7 @@ import type {
   ResolveSpaceFileContentResponse,
   RespondToSpaceAgentInteractionBody,
   RespondToSpaceAgentInteractionResponse,
+  RestoreSpaceFileEntryResponse,
   RuntimeCoordinatorExecutionRecord,
   RuntimeCoordinatorExecutionStatus,
   RuntimeCoordinatorFailurePublicationCommand,
@@ -2328,7 +2330,7 @@ export class Space extends DurableObject<CoreBindings> {
     return this.spaceFileRepository.list({
       spaceId: this.spaceId,
       parentId: input.query?.parentId,
-      includeTrashed: input.query?.includeTrashed,
+      view: input.query?.view,
       canWrite: member !== null,
     });
   }
@@ -2426,6 +2428,27 @@ export class Space extends DurableObject<CoreBindings> {
     return response;
   }
 
+  async rpcRestoreSpaceFileEntry(input: {
+    body: unknown;
+    entryId: string;
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<RestoreSpaceFileEntryResponse> {
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const body = restoreSpaceFileEntryBodySchema.parse(input.body);
+    const entry = this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.restoreEntry({
+        actor,
+        clientMutationId: body.clientMutationId,
+        entryId: input.entryId,
+        nowMs: Date.now(),
+      })
+    );
+    await this.broadcastSpaceFilesChanged("space_file.entry_restored");
+    return { entry };
+  }
+
   async rpcPrepareSpaceFileWrite(input: {
     spaceAccess: SpaceAccessContext;
     write: unknown;
@@ -2433,7 +2456,7 @@ export class Space extends DurableObject<CoreBindings> {
     const write = commitSpaceFileWriteInputSchema.parse(input.write);
     this.applySpaceRef(write.spaceId);
     await this.requireSpaceFileWriteActor(input.spaceAccess);
-    this.runSpaceFileRepositoryOperation(() =>
+    const committedFile = this.runSpaceFileRepositoryOperation(() =>
       this.spaceFileRepository.prepareWrite(write)
     );
     const meta = this.requireSpaceFileMetaRecord();
@@ -2448,6 +2471,7 @@ export class Space extends DurableObject<CoreBindings> {
         fileId: write.fileId,
         revisionId: write.revisionId,
       }),
+      ...(committedFile ? { committedFile } : {}),
     };
   }
 

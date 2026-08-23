@@ -5159,6 +5159,13 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_list_space_files",
     },
     {
+      expectedPayload: { spaceId: SPACE_ID, view: "trash" },
+      input: { spaceId: SPACE_ID, view: "trash" },
+      response: { ...listSpaceFilesResponse(), entries: [], view: "trash" },
+      rpcName: "centerAgentListSpaceFiles",
+      toolName: "openmeld_list_space_files",
+    },
+    {
       expectedPayload: {
         fileId: "file-1",
         revision: 1,
@@ -5166,6 +5173,20 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       },
       input: { fileId: "file-1", revision: 1, spaceId: SPACE_ID },
       response: readSpaceFileResponse(),
+      rpcName: "centerAgentReadSpaceFile",
+      toolName: "openmeld_read_space_file",
+    },
+    {
+      expectedPayload: {
+        fileId: "file-1",
+        includeHistory: true,
+        spaceId: SPACE_ID,
+      },
+      input: { fileId: "file-1", includeHistory: true, spaceId: SPACE_ID },
+      response: {
+        ...readSpaceFileResponse(),
+        revisions: [spaceFileDescriptor().latestRevision],
+      },
       rpcName: "centerAgentReadSpaceFile",
       toolName: "openmeld_read_space_file",
     },
@@ -5211,6 +5232,27 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
         action: "create_folder",
         folder: spaceFolderDescriptor(),
       },
+      rpcName: "centerAgentManageSpaceFiles",
+      toolName: "openmeld_manage_space_files",
+    },
+    {
+      expectedPayload: {
+        action: "restore_version",
+        baseRevision: 3,
+        clientMutationId: "restore-release-brief-r1",
+        fileId: "file-1",
+        revision: 1,
+        spaceId: SPACE_ID,
+      },
+      input: {
+        action: "restore_version",
+        baseRevision: 3,
+        clientMutationId: "restore-release-brief-r1",
+        fileId: "file-1",
+        revision: 1,
+        spaceId: SPACE_ID,
+      },
+      response: { action: "restore_version", file: spaceFileDescriptor(4) },
       rpcName: "centerAgentManageSpaceFiles",
       toolName: "openmeld_manage_space_files",
     },

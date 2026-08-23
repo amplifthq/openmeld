@@ -70,15 +70,15 @@ export function buildSpaceAttachmentsPath(spaceId: string): string {
 
 export function buildSpaceFilesPath(
   spaceId: string,
-  query?: { includeTrashed?: boolean; parentId?: string | null }
+  query?: { parentId?: string | null; view?: "active" | "trash" }
 ): string {
   const path = buildSpaceRoutePath(spaceId, "files");
   const searchParams = new URLSearchParams();
   if (query?.parentId) {
     searchParams.set("parentId", query.parentId);
   }
-  if (query?.includeTrashed !== undefined) {
-    searchParams.set("includeTrashed", String(query.includeTrashed));
+  if (query?.view && query.view !== "active") {
+    searchParams.set("view", query.view);
   }
   const queryString = searchParams.toString();
   return queryString ? `${path}?${queryString}` : path;
@@ -100,6 +100,21 @@ export function buildSpaceFileRevisionsPath(
   fileId: string
 ): string {
   return `${buildSpaceFileEntryPath(spaceId, fileId)}/revisions`;
+}
+
+export function buildSpaceFileRestorePath(
+  spaceId: string,
+  entryId: string
+): string {
+  return `${buildSpaceFileEntryPath(spaceId, entryId)}/restore`;
+}
+
+export function buildSpaceFileRevisionRestorePath(
+  spaceId: string,
+  fileId: string,
+  revision: number
+): string {
+  return `${buildSpaceFileRevisionsPath(spaceId, fileId)}/${revision}/restore`;
 }
 
 export function buildSpaceFileContentPath(

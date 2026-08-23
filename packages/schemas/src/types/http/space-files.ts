@@ -44,6 +44,18 @@ export type TrashSpaceFileEntryBody = z.infer<
 export type TrashSpaceFileEntryResponse = z.infer<
   Schemas["trashSpaceFileEntryResponseSchema"]
 >;
+export type RestoreSpaceFileEntryBody = z.infer<
+  Schemas["restoreSpaceFileEntryBodySchema"]
+>;
+export type RestoreSpaceFileEntryResponse = z.infer<
+  Schemas["restoreSpaceFileEntryResponseSchema"]
+>;
+export type RestoreSpaceFileRevisionBody = z.infer<
+  Schemas["restoreSpaceFileRevisionBodySchema"]
+>;
+export type RestoreSpaceFileRevisionResponse = z.infer<
+  Schemas["restoreSpaceFileRevisionResponseSchema"]
+>;
 export type CreateSpaceFileUploadQuery = z.infer<
   Schemas["createSpaceFileUploadQuerySchema"]
 >;

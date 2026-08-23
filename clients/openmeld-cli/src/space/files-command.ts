@@ -44,7 +44,7 @@ type PreparedSpaceFilesContext = Exclude<
 };
 
 export async function runSpaceFilesList(
-  input: SpaceFilesCommandInput & { folder?: string }
+  input: SpaceFilesCommandInput & { folder?: string; trash?: boolean }
 ): Promise<void> {
   const context = await prepareSpaceFilesContext(input, "listing Space files");
   if (!context) {
@@ -58,7 +58,10 @@ export async function runSpaceFilesList(
       await context.spaceApi.listFiles({
         spaceId: input.space,
         requestContext: context.requestContext,
-        query: { parentId: normalizeFolderId(input.folder) },
+        query: {
+          ...(input.trash ? {} : { parentId: normalizeFolderId(input.folder) }),
+          view: input.trash ? "trash" : "active",
+        },
         ...(spacePassword === undefined ? {} : { spacePassword }),
       }),
   });
@@ -133,6 +136,55 @@ export async function runSpaceFilesRead(
     code: "space.files.read",
     text: read.result.content,
   });
+}
+
+export async function runSpaceFilesHistory(
+  input: SpaceFilesCommandInput & { fileId: string }
+): Promise<void> {
+  const context = await prepareSpaceFilesContext(
+    input,
+    "reading Space file history"
+  );
+  if (!context) {
+    return;
+  }
+  const read = await runSpaceReadWithPasswordRetry({
+    initialPassword: input.password,
+    interactive: isInteractiveHumanOutput(context, input.json),
+    presenter: context.presenter,
+    execute: async (spacePassword) =>
+      await context.spaceApi.listFileRevisions({
+        spaceId: input.space,
+        requestContext: context.requestContext,
+        fileId: input.fileId,
+        ...(spacePassword === undefined ? {} : { spacePassword }),
+      }),
+  });
+  if (read.status === "cancelled") {
+    return;
+  }
+  if (input.json) {
+    outJsonLine(read.result);
+    return;
+  }
+  if (context.presenter.view === "agent") {
+    context.presenter.data({
+      code: "space.files.history",
+      payload: read.result,
+    });
+    return;
+  }
+  context.presenter.line({
+    code: "space.files.history",
+    text: `Version history for ${read.result.file.path}:`,
+  });
+  for (const revision of read.result.revisions) {
+    context.presenter.line({
+      code: "space.files.history.version",
+      text: `Version ${revision.revision}  ${revision.createdAt}  ${revision.createdBy.displayName}  ${revision.sizeBytes} bytes`,
+      data: { revision },
+    });
+  }
 }
 
 export async function runSpaceFilesUpload(
@@ -363,6 +415,82 @@ export async function runSpaceFilesTrash(
   });
 }
 
+export async function runSpaceFilesRestore(
+  input: SpaceFilesCommandInput & { entryId: string }
+): Promise<void> {
+  const context = await prepareSpaceFilesContext(
+    input,
+    "restoring a Space file from Trash"
+  );
+  if (!context) {
+    return;
+  }
+  const write = await runSpaceWriteWithPasswordRetry({
+    initialPassword: input.password,
+    interactive: isInteractiveHumanOutput(context, input.json),
+    presenter: context.presenter,
+    execute: async (spacePassword) =>
+      await context.spaceApi.restoreFileEntry({
+        spaceId: input.space,
+        requestContext: context.requestContext,
+        entryId: input.entryId,
+        clientMutationId: randomUUID(),
+        ...(spacePassword === undefined ? {} : { spacePassword }),
+      }),
+  });
+  if (write.status === "cancelled") {
+    return;
+  }
+  emitMutationOutput({
+    presenter: context.presenter,
+    code: "space.files.restored",
+    text: `Restored ${write.result.path}.`,
+    payload: { entry: write.result },
+    json: input.json,
+  });
+}
+
+export async function runSpaceFilesRestoreVersion(
+  input: SpaceFilesCommandInput & {
+    baseRevision: number;
+    fileId: string;
+    revision: number;
+  }
+): Promise<void> {
+  const context = await prepareSpaceFilesContext(
+    input,
+    "restoring a Space file version"
+  );
+  if (!context) {
+    return;
+  }
+  const write = await runSpaceWriteWithPasswordRetry({
+    initialPassword: input.password,
+    interactive: isInteractiveHumanOutput(context, input.json),
+    presenter: context.presenter,
+    execute: async (spacePassword) =>
+      await context.spaceApi.restoreFileRevision({
+        spaceId: input.space,
+        requestContext: context.requestContext,
+        fileId: input.fileId,
+        revision: input.revision,
+        baseRevision: input.baseRevision,
+        clientMutationId: randomUUID(),
+        ...(spacePassword === undefined ? {} : { spacePassword }),
+      }),
+  });
+  if (write.status === "cancelled") {
+    return;
+  }
+  emitMutationOutput({
+    presenter: context.presenter,
+    code: "space.files.version_restored",
+    text: `Restored version ${input.revision} as version ${write.result.latestRevision.revision}.`,
+    payload: { file: write.result, restoredRevision: input.revision },
+    json: input.json,
+  });
+}
+
 async function runSpaceFilesEntryUpdate(
   input: SpaceFilesCommandInput & {
     entryId: string;
@@ -459,7 +587,10 @@ function emitListOutput(input: {
   if (input.result.entries.length === 0) {
     input.presenter.line({
       code: "space.files.empty",
-      text: "This folder is empty.",
+      text:
+        input.result.view === "trash"
+          ? "Trash is empty."
+          : "This folder is empty.",
     });
     return;
   }

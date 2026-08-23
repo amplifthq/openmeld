@@ -129,19 +129,21 @@ describe("SpaceFileRepository", () => {
           sizeBytes: 5,
         },
       });
-      repository.commitWrite({
+      const secondWrite = {
+        spaceId: fixture.spaceId,
+        fileId: file.id,
+        revisionId: `${fixture.prefix}-revision-2`,
+        baseRevision: 1,
+        clientMutationId: `${fixture.prefix}-write-2`,
+        mimeType: "text/plain",
+        sizeBytes: 9,
+      };
+      const secondRevision = repository.commitWrite({
         actor,
         nowMs: fixture.nowMs + 2,
-        write: {
-          spaceId: fixture.spaceId,
-          fileId: file.id,
-          revisionId: `${fixture.prefix}-revision-2`,
-          baseRevision: 1,
-          clientMutationId: `${fixture.prefix}-write-2`,
-          mimeType: "text/plain",
-          sizeBytes: 9,
-        },
+        write: secondWrite,
       });
+      expect(repository.prepareWrite(secondWrite)).toEqual(secondRevision);
 
       expect(() =>
         repository.prepareWrite({
@@ -221,6 +223,112 @@ describe("SpaceFileRepository", () => {
       ).toThrowError(
         expect.objectContaining({ code: "space_file.folder_not_empty" })
       );
+    });
+  });
+
+  it("lists Trash separately and restores the same file with every revision intact", async () => {
+    const fixture = createFixture();
+
+    await withRepository(fixture.spaceId, (repository) => {
+      const file = repository.commitWrite({
+        actor,
+        nowMs: fixture.nowMs,
+        write: {
+          spaceId: fixture.spaceId,
+          fileId: `${fixture.prefix}-file`,
+          revisionId: `${fixture.prefix}-revision-1`,
+          name: "launch-notes.md",
+          parentId: null,
+          baseRevision: null,
+          clientMutationId: `${fixture.prefix}-write-1`,
+          mimeType: "text/markdown",
+          sizeBytes: 18,
+        },
+      });
+      repository.commitWrite({
+        actor,
+        nowMs: fixture.nowMs + 1,
+        write: {
+          spaceId: fixture.spaceId,
+          fileId: file.id,
+          revisionId: `${fixture.prefix}-revision-2`,
+          baseRevision: 1,
+          clientMutationId: `${fixture.prefix}-write-2`,
+          mimeType: "text/markdown",
+          sizeBytes: 31,
+        },
+      });
+
+      repository.trashEntry({
+        actor,
+        clientMutationId: `${fixture.prefix}-trash`,
+        entryId: file.id,
+        nowMs: fixture.nowMs + 2,
+      });
+
+      expect(
+        repository.list({
+          spaceId: fixture.spaceId,
+          view: "active",
+          canWrite: true,
+        }).entries
+      ).toEqual([]);
+      expect(
+        repository.list({
+          spaceId: fixture.spaceId,
+          view: "trash",
+          canWrite: true,
+        })
+      ).toMatchObject({
+        view: "trash",
+        breadcrumbs: [
+          { id: null, name: "Files" },
+          { id: null, name: "Trash" },
+        ],
+        entries: [
+          {
+            id: file.id,
+            name: "launch-notes.md",
+            path: "/launch-notes.md",
+            trashedAt: new Date(fixture.nowMs + 2).toISOString(),
+            trashedBy: actor,
+            latestRevision: { revision: 2 },
+          },
+        ],
+      });
+
+      const restored = repository.restoreEntry({
+        actor,
+        clientMutationId: `${fixture.prefix}-restore`,
+        entryId: file.id,
+        nowMs: fixture.nowMs + 3,
+      });
+
+      expect(restored).toMatchObject({
+        id: file.id,
+        name: "launch-notes.md",
+        trashedAt: null,
+        trashedBy: null,
+        latestRevision: { revision: 2 },
+      });
+      expect(repository.listRevisions(file.id)).toMatchObject([
+        { revision: 2 },
+        { revision: 1 },
+      ]);
+      expect(
+        repository.list({
+          spaceId: fixture.spaceId,
+          view: "trash",
+          canWrite: true,
+        }).entries
+      ).toEqual([]);
+      expect(
+        repository.list({
+          spaceId: fixture.spaceId,
+          view: "active",
+          canWrite: true,
+        }).entries
+      ).toMatchObject([{ id: file.id }]);
     });
   });
 

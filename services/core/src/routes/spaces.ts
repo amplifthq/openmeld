@@ -12,7 +12,12 @@ import {
   MAX_SPACE_NAME_LENGTH,
   organizationInformationProtectionPolicyResponseSchema,
   postResolvedSpaceMembersBodySchema,
+  restoreSpaceFileEntryBodySchema,
+  restoreSpaceFileEntryResponseSchema,
+  restoreSpaceFileRevisionBodySchema,
+  restoreSpaceFileRevisionResponseSchema,
   spaceAccessModeSchema,
+  spaceFileRevisionNumberSchema,
   spaceOrganizationVisibilitySchema,
   trashSpaceFileEntryBodySchema,
   trashSpaceFileEntryResponseSchema,
@@ -37,6 +42,7 @@ import { identityDb, localStateDb } from "../lib/bindings";
 import {
   rpcReadCenterAgentOrganizationMemoryPolicy,
   rpcReadOrganizationInformationProtectionPolicy,
+  rpcRestoreSpaceFileRevision,
   rpcSetCenterAgentOrganizationMemoryPolicy,
   rpcSetOrganizationInformationProtectionPolicy,
   rpcWipeCurrentMemberCenterAgentMemory,
@@ -163,12 +169,19 @@ export function registerSpaceRoutes(app: Hono<HonoBindings>) {
   app.get("/v1/spaces/:spaceId/files/:entryId/revisions", (c) =>
     handleListSpaceFileRevisions(c)
   );
+  app.post(
+    "/v1/spaces/:spaceId/files/:entryId/revisions/:revision/restore",
+    (c) => handleRestoreSpaceFileRevision(c)
+  );
   app.get("/v1/spaces/:spaceId/files/:entryId", (c) => handleGetSpaceFile(c));
   app.patch("/v1/spaces/:spaceId/files/:entryId", (c) =>
     handleUpdateSpaceFileEntry(c)
   );
   app.delete("/v1/spaces/:spaceId/files/:entryId", (c) =>
     handleTrashSpaceFileEntry(c)
+  );
+  app.post("/v1/spaces/:spaceId/files/:entryId/restore", (c) =>
+    handleRestoreSpaceFileEntry(c)
   );
   app.get("/v1/spaces/:spaceId/result", (c) => forwardToSpace(c, "/result"));
   app.get("/v1/spaces/:spaceId/active-wake-progress", (c) =>
@@ -202,12 +215,10 @@ async function handleListSpaceFiles(
     return target.response;
   }
   const parentId = c.req.query("parentId");
-  const includeTrashed = c.req.query("includeTrashed");
+  const view = c.req.query("view");
   const query = listSpaceFilesQuerySchema.safeParse({
     ...(parentId === undefined ? {} : { parentId }),
-    ...(includeTrashed === undefined
-      ? {}
-      : { includeTrashed: includeTrashed === "true" }),
+    ...(view === undefined ? {} : { view }),
   });
   if (!query.success) {
     return invalidSpaceFilesPayload(c, query.error.issues[0]?.message);
@@ -219,6 +230,65 @@ async function handleListSpaceFiles(
       query: query.data,
     });
     return c.json(listSpaceFilesResponseSchema.parse(response));
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
+}
+
+async function handleRestoreSpaceFileEntry(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = resolveSpaceFilesTarget(c);
+  if (!target.ok) {
+    return target.response;
+  }
+  const body = restoreSpaceFileEntryBodySchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  if (!body.success) {
+    return invalidSpaceFilesPayload(c, body.error.issues[0]?.message);
+  }
+  try {
+    const response = await target.stub.rpcRestoreSpaceFileEntry({
+      body: body.data,
+      entryId: c.req.param("entryId"),
+      spaceAccess: target.spaceAccess,
+      spaceId: target.spaceId,
+    });
+    return c.json(restoreSpaceFileEntryResponseSchema.parse(response));
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
+}
+
+async function handleRestoreSpaceFileRevision(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = resolveSpaceFilesTarget(c);
+  if (!target.ok) {
+    return target.response;
+  }
+  const body = restoreSpaceFileRevisionBodySchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  const revision = spaceFileRevisionNumberSchema.safeParse(
+    Number(c.req.param("revision"))
+  );
+  if (!body.success) {
+    return invalidSpaceFilesPayload(c, body.error.issues[0]?.message);
+  }
+  if (!revision.success) {
+    return invalidSpaceFilesPayload(c, revision.error.issues[0]?.message);
+  }
+  try {
+    const file = await rpcRestoreSpaceFileRevision(c.env, {
+      body: body.data,
+      fileId: c.req.param("entryId"),
+      revision: revision.data,
+      spaceAccess: target.spaceAccess,
+      spaceId: target.spaceId,
+    });
+    return c.json(restoreSpaceFileRevisionResponseSchema.parse({ file }));
   } catch (error) {
     return mapRpcHttpError(c, error);
   }

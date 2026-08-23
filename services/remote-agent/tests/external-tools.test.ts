@@ -314,6 +314,8 @@ describe("Remote Agent external tools", () => {
       spaceId: request.spaceId,
       updatedAt: new Date(TEST_NOW_MS).toISOString(),
       updatedBy: actor,
+      trashedAt: null,
+      trashedBy: null,
     }));
     const tools = getRemoteAgentExternalToolDefinitions({
       coreWorker: { writeSpaceFileContent },

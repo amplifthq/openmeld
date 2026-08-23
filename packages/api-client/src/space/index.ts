@@ -21,6 +21,8 @@ export {
   getSpaceFile,
   listSpaceFileRevisions,
   listSpaceFiles,
+  restoreSpaceFileEntry,
+  restoreSpaceFileRevision,
   type SpaceFileContent,
   type SpaceFileContentBytes,
   trashSpaceFileEntry,

@@ -455,9 +455,11 @@ const postSpaceMessageToolInputSchema = object({
 const listSpaceFilesToolInputSchema = strictObject({
   parentId: optional(nullable(spaceFileIdToolInputSchema)),
   spaceId: nonEmptyStringSchema,
+  view: optional(picklist(["active", "trash"] as const)),
 });
 const readSpaceFileToolInputSchema = strictObject({
   fileId: spaceFileIdToolInputSchema,
+  includeHistory: optional(boolean()),
   revision: optional(pipe(number(), integer(), minValue(1))),
   spaceId: nonEmptyStringSchema,
 });
@@ -476,11 +478,20 @@ const saveSpaceFileToolInputSchema = strictObject({
   spaceId: nonEmptyStringSchema,
 });
 const manageSpaceFilesToolInputSchema = strictObject({
-  action: picklist(["create_folder", "update_entry", "trash"]),
+  action: picklist([
+    "create_folder",
+    "update_entry",
+    "trash",
+    "restore",
+    "restore_version",
+  ]),
+  baseRevision: optional(pipe(number(), integer(), minValue(1))),
   clientMutationId: spaceFileMutationIdToolInputSchema,
   entryId: optional(spaceFileIdToolInputSchema),
+  fileId: optional(spaceFileIdToolInputSchema),
   name: optional(spaceFileNameToolInputSchema),
   parentId: optional(nullable(spaceFileIdToolInputSchema)),
+  revision: optional(pipe(number(), integer(), minValue(1))),
   spaceId: nonEmptyStringSchema,
 });
 const wakeAgentProfilesInSpaceToolInputSchema = object({
@@ -2815,7 +2826,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_list_space_files",
       description:
-        "List files and folders in one OpenMeld Space. The Center Agent uses the same Space membership and public-view rules as every other participant; this tool does not read the Center Agent Computer or Organization Resources. Omit parentId, or pass null, for the root folder. Use returned stable IDs for later reads and mutations.",
+        "List files and folders in one OpenMeld Space. The Center Agent uses the same Space membership and public-view rules as every other participant; this tool does not read the Center Agent Computer or Organization Resources. Omit parentId, or pass null, for the root folder. Pass view=trash to list recoverable items. Use returned stable IDs for later reads and mutations.",
       input: listSpaceFilesToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(listSpaceFilesToolInputSchema, payload);
@@ -2836,7 +2847,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_read_space_file",
       description:
-        "Read one UTF-8 text file from a Space, optionally at an exact historical revision. Use openmeld_list_space_files first to obtain the stable file ID. This returns the revision number required for a conflict-safe update. Binary files and text files over 1 MiB must be downloaded by a human or Local Agent instead.",
+        "Read one UTF-8 text file from a Space, optionally at an exact historical revision. Set includeHistory=true to discover every version before choosing an exact revision. Use openmeld_list_space_files first to obtain the stable file ID. This returns the revision number required for a conflict-safe update. Binary files and text files over 1 MiB must be downloaded by a human or Local Agent instead.",
       input: readSpaceFileToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(readSpaceFileToolInputSchema, payload);
@@ -2882,7 +2893,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_manage_space_files",
       description:
-        "Create a Space folder, rename or move one Space file-system entry, or move an entry to trash. This is an ordinary external write under the Center Agent's own Space membership. Use stable IDs returned by openmeld_list_space_files, pass parentId null for the root, and reuse clientMutationId only when retrying the exact same operation. Trash requires an empty folder and never changes Organization Resources.",
+        "Create a Space folder, rename or move one entry, move an entry to Trash, restore it, or restore an older file version as a new current version. This is an ordinary external write under the Center Agent's own Space membership. Use stable IDs returned by openmeld_list_space_files, pass parentId null for the root, and reuse clientMutationId only when retrying the exact same operation. Version restore requires the current file revision as baseRevision, so concurrent edits conflict instead of being overwritten. Trash requires an empty folder and never changes Organization Resources.",
       input: manageSpaceFilesToolInputSchema,
       execute: async (payload) => {
         const toolInput = parseValibot(

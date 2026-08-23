@@ -5927,16 +5927,18 @@ describe("organization Core RPC", () => {
         }),
         parentId: null,
         spaceId: JOINED_PRIVATE_SPACE_ID,
+        view: "trash",
       })
     ).resolves.toMatchObject({
       capabilities: { canRead: true, canWrite: true },
       entries: [],
       parentId: null,
       spaceId: JOINED_PRIVATE_SPACE_ID,
+      view: "trash",
     });
     expect(spaceStub.rpcListSpaceFiles).toHaveBeenCalledWith(
       expect.objectContaining({
-        query: { parentId: null },
+        query: { parentId: null, view: "trash" },
         spaceAccess: expect.objectContaining({
           actor: expect.objectContaining({
             kind: "authenticated",
@@ -12144,14 +12146,22 @@ function createSpaceStub(
     ),
     rpcPatchMeta: patchSpaceMeta,
     rpcPatchMetaWithPasswordAtomic: patchSpaceMeta,
-    rpcListSpaceFiles: vi.fn((request: { spaceId: string }) =>
-      Promise.resolve({
-        breadcrumbs: [{ id: null, name: "Files" }],
-        capabilities: { canRead: true as const, canWrite: true },
-        entries: [],
-        parentId: null,
-        spaceId: request.spaceId,
-      })
+    rpcListSpaceFiles: vi.fn(
+      (request: { query?: { view?: "active" | "trash" }; spaceId: string }) =>
+        Promise.resolve({
+          breadcrumbs:
+            request.query?.view === "trash"
+              ? [
+                  { id: null, name: "Files" },
+                  { id: null, name: "Trash" },
+                ]
+              : [{ id: null, name: "Files" }],
+          capabilities: { canRead: true as const, canWrite: true },
+          entries: [],
+          parentId: null,
+          spaceId: request.spaceId,
+          view: request.query?.view ?? "active",
+        })
     ),
     rpcListSignals: vi.fn(listSignals),
     rpcListSignalsResult: vi.fn(

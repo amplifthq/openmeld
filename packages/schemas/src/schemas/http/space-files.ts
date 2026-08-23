@@ -111,6 +111,8 @@ const baseEntryShape = {
   updatedAt: z.iso.datetime({ offset: true }),
   createdBy: spaceFileActorSchema,
   updatedBy: spaceFileActorSchema,
+  trashedAt: z.iso.datetime({ offset: true }).nullable().default(null),
+  trashedBy: spaceFileActorSchema.nullable().default(null),
 };
 
 export const spaceFolderDescriptorSchema = z.strictObject({
@@ -141,12 +143,13 @@ export const spaceFileCapabilitiesSchema = z.strictObject({
 
 export const listSpaceFilesQuerySchema = z.strictObject({
   parentId: spaceFileEntryIdSchema.nullable().optional(),
-  includeTrashed: z.boolean().optional(),
+  view: z.enum(["active", "trash"]).default("active"),
 });
 
 export const listSpaceFilesResponseSchema = z.strictObject({
   spaceId: scopeIdSchema,
   parentId: spaceFileEntryIdSchema.nullable(),
+  view: z.enum(["active", "trash"]).default("active"),
   breadcrumbs: z.array(spaceFileBreadcrumbSchema),
   entries: z.array(spaceFileEntrySchema),
   capabilities: spaceFileCapabilitiesSchema,
@@ -192,6 +195,23 @@ export const trashSpaceFileEntryBodySchema = z.strictObject({
 export const trashSpaceFileEntryResponseSchema = z.strictObject({
   entryId: spaceFileEntryIdSchema,
   trashedAt: z.iso.datetime({ offset: true }),
+});
+
+export const restoreSpaceFileEntryBodySchema = z.strictObject({
+  clientMutationId: spaceFileClientMutationIdSchema,
+});
+
+export const restoreSpaceFileEntryResponseSchema = z.strictObject({
+  entry: spaceFileEntrySchema,
+});
+
+export const restoreSpaceFileRevisionBodySchema = z.strictObject({
+  baseRevision: spaceFileRevisionNumberSchema,
+  clientMutationId: spaceFileClientMutationIdSchema,
+});
+
+export const restoreSpaceFileRevisionResponseSchema = z.strictObject({
+  file: spaceFileDescriptorSchema,
 });
 
 const queryIntegerSchema = z.string().trim().regex(/^\d+$/u).transform(Number);
@@ -254,6 +274,7 @@ export const prepareSpaceFileWriteResponseSchema = z.strictObject({
   fileId: spaceFileEntryIdSchema,
   revisionId: spaceFileRevisionIdSchema,
   objectKey: z.string().trim().min(1).max(4096),
+  committedFile: spaceFileDescriptorSchema.optional(),
 });
 
 export const commitSpaceFileWriteInputSchema = prepareSpaceFileWriteInputSchema;

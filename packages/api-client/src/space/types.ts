@@ -158,6 +158,20 @@ export type SpaceApi = {
       entryId: string;
     }
   ) => Promise<TrashSpaceFileEntryResponse>;
+  restoreFileEntry: (
+    input: SpaceRequestInput & {
+      clientMutationId: string;
+      entryId: string;
+    }
+  ) => Promise<SpaceFileEntry>;
+  restoreFileRevision: (
+    input: SpaceRequestInput & {
+      baseRevision: number;
+      clientMutationId: string;
+      fileId: string;
+      revision: number;
+    }
+  ) => Promise<SpaceFileDescriptor>;
   uploadFile: (
     input: SpaceRequestInput & {
       bytes: SpaceFileContentBytes;

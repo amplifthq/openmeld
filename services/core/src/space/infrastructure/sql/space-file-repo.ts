@@ -28,6 +28,7 @@ type SpaceFileEntryRow = {
   created_by_json: string;
   updated_by_json: string;
   trashed_at_ms: number | null;
+  trashed_by_json: string | null;
 };
 
 type SpaceFileRevisionRow = {
@@ -79,11 +80,12 @@ export class SpaceFileRepository {
   list(input: {
     spaceId: string;
     parentId?: string | null;
-    includeTrashed?: boolean;
+    view?: "active" | "trash";
     canWrite: boolean;
   }): ListSpaceFilesResponse {
-    const parentId = input.parentId ?? null;
-    if (parentId) {
+    const view = input.view ?? "active";
+    const parentId = view === "trash" ? null : (input.parentId ?? null);
+    if (view === "active" && parentId) {
       this.requireActiveFolder(parentId);
     }
     const rows = this.sql
@@ -99,23 +101,34 @@ export class SpaceFileRepository {
             updated_at_ms,
             created_by_json,
             updated_by_json,
-            trashed_at_ms
+            trashed_at_ms,
+            trashed_by_json
           FROM space_file_entries
-          WHERE parent_key = ?
-            ${input.includeTrashed ? "" : "AND trashed_at_ms IS NULL"}
+          WHERE ${
+            view === "trash"
+              ? "trashed_at_ms IS NOT NULL"
+              : "parent_key = ? AND trashed_at_ms IS NULL"
+          }
           ORDER BY
-            CASE kind WHEN 'folder' THEN 0 ELSE 1 END,
+            ${view === "trash" ? "trashed_at_ms DESC," : "CASE kind WHEN 'folder' THEN 0 ELSE 1 END,"}
             name_key ASC,
             entry_id ASC
         `,
-        parentKey(parentId)
+        ...(view === "trash" ? [] : [parentKey(parentId)])
       )
       .toArray();
 
     return {
       spaceId: input.spaceId,
       parentId,
-      breadcrumbs: this.buildBreadcrumbs(parentId),
+      view,
+      breadcrumbs:
+        view === "trash"
+          ? [
+              { id: null, name: "Files" },
+              { id: null, name: "Trash" },
+            ]
+          : this.buildBreadcrumbs(parentId),
       entries: rows.map((row) => this.readEntryRow(row)),
       capabilities: { canRead: true, canWrite: input.canWrite },
     };
@@ -185,7 +198,15 @@ export class SpaceFileRepository {
     return { file, revision: readRevisionRow(row) };
   }
 
-  prepareWrite(input: CommitSpaceFileWriteInput): void {
+  prepareWrite(input: CommitSpaceFileWriteInput): SpaceFileDescriptor | null {
+    const replay = this.readMutation<SpaceFileDescriptor>({
+      action: "commit_write",
+      clientMutationId: input.clientMutationId,
+      fingerprint: mutationFingerprint(input),
+    });
+    if (replay) {
+      return replay;
+    }
     if (input.baseRevision === null) {
       if (!(input.name && input.parentId !== undefined)) {
         throw invalidParent("A new file requires a name and destination.");
@@ -198,7 +219,7 @@ export class SpaceFileRepository {
       if (this.readEntry(input.fileId)) {
         throw conflict("This file already exists.");
       }
-      return;
+      return null;
     }
     const current = this.getFile(input.fileId);
     if (current.latestRevision.revision !== input.baseRevision) {
@@ -207,6 +228,7 @@ export class SpaceFileRepository {
         current
       );
     }
+    return null;
   }
 
   createFolder(input: {
@@ -412,6 +434,54 @@ export class SpaceFileRepository {
     });
   }
 
+  restoreEntry(input: {
+    actor: SpaceFileActor;
+    clientMutationId: string;
+    entryId: string;
+    nowMs: number;
+  }): SpaceFileEntry {
+    return this.storage.transactionSync(() => {
+      const fingerprint = mutationFingerprint({ entryId: input.entryId });
+      const replay = this.readMutation<SpaceFileEntry>({
+        action: "restore_entry",
+        clientMutationId: input.clientMutationId,
+        fingerprint,
+      });
+      if (replay) {
+        return replay;
+      }
+      const current = this.requireTrashedEntry(input.entryId);
+      this.requireValidParent(current.parent_id);
+      this.requireNameAvailable({
+        parentId: current.parent_id,
+        name: current.name,
+      });
+      const actorJson = JSON.stringify(spaceFileActorSchema.parse(input.actor));
+      this.sql.exec(
+        `
+          UPDATE space_file_entries
+          SET trashed_at_ms = NULL,
+              trashed_by_json = NULL,
+              updated_at_ms = ?,
+              updated_by_json = ?
+          WHERE entry_id = ? AND trashed_at_ms IS NOT NULL
+        `,
+        input.nowMs,
+        actorJson,
+        input.entryId
+      );
+      const entry = this.readEntryDescriptor(input.entryId);
+      this.recordMutation({
+        action: "restore_entry",
+        clientMutationId: input.clientMutationId,
+        fingerprint,
+        nowMs: input.nowMs,
+        response: entry,
+      });
+      return entry;
+    });
+  }
+
   commitWrite(input: {
     actor: SpaceFileActor;
     nowMs: number;
@@ -549,6 +619,10 @@ export class SpaceFileRepository {
       updatedAt: timestampMsToIso(row.updated_at_ms),
       createdBy: parseActor(row.created_by_json),
       updatedBy: parseActor(row.updated_by_json),
+      trashedAt:
+        row.trashed_at_ms === null ? null : timestampMsToIso(row.trashed_at_ms),
+      trashedBy:
+        row.trashed_by_json === null ? null : parseActor(row.trashed_by_json),
     };
     return spaceFileEntrySchema.parse(
       row.kind === "folder"
@@ -646,6 +720,14 @@ export class SpaceFileRepository {
     return row;
   }
 
+  private requireTrashedEntry(entryId: string): SpaceFileEntryRow {
+    const row = this.readEntry(entryId);
+    if (!row || row.trashed_at_ms === null) {
+      throw notFound("File or folder not found in Trash.");
+    }
+    return row;
+  }
+
   private readEntry(entryId: string): SpaceFileEntryRow | null {
     return first(
       this.sql.exec<SpaceFileEntryRow>(
@@ -660,7 +742,8 @@ export class SpaceFileRepository {
             updated_at_ms,
             created_by_json,
             updated_by_json,
-            trashed_at_ms
+            trashed_at_ms,
+            trashed_by_json
           FROM space_file_entries
           WHERE entry_id = ?
           LIMIT 1

@@ -17,6 +17,8 @@ import {
   getSpaceFile,
   listSpaceFileRevisions,
   listSpaceFiles,
+  restoreSpaceFileEntry,
+  restoreSpaceFileRevision,
   trashSpaceFileEntry,
   updateSpaceFileContent,
   updateSpaceFileEntry,
@@ -76,6 +78,10 @@ export const createSpaceApi: CreateSpaceApi = (
     createFolder: async (input) => await createSpaceFolder(client, input),
     updateFileEntry: async (input) => await updateSpaceFileEntry(client, input),
     trashFileEntry: async (input) => await trashSpaceFileEntry(client, input),
+    restoreFileEntry: async (input) =>
+      await restoreSpaceFileEntry(client, input),
+    restoreFileRevision: async (input) =>
+      await restoreSpaceFileRevision(client, input),
     uploadFile: async (input) => await uploadSpaceFile(client, input),
     updateFileContent: async (input) =>
       await updateSpaceFileContent(client, input),

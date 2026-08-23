@@ -534,6 +534,9 @@ import type {
   ResolveSpaceFileContentResponse,
   RespondToSpaceAgentInteractionBody,
   RespondToSpaceAgentInteractionResponse,
+  RestoreSpaceFileEntryBody,
+  RestoreSpaceFileEntryResponse,
+  RestoreSpaceFileRevisionBody,
   RevokeAgentProfileBindingForOrganizationResponse,
   SaveOrganizationWakeAccessChoiceBody,
   SaveOrganizationWakeAccessChoiceResponse,
@@ -1731,6 +1734,17 @@ export type UpdateSpaceFileEntryInput = SpaceAttachmentAccessInput & {
 export type TrashSpaceFileEntryInput = SpaceAttachmentAccessInput & {
   clientMutationId: string;
   entryId: string;
+};
+
+export type RestoreSpaceFileEntryInput = SpaceAttachmentAccessInput & {
+  body: RestoreSpaceFileEntryBody;
+  entryId: string;
+};
+
+export type RestoreSpaceFileRevisionInput = SpaceAttachmentAccessInput & {
+  body: RestoreSpaceFileRevisionBody;
+  fileId: string;
+  revision: number;
 };
 
 export type SpaceFileWriteInput = SpaceAttachmentAccessInput & {
@@ -11601,7 +11615,10 @@ export async function rpcCenterAgentListSpaceFiles(
   return centerAgentListSpaceFilesResponseSchema.parse(
     await rpcListSpaceFiles(env, {
       context: authorization.context,
-      query: { parentId: request.parentId ?? null },
+      query: {
+        parentId: request.parentId ?? null,
+        view: request.view ?? "active",
+      },
       spaceId: request.spaceId,
     })
   );
@@ -11660,10 +11677,18 @@ export async function rpcCenterAgentReadSpaceFile(
       status: 415,
     });
   }
+  const history = request.includeHistory
+    ? await rpcListSpaceFileRevisions(env, {
+        context: authorization.context,
+        fileId: request.fileId,
+        spaceId: request.spaceId,
+      })
+    : null;
   return centerAgentReadSpaceFileResponseSchema.parse({
     content,
     file: resolved.file,
     revision: resolved.revision,
+    ...(history ? { revisions: history.revisions } : {}),
   });
 }
 
@@ -11775,6 +11800,34 @@ export async function rpcCenterAgentManageSpaceFiles(
     return centerAgentManageSpaceFilesResponseSchema.parse({
       action: request.action,
       entry: updated.entry,
+    });
+  }
+  if (request.action === "restore") {
+    const restored = await rpcRestoreSpaceFileEntry(env, {
+      body: { clientMutationId: request.clientMutationId },
+      context: authorization.context,
+      entryId: request.entryId,
+      spaceId: request.spaceId,
+    });
+    return centerAgentManageSpaceFilesResponseSchema.parse({
+      action: request.action,
+      entry: restored.entry,
+    });
+  }
+  if (request.action === "restore_version") {
+    const file = await rpcRestoreSpaceFileRevision(env, {
+      body: {
+        baseRevision: request.baseRevision,
+        clientMutationId: request.clientMutationId,
+      },
+      context: authorization.context,
+      fileId: request.fileId,
+      revision: request.revision,
+      spaceId: request.spaceId,
+    });
+    return centerAgentManageSpaceFilesResponseSchema.parse({
+      action: request.action,
+      file,
     });
   }
   const trashed = await rpcTrashSpaceFileEntry(env, {
@@ -16025,6 +16078,20 @@ export async function rpcTrashSpaceFileEntry(
   });
 }
 
+export async function rpcRestoreSpaceFileEntry(
+  env: CoreBindings,
+  input: RestoreSpaceFileEntryInput
+): Promise<RestoreSpaceFileEntryResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcRestoreSpaceFileEntry({
+    body: input.body,
+    entryId: input.entryId,
+    spaceAccess,
+    spaceId,
+  });
+}
+
 export async function rpcPrepareSpaceFileWrite(
   env: CoreBindings,
   input: SpaceFileWriteInput
@@ -16105,6 +16172,9 @@ export async function rpcWriteSpaceFileContent(
     });
   }
   const prepared = await rpcPrepareSpaceFileWrite(env, input);
+  if (prepared.committedFile) {
+    return prepared.committedFile;
+  }
   assertSpaceFileObjectScope({
     organizationId: prepared.organizationId,
     spaceId: input.spaceId,
@@ -16143,6 +16213,52 @@ export async function rpcWriteSpaceFileContent(
     }
     throw error;
   }
+}
+
+export async function rpcRestoreSpaceFileRevision(
+  env: CoreBindings,
+  input: RestoreSpaceFileRevisionInput
+): Promise<SpaceFileDescriptor> {
+  const source = await rpcReadSpaceFileContent(env, {
+    context: input.context,
+    content: {
+      spaceId: input.spaceId,
+      fileId: input.fileId,
+      revision: input.revision,
+    },
+    spaceAccess: input.spaceAccess,
+    spaceId: input.spaceId,
+  });
+  return await rpcWriteSpaceFileContent(env, {
+    bytes: source.bytes,
+    context: input.context,
+    spaceAccess: input.spaceAccess,
+    spaceId: input.spaceId,
+    write: {
+      spaceId: input.spaceId,
+      fileId: input.fileId,
+      revisionId: await buildSpaceFileRestoreRevisionId(
+        input.body.clientMutationId
+      ),
+      baseRevision: input.body.baseRevision,
+      clientMutationId: input.body.clientMutationId,
+      mimeType: source.revision.mimeType,
+      sizeBytes: source.revision.sizeBytes,
+    },
+  });
+}
+
+async function buildSpaceFileRestoreRevisionId(
+  clientMutationId: string
+): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`space-file-revision-restore:${clientMutationId}`)
+  );
+  const hex = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+  return `restore-${hex}`;
 }
 
 function requireSpaceFileBucket(env: CoreBindings): R2Bucket {

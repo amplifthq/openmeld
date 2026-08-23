@@ -5,6 +5,7 @@ import type { CoreBindings } from "../src/lib/bindings";
 import { createCoreRpcHttpError } from "../src/rpc/errors";
 import {
   rpcReadSpaceFileContent,
+  rpcRestoreSpaceFileRevision,
   rpcWriteSpaceFileContent,
 } from "../src/rpc/methods";
 
@@ -77,10 +78,19 @@ function makeEnv(input?: {
 }) {
   const objectKey = input?.objectKey ?? OBJECT_KEY;
   const stub = {
-    rpcPrepareSpaceFileWrite: vi.fn(async () => ({
-      organizationId: ORGANIZATION_ID,
-      objectKey,
-    })),
+    rpcPrepareSpaceFileWrite: vi.fn(
+      async (request: { write: { fileId: string; revisionId: string } }) => ({
+        organizationId: ORGANIZATION_ID,
+        objectKey:
+          input?.objectKey ??
+          buildSpaceFileObjectKey({
+            organizationId: ORGANIZATION_ID,
+            spaceId: SPACE_ID,
+            fileId: request.write.fileId,
+            revisionId: request.write.revisionId,
+          }),
+      })
+    ),
     rpcCommitSpaceFileWrite: vi.fn(() => {
       if (input?.commitError) {
         return Promise.reject(input.commitError);
@@ -191,5 +201,57 @@ describe("Core Space file content RPC", () => {
       status: 502,
     });
     expect(bucket.get).not.toHaveBeenCalled();
+  });
+
+  it("restores old bytes as a new conflict-safe current revision", async () => {
+    const restoredFile = {
+      ...FILE,
+      latestRevision: {
+        ...REVISION,
+        id: "restored-revision-id",
+        revision: 2,
+      },
+    };
+    const { bucket, env, stub } = makeEnv();
+    stub.rpcCommitSpaceFileWrite.mockResolvedValueOnce(restoredFile);
+
+    await expect(
+      rpcRestoreSpaceFileRevision(env, {
+        body: {
+          baseRevision: 1,
+          clientMutationId: "restore-version-1",
+        },
+        context: CONTEXT,
+        fileId: FILE_ID,
+        revision: 1,
+        spaceId: SPACE_ID,
+      })
+    ).resolves.toEqual(restoredFile);
+
+    expect(stub.rpcResolveSpaceFileContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.objectContaining({
+          fileId: FILE_ID,
+          revision: 1,
+        }),
+      })
+    );
+    expect(bucket.put).toHaveBeenCalledWith(
+      expect.stringContaining(`/files/${FILE_ID}/revisions/`),
+      expect.any(ArrayBuffer),
+      expect.objectContaining({
+        httpMetadata: { contentType: REVISION.mimeType },
+      })
+    );
+    expect(stub.rpcCommitSpaceFileWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        write: expect.objectContaining({
+          baseRevision: 1,
+          clientMutationId: "restore-version-1",
+          mimeType: REVISION.mimeType,
+          sizeBytes: BYTES.byteLength,
+        }),
+      })
+    );
   });
 });

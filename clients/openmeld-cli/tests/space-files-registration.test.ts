@@ -6,6 +6,7 @@ import { registerSpaceFilesCommands } from "../src/space/files-registration";
 const FILE_COMMANDS = [
   "list",
   "read",
+  "history",
   "upload",
   "write",
   "download",
@@ -13,6 +14,8 @@ const FILE_COMMANDS = [
   "rename",
   "move",
   "trash",
+  "restore",
+  "restore-version",
 ] as const;
 
 describe("Space Files CLI", () => {
@@ -31,6 +34,10 @@ describe("Space Files CLI", () => {
     expect(commandHelp(files, "write")).toContain("--base-revision <number>");
     expect(commandHelp(files, "write")).toContain("--stdin");
     expect(commandHelp(files, "download")).toContain("--force");
+    expect(commandHelp(files, "list")).toContain("--trash");
+    expect(commandHelp(files, "restore-version")).toContain(
+      "--base-revision <number>"
+    );
   });
 
   it("infers common media types while keeping an explicit type authoritative", () => {

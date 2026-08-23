@@ -22,6 +22,7 @@ const centerAgentSpaceFileScopeSchema = z.strictObject({
 export const centerAgentListSpaceFilesRpcInputSchema =
   centerAgentSpaceFileScopeSchema.extend({
     parentId: spaceFileEntryIdSchema.nullable().optional(),
+    view: z.enum(["active", "trash"]).optional(),
   });
 
 export const centerAgentListSpaceFilesResponseSchema =
@@ -30,6 +31,7 @@ export const centerAgentListSpaceFilesResponseSchema =
 export const centerAgentReadSpaceFileRpcInputSchema =
   centerAgentSpaceFileScopeSchema.extend({
     fileId: spaceFileEntryIdSchema,
+    includeHistory: z.boolean().optional(),
     revision: spaceFileRevisionNumberSchema.optional(),
   });
 
@@ -37,6 +39,7 @@ export const centerAgentReadSpaceFileResponseSchema = z.strictObject({
   content: z.string(),
   file: spaceFileDescriptorSchema,
   revision: spaceFileRevisionSchema,
+  revisions: z.array(spaceFileRevisionSchema).optional(),
 });
 
 const centerAgentCreateSpaceFileRpcInputSchema =
@@ -102,10 +105,28 @@ const centerAgentTrashSpaceFileEntryRpcInputSchema =
     entryId: spaceFileEntryIdSchema,
   });
 
+const centerAgentRestoreSpaceFileEntryRpcInputSchema =
+  centerAgentSpaceFileScopeSchema.extend({
+    action: z.literal("restore"),
+    clientMutationId: spaceFileClientMutationIdSchema,
+    entryId: spaceFileEntryIdSchema,
+  });
+
+const centerAgentRestoreSpaceFileRevisionRpcInputSchema =
+  centerAgentSpaceFileScopeSchema.extend({
+    action: z.literal("restore_version"),
+    baseRevision: spaceFileRevisionNumberSchema,
+    clientMutationId: spaceFileClientMutationIdSchema,
+    fileId: spaceFileEntryIdSchema,
+    revision: spaceFileRevisionNumberSchema,
+  });
+
 export const centerAgentManageSpaceFilesRpcInputSchema = z.union([
   centerAgentCreateSpaceFolderRpcInputSchema,
   centerAgentUpdateSpaceFileEntryRpcInputSchema,
   centerAgentTrashSpaceFileEntryRpcInputSchema,
+  centerAgentRestoreSpaceFileEntryRpcInputSchema,
+  centerAgentRestoreSpaceFileRevisionRpcInputSchema,
 ]);
 
 export const centerAgentManageSpaceFilesResponseSchema = z.discriminatedUnion(
@@ -123,6 +144,14 @@ export const centerAgentManageSpaceFilesResponseSchema = z.discriminatedUnion(
       action: z.literal("trash"),
       entryId: spaceFileEntryIdSchema,
       trashedAt: z.iso.datetime({ offset: true }),
+    }),
+    z.strictObject({
+      action: z.literal("restore"),
+      entry: spaceFileEntrySchema,
+    }),
+    z.strictObject({
+      action: z.literal("restore_version"),
+      file: spaceFileDescriptorSchema,
     }),
   ]
 );

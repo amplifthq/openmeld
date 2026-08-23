@@ -3,6 +3,8 @@ import {
   getSpaceFileResponseSchema,
   listSpaceFileRevisionsResponseSchema,
   listSpaceFilesResponseSchema,
+  restoreSpaceFileEntryResponseSchema,
+  restoreSpaceFileRevisionResponseSchema,
   SPACE_FILE_MAX_SIZE_BYTES,
   spaceFileMimeTypeSchema,
   trashSpaceFileEntryResponseSchema,
@@ -22,11 +24,16 @@ import type {
   UpdateSpaceFileEntryBody,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
-import { readApiClientTextResponse } from "../errors";
+import {
+  OpenMeldApiClientInvalidResponseError,
+  readApiClientTextResponse,
+} from "../errors";
 import {
   buildSpaceFileContentPath,
   buildSpaceFileEntryPath,
   buildSpaceFileFoldersPath,
+  buildSpaceFileRestorePath,
+  buildSpaceFileRevisionRestorePath,
   buildSpaceFileRevisionsPath,
   buildSpaceFilesPath,
   buildSpaceFileUploadPath,
@@ -45,13 +52,27 @@ export async function listSpaceFiles(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & { query?: ListSpaceFilesQuery }
 ): Promise<ListSpaceFilesResponse> {
-  return await client.requestJson({
+  const response = await client.requestJson({
     ...requestFields(input),
     url: buildSpaceFilesPath(input.spaceId, input.query),
     operation: "space.files.list",
     schema: listSpaceFilesResponseSchema,
     invalidMessage: "invalid Space Files list response",
   });
+  const requestedView = input.query?.view ?? "active";
+  if (response.view !== requestedView) {
+    throw new OpenMeldApiClientInvalidResponseError({
+      message: `Space Files returned the ${response.view} view while the ${requestedView} view was requested.`,
+      operation: "space.files.list",
+      status: 200,
+      rawBody: JSON.stringify(response),
+      schemaIssue: {
+        message: "The response view did not match the requested view.",
+        path: ["view"],
+      },
+    });
+  }
+  return response;
 }
 
 export async function getSpaceFile(
@@ -133,6 +154,55 @@ export async function trashSpaceFileEntry(
     schema: trashSpaceFileEntryResponseSchema,
     invalidMessage: "invalid Space file trash response",
   });
+}
+
+export async function restoreSpaceFileEntry(
+  client: OpenMeldApiClientFoundation,
+  input: SpaceRequestInput & {
+    clientMutationId: string;
+    entryId: string;
+  }
+): Promise<SpaceFileEntry> {
+  const response = await client.requestJson({
+    ...requestFields(input),
+    url: buildSpaceFileRestorePath(input.spaceId, input.entryId),
+    operation: "space.files.entry.restore",
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ clientMutationId: input.clientMutationId }),
+    schema: restoreSpaceFileEntryResponseSchema,
+    invalidMessage: "invalid Space file restore response",
+  });
+  return response.entry;
+}
+
+export async function restoreSpaceFileRevision(
+  client: OpenMeldApiClientFoundation,
+  input: SpaceRequestInput & {
+    baseRevision: number;
+    clientMutationId: string;
+    fileId: string;
+    revision: number;
+  }
+): Promise<SpaceFileDescriptor> {
+  const response = await client.requestJson({
+    ...requestFields(input),
+    url: buildSpaceFileRevisionRestorePath(
+      input.spaceId,
+      input.fileId,
+      input.revision
+    ),
+    operation: "space.files.revision.restore",
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      baseRevision: input.baseRevision,
+      clientMutationId: input.clientMutationId,
+    }),
+    schema: restoreSpaceFileRevisionResponseSchema,
+    invalidMessage: "invalid Space file revision restore response",
+  });
+  return response.file;
 }
 
 export async function uploadSpaceFile(

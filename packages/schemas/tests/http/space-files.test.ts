@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSpaceFileObjectKey,
+  centerAgentListSpaceFilesRpcInputSchema,
+  centerAgentManageSpaceFilesRpcInputSchema,
   createSpaceFolderBodySchema,
   isSpaceFileTextEditable,
+  listSpaceFilesQuerySchema,
+  listSpaceFilesResponseSchema,
   postNormalMessageBodySchema,
   postSpaceThreadSignalBodySchema,
   resolveSpaceFileMimeType,
+  restoreSpaceFileEntryBodySchema,
+  restoreSpaceFileRevisionBodySchema,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceFileNameSchema,
   spaceMessageFileReferenceSchema,
@@ -50,6 +56,117 @@ describe("Space Files contracts", () => {
   it("requires a mutation identity for folder creation", () => {
     expect(
       createSpaceFolderBodySchema.safeParse({ name: "Research" }).success
+    ).toBe(false);
+  });
+
+  it("keeps active Files and Trash as separate list views", () => {
+    expect(listSpaceFilesQuerySchema.parse({})).toEqual({ view: "active" });
+    expect(listSpaceFilesQuerySchema.parse({ view: "trash" })).toEqual({
+      view: "trash",
+    });
+    expect(
+      restoreSpaceFileEntryBodySchema.safeParse({
+        clientMutationId: "restore-1",
+      }).success
+    ).toBe(true);
+  });
+
+  it("keeps active file responses readable during a receiver-first rollout", () => {
+    const actor = {
+      displayName: "Maya",
+      profileId: "profile-1",
+      profileKind: "human" as const,
+    };
+    expect(
+      listSpaceFilesResponseSchema.parse({
+        breadcrumbs: [{ id: null, name: "Files" }],
+        capabilities: { canRead: true, canWrite: true },
+        entries: [
+          {
+            createdAt: "2026-08-23T00:00:00.000Z",
+            createdBy: actor,
+            id: "file-1",
+            kind: "file",
+            latestRevision: {
+              createdAt: "2026-08-23T00:00:00.000Z",
+              createdBy: actor,
+              fileId: "file-1",
+              id: "revision-1",
+              mimeType: "text/markdown",
+              revision: 1,
+              sizeBytes: 12,
+            },
+            name: "brief.md",
+            parentId: null,
+            path: "/brief.md",
+            spaceId: "space-1",
+            updatedAt: "2026-08-23T00:00:00.000Z",
+            updatedBy: actor,
+          },
+        ],
+        parentId: null,
+        spaceId: "space-1",
+      })
+    ).toMatchObject({
+      entries: [{ trashedAt: null, trashedBy: null }],
+      view: "active",
+    });
+  });
+
+  it("gives the Center Agent the same Trash and restore language", () => {
+    const context = {
+      activeOrganizationId: "organization-1",
+      actorContext: {
+        callerPrincipalId: "user-1",
+        openMeldProfileId: "agt_11111111-1111-4111-8111-111111111111",
+        profileKind: "agent" as const,
+        requestId: "request-1",
+      },
+    };
+    expect(
+      centerAgentListSpaceFilesRpcInputSchema.parse({
+        context,
+        spaceId: "space-1",
+        view: "trash",
+      })
+    ).toMatchObject({ view: "trash" });
+    expect(
+      centerAgentManageSpaceFilesRpcInputSchema.safeParse({
+        action: "restore",
+        clientMutationId: "restore-1",
+        context,
+        entryId: "file-1",
+        spaceId: "space-1",
+      }).success
+    ).toBe(true);
+    expect(
+      centerAgentManageSpaceFilesRpcInputSchema.safeParse({
+        action: "restore_version",
+        baseRevision: 3,
+        clientMutationId: "restore-version-1",
+        context,
+        fileId: "file-1",
+        revision: 1,
+        spaceId: "space-1",
+      }).success
+    ).toBe(true);
+  });
+
+  it("requires the current revision when restoring an older version", () => {
+    expect(
+      restoreSpaceFileRevisionBodySchema.parse({
+        baseRevision: 4,
+        clientMutationId: "restore-version-1",
+      })
+    ).toEqual({
+      baseRevision: 4,
+      clientMutationId: "restore-version-1",
+    });
+    expect(
+      restoreSpaceFileRevisionBodySchema.safeParse({
+        baseRevision: 0,
+        clientMutationId: "restore-version-1",
+      }).success
     ).toBe(false);
   });
 
