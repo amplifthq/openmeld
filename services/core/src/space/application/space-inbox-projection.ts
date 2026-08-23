@@ -229,7 +229,9 @@ function resolveAudience(input: {
   if (
     input.signal.type === "signal.system_notice" &&
     (input.signal.data.noticeType === "terminal_failure" ||
-      input.signal.data.noticeType === "wake_stopped")
+      input.signal.data.noticeType === "wake_stopped" ||
+      input.signal.data.noticeType === "stay_silent" ||
+      input.signal.data.noticeType === "wake_completed")
   ) {
     return {
       allowedRecipientUserIds: new Set([wakeRequesterUserId]),

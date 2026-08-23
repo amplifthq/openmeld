@@ -17,6 +17,7 @@ export function buildSystemNoticeText(input: {
     | "policy_blocked"
     | "stay_silent"
     | "terminal_failure"
+    | "wake_completed"
     | "wake_stopped";
   reason?: string | null;
   variant?: SystemNoticeTextVariant;
@@ -28,6 +29,8 @@ export function buildSystemNoticeText(input: {
   switch (input.noticeType) {
     case "stay_silent":
       return `${actorName} chose to stay silent.`;
+    case "wake_completed":
+      return `${actorName} finished this Wake without posting a public reply.`;
     case "policy_blocked":
       return reason
         ? `OpenMeld blocked a public reply from ${actorName}: ${reason}`

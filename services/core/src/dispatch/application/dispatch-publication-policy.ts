@@ -55,7 +55,11 @@ export type DispatchPublicationPlan =
       archiveMode: ResultArchiveMode;
       blockedExplicitAction: boolean;
       kind: "system_notice";
-      noticeType: "policy_blocked" | "stay_silent" | "terminal_failure";
+      noticeType:
+        | "policy_blocked"
+        | "stay_silent"
+        | "terminal_failure"
+        | "wake_completed";
       publicOutcome: "stay_silent" | "system_notice";
       reason: string | null;
       // Machine-readable public failure code for the signal's structured
@@ -518,10 +522,20 @@ function resolveImplicitPlan(input: {
 
   return buildSystemNoticePlan({
     actorName: input.actorName,
-    noticeType: "terminal_failure",
+    // A settled success with no publishable reply is a completed Wake, not a
+    // failure: the requester must hear "done" from the system instead of an
+    // invented failure just because the model posted no message.
+    noticeType:
+      input.payload.status === "success"
+        ? "wake_completed"
+        : "terminal_failure",
     publicOutcome: "system_notice",
-    reason: resolveFailureReason(input.payload, input.actorName),
-    reasonCode: input.payload.errorCode,
+    ...(input.payload.status === "success"
+      ? { reason: null }
+      : {
+          reason: resolveFailureReason(input.payload, input.actorName),
+          reasonCode: input.payload.errorCode,
+        }),
   });
 }
 
@@ -550,7 +564,11 @@ function resolvePublicStaySilentReason(input: {
 
 function buildSystemNoticePlan(input: {
   actorName?: string | null;
-  noticeType: "policy_blocked" | "stay_silent" | "terminal_failure";
+  noticeType:
+    | "policy_blocked"
+    | "stay_silent"
+    | "terminal_failure"
+    | "wake_completed";
   publicOutcome: "stay_silent" | "system_notice";
   reason?: string | null;
   reasonCode?: string | null;

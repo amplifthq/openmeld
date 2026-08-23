@@ -80,7 +80,7 @@ describe("dispatch publication policy", () => {
     expect(plan.text).not.toContain("/private/local/path");
   });
 
-  it("requires an explicit public action in collaboration mode", () => {
+  it("announces a completed Wake instead of a failure when a successful payload has no public reply", () => {
     const plan = resolveDispatchPublicationPlan({
       actorName: "oh-my-claude",
       dispatchMessage: createDispatchMessage(),
@@ -93,9 +93,9 @@ describe("dispatch publication policy", () => {
 
     expect(plan).toMatchObject({
       kind: "system_notice",
-      noticeType: "terminal_failure",
+      noticeType: "wake_completed",
       publicOutcome: "system_notice",
-      reason: "OpenMeld did not receive a message it could post in this space.",
+      reason: null,
       // A success payload with no publishable action carries no errorCode,
       // so the structured reasonCode stays empty instead of being invented.
       reasonCode: null,
@@ -104,7 +104,7 @@ describe("dispatch publication policy", () => {
       throw new Error("expected a system notice publication plan");
     }
     expect(plan.text).toBe(
-      "oh-my-claude couldn't reply: OpenMeld did not receive a message it could post in this space."
+      "oh-my-claude finished this Wake without posting a public reply."
     );
   });
 

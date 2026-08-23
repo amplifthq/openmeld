@@ -9,6 +9,7 @@ export const signalSystemNoticeTypeSchema = z.enum([
   "stay_silent",
   "policy_blocked",
   "terminal_failure",
+  "wake_completed",
   "wake_stopped",
   "execution_recovery_available",
   "execution_recovery_completed",

@@ -219,25 +219,10 @@ describe("Space Inbox projection", () => {
   });
 
   it("delivers a terminal Wake failure only to the exact requester", () => {
-    const signal = {
-      data: {
-        actorProfileId: "profile-agent",
-        dispatchId: "dispatch-1",
-        generatedBy: "openmeld",
-        noticeType: "terminal_failure",
-        text: "The Wake could not finish.",
-      },
-      id: "signal-1",
-      profile: {
-        kind: "system",
-        profileId: "openmeld-system",
-        profileName: "OpenMeld System",
-      },
-      spaceId: "space-1",
-      ts: 1000,
-      type: "signal.system_notice",
-      v: 1,
-    } satisfies SignalEnvelope;
+    const signal = systemNoticeSignal({
+      noticeType: "terminal_failure",
+      text: "The Wake could not finish.",
+    });
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
         member("profile-requester", "user-requester", "human"),
@@ -254,6 +239,40 @@ describe("Space Inbox projection", () => {
       expect.objectContaining({
         kind: "wake_outcome",
         recipientUserId: "user-requester",
+      }),
+    ]);
+  });
+
+  it.each([
+    "wake_completed",
+    "stay_silent",
+  ] as const)("delivers a %s Wake ending only to the exact requester as an ordinary update", (noticeType) => {
+    const signal = systemNoticeSignal({
+      noticeType,
+      text:
+        noticeType === "wake_completed"
+          ? "Research Agent finished this Wake without posting a public reply."
+          : "Research Agent chose to stay silent.",
+    });
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("profile-requester", "user-requester", "human"),
+        member("profile-observer", "user-observer", "human"),
+      ],
+      nowMs: 2000,
+      organizationId: "org-1",
+      signal,
+      spaceName: "Operations",
+      wakeRequesterUserId: "user-requester",
+    });
+
+    expect(record?.candidates).toEqual([
+      expect.objectContaining({
+        attention: "update",
+        importance: "normal",
+        kind: "wake_outcome",
+        recipientUserId: "user-requester",
+        title: "Agent update in Operations",
       }),
     ]);
   });
@@ -723,6 +742,35 @@ function textSignal(input: {
     type: "signal.text",
     v: 1,
   };
+}
+
+function systemNoticeSignal(input: {
+  noticeType:
+    | "stay_silent"
+    | "terminal_failure"
+    | "wake_completed"
+    | "wake_stopped";
+  text: string;
+}): SignalEnvelope {
+  return {
+    data: {
+      actorProfileId: "profile-agent",
+      dispatchId: "dispatch-1",
+      generatedBy: "openmeld",
+      noticeType: input.noticeType,
+      text: input.text,
+    },
+    id: "signal-1",
+    profile: {
+      kind: "system",
+      profileId: "openmeld-system",
+      profileName: "OpenMeld System",
+    },
+    spaceId: "space-1",
+    ts: 1000,
+    type: "signal.system_notice",
+    v: 1,
+  } satisfies SignalEnvelope;
 }
 
 function candidate(recipientUserId: string) {

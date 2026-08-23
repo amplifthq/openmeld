@@ -147,9 +147,11 @@ The first release creates items for these explicit user-visible events:
    the current human author of the target thread.
 3. An Agent Interaction that explicitly requests approval, an answer, plan
    review, or other supported human response.
-4. A Wake requested by the member that ends in a visible failure or stopped
-   outcome; a successful final reply uses the Agent reply item instead of a
-   duplicate success item.
+4. A Wake requested by the member that reaches a system-owned ending:
+   a visible failure or stopped outcome, a `stay_silent` outcome, or a
+   completed Wake whose accepted result carried no public reply
+   (`wake_completed`). A successful final reply uses the Agent reply item
+   instead of a duplicate success item.
 5. A linked member's Center Agent work started through a Message Channel when
    the result or intervention request is available in OpenMeld.
 6. A Center Agent Task that requests the recipient's action, produces a final

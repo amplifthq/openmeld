@@ -1342,6 +1342,8 @@ function formatFinalVisibleMessageWaterfallReasonCode(
         return "final_visible_message.policy_blocked_notice";
       case "stay_silent":
         return "final_visible_message.stay_silent_notice";
+      case "wake_completed":
+        return "final_visible_message.wake_completed_notice";
       case "wake_stopped":
         return "final_visible_message.wake_stopped_notice";
       case null:
