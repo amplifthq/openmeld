@@ -1059,10 +1059,11 @@ published CLI surface. Keep its producer windows explicit:
    `0031_agent_activity_retention_indexes`. Never drop or rewrite these tables
    during rollback.
 2. Deploy shared strict readers and a Remote Agent worker that accepts the
-   digest RPC before Core can enable digest production. Keep
-   `OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED=false` until the Core receiver is
-   deployed, then enable it only for the final interactive Center Agent caller
-   window. Configure
+   digest RPC before Core can enable digest production. Deploy the Core Session
+   Inventory receiver before Remote Agent exposes
+   `openmeld_list_agent_activity_sessions`. After that receiver is live, set
+   `OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED=true` in Remote Agent wrangler
+   vars for the Center Agent caller window. Configure
    `OPENMELD_AGENT_ACTIVITY_DIGEST_MODEL_ID` on that worker, then deploy Core,
    Gateway, API/Web consumers, and the local CLI/Service bundle.
 3. Keep `OPENMELD_AGENT_ACTIVITY_DIGEST_ENABLED=false` until the consumer,

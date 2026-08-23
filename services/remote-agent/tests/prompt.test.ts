@@ -176,6 +176,24 @@ describe("remote agent system prompt", () => {
     );
   });
 
+  it("looks up Fork Sessions itself instead of asking the user for internal fields", () => {
+    const prompt = buildTestSystemPrompt();
+
+    expect(prompt).toContain("openmeld_list_agent_activity_sessions");
+    expect(prompt).toContain(
+      "copy nativeSessionId, projectId, computerId, and agentControllerRef from that same current Session row"
+    );
+    expect(prompt).toContain(
+      "Never ask the user for Project, Computer, local agent, deviceId, or agentControllerRef"
+    );
+    expect(prompt).toContain(
+      "never send them to a private chat to supply those fields"
+    );
+    expect(prompt).toContain(
+      "report that Session Inventory is unavailable instead of asking the user to fill internal fields"
+    );
+  });
+
   it("requires capability discovery before claiming that a hidden tool is unavailable", () => {
     const prompt = buildTestSystemPrompt();
 
