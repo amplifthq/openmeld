@@ -1,13 +1,21 @@
 import {
   buildSpaceAttachmentObjectKey,
+  buildSpaceFileEntryIdForMutation,
+  buildSpaceFileRevisionIdForMutation,
   detectSpaceAttachmentMimeType,
   SPACE_ATTACHMENT_MAX_SIZE_BYTES,
+  SPACE_FILE_MAX_SIZE_BYTES,
   spaceAttachmentDescriptorSchema,
+  spaceFileDescriptorSchema,
   spaceMessageAttachmentSchema,
+  spaceMessageFileReferenceSchema,
 } from "@openmeld/schemas";
 import type {
+  RemoteAgentTurnEnvelope,
   SpaceAttachmentDescriptor,
+  SpaceFileDescriptor,
   SpaceMessageAttachment,
+  SpaceMessageFileReference,
 } from "@openmeld/schemas/types";
 import {
   array,
@@ -29,6 +37,7 @@ import {
 import { emitRemoteAgentToolUsage } from "../flue-adapter/tool-usage-observability";
 import {
   appendRemoteAgentOutputAttachment,
+  appendRemoteAgentOutputFile,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
 } from "./callback-context";
@@ -506,12 +515,6 @@ async function captureBrowserScreenshot(input: {
 }): Promise<unknown> {
   const env = requireExternalToolEnv(input.env);
   const browser = requireBrowserBinding(env);
-  const bucket = env.OPENMELD_SPACE_ATTACHMENTS;
-  if (!bucket) {
-    throw new Error(
-      "OPENMELD_SPACE_ATTACHMENTS is unavailable for browser screenshots."
-    );
-  }
   const turn = await buildRemoteAgentToolContext({
     storage: input.storage,
     submissionId: input.submissionId,
@@ -521,6 +524,7 @@ async function captureBrowserScreenshot(input: {
   let browserMs = 0;
   let outcome: "failed" | "succeeded" = "failed";
   let outputBytes = 0;
+  let bucket: AttachmentBucket | null = null;
   let objectKey: string | null = null;
   let descriptor: SpaceAttachmentDescriptor | null = null;
   const inputBytes = estimateSerializedBytes(input.request);
@@ -538,12 +542,15 @@ async function captureBrowserScreenshot(input: {
     }
     const bytes = await response.arrayBuffer();
     outputBytes = bytes.byteLength;
-    if (
-      bytes.byteLength < 1 ||
-      bytes.byteLength > SPACE_ATTACHMENT_MAX_SIZE_BYTES
-    ) {
+    const useCanonicalSpaceFile = shouldUseCanonicalSpaceFile(
+      turn.turnEnvelope
+    );
+    const maxSizeBytes = useCanonicalSpaceFile
+      ? SPACE_FILE_MAX_SIZE_BYTES
+      : SPACE_ATTACHMENT_MAX_SIZE_BYTES;
+    if (bytes.byteLength < 1 || bytes.byteLength > maxSizeBytes) {
       throw new Error(
-        `Browser screenshot is ${bytes.byteLength} bytes; OpenMeld Space attachments must be between 1 and ${SPACE_ATTACHMENT_MAX_SIZE_BYTES} bytes.`
+        `Browser screenshot is ${bytes.byteLength} bytes; OpenMeld files must be between 1 and ${maxSizeBytes} bytes for this conversation.`
       );
     }
     const mimeType = format === "jpeg" ? "image/jpeg" : "image/png";
@@ -552,12 +559,70 @@ async function captureBrowserScreenshot(input: {
         `Cloudflare Browser Run returned bytes that are not a valid ${format.toUpperCase()} screenshot.`
       );
     }
+    const fileName =
+      input.request.fileName ?? buildDefaultScreenshotFileName(format);
+    if (useCanonicalSpaceFile) {
+      const spaceId = turn.turnEnvelope?.space.id ?? "";
+      const clientMutationId = crypto.randomUUID();
+      const [fileId, revisionId] = await Promise.all([
+        buildSpaceFileEntryIdForMutation(clientMutationId),
+        buildSpaceFileRevisionIdForMutation({
+          baseRevision: null,
+          bytes,
+          clientMutationId,
+          mimeType,
+          name: fileName,
+          parentId: null,
+        }),
+      ]);
+      const fileDescriptor = spaceFileDescriptorSchema.parse(
+        await callCoreRpc(
+          input.coreWorker,
+          "writeSpaceFileContent",
+          {
+            bytes,
+            context: turn.context,
+            spaceId,
+            write: {
+              baseRevision: null,
+              clientMutationId,
+              fileId,
+              mimeType,
+              name: fileName,
+              parentId: null,
+              revisionId,
+              sizeBytes: bytes.byteLength,
+              spaceId,
+            },
+          },
+          (binding, request) => binding.writeSpaceFileContent?.(request)
+        )
+      );
+      const file = toSpaceMessageFileReference(fileDescriptor);
+      await appendRemoteAgentOutputFile({
+        file,
+        storage: input.storage,
+        submissionId: input.submissionId,
+      });
+      outcome = "succeeded";
+      return {
+        addedToSpaceFiles: true,
+        attachedToFinalReply: true,
+        browserMs,
+        file,
+      };
+    }
+    bucket = env.OPENMELD_SPACE_ATTACHMENTS ?? null;
+    if (!bucket) {
+      throw new Error(
+        "OPENMELD_SPACE_ATTACHMENTS is unavailable for provider screenshots."
+      );
+    }
     const recordRequest: Parameters<
       NonNullable<RemoteAgentCoreWorkerBinding["recordSpaceAttachment"]>
     >[0] = {
       context: turn.context,
-      fileName:
-        input.request.fileName ?? buildDefaultScreenshotFileName(format),
+      fileName,
       mimeType,
       sizeBytes: bytes.byteLength,
       spaceId: turn.turnEnvelope?.space.id ?? "",
@@ -587,12 +652,14 @@ async function captureBrowserScreenshot(input: {
       browserMs,
     };
   } catch (error) {
-    await cleanUpBrowserScreenshotArtifacts({
-      bucket,
-      coreWorker: input.coreWorker,
-      descriptor,
-      objectKey,
-    });
+    if (bucket) {
+      await cleanUpBrowserScreenshotArtifacts({
+        bucket,
+        coreWorker: input.coreWorker,
+        descriptor,
+        objectKey,
+      });
+    }
     throw error;
   } finally {
     emitRemoteAgentToolUsage(env, {
@@ -610,6 +677,21 @@ async function captureBrowserScreenshot(input: {
       toolName: "browser_screenshot",
     });
   }
+}
+
+function shouldUseCanonicalSpaceFile(
+  turnEnvelope: RemoteAgentTurnEnvelope | undefined
+): boolean {
+  const trigger = turnEnvelope?.trigger;
+  if (!trigger) {
+    return true;
+  }
+  if (trigger.source === "slack" || trigger.source === "message_channel") {
+    return false;
+  }
+  return !(
+    trigger.source === "routine" && trigger.destination?.kind === "slack_thread"
+  );
 }
 
 function buildBrowserScreenshotOptions(
@@ -941,6 +1023,18 @@ function toSpaceMessageAttachment(
     ...(descriptor.fileName === undefined
       ? {}
       : { fileName: descriptor.fileName }),
+  });
+}
+
+function toSpaceMessageFileReference(
+  descriptor: SpaceFileDescriptor
+): SpaceMessageFileReference {
+  return spaceMessageFileReferenceSchema.parse({
+    fileId: descriptor.id,
+    mimeType: descriptor.latestRevision.mimeType,
+    name: descriptor.name,
+    revision: descriptor.latestRevision.revision,
+    sizeBytes: descriptor.latestRevision.sizeBytes,
   });
 }
 

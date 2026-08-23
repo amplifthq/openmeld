@@ -13,6 +13,7 @@ import {
 	openTargetPickerState,
 	type PreparedSpaceComposerSubmission,
 	prepareSpaceComposerSubmission,
+	prepareSpaceFileOnlySubmission,
 	resolveNextRecentMentionProfileIdsForQueuedText,
 	type SpaceComposerAuthoredMentionInTextOrder,
 	type SpaceMemberDirectory,
@@ -520,6 +521,8 @@ export function useSpaceMentionAuthoring(input: {
 				snapshot: input.snapshot,
 				text: composerText,
 			}),
+		prepareFileOnlySubmission: () =>
+			prepareSpaceFileOnlySubmission({ replyTo }),
 		preparePlainTextSubmission: (
 			text: string,
 			missingSnapshotMessage: string

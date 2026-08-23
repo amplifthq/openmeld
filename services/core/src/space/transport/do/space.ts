@@ -6,6 +6,7 @@ import {
 import type {
   Profile,
   SignalEnvelope,
+  SignalText,
   SpaceCreator,
   SpaceCursor,
   SpaceMeta,
@@ -21,9 +22,12 @@ import {
 } from "@openmeld/protocol";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
+  buildSpaceFileObjectKey,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
+  commitSpaceFileWriteInputSchema,
   createSpaceDiagnosticReportBodySchema,
   createSpaceDiagnosticReportResponseSchema,
+  createSpaceFolderBodySchema,
   createSpaceThreadBodySchema,
   deriveCenterAgentDirectMessageSpaceProjection,
   evalSpaceSignalMetricsInputSchema,
@@ -59,8 +63,10 @@ import {
   remoteAgentWorkerCancellationResponseSchema,
   removeSpaceMembersBodySchema,
   resolveMappedPublicAgentFailureReason,
+  resolveSpaceFileContentInputSchema,
   respondToSpaceAgentInteractionInputSchema,
   respondToSpaceAgentInteractionResponseSchema,
+  restoreSpaceFileEntryBodySchema,
   runtimeCoordinatorFailurePublicationCommandSchema,
   runtimeCoordinatorFinalizationCommandSchema,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
@@ -79,11 +85,13 @@ import {
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
+  updateSpaceFileEntryBodySchema,
   validateSpaceSignalClientMessageIdPolicy,
 } from "@openmeld/schemas";
 import type {
   ConvertDirectMessageToSpaceResponse,
   CreateSpaceDiagnosticReportResponse,
+  CreateSpaceFolderResponse,
   DispatchResult,
   EvalSpaceSignalMetrics,
   EvalSpaceSignalMetricsInput,
@@ -101,6 +109,9 @@ import type {
   GetSpaceWakeTraceWaterfallResponse,
   InspectExecutionRecoveryResponse,
   LeaveSpaceResponse,
+  ListSpaceFileRevisionsResponse,
+  ListSpaceFilesQuery,
+  ListSpaceFilesResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
@@ -112,11 +123,14 @@ import type {
   PostSpaceMembersResponse,
   PostSpaceWakeStopBody,
   PostSpaceWakeStopResponse,
+  PrepareSpaceFileWriteResponse,
   RemoteAgentWorkerCancellationResponse,
   RemoveSpaceMembersResponse,
   ResolvedSpaceMemberProfile,
+  ResolveSpaceFileContentResponse,
   RespondToSpaceAgentInteractionBody,
   RespondToSpaceAgentInteractionResponse,
+  RestoreSpaceFileEntryResponse,
   RuntimeCoordinatorExecutionRecord,
   RuntimeCoordinatorExecutionStatus,
   RuntimeCoordinatorFailurePublicationCommand,
@@ -137,6 +151,9 @@ import type {
   SpaceDispatchLookupMatch,
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceSnapshot,
+  SpaceFileActor,
+  SpaceFileDescriptor,
+  SpaceFileMutationErrorCode,
   SpaceIdentityDirectory,
   SpaceLiveInvalidationFrame,
   SpaceLiveSignalFrame,
@@ -148,6 +165,8 @@ import type {
   SpaceThreadPreview,
   SpaceThreadSignalPlacement,
   SpaceViewerMembershipResponse,
+  TrashSpaceFileEntryResponse,
+  UpdateSpaceFileEntryResponse,
   WakeProgressItem,
   WakeProgressPhase,
 } from "@openmeld/schemas/types";
@@ -474,6 +493,10 @@ import {
   upsertSpaceCursorRecord,
 } from "../../infrastructure/sql/space-cursor-repo";
 import { readSpaceDispatchRule } from "../../infrastructure/sql/space-dispatch-rule-repo";
+import {
+  SpaceFileRepository,
+  SpaceFileRepositoryError,
+} from "../../infrastructure/sql/space-file-repo";
 import {
   insertSpaceInboxProjectionOutboxRecord,
   listDueSpaceInboxProjectionOutboxRecords,
@@ -1106,6 +1129,8 @@ function buildDispatchSourceSignalSnapshot(input: {
     input.signal.type === "signal.text"
       ? input.signal.data.attachments
       : undefined;
+  const files =
+    input.signal.type === "signal.text" ? input.signal.data.files : undefined;
   const centerAgentInteractionSource =
     input.signal.type === "signal.text"
       ? input.signal.data.meta?.centerAgentInteractionSource
@@ -1124,6 +1149,7 @@ function buildDispatchSourceSignalSnapshot(input: {
           null)
         : null,
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    ...(files && files.length > 0 ? { files } : {}),
   };
 }
 
@@ -2292,6 +2318,320 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
+  async rpcListSpaceFiles(input: {
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+    query?: ListSpaceFilesQuery;
+  }): Promise<ListSpaceFilesResponse> {
+    this.applySpaceRef(input.spaceId);
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeSpaceAccess(input.spaceAccess)
+    );
+    const member = this.readSpaceFileActorMember(input.spaceAccess);
+    const canWrite =
+      member?.profileKindSnapshot === "human" ||
+      member?.profileKindSnapshot === "agent";
+    if ((input.query?.view ?? "active") === "trash" && !canWrite) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space.membership_required",
+        reason: "Join this Space before viewing its Trash.",
+      });
+    }
+    return this.spaceFileRepository.list({
+      spaceId: this.spaceId,
+      parentId: input.query?.parentId,
+      view: input.query?.view,
+      canWrite,
+    });
+  }
+
+  async rpcGetSpaceFile(input: {
+    fileId: string;
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<SpaceFileDescriptor> {
+    this.applySpaceRef(input.spaceId);
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeSpaceAccess(input.spaceAccess)
+    );
+    return this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.getFile(input.fileId)
+    );
+  }
+
+  async rpcListSpaceFileRevisions(input: {
+    fileId: string;
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<ListSpaceFileRevisionsResponse> {
+    this.applySpaceRef(input.spaceId);
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeSpaceAccess(input.spaceAccess)
+    );
+    return this.runSpaceFileRepositoryOperation(() => ({
+      file: this.spaceFileRepository.getFile(input.fileId),
+      revisions: this.spaceFileRepository.listRevisions(input.fileId),
+    }));
+  }
+
+  async rpcCreateSpaceFolder(input: {
+    body: unknown;
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<CreateSpaceFolderResponse> {
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const body = createSpaceFolderBodySchema.parse(input.body);
+    const folder = this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.createFolder({
+        actor,
+        clientMutationId: body.clientMutationId,
+        folderId: crypto.randomUUID(),
+        name: body.name,
+        nowMs: Date.now(),
+        parentId: body.parentId,
+        spaceId: this.spaceId,
+      })
+    );
+    await this.broadcastSpaceFilesChanged("space_file.folder_created");
+    return { folder };
+  }
+
+  async rpcUpdateSpaceFileEntry(input: {
+    body: unknown;
+    entryId: string;
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<UpdateSpaceFileEntryResponse> {
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const body = updateSpaceFileEntryBodySchema.parse(input.body);
+    const entry = this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.updateEntry({
+        actor,
+        body,
+        entryId: input.entryId,
+        nowMs: Date.now(),
+      })
+    );
+    await this.broadcastSpaceFilesChanged("space_file.entry_updated");
+    return { entry };
+  }
+
+  async rpcTrashSpaceFileEntry(input: {
+    clientMutationId: string;
+    entryId: string;
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<TrashSpaceFileEntryResponse> {
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const response = this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.trashEntry({
+        actor,
+        clientMutationId: input.clientMutationId,
+        entryId: input.entryId,
+        nowMs: Date.now(),
+      })
+    );
+    await this.broadcastSpaceFilesChanged("space_file.entry_trashed");
+    return response;
+  }
+
+  async rpcRestoreSpaceFileEntry(input: {
+    body: unknown;
+    entryId: string;
+    spaceAccess: SpaceAccessContext;
+    spaceId: string;
+  }): Promise<RestoreSpaceFileEntryResponse> {
+    this.applySpaceRef(input.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const body = restoreSpaceFileEntryBodySchema.parse(input.body);
+    const entry = this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.restoreEntry({
+        actor,
+        clientMutationId: body.clientMutationId,
+        entryId: input.entryId,
+        nowMs: Date.now(),
+      })
+    );
+    await this.broadcastSpaceFilesChanged("space_file.entry_restored");
+    return { entry };
+  }
+
+  async rpcPrepareSpaceFileWrite(input: {
+    spaceAccess: SpaceAccessContext;
+    write: unknown;
+  }): Promise<PrepareSpaceFileWriteResponse> {
+    const write = commitSpaceFileWriteInputSchema.parse(input.write);
+    this.applySpaceRef(write.spaceId);
+    await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const committedFile = this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.prepareWrite(write)
+    );
+    const meta = this.requireSpaceFileMetaRecord();
+    return {
+      organizationId: meta.organizationId,
+      spaceId: this.spaceId,
+      fileId: write.fileId,
+      revisionId: write.revisionId,
+      objectKey: buildSpaceFileObjectKey({
+        organizationId: meta.organizationId,
+        spaceId: this.spaceId,
+        fileId: write.fileId,
+        revisionId: write.revisionId,
+      }),
+      ...(committedFile ? { committedFile } : {}),
+    };
+  }
+
+  async rpcCommitSpaceFileWrite(input: {
+    spaceAccess: SpaceAccessContext;
+    write: unknown;
+  }): Promise<SpaceFileDescriptor> {
+    const write = commitSpaceFileWriteInputSchema.parse(input.write);
+    this.applySpaceRef(write.spaceId);
+    const actor = await this.requireSpaceFileWriteActor(input.spaceAccess);
+    const file = this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.commitWrite({
+        actor,
+        nowMs: Date.now(),
+        write,
+      })
+    );
+    await this.broadcastSpaceFilesChanged("space_file.content_committed");
+    return file;
+  }
+
+  async rpcResolveSpaceFileContent(input: {
+    content: unknown;
+    spaceAccess: SpaceAccessContext;
+  }): Promise<ResolveSpaceFileContentResponse> {
+    const content = resolveSpaceFileContentInputSchema.parse(input.content);
+    this.applySpaceRef(content.spaceId);
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeSpaceAccess(input.spaceAccess)
+    );
+    const resolved = this.runSpaceFileRepositoryOperation(() =>
+      this.spaceFileRepository.resolveRevision({
+        fileId: content.fileId,
+        revision: content.revision,
+      })
+    );
+    const meta = this.requireSpaceFileMetaRecord();
+    return {
+      ...resolved,
+      organizationId: meta.organizationId,
+      objectKey: buildSpaceFileObjectKey({
+        organizationId: meta.organizationId,
+        spaceId: this.spaceId,
+        fileId: resolved.file.id,
+        revisionId: resolved.revision.id,
+      }),
+    };
+  }
+
+  private get spaceFileRepository(): SpaceFileRepository {
+    return new SpaceFileRepository(this.ctx.storage);
+  }
+
+  private requireSpaceFileMetaRecord(): SpaceMetaRecord {
+    const meta = this.readSpaceMetaRecord();
+    if (!meta) {
+      throw createCoreRpcHttpError({
+        status: 404,
+        code: "space.not_found",
+        reason: "Space not found.",
+      });
+    }
+    return meta;
+  }
+
+  private readSpaceFileActorMember(
+    spaceAccess: SpaceAccessContext
+  ): SpaceMemberRecord | null {
+    const profileId =
+      spaceAccess.actor.kind === "dispatch_continuation"
+        ? spaceAccess.actor.targetProfileId
+        : getSpaceAccessRequestContext(spaceAccess)?.actorContext
+            .openMeldProfileId;
+    if (!profileId) {
+      return null;
+    }
+    const member = readSpaceMemberRecord(this.ctx.storage.sql, profileId);
+    return member?.status === "active" ? member : null;
+  }
+
+  private async requireSpaceFileWriteActor(
+    spaceAccess: SpaceAccessContext
+  ): Promise<SpaceFileActor> {
+    await assertRpcSpaceAccessAuthorized(
+      await this.authorizeWritableSpaceAccess(spaceAccess)
+    );
+    const member = this.readSpaceFileActorMember(spaceAccess);
+    if (!member) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space.membership_required",
+        reason: "Join this Space before changing its files.",
+      });
+    }
+    if (
+      member.profileKindSnapshot !== "human" &&
+      member.profileKindSnapshot !== "agent"
+    ) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space.membership_required",
+        reason: "Only human and agent Space members can change files.",
+      });
+    }
+    return {
+      profileId: member.profileId,
+      profileKind: member.profileKindSnapshot,
+      displayName: member.profileNameSnapshot,
+      ...(member.ownerUserIdSnapshot
+        ? { ownerUserId: member.ownerUserIdSnapshot }
+        : {}),
+    };
+  }
+
+  private runSpaceFileRepositoryOperation<T>(operation: () => T): T {
+    try {
+      return operation();
+    } catch (error) {
+      if (!(error instanceof SpaceFileRepositoryError)) {
+        throw error;
+      }
+      throw createCoreRpcHttpError({
+        status: spaceFileErrorStatus(error.code),
+        code: error.code,
+        reason: error.message,
+      });
+    }
+  }
+
+  private resolveSpaceMessageFileReferences(
+    files: NonNullable<SignalText["data"]["files"]>
+  ): NonNullable<SignalText["data"]["files"]> {
+    return files.map((reference) => {
+      const resolved = this.runSpaceFileRepositoryOperation(() =>
+        this.spaceFileRepository.resolveRevision({
+          fileId: reference.fileId,
+          revision: reference.revision,
+        })
+      );
+      return {
+        fileId: resolved.file.id,
+        revision: resolved.revision.revision,
+        name: resolved.file.name,
+        mimeType: resolved.revision.mimeType,
+        sizeBytes: resolved.revision.sizeBytes,
+      };
+    });
+  }
+
   // The rpc* methods below are adapters for typed DO RPC calls.
   // They build a local Request and reuse existing dispatch handlers so HTTP and
   // RPC paths keep identical validation and business behavior.
@@ -3189,6 +3529,7 @@ export class Space extends DurableObject<CoreBindings> {
         workingDirectory: input.workingDirectory,
       });
       return this.buildTextSignal(publishedProfile, input.plan.text, {
+        ...this.resolveAgentTransportMessageFiles(input.plan),
         messageEnvelope: input.messageEnvelope ?? input.plan.messageEnvelope,
         ...(input.dispatchMessage.replyToSnapshot
           ? { replyTo: input.dispatchMessage.replyToSnapshot }
@@ -3274,6 +3615,17 @@ export class Space extends DurableObject<CoreBindings> {
     );
   }
 
+  private resolveAgentTransportMessageFiles(
+    plan: Extract<
+      AgentTransportSpaceActionDeliveryInput["plan"],
+      { kind: "message" }
+    >
+  ): { files?: NonNullable<SignalText["data"]["files"]> } {
+    return plan.files
+      ? { files: this.resolveSpaceMessageFileReferences(plan.files) }
+      : {};
+  }
+
   private async quarantineLegacyAcceptedDispatchResult(input: {
     db: D1Database;
     inboxRecord: DispatchResultInboxRecord;
@@ -3321,8 +3673,8 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     const agentStreamId = parseOptionalAgentStreamId(input.agentStreamId);
     const normalizedText = String(input.text ?? "").trim();
-    if (normalizedText.length === 0) {
-      throw new Error("text is required");
+    if (normalizedText.length === 0 && (input.files?.length ?? 0) === 0) {
+      throw new Error("A message must include text or at least one file");
     }
 
     const policyResult = validateSpaceSignalClientMessageIdPolicy({
@@ -3362,6 +3714,7 @@ export class Space extends DurableObject<CoreBindings> {
         data: {
           text: normalizedText,
           ...(input.attachments ? { attachments: input.attachments } : {}),
+          ...(input.files ? { files: input.files } : {}),
           ...(input.messageEnvelope
             ? { messageEnvelope: input.messageEnvelope }
             : {}),
@@ -3469,6 +3822,7 @@ export class Space extends DurableObject<CoreBindings> {
       ...(input.input.attachments
         ? { attachments: input.input.attachments }
         : {}),
+      ...(input.input.files ? { files: input.input.files } : {}),
       ...(input.input.context ? { context: input.input.context } : {}),
       ...(input.input.finalOutcomeAuthority
         ? { finalOutcomeAuthority: input.input.finalOutcomeAuthority }
@@ -3604,6 +3958,9 @@ export class Space extends DurableObject<CoreBindings> {
       normalizedText,
       {
         ...(input.attachments ? { attachments: input.attachments } : {}),
+        ...(input.files
+          ? { files: this.resolveSpaceMessageFileReferences(input.files) }
+          : {}),
         ...(input.messageEnvelope
           ? { messageEnvelope: input.messageEnvelope }
           : {}),
@@ -4622,7 +4979,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
     await input.markEffectStarted();
     const originPublication = await publishExecutionRecoveryToOrigin({
-      ...(payload.storageVersion === 2 && payload.attachments.length > 0
+      ...(payload.storageVersion !== 1 && payload.attachments.length > 0
         ? { attachments: payload.attachments }
         : {}),
       db: input.db,
@@ -7764,6 +8121,13 @@ export class Space extends DurableObject<CoreBindings> {
           ...(parsed.data.messageEnvelope
             ? { messageEnvelope: parsed.data.messageEnvelope }
             : {}),
+          ...(parsed.data.files
+            ? {
+                files: this.resolveSpaceMessageFileReferences(
+                  parsed.data.files
+                ),
+              }
+            : {}),
           meta: {
             clientMessageId: parsed.data.clientMessageId,
           },
@@ -10282,6 +10646,8 @@ export class Space extends DurableObject<CoreBindings> {
         isDispatchSnapshotOversizeError,
         dispatchSnapshotOversizeErrorCode:
           OPENMELD_DAEMON_DISPATCH_SNAPSHOT_OVERSIZE_ERROR_CODE,
+        resolveMessageFiles: (files) =>
+          this.resolveSpaceMessageFileReferences(files),
       });
     } catch (error) {
       if (error instanceof SpaceFinalOutcomeOwnerRequiredError) {
@@ -10910,8 +11276,7 @@ export class Space extends DurableObject<CoreBindings> {
   } {
     const meta = this.readSpaceMetaRecord();
     if (
-      !meta ||
-      meta.purpose !== "openmeld_dm_space" ||
+      meta?.purpose !== "openmeld_dm_space" ||
       !meta.directMessage ||
       meta.directMessage.convertedAt
     ) {
@@ -12119,6 +12484,7 @@ export class Space extends DurableObject<CoreBindings> {
       data: {
         text,
         ...(options?.attachments ? { attachments: options.attachments } : {}),
+        ...(options?.files ? { files: options.files } : {}),
         ...(options?.messageEnvelope
           ? { messageEnvelope: options.messageEnvelope }
           : {}),
@@ -12315,6 +12681,16 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       version: await this.nextLiveInvalidationVersion(),
       reason: input.reason,
+    };
+    this.broadcast(frame);
+  }
+
+  private async broadcastSpaceFilesChanged(reason: string): Promise<void> {
+    const frame: SpaceLiveInvalidationFrame = {
+      type: "space.files.changed",
+      spaceId: this.spaceId,
+      version: await this.nextLiveInvalidationVersion(),
+      reason,
     };
     this.broadcast(frame);
   }
@@ -14005,6 +14381,9 @@ export class Space extends DurableObject<CoreBindings> {
         signal.profile.kind === "system"
           ? signal.profile.kind
           : null,
+      ...(signal.data.files && signal.data.files.length > 0
+        ? { files: signal.data.files }
+        : {}),
       ...(signal.data.meta?.centerAgentInteractionSource
         ? {
             centerAgentInteractionSource:
@@ -15709,8 +16088,29 @@ function isSpaceLiveInvalidationFrame(
     "type" in message &&
     (message.type === "space.members.changed" ||
       message.type === "space.meta.changed" ||
+      message.type === "space.files.changed" ||
       message.type === "agent.readiness.invalidated")
   );
+}
+
+function spaceFileErrorStatus(code: SpaceFileMutationErrorCode): number {
+  switch (code) {
+    case "space_file.not_found":
+      return 404;
+    case "space_file.invalid_parent":
+    case "space_file.type_unsupported":
+      return 400;
+    case "space_file.conflict":
+    case "space_file.folder_not_empty":
+    case "space_file.name_conflict":
+      return 409;
+    case "space_file.storage_failed":
+      return 503;
+    case "space_file.too_large":
+      return 413;
+    default:
+      return 500;
+  }
 }
 
 function isSpaceAgentStreamFrame(

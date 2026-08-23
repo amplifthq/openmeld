@@ -565,10 +565,10 @@ describe("connect role-only cursor sync e2e", () => {
         CATCHUP_BUFFER_OVERFLOW_EVENT_COUNT
       );
       expect(stderr).toContain(
-        "Warning: OpenMeld couldn't fully catch up to recent messages, so live updates will continue without saving your place for this session."
+        "OpenMeld couldn't load every recent message. Live updates will continue, but your place won't be saved in this session."
       );
       expect(stderr).toContain(
-        "Warning: OpenMeld will keep showing live updates, but it won't save your place for the rest of this session."
+        "Live updates will continue, but OpenMeld won't save your place in this session."
       );
       expect(cursorPatchPayloads).toEqual([]);
     });

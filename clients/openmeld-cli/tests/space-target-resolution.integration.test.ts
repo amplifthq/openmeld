@@ -331,7 +331,7 @@ describe("space target resolution", () => {
             space: "demo",
           });
         })
-      ).rejects.toThrow("Invalid space target");
+      ).rejects.toThrow("That Space ID isn't valid");
     });
   });
 
@@ -356,6 +356,6 @@ describe("space target resolution", () => {
           });
         });
       })
-    ).rejects.toThrow("Invalid space target");
+    ).rejects.toThrow("That Space ID isn't valid");
   });
 });

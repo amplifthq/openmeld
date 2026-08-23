@@ -63,6 +63,7 @@ import {
   spaceDispatchTraceAttemptStatusSchema,
   spaceDispatchTraceDispatchStatusSchema,
 } from "./space-dispatch-trace";
+import { spaceMessageFileReferencesSchema } from "./space-files";
 import {
   postSpaceMembersResponseSchema,
   removeSpaceMembersResponseSchema,
@@ -704,6 +705,7 @@ export const centerAgentReadDispatchHistoryBodySchema = z.strictObject({
 });
 
 export const centerAgentPostSpaceMessageBodySchema = z.strictObject({
+  files: spaceMessageFileReferencesSchema.optional(),
   onBehalfOf: centerAgentOnBehalfOfInputSchema.optional(),
   referenceProfileIds: z
     .array(openMeldRuntimeProfileIdSchema)

@@ -103,7 +103,7 @@ function formatCurrentLocalRuntimeReplyReadinessFailure(input: {
   supportCode: string;
 }): string {
   const commandLabel = input.commandLabel ?? "setup";
-  return `OpenMeld Service started, but OpenMeld could not confirm this computer can receive local Wake work yet. Keep OpenMeld Service running, then run ${commandLabel} again from this terminal. Support code: ${input.supportCode}.${input.detail ? ` Detail: ${input.detail}` : ""}`;
+  return `OpenMeld Service started, but OpenMeld could not confirm this computer can receive local Wake work yet. Run ${commandLabel} again from this Terminal and keep OpenMeld Service running. Support code: ${input.supportCode}.${input.detail ? ` Detail: ${input.detail}` : ""}`;
 }
 
 function toErrorMessage(error: unknown): string {

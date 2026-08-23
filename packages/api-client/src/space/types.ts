@@ -6,6 +6,8 @@ import type {
   CreateSpaceBody,
   CreateSpaceDiagnosticReportBody as CreateSpaceDiagnosticReportBodyFromSchemas,
   CreateSpaceDiagnosticReportResponse as CreateSpaceDiagnosticReportResponseFromSchemas,
+  CreateSpaceFolderBody,
+  CreateSpaceFolderResponse,
   CreateSpaceResponse,
   CreateSpaceThreadBody,
   CreateSpaceThreadResponse,
@@ -21,6 +23,9 @@ import type {
   GetSpaceWakeTraceWaterfallResponse,
   InspectExecutionRecoveryResponse,
   LeaveSpaceResponse,
+  ListSpaceFileRevisionsResponse,
+  ListSpaceFilesQuery,
+  ListSpaceFilesResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
@@ -41,14 +46,19 @@ import type {
   SpaceAccessModeState,
   SpaceAttachmentDescriptor,
   SpaceBootstrapResponse,
+  SpaceFileDescriptor,
+  SpaceFileEntry,
   SpaceIdentityDirectory,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMeta,
   SpaceViewerMembershipResponse,
+  TrashSpaceFileEntryResponse,
+  UpdateSpaceFileEntryBody,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
 import type { UploadSpaceAttachmentInput } from "./attachments";
+import type { SpaceFileContent, SpaceFileContentBytes } from "./files";
 
 export type {
   CreateSpaceDiagnosticReportBody,
@@ -124,6 +134,65 @@ export type SpaceApi = {
   uploadAttachment: (
     input: UploadSpaceAttachmentInput
   ) => Promise<SpaceAttachmentDescriptor>;
+  listFiles: (
+    input: SpaceRequestInput & { query?: ListSpaceFilesQuery }
+  ) => Promise<ListSpaceFilesResponse>;
+  getFile: (
+    input: SpaceRequestInput & { fileId: string }
+  ) => Promise<{ file: SpaceFileDescriptor }>;
+  listFileRevisions: (
+    input: SpaceRequestInput & { fileId: string }
+  ) => Promise<ListSpaceFileRevisionsResponse>;
+  createFolder: (
+    input: SpaceRequestInput & { body: CreateSpaceFolderBody }
+  ) => Promise<CreateSpaceFolderResponse>;
+  updateFileEntry: (
+    input: SpaceRequestInput & {
+      body: UpdateSpaceFileEntryBody;
+      entryId: string;
+    }
+  ) => Promise<SpaceFileEntry>;
+  trashFileEntry: (
+    input: SpaceRequestInput & {
+      clientMutationId: string;
+      entryId: string;
+    }
+  ) => Promise<TrashSpaceFileEntryResponse>;
+  restoreFileEntry: (
+    input: SpaceRequestInput & {
+      clientMutationId: string;
+      entryId: string;
+    }
+  ) => Promise<SpaceFileEntry>;
+  restoreFileRevision: (
+    input: SpaceRequestInput & {
+      baseRevision: number;
+      clientMutationId: string;
+      fileId: string;
+      revision: number;
+    }
+  ) => Promise<SpaceFileDescriptor>;
+  uploadFile: (
+    input: SpaceRequestInput & {
+      bytes: SpaceFileContentBytes;
+      clientMutationId: string;
+      mimeType: string;
+      name: string;
+      parentId?: string | null;
+    }
+  ) => Promise<SpaceFileDescriptor>;
+  updateFileContent: (
+    input: SpaceRequestInput & {
+      baseRevision: number;
+      bytes: SpaceFileContentBytes;
+      clientMutationId: string;
+      fileId: string;
+      mimeType: string;
+    }
+  ) => Promise<SpaceFileDescriptor>;
+  downloadFileContent: (
+    input: SpaceRequestInput & { fileId: string; revision?: number }
+  ) => Promise<SpaceFileContent>;
   removeMembers: (
     input: RemoveSpaceMembersInput
   ) => Promise<RemoveSpaceMembersResponse>;
@@ -223,6 +292,7 @@ export type SpaceApi = {
     input: SpaceRequestInput & {
       text: PostNormalMessageBody["text"];
       attachments?: PostNormalMessageBody["attachments"];
+      files?: PostNormalMessageBody["files"];
       messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
       replyTo?: PostNormalMessageBody["replyTo"];
       meta?: PostNormalMessageBody["meta"];

@@ -35,6 +35,7 @@ import {
 	SPACE_UPDATES_LIMIT,
 	writeSpaceHistoryEnvelopesToCache,
 } from "#/query/spaces/history";
+import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { useSpaceConversation } from "./use-space-conversation";
 
 const LIVE_RECONNECT_STATUS =
@@ -1077,6 +1078,21 @@ function handleNonTimelineLiveMessage(input: {
 					.catch((error) => {
 						console.warn(
 							"[openmeld.web.space.meta_invalidation_refresh_failed]",
+							{
+								error: toStructuredApiClientFailure(error).message,
+								reason: frame.reason,
+								spaceId: input.spaceId,
+							}
+						);
+					});
+			} else if (frame.type === "space.files.changed") {
+				input.queryClient
+					.invalidateQueries({
+						queryKey: spaceFileQueryKeys.space(input.spaceId),
+					})
+					.catch((error) => {
+						console.warn(
+							"[openmeld.web.space.files_invalidation_refresh_failed]",
 							{
 								error: toStructuredApiClientFailure(error).message,
 								reason: frame.reason,

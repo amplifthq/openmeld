@@ -108,6 +108,7 @@ export const postNormalMessageBodySchema = z
   .strictObject({
     text: signalTextRequestDataSchema.shape.text,
     attachments: signalTextRequestDataSchema.shape.attachments.optional(),
+    files: signalTextRequestDataSchema.shape.files.optional(),
     messageEnvelope:
       signalTextRequestDataSchema.shape.messageEnvelope.optional(),
     replyTo: signalTextRequestDataSchema.shape.replyTo.optional(),

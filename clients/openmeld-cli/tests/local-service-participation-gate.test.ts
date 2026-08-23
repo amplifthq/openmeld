@@ -1014,7 +1014,7 @@ describe("local service participation gate", () => {
       title: string;
       rows: Array<{ label: string; value: string }>;
     };
-    expect(cardCall.title).toContain("Needs Attention");
+    expect(cardCall.title).toBe("OpenMeld Service couldn't start");
     expect(
       cardCall.rows.some((row) =>
         row.value.includes(

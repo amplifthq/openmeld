@@ -80,7 +80,7 @@ export function createSpaceMenuGuideError() {
         "openmeld space [--gateway-url <url>] create [--profile <profile-id>] --name <name> --visibility <public|private> [--guide <text>] [--password <value>] [--join|--no-join] [--output text|ndjson]",
         "openmeld space [--gateway-url <url>] join [--profile <profile-id>] <space-id> [--password <value>] [--local-echo|--no-local-echo] [--history-limit <n>] [--role <text>] [--mention-alias <token>] [--output text|ndjson]",
         "openmeld space [--gateway-url <url>] watch [--profile <profile-id>] <space-id> [--password <value>] [--history-limit <n>] [--output text|ndjson]",
-        "openmeld space [--gateway-url <url>] send [--profile <profile-id>] <space-id> [<text...>|--stdin|--file <path>] [--plain] [--password <value>]",
+        "openmeld space [--gateway-url <url>] send [--profile <profile-id>] <space-id> [<text...>|--stdin|--text-file <path>] [--file <path>...] [--plain] [--password <value>]",
         SPACE_HISTORY_USAGE,
         "openmeld space [--gateway-url <url>] contract [--profile <profile-id>] <space-id> [--json] [--password <value>]",
         SPACE_CONTRACT_SET_USAGE,
@@ -472,16 +472,15 @@ export function createSpaceSubcommandTargetGuideError(
   command: SpaceSubcommandTarget
 ) {
   const requiredArgsByCommand: Record<SpaceSubcommandTarget, string[]> = {
-    send: [
-      "<space-id>",
-      "one input source: <text...> | --stdin | --file <path>",
-    ],
+    send: ["<space-id>", "message text and/or --file <path>"],
     history: ["<space-id>"],
     thread: ["<space-id>", "<thread-id>"],
     password: ["<space-id>", "one action: --password <value> | --clear"],
   };
   const optionalArgsByCommand: Record<SpaceSubcommandTarget, string[]> = {
     send: [
+      "--file <path> (repeatable, max 10)",
+      "--text-file <path>",
       "--password <value>",
       SPACE_GATEWAY_PARENT_OPTION_TEXT,
       "--profile <profile-id>",
@@ -507,7 +506,7 @@ export function createSpaceSubcommandTargetGuideError(
     password: [SPACE_GATEWAY_PARENT_OPTION_TEXT, "--profile <profile-id>"],
   };
   const commandByCommand: Record<SpaceSubcommandTarget, string> = {
-    send: "openmeld space [--gateway-url <url>] send [--profile <profile-id>] <space-id> [<text...>|--stdin|--file <path>] [--plain] [--password <value>]",
+    send: "openmeld space [--gateway-url <url>] send [--profile <profile-id>] <space-id> [<text...>|--stdin|--text-file <path>] [--file <path>...] [--plain] [--password <value>]",
     history: SPACE_HISTORY_USAGE,
     thread:
       "openmeld space [--gateway-url <url>] thread [--profile <profile-id>] <space-id> <thread-id> [--password <value>]",
@@ -603,7 +602,7 @@ export function createSpaceAgentProfileOnlyGuideError(input: {
         "openmeld profiles list --view agent",
         "openmeld profiles set <agent-profile-id> --view agent",
         "openmeld space join <space-id> --profile <agent-profile-id> --view agent",
-        "openmeld space send <space-id> [<text...>|--stdin|--file <path>] --profile <agent-profile-id> --view agent",
+        "openmeld space send <space-id> [<text...>|--stdin|--text-file <path>] [--file <path>...] --profile <agent-profile-id> --view agent",
       ],
       notes: [
         "First run `openmeld profiles list --view agent` to find an agent profile ID.",
@@ -780,11 +779,12 @@ export function createSpaceSendInputRequiredGuideError() {
     code: "send.input.required",
     guide: {
       summary:
-        "openmeld space send requires one input source: <text...> or --stdin or --file <path>.",
+        "openmeld space send requires message text or at least one --file <path>.",
       humanSteps: [
         'Use quick text: openmeld space send <space-id> "hello"',
         "Or pipe stdin: echo 'hello' | openmeld space send <space-id> --stdin",
-        "Or send file: openmeld space send <space-id> --file /tmp/message.txt",
+        "Or read message text from a file: openmeld space send <space-id> --text-file /tmp/message.txt",
+        "Or share a file without filler text: openmeld space send <space-id> --file /tmp/launch-brief.pdf",
       ],
       agentRequiredArgs: ["exactly one input source"],
       agentOptionalArgs: [
@@ -794,11 +794,13 @@ export function createSpaceSendInputRequiredGuideError() {
       agentCommands: [
         'openmeld space send --profile <profile-id> <space-id> "hello"',
         "cat /tmp/message.txt | openmeld space send --profile <profile-id> <space-id> --stdin",
-        "openmeld space send --profile <profile-id> <space-id> --file /tmp/message.txt",
+        "openmeld space send --profile <profile-id> <space-id> --text-file /tmp/message.txt",
+        "openmeld space send --profile <profile-id> <space-id> --file /tmp/launch-brief.pdf",
         'openmeld space send --profile <profile-id> <space-id> --plain "literal @Agent(wake) text"',
       ],
       notes: [
-        "Prefer --stdin/--file for multiline or shell-sensitive content.",
+        "Prefer --stdin/--text-file for multiline or shell-sensitive message text.",
+        "Use repeatable --file options to share up to 10 Space Files with or without message text.",
         "Use --plain only when @Name(wake) or @Name(reference) should be sent as literal text.",
       ],
     },
@@ -810,7 +812,7 @@ export function createSpaceSendInputConflictGuideError() {
     code: "send.input.conflict",
     guide: {
       summary:
-        "openmeld space send received conflicting input sources. Use exactly one of: <text...>, --stdin, --file <path>.",
+        "openmeld space send received conflicting message text sources. Use only one of: <text...>, --stdin, --text-file <path>.",
       humanSteps: [
         "Pick only one source per command.",
         "Remove extra input flags and retry.",
@@ -819,11 +821,12 @@ export function createSpaceSendInputConflictGuideError() {
       agentCommands: [
         'openmeld space send --profile <profile-id> <space-id> "hello"',
         "openmeld space send --profile <profile-id> <space-id> --stdin",
-        "openmeld space send --profile <profile-id> <space-id> --file /tmp/message.txt",
+        "openmeld space send --profile <profile-id> <space-id> --text-file /tmp/message.txt",
         'openmeld space send --profile <profile-id> <space-id> --plain "literal @Agent(wake) text"',
       ],
       notes: [
-        "Do not combine text with --stdin/--file.",
+        "Do not combine positional text with --stdin or --text-file.",
+        "A --file attachment may be combined with any one message text source.",
         "Use --plain only when @Name(wake) or @Name(reference) should be sent as literal text.",
       ],
     },
@@ -842,11 +845,11 @@ export function createSpaceSendInputFileReadFailedGuideError(
         "Check file path and permissions.",
         "Retry with a readable UTF-8 text file.",
       ],
-      agentRequiredArgs: ["--file <path> must exist and be readable"],
+      agentRequiredArgs: ["--text-file <path> must exist and be readable"],
       agentCommands: [
         "ls -l <path>",
         "cat <path>",
-        "openmeld space send --profile <profile-id> <space-id> --file <path>",
+        "openmeld space send --profile <profile-id> <space-id> --text-file <path>",
       ],
       notes: [`read error: ${reason}`],
     },
@@ -1063,10 +1066,7 @@ function normalizeGuideExample(
 
 export function createSpaceAliasTargetGuideError(command: SpaceAliasCommand) {
   const requiredArgsByCommand: Record<SpaceAliasCommand, string[]> = {
-    send: [
-      "--space <space-id>",
-      "one input source: <text...> | --stdin | --file <path>",
-    ],
+    send: ["--space <space-id>", "message text and/or --file <path>"],
     tail: ["--space <space-id>"],
   };
   const optionalArgsByCommand: Record<SpaceAliasCommand, string[]> = {
@@ -1075,7 +1075,8 @@ export function createSpaceAliasTargetGuideError(command: SpaceAliasCommand) {
       "--base-url <url>",
       "--password <value>",
       "--stdin",
-      "--file <path>",
+      "--text-file <path>",
+      "--file <path> (repeatable, max 10)",
     ],
     tail: [
       "--profile <id>",
@@ -1086,11 +1087,11 @@ export function createSpaceAliasTargetGuideError(command: SpaceAliasCommand) {
     ],
   };
   const commandByAlias: Record<SpaceAliasCommand, string> = {
-    send: "openmeld send [<text...>|--stdin|--file <path>] --space <space-id> [--plain] [--password <value>] [--profile <id>] [--base-url <url>]",
+    send: "openmeld send [<text...>|--stdin|--text-file <path>] [--file <path>...] --space <space-id> [--plain] [--password <value>] [--profile <id>] [--base-url <url>]",
     tail: "openmeld tail --space <space-id> [--limit <n>] [--after-signal <signal-id>] [--around-signal <signal-id> --before <n> --after <n>] [--from-profile <profile-id>] [--kind <text|status|system_notice>] [--json] [--password <value>] [--profile <id>] [--base-url <url>]",
   };
   const preferredCommand: Record<SpaceAliasCommand, string> = {
-    send: "openmeld space [--gateway-url <url>] send [--profile <profile-id>] <space-id> [<text...>|--stdin|--file <path>] [--plain] [--password <value>]",
+    send: "openmeld space [--gateway-url <url>] send [--profile <profile-id>] <space-id> [<text...>|--stdin|--text-file <path>] [--file <path>...] [--plain] [--password <value>]",
     tail: SPACE_HISTORY_USAGE,
   };
 

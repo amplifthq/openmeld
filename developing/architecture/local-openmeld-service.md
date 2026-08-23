@@ -1041,6 +1041,23 @@ Attachment directories follow the provider runtime workspace lifecycle. The
 service does not introduce a separate attachment cleanup path or claim a
 shorter retention period than the workspace that contains them.
 
+### Canonical Space File References
+
+New Space chat uploads use canonical Space File references rather than the
+legacy image-attachment materialization path. The dispatch source snapshot
+carries only server-resolved `fileId`, sent `revision`, name, MIME type, and
+size. The local service preserves those references in the Agent Controller
+prompt and prints exact `openmeld space files read` and `download` commands for
+the acting Agent Profile. It does not eagerly copy every file into the provider
+workspace, mount the Space Durable Object, or turn the local workspace into a
+second file authority.
+
+For output, `openmeld space action reply --file <path>` uploads each local path
+through the ordinary authenticated Space File API before recording the final
+dispatch action. The action carries only canonical file references. Any local
+validation or upload failure aborts the reply; it never publishes a message
+that silently omits a requested file.
+
 ## Service Runtime Records And Hibernation
 
 Runtime Transport persists one ServiceRuntime record per (account, device) in Durable

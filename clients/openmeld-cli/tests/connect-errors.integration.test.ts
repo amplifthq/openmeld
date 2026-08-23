@@ -5,7 +5,7 @@ import { withCapturedStdio, withTempHome } from "./helpers/fs";
 import { createTestOpenMeldProfile } from "./helpers/openmeld-profile-fixture";
 
 const connectWebSocketMock = vi.fn();
-const SPACE_NOT_FOUND_ERROR = /space not found/i;
+const SPACE_NOT_FOUND_ERROR = /couldn't find that Space/i;
 const ACCESS_DENIED_ERROR = /forbidden/i;
 const HUMAN_RUNTIME_PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const SPACE_PASSWORD_REQUIRED_ERROR = /space password required/i;
@@ -115,10 +115,10 @@ describe("connect error handling", () => {
     expect((result.caught as Error).message).toContain("connect ECONNREFUSED");
 
     expect(stderr).toContain(
-      "Warning: OpenMeld couldn't load your place in this space: cursor get down"
+      "OpenMeld couldn't load where you left off. Live updates will continue."
     );
     expect(stderr).toContain(
-      "Warning: OpenMeld couldn't update your place in this space: cursor patch down"
+      "OpenMeld couldn't save your new place. Live updates will continue."
     );
     expect(stderr).not.toContain(
       "warn: failed to persist lastSeenTs: cursor get down"
@@ -174,9 +174,14 @@ describe("connect error handling", () => {
           caught = error;
         }
         expect(caught).toBeInstanceOf(Error);
-        expect((caught as Error).message.toLowerCase()).toContain(
-          "space not found"
-        );
+        if (view === "human") {
+          expect((caught as Error).message).toMatch(SPACE_NOT_FOUND_ERROR);
+          expect((caught as Error).message).toContain("Check the Space ID");
+        } else {
+          expect((caught as Error).message.toLowerCase()).toContain(
+            "space not found"
+          );
+        }
       }
     });
   });

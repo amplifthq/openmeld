@@ -247,7 +247,7 @@ describe("profile view mode", () => {
 
       expect(thrown).toBeInstanceOf(Error);
       expect(thrown instanceof Error ? thrown.message : "").toContain(
-        "Missing required argument 'profile'"
+        "Add a profile ID after `openmeld-dev profiles update`"
       );
       expect(stdout).toContain(
         '- openmeld-dev profiles update user_1 --name "<new-name>"'

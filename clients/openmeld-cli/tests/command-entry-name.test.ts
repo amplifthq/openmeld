@@ -91,6 +91,24 @@ describe("command entry name", () => {
     expect(resolveCommandEntryNameFromTokens(["space", "leave"])).toBe(
       "space.leave"
     );
+    for (const command of [
+      "list",
+      "read",
+      "upload",
+      "write",
+      "download",
+      "mkdir",
+      "rename",
+      "move",
+      "trash",
+      "history",
+      "restore",
+      "restore-version",
+    ] as const) {
+      expect(
+        resolveCommandEntryNameFromTokens(["space", "files", command])
+      ).toBe(`space.files.${command}`);
+    }
     expect(resolveCommandEntryNameFromTokens(["send"])).toBe("space.send");
     expect(resolveCommandEntryNameFromTokens(["tail"])).toBe("space.history");
     expect(resolveCommandEntryNameFromTokens(["agents", "custom", "add"])).toBe(

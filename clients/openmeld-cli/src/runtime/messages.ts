@@ -5,6 +5,8 @@ type MessageResolver = (params?: Record<string, unknown>) => string;
 
 type Catalog = Record<string, MessageResolver>;
 
+const SENTENCE_END_PATTERN = /[.!?]$/u;
+
 // Keep literal keys for strict MessageKey derivation used by override validation.
 const HUMAN_MESSAGES = {
   "whoami.loaded": (params) =>
@@ -12,11 +14,11 @@ const HUMAN_MESSAGES = {
   "space.menu.interactive_required": () =>
     "This menu only works in an interactive terminal. Run `openmeld space --help`.",
   "space.target.missing": (params) =>
-    `Missing required argument 'space' for \`openmeld space ${String(params?.command ?? "join")}\`.`,
-  "space.target.invalid": (params) =>
-    `Invalid space target: ${String(params?.space ?? "unknown")} (space ID must be a 64-character hex ID).`,
+    `Add a Space ID after \`openmeld space ${String(params?.command ?? "join")}\`, then try again.`,
+  "space.target.invalid": (_params) =>
+    "That Space ID isn't valid. Copy the full Space ID, then try again.",
   "signal.id.invalid": (params) =>
-    `Invalid ${String(params?.flag ?? "signal")} value: ${String(params?.value ?? "unknown")}. Use the full signal ID — a 36-character UUID like 80d6ac34-353a-495e-9aa3-b2013ee06179, not a short prefix. Copy the full "signalId" from \`openmeld space history --view agent\`.`,
+    `That ${String(params?.flag ?? "signal")} ID is incomplete. Copy the full signal ID from \`openmeld space history --view agent\`, then try again.`,
   "space.create.created": (params) =>
     `Space created: ${String(params?.spaceId ?? "unknown")}`,
   "space.join.stdin_fallback_watch": (params) =>
@@ -39,9 +41,9 @@ const HUMAN_MESSAGES = {
   "profile.no_profiles": () =>
     "No OpenMeld profiles found. Sign in with `openmeld login` or create one with `openmeld profiles create`.",
   "profile.target.missing": (params) =>
-    `Missing required argument 'profile' for \`openmeld profiles ${String(params?.action ?? "set")}\`.`,
+    `Add a profile ID after \`openmeld profiles ${String(params?.action ?? "set")}\`, then try again.`,
   "profile.delete.force_required": () =>
-    "Deleting a profile requires `--force` in non-interactive mode.",
+    "Add `--force` to delete a profile from a non-interactive terminal.",
   "profile.current_set": (params) =>
     `Current profile: ${String(params?.profile ?? "unknown")}. New OpenMeld commands will use this profile by default unless you pass \`--profile\`.`,
   "profile.selection.non_persistent": () =>
@@ -52,11 +54,11 @@ const HUMAN_MESSAGES = {
     `Current profile switched to: ${String(params?.profile ?? "unknown")}.`,
   "profile.no_active": () => "No OpenMeld profile is currently selected.",
   "profile.update.missing_changes": () =>
-    "`openmeld profile update` requires at least one update option.",
+    "Choose at least one profile setting to update. Run `openmeld profile update --help` to see the options.",
   "profile.update.candidates_required": () =>
     "Choose a profile first. Available profiles are listed above.",
   "routines.error": (params) =>
-    String(params?.message ?? "Routine command failed."),
+    String(params?.message ?? "Routine action couldn't finish."),
   "doctor.summary.failed": () => "OpenMeld diagnostics found issues.",
   "send.sent": () => "Sent.",
   "tail.empty": () => "(no signals yet)",
@@ -65,33 +67,32 @@ const HUMAN_MESSAGES = {
     `Profile initialized: ${String(params?.profile ?? "unknown")}.`,
   "connect.connecting": (params) =>
     `Connecting to ${String(params?.wsUrl ?? "")}`,
-  "connect.warn.persist_last_seen": (params) =>
-    `Warning: OpenMeld couldn't save where you left off in this space: ${String(params?.error ?? "unknown")}`,
-  "connect.warn.persist_recent_mentions": (params) =>
-    `Warning: OpenMeld couldn't save your recent @ targets for this space: ${String(params?.error ?? "unknown")}`,
-  "connect.warn.cursor_fetch_failed": (params) =>
-    `Warning: OpenMeld couldn't load your place in this space: ${String(params?.error ?? "unknown")}`,
-  "connect.warn.cursor_patch_failed": (params) =>
-    `Warning: OpenMeld couldn't update your place in this space: ${String(params?.error ?? "unknown")}`,
-  "connect.warn.catchup_failed": (params) =>
-    `Warning: OpenMeld couldn't catch up to recent messages: ${String(params?.error ?? "unknown")}`,
+  "connect.warn.persist_last_seen": (_params) =>
+    "OpenMeld couldn't save where you left off. Live updates will continue.",
+  "connect.warn.persist_recent_mentions": (_params) =>
+    "OpenMeld couldn't save your recent @ mentions. Live updates will continue.",
+  "connect.warn.cursor_fetch_failed": (_params) =>
+    "OpenMeld couldn't load where you left off. Live updates will continue.",
+  "connect.warn.cursor_patch_failed": (_params) =>
+    "OpenMeld couldn't save your new place. Live updates will continue.",
+  "connect.warn.catchup_failed": (_params) =>
+    "OpenMeld couldn't load every recent message. Live updates will continue.",
   "connect.warn.catchup_live_buffer_overflow": (_params) =>
-    `Warning: OpenMeld couldn't fully catch up to recent messages, so live updates will continue without saving your place for this session.`,
+    "OpenMeld couldn't load every recent message. Live updates will continue, but your place won't be saved in this session.",
   "connect.warn.cursor_sync_paused": () =>
-    "Warning: OpenMeld will keep showing live updates, but it won't save your place for the rest of this session.",
-  "connect.warn.meta_fetch_failed": (params) =>
-    `Warning: couldn't fetch space details: ${String(params?.error ?? "unknown")}`,
-  "connect.warn.members_fetch_failed": (params) =>
-    `Warning: couldn't fetch space members: ${String(params?.error ?? "unknown")}`,
-  "connect.warn.profile_space_history_sync_failed": (params) =>
-    `Warning: OpenMeld couldn't update this space in your recent history: ${String(params?.error ?? "unknown")}`,
+    "Live updates will continue, but OpenMeld won't save your place in this session.",
+  "connect.warn.meta_fetch_failed": (_params) =>
+    "OpenMeld couldn't load this Space's details.",
+  "connect.warn.members_fetch_failed": (_params) =>
+    "OpenMeld couldn't load this Space's members.",
+  "connect.warn.profile_space_history_sync_failed": (_params) =>
+    "OpenMeld couldn't save this Space to your recent history.",
   "connect.closed": () => "Connection closed.",
   "connect.closed_with_code_reason": (params) =>
-    `closed code=${String(params?.code ?? "")}${formatCodeLabelSuffix(params?.codeLabel)} reason=${String(params?.reason ?? "")}${formatHintSuffix(params?.hint)}`,
-  "connect.error": (params) =>
-    `error: ${String(params?.error ?? "unknown")}${formatHintSuffix(params?.hint)}`,
-  "connect.error.space_not_found": (params) =>
-    `Space not found: ${String(params?.space ?? "unknown")} (you can only join existing spaces; create one first with \`openmeld space create --name <name> --visibility private\`).`,
+    `The connection closed.${formatHumanHintSentence(params?.hint)}`,
+  "connect.error": (params) => formatHumanConnectError(params),
+  "connect.error.space_not_found": (_params) =>
+    `OpenMeld couldn't find that Space. Check the Space ID, then try again.`,
   "connect.closing": (params) =>
     `Closing the connection (${String(params?.why ?? "")})...`,
   "connect.watch_ready": () => "Watching the stream. Press Ctrl+C to quit.",
@@ -380,4 +381,29 @@ function formatHintSuffix(hint: unknown): string {
     return "";
   }
   return ` (hint: ${normalized})`;
+}
+
+function formatHumanConnectError(
+  params: Record<string, unknown> | undefined
+): string {
+  const error = String(params?.error ?? "").toLowerCase();
+  let summary = "OpenMeld lost the connection.";
+  if (error.includes("last message may not have been confirmed")) {
+    summary = "OpenMeld lost the connection before confirming your message.";
+  } else if (error.includes("couldn't send the message")) {
+    summary = "OpenMeld couldn't send your message.";
+  }
+  return `${summary}${formatHumanHintSentence(params?.hint)}`;
+}
+
+function formatHumanHintSentence(hint: unknown): string {
+  if (typeof hint !== "string") {
+    return "";
+  }
+  const normalized = hint.trim();
+  if (!normalized) {
+    return "";
+  }
+  const sentence = `${normalized.slice(0, 1).toUpperCase()}${normalized.slice(1)}`;
+  return ` ${SENTENCE_END_PATTERN.test(sentence) ? sentence : `${sentence}.`}`;
 }

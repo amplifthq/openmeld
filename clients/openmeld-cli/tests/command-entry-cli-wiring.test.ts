@@ -305,7 +305,7 @@ describe("command entry CLI wiring", () => {
     });
   });
 
-  it("maps repeatable space send attachment argv to runSpaceSend", async () => {
+  it("maps repeatable Space file argv to runSpaceSend", async () => {
     await runCli([
       "space",
       "--gateway-url",
@@ -315,9 +315,9 @@ describe("command entry CLI wiring", () => {
       "agt-sender",
       "--password",
       "correct-horse",
-      "--attach",
+      "--file",
       "./diagram.png",
-      "--attach",
+      "--file",
       "./photo.jpg",
       "--plain",
       "--reply-to",
@@ -329,10 +329,10 @@ describe("command entry CLI wiring", () => {
 
     expect(runMocks.runSpaceSend).toHaveBeenCalledOnce();
     expect(runMocks.runSpaceSend).toHaveBeenCalledWith({
-      attachmentPaths: ["./diagram.png", "./photo.jpg"],
+      filePaths: ["./diagram.png", "./photo.jpg"],
       baseUrl: "https://gateway.example.test",
       entryChecksHandled: true,
-      file: undefined,
+      textFile: undefined,
       password: "correct-horse",
       plainText: true,
       profile: "agt-sender",

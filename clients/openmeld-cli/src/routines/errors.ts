@@ -5,7 +5,7 @@ import {
 import { RoutineScheduleValidationError } from "@openmeld/routine-schedule";
 import type { CenterAgentCommandContext } from "../center-agent/command-context";
 import { emitCliErrorJson } from "../runtime/cli-error-json";
-import { renderInfoCard } from "../ui/info-card";
+import { renderHumanErrorCard } from "../ui/human-error-card";
 import type { RoutineOperation } from "./types";
 
 type ClassifiedRoutineFailure = {
@@ -92,16 +92,11 @@ function emitClassifiedRoutineError(input: {
     return;
   }
 
-  renderInfoCard({
+  renderHumanErrorCard({
     codePrefix: "routines.error.card",
-    minContentWidth: 72,
+    message: input.classified.message,
+    nextStep: input.classified.nextStep,
     presenter: input.context.presenter,
-    rows: [
-      { label: "Reason", value: input.classified.message },
-      { label: "Next Step", value: input.classified.nextStep },
-      ...buildFailureDetails(input.failure),
-    ],
-    sanitize: true,
     title: input.classified.title,
   });
 }
@@ -250,7 +245,7 @@ function classifyRoutineApiFailure(
       code: failure.code,
       message: formatSafeFailureMessage(failure),
       nextStep: "Check OpenMeld Gateway health, then retry this command.",
-      title: "Routine Command Failed",
+      title: "Routine action couldn't finish",
     };
   }
   if (failure.code) {
@@ -258,36 +253,15 @@ function classifyRoutineApiFailure(
       code: failure.code,
       message: failure.message,
       nextStep: "Check the diagnostic evidence, then retry this command.",
-      title: "Routine Command Failed",
+      title: "Routine action couldn't finish",
     };
   }
   return {
     code: `routine.${operation}_failed`,
     message: failure.message,
     nextStep: "Check your connection, then retry this command.",
-    title: "Routine Command Failed",
+    title: "Routine action couldn't finish",
   };
-}
-
-function buildFailureDetails(
-  failure: StructuredApiClientFailure | undefined
-): Array<{ label: string; value: string }> {
-  if (!failure) {
-    return [];
-  }
-  const schemaIssue = formatSchemaIssue(failure);
-  return [
-    ...(failure.status === null
-      ? []
-      : [{ label: "HTTP Status", value: String(failure.status) }]),
-    ...(failure.upstreamCode
-      ? [{ label: "Upstream Code", value: failure.upstreamCode }]
-      : []),
-    ...(schemaIssue ? [{ label: "Schema Issue", value: schemaIssue }] : []),
-    ...(failure.requestId
-      ? [{ label: "Request ID", value: failure.requestId }]
-      : []),
-  ];
 }
 
 function buildSafeFailureEvidence(

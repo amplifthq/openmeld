@@ -8,6 +8,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { buildCommandAuthenticationPromptMessage } from "../auth/command-auth";
 import { buildOpenMeldRequestContextFromProfile } from "../config/openmeld-request-context";
+import { renderHumanErrorCard } from "../ui/human-error-card";
 import { renderInfoCard } from "../ui/info-card";
 import { createCliSpaceApi } from "./cli-space-api";
 import {
@@ -427,27 +428,15 @@ function emitWakeControlError(input: {
     });
     return;
   }
-  renderInfoCard({
+  renderHumanErrorCard({
+    message: failure.message,
+    nextStep: "Try again in a moment.",
     presenter: input.presenter,
     title:
       input.operation === "space.wake_stop"
-        ? "Wake Stop Failed"
-        : "Wake Progress Failed",
+        ? "Wake couldn't be stopped"
+        : "Wake progress couldn't be loaded",
     codePrefix: `${input.operation}.error.card`,
-    rows: [
-      { label: "Reason", value: failure.message },
-      ...(failure.requestId
-        ? [{ label: "Request ID", value: failure.requestId }]
-        : []),
-      ...(failure.schemaIssuePath
-        ? [{ label: "Schema Path", value: failure.schemaIssuePath }]
-        : []),
-      ...(failure.schemaIssueMessage
-        ? [{ label: "Schema Issue", value: failure.schemaIssueMessage }]
-        : []),
-    ],
-    sanitize: true,
-    minContentWidth: 72,
   });
 }
 

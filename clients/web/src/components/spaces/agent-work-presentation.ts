@@ -544,6 +544,16 @@ const AGENT_WORK_COPY = {
 		"Created a Space",
 		"Couldn't create the Space"
 	),
+	"space.files.read": workCopy(
+		"Reviewing Space files…",
+		"Reviewed Space files",
+		"Couldn't review Space files"
+	),
+	"space.files.update": workCopy(
+		"Updating Space files…",
+		"Updated Space files",
+		"Couldn't update Space files"
+	),
 	"space.members.add": workCopy(
 		"Adding members to the Space…",
 		"Added members to the Space",

@@ -578,20 +578,6 @@ export async function uninstallDaemon(
   };
 }
 
-export async function refreshDaemonTokenLifecycle(): Promise<{
-  tokenUpdatedAt: string;
-} | null> {
-  const status = await getDaemonStatus();
-  if (!status.installed) {
-    return null;
-  }
-
-  const tokenState = await ensureDaemonTokenState();
-  return {
-    tokenUpdatedAt: tokenState.updatedAt,
-  };
-}
-
 export function daemonStatePath(
   pathInput: OpenMeldPathResolutionInput = {}
 ): string {
@@ -746,6 +732,18 @@ export async function ensureDaemonControlPlaneToken(
 ): Promise<string> {
   const state = await ensureDaemonTokenState(pathInput);
   return state.token;
+}
+
+export async function rotateDaemonControlPlaneTokenIfExpired(
+  pathInput: OpenMeldPathResolutionInput = {}
+): Promise<DaemonTokenState> {
+  const current = await readDaemonTokenState(pathInput);
+  if (current && !isDaemonTokenExpired(current)) {
+    await chmod(daemonTokenPath(pathInput), 0o600).catch(() => undefined);
+    return current;
+  }
+
+  return await writeNewDaemonTokenState(pathInput);
 }
 
 export async function readDaemonControlPlaneToken(
@@ -997,11 +995,17 @@ async function ensureDaemonTokenState(
   pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<DaemonTokenState> {
   const current = await readDaemonTokenState(pathInput);
-  if (current && !isDaemonTokenExpired(current)) {
+  if (current) {
     await chmod(daemonTokenPath(pathInput), 0o600).catch(() => undefined);
     return current;
   }
 
+  return await writeNewDaemonTokenState(pathInput);
+}
+
+async function writeNewDaemonTokenState(
+  pathInput: OpenMeldPathResolutionInput
+): Promise<DaemonTokenState> {
   const nowIso = new Date().toISOString();
   const next: DaemonTokenState = {
     v: 1,

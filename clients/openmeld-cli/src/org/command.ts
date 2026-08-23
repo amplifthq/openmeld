@@ -22,6 +22,7 @@ import { createPresenter } from "../runtime/presenter/index";
 import type { Presenter } from "../runtime/presenter/types";
 import type { RuntimeContext } from "../runtime/types";
 import { createCliApiClientFoundation } from "../space/api-client-foundation";
+import { renderHumanErrorCard } from "../ui/human-error-card";
 import { renderInfoCard } from "../ui/info-card";
 import {
   AuthOrganizationApiError,
@@ -486,7 +487,7 @@ function emitOrganizationApiError(input: {
     presenter: input.presenter,
     cliJsonOutput: input.cliJsonOutput,
     code: failure.code ?? "organization.unexpected_error",
-    title: "Organization Error",
+    title: "Organization action couldn't finish",
     message: failure.message,
     nextStep:
       "Confirm the active Organization and retry after OpenMeld Gateway is reachable.",
@@ -547,7 +548,7 @@ function resolveOrganizationApiErrorPresentation(code: string): {
     };
   }
   return {
-    title: "Organization Error",
+    title: "Organization action couldn't finish",
     nextStep: "Retry the command after OpenMeld auth is reachable.",
   };
 }
@@ -576,21 +577,17 @@ function emitOrganizationCommandError(
       message: input.message,
       nextStep: input.nextStep,
     },
+    ...(input.details ? { details: input.details } : {}),
     ...(input.payload ?? {}),
   };
 
   if (input.presenter.view === "human") {
-    renderInfoCard({
+    renderHumanErrorCard({
+      codePrefix: "organization.error.card",
+      message: input.message,
+      nextStep: input.nextStep,
       presenter: input.presenter,
       title: input.title,
-      codePrefix: "organization.error.card",
-      rows: [
-        { label: "Reason", value: input.message },
-        { label: "Next Step", value: input.nextStep },
-        ...(input.details ?? []),
-      ],
-      sanitize: true,
-      minContentWidth: 72,
     });
     return;
   }

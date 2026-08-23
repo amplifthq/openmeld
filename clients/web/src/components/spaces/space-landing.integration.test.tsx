@@ -236,6 +236,7 @@ vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, to }: { children: ReactNode; to: string }) => (
 		<a href={to}>{children}</a>
 	),
+	useBlocker: () => ({ status: "unblocked" as const }),
 	useNavigate: () => useNavigateMock,
 	useRouterState: (input: {
 		select?: (state: { location: { pathname: string } }) => unknown;
@@ -11682,17 +11683,15 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("uploads a selected image immediately and reconciles its optimistic preview", async () => {
-		const descriptor = createSpaceAttachmentDescriptor();
-		const messageAttachment = {
-			fileName: descriptor.fileName,
-			height: descriptor.height,
-			id: descriptor.id,
-			mimeType: descriptor.mimeType,
-			sizeBytes: descriptor.sizeBytes,
-			width: descriptor.width,
-		};
-		const uploadAttachmentMock = vi.fn().mockResolvedValue(descriptor);
+	it("uploads a selected image as a Space File and reconciles its optimistic preview", async () => {
+		const descriptor = createSpaceFileDescriptor();
+		const messageFile = createSpaceMessageFileReference(descriptor);
+		const uploadFileMock = vi.fn().mockResolvedValue(descriptor);
+		const downloadFileContentMock = vi.fn().mockResolvedValue({
+			bytes: new TextEncoder().encode("image").buffer,
+			mimeType: "image/png",
+			revision: 1,
+		});
 		let resolvePost:
 			| ((signal: ReturnType<typeof createTextSignal>) => void)
 			| null = null;
@@ -11703,8 +11702,9 @@ describe("SpaceLanding", () => {
 				})
 		);
 		createWebSpaceApiMock.mockReturnValue({
+			downloadFileContent: downloadFileContentMock,
 			postNormalMessage: postNormalMessageMock,
-			uploadAttachment: uploadAttachmentMock,
+			uploadFile: uploadFileMock,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -11722,9 +11722,9 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.change(screen.getByLabelText("Choose images to attach"), {
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
 			target: {
-				files: [new File(["source"], "picnic.heic", { type: "image/heic" })],
+				files: [new File(["source"], "picnic.png", { type: "image/png" })],
 			},
 		});
 
@@ -11733,13 +11733,13 @@ describe("SpaceLanding", () => {
 				organizationSlug: "acme",
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			});
-			expect(uploadAttachmentMock).toHaveBeenCalledWith({
-				bytes: expect.any(Blob),
-				fileName: "picnic.jpg",
-				height: 800,
-				mimeType: "image/jpeg",
+			expect(uploadFileMock).toHaveBeenCalledWith({
+				bytes: expect.any(File),
+				clientMutationId: expect.any(String),
+				mimeType: "image/png",
+				name: "picnic.png",
+				parentId: null,
 				spaceId: "space-123",
-				width: 1200,
 			});
 			expect(screen.getByText("Ready")).toBeTruthy();
 		});
@@ -11757,7 +11757,7 @@ describe("SpaceLanding", () => {
 				openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
 			});
 			expect(postNormalMessageMock).toHaveBeenCalledWith({
-				attachments: [messageAttachment],
+				files: [messageFile],
 				meta: {
 					clientMessageId: expect.any(String),
 				},
@@ -11766,15 +11766,18 @@ describe("SpaceLanding", () => {
 				timeoutMs: 30_000,
 			});
 		});
-		const optimisticImage = screen.getByRole("img", { name: "picnic.jpg" });
-		expect(optimisticImage.getAttribute("src")).toBe(
-			"blob:converted-image-preview"
+		const optimisticImage = document.querySelector(
+			'img[src="blob:source-image-preview"]'
+		);
+		expect(optimisticImage).not.toBeNull();
+		expect(optimisticImage?.getAttribute("src")).toBe(
+			"blob:source-image-preview"
 		);
 
 		await act(async () => {
 			resolvePost?.(
 				createTextSignal({
-					attachments: [messageAttachment],
+					files: [messageFile],
 					id: "sig-image-message",
 					text: "Photos from the picnic",
 				})
@@ -11784,24 +11787,36 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(
-				screen.getByRole("img", { name: "picnic.jpg" }).getAttribute("src")
-			).toBe(
-				"/v1/spaces/space-123/attachments/attachment-picnic?__openmeld_organization_slug=acme"
-			);
+				document.querySelector('img[src="blob:converted-image-preview"]')
+			).not.toBeNull();
+		});
+		expect(downloadFileContentMock).toHaveBeenCalledWith({
+			fileId: descriptor.id,
+			revision: 1,
+			signal: expect.any(AbortSignal),
+			spaceId: "space-123",
 		});
 		expect(URL.revokeObjectURL).toHaveBeenCalledWith(
-			"blob:converted-image-preview"
+			"blob:source-image-preview"
 		);
 	});
 
-	it("requires a note before sending an uploaded image", async () => {
-		const uploadAttachmentMock = vi
-			.fn()
-			.mockResolvedValue(createSpaceAttachmentDescriptor());
-		const postNormalMessageMock = vi.fn();
+	it("sends a Space File without requiring a text note", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "application/pdf",
+			name: "brief.pdf",
+		});
+		const uploadFileMock = vi.fn().mockResolvedValue(descriptor);
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				files: [createSpaceMessageFileReference(descriptor)],
+				id: "sig-file-only",
+				text: "",
+			})
+		);
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: postNormalMessageMock,
-			uploadAttachment: uploadAttachmentMock,
+			uploadFile: uploadFileMock,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -11819,23 +11834,38 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.change(screen.getByLabelText("Choose images to attach"), {
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
 			target: {
-				files: [new File(["source"], "picnic.png", { type: "image/png" })],
+				files: [new File(["source"], "brief.pdf", { type: "application/pdf" })],
 			},
 		});
 
 		await screen.findByText("Ready");
-		expect(screen.getByText("Add a note about the image(s)")).toBeTruthy();
+		expect(screen.getByText("1 file ready to send")).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
 			"disabled",
-			true
+			false
 		);
-		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith({
+				files: [createSpaceMessageFileReference(descriptor)],
+				meta: { clientMessageId: expect.any(String) },
+				spaceId: "space-123",
+				text: "",
+				timeoutMs: 30_000,
+			});
+		});
 	});
 
-	it("shows an actionable upload failure with its request ID without blocking text", async () => {
-		const uploadAttachmentMock = vi.fn().mockRejectedValue(
+	it("blocks publication until an upload failure is removed", async () => {
+		const postNormalMessageMock = vi.fn().mockResolvedValue({
+			signal: createTextSignal({
+				id: "signal-after-failed-file-removed",
+				text: "Text can still be sent",
+			}),
+		});
+		const uploadFileMock = vi.fn().mockRejectedValue(
 			new OpenMeldApiClientHttpError({
 				code: "upstream_error",
 				message: "The Space does not belong to this Organization.",
@@ -11846,8 +11876,8 @@ describe("SpaceLanding", () => {
 			})
 		);
 		createWebSpaceApiMock.mockReturnValue({
-			postNormalMessage: vi.fn(),
-			uploadAttachment: uploadAttachmentMock,
+			postNormalMessage: postNormalMessageMock,
+			uploadFile: uploadFileMock,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -11865,15 +11895,13 @@ describe("SpaceLanding", () => {
 		});
 
 		renderSpaceLanding();
-		fireEvent.change(screen.getByLabelText("Choose images to attach"), {
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
 			target: {
 				files: [new File(["source"], "broken.png", { type: "image/png" })],
 			},
 		});
 
-		await screen.findByText(
-			"This image couldn't be uploaded because this Space belongs to a different Organization. Refresh the page, then try again."
-		);
+		await screen.findByText("The Space does not belong to this Organization.");
 		expect(screen.getByText("Request ID: request-upload-403")).toBeTruthy();
 		setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
@@ -11881,33 +11909,51 @@ describe("SpaceLanding", () => {
 		);
 		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
 			"disabled",
-			false
+			true
 		);
-
-		fireEvent.click(screen.getByRole("button", { name: "Remove broken.jpg" }));
 		expect(
-			screen.queryByText(
-				"This image couldn't be uploaded because this Space belongs to a different Organization. Refresh the page, then try again."
+			screen.getByText(
+				"Remove files that could not be uploaded before sending."
 			)
+		).toBeTruthy();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "Remove broken.png" }));
+		expect(
+			screen.queryByText("The Space does not belong to this Organization.")
 		).toBeNull();
 		expect(screen.queryByText("Request ID: request-upload-403")).toBeNull();
 		expect(URL.revokeObjectURL).toHaveBeenCalledWith(
-			"blob:converted-image-preview"
+			"blob:source-image-preview"
 		);
+		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
+			"disabled",
+			false
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					spaceId: "space-123",
+					text: "Text can still be sent",
+				})
+			);
+		});
 	});
 
-	it("accepts pasted and dropped images and stops at four attachments", async () => {
+	it("accepts pasted and dropped files and stops at ten files", async () => {
 		let uploadCount = 0;
-		const uploadAttachmentMock = vi.fn().mockImplementation(() => {
+		const uploadFileMock = vi.fn().mockImplementation(() => {
 			uploadCount += 1;
-			return createSpaceAttachmentDescriptor({
-				fileName: `image-${String(uploadCount)}.jpg`,
-				id: `attachment-${String(uploadCount)}`,
+			return createSpaceFileDescriptor({
+				id: `file-${String(uploadCount)}`,
+				mimeType: "text/plain",
+				name: `file-${String(uploadCount)}.txt`,
 			});
 		});
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage: vi.fn(),
-			uploadAttachment: uploadAttachmentMock,
+			uploadFile: uploadFileMock,
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -11942,10 +11988,13 @@ describe("SpaceLanding", () => {
 				],
 			},
 		});
-		const droppedFiles = ["one", "two", "three"].map(
+		const droppedFiles = Array.from(
+			{ length: 10 },
+			(_, index) => `file-${String(index + 1)}`
+		).map(
 			(name) =>
-				new File([name], `${name}.png`, {
-					type: "image/png",
+				new File([name], `${name}.txt`, {
+					type: "text/plain",
 				})
 		);
 		fireEvent.drop(textarea, {
@@ -11956,14 +12005,12 @@ describe("SpaceLanding", () => {
 		});
 
 		await waitFor(() => {
-			expect(screen.getAllByText("Ready")).toHaveLength(4);
+			expect(screen.getAllByText("Ready")).toHaveLength(10);
 		});
-		expect(prepareSpaceImageAttachmentMock).toHaveBeenCalledTimes(4);
 		expect(
-			screen.getByRole("button", { name: "Attach images" })
+			screen.getByRole("button", { name: "Add to message" })
 		).toHaveProperty("disabled", true);
-		setComposerValue(textarea, "Four image notes");
-		expect(screen.getByText("You can attach up to 4 images.")).toBeTruthy();
+		expect(screen.getByText("You can add up to 10 files.")).toBeTruthy();
 	});
 
 	it("automatically sends a Center Agent message queued before Space bootstrap", async () => {
@@ -12457,7 +12504,7 @@ describe("SpaceLanding", () => {
 				within(conversationLog).getByText("Message that times out")
 			).toBeTruthy();
 			expect((textarea as HTMLTextAreaElement).value).toBe("");
-			expect((sendButton as HTMLButtonElement).disabled).toBe(false);
+			expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 			expect(
 				screen.getByText(
 					"OpenMeld couldn't confirm this message yet. It may still appear in the Space, so wait a moment before sending it again."
@@ -14475,7 +14522,7 @@ describe("SpaceLanding", () => {
 				})
 			).toBeTruthy();
 			expect((threadComposer as HTMLTextAreaElement).value).toBe("");
-			expect((sendButton as HTMLButtonElement).disabled).toBe(false);
+			expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 			expect(
 				within(threadPanel).getByText(
 					"OpenMeld couldn't confirm this message yet. It may still appear in the Space, so wait a moment before sending it again."
@@ -16887,6 +16934,13 @@ function createTextSignal(input: {
 		sizeBytes: number;
 		width?: number;
 	}>;
+	files?: Array<{
+		fileId: string;
+		mimeType: string;
+		name: string;
+		revision: number;
+		sizeBytes: number;
+	}>;
 	id: string;
 	messageEnvelope?: {
 		activationTargets: string[];
@@ -16934,6 +16988,7 @@ function createTextSignal(input: {
 		data: {
 			text: input.text,
 			...(input.attachments ? { attachments: input.attachments } : {}),
+			...(input.files ? { files: input.files } : {}),
 			...(input.messageEnvelope
 				? { messageEnvelope: input.messageEnvelope }
 				: {}),
@@ -16943,26 +16998,54 @@ function createTextSignal(input: {
 	};
 }
 
-function createSpaceAttachmentDescriptor(
+function createSpaceFileDescriptor(
 	input: {
-		fileName?: string;
-		height?: number;
 		id?: string;
-		mimeType?: "image/jpeg" | "image/png";
+		mimeType?: string;
+		name?: string;
 		sizeBytes?: number;
-		width?: number;
 	} = {}
 ) {
+	const actor = {
+		displayName: "Mira",
+		ownerUserId: "user-mira",
+		profileId: DEFAULT_SPACE_PROFILE_ID,
+		profileKind: "human" as const,
+	};
+	const id = input.id ?? "file-picnic";
+	const name = input.name ?? "picnic.png";
 	return {
 		createdAt: "2026-07-11T00:00:00.000Z",
-		fileName: input.fileName ?? "picnic.jpg",
-		height: input.height ?? 800,
-		id: input.id ?? "attachment-picnic",
-		mimeType: input.mimeType ?? ("image/jpeg" as const),
-		organizationId: "organization-acme",
-		sizeBytes: input.sizeBytes ?? 15,
+		createdBy: actor,
+		id,
+		kind: "file" as const,
+		latestRevision: {
+			createdAt: "2026-07-11T00:00:00.000Z",
+			createdBy: actor,
+			fileId: id,
+			id: `revision-${id}`,
+			mimeType: input.mimeType ?? "image/png",
+			revision: 1,
+			sizeBytes: input.sizeBytes ?? 6,
+		},
+		name,
+		parentId: null,
+		path: `/${name}`,
 		spaceId: "space-123",
-		width: input.width ?? 1200,
+		updatedAt: "2026-07-11T00:00:00.000Z",
+		updatedBy: actor,
+	};
+}
+
+function createSpaceMessageFileReference(
+	file: ReturnType<typeof createSpaceFileDescriptor>
+) {
+	return {
+		fileId: file.id,
+		mimeType: file.latestRevision.mimeType,
+		name: file.name,
+		revision: file.latestRevision.revision,
+		sizeBytes: file.latestRevision.sizeBytes,
 	};
 }
 

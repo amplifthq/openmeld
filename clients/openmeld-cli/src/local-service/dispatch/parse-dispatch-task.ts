@@ -166,7 +166,7 @@ export function parseDispatchTask(
   return {
     ...requiredFields,
     agentControllerConversationId,
-    attachments: payload.sourceSignalSnapshot?.attachments ?? [],
+    ...resolveDispatchSourceFiles(payload),
     ...controllerSelection,
     deliveryRecoveryReason,
     defaultProjectId: normalizeOptionalText(payload.defaultProjectId) ?? null,
@@ -199,6 +199,15 @@ export function parseDispatchTask(
     ...targetProfileDisplay,
     triggerMode,
     contextIdMappingSpec,
+  };
+}
+
+function resolveDispatchSourceFiles(
+  payload: RuntimeTransportDeliverDispatchPayload
+): Pick<ParsedDispatchTask, "attachments" | "files"> {
+  return {
+    attachments: payload.sourceSignalSnapshot?.attachments ?? [],
+    files: payload.sourceSignalSnapshot?.files ?? [],
   };
 }
 
@@ -474,11 +483,34 @@ function renderDispatchPrompt(input: {
   if (promptInput.imageAttachmentPromptSection) {
     sections.push(promptInput.imageAttachmentPromptSection);
   }
+  const spaceFilesSection = renderSharedSpaceFilesSection(promptInput);
+  if (spaceFilesSection) {
+    sections.push(spaceFilesSection);
+  }
   const completionSection = renderMandatoryCompletionSection(promptInput);
   if (completionSection) {
     sections.push(completionSection);
   }
   return sections.filter(Boolean).join("\n\n");
+}
+
+function renderSharedSpaceFilesSection(
+  input: DispatchPromptBootstrapInput
+): string | null {
+  const files = input.spaceFiles ?? [];
+  if (files.length === 0) {
+    return null;
+  }
+  const cliEntry = normalizeOptionalText(input.cliEntry) ?? "openmeld";
+  return [
+    "Files shared with this message (canonical Space Files):",
+    ...files.map(
+      (file) =>
+        `- ${JSON.stringify(file.name)} — fileId=${file.fileId}, revision=${file.revision}, type=${file.mimeType}, size=${file.sizeBytes} bytes.`
+    ),
+    "- Read or update these through the Space Files tools. The fileId and revision above identify the exact bytes that were sent.",
+    `- For text, use \`${cliEntry} space files read ${input.spaceId} <file-id> --revision <revision> --profile ${input.targetProfileId} --view agent\`. For binary files, use \`${cliEntry} space files download ${input.spaceId} <file-id> --revision <revision> --output <path> --profile ${input.targetProfileId} --view agent\`.`,
+  ].join("\n");
 }
 
 function renderActivationIntentGate(

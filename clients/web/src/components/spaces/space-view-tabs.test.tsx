@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SpaceViewTabs } from "./space-view-tabs";
 
 describe("SpaceViewTabs", () => {
-	it("shows Messages and Graph as one ghost view control", () => {
+	it("shows Messages, Graph, and Files as one view control", () => {
 		const onViewChange = vi.fn();
 
 		render(
@@ -16,6 +16,7 @@ describe("SpaceViewTabs", () => {
 
 		const messagesTab = screen.getByRole("tab", { name: "Messages" });
 		const graphTab = screen.getByRole("tab", { name: "Graph" });
+		const filesTab = screen.getByRole("tab", { name: "Files" });
 		const tabList = screen.getByRole("tablist", { name: "Space view" });
 
 		expect(messagesTab.getAttribute("aria-selected")).toBe("true");
@@ -28,5 +29,9 @@ describe("SpaceViewTabs", () => {
 		fireEvent.click(graphTab);
 
 		expect(onViewChange).toHaveBeenCalledWith("graph");
+
+		fireEvent.click(filesTab);
+
+		expect(onViewChange).toHaveBeenLastCalledWith("files");
 	});
 });

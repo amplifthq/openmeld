@@ -18,6 +18,7 @@ import { createPresenter } from "../runtime/presenter/index";
 import type { Presenter } from "../runtime/presenter/types";
 import type { RuntimeContext } from "../runtime/types";
 import { createCliApiClientFoundation } from "../space/api-client-foundation";
+import { renderHumanErrorCard } from "../ui/human-error-card";
 import { renderInfoCard } from "../ui/info-card";
 
 type BindingCommandContext = {
@@ -390,7 +391,7 @@ function classifyBindingApiFailure(input: {
   const operationLabel = formatBindingOperationLabel(input.operation);
   return {
     code: `binding.${input.operation}_failed`,
-    title: "Binding Authorization Failed",
+    title: "Binding couldn't be authorized",
     message: `OpenMeld could not ${operationLabel}.`,
     nextStep: "Retry after OpenMeld Gateway is reachable.",
   };
@@ -420,21 +421,17 @@ function emitBindingCommandError(input: BindingCommandErrorInput): void {
       message: input.message,
       nextStep: input.nextStep,
     },
+    ...(input.details ? { details: input.details } : {}),
     ...(input.payload ?? {}),
   };
 
   if (input.presenter.view === "human") {
-    renderInfoCard({
+    renderHumanErrorCard({
+      codePrefix: "binding.error.card",
+      message: input.message,
+      nextStep: input.nextStep,
       presenter: input.presenter,
       title: input.title,
-      codePrefix: "binding.error.card",
-      rows: [
-        { label: "Reason", value: input.message },
-        { label: "Next Step", value: input.nextStep },
-        ...(input.details ?? []),
-      ],
-      sanitize: true,
-      minContentWidth: 72,
     });
     return;
   }

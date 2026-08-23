@@ -994,12 +994,14 @@ export async function cleanupFinalizedRemoteAgentSubmissionAttachments(input: {
       input.request.messages.flatMap((message) =>
         (message.attachments ?? [])
           .filter((attachment) => attachment.removeAfterAdmission)
-          .map((attachment) =>
-            buildSpaceAttachmentObjectKey({
-              id: attachment.id,
-              organizationId: input.request.organizationId,
-              spaceId: input.request.spaceId,
-            })
+          .map(
+            (attachment) =>
+              attachment.objectKey ??
+              buildSpaceAttachmentObjectKey({
+                id: attachment.id,
+                organizationId: input.request.organizationId,
+                spaceId: input.request.spaceId,
+              })
           )
       )
     ),
@@ -1034,11 +1036,13 @@ async function loadRemoteAgentAdmissionImage(input: {
   }
 
   try {
-    const objectKey = buildSpaceAttachmentObjectKey({
-      id: input.attachment.id,
-      organizationId: input.request.organizationId,
-      spaceId: input.request.spaceId,
-    });
+    const objectKey =
+      input.attachment.objectKey ??
+      buildSpaceAttachmentObjectKey({
+        id: input.attachment.id,
+        organizationId: input.request.organizationId,
+        spaceId: input.request.spaceId,
+      });
     const object = await input.attachmentBucket.get(objectKey);
     if (!object) {
       return { ok: false, reason: "r2_object_missing" };

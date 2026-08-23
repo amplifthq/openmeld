@@ -808,6 +808,42 @@ describe("SpaceMessageBody", () => {
 		expect(document.body.classList.contains("overflow-hidden")).toBe(false);
 	});
 
+	it("keeps canonical Space image files as morphing image previews", () => {
+		const onOpenSpaceFile = vi.fn();
+		render(
+			<SpaceMessageBody
+				item={{
+					files: [
+						{
+							fileId: "file-photo",
+							localPreviewUrl: "blob:space-photo-preview",
+							mimeType: "image/png",
+							name: "launch-photo.png",
+							revision: 2,
+							sizeBytes: 4096,
+						},
+					],
+					isAgentFinalReply: false,
+					spaceId: "space-123",
+					text: "",
+				}}
+				onOpenSpaceFile={onOpenSpaceFile}
+			/>
+		);
+
+		const preview = screen.getByRole("img", { name: "launch-photo.png" });
+		expect(preview.getAttribute("src")).toBe("blob:space-photo-preview");
+		expect(screen.queryByText("Version 2")).toBeNull();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open launch-photo.png" })
+		);
+
+		expect(screen.getByRole("dialog")).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Open in Files" }));
+		expect(onOpenSpaceFile).toHaveBeenCalledWith("file-photo", 2);
+	});
+
 	it("replaces a broken attachment image with a stable placeholder", () => {
 		render(
 			<SpaceMessageBody

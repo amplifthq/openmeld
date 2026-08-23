@@ -1054,9 +1054,10 @@ describe("space remove-members", () => {
 
     const visibleOutput = stripAnsi(captured.stdout);
     expect(visibleOutput).toContain(
-      "warn: failed to broadcast 1 removal notice: space not found"
+      "OpenMeld updated the Space members, but couldn't post 1 removal notice. The membership change is already saved."
     );
-    expect(visibleOutput).toContain("Request ID: req-human-remove-notice");
+    expect(visibleOutput).not.toContain("req-human-remove-notice");
+    expect(visibleOutput).not.toContain("space not found");
     expect(visibleOutput).not.toContain("HTTP 404:");
   });
 

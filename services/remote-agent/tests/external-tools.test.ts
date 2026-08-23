@@ -1,8 +1,13 @@
+import {
+  buildSpaceFileEntryIdForMutation,
+  buildSpaceFileRevisionIdForMutation,
+} from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildRemoteAgentCoreCallbackBody,
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
+  type RemoteAgentCoreWorkerBinding,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
@@ -273,7 +278,7 @@ describe("Remote Agent external tools", () => {
     );
   });
 
-  it("stores a browser screenshot as a real Space attachment and includes it in the final callback", async () => {
+  it("stores a browser screenshot as a canonical Space File and includes it in the final callback", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
     const imageBytes = new Uint8Array([
@@ -288,21 +293,40 @@ describe("Remote Agent external tools", () => {
           },
         })
     );
-    const put = vi.fn(async () => undefined);
-    const deleteObject = vi.fn(async () => undefined);
-    const recordSpaceAttachment = vi.fn(async () => ({
+    const actor = {
+      displayName: "Center Agent",
+      ownerUserId: "user_1",
+      profileId: request.agentProfileId,
+      profileKind: "agent" as const,
+    };
+    const writeSpaceFileContent = vi.fn<
+      NonNullable<RemoteAgentCoreWorkerBinding["writeSpaceFileContent"]>
+    >(async () => ({
       createdAt: new Date(TEST_NOW_MS).toISOString(),
-      fileName: "home.png",
-      id: "attachment_browser_screenshot",
-      mimeType: "image/png" as const,
-      organizationId: request.organizationId,
-      sizeBytes: imageBytes.byteLength,
+      createdBy: actor,
+      id: "file_browser_screenshot",
+      kind: "file" as const,
+      latestRevision: {
+        createdAt: new Date(TEST_NOW_MS).toISOString(),
+        createdBy: actor,
+        fileId: "file_browser_screenshot",
+        id: "revision_browser_screenshot",
+        mimeType: "image/png",
+        revision: 1,
+        sizeBytes: imageBytes.byteLength,
+      },
+      name: "home.png",
+      parentId: null,
+      path: "/home.png",
       spaceId: request.spaceId,
+      updatedAt: new Date(TEST_NOW_MS).toISOString(),
+      updatedBy: actor,
+      trashedAt: null,
+      trashedBy: null,
     }));
     const tools = getRemoteAgentExternalToolDefinitions({
-      coreWorker: { recordSpaceAttachment },
+      coreWorker: { writeSpaceFileContent },
       env: externalToolEnv({
-        bucket: { delete: deleteObject, put },
         quickAction,
       }),
       storage,
@@ -315,46 +339,63 @@ describe("Remote Agent external tools", () => {
         url: "https://example.com",
       })
     ).resolves.toMatchObject({
+      addedToSpaceFiles: true,
       attachedToFinalReply: true,
-      attachment: {
-        fileName: "home.png",
-        id: "attachment_browser_screenshot",
+      file: {
+        fileId: "file_browser_screenshot",
         mimeType: "image/png",
+        name: "home.png",
+        revision: 1,
         sizeBytes: 8,
       },
       browserMs: 456,
     });
-    expect(recordSpaceAttachment).toHaveBeenCalledWith({
+    expect(writeSpaceFileContent).toHaveBeenCalledWith({
+      bytes: imageBytes,
       context: expect.objectContaining({
         activeOrganizationId: request.organizationId,
       }),
-      fileName: "home.png",
-      mimeType: "image/png",
-      sizeBytes: 8,
       spaceId: request.spaceId,
+      write: {
+        baseRevision: null,
+        clientMutationId: expect.any(String),
+        fileId: expect.any(String),
+        mimeType: "image/png",
+        name: "home.png",
+        parentId: null,
+        revisionId: expect.any(String),
+        sizeBytes: 8,
+        spaceId: request.spaceId,
+      },
     });
-    expect(put).toHaveBeenCalledWith(
-      `${[
-        "org",
-        request.organizationId,
-        "space",
-        request.spaceId,
-        "attachment_browser_screenshot",
-      ].join("/")}`,
-      imageBytes,
-      { httpMetadata: { contentType: "image/png" } }
+    const canonicalWrite = writeSpaceFileContent.mock.calls[0]?.[0].write;
+    if (!canonicalWrite) {
+      throw new Error("Expected the screenshot to be written as a Space File.");
+    }
+    expect(canonicalWrite.fileId).toBe(
+      await buildSpaceFileEntryIdForMutation(canonicalWrite.clientMutationId)
     );
-    expect(deleteObject).not.toHaveBeenCalled();
+    expect(canonicalWrite.revisionId).toBe(
+      await buildSpaceFileRevisionIdForMutation({
+        baseRevision: null,
+        bytes: imageBytes,
+        clientMutationId: canonicalWrite.clientMutationId,
+        mimeType: "image/png",
+        name: "home.png",
+        parentId: null,
+      })
+    );
 
     const context = await readRemoteAgentCallbackContext(
       storage,
       SUBMISSION_ID
     );
-    expect(context?.outputAttachments).toEqual([
+    expect(context?.outputFiles).toEqual([
       {
-        fileName: "home.png",
-        id: "attachment_browser_screenshot",
+        fileId: "file_browser_screenshot",
         mimeType: "image/png",
+        name: "home.png",
+        revision: 1,
         sizeBytes: 8,
       },
     ]);
@@ -364,9 +405,108 @@ describe("Remote Agent external tools", () => {
         text: "Here is the screenshot.",
       })
     ).toMatchObject({
+      files: [
+        {
+          fileId: "file_browser_screenshot",
+          mimeType: "image/png",
+          name: "home.png",
+          revision: 1,
+          sizeBytes: 8,
+        },
+      ],
+      status: "completed",
+      text: "Here is the screenshot.",
+    });
+  });
+
+  it("keeps provider conversation screenshots as provider attachments", async () => {
+    const baseRequest = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...baseRequest.turnEnvelope,
+        trigger: {
+          channelId: "channel_123",
+          source: "slack",
+          teamId: "team_123",
+          threadTs: "123.456",
+        },
+      },
+    });
+    const storage = await createStorage(request);
+    const imageBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]).buffer;
+    const bucket = {
+      delete: vi.fn(async () => undefined),
+      put: vi.fn(async () => undefined),
+    };
+    const recordSpaceAttachment = vi.fn(async () => ({
+      createdAt: new Date(TEST_NOW_MS).toISOString(),
+      fileName: "slack-thread.png",
+      id: "attachment_provider_screenshot",
+      mimeType: "image/png" as const,
+      organizationId: request.organizationId,
+      sizeBytes: imageBytes.byteLength,
+      spaceId: request.spaceId,
+    }));
+    const writeSpaceFileContent = vi.fn();
+    const tools = getRemoteAgentExternalToolDefinitions({
+      coreWorker: { recordSpaceAttachment, writeSpaceFileContent },
+      env: externalToolEnv({
+        bucket,
+        quickAction: vi.fn(
+          async () =>
+            new Response(imageBytes, {
+              headers: { "Content-Type": "image/png" },
+            })
+        ),
+      }),
+      storage,
+      submissionId: SUBMISSION_ID,
+    });
+
+    await expect(
+      executeTool(tools, "browser_screenshot", {
+        fileName: "slack-thread.png",
+        url: "https://example.com",
+      })
+    ).resolves.toMatchObject({
+      attachment: {
+        fileName: "slack-thread.png",
+        id: "attachment_provider_screenshot",
+        mimeType: "image/png",
+        sizeBytes: 8,
+      },
+      attachedToFinalReply: true,
+    });
+    expect(writeSpaceFileContent).not.toHaveBeenCalled();
+    expect(recordSpaceAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileName: "slack-thread.png",
+        spaceId: request.spaceId,
+      })
+    );
+    expect(bucket.put).toHaveBeenCalledWith(
+      "org/org_123/space/space_123/attachment_provider_screenshot",
+      imageBytes,
+      { httpMetadata: { contentType: "image/png" } }
+    );
+
+    const context = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    expect(context?.outputFiles).toBeUndefined();
+    expect(
+      buildRemoteAgentCoreCallbackBody({
+        context: context ?? missingContext(),
+        text: "Here is the screenshot.",
+      })
+    ).toMatchObject({
       attachments: [
         {
-          id: "attachment_browser_screenshot",
+          fileName: "slack-thread.png",
+          id: "attachment_provider_screenshot",
           mimeType: "image/png",
           sizeBytes: 8,
         },
@@ -376,10 +516,10 @@ describe("Remote Agent external tools", () => {
     });
   });
 
-  it("rejects invalid screenshot bytes before creating attachment metadata", async () => {
-    const recordSpaceAttachment = vi.fn();
+  it("rejects invalid screenshot bytes before creating a Space File", async () => {
+    const writeSpaceFileContent = vi.fn();
     const tools = getRemoteAgentExternalToolDefinitions({
-      coreWorker: { recordSpaceAttachment },
+      coreWorker: { writeSpaceFileContent },
       env: externalToolEnv({
         bucket: {
           delete: vi.fn(async () => undefined),
@@ -401,14 +541,13 @@ describe("Remote Agent external tools", () => {
         url: "https://example.com",
       })
     ).rejects.toThrow("not a valid PNG screenshot");
-    expect(recordSpaceAttachment).not.toHaveBeenCalled();
+    expect(writeSpaceFileContent).not.toHaveBeenCalled();
   });
 
   it("maps a Proxy-backed missing Core screenshot method to the stable RPC error", async () => {
     const imageBytes = new Uint8Array([
       0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     ]).buffer;
-    const put = vi.fn(async () => undefined);
     const coreWorker = new Proxy(
       {},
       {
@@ -425,10 +564,6 @@ describe("Remote Agent external tools", () => {
     const tools = getRemoteAgentExternalToolDefinitions({
       coreWorker,
       env: externalToolEnv({
-        bucket: {
-          delete: vi.fn(async () => undefined),
-          put,
-        },
         quickAction: vi.fn(
           async () =>
             new Response(imageBytes, {
@@ -445,9 +580,8 @@ describe("Remote Agent external tools", () => {
         url: "https://example.com",
       })
     ).rejects.toThrow(
-      "OpenMeld Core RPC recordSpaceAttachment is unavailable."
+      "OpenMeld Core RPC writeSpaceFileContent is unavailable."
     );
-    expect(put).not.toHaveBeenCalled();
   });
 
   it("rejects private-network browser targets before calling Browser Run", async () => {

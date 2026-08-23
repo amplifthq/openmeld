@@ -40,4 +40,17 @@ describe("MarkdownEditor", () => {
 		expect(toolbar.childElementCount).toBe(0);
 		expect(toolbar.classList.contains("empty:hidden")).toBe(true);
 	});
+
+	it("measures Space Markdown limits in UTF-8 bytes", () => {
+		render(
+			<MarkdownEditor
+				ariaLabel="Space file contents"
+				maxBytes={1024 * 1024}
+				onChange={vi.fn()}
+				value="Hello, 世界"
+			/>
+		);
+
+		expect(screen.getByText("13 B / 1 MB")).toBeTruthy();
+	});
 });

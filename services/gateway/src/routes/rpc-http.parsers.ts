@@ -178,6 +178,7 @@ export function parseSpaceRouteParams(
 export function parsePostSignalBody(body: unknown): ParseResult<{
   text: string;
   attachments?: SignalText["data"]["attachments"];
+  files?: SignalText["data"]["files"];
   messageEnvelope?: SignalText["data"]["messageEnvelope"];
   meta?: SignalText["data"]["meta"];
   replyTo?: SignalText["data"]["replyTo"];
@@ -197,6 +198,7 @@ export function parsePostSignalBody(body: unknown): ParseResult<{
       ...(parsed.data.attachments
         ? { attachments: parsed.data.attachments }
         : {}),
+      ...(parsed.data.files ? { files: parsed.data.files } : {}),
       ...(parsed.data.messageEnvelope
         ? { messageEnvelope: parsed.data.messageEnvelope }
         : {}),

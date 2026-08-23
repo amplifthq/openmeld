@@ -5,6 +5,7 @@ import {
   ORGANIZATION_SKILL_RUNTIME_RELEASE_LIMIT,
   organizationSkillRuntimeReleaseSelectionSchema,
 } from "../http/organization-skills";
+import { spaceMessageFileReferencesSchema } from "../http/space-files";
 import {
   AGENT_STREAM_SNAPSHOT_MAX_CHARS,
   agentStreamToolPartSchema,
@@ -298,6 +299,11 @@ export const remoteAgentWorkerSubmitTurnResponseSchema = z.union([
 
 export const remoteAgentWorkerInputAttachmentSchema =
   spaceMessageAttachmentSchema.extend({
+    /**
+     * Core-resolved immutable object key for a canonical Space File revision.
+     * Legacy message attachments omit this field and retain their derived key.
+     */
+    objectKey: nonEmptyStringSchema.max(4096).optional(),
     removeAfterAdmission: z.literal(true).optional(),
   });
 
@@ -756,6 +762,7 @@ export const remoteAgentCoreCallbackBodySchema = z.union([
     status: z.literal("completed").optional(),
     text: nonEmptyStringSchema.max(MAX_TEXT_LENGTH),
     attachments: spaceMessageAttachmentsSchema.optional(),
+    files: spaceMessageFileReferencesSchema.optional(),
   }),
   z.strictObject({
     ...remoteAgentCoreCallbackIdentitySchema,
@@ -789,6 +796,7 @@ export const remoteAgentCoreCompletedCallbackBodySchema = z.strictObject({
   status: z.literal("completed"),
   text: nonEmptyStringSchema.max(MAX_TEXT_LENGTH),
   attachments: spaceMessageAttachmentsSchema.optional(),
+  files: spaceMessageFileReferencesSchema.optional(),
 });
 
 export const remoteAgentCoreFailedCallbackBodySchema = z.strictObject({

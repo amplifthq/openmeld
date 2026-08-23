@@ -115,24 +115,9 @@ export function buildHumanAuthenticationCard(input: {
 } {
   const rows: Array<{ label: string; value: string }> = [];
   rows.push({
-    label: "Status",
+    label: "What happened",
     value: buildHumanAuthenticationStatusText(input.guidance),
   });
-
-  if (input.guidance.reason === "mismatch") {
-    if (input.guidance.authBaseUrl) {
-      rows.push({
-        label: "Signed In To",
-        value: input.guidance.authBaseUrl,
-      });
-    }
-    if (input.guidance.gatewayUrl) {
-      rows.push({
-        label: "This Command Uses",
-        value: input.guidance.gatewayUrl,
-      });
-    }
-  }
 
   rows.push({
     label: "Next",

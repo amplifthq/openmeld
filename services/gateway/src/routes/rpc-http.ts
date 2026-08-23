@@ -44,6 +44,7 @@ import { registerRuntimeReportingRoutes } from "./rpc-http.runtime-reporting";
 import { registerSpaceAttachmentRoutes } from "./rpc-http.space-attachments";
 import { registerSpaceDeletionTombstoneRoutes } from "./rpc-http.space-deletion-tombstones";
 import { registerSpaceDiagnosticReportRoutes } from "./rpc-http.space-diagnostic-reports";
+import { registerSpaceFileRoutes } from "./rpc-http.space-files";
 import { registerUpdatesRoutes } from "./rpc-http.updates";
 import { registerWakeProgressRoutes } from "./rpc-http.wake-progress";
 import { registerWakeStopRoutes } from "./rpc-http.wake-stop";
@@ -80,6 +81,7 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerSpaceAccessModeRoute(app);
   registerSpacePasswordRoute(app);
   registerSpaceAttachmentRoutes(app);
+  registerSpaceFileRoutes(app);
   registerDeleteSpaceRoute(app);
   registerBootstrapRoute(app);
   registerBoardRoute(app);

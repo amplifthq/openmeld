@@ -139,7 +139,7 @@ const PROJECT_FOLDER_MISMATCH_RE = /already bound to Project folder/;
 const AGENT_ACTING_IDENTITY_RE =
   /selected profile must be a Human Profile because OpenMeld uses it as the signed-in user's acting identity/;
 const CODEX_MISSING_THREAD_RE = /cannot find CODEX_THREAD_ID/;
-const BINDING_READ_TIMEOUT_RE = /could not read Agent Profile Bindings/;
+const BINDING_READ_TIMEOUT_RE = /couldn't read Agent Profile Bindings/;
 
 describe("space add-me command", () => {
   beforeEach(() => {
@@ -540,6 +540,7 @@ describe("space add-me command", () => {
 
   it("explains Agent Profile Binding read timeouts before any Space membership write", async () => {
     const { runSpaceAddMe } = await import("../src/space/add-me-command");
+    const { emitCliError } = await import("../src/openmeld-cli-error-output");
     const project = await mkdtemp(join(tmpdir(), "openmeld-add-me-project-"));
     const existingAgentProfile = {
       ...CREATED_AGENT_PROFILE,
@@ -570,9 +571,7 @@ describe("space add-me command", () => {
     }
 
     expect(thrownError?.message).toMatch(BINDING_READ_TIMEOUT_RE);
-    expect(thrownError?.message).toContain(
-      "No Space membership was written before this step completed."
-    );
+    expect(thrownError?.message).toContain("no Space membership was changed.");
     expect(thrownError?.message).toContain("openmeld service status");
     expect(thrownError?.message).toContain(
       `openmeld space add-me ${SPACE_ID} --project-folder ${project}`
@@ -586,6 +585,27 @@ describe("space add-me command", () => {
     expect(createOpenMeldAgentProfileMock).not.toHaveBeenCalled();
     expect(ensureAgentProfileRuntimeBindingMock).not.toHaveBeenCalled();
     expect(runSpaceAddMembersMock).not.toHaveBeenCalled();
+
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+    await emitCliError({
+      argv: ["space", "add-me", SPACE_ID],
+      effectiveView: "human",
+      code: "cli.error",
+      message: thrownError?.message ?? "",
+      error: thrownError,
+    });
+
+    const humanOutput = stderr.join("");
+    expect(humanOutput).toContain("no Space membership was changed.");
+    expect(humanOutput).toContain("Next: Run openmeld service status, then");
+    expect(humanOutput).toContain(
+      `retry openmeld space add-me ${SPACE_ID} --project-folder ${project}.`
+    );
+    expect(humanOutput).not.toContain(timeout.message);
   });
 
   it("rejects an Agent Profile acting identity before creating or adding the current agent", async () => {

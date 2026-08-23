@@ -14,7 +14,7 @@ import type {
 	SignalEnvelope,
 	SpaceAccessMode,
 	SpaceMembersSnapshot,
-	SpaceMessageAttachment,
+	SpaceMessageFileReference,
 	SpaceThread,
 	SpaceThreadContext,
 	SpaceThreadPreview,
@@ -57,8 +57,9 @@ import {
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
 import {
-	isSpaceComposerAttachmentInProgress,
-	type SpaceComposerAttachment,
+	isSpaceComposerFileFailed,
+	isSpaceComposerFileInProgress,
+	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import { removeDeletedSpaceFromAccountHistory } from "#/lib/spaces/delete-space-history-cleanup";
@@ -125,7 +126,7 @@ import type {
 	SpaceExecutionRecoveryResolution,
 	SpaceWakeRetryAttempt,
 } from "./space-wake-retry";
-import { useSpaceComposerAttachments } from "./use-space-composer-attachments";
+import { useSpaceComposerFiles } from "./use-space-composer-attachments";
 import {
 	addSetValue,
 	areWakeProgressItemsEqual,
@@ -173,7 +174,7 @@ type TextSignalEnvelope = Extract<SignalEnvelope, { type: "signal.text" }>;
 const EMPTY_WAKE_PROGRESS_ITEMS: WakeProgressItem[] = [];
 
 type PendingOutgoingSignal = {
-	attachmentPreviewUrlsById: ReadonlyMap<string, string>;
+	filePreviewUrlsById: ReadonlyMap<string, string>;
 	clientMessageId: string;
 	signal: TextSignalEnvelope;
 };
@@ -259,8 +260,8 @@ function prepareProgrammaticWakeRetrySubmission(
 }
 
 function createPendingOutgoingSignal(input: {
-	attachments?: readonly SpaceMessageAttachment[];
-	attachmentPreviewUrlsById?: ReadonlyMap<string, string>;
+	files?: readonly SpaceMessageFileReference[];
+	filePreviewUrlsById?: ReadonlyMap<string, string>;
 	clientMessageId: string;
 	createdAtMs: number;
 	membersSnapshot: SpaceMembersSnapshot | null;
@@ -270,8 +271,7 @@ function createPendingOutgoingSignal(input: {
 	text: string;
 }): PendingOutgoingSignal {
 	return {
-		attachmentPreviewUrlsById:
-			input.attachmentPreviewUrlsById ?? new Map<string, string>(),
+		filePreviewUrlsById: input.filePreviewUrlsById ?? new Map<string, string>(),
 		clientMessageId: input.clientMessageId,
 		signal: {
 			v: 1,
@@ -285,8 +285,8 @@ function createPendingOutgoingSignal(input: {
 			type: "signal.text",
 			data: {
 				text: input.text,
-				...(input.attachments && input.attachments.length > 0
-					? { attachments: [...input.attachments] }
+				...(input.files && input.files.length > 0
+					? { files: [...input.files] }
 					: {}),
 				...(input.messageEnvelope
 					? { messageEnvelope: input.messageEnvelope }
@@ -299,46 +299,42 @@ function createPendingOutgoingSignal(input: {
 	};
 }
 
-function buildComposerAttachmentSubmission(input: {
-	attachments: readonly SpaceComposerAttachment[];
+function buildComposerFileSubmission(input: {
+	files: readonly SpaceComposerFile[];
 	isPendingMessage: boolean;
 }) {
-	const composerAttachments = input.isPendingMessage ? [] : input.attachments;
-	const messageAttachments: SpaceMessageAttachment[] = [];
-	const previewUrlsByAttachmentId = new Map<string, string>();
+	const composerFiles = input.isPendingMessage ? [] : input.files;
+	const messageFiles: SpaceMessageFileReference[] = [];
+	const previewUrlsByFileId = new Map<string, string>();
 
-	for (const attachment of composerAttachments) {
-		if (attachment.status !== "ready" || attachment.descriptor === null) {
+	for (const file of composerFiles) {
+		if (file.status !== "ready" || file.descriptor === null) {
 			continue;
 		}
-		messageAttachments.push(attachment.descriptor);
-		previewUrlsByAttachmentId.set(
-			attachment.descriptor.id,
-			attachment.previewUrl
-		);
+		messageFiles.push(file.descriptor);
+		if (file.previewUrl) {
+			previewUrlsByFileId.set(file.descriptor.fileId, file.previewUrl);
+		}
 	}
 
 	return {
-		hasComposerAttachments: composerAttachments.length > 0,
-		messageAttachments,
-		previewUrlsByAttachmentId,
-		uploadInProgress: composerAttachments.some(
-			isSpaceComposerAttachmentInProgress
-		),
+		hasComposerFiles: composerFiles.length > 0,
+		messageFiles,
+		previewUrlsByFileId,
+		uploadFailed: composerFiles.some(isSpaceComposerFileFailed),
+		uploadInProgress: composerFiles.some(isSpaceComposerFileInProgress),
 	};
 }
 
 function buildNormalMessagePostInput(input: {
-	attachments: readonly SpaceMessageAttachment[];
+	files: readonly SpaceMessageFileReference[];
 	clientMessageId: string;
 	messageEnvelope: TextSignalEnvelope["data"]["messageEnvelope"] | null;
 	spaceId: string;
 	text: string;
 }) {
 	return {
-		...(input.attachments.length > 0
-			? { attachments: [...input.attachments] }
-			: {}),
+		...(input.files.length > 0 ? { files: [...input.files] } : {}),
 		...(input.messageEnvelope
 			? { messageEnvelope: input.messageEnvelope }
 			: {}),
@@ -471,43 +467,89 @@ function createSpaceMessageSendSeed(input: {
 }
 
 function prepareSpaceMessageSendAttempt(input: {
-	composerAttachments: readonly SpaceComposerAttachment[];
+	composerFiles: readonly SpaceComposerFile[];
 	composerText: string;
 	pendingMessage: PendingSpaceMessage | undefined;
 }) {
-	const attachmentSubmission = buildComposerAttachmentSubmission({
-		attachments: input.composerAttachments,
+	const fileSubmission = buildComposerFileSubmission({
+		files: input.composerFiles,
 		isPendingMessage: input.pendingMessage !== undefined,
 	});
-	if (attachmentSubmission.uploadInProgress) {
+	if (fileSubmission.uploadInProgress) {
 		return { errorMessage: null, status: "blocked" as const };
+	}
+	if (fileSubmission.uploadFailed) {
+		return {
+			errorMessage: "Remove files that could not be uploaded before sending.",
+			status: "blocked" as const,
+		};
 	}
 	const messageSeed = createSpaceMessageSendSeed({
 		composerText: input.composerText,
 		pendingMessage: input.pendingMessage,
 	});
-	if (messageSeed.text.length === 0) {
+	if (messageSeed.text.length === 0 && !fileSubmission.hasComposerFiles) {
 		return {
-			errorMessage: attachmentSubmission.hasComposerAttachments
-				? null
-				: "Enter a message before sending.",
+			errorMessage: "Enter a message or add a file before sending.",
 			status: "blocked" as const,
 		};
 	}
 	return {
-		attachmentSubmission,
+		fileSubmission,
 		errorMessage: null,
 		messageSeed,
 		status: "ready" as const,
 	};
 }
 
-function clearManualComposerAttachments(input: {
-	clearAttachments: () => void;
+function prepareMainComposerSubmission(input: {
+	mentionAuthoring: SpaceMentionAuthoringController;
+	messageSeed: PendingSpaceMessage;
+	missingMembersMessage: string;
+	pendingMessage: PendingSpaceMessage | undefined;
+}): PendingComposerSubmission {
+	if (input.pendingMessage) {
+		return input.mentionAuthoring.preparePlainTextSubmission(
+			input.messageSeed.text,
+			input.missingMembersMessage
+		);
+	}
+	if (input.messageSeed.text.length > 0) {
+		return input.mentionAuthoring.prepareSubmission(
+			input.missingMembersMessage
+		);
+	}
+	return input.mentionAuthoring.prepareFileOnlySubmission();
+}
+
+function resolveThreadComposerBlockedReason(input: {
+	hasActiveThread: boolean;
+	hasFiles: boolean;
+	text: string;
+	uploadFailed: boolean;
+	uploadInProgress: boolean;
+}): string | null {
+	if (!input.hasActiveThread) {
+		return "Open a thread before sending.";
+	}
+	if (input.uploadInProgress) {
+		return "Wait for files to finish uploading before sending.";
+	}
+	if (input.uploadFailed) {
+		return "Remove files that could not be uploaded before sending.";
+	}
+	if (input.text.length === 0 && !input.hasFiles) {
+		return "Enter a reply or add a file before sending.";
+	}
+	return null;
+}
+
+function clearManualComposerFiles(input: {
+	clearFiles: () => void;
 	isPendingMessage: boolean;
 }): void {
 	if (!input.isPendingMessage) {
-		input.clearAttachments();
+		input.clearFiles();
 	}
 }
 
@@ -813,8 +855,8 @@ export type SpaceLandingController =
 			agentStreams: readonly SpaceConversationVisibleStreamProjection[];
 			composerAddressingSummary: string | null;
 			composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
-			composerAttachments: readonly SpaceComposerAttachment[];
-			composerAttachmentLimitReached: boolean;
+			composerFiles: readonly SpaceComposerFile[];
+			composerFileLimitReached: boolean;
 			composerBlockedWakeProfileId: string | null;
 			composerErrorMessage: string | null;
 			composerHasAuthoredMentions: boolean;
@@ -856,8 +898,8 @@ export type SpaceLandingController =
 				selection: SpaceComposerSelection
 			) => void;
 			onClearComposerReplyTo: () => void;
-			onAddComposerImages: (files: readonly File[]) => Promise<void>;
-			onRemoveComposerAttachment: (localId: string) => void;
+			onAddComposerFiles: (files: readonly File[]) => Promise<void>;
+			onRemoveComposerFile: (localId: string) => void;
 			onComposerKeyDown: (
 				event: KeyboardEvent<HTMLTextAreaElement>
 			) => Promise<void>;
@@ -911,6 +953,8 @@ export type SpaceLandingController =
 			onThreadMentionPopoverClose: () => void;
 			onThreadSend: () => Promise<void>;
 			onThreadSendText: (text: string) => Promise<void>;
+			onAddThreadComposerFiles: (files: readonly File[]) => Promise<void>;
+			onRemoveThreadComposerFile: (localId: string) => void;
 			onReplyToMessage: (item: SpaceTimelineItem) => void;
 			onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 			onRecoverExecution: (
@@ -943,6 +987,9 @@ export type SpaceLandingController =
 			threadComposerHasAuthoredMentions: boolean;
 			threadComposerSelection: SpaceComposerSelection;
 			threadComposerText: string;
+			threadComposerFiles: readonly SpaceComposerFile[];
+			threadComposerFileLimitReached: boolean;
+			threadFilePreviewUrlsById: ReadonlyMap<string, string>;
 			threadEphemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 			threadMentionPopoverState: SpaceMentionPopoverState;
 			threads: readonly SpaceThread[];
@@ -1160,7 +1207,7 @@ export function useSpaceLandingController(input: {
 		activeWakeProgressSummaryQuery.isError,
 		input.spaceId,
 	]);
-	const composerAttachmentsController = useSpaceComposerAttachments({
+	const composerFilesController = useSpaceComposerFiles({
 		organizationSlug: input.orgSlug,
 		profileId: input.profileId,
 		spaceId: input.spaceId,
@@ -1443,6 +1490,7 @@ export function useSpaceLandingController(input: {
 		onWakeProgressItems: mergeConversationWakeProgressItems,
 		onWakeProgressRemoveClientMessageId:
 			removeConversationWakeProgressItemsForClientMessageId,
+		organizationSlug: input.orgSlug,
 		ownerAccountId: input.ownerAccountId,
 		profileId: input.profileId,
 		queryClient,
@@ -1723,14 +1771,11 @@ export function useSpaceLandingController(input: {
 			}),
 		[timelineEnvelopes, pendingOutgoingSignals]
 	);
-	const pendingAttachmentPreviewUrlsById = useMemo(() => {
+	const pendingFilePreviewUrlsById = useMemo(() => {
 		const previewUrlsById = new Map<string, string>();
 		for (const pendingSignal of pendingOutgoingSignals) {
-			for (const [
-				attachmentId,
-				previewUrl,
-			] of pendingSignal.attachmentPreviewUrlsById) {
-				previewUrlsById.set(attachmentId, previewUrl);
+			for (const [fileId, previewUrl] of pendingSignal.filePreviewUrlsById) {
+				previewUrlsById.set(fileId, previewUrl);
 			}
 		}
 		return previewUrlsById;
@@ -1742,12 +1787,12 @@ export function useSpaceLandingController(input: {
 				agentStreamScope: { kind: "main" },
 				envelopes: timelinePresentationEnvelopes,
 				membersSnapshot,
-				pendingAttachmentPreviewUrlsById,
+				pendingFilePreviewUrlsById,
 			}),
 		[
 			agentStreamProjections,
 			membersSnapshot,
-			pendingAttachmentPreviewUrlsById,
+			pendingFilePreviewUrlsById,
 			timelinePresentationEnvelopes,
 		]
 	);
@@ -1857,8 +1902,8 @@ export function useSpaceLandingController(input: {
 		agentStreams: agentStreamProjections,
 		composerAddressingSummary: mentionAuthoring.addressingSummary,
 		composerAddressingTargets: mentionAuthoring.addressingTargets,
-		composerAttachments: composerAttachmentsController.attachments,
-		composerAttachmentLimitReached: composerAttachmentsController.isAtLimit,
+		composerFiles: composerFilesController.files,
+		composerFileLimitReached: composerFilesController.isAtLimit,
 		composerErrorMessage,
 		composerBlockedWakeProfileId,
 		composerSelection: mentionAuthoring.composerSelection,
@@ -1901,12 +1946,12 @@ export function useSpaceLandingController(input: {
 			setComposerBlockedWakeProfileId(null);
 		},
 		onClearComposerReplyTo: mentionAuthoring.onClearReplyTo,
-		onAddComposerImages: composerAttachmentsController.addImages,
+		onAddComposerFiles: composerFilesController.addFiles,
 		onComposerKeyDown: async (event) => {
 			await mentionAuthoring.onComposerKeyDown(event, sendMessage);
 		},
 		onComposerSelectionChange: mentionAuthoring.onComposerSelectionChange,
-		onRemoveComposerAttachment: composerAttachmentsController.removeAttachment,
+		onRemoveComposerFile: composerFilesController.removeFile,
 		onConversationViewingLatestChange: setIsConversationViewingLatest,
 		onCloseThread: threadController.onCloseThread,
 		onCreateThread: threadController.onCreateThread,
@@ -1955,6 +2000,8 @@ export function useSpaceLandingController(input: {
 		onThreadMentionPopoverClose: threadController.onThreadMentionPopoverClose,
 		onThreadSend: threadController.onThreadSend,
 		onThreadSendText: threadController.onThreadSendText,
+		onAddThreadComposerFiles: threadController.onAddThreadComposerFiles,
+		onRemoveThreadComposerFile: threadController.onRemoveThreadComposerFile,
 		onReplyToMessage: (item: SpaceTimelineItem) => {
 			mentionAuthoring.onReplyToSignal({
 				signalId: item.id,
@@ -1984,6 +2031,10 @@ export function useSpaceLandingController(input: {
 			threadController.threadComposerHasAuthoredMentions,
 		threadComposerSelection: threadController.threadComposerSelection,
 		threadComposerText: threadController.threadComposerText,
+		threadComposerFiles: threadController.threadComposerFiles,
+		threadComposerFileLimitReached:
+			threadController.threadComposerFileLimitReached,
+		threadFilePreviewUrlsById: threadController.threadFilePreviewUrlsById,
 		threadEphemeralActivityItems: threadController.threadEphemeralActivityItems,
 		threadMentionPopoverState: threadController.threadMentionPopoverState,
 		threads: threadController.threads,
@@ -2009,7 +2060,7 @@ export function useSpaceLandingController(input: {
 		throwOnFailure?: boolean;
 	}) {
 		const sendAttempt = prepareSpaceMessageSendAttempt({
-			composerAttachments: composerAttachmentsController.attachments,
+			composerFiles: composerFilesController.files,
 			composerText: mentionAuthoring.composerText,
 			pendingMessage: options?.pendingMessage,
 		});
@@ -2018,14 +2069,14 @@ export function useSpaceLandingController(input: {
 			throwSpaceSendFailureWhenRequested({
 				error: new Error(
 					sendAttempt.errorMessage ??
-						"Wait for attachments to finish uploading before continuing."
+						"Wait for files to finish uploading before continuing."
 				),
 				postedMessage: false,
 				throwOnFailure: options?.throwOnFailure === true,
 			});
 			return;
 		}
-		const { attachmentSubmission, messageSeed } = sendAttempt;
+		const { fileSubmission, messageSeed } = sendAttempt;
 
 		setComposerErrorMessage(null);
 		setComposerBlockedWakeProfileId(null);
@@ -2036,26 +2087,25 @@ export function useSpaceLandingController(input: {
 		try {
 			const missingMembersMessage =
 				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions.";
-			const preparedSubmission = options?.pendingMessage
-				? mentionAuthoring.preparePlainTextSubmission(
-						messageSeed.text,
-						missingMembersMessage
-					)
-				: mentionAuthoring.prepareSubmission(missingMembersMessage);
+			const preparedSubmission = prepareMainComposerSubmission({
+				mentionAuthoring,
+				messageSeed,
+				missingMembersMessage,
+				pendingMessage: options?.pendingMessage,
+			});
 			pendingSubmission = preparedSubmission;
 			mentionAuthoring.recordPendingSubmission();
 			await sendPreparedSpaceMessage({
-				attachments: attachmentSubmission.messageAttachments,
-				attachmentPreviewUrlsById:
-					attachmentSubmission.previewUrlsByAttachmentId,
+				files: fileSubmission.messageFiles,
+				filePreviewUrlsById: fileSubmission.previewUrlsByFileId,
 				clientMessageId: messageSeed.clientMessageId,
 				createdAtMs: messageSeed.createdAtMs,
 				preparedSubmission,
 			});
 			postedMessage = true;
 			mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
-			clearManualComposerAttachments({
-				clearAttachments: composerAttachmentsController.clearAttachments,
+			clearManualComposerFiles({
+				clearFiles: composerFilesController.clearFiles,
 				isPendingMessage: options?.pendingMessage !== undefined,
 			});
 			setComposerBlockedWakeProfileId(null);
@@ -2104,8 +2154,8 @@ export function useSpaceLandingController(input: {
 	}
 
 	async function sendPreparedSpaceMessage(sendInput: {
-		attachments: readonly SpaceMessageAttachment[];
-		attachmentPreviewUrlsById: ReadonlyMap<string, string>;
+		files: readonly SpaceMessageFileReference[];
+		filePreviewUrlsById: ReadonlyMap<string, string>;
 		clientMessageId: string;
 		createdAtMs: number;
 		preparedSubmission: PreparedSpaceMessageSubmission;
@@ -2131,8 +2181,8 @@ export function useSpaceLandingController(input: {
 						}
 					: null);
 			const pendingOutgoingSignal = createPendingOutgoingSignal({
-				attachments: sendInput.attachments,
-				attachmentPreviewUrlsById: sendInput.attachmentPreviewUrlsById,
+				files: sendInput.files,
+				filePreviewUrlsById: sendInput.filePreviewUrlsById,
 				clientMessageId: sendInput.clientMessageId,
 				createdAtMs: sendInput.createdAtMs,
 				membersSnapshot,
@@ -2166,7 +2216,7 @@ export function useSpaceLandingController(input: {
 				openMeldProfileId: input.profileId,
 			});
 			const postInput = buildNormalMessagePostInput({
-				attachments: sendInput.attachments,
+				files: sendInput.files,
 				clientMessageId: sendInput.clientMessageId,
 				messageEnvelope: sendInput.preparedSubmission.messageEnvelope,
 				spaceId: input.spaceId,
@@ -2242,8 +2292,8 @@ export function useSpaceLandingController(input: {
 				await threadController.onRetryWakeTarget(retryInput);
 			} else {
 				await sendPreparedSpaceMessage({
-					attachments: [],
-					attachmentPreviewUrlsById: new Map<string, string>(),
+					files: [],
+					filePreviewUrlsById: new Map<string, string>(),
 					clientMessageId: retryInput.clientMessageId,
 					createdAtMs: Date.now(),
 					preparedSubmission:
@@ -2660,6 +2710,7 @@ function useSpaceThreadController(input: {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	onWakeProgressItems: (items: readonly WakeProgressItem[]) => void;
 	onWakeProgressRemoveClientMessageId: (clientMessageId: string) => void;
+	organizationSlug: string;
 	ownerAccountId: string;
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
@@ -2682,6 +2733,11 @@ function useSpaceThreadController(input: {
 	const [pendingOutgoingSignals, setPendingOutgoingSignals] = useState<
 		PendingOutgoingSignal[]
 	>([]);
+	const composerFilesController = useSpaceComposerFiles({
+		organizationSlug: input.organizationSlug,
+		profileId: input.profileId,
+		spaceId: input.spaceId,
+	});
 	const threadsQuery = useQuery(
 		spaceThreadsQueryOptions({
 			spaceId: input.spaceId,
@@ -2735,6 +2791,15 @@ function useSpaceThreadController(input: {
 		persisted: persistedThreadSignals,
 		pending: pendingOutgoingSignals,
 	});
+	const threadFilePreviewUrlsById = useMemo(() => {
+		const previewUrlsById = new Map<string, string>();
+		for (const pendingSignal of pendingOutgoingSignals) {
+			for (const [fileId, previewUrl] of pendingSignal.filePreviewUrlsById) {
+				previewUrlsById.set(fileId, previewUrl);
+			}
+		}
+		return previewUrlsById;
+	}, [pendingOutgoingSignals]);
 	const currentProfileId = input.profileId;
 	const currentSpaceId = input.spaceId;
 
@@ -2791,6 +2856,8 @@ function useSpaceThreadController(input: {
 		onThreadMentionPopoverClose: mentionAuthoring.onMentionPopoverClose,
 		onThreadSend: sendMessage,
 		onThreadSendText: sendTextMessage,
+		onAddThreadComposerFiles: composerFilesController.addFiles,
+		onRemoveThreadComposerFile: composerFilesController.removeFile,
 		threadComposerBlockedWakeProfileId: composerBlockedWakeProfileId,
 		threadComposerAddressingSummary: mentionAuthoring.addressingSummary,
 		threadComposerAddressingTargets: mentionAuthoring.addressingTargets,
@@ -2798,6 +2865,9 @@ function useSpaceThreadController(input: {
 		threadComposerSelection: mentionAuthoring.composerSelection,
 		threadComposerHasAuthoredMentions: mentionAuthoring.hasAuthoredMentions,
 		threadComposerText: mentionAuthoring.composerText,
+		threadComposerFiles: composerFilesController.files,
+		threadComposerFileLimitReached: composerFilesController.isAtLimit,
+		threadFilePreviewUrlsById,
 		threadEphemeralActivityItems: wakeProgressItems,
 		threadMentionPopoverState: mentionAuthoring.mentionPopoverState,
 		threadPreviews,
@@ -2823,6 +2893,7 @@ function useSpaceThreadController(input: {
 		setComposerErrorMessage(null);
 		setComposerBlockedWakeProfileId(null);
 		setPendingOutgoingSignals([]);
+		composerFilesController.clearFiles();
 	}
 
 	function openThread(threadId: string) {
@@ -2830,6 +2901,7 @@ function useSpaceThreadController(input: {
 		setComposerErrorMessage(null);
 		setComposerBlockedWakeProfileId(null);
 		setPendingOutgoingSignals([]);
+		composerFilesController.clearFiles();
 	}
 
 	async function createThread(threadInput: { rootSignalId: string }) {
@@ -2867,12 +2939,22 @@ function useSpaceThreadController(input: {
 	async function sendMessage() {
 		const thread = activeThread;
 		const trimmedText = mentionAuthoring.composerText.trim();
-		if (!thread) {
-			setComposerErrorMessage("Open a thread before sending.");
+		const fileSubmission = buildComposerFileSubmission({
+			files: composerFilesController.files,
+			isPendingMessage: false,
+		});
+		const blockedReason = resolveThreadComposerBlockedReason({
+			hasActiveThread: thread !== null,
+			hasFiles: fileSubmission.hasComposerFiles,
+			text: trimmedText,
+			uploadFailed: fileSubmission.uploadFailed,
+			uploadInProgress: fileSubmission.uploadInProgress,
+		});
+		if (blockedReason) {
+			setComposerErrorMessage(blockedReason);
 			return;
 		}
-		if (trimmedText.length === 0) {
-			setComposerErrorMessage("Enter a message before sending.");
+		if (!thread) {
 			return;
 		}
 
@@ -2882,45 +2964,62 @@ function useSpaceThreadController(input: {
 
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		try {
-			const preparedSubmission = mentionAuthoring.prepareSubmission(
-				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
-			);
+			const preparedSubmission =
+				trimmedText.length > 0
+					? mentionAuthoring.prepareSubmission(
+							"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
+						)
+					: mentionAuthoring.prepareFileOnlySubmission();
 			pendingSubmission = preparedSubmission;
 			mentionAuthoring.recordPendingSubmission();
 			await sendPreparedThreadMessage({
+				files: fileSubmission.messageFiles,
+				filePreviewUrlsById: fileSubmission.previewUrlsByFileId,
 				onPosted: () => {
 					mentionAuthoring.recordSuccessfulSubmission(preparedSubmission);
+					composerFilesController.clearFiles();
 					setComposerBlockedWakeProfileId(null);
 				},
 				preparedSubmission,
 				thread,
 			});
 		} catch (error) {
-			const sendError =
-				error instanceof PreparedSpaceMessageSendError ? error : null;
-			const originalError = sendError?.originalError ?? error;
-			const failure = toStructuredApiClientFailure(originalError);
-			const postedMessage = sendError?.postedMessage ?? false;
-			const outcomeUnknown =
-				sendError?.outcomeUnknown ?? isSpaceComposerSendOutcomeUnknown(failure);
-			if (!(postedMessage || outcomeUnknown)) {
-				restoreFailedPendingSubmission({ mentionAuthoring, pendingSubmission });
-			}
-			reportComposerSendFailure({
-				failure,
-				logMessage: "A thread reply was posted, but a follow-up step failed.",
-				postedMessage,
-				setComposerErrorMessage,
-			});
-			setComposerBlockedWakeProfileId(
-				resolveBlockedWakeProfileIdFromSubmissionError(originalError)
-			);
-
-			if (isProtectedSpaceFailure(failure)) {
-				await input.statusRefetch();
-			}
+			await handleSendMessageFailure({ error, pendingSubmission });
 		} finally {
 			setIsSendingMessage(false);
+		}
+	}
+
+	async function handleSendMessageFailure(failureInput: {
+		error: unknown;
+		pendingSubmission: PendingComposerSubmission | null;
+	}) {
+		const sendError =
+			failureInput.error instanceof PreparedSpaceMessageSendError
+				? failureInput.error
+				: null;
+		const originalError = sendError?.originalError ?? failureInput.error;
+		const failure = toStructuredApiClientFailure(originalError);
+		const postedMessage = sendError?.postedMessage ?? false;
+		const outcomeUnknown =
+			sendError?.outcomeUnknown ?? isSpaceComposerSendOutcomeUnknown(failure);
+		if (!(postedMessage || outcomeUnknown)) {
+			restoreFailedPendingSubmission({
+				mentionAuthoring,
+				pendingSubmission: failureInput.pendingSubmission,
+			});
+		}
+		reportComposerSendFailure({
+			failure,
+			logMessage: "A thread reply was posted, but a follow-up step failed.",
+			postedMessage,
+			setComposerErrorMessage,
+		});
+		setComposerBlockedWakeProfileId(
+			resolveBlockedWakeProfileIdFromSubmissionError(originalError)
+		);
+		if (isProtectedSpaceFailure(failure)) {
+			await input.statusRefetch();
 		}
 	}
 
@@ -3001,6 +3100,8 @@ function useSpaceThreadController(input: {
 
 	async function sendPreparedThreadMessage(sendInput: {
 		clientMessageId?: string;
+		files?: readonly SpaceMessageFileReference[];
+		filePreviewUrlsById?: ReadonlyMap<string, string>;
 		onPosted?: () => void;
 		preparedSubmission: PreparedSpaceMessageSubmission;
 		thread: SpaceThread;
@@ -3015,6 +3116,8 @@ function useSpaceThreadController(input: {
 			createPendingOutgoingSignal({
 				clientMessageId,
 				createdAtMs: messageCreatedAtMs,
+				files: sendInput.files,
+				filePreviewUrlsById: sendInput.filePreviewUrlsById,
 				membersSnapshot: input.membersSnapshot,
 				messageEnvelope: sendInput.preparedSubmission.messageEnvelope,
 				profileId: input.profileId,
@@ -3043,6 +3146,7 @@ function useSpaceThreadController(input: {
 			const postInput = {
 				body: {
 					clientMessageId,
+					...(sendInput.files?.length ? { files: [...sendInput.files] } : {}),
 					...(sendInput.preparedSubmission.messageEnvelope
 						? {
 								messageEnvelope: sendInput.preparedSubmission.messageEnvelope,

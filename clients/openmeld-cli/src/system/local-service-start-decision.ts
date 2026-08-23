@@ -5,6 +5,7 @@ import {
   buildDaemonServiceRefreshPromptMessage,
 } from "../local-service/lifecycle/daemon-service-repair-guidance";
 import { formatOpenMeldCliCommand } from "../runtime/cli-entry-command";
+import { buildHumanErrorCopy } from "../ui/human-error-card";
 
 export const DAEMON_START_DECISION_CHOICE = {
   start: "start",
@@ -180,18 +181,14 @@ export function shouldOfferDaemonStartDecision(
 
 export function buildDaemonStartDeferredCard(): DaemonStartDecisionCard {
   return {
-    title: "⚪ OpenMeld Service Is Off",
+    title: "OpenMeld Service is off",
     rows: [
       {
-        label: "⚪ Status",
-        value: "off for now",
+        label: "What happened",
+        value: "OpenMeld Service isn't running.",
       },
       {
-        label: "📡 Local Service Link",
-        value: "Off — OpenMeld Service is not connected for local Wake work.",
-      },
-      {
-        label: "🔧 Next",
+        label: "Next",
         value: `Start later with \`${formatOpenMeldCliCommand(
           DAEMON_START_RUN_COMMAND
         )}\`.`,
@@ -206,41 +203,23 @@ export function buildDaemonStartNeedsAttentionCard(input: {
   autoRepairAttempted?: boolean;
   detail?: string;
 }): DaemonStartDecisionCard {
+  const summaryCopy = buildHumanErrorCopy(input.summary);
+  const explicitNextStep = input.nextStep
+    ? buildHumanErrorCopy(input.nextStep).summary
+    : null;
   return {
-    title: "⚠️ OpenMeld Service Needs Attention",
+    title: "OpenMeld Service couldn't start",
     rows: [
       {
-        label: "❌ Status",
-        value: "not running",
-      },
-      ...(input.autoRepairAttempted
-        ? [
-            {
-              label: "🩹 Automatic Repair",
-              value:
-                "OpenMeld tried one automatic repair automatically, but the service still needs help.",
-            },
-          ]
-        : []),
-      {
-        label: "📝 Found",
-        value: input.summary,
-      },
-      ...(input.detail
-        ? [
-            {
-              label: "🧾 Last local detail",
-              value: input.detail,
-            },
-          ]
-        : []),
-      {
-        label: "📡 Local Service Link",
-        value: "Off — OpenMeld Service is not connected for local Wake work.",
+        label: "What happened",
+        value: summaryCopy.summary,
       },
       {
-        label: "🔧 Next",
-        value: input.nextStep ?? buildDaemonServiceRefreshNextStep(),
+        label: "Next",
+        value:
+          explicitNextStep ??
+          summaryCopy.nextStep ??
+          buildDaemonServiceRefreshNextStep(),
       },
     ],
   };

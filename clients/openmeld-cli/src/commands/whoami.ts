@@ -446,34 +446,19 @@ function buildMissingWhoamiProfileRows(
 function buildUnavailableWhoamiProfileRows(
   guidance: ProfileLookupFailureGuidance
 ): InfoCardRow[] {
-  const [firstStep, retryStep] = guidance.nextSteps;
+  const [firstStep] = guidance.nextSteps;
   return [
     {
       label: "Selected Shell Profile",
       value: pc.bold(pc.yellow("temporarily unavailable")),
     },
     {
-      label: "Why it matters",
-      value:
-        "OpenMeld could not load the selected profile right now, so this command cannot show the active sender identity yet.",
-    },
-    {
-      label: "Reason",
+      label: "What happened",
       value: guidance.summary,
     },
     {
-      label: "Details",
-      value: guidance.details,
-    },
-    {
-      label: "Next step",
+      label: "Next",
       value: formatInlineOpenMeldCliCommands(`Run \`${firstStep}\` first.`),
-    },
-    {
-      label: "Then",
-      value: formatInlineOpenMeldCliCommands(
-        `Run \`${retryStep}\` and retry this command.`
-      ),
     },
   ];
 }

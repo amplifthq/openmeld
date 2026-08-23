@@ -778,6 +778,51 @@ failure is unreachable without its Core metadata row and may be cleaned up by
 a future maintenance process. A metadata row whose object is missing resolves
 to an explicit not-found response at the byte boundary.
 
+## Space File Data Boundary
+
+The Space Durable Object is the only writer for Space File identity, folder
+hierarchy, current placement, revision sequence, Trash state, and actor
+attribution. Its SQLite tables are canonical business state, not a D1
+projection. No Resources, Organization Documents, Center Agent Computer, or
+Space Index table mirrors this tree.
+
+Private immutable revision bytes live in the Space file R2 binding under the
+shared key constructor:
+
+```text
+org/{organizationId}/space/{spaceId}/files/{fileId}/revisions/{revisionId}
+```
+
+Core owns the raw-byte storage operation for every caller. Gateway transports
+authenticated browser and CLI bytes to Core; Center Agent tools call the same
+Core operation. Core asks the Space Durable Object to authorize the actor and
+prepare the canonical object address, writes one immutable object, then asks
+Space to commit the matching metadata with the supplied base revision. The
+commit rechecks authorization and the base revision. On rejection or an
+uncertain commit response, Core preserves the immutable object and the
+structured error. It must not delete inline because another exact retry may
+have committed the same deterministic revision key. An object that Space did
+not commit remains unreachable and may be reclaimed only by a future
+Space-owned reconciliation process that proves the revision is unreferenced. A
+read first resolves the authorized canonical revision descriptor through Space
+and only then reads the exact object. An R2 key or file id alone never grants
+access.
+
+Trash is a reversible metadata state in the MVP. Trashing a folder requires it
+to be empty, so one mutation cannot silently hide a subtree. Revision objects
+remain private and retained. An active member may list Trash and restore the
+same stable entry id; restoration fails visibly if its former parent is no
+longer active or its name now collides in that folder. Public and
+Organization-only viewers cannot list Trash. Physical reclamation is a later
+explicitly-owned maintenance lifecycle, not part of an interactive delete
+request.
+
+File audit events include Organization id, Space id, stable entry id, revision
+id when relevant, operation, actor Profile, represented human when applicable,
+and result. Logs and diagnostics never include file bytes, text bodies, or user
+file names. `space.files.changed` is a live invalidation only; clients re-read
+the Space-owned tree and never derive file state from the frame.
+
 ## Agent Profile Deletion Lifecycle
 
 Deleting an agent profile is an auth-owned identity decision with cross-domain

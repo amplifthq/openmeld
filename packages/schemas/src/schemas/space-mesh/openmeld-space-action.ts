@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { spaceMessageFileReferencesSchema } from "../http/space-files";
 import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import { openMeldRuntimeProfileIdSchema } from "../protocol/profile";
 import { trimmedStringFromUnknown } from "../protocol/shared";
@@ -38,6 +39,7 @@ export const openMeldSpacePostMessageActionSchema = z.strictObject({
     .preprocess(trimmedStringFromUnknown, z.string().min(1))
     .optional(),
   messageEnvelope: messageEnvelopeSchema,
+  files: spaceMessageFileReferencesSchema.optional(),
   thread: spaceThreadActionRefSchema.optional(),
   saveResult: z.boolean().optional(),
 });

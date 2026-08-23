@@ -15,6 +15,21 @@ export {
   executeSpaceExecutionRecovery,
   inspectSpaceExecutionRecovery,
 } from "./execution-recovery";
+export {
+  createSpaceFolder,
+  downloadSpaceFileContent,
+  getSpaceFile,
+  listSpaceFileRevisions,
+  listSpaceFiles,
+  restoreSpaceFileEntry,
+  restoreSpaceFileRevision,
+  type SpaceFileContent,
+  type SpaceFileContentBytes,
+  trashSpaceFileEntry,
+  updateSpaceFileContent,
+  updateSpaceFileEntry,
+  uploadSpaceFile,
+} from "./files";
 export { updateSpaceMeta } from "./meta";
 export {
   buildSpaceSignalsReadPath,

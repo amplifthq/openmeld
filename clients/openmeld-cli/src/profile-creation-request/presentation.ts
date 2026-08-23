@@ -4,6 +4,7 @@ import type {
   AgentProfileCreationRequest,
 } from "@openmeld/schemas/types";
 import type { Presenter } from "../runtime/presenter/types";
+import { renderHumanErrorCard } from "../ui/human-error-card";
 import { renderInfoCard } from "../ui/info-card";
 import type { ProfileCreationRequestCommandContext } from "./context";
 import { ProfileCreationRequestCliError } from "./input";
@@ -141,8 +142,8 @@ export function emitCommandError(input: {
       : "Check the request status and Organization, then retry.",
     presenter: input.context.presenter,
     title: sessionUnavailable
-      ? "Resume And Fork Not Ready"
-      : "Agent Profile Request Failed",
+      ? "Resume and Fork aren't ready"
+      : "Agent Profile request couldn't be updated",
   });
 }
 
@@ -162,6 +163,7 @@ export function emitLocalError(input: {
         status: "error",
         error: {
           code: input.code,
+          details: input.details,
           message: input.message,
           nextStep: input.nextStep,
         },
@@ -169,16 +171,11 @@ export function emitLocalError(input: {
     });
     return;
   }
-  renderInfoCard({
+  renderHumanErrorCard({
     codePrefix: "profile.creation-request.error.card",
-    minContentWidth: 72,
+    message: input.message,
+    nextStep: input.nextStep,
     presenter: input.presenter,
-    rows: [
-      { label: "Reason", value: input.message },
-      { label: "Next Step", value: input.nextStep },
-      ...(input.details ?? []),
-    ],
-    sanitize: true,
     title: input.title,
   });
 }

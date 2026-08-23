@@ -68,6 +68,95 @@ export function buildSpaceAttachmentsPath(spaceId: string): string {
   return buildSpaceRoutePath(spaceId, "attachments");
 }
 
+export function buildSpaceFilesPath(
+  spaceId: string,
+  query?: { parentId?: string | null; view?: "active" | "trash" }
+): string {
+  const path = buildSpaceRoutePath(spaceId, "files");
+  const searchParams = new URLSearchParams();
+  if (query?.parentId) {
+    searchParams.set("parentId", query.parentId);
+  }
+  if (query?.view && query.view !== "active") {
+    searchParams.set("view", query.view);
+  }
+  const queryString = searchParams.toString();
+  return queryString ? `${path}?${queryString}` : path;
+}
+
+export function buildSpaceFileFoldersPath(spaceId: string): string {
+  return `${buildSpaceFilesPath(spaceId)}/folders`;
+}
+
+export function buildSpaceFileEntryPath(
+  spaceId: string,
+  entryId: string
+): string {
+  return `${buildSpaceFilesPath(spaceId)}/${encodeURIComponent(entryId)}`;
+}
+
+export function buildSpaceFileRevisionsPath(
+  spaceId: string,
+  fileId: string
+): string {
+  return `${buildSpaceFileEntryPath(spaceId, fileId)}/revisions`;
+}
+
+export function buildSpaceFileRestorePath(
+  spaceId: string,
+  entryId: string
+): string {
+  return `${buildSpaceFileEntryPath(spaceId, entryId)}/restore`;
+}
+
+export function buildSpaceFileRevisionRestorePath(
+  spaceId: string,
+  fileId: string,
+  revision: number
+): string {
+  return `${buildSpaceFileRevisionsPath(spaceId, fileId)}/${revision}/restore`;
+}
+
+export function buildSpaceFileContentPath(
+  spaceId: string,
+  fileId: string,
+  query?: {
+    baseRevision?: number;
+    clientMutationId?: string;
+    revision?: number;
+  }
+): string {
+  const path = `${buildSpaceFileEntryPath(spaceId, fileId)}/content`;
+  const searchParams = new URLSearchParams();
+  if (query?.revision !== undefined) {
+    searchParams.set("revision", String(query.revision));
+  }
+  if (query?.baseRevision !== undefined) {
+    searchParams.set("baseRevision", String(query.baseRevision));
+  }
+  if (query?.clientMutationId !== undefined) {
+    searchParams.set("clientMutationId", query.clientMutationId);
+  }
+  const queryString = searchParams.toString();
+  return queryString ? `${path}?${queryString}` : path;
+}
+
+export function buildSpaceFileUploadPath(input: {
+  clientMutationId: string;
+  name: string;
+  parentId?: string | null;
+  spaceId: string;
+}): string {
+  const searchParams = new URLSearchParams({
+    clientMutationId: input.clientMutationId,
+    name: input.name,
+  });
+  if (input.parentId) {
+    searchParams.set("parentId", input.parentId);
+  }
+  return `${buildSpaceFilesPath(input.spaceId)}?${searchParams.toString()}`;
+}
+
 export function buildSpaceAttachmentUploadPath(
   spaceId: string,
   query?: { fileName?: string; width?: number; height?: number }
@@ -176,6 +265,7 @@ function buildSpaceRoutePath(
     | "identity-directory"
     | "viewer-membership"
     | "attachments"
+    | "files"
     | "join"
     | "center-agent"
     | "organization-directory-profiles"

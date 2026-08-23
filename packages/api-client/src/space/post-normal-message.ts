@@ -16,6 +16,7 @@ export async function postSpaceNormalMessage(
   input: SpaceRequestInput & {
     text: PostNormalMessageBody["text"];
     attachments?: PostNormalMessageBody["attachments"];
+    files?: PostNormalMessageBody["files"];
     messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
     replyTo?: PostNormalMessageBody["replyTo"];
     meta?: PostNormalMessageBody["meta"];
@@ -53,6 +54,7 @@ export async function postSpaceNormalMessage(
 function buildPostNormalMessageBody(input: {
   text: PostNormalMessageBody["text"];
   attachments?: PostNormalMessageBody["attachments"];
+  files?: PostNormalMessageBody["files"];
   messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
   replyTo?: PostNormalMessageBody["replyTo"];
   meta?: PostNormalMessageBody["meta"];
@@ -60,6 +62,7 @@ function buildPostNormalMessageBody(input: {
   return {
     text: input.text,
     ...(input.attachments ? { attachments: input.attachments } : {}),
+    ...(input.files ? { files: input.files } : {}),
     ...(input.messageEnvelope
       ? { messageEnvelope: input.messageEnvelope }
       : {}),

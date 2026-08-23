@@ -4,7 +4,7 @@ import {
 } from "@openmeld/api-client";
 import type { StoredActiveOrganization } from "../config/auth-session";
 import type { Presenter } from "../runtime/presenter/types";
-import { renderInfoCard } from "../ui/info-card";
+import { renderHumanErrorCard } from "../ui/human-error-card";
 
 export type CenterAgentCommandOperation =
   | "audit"
@@ -302,7 +302,7 @@ function classifyCenterAgentApiFailure(input: {
     code: `center_agent.${input.operation}_failed`,
     message: `OpenMeld could not ${operationLabel}.`,
     nextStep: "Retry after OpenMeld Gateway is reachable.",
-    title: "Center Agent Command Failed",
+    title: "Center Agent action couldn't finish",
   };
 }
 
@@ -321,20 +321,16 @@ export function emitCenterAgentCommandError(
       nextStep: input.nextStep,
     },
     ...(input.agentProfileId ? { agentProfileId: input.agentProfileId } : {}),
+    ...(input.details ? { details: input.details } : {}),
     ...(input.payload ?? {}),
   };
 
   if (input.presenter.view === "human") {
-    renderInfoCard({
+    renderHumanErrorCard({
       codePrefix: "center-agent.error.card",
-      minContentWidth: 72,
+      message: input.message,
+      nextStep: input.nextStep,
       presenter: input.presenter,
-      rows: [
-        { label: "Reason", value: input.message },
-        { label: "Next Step", value: input.nextStep },
-        ...(input.details ?? []),
-      ],
-      sanitize: true,
       title: input.title,
     });
     return;

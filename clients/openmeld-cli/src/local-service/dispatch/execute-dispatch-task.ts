@@ -2454,6 +2454,7 @@ function buildDispatchRuntimePrompt(input: {
     dispatchTriggerSource: input.parsedTask.dispatchTriggerSource,
     imageAttachmentPromptSection:
       input.imageAttachmentPreparation.promptSection,
+    spaceFiles: input.parsedTask.files,
     mentionSourceProfileId: input.parsedTask.mentionSourceProfileId,
     mentionSourceProfileKind: input.parsedTask.mentionSourceProfileKind,
     mentionSourceMentionLabel: input.bootstrapContext.mentionSourceMentionLabel,

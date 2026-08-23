@@ -56,9 +56,7 @@ export function buildDaemonServiceRefreshHandoffMessage(): string {
 }
 
 export function buildDaemonServiceRefreshNextStep(): string {
-  const repairCommand = formatDaemonServiceRefreshCommand();
-  const statusCommand = formatDaemonServiceStatusCommand();
-  return `${DAEMON_SERVICE_REFRESH_SUMMARY} Run \`${repairCommand}\`. If Wake or readiness still looks wrong after setup, run \`${statusCommand}\`.`;
+  return `Run \`${formatDaemonServiceRefreshCommand()}\` to repair OpenMeld Service.`;
 }
 
 export function buildDaemonServiceRefreshRetryNextStep(): string {
@@ -117,11 +115,4 @@ function formatDaemonServiceUpdateCommand(): string {
     DAEMON_SERVICE_SETUP_COMMAND,
   ]) as [string];
   return updateCommand;
-}
-
-function formatDaemonServiceStatusCommand(): string {
-  const [statusCommand] = formatOpenMeldCliCommands([
-    "openmeld service status",
-  ]) as [string];
-  return statusCommand;
 }

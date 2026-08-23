@@ -35,7 +35,7 @@ describe("local service repair guidance", () => {
 
     expect(guidance.nextSteps).toEqual(["openmeld setup"]);
     expect(guidance.summary).toBe(
-      "OpenMeld Service needs repair. Run `openmeld setup`. If Wake or readiness still looks wrong after setup, run `openmeld service status`."
+      "Run `openmeld setup` to repair OpenMeld Service."
     );
     expect(buildDaemonServiceRefreshPromptMessage()).toBe(
       "Reconnect OpenMeld Service before this computer can receive local Wake work. OpenMeld can reconnect it for you now."

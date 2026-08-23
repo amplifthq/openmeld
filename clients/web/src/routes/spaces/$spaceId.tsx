@@ -41,6 +41,7 @@ import {
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 } from "#/components/app/shell-layout";
 import { SpaceConversationPanel } from "#/components/spaces/space-conversation-panel";
+import { SpaceFilesPanel } from "#/components/spaces/space-files-panel";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { SpaceThreadPanel } from "#/components/spaces/space-thread-panel";
 import type { SpaceView } from "#/components/spaces/space-view";
@@ -130,12 +131,26 @@ export function PublicSpacePage(input: {
 	const generatedSpaceViewId = useId();
 	const spaceViewIdPrefix = `space-view-${generatedSpaceViewId}`;
 	const [spaceView, setSpaceView] = useState<SpaceView>("messages");
+	const [spaceFileToOpen, setSpaceFileToOpen] = useState<{
+		fileId: string;
+		requestId: string;
+		revision: number;
+	} | null>(null);
 	const [password, setPassword] = useState("");
 	const [passwordError, setPasswordError] = useState<string | null>(null);
 	const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
 	const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const threadTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+	const openSpaceFile = (fileId: string, revision: number) => {
+		setSpaceFileToOpen({
+			fileId,
+			requestId: crypto.randomUUID(),
+			revision,
+		});
+		setSelectedThreadId(null);
+		setSpaceView("files");
+	};
 
 	const statusQuery = useQuery({
 		enabled: browserQueriesEnabled,
@@ -385,10 +400,10 @@ export function PublicSpacePage(input: {
 						allowedActions={status?.allowedActions ?? []}
 						centerAgentProfileId={status?.centerAgentProfileId ?? null}
 						className="min-w-0"
-						composerAttachmentLimitReached={false}
-						composerAttachments={[]}
 						composerBlockedWakeProfileId={null}
 						composerErrorMessage={null}
+						composerFileLimitReached={false}
+						composerFiles={[]}
 						composerReplyToSignalId={null}
 						composerSelection={EMPTY_COMPOSER_SELECTION}
 						composerText=""
@@ -396,6 +411,14 @@ export function PublicSpacePage(input: {
 						emptyStateDescription={null}
 						emptyStateTitle="No messages yet."
 						ephemeralActivityItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
+						files={
+							<SpaceFilesPanel
+								fileToOpen={spaceFileToOpen}
+								key={input.spaceId}
+								readOnly={true}
+								spaceId={input.spaceId}
+							/>
+						}
 						firstUnreadSignalId={null}
 						hasEarlierHistory={false}
 						historyActionErrorMessage={null}
@@ -411,7 +434,7 @@ export function PublicSpacePage(input: {
 						membersSnapshot={null}
 						mentionPopoverState={CLOSED_MENTION_POPOVER}
 						modelCatalog={null}
-						onAddComposerImages={noopPromise}
+						onAddComposerFiles={noopPromise}
 						onAgentRecoveryAction={noopPromise}
 						onClearComposerReplyTo={() => undefined}
 						onComposerChange={() => undefined}
@@ -422,8 +445,9 @@ export function PublicSpacePage(input: {
 						onMentionItemHover={() => undefined}
 						onMentionItemSelect={() => undefined}
 						onMentionPopoverClose={() => undefined}
+						onOpenSpaceFile={openSpaceFile}
 						onOpenThread={setSelectedThreadId}
-						onRemoveComposerAttachment={() => undefined}
+						onRemoveComposerFile={() => undefined}
 						onReplyToMessage={() => undefined}
 						onReportMessage={noopPromise}
 						onSend={noopPromise}
@@ -452,6 +476,8 @@ export function PublicSpacePage(input: {
 						centerAgentProfileId={status?.centerAgentProfileId ?? null}
 						composerBlockedWakeProfileId={null}
 						composerErrorMessage={null}
+						composerFileLimitReached={false}
+						composerFiles={[]}
 						composerSelection={EMPTY_COMPOSER_SELECTION}
 						composerText=""
 						ephemeralActivityItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
@@ -461,6 +487,7 @@ export function PublicSpacePage(input: {
 						isSendingMessage={false}
 						membersSnapshot={null}
 						mentionPopoverState={CLOSED_MENTION_POPOVER}
+						onAddComposerFiles={noopPromise}
 						onAgentRecoveryAction={noopPromise}
 						onClose={() => setSelectedThreadId(null)}
 						onComposerChange={() => undefined}
@@ -469,6 +496,8 @@ export function PublicSpacePage(input: {
 						onMentionItemHover={() => undefined}
 						onMentionItemSelect={() => undefined}
 						onMentionPopoverClose={() => undefined}
+						onOpenSpaceFile={openSpaceFile}
+						onRemoveComposerFile={() => undefined}
 						onReportMessage={noopPromise}
 						onSend={noopPromise}
 						readOnly={true}

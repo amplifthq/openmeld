@@ -955,7 +955,12 @@ deploys Core, then Gateway, then Web; the new Web must not ship until Gateway
 can serve the read. Existing CLI, OpenMeld Service, daemon, Prepare,
 RuntimeCoordinator, Wake, Space action, and diagnostic contracts are unchanged.
 
-### Space Attachment Contracts
+### Legacy Space Attachment Contracts
+
+This JPEG/PNG attachment contract remains a read and runtime compatibility
+surface for messages authored before canonical chat files. New Web and CLI
+Composer uploads must use the Space File contract below. No migration or
+dual-write projects old attachment objects into Files.
 
 `packages/schemas` owns the shared Space attachment descriptor, upload query and
 response schemas, Core RPC metadata payloads, MIME and size limits, and
@@ -1021,6 +1026,95 @@ the durable metadata descriptor. Clients consume the shared upload response and
 construct only authenticated Gateway download paths; the contract does not
 define a public attachment URL.
 
+### Space File Contracts
+
+`packages/schemas` owns the Space File entry and revision descriptors, mutation
+bodies and responses, raw upload query, list query, content limits, error-code
+set, R2 key constructor, common extension-to-MIME inference, and Center Agent
+tool inputs. `packages/api-client` owns the host-agnostic Web/CLI adapter over
+those schemas. Web, CLI, Gateway, Core, and Remote Agent must not hand-build
+alternate file shapes, paths, or MIME maps.
+
+The shared file contract uses stable entry ids and immutable revision ids.
+Content writes carry `baseRevision` (`null` only when creating a file) plus a
+client mutation id. The canonical response returns the committed revision. A
+stale base is `space_file.conflict`; name collisions, invalid parents, and
+missing entries remain separate explicit outcomes. Upload and download bodies
+are raw bytes, not base64 JSON. Agent-facing text reads and writes adapt through
+Core but preserve the same ids and revision fence.
+
+The list contract names either the active tree or Trash. Trash reads and all
+restore mutations require active Space membership. Entry restore clears Trash
+on the same id and preserves every immutable revision. Revision restore copies
+the selected immutable bytes into a new conflict-fenced current revision; it
+never rewinds or deletes history. Retrying the same prepare/write mutation after
+an uncertain response returns the already committed file before another R2
+write, while reusing a mutation id for different inputs fails explicitly.
+
+`signal.text.data.files`, normal-message bodies, thread-message bodies,
+dispatch source snapshots, Center Agent Space posts, and Local Agent Space
+Actions share one optional bounded array of canonical file references. Each
+reference contains `fileId`, `revision`, and a send-time presentation snapshot
+of `name`, `mimeType`, and `sizeBytes`. Before persistence, the Space Durable
+Object resolves the requested file and exact revision from its own SQLite
+repository and replaces all presentation fields with canonical values. Missing
+files, trashed files, or missing revisions reject the whole message. Message
+bytes are never copied, and renaming or revising the current file never rewrites
+the historical signal.
+
+For hosted Center Agent admission, Core reauthorizes each referenced JPEG or
+PNG revision through the owning Space Durable Object and passes its immutable
+object key through the private Remote Agent worker contract. Remote Agent reads
+those exact bytes from the existing private Space object store and feeds them
+through its existing image-understanding path. It does not copy the image into
+the legacy attachment namespace, mint a second attachment record, or delete the
+canonical revision after admission. Text files remain available through the
+Space File read tool; unsupported binary formats remain visible by metadata and
+available to Human and Local Agent download.
+
+A text signal may have empty text only when it carries at least one canonical
+Space File. Web and CLI may therefore publish a file-only
+message without synthetic text. File selection creates the Space File before
+message publication; a message-send failure may leave that ordinary uploaded
+file visible in Files, but an upload failure must prevent message publication.
+This is one canonical file with two references, not an atomic upload-and-send
+transaction or a hidden cleanup policy.
+
+`space.files.changed` is an additive invalidation topic. It carries no file
+metadata and grants no access. Clients refresh the shared file-list contract.
+Older clients safely ignore the topic and continue to observe current state on
+their next read.
+
+The MVP accepts individual files up to 10 MiB. Browser text editing is limited
+to UTF-8 text files no larger than 1 MiB. Binary files remain upload, download,
+rename, move, and Trash capable. There is no multipart upload, public object URL,
+per-file ACL, Resources projection, automatic Computer materialization, CRDT,
+or live character stream in this contract.
+
+The canonical Space File rollout is receiver-first across strict boundaries:
+
+1. Release schemas and local components that accept dispatch source `files`.
+   Old Core continues to omit the optional field; an old strict Local Service
+   would reject a file-bearing dispatch, so Core must not produce it first.
+2. Deploy Remote Agent with the Space File tools and file-aware Space post
+   input. Against old Core those new tools fail explicitly and old turns remain
+   unchanged.
+3. Deploy Core's Space File RPC methods, Durable Object repository, canonical
+   message-reference validation, dispatch preservation, and Center Agent
+   receiver. Then deploy Gateway's raw upload/download and mutation routes.
+4. Release Web and CLI authoring after the cloud endpoints exist. Older clients
+   keep reading and writing file-free messages; already-open strict Web clients
+   may require refresh before consuming a new file-bearing live signal.
+
+Rollback removes Web/CLI producers first, then Core's dispatch producer, then
+the Remote Agent and Local Service consumers. The contract adds optional
+fields but changes strict mixed-version behavior, so unchanged version
+constants are not evidence of compatibility. No D1 migration or new public R2
+bucket is introduced: each Space Durable Object lazily owns its SQLite tables,
+and immutable bytes use the existing private Space object-store binding.
+
+#### Historical attachment rollout
+
 The first rollout is an explicit exception to the default cloud deploy order:
 apply D1 migration 0020, deploy Core's new attachment RPC methods, deploy
 Gateway's routes and R2 binding, and only then release a client that calls the
@@ -1038,18 +1132,12 @@ a newly authored attachment-bearing live signal; refreshing the tab loads the
 new consumer schema. That initial rollout did not affect CLI, OpenMeld Service,
 daemon, Prepare, RuntimeCoordinator, or local-component contract versions.
 
-CLI attachment authoring is a later consumer of the same deployed upload and
-normal-message contracts. `space send --attach <path>` validates all selected
-files against the shared count, size, and image-signature limits, uploads every
-file before posting the message, and references only the returned canonical
-attachment descriptors. Any local validation or upload failure aborts the
-message send; the CLI must not silently publish an attachment-free message.
-Attachment authoring is limited to normal Space messages until the strict
-thread-signal HTTP body explicitly admits attachment references. This adds a
-CLI command capability but does not change the existing HTTP schemas or local
-runtime contract versions. Release the CLI consumer only after the existing
-Gateway/Core attachment routes are available; older CLIs remain compatible
-because they continue to omit the optional attachment field.
+The retired CLI attachment authoring path was a later consumer of the same
+deployed upload and normal-message contracts. It validated selected JPEG/PNG
+files, uploaded every attachment before posting, and failed instead of silently
+publishing an attachment-free message. Current CLI releases use
+`space send --file <path>` and canonical Space File references; `--attach` is
+not a second authoring path.
 
 The hosted-image rollout is a third cloud-only ordering exception. Deploy the
 Remote Agent worker with its optional attachment consumer and read-only R2

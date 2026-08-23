@@ -145,6 +145,9 @@ function buildSourceSignalSnapshot(
         }
       : {}),
     text,
+    ...(sourceSignal.data.files && sourceSignal.data.files.length > 0
+      ? { files: sourceSignal.data.files }
+      : {}),
     profileId: normalizeOptionalText(sourceSignal.profile.profileId),
     profileKind: normalizeProfileKind(sourceSignal.profile.kind),
   };

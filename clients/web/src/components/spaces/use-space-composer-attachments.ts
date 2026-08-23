@@ -1,104 +1,108 @@
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
-import { SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE } from "@openmeld/schemas";
+import {
+	resolveSpaceFileMimeType,
+	SPACE_FILE_MAX_SIZE_BYTES,
+	SPACE_MESSAGE_FILE_MAX_COUNT,
+} from "@openmeld/schemas";
 import type {
-	SpaceAttachmentDescriptor,
-	SpaceMessageAttachment,
+	SpaceFileDescriptor,
+	SpaceMessageFileReference,
 } from "@openmeld/schemas/types";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
-import type { SpaceComposerAttachment } from "#/lib/spaces/composer-attachment";
-import { resolveSpaceImageUploadFailure } from "#/lib/spaces/errors";
-import { prepareSpaceImageAttachment } from "#/lib/spaces/image-attachment";
+import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 
-export function useSpaceComposerAttachments(input: {
+export function useSpaceComposerFiles(input: {
 	organizationSlug: string;
 	profileId: string;
 	spaceId: string;
 }) {
-	const [attachments, setAttachments] = useState<SpaceComposerAttachment[]>([]);
-	const activeAttachmentIdsRef = useRef(new Set<string>());
+	const [files, setFiles] = useState<SpaceComposerFile[]>([]);
+	const activeFileIdsRef = useRef(new Set<string>());
 	const previewUrlsByLocalIdRef = useRef(new Map<string, string>());
-	const attachmentScopeKey = `${input.organizationSlug}:${input.profileId}:${input.spaceId}`;
-	const previousAttachmentScopeKeyRef = useRef(attachmentScopeKey);
+	const scopeKey = `${input.organizationSlug}:${input.profileId}:${input.spaceId}`;
+	const previousScopeKeyRef = useRef(scopeKey);
 
-	const clearAttachments = useCallback(() => {
+	const clearFiles = useCallback(() => {
 		releasePreviewUrls(previewUrlsByLocalIdRef.current);
-		activeAttachmentIdsRef.current.clear();
-		setAttachments([]);
+		activeFileIdsRef.current.clear();
+		setFiles([]);
 	}, []);
 
 	useEffect(() => {
-		if (previousAttachmentScopeKeyRef.current !== attachmentScopeKey) {
+		if (previousScopeKeyRef.current !== scopeKey) {
 			releasePreviewUrls(previewUrlsByLocalIdRef.current);
-			activeAttachmentIdsRef.current.clear();
-			setAttachments([]);
-			previousAttachmentScopeKeyRef.current = attachmentScopeKey;
+			activeFileIdsRef.current.clear();
+			setFiles([]);
+			previousScopeKeyRef.current = scopeKey;
 		}
 		return () => {
 			releasePreviewUrls(previewUrlsByLocalIdRef.current);
-			activeAttachmentIdsRef.current.clear();
+			activeFileIdsRef.current.clear();
 		};
-	}, [attachmentScopeKey]);
+	}, [scopeKey]);
 
-	const removeAttachment = useCallback((localId: string) => {
-		activeAttachmentIdsRef.current.delete(localId);
+	const removeFile = useCallback((localId: string) => {
+		activeFileIdsRef.current.delete(localId);
 		const previewUrl = previewUrlsByLocalIdRef.current.get(localId);
 		if (previewUrl) {
 			URL.revokeObjectURL(previewUrl);
 			previewUrlsByLocalIdRef.current.delete(localId);
 		}
-		setAttachments((current) =>
-			current.filter((attachment) => attachment.localId !== localId)
-		);
+		setFiles((current) => current.filter((file) => file.localId !== localId));
 	}, []);
 
-	const addImages = useCallback(
-		async (files: readonly File[]) => {
+	const addFiles = useCallback(
+		async (selectedFiles: readonly File[]) => {
 			const availableSlots = Math.max(
 				0,
-				SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE -
-					activeAttachmentIdsRef.current.size
+				SPACE_MESSAGE_FILE_MAX_COUNT - activeFileIdsRef.current.size
 			);
-			const acceptedFiles = files.slice(0, availableSlots);
+			const acceptedFiles = selectedFiles.slice(0, availableSlots);
 			if (acceptedFiles.length === 0) {
 				return;
 			}
 
 			const pending = acceptedFiles.map((file) => {
-				const localId = createLocalAttachmentId();
-				const previewUrl = URL.createObjectURL(file);
-				activeAttachmentIdsRef.current.add(localId);
-				previewUrlsByLocalIdRef.current.set(localId, previewUrl);
+				const localId = `composer-file:${crypto.randomUUID()}`;
+				const mimeType = resolveSpaceFileMimeType({
+					declaredMimeType: file.type,
+					fileName: file.name,
+				});
+				const previewUrl = mimeType.startsWith("image/")
+					? URL.createObjectURL(file)
+					: null;
+				activeFileIdsRef.current.add(localId);
+				if (previewUrl) {
+					previewUrlsByLocalIdRef.current.set(localId, previewUrl);
+				}
 				return {
 					file,
 					item: {
 						descriptor: null,
 						errorMessage: null,
 						errorRequestId: null,
-						fileName: file.name || "image",
+						fileName: file.name || "Untitled file",
 						localId,
+						mimeType,
 						previewUrl,
-						progress: 10,
-						status: "processing",
-					} satisfies SpaceComposerAttachment,
+						progress: 20,
+						status: "uploading",
+					} satisfies SpaceComposerFile,
 				};
 			});
-			setAttachments((current) => [
-				...current,
-				...pending.map(({ item }) => item),
-			]);
+			setFiles((current) => [...current, ...pending.map(({ item }) => item)]);
 
 			await Promise.all(
 				pending.map(({ file, item }) =>
-					processPendingAttachment({
-						activeAttachmentIds: activeAttachmentIdsRef.current,
+					uploadPendingFile({
+						activeFileIds: activeFileIdsRef.current,
 						file,
 						item,
 						organizationSlug: input.organizationSlug,
-						previewUrlsByLocalId: previewUrlsByLocalIdRef.current,
 						profileId: input.profileId,
-						setAttachments,
+						setFiles,
 						spaceId: input.spaceId,
 					})
 				)
@@ -108,97 +112,66 @@ export function useSpaceComposerAttachments(input: {
 	);
 
 	return {
-		addImages,
-		attachments,
-		clearAttachments,
-		isAtLimit: attachments.length >= SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
-		removeAttachment,
+		addFiles,
+		clearFiles,
+		files,
+		isAtLimit: files.length >= SPACE_MESSAGE_FILE_MAX_COUNT,
+		removeFile,
 	};
 }
 
-async function processPendingAttachment(input: {
-	activeAttachmentIds: Set<string>;
+async function uploadPendingFile(input: {
+	activeFileIds: Set<string>;
 	file: File;
-	item: SpaceComposerAttachment;
+	item: SpaceComposerFile;
 	organizationSlug: string;
-	previewUrlsByLocalId: Map<string, string>;
 	profileId: string;
-	setAttachments: Dispatch<SetStateAction<SpaceComposerAttachment[]>>;
+	setFiles: Dispatch<SetStateAction<SpaceComposerFile[]>>;
 	spaceId: string;
 }): Promise<void> {
-	let uploadStarted = false;
 	try {
-		updateAttachment(input.setAttachments, input.item.localId, (current) => ({
-			...current,
-			progress: 35,
-		}));
-		const prepared = await prepareSpaceImageAttachment(input.file);
-		if (!input.activeAttachmentIds.has(input.item.localId)) {
-			return;
+		if (input.file.size > SPACE_FILE_MAX_SIZE_BYTES) {
+			throw new Error(`${input.item.fileName} is larger than 10 MiB.`);
 		}
-
-		const convertedPreviewUrl = URL.createObjectURL(prepared.blob);
-		const previousPreviewUrl = input.previewUrlsByLocalId.get(
-			input.item.localId
-		);
-		input.previewUrlsByLocalId.set(input.item.localId, convertedPreviewUrl);
-		if (previousPreviewUrl) {
-			URL.revokeObjectURL(previousPreviewUrl);
-		}
-		updateAttachment(input.setAttachments, input.item.localId, (current) => ({
+		updateFile(input.setFiles, input.item.localId, (current) => ({
 			...current,
-			errorMessage: null,
-			errorRequestId: null,
-			fileName: prepared.fileName,
-			previewUrl: convertedPreviewUrl,
-			progress: 65,
-			status: "uploading",
+			progress: 55,
 		}));
-
-		uploadStarted = true;
 		const descriptor = await createOrganizationScopedWebSpaceApi({
 			organizationSlug: input.organizationSlug,
 			openMeldProfileId: input.profileId,
-		}).uploadAttachment({
-			bytes: prepared.blob,
-			fileName: prepared.fileName,
-			height: prepared.height,
-			mimeType: prepared.mimeType,
+		}).uploadFile({
+			bytes: input.file,
+			clientMutationId: crypto.randomUUID(),
+			mimeType: input.item.mimeType,
+			name: input.item.fileName,
+			parentId: null,
 			spaceId: input.spaceId,
-			width: prepared.width,
 		});
-		if (!input.activeAttachmentIds.has(input.item.localId)) {
+		if (!input.activeFileIds.has(input.item.localId)) {
 			return;
 		}
-		updateAttachment(input.setAttachments, input.item.localId, (current) => ({
+		updateFile(input.setFiles, input.item.localId, (current) => ({
 			...current,
-			descriptor: toMessageAttachment(descriptor),
+			descriptor: toMessageFileReference(descriptor),
 			errorMessage: null,
 			errorRequestId: null,
-			fileName: descriptor.fileName ?? prepared.fileName,
+			fileName: descriptor.name,
+			mimeType: descriptor.latestRevision.mimeType,
 			progress: 100,
 			status: "ready",
 		}));
 	} catch (error) {
-		if (!input.activeAttachmentIds.has(input.item.localId)) {
+		if (!input.activeFileIds.has(input.item.localId)) {
 			return;
 		}
-		const failure = uploadStarted
-			? resolveSpaceImageUploadFailure(toStructuredApiClientFailure(error))
-			: {
-					message:
-						error instanceof Error && error.message !== ""
-							? error.message
-							: "OpenMeld couldn't prepare this image. Try another image.",
-					requestId: null,
-				};
-		console.error("[openmeld.web.space.image_attachment_failed]", {
+		console.error("[openmeld.web.space.composer_file_failed]", {
 			error,
-			phase: uploadStarted ? "upload" : "preparation",
-			requestId: failure.requestId,
+			fileName: input.item.fileName,
 			spaceId: input.spaceId,
 		});
-		updateAttachment(input.setAttachments, input.item.localId, (current) => ({
+		const failure = resolveUploadFailure(error);
+		updateFile(input.setFiles, input.item.localId, (current) => ({
 			...current,
 			descriptor: null,
 			errorMessage: failure.message,
@@ -209,6 +182,35 @@ async function processPendingAttachment(input: {
 	}
 }
 
+function toMessageFileReference(
+	descriptor: SpaceFileDescriptor
+): SpaceMessageFileReference {
+	return {
+		fileId: descriptor.id,
+		mimeType: descriptor.latestRevision.mimeType,
+		name: descriptor.name,
+		revision: descriptor.latestRevision.revision,
+		sizeBytes: descriptor.latestRevision.sizeBytes,
+	};
+}
+
+function resolveUploadFailure(error: unknown): {
+	message: string;
+	requestId: string | null;
+} {
+	const failure = toStructuredApiClientFailure(error);
+	if (failure.code === "space_file.too_large") {
+		return {
+			message: "Files must be 10 MiB or smaller.",
+			requestId: failure.requestId,
+		};
+	}
+	return {
+		message: failure.message || "OpenMeld couldn't add this file. Try again.",
+		requestId: failure.requestId,
+	};
+}
+
 function releasePreviewUrls(previewUrlsByLocalId: Map<string, string>): void {
 	for (const previewUrl of previewUrlsByLocalId.values()) {
 		URL.revokeObjectURL(previewUrl);
@@ -216,33 +218,12 @@ function releasePreviewUrls(previewUrlsByLocalId: Map<string, string>): void {
 	previewUrlsByLocalId.clear();
 }
 
-function updateAttachment(
-	setAttachments: Dispatch<SetStateAction<SpaceComposerAttachment[]>>,
+function updateFile(
+	setFiles: Dispatch<SetStateAction<SpaceComposerFile[]>>,
 	localId: string,
-	update: (attachment: SpaceComposerAttachment) => SpaceComposerAttachment
+	update: (file: SpaceComposerFile) => SpaceComposerFile
 ): void {
-	setAttachments((current) =>
-		current.map((attachment) =>
-			attachment.localId === localId ? update(attachment) : attachment
-		)
+	setFiles((current) =>
+		current.map((file) => (file.localId === localId ? update(file) : file))
 	);
-}
-
-function toMessageAttachment(
-	descriptor: SpaceAttachmentDescriptor
-): SpaceMessageAttachment {
-	return {
-		id: descriptor.id,
-		mimeType: descriptor.mimeType,
-		sizeBytes: descriptor.sizeBytes,
-		...(descriptor.width === undefined ? {} : { width: descriptor.width }),
-		...(descriptor.height === undefined ? {} : { height: descriptor.height }),
-		...(descriptor.fileName === undefined
-			? {}
-			: { fileName: descriptor.fileName }),
-	};
-}
-
-function createLocalAttachmentId(): string {
-	return `composer-image:${crypto.randomUUID()}`;
 }

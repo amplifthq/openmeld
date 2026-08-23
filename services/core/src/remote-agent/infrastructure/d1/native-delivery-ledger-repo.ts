@@ -3,6 +3,7 @@ import {
   messageChannelConversationLocatorSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   spaceMessageAttachmentsSchema,
+  spaceMessageFileReferencesSchema,
   spaceThreadContextSchema,
 } from "@openmeld/schemas";
 import type {
@@ -10,6 +11,7 @@ import type {
   MessageChannelConversationLocator,
   RemoteAgentWorkerSubmitTurnRequest,
   SpaceMessageAttachment,
+  SpaceMessageFileReference,
   SpaceThreadContext,
 } from "@openmeld/schemas/types";
 
@@ -35,6 +37,15 @@ export type RemoteAgentFinalPublicationPayload =
       failureDetail: string | null;
       resumeStatus: "accepted" | "retry_observed";
       storageVersion: 2;
+      text: string;
+    }
+  | {
+      attachments: SpaceMessageAttachment[];
+      failureCode: string | null;
+      failureDetail: string | null;
+      files: SpaceMessageFileReference[];
+      resumeStatus: "accepted" | "retry_observed";
+      storageVersion: 3;
       text: string;
     };
 export type RemoteAgentProviderProgressState =
@@ -5692,6 +5703,29 @@ function parseFinalPublicationPayload(
   const attachments = spaceMessageAttachmentsSchema.safeParse(
     record.attachments
   );
+  if (record.storageVersion === 3) {
+    const files = spaceMessageFileReferencesSchema.safeParse(record.files);
+    if (
+      !(
+        attachments.success &&
+        files.success &&
+        Object.keys(record).length === 7
+      )
+    ) {
+      throw new Error(
+        "Remote Agent Native Delivery has an invalid final publication payload"
+      );
+    }
+    return {
+      attachments: attachments.data,
+      failureCode,
+      failureDetail,
+      files: files.data,
+      resumeStatus,
+      storageVersion: 3,
+      text,
+    };
+  }
   if (
     record.storageVersion !== 2 ||
     !attachments.success ||
