@@ -16,6 +16,7 @@ import {
 	type SidebarPersistedState,
 	writeInnerSidebarStateCookie,
 } from "#/lib/sidebar-width-cookie";
+import { useAppNavigationPresentation } from "./app-navigation-presentation";
 import { AppSidebarGroupStateProvider } from "./app-sidebar-group";
 import { CenterTruncatedText } from "./center-truncated-text";
 
@@ -31,6 +32,8 @@ export function AppInnerSidebar(input: AppInnerSidebarProps) {
 }
 
 function AppInnerSidebarState(input: AppInnerSidebarProps) {
+	const { presentation } = useAppNavigationPresentation();
+	const drawerPresentation = presentation === "drawer";
 	const [state, setState] = useState<SidebarPersistedState>(() =>
 		resolveClientInnerSidebarInitialState(
 			input.preferenceKey,
@@ -62,10 +65,10 @@ function AppInnerSidebarState(input: AppInnerSidebarProps) {
 		<SidebarProvider
 			maxWidth={SIDEBAR_MAX_WIDTH}
 			minWidth={SIDEBAR_MIN_WIDTH}
-			onWidthChange={handleWidthChange}
+			onWidthChange={drawerPresentation ? undefined : handleWidthChange}
 			open
 			side="left"
-			width={state.width}
+			width={drawerPresentation ? "100%" : state.width}
 		>
 			<Sidebar className="bg-background">
 				<AppSidebarGroupStateProvider
@@ -74,11 +77,13 @@ function AppInnerSidebarState(input: AppInnerSidebarProps) {
 				>
 					{input.children}
 				</AppSidebarGroupStateProvider>
-				<SidebarRail
-					enableToggle={false}
-					nested
-					separatorLabel={input.separatorLabel}
-				/>
+				{drawerPresentation ? null : (
+					<SidebarRail
+						enableToggle={false}
+						nested
+						separatorLabel={input.separatorLabel}
+					/>
+				)}
 			</Sidebar>
 		</SidebarProvider>
 	);

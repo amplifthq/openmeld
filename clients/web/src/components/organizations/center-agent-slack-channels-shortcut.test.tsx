@@ -17,6 +17,9 @@ describe("CenterAgentSlackChannelsShortcut", () => {
 
 		const trigger = screen.getByRole("button", { name: "Connect Slack" });
 		expect(trigger.querySelector('[data-icon="inline-start"]')).toBeTruthy();
+		expect(screen.getByText("Connect Slack").className).toContain(
+			"@min-[28rem]/app-main-header:inline"
+		);
 		fireEvent.click(trigger);
 
 		expect(screen.getByRole("heading", { name: "Connect Slack" })).toBeTruthy();

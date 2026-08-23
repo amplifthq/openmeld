@@ -103,6 +103,7 @@ export function AgentActivityPage(input: {
 	return (
 		<AppSurfaceLayout
 			globalControls={<AppGlobalControls />}
+			mobileSidebarTitle="Agent Activity"
 			outerRail={
 				<AppOuterRail
 					account={account}
