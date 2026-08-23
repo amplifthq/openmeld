@@ -1543,7 +1543,7 @@ when that provider connection needs repair. All status copy remains neutral
 gray rather than amber. When available, the drawer and connected card state
 show the provider account name or handle first and the exact provider email
 second, separated by a middle dot. Either field may be absent, and Web never
-infers one from the other. For Slack, Core
+infers one from the other or adds `@` to a provider display name. For Slack, Core
 resolves the display metadata for the exact linked Slack user through the
 connected Organization workspace; if neither field is available, Web says
 **Account details unavailable**. The current member can use **Reconnect Slack** to refresh a

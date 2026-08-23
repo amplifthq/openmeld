@@ -542,6 +542,7 @@ import type {
   SpaceBootstrapResponse,
   SpaceContract,
   SpaceDispatchTraceResponse,
+  SpaceDispatchTraceResponseContractVersion,
   SpaceIdentityDirectory,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
@@ -2031,6 +2032,7 @@ export type GetSpaceDispatchTraceInput = {
   spaceId: string;
   dispatchId: string;
   includeRemoteAgentRuntimeDiagnostics?: boolean;
+  responseContractVersion?: SpaceDispatchTraceResponseContractVersion;
   password?: string;
   context?: CoreRpcContextInput;
   spaceAccess?: SpaceAccessContext;
@@ -15914,6 +15916,9 @@ export async function rpcGetSpaceDispatchTrace(
     ...(input.includeRemoteAgentRuntimeDiagnostics === true
       ? { includeRemoteAgentRuntimeDiagnostics: true }
       : {}),
+    ...(input.responseContractVersion === undefined
+      ? {}
+      : { responseContractVersion: input.responseContractVersion }),
     ...access,
   });
 }

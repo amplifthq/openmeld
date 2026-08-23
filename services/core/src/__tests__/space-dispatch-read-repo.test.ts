@@ -1000,7 +1000,7 @@ describe("space dispatch read repo", () => {
     });
   });
 
-  it("keeps pending route registration compatible with the published strict CLI trace schema", async () => {
+  it("keeps pending route registration compatible while exposing it to the current trace contract", async () => {
     vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
     const readRuntimeCoordinatorHeadLifecycleTrace = vi
       .fn()
@@ -1055,6 +1055,29 @@ describe("space dispatch read repo", () => {
       readStatus: "found",
       status: "waiting",
       waitingBoundary: null,
+    });
+
+    const currentResult = await readSpaceDispatchTrace({
+      db: createTraceDb({
+        runtimeCoordinatorExecutionRow: undefined,
+      }),
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      readRuntimeCoordinatorHeadLifecycleTrace,
+      responseContractVersion: 2,
+      spaceId: "space-1",
+    });
+
+    expect(currentResult.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject({
+      readStatus: "found",
+      status: "waiting",
+      waitingBoundary: {
+        deadlineAt: "2023-11-14T22:18:20.000Z",
+        reasonCode: "daemon.profile.pending_first_report",
+        softDeadlineAt: "2023-11-14T22:13:50.000Z",
+        userRecoveryAction: "wait_for_wake_route_report",
+        waitingFor: "wake_route_report",
+      },
     });
 
     readRuntimeCoordinatorHeadLifecycleTrace.mockImplementation(({ request }) =>
@@ -1114,6 +1137,35 @@ describe("space dispatch read repo", () => {
         waitingBoundary: null,
       }
     );
+
+    const currentTerminalResult = await readSpaceDispatchTrace({
+      db: createTraceDb({
+        runtimeCoordinatorExecutionRow: undefined,
+      }),
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      readRuntimeCoordinatorHeadLifecycleTrace,
+      responseContractVersion: 2,
+      spaceId: "space-1",
+    });
+
+    expect(
+      currentTerminalResult.trace?.runtimeCoordinatorHeadLifecycle
+    ).toMatchObject({
+      noExecutionDecision: {
+        publicationCategory: "wake_route_registration_pending",
+        reasonCode: "daemon.profile.pending_first_report",
+        userRecoveryAction: "wait_for_wake_route_report",
+      },
+      publicationIntent: {
+        publicationCategory: "wake_route_registration_pending",
+        reasonCode: "daemon.profile.pending_first_report",
+        userRecoveryAction: "wait_for_wake_route_report",
+      },
+      readStatus: "found",
+      status: "publication_intent_ready",
+      waitingBoundary: null,
+    });
   });
 
   it("surfaces the runtime token diagnostic trace matrix without token secrets", async () => {

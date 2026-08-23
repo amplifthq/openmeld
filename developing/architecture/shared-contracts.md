@@ -4728,6 +4728,22 @@ Do not extract code only because two clients use the same noun. Extract only
 when the shared rule improves correctness, consistency, reuse, or long-term
 maintainability without weakening UX.
 
+## Dispatch Trace Response Contract
+
+`packages/schemas/src/schemas/http/space-dispatch-trace.ts` owns both the
+legacy and current strict trace response schemas. A caller requests the current
+contract by sending
+`x-openmeld-space-dispatch-trace-response-version: 2`. Without that header,
+Core projects the legacy subset and must omit current-only RuntimeCoordinator
+head values instead of sending a payload an already-published CLI cannot parse.
+
+The current schema accepts the legacy subset, so a new CLI remains compatible
+with an older Core that ignores the header. A new Core remains compatible with
+an older CLI because the missing header selects the legacy projection. This
+negotiation permits either rollout order and rollback; clients must not rebuild
+current waiting truth from historical dispatch attempts when the current head
+projection is absent.
+
 ## OpenMeld Request Context Header Text Encoding
 
 `packages/gateway-contract/src/headers.ts` owns the wire encoding of every

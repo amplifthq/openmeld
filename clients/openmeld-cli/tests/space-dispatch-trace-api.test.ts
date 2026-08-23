@@ -29,22 +29,20 @@ describe("Space dispatch trace API", () => {
   });
 
   it("preserves the first schema mismatch when a trace response is invalid", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            correlation: "invalid",
-            query: {},
-            trace: null,
-          }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          }
-        )
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          correlation: "invalid",
+          query: {},
+          trace: null,
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
       )
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     await expect(
       fetchSpaceDispatchTrace({
@@ -55,6 +53,15 @@ describe("Space dispatch trace API", () => {
       })
     ).rejects.toThrow(
       "invalid space dispatch trace response at correlation: Invalid input"
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://gateway.openmeld.invalid/v1/spaces/space-trace-test/dispatches/dispatch-trace-test/trace",
+      expect.objectContaining({
+        headers: {
+          authorization: "Bearer test-token",
+          "x-openmeld-space-dispatch-trace-response-version": "2",
+        },
+      })
     );
   });
 });

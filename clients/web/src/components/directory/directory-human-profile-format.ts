@@ -16,7 +16,6 @@ const DIRECTORY_RELATIVE_TIME_FORMATTER = new Intl.RelativeTimeFormat("en-US", {
 const MINUTE_IN_MS = 60_000;
 const HOUR_IN_MS = 60 * MINUTE_IN_MS;
 const DAY_IN_MS = 24 * HOUR_IN_MS;
-const WHITESPACE_PATTERN = /\s/;
 
 export function formatDirectoryActivity(
 	lastActiveAt: string | null,
@@ -117,16 +116,9 @@ export function resolveDirectoryIdentityAccountIdentity(
 		rawName &&
 		!nameLooksLikeEmail &&
 		rawName.toLowerCase() !== email?.toLowerCase()
-			? formatProviderAccountName(rawName)
+			? rawName
 			: null;
 	return [distinctName, email].filter(Boolean).join(" · ") || null;
-}
-
-function formatProviderAccountName(name: string): string {
-	if (name.startsWith("@") || WHITESPACE_PATTERN.test(name)) {
-		return name;
-	}
-	return `@${name}`;
 }
 
 export function resolveDirectoryRoleLabel(
