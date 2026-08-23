@@ -15,6 +15,8 @@ const spaceApiMocks = vi.hoisted(() => ({
 	getFile: vi.fn(),
 	listFileRevisions: vi.fn(),
 	listFiles: vi.fn(),
+	restoreFileEntry: vi.fn(),
+	restoreFileRevision: vi.fn(),
 	trashFileEntry: vi.fn(),
 	updateFileContent: vi.fn(),
 	updateFileEntry: vi.fn(),
@@ -44,6 +46,8 @@ const FILE = {
 	updatedAt: "2026-08-22T08:00:00.000Z",
 	createdBy: ACTOR,
 	updatedBy: ACTOR,
+	trashedAt: null,
+	trashedBy: null,
 	latestRevision: {
 		id: "revision-1",
 		fileId: "file-1",
@@ -88,6 +92,8 @@ const FOLDER = {
 	updatedAt: "2026-08-22T08:00:00.000Z",
 	createdBy: ACTOR,
 	updatedBy: ACTOR,
+	trashedAt: null,
+	trashedBy: null,
 };
 
 describe("SpaceFilesPanel", () => {
@@ -106,6 +112,7 @@ describe("SpaceFilesPanel", () => {
 		spaceApiMocks.listFiles.mockResolvedValue({
 			spaceId: "space-1",
 			parentId: null,
+			view: "active",
 			breadcrumbs: [{ id: null, name: "Files" }],
 			entries: [FILE],
 			capabilities: { canRead: true, canWrite: true },
@@ -207,6 +214,7 @@ describe("SpaceFilesPanel", () => {
 		spaceApiMocks.listFiles.mockResolvedValue({
 			spaceId: "space-1",
 			parentId: null,
+			view: "active",
 			breadcrumbs: [{ id: null, name: "Files" }],
 			entries: [IMAGE_FILE, FILE],
 			capabilities: { canRead: true, canWrite: true },
@@ -249,11 +257,13 @@ describe("SpaceFilesPanel", () => {
 
 	it("infers Markdown uploads through the shared file contract", async () => {
 		spaceApiMocks.uploadFile.mockResolvedValue(FILE);
-		renderPanel();
+		const view = renderPanel();
 
-		const upload = await screen.findByLabelText("Upload files");
+		await screen.findByText("launch-notes.md");
+		const upload = view.container.querySelector('input[type="file"]');
+		expect(upload).not.toBeNull();
 		const file = new File(["# Launch"], "brief.md", { type: "" });
-		fireEvent.change(upload, { target: { files: [file] } });
+		fireEvent.change(upload as HTMLInputElement, { target: { files: [file] } });
 
 		await waitFor(() =>
 			expect(spaceApiMocks.uploadFile).toHaveBeenCalledOnce()
@@ -266,10 +276,203 @@ describe("SpaceFilesPanel", () => {
 		);
 	});
 
+	it("uploads files dropped anywhere on the Files surface", async () => {
+		spaceApiMocks.uploadFile.mockResolvedValue(FILE);
+		renderPanel();
+
+		await screen.findByText("launch-notes.md");
+		const surface = await screen.findByLabelText("Space files");
+		const file = new File(["research"], "research.txt", {
+			type: "text/plain",
+		});
+		fireEvent.dragEnter(surface, {
+			dataTransfer: { files: [file], types: ["Files"] },
+		});
+		expect(screen.getByText("Drop files to upload")).toBeTruthy();
+		fireEvent.drop(surface, {
+			dataTransfer: { files: [file], types: ["Files"] },
+		});
+
+		await waitFor(() =>
+			expect(spaceApiMocks.uploadFile).toHaveBeenCalledWith(
+				expect.objectContaining({ name: "research.txt" })
+			)
+		);
+	});
+
+	it("keeps deleted entries in one recoverable Trash view", async () => {
+		const trashedFile = {
+			...FILE,
+			trashedAt: "2026-08-23T09:30:00.000Z",
+			trashedBy: ACTOR,
+		};
+		spaceApiMocks.listFiles.mockImplementation(
+			async ({ query }: { query: { view?: "active" | "trash" } }) =>
+				query.view === "trash"
+					? {
+							breadcrumbs: [
+								{ id: null, name: "Files" },
+								{ id: null, name: "Trash" },
+							],
+							capabilities: { canRead: true as const, canWrite: true },
+							entries: [trashedFile],
+							parentId: null,
+							spaceId: "space-1",
+							view: "trash" as const,
+						}
+					: {
+							breadcrumbs: [{ id: null, name: "Files" }],
+							capabilities: { canRead: true as const, canWrite: true },
+							entries: [FILE],
+							parentId: null,
+							spaceId: "space-1",
+							view: "active" as const,
+						}
+		);
+		spaceApiMocks.restoreFileEntry.mockResolvedValue(FILE);
+		renderPanel();
+
+		fireEvent.click(await screen.findByRole("button", { name: "Trash" }));
+		expect(await screen.findByText("Deleted by Mira Stone")).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Restore launch-notes.md" })
+		);
+
+		await waitFor(() =>
+			expect(spaceApiMocks.restoreFileEntry).toHaveBeenCalledWith(
+				expect.objectContaining({ entryId: FILE.id, spaceId: "space-1" })
+			)
+		);
+	});
+
+	it("previews and restores an older version without erasing history", async () => {
+		const currentFile = {
+			...PLAIN_TEXT_FILE,
+			latestRevision: {
+				...PLAIN_TEXT_FILE.latestRevision,
+				id: "revision-2",
+				revision: 2,
+			},
+		};
+		const firstRevision = {
+			...PLAIN_TEXT_FILE.latestRevision,
+			id: "revision-1",
+			revision: 1,
+		};
+		spaceApiMocks.listFiles.mockResolvedValue({
+			breadcrumbs: [{ id: null, name: "Files" }],
+			capabilities: { canRead: true, canWrite: true },
+			entries: [currentFile],
+			parentId: null,
+			spaceId: "space-1",
+			view: "active",
+		});
+		spaceApiMocks.listFileRevisions.mockResolvedValue({
+			file: currentFile,
+			revisions: [currentFile.latestRevision, firstRevision],
+		});
+		spaceApiMocks.downloadFileContent.mockImplementation(
+			async ({ revision }: { revision?: number }) => ({
+				bytes: new TextEncoder().encode(
+					revision === 1 ? "Original version" : "Current version"
+				).buffer,
+				mimeType: "text/plain",
+				revision: revision ?? 2,
+			})
+		);
+		spaceApiMocks.restoreFileRevision.mockResolvedValue({
+			...currentFile,
+			latestRevision: {
+				...currentFile.latestRevision,
+				id: "revision-3",
+				revision: 3,
+			},
+		});
+		renderPanel();
+
+		fireEvent.click(await screen.findByText("launch-notes.md"));
+		fireEvent.click(await screen.findByRole("button", { name: "History" }));
+		expect(
+			await screen.findByRole("heading", { name: "Version history" })
+		).toBeTruthy();
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Preview version 1" })
+		);
+		expect(await screen.findByText("Viewing version 1")).toBeTruthy();
+		expect(
+			(await screen.findByLabelText("File contents")).textContent
+		).toContain("Original version");
+		fireEvent.click(await screen.findByText("Restore this version"));
+
+		await waitFor(() =>
+			expect(spaceApiMocks.restoreFileRevision).toHaveBeenCalledWith(
+				expect.objectContaining({
+					baseRevision: 2,
+					fileId: FILE.id,
+					revision: 1,
+					spaceId: "space-1",
+				})
+			)
+		);
+	});
+
+	it("reopens the exact chat revision after returning to the current file", async () => {
+		const currentFile = {
+			...FILE,
+			latestRevision: {
+				...FILE.latestRevision,
+				id: "revision-2",
+				revision: 2,
+			},
+		};
+		const firstRevision = {
+			...FILE.latestRevision,
+			id: "revision-1",
+			revision: 1,
+		};
+		spaceApiMocks.getFile.mockResolvedValue({ file: currentFile });
+		spaceApiMocks.listFileRevisions.mockResolvedValue({
+			file: currentFile,
+			revisions: [currentFile.latestRevision, firstRevision],
+		});
+		spaceApiMocks.downloadFileContent.mockImplementation(
+			async ({ revision }: { revision?: number }) => ({
+				bytes: new TextEncoder().encode(
+					revision === 1 ? "Original version" : "Current version"
+				).buffer,
+				mimeType: "text/markdown",
+				revision: revision ?? 2,
+			})
+		);
+		const view = renderPanel({
+			fileToOpen: { fileId: FILE.id, requestId: "open-1", revision: 1 },
+		});
+
+		expect(
+			(await screen.findByLabelText("File contents")).textContent
+		).toContain("Original version");
+		fireEvent.click(screen.getByRole("button", { name: "Back to current" }));
+		await waitFor(() =>
+			expect(screen.getByLabelText("File contents").textContent).toContain(
+				"Current version"
+			)
+		);
+
+		view.rerenderPanel({
+			fileToOpen: { fileId: FILE.id, requestId: "open-2", revision: 1 },
+		});
+		await waitFor(() =>
+			expect(screen.getByLabelText("File contents").textContent).toContain(
+				"Original version"
+			)
+		);
+	});
+
 	it("keeps a writer’s draft when another player saved a newer revision", async () => {
 		spaceApiMocks.listFiles.mockResolvedValue({
 			spaceId: "space-1",
 			parentId: null,
+			view: "active",
 			breadcrumbs: [{ id: null, name: "Files" }],
 			entries: [PLAIN_TEXT_FILE],
 			capabilities: { canRead: true, canWrite: true },
@@ -303,6 +506,7 @@ describe("SpaceFilesPanel", () => {
 		spaceApiMocks.listFiles.mockResolvedValue({
 			spaceId: "space-1",
 			parentId: null,
+			view: "active",
 			breadcrumbs: [{ id: null, name: "Files" }],
 			entries: [PLAIN_TEXT_FILE],
 			capabilities: { canRead: true, canWrite: true },
@@ -335,6 +539,7 @@ describe("SpaceFilesPanel", () => {
 			async ({ query }: { query: { parentId: string | null } }) => ({
 				spaceId: "space-1",
 				parentId: query.parentId,
+				view: "active" as const,
 				breadcrumbs: [{ id: null, name: "Files" }],
 				entries: query.parentId === null ? [FOLDER, FILE] : [],
 				capabilities: { canRead: true, canWrite: true },
@@ -371,22 +576,30 @@ describe("SpaceFilesPanel", () => {
 	});
 });
 
-function renderPanel(input?: {
-	fileToOpen?: { fileId: string; requestId: string };
+type RenderPanelInput = {
+	fileToOpen?: { fileId: string; requestId: string; revision?: number };
 	readOnly?: boolean;
-}) {
+};
+
+function renderPanel(input?: RenderPanelInput) {
 	const queryClient = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	});
-	return render(
+	const renderTree = (nextInput?: RenderPanelInput) => (
 		<QueryClientProvider client={queryClient}>
 			<SpaceFilesPanel
-				fileToOpen={input?.fileToOpen}
+				fileToOpen={nextInput?.fileToOpen}
 				openMeldProfileId="human-files-test"
 				organizationSlug="ampli-lift"
-				readOnly={input?.readOnly}
+				readOnly={nextInput?.readOnly}
 				spaceId="space-1"
 			/>
 		</QueryClientProvider>
 	);
+	const result = render(renderTree(input));
+	return {
+		...result,
+		rerenderPanel: (nextInput?: RenderPanelInput) =>
+			result.rerender(renderTree(nextInput)),
+	};
 }

@@ -422,7 +422,7 @@ async function loadMoveDestinations(input: {
 		const parentId = pendingParentIds.shift() ?? ROOT_FOLDER_ID;
 		const result = await input.api.listFiles({
 			spaceId: input.spaceId,
-			query: { parentId },
+			query: { parentId, view: "active" },
 		});
 		for (const entry of result.entries) {
 			if (

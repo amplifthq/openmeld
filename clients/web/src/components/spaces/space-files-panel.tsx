@@ -18,6 +18,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 		actionError,
 		api,
 		canWrite,
+		changeView,
 		entryDialog,
 		fileInputRef,
 		filesQuery,
@@ -27,17 +28,21 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 		parentId,
 		pendingAction,
 		refreshFiles,
+		restoreEntry,
 		renameEntry,
 		runAction,
 		selectedFile,
+		selectedInitialRevision,
+		selectedOpenRequestId,
+		selectFile,
 		setActionError,
 		setEntryDialog,
 		setFolderDialogOpen,
 		setMarkdownFileDialogOpen,
 		setParentId,
-		setSelectedFile,
 		trashEntry,
 		uploadFiles,
+		view,
 	} = useSpaceFilesPanelController(input);
 
 	if (selectedFile) {
@@ -47,11 +52,14 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 					api={api}
 					canWrite={canWrite}
 					file={selectedFile}
-					onBack={() => setSelectedFile(null)}
+					initialRevision={selectedInitialRevision}
+					key={`${selectedFile.id}:${selectedInitialRevision ?? "latest"}:${selectedOpenRequestId ?? "manual"}`}
+					onBack={() => selectFile(null)}
 					onFileChanged={(file) => {
-						setSelectedFile(file);
+						selectFile(file);
 						refreshFiles().catch(() => undefined);
 					}}
+					onLeaveGuardChange={input.onLeaveGuardChange}
 					onMove={() => setEntryDialog({ entry: selectedFile, kind: "move" })}
 					onRename={() =>
 						setEntryDialog({ entry: selectedFile, kind: "rename" })
@@ -91,18 +99,32 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				onNewFolder={() => setFolderDialogOpen(true)}
 				onNewMarkdownFile={() => setMarkdownFileDialogOpen(true)}
 				onOpen={(entry) => {
+					if (view === "trash") {
+						return;
+					}
 					if (entry.kind === "folder") {
 						setParentId(entry.id);
 						return;
 					}
-					setSelectedFile(entry);
+					selectFile(entry);
 				}}
-				onOpenBreadcrumb={setParentId}
+				onOpenBreadcrumb={(folderId, name) => {
+					if (view === "trash") {
+						if (name === "Files") {
+							changeView("active");
+						}
+						return;
+					}
+					setParentId(folderId);
+				}}
 				onRename={(entry) => setEntryDialog({ entry, kind: "rename" })}
+				onRestore={restoreEntry}
 				onRetry={() => filesQuery.refetch()}
 				onTrash={(entry) => setEntryDialog({ entry, kind: "trash" })}
 				onUploadFiles={uploadFiles}
+				onViewChange={changeView}
 				spaceId={input.spaceId}
+				view={view}
 			/>
 			<FolderNameDialog
 				onOpenChange={setFolderDialogOpen}
@@ -145,7 +167,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 					);
 					if (succeeded) {
 						setMarkdownFileDialogOpen(false);
-						setSelectedFile(createdFile);
+						selectFile(createdFile);
 					}
 				}}
 				open={markdownFileDialogOpen}

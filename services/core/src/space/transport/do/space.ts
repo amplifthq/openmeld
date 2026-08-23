@@ -2327,11 +2327,21 @@ export class Space extends DurableObject<CoreBindings> {
       await this.authorizeSpaceAccess(input.spaceAccess)
     );
     const member = this.readSpaceFileActorMember(input.spaceAccess);
+    const canWrite =
+      member?.profileKindSnapshot === "human" ||
+      member?.profileKindSnapshot === "agent";
+    if ((input.query?.view ?? "active") === "trash" && !canWrite) {
+      throw createCoreRpcHttpError({
+        status: 403,
+        code: "space.membership_required",
+        reason: "Join this Space before viewing its Trash.",
+      });
+    }
     return this.spaceFileRepository.list({
       spaceId: this.spaceId,
       parentId: input.query?.parentId,
       view: input.query?.view,
-      canWrite: member !== null,
+      canWrite,
     });
   }
 

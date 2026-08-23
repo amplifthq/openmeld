@@ -3,7 +3,10 @@ import { toStructuredApiClientFailure } from "@openmeld/api-client";
 
 const SPACE_FILE_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	dateStyle: "medium",
-	timeZone: "UTC",
+});
+const SPACE_FILE_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	dateStyle: "medium",
+	timeStyle: "short",
 });
 
 export function resolveSpaceFileErrorMessage(error: unknown): string {
@@ -50,6 +53,10 @@ export function formatFileSize(sizeBytes: number): string {
 
 export function formatShortDate(value: string): string {
 	return SPACE_FILE_DATE_FORMATTER.format(new Date(value));
+}
+
+export function formatFileDateTime(value: string): string {
+	return SPACE_FILE_DATE_TIME_FORMATTER.format(new Date(value));
 }
 
 export function utf8ByteLength(value: string): number {

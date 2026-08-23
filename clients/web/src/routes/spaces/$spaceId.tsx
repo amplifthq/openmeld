@@ -134,6 +134,7 @@ export function PublicSpacePage(input: {
 	const [spaceFileToOpen, setSpaceFileToOpen] = useState<{
 		fileId: string;
 		requestId: string;
+		revision: number;
 	} | null>(null);
 	const [password, setPassword] = useState("");
 	const [passwordError, setPasswordError] = useState<string | null>(null);
@@ -141,8 +142,12 @@ export function PublicSpacePage(input: {
 	const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 	const threadTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-	const openSpaceFile = (fileId: string) => {
-		setSpaceFileToOpen({ fileId, requestId: crypto.randomUUID() });
+	const openSpaceFile = (fileId: string, revision: number) => {
+		setSpaceFileToOpen({
+			fileId,
+			requestId: crypto.randomUUID(),
+			revision,
+		});
 		setSelectedThreadId(null);
 		setSpaceView("files");
 	};

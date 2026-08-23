@@ -9,7 +9,7 @@ import type {
 	SpaceFileEntry,
 } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
 	createOrganizationScopedWebSpaceApi,
@@ -17,12 +17,14 @@ import {
 } from "#/lib/spaces/api";
 import { baseQueryOptions } from "#/query/query-config";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
+import type { SpaceFileLeaveGuard } from "./space-file-detail";
 import type { SpaceFileEntryDialogState } from "./space-file-dialogs";
 import { resolveSpaceFileErrorMessage } from "./space-file-utils";
 
 export type SpaceFilesPanelProps = {
-	fileToOpen?: { fileId: string; requestId: string } | null;
+	fileToOpen?: { fileId: string; requestId: string; revision?: number } | null;
 	openMeldProfileId?: string;
+	onLeaveGuardChange?: (guard: SpaceFileLeaveGuard | null) => void;
 	organizationSlug?: string;
 	readOnly?: boolean;
 	spaceId: string;
@@ -50,8 +52,27 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 	const queryClient = useQueryClient();
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const [parentId, setParentId] = useState<string | null>(ROOT_FOLDER_ID);
+	const [view, setView] = useState<"active" | "trash">("active");
 	const [selectedFile, setSelectedFile] = useState<SpaceFileDescriptor | null>(
 		null
+	);
+	const [selectedInitialRevision, setSelectedInitialRevision] = useState<
+		number | undefined
+	>(undefined);
+	const [selectedOpenRequestId, setSelectedOpenRequestId] = useState<
+		string | undefined
+	>(undefined);
+	const selectFile = useCallback(
+		(
+			file: SpaceFileDescriptor | null,
+			initialRevision?: number,
+			openRequestId?: string
+		) => {
+			setSelectedFile(file);
+			setSelectedInitialRevision(file ? initialRevision : undefined);
+			setSelectedOpenRequestId(file ? openRequestId : undefined);
+		},
+		[]
 	);
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
 	const [markdownFileDialogOpen, setMarkdownFileDialogOpen] = useState(false);
@@ -72,7 +93,12 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 					return;
 				}
 				setParentId(file.parentId);
-				setSelectedFile(file);
+				setView("active");
+				selectFile(
+					file,
+					input.fileToOpen?.revision,
+					input.fileToOpen?.requestId
+				);
 				setActionError(null);
 			})
 			.catch((error: unknown) => {
@@ -86,13 +112,13 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		return () => {
 			cancelled = true;
 		};
-	}, [api, input.fileToOpen, input.spaceId]);
+	}, [api, input.fileToOpen, input.spaceId, selectFile]);
 	const filesQuery = useQuery({
-		queryKey: spaceFileQueryKeys.folder(input.spaceId, parentId),
+		queryKey: spaceFileQueryKeys.folder(input.spaceId, parentId, view),
 		queryFn: async ({ signal }) =>
 			await api.listFiles({
 				spaceId: input.spaceId,
-				query: { parentId },
+				query: { parentId, view },
 				signal,
 			}),
 		gcTime: baseQueryOptions.gcTime,
@@ -215,9 +241,27 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		if (succeeded) {
 			setEntryDialog({ kind: "closed" });
 			if (selectedFile?.id === entry.id) {
-				setSelectedFile(null);
+				selectFile(null);
 			}
 		}
+	};
+	const restoreEntry = async (entry: SpaceFileEntry) => {
+		const succeeded = await runAction("restore-entry", async () =>
+			api.restoreFileEntry({
+				spaceId: input.spaceId,
+				entryId: entry.id,
+				clientMutationId: crypto.randomUUID(),
+			})
+		);
+		if (succeeded) {
+			toast.success(`Restored ${entry.name}`);
+		}
+	};
+	const changeView = (nextView: "active" | "trash") => {
+		setParentId(ROOT_FOLDER_ID);
+		selectFile(null);
+		setActionError(null);
+		setView(nextView);
 	};
 
 	return {
@@ -233,16 +277,21 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		parentId,
 		pendingAction,
 		refreshFiles,
+		restoreEntry,
 		renameEntry,
 		runAction,
 		selectedFile,
+		selectedInitialRevision,
+		selectedOpenRequestId,
 		setActionError,
 		setEntryDialog,
 		setFolderDialogOpen,
 		setMarkdownFileDialogOpen,
 		setParentId,
-		setSelectedFile,
+		selectFile,
 		trashEntry,
 		uploadFiles,
+		view,
+		changeView,
 	};
 }

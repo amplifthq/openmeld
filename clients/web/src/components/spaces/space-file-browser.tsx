@@ -19,6 +19,7 @@ import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowClockwiseIcon,
+	ArrowCounterClockwiseIcon,
 	CaretRightIcon,
 	DotsThreeIcon,
 	FileIcon,
@@ -33,7 +34,7 @@ import {
 	UploadSimpleIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
-import type { RefObject } from "react";
+import { type DragEvent, type RefObject, useState } from "react";
 import {
 	formatFileSize,
 	formatShortDate,
@@ -57,25 +58,79 @@ export function SpaceFileBrowser(input: {
 	onNewFolder: () => void;
 	onNewMarkdownFile: () => void;
 	onOpen: (entry: SpaceFileEntry) => void;
-	onOpenBreadcrumb: (folderId: string | null) => void;
+	onOpenBreadcrumb: (folderId: string | null, name: string) => void;
 	onRename: (entry: SpaceFileEntry) => void;
+	onRestore: (entry: SpaceFileEntry) => void;
 	onRetry: () => void;
 	onTrash: (entry: SpaceFileEntry) => void;
 	onUploadFiles: (files: readonly File[]) => Promise<void>;
 	spaceId: string;
+	view: "active" | "trash";
+	onViewChange: (view: "active" | "trash") => void;
 }) {
+	const [fileDragDepth, setFileDragDepth] = useState(0);
+	const acceptingDrop = input.canWrite && input.view === "active";
+	const fileDragActive = acceptingDrop && fileDragDepth > 0;
+	const enterFileDrag = (event: DragEvent<HTMLElement>) => {
+		if (!(acceptingDrop && isFileDrag(event))) {
+			return;
+		}
+		event.preventDefault();
+		setFileDragDepth((depth) => depth + 1);
+	};
+	const leaveFileDrag = (event: DragEvent<HTMLElement>) => {
+		if (!acceptingDrop) {
+			return;
+		}
+		event.preventDefault();
+		setFileDragDepth((depth) => Math.max(0, depth - 1));
+	};
+	const dropFiles = (event: DragEvent<HTMLElement>) => {
+		if (!(acceptingDrop && isFileDrag(event))) {
+			return;
+		}
+		event.preventDefault();
+		setFileDragDepth(0);
+		input
+			.onUploadFiles(Array.from(event.dataTransfer.files))
+			.catch(() => undefined);
+	};
 	return (
+		// biome-ignore lint/a11y/noNoninteractiveElementInteractions: the Files surface is a mouse drop target; the Upload button provides the keyboard equivalent.
 		<section
 			aria-label="Space files"
-			className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+			className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
+			onDragEnter={enterFileDrag}
+			onDragLeave={leaveFileDrag}
+			onDragOver={(event) => {
+				if (acceptingDrop && isFileDrag(event)) {
+					event.preventDefault();
+					event.dataTransfer.dropEffect = "copy";
+				}
+			}}
+			onDrop={dropFiles}
 		>
+			{fileDragActive ? (
+				<div className="pointer-events-none absolute inset-3 z-30 grid place-items-center rounded-xl border-2 border-primary border-dashed bg-background/95 shadow-lg">
+					<div className="text-center">
+						<UploadSimpleIcon
+							aria-hidden="true"
+							className="mx-auto size-8 text-primary"
+						/>
+						<p className="mt-3 font-medium text-sm">Drop files to upload</p>
+						<p className="mt-1 text-muted-foreground text-xs">
+							They’ll be shared in this folder.
+						</p>
+					</div>
+				</div>
+			) : null}
 			<div className="flex flex-wrap items-center justify-between gap-3 border-border border-b px-5 py-3.5">
 				<div className="min-w-0">
 					<div className="flex min-w-0 items-center gap-1 text-sm">
 						{input.breadcrumbs.map((crumb, index) => (
 							<span
 								className="flex min-w-0 items-center gap-1"
-								key={crumb.id ?? "root"}
+								key={`${crumb.id ?? "root"}:${crumb.name}`}
 							>
 								{index > 0 ? (
 									<CaretRightIcon
@@ -89,7 +144,7 @@ export function SpaceFileBrowser(input: {
 										index === input.breadcrumbs.length - 1 &&
 											"font-medium text-foreground"
 									)}
-									onClick={() => input.onOpenBreadcrumb(crumb.id)}
+									onClick={() => input.onOpenBreadcrumb(crumb.id, crumb.name)}
 									type="button"
 								>
 									{crumb.name}
@@ -98,18 +153,19 @@ export function SpaceFileBrowser(input: {
 						))}
 					</div>
 					<p className="mt-1 text-muted-foreground text-xs">
-						Shared with the people and agents in this Space.
+						{input.view === "trash"
+							? "Restore files you still need."
+							: "Shared with the people and agents in this Space."}
 					</p>
 				</div>
 				<div className="flex items-center gap-2">
 					{input.loaded && !input.canWrite ? (
 						<Badge variant="outline">View only</Badge>
 					) : null}
-					{input.canWrite ? (
+					{input.canWrite && input.view === "active" ? (
 						<>
 							<input
-								aria-label="Upload files"
-								className="sr-only"
+								className="hidden"
 								multiple={true}
 								onChange={(event) => {
 									const files = Array.from(event.currentTarget.files ?? []);
@@ -149,6 +205,28 @@ export function SpaceFileBrowser(input: {
 							</DropdownMenu>
 						</>
 					) : null}
+					{input.canWrite && input.view === "active" ? (
+						<Button
+							onClick={() => input.onViewChange("trash")}
+							size="sm"
+							type="button"
+							variant="ghost"
+						>
+							<TrashIcon aria-hidden="true" />
+							Trash
+						</Button>
+					) : null}
+					{input.view === "trash" ? (
+						<Button
+							onClick={() => input.onViewChange("active")}
+							size="sm"
+							type="button"
+							variant="outline"
+						>
+							<ArrowCounterClockwiseIcon aria-hidden="true" />
+							Back to Files
+						</Button>
+					) : null}
 				</div>
 			</div>
 			{input.actionError ? (
@@ -177,9 +255,11 @@ export function SpaceFileBrowser(input: {
 					onMove={input.onMove}
 					onOpen={input.onOpen}
 					onRename={input.onRename}
+					onRestore={input.onRestore}
 					onRetry={input.onRetry}
 					onTrash={input.onTrash}
 					spaceId={input.spaceId}
+					view={input.view}
 				/>
 			</div>
 		</section>
@@ -196,8 +276,10 @@ function SpaceFileBrowserContent(input: {
 	onMove: (entry: SpaceFileEntry) => void;
 	onRename: (entry: SpaceFileEntry) => void;
 	onRetry: () => void;
+	onRestore: (entry: SpaceFileEntry) => void;
 	onTrash: (entry: SpaceFileEntry) => void;
 	spaceId: string;
+	view: "active" | "trash";
 }) {
 	if (input.isPending) {
 		return (
@@ -240,18 +322,30 @@ function SpaceFileBrowserContent(input: {
 		);
 	}
 	if (input.entries.length === 0) {
+		const description = resolveEmptyStateDescription({
+			canWrite: input.canWrite,
+			view: input.view,
+		});
 		return (
 			<div className="flex min-h-64 flex-col items-center justify-center rounded-md border border-border/70 border-dashed px-6 text-center">
-				<FolderOpenIcon
-					aria-hidden="true"
-					className="size-8 text-muted-foreground"
-					weight="duotone"
-				/>
-				<h2 className="mt-3 font-medium">This folder is empty</h2>
+				{input.view === "trash" ? (
+					<TrashIcon
+						aria-hidden="true"
+						className="size-8 text-muted-foreground"
+						weight="duotone"
+					/>
+				) : (
+					<FolderOpenIcon
+						aria-hidden="true"
+						className="size-8 text-muted-foreground"
+						weight="duotone"
+					/>
+				)}
+				<h2 className="mt-3 font-medium">
+					{input.view === "trash" ? "Trash is empty" : "This folder is empty"}
+				</h2>
 				<p className="mt-1 max-w-md text-muted-foreground text-sm">
-					{input.canWrite
-						? "Create a Markdown file, upload a file, or add a folder to start working together."
-						: "There aren’t any shared files here yet."}
+					{description}
 				</p>
 			</div>
 		);
@@ -261,7 +355,9 @@ function SpaceFileBrowserContent(input: {
 		<div className="overflow-hidden rounded-md border border-border/70">
 			<div className="grid grid-cols-[minmax(0,1fr)_9rem_8rem_2rem] gap-3 border-border border-b bg-muted/25 px-4 py-2 text-muted-foreground text-xs max-sm:grid-cols-[minmax(0,1fr)_2rem]">
 				<span>Name</span>
-				<span className="max-sm:hidden">Updated</span>
+				<span className="max-sm:hidden">
+					{input.view === "trash" ? "Deleted" : "Updated"}
+				</span>
 				<span className="max-sm:hidden">Size</span>
 				<span className="sr-only">Actions</span>
 			</div>
@@ -271,50 +367,121 @@ function SpaceFileBrowserContent(input: {
 						className="group/entry grid grid-cols-[minmax(0,1fr)_9rem_8rem_2rem] items-center gap-3 px-2 py-1.5 hover:bg-muted/35 max-sm:grid-cols-[minmax(0,1fr)_2rem]"
 						key={entry.id}
 					>
-						<button
-							className="flex min-w-0 items-center gap-3 rounded-sm px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-							onClick={() => input.onOpen(entry)}
-							type="button"
-						>
-							<SpaceFileEntryVisual
-								api={input.api}
-								entry={entry}
-								spaceId={input.spaceId}
-							/>
-							<span className="min-w-0">
-								<span className="block truncate font-medium text-sm">
-									{entry.name}
+						{input.view === "active" ? (
+							<button
+								className="flex min-w-0 items-center gap-3 rounded-sm px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+								onClick={() => input.onOpen(entry)}
+								type="button"
+							>
+								<SpaceFileEntryVisual
+									api={input.api}
+									entry={entry}
+									previewImages={true}
+									spaceId={input.spaceId}
+								/>
+								<span className="min-w-0">
+									<span className="block truncate font-medium text-sm">
+										{entry.name}
+									</span>
+									<span className="block truncate text-muted-foreground text-xs sm:hidden">
+										{entry.kind === "folder"
+											? "Folder"
+											: formatFileSize(entry.latestRevision.sizeBytes)}
+									</span>
 								</span>
-								<span className="block truncate text-muted-foreground text-xs sm:hidden">
-									{entry.kind === "folder"
-										? "Folder"
-										: formatFileSize(entry.latestRevision.sizeBytes)}
+							</button>
+						) : (
+							<div className="flex min-w-0 items-center gap-3 px-2 py-1.5">
+								<SpaceFileEntryVisual
+									api={input.api}
+									entry={entry}
+									previewImages={false}
+									spaceId={input.spaceId}
+								/>
+								<span className="min-w-0">
+									<span className="block truncate font-medium text-sm">
+										{entry.name}
+									</span>
+									<span className="block truncate text-muted-foreground text-xs">
+										Deleted by{" "}
+										{entry.trashedBy?.displayName ?? "a Space member"}
+									</span>
 								</span>
-							</span>
-						</button>
+							</div>
+						)}
 						<span className="truncate text-muted-foreground text-xs max-sm:hidden">
-							{formatShortDate(entry.updatedAt)}
+							{formatShortDate(entry.trashedAt ?? entry.updatedAt)}
 						</span>
 						<span className="text-muted-foreground text-xs max-sm:hidden">
 							{entry.kind === "folder"
 								? "—"
 								: formatFileSize(entry.latestRevision.sizeBytes)}
 						</span>
-						{input.canWrite ? (
-							<EntryActions
-								entry={entry}
-								onMove={() => input.onMove(entry)}
-								onRename={() => input.onRename(entry)}
-								onTrash={() => input.onTrash(entry)}
-							/>
-						) : (
-							<span />
-						)}
+						<EntryRowAction
+							canWrite={input.canWrite}
+							entry={entry}
+							onMove={() => input.onMove(entry)}
+							onRename={() => input.onRename(entry)}
+							onRestore={() => input.onRestore(entry)}
+							onTrash={() => input.onTrash(entry)}
+							view={input.view}
+						/>
 					</li>
 				))}
 			</ul>
 		</div>
 	);
+}
+
+function resolveEmptyStateDescription(input: {
+	canWrite: boolean;
+	view: "active" | "trash";
+}): string {
+	if (input.view === "trash") {
+		return "Items moved to Trash will appear here.";
+	}
+	return input.canWrite
+		? "Create a Markdown file, upload a file, or add a folder to start working together."
+		: "There aren’t any shared files here yet.";
+}
+
+function EntryRowAction(input: {
+	canWrite: boolean;
+	entry: SpaceFileEntry;
+	onMove: () => void;
+	onRename: () => void;
+	onRestore: () => void;
+	onTrash: () => void;
+	view: "active" | "trash";
+}) {
+	if (input.view === "trash") {
+		return (
+			<Button
+				aria-label={`Restore ${input.entry.name}`}
+				onClick={input.onRestore}
+				size="icon-sm"
+				type="button"
+				variant="ghost"
+			>
+				<ArrowCounterClockwiseIcon aria-hidden="true" />
+			</Button>
+		);
+	}
+	if (!input.canWrite) {
+		return <span />;
+	}
+	return (
+		<EntryActions
+			entry={input.entry}
+			onMove={input.onMove}
+			onRename={input.onRename}
+			onTrash={input.onTrash}
+		/>
+	);
+}
+
+function isFileDrag(event: DragEvent<HTMLElement>): boolean {
+	return Array.from(event.dataTransfer.types).includes("Files");
 }
 
 function EntryActions(input: {
@@ -362,9 +529,11 @@ function EntryActions(input: {
 function SpaceFileEntryVisual(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	entry: SpaceFileEntry;
+	previewImages: boolean;
 	spaceId: string;
 }) {
 	if (
+		input.previewImages &&
 		input.entry.kind === "file" &&
 		input.entry.latestRevision.mimeType.startsWith("image/")
 	) {

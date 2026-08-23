@@ -405,6 +405,33 @@ describe("SpaceFileRepository", () => {
         code: "space.membership_required",
         status: 403,
       });
+
+      await expect(
+        instance.rpcListSpaceFiles({
+          spaceId,
+          query: { view: "active" },
+          spaceAccess: createAuthenticatedSpaceAccessContext({
+            spaceId,
+            requestContext: createRequestContext("profile-non-member"),
+          }),
+        })
+      ).resolves.toMatchObject({
+        capabilities: { canRead: true, canWrite: false },
+        view: "active",
+      });
+      await expect(
+        instance.rpcListSpaceFiles({
+          spaceId,
+          query: { view: "trash" },
+          spaceAccess: createAuthenticatedSpaceAccessContext({
+            spaceId,
+            requestContext: createRequestContext("profile-non-member"),
+          }),
+        })
+      ).rejects.toMatchObject({
+        code: "space.membership_required",
+        status: 403,
+      });
     });
   });
 });
