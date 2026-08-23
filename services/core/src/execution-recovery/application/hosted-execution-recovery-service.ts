@@ -155,7 +155,7 @@ export async function replayHostedRetainedExecutionResult(input: {
   }
   await input.markEffectStarted();
   const publication = await publishExecutionRecoveryToOrigin({
-    ...(payload.storageVersion === 2 && payload.attachments.length > 0
+    ...(payload.storageVersion !== 1 && payload.attachments.length > 0
       ? { attachments: payload.attachments }
       : {}),
     db: input.db,

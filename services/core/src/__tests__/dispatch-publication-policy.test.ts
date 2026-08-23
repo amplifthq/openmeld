@@ -308,6 +308,15 @@ describe("dispatch publication policy", () => {
         status: "success",
         spaceAction: {
           type: "post_message",
+          files: [
+            {
+              fileId: "file-1",
+              revision: 3,
+              name: "launch-brief.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 4096,
+            },
+          ],
           observedThroughSignalId: "sig-observed-through",
           messageEnvelope: {
             activationTargets: [],
@@ -336,6 +345,15 @@ describe("dispatch publication policy", () => {
       replyToSignalId: "sig-current",
       text: "Ship this version.",
     });
+    expect(plan.files).toEqual([
+      {
+        fileId: "file-1",
+        revision: 3,
+        name: "launch-brief.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 4096,
+      },
+    ]);
   });
 
   it("publishes explicit CLI post_message even when the runtime status is failed", () => {

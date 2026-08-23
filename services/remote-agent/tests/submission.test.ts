@@ -1975,6 +1975,53 @@ describe("remote agent submission", () => {
     });
   });
 
+  it("loads the exact canonical Space File revision without deleting it", async () => {
+    const objectKey =
+      "org/org_123/space/space_123/files/space-file-1/revisions/revision-2";
+    const request = createSubmitTurnRequest({
+      messages: [
+        {
+          attachments: [
+            {
+              fileName: "diagram.png",
+              id: "space-file-1",
+              mimeType: "image/png",
+              objectKey,
+              sizeBytes: 3,
+            },
+          ],
+          content: "What is shown here?",
+          role: "user",
+        },
+      ],
+    });
+    const admitted: Parameters<
+      RemoteAgentAdmissionHost["admitConversationTurn"]
+    >[] = [];
+    const bucket = createAttachmentBucket(async () =>
+      makeR2ObjectBody(objectKey, new Uint8Array([1, 2, 3]))
+    );
+
+    await submitRemoteAgentConversationTurn({
+      agentName: buildRemoteAgentName(request),
+      attachmentBucket: bucket,
+      host: createAdmissionHost(admitted),
+      input: request,
+      nowMs: () => TEST_NOW_MS,
+    });
+
+    expect(bucket.get).toHaveBeenCalledWith(objectKey);
+    expect(bucket.delete).not.toHaveBeenCalled();
+    expect(admitted[0]?.[0].images).toEqual([
+      {
+        data: "AQID",
+        filename: "diagram.png",
+        mimeType: "image/png",
+        type: "image",
+      },
+    ]);
+  });
+
   it("removes a transient Message Channel image only after admission succeeds", async () => {
     const request = createSubmitTurnRequest({
       messages: [

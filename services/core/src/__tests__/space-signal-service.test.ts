@@ -3655,6 +3655,69 @@ describe("space signal service", () => {
     );
   });
 
+  it("publishes the server-resolved Space File revision snapshot", async () => {
+    const buildTextSignal = vi.fn(() => createSignal());
+    const resolveMessageFiles = vi.fn(() => [
+      {
+        fileId: "file-1",
+        revision: 3,
+        name: "Canonical brief.md",
+        mimeType: "text/markdown",
+        sizeBytes: 512,
+      },
+    ]);
+    const response = await handlePostSignalUseCase({
+      body: {
+        type: "signal.text",
+        data: {
+          text: "Latest brief",
+          files: [
+            {
+              fileId: "file-1",
+              revision: 3,
+              name: "Untrusted client name.md",
+              mimeType: "application/pdf",
+              sizeBytes: 1,
+            },
+          ],
+        },
+      },
+      profile: createSignal().profile,
+      authoringPolicy: "user_authored",
+      buildTextSignal,
+      publishTextSignal: async () => undefined,
+      isDispatchSnapshotOversizeError: () => false,
+      dispatchSnapshotOversizeErrorCode: "dispatch.snapshot_oversize",
+      resolveMessageFiles,
+    });
+
+    expect(response.status).toBe(200);
+    expect(resolveMessageFiles).toHaveBeenCalledWith([
+      {
+        fileId: "file-1",
+        revision: 3,
+        name: "Untrusted client name.md",
+        mimeType: "application/pdf",
+        sizeBytes: 1,
+      },
+    ]);
+    expect(buildTextSignal).toHaveBeenCalledWith(
+      createSignal().profile,
+      "Latest brief",
+      {
+        files: [
+          {
+            fileId: "file-1",
+            revision: 3,
+            name: "Canonical brief.md",
+            mimeType: "text/markdown",
+            sizeBytes: 512,
+          },
+        ],
+      }
+    );
+  });
+
   it("forwards signal text messageEnvelope into buildTextSignal options", async () => {
     const buildTextSignal = vi.fn(() => createSignal());
     const response = await handlePostSignalUseCase({

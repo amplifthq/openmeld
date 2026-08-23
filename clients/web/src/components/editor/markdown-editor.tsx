@@ -9,20 +9,25 @@ import { DocumentEditorKit } from "#/components/editor/plugins/document-editor-k
 import { Editor, EditorContainer } from "#/components/editor/ui/editor";
 
 /**
- * The shared WYSIWYG Markdown surface for Organization Documents and
- * Organization Skills. Plate owns the rich editor state while callers persist
- * one CommonMark + GFM string.
+ * The shared WYSIWYG Markdown surface for Organization Documents,
+ * Organization Skills, and Space Files. Plate owns the rich editor state while
+ * callers persist one CommonMark + GFM string.
  *
  * Remount with a new React key when loading externally changed content.
  */
-export function MarkdownEditor(input: {
+type MarkdownEditorContentLimit =
+	| { maxBytes: number; maxChars?: never }
+	| { maxBytes?: never; maxChars: number };
+
+export type MarkdownEditorProps = {
 	ariaLabel?: string;
 	disabled?: boolean;
-	maxChars: number;
 	onChange: (value: string) => void;
 	placeholder?: string;
 	value: string;
-}) {
+} & MarkdownEditorContentLimit;
+
+export function MarkdownEditor(input: MarkdownEditorProps) {
 	const initialValue = useRef(input.value);
 	const editor = usePlateEditor({
 		plugins: DocumentEditorKit,
@@ -31,8 +36,12 @@ export function MarkdownEditor(input: {
 				.getApi(MarkdownPlugin)
 				.markdown.deserialize(initialValue.current),
 	});
-	const contentLength = input.value.length;
-	const overLimit = contentLength > input.maxChars;
+	const usesByteLimit = input.maxBytes !== undefined;
+	const contentLength = usesByteLimit
+		? new TextEncoder().encode(input.value).byteLength
+		: input.value.length;
+	const contentLimit = input.maxBytes ?? input.maxChars;
+	const overLimit = contentLength > contentLimit;
 
 	return (
 		<div className="grid gap-2">
@@ -61,10 +70,25 @@ export function MarkdownEditor(input: {
 					overLimit && "text-destructive"
 				)}
 			>
-				{contentLength.toLocaleString("en-US")} /{" "}
-				{input.maxChars.toLocaleString("en-US")} characters
+				{usesByteLimit
+					? `${formatBytes(contentLength)} / ${formatBytes(contentLimit)}`
+					: `${contentLength.toLocaleString("en-US")} / ${contentLimit.toLocaleString("en-US")} characters`}
 				{overLimit ? " — too long to save" : ""}
 			</p>
 		</div>
 	);
+}
+
+function formatBytes(value: number): string {
+	if (value < 1024) {
+		return `${value.toLocaleString("en-US")} B`;
+	}
+	if (value < 1024 * 1024) {
+		return `${(value / 1024).toLocaleString("en-US", {
+			maximumFractionDigits: 1,
+		})} KB`;
+	}
+	return `${(value / (1024 * 1024)).toLocaleString("en-US", {
+		maximumFractionDigits: 1,
+	})} MB`;
 }

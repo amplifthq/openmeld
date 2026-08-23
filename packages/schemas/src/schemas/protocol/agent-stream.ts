@@ -143,6 +143,8 @@ const agentWorkActivityKeySchema = z.enum([
   "space.agents.wake",
   "space.context.read",
   "space.create",
+  "space.files.read",
+  "space.files.update",
   "space.members.add",
   "space.message.post",
   "space.settings.update",

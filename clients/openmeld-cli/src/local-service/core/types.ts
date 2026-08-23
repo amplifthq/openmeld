@@ -27,6 +27,7 @@ import type {
   SkippedDaemonProfile as SharedSkippedDaemonProfile,
   SpaceContract,
   SpaceMessageAttachment,
+  SpaceMessageFileReference,
   SpaceThreadContext,
   WorkingLanguageGuidance,
 } from "@openmeld/schemas/types";
@@ -207,6 +208,7 @@ export type OpenMeldDaemonTaskErrorType =
 export type ParsedDispatchTask = {
   agentControllerConversationId: string | null;
   attachments: SpaceMessageAttachment[];
+  files: SpaceMessageFileReference[];
   attemptId: string;
   continuitySnapshot: OpenMeldDaemonDispatchContinuitySnapshot | null;
   contextIdMappingSpec: RuntimeAgentControllerConversationIdMappingSpec;
@@ -248,6 +250,7 @@ export type DispatchPromptBootstrapInput = {
   continuitySnapshot?: OpenMeldDaemonDispatchContinuitySnapshot | null;
   dispatchTriggerSource: "activation_targets" | "listen_all";
   imageAttachmentPromptSection?: string | null;
+  spaceFiles?: readonly SpaceMessageFileReference[] | null;
   organizationProtectedInformation?: string | null;
   workingLanguage?: WorkingLanguageGuidance | null;
   serviceFreshnessWarningLines?: string[] | null;

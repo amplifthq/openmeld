@@ -124,6 +124,36 @@ describe("local service dispatch bootstrap prompt", () => {
     );
   });
 
+  it("gives local agents exact commands for the canonical file revision that was sent", () => {
+    const prompt = buildDispatchPromptWithBootstrap({
+      cliEntry: "openmeld-dev",
+      shouldInjectBootstrap: false,
+      dispatchTriggerSource: "activation_targets",
+      prompt: "Review the attached launch brief.",
+      spaceFiles: [
+        {
+          fileId: "file-1",
+          revision: 3,
+          name: "launch-brief.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 4096,
+        },
+      ],
+      spaceId: "space_a",
+      targetProfileId: "agent_profile_a",
+    });
+
+    expect(prompt).toContain(
+      "Files shared with this message (canonical Space Files):"
+    );
+    expect(prompt).toContain(
+      '"launch-brief.pdf" — fileId=file-1, revision=3, type=application/pdf, size=4096 bytes.'
+    );
+    expect(prompt).toContain(
+      "`openmeld-dev space files download space_a <file-id> --revision <revision> --output <path> --profile agent_profile_a --view agent`"
+    );
+  });
+
   it("keeps working-language judgment stable while injecting only the current advisory per turn", () => {
     const base = {
       shouldInjectBootstrap: false,

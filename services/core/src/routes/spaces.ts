@@ -2,19 +2,35 @@ import { MAX_TEXT_LENGTH, normalizeProfileId } from "@openmeld/protocol";
 import {
   centerAgentOrganizationMemoryPolicyResponseSchema,
   centerAgentWipeMemberMemoryResponseSchema,
+  createSpaceFolderBodySchema,
+  createSpaceFolderResponseSchema,
   deriveCenterAgentDirectMessageSpaceProjection,
+  getSpaceFileResponseSchema,
+  listSpaceFileRevisionsResponseSchema,
+  listSpaceFilesQuerySchema,
+  listSpaceFilesResponseSchema,
   MAX_SPACE_NAME_LENGTH,
   organizationInformationProtectionPolicyResponseSchema,
   postResolvedSpaceMembersBodySchema,
+  restoreSpaceFileEntryBodySchema,
+  restoreSpaceFileEntryResponseSchema,
+  restoreSpaceFileRevisionBodySchema,
+  restoreSpaceFileRevisionResponseSchema,
   spaceAccessModeSchema,
+  spaceFileRevisionNumberSchema,
   spaceOrganizationVisibilitySchema,
+  trashSpaceFileEntryBodySchema,
+  trashSpaceFileEntryResponseSchema,
   updateCenterAgentOrganizationMemoryPolicyBodySchema,
   updateOrganizationInformationProtectionPolicyBodySchema,
+  updateSpaceFileEntryBodySchema,
+  updateSpaceFileEntryResponseSchema,
 } from "@openmeld/schemas";
 import type {
   SpaceAccessMode,
   SpaceOrganizationVisibility,
 } from "@openmeld/schemas/types";
+import { createAuthenticatedSpaceAccessContext } from "@openmeld/space";
 import type { Context, Hono } from "hono";
 import type {
   ClientErrorStatusCode,
@@ -26,6 +42,7 @@ import { identityDb, localStateDb } from "../lib/bindings";
 import {
   rpcReadCenterAgentOrganizationMemoryPolicy,
   rpcReadOrganizationInformationProtectionPolicy,
+  rpcRestoreSpaceFileRevision,
   rpcSetCenterAgentOrganizationMemoryPolicy,
   rpcSetOrganizationInformationProtectionPolicy,
   rpcWipeCurrentMemberCenterAgentMemory,
@@ -145,6 +162,27 @@ export function registerSpaceRoutes(app: Hono<HonoBindings>) {
     forwardToSpace(c, "/contract")
   );
   app.get("/v1/spaces/:spaceId/status", (c) => forwardToSpace(c, "/status"));
+  app.get("/v1/spaces/:spaceId/files", (c) => handleListSpaceFiles(c));
+  app.post("/v1/spaces/:spaceId/files/folders", (c) =>
+    handleCreateSpaceFolder(c)
+  );
+  app.get("/v1/spaces/:spaceId/files/:entryId/revisions", (c) =>
+    handleListSpaceFileRevisions(c)
+  );
+  app.post(
+    "/v1/spaces/:spaceId/files/:entryId/revisions/:revision/restore",
+    (c) => handleRestoreSpaceFileRevision(c)
+  );
+  app.get("/v1/spaces/:spaceId/files/:entryId", (c) => handleGetSpaceFile(c));
+  app.patch("/v1/spaces/:spaceId/files/:entryId", (c) =>
+    handleUpdateSpaceFileEntry(c)
+  );
+  app.delete("/v1/spaces/:spaceId/files/:entryId", (c) =>
+    handleTrashSpaceFileEntry(c)
+  );
+  app.post("/v1/spaces/:spaceId/files/:entryId/restore", (c) =>
+    handleRestoreSpaceFileEntry(c)
+  );
   app.get("/v1/spaces/:spaceId/result", (c) => forwardToSpace(c, "/result"));
   app.get("/v1/spaces/:spaceId/active-wake-progress", (c) =>
     forwardToSpace(c, "/active-wake-progress")
@@ -166,6 +204,268 @@ export function registerSpaceRoutes(app: Hono<HonoBindings>) {
   );
   app.patch("/v1/spaces/:spaceId/cursors/:profileId", (c) =>
     forwardCursorToSpace(c)
+  );
+}
+
+async function handleListSpaceFiles(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = resolveSpaceFilesTarget(c);
+  if (!target.ok) {
+    return target.response;
+  }
+  const parentId = c.req.query("parentId");
+  const view = c.req.query("view");
+  const query = listSpaceFilesQuerySchema.safeParse({
+    ...(parentId === undefined ? {} : { parentId }),
+    ...(view === undefined ? {} : { view }),
+  });
+  if (!query.success) {
+    return invalidSpaceFilesPayload(c, query.error.issues[0]?.message);
+  }
+  try {
+    const response = await target.stub.rpcListSpaceFiles({
+      spaceAccess: target.spaceAccess,
+      spaceId: target.spaceId,
+      query: query.data,
+    });
+    return c.json(listSpaceFilesResponseSchema.parse(response));
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
+}
+
+async function handleRestoreSpaceFileEntry(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = resolveSpaceFilesTarget(c);
+  if (!target.ok) {
+    return target.response;
+  }
+  const body = restoreSpaceFileEntryBodySchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  if (!body.success) {
+    return invalidSpaceFilesPayload(c, body.error.issues[0]?.message);
+  }
+  try {
+    const response = await target.stub.rpcRestoreSpaceFileEntry({
+      body: body.data,
+      entryId: c.req.param("entryId"),
+      spaceAccess: target.spaceAccess,
+      spaceId: target.spaceId,
+    });
+    return c.json(restoreSpaceFileEntryResponseSchema.parse(response));
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
+}
+
+async function handleRestoreSpaceFileRevision(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = resolveSpaceFilesTarget(c);
+  if (!target.ok) {
+    return target.response;
+  }
+  const body = restoreSpaceFileRevisionBodySchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  const revision = spaceFileRevisionNumberSchema.safeParse(
+    Number(c.req.param("revision"))
+  );
+  if (!body.success) {
+    return invalidSpaceFilesPayload(c, body.error.issues[0]?.message);
+  }
+  if (!revision.success) {
+    return invalidSpaceFilesPayload(c, revision.error.issues[0]?.message);
+  }
+  try {
+    const file = await rpcRestoreSpaceFileRevision(c.env, {
+      body: body.data,
+      fileId: c.req.param("entryId"),
+      revision: revision.data,
+      spaceAccess: target.spaceAccess,
+      spaceId: target.spaceId,
+    });
+    return c.json(restoreSpaceFileRevisionResponseSchema.parse({ file }));
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
+}
+
+async function handleCreateSpaceFolder(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = resolveSpaceFilesTarget(c);
+  if (!target.ok) {
+    return target.response;
+  }
+  const body = createSpaceFolderBodySchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  if (!body.success) {
+    return invalidSpaceFilesPayload(c, body.error.issues[0]?.message);
+  }
+  try {
+    const response = await target.stub.rpcCreateSpaceFolder({
+      body: body.data,
+      spaceAccess: target.spaceAccess,
+      spaceId: target.spaceId,
+    });
+    return c.json(createSpaceFolderResponseSchema.parse(response), 201);
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
+}
+
+async function handleGetSpaceFile(c: Context<HonoBindings>): Promise<Response> {
+  const target = resolveSpaceFilesTarget(c);
+  if (!target.ok) {
+    return target.response;
+  }
+  try {
+    const file = await target.stub.rpcGetSpaceFile({
+      fileId: c.req.param("entryId"),
+      spaceAccess: target.spaceAccess,
+      spaceId: target.spaceId,
+    });
+    return c.json(getSpaceFileResponseSchema.parse({ file }));
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
+}
+
+async function handleListSpaceFileRevisions(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = resolveSpaceFilesTarget(c);
+  if (!target.ok) {
+    return target.response;
+  }
+  try {
+    const response = await target.stub.rpcListSpaceFileRevisions({
+      fileId: c.req.param("entryId"),
+      spaceAccess: target.spaceAccess,
+      spaceId: target.spaceId,
+    });
+    return c.json(listSpaceFileRevisionsResponseSchema.parse(response));
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
+}
+
+async function handleUpdateSpaceFileEntry(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = resolveSpaceFilesTarget(c);
+  if (!target.ok) {
+    return target.response;
+  }
+  const body = updateSpaceFileEntryBodySchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  if (!body.success) {
+    return invalidSpaceFilesPayload(c, body.error.issues[0]?.message);
+  }
+  try {
+    const response = await target.stub.rpcUpdateSpaceFileEntry({
+      body: body.data,
+      entryId: c.req.param("entryId"),
+      spaceAccess: target.spaceAccess,
+      spaceId: target.spaceId,
+    });
+    return c.json(updateSpaceFileEntryResponseSchema.parse(response));
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
+}
+
+async function handleTrashSpaceFileEntry(
+  c: Context<HonoBindings>
+): Promise<Response> {
+  const target = resolveSpaceFilesTarget(c);
+  if (!target.ok) {
+    return target.response;
+  }
+  const body = trashSpaceFileEntryBodySchema.safeParse(
+    await c.req.json().catch(() => null)
+  );
+  if (!body.success) {
+    return invalidSpaceFilesPayload(c, body.error.issues[0]?.message);
+  }
+  try {
+    const response = await target.stub.rpcTrashSpaceFileEntry({
+      clientMutationId: body.data.clientMutationId,
+      entryId: c.req.param("entryId"),
+      spaceAccess: target.spaceAccess,
+      spaceId: target.spaceId,
+    });
+    return c.json(trashSpaceFileEntryResponseSchema.parse(response));
+  } catch (error) {
+    return mapRpcHttpError(c, error);
+  }
+}
+
+function resolveSpaceFilesTarget(c: Context<HonoBindings>):
+  | {
+      ok: true;
+      spaceAccess: ReturnType<typeof createAuthenticatedSpaceAccessContext>;
+      spaceId: string;
+      stub: DurableObjectStub<Space>;
+    }
+  | { ok: false; response: Response } {
+  const spaceId = c.req.param("spaceId");
+  if (!isHexSpaceId(spaceId)) {
+    return {
+      ok: false,
+      response: c.json(
+        {
+          error: {
+            code: "invalid_space_id",
+            message: "invalid space id: expected 64-char hex id",
+          },
+        },
+        404
+      ),
+    };
+  }
+  const stub = resolveSpaceStub(c.env.OPENMELD_SPACES, spaceId);
+  if (!stub) {
+    return {
+      ok: false,
+      response: c.json(
+        {
+          error: { code: "space.not_found", message: "space not found" },
+        },
+        404
+      ),
+    };
+  }
+  return {
+    ok: true,
+    spaceId,
+    stub,
+    spaceAccess: createAuthenticatedSpaceAccessContext({
+      spaceId,
+      requestContext: c.var.openMeldRequestContext,
+      password: c.var.spacePassword,
+    }),
+  };
+}
+
+function invalidSpaceFilesPayload(
+  c: Context<HonoBindings>,
+  message?: string
+): Response {
+  return c.json(
+    {
+      error: {
+        code: "invalid_payload",
+        message: message ?? "Invalid Space Files request.",
+      },
+    },
+    400
   );
 }
 

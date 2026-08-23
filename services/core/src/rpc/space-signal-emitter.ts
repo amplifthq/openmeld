@@ -29,6 +29,7 @@ import {
 type EmitSpaceTextSignalInput = {
   agentStreamId?: string;
   attachments?: SignalText["data"]["attachments"];
+  files?: SignalText["data"]["files"];
   env: CoreBindings;
   spaceId: string;
   profile: Profile;
@@ -62,6 +63,7 @@ export const emitSpaceTextSignal = async (
     text: input.text,
     authoringPolicy: input.authoringPolicy,
     ...(input.attachments ? { attachments: input.attachments } : {}),
+    ...(input.files ? { files: input.files } : {}),
     ...(input.messageEnvelope
       ? { messageEnvelope: input.messageEnvelope }
       : {}),
@@ -90,6 +92,7 @@ export const emitSpaceTextSignalOnceByClientMessageId = async (
     text: input.text,
     authoringPolicy: input.authoringPolicy,
     ...(input.attachments ? { attachments: input.attachments } : {}),
+    ...(input.files ? { files: input.files } : {}),
     ...(input.messageEnvelope
       ? { messageEnvelope: input.messageEnvelope }
       : {}),

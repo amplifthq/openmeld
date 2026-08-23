@@ -37,6 +37,10 @@ import type { AgentProfileEditDialogContext } from "#/components/agents/agent-pr
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { COMPLETED_PREPARE_SESSION_POINTER_STORAGE_KEY } from "#/components/connect/prepare-session-pointer";
+import {
+	UnsavedChangesDialog,
+	UnsavedChangesGuard,
+} from "#/components/forms/unsaved-changes-guard";
 import { CenterAgentSlackChannelsShortcut } from "#/components/organizations/center-agent-slack-channels-shortcut";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import {
@@ -101,6 +105,7 @@ import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participatio
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
+import { SpaceFilesPanel } from "./space-files-panel";
 import { SpaceHeader } from "./space-header";
 import {
 	isSameOwnerUserId,
@@ -143,6 +148,7 @@ import {
 	SPACE_WAKE_STATUS_REFRESH_WINDOW_MS,
 } from "./space-wake-status-refresh";
 import { useSpaceConversationReadCache } from "./use-space-conversation-read-cache";
+import { useSpaceFileNavigation } from "./use-space-file-navigation";
 import { useSpaceInboxReadPosition } from "./use-space-inbox-read-position";
 import { useSpaceLandingController } from "./use-space-landing-controller";
 import { useSpaceMessageReferences } from "./use-space-message-references";
@@ -396,7 +402,9 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 	const navigate = useNavigate();
 	const generatedSpaceViewId = useId();
 	const spaceViewIdPrefix = `space-view-${generatedSpaceViewId}`;
-	const [spaceView, setSpaceView] = useState<SpaceView>("messages");
+	const spaceFileNavigation = useSpaceFileNavigation();
+	const { changeSpaceView, openSpaceFile, spaceFileToOpen, spaceView } =
+		spaceFileNavigation;
 	const accountProfiles = resolveSpaceLandingAccountProfiles(
 		input.accountProfiles
 	);
@@ -1195,7 +1203,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		setupRecallNonce,
 	} = useSpaceSetupRecallWiring({
 		activeView: spaceView,
-		onViewChange: setSpaceView,
+		onViewChange: changeSpaceView,
 		setMembersOpen: handleMembersOpenChange,
 	});
 	const handleAddProfiles = useSpaceAddProfilesHandler({
@@ -1265,6 +1273,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		membersOpen,
 		membersPanelWidth,
 		modelCatalog,
+		openSpaceFile,
 		navigate,
 		organizationId,
 		recovery,
@@ -1273,10 +1282,11 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		setupRecallNonce,
 		spaceMemberRemovalHandler,
 		spaceName,
+		spaceFileToOpen,
+		spaceFileNavigation,
 		spaceReferencesById,
 		spaceView,
 		spaceViewIdPrefix,
-		setSpaceView,
 		wakeDisplayOverrideByProfileId,
 		wakeFailureTargetContextsByProfileId,
 	};
@@ -1357,9 +1367,9 @@ function SpaceLandingReady({
 		recovery,
 		refreshCurrentSpaceMemberFacts,
 		setupRecallAction,
+		spaceFileNavigation,
 		spaceView,
 		spaceViewIdPrefix,
-		setSpaceView,
 	} = state;
 	const currentSpaceControls = resolveCurrentSpaceControls({
 		isCurrentAccessConfirmed: controller.isCurrentAccessConfirmed,
@@ -1446,103 +1456,127 @@ function SpaceLandingReady({
 	const isCompactPresentation = input.presentation === "compact";
 
 	return (
-		<AppMainContent
-			bodyClassName="flex"
-			bodySlotName={resolveSpaceLandingBodySlotName(input.presentation)}
-			header={
-				<SpaceHeader
-					accessModeErrorMessage={controller.accessModeErrorMessage}
-					canManageSpaceAccess={currentSpaceControls.canManageSpaceAccess}
-					canManageSpaceName={currentSpaceControls.canManageSpaceName}
-					currentProfileName={currentProfileName}
-					deleteSpaceErrorMessage={controller.deleteSpaceErrorMessage}
-					hideShareControl={currentSpaceControls.hideShareControl}
-					isAccessModePending={controller.isAccessModePending}
-					isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
-					isDeleteSpacePending={controller.isDeleteSpacePending}
-					isLeaveSpacePending={controller.isLeaveSpacePending}
-					isSpaceNamePending={controller.isSpaceNamePending}
-					leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
-					liveErrorMessage={controller.liveErrorMessage}
-					liveState={controller.liveState}
-					managementControl={
-						<>
-							{input.centerAgentAboutControl}
-							{currentSpaceControls.managementControl}
-							{slackSettingsShortcut}
-						</>
-					}
-					membersControl={membersControl}
-					onDeleteSpace={controller.onDeleteSpace}
-					onLeaveSpace={
-						controller.isCurrentAccessConfirmed
-							? controller.onLeaveSpace
-							: undefined
-					}
-					onReconnectLiveUpdates={controller.onReconnectLiveUpdates}
-					onSetAccessMode={controller.onSetAccessMode}
-					onUpdateSpaceName={controller.onUpdateSpaceName}
-					renderFrame={false}
-					setupRecallAction={setupRecallAction}
-					showDeleteSpaceAction={
-						controller.isCurrentAccessConfirmed &&
-						controller.showDeleteSpaceAction
-					}
-					spaceNameErrorMessage={controller.spaceNameErrorMessage}
-					status={controller.status}
-					unreadCount={controller.unreadCount}
-					viewControl={
-						<SpaceViewTabs
-							activeView={spaceView}
-							className="shrink-0"
-							idPrefix={spaceViewIdPrefix}
-							onViewChange={setSpaceView}
-						/>
-					}
-				/>
-			}
-			showHeader={!isCompactPresentation}
-		>
-			<div
-				className="flex min-h-0 flex-1 overflow-hidden"
-				data-space-conversation-presentation={input.presentation}
-				data-space-members-panel-open={
-					isDesktopMembersPanel &&
-					membersOpen &&
-					!currentSpaceIsCenterAgentDirectMessage
+		<>
+			<SpaceFileNavigationGuards navigation={spaceFileNavigation} />
+			<AppMainContent
+				bodyClassName="flex"
+				bodySlotName={resolveSpaceLandingBodySlotName(input.presentation)}
+				header={
+					<SpaceHeader
+						accessModeErrorMessage={controller.accessModeErrorMessage}
+						canManageSpaceAccess={currentSpaceControls.canManageSpaceAccess}
+						canManageSpaceName={currentSpaceControls.canManageSpaceName}
+						currentProfileName={currentProfileName}
+						deleteSpaceErrorMessage={controller.deleteSpaceErrorMessage}
+						hideShareControl={currentSpaceControls.hideShareControl}
+						isAccessModePending={controller.isAccessModePending}
+						isCenterAgentDirectMessage={currentSpaceIsCenterAgentDirectMessage}
+						isDeleteSpacePending={controller.isDeleteSpacePending}
+						isLeaveSpacePending={controller.isLeaveSpacePending}
+						isSpaceNamePending={controller.isSpaceNamePending}
+						leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
+						liveErrorMessage={controller.liveErrorMessage}
+						liveState={controller.liveState}
+						managementControl={
+							<>
+								{input.centerAgentAboutControl}
+								{currentSpaceControls.managementControl}
+								{slackSettingsShortcut}
+							</>
+						}
+						membersControl={membersControl}
+						onDeleteSpace={controller.onDeleteSpace}
+						onLeaveSpace={
+							controller.isCurrentAccessConfirmed
+								? controller.onLeaveSpace
+								: undefined
+						}
+						onReconnectLiveUpdates={controller.onReconnectLiveUpdates}
+						onSetAccessMode={controller.onSetAccessMode}
+						onUpdateSpaceName={controller.onUpdateSpaceName}
+						renderFrame={false}
+						setupRecallAction={setupRecallAction}
+						showDeleteSpaceAction={
+							controller.isCurrentAccessConfirmed &&
+							controller.showDeleteSpaceAction
+						}
+						spaceNameErrorMessage={controller.spaceNameErrorMessage}
+						status={controller.status}
+						unreadCount={controller.unreadCount}
+						viewControl={
+							<SpaceViewTabs
+								activeView={spaceView}
+								className="shrink-0"
+								idPrefix={spaceViewIdPrefix}
+								onViewChange={spaceFileNavigation.changeSpaceView}
+							/>
+						}
+					/>
 				}
-				data-space-thread-panel-open={controller.activeThread !== null}
-				style={
-					{
-						"--space-members-panel-width": membersPanelWidth.width,
-					} as CSSProperties
-				}
+				showHeader={!isCompactPresentation}
 			>
-				<SpaceLandingConversation
-					agentDirectConversationKind={agentDirectConversationKind}
-					composerProfileControl={composerProfileControl}
-					controller={controller}
-					currentSpaceControls={currentSpaceControls}
-					historyErrorMessage={historyErrorMessage}
-					input={input}
-					prepareSetupHref={prepareSetupHref}
-					state={state}
-				/>
-				{isCompactPresentation ||
-				!controller.isCurrentAccessConfirmed ? null : (
-					<SpaceLandingSecondaryPanels
+				<div
+					className="flex min-h-0 flex-1 overflow-hidden"
+					data-space-conversation-presentation={input.presentation}
+					data-space-members-panel-open={
+						isDesktopMembersPanel &&
+						membersOpen &&
+						!currentSpaceIsCenterAgentDirectMessage
+					}
+					data-space-thread-panel-open={controller.activeThread !== null}
+					style={
+						{
+							"--space-members-panel-width": membersPanelWidth.width,
+						} as CSSProperties
+					}
+				>
+					<SpaceLandingConversation
 						agentDirectConversationKind={agentDirectConversationKind}
-						agentProfileEditContext={agentProfileEditContext}
 						composerProfileControl={composerProfileControl}
 						controller={controller}
 						currentSpaceControls={currentSpaceControls}
+						historyErrorMessage={historyErrorMessage}
 						input={input}
 						prepareSetupHref={prepareSetupHref}
 						state={state}
 					/>
-				)}
-			</div>
-		</AppMainContent>
+					{isCompactPresentation ||
+					!controller.isCurrentAccessConfirmed ? null : (
+						<SpaceLandingSecondaryPanels
+							agentDirectConversationKind={agentDirectConversationKind}
+							agentProfileEditContext={agentProfileEditContext}
+							composerProfileControl={composerProfileControl}
+							controller={controller}
+							currentSpaceControls={currentSpaceControls}
+							input={input}
+							prepareSetupHref={prepareSetupHref}
+							state={state}
+						/>
+					)}
+				</div>
+			</AppMainContent>
+		</>
+	);
+}
+
+function SpaceFileNavigationGuards(input: {
+	navigation: ReturnType<typeof useSpaceFileNavigation>;
+}) {
+	return (
+		<>
+			<UnsavedChangesGuard
+				description="Your changes to this Space file haven't been saved."
+				hasUnsavedChanges={input.navigation.hasUnsavedFileChanges}
+				onSave={input.navigation.saveCurrentFile}
+			/>
+			<UnsavedChangesDialog
+				description="Your changes to this Space file haven't been saved."
+				onCancel={input.navigation.cancelPendingNavigation}
+				onDiscard={input.navigation.discardAndContinue}
+				onSaveAndLeave={input.navigation.saveAndContinue}
+				open={input.navigation.pendingNavigation !== null}
+			/>
+		</>
 	);
 }
 
@@ -1578,13 +1612,15 @@ function SpaceLandingConversation({
 		handleSetupVisibilityChange,
 		isDirectMessage,
 		modelCatalog,
+		openSpaceFile,
 		recovery,
 		setupRecallNonce,
 		spaceName,
+		spaceFileToOpen,
 		spaceReferencesById,
 		spaceView,
 		spaceViewIdPrefix,
-		setSpaceView,
+		spaceFileNavigation,
 		wakeFailureTargetContextsByProfileId,
 	} = state;
 	return (
@@ -1597,10 +1633,10 @@ function SpaceLandingConversation({
 			className="min-w-0"
 			composerAddressingSummary={controller.composerAddressingSummary}
 			composerAddressingTargets={controller.composerAddressingTargets}
-			composerAttachmentLimitReached={controller.composerAttachmentLimitReached}
-			composerAttachments={controller.composerAttachments}
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
 			composerErrorMessage={controller.composerErrorMessage}
+			composerFileLimitReached={controller.composerFileLimitReached}
+			composerFiles={controller.composerFiles}
 			composerHasAuthoredMentions={controller.composerHasAuthoredMentions}
 			composerReplyToSignalId={controller.composerReplyToSignalId}
 			composerSelection={controller.composerSelection}
@@ -1611,6 +1647,16 @@ function SpaceLandingConversation({
 			}
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
+			files={
+				<SpaceFilesPanel
+					fileToOpen={spaceFileToOpen}
+					key={controller.spaceId}
+					onLeaveGuardChange={spaceFileNavigation.setSpaceFileLeaveGuard}
+					openMeldProfileId={controller.profileId}
+					organizationSlug={input.orgSlug}
+					spaceId={controller.spaceId}
+				/>
+			}
 			firstUnreadSignalId={controller.firstUnreadSignalId}
 			hasEarlierHistory={controller.hasEarlierHistory}
 			historyActionErrorMessage={controller.historyActionErrorMessage}
@@ -1630,7 +1676,7 @@ function SpaceLandingConversation({
 			membersSnapshot={controller.membersSnapshot}
 			mentionPopoverState={controller.mentionPopoverState}
 			modelCatalog={modelCatalog}
-			onAddComposerImages={controller.onAddComposerImages}
+			onAddComposerFiles={controller.onAddComposerFiles}
 			onAgentInteractionResponse={controller.onAgentInteractionResponse}
 			onAgentRecoveryAction={handleAgentRecoveryAction}
 			onClearComposerReplyTo={controller.onClearComposerReplyTo}
@@ -1644,15 +1690,16 @@ function SpaceLandingConversation({
 			onMentionItemSelect={controller.onMentionItemSelect}
 			onMentionPopoverClose={controller.onMentionPopoverClose}
 			onMentionRelationChange={controller.onMentionRelationChange}
+			onOpenSpaceFile={openSpaceFile}
 			onOpenThread={controller.onOpenThread}
 			onRecoverExecution={controller.onRecoverExecution}
-			onRemoveComposerAttachment={controller.onRemoveComposerAttachment}
+			onRemoveComposerFile={controller.onRemoveComposerFile}
 			onReplyToMessage={controller.onReplyToMessage}
 			onReportMessage={controller.onReportMessage}
 			onRetryWakeTarget={controller.onRetryWakeTarget}
 			onSend={controller.onSend}
 			onSendStarterPrompt={controller.onSendText}
-			onSpaceViewChange={setSpaceView}
+			onSpaceViewChange={spaceFileNavigation.changeSpaceView}
 			onViewingLatestChange={controller.onConversationViewingLatestChange}
 			onWakeStopRequest={controller.onWakeStopRequest}
 			orgSlug={input.orgSlug}
@@ -1742,6 +1789,7 @@ function SpaceLandingSecondaryPanels({
 		membersOpen,
 		membersPanelWidth,
 		modelCatalog,
+		openSpaceFile,
 		refreshCurrentSpaceMemberFacts,
 		spaceMemberRemovalHandler,
 		spaceReferencesById,
@@ -1793,12 +1841,15 @@ function SpaceLandingSecondaryPanels({
 					controller.threadComposerBlockedWakeProfileId
 				}
 				composerErrorMessage={controller.threadComposerErrorMessage}
+				composerFileLimitReached={controller.threadComposerFileLimitReached}
+				composerFiles={controller.threadComposerFiles}
 				composerHasAuthoredMentions={
 					controller.threadComposerHasAuthoredMentions
 				}
 				composerSelection={controller.threadComposerSelection}
 				composerText={controller.threadComposerText}
 				ephemeralActivityItems={controller.threadEphemeralActivityItems}
+				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
 				initialFocusSignalId={input.initialFocusSignalId}
 				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 				isAgentRecoveryPending={controller.isAgentRecoveryPending}
@@ -1809,6 +1860,7 @@ function SpaceLandingSecondaryPanels({
 				isSendingMessage={controller.isSendingThreadMessage}
 				membersSnapshot={controller.membersSnapshot}
 				mentionPopoverState={controller.threadMentionPopoverState}
+				onAddComposerFiles={controller.onAddThreadComposerFiles}
 				onAgentInteractionResponse={controller.onAgentInteractionResponse}
 				onAgentRecoveryAction={handleAgentRecoveryAction}
 				onClose={controller.onCloseThread}
@@ -1819,7 +1871,12 @@ function SpaceLandingSecondaryPanels({
 				onMentionItemSelect={controller.onThreadMentionItemSelect}
 				onMentionPopoverClose={controller.onThreadMentionPopoverClose}
 				onMentionRelationChange={controller.onThreadMentionRelationChange}
+				onOpenSpaceFile={(fileId, revision) => {
+					controller.onCloseThread();
+					openSpaceFile(fileId, revision);
+				}}
 				onRecoverExecution={controller.onRecoverExecution}
+				onRemoveComposerFile={controller.onRemoveThreadComposerFile}
 				onReportMessage={controller.onReportMessage}
 				onRetryWakeTarget={controller.onRetryWakeTarget}
 				onSend={controller.onThreadSend}

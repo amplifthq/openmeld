@@ -326,6 +326,7 @@ import { isSpaceCommandOutputHandledError } from "./space/command-output-handled
 import { runSpaceContract } from "./space/contract-command";
 import { runSpaceContractSet } from "./space/contract-set-command";
 import { normalizePublicationModeCliValue } from "./space/contract-set-options";
+import { registerSpaceFilesCommands } from "./space/files-registration";
 import {
   runSpaceGuideClear,
   runSpaceGuideRead,
@@ -2716,6 +2717,8 @@ spaceCmd
     });
   });
 
+registerSpaceFilesCommands(spaceCmd);
+
 const spaceActionCmd = spaceCmd
   .command("action")
   .description("Record a dispatch-scoped OpenMeld Space Action.")
@@ -2739,8 +2742,15 @@ spaceActionCmd
     collectRepeatedOptionValue,
     []
   )
+  .option(
+    "--file <path>",
+    "Share a local file in this Space reply",
+    collectRepeatedOptionValue,
+    []
+  )
   .action(async (messageParts, opts) => {
     await runSpaceActionReply({
+      filePaths: Array.isArray(opts.file) ? opts.file : [],
       messageParts: Array.isArray(messageParts) ? messageParts : [],
       wakeTargets: Array.isArray(opts.wake) ? opts.wake : [],
       referenceTargets: Array.isArray(opts.reference) ? opts.reference : [],
@@ -3510,13 +3520,13 @@ withSpaceProfileOption(
     .argument("[space]", "Space ID (64-character hex)")
     .argument("[text...]", "Text to send")
     .option(
-      "--attach <path>",
-      "Upload a JPEG or PNG attachment before sending (repeatable, max 4)",
+      "--file <path>",
+      "Share a local file in this Space message (repeatable, max 10)",
       collectRepeatedOptionValue,
       []
     )
     .option("--stdin", "Read message text from stdin (EOF to finish)", false)
-    .option("--file <path>", "Read message text from a UTF-8 file")
+    .option("--text-file <path>", "Read message text from a UTF-8 file")
     .option(
       "--plain",
       "Send text literally without resolving @Name(wake) or @Name(reference) mentions",
@@ -3551,13 +3561,11 @@ withSpaceProfileOption(
         profile: cliOptions.profile,
         baseUrl: cliOptions.gatewayUrl,
         space: spaceValue,
-        attachmentPaths: Array.isArray(opts.attach)
-          ? opts.attach.map(String)
-          : [],
+        filePaths: Array.isArray(opts.file) ? opts.file.map(String) : [],
         password: cliOptions.password,
         text: textValue,
         stdin: Boolean(opts.stdin),
-        file: typeof opts.file === "string" ? opts.file : undefined,
+        textFile: typeof opts.textFile === "string" ? opts.textFile : undefined,
         plainText: opts.plain === true,
         replyToSignalId:
           typeof opts.replyTo === "string" ? opts.replyTo : undefined,
@@ -4163,7 +4171,13 @@ program
   .option("--base-url <url>", "OpenMeld gateway URL")
   .option("--space <space>", "Space ID (64-character hex)")
   .option("--stdin", "Read message text from stdin (EOF to finish)", false)
-  .option("--file <path>", "Read message text from a UTF-8 file")
+  .option(
+    "--file <path>",
+    "Share a local file in this Space message (repeatable, max 10)",
+    collectRepeatedOptionValue,
+    []
+  )
+  .option("--text-file <path>", "Read message text from a UTF-8 file")
   .option(
     "--plain",
     "Send text literally without resolving @Name(wake) or @Name(reference) mentions",
@@ -4178,7 +4192,8 @@ program
         baseUrl?: string;
         space?: string;
         stdin?: boolean;
-        file?: string;
+        file?: string[];
+        textFile?: string;
         plain?: boolean;
         password?: string;
       }
@@ -4201,7 +4216,9 @@ program
             password: opts.password,
             text: Array.isArray(textParts) ? textParts.join(" ") : "",
             stdin: Boolean(opts.stdin),
-            file: typeof opts.file === "string" ? opts.file : undefined,
+            filePaths: Array.isArray(opts.file) ? opts.file.map(String) : [],
+            textFile:
+              typeof opts.textFile === "string" ? opts.textFile : undefined,
             plainText: opts.plain === true,
             view,
             entryChecksHandled: true,

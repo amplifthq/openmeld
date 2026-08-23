@@ -104,6 +104,23 @@ describe("Agent work presentation", () => {
 		).toBe("Couldn't review Slack channel history");
 	});
 
+	it("describes Space file collaboration without calling it source code", () => {
+		expect(
+			resolveAgentWorkPresentation(
+				{ v: 1, key: "space.files.read" },
+				"input-available",
+				true
+			).text
+		).toBe("Reviewing Space files…");
+		expect(
+			resolveAgentWorkPresentation(
+				{ v: 1, key: "space.files.update" },
+				"output-available",
+				false
+			).text
+		).toBe("Updated Space files");
+	});
+
 	it("describes member Service-status reads precisely", () => {
 		expect(
 			resolveAgentWorkPresentation(

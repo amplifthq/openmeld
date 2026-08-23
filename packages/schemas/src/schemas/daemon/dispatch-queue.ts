@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { spaceMessageFileReferencesSchema } from "../http/space-files";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { spacePasswordSchema } from "../http/space-password";
 import { centerAgentInteractionSourceSchema } from "../protocol/center-agent-interaction-source";
@@ -75,6 +76,7 @@ export const openMeldDaemonDispatchSourceSignalSnapshotSchema = z.strictObject({
   profileKind: z.enum(["agent", "human", "system"]).nullable(),
   profileMentionLabel: spaceMentionLabelSchema.optional(),
   attachments: spaceMessageAttachmentsSchema.optional(),
+  files: spaceMessageFileReferencesSchema.optional(),
   centerAgentInteractionSource: centerAgentInteractionSourceSchema.optional(),
 });
 

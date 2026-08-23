@@ -99,6 +99,10 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_read_slack_channel_members", "slack.channel.members.read"],
   ["openmeld_read_slack_workspace_directory", "slack.members.read"],
   ["openmeld_read_space_context", "space.context.read"],
+  ["openmeld_list_space_files", "space.files.read"],
+  ["openmeld_read_space_file", "space.files.read"],
+  ["openmeld_save_space_file", "space.files.update"],
+  ["openmeld_manage_space_files", "space.files.update"],
   ["openmeld_remember_for_organization", "organization.memory.update"],
   [
     "openmeld_set_organization_working_language",

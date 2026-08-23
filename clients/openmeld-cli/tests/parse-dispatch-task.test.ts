@@ -1,6 +1,7 @@
 import type {
   RuntimeTransportDeliverDispatchRequest,
   SpaceMessageAttachment,
+  SpaceMessageFileReference,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { parseDispatchTask } from "../src/local-service/dispatch/parse-dispatch-task";
@@ -8,6 +9,7 @@ import { parseDispatchTask } from "../src/local-service/dispatch/parse-dispatch-
 function createDeliverRequest(input: {
   activationTargets?: string[];
   attachments?: SpaceMessageAttachment[];
+  files?: SpaceMessageFileReference[];
   defaultProjectId?: string;
   dispatchPolicy?: "listen_all" | "mention_only";
   sourceText?: string;
@@ -83,6 +85,7 @@ function createDeliverRequest(input: {
       },
       sourceSignalSnapshot: {
         ...(input.attachments ? { attachments: input.attachments } : {}),
+        ...(input.files ? { files: input.files } : {}),
         profileId: "11111111-1111-4111-8111-111111111111",
         profileKind: "human",
         text: input.sourceText ?? "please review this",
@@ -217,6 +220,27 @@ describe("parseDispatchTask", () => {
     });
 
     expect(parsed?.attachments).toEqual(attachments);
+  });
+
+  it("preserves canonical Space File revisions for local agents", () => {
+    const files = [
+      {
+        fileId: "file-1",
+        revision: 3,
+        name: "launch-brief.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 4096,
+      },
+    ];
+    const parsed = parseDispatchTask({
+      deliverRequest: createDeliverRequest({
+        files,
+        targetProfileId: "agt-target-a",
+      }),
+      fallbackRouteConfig: null,
+    });
+
+    expect(parsed?.files).toEqual(files);
   });
 
   it("removes multi-target Wake mentions from the task prompt without changing source envelope evidence", () => {

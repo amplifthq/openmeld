@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 import { isLegacyAgentActivityWorkCompatible } from "../../agent-work-activity";
+import { spaceMessageFileReferencesSchema } from "../http/space-files";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { signalStatusDataSchema as signalStatusPayloadSchema } from "../space-mesh/signal-status";
 import { signalSystemNoticeDataSchema as signalSystemNoticePayloadSchema } from "../space-mesh/signal-system-notice";
@@ -83,7 +84,7 @@ export const CENTER_AGENT_TASK_REFERENCE_MAX_COUNT = 20 as const;
 
 const signalTextContentSchema = z.preprocess(
   trimmedStringFromUnknown,
-  z.string().min(1).max(MAX_TEXT_LENGTH)
+  z.string().max(MAX_TEXT_LENGTH)
 );
 
 const runtimeDeviceDisplayNameSchema = z.preprocess(
@@ -280,6 +281,23 @@ const addSignalTextMessageEnvelopeIssues = (
   }
 };
 
+const addSignalTextContentIssues = (
+  input: {
+    files?: readonly unknown[];
+    text: string;
+  },
+  context: z.RefinementCtx
+) => {
+  if (input.text.length > 0 || (input.files?.length ?? 0) > 0) {
+    return;
+  }
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: ["text"],
+    message: "A message must include text or at least one file",
+  });
+};
+
 const buildSignalTextDataSchema = <TMetaSchema extends z.ZodTypeAny>(
   metaSchema: TMetaSchema
 ) =>
@@ -287,10 +305,12 @@ const buildSignalTextDataSchema = <TMetaSchema extends z.ZodTypeAny>(
     .strictObject({
       text: signalTextContentSchema,
       attachments: spaceMessageAttachmentsSchema.optional(),
+      files: spaceMessageFileReferencesSchema.optional(),
       messageEnvelope: messageEnvelopeSchema.optional(),
       replyTo: signalTextReplyToSchema.optional(),
       meta: metaSchema.optional(),
     })
+    .superRefine(addSignalTextContentIssues)
     .superRefine(addSignalTextMessageEnvelopeIssues);
 
 export const signalTextDataSchema =

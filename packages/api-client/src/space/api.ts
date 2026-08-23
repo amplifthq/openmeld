@@ -11,6 +11,19 @@ import {
   executeSpaceExecutionRecovery,
   inspectSpaceExecutionRecovery,
 } from "./execution-recovery";
+import {
+  createSpaceFolder,
+  downloadSpaceFileContent,
+  getSpaceFile,
+  listSpaceFileRevisions,
+  listSpaceFiles,
+  restoreSpaceFileEntry,
+  restoreSpaceFileRevision,
+  trashSpaceFileEntry,
+  updateSpaceFileContent,
+  updateSpaceFileEntry,
+  uploadSpaceFile,
+} from "./files";
 import { leaveSpace } from "./leave";
 import {
   addCenterAgentToSpace,
@@ -58,6 +71,22 @@ export const createSpaceApi: CreateSpaceApi = (
       await addOrganizationDirectoryProfilesToSpace(client, input),
     uploadAttachment: async (input) =>
       await uploadSpaceAttachment(client, input),
+    listFiles: async (input) => await listSpaceFiles(client, input),
+    getFile: async (input) => await getSpaceFile(client, input),
+    listFileRevisions: async (input) =>
+      await listSpaceFileRevisions(client, input),
+    createFolder: async (input) => await createSpaceFolder(client, input),
+    updateFileEntry: async (input) => await updateSpaceFileEntry(client, input),
+    trashFileEntry: async (input) => await trashSpaceFileEntry(client, input),
+    restoreFileEntry: async (input) =>
+      await restoreSpaceFileEntry(client, input),
+    restoreFileRevision: async (input) =>
+      await restoreSpaceFileRevision(client, input),
+    uploadFile: async (input) => await uploadSpaceFile(client, input),
+    updateFileContent: async (input) =>
+      await updateSpaceFileContent(client, input),
+    downloadFileContent: async (input) =>
+      await downloadSpaceFileContent(client, input),
     removeMembers: async (input) => await removeSpaceMembers(client, input),
     setAccessMode: async (input) => await setSpaceAccessMode(client, input),
     updateMeta: async (input) => await updateSpaceMeta(client, input),

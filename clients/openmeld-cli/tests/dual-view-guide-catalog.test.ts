@@ -42,7 +42,7 @@ describe("dual view guide catalog", () => {
     expect(guideError.message).toContain("[FOR AGENTS]");
     expect(guideError.message).toContain("--space <space-id>");
     expect(guideError.message).toContain(
-      "openmeld space [--gateway-url <url>] send [--profile <profile-id>] <space-id> [<text...>|--stdin|--file <path>]"
+      "openmeld space [--gateway-url <url>] send [--profile <profile-id>] <space-id> [<text...>|--stdin|--text-file <path>] [--file <path>...]"
     );
   });
 
@@ -418,7 +418,7 @@ describe("dual view guide catalog", () => {
       "ENOENT"
     );
     expect(fileReadGuideError.message).toContain(
-      "openmeld space send --profile <profile-id> <space-id> --file <path>"
+      "openmeld space send --profile <profile-id> <space-id> --text-file <path>"
     );
 
     const emptyGuideError = createSpaceSendInputEmptyGuideError();

@@ -358,12 +358,15 @@ describe("api-client space api", () => {
       "addMembers",
       "addOrganizationDirectoryProfilesToSpace",
       "createDiagnosticReport",
+      "createFolder",
       "createSpace",
       "createThread",
       "deleteSpace",
+      "downloadFileContent",
       "executeExecutionRecovery",
       "getActiveWakeProgress",
       "getBootstrap",
+      "getFile",
       "getIdentityDirectory",
       "getMemberDirectory",
       "getMembersSnapshot",
@@ -377,6 +380,8 @@ describe("api-client space api", () => {
       "inspectExecutionRecovery",
       "joinSpace",
       "leaveSpace",
+      "listFileRevisions",
+      "listFiles",
       "listSignalEnvelopes",
       "listSignals",
       "listThreadEvents",
@@ -387,10 +392,167 @@ describe("api-client space api", () => {
       "postWakeStop",
       "removeMembers",
       "respondToAgentInteraction",
+      "restoreFileEntry",
+      "restoreFileRevision",
       "setAccessMode",
+      "trashFileEntry",
+      "updateFileContent",
+      "updateFileEntry",
       "updateMeta",
       "uploadAttachment",
+      "uploadFile",
     ]);
+  });
+
+  it("uses one shared Space Files contract for list and binary upload", async () => {
+    const actor = {
+      profileId: "11111111-1111-4111-8111-111111111111",
+      profileKind: "human" as const,
+      displayName: "Mira Stone",
+      ownerUserId: "owner-1",
+    };
+    const file = {
+      id: "file-1",
+      spaceId: "space-123",
+      parentId: null,
+      name: "launch notes.md",
+      path: "/launch notes.md",
+      kind: "file" as const,
+      createdAt: "2026-08-22T08:00:00.000Z",
+      updatedAt: "2026-08-22T08:00:00.000Z",
+      createdBy: actor,
+      updatedBy: actor,
+      trashedAt: null,
+      trashedBy: null,
+      latestRevision: {
+        id: "revision-1",
+        fileId: "file-1",
+        revision: 1,
+        mimeType: "text/markdown",
+        sizeBytes: 5,
+        createdAt: "2026-08-22T08:00:00.000Z",
+        createdBy: actor,
+      },
+    };
+    const transport = vi.fn((request: { init?: RequestInit; url: string }) => {
+      let responseBody: unknown;
+      if (
+        request.url.includes("/revisions/") &&
+        request.url.endsWith("/restore")
+      ) {
+        responseBody = { file };
+      } else if (request.url.endsWith("/restore")) {
+        responseBody = { entry: file };
+      } else if (request.init?.method === "POST") {
+        responseBody = { file };
+      } else {
+        responseBody = {
+          breadcrumbs: [{ id: null, name: "Files" }],
+          capabilities: { canRead: true, canWrite: true },
+          entries: [],
+          parentId: null,
+          spaceId: "space-123",
+          view: "trash",
+        };
+      }
+      return Promise.resolve(Response.json(responseBody));
+    });
+    const api = createSpaceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.listFiles({ spaceId: "space-123", query: { view: "trash" } })
+    ).resolves.toMatchObject({ entries: [], capabilities: { canWrite: true } });
+    await expect(
+      api.uploadFile({
+        spaceId: "space-123",
+        name: "launch notes.md",
+        clientMutationId: "mutation-1",
+        mimeType: "text/markdown",
+        bytes: new TextEncoder().encode("hello"),
+      })
+    ).resolves.toEqual(file);
+    await expect(
+      api.restoreFileEntry({
+        spaceId: "space-123",
+        entryId: "file-1",
+        clientMutationId: "restore-1",
+      })
+    ).resolves.toEqual(file);
+    await expect(
+      api.restoreFileRevision({
+        spaceId: "space-123",
+        fileId: "file-1",
+        revision: 1,
+        baseRevision: 4,
+        clientMutationId: "restore-version-1",
+      })
+    ).resolves.toEqual(file);
+    expect(transport).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        operation: "space.files.list",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/files?view=trash",
+      })
+    );
+    expect(transport).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        operation: "space.files.upload",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/files?clientMutationId=mutation-1&name=launch+notes.md",
+        init: expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({ "content-type": "text/markdown" }),
+        }),
+      })
+    );
+    expect(transport).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        operation: "space.files.entry.restore",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/files/file-1/restore",
+        init: expect.objectContaining({ method: "POST" }),
+      })
+    );
+    expect(transport).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({
+        operation: "space.files.revision.restore",
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/files/file-1/revisions/1/restore",
+        init: expect.objectContaining({ method: "POST" }),
+      })
+    );
+  });
+
+  it("fails closed instead of showing active files as Trash during rollout", async () => {
+    const transport = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          breadcrumbs: [{ id: null, name: "Files" }],
+          capabilities: { canRead: true, canWrite: true },
+          entries: [],
+          parentId: null,
+          spaceId: "space-123",
+        })
+      )
+    );
+    const api = createSpaceApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+
+    await expect(
+      api.listFiles({ spaceId: "space-123", query: { view: "trash" } })
+    ).rejects.toMatchObject({
+      code: "gateway.invalid_response",
+      schemaIssuePath: "view",
+    });
   });
 
   it("inspects exact execution recovery through the shared space api", async () => {

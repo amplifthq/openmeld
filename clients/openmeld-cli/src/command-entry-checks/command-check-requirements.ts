@@ -496,6 +496,78 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     REQUIRED_SIGN_IN,
     CONFIRM_SELECTED_PROFILE
   ),
+  "space.files.list": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.read": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.upload": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.write": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.download": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.mkdir": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.rename": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.move": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.trash": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.history": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.restore": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
+  "space.files.restore-version": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
+    REQUIRED_SIGN_IN,
+    CONFIRM_SELECTED_PROFILE
+  ),
   "space.watch": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,

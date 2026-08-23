@@ -144,7 +144,8 @@ release then replaces those placeholders with the real Workers.
 - Resource bindings
   - `OPENMELD_ORGANIZATION_SKILLS` stores private, immutable Organization Skill
     release bundles after Core authorizes the Organization-scoped mutation
-  - `OPENMELD_SPACE_ATTACHMENTS` stores provider image bytes only after Core
+  - `OPENMELD_SPACE_ATTACHMENTS` stores provider image bytes and immutable
+    Space file revision bytes only after Core
     verifies the exact Message Channel connection, conversation, and
     Organization member
   - `OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE` consumes and
@@ -208,7 +209,8 @@ release then replaces those placeholders with the real Workers.
   - `OPENMELD_ACCOUNT_AVATARS` for versioned public Account avatar objects
   - `OPENMELD_ORGANIZATION_LOGOS` for versioned public Organization logo
     objects
-  - `OPENMELD_SPACE_ATTACHMENTS` for private Space attachment objects
+  - `OPENMELD_SPACE_ATTACHMENTS` for private Space attachment objects and
+    immutable Space file revision objects
   - `OPENMELD_SPACE_PASSWORD_RATE_LIMITER` for per-IP and per-Space password
     admission at 10 requests per 60 seconds
   - `OPENMELD_REMOTE_AGENT_MESSAGE_CHANNEL_EVENTS_QUEUE` durably accepts only
@@ -255,7 +257,7 @@ This matrix records Cloudflare resource ownership. Keep it in sync with
 | R2 | `OPENMELD_ORGANIZATION_LOGOS` | Gateway Organization logo bytes | `services/gateway/wrangler.jsonc`, `services/gateway/wrangler.test.jsonc`, `services/gateway/worker-configuration.d.ts` | Production bucket `openmeld-organization-logos-prod`; preview/dev bucket `openmeld-organization-logos-preview`. Objects use immutable versioned keys and contain no source upload or private metadata. |
 | R2 | `OPENMELD_ACCOUNT_AVATARS` | Gateway Account avatar bytes | `services/gateway/wrangler.jsonc`, `services/gateway/wrangler.test.jsonc`, `services/gateway/worker-configuration.d.ts` | Uses the existing production and preview Organization-logo buckets under a separate `profiles/{profileId}/avatars/` key namespace; no new Cloudflare resource is required. Objects are immutable normalized WebP output and contain no source upload or private metadata. |
 | R2 | `OPENMELD_ORGANIZATION_SKILLS` | Core Organization Skill release bundles | `services/core/wrangler.jsonc`, `services/core/wrangler.test.jsonc`, `services/core/worker-configuration.d.ts` | Production bucket `openmeld-organization-skills-prod`; preview/dev bucket `openmeld-organization-skills-preview`. Core is the only writer and reads exact immutable release objects only after Organization authorization. D1 owns identity, enabled state, permissions, provenance, and the active-release pointer. |
-| R2 | `OPENMELD_SPACE_ATTACHMENTS` | Gateway, Core, and Remote Agent private attachment bytes | Gateway, Core, and Remote Agent Wrangler configs and generated Worker types | Production bucket `openmeld-space-attachments-prod`; preview/dev bucket `openmeld-space-attachments-preview`. Gateway serves authenticated, Space-authorized reads and writes. After exact Message Channel connection, conversation, and Organization-member authorization, Core downloads bounded provider images, validates JPEG/PNG magic bytes, and stores deterministic transient objects. Remote Agent reads those inputs and removes transient objects only after admission succeeds. Remote Agent also writes Browser Run screenshots only after Core creates scoped attachment metadata; callback publication revalidates the descriptor. |
+| R2 | `OPENMELD_SPACE_ATTACHMENTS` | Gateway, Core, and Remote Agent private attachment bytes plus immutable Space file revision bytes | Gateway, Core, and Remote Agent Wrangler configs and generated Worker types | Production bucket `openmeld-space-attachments-prod`; preview/dev bucket `openmeld-space-attachments-preview`. Gateway serves authenticated, Space-authorized reads and writes. For Space Files, the owning Space Durable Object authorizes the actor, validates optimistic concurrency, and returns the exact immutable object scope before Gateway stores bytes. After exact Message Channel connection, conversation, and Organization-member authorization, Core downloads bounded provider images, validates JPEG/PNG magic bytes, and stores deterministic transient objects. Remote Agent reads those inputs and removes transient objects only after admission succeeds. Remote Agent also writes Browser Run screenshots only after Core creates scoped attachment metadata; callback publication revalidates the descriptor. |
 | Service binding | `OPENMELD_AUTH_WORKER` | Core -> Auth | `services/core/wrangler.jsonc` | Core calls Auth through service binding. |
 | Service binding | `OPENMELD_REMOTE_AGENT_WORKER` | Core -> Remote Agent | `services/core/wrangler.jsonc` | Core submits hosted Center Agent turns through the shared Remote Agent RPC contract. |
 | Service binding | `OPENMELD_CORE_WORKER` | Remote Agent -> Core | `services/remote-agent/wrangler.jsonc` | Remote Agent binds the private `CenterAgentRpcEntrypoint` for sequenced Space stream snapshots, terminal turn callbacks, and Core-backed Center Agent product tools. Core owns authorization, durable result publication, and product-data tenancy. The historical `CenterAgentRoutineRpcEntrypoint` export remains only for already-deployed binding compatibility. |

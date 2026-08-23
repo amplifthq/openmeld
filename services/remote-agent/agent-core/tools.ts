@@ -50,8 +50,11 @@ import {
   centerAgentListProjectsToolResponseSchema,
   centerAgentListSlackChannelsBodySchema,
   centerAgentListSlackChannelsResponseSchema,
+  centerAgentListSpaceFilesResponseSchema,
   centerAgentManageOrganizationDocumentsResponseSchema,
   centerAgentManageOrganizationDocumentsRpcInputSchema,
+  centerAgentManageSpaceFilesResponseSchema,
+  centerAgentManageSpaceFilesRpcInputSchema,
   centerAgentMemberResearchReportSchema,
   centerAgentPostSlackChannelMessageResponseSchema,
   centerAgentPostSpaceMessageResponseSchema,
@@ -71,12 +74,15 @@ import {
   centerAgentReadSlackWorkspaceDirectoryBodySchema,
   centerAgentReadSlackWorkspaceDirectoryResponseSchema,
   centerAgentReadSpaceContextResponseSchema,
+  centerAgentReadSpaceFileResponseSchema,
   centerAgentRecommendOpportunityToolResponseSchema,
   centerAgentRememberForOrganizationResponseSchema,
   centerAgentRemoveAgentProfilesFromSpaceResponseSchema,
   centerAgentRemoveProjectToolResponseSchema,
   centerAgentRequestMemberAttentionResponseSchema,
   centerAgentRespondToOpportunityToolResponseSchema,
+  centerAgentSaveSpaceFileResponseSchema,
+  centerAgentSaveSpaceFileRpcInputSchema,
   centerAgentSearchSlackMessagesResponseSchema,
   centerAgentSetAgentProfileDefaultProjectToolResponseSchema,
   centerAgentSetOrganizationWorkingLanguageToolResponseSchema,
@@ -134,6 +140,9 @@ import {
   REMOTE_AGENT_CENTER_AGENT_TASK_CONVERSATION_ID_PREFIX,
   recordCenterAgentMemberResearchComputerFileResponseSchema,
   resumeCenterAgentRoutineResponseSchema,
+  SPACE_FILE_MAX_SIZE_BYTES,
+  SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
+  SPACE_MESSAGE_FILE_MAX_COUNT,
   SPACE_PASSWORD_MIN_LENGTH,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   setOrganizationWorkingLanguagePreferenceBodySchema,
@@ -395,10 +404,95 @@ const referenceProfileIdsInputSchema = pipe(
     "Every exact Human or Agent Profile ID that this Space message includes as context without assigning work. Pass an empty array only when no context-only profile is requested."
   )
 );
+const spaceFileIdToolInputSchema = pipe(
+  string(),
+  trim(),
+  minLength(1),
+  maxLength(128)
+);
+const spaceFileNameToolInputSchema = pipe(
+  string(),
+  trim(),
+  minLength(1),
+  maxLength(255)
+);
+const spaceFileMutationIdToolInputSchema = pipe(
+  string(),
+  trim(),
+  minLength(1),
+  maxLength(128),
+  description(
+    "A stable idempotency key for this exact mutation. Reuse it only when retrying the same operation."
+  )
+);
+const spaceFileTextContentToolInputSchema = pipe(
+  string(),
+  maxLength(SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES)
+);
+const spaceMessageFileReferenceToolInputSchema = strictObject({
+  fileId: spaceFileIdToolInputSchema,
+  revision: pipe(number(), integer(), minValue(1)),
+  name: spaceFileNameToolInputSchema,
+  mimeType: pipe(string(), trim(), minLength(3), maxLength(255)),
+  sizeBytes: pipe(
+    number(),
+    integer(),
+    minValue(0),
+    maxValue(SPACE_FILE_MAX_SIZE_BYTES)
+  ),
+});
 const postSpaceMessageToolInputSchema = object({
+  files: optional(
+    pipe(
+      array(spaceMessageFileReferenceToolInputSchema),
+      maxLength(SPACE_MESSAGE_FILE_MAX_COUNT)
+    )
+  ),
   referenceProfileIds: referenceProfileIdsInputSchema,
   spaceId: nonEmptyStringSchema,
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+});
+const listSpaceFilesToolInputSchema = strictObject({
+  parentId: optional(nullable(spaceFileIdToolInputSchema)),
+  spaceId: nonEmptyStringSchema,
+  view: optional(picklist(["active", "trash"] as const)),
+});
+const readSpaceFileToolInputSchema = strictObject({
+  fileId: spaceFileIdToolInputSchema,
+  includeHistory: optional(boolean()),
+  revision: optional(pipe(number(), integer(), minValue(1))),
+  spaceId: nonEmptyStringSchema,
+});
+// Flue requires every direct tool to expose one top-level object. The shared
+// RPC schemas remain the action-specific authority and reject missing or
+// irrelevant fields before anything reaches Core.
+const saveSpaceFileToolInputSchema = strictObject({
+  action: picklist(["create", "update"]),
+  baseRevision: optional(pipe(number(), integer(), minValue(1))),
+  clientMutationId: spaceFileMutationIdToolInputSchema,
+  content: spaceFileTextContentToolInputSchema,
+  fileId: optional(spaceFileIdToolInputSchema),
+  mimeType: pipe(string(), trim(), minLength(3), maxLength(255)),
+  name: optional(spaceFileNameToolInputSchema),
+  parentId: optional(nullable(spaceFileIdToolInputSchema)),
+  spaceId: nonEmptyStringSchema,
+});
+const manageSpaceFilesToolInputSchema = strictObject({
+  action: picklist([
+    "create_folder",
+    "update_entry",
+    "trash",
+    "restore",
+    "restore_version",
+  ]),
+  baseRevision: optional(pipe(number(), integer(), minValue(1))),
+  clientMutationId: spaceFileMutationIdToolInputSchema,
+  entryId: optional(spaceFileIdToolInputSchema),
+  fileId: optional(spaceFileIdToolInputSchema),
+  name: optional(spaceFileNameToolInputSchema),
+  parentId: optional(nullable(spaceFileIdToolInputSchema)),
+  revision: optional(pipe(number(), integer(), minValue(1))),
+  spaceId: nonEmptyStringSchema,
 });
 const wakeAgentProfilesInSpaceToolInputSchema = object({
   agentProfileIds: pipe(
@@ -1073,6 +1167,10 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_respond_to_opportunity",
   "openmeld_read_center_agent_activity",
   "openmeld_read_space_context",
+  "openmeld_list_space_files",
+  "openmeld_read_space_file",
+  "openmeld_save_space_file",
+  "openmeld_manage_space_files",
   "openmeld_read_dispatch_history",
   "openmeld_remember_for_organization",
   "openmeld_set_organization_working_language",
@@ -1152,6 +1250,8 @@ export const REMOTE_AGENT_OBSERVATION_TOOL_NAMES = [
   "openmeld_list_opportunities",
   "openmeld_read_center_agent_activity",
   "openmeld_read_space_context",
+  "openmeld_list_space_files",
+  "openmeld_read_space_file",
   "openmeld_read_dispatch_history",
   "openmeld_list_routines",
   "openmeld_list_feedback_issues",
@@ -2724,6 +2824,101 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
       },
     }),
     toolDefinition({
+      name: "openmeld_list_space_files",
+      description:
+        "List files and folders in one OpenMeld Space. The Center Agent uses the same Space membership and public-view rules as every other participant; this tool does not read the Center Agent Computer or Organization Resources. Omit parentId, or pass null, for the root folder. Pass view=trash to list recoverable items. Use returned stable IDs for later reads and mutations.",
+      input: listSpaceFilesToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(listSpaceFilesToolInputSchema, payload);
+        const context = await buildOpenMeldToolRequestContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_list_space_files",
+        });
+        const response = await callCoreRpc(
+          input.coreWorker,
+          "centerAgentListSpaceFiles",
+          { ...request, context },
+          (binding, rpcInput) => binding.centerAgentListSpaceFiles?.(rpcInput)
+        );
+        return centerAgentListSpaceFilesResponseSchema.parse(response);
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_read_space_file",
+      description:
+        "Read one UTF-8 text file from a Space, optionally at an exact historical revision. Set includeHistory=true to discover every version before choosing an exact revision. Use openmeld_list_space_files first to obtain the stable file ID. This returns the revision number required for a conflict-safe update. Binary files and text files over 1 MiB must be downloaded by a human or Local Agent instead.",
+      input: readSpaceFileToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(readSpaceFileToolInputSchema, payload);
+        const context = await buildOpenMeldToolRequestContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_read_space_file",
+        });
+        const response = await callCoreRpc(
+          input.coreWorker,
+          "centerAgentReadSpaceFile",
+          { ...request, context },
+          (binding, rpcInput) => binding.centerAgentReadSpaceFile?.(rpcInput)
+        );
+        return centerAgentReadSpaceFileResponseSchema.parse(response);
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_save_space_file",
+      description:
+        "Create a UTF-8 text file in a Space or save a new revision of an existing text file. This is an ordinary external write and uses the Center Agent's own Space membership; there is no privileged bypass. For update, first read the file and pass that exact revision as baseRevision. A concurrent change returns a conflict instead of overwriting another participant. Reuse clientMutationId only when retrying the exact same save.",
+      input: saveSpaceFileToolInputSchema,
+      execute: async (payload) => {
+        const toolInput = parseValibot(saveSpaceFileToolInputSchema, payload);
+        const context = await buildOpenMeldToolRequestContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_save_space_file",
+        });
+        const request = centerAgentSaveSpaceFileRpcInputSchema.parse({
+          ...toolInput,
+          context,
+        });
+        const response = await callCoreRpc(
+          input.coreWorker,
+          "centerAgentSaveSpaceFile",
+          request,
+          (binding, rpcInput) => binding.centerAgentSaveSpaceFile?.(rpcInput)
+        );
+        return centerAgentSaveSpaceFileResponseSchema.parse(response);
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_manage_space_files",
+      description:
+        "Create a Space folder, rename or move one entry, move an entry to Trash, restore it, or restore an older file version as a new current version. This is an ordinary external write under the Center Agent's own Space membership. Use stable IDs returned by openmeld_list_space_files, pass parentId null for the root, and reuse clientMutationId only when retrying the exact same operation. Version restore requires the current file revision as baseRevision, so concurrent edits conflict instead of being overwritten. Trash requires an empty folder and never changes Organization Resources.",
+      input: manageSpaceFilesToolInputSchema,
+      execute: async (payload) => {
+        const toolInput = parseValibot(
+          manageSpaceFilesToolInputSchema,
+          payload
+        );
+        const context = await buildOpenMeldToolRequestContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_manage_space_files",
+        });
+        const request = centerAgentManageSpaceFilesRpcInputSchema.parse({
+          ...toolInput,
+          context,
+        });
+        const response = await callCoreRpc(
+          input.coreWorker,
+          "centerAgentManageSpaceFiles",
+          request,
+          (binding, rpcInput) => binding.centerAgentManageSpaceFiles?.(rpcInput)
+        );
+        return centerAgentManageSpaceFilesResponseSchema.parse(response);
+      },
+    }),
+    toolDefinition({
       name: "openmeld_read_dispatch_history",
       description:
         "Read recent historical dispatch evidence for an OpenMeld Space: status, errorCode, and a bounded, sanitized errorMessage summary. Dispatch Ledger records do not prove current execution state. A nonterminal status such as queued, dispatching, or waiting_result means the current execution state is unknown; only terminal evidence such as failed_terminal supports a terminal dispatch-failure conclusion. Optionally filter by targetProfileId or a specific dispatchId.",
@@ -3419,7 +3614,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
     toolDefinition({
       name: "openmeld_post_space_message",
       description:
-        "Post a plain Center Agent-authored message to a Space in the current Organization without waking other agents. This is an ordinary external write. Use this for one-time checklists, tasks, updates, notes, and other conversation content, including content requested immediately after creating a Space. Always pass referenceProfileIds: include every exact Human or Agent Profile ID that is context only, or [] when there are none. Reference does not assign work or require a reply.",
+        "Post a Center Agent-authored message to a Space in the current Organization without waking other agents. This is an ordinary external write. Use this for one-time checklists, tasks, updates, notes, and other conversation content, including content requested immediately after creating a Space. To share files, first create or update them with the Space Files tools, then pass their exact canonical fileId, revision, name, mimeType, and sizeBytes in files. Always pass referenceProfileIds: include every exact Human or Agent Profile ID that is context only, or [] when there are none. Reference does not assign work or require a reply.",
       input: postSpaceMessageToolInputSchema,
       execute: async (payload) => {
         const request = parseValibot(postSpaceMessageToolInputSchema, payload);

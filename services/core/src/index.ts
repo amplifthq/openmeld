@@ -48,8 +48,12 @@ import type {
   CenterAgentListProjectsToolRpcInput,
   CenterAgentListRoutinesToolRpcInput,
   CenterAgentListSlackChannelsResponse,
+  CenterAgentListSpaceFilesResponse,
+  CenterAgentListSpaceFilesRpcInput,
   CenterAgentManageOrganizationDocumentsResponse,
   CenterAgentManageOrganizationDocumentsRpcInput,
+  CenterAgentManageSpaceFilesResponse,
+  CenterAgentManageSpaceFilesRpcInput,
   CenterAgentModelConfigurationResponse,
   CenterAgentOrganizationDocumentsComputerSnapshotResponse,
   CenterAgentOrganizationDocumentsComputerSnapshotRpcInput,
@@ -71,6 +75,8 @@ import type {
   CenterAgentReadSlackChannelMembersResponse,
   CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceContextResponse,
+  CenterAgentReadSpaceFileResponse,
+  CenterAgentReadSpaceFileRpcInput,
   CenterAgentRecordConnectorActionAuditResponse,
   CenterAgentRecordConnectorActionOperationResponse,
   CenterAgentRememberForOrganizationResponse,
@@ -80,6 +86,8 @@ import type {
   CenterAgentRequestMemberAttentionResponse,
   CenterAgentRequestMemberAttentionRpcInput,
   CenterAgentResumeRoutineToolRpcInput,
+  CenterAgentSaveSpaceFileResponse,
+  CenterAgentSaveSpaceFileRpcInput,
   CenterAgentSearchSlackMessagesResponse,
   CenterAgentSetAgentProfileDefaultProjectToolResponse,
   CenterAgentSetAgentProfileDefaultProjectToolRpcInput,
@@ -118,6 +126,7 @@ import type {
   CreateOrganizationSkillResponse,
   CreateOrganizationSkillRpcInput,
   CreateSpaceDiagnosticReportResponse,
+  CreateSpaceFolderResponse,
   CurrentDeviceTargetResponse,
   CurrentLocalAgentInstallationsResponse,
   CurrentLocalRuntimeReplyReadinessResponse,
@@ -206,6 +215,8 @@ import type {
   ListOrganizationDocumentsRpcInput,
   ListOrganizationSkillsResponse,
   ListOrganizationSkillsRpcInput,
+  ListSpaceFileRevisionsResponse,
+  ListSpaceFilesResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
@@ -242,6 +253,7 @@ import type {
   PrepareDiagnosticResponse,
   PrepareSessionResponse,
   PrepareSessionWithTokenResponse,
+  PrepareSpaceFileWriteResponse,
   PreviewOrganizationSkillFromGitHubResponse,
   PreviewOrganizationSkillFromGitHubRpcInput,
   ReadFeedbackReportingPolicyRequest,
@@ -259,7 +271,9 @@ import type {
   RemoteAgentStreamDeltaCallbackResponse,
   RemoteAgentStreamPartCallbackBody,
   RemoveSpaceMembersResponse,
+  ResolveSpaceFileContentResponse,
   RespondToSpaceAgentInteractionResponse,
+  RestoreSpaceFileEntryResponse,
   ResumeCenterAgentRoutineResponse,
   RetryCenterAgentTaskRpcInput,
   RevokeAgentProfileBindingForOrganizationResponse,
@@ -287,6 +301,7 @@ import type {
   SpaceBootstrapResponse,
   SpaceContract,
   SpaceDispatchTraceResponse,
+  SpaceFileDescriptor,
   SpaceIdentityDirectory,
   SpaceInboxSummaryResponse,
   SpaceMemberDirectory,
@@ -299,6 +314,7 @@ import type {
   SubmitRuntimeAgentControllerReportsResponse,
   SubmitRuntimeProviderConversationProofsResponse,
   SubmitRuntimeRegistrationResponse,
+  TrashSpaceFileEntryResponse,
   UpdateCenterAgentModelResponse,
   UpdateCenterAgentOperatingStateResponse,
   UpdateCenterAgentRoutineResponse,
@@ -310,6 +326,7 @@ import type {
   UpdateOrganizationDocumentRpcInput,
   UpdateOrganizationSkillResponse,
   UpdateOrganizationSkillRpcInput,
+  UpdateSpaceFileEntryResponse,
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
 import { acceptAgentActivitySessionInventoryMemberCleanup } from "./agent-activity/activity-session-inventory-member-cleanup-service";
@@ -550,6 +567,7 @@ import {
   type CreateRoutineInput,
   type CreateSlackOAuthStateInput,
   type CreateSpaceDiagnosticReportInput,
+  type CreateSpaceFolderInput,
   type CreateSpaceInput,
   type DeleteRoutineInput,
   type DeleteSpaceAttachmentRecordInput,
@@ -594,6 +612,7 @@ import {
   type GetSpaceDispatchLookupInput,
   type GetSpaceDispatchResultInput,
   type GetSpaceDispatchTraceInput,
+  type GetSpaceFileInput,
   type GetSpaceMembersInput,
   type GetSpaceMessageDetailsInput,
   type GetSpaceMetaInput,
@@ -624,6 +643,7 @@ import {
   type ListRoutineTargetSpacesInput,
   type ListSignalsInput,
   type ListSignalsResult,
+  type ListSpaceFilesInput,
   type ListSpaceThreadEventsInput,
   type ListSpaceThreadSignalsInput,
   type ListSpaceThreadsInput,
@@ -650,6 +670,8 @@ import {
   type ReadOrganizationInformationProtectionPolicyInput,
   type ReadOrganizationUsageOverviewInput,
   type ReadPendingGitHubAppInstallationInput,
+  type ReadSpaceFileContentRpcInput,
+  type ReadSpaceFileContentRpcResponse,
   type ReconcileCurrentOrganizationConnectorConnectionsInput,
   type RecordCenterAgentAuditInput,
   type RecordSpaceAttachmentInput,
@@ -659,7 +681,10 @@ import {
   type RemoveSpaceMembersInput,
   type RequestMessageChannelSetupInput,
   type ResolveSpaceAttachmentForDownloadInput,
+  type ResolveSpaceFileContentRpcInput,
   type RespondToSpaceAgentInteractionInput,
+  type RestoreSpaceFileEntryInput,
+  type RestoreSpaceFileRevisionInput,
   type ResumeRoutineInput,
   type RevokeAgentProfileBindingForOrganizationInput,
   rpcAddCenterAgentToSpace,
@@ -691,6 +716,8 @@ import {
   rpcCenterAgentListLocalAgentConnectionCandidates,
   rpcCenterAgentListOpportunities,
   rpcCenterAgentListSlackChannels,
+  rpcCenterAgentListSpaceFiles,
+  rpcCenterAgentManageSpaceFiles,
   rpcCenterAgentPostSlackChannelMessage,
   rpcCenterAgentPostSlackThreadMessage,
   rpcCenterAgentPostSpaceMessage,
@@ -705,6 +732,7 @@ import {
   rpcCenterAgentReadSlackWorkspaceDirectory,
   rpcCenterAgentReadSpaceAuthoringContract,
   rpcCenterAgentReadSpaceContext,
+  rpcCenterAgentReadSpaceFile,
   rpcCenterAgentRecommendOpportunity,
   rpcCenterAgentRecordConnectorActionAudit,
   rpcCenterAgentRecordConnectorActionOperation,
@@ -712,6 +740,7 @@ import {
   rpcCenterAgentRemoveAgentProfilesFromSpace,
   rpcCenterAgentResolveConnectorConnection,
   rpcCenterAgentRespondToOpportunity,
+  rpcCenterAgentSaveSpaceFile,
   rpcCenterAgentSearchSlackMessages,
   rpcCenterAgentStartSelfMemberResearch,
   rpcCenterAgentUpdateAgentProfileRuntimeSettings,
@@ -719,6 +748,7 @@ import {
   rpcCenterAgentWakeAgentProfilesInSpace,
   rpcCenterAgentWatchAgentTask,
   rpcClearSpacePassword,
+  rpcCommitSpaceFileWrite,
   rpcCompleteConnectorDisconnect,
   rpcCompleteGitHubAppInstallation,
   rpcConnectCandidate,
@@ -736,6 +766,7 @@ import {
   rpcCreateSlackOAuthState,
   rpcCreateSpace,
   rpcCreateSpaceDiagnosticReport,
+  rpcCreateSpaceFolder,
   rpcDeleteRoutine,
   rpcDeleteSpace,
   rpcDeleteSpaceAttachmentRecord,
@@ -779,6 +810,7 @@ import {
   rpcGetSpaceDispatchLookup,
   rpcGetSpaceDispatchResult,
   rpcGetSpaceDispatchTrace,
+  rpcGetSpaceFile,
   rpcGetSpaceIdentityDirectory,
   rpcGetSpaceMemberDirectory,
   rpcGetSpaceMembers,
@@ -811,6 +843,8 @@ import {
   rpcListRoutines,
   rpcListRoutineTargetSpaces,
   rpcListSignals,
+  rpcListSpaceFileRevisions,
+  rpcListSpaceFiles,
   rpcListSpaceThreadEvents,
   rpcListSpaceThreadSignals,
   rpcListSpaceThreads,
@@ -824,6 +858,7 @@ import {
   rpcPostSignal,
   rpcPostSpaceWakeStop,
   rpcPostTransientSignal,
+  rpcPrepareSpaceFileWrite,
   rpcPreviewMessageChannelIdentityLink,
   rpcPreviewSlackIdentityLink,
   rpcPutSpaceContract,
@@ -837,6 +872,7 @@ import {
   rpcReadOrganizationInformationProtectionPolicy,
   rpcReadOrganizationUsageOverview,
   rpcReadPendingGitHubAppInstallation,
+  rpcReadSpaceFileContent,
   rpcReconcileCurrentOrganizationConnectorConnections,
   rpcRecordCenterAgentAudit,
   rpcRecordSpaceAttachment,
@@ -846,7 +882,10 @@ import {
   rpcRemoveSpaceMembers,
   rpcRequestMessageChannelSetup,
   rpcResolveSpaceAttachmentForDownload,
+  rpcResolveSpaceFileContent,
   rpcRespondToSpaceAgentInteraction,
+  rpcRestoreSpaceFileEntry,
+  rpcRestoreSpaceFileRevision,
   rpcResumeRoutine,
   rpcRevokeAgentProfileBindingForOrganization,
   rpcSaveOrganizationWakeAccessChoice,
@@ -868,6 +907,7 @@ import {
   rpcSubmitRuntimeAgentControllerReports,
   rpcSubmitRuntimeProviderConversationProofs,
   rpcSubmitRuntimeRegistration,
+  rpcTrashSpaceFileEntry,
   rpcUpdateAgentProfileDefaultProject,
   rpcUpdateAgentProfilePrimaryBindingAgentControllerCollaborationMode,
   rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode,
@@ -880,10 +920,12 @@ import {
   rpcUpdateProject,
   rpcUpdateRoutine,
   rpcUpdateSpaceCursor,
+  rpcUpdateSpaceFileEntry,
   rpcUpdateSpaceMeta,
   rpcUpsertSpacePassword,
   rpcWipeCurrentMemberCenterAgentMemory,
   rpcWriteCurrentDeviceObservedMetadata,
+  rpcWriteSpaceFileContent,
   runSlackInstallationWelcomePreparationTick,
   type SaveOrganizationWakeAccessChoiceInput,
   type SelectCurrentLocalAgentInstallationInput,
@@ -899,6 +941,7 @@ import {
   type SetOrganizationInformationProtectionPolicyInput,
   type SetSpaceAccessModeInput,
   type SpaceAccessModeStateResult,
+  type SpaceFileWriteInput,
   type SpacePasswordStateResult,
   type SubmitAgentActivityEventsInput,
   type SubmitAgentActivitySessionReconciliationInput,
@@ -906,6 +949,7 @@ import {
   type SubmitRuntimeAgentControllerReportsInput,
   type SubmitRuntimeProviderConversationProofsInput,
   type SubmitRuntimeRegistrationInput,
+  type TrashSpaceFileEntryInput,
   type UpdateAgentProfileDefaultProjectInput,
   type UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeInput,
   type UpdateAgentProfilePrimaryBindingAgentControllerPermissionModeInput,
@@ -918,10 +962,12 @@ import {
   type UpdateProjectInput,
   type UpdateRoutineInput,
   type UpdateSpaceCursorInput,
+  type UpdateSpaceFileEntryInput,
   type UpdateSpaceMetaInput,
   type UpsertSpacePasswordInput,
   type WipeCurrentMemberCenterAgentMemoryInput,
   type WriteCurrentDeviceObservedMetadataInput,
+  type WriteSpaceFileContentRpcInput,
 } from "./rpc/methods";
 import { RuntimeTransportHub } from "./runtime-transport/transport/do/runtime-transport-hub";
 import {
@@ -1635,6 +1681,80 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ResolveSpaceAttachmentForDownloadInput
   ): Promise<SpaceAttachmentDescriptor> {
     return rpcResolveSpaceAttachmentForDownload(this.env, input);
+  }
+
+  listSpaceFiles(input: ListSpaceFilesInput): Promise<ListSpaceFilesResponse> {
+    return rpcListSpaceFiles(this.env, input);
+  }
+
+  getSpaceFile(input: GetSpaceFileInput): Promise<SpaceFileDescriptor> {
+    return rpcGetSpaceFile(this.env, input);
+  }
+
+  listSpaceFileRevisions(
+    input: GetSpaceFileInput
+  ): Promise<ListSpaceFileRevisionsResponse> {
+    return rpcListSpaceFileRevisions(this.env, input);
+  }
+
+  createSpaceFolder(
+    input: CreateSpaceFolderInput
+  ): Promise<CreateSpaceFolderResponse> {
+    return rpcCreateSpaceFolder(this.env, input);
+  }
+
+  updateSpaceFileEntry(
+    input: UpdateSpaceFileEntryInput
+  ): Promise<UpdateSpaceFileEntryResponse> {
+    return rpcUpdateSpaceFileEntry(this.env, input);
+  }
+
+  trashSpaceFileEntry(
+    input: TrashSpaceFileEntryInput
+  ): Promise<TrashSpaceFileEntryResponse> {
+    return rpcTrashSpaceFileEntry(this.env, input);
+  }
+
+  restoreSpaceFileEntry(
+    input: RestoreSpaceFileEntryInput
+  ): Promise<RestoreSpaceFileEntryResponse> {
+    return rpcRestoreSpaceFileEntry(this.env, input);
+  }
+
+  restoreSpaceFileRevision(
+    input: RestoreSpaceFileRevisionInput
+  ): Promise<SpaceFileDescriptor> {
+    return rpcRestoreSpaceFileRevision(this.env, input);
+  }
+
+  prepareSpaceFileWrite(
+    input: SpaceFileWriteInput
+  ): Promise<PrepareSpaceFileWriteResponse> {
+    return rpcPrepareSpaceFileWrite(this.env, input);
+  }
+
+  commitSpaceFileWrite(
+    input: SpaceFileWriteInput
+  ): Promise<SpaceFileDescriptor> {
+    return rpcCommitSpaceFileWrite(this.env, input);
+  }
+
+  resolveSpaceFileContent(
+    input: ResolveSpaceFileContentRpcInput
+  ): Promise<ResolveSpaceFileContentResponse> {
+    return rpcResolveSpaceFileContent(this.env, input);
+  }
+
+  readSpaceFileContent(
+    input: ReadSpaceFileContentRpcInput
+  ): Promise<ReadSpaceFileContentRpcResponse> {
+    return rpcReadSpaceFileContent(this.env, input);
+  }
+
+  writeSpaceFileContent(
+    input: WriteSpaceFileContentRpcInput
+  ): Promise<SpaceFileDescriptor> {
+    return rpcWriteSpaceFileContent(this.env, input);
   }
 
   listSpaceThreads(
@@ -2770,6 +2890,30 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     );
   }
 
+  centerAgentListSpaceFiles(
+    input: CenterAgentListSpaceFilesRpcInput
+  ): Promise<CenterAgentListSpaceFilesResponse> {
+    return rpcCenterAgentListSpaceFiles(this.env, input);
+  }
+
+  centerAgentReadSpaceFile(
+    input: CenterAgentReadSpaceFileRpcInput
+  ): Promise<CenterAgentReadSpaceFileResponse> {
+    return rpcCenterAgentReadSpaceFile(this.env, input);
+  }
+
+  centerAgentSaveSpaceFile(
+    input: CenterAgentSaveSpaceFileRpcInput
+  ): Promise<CenterAgentSaveSpaceFileResponse> {
+    return rpcCenterAgentSaveSpaceFile(this.env, input);
+  }
+
+  centerAgentManageSpaceFiles(
+    input: CenterAgentManageSpaceFilesRpcInput
+  ): Promise<CenterAgentManageSpaceFilesResponse> {
+    return rpcCenterAgentManageSpaceFiles(this.env, input);
+  }
+
   centerAgentReadDispatchHistory(
     input: CenterAgentReadDispatchHistoryInput
   ): Promise<CenterAgentReadDispatchHistoryResponse> {
@@ -3425,6 +3569,68 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ResolveSpaceAttachmentForDownloadInput
   ): Promise<SpaceAttachmentDescriptor> {
     return super.resolveSpaceAttachmentForDownload(input);
+  }
+
+  listSpaceFiles(input: ListSpaceFilesInput): Promise<ListSpaceFilesResponse> {
+    return super.listSpaceFiles(input);
+  }
+
+  getSpaceFile(input: GetSpaceFileInput): Promise<SpaceFileDescriptor> {
+    return super.getSpaceFile(input);
+  }
+
+  listSpaceFileRevisions(
+    input: GetSpaceFileInput
+  ): Promise<ListSpaceFileRevisionsResponse> {
+    return super.listSpaceFileRevisions(input);
+  }
+
+  createSpaceFolder(
+    input: CreateSpaceFolderInput
+  ): Promise<CreateSpaceFolderResponse> {
+    return super.createSpaceFolder(input);
+  }
+
+  updateSpaceFileEntry(
+    input: UpdateSpaceFileEntryInput
+  ): Promise<UpdateSpaceFileEntryResponse> {
+    return super.updateSpaceFileEntry(input);
+  }
+
+  trashSpaceFileEntry(
+    input: TrashSpaceFileEntryInput
+  ): Promise<TrashSpaceFileEntryResponse> {
+    return super.trashSpaceFileEntry(input);
+  }
+
+  restoreSpaceFileEntry(
+    input: RestoreSpaceFileEntryInput
+  ): Promise<RestoreSpaceFileEntryResponse> {
+    return super.restoreSpaceFileEntry(input);
+  }
+
+  restoreSpaceFileRevision(
+    input: RestoreSpaceFileRevisionInput
+  ): Promise<SpaceFileDescriptor> {
+    return super.restoreSpaceFileRevision(input);
+  }
+
+  prepareSpaceFileWrite(
+    input: SpaceFileWriteInput
+  ): Promise<PrepareSpaceFileWriteResponse> {
+    return super.prepareSpaceFileWrite(input);
+  }
+
+  commitSpaceFileWrite(
+    input: SpaceFileWriteInput
+  ): Promise<SpaceFileDescriptor> {
+    return super.commitSpaceFileWrite(input);
+  }
+
+  resolveSpaceFileContent(
+    input: ResolveSpaceFileContentRpcInput
+  ): Promise<ResolveSpaceFileContentResponse> {
+    return super.resolveSpaceFileContent(input);
   }
 
   listSpaceThreads(

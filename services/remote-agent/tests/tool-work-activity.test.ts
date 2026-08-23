@@ -77,6 +77,26 @@ describe("Remote Agent user-visible work semantics", () => {
     });
   });
 
+  it("describes Space file reads and writes as distinct user-visible work", () => {
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_list_space_files", {
+        spaceId: "space_1",
+      })
+    ).toEqual({
+      v: 1,
+      key: "space.files.read",
+    });
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_save_space_file", {
+        action: "update",
+        spaceId: "space_1",
+      })
+    ).toEqual({
+      v: 1,
+      key: "space.files.update",
+    });
+  });
+
   it("reuses bounded documentation-read work for the Changelog", () => {
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_read_changelog", {})

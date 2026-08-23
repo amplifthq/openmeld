@@ -31,6 +31,9 @@ import {
   authorizeAgentProfileBindingForOrganizationResponseSchema,
   authRpcResolveUserDisplayNameResultSchema,
   buildAgentTaskKey,
+  buildSpaceFileEntryIdForMutation,
+  buildSpaceFileObjectKey,
+  buildSpaceFileRevisionIdForMutation,
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
@@ -58,6 +61,10 @@ import {
   centerAgentListLocalAgentConnectionCandidatesBodySchema,
   centerAgentListLocalAgentConnectionCandidatesResponseSchema,
   centerAgentListSlackChannelsBodySchema,
+  centerAgentListSpaceFilesResponseSchema,
+  centerAgentListSpaceFilesRpcInputSchema,
+  centerAgentManageSpaceFilesResponseSchema,
+  centerAgentManageSpaceFilesRpcInputSchema,
   centerAgentOrganizationMemoryPolicyResponseSchema,
   centerAgentPostSlackChannelMessageBodySchema,
   centerAgentPostSlackThreadMessageBodySchema,
@@ -76,6 +83,8 @@ import {
   centerAgentReadSlackWorkspaceDirectoryBodySchema,
   centerAgentReadSpaceContextBodySchema,
   centerAgentReadSpaceContextResponseSchema,
+  centerAgentReadSpaceFileResponseSchema,
+  centerAgentReadSpaceFileRpcInputSchema,
   centerAgentRecordConnectorActionAuditBodySchema,
   centerAgentRecordConnectorActionAuditResponseSchema,
   centerAgentRecordConnectorActionOperationBodySchema,
@@ -84,6 +93,8 @@ import {
   centerAgentRememberForOrganizationResponseSchema,
   centerAgentRemoveAgentProfilesFromSpaceBodySchema,
   centerAgentRemoveAgentProfilesFromSpaceResponseSchema,
+  centerAgentSaveSpaceFileResponseSchema,
+  centerAgentSaveSpaceFileRpcInputSchema,
   centerAgentSearchSlackMessagesBodySchema,
   centerAgentSearchSlackMessagesResponseSchema,
   centerAgentSlackWorkspaceConnectBodySchema,
@@ -163,6 +174,7 @@ import {
   HOSTED_CENTER_AGENT_CONTROLLER_REF,
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
+  isSpaceFileTextEditable,
   larkPlatformActiveRegistrationListResponseSchema,
   larkPlatformProviderSchema,
   larkPlatformRegistrationAttemptIdSchema,
@@ -214,6 +226,7 @@ import {
   respondToSpaceAgentInteractionInputSchema,
   revokeAgentProfileBindingForOrganizationResponseSchema,
   runtimeReportingRouteParamsSchema,
+  SPACE_FILE_MAX_SIZE_BYTES,
   saveOrganizationWakeAccessChoiceBodySchema,
   saveOrganizationWakeAccessChoiceResponseSchema,
   selectCurrentLocalAgentInstallationBodySchema,
@@ -321,6 +334,10 @@ import type {
   CenterAgentListOpportunitiesToolRpcInput,
   CenterAgentListSlackChannelsBody,
   CenterAgentListSlackChannelsResponse,
+  CenterAgentListSpaceFilesResponse,
+  CenterAgentListSpaceFilesRpcInput,
+  CenterAgentManageSpaceFilesResponse,
+  CenterAgentManageSpaceFilesRpcInput,
   CenterAgentModelConfigurationResponse,
   CenterAgentOrganizationMemoryPolicyResponse,
   CenterAgentPostSlackChannelMessageBody,
@@ -346,6 +363,8 @@ import type {
   CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceContextBody,
   CenterAgentReadSpaceContextResponse,
+  CenterAgentReadSpaceFileResponse,
+  CenterAgentReadSpaceFileRpcInput,
   CenterAgentRecommendOpportunityToolRpcInput,
   CenterAgentRecordConnectorActionAuditBody,
   CenterAgentRecordConnectorActionAuditResponse,
@@ -358,6 +377,8 @@ import type {
   CenterAgentRemoveAgentProfilesFromSpaceBody,
   CenterAgentRemoveAgentProfilesFromSpaceResponse,
   CenterAgentRespondToOpportunityToolRpcInput,
+  CenterAgentSaveSpaceFileResponse,
+  CenterAgentSaveSpaceFileRpcInput,
   CenterAgentSearchSlackMessagesBody,
   CenterAgentSearchSlackMessagesResponse,
   CenterAgentSlackWorkspaceConnectBody,
@@ -379,6 +400,7 @@ import type {
   CenterAgentWipeMemberMemoryResponse,
   ChangelogQuery,
   ChangelogQueryResponse,
+  CommitSpaceFileWriteInput,
   ComputerFileAccessPolicyResponse,
   ComputerFileAccessReadRpcInput,
   ComputerFileAccessUpdateRpcInput,
@@ -399,6 +421,8 @@ import type {
   CreateProjectRpcInput,
   CreateSpaceDiagnosticReportBody,
   CreateSpaceDiagnosticReportResponse,
+  CreateSpaceFolderBody,
+  CreateSpaceFolderResponse,
   CurrentDeviceTargetResponse,
   CurrentLocalAgentInstallationsResponse,
   CurrentLocalRuntimeReplyReadinessResponse,
@@ -452,6 +476,9 @@ import type {
   ListOrganizationBindingAuthorizationProfilesResponse,
   ListOrganizationBindingAuthorizationsResponse,
   ListProjectsRpcInput,
+  ListSpaceFileRevisionsResponse,
+  ListSpaceFilesQuery,
+  ListSpaceFilesResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsQuery,
   ListSpaceThreadSignalsResponse,
@@ -498,14 +525,20 @@ import type {
   PostSpaceMembersResponse,
   PostSpaceWakeStopBody,
   PostSpaceWakeStopResponse,
+  PrepareSpaceFileWriteResponse,
   PutSpaceContractBody,
   RecordSpaceAttachmentPayload,
   RefreshCurrentLocalAgentCatalogResponse,
   RemoveSpaceMembersResponse,
   ResolvedSpaceMemberProfile,
   ResolveSpaceAttachmentForDownloadPayload,
+  ResolveSpaceFileContentInput,
+  ResolveSpaceFileContentResponse,
   RespondToSpaceAgentInteractionBody,
   RespondToSpaceAgentInteractionResponse,
+  RestoreSpaceFileEntryBody,
+  RestoreSpaceFileEntryResponse,
+  RestoreSpaceFileRevisionBody,
   RevokeAgentProfileBindingForOrganizationResponse,
   SaveOrganizationWakeAccessChoiceBody,
   SaveOrganizationWakeAccessChoiceResponse,
@@ -543,6 +576,7 @@ import type {
   SpaceContract,
   SpaceDispatchTraceResponse,
   SpaceDispatchTraceResponseContractVersion,
+  SpaceFileDescriptor,
   SpaceIdentityDirectory,
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
@@ -561,6 +595,7 @@ import type {
   SubmitRuntimeProviderConversationProofResult,
   SubmitRuntimeProviderConversationProofsResponse,
   SubmitRuntimeRegistrationResponse,
+  TrashSpaceFileEntryResponse,
   UpdateAgentProfileDefaultProjectResponse,
   UpdateAgentProfileDefaultProjectRpcInput,
   UpdateAgentProfilePrimaryBindingAgentControllerCollaborationModeBody,
@@ -575,6 +610,8 @@ import type {
   UpdateFeedbackReportingPolicyBody,
   UpdateOrganizationInformationProtectionPolicyBody,
   UpdateProjectRpcInput,
+  UpdateSpaceFileEntryBody,
+  UpdateSpaceFileEntryResponse,
   WriteCurrentDeviceObservedMetadataResponse,
 } from "@openmeld/schemas/types";
 import {
@@ -1680,6 +1717,58 @@ export type ResolveSpaceAttachmentForDownloadInput =
   SpaceAttachmentAccessInput &
     Omit<ResolveSpaceAttachmentForDownloadPayload, "spaceId">;
 
+export type ListSpaceFilesInput = SpaceAttachmentAccessInput & {
+  query?: ListSpaceFilesQuery;
+};
+
+export type GetSpaceFileInput = SpaceAttachmentAccessInput & {
+  fileId: string;
+};
+
+export type CreateSpaceFolderInput = SpaceAttachmentAccessInput & {
+  body: CreateSpaceFolderBody;
+};
+
+export type UpdateSpaceFileEntryInput = SpaceAttachmentAccessInput & {
+  body: UpdateSpaceFileEntryBody;
+  entryId: string;
+};
+
+export type TrashSpaceFileEntryInput = SpaceAttachmentAccessInput & {
+  clientMutationId: string;
+  entryId: string;
+};
+
+export type RestoreSpaceFileEntryInput = SpaceAttachmentAccessInput & {
+  body: RestoreSpaceFileEntryBody;
+  entryId: string;
+};
+
+export type RestoreSpaceFileRevisionInput = SpaceAttachmentAccessInput & {
+  body: RestoreSpaceFileRevisionBody;
+  fileId: string;
+  revision: number;
+};
+
+export type SpaceFileWriteInput = SpaceAttachmentAccessInput & {
+  write: CommitSpaceFileWriteInput;
+};
+
+export type ResolveSpaceFileContentRpcInput = SpaceAttachmentAccessInput & {
+  content: ResolveSpaceFileContentInput;
+};
+
+export type ReadSpaceFileContentRpcInput = ResolveSpaceFileContentRpcInput;
+
+export type ReadSpaceFileContentRpcResponse =
+  ResolveSpaceFileContentResponse & {
+    bytes: ArrayBuffer;
+  };
+
+export type WriteSpaceFileContentRpcInput = SpaceFileWriteInput & {
+  bytes: ArrayBuffer;
+};
+
 export type CreateSpaceDiagnosticReportInput = CoreRpcSpaceAccessInput & {
   body: CreateSpaceDiagnosticReportBody;
 };
@@ -1733,6 +1822,7 @@ export type PostSignalInput = {
   authoringPolicy: SpaceSignalAuthoringPolicy;
   finalOutcomeAuthority?: FinalOutcomeWriteAuthority;
   attachments?: SignalText["data"]["attachments"];
+  files?: SignalText["data"]["files"];
   messageEnvelope?: SignalText["data"]["messageEnvelope"];
   meta?: SignalText["data"]["meta"];
   replyTo?: SignalText["data"]["replyTo"];
@@ -11508,6 +11598,273 @@ export async function rpcCenterAgentReadSpaceContext(
   return validated.data;
 }
 
+export async function rpcCenterAgentListSpaceFiles(
+  env: CoreBindings,
+  input: CenterAgentListSpaceFilesRpcInput
+): Promise<CenterAgentListSpaceFilesResponse> {
+  const parsed = centerAgentListSpaceFilesRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throwInvalidCenterAgentSpaceFilePayload(parsed.error.issues[0]?.message);
+  }
+  const request = parsed.data;
+  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+    context: request.context,
+    env,
+  });
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization,
+    env,
+    spaceId: request.spaceId,
+  });
+  return centerAgentListSpaceFilesResponseSchema.parse(
+    await rpcListSpaceFiles(env, {
+      context: authorization.context,
+      query: {
+        parentId: request.parentId ?? null,
+        view: request.view ?? "active",
+      },
+      spaceId: request.spaceId,
+    })
+  );
+}
+
+export async function rpcCenterAgentReadSpaceFile(
+  env: CoreBindings,
+  input: CenterAgentReadSpaceFileRpcInput
+): Promise<CenterAgentReadSpaceFileResponse> {
+  const parsed = centerAgentReadSpaceFileRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throwInvalidCenterAgentSpaceFilePayload(parsed.error.issues[0]?.message);
+  }
+  const request = parsed.data;
+  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+    context: request.context,
+    env,
+  });
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization,
+    env,
+    spaceId: request.spaceId,
+  });
+  const resolved = await rpcReadSpaceFileContent(env, {
+    context: authorization.context,
+    content: {
+      fileId: request.fileId,
+      ...(request.revision === undefined ? {} : { revision: request.revision }),
+      spaceId: request.spaceId,
+    },
+    spaceId: request.spaceId,
+  });
+  if (
+    !isSpaceFileTextEditable({
+      mimeType: resolved.revision.mimeType,
+      sizeBytes: resolved.bytes.byteLength,
+    })
+  ) {
+    throw createCoreRpcHttpError({
+      code: "space_file.type_unsupported",
+      reason:
+        "The Center Agent can read text Space files up to 1 MiB. Download this file from the Space Files view instead.",
+      status: 415,
+    });
+  }
+  let content: string;
+  try {
+    content = new TextDecoder("utf-8", {
+      fatal: true,
+      ignoreBOM: false,
+    }).decode(resolved.bytes);
+  } catch {
+    throw createCoreRpcHttpError({
+      code: "space_file.type_unsupported",
+      reason: "This Space file is not valid UTF-8 text.",
+      status: 415,
+    });
+  }
+  const history = request.includeHistory
+    ? await rpcListSpaceFileRevisions(env, {
+        context: authorization.context,
+        fileId: request.fileId,
+        spaceId: request.spaceId,
+      })
+    : null;
+  return centerAgentReadSpaceFileResponseSchema.parse({
+    content,
+    file: resolved.file,
+    revision: resolved.revision,
+    ...(history ? { revisions: history.revisions } : {}),
+  });
+}
+
+export async function rpcCenterAgentSaveSpaceFile(
+  env: CoreBindings,
+  input: CenterAgentSaveSpaceFileRpcInput
+): Promise<CenterAgentSaveSpaceFileResponse> {
+  const parsed = centerAgentSaveSpaceFileRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throwInvalidCenterAgentSpaceFilePayload(parsed.error.issues[0]?.message);
+  }
+  const request = parsed.data;
+  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+    context: request.context,
+    env,
+  });
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization,
+    env,
+    spaceId: request.spaceId,
+  });
+  const encoded = new TextEncoder().encode(request.content);
+  if (
+    !isSpaceFileTextEditable({
+      mimeType: request.mimeType,
+      sizeBytes: encoded.byteLength,
+    })
+  ) {
+    throw createCoreRpcHttpError({
+      code: "space_file.type_unsupported",
+      reason: "The Center Agent can save text Space files up to 1 MiB.",
+      status: 415,
+    });
+  }
+  const bytes = new ArrayBuffer(encoded.byteLength);
+  new Uint8Array(bytes).set(encoded);
+  const fileId =
+    request.action === "create"
+      ? await buildSpaceFileEntryIdForMutation(request.clientMutationId)
+      : request.fileId;
+  const revisionId = await buildSpaceFileRevisionIdForMutation({
+    baseRevision: request.action === "create" ? null : request.baseRevision,
+    bytes,
+    clientMutationId: request.clientMutationId,
+    mimeType: request.mimeType,
+    ...(request.action === "create"
+      ? { name: request.name, parentId: request.parentId ?? null }
+      : {}),
+  });
+  const write: CommitSpaceFileWriteInput = {
+    baseRevision: request.action === "create" ? null : request.baseRevision,
+    clientMutationId: request.clientMutationId,
+    fileId,
+    mimeType: request.mimeType,
+    ...(request.action === "create"
+      ? {
+          name: request.name,
+          parentId: request.parentId ?? null,
+        }
+      : {}),
+    revisionId,
+    sizeBytes: encoded.byteLength,
+    spaceId: request.spaceId,
+  };
+  const file = await rpcWriteSpaceFileContent(env, {
+    bytes,
+    context: authorization.context,
+    spaceId: request.spaceId,
+    write,
+  });
+  return centerAgentSaveSpaceFileResponseSchema.parse({ file });
+}
+
+export async function rpcCenterAgentManageSpaceFiles(
+  env: CoreBindings,
+  input: CenterAgentManageSpaceFilesRpcInput
+): Promise<CenterAgentManageSpaceFilesResponse> {
+  const parsed = centerAgentManageSpaceFilesRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throwInvalidCenterAgentSpaceFilePayload(parsed.error.issues[0]?.message);
+  }
+  const request = parsed.data;
+  const authorization = await requireCurrentDesignatedCenterAgentCaller({
+    context: request.context,
+    env,
+  });
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization,
+    env,
+    spaceId: request.spaceId,
+  });
+  if (request.action === "create_folder") {
+    const created = await rpcCreateSpaceFolder(env, {
+      body: {
+        clientMutationId: request.clientMutationId,
+        name: request.name,
+        parentId: request.parentId ?? null,
+      },
+      context: authorization.context,
+      spaceId: request.spaceId,
+    });
+    return centerAgentManageSpaceFilesResponseSchema.parse({
+      action: request.action,
+      folder: created.folder,
+    });
+  }
+  if (request.action === "update_entry") {
+    const updated = await rpcUpdateSpaceFileEntry(env, {
+      body: {
+        clientMutationId: request.clientMutationId,
+        ...(request.name === undefined ? {} : { name: request.name }),
+        ...(request.parentId === undefined
+          ? {}
+          : { parentId: request.parentId }),
+      },
+      context: authorization.context,
+      entryId: request.entryId,
+      spaceId: request.spaceId,
+    });
+    return centerAgentManageSpaceFilesResponseSchema.parse({
+      action: request.action,
+      entry: updated.entry,
+    });
+  }
+  if (request.action === "restore") {
+    const restored = await rpcRestoreSpaceFileEntry(env, {
+      body: { clientMutationId: request.clientMutationId },
+      context: authorization.context,
+      entryId: request.entryId,
+      spaceId: request.spaceId,
+    });
+    return centerAgentManageSpaceFilesResponseSchema.parse({
+      action: request.action,
+      entry: restored.entry,
+    });
+  }
+  if (request.action === "restore_version") {
+    const file = await rpcRestoreSpaceFileRevision(env, {
+      body: {
+        baseRevision: request.baseRevision,
+        clientMutationId: request.clientMutationId,
+      },
+      context: authorization.context,
+      fileId: request.fileId,
+      revision: request.revision,
+      spaceId: request.spaceId,
+    });
+    return centerAgentManageSpaceFilesResponseSchema.parse({
+      action: request.action,
+      file,
+    });
+  }
+  const trashed = await rpcTrashSpaceFileEntry(env, {
+    clientMutationId: request.clientMutationId,
+    context: authorization.context,
+    entryId: request.entryId,
+    spaceId: request.spaceId,
+  });
+  return centerAgentManageSpaceFilesResponseSchema.parse({
+    action: request.action,
+    ...trashed,
+  });
+}
+
+function throwInvalidCenterAgentSpaceFilePayload(message?: string): never {
+  throw createCoreRpcHttpError({
+    code: "invalid_payload",
+    reason: message ?? "Invalid Center Agent Space Files request.",
+    status: 400,
+  });
+}
+
 type ProgressiveSpaceContext = Extract<
   CenterAgentReadSpaceContextResponse,
   { context: unknown }
@@ -11746,6 +12103,7 @@ export async function rpcCenterAgentPostSpaceMessage(
     env,
   });
   const parsed = centerAgentPostSpaceMessageBodySchema.safeParse({
+    ...(input.files === undefined ? {} : { files: input.files }),
     ...(input.onBehalfOf === undefined ? {} : { onBehalfOf: input.onBehalfOf }),
     ...(input.referenceProfileIds === undefined
       ? {}
@@ -11802,6 +12160,7 @@ export async function rpcCenterAgentPostSpaceMessage(
     }),
     spaceId: parsed.data.spaceId,
     text: parsed.data.text,
+    ...(parsed.data.files ? { files: parsed.data.files } : {}),
   });
   if (signal.type !== "signal.text") {
     throw new Error(
@@ -14733,8 +15092,8 @@ export async function rpcPostSignal(
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const text = String(input.text ?? "");
   const normalizedText = text.trim();
-  if (normalizedText.length === 0) {
-    throw new Error("text is required");
+  if (normalizedText.length === 0 && (input.files?.length ?? 0) === 0) {
+    throw new Error("A message must include text or at least one file");
   }
   const attachments = await resolvePostSignalAttachments(env, {
     attachments: input.attachments,
@@ -14752,6 +15111,7 @@ export async function rpcPostSignal(
     text: normalizedText,
     authoringPolicy: input.authoringPolicy,
     ...(attachments ? { attachments } : {}),
+    ...(input.files ? { files: input.files } : {}),
     ...(input.messageEnvelope
       ? { messageEnvelope: input.messageEnvelope }
       : {}),
@@ -14784,8 +15144,8 @@ export async function rpcPostSignalOnceByClientMessageId(
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   const text = String(input.text ?? "");
   const normalizedText = text.trim();
-  if (normalizedText.length === 0) {
-    throw new Error("text is required");
+  if (normalizedText.length === 0 && (input.files?.length ?? 0) === 0) {
+    throw new Error("A message must include text or at least one file");
   }
   const attachments = await resolvePostSignalAttachments(env, {
     attachments: input.attachments,
@@ -14804,6 +15164,7 @@ export async function rpcPostSignalOnceByClientMessageId(
     text: normalizedText,
     authoringPolicy: input.authoringPolicy,
     ...(attachments ? { attachments } : {}),
+    ...(input.files ? { files: input.files } : {}),
     ...(input.messageEnvelope
       ? { messageEnvelope: input.messageEnvelope }
       : {}),
@@ -15650,6 +16011,287 @@ export async function rpcResolveSpaceAttachmentForDownload(
     throwAttachmentNotFound();
   }
   return attachment;
+}
+
+export async function rpcListSpaceFiles(
+  env: CoreBindings,
+  input: ListSpaceFilesInput
+): Promise<ListSpaceFilesResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcListSpaceFiles({
+    spaceAccess,
+    spaceId,
+    query: input.query,
+  });
+}
+
+export async function rpcGetSpaceFile(
+  env: CoreBindings,
+  input: GetSpaceFileInput
+): Promise<SpaceFileDescriptor> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcGetSpaceFile({
+    fileId: input.fileId,
+    spaceAccess,
+    spaceId,
+  });
+}
+
+export async function rpcListSpaceFileRevisions(
+  env: CoreBindings,
+  input: GetSpaceFileInput
+): Promise<ListSpaceFileRevisionsResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcListSpaceFileRevisions({
+    fileId: input.fileId,
+    spaceAccess,
+    spaceId,
+  });
+}
+
+export async function rpcCreateSpaceFolder(
+  env: CoreBindings,
+  input: CreateSpaceFolderInput
+): Promise<CreateSpaceFolderResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcCreateSpaceFolder({
+    body: input.body,
+    spaceAccess,
+    spaceId,
+  });
+}
+
+export async function rpcUpdateSpaceFileEntry(
+  env: CoreBindings,
+  input: UpdateSpaceFileEntryInput
+): Promise<UpdateSpaceFileEntryResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcUpdateSpaceFileEntry({
+    body: input.body,
+    entryId: input.entryId,
+    spaceAccess,
+    spaceId,
+  });
+}
+
+export async function rpcTrashSpaceFileEntry(
+  env: CoreBindings,
+  input: TrashSpaceFileEntryInput
+): Promise<TrashSpaceFileEntryResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcTrashSpaceFileEntry({
+    clientMutationId: input.clientMutationId,
+    entryId: input.entryId,
+    spaceAccess,
+    spaceId,
+  });
+}
+
+export async function rpcRestoreSpaceFileEntry(
+  env: CoreBindings,
+  input: RestoreSpaceFileEntryInput
+): Promise<RestoreSpaceFileEntryResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcRestoreSpaceFileEntry({
+    body: input.body,
+    entryId: input.entryId,
+    spaceAccess,
+    spaceId,
+  });
+}
+
+export async function rpcPrepareSpaceFileWrite(
+  env: CoreBindings,
+  input: SpaceFileWriteInput
+): Promise<PrepareSpaceFileWriteResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcPrepareSpaceFileWrite({
+    spaceAccess,
+    write: input.write,
+  });
+}
+
+export async function rpcCommitSpaceFileWrite(
+  env: CoreBindings,
+  input: SpaceFileWriteInput
+): Promise<SpaceFileDescriptor> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcCommitSpaceFileWrite({
+    spaceAccess,
+    write: input.write,
+  });
+}
+
+export async function rpcResolveSpaceFileContent(
+  env: CoreBindings,
+  input: ResolveSpaceFileContentRpcInput
+): Promise<ResolveSpaceFileContentResponse> {
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  return await stub.rpcResolveSpaceFileContent({
+    content: input.content,
+    spaceAccess,
+  });
+}
+
+export async function rpcReadSpaceFileContent(
+  env: CoreBindings,
+  input: ReadSpaceFileContentRpcInput
+): Promise<ReadSpaceFileContentRpcResponse> {
+  const resolved = await rpcResolveSpaceFileContent(env, input);
+  assertSpaceFileObjectScope({
+    organizationId: resolved.organizationId,
+    spaceId: input.spaceId,
+    fileId: input.content.fileId,
+    revisionId: resolved.revision.id,
+    objectKey: resolved.objectKey,
+  });
+  const bucket = requireSpaceFileBucket(env);
+  let object: R2ObjectBody | null;
+  try {
+    object = await bucket.get(resolved.objectKey);
+  } catch {
+    throwSpaceFileStorageFailed("This file could not be read right now.");
+  }
+  if (!object) {
+    throwSpaceFileStorageFailed("This file revision is unavailable.");
+  }
+  const bytes = await object.arrayBuffer();
+  if (bytes.byteLength !== resolved.revision.sizeBytes) {
+    throwSpaceFileStorageFailed("This file revision is incomplete.");
+  }
+  return { ...resolved, bytes };
+}
+
+export async function rpcWriteSpaceFileContent(
+  env: CoreBindings,
+  input: WriteSpaceFileContentRpcInput
+): Promise<SpaceFileDescriptor> {
+  if (
+    input.bytes.byteLength > SPACE_FILE_MAX_SIZE_BYTES ||
+    input.bytes.byteLength !== input.write.sizeBytes
+  ) {
+    throw createCoreRpcHttpError({
+      code: "space_file.too_large",
+      reason: "Files must be 10 MiB or smaller and match the declared size.",
+      status: 413,
+    });
+  }
+  const prepared = await rpcPrepareSpaceFileWrite(env, input);
+  if (prepared.committedFile) {
+    return prepared.committedFile;
+  }
+  assertSpaceFileObjectScope({
+    organizationId: prepared.organizationId,
+    spaceId: input.spaceId,
+    fileId: input.write.fileId,
+    revisionId: input.write.revisionId,
+    objectKey: prepared.objectKey,
+  });
+  const bucket = requireSpaceFileBucket(env);
+  try {
+    await bucket.put(prepared.objectKey, input.bytes, {
+      httpMetadata: { contentType: input.write.mimeType },
+      customMetadata: {
+        fileId: input.write.fileId,
+        revisionId: input.write.revisionId,
+        spaceId: input.spaceId,
+      },
+    });
+  } catch {
+    throwSpaceFileStorageFailed("This file could not be stored right now.");
+  }
+  try {
+    return await rpcCommitSpaceFileWrite(env, input);
+  } catch (error) {
+    console.warn("[core.space_file.orphan_reconciliation_deferred]", {
+      event: "core.space_file.orphan_reconciliation_deferred",
+      fileId: input.write.fileId,
+      objectKey: prepared.objectKey,
+      outcome: "commit_response_uncertain",
+      requestId: input.context?.actorContext.requestId,
+      revisionId: input.write.revisionId,
+      spaceId: input.spaceId,
+    });
+    throw error;
+  }
+}
+
+export async function rpcRestoreSpaceFileRevision(
+  env: CoreBindings,
+  input: RestoreSpaceFileRevisionInput
+): Promise<SpaceFileDescriptor> {
+  const source = await rpcReadSpaceFileContent(env, {
+    context: input.context,
+    content: {
+      spaceId: input.spaceId,
+      fileId: input.fileId,
+      revision: input.revision,
+    },
+    spaceAccess: input.spaceAccess,
+    spaceId: input.spaceId,
+  });
+  return await rpcWriteSpaceFileContent(env, {
+    bytes: source.bytes,
+    context: input.context,
+    spaceAccess: input.spaceAccess,
+    spaceId: input.spaceId,
+    write: {
+      spaceId: input.spaceId,
+      fileId: input.fileId,
+      revisionId: await buildSpaceFileRevisionIdForMutation({
+        baseRevision: input.body.baseRevision,
+        bytes: source.bytes,
+        clientMutationId: input.body.clientMutationId,
+        mimeType: source.revision.mimeType,
+      }),
+      baseRevision: input.body.baseRevision,
+      clientMutationId: input.body.clientMutationId,
+      mimeType: source.revision.mimeType,
+      sizeBytes: source.revision.sizeBytes,
+    },
+  });
+}
+
+function requireSpaceFileBucket(env: CoreBindings): R2Bucket {
+  if (!env.OPENMELD_SPACE_ATTACHMENTS) {
+    throwSpaceFileStorageFailed("Space file storage is unavailable.");
+  }
+  return env.OPENMELD_SPACE_ATTACHMENTS;
+}
+
+function assertSpaceFileObjectScope(input: {
+  fileId: string;
+  objectKey: string;
+  organizationId: string;
+  revisionId: string;
+  spaceId: string;
+}): void {
+  const expectedObjectKey = buildSpaceFileObjectKey(input);
+  if (input.objectKey !== expectedObjectKey) {
+    throw createCoreRpcHttpError({
+      code: "upstream_unreachable",
+      reason: "Space file storage scope did not match its metadata.",
+      status: 502,
+    });
+  }
+}
+
+function throwSpaceFileStorageFailed(reason: string): never {
+  throw createCoreRpcHttpError({
+    code: "space_file.storage_failed",
+    reason,
+    status: 503,
+  });
 }
 
 async function requireSpaceAttachmentAccess(

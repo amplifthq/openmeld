@@ -60,6 +60,7 @@ export class SpaceSignalAuthoringError extends Error {
 
 export type SignalTextBuildOptions = {
   attachments?: SignalTextData["attachments"];
+  files?: SignalTextData["files"];
   messageEnvelope?: SignalTextData["messageEnvelope"];
   meta?: SignalTextData["meta"];
   replyTo?: SignalTextData["replyTo"];
@@ -114,12 +115,21 @@ export const buildSignalTextOptions = (
   data: SignalTextData
 ): SignalTextBuildOptions | undefined => {
   const meta = omitReplyStalenessFromAuthoredMeta(data.meta);
-  if (!(data.attachments || data.messageEnvelope || meta || data.replyTo)) {
+  if (
+    !(
+      data.attachments ||
+      data.files ||
+      data.messageEnvelope ||
+      meta ||
+      data.replyTo
+    )
+  ) {
     return undefined;
   }
 
   return {
     ...(data.attachments ? { attachments: data.attachments } : {}),
+    ...(data.files ? { files: data.files } : {}),
     ...(data.messageEnvelope ? { messageEnvelope: data.messageEnvelope } : {}),
     ...(meta ? { meta } : {}),
     ...(data.replyTo ? { replyTo: data.replyTo } : {}),
@@ -168,6 +178,9 @@ export async function handlePostSignalUseCase(input: {
   ) => Promise<void>;
   isDispatchSnapshotOversizeError: (error: unknown) => boolean;
   dispatchSnapshotOversizeErrorCode: string;
+  resolveMessageFiles?: (
+    files: NonNullable<SignalTextData["files"]>
+  ) => NonNullable<SignalTextData["files"]>;
 }): Promise<Response> {
   if (!(input.body && typeof input.body === "object")) {
     return new Response("Invalid JSON", { status: 400 });
@@ -214,10 +227,19 @@ export async function handlePostSignalUseCase(input: {
     );
   }
 
+  const canonicalFiles = textSignal.value.data.files
+    ? input.resolveMessageFiles?.(textSignal.value.data.files)
+    : undefined;
+  if (textSignal.value.data.files && !canonicalFiles) {
+    throw new Error("Space message file resolution is unavailable.");
+  }
   const payload = input.buildTextSignal(
     input.profile,
     textSignal.value.data.text,
-    buildSignalTextOptions(textSignal.value.data)
+    buildSignalTextOptions({
+      ...textSignal.value.data,
+      ...(canonicalFiles ? { files: canonicalFiles } : {}),
+    })
   );
   try {
     await input.publishTextSignal(payload, {

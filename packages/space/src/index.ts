@@ -23,6 +23,7 @@ export {
   isSpaceComposerSubmissionError,
   type PreparedSpaceComposerSubmission,
   prepareSpaceComposerSubmission,
+  prepareSpaceFileOnlySubmission,
   type SpaceComposerAuthoredMentionInTextOrder,
   type SpaceComposerReplyTarget,
   SpaceComposerSubmissionError,

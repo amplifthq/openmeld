@@ -4049,6 +4049,37 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentPostSpaceMessage).toHaveBeenCalledOnce();
   });
 
+  it("sends exact canonical Space File revisions from the Center Agent", async () => {
+    const request = createSubmitTurnRequest();
+    const centerAgentPostSpaceMessage = vi.fn(async () =>
+      postSpaceMessageResponse([])
+    );
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentPostSpaceMessage },
+      storage: await createStorageWithPendingContext(request),
+    });
+    const files = [
+      {
+        fileId: "file-1",
+        revision: 2,
+        name: "decision.md",
+        mimeType: "text/markdown",
+        sizeBytes: 128,
+      },
+    ];
+
+    await executeTool(tools, "openmeld_post_space_message", {
+      files,
+      referenceProfileIds: [],
+      spaceId: SPACE_ID,
+      text: "I shared the decision record.",
+    });
+
+    expect(centerAgentPostSpaceMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ files })
+    );
+  });
+
   it("checks the structured Space authoring contract before any publication", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorageWithPendingContext(request);
@@ -5121,6 +5152,111 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_read_space_context",
     },
     {
+      expectedPayload: { parentId: null, spaceId: SPACE_ID },
+      input: { parentId: null, spaceId: SPACE_ID },
+      response: listSpaceFilesResponse(),
+      rpcName: "centerAgentListSpaceFiles",
+      toolName: "openmeld_list_space_files",
+    },
+    {
+      expectedPayload: { spaceId: SPACE_ID, view: "trash" },
+      input: { spaceId: SPACE_ID, view: "trash" },
+      response: { ...listSpaceFilesResponse(), entries: [], view: "trash" },
+      rpcName: "centerAgentListSpaceFiles",
+      toolName: "openmeld_list_space_files",
+    },
+    {
+      expectedPayload: {
+        fileId: "file-1",
+        revision: 1,
+        spaceId: SPACE_ID,
+      },
+      input: { fileId: "file-1", revision: 1, spaceId: SPACE_ID },
+      response: readSpaceFileResponse(),
+      rpcName: "centerAgentReadSpaceFile",
+      toolName: "openmeld_read_space_file",
+    },
+    {
+      expectedPayload: {
+        fileId: "file-1",
+        includeHistory: true,
+        spaceId: SPACE_ID,
+      },
+      input: { fileId: "file-1", includeHistory: true, spaceId: SPACE_ID },
+      response: {
+        ...readSpaceFileResponse(),
+        revisions: [spaceFileDescriptor().latestRevision],
+      },
+      rpcName: "centerAgentReadSpaceFile",
+      toolName: "openmeld_read_space_file",
+    },
+    {
+      expectedPayload: {
+        action: "update",
+        baseRevision: 1,
+        clientMutationId: "save-release-brief-r2",
+        content: "# Release brief\n\nReady for review.",
+        fileId: "file-1",
+        mimeType: "text/markdown",
+        spaceId: SPACE_ID,
+      },
+      input: {
+        action: "update",
+        baseRevision: 1,
+        clientMutationId: "save-release-brief-r2",
+        content: "# Release brief\n\nReady for review.",
+        fileId: "file-1",
+        mimeType: "text/markdown",
+        spaceId: SPACE_ID,
+      },
+      response: { file: spaceFileDescriptor(2) },
+      rpcName: "centerAgentSaveSpaceFile",
+      toolName: "openmeld_save_space_file",
+    },
+    {
+      expectedPayload: {
+        action: "create_folder",
+        clientMutationId: "create-planning-folder",
+        name: "Planning",
+        parentId: null,
+        spaceId: SPACE_ID,
+      },
+      input: {
+        action: "create_folder",
+        clientMutationId: "create-planning-folder",
+        name: "Planning",
+        parentId: null,
+        spaceId: SPACE_ID,
+      },
+      response: {
+        action: "create_folder",
+        folder: spaceFolderDescriptor(),
+      },
+      rpcName: "centerAgentManageSpaceFiles",
+      toolName: "openmeld_manage_space_files",
+    },
+    {
+      expectedPayload: {
+        action: "restore_version",
+        baseRevision: 3,
+        clientMutationId: "restore-release-brief-r1",
+        fileId: "file-1",
+        revision: 1,
+        spaceId: SPACE_ID,
+      },
+      input: {
+        action: "restore_version",
+        baseRevision: 3,
+        clientMutationId: "restore-release-brief-r1",
+        fileId: "file-1",
+        revision: 1,
+        spaceId: SPACE_ID,
+      },
+      response: { action: "restore_version", file: spaceFileDescriptor(4) },
+      rpcName: "centerAgentManageSpaceFiles",
+      toolName: "openmeld_manage_space_files",
+    },
+    {
       expectedPayload: { limit: 5, spaceId: SPACE_ID },
       input: { limit: 5, spaceId: SPACE_ID },
       response: dispatchHistoryResponse(),
@@ -5953,6 +6089,72 @@ function agentActivitySessionInventoryResponse() {
     nextCursor: null,
     organization: { id: "org_123", name: "Amplift" },
     sessions: [],
+  };
+}
+
+function spaceFileActor() {
+  return {
+    displayName: "Center Agent",
+    profileId: createSubmitTurnRequest().agentProfileId,
+    profileKind: "agent" as const,
+  };
+}
+
+function spaceFileDescriptor(revision = 1) {
+  return {
+    createdAt: ISO_NOW,
+    createdBy: spaceFileActor(),
+    id: "file-1",
+    kind: "file" as const,
+    latestRevision: {
+      createdAt: ISO_NOW,
+      createdBy: spaceFileActor(),
+      fileId: "file-1",
+      id: `revision-${revision}`,
+      mimeType: "text/markdown",
+      revision,
+      sizeBytes: 34,
+    },
+    name: "release-brief.md",
+    parentId: null,
+    path: "/release-brief.md",
+    spaceId: SPACE_ID,
+    updatedAt: ISO_NOW,
+    updatedBy: spaceFileActor(),
+  };
+}
+
+function spaceFolderDescriptor() {
+  return {
+    createdAt: ISO_NOW,
+    createdBy: spaceFileActor(),
+    id: "folder-1",
+    kind: "folder" as const,
+    name: "Planning",
+    parentId: null,
+    path: "/Planning",
+    spaceId: SPACE_ID,
+    updatedAt: ISO_NOW,
+    updatedBy: spaceFileActor(),
+  };
+}
+
+function listSpaceFilesResponse() {
+  return {
+    breadcrumbs: [{ id: null, name: "Files" }],
+    capabilities: { canRead: true as const, canWrite: true },
+    entries: [spaceFileDescriptor()],
+    parentId: null,
+    spaceId: SPACE_ID,
+  };
+}
+
+function readSpaceFileResponse() {
+  const file = spaceFileDescriptor();
+  return {
+    content: "# Release brief\n\nDraft.",
+    file,
+    revision: file.latestRevision,
   };
 }
 
