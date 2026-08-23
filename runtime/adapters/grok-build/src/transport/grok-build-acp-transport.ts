@@ -209,14 +209,58 @@ export async function invokeGrokBuildAcpTransport(input: {
       }),
     };
   } catch (error) {
-    throw toGrokBuildTransportError(
-      error,
-      session.readStderr(),
-      session.readDiagnostics()
-    );
+    throw await toWakeFailureError(error, session);
   } finally {
     await session.closeProcess();
   }
+}
+
+const PROVIDER_USAGE_EXHAUSTED_ERROR_CODE = "grok-build.quota_or_entitlement";
+
+/**
+ * A provider rejection without a self-describing message surfaces as
+ * protocol.request_failed. When the usage projection shows credits are
+ * exhausted, the quota failure code is far more accurate than a generic
+ * protocol error.
+ */
+export function upgradeProtocolFailureWithExhaustedUsage(
+  classified: GrokBuildAcpTransportError,
+  usageLimits: readonly AdapterProviderUsageLimit[]
+): GrokBuildAcpTransportError {
+  if (
+    classified.code !== "protocol.request_failed" ||
+    !usageLimits.some((limit) => limit.status === "exhausted")
+  ) {
+    return classified;
+  }
+  return new GrokBuildAcpTransportError({
+    cause: classified,
+    code: PROVIDER_USAGE_EXHAUSTED_ERROR_CODE,
+    errorType: "auth",
+    message:
+      "grok-build.quota_or_entitlement: the provider account has used all of its included credits for this period",
+  });
+}
+
+async function toWakeFailureError(
+  error: unknown,
+  session: GrokBuildAcpSession
+): Promise<GrokBuildAcpTransportError> {
+  const classified = toGrokBuildTransportError(
+    error,
+    session.readStderr(),
+    session.readDiagnostics()
+  );
+  if (
+    classified.code !== "protocol.request_failed" ||
+    isContextNotFoundError(classified)
+  ) {
+    return classified;
+  }
+  return upgradeProtocolFailureWithExhaustedUsage(
+    classified,
+    await session.readUsageLimitsSafe()
+  );
 }
 
 class GrokBuildAcpSession {
@@ -350,6 +394,14 @@ class GrokBuildAcpSession {
         }),
       () => createUnavailableProviderUsageLimits(new Date().toISOString())
     );
+  }
+
+  async readUsageLimitsSafe(): Promise<AdapterProviderUsageLimit[]> {
+    try {
+      return await this.readUsageLimits();
+    } catch {
+      return createUnavailableProviderUsageLimits(new Date().toISOString());
+    }
   }
 
   async openSession(input: {

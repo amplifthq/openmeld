@@ -2630,6 +2630,7 @@ export type RecordCenterAgentAuditInput = {
   context?: CoreRpcContextInput;
   onBehalfOf?: { profileId: string } | null;
   resource?: { id: string; type: string } | null;
+  sourceSpaceId?: string | null;
 };
 
 export type ListCenterAgentAuditJournalInput =
@@ -9206,6 +9207,7 @@ export async function rpcRecordCenterAgentAudit(
     authorization,
     onBehalfOfProfileId: input.onBehalfOf?.profileId ?? null,
     resource: input.resource ?? null,
+    sourceSpaceId: input.sourceSpaceId ?? null,
   });
   return attribution;
 }
@@ -12485,6 +12487,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     providerExecutionId: input.providerExecutionId,
     requestSignature: input.requestSignature,
     service: input.service,
+    sourceSpaceId: input.sourceSpaceId ?? null,
     speakerMember: input.speakerMember,
   });
   if (!parsed.success) {
@@ -12582,6 +12585,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
     requester,
     requestSignature: parsed.data.requestSignature,
     service: parsed.data.service,
+    sourceSpaceId: parsed.data.sourceSpaceId ?? null,
   });
   return centerAgentRecordConnectorActionOperationResponseSchema.parse({
     attribution: result.attribution,

@@ -490,7 +490,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         return `${subject} finished, but OpenMeld couldn't post its reply. Wake ${wakeTarget} again. If this keeps happening, open diagnostics.`;
       },
       kind: "system_retry",
-      patterns: ["=runtime_coordinator.publication_retry_exhausted"],
+      patterns: [
+        "=runtime_coordinator.publication_retry_exhausted",
+        "=dispatch.reply_not_published",
+      ],
       recoveryTarget: null,
     },
     {

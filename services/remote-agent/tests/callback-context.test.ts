@@ -16,6 +16,7 @@ import {
   recordCallbackDeliveryFailure,
   recordRemoteAgentCenterAgentTaskReference,
   redeliverDueRemoteAgentCallbacks,
+  resolveTerminalTurnFailureCode,
   sanitizeCenterAgentCompletedTextForPublication,
 } from "../agent-core/callback-context";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
@@ -1329,5 +1330,32 @@ describe("remote agent callback context", () => {
       code: "remote_agent.callback_failed_submission",
       retryable: false,
     });
+  });
+
+  it("keeps a precise earlier failure fact instead of the generic turn_not_completed fallback", () => {
+    const context = {
+      lastFailureFact: {
+        code: "remote_agent.tool_result_too_large",
+        detail: "tool result exceeded the size budget",
+        occurredAt: new Date(TEST_NOW_MS).toISOString(),
+        retryable: false,
+      },
+    } as RemoteAgentCallbackContext;
+
+    const code = resolveTerminalTurnFailureCode(context, {
+      error: new Error("Remote Agent could not finish this request."),
+      status: "error",
+    });
+
+    expect(code).toBe("remote_agent.tool_result_too_large");
+  });
+
+  it("classifies a turn with no earlier failure fact as turn_not_completed", () => {
+    const code = resolveTerminalTurnFailureCode(
+      {} as RemoteAgentCallbackContext,
+      { error: new Error("boom"), status: "error" }
+    );
+
+    expect(code).toBe("remote_agent.turn_not_completed");
   });
 });

@@ -80,6 +80,7 @@ export {
   type GrokBuildAcpTransportResult,
   invokeGrokBuildAcpTransport,
   probeGrokBuildAcpInterface,
+  upgradeProtocolFailureWithExhaustedUsage,
 } from "./transport/grok-build-acp-transport.js";
 export { projectGrokBuildUsageLimits } from "./usage/grok-build-usage-limits.js";
 

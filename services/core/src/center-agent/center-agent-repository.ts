@@ -29,6 +29,7 @@ type CenterAgentAuditJournalRow = {
   resource_type: string | null;
   resource_id: string | null;
   source_native_delivery_id: string | null;
+  source_space_id: string | null;
   local_agent_client: string | null;
   context_manifest_estimated_token_count: number | null;
   context_manifest_included_message_count: number | null;
@@ -75,6 +76,7 @@ export type CenterAgentAuditJournalEntryRecord = {
   resourceType: string | null;
   resourceId: string | null;
   sourceNativeDeliveryId: string | null;
+  sourceSpaceId: string | null;
   localAgentClient: string | null;
   contextManifestEstimatedTokenCount: number | null;
   contextManifestIncludedMessageCount: number | null;
@@ -273,6 +275,7 @@ type CenterAgentAuditJournalEntryInput = {
   organizationId: string;
   resource?: { id: string; type: string } | null;
   sourceNativeDeliveryId?: string | null;
+  sourceSpaceId?: string | null;
 };
 
 export function prepareCenterAgentAuditJournalEntryStatement(
@@ -311,9 +314,10 @@ function prepareCenterAgentAuditJournalEntryStatementWithConflictPolicy(
           resource_type,
           resource_id,
           source_native_delivery_id,
+          source_space_id,
           created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
     )
     .bind(
@@ -327,6 +331,7 @@ function prepareCenterAgentAuditJournalEntryStatementWithConflictPolicy(
       input.resource?.type ?? null,
       input.resource?.id ?? null,
       input.sourceNativeDeliveryId ?? null,
+      input.sourceSpaceId ?? null,
       input.nowMs
     );
 }
@@ -348,6 +353,7 @@ export async function insertCenterAgentAuditJournalEntry(
     resourceType: input.resource?.type ?? null,
     resourceId: input.resource?.id ?? null,
     sourceNativeDeliveryId: input.sourceNativeDeliveryId ?? null,
+    sourceSpaceId: input.sourceSpaceId ?? null,
     localAgentClient: null,
     contextManifestEstimatedTokenCount: null,
     contextManifestIncludedMessageCount: null,
@@ -387,6 +393,7 @@ export async function listCenterAgentAuditJournalEntries(input: {
           journal.resource_type,
           journal.resource_id,
           journal.source_native_delivery_id,
+          journal.source_space_id,
           journal.created_at,
           COALESCE(
             load_receipt.client_name,
@@ -679,6 +686,7 @@ export function toCenterAgentAuditJournalEntryDto(
             id: record.resourceId,
           }
         : null,
+    sourceSpaceId: record.sourceSpaceId,
     createdAt: toIsoDateTime(record.createdAtMs),
   };
 }
@@ -715,6 +723,7 @@ function mapAuditJournalRow(
     resourceType: row.resource_type,
     resourceId: row.resource_id,
     sourceNativeDeliveryId: row.source_native_delivery_id,
+    sourceSpaceId: row.source_space_id,
     localAgentClient: row.local_agent_client,
     contextManifestEstimatedTokenCount:
       row.context_manifest_estimated_token_count,

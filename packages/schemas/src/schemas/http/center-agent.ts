@@ -278,6 +278,7 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
     providerExecutionId: nullableTrimmedStringSchema,
     requestSignature: z.string().regex(/^[0-9a-f]{64}$/),
     service: connectorServiceSchema,
+    sourceSpaceId: trimmedNonEmptyStringSchema.max(128).nullable().optional(),
     speakerMember: centerAgentToolSpeakerSchema,
   })
   .superRefine((value, context) => {
@@ -553,6 +554,7 @@ export const centerAgentAuditJournalEntrySchema = z.strictObject({
     })
     .optional(),
   resource: centerAgentResourceSchema.nullable(),
+  sourceSpaceId: trimmedNonEmptyStringSchema.nullable().optional(),
   createdAt: ISO_DATE_TIME_SCHEMA,
 });
 

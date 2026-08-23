@@ -15,13 +15,17 @@ import {
   clearProviderAccessFailureEvidenceForExecutionSuccess,
   writeAcceptedProviderAccessFailureEvidence,
 } from "../agent-execution/infrastructure/d1/provider-access-evidence-repo";
-import { finalizeAcceptedDispatchResult } from "../dispatch/application/dispatch-execution-service";
+import {
+  DISPATCH_REPLY_NOT_PUBLISHED_ERROR_CODE,
+  finalizeAcceptedDispatchResult,
+} from "../dispatch/application/dispatch-execution-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as dispatchResultService from "../dispatch/application/dispatch-result-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as dispatchLedgerD1 from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
 import {
   markDispatchStatus,
+  OPENMELD_DAEMON_DISPATCH_STATE,
   readDispatchAttemptExecutionOwnershipFact,
 } from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
@@ -254,6 +258,19 @@ const buildEnv = () =>
     OPENMELD_AUTH_WORKER: {},
     OPENMELD_LOCAL_STATE_DB: {} as D1Database,
   }) as unknown as Parameters<typeof finalizeAcceptedDispatchResult>[0]["env"];
+
+const finalizeExistingAcceptedDispatchResultForTest = async () => {
+  await finalizeAcceptedDispatchResult({
+    db: {} as D1Database,
+    dispatchMessage,
+    env: buildEnv(),
+    inboxRecord: buildInboxRecord(successTaskResult),
+    recordPublicationProjection: false,
+    targetOwnerUserId: "owner-1",
+    targetProfileMentionLabel: "Claude Code",
+    targetProfileName: "Claude Code",
+  });
+};
 
 describe("dispatch provider access evidence finalization", () => {
   afterEach(() => {
@@ -672,5 +689,69 @@ describe("dispatch provider access evidence finalization", () => {
     });
 
     expect(writeAcceptedAgentExecutionReadinessImpact).not.toHaveBeenCalled();
+  });
+
+  it("keeps an existing published result succeeded", async () => {
+    vi.mocked(
+      dispatchResultService.getDispatchResultByDispatchId
+    ).mockResolvedValueOnce({
+      dispatchId: dispatchMessage.dispatchId,
+      publicOutcome: "post_message",
+      publishedSignalId: "signal-existing-1",
+      resultKind: "text",
+      resultRef: "result-ref-1",
+      spaceId: dispatchMessage.spaceId,
+    } as never);
+
+    await finalizeExistingAcceptedDispatchResultForTest();
+
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: null,
+        status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
+      })
+    );
+  });
+  it("marks an existing unpublished non-silent result as failed with a precise code", async () => {
+    vi.mocked(
+      dispatchResultService.getDispatchResultByDispatchId
+    ).mockResolvedValueOnce({
+      dispatchId: dispatchMessage.dispatchId,
+      publicOutcome: "system_notice",
+      publishedSignalId: null,
+      resultKind: "text",
+      resultRef: "result-ref-2",
+      spaceId: dispatchMessage.spaceId,
+    } as never);
+
+    await finalizeExistingAcceptedDispatchResultForTest();
+
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: DISPATCH_REPLY_NOT_PUBLISHED_ERROR_CODE,
+        status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+      })
+    );
+  });
+
+  it("keeps an intentionally internal-only result succeeded even when nothing was published", async () => {
+    vi.mocked(
+      dispatchResultService.getDispatchResultByDispatchId
+    ).mockResolvedValueOnce({
+      dispatchId: dispatchMessage.dispatchId,
+      publicOutcome: "internal_only",
+      publishedSignalId: null,
+      resultKind: "text",
+      resultRef: "result-ref-3",
+      spaceId: dispatchMessage.spaceId,
+    } as never);
+
+    await finalizeExistingAcceptedDispatchResultForTest();
+
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
+      })
+    );
   });
 });

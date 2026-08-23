@@ -19,6 +19,7 @@ export async function buildRemoteAgentToolContext(input: {
   conversationId: RemoteAgentCallbackContext["conversationId"];
   conversationIdentity: RemoteAgentCallbackContext["conversationIdentity"];
   modelRoute: RemoteAgentCallbackContext["modelRoute"];
+  spaceId: RemoteAgentCallbackContext["spaceId"];
   turnEnvelope: RemoteAgentCallbackContext["turnEnvelope"];
 }> {
   const turnContext = await readRemoteAgentCallbackContext(
@@ -35,6 +36,7 @@ export async function buildRemoteAgentToolContext(input: {
     conversationId: turnContext.conversationId,
     conversationIdentity: turnContext.conversationIdentity,
     modelRoute: turnContext.modelRoute,
+    spaceId: turnContext.spaceId,
     turnEnvelope: turnContext.turnEnvelope,
   };
 }

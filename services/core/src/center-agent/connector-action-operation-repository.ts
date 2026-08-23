@@ -158,6 +158,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   requester: CenterAgentConnectorActionRequester;
   requestSignature: string;
   service: string;
+  sourceSpaceId?: string | null;
 }): Promise<{
   attribution: CenterAgentAttribution;
   operation: CenterAgentConnectorActionOperationRecord;
@@ -216,6 +217,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
         organizationId: input.organizationId,
         resource: operationAuditResource(input),
         sourceNativeDeliveryId: scope.sourceNativeDeliveryId,
+        sourceSpaceId: input.sourceSpaceId ?? null,
       }),
     ]);
     const operation = await requireOperation({ db: input.db, scope });
@@ -270,6 +272,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
       organizationId: input.organizationId,
       resource: operationAuditResource(input),
       sourceNativeDeliveryId: existing.sourceNativeDeliveryId,
+      sourceSpaceId: input.sourceSpaceId ?? null,
     }),
     prepareFinalizeOperationStatement({
       db: input.db,
@@ -357,6 +360,7 @@ function prepareFinalizeAuditStatement(input: {
   organizationId: string;
   resource: { id: string; type: string };
   sourceNativeDeliveryId: string | null;
+  sourceSpaceId: string | null;
 }): D1PreparedStatement {
   const onBehalfOf = input.attribution.onBehalfOf;
   return input.db
@@ -373,9 +377,10 @@ function prepareFinalizeAuditStatement(input: {
           resource_type,
           resource_id,
           source_native_delivery_id,
+          source_space_id,
           created_at
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         WHERE EXISTS (
           SELECT 1
           FROM center_agent_connector_action_operations
@@ -395,6 +400,7 @@ function prepareFinalizeAuditStatement(input: {
       input.resource.type,
       input.resource.id,
       input.sourceNativeDeliveryId,
+      input.sourceSpaceId,
       input.nowMs,
       input.operationRecordId
     );
