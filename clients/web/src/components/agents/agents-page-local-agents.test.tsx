@@ -24,10 +24,10 @@ import {
 } from "./agents-page-local-agents";
 
 const HOMEBREW_INSTALLATION_NAME = /Homebrew installation/;
-const LOW_CODEX_USAGE_GAUGE_NAME = /Codex 5-hour usage, 84% used, Low/u;
-const OWNED_USAGE_SUMMARY_ORDER = /v0\.38\.0.*84%/u;
-const TEAM_USAGE_SUMMARY_ORDER = /v0\.148\.0.*84%/u;
-const LOW_CODEX_USAGE_SUMMARY_NAME = /Codex usage limits, 84% used, Low/u;
+const LOW_CODEX_USAGE_GAUGE_NAME = /Codex 5-hour usage, 16% left, Low/u;
+const OWNED_USAGE_SUMMARY_ORDER = /v0\.38\.0.*16%/u;
+const TEAM_USAGE_SUMMARY_ORDER = /v0\.148\.0.*16%/u;
+const LOW_CODEX_USAGE_SUMMARY_NAME = /Codex usage limits, 16% left, Low/u;
 const LOCAL_AGENT_ROW_TEST_ID =
 	/^settings-local-agent-row-(?:codex|claude-code|grok-build|cursor|opencode)$/u;
 
@@ -206,8 +206,9 @@ describe("LocalAgentsCard", () => {
 		const ownedSummary = within(ownedRow).getByRole("progressbar", {
 			name: LOW_CODEX_USAGE_SUMMARY_NAME,
 		});
-		expect(ownedSummary.textContent).toBe("84%");
-		expect(ownedSummary.getAttribute("aria-valuenow")).toBe("84");
+		expect(ownedSummary.textContent).toBe("16%");
+		expect(ownedSummary.getAttribute("aria-valuenow")).toBe("16");
+		expect(ownedSummary.getAttribute("aria-valuetext")).toBe("16% left");
 		expect(ownedRow.textContent).toMatch(OWNED_USAGE_SUMMARY_ORDER);
 		fireEvent.click(ownedSummary);
 		expect(
@@ -259,8 +260,9 @@ describe("LocalAgentsCard", () => {
 		const teammateSummary = within(teammateRow).getByRole("progressbar", {
 			name: LOW_CODEX_USAGE_SUMMARY_NAME,
 		});
-		expect(teammateSummary.textContent).toBe("84%");
-		expect(teammateSummary.getAttribute("aria-valuenow")).toBe("84");
+		expect(teammateSummary.textContent).toBe("16%");
+		expect(teammateSummary.getAttribute("aria-valuenow")).toBe("16");
+		expect(teammateSummary.getAttribute("aria-valuetext")).toBe("16% left");
 		expect(teammateRow.textContent).toMatch(TEAM_USAGE_SUMMARY_ORDER);
 		fireEvent.click(
 			within(teammateRow)

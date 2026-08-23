@@ -308,6 +308,7 @@ describe("Space RPC access context propagation", () => {
     await rpcGetSpaceDispatchTrace(env, {
       dispatchId: "dispatch-1",
       includeRemoteAgentRuntimeDiagnostics: true,
+      responseContractVersion: 2,
       spaceAccess,
       spaceId: SPACE_ID,
     });
@@ -393,6 +394,7 @@ describe("Space RPC access context propagation", () => {
     }
     expect(captured.get("rpcGetDispatchTrace")).toMatchObject({
       includeRemoteAgentRuntimeDiagnostics: true,
+      responseContractVersion: 2,
     });
   });
 
@@ -471,11 +473,12 @@ describe("Space RPC access context propagation", () => {
     await space.rpcGetDispatchTrace({
       dispatchId: "dispatch-1",
       includeRemoteAgentRuntimeDiagnostics: true,
+      responseContractVersion: 2,
       spaceId: SPACE_ID,
     });
 
     expect(captured.path).toBe(
-      "/dispatches/dispatch-1/trace?includeRemoteAgentRuntimeDiagnostics=true"
+      "/dispatches/dispatch-1/trace?includeRemoteAgentRuntimeDiagnostics=true&responseContractVersion=2"
     );
   });
 

@@ -109,6 +109,26 @@ type ServiceTraceLookupDiagnostic = {
   reasonCode: ServiceTraceLookupReasonCode;
   selector: ObservabilityWakeTraceSelector | null;
 };
+type ServiceTraceAgentWaitingBoundary = {
+  deadlineAt: string;
+  softDeadlineAt: string;
+  userRecoveryAction:
+    | "start_or_restart_openmeld_service"
+    | "wait_for_wake_route_report";
+  waitingFor: "openmeld_service_route_connection" | "wake_route_report";
+  waitingSince: string;
+};
+type ServiceTraceAgentSummary = {
+  currentState: string;
+  delivered: boolean;
+  nextAction: string;
+  reasonCode: string | null;
+  visibleOutcome: string;
+  controllerNormalizationStatus?: string;
+  deliveryDestination?: string;
+  runtimeFamily?: "hosted_center_agent";
+  waitingBoundary?: ServiceTraceAgentWaitingBoundary;
+};
 type ServiceTracePresenter = ReturnType<typeof createPresenter>;
 const SERVICE_TRACE_USE_CURRENT_PROFILE = "continue";
 const SERVICE_TRACE_CHOOSE_ANOTHER_PROFILE = "choose_another";
@@ -2430,16 +2450,7 @@ function buildAgentTraceSummary(input: {
 
 function buildAgentTraceCompactSummary(input: {
   trace: DispatchTraceSnapshot;
-}): {
-  currentState: string;
-  delivered: boolean;
-  nextAction: string;
-  reasonCode: string | null;
-  visibleOutcome: string;
-  controllerNormalizationStatus?: string;
-  deliveryDestination?: string;
-  runtimeFamily?: "hosted_center_agent";
-} {
+}): ServiceTraceAgentSummary {
   const trace = input.trace;
   if (!trace) {
     return {
@@ -2472,6 +2483,29 @@ function buildAgentTraceCompactSummary(input: {
       nextAction: "none",
       reasonCode: finalVisibleOutcome.reasonCode,
       visibleOutcome: finalVisibleOutcome.status,
+    };
+  }
+
+  const headLifecycle = trace.runtimeCoordinatorHeadLifecycle;
+  if (headLifecycle?.readStatus === "found" && headLifecycle.waitingBoundary) {
+    const waitingBoundary = headLifecycle.waitingBoundary;
+    return {
+      ...nativeDeliveryEvidence,
+      currentState: headLifecycle.status,
+      delivered: false,
+      nextAction:
+        waitingBoundary.userRecoveryAction === "wait_for_wake_route_report"
+          ? "wait for the Wake route report, then rerun trace with the same selector"
+          : "start or restart OpenMeld Service, then rerun trace with the same selector",
+      reasonCode: waitingBoundary.reasonCode,
+      visibleOutcome: finalVisibleOutcome.status,
+      waitingBoundary: {
+        deadlineAt: waitingBoundary.deadlineAt,
+        softDeadlineAt: waitingBoundary.softDeadlineAt,
+        userRecoveryAction: waitingBoundary.userRecoveryAction,
+        waitingFor: waitingBoundary.waitingFor,
+        waitingSince: waitingBoundary.waitingSince,
+      },
     };
   }
 
@@ -2547,21 +2581,29 @@ function buildAgentTraceCompactSummary(input: {
   };
 }
 
-function formatAgentTraceCompactSummary(input: {
-  currentState: string;
-  delivered: boolean;
-  nextAction: string;
-  reasonCode: string | null;
-  visibleOutcome: string;
-  controllerNormalizationStatus?: string;
-  deliveryDestination?: string;
-  runtimeFamily?: "hosted_center_agent";
-}): string {
+function formatAgentTraceCompactSummary(
+  input: ServiceTraceAgentSummary
+): string {
   return [
     `delivered=${input.delivered ? "true" : "false"}`,
     `visible_outcome=${input.visibleOutcome}`,
     `current_state=${input.currentState}`,
     input.reasonCode ? `reason=${input.reasonCode}` : null,
+    input.waitingBoundary
+      ? `waiting_for=${input.waitingBoundary.waitingFor}`
+      : null,
+    input.waitingBoundary
+      ? `waiting_deadline=${input.waitingBoundary.deadlineAt}`
+      : null,
+    input.waitingBoundary
+      ? `recovery_action=${input.waitingBoundary.userRecoveryAction}`
+      : null,
+    input.waitingBoundary
+      ? `waiting_soft_deadline=${input.waitingBoundary.softDeadlineAt}`
+      : null,
+    input.waitingBoundary
+      ? `waiting_since=${input.waitingBoundary.waitingSince}`
+      : null,
     input.runtimeFamily ? `runtime_family=${input.runtimeFamily}` : null,
     input.deliveryDestination
       ? `destination=${input.deliveryDestination}`

@@ -14,6 +14,8 @@ type SpaceDispatchTraceRuntimeCoordinatorEventSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceRuntimeCoordinatorEventSchema"];
 type SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema"];
+type SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema =
+  typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema"];
 type SpaceDispatchTraceClaimLeaseSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceClaimLeaseSchema"];
 type SpaceDispatchTraceDispatchSchema =
@@ -48,6 +50,10 @@ type SpaceDispatchTraceReplySignalSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceReplySignalSchema"];
 type SpaceDispatchTraceResponseSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceResponseSchema"];
+type SpaceDispatchTraceResponseV1Schema =
+  typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceResponseV1Schema"];
+type SpaceDispatchTraceResponseContractVersionSchema =
+  typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceResponseContractVersionSchema"];
 type SpaceDispatchTraceResultInboxPublishStateSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceResultInboxPublishStateSchema"];
 type SpaceDispatchTraceResultInboxSchema =
@@ -56,6 +62,8 @@ type SpaceDispatchTraceResultSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceResultSchema"];
 type SpaceDispatchTraceSnapshotSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceSnapshotSchema"];
+type SpaceDispatchTraceSnapshotV1Schema =
+  typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceSnapshotV1Schema"];
 type SpaceDispatchTraceStreamingSchema =
   typeof import("../../schemas/http/space-dispatch-trace")["spaceDispatchTraceStreamingSchema"];
 
@@ -73,6 +81,8 @@ export type SpaceDispatchTraceRuntimeCoordinatorEvent =
   z.infer<SpaceDispatchTraceRuntimeCoordinatorEventSchema>;
 export type SpaceDispatchTraceRuntimeCoordinatorHeadLifecycle =
   z.infer<SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleSchema>;
+export type SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1 =
+  z.infer<SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema>;
 export type SpaceDispatchTraceClaimLease =
   z.infer<SpaceDispatchTraceClaimLeaseSchema>;
 export type SpaceDispatchTraceDispatch =
@@ -106,6 +116,10 @@ export type SpaceDispatchTraceReplySignal =
   z.infer<SpaceDispatchTraceReplySignalSchema>;
 export type SpaceDispatchTraceResponse =
   z.infer<SpaceDispatchTraceResponseSchema>;
+export type SpaceDispatchTraceResponseV1 =
+  z.infer<SpaceDispatchTraceResponseV1Schema>;
+export type SpaceDispatchTraceResponseContractVersion =
+  z.infer<SpaceDispatchTraceResponseContractVersionSchema>;
 export type SpaceDispatchTraceResultInboxPublishState =
   z.infer<SpaceDispatchTraceResultInboxPublishStateSchema>;
 export type SpaceDispatchTraceResultInbox =
@@ -113,5 +127,7 @@ export type SpaceDispatchTraceResultInbox =
 export type SpaceDispatchTraceResult = z.infer<SpaceDispatchTraceResultSchema>;
 export type SpaceDispatchTraceSnapshot =
   z.infer<SpaceDispatchTraceSnapshotSchema>;
+export type SpaceDispatchTraceSnapshotV1 =
+  z.infer<SpaceDispatchTraceSnapshotV1Schema>;
 export type SpaceDispatchTraceStreaming =
   z.infer<SpaceDispatchTraceStreamingSchema>;

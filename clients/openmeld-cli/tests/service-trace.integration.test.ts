@@ -3278,6 +3278,117 @@ describe("service trace command", () => {
     });
   });
 
+  it("shows the authoritative pending route boundary in default agent view", async () => {
+    await withTempHome(async () => {
+      resolveRuntimeContextMock.mockResolvedValue({
+        viewMode: "agent",
+        resolvedView: "agent",
+        interactive: false,
+      });
+      resolveCurrentReplyReadinessSnapshotMock.mockResolvedValue(null);
+      const traceResponse = createTraceResponse();
+      if (!traceResponse.trace?.latestAttempt) {
+        throw new Error("expected trace fixture");
+      }
+      traceResponse.correlation = {
+        ...traceResponse.correlation,
+        publishedSignalId: null,
+        replySignalId: null,
+        resultRef: null,
+      };
+      traceResponse.trace.latestAttempt.errorCode = "daemon.profile.offline";
+      traceResponse.trace.result = null;
+      traceResponse.trace.resultInbox = null;
+      traceResponse.trace.replySignal = null;
+      traceResponse.trace.finalVisibleMessage = null;
+      traceResponse.trace.finalVisibleMessageLinkage = null;
+      traceResponse.trace.runtimeCoordinatorHeadLifecycle = {
+        createdAt: "2026-03-09T00:00:01.100Z",
+        duplicateDispatchCount: 0,
+        executionLinkedAt: null,
+        factSource: "runtime_coordinator_head_lifecycle",
+        modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+        noExecutionDecision: null,
+        ownerUserId: "owner-1",
+        primaryDispatchId: "dispatch-demo",
+        publicationIntent: null,
+        readStatus: "found",
+        runtimeCoordinatorExecutionId: null,
+        status: "waiting",
+        targetWakeLifecycleIdentity: {
+          clientMessageId: "client-message-1",
+          dispatchId: "dispatch-demo",
+          modelVersion: TARGET_WAKE_LIFECYCLE_IDENTITY_MODEL_VERSION,
+          sourceSignalId: "evt-1",
+          spaceId: "space-demo",
+          targetProfileId: "agt-target",
+          targetWakeLifecycleId: "twl_v1|10:space-demo|5:evt-1|10:agt-target",
+        },
+        targetWakeLifecycleId: "twl_v1|10:space-demo|5:evt-1|10:agt-target",
+        updatedAt: "2026-03-09T00:00:01.300Z",
+        waitingBoundary: {
+          deadlineAt: "2026-03-09T00:05:00.000Z",
+          deadlineOutcome: "publication_intent_ready",
+          observedAt: "2026-03-09T00:00:01.200Z",
+          reasonCode: "daemon.profile.pending_first_report",
+          softDeadlineAt: "2026-03-09T00:00:30.000Z",
+          trigger: "wake_route_reported",
+          triggerOwner: "runtime_coordinator",
+          userRecoveryAction: "wait_for_wake_route_report",
+          userVisibleState: "waiting_for_wake_route_report",
+          waitingCategory: "wake_route_registration_pending",
+          waitingFor: "wake_route_report",
+          waitingSince: "2026-03-09T00:00:01.100Z",
+        },
+      };
+
+      const { stdout } = await withCapturedStdio(async () => {
+        await runServiceTrace(
+          {
+            baseUrl: "https://gateway.openmeld.invalid",
+            dispatchId: "dispatch-demo",
+            space: "space-demo",
+            view: "agent",
+          },
+          createReadOnlyTraceDependencies(traceResponse)
+        );
+      });
+
+      const summary = stdout
+        .trim()
+        .split("\n")
+        .filter((line) => line.trim().startsWith("{"))
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              code?: string;
+              data?: { agentSummary?: unknown };
+              text?: string;
+            }
+        )
+        .find((line) => line.code === "service.trace.summary");
+
+      expect(summary?.data?.agentSummary).toMatchObject({
+        currentState: "waiting",
+        delivered: false,
+        nextAction:
+          "wait for the Wake route report, then rerun trace with the same selector",
+        reasonCode: "daemon.profile.pending_first_report",
+        waitingBoundary: {
+          deadlineAt: "2026-03-09T00:05:00.000Z",
+          softDeadlineAt: "2026-03-09T00:00:30.000Z",
+          userRecoveryAction: "wait_for_wake_route_report",
+          waitingFor: "wake_route_report",
+          waitingSince: "2026-03-09T00:00:01.100Z",
+        },
+      });
+      expect(summary?.text).toContain(
+        "reason=daemon.profile.pending_first_report waiting_for=wake_route_report waiting_deadline=2026-03-09T00:05:00.000Z recovery_action=wait_for_wake_route_report"
+      );
+      expect(summary?.data).not.toHaveProperty("trace");
+    });
+  });
+
   it("projects hosted native-delivery destination and normalization in agentSummary", async () => {
     await withTempHome(async () => {
       resolveRuntimeContextMock.mockResolvedValue({

@@ -1,3 +1,7 @@
+import {
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER,
+  spaceDispatchTraceResponseContractVersionHeaderSchema,
+} from "@openmeld/schemas";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import {
@@ -16,6 +20,15 @@ export function registerDispatchTraceRoutes(app: Hono<HonoBindings>): void {
     const dispatchId = String(c.req.param("dispatchId") ?? "").trim();
     const includeRemoteAgentRuntimeDiagnostics =
       c.req.query("includeRemoteAgentRuntimeDiagnostics") === "true";
+    const responseContractVersionHeader = c.req.header(
+      SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER
+    );
+    const responseContractVersion =
+      responseContractVersionHeader === undefined
+        ? undefined
+        : spaceDispatchTraceResponseContractVersionHeaderSchema.safeParse(
+            responseContractVersionHeader
+          );
     const password = readSpacePasswordHeader(c.req.raw.headers);
     if (dispatchId.length === 0) {
       return respondBadRequest({
@@ -23,6 +36,15 @@ export function registerDispatchTraceRoutes(app: Hono<HonoBindings>): void {
         route: SPACE_DISPATCH_TRACE_ROUTE,
         method: "GET",
         message: "dispatchId is required",
+        spaceId,
+      });
+    }
+    if (responseContractVersion && !responseContractVersion.success) {
+      return respondBadRequest({
+        c,
+        route: SPACE_DISPATCH_TRACE_ROUTE,
+        method: "GET",
+        message: "dispatch trace response version is invalid",
         spaceId,
       });
     }
@@ -38,6 +60,9 @@ export function registerDispatchTraceRoutes(app: Hono<HonoBindings>): void {
           dispatchId,
           ...(includeRemoteAgentRuntimeDiagnostics
             ? { includeRemoteAgentRuntimeDiagnostics: true }
+            : {}),
+          ...(responseContractVersion?.success
+            ? { responseContractVersion: responseContractVersion.data }
             : {}),
           ...(password === undefined ? {} : { password }),
           context: buildCoreRpcContext(c),

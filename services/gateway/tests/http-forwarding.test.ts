@@ -2295,6 +2295,43 @@ describe("gateway http forwarding", () => {
     });
   });
 
+  it("negotiates the current dispatch trace response without changing the public route", async () => {
+    const { env, rpc } = makeEnv();
+    const response = await app.fetch(
+      new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
+        headers: {
+          "x-openmeld-space-dispatch-trace-response-version": "2",
+        },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(200);
+    expect(rpc.getSpaceDispatchTrace).toHaveBeenCalledWith({
+      context: EXPECTED_CORE_CONTEXT,
+      dispatchId: "dispatch-1",
+      responseContractVersion: 2,
+      spaceId: "demo",
+    });
+  });
+
+  it("rejects unsupported dispatch trace response versions before Core RPC", async () => {
+    const { env, rpc } = makeEnv();
+    const response = await app.fetch(
+      new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
+        headers: {
+          "x-openmeld-space-dispatch-trace-response-version": "3",
+        },
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(response.status).toBe(400);
+    expect(rpc.getSpaceDispatchTrace).not.toHaveBeenCalled();
+  });
+
   it("passes dispatch trace compatibility reason strings through from core RPC", async () => {
     const { env, rpc } = makeEnv({
       coreOverrides: {

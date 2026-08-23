@@ -1,5 +1,7 @@
 import {
   type OpenMeldRequestContext,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER,
   type SpaceDispatchTraceResponse,
   spaceDispatchTraceResponseSchema,
 } from "@openmeld/schemas";
@@ -27,11 +29,16 @@ export async function fetchSpaceDispatchTrace(input: {
     url: endpoint,
     operation: "space.dispatch_trace",
     init: {
-      headers: await buildOpenMeldRequestContextHeadersWithAuth({
-        requestUrl: endpoint,
-        requestContext: input.requestContext,
-        spacePassword: input.password,
-      }),
+      headers: {
+        ...(await buildOpenMeldRequestContextHeadersWithAuth({
+          requestUrl: endpoint,
+          requestContext: input.requestContext,
+          spacePassword: input.password,
+        })),
+        [SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION_HEADER]: String(
+          SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+        ),
+      },
     },
   });
   const raw = await response.text();

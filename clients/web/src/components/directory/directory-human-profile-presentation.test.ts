@@ -80,4 +80,13 @@ describe("Message Channel identity labels", () => {
 			})
 		).toBeNull();
 	});
+
+	it("preserves a provider display name instead of inventing a handle", () => {
+		expect(
+			resolveDirectoryIdentityAccountIdentity({
+				accountEmail: "ari@example.com",
+				accountName: "Ari",
+			})
+		).toBe("Ari · ari@example.com");
+	});
 });

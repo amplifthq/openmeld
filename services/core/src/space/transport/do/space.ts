@@ -71,6 +71,7 @@ import {
   runtimeCoordinatorFinalizationCommandSchema,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_PASSWORD_MIN_LENGTH,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_MESSAGE,
   sanitizeSignalTextPreview,
@@ -6265,6 +6266,12 @@ export class Space extends DurableObject<CoreBindings> {
     if (input.includeRemoteAgentRuntimeDiagnostics === true) {
       url.searchParams.set("includeRemoteAgentRuntimeDiagnostics", "true");
     }
+    if (input.responseContractVersion !== undefined) {
+      url.searchParams.set(
+        "responseContractVersion",
+        String(input.responseContractVersion)
+      );
+    }
     const request = this.buildDirectRpcRequest({
       path: `${url.pathname}${url.search}`,
       method: "GET",
@@ -8625,11 +8632,19 @@ export class Space extends DurableObject<CoreBindings> {
       new URL(request.url).searchParams.get(
         "includeRemoteAgentRuntimeDiagnostics"
       ) === "true";
+    const responseContractVersion =
+      new URL(request.url).searchParams.get("responseContractVersion") ===
+      String(SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION)
+        ? SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+        : undefined;
     return this.dispatchSpaceAccessReadRequest(request, resolved.spaceAccess, {
       GET: async () =>
         Response.json(
           await this.readSpaceDispatchTrace(dispatchId, {
             includeRemoteAgentRuntimeDiagnostics,
+            ...(responseContractVersion === undefined
+              ? {}
+              : { responseContractVersion }),
           })
         ),
     });
@@ -14517,6 +14532,7 @@ export class Space extends DurableObject<CoreBindings> {
     dispatchId: string,
     options: {
       includeRemoteAgentRuntimeDiagnostics?: boolean;
+      responseContractVersion?: GetSpaceDispatchTraceInput["responseContractVersion"];
     } = {}
   ): Promise<SpaceDispatchTraceResponse> {
     const trace = await readSpaceDispatchTraceFromRepo({
@@ -14531,6 +14547,9 @@ export class Space extends DurableObject<CoreBindings> {
       readFinalVisibleMessageTrace: (input) =>
         this.readFinalVisibleMessageTrace(input),
       readReplySignalTrace: (input) => this.readReplySignalTrace(input),
+      ...(options.responseContractVersion === undefined
+        ? {}
+        : { responseContractVersion: options.responseContractVersion }),
       spaceId: this.spaceId,
     });
     if (
