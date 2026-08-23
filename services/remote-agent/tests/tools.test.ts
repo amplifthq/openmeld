@@ -5136,7 +5136,7 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_respond_to_opportunity",
     },
     {
-      expectedPayload: { actionSet: "v12", limit: 25 },
+      expectedPayload: { actionSet: "v20", limit: 25 },
       input: { limit: 25 },
       response: auditJournalResponse(),
       rpcName: "listCenterAgentAuditJournal",

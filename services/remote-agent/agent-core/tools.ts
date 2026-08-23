@@ -2773,7 +2773,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(input: {
         );
         return listCenterAgentAuditJournalResponseSchema.parse(
           await rpc({
-            actionSet: "v12",
+            actionSet: "v20",
             ...(payload.limit === undefined ? {} : { limit: payload.limit }),
             context,
           })

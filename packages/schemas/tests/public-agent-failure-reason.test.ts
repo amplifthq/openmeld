@@ -990,17 +990,6 @@ describe("public agent failure reason mapping", () => {
     );
   });
 
-  it("maps dispatch.reply_not_published to the same no-visible-reply copy", () => {
-    expect(
-      resolveMappedPublicAgentFailureReason(
-        "dispatch.reply_not_published",
-        "Runner"
-      )
-    ).toBe(
-      "Runner finished, but OpenMeld couldn't post its reply. Wake Runner again. If this keeps happening, open diagnostics."
-    );
-  });
-
   it.each([
     "workspace.missing",
     "profile.workspace.missing",

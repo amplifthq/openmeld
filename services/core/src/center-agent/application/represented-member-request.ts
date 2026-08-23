@@ -36,7 +36,7 @@ export async function prepareCenterAgentRepresentedMemberRequest(
     organizationId: centerAgent.activeOrganization.organizationId,
     speakerMember,
   });
-  const sourceNativeDeliveryId = await resolveSourceNativeDeliveryId({
+  const sourceDelivery = await resolveSourceNativeDelivery({
     authorization: centerAgent,
     context,
     env,
@@ -45,16 +45,17 @@ export async function prepareCenterAgentRepresentedMemberRequest(
   return {
     authorization: centerAgent,
     representedHuman,
-    sourceNativeDeliveryId,
+    sourceNativeDeliveryId: sourceDelivery?.deliveryId ?? null,
+    sourceSpaceId: sourceDelivery?.spaceId ?? null,
   };
 }
 
-async function resolveSourceNativeDeliveryId(input: {
+async function resolveSourceNativeDelivery(input: {
   authorization: CurrentDesignatedCenterAgentAuthorization;
   context: OpenMeldRequestContext;
   env: CoreBindings;
   representedHuman: VerifiedCenterAgentRepresentedMember;
-}): Promise<string | null> {
+}): Promise<{ deliveryId: string; spaceId: string } | null> {
   const submissionId = input.context.agentControllerConversationId?.trim();
   const db = wakeEvidenceDb(input.env);
   if (!(submissionId && db)) {
@@ -91,7 +92,7 @@ async function resolveSourceNativeDeliveryId(input: {
   ) {
     return null;
   }
-  return delivery.deliveryId;
+  return { deliveryId: delivery.deliveryId, spaceId: delivery.spaceId };
 }
 
 export async function prepareHostedCenterAgentRequest(

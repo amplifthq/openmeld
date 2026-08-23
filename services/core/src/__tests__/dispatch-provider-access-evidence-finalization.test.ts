@@ -15,10 +15,7 @@ import {
   clearProviderAccessFailureEvidenceForExecutionSuccess,
   writeAcceptedProviderAccessFailureEvidence,
 } from "../agent-execution/infrastructure/d1/provider-access-evidence-repo";
-import {
-  DISPATCH_REPLY_NOT_PUBLISHED_ERROR_CODE,
-  finalizeAcceptedDispatchResult,
-} from "../dispatch/application/dispatch-execution-service";
+import { finalizeAcceptedDispatchResult } from "../dispatch/application/dispatch-execution-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as dispatchResultService from "../dispatch/application/dispatch-result-service";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
@@ -418,6 +415,7 @@ describe("dispatch provider access evidence finalization", () => {
         targetProfileName: "Claude Code",
       })
     ).resolves.toEqual({
+      intentionallySilent: false,
       publishedSignalId: "signal-system-final-1",
       publishState: "reply_published",
       status: "finalized",
@@ -503,6 +501,7 @@ describe("dispatch provider access evidence finalization", () => {
         targetProfileName: "Codex",
       })
     ).resolves.toEqual({
+      intentionallySilent: false,
       publishedSignalId: "signal-system-final-1",
       publishState: "reply_published",
       status: "finalized",
@@ -539,6 +538,7 @@ describe("dispatch provider access evidence finalization", () => {
         targetProfileName: "Codex",
       })
     ).resolves.toEqual({
+      intentionallySilent: false,
       publishedSignalId: "signal-system-final-1",
       publishState: "reply_published",
       status: "finalized",
@@ -572,6 +572,7 @@ describe("dispatch provider access evidence finalization", () => {
         targetProfileName: "Claude Code",
       })
     ).resolves.toEqual({
+      intentionallySilent: false,
       publishedSignalId: "signal-system-final-1",
       publishState: "reply_published",
       status: "finalized",
@@ -620,6 +621,7 @@ describe("dispatch provider access evidence finalization", () => {
         targetProfileName: "Claude Code",
       })
     ).resolves.toEqual({
+      intentionallySilent: false,
       publishedSignalId: "signal-final-1",
       publishState: "reply_published",
       status: "finalized",
@@ -707,12 +709,11 @@ describe("dispatch provider access evidence finalization", () => {
 
     expect(markDispatchStatus).toHaveBeenCalledWith(
       expect.objectContaining({
-        errorCode: null,
         status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
       })
     );
   });
-  it("marks an existing unpublished non-silent result as failed with a precise code", async () => {
+  it("does not settle an unpublished non-silent result from the D1 projection alone", async () => {
     vi.mocked(
       dispatchResultService.getDispatchResultByDispatchId
     ).mockResolvedValueOnce({
@@ -726,12 +727,7 @@ describe("dispatch provider access evidence finalization", () => {
 
     await finalizeExistingAcceptedDispatchResultForTest();
 
-    expect(markDispatchStatus).toHaveBeenCalledWith(
-      expect.objectContaining({
-        errorCode: DISPATCH_REPLY_NOT_PUBLISHED_ERROR_CODE,
-        status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
-      })
-    );
+    expect(markDispatchStatus).not.toHaveBeenCalled();
   });
 
   it("keeps an intentionally internal-only result succeeded even when nothing was published", async () => {

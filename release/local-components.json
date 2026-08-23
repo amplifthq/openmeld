@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-23T10:44:21.952Z",
+  "updatedAt": "2026-08-23T17:35:52.078Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.85",
+      "packageVersion": "0.3.86",
       "updatePolicy": "available",
-      "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
+      "reason": "Keep honest failure and audited source-Space behavior backward-compatible during rollout."
     },
     "service": {
-      "bundleHash": "96dcfeb9387f664b3cfdd9012b297301333bb7cc266b8e7c68e6633a405b0e45",
-      "bundleVersion": "0.3.85",
+      "bundleHash": "dae0b232c4ea60320607251164f479695c558095a72391d1a2a7c37e0c3a7f6b",
+      "bundleVersion": "0.3.86",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
+      "reason": "Keep honest failure and audited source-Space behavior backward-compatible during rollout."
     },
     "skills": {
       "bundleHash": "79a8ca933c1447c98097071a7434ae390c267be8f9b05f67d3102a39c614ef04",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
+      "reason": "Keep honest failure and audited source-Space behavior backward-compatible during rollout."
     }
   }
 }

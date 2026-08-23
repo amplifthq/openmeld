@@ -973,9 +973,6 @@ export async function recordConnectorActionOperation(input: {
         providerExecutionId: input.providerExecutionId,
         requestSignature: input.requestSignature,
         service: input.service,
-        ...(input.toolContext.spaceId
-          ? { sourceSpaceId: input.toolContext.spaceId }
-          : {}),
         speakerMember,
       },
       (binding, payload) =>

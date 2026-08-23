@@ -3020,10 +3020,7 @@ export class Space extends DurableObject<CoreBindings> {
         visibleFinalMessage?.ok === true
           ? visibleFinalMessage.publishedSignalId
           : finalized.publishedSignalId;
-      if (
-        !publishedSignalId &&
-        finalized.publishState !== "invalid_space_action"
-      ) {
+      if (!(publishedSignalId || finalized.intentionallySilent)) {
         return buildRuntimeCoordinatorFinalizationFailureOutcome({
           finalizationCommandId: command.finalizationCommandId,
           reasonCode: "daemon.result.finalization_no_public_reply",

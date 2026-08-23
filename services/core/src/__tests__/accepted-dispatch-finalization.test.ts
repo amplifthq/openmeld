@@ -2661,6 +2661,60 @@ describe("accepted dispatch finalization", () => {
     });
   });
 
+  it("keeps finalization retryable when a non-silent result has no visible Space outcome", async () => {
+    const sql = {
+      exec: vi.fn((query: string) => {
+        if (query.includes("SELECT signal_id")) {
+          return { toArray: () => [] };
+        }
+        throw new Error(`unexpected Space SQL query: ${query}`);
+      }),
+    } as unknown as SqlStorage;
+    const db = createFinalizationApplyD1Db({ publishedSignalId: null });
+    const space = Object.create(Space.prototype) as {
+      applySpaceRef: (spaceId: string) => void;
+      bindings: { OPENMELD_DB: D1Database };
+      ctx: { storage: { sql: SqlStorage } };
+      readSignalById: (signalId: string) => SignalEnvelope | null;
+      readSpaceContractRecord: () => ReturnType<
+        typeof buildDefaultSpaceContract
+      >;
+      resolveThreadContextForSignal: () => null;
+      rpcApplyRuntimeCoordinatorFinalizationCommand: (
+        input: RuntimeCoordinatorFinalizationCommand
+      ) => Promise<unknown>;
+      spaceId: string;
+    };
+    Object.defineProperties(space, {
+      applySpaceRef: { value: vi.fn() },
+      bindings: { value: { OPENMELD_DB: db } },
+      ctx: { value: { storage: { sql } } },
+      readSignalById: {
+        value: vi.fn((signalId: string) =>
+          signalId === sourceSignal.id ? sourceSignal : null
+        ),
+      },
+      readSpaceContractRecord: {
+        value: vi.fn(() => buildDefaultSpaceContract()),
+      },
+      resolveThreadContextForSignal: { value: vi.fn(() => null) },
+      spaceId: { value: "space-1", writable: true },
+    });
+
+    await expect(
+      space.rpcApplyRuntimeCoordinatorFinalizationCommand(
+        baseFinalizationCommand
+      )
+    ).resolves.toEqual({
+      finalizationCommandId: "command-1",
+      ok: false,
+      publicationErrorCode: "daemon.result.finalization_no_public_reply",
+      publishedSignalId: null,
+      publishState: "reply_publication_failed",
+      status: "retry_later",
+    });
+  });
+
   it("does not request RuntimeCoordinator replay when the accepted inbox row has no exact run pointer", async () => {
     const replayRequests: unknown[] = [];
     const space = Object.create(Space.prototype) as {
@@ -2844,7 +2898,9 @@ function createAcceptedInboxReadDb(record: DispatchResultInboxRecord) {
   };
 }
 
-function createFinalizationApplyD1Db(input: { publishedSignalId: string }) {
+function createFinalizationApplyD1Db(input: {
+  publishedSignalId: string | null;
+}) {
   return {
     prepare: vi.fn((query: string) => {
       if (query.includes("FROM openMeldDaemon_dispatch_results")) {

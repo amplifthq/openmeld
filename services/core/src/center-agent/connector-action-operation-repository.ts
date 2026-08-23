@@ -76,6 +76,12 @@ type CenterAgentConnectorActionOperationAttributionRow = {
   on_behalf_of_profile_id: string | null;
   on_behalf_of_user_id: string | null;
   source_native_delivery_id: string | null;
+  source_space_id: string | null;
+};
+
+type CenterAgentConnectorActionOperationProvenance = {
+  attribution: CenterAgentAttribution;
+  sourceSpaceId: string | null;
 };
 
 export function buildCenterAgentConnectorActionOperationScope(input: {
@@ -134,11 +140,12 @@ export async function readCenterAgentConnectorActionOperationForRequest(input: {
     return null;
   }
   assertSameRequest(operation, input);
+  const provenance = await requireOperationProvenance({
+    db: input.db,
+    operation,
+  });
   return {
-    attribution: await requireOperationAttribution({
-      db: input.db,
-      operation,
-    }),
+    attribution: provenance.attribution,
     operation,
   };
 }
@@ -176,9 +183,10 @@ export async function recordCenterAgentConnectorActionOperation(input: {
   if (existing) {
     assertSameRequest(existing, input);
   }
-  const existingAttribution = existing
-    ? await requireOperationAttribution({ db: input.db, operation: existing })
+  const existingProvenance = existing
+    ? await requireOperationProvenance({ db: input.db, operation: existing })
     : null;
+  const existingAttribution = existingProvenance?.attribution ?? null;
 
   if (input.outcome === "attempted") {
     if (existing) {
@@ -223,10 +231,9 @@ export async function recordCenterAgentConnectorActionOperation(input: {
     const operation = await requireOperation({ db: input.db, scope });
     assertSameRequest(operation, input);
     return {
-      attribution: await requireOperationAttribution({
-        db: input.db,
-        operation,
-      }),
+      attribution: (
+        await requireOperationProvenance({ db: input.db, operation })
+      ).attribution,
       operation,
       replayed: Number(insertResult?.meta.changes ?? 0) !== 1,
     };
@@ -272,7 +279,7 @@ export async function recordCenterAgentConnectorActionOperation(input: {
       organizationId: input.organizationId,
       resource: operationAuditResource(input),
       sourceNativeDeliveryId: existing.sourceNativeDeliveryId,
-      sourceSpaceId: input.sourceSpaceId ?? null,
+      sourceSpaceId: existingProvenance?.sourceSpaceId ?? null,
     }),
     prepareFinalizeOperationStatement({
       db: input.db,
@@ -546,10 +553,10 @@ function assertSameRequest(
   }
 }
 
-async function requireOperationAttribution(input: {
+async function requireOperationProvenance(input: {
   db: D1Database;
   operation: CenterAgentConnectorActionOperationRecord;
-}): Promise<CenterAgentAttribution> {
+}): Promise<CenterAgentConnectorActionOperationProvenance> {
   const row = await input.db
     .prepare(
       `
@@ -558,7 +565,8 @@ async function requireOperationAttribution(input: {
           on_behalf_of_profile_id,
           on_behalf_of_user_id,
           on_behalf_of_display_name,
-          source_native_delivery_id
+          source_native_delivery_id,
+          source_space_id
         FROM center_agent_audit_journal
         WHERE id = ?
           AND organization_id = ?
@@ -586,8 +594,11 @@ async function requireOperationAttribution(input: {
       );
     }
     return {
-      actorProfileId: row.actor_profile_id,
-      onBehalfOf: null,
+      attribution: {
+        actorProfileId: row.actor_profile_id,
+        onBehalfOf: null,
+      },
+      sourceSpaceId: row.source_space_id,
     };
   }
   if (
@@ -601,12 +612,15 @@ async function requireOperationAttribution(input: {
     );
   }
   return {
-    actorProfileId: row.actor_profile_id,
-    onBehalfOf: {
-      displayName: row.on_behalf_of_display_name,
-      profileId: row.on_behalf_of_profile_id,
-      userId: row.on_behalf_of_user_id,
+    attribution: {
+      actorProfileId: row.actor_profile_id,
+      onBehalfOf: {
+        displayName: row.on_behalf_of_display_name,
+        profileId: row.on_behalf_of_profile_id,
+        userId: row.on_behalf_of_user_id,
+      },
     },
+    sourceSpaceId: row.source_space_id,
   };
 }
 

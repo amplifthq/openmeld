@@ -178,10 +178,14 @@ export async function invokeGrokBuildAcpTransport(input: {
     session.beginTurn();
     let promptResult: unknown;
     try {
-      promptResult = await session.request("session/prompt", {
-        prompt: [{ text: prompt, type: "text" }],
-        sessionId: descriptor.sessionId,
-      });
+      try {
+        promptResult = await session.request("session/prompt", {
+          prompt: [{ text: prompt, type: "text" }],
+          sessionId: descriptor.sessionId,
+        });
+      } catch (error) {
+        throw await toPromptWakeFailureError(error, session);
+      }
     } finally {
       session.endTurn();
       unregisterActiveTurn?.();
@@ -209,7 +213,11 @@ export async function invokeGrokBuildAcpTransport(input: {
       }),
     };
   } catch (error) {
-    throw await toWakeFailureError(error, session);
+    throw toGrokBuildTransportError(
+      error,
+      session.readStderr(),
+      session.readDiagnostics()
+    );
   } finally {
     await session.closeProcess();
   }
@@ -223,7 +231,7 @@ const PROVIDER_USAGE_EXHAUSTED_ERROR_CODE = "grok-build.quota_or_entitlement";
  * exhausted, the quota failure code is far more accurate than a generic
  * protocol error.
  */
-export function upgradeProtocolFailureWithExhaustedUsage(
+export function upgradePromptProtocolFailureWithExhaustedUsage(
   classified: GrokBuildAcpTransportError,
   usageLimits: readonly AdapterProviderUsageLimit[]
 ): GrokBuildAcpTransportError {
@@ -242,7 +250,7 @@ export function upgradeProtocolFailureWithExhaustedUsage(
   });
 }
 
-async function toWakeFailureError(
+async function toPromptWakeFailureError(
   error: unknown,
   session: GrokBuildAcpSession
 ): Promise<GrokBuildAcpTransportError> {
@@ -257,7 +265,7 @@ async function toWakeFailureError(
   ) {
     return classified;
   }
-  return upgradeProtocolFailureWithExhaustedUsage(
+  return upgradePromptProtocolFailureWithExhaustedUsage(
     classified,
     await session.readUsageLimitsSafe()
   );

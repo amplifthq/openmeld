@@ -139,15 +139,23 @@ async function createFixture() {
             send({ id: message.id, error: { code: -32603, message: "Authentication token expired" } });
             return;
           }
+          if (scenario === "authenticate_internal_error_usage_exhausted") {
+            send({ id: message.id, error: { code: -32603, message: "Internal error" } });
+            return;
+          }
           send({ id: message.id, result: {} });
           return;
         }
         if (message.method === "_x.ai/billing") {
+          if (scenario === "prompt_internal_error_billing_unavailable") {
+            send({ id: message.id, error: { code: -32603, message: "Billing unavailable" } });
+            return;
+          }
           send({
             id: message.id,
             result: {
               config: {
-                creditUsagePercent: 27,
+                creditUsagePercent: scenario.includes("usage_exhausted") ? 100 : 27,
                 currentPeriod: { end: "2026-08-27T00:00:00Z", type: "weekly" }
               }
             }
@@ -181,6 +189,11 @@ async function createFixture() {
           pendingPromptId = message.id;
           if (scenario === "quota_exhausted") {
             send({ id: message.id, error: { code: -32603, message: "Usage limit reached" } });
+            pendingPromptId = null;
+            return;
+          }
+          if (scenario.startsWith("prompt_internal_error")) {
+            send({ id: message.id, error: { code: -32603, message: "Internal error" } });
             pendingPromptId = null;
             return;
           }
@@ -437,6 +450,29 @@ test("Grok Build ACP classifies wrapped authentication and quota failures", asyn
   for (const [scenario, expectedCode] of [
     ["auth_expired", "auth.failed"],
     ["quota_exhausted", "grok-build.quota_or_entitlement"],
+  ]) {
+    const fixture = await createFixture();
+    try {
+      await assert.rejects(
+        invokeFixture(fixture, { scenario }),
+        (error) =>
+          error instanceof GrokBuildAcpTransportError &&
+          error.code === expectedCode
+      );
+    } finally {
+      await rm(fixture.fixtureDir, { force: true, recursive: true });
+    }
+  }
+});
+
+test("Grok Build ACP upgrades only ambiguous prompt failures with confirmed exhausted usage", async () => {
+  for (const [scenario, expectedCode] of [
+    [
+      "prompt_internal_error_usage_exhausted",
+      "grok-build.quota_or_entitlement",
+    ],
+    ["authenticate_internal_error_usage_exhausted", "protocol.request_failed"],
+    ["prompt_internal_error_billing_unavailable", "protocol.request_failed"],
   ]) {
     const fixture = await createFixture();
     try {

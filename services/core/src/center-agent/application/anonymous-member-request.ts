@@ -24,6 +24,7 @@ export type CenterAgentOrganizationMember = {
   profileId: string | null;
   role: "admin" | "member" | "owner";
   sourceNativeDeliveryId: string | null;
+  sourceSpaceId: string | null;
   userId: string | null;
 };
 
@@ -114,6 +115,7 @@ export async function prepareCenterAgentOrganizationMemberRequest(
       member: {
         ...represented.representedHuman,
         sourceNativeDeliveryId: represented.sourceNativeDeliveryId,
+        sourceSpaceId: represented.sourceSpaceId,
       },
     };
   }
@@ -172,6 +174,7 @@ export async function prepareCenterAgentOrganizationMemberRequest(
       profileId: null,
       role: "member",
       sourceNativeDeliveryId: delivery.deliveryId,
+      sourceSpaceId: delivery.spaceId,
       userId: null,
     },
   };

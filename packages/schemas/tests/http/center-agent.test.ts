@@ -384,6 +384,12 @@ describe("Center Agent HTTP schemas", () => {
     ).toEqual({ actionSet: "v19" });
   });
 
+  it("versions source Space provenance behind the v20 action set", () => {
+    expect(
+      listCenterAgentAuditJournalQuerySchema.parse({ actionSet: "v20" })
+    ).toEqual({ actionSet: "v20" });
+  });
+
   it("accepts the Center Agent Project audit actions", () => {
     for (const action of [
       "read_projects",

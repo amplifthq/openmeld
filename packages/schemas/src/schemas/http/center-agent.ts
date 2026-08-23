@@ -278,7 +278,6 @@ export const centerAgentRecordConnectorActionOperationBodySchema = z
     providerExecutionId: nullableTrimmedStringSchema,
     requestSignature: z.string().regex(/^[0-9a-f]{64}$/),
     service: connectorServiceSchema,
-    sourceSpaceId: trimmedNonEmptyStringSchema.max(128).nullable().optional(),
     speakerMember: centerAgentToolSpeakerSchema,
   })
   .superRefine((value, context) => {
@@ -579,6 +578,7 @@ export const listCenterAgentAuditJournalQuerySchema = z.strictObject({
       "v17",
       "v18",
       "v19",
+      "v20",
     ])
     .optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),

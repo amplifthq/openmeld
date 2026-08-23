@@ -1,4 +1,7 @@
-import { CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY } from "@openmeld/schemas";
+import {
+  CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY,
+  REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
+} from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   assertCoreOriginatedTurnContext,
@@ -16,7 +19,6 @@ import {
   recordCallbackDeliveryFailure,
   recordRemoteAgentCenterAgentTaskReference,
   redeliverDueRemoteAgentCallbacks,
-  resolveTerminalTurnFailureCode,
   sanitizeCenterAgentCompletedTextForPublication,
 } from "../agent-core/callback-context";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
@@ -1332,30 +1334,42 @@ describe("remote agent callback context", () => {
     });
   });
 
-  it("keeps a precise earlier failure fact instead of the generic turn_not_completed fallback", () => {
-    const context = {
-      lastFailureFact: {
-        code: "remote_agent.tool_result_too_large",
-        detail: "tool result exceeded the size budget",
-        occurredAt: new Date(TEST_NOW_MS).toISOString(),
-        retryable: false,
-      },
-    } as RemoteAgentCallbackContext;
+  it("publishes the precise runtime failure instead of replacing it with turn_not_completed", async () => {
+    const request = createSubmitTurnRequest();
+    const context = createRemoteAgentCallbackContext({
+      ack: ACK,
+      nowMs: TEST_NOW_MS,
+      request,
+    });
+    const storage = new InMemoryDurableObjectStorage();
+    await putRemoteAgentCallbackContext(storage, context);
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal-provider-rate-limited",
+      status: "accepted" as const,
+    }));
 
-    const code = resolveTerminalTurnFailureCode(context, {
-      error: new Error("Remote Agent could not finish this request."),
-      status: "error",
+    await handleRemoteAgentChatResponse({
+      coreWorker: { completeRemoteAgentSubmission },
+      nowMs: () => TEST_NOW_MS + 1000,
+      result: {
+        continuation: false,
+        error: new Error("provider request failed"),
+        failureReasonCode:
+          REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_RATE_LIMITED,
+        message: { parts: [] },
+        requestId: ACK.requestId,
+        status: "error",
+      },
+      storage,
     });
 
-    expect(code).toBe("remote_agent.tool_result_too_large");
-  });
-
-  it("classifies a turn with no earlier failure fact as turn_not_completed", () => {
-    const code = resolveTerminalTurnFailureCode(
-      {} as RemoteAgentCallbackContext,
-      { error: new Error("boom"), status: "error" }
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode: "remote_agent.provider.rate_limited",
+        failureMessage:
+          "The model provider rate-limited this request. Wait a moment, then wake the agent again.",
+        status: "failed",
+      })
     );
-
-    expect(code).toBe("remote_agent.turn_not_completed");
   });
 });

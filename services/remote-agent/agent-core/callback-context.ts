@@ -9,12 +9,13 @@ import {
   MAX_TEXT_LENGTH,
   type OpenMeldNavigationTarget,
   openMeldNavigationTargetSchema,
-  REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
+  REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
   remoteAgentCoreCallbackBodySchema,
   remoteAgentCoreCallbackResponseSchema,
   remoteAgentWorkerConversationIdentitySchema,
+  resolveMappedPublicAgentFailureReason,
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   sanitizeDispatchErrorSummary,
@@ -120,6 +121,7 @@ import type {
   RecordOrganizationSkillActivationRpcInput,
   RemoteAgentCoreCallbackBody,
   RemoteAgentCoreCallbackResponse,
+  RemoteAgentRuntimeEvidenceOutcomeReasonCode,
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamPartCallbackBody,
   RemoteAgentTurnEnvelope,
@@ -532,6 +534,7 @@ export type RemoteAgentCoreWorkerBinding = {
 export type RemoteAgentAssistantCompletionResult = {
   continuation: boolean;
   error?: unknown;
+  failureReasonCode?: RemoteAgentRuntimeEvidenceOutcomeReasonCode;
   message: {
     parts: Record<string, unknown>[];
   };
@@ -1553,7 +1556,7 @@ export async function handleRemoteAgentChatResponse(input: {
           return current;
         }
         return recordTerminalTurnFailure({
-          code: resolveTerminalTurnFailureCode(current, input.result),
+          code: resolveRemoteAgentResultFailureCode(input.result),
           context: {
             ...current,
             lastUsage: input.result.usage ?? current.lastUsage,
@@ -1624,7 +1627,10 @@ export async function handleRemoteAgentChatResponse(input: {
 }
 
 function resolveRemoteAgentResultFailureCode(
-  result: Pick<RemoteAgentAssistantCompletionResult, "error" | "status">
+  result: Pick<
+    RemoteAgentAssistantCompletionResult,
+    "error" | "failureReasonCode" | "status"
+  >
 ): string {
   if (result.status === "completed") {
     return "remote_agent.empty_assistant_response";
@@ -1638,36 +1644,16 @@ function resolveRemoteAgentResultFailureCode(
   if (isRemoteAgentToolResultTooLarge(result.error)) {
     return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE;
   }
-  return "remote_agent.turn_not_completed";
-}
-
-const PRECISE_TURN_FAILURE_REASON_CODES: ReadonlySet<string> = new Set([
-  "remote_agent.empty_assistant_response",
-  "remote_agent.execution_cancelled",
-  "remote_agent.turn.context_window_exceeded",
-  REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
-  REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
-]);
-
-/**
- * A failure fact recorded earlier in the turn (for example a tool result that
- * was too large) is more precise than the generic turn_not_completed fallback
- * classified from the final result, so it must not be overwritten by it.
- */
-export function resolveTerminalTurnFailureCode(
-  context: Pick<RemoteAgentCallbackContext, "lastFailureFact">,
-  result: Pick<RemoteAgentAssistantCompletionResult, "error" | "status">
-): string {
-  const classifiedCode = resolveRemoteAgentResultFailureCode(result);
-  const preexistingCode = context.lastFailureFact?.code ?? null;
   if (
-    classifiedCode === "remote_agent.turn_not_completed" &&
-    preexistingCode !== null &&
-    PRECISE_TURN_FAILURE_REASON_CODES.has(preexistingCode)
+    result.failureReasonCode &&
+    result.failureReasonCode !==
+      REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_FAILED &&
+    result.failureReasonCode !==
+      REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.TURN_NOT_COMPLETED
   ) {
-    return preexistingCode;
+    return result.failureReasonCode;
   }
-  return classifiedCode;
+  return "remote_agent.turn_not_completed";
 }
 
 function resolveRemoteAgentFailureMessage(code: string): string {
@@ -1685,7 +1671,10 @@ function resolveRemoteAgentFailureMessage(code: string): string {
     case "remote_agent.execution_cancelled":
       return "This request was stopped.";
     default:
-      return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
+      return (
+        resolveMappedPublicAgentFailureReason(code, "Center Agent") ??
+        CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY
+      );
   }
 }
 

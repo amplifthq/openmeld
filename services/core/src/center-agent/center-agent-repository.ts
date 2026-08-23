@@ -632,6 +632,7 @@ export function toCenterAgentAuditJournalEntryDto(
   input: {
     includeContextDetails?: boolean;
     includeInteractionSource?: boolean;
+    includeSourceSpaceId?: boolean;
   } = {}
 ) {
   return {
@@ -686,7 +687,9 @@ export function toCenterAgentAuditJournalEntryDto(
             id: record.resourceId,
           }
         : null,
-    sourceSpaceId: record.sourceSpaceId,
+    ...(input.includeSourceSpaceId
+      ? { sourceSpaceId: record.sourceSpaceId }
+      : {}),
     createdAt: toIsoDateTime(record.createdAtMs),
   };
 }

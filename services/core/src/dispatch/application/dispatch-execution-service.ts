@@ -291,6 +291,7 @@ export type DispatchWaitPhaseOutcome = {
 };
 
 type AcceptedDispatchFinalizationResult = {
+  intentionallySilent: boolean;
   publishedSignalId: string | null;
   publishState: "invalid_space_action" | "reply_published";
   status: "already_final" | "finalized";
@@ -393,8 +394,6 @@ const AUDIT_UNKNOWN_DAEMON_SESSION_ID = "unknown";
 const AUDIT_UNKNOWN_LEASE_EPOCH = -1;
 const RUNTIME_ERROR_CODE_PREFIX_RE = /^([a-z0-9][a-z0-9._-]{0,127}):/i;
 const DISPATCH_CONTINUITY_WARNING_TEXT_MAX_LENGTH = 220;
-export const DISPATCH_REPLY_NOT_PUBLISHED_ERROR_CODE =
-  "dispatch.reply_not_published";
 
 export class DispatchExecutionValidationError extends Error {
   readonly code: string;
@@ -1374,13 +1373,10 @@ const finalizeExistingAcceptedDispatchResult = async (input: {
         targetProfileId: input.dispatchMessage.targetProfileId,
       });
     }
-    await markSucceededOrNotPublishedStatus({
+    await markDispatchSucceeded({
       attemptId: input.inboxRecord.attemptId,
       db: input.db,
       idempotencyKey: input.dispatchMessage.idempotencyKey,
-      publishedSignalId: input.existingResult.publishedSignalId,
-      suppressedInternalOnly:
-        input.existingResult.publicOutcome === "internal_only",
     });
   } else if (input.existingResult.publicOutcome === "internal_only") {
     // The agent explicitly kept its outcome internal, so there is nothing
@@ -1393,23 +1389,9 @@ const finalizeExistingAcceptedDispatchResult = async (input: {
       nowMs: Date.now(),
       status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
     });
-  } else {
-    // A turn that never published a visible outcome must not be recorded as
-    // succeeded; the Space contract requires a visible reply or an explicit
-    // visible failure.
-    await markDispatchStatus({
-      attemptId: input.inboxRecord.attemptId,
-      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
-      db: input.db,
-      errorCode: DISPATCH_REPLY_NOT_PUBLISHED_ERROR_CODE,
-      errorMessage:
-        "the agent turn finished but OpenMeld could not show any reply in the Space",
-      idempotencyKey: input.dispatchMessage.idempotencyKey,
-      nowMs: Date.now(),
-      status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
-    });
   }
   return {
+    intentionallySilent: input.existingResult.publicOutcome === "internal_only",
     publishedSignalId: input.existingResult.publishedSignalId ?? null,
     publishState: input.existingResult.publishedSignalId
       ? "reply_published"
@@ -1418,30 +1400,18 @@ const finalizeExistingAcceptedDispatchResult = async (input: {
   };
 };
 
-const markSucceededOrNotPublishedStatus = async (input: {
+const markDispatchSucceeded = async (input: {
   attemptId: string;
   db: D1Database;
   idempotencyKey: string;
-  publishedSignalId: string | null;
-  suppressedInternalOnly?: boolean;
 }): Promise<void> => {
-  const replyPublished =
-    input.publishedSignalId !== null || input.suppressedInternalOnly === true;
   await markDispatchStatus({
     attemptId: input.attemptId,
-    attemptStatus: replyPublished
-      ? OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.succeeded
-      : OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
+    attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.succeeded,
     db: input.db,
-    errorCode: replyPublished ? null : DISPATCH_REPLY_NOT_PUBLISHED_ERROR_CODE,
-    errorMessage: replyPublished
-      ? null
-      : "the agent turn finished but OpenMeld could not show any reply in the Space",
     idempotencyKey: input.idempotencyKey,
     nowMs: Date.now(),
-    status: replyPublished
-      ? OPENMELD_DAEMON_DISPATCH_STATE.succeeded
-      : OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
+    status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
   });
 };
 
@@ -1613,6 +1583,7 @@ export const finalizeAcceptedDispatchResult = async (input: {
       });
     }
     return {
+      intentionallySilent: false,
       publishedSignalId: failedReplyEmission.publishedSignalId,
       publishState: failedReplyEmission.publishedSignalId
         ? "reply_published"
@@ -1665,17 +1636,15 @@ export const finalizeAcceptedDispatchResult = async (input: {
     targetProfileName,
     taskResult: input.inboxRecord.taskResult,
   });
-  // A turn that never published a visible outcome must not be recorded as
-  // succeeded; the Space contract requires a visible reply or an explicit
-  // visible failure. Intentionally internal outcomes stay succeeded.
-  await markSucceededOrNotPublishedStatus({
-    attemptId: input.inboxRecord.attemptId,
-    db: input.db,
-    idempotencyKey: input.dispatchMessage.idempotencyKey,
-    publishedSignalId: replyEmission.publishedSignalId,
-    suppressedInternalOnly: replyEmission.intentionallySilent,
-  });
+  if (replyEmission.publishedSignalId || replyEmission.intentionallySilent) {
+    await markDispatchSucceeded({
+      attemptId: input.inboxRecord.attemptId,
+      db: input.db,
+      idempotencyKey: input.dispatchMessage.idempotencyKey,
+    });
+  }
   return {
+    intentionallySilent: replyEmission.intentionallySilent,
     publishedSignalId: replyEmission.publishedSignalId,
     publishState: replyEmission.publishState,
     status: "finalized",

@@ -23,6 +23,7 @@ import {
   rpcCenterAgentResolveConnectorConnection,
   rpcCompleteConnectorDisconnect,
   rpcCompleteGitHubAppInstallation,
+  rpcListCenterAgentAuditJournal,
   rpcReadPendingGitHubAppInstallation,
   rpcReconcileCurrentOrganizationConnectorConnections,
 } from "../src/rpc/methods";
@@ -66,6 +67,7 @@ describe("Core connector connection ownership", () => {
       },
       requestSignature: "a".repeat(64),
       service: "github",
+      sourceSpaceId: "space-authorized",
     } as const;
 
     const claimed = await recordCenterAgentConnectorActionOperation({
@@ -104,6 +106,7 @@ describe("Core connector connection ownership", () => {
       nowMs: Date.now() + 3,
       outcome: "completed",
       providerExecutionId: "provider-execution-1",
+      sourceSpaceId: "space-retry",
     });
     const replayedCompletion = await recordCenterAgentConnectorActionOperation({
       ...baseInput,
@@ -144,6 +147,50 @@ describe("Core connector connection ownership", () => {
       )
       .first<{ count: number }>();
     expect(Number(auditCount?.count ?? 0)).toBe(2);
+    const sourceSpaces = await env.OPENMELD_DB.prepare(
+      `
+        SELECT source_space_id
+        FROM center_agent_audit_journal
+        WHERE resource_id = ?
+        ORDER BY created_at ASC
+      `
+    )
+      .bind(
+        `${baseInput.service}:${baseInput.actionId}:${baseInput.operationId}`
+      )
+      .all<{ source_space_id: string | null }>();
+    expect(sourceSpaces.results).toEqual([
+      { source_space_id: "space-authorized" },
+      { source_space_id: "space-authorized" },
+    ]);
+    const auditContext = connectorRequestContext({
+      organizationId: fixture.organizationA,
+      userId: fixture.ownerA,
+    });
+    const v19Audit = await rpcListCenterAgentAuditJournal(connectorCoreEnv(), {
+      actionSet: "v19",
+      context: auditContext,
+      limit: 25,
+    });
+    const v20Audit = await rpcListCenterAgentAuditJournal(connectorCoreEnv(), {
+      actionSet: "v20",
+      context: auditContext,
+      limit: 25,
+    });
+    expect(
+      v19Audit.entries.find(
+        (entry) =>
+          entry.resource?.id ===
+          `${baseInput.service}:${baseInput.actionId}:${baseInput.operationId}`
+      )
+    ).not.toHaveProperty("sourceSpaceId");
+    expect(
+      v20Audit.entries.find(
+        (entry) =>
+          entry.resource?.id ===
+          `${baseInput.service}:${baseInput.actionId}:${baseInput.operationId}`
+      )
+    ).toMatchObject({ sourceSpaceId: "space-authorized" });
 
     const concurrentInput = {
       ...baseInput,
@@ -575,6 +622,7 @@ describe("Core connector connection ownership", () => {
         nowMs
       )
       .run();
+    const sourceSpaceId = `space-${crypto.randomUUID()}`;
     await upsertRemoteAgentNativeDeliveryRecord({
       attemptId: null,
       bindingId: `binding-${crypto.randomUUID()}`,
@@ -588,7 +636,7 @@ describe("Core connector connection ownership", () => {
       onBehalfOfUserId: fixture.memberA,
       organizationId: fixture.organizationA,
       profileId: centerAgent.profileId,
-      spaceId: `dm-${crypto.randomUUID()}`,
+      spaceId: sourceSpaceId,
       status: "submitted",
       triggerMessageId: `message-${crypto.randomUUID()}`,
     });
@@ -645,6 +693,17 @@ describe("Core connector connection ownership", () => {
       requester_attribution_key: `user:${fixture.memberA}`,
       source_native_delivery_id: null,
     });
+    await expect(
+      env.OPENMELD_DB.prepare(
+        `
+          SELECT source_space_id
+          FROM center_agent_audit_journal
+          WHERE resource_id = ?
+        `
+      )
+        .bind(`gmail:gmail.fetch_emails:${operationId}`)
+        .first()
+    ).resolves.toEqual({ source_space_id: sourceSpaceId });
     await expect(
       rpcCenterAgentReadConnectorActionOperation(connectorCoreEnv(), input)
     ).resolves.toMatchObject({

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   GrokBuildAcpTransportError,
-  upgradeProtocolFailureWithExhaustedUsage,
-} from "../dist/index.js";
+  upgradePromptProtocolFailureWithExhaustedUsage,
+} from "../dist/transport/grok-build-acp-transport.js";
 
 function buildProtocolFailure() {
   return new GrokBuildAcpTransportError({
@@ -14,7 +14,7 @@ function buildProtocolFailure() {
 }
 
 test("upgrades a generic protocol failure when usage limits are exhausted", () => {
-  const upgraded = upgradeProtocolFailureWithExhaustedUsage(
+  const upgraded = upgradePromptProtocolFailureWithExhaustedUsage(
     buildProtocolFailure(),
     [
       {
@@ -33,7 +33,7 @@ test("upgrades a generic protocol failure when usage limits are exhausted", () =
 
 test("keeps the protocol failure when credits remain available", () => {
   const classified = buildProtocolFailure();
-  const upgraded = upgradeProtocolFailureWithExhaustedUsage(classified, [
+  const upgraded = upgradePromptProtocolFailureWithExhaustedUsage(classified, [
     {
       key: "grok-build:included-credits",
       label: null,
@@ -52,7 +52,7 @@ test("keeps non-protocol failures untouched even when exhausted", () => {
     errorType: "auth",
     message: "auth.failed: unauthenticated",
   });
-  const upgraded = upgradeProtocolFailureWithExhaustedUsage(classified, [
+  const upgraded = upgradePromptProtocolFailureWithExhaustedUsage(classified, [
     {
       key: "grok-build:included-credits",
       label: null,
