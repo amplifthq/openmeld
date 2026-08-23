@@ -14,6 +14,7 @@ import {
   rpcGetAgentProfilePrimaryBinding,
   rpcUpdateAgentProfilePrimaryBindingAgentControllerPermissionMode,
   rpcUpdateAgentProfilePrimaryBindingModelSelection,
+  rpcUpdateAgentProfilePrimaryBindingOpenCodePermission,
 } from "../src/rpc/methods";
 import { acceptRuntimeAgentControllerReportRecord } from "../src/runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
 import { registerRuntimeRegistryRecord } from "../src/runtime-registry/infrastructure/d1/runtime-registry-repo";
@@ -483,6 +484,83 @@ describe("agent profile binding Core RPC", () => {
         agent_controller_permission_mode: "codex:fullAccess",
         agent_controller_ref: "builtin:codex",
         configuration_revision: 2,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("returns saved OpenCode permissions after a fresh primary Binding read", async () => {
+    const harness = createSqliteD1Harness();
+    applyAgentProfileBindingRpcMigrations(harness);
+    try {
+      const registeredRuntimeId = await seedRuntimeAgentControllerReport(
+        harness,
+        {
+          agentControllerRef: "builtin:opencode",
+        }
+      );
+      const env = coreEnv(harness.db);
+      const openCodePermission = {
+        bash: {
+          "*": "ask" as const,
+          "git status *": "allow" as const,
+        },
+        edit: "allow" as const,
+      };
+
+      await rpcEnsureAgentProfilePrimaryBinding(env, {
+        agentProfileId: AGENT_PROFILE_ID,
+        agentControllerRef: "builtin:opencode",
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        openMeldServiceRuntimeId: {
+          source: "runtime_registry_authority",
+          value: registeredRuntimeId.value,
+        },
+      });
+
+      const saved = await rpcUpdateAgentProfilePrimaryBindingOpenCodePermission(
+        env,
+        {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: DEFAULT_CONTEXT,
+          openCodePermission,
+        }
+      );
+      const reopened = await rpcGetAgentProfilePrimaryBinding(env, {
+        agentProfileId: AGENT_PROFILE_ID,
+        context: DEFAULT_CONTEXT,
+      });
+
+      expect(saved).toMatchObject({
+        binding: {
+          agentProfileId: AGENT_PROFILE_ID,
+          executionTarget: {
+            agentControllerRef: "builtin:opencode",
+          },
+          openCodePermission,
+        },
+        status: "accepted",
+      });
+      expect(reopened).toMatchObject({
+        binding: {
+          agentProfileId: AGENT_PROFILE_ID,
+          openCodePermission,
+        },
+        status: "found",
+      });
+      expect(
+        harness.queryFirst<{
+          configuration_revision: number;
+          opencode_permission: string | null;
+        }>({
+          sql: "SELECT configuration_revision, opencode_permission FROM openMeldDaemon_agent_profile_bindings",
+        })
+      ).toEqual({
+        configuration_revision: 2,
+        opencode_permission: JSON.stringify(openCodePermission),
       });
     } finally {
       harness.close();
