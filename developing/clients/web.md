@@ -430,15 +430,17 @@ Space. For a row with unread or active work, hover or keyboard focus reveals the
 pin action while keeping the higher-priority status visible in the corner. This
 lets the member pin or unpin the Space without losing unread or working evidence.
 Ambient agent work for other Spaces comes from a successful account active Wake
-summary whose `generatedAtMs` is no more than the shared 45-second maximum age.
-Web bounds ordinary clock skew across Core, Web SSR receipt time, and the
-browser: neither Core generation nor receipt may be more than five seconds
-ahead of the browser, and Core generation may be at most five seconds ahead of
-receipt. Accepted future timestamps clamp to browser time so they never extend
-the shared maximum age. Web retains the earliest committed browser observation
-for each cached Core snapshot, so navigation, remounting, or a later local
-receipt cannot move it forward or revive it after expiry. Abandoned renders do
-not update that observation. Larger future timestamps remain invalid.
+summary. Immediately before each browser request, Web starts the shared
+45-second presentation budget on the browser's monotonic clock. Network time
+consumes that budget, and a response arriving after it expires is unusable.
+Core's `generatedAtMs` remains integrity and diagnostic evidence; Web never
+compares it with a browser wall clock because the hosts are not clock-synchronized.
+The request anchor travels with that one successful query result, so navigation,
+remounting, or returning to the same cached result cannot move the anchor forward
+or revive expired evidence. A later successful poll receives a new anchor even
+when its Core summary is structurally unchanged. Server rendering shows no
+ambient orb and the browser refetches, because the monotonic anchor is local to
+one browser document and is not persisted.
 For the open Space, the conversation publishes its final visible Wake progress
 projection after merging the Core-derived per-Space summary, detailed progress,
 and durable reply signals. The Space shell owns a route-scoped synchronous read
@@ -450,7 +452,7 @@ summary and presentation cache with the same shared Wake identity and lifecycle
 semantics, so newer terminal progress still wins over an older active summary.
 This shell projection is not persisted and is not a second writer or execution
 authority. Terminal or locally expired progress never produces an orb. A failed
-account-summary refresh, a future timestamp, or expiry clears ambient
+account-summary refresh, a missing browser request anchor, or expiry clears ambient
 indicators, while the open Space remains aligned with its current conversation
 evidence; Web must not keep an old orb visible merely because TanStack Query
 retains its last successful account-summary data.

@@ -10,17 +10,15 @@ import {
 import { baseQueryOptions } from "#/query/query-config";
 
 const ACCOUNT_SPACE_ACTIVE_WAKE_POLL_INTERVAL_MS = 15_000;
-const ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_CLOCK_SKEW_MS = 5000;
-const observedSummaryGeneratedAtByResponse = new WeakMap<
-	AccountSpaceActiveWakeSummaryResponse,
-	number
->();
+
+type AccountSpaceActiveWakePresentationSnapshot = {
+	browserRequestStartedAtMonotonicMs: number | null;
+	summary: AccountSpaceActiveWakeSummaryResponse;
+};
 
 type AccountSpaceActiveWakeSummaryObservation = {
-	data: AccountSpaceActiveWakeSummaryResponse | undefined;
+	data: AccountSpaceActiveWakePresentationSnapshot | undefined;
 	isExpired: boolean;
-	observedGeneratedAtMs: number | null;
-	receivedAtMs: number;
 };
 
 export const accountSpaceQueryKeys = {
@@ -57,82 +55,64 @@ export function accountSpaceActiveWakeSummaryQueryOptions(input: {
 	enabled: boolean;
 	profileId: string;
 }) {
-	return queryOptions<AccountSpaceActiveWakeSummaryResponse, Error>({
+	return queryOptions<AccountSpaceActiveWakePresentationSnapshot, Error>({
 		queryKey: accountSpaceQueryKeys.activeWakeSummary(input.profileId),
-		queryFn: async () =>
-			await getAccountSpaceActiveWakeSummary({
+		queryFn: async () => {
+			const browserRequestStartedAtMonotonicMs = readBrowserMonotonicNowMs();
+			const summary = await getAccountSpaceActiveWakeSummary({
 				data: { profileId: input.profileId },
-			}),
-		enabled: input.enabled,
+			});
+			return { browserRequestStartedAtMonotonicMs, summary };
+		},
+		enabled: input.enabled && typeof window !== "undefined",
 		gcTime: baseQueryOptions.gcTime,
 		retry: baseQueryOptions.retry,
 		refetchInterval: ACCOUNT_SPACE_ACTIVE_WAKE_POLL_INTERVAL_MS,
 		refetchIntervalInBackground: false,
-		refetchOnWindowFocus: true,
+		refetchOnMount: "always",
+		refetchOnWindowFocus: "always",
 		staleTime: 10_000,
 	});
 }
 
 export function selectUsableAccountSpaceActiveWakeSummaryItems(input: {
-	data: AccountSpaceActiveWakeSummaryResponse | undefined;
+	data: AccountSpaceActiveWakePresentationSnapshot | undefined;
 	isError: boolean;
-	nowMs: number;
-	receivedAtMs: number;
+	nowMonotonicMs: number | null;
 }): AccountSpaceActiveWakeSummaryResponse["items"] {
-	if (input.isError || !input.data) {
-		return [];
-	}
-	const observedGeneratedAtMs = resolveObservedSummaryGeneratedAtMs({
-		generatedAtMs: input.data.generatedAtMs,
-		nowMs: input.nowMs,
-		receivedAtMs: input.receivedAtMs,
-	});
 	return selectObservedAccountSpaceActiveWakeSummaryItems({
 		data: input.data,
 		isError: input.isError,
 		isExpired: false,
-		nowMs: input.nowMs,
-		observedGeneratedAtMs,
+		nowMonotonicMs: input.nowMonotonicMs,
 	});
 }
 
 export function useUsableAccountSpaceActiveWakeSummaryItems(input: {
-	data: AccountSpaceActiveWakeSummaryResponse | undefined;
+	data: AccountSpaceActiveWakePresentationSnapshot | undefined;
 	isError: boolean;
-	receivedAtMs: number;
 }): AccountSpaceActiveWakeSummaryResponse["items"] {
 	const [observation, setObservation] = useState(() =>
 		createAccountSpaceActiveWakeSummaryObservation(input)
 	);
 	if (observation.data !== input.data) {
 		setObservation(createAccountSpaceActiveWakeSummaryObservation(input));
-	} else if (observation.receivedAtMs !== input.receivedAtMs) {
-		setObservation(
-			updateAccountSpaceActiveWakeSummaryReceipt({
-				observation,
-				receivedAtMs: input.receivedAtMs,
-			})
-		);
 	}
 	useEffect(() => {
-		if (
-			observation.data === undefined ||
-			observation.observedGeneratedAtMs === null
-		) {
+		const requestStartedAtMs =
+			observation.data?.browserRequestStartedAtMonotonicMs;
+		if (requestStartedAtMs === undefined || requestStartedAtMs === null) {
 			return;
 		}
-		const committedObservedGeneratedAtMs =
-			commitStableObservedSummaryGeneratedAtMs({
-				data: observation.data,
-				observedGeneratedAtMs: observation.observedGeneratedAtMs,
-			});
-		if (committedObservedGeneratedAtMs < observation.observedGeneratedAtMs) {
+		const nowMonotonicMs = readBrowserMonotonicNowMs();
+		if (
+			nowMonotonicMs === null ||
+			requestStartedAtMs < 0 ||
+			requestStartedAtMs > nowMonotonicMs
+		) {
 			setObservation((currentObservation) =>
 				currentObservation === observation
-					? {
-							...currentObservation,
-							observedGeneratedAtMs: committedObservedGeneratedAtMs,
-						}
+					? { ...currentObservation, isExpired: true }
 					: currentObservation
 			);
 			return;
@@ -140,11 +120,10 @@ export function useUsableAccountSpaceActiveWakeSummaryItems(input: {
 		if (observation.isExpired) {
 			return;
 		}
-		const nowMs = Date.now();
 		const remainingMs =
-			observation.observedGeneratedAtMs +
+			requestStartedAtMs +
 			ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS -
-			nowMs;
+			nowMonotonicMs;
 		const timeout = window.setTimeout(
 			() =>
 				setObservation((currentObservation) =>
@@ -161,133 +140,44 @@ export function useUsableAccountSpaceActiveWakeSummaryItems(input: {
 		data: observation.data,
 		isError: input.isError,
 		isExpired: observation.isExpired,
-		nowMs: Date.now(),
-		observedGeneratedAtMs: observation.observedGeneratedAtMs,
+		nowMonotonicMs: readBrowserMonotonicNowMs(),
 	});
 }
 
 function createAccountSpaceActiveWakeSummaryObservation(input: {
-	data: AccountSpaceActiveWakeSummaryResponse | undefined;
-	receivedAtMs: number;
+	data: AccountSpaceActiveWakePresentationSnapshot | undefined;
 }): AccountSpaceActiveWakeSummaryObservation {
 	return {
 		data: input.data,
 		isExpired: false,
-		observedGeneratedAtMs: input.data
-			? resolveStableObservedSummaryGeneratedAtMs({
-					data: input.data,
-					nowMs: Date.now(),
-					receivedAtMs: input.receivedAtMs,
-				})
-			: null,
-		receivedAtMs: input.receivedAtMs,
 	};
-}
-
-function updateAccountSpaceActiveWakeSummaryReceipt(input: {
-	observation: AccountSpaceActiveWakeSummaryObservation;
-	receivedAtMs: number;
-}): AccountSpaceActiveWakeSummaryObservation {
-	const nextObservedGeneratedAtMs = input.observation.data
-		? resolveStableObservedSummaryGeneratedAtMs({
-				data: input.observation.data,
-				nowMs: Date.now(),
-				receivedAtMs: input.receivedAtMs,
-			})
-		: null;
-	return {
-		...input.observation,
-		observedGeneratedAtMs:
-			input.observation.observedGeneratedAtMs === null ||
-			nextObservedGeneratedAtMs === null
-				? nextObservedGeneratedAtMs
-				: Math.min(
-						input.observation.observedGeneratedAtMs,
-						nextObservedGeneratedAtMs
-					),
-		receivedAtMs: input.receivedAtMs,
-	};
-}
-
-function resolveStableObservedSummaryGeneratedAtMs(input: {
-	data: AccountSpaceActiveWakeSummaryResponse;
-	nowMs: number;
-	receivedAtMs: number;
-}): number | null {
-	const nextObservedGeneratedAtMs = resolveObservedSummaryGeneratedAtMs({
-		generatedAtMs: input.data.generatedAtMs,
-		nowMs: input.nowMs,
-		receivedAtMs: input.receivedAtMs,
-	});
-	if (nextObservedGeneratedAtMs === null) {
-		return null;
-	}
-
-	// TanStack Query reuses an immutable response object when a cached query is
-	// revisited. Render may read the earliest committed anchor, but only the
-	// effect writes it so an abandoned render cannot affect visible lifetime.
-	const currentObservedGeneratedAtMs = observedSummaryGeneratedAtByResponse.get(
-		input.data
-	);
-	return currentObservedGeneratedAtMs === undefined
-		? nextObservedGeneratedAtMs
-		: Math.min(currentObservedGeneratedAtMs, nextObservedGeneratedAtMs);
-}
-
-function commitStableObservedSummaryGeneratedAtMs(input: {
-	data: AccountSpaceActiveWakeSummaryResponse;
-	observedGeneratedAtMs: number;
-}): number {
-	const currentObservedGeneratedAtMs = observedSummaryGeneratedAtByResponse.get(
-		input.data
-	);
-	const observedGeneratedAtMs =
-		currentObservedGeneratedAtMs === undefined
-			? input.observedGeneratedAtMs
-			: Math.min(currentObservedGeneratedAtMs, input.observedGeneratedAtMs);
-	observedSummaryGeneratedAtByResponse.set(input.data, observedGeneratedAtMs);
-	return observedGeneratedAtMs;
 }
 
 function selectObservedAccountSpaceActiveWakeSummaryItems(input: {
-	data: AccountSpaceActiveWakeSummaryResponse | undefined;
+	data: AccountSpaceActiveWakePresentationSnapshot | undefined;
 	isError: boolean;
 	isExpired: boolean;
-	nowMs: number;
-	observedGeneratedAtMs: number | null;
+	nowMonotonicMs: number | null;
 }): AccountSpaceActiveWakeSummaryResponse["items"] {
+	const requestStartedAtMs =
+		input.data?.browserRequestStartedAtMonotonicMs ?? null;
 	if (
 		input.isError ||
 		!input.data ||
 		input.isExpired ||
-		input.observedGeneratedAtMs === null ||
-		input.observedGeneratedAtMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS <
-			input.nowMs
+		input.data.summary.generatedAtMs <= 0 ||
+		requestStartedAtMs === null ||
+		input.nowMonotonicMs === null ||
+		requestStartedAtMs < 0 ||
+		requestStartedAtMs > input.nowMonotonicMs ||
+		requestStartedAtMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS <
+			input.nowMonotonicMs
 	) {
 		return [];
 	}
-	return input.data.items;
+	return input.data.summary.items;
 }
 
-function resolveObservedSummaryGeneratedAtMs(input: {
-	generatedAtMs: number;
-	nowMs: number;
-	receivedAtMs: number;
-}): number | null {
-	if (
-		input.receivedAtMs <= 0 ||
-		input.receivedAtMs >
-			input.nowMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_CLOCK_SKEW_MS ||
-		input.generatedAtMs >
-			input.nowMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_CLOCK_SKEW_MS ||
-		input.generatedAtMs >
-			input.receivedAtMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_CLOCK_SKEW_MS
-	) {
-		return null;
-	}
-
-	// Core owns the summary timestamp. The receipt timestamp can originate during
-	// Web SSR, so both clocks may be slightly ahead of the browser. Clamp both to
-	// the browser's current time so accepted skew never extends the shared age.
-	return Math.min(input.generatedAtMs, input.receivedAtMs, input.nowMs);
+function readBrowserMonotonicNowMs(): number | null {
+	return typeof window === "undefined" ? null : window.performance.now();
 }

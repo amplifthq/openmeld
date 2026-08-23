@@ -1,3 +1,4 @@
+import { ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS } from "@openmeld/schemas";
 import type { AccountSpaceActiveWakeSummaryResponse } from "@openmeld/schemas/types";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,8 +7,10 @@ import {
 	useUsableAccountSpaceActiveWakeSummaryItems,
 } from "./account-spaces";
 
-const NOW_MS = Date.parse("2026-08-09T00:00:00.000Z");
-const ITEMS = [{ activeWakeCount: 1, spaceId: "space-one" }] as const;
+const CORE_NOW_MS = Date.parse("2026-08-09T00:00:00.000Z");
+const ITEMS: AccountSpaceActiveWakeSummaryResponse["items"] = [
+	{ activeWakeCount: 1, spaceId: "space-one" },
+];
 
 afterEach(() => {
 	vi.useRealTimers();
@@ -15,210 +18,242 @@ afterEach(() => {
 });
 
 describe("account Space active Wake summary", () => {
-	it("uses only a current successful owner snapshot", () => {
+	it("uses only a successful owner summary with a valid browser request anchor", () => {
+		const requestStartedAtMs = 4000;
+		const data = createPresentationSnapshot(requestStartedAtMs);
+
 		expect(
 			selectUsableAccountSpaceActiveWakeSummaryItems({
-				data: { generatedAtMs: NOW_MS, items: [...ITEMS] },
+				data,
 				isError: false,
-				nowMs: NOW_MS,
-				receivedAtMs: NOW_MS,
+				nowMonotonicMs: requestStartedAtMs,
 			})
 		).toEqual(ITEMS);
 		expect(
 			selectUsableAccountSpaceActiveWakeSummaryItems({
-				data: { generatedAtMs: 0, items: [...ITEMS] },
+				data: createPresentationSnapshot(
+					requestStartedAtMs,
+					createSummary({ generatedAtMs: 0 })
+				),
 				isError: false,
-				nowMs: NOW_MS,
-				receivedAtMs: NOW_MS,
+				nowMonotonicMs: requestStartedAtMs,
 			})
 		).toEqual([]);
 		expect(
 			selectUsableAccountSpaceActiveWakeSummaryItems({
-				data: { generatedAtMs: NOW_MS, items: [...ITEMS] },
+				data,
 				isError: true,
-				nowMs: NOW_MS,
-				receivedAtMs: NOW_MS,
+				nowMonotonicMs: requestStartedAtMs,
 			})
 		).toEqual([]);
-	});
-
-	it("accepts ordinary Core and browser clock skew without trusting a distant future timestamp", () => {
 		expect(
 			selectUsableAccountSpaceActiveWakeSummaryItems({
-				data: { generatedAtMs: NOW_MS + 1100, items: [...ITEMS] },
+				data: createPresentationSnapshot(null),
 				isError: false,
-				nowMs: NOW_MS,
-				receivedAtMs: NOW_MS,
+				nowMonotonicMs: requestStartedAtMs,
+			})
+		).toEqual([]);
+		expect(
+			selectUsableAccountSpaceActiveWakeSummaryItems({
+				data,
+				isError: false,
+				nowMonotonicMs: requestStartedAtMs - 1,
+			})
+		).toEqual([]);
+		expect(
+			selectUsableAccountSpaceActiveWakeSummaryItems({
+				data,
+				isError: false,
+				nowMonotonicMs:
+					requestStartedAtMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS,
 			})
 		).toEqual(ITEMS);
 		expect(
 			selectUsableAccountSpaceActiveWakeSummaryItems({
-				data: { generatedAtMs: NOW_MS + 1100, items: [...ITEMS] },
+				data,
 				isError: false,
-				nowMs: NOW_MS,
-				receivedAtMs: NOW_MS + 1100,
-			})
-		).toEqual(ITEMS);
-		expect(
-			selectUsableAccountSpaceActiveWakeSummaryItems({
-				data: { generatedAtMs: NOW_MS + 5001, items: [...ITEMS] },
-				isError: false,
-				nowMs: NOW_MS,
-				receivedAtMs: NOW_MS,
-			})
-		).toEqual([]);
-		expect(
-			selectUsableAccountSpaceActiveWakeSummaryItems({
-				data: { generatedAtMs: NOW_MS + 5001, items: [...ITEMS] },
-				isError: false,
-				nowMs: NOW_MS,
-				receivedAtMs: NOW_MS + 1100,
-			})
-		).toEqual([]);
-		expect(
-			selectUsableAccountSpaceActiveWakeSummaryItems({
-				data: { generatedAtMs: NOW_MS, items: [...ITEMS] },
-				isError: false,
-				nowMs: NOW_MS,
-				receivedAtMs: NOW_MS + 5001,
-			})
-		).toEqual([]);
-		expect(
-			selectUsableAccountSpaceActiveWakeSummaryItems({
-				data: { generatedAtMs: NOW_MS + 1100, items: [...ITEMS] },
-				isError: false,
-				nowMs: NOW_MS + 45_001,
-				receivedAtMs: NOW_MS,
+				nowMonotonicMs:
+					requestStartedAtMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS + 1,
 			})
 		).toEqual([]);
 	});
 
-	it("keeps an SSR-hydrated summary with ordinary receipt clock skew", () => {
+	it.each([
+		12_566,
+		60 * 60 * 1000,
+		-60 * 60 * 1000,
+	])("does not compare the Core clock with the browser clock (%i ms offset)", (coreClockOffsetMs) => {
+		const requestStartedAtMs = 7000;
+
+		expect(
+			selectUsableAccountSpaceActiveWakeSummaryItems({
+				data: createPresentationSnapshot(
+					requestStartedAtMs,
+					createSummary({
+						generatedAtMs: CORE_NOW_MS + coreClockOffsetMs,
+					})
+				),
+				isError: false,
+				nowMonotonicMs: requestStartedAtMs,
+			})
+		).toEqual(ITEMS);
+	});
+
+	it("keeps the production 12.566-second Core offset visible for one local budget", () => {
 		vi.useFakeTimers();
-		vi.setSystemTime(NOW_MS);
-		const data = {
-			generatedAtMs: NOW_MS + 1100,
-			items: [...ITEMS],
-		};
+		const requestStartedAtMs = performance.now();
+		const data = createPresentationSnapshot(
+			requestStartedAtMs,
+			createSummary({ generatedAtMs: CORE_NOW_MS + 12_566 })
+		);
 
 		const { result } = renderHook(() =>
 			useUsableAccountSpaceActiveWakeSummaryItems({
 				data,
 				isError: false,
-				receivedAtMs: NOW_MS + 1100,
 			})
 		);
 
 		expect(result.current).toEqual(ITEMS);
-		act(() => vi.advanceTimersByTime(45_001));
+		act(() =>
+			vi.advanceTimersByTime(ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS + 1)
+		);
 		expect(result.current).toEqual([]);
 	});
 
-	it("rechecks a changed receipt without extending the same owner snapshot", () => {
+	it("fails closed for an SSR snapshot until the browser refetches it", () => {
 		vi.useFakeTimers();
-		vi.setSystemTime(NOW_MS);
-		const data = {
-			generatedAtMs: NOW_MS + 1100,
-			items: [...ITEMS],
-		};
+		const summary = createSummary();
+		const serverSnapshot = createPresentationSnapshot(null, summary);
 		const { rerender, result } = renderHook(
-			({ receivedAtMs }) =>
+			({ data }) =>
 				useUsableAccountSpaceActiveWakeSummaryItems({
 					data,
 					isError: false,
-					receivedAtMs,
 				}),
-			{ initialProps: { receivedAtMs: NOW_MS + 5001 } }
+			{ initialProps: { data: serverSnapshot } }
 		);
 
 		expect(result.current).toEqual([]);
-		rerender({ receivedAtMs: NOW_MS + 1100 });
+		const browserSnapshot = createPresentationSnapshot(
+			performance.now(),
+			summary
+		);
+		rerender({ data: browserSnapshot });
 		expect(result.current).toEqual(ITEMS);
-		act(() => vi.advanceTimersByTime(45_001));
-		expect(result.current).toEqual([]);
-		rerender({ receivedAtMs: NOW_MS + 2000 });
+		act(() =>
+			vi.advanceTimersByTime(ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS + 1)
+		);
 		expect(result.current).toEqual([]);
 	});
 
-	it("does not let an old snapshot timer expire its replacement", () => {
+	it("counts network time against the local presentation budget", () => {
 		vi.useFakeTimers();
-		vi.setSystemTime(NOW_MS);
-		const firstData: AccountSpaceActiveWakeSummaryResponse = {
-			generatedAtMs: NOW_MS,
-			items: [...ITEMS],
-		};
-		const secondItems = [{ activeWakeCount: 2, spaceId: "space-two" }] as const;
-		const secondData: AccountSpaceActiveWakeSummaryResponse = {
-			generatedAtMs: NOW_MS + 40_000,
-			items: [...secondItems],
-		};
+		const requestStartedAtMs = performance.now();
+		act(() => vi.advanceTimersByTime(20_000));
+		const data = createPresentationSnapshot(requestStartedAtMs);
+
+		const { result } = renderHook(() =>
+			useUsableAccountSpaceActiveWakeSummaryItems({
+				data,
+				isError: false,
+			})
+		);
+
+		expect(result.current).toEqual(ITEMS);
+		act(() =>
+			vi.advanceTimersByTime(
+				ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS - 20_000 + 1
+			)
+		);
+		expect(result.current).toEqual([]);
+	});
+
+	it("rejects a response that arrives after its local presentation budget", () => {
+		vi.useFakeTimers();
+		const requestStartedAtMs = performance.now();
+		act(() =>
+			vi.advanceTimersByTime(ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS + 1)
+		);
+		const data = createPresentationSnapshot(requestStartedAtMs);
+
+		const { result } = renderHook(() =>
+			useUsableAccountSpaceActiveWakeSummaryItems({
+				data,
+				isError: false,
+			})
+		);
+
+		expect(result.current).toEqual([]);
+	});
+
+	it("lets a new successful request renew an unchanged Core summary", () => {
+		vi.useFakeTimers();
+		const summary = createSummary();
+		const firstSnapshot = createPresentationSnapshot(
+			performance.now(),
+			summary
+		);
 		const { rerender, result } = renderHook(
-			({ data, receivedAtMs }) =>
+			({ data }) =>
 				useUsableAccountSpaceActiveWakeSummaryItems({
 					data,
 					isError: false,
-					receivedAtMs,
 				}),
-			{
-				initialProps: { data: firstData, receivedAtMs: NOW_MS },
-			}
+			{ initialProps: { data: firstSnapshot } }
 		);
 
 		act(() => vi.advanceTimersByTime(40_000));
-		rerender({ data: secondData, receivedAtMs: NOW_MS + 40_000 });
-		expect(result.current).toEqual(secondItems);
+		const secondSnapshot = createPresentationSnapshot(
+			performance.now(),
+			summary
+		);
+		rerender({ data: secondSnapshot });
 		act(() => vi.advanceTimersByTime(5001));
-		expect(result.current).toEqual(secondItems);
-		act(() => vi.advanceTimersByTime(40_000));
+		expect(result.current).toEqual(ITEMS);
+		act(() => vi.advanceTimersByTime(39_999));
+		expect(result.current).toEqual(ITEMS);
+		act(() => vi.advanceTimersByTime(1));
 		expect(result.current).toEqual([]);
 	});
 
-	it("keeps the earliest browser anchor when a cached snapshot returns", () => {
+	it("does not renew a cached snapshot when it returns after another result", () => {
 		vi.useFakeTimers();
-		vi.setSystemTime(NOW_MS);
-		const firstData: AccountSpaceActiveWakeSummaryResponse = {
-			generatedAtMs: NOW_MS + 1100,
-			items: [...ITEMS],
-		};
-		const secondData: AccountSpaceActiveWakeSummaryResponse = {
-			generatedAtMs: NOW_MS + 1000,
-			items: [{ activeWakeCount: 1, spaceId: "space-two" }],
-		};
+		const firstSnapshot = createPresentationSnapshot(performance.now());
+		const secondSnapshot = createPresentationSnapshot(
+			performance.now() + 1000,
+			createSummary({
+				items: [{ activeWakeCount: 1, spaceId: "space-two" }],
+			})
+		);
 		const { rerender, result } = renderHook(
-			({ data, receivedAtMs }) =>
+			({ data }) =>
 				useUsableAccountSpaceActiveWakeSummaryItems({
 					data,
 					isError: false,
-					receivedAtMs,
 				}),
-			{
-				initialProps: {
-					data: firstData,
-					receivedAtMs: NOW_MS + 1100,
-				},
-			}
+			{ initialProps: { data: firstSnapshot } }
 		);
 
 		act(() => vi.advanceTimersByTime(1000));
-		rerender({ data: secondData, receivedAtMs: NOW_MS + 1000 });
-		rerender({ data: firstData, receivedAtMs: NOW_MS + 1100 });
+		rerender({ data: secondSnapshot });
+		rerender({ data: firstSnapshot });
 		expect(result.current).toEqual(ITEMS);
-		act(() => vi.advanceTimersByTime(44_001));
+		act(() =>
+			vi.advanceTimersByTime(
+				ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS - 1000 + 1
+			)
+		);
 		expect(result.current).toEqual([]);
 	});
 
-	it("keeps the earliest browser anchor when the hook remounts", () => {
+	it("does not renew the same cached snapshot when the hook remounts", () => {
 		vi.useFakeTimers();
-		vi.setSystemTime(NOW_MS);
-		const data = {
-			generatedAtMs: NOW_MS + 1100,
-			items: [...ITEMS],
-		};
+		const data = createPresentationSnapshot(performance.now());
 		const firstHook = renderHook(() =>
 			useUsableAccountSpaceActiveWakeSummaryItems({
 				data,
 				isError: false,
-				receivedAtMs: NOW_MS + 1100,
 			})
 		);
 
@@ -228,66 +263,44 @@ describe("account Space active Wake summary", () => {
 			useUsableAccountSpaceActiveWakeSummaryItems({
 				data,
 				isError: false,
-				receivedAtMs: NOW_MS + 1100,
 			})
 		);
 		expect(secondHook.result.current).toEqual(ITEMS);
-		act(() => vi.advanceTimersByTime(44_001));
+		act(() =>
+			vi.advanceTimersByTime(
+				ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS - 1000 + 1
+			)
+		);
 		expect(secondHook.result.current).toEqual([]);
 	});
 
-	it("does not let an abandoned render change a committed snapshot", () => {
+	it("clears retained data immediately when the refresh errors", () => {
 		vi.useFakeTimers();
-		vi.setSystemTime(NOW_MS);
-		vi.spyOn(console, "error").mockImplementation(() => undefined);
-		const data: AccountSpaceActiveWakeSummaryResponse = {
-			generatedAtMs: NOW_MS + 4000,
-			items: [...ITEMS],
-		};
-
-		expect(() =>
-			renderHook(() => {
-				useUsableAccountSpaceActiveWakeSummaryItems({
-					data,
-					isError: false,
-					receivedAtMs: NOW_MS - 1000,
-				});
-				throw new Error("abandoned observation");
-			})
-		).toThrowError("abandoned observation");
-
-		const committedHook = renderHook(() =>
-			useUsableAccountSpaceActiveWakeSummaryItems({
-				data,
-				isError: false,
-				receivedAtMs: NOW_MS + 4000,
-			})
-		);
-		expect(committedHook.result.current).toEqual(ITEMS);
-		act(() => vi.advanceTimersByTime(44_001));
-		expect(committedHook.result.current).toEqual(ITEMS);
-		act(() => vi.advanceTimersByTime(1000));
-		expect(committedHook.result.current).toEqual([]);
-	});
-
-	it("clears a summary when it expires between render and the passive effect", () => {
-		vi.useFakeTimers();
-		vi.spyOn(Date, "now")
-			.mockReturnValueOnce(NOW_MS + 44_999)
-			.mockReturnValueOnce(NOW_MS + 44_999)
-			.mockReturnValue(NOW_MS + 45_001);
-		const data = { generatedAtMs: NOW_MS, items: [...ITEMS] };
-
-		const { result } = renderHook(() =>
-			useUsableAccountSpaceActiveWakeSummaryItems({
-				data,
-				isError: false,
-				receivedAtMs: NOW_MS,
-			})
+		const data = createPresentationSnapshot(performance.now());
+		const { rerender, result } = renderHook(
+			({ isError }) =>
+				useUsableAccountSpaceActiveWakeSummaryItems({ data, isError }),
+			{ initialProps: { isError: false } }
 		);
 
 		expect(result.current).toEqual(ITEMS);
-		act(() => vi.advanceTimersByTime(1));
+		rerender({ isError: true });
 		expect(result.current).toEqual([]);
 	});
 });
+
+function createSummary(
+	input: Partial<AccountSpaceActiveWakeSummaryResponse> = {}
+): AccountSpaceActiveWakeSummaryResponse {
+	return {
+		generatedAtMs: input.generatedAtMs ?? CORE_NOW_MS,
+		items: input.items ?? ITEMS,
+	};
+}
+
+function createPresentationSnapshot(
+	browserRequestStartedAtMonotonicMs: number | null,
+	summary = createSummary()
+) {
+	return { browserRequestStartedAtMonotonicMs, summary };
+}

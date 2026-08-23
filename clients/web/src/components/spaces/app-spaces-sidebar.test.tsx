@@ -637,7 +637,7 @@ describe("AppSpacesSidebar", () => {
 			],
 		});
 		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
-			generatedAtMs: Date.now() + 1100,
+			generatedAtMs: Date.now() + 12_566,
 			items: [{ activeWakeCount: 1, spaceId: "space-alpha" }],
 		});
 
@@ -1542,10 +1542,10 @@ function seedCurrentSpaceWakeRace(queryClient: QueryClient): void {
 		accountSpaceQueryKeys.items("human-1", "account"),
 		accountSpaces
 	);
-	queryClient.setQueryData(
-		accountSpaceQueryKeys.activeWakeSummary("human-1"),
-		accountWakeSummary
-	);
+	queryClient.setQueryData(accountSpaceQueryKeys.activeWakeSummary("human-1"), {
+		browserRequestStartedAtMonotonicMs: performance.now(),
+		summary: accountWakeSummary,
+	});
 	const currentSpaceSummaryOptions = spaceActiveWakeProgressSummaryQueryOptions(
 		{
 			enabled: false,
