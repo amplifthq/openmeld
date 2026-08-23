@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   centerAgentCheckAgentProfileReadinessResponseSchema,
@@ -97,6 +100,18 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(disabled).not.toContain("openmeld_list_agent_activity_sessions");
     expect(enabled).toContain("openmeld_read_agent_activity");
     expect(enabled).toContain("openmeld_list_agent_activity_sessions");
+  });
+
+  it("enables the Agent Activity read-tool fence in every Remote Agent wrangler env", () => {
+    const wrangler = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../wrangler.jsonc"),
+      "utf8"
+    );
+
+    const enabled = '"OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "true"';
+    const disabled = '"OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED": "false"';
+    expect(wrangler.split(enabled).length - 1).toBe(3);
+    expect(wrangler.includes(disabled)).toBe(false);
   });
 
   it("exposes exactly the approved model-visible OpenMeld tool list", () => {

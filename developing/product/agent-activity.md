@@ -490,10 +490,11 @@ Digest RPC and Center Agent read-tool rollout are separate producer/consumer
 windows with separate feature fences. The Remote Agent exposes both
 `openmeld_read_agent_activity` and
 `openmeld_list_agent_activity_sessions` only when
-`OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED=true`; the default is false.
-Interactive member turns and reauthorized Routine turns may receive these
-read-only tools. Neither window changes RuntimeCoordinator or workstation
-execution authority.
+`OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED=true`. After the Core Session
+Inventory RPC is deployed, production, dev, and local wrangler vars enable
+that caller fence so Center Agent can list current Sessions itself. Interactive
+member turns and reauthorized Routine turns may receive these read-only tools.
+Neither window changes RuntimeCoordinator or workstation execution authority.
 
 Provider-detail expansion uses a separate mixed-version window. Deploy Core
 first so its strict RPC reader accepts `includeProviderMetadata`, then Gateway,
