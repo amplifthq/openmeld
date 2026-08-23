@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-23T08:29:38.455Z",
+  "updatedAt": "2026-08-23T10:44:21.952Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.84",
+      "packageVersion": "0.3.85",
       "updatePolicy": "available",
       "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
     },
     "service": {
-      "bundleHash": "eaf1c5bc8d793f66487e12d9697cee252d6b182cebf2bbb6512d117d6eefc71d",
-      "bundleVersion": "0.3.84",
+      "bundleHash": "96dcfeb9387f664b3cfdd9012b297301333bb7cc266b8e7c68e6633a405b0e45",
+      "bundleVersion": "0.3.85",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
