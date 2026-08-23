@@ -850,6 +850,9 @@ test("classifies release-sensitive paths narrowly", () => {
     true
   );
   assert.equal(isCliReleasePath("clients/openmeld-cli/package.json"), true);
+  assert.equal(isCliReleasePath("release/vendor-models.json"), true);
+  assert.equal(isServiceReleasePath("release/vendor-models.json"), true);
+  assert.equal(isServiceReleasePath("release/local-components.json"), false);
   assert.equal(
     isCliReleasePath("runtime/adapters/core/src/launch-contract.ts"),
     true
