@@ -431,9 +431,14 @@ pin action while keeping the higher-priority status visible in the corner. This
 lets the member pin or unpin the Space without losing unread or working evidence.
 Ambient agent work for other Spaces comes from a successful account active Wake
 summary whose `generatedAtMs` is no more than the shared 45-second maximum age.
-Web bounds ordinary Core-to-browser clock skew against the local query receipt
-time: Core may be at most five seconds ahead, and the local bound must never
-extend the shared maximum age. Larger future timestamps remain invalid.
+Web bounds ordinary clock skew across Core, Web SSR receipt time, and the
+browser: neither Core generation nor receipt may be more than five seconds
+ahead of the browser, and Core generation may be at most five seconds ahead of
+receipt. Accepted future timestamps clamp to browser time so they never extend
+the shared maximum age. Web retains the earliest committed browser observation
+for each cached Core snapshot, so navigation, remounting, or a later local
+receipt cannot move it forward or revive it after expiry. Abandoned renders do
+not update that observation. Larger future timestamps remain invalid.
 For the open Space, the conversation publishes its final visible Wake progress
 projection after merging the Core-derived per-Space summary, detailed progress,
 and durable reply signals. The Space shell owns a route-scoped synchronous read

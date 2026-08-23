@@ -10,6 +10,7 @@ The Spaces sidebar now keeps a Working orb visible for every Space with an activ
 agent, even after you switch to another conversation. Unread amber dots take
 priority over Working or pinned status, and hovering or focusing a busy row
 reveals its pin action without hiding the status that needs your attention. A
-static amber dot on the main Spaces navigation also lets you know when any Space
-has unread messages, then the Spaces sidebar shows which conversations need your
-attention.
+normal clock difference between OpenMeld's servers and your browser no longer
+hides that Working state. A static amber dot on the main Spaces navigation also
+lets you know when any Space has unread messages, then the Spaces sidebar shows
+which conversations need your attention.
