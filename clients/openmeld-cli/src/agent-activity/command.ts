@@ -35,6 +35,7 @@ import { parseCliViewMode, resolveRuntimeContext } from "../runtime/context";
 import { createPresenter } from "../runtime/presenter";
 import type { Presenter } from "../runtime/presenter/types";
 import { createCliApiClientFoundation } from "../space/api-client-foundation";
+import { renderHumanErrorCard } from "../ui/human-error-card";
 import { renderInfoCard } from "../ui/info-card";
 import { removeProjectInbox } from "./hook-inbox";
 import { removeAgentActivityContextCache } from "./local-context-cache";
@@ -516,12 +517,12 @@ export async function runProjectsUnbind(
       });
       return;
     }
-    renderInfoCard({
+    renderHumanErrorCard({
       codePrefix: "projects.unbind.error",
+      message,
+      nextStep: "Run `openmeld projects list`, then try again.",
       presenter,
-      rows: [{ label: "Problem", value: message }],
-      sanitize: true,
-      title: "Project Unbind Failed",
+      title: "Project couldn't be disconnected",
     });
   }
 }
@@ -581,22 +582,16 @@ export async function runProjectCommand(
       });
       return;
     }
-    renderInfoCard({
+    renderHumanErrorCard({
       codePrefix: `${code}.error`,
+      message,
+      nextStep: operation.startsWith("activity.")
+        ? "Try the command again."
+        : "Run `openmeld projects list`, then try again.",
       presenter,
-      rows: [
-        { label: "Problem", value: message },
-        {
-          label: "Next",
-          value: operation.startsWith("activity.")
-            ? "Run `openmeld activity --view agent` for explicit diagnostics."
-            : "Run `openmeld projects list` and retry.",
-        },
-      ],
-      sanitize: true,
       title: operation.startsWith("activity.")
-        ? "Agent Activity Failed"
-        : "Project Command Failed",
+        ? "Agent Activity couldn't finish"
+        : "Project action couldn't finish",
     });
   }
 }

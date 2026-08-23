@@ -924,9 +924,9 @@ describe("openmeld service interactive menu", () => {
       });
 
       expect(runRunMock).toHaveBeenCalledTimes(2);
-      expect(stdout).toContain("OpenMeld Service Needs Attention");
+      expect(stdout).toContain("OpenMeld Service couldn't start");
       expect(stdout).toContain("openmeld service start --mode foreground");
-      expect(stdout).toContain("daemon-system-service.log");
+      expect(stdout).not.toContain("daemon-system-service.log");
     });
   });
 

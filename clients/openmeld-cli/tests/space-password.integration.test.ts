@@ -189,7 +189,7 @@ describe("space password", () => {
           clear: false,
           view: "human",
         })
-      ).rejects.toThrow("Invalid space target");
+      ).rejects.toThrow("That Space ID isn't valid");
     });
   });
 

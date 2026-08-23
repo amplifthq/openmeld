@@ -18,7 +18,7 @@ describe("service reinstall failure guidance", () => {
         resolvedView: "human",
       })
     ).toBe(
-      "OpenMeld Service repair could not safely stop the existing Service because its control connection is missing. Run `openmeld service status` to check for local Agent work. If none is running, run `openmeld service repair --force`. The force option stops the old Service process."
+      "OpenMeld couldn't safely stop the running Service. After local Agent work finishes, run `openmeld service repair --force`."
     );
   });
 

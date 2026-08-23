@@ -66,9 +66,13 @@ describe("local machine CLI error output", () => {
       error,
     });
 
-    expect(stderr.join("")).toBe(
-      "error: Your computer is out of storage space. OpenMeld can't save the local files it needs. Free up storage, then try again.\n"
+    const humanOutput = stderr.join("");
+    expect(humanOutput).toContain("OpenMeld couldn't finish");
+    expect(humanOutput).toContain(
+      "What happened: Your computer is out of storage space."
     );
+    expect(humanOutput).toContain("Next: Free up storage, then try again.");
+    expect(humanOutput).not.toContain("error:");
   });
 
   it("adapts an orphaned legacy lock to the shared LocalMachineIssue contract", async () => {
@@ -136,8 +140,85 @@ describe("local machine CLI error output", () => {
       error,
     });
 
-    expect(stderr.join("")).toBe(
-      "error: OpenMeld found a local command lock left by an older version. Close any other OpenMeld commands, then run `openmeld repair local-state` and try again.\n"
+    const humanOutput = stderr.join("");
+    expect(humanOutput).toContain("OpenMeld couldn't finish");
+    expect(humanOutput).toContain(
+      "What happened: OpenMeld found a local command lock left by an older version."
     );
+    expect(humanOutput).toContain(
+      "Next: Close any other OpenMeld commands, then run `openmeld repair local-state` and try again."
+    );
+    expect(humanOutput).not.toContain("/tmp/space-join.lock");
+  });
+
+  it("keeps technical detail out of Human View and preserves it in Agent View", async () => {
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+    const message =
+      "OpenMeld couldn't update the background service. Run `openmeld setup` again. Detail: auth.unauthenticated; compatibilityFallback=false. For diagnostics, run `openmeld service status --view agent`.";
+
+    await emitCliError({
+      argv: ["setup"],
+      effectiveView: "human",
+      code: "prepare.refresh_service.failed",
+      message,
+      error: { requestId: "req-technical-detail" },
+    });
+
+    const humanOutput = stderr.join("");
+    expect(humanOutput).toContain(
+      "What happened: OpenMeld couldn't update the background service."
+    );
+    expect(humanOutput).toContain("Next: Run `openmeld setup` again.");
+    expect(humanOutput).not.toContain("auth.unauthenticated");
+    expect(humanOutput).not.toContain("compatibilityFallback");
+    expect(humanOutput).not.toContain("For diagnostics");
+    expect(humanOutput).not.toContain("req-technical-detail");
+
+    stdout.length = 0;
+    stderr.length = 0;
+    await emitCliError({
+      argv: ["setup", "--view", "agent"],
+      effectiveView: "agent",
+      code: "prepare.refresh_service.failed",
+      message,
+      error: { requestId: "req-technical-detail" },
+    });
+
+    expect(stdout.join("")).toContain("auth.unauthenticated");
+    expect(stdout.join("")).toContain("compatibilityFallback=false");
+    expect(stdout.join("")).toContain("req-technical-detail");
+  });
+
+  it("hides fallback network diagnostics from Human View", async () => {
+    const stderr: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+
+    await emitCliError({
+      argv: ["setup"],
+      effectiveView: "human",
+      code: "prepare.verify_setup.failed",
+      message:
+        "OpenMeld couldn't check your setup. Try again. Last network error: fetch failed. Support code: verify_setup.readiness_unreachable.",
+    });
+
+    const humanOutput = stderr.join("");
+    expect(humanOutput).toContain(
+      "What happened: OpenMeld couldn't check your setup."
+    );
+    expect(humanOutput).toContain("Next: Try again.");
+    expect(humanOutput).not.toContain("fetch failed");
+    expect(humanOutput).not.toContain("verify_setup.readiness_unreachable");
   });
 });

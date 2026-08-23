@@ -878,14 +878,14 @@ describe("prepare session executor", () => {
     );
   });
 
-  it("keeps refresh-service failure guidance on a fresh setup command", () => {
+  it("gives one short recovery action when the background service cannot update", () => {
     expect(
       formatTerminalStepFailureMessage({
         stepId: "refresh_service",
         rawMessage: "OpenMeld Service refresh did not complete: start_failed",
       })
     ).toBe(
-      "OpenMeld Service did not report a running local connection during setup. Copy a fresh setup command from OpenMeld Web and run setup again to continue from this step. If it fails again, run `openmeld service start --mode foreground` to see live startup logs, then copy a fresh setup command from OpenMeld Web and run setup again. Detail: OpenMeld Service refresh did not complete: start_failed"
+      "OpenMeld couldn't update its background service. Restart your computer, then copy a new setup command from OpenMeld Web."
     );
   });
 
@@ -896,12 +896,11 @@ describe("prepare session executor", () => {
       serviceJobVerdict: "never_spawned",
     });
 
-    expect(message).toContain(
-      "macOS is blocking the OpenMeld Service background item, so OpenMeld Service never launched."
-    );
+    expect(message).toContain("macOS didn't start OpenMeld Service.");
     expect(message).toContain("Login Items & Extensions");
-    expect(message).toContain("service start --mode foreground");
-    expect(message.length).toBeLessThanOrEqual(512);
+    expect(message).not.toContain("Path A");
+    expect(message).not.toContain("Path B");
+    expect(message.length).toBeLessThanOrEqual(240);
     // The generic "did not report a running local connection" copy is replaced.
     expect(message).not.toContain("did not report a running local connection");
   });
@@ -913,12 +912,12 @@ describe("prepare session executor", () => {
       serviceJobVerdict: "crashed",
     });
 
-    expect(message).toContain("keeps exiting on this Mac");
+    expect(message).toContain("keeps stopping after it starts");
     expect(message).toContain("service start --mode foreground");
-    expect(message.length).toBeLessThanOrEqual(512);
+    expect(message.length).toBeLessThanOrEqual(240);
   });
 
-  it("keeps report-runtime diagnostic detail instead of replacing it with a generic service message", () => {
+  it("keeps report-runtime guidance specific without showing its support code", () => {
     const message =
       "OpenMeld could not verify that selected local agents were reported to OpenMeld yet. Support code: prepare_readiness.not_ready.";
 
@@ -927,7 +926,9 @@ describe("prepare session executor", () => {
         stepId: "report_runtime",
         rawMessage: message,
       })
-    ).toBe(message);
+    ).toBe(
+      "OpenMeld could not verify that selected local agents were reported to OpenMeld yet. Copy a new setup command from OpenMeld Web and run it again."
+    );
   });
 
   it("uses ellipses for active Terminal-owned setup steps", () => {
@@ -1089,9 +1090,11 @@ describe("prepare session executor", () => {
       .mocked(input.presenter.line)
       .mock.calls.map(([line]) => (line as { text: string }).text)
       .join("\n");
+    expect(output).toContain("Setup couldn't finish");
     expect(output).toContain(
-      "A diagnostic summary was shared with OpenMeld to help fix this (support code: prepare.report_runtime.failed)."
+      "Next: Copy a new setup command from OpenMeld Web and run it again."
     );
+    expect(output).not.toContain("prepare.report_runtime.failed");
   });
 
   it("keeps the same setup command alive through a brief series of connection interruptions", async () => {
@@ -1328,7 +1331,7 @@ describe("prepare session executor", () => {
       "prepare.refresh_service.service_never_spawned"
     );
     expect(failedWrite?.message).toContain(
-      "macOS is blocking the OpenMeld Service background item"
+      "macOS didn't start OpenMeld Service"
     );
   });
 
@@ -2768,7 +2771,7 @@ describe("prepare session executor", () => {
     }
   });
 
-  it("fails with the last network error and a structured support code when readiness is unreachable", async () => {
+  it("writes a clear user message while retaining the network error and support code for agents", async () => {
     vi.useFakeTimers({ now: PREPARE_READINESS_NOW_MS });
     try {
       const getReadiness = vi
@@ -2790,12 +2793,15 @@ describe("prepare session executor", () => {
         2,
         expect.objectContaining({
           message: expect.stringContaining(
-            "prepare_readiness.read request timed out after 10000ms"
+            "OpenMeld could not connect to the setup service while checking your local agents."
           ),
           reasonCode: "verify_setup.readiness_unreachable",
           status: "failed",
           stepId: "verify_setup",
         })
+      );
+      expect(writeTerminalStep.mock.calls[1]?.[0].message).not.toContain(
+        "prepare_readiness.read request timed out after 10000ms"
       );
     } finally {
       vi.useRealTimers();
@@ -2924,7 +2930,7 @@ describe("prepare session executor", () => {
       expect(output).toContain(
         "Run `openmeld service status` to check progress."
       );
-      expect(output).toContain("Support code: verify_setup.converging_timeout");
+      expect(output).not.toContain("verify_setup.converging_timeout");
       expect(output).not.toContain("Setup blocked");
     } finally {
       vi.useRealTimers();
@@ -3010,7 +3016,10 @@ describe("prepare session executor", () => {
         .mocked(input.presenter.line)
         .mock.calls.map(([line]) => (line as { text: string }).text)
         .join("\n");
-      expect(output).toContain("Setup blocked");
+      expect(output).toContain("Setup couldn't finish");
+      expect(output).toContain(
+        "Next: Copy a new setup command from OpenMeld Web and run it again."
+      );
       expect(output).not.toContain("verify_setup.converging_timeout");
     } finally {
       vi.useRealTimers();

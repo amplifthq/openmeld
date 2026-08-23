@@ -147,7 +147,7 @@ describe("space join auth prompt", () => {
     });
     expect(result).toBe("back");
     expect(stdout).toContain("Sign In Needed");
-    expect(stdout).toContain("Status: Sign in before joining a space.");
+    expect(stdout).toContain("What happened: Sign in before joining a space.");
     expect(stdout).toContain("Next: Choose Sign in now to continue.");
     expect(selectMock).toHaveBeenNthCalledWith(
       1,

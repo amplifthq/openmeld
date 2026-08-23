@@ -17,6 +17,7 @@ import {
   parseFirstCommandTokenFromArgv,
   parseLeadingCommandTokensFromArgv,
 } from "./runtime/view-argv";
+import { buildHumanErrorCopy } from "./ui/human-error-card";
 import { errLine, outJsonLine, outLine } from "./ui/io";
 
 export function emitSpaceAddAgentsMemberAliasHint(): void {
@@ -54,11 +55,10 @@ export function emitHelpfulHints(input: {
     return;
   }
 
-  outLine("");
-  outLine("available commands:");
-  for (const hint of hints) {
-    outLine(`  - ${hint}`);
+  if (buildHumanErrorCopy(input.message).nextStep) {
+    return;
   }
+  outLine(`Next: ${hints[0]}`);
 }
 
 function buildHints(

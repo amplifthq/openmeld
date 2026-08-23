@@ -2,7 +2,6 @@ import {
   type DaemonInstallState,
   getDaemonStatus,
   installDaemon,
-  refreshDaemonTokenLifecycle,
 } from "../../config/daemon-state";
 import { resolveVersionChangeDirection } from "./version-change-direction";
 
@@ -34,7 +33,6 @@ export async function ensureDaemonInstalledForCliStartup(input: {
   const mode = input.mode ?? "always";
   const status = await getDaemonStatus();
   if (status.installed && status.state) {
-    await refreshDaemonTokenLifecycle();
     return {
       status: "already_installed",
       mode,

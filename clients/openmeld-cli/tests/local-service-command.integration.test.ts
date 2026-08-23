@@ -1539,7 +1539,9 @@ describe("openmeld service commands", () => {
     ).catch((caught) => caught);
 
     expect(error).toBeInstanceOf(Error);
-    expect(String(error)).toContain("OpenMeld Service repair failed");
+    expect(String(error)).toContain(
+      "OpenMeld couldn't repair OpenMeld Service."
+    );
     expect(String(error)).toContain("openmeld service repair");
     expect(String(error)).not.toContain("verify_final_inventory");
     expect(String(error)).not.toContain("service contract is missing");
@@ -1576,10 +1578,7 @@ describe("openmeld service commands", () => {
       }
     ).catch((caught) => caught);
 
-    expect(String(error)).toContain(
-      "could not safely stop the existing Service because its control connection is missing"
-    );
-    expect(String(error)).toContain("openmeld service status");
+    expect(String(error)).toContain("couldn't safely stop the running Service");
     expect(String(error)).toContain("openmeld service repair --force");
     expect(String(error)).not.toContain("service-control-missing");
   });
@@ -1720,7 +1719,7 @@ describe("openmeld service commands", () => {
       expect(result.result).toBe("start_failed");
     });
 
-    expect(stdout).toContain("OpenMeld Service Needs Attention");
+    expect(stdout).toContain("OpenMeld Service couldn't start");
     expect(stdout).not.toContain("OpenMeld Service Repaired");
     expect(stdout).not.toContain("service-evidence-start-failed");
     expect(stdout).not.toContain("reinstall-install");

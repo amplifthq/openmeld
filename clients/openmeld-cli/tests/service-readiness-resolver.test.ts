@@ -470,7 +470,7 @@ describe("service readiness resolver", () => {
       "Reconnect OpenMeld Service before this computer can receive local Wake work."
     );
     expect(readiness.nextStepSummary).toBe(
-      "OpenMeld Service needs repair. Run `openmeld setup`. If Wake or readiness still looks wrong after setup, run `openmeld service status`."
+      "Run `openmeld setup` to repair OpenMeld Service."
     );
     expect(readiness.nextSteps).toEqual(["openmeld setup"]);
     expect(readiness.anomalyCodes).toEqual(["bundle_content_drift"]);
@@ -511,7 +511,7 @@ describe("service readiness resolver", () => {
 
     expect(readiness.state).toBe("refresh_needed");
     expect(readiness.nextStepSummary).toBe(
-      "OpenMeld Service needs repair. Run `openmeld setup`. If Wake or readiness still looks wrong after setup, run `openmeld service status`."
+      "Run `openmeld setup` to repair OpenMeld Service."
     );
   });
 });

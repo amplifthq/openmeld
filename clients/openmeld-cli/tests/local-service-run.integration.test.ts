@@ -1396,11 +1396,13 @@ describe("openmeld service run command", () => {
       });
 
       expect(result).toBe("failed_with_card");
-      expect(stdout).toContain("OpenMeld Service Needs Attention");
+      expect(stdout).toContain("OpenMeld Service couldn't start");
       expect(stdout).toContain(
-        "OpenMeld hit a local start error right after service repair"
+        "OpenMeld Service couldn't start after the repair."
       );
-      expect(stdout).toContain("openmeld service repair");
+      expect(stdout).toContain("openmeld service start --mode foreground");
+      expect(stdout).not.toContain("bundle preparation exploded");
+      expect(stdout).not.toContain("latest local service log");
     });
   });
 
@@ -1436,9 +1438,13 @@ describe("openmeld service run command", () => {
         reason: "start_failed",
       });
       expect(process.exitCode).toBe(1);
-      expect(stdout).toContain("OpenMeld Service Needs Attention");
-      expect(stdout).toContain("Last local detail");
-      expect(stdout).toContain("authentication required; run `openmeld login`");
+      expect(stdout).toContain("OpenMeld Service couldn't start");
+      expect(stdout).toContain("What happened");
+      expect(stdout).toContain("Next");
+      expect(stdout).not.toContain("Last local detail");
+      expect(stdout).not.toContain(
+        "authentication required; run `openmeld login`"
+      );
     } finally {
       process.exitCode = previousExitCode;
     }
@@ -1755,12 +1761,10 @@ describe("openmeld service run command", () => {
     });
     expect(stdout).toContain("Wrong OpenMeld Environment");
     expect(stdout).toContain(
-      "Status: Sign in to the right OpenMeld environment before starting OpenMeld Service."
+      "What happened: Sign in to the right OpenMeld environment before starting OpenMeld Service."
     );
-    expect(stdout).toContain("Signed In To: https://auth.example.com");
-    expect(stdout).toContain(
-      "This Command Uses: https://gateway.openmeld.invalid"
-    );
+    expect(stdout).not.toContain("https://auth.example.com");
+    expect(stdout).not.toContain("https://gateway.openmeld.invalid");
   });
 
   it("returns a structured mismatch result before startup in agent view", async () => {
@@ -3074,21 +3078,18 @@ describe("openmeld service run command", () => {
       expect(installMock).toHaveBeenCalledTimes(2);
       expect(uninstallMock).toHaveBeenCalledTimes(1);
       expect(startMock).toHaveBeenCalledTimes(2);
-      expect(stdout).toContain("OpenMeld Service Needs Attention");
-      expect(stdout).toContain("not running");
+      expect(stdout).toContain("OpenMeld Service couldn't start");
       expect(stdout).toContain(
         "OpenMeld could not finish starting OpenMeld Service on this Mac."
       );
-      expect(stdout).toContain(
-        "Off — OpenMeld Service is not connected for local Wake work."
-      );
-      expect(stdout).toContain("openmeld service repair");
+      expect(stdout).toContain("launchctl enable");
+      expect(stdout).not.toContain("bootstrap failed");
     } finally {
       process.exitCode = previousExitCode;
     }
   });
 
-  it("includes translated local log detail when startup failure left a service log", async () => {
+  it("keeps local log detail out of the human startup failure card", async () => {
     await withTempHome(async () => {
       const logPath = getDaemonSystemServiceLogPath();
       await mkdir(dirname(logPath), { recursive: true });
@@ -3135,8 +3136,9 @@ describe("openmeld service run command", () => {
         });
 
         expect(process.exitCode).toBe(1);
-        expect(stdout).toContain("Last local detail");
-        expect(stdout).toContain(
+        expect(stdout).toContain("OpenMeld Service couldn't start");
+        expect(stdout).not.toContain("Last local detail");
+        expect(stdout).not.toContain(
           "OpenMeld Service could not find a usable OpenMeld identity for this device."
         );
       } finally {
@@ -3264,12 +3266,14 @@ describe("openmeld service run command", () => {
       });
 
       const attentionCard = buildDaemonStartNeedsAttentionCard({
-        summary: "OpenMeld could not finish starting the background service.",
+        summary: "OpenMeld could not finish starting OpenMeld Service.",
+        nextStep:
+          "Run `openmeld service start --mode foreground` to see what stopped it.",
       });
       expect(process.exitCode).toBe(1);
       expect(stdout).toContain(attentionCard.title);
       expect(stdout).toContain(attentionCard.rows[0]?.value ?? "");
-      expect(stdout).toContain(attentionCard.rows[2]?.value ?? "");
+      expect(stdout).toContain(attentionCard.rows[1]?.value ?? "");
     } finally {
       process.exitCode = previousExitCode;
     }

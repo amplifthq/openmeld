@@ -126,6 +126,7 @@ import { ensureFormalAgentBindingForReadyLocalProfile } from "../system/formal-a
 import { runLocalParticipationOrchestrator } from "../system/local-participation-orchestrator";
 import { resolveServiceParticipationReadiness } from "../system/service-participation-readiness";
 import { createDelayedSpinner } from "../ui/delayed-spinner";
+import { renderHumanErrorCard } from "../ui/human-error-card";
 import { renderInfoCard } from "../ui/info-card";
 import {
   buildPublicSpacePasswordPromptConfig,
@@ -1257,55 +1258,20 @@ function maybeRenderHumanSpaceCreateFailureCard(input: {
     });
   }
 
-  const requestId = readHttpRequestId(payload);
   const guidance = resolveSpaceFailureGuidance(input.error);
-  const rows: Array<{ label: string; value: string }> = [
-    {
-      label: "Reason",
-      value: resolveHumanSpaceCreateFailureReason(parsed),
-    },
-  ];
-
-  if (guidance) {
-    rows.push({
-      label: "Next Step",
-      value: guidance.summary,
-    });
+  let nextStep = "Check the Space details, then try again.";
+  if (parsed.status >= 500) {
+    nextStep = "Try again in a moment.";
   }
-
-  rows.push({
-    label: "HTTP Status",
-    value: String(parsed.status),
-  });
-
-  if (parsed.code.length > 0) {
-    rows.push({
-      label: "Error Code",
-      value: parsed.code,
-    });
+  if (guidance?.steps[0]) {
+    nextStep = `Run ${guidance.steps[0]}.`;
   }
-
-  if (requestId.length > 0) {
-    rows.push({
-      label: "Request ID",
-      value: requestId,
-    });
-  }
-
-  if (parsed.message.length > 0) {
-    rows.push({
-      label: "Details",
-      value: parsed.message,
-    });
-  }
-
-  renderInfoCard({
+  renderHumanErrorCard({
+    message: resolveHumanSpaceCreateFailureReason(parsed),
+    nextStep,
     presenter: input.presenter,
-    title: "🚫 Space Create Failed",
+    title: "Space couldn't be created",
     codePrefix: "space.create.error.card",
-    rows,
-    sanitize: true,
-    minContentWidth: 76,
   });
   return true;
 }
@@ -1388,79 +1354,14 @@ function renderHumanSpaceCreatePreflightBlockedCard(input: {
     return true;
   }
 
-  const rows: Array<{ label: string; value: string }> = [
-    {
-      label: "Reason",
-      value: input.error.reasonText,
-    },
-    {
-      label: "Next Step",
-      value: input.error.nextStep,
-    },
-  ];
-
-  appendSpaceCreatePreflightContextRows(rows, input.error);
-  appendSpaceCreatePreflightTechnicalRows(rows, input.error);
-
-  renderInfoCard({
+  renderHumanErrorCard({
+    message: input.error.reasonText,
+    nextStep: input.error.nextStep,
     presenter: input.presenter,
-    title: "🚫 Space Create Blocked",
+    title: "Space couldn't be created",
     codePrefix: "space.create.preflight.card",
-    rows,
-    sanitize: true,
-    minContentWidth: 76,
   });
   return true;
-}
-
-function appendSpaceCreatePreflightContextRows(
-  rows: Array<{ label: string; value: string }>,
-  error: SpaceCreatePreflightBlockedError
-): void {
-  if (error.blockReason !== "auth_mismatch") {
-    return;
-  }
-
-  if (error.authBaseUrl) {
-    rows.push({
-      label: "Signed-In Auth",
-      value: error.authBaseUrl,
-    });
-  }
-  rows.push({
-    label: "Gateway",
-    value: error.gatewayUrl,
-  });
-}
-
-function appendSpaceCreatePreflightTechnicalRows(
-  rows: Array<{ label: string; value: string }>,
-  error: SpaceCreatePreflightBlockedError
-): void {
-  if (error.httpStatus !== null) {
-    rows.push({
-      label: "HTTP Status",
-      value: String(error.httpStatus),
-    });
-  }
-  if (error.errorCode) {
-    rows.push({
-      label: "Error Code",
-      value: error.errorCode,
-    });
-  }
-  if (error.requestId) {
-    rows.push({
-      label: "Request ID",
-      value: error.requestId,
-    });
-  }
-  if (error.detailMessage) {
-    rows.push({
-      label: "Details",
-      value: error.detailMessage,
-    });
-  }
 }
 
 function resolveSpaceServiceUnavailableSummary(): string {
@@ -4878,40 +4779,18 @@ function renderSpaceDeleteBatchFailureSummary(input: {
   const failedTargets = summarizeFailedDeleteTargets(input.failures);
 
   if (input.resolvedView === "human") {
-    renderInfoCard({
+    renderHumanErrorCard({
+      message: `OpenMeld deleted ${String(input.deletedCount)} of ${String(input.totalCount)} Spaces, but couldn't delete ${failedTargets}: ${reason}`,
+      nextStep:
+        input.deletedCount > 0
+          ? "Try deleting those Spaces again."
+          : "Try again in a moment.",
       presenter: input.presenter,
       title:
         input.deletedCount > 0
-          ? "⚠️ Delete Partially Completed"
-          : "🚫 Delete Failed",
+          ? "Some Spaces weren't deleted"
+          : "Spaces couldn't be deleted",
       codePrefix: "space.delete.batch_result",
-      rows: [
-        {
-          label: "Deleted",
-          value: `${String(input.deletedCount)} / ${String(input.totalCount)} space(s)`,
-        },
-        {
-          label: "Not deleted",
-          value: `${String(failedCount)} space(s)`,
-        },
-        {
-          label: "Reason",
-          value: reason,
-        },
-        {
-          label: "Failed targets",
-          value: failedTargets,
-        },
-        {
-          label: "Action",
-          value:
-            input.deletedCount > 0
-              ? "Retry only the spaces that were not deleted."
-              : "Retry in a moment.",
-        },
-      ],
-      sanitize: true,
-      minContentWidth: 72,
     });
     return;
   }
@@ -7858,6 +7737,14 @@ function emitSpaceNoticeFailure(input: {
   }
   const message = input.firstFailure?.message ?? "unknown";
 
+  if (input.presenter.view === "human") {
+    input.presenter.line({
+      code: input.summaryCode,
+      text: `OpenMeld updated the Space members, but couldn't post ${String(input.failureCount)} ${noticeLabel}. The membership change is already saved.`,
+    });
+    return;
+  }
+
   input.presenter.line({
     code: input.summaryCode,
     text: `warn: failed to broadcast ${String(input.failureCount)} ${noticeLabel}: ${message}`,
@@ -8787,33 +8674,13 @@ function renderHumanSpaceDeleteBlockedCard(input: {
   presenter: ReturnType<typeof createPresenter>;
   target: SpaceDeleteTarget;
 }): void {
-  const spaceName = normalizeDisplayValue(input.target.name, "untitled-space");
-  renderInfoCard({
+  renderHumanErrorCard({
+    message:
+      "You can only delete a Space created by this profile or by one of your own agents.",
+    nextStep: "Switch to the profile that created the Space, then try again.",
     presenter: input.presenter,
-    title: "🚫 Delete Blocked",
+    title: "Space couldn't be deleted",
     codePrefix: "space.delete.blocked",
-    rows: [
-      {
-        label: "Space",
-        value: spaceName,
-      },
-      {
-        label: "Space ID",
-        value: input.target.space,
-      },
-      {
-        label: "Reason",
-        value:
-          "This human profile can only delete its own spaces or your owned agent-created spaces.",
-      },
-      {
-        label: "Try",
-        value:
-          "Switch to the human creator profile, or choose an agent-created space your user owns.",
-      },
-    ],
-    sanitize: true,
-    minContentWidth: 64,
   });
 }
 

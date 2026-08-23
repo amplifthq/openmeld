@@ -731,10 +731,12 @@ export const runDaemonServiceLoop = async (
   });
   const controlPlaneDaemonVersion =
     daemonServiceContract?.daemonVersion ?? "unknown";
-  const controlPlaneToken = await ensureDaemonControlPlaneToken();
   let requestAgentActivitySync: (() => void) | null = null;
   const controlPlaneServer = await startLocalDaemonControlPlaneServer({
-    expectedToken: controlPlaneToken,
+    // Resolve the current file-backed token per request. Older CLIs may rotate
+    // that file before stopping this Service, so caching it here would make the
+    // running Service reject every later control request until it restarts.
+    resolveExpectedToken: async () => await ensureDaemonControlPlaneToken(),
     getContext: async () => ({
       healthPayload: {
         checkedAt: nowIsoString(),

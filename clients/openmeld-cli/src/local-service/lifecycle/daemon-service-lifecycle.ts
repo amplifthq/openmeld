@@ -18,6 +18,7 @@ import {
   installDaemon,
   readDaemonServiceRuntimeSnapshot,
   restoreDaemonInstallStateSnapshot,
+  rotateDaemonControlPlaneTokenIfExpired,
 } from "../../config/daemon-state";
 import {
   type OpenMeldEnvironmentTarget,
@@ -597,6 +598,10 @@ async function executeDaemonServiceLifecycle(input: {
     input.state.failureStage = "install_bundle";
     await input.emitPhase("install_bundle");
     const preparedBundle = input.preparedBundle;
+    // An older running Service may cache this token when it starts. Rotate only
+    // after the previous Service is verified absent so the CLI and Service can
+    // never end up using different control-plane credentials.
+    await rotateDaemonControlPlaneTokenIfExpired();
     await activateDaemonServiceBundle(preparedBundle);
     await installDaemon({
       daemonVersion: input.expectedVersion,

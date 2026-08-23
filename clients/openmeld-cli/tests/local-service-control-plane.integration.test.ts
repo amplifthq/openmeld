@@ -1,3 +1,4 @@
+import { readFile, writeFile } from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { join } from "node:path";
 import { createInflightTaskControlRegistry } from "@openmeld/local-service";
@@ -10,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runDaemonCancel, runDaemonInterrupt } from "../src/commands/service";
 import type { DaemonServiceRuntimeStatus } from "../src/config/daemon-state";
 import {
+  daemonTokenPath,
   installDaemon,
   readDaemonControlPlaneToken,
 } from "../src/config/daemon-state";
@@ -680,6 +682,50 @@ describe("local service control-plane", () => {
         ).rejects.toMatchObject({
           code: "auth.unauthenticated",
         });
+      } finally {
+        await server.close();
+      }
+    });
+  });
+
+  it("accepts the current token after the token file changes while the service is running", async () => {
+    await withTempHome(async () => {
+      await installDaemon({
+        daemonVersion: "0.4.0",
+        source: "daemon.command.install",
+      });
+      const originalToken = await readDaemonControlPlaneToken();
+      expect(originalToken).toBeTruthy();
+
+      const server = await startLocalDaemonControlPlaneServer({
+        resolveExpectedToken: async () =>
+          (await readDaemonControlPlaneToken()) ?? "missing",
+        getContext: async () => BASE_CONTEXT,
+      });
+
+      try {
+        const tokenState = JSON.parse(
+          await readFile(daemonTokenPath(), "utf8")
+        ) as Record<string, unknown>;
+        const rotatedToken = `${originalToken}-rotated`;
+        await writeFile(
+          daemonTokenPath(),
+          `${JSON.stringify({
+            ...tokenState,
+            token: rotatedToken,
+            updatedAt: new Date().toISOString(),
+          })}\n`,
+          { encoding: "utf8", mode: 0o600 }
+        );
+
+        await expect(
+          sendLocalDaemonControlPlaneRequest({
+            request: {
+              v: OPENMELD_DAEMON_CONTROL_PLANE_SCHEMA_VERSION,
+              command: "health",
+            },
+          })
+        ).resolves.toMatchObject({ code: "service.health" });
       } finally {
         await server.close();
       }

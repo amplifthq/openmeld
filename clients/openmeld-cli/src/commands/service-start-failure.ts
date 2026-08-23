@@ -167,19 +167,12 @@ export function buildSystemServiceStartupFailureReportFromVerdict(
   options?: { autoRepairAttempted?: boolean }
 ): SystemServiceStartupFailureReport {
   const autoRepairAttempted = options?.autoRepairAttempted;
-  const { message, detail, jobDiagnostics, localMachineIssue } = verdict;
-  const localLogPath = getDaemonSystemServiceLogPath();
+  const { message, jobDiagnostics, localMachineIssue } = verdict;
   if (localMachineIssue) {
     const card = buildDaemonStartNeedsAttentionCard({
       summary: localMachineIssue.summary,
       nextStep: localMachineIssue.primaryAction ?? "Open diagnostics.",
       autoRepairAttempted,
-      detail:
-        detail ??
-        localMachineIssue.diagnostics.detail ??
-        (jobDiagnostics
-          ? formatDaemonServiceJobDiagnosticsEvidence(jobDiagnostics)
-          : undefined),
     });
     return {
       title: card.title,
@@ -191,16 +184,13 @@ export function buildSystemServiceStartupFailureReportFromVerdict(
     jobDiagnostics &&
     isDaemonServiceBackgroundExecutionBlocked(jobDiagnostics)
   ) {
-    const summary =
-      "macOS is blocking the OpenMeld Service background item, so OpenMeld Service never launched.";
+    const summary = "macOS didn't start OpenMeld Service.";
     const card = buildDaemonStartNeedsAttentionCard({
       summary,
       nextStep: formatInlineOpenMeldCliCommands(
-        "Path A (recommended): open System Settings > General > Login Items & Extensions, enable the OpenMeld background item, then run `openmeld service start` again. Power users can audit Background Task Management with `sfltool dumpbtm`. Path B: if you would rather not change System Settings, open a separate terminal window, run `openmeld service start --mode foreground`, and keep that window open — but note OpenMeld Service stops the moment you close that window or restart your Mac, so Wake will not be received."
+        "Open System Settings > General > Login Items & Extensions, turn on OpenMeld, then run `openmeld service start` again."
       ),
       autoRepairAttempted,
-      detail:
-        detail ?? formatDaemonServiceJobDiagnosticsEvidence(jobDiagnostics),
     });
     return {
       title: card.title,
@@ -212,15 +202,13 @@ export function buildSystemServiceStartupFailureReportFromVerdict(
     ? readDaemonServiceJobCrashExitCode(jobDiagnostics)
     : null;
   if (jobDiagnostics && crashExitCode !== null) {
-    const summary = `OpenMeld Service launched but keeps exiting (launchd reports ${jobDiagnostics.runs} runs, last exit code ${crashExitCode}).`;
+    const summary = "OpenMeld Service keeps stopping after it starts.";
     const card = buildDaemonStartNeedsAttentionCard({
       summary,
       nextStep: formatInlineOpenMeldCliCommands(
-        `Run \`openmeld service start --mode foreground\` to see the live error. The latest local service log is at \`${localLogPath}\`. If it still fails, run \`openmeld service repair\`.`
+        "Run `openmeld service start --mode foreground` to see what stopped it."
       ),
       autoRepairAttempted,
-      detail:
-        detail ?? formatDaemonServiceJobDiagnosticsEvidence(jobDiagnostics),
     });
     return {
       title: card.title,
@@ -234,10 +222,9 @@ export function buildSystemServiceStartupFailureReportFromVerdict(
       summary:
         "OpenMeld could not finish starting OpenMeld Service on this Mac.",
       nextStep: formatInlineOpenMeldCliCommands(
-        `Run \`launchctl enable gui/$(id -u)/${launchdLabel}\`, then retry with \`openmeld service start\`. The latest local service log is at \`${localLogPath}\`. If it still fails, run \`openmeld service repair\`.`
+        `Run \`launchctl enable gui/$(id -u)/${launchdLabel}\`, then run \`openmeld service start\` again.`
       ),
       autoRepairAttempted,
-      detail: detail ?? undefined,
     });
     return {
       title: card.title,
@@ -251,10 +238,9 @@ export function buildSystemServiceStartupFailureReportFromVerdict(
       summary:
         "OpenMeld needs local OS permission before it can start OpenMeld Service.",
       nextStep: formatInlineOpenMeldCliCommands(
-        `Approve the local permission prompt or OS setting, then run \`openmeld service start\` again. The latest local service log is at \`${localLogPath}\`.`
+        "Approve the local permission prompt, then run `openmeld service start` again."
       ),
       autoRepairAttempted,
-      detail: detail ?? undefined,
     });
     return {
       title: card.title,
@@ -266,10 +252,9 @@ export function buildSystemServiceStartupFailureReportFromVerdict(
   const card = buildDaemonStartNeedsAttentionCard({
     summary: "OpenMeld could not finish starting OpenMeld Service.",
     nextStep: formatInlineOpenMeldCliCommands(
-      `Run \`openmeld service start --mode foreground\` to see the live error. The latest local service log is at \`${localLogPath}\`. If it still fails, run \`openmeld service repair\`.`
+      "Run `openmeld service start --mode foreground` to see what stopped it."
     ),
     autoRepairAttempted,
-    detail: detail ?? undefined,
   });
   return {
     title: card.title,

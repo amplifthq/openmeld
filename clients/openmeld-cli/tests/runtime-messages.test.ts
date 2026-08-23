@@ -42,6 +42,32 @@ describe("runtime messages", () => {
     expect(message).toBe("watch mode active; Ctrl+C to quit");
   });
 
+  it("keeps human connection failures plain while Agent View retains diagnostics", () => {
+    const params = {
+      error: "connect ECONNREFUSED 127.0.0.1:65535",
+      hint: "try again in a moment",
+    };
+
+    expect(formatMessage("human", "connect.error", params)).toBe(
+      "OpenMeld lost the connection. Try again in a moment."
+    );
+    expect(formatMessage("agent", "connect.error", params)).toContain(
+      "connect ECONNREFUSED 127.0.0.1:65535"
+    );
+  });
+
+  it("tells a human when a message was not confirmed", () => {
+    expect(
+      formatMessage("human", "connect.error", {
+        error:
+          "last message may not have been confirmed before the connection closed",
+        hint: "rejoin the space and send it again if you still do not see it",
+      })
+    ).toBe(
+      "OpenMeld lost the connection before confirming your message. Rejoin the space and send it again if you still do not see it."
+    );
+  });
+
   it("renders openmeld-dev send guidance when the dev shortcut is active", () => {
     vi.stubEnv("OPENMELD_USER_FACING_CLI_COMMAND", "openmeld-dev");
 

@@ -234,10 +234,11 @@ describe("auth command status states", () => {
 
       expect(result.exitCode).toBe(1);
       expect(result.stdout).toContain("Wrong OpenMeld Environment");
-      expect(result.stdout).toContain("Signed In To: http://localhost:8788");
       expect(result.stdout).toContain(
-        "This Command Uses: https://gateway.openmeld.invalid"
+        "What happened: Sign in to the right OpenMeld environment"
       );
+      expect(result.stdout).not.toContain("http://localhost:8788");
+      expect(result.stdout).not.toContain("gateway.openmeld.invalid");
       expect(result.stdout).not.toContain("Status: signed in");
     });
   });

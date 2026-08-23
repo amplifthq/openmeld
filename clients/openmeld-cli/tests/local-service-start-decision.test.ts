@@ -167,18 +167,14 @@ describe("local service start decision", () => {
 
   it("exposes canonical outcome card copy", () => {
     expect(buildDaemonStartDeferredCard()).toEqual({
-      title: "⚪ OpenMeld Service Is Off",
+      title: "OpenMeld Service is off",
       rows: [
         {
-          label: "⚪ Status",
-          value: "off for now",
+          label: "What happened",
+          value: "OpenMeld Service isn't running.",
         },
         {
-          label: "📡 Local Service Link",
-          value: "Off — OpenMeld Service is not connected for local Wake work.",
-        },
-        {
-          label: "🔧 Next",
+          label: "Next",
           value: "Start later with `openmeld service start`.",
         },
       ],
@@ -189,29 +185,15 @@ describe("local service start decision", () => {
         autoRepairAttempted: true,
       })
     ).toEqual({
-      title: "⚠️ OpenMeld Service Needs Attention",
+      title: "OpenMeld Service couldn't start",
       rows: [
         {
-          label: "❌ Status",
-          value: "not running",
-        },
-        {
-          label: "🩹 Automatic Repair",
-          value:
-            "OpenMeld tried one automatic repair automatically, but the service still needs help.",
-        },
-        {
-          label: "📝 Found",
+          label: "What happened",
           value: "OpenMeld could not finish starting the background service.",
         },
         {
-          label: "📡 Local Service Link",
-          value: "Off — OpenMeld Service is not connected for local Wake work.",
-        },
-        {
-          label: "🔧 Next",
-          value:
-            "OpenMeld Service needs repair. Run `openmeld setup`. If Wake or readiness still looks wrong after setup, run `openmeld service status`.",
+          label: "Next",
+          value: "Run `openmeld setup` to repair OpenMeld Service.",
         },
       ],
     });
@@ -235,18 +217,14 @@ describe("local service start decision", () => {
     vi.stubEnv("OPENMELD_USER_FACING_CLI_COMMAND", "openmeld-dev");
 
     expect(buildDaemonStartDeferredCard()).toEqual({
-      title: "⚪ OpenMeld Service Is Off",
+      title: "OpenMeld Service is off",
       rows: [
         {
-          label: "⚪ Status",
-          value: "off for now",
+          label: "What happened",
+          value: "OpenMeld Service isn't running.",
         },
         {
-          label: "📡 Local Service Link",
-          value: "Off — OpenMeld Service is not connected for local Wake work.",
-        },
-        {
-          label: "🔧 Next",
+          label: "Next",
           value: "Start later with `openmeld-dev service start`.",
         },
       ],
@@ -255,9 +233,7 @@ describe("local service start decision", () => {
       buildDaemonStartNeedsAttentionCard({
         summary: "OpenMeld could not finish starting the background service.",
       }).rows.at(-1)?.value
-    ).toBe(
-      "OpenMeld Service needs repair. Run `openmeld-dev setup`. If Wake or readiness still looks wrong after setup, run `openmeld-dev service status`."
-    );
+    ).toBe("Run `openmeld-dev setup` to repair OpenMeld Service.");
     expect(formatDaemonStartStartedManage()).toBe(
       "Check it any time with `openmeld-dev service status` without stopping it. Stop it any time with `openmeld-dev service stop`."
     );
