@@ -12,7 +12,7 @@ describe("model catalog schema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.schemaVersion).toBe(MODEL_CATALOG_SCHEMA_VERSION);
-      expect(result.data.updatedAt).toBe("2026-08-13T09:49:25.000Z");
+      expect(result.data.updatedAt).toBe("2026-08-23T09:35:00.000Z");
       expect(result.data.agentControllers.codex?.defaultModelId).toBe(
         "gpt-5.5"
       );
@@ -92,6 +92,17 @@ describe("model catalog schema", () => {
           (model) => model.id === "opencode/deepseek-v4-flash-free"
         )?.supportedReasoningLevels
       ).toEqual(["low", "medium", "high", "max"]);
+      expect(
+        result.data.agentControllers.opencode?.models.find(
+          (model) => model.id === "opencode/x-preview-f-free"
+        )
+      ).toEqual({
+        id: "opencode/x-preview-f-free",
+        displayName: "OpenCode Ox Alpha Free",
+        unavailable: false,
+        supportedReasoningLevels: ["low", "high", "max"],
+        minCliVersion: null,
+      });
 
       expect(result.data.agentControllers.cursor?.defaultModelId).toBe(
         "default[]"
