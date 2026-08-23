@@ -478,7 +478,11 @@ describe("remote agent callback context", () => {
     });
   });
 
-  it("publishes plain recovery copy instead of a completed internal failure", async () => {
+  it("reports an assistant-authored internal failure as a failed callback", async () => {
+    const assistantFailure =
+      "This turn's active tool catalog does not include Space management tools. Re-run this request in a session where those tools are enabled. api_key=raw-secret-value";
+    const sanitizedFailure =
+      "This turn's active tool catalog does not include Space management tools. Re-run this request in a session where those tools are enabled. api_key=[redacted]";
     const request = createSubmitTurnRequest();
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
@@ -504,7 +508,7 @@ describe("remote agent callback context", () => {
           message: {
             parts: [
               {
-                text: "This turn's active tool catalog does not include Space management tools. Re-run this request in a session where those tools are enabled.",
+                text: assistantFailure,
                 type: "text",
               },
             ],
@@ -517,17 +521,31 @@ describe("remote agent callback context", () => {
 
       expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
         expect.objectContaining({
+          failureCode: "remote_agent.assistant_reported_internal_failure",
+          failureDetail: sanitizedFailure,
+          failureMessage:
+            "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
+          status: "failed",
           submissionId: ACK.submissionId,
-          text: "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team.",
         })
       );
-      expect(updated?.completedText).toBe(
-        "OpenMeld ran into a problem, so Center Agent couldn't finish your request. You didn't do anything wrong. Try again. If it still doesn't work, open Diagnostics in OpenMeld. If you can't open OpenMeld, ask the person who set it up for your team."
-      );
-      expect(updated?.completedText).not.toContain("tool catalog");
+      expect(updated).toMatchObject({
+        callbackStatus: "failed",
+        terminalFailureFact: {
+          code: "remote_agent.assistant_reported_internal_failure",
+          detail: sanitizedFailure,
+        },
+      });
+      expect(
+        JSON.stringify(completeRemoteAgentSubmission.mock.calls)
+      ).not.toContain("raw-secret-value");
+      expect(updated?.completedText).toBeUndefined();
       expect(warning).toHaveBeenCalledWith(
-        "[remote_agent.publication.internal_detail_suppressed]",
-        { submissionId: ACK.submissionId }
+        "[remote_agent.publication.internal_failure_classified]",
+        {
+          failureCode: "remote_agent.assistant_reported_internal_failure",
+          submissionId: ACK.submissionId,
+        }
       );
     } finally {
       warning.mockRestore();

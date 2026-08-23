@@ -135,6 +135,7 @@ import type {
 } from "@openmeld/schemas/types";
 import {
   CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE,
+  CENTER_AGENT_ASSISTANT_REPORTED_INTERNAL_FAILURE_REASON_CODE,
   inspectAssistantPublicationProtocol,
 } from "./assistant-publication";
 import {
@@ -1471,6 +1472,51 @@ export function buildRemoteAgentUsageRecord(input: {
   };
 }
 
+async function recordAndDeliverRemoteAgentTerminalFailure(input: {
+  code: string;
+  context: RemoteAgentCallbackContext;
+  coreWorker?: RemoteAgentCoreWorkerBinding;
+  detail?: string;
+  nowMs: number;
+  result: RemoteAgentAssistantCompletionResult;
+  storage: RemoteAgentStorage;
+}): Promise<RemoteAgentCallbackContext> {
+  const updated = await updateRemoteAgentCallbackContext({
+    storage: input.storage,
+    submissionId: input.context.submissionId,
+    update: (current) => {
+      if (
+        current.callbackStatus === "completed" ||
+        current.callbackStatus === "rejected"
+      ) {
+        return current;
+      }
+      return recordTerminalTurnFailure({
+        code: input.code,
+        context: {
+          ...current,
+          lastUsage: input.result.usage ?? current.lastUsage,
+          modelId: input.result.modelId ?? current.modelId ?? null,
+        },
+        detail: input.detail,
+        nowMs: input.nowMs,
+      });
+    },
+  });
+  if (
+    updated.callbackStatus === "completed" ||
+    updated.callbackStatus === "rejected"
+  ) {
+    return updated;
+  }
+  return attemptRemoteAgentCallbackDelivery({
+    context: updated,
+    coreWorker: input.coreWorker,
+    nowMs: input.nowMs,
+    storage: input.storage,
+  });
+}
+
 export async function handleRemoteAgentChatResponse(input: {
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs?: () => number;
@@ -1498,81 +1544,45 @@ export async function handleRemoteAgentChatResponse(input: {
       marker: protocolInspection.marker,
       submissionId: context.submissionId,
     });
-    const updated = await updateRemoteAgentCallbackContext({
-      storage: input.storage,
-      submissionId: context.submissionId,
-      update: (current) => {
-        if (
-          current.callbackStatus === "completed" ||
-          current.callbackStatus === "rejected"
-        ) {
-          return current;
-        }
-        return recordTerminalTurnFailure({
-          code: CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE,
-          context: {
-            ...current,
-            lastUsage: input.result.usage ?? current.lastUsage,
-            modelId: input.result.modelId ?? current.modelId ?? null,
-          },
-          nowMs,
-        });
-      },
-    });
-    if (
-      updated.callbackStatus === "completed" ||
-      updated.callbackStatus === "rejected"
-    ) {
-      return updated;
-    }
-    return attemptRemoteAgentCallbackDelivery({
-      context: updated,
+    return recordAndDeliverRemoteAgentTerminalFailure({
+      code: CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE,
+      context,
       coreWorker: input.coreWorker,
       nowMs,
+      result: input.result,
       storage: input.storage,
     });
   }
   const completedText = extractedCompletedText
     ? sanitizeCenterAgentCompletedTextForPublication(extractedCompletedText)
     : null;
-  if (completedText && completedText !== extractedCompletedText) {
-    console.warn("[remote_agent.publication.internal_detail_suppressed]", {
+  const assistantReportedInternalFailure = Boolean(
+    extractedCompletedText && completedText !== extractedCompletedText
+  );
+  if (assistantReportedInternalFailure) {
+    console.warn("[remote_agent.publication.internal_failure_classified]", {
+      failureCode: CENTER_AGENT_ASSISTANT_REPORTED_INTERNAL_FAILURE_REASON_CODE,
       submissionId: context.submissionId,
+    });
+    return recordAndDeliverRemoteAgentTerminalFailure({
+      code: CENTER_AGENT_ASSISTANT_REPORTED_INTERNAL_FAILURE_REASON_CODE,
+      context,
+      coreWorker: input.coreWorker,
+      detail:
+        sanitizeDispatchErrorSummary(extractedCompletedText ?? "") ?? undefined,
+      nowMs,
+      result: input.result,
+      storage: input.storage,
     });
   }
   if (!completedText) {
-    const updated = await updateRemoteAgentCallbackContext({
-      storage: input.storage,
-      submissionId: context.submissionId,
-      update: (current) => {
-        if (
-          current.callbackStatus === "completed" ||
-          current.callbackStatus === "rejected"
-        ) {
-          return current;
-        }
-        return recordTerminalTurnFailure({
-          code: resolveRemoteAgentResultFailureCode(input.result),
-          context: {
-            ...current,
-            lastUsage: input.result.usage ?? current.lastUsage,
-            modelId: input.result.modelId ?? current.modelId ?? null,
-          },
-          detail: toOptionalErrorMessage(input.result.error),
-          nowMs,
-        });
-      },
-    });
-    if (
-      updated.callbackStatus === "completed" ||
-      updated.callbackStatus === "rejected"
-    ) {
-      return updated;
-    }
-    return attemptRemoteAgentCallbackDelivery({
-      context: updated,
+    return recordAndDeliverRemoteAgentTerminalFailure({
+      code: resolveRemoteAgentResultFailureCode(input.result),
+      context,
       coreWorker: input.coreWorker,
+      detail: toOptionalErrorMessage(input.result.error),
       nowMs,
+      result: input.result,
       storage: input.storage,
     });
   }
