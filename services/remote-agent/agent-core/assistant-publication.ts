@@ -47,6 +47,8 @@ type PublicationMarkdownNode = {
 
 export const CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE =
   "remote_agent.assistant_protocol_contamination";
+export const CENTER_AGENT_ASSISTANT_REPORTED_INTERNAL_FAILURE_REASON_CODE =
+  "remote_agent.assistant_reported_internal_failure";
 
 export type AssistantPublicationProtocolInspection =
   | { status: "publishable" }
