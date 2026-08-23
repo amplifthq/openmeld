@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-23T04:54:35.886Z",
+  "updatedAt": "2026-08-23T08:29:38.455Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.83",
+      "packageVersion": "0.3.84",
       "updatePolicy": "available",
-      "reason": "Improves Computers capacity reporting, Wake diagnostics, connected account names, OpenMeld Service updates, and CLI recovery guidance."
+      "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
     },
     "service": {
-      "bundleHash": "b839b9adfa42f151cac55c7926d1318983c692e9a56036d54cd603ec414f8aa3",
-      "bundleVersion": "0.3.83",
+      "bundleHash": "eaf1c5bc8d793f66487e12d9697cee252d6b182cebf2bbb6512d117d6eefc71d",
+      "bundleVersion": "0.3.84",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "runtime-transport-epoch-2026-07-default-project",
       "updatePolicy": "available",
-      "reason": "Improves Computers capacity reporting, Wake diagnostics, connected account names, OpenMeld Service updates, and CLI recovery guidance."
+      "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
     },
     "skills": {
-      "bundleHash": "5dd9f2f5bd322b54aa5ae09cae2189e79e75d17f39c9bc50583a80c083fd6d9a",
+      "bundleHash": "79a8ca933c1447c98097071a7434ae390c267be8f9b05f67d3102a39c614ef04",
       "skillContractVersion": "openmeld-skills-contract-2026-05-required-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Improves Computers capacity reporting, Wake diagnostics, connected account names, OpenMeld Service updates, and CLI recovery guidance."
+      "reason": "Adds shared Space Files for humans and agents, file uploads in Space conversations, CLI file workflows, and Center Agent Session Inventory lookup."
     }
   }
 }
