@@ -424,12 +424,16 @@ dot while an older Core omits the additive aggregate. Full rails place the dot
 after the Spaces label; compact and collapsed rails attach it to the icon
 corner. The outer dot is an aggregate wayfinding cue only: the Spaces secondary
 sidebar remains the surface that identifies the exact unread Spaces.
-Each row presents exactly one trailing visual status: current agent work first,
-then unread attention, then the persistent pin for an otherwise idle pinned
-Space. Hover or keyboard focus replaces that status with the pin action so the
-member can always pin or unpin the Space without overlapping indicators.
+Each row presents one primary trailing visual status: unread attention first,
+then current agent work, then the persistent pin for an otherwise idle pinned
+Space. For a row with unread or active work, hover or keyboard focus reveals the
+pin action while keeping the higher-priority status visible in the corner. This
+lets the member pin or unpin the Space without losing unread or working evidence.
 Ambient agent work for other Spaces comes from a successful account active Wake
 summary whose `generatedAtMs` is no more than the shared 45-second maximum age.
+Web bounds ordinary Core-to-browser clock skew against the local query receipt
+time: Core may be at most five seconds ahead, and the local bound must never
+extend the shared maximum age. Larger future timestamps remain invalid.
 For the open Space, the conversation publishes its final visible Wake progress
 projection after merging the Core-derived per-Space summary, detailed progress,
 and durable reply signals. The Space shell owns a route-scoped synchronous read

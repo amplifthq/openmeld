@@ -622,7 +622,7 @@ describe("AppSpacesSidebar", () => {
 		expect(pinButton.classList.contains("backdrop-blur-sm")).toBe(true);
 	});
 
-	it("renders the working orb in the pin slot while an agent is working", async () => {
+	it("keeps a non-current Space orb visible across ordinary server clock skew", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [
@@ -637,12 +637,15 @@ describe("AppSpacesSidebar", () => {
 			],
 		});
 		getAccountSpaceActiveWakeSummaryMock.mockResolvedValue({
-			generatedAtMs: Date.now(),
+			generatedAtMs: Date.now() + 1100,
 			items: [{ activeWakeCount: 1, spaceId: "space-alpha" }],
 		});
 
 		renderSidebar(
-			<AppSpacesSidebar currentProfileId="human-1" currentSpaceId="" />
+			<AppSpacesSidebar
+				currentProfileId="human-1"
+				currentSpaceId="space-beta"
+			/>
 		);
 
 		const workingRow = (
@@ -660,21 +663,24 @@ describe("AppSpacesSidebar", () => {
 		expect(orbSlot?.querySelector("canvas")).toBeTruthy();
 		expect(orbSlot?.classList.contains("pointer-events-none")).toBe(true);
 		expect(orbSlot?.classList.contains("group-hover/space-row:opacity-0")).toBe(
-			true
+			false
 		);
+		expect(
+			orbSlot?.classList.contains("group-hover/space-row:scale-[0.625]")
+		).toBe(true);
 
 		// The idle row keeps the plain label and never mounts an orb.
 		expect(screen.getByRole("button", { name: "Beta" })).toBeTruthy();
 
 		// The pin action stays in the slot, hidden until hover/focus reveals it.
 		const pinButton = screen.getByRole("button", { name: "Pin Alpha" });
-		expect(pinButton.classList.contains("scale-75")).toBe(true);
-		expect(pinButton.classList.contains("blur-[2px]")).toBe(true);
-		expect(
-			pinButton.classList.contains("group-hover/space-row:scale-100")
-		).toBe(true);
+		expect(pinButton.classList.contains("opacity-100")).toBe(false);
+		expect(pinButton.classList.contains("pointer-events-none")).toBe(true);
 		expect(
 			pinButton.classList.contains("group-hover/space-row:opacity-100")
+		).toBe(true);
+		expect(
+			pinButton.classList.contains("group-hover/space-row:pointer-events-auto")
 		).toBe(true);
 	});
 
@@ -960,7 +966,7 @@ describe("AppSpacesSidebar", () => {
 		).toBeNull();
 	});
 
-	it("lets the orb own the slot on a pinned space until hover asks for the pin", async () => {
+	it("keeps the orb visible while hover or focus reveals the pin beside it", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -989,16 +995,31 @@ describe("AppSpacesSidebar", () => {
 			).toBeTruthy();
 		});
 
-		// While the orb owns the slot the pinned action gives up its persistent
-		// visibility but stays reachable through hover and keyboard focus.
+		// The pin gives up its persistent visibility but stays reachable through
+		// hover and keyboard focus without covering the working state.
 		const pinButton = screen.getByRole("button", { name: "Unpin Alpha" });
 		expect(pinButton.classList.contains("opacity-100")).toBe(false);
-		expect(pinButton.classList.contains("scale-75")).toBe(true);
 		expect(
 			pinButton.classList.contains("group-focus-within/space-row:opacity-100")
 		).toBe(true);
 		expect(
-			pinButton.classList.contains("group-hover/space-row:scale-100")
+			pinButton.classList.contains("group-hover/space-row:opacity-100")
+		).toBe(true);
+		const workingIndicator = document.querySelector<HTMLElement>(
+			'[data-space-active-wake-orb="true"]'
+		);
+		expect(
+			workingIndicator?.classList.contains("group-hover/space-row:opacity-0")
+		).toBe(false);
+		expect(
+			workingIndicator?.classList.contains(
+				"group-hover/space-row:translate-x-3"
+			)
+		).toBe(true);
+		expect(
+			workingIndicator?.classList.contains(
+				"group-focus-within/space-row:-translate-y-3"
+			)
 		).toBe(true);
 
 		// The name still yields room for the shared slot.
@@ -1008,7 +1029,7 @@ describe("AppSpacesSidebar", () => {
 		expect(spaceName?.classList.contains("pr-10")).toBe(true);
 	});
 
-	it("gives each pinned row one trailing status until hover or focus reveals the pin action", async () => {
+	it("orders unread, working, and persistent pin states while keeping status visible on hover", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1063,11 +1084,12 @@ describe("AppSpacesSidebar", () => {
 		}).parentElement;
 		const idleRow = screen.getByRole("button", { name: "Idle" }).parentElement;
 
+		const workingUnreadIndicator = workingRow?.querySelector<HTMLElement>(
+			'[data-space-unread-indicator="true"]'
+		);
+		expect(workingUnreadIndicator).toBeTruthy();
 		expect(
 			workingRow?.querySelector('[data-space-active-wake-orb="true"]')
-		).toBeTruthy();
-		expect(
-			workingRow?.querySelector('[data-space-unread-indicator="true"]')
 		).toBeNull();
 
 		const unreadIndicator = unreadRow?.querySelector<HTMLElement>(
@@ -1079,10 +1101,10 @@ describe("AppSpacesSidebar", () => {
 		).toBeNull();
 		expect(
 			unreadIndicator?.classList.contains("group-hover/space-row:opacity-0")
-		).toBe(true);
+		).toBe(false);
 		expect(
 			unreadIndicator?.classList.contains(
-				"group-focus-within/space-row:opacity-0"
+				"group-focus-within/space-row:translate-x-3"
 			)
 		).toBe(true);
 
@@ -1109,6 +1131,11 @@ describe("AppSpacesSidebar", () => {
 			screen
 				.getByRole("button", { name: "Unpin Idle" })
 				.classList.contains("opacity-100")
+		).toBe(true);
+		expect(
+			screen
+				.getByRole("button", { name: "Unpin Idle" })
+				.classList.contains("pointer-events-auto")
 		).toBe(true);
 	});
 

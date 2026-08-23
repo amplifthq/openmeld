@@ -10,6 +10,7 @@ import {
 import { baseQueryOptions } from "#/query/query-config";
 
 const ACCOUNT_SPACE_ACTIVE_WAKE_POLL_INTERVAL_MS = 15_000;
+const ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_FUTURE_SKEW_MS = 5000;
 
 export const accountSpaceQueryKeys = {
 	all: ["spaces", "account-spaces"] as const,
@@ -65,12 +66,19 @@ export function selectUsableAccountSpaceActiveWakeSummaryItems(input: {
 	data: AccountSpaceActiveWakeSummaryResponse | undefined;
 	isError: boolean;
 	nowMs: number;
+	receivedAtMs: number;
 }): AccountSpaceActiveWakeSummaryResponse["items"] {
+	if (input.isError || !input.data) {
+		return [];
+	}
+	const observedGeneratedAtMs = resolveObservedSummaryGeneratedAtMs({
+		generatedAtMs: input.data.generatedAtMs,
+		nowMs: input.nowMs,
+		receivedAtMs: input.receivedAtMs,
+	});
 	if (
-		input.isError ||
-		!input.data ||
-		input.data.generatedAtMs > input.nowMs ||
-		input.data.generatedAtMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS <
+		observedGeneratedAtMs === null ||
+		observedGeneratedAtMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS <
 			input.nowMs
 	) {
 		return [];
@@ -81,6 +89,7 @@ export function selectUsableAccountSpaceActiveWakeSummaryItems(input: {
 export function useUsableAccountSpaceActiveWakeSummaryItems(input: {
 	data: AccountSpaceActiveWakeSummaryResponse | undefined;
 	isError: boolean;
+	receivedAtMs: number;
 }): AccountSpaceActiveWakeSummaryResponse["items"] {
 	const [, rerenderAtExpiry] = useReducer((value: number) => value + 1, 0);
 	const generatedAtMs = input.data?.generatedAtMs;
@@ -88,18 +97,49 @@ export function useUsableAccountSpaceActiveWakeSummaryItems(input: {
 		if (input.isError || generatedAtMs === undefined) {
 			return;
 		}
-		const remainingMs =
-			generatedAtMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS - Date.now();
-		if (remainingMs <= 0) {
+		const nowMs = Date.now();
+		const observedGeneratedAtMs = resolveObservedSummaryGeneratedAtMs({
+			generatedAtMs,
+			nowMs,
+			receivedAtMs: input.receivedAtMs,
+		});
+		if (observedGeneratedAtMs === null) {
 			return;
 		}
-		const timeout = window.setTimeout(rerenderAtExpiry, remainingMs + 1);
+		const remainingMs =
+			observedGeneratedAtMs +
+			ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_AGE_MS -
+			nowMs;
+		const timeout = window.setTimeout(
+			rerenderAtExpiry,
+			Math.max(remainingMs, 0) + 1
+		);
 		return () => window.clearTimeout(timeout);
-	}, [generatedAtMs, input.isError]);
+	}, [generatedAtMs, input.isError, input.receivedAtMs]);
 
 	return selectUsableAccountSpaceActiveWakeSummaryItems({
 		data: input.data,
 		isError: input.isError,
 		nowMs: Date.now(),
+		receivedAtMs: input.receivedAtMs,
 	});
+}
+
+function resolveObservedSummaryGeneratedAtMs(input: {
+	generatedAtMs: number;
+	nowMs: number;
+	receivedAtMs: number;
+}): number | null {
+	if (
+		input.receivedAtMs <= 0 ||
+		input.receivedAtMs > input.nowMs ||
+		input.generatedAtMs >
+			input.receivedAtMs + ACCOUNT_SPACE_ACTIVE_WAKE_SUMMARY_MAX_FUTURE_SKEW_MS
+	) {
+		return null;
+	}
+
+	// Core owns the summary timestamp. The local receipt time only bounds normal
+	// cross-machine clock skew so the Web never extends the shared maximum age.
+	return Math.min(input.generatedAtMs, input.receivedAtMs);
 }
