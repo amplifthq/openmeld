@@ -2333,7 +2333,11 @@ and move to Trash. Each row shows the concrete type, size when applicable,
 latest revision, last editor, and update time. Empty, loading, permission,
 network-failure, upload-progress, and conflict states use plain product language
 and one next action. Read-only Space viewers see the same tree without mutation
-controls.
+controls. Image rows use the current revision as their visual thumbnail instead
+of a generic file icon. In the conversation, canonical image references retain
+the familiar inline image preview and morph into a focused full-size view when
+selected; non-image references remain file cards, and both presentations lead
+to the same canonical entry in Files.
 
 Markdown creation and editing reuse the exact rich Plate surface owned by the
 Organization Documents experience. Both surfaces persist one CommonMark + GFM

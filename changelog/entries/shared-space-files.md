@@ -15,7 +15,9 @@ Documents.
 
 Space and thread composers now use an **Add to message > Files** menu for up to
 ten images or other files, including drag, paste, and file-only messages. A chat
-upload is the canonical Space File, so its message card opens the same file in
-Files instead of creating a duplicate attachment or Resources projection.
-Center Agent image understanding reads the exact shared JPEG or PNG revision,
-while Local Agents receive the same file reference and download commands.
+upload is the canonical Space File instead of a duplicate attachment or
+Resources projection. Images stay visible as familiar inline previews, expand
+into a focused full-size view, and appear as real thumbnails in Files. Other
+files use compact cards that open the same entry in Files. Center Agent image
+understanding reads the exact shared JPEG or PNG revision, while Local Agents
+receive the same file reference and download commands.

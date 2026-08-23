@@ -185,12 +185,16 @@ before send and creates the canonical root-level Space File; the message is
 published only after every selected upload succeeds. A failed upload never
 degrades into a text-only or partially attached message.
 
-The timeline renders each canonical reference as a file card. Image files may
-show a bounded thumbnail. Selecting a card opens that same file in the current
-Space's Files view. The card's name, MIME type, size, and revision are the
-server-resolved send-time snapshot, while Files shows the current entry and its
-revision history. Renaming or revising the file therefore cannot rewrite
-message history, and no projection or bidirectional synchronization exists.
+The timeline renders image references as bounded inline previews that morph
+into a focused full-size view, while other file references use file cards.
+The focused image view and each file card provide an explicit **Open in Files**
+action for that same canonical file. The sent name, MIME type, size, and
+revision are the server-resolved send-time snapshot, while Files shows the
+current entry and its revision history. Renaming or revising the file therefore
+cannot rewrite message history, and no projection or bidirectional
+synchronization exists. The Files browser renders a real thumbnail for image
+entries whenever the selected revision can be read, rather than presenting a
+generic image-file icon.
 
 Local Agents receive the exact file ids and sent revisions in the Wake source
 snapshot, together with the canonical CLI read/download commands. Their Space

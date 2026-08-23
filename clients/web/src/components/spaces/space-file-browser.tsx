@@ -1,5 +1,6 @@
 "use client";
 
+import type { SpaceApi } from "@openmeld/api-client";
 import { isSpaceFileTextEditable } from "@openmeld/schemas";
 import type {
 	SpaceFileBreadcrumb,
@@ -25,6 +26,7 @@ import {
 	FolderIcon,
 	FolderOpenIcon,
 	FolderPlusIcon,
+	ImageIcon,
 	PencilSimpleIcon,
 	PlusIcon,
 	TrashIcon,
@@ -37,9 +39,11 @@ import {
 	formatShortDate,
 	resolveSpaceFileErrorMessage,
 } from "./space-file-utils";
+import { useSpaceFileImageSource } from "./use-space-file-image-source";
 
 export function SpaceFileBrowser(input: {
 	actionError: string | null;
+	api: Pick<SpaceApi, "downloadFileContent">;
 	breadcrumbs: readonly SpaceFileBreadcrumb[];
 	busy: boolean;
 	canWrite: boolean;
@@ -58,6 +62,7 @@ export function SpaceFileBrowser(input: {
 	onRetry: () => void;
 	onTrash: (entry: SpaceFileEntry) => void;
 	onUploadFiles: (files: readonly File[]) => Promise<void>;
+	spaceId: string;
 }) {
 	return (
 		<section
@@ -164,6 +169,7 @@ export function SpaceFileBrowser(input: {
 			) : null}
 			<div className="min-h-0 flex-1 overflow-y-auto p-5">
 				<SpaceFileBrowserContent
+					api={input.api}
 					canWrite={input.canWrite}
 					entries={input.entries}
 					error={input.error}
@@ -173,6 +179,7 @@ export function SpaceFileBrowser(input: {
 					onRename={input.onRename}
 					onRetry={input.onRetry}
 					onTrash={input.onTrash}
+					spaceId={input.spaceId}
 				/>
 			</div>
 		</section>
@@ -180,6 +187,7 @@ export function SpaceFileBrowser(input: {
 }
 
 function SpaceFileBrowserContent(input: {
+	api: Pick<SpaceApi, "downloadFileContent">;
 	canWrite: boolean;
 	entries: readonly SpaceFileEntry[];
 	error: unknown;
@@ -189,6 +197,7 @@ function SpaceFileBrowserContent(input: {
 	onRename: (entry: SpaceFileEntry) => void;
 	onRetry: () => void;
 	onTrash: (entry: SpaceFileEntry) => void;
+	spaceId: string;
 }) {
 	if (input.isPending) {
 		return (
@@ -267,9 +276,11 @@ function SpaceFileBrowserContent(input: {
 							onClick={() => input.onOpen(entry)}
 							type="button"
 						>
-							<span className="grid size-8 shrink-0 place-items-center rounded-md border border-border/70 bg-background text-muted-foreground">
-								{renderSpaceFileEntryIcon(entry)}
-							</span>
+							<SpaceFileEntryVisual
+								api={input.api}
+								entry={entry}
+								spaceId={input.spaceId}
+							/>
 							<span className="min-w-0">
 								<span className="block truncate font-medium text-sm">
 									{entry.name}
@@ -345,6 +356,76 @@ function EntryActions(input: {
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
+	);
+}
+
+function SpaceFileEntryVisual(input: {
+	api: Pick<SpaceApi, "downloadFileContent">;
+	entry: SpaceFileEntry;
+	spaceId: string;
+}) {
+	if (
+		input.entry.kind === "file" &&
+		input.entry.latestRevision.mimeType.startsWith("image/")
+	) {
+		return (
+			<SpaceFileImageThumbnail
+				api={input.api}
+				entry={input.entry}
+				spaceId={input.spaceId}
+			/>
+		);
+	}
+	return (
+		<span className="grid size-10 shrink-0 place-items-center rounded-md border border-border/70 bg-background text-muted-foreground">
+			{renderSpaceFileEntryIcon(input.entry)}
+		</span>
+	);
+}
+
+function SpaceFileImageThumbnail(input: {
+	api: Pick<SpaceApi, "downloadFileContent">;
+	entry: Extract<SpaceFileEntry, { kind: "file" }>;
+	spaceId: string;
+}) {
+	const imageSource = useSpaceFileImageSource({
+		api: input.api,
+		fileId: input.entry.id,
+		mimeType: input.entry.latestRevision.mimeType,
+		revision: input.entry.latestRevision.revision,
+		spaceId: input.spaceId,
+	});
+
+	if (imageSource.sourceUrl) {
+		return (
+			<img
+				alt=""
+				className="h-11 w-16 shrink-0 rounded-md border border-border/70 bg-muted object-contain"
+				data-slot="space-file-image-thumbnail"
+				decoding="async"
+				height={44}
+				loading="lazy"
+				src={imageSource.sourceUrl}
+				width={64}
+			/>
+		);
+	}
+	return (
+		<output
+			aria-label={
+				imageSource.error
+					? `Preview unavailable for ${input.entry.name}`
+					: `Loading preview for ${input.entry.name}`
+			}
+			className={cn(
+				"grid h-11 w-16 shrink-0 place-items-center rounded-md border border-border/70 bg-muted text-muted-foreground",
+				imageSource.isLoading && "animate-pulse motion-reduce:animate-none"
+			)}
+		>
+			{imageSource.error ? (
+				<ImageIcon aria-hidden="true" className="size-4.5" />
+			) : null}
+		</output>
 	);
 }
 

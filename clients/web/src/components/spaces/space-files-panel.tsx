@@ -77,6 +77,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 		<>
 			<SpaceFileBrowser
 				actionError={actionError}
+				api={api}
 				breadcrumbs={filesQuery.data?.breadcrumbs ?? []}
 				busy={pendingAction !== null}
 				canWrite={canWrite}
@@ -101,6 +102,7 @@ export function SpaceFilesPanel(input: SpaceFilesPanelProps) {
 				onRetry={() => filesQuery.refetch()}
 				onTrash={(entry) => setEntryDialog({ entry, kind: "trash" })}
 				onUploadFiles={uploadFiles}
+				spaceId={input.spaceId}
 			/>
 			<FolderNameDialog
 				onOpenChange={setFolderDialogOpen}

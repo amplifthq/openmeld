@@ -203,6 +203,37 @@ describe("SpaceFilesPanel", () => {
 		});
 	});
 
+	it("shows image thumbnails instead of generic file icons in Files", async () => {
+		spaceApiMocks.listFiles.mockResolvedValue({
+			spaceId: "space-1",
+			parentId: null,
+			breadcrumbs: [{ id: null, name: "Files" }],
+			entries: [IMAGE_FILE, FILE],
+			capabilities: { canRead: true, canWrite: true },
+		});
+		spaceApiMocks.downloadFileContent.mockResolvedValue({
+			bytes: Uint8Array.from([0x89, 0x50, 0x4e, 0x47]).buffer,
+			mimeType: "image/png",
+			revision: 1,
+		});
+
+		const view = renderPanel();
+
+		await screen.findByText("launch-diagram.png");
+		await waitFor(() => {
+			expect(
+				view.container.querySelector('[data-slot="space-file-image-thumbnail"]')
+			).not.toBeNull();
+		});
+		expect(spaceApiMocks.downloadFileContent).toHaveBeenCalledWith(
+			expect.objectContaining({
+				fileId: "image-1",
+				revision: 1,
+				spaceId: "space-1",
+			})
+		);
+	});
+
 	it("uses the shared WYSIWYG editor when creating a Markdown file", async () => {
 		renderPanel();
 
