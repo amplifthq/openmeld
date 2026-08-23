@@ -7,8 +7,13 @@ import {
 } from "./settings-computers";
 
 const NOW_MS = Date.parse("2026-08-20T08:00:00.000Z");
+const AVAILABLE_FIVE_HOUR_USAGE_GAUGE_NAME =
+  /Codex 5-hour usage, 58% left, Available/u;
+const EXHAUSTED_SPARK_USAGE_GAUGE_NAME =
+  /Codex Spark weekly usage, 0% left, Exhausted/u;
 const LOW_WEEKLY_USAGE_GAUGE_NAME =
-  /Codex Weekly usage, 88% used, Low, Resets in 7 days, Updated 10 minutes ago/u;
+  /Codex Weekly usage, 12% left, Low, Resets in 7 days, Updated 10 minutes ago/u;
+const STALE_USAGE_GAUGE_NAME = /Codex Last-known usage, 35% left, Stale/u;
 const USAGE_UNSUPPORTED_COPY = /Usage unsupported/u;
 
 afterEach(cleanup);
@@ -51,22 +56,26 @@ describe("Settings Local Agent usage limits", () => {
     );
 
     const trigger = screen.getByTestId("local-agent-usage-summary");
-    expect(trigger.textContent).toBe("88%");
+    expect(trigger.textContent).toBe("12%");
     expect(trigger.getAttribute("role")).toBe("progressbar");
     expect(trigger.getAttribute("aria-valuemin")).toBe("0");
     expect(trigger.getAttribute("aria-valuemax")).toBe("100");
-    expect(trigger.getAttribute("aria-valuenow")).toBe("88");
+    expect(trigger.getAttribute("aria-valuenow")).toBe("12");
+    expect(trigger.getAttribute("aria-valuetext")).toBe("12% left");
     expect(trigger.getAttribute("aria-label")).toContain(
-      "Codex usage limits, 88% used, Low"
+      "Codex usage limits, 12% left, Low"
     );
+    expect(
+      trigger.querySelectorAll("circle")[1]?.getAttribute("stroke-dasharray")
+    ).toBe("12 100");
 
     fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
     fireEvent.mouseEnter(trigger);
 
     expect(await screen.findByText("5-hour usage")).toBeTruthy();
-    expect(screen.getByText("42% used · Available")).toBeTruthy();
+    expect(screen.getByText("58% left · Available")).toBeTruthy();
     expect(screen.getByText("Weekly usage")).toBeTruthy();
-    expect(screen.getByText("88% used · Low")).toBeTruthy();
+    expect(screen.getByText("12% left · Low")).toBeTruthy();
     expect(screen.getByText("Select this agent to view details.")).toBeTruthy();
   });
 
@@ -180,13 +189,30 @@ describe("Settings Local Agent usage limits", () => {
     expect(screen.getByText("Unavailable")).toBeTruthy();
     expect(screen.getByText("Unsupported")).toBeTruthy();
     expect(screen.getAllByRole("progressbar")).toHaveLength(4);
+    const availableGauge = screen.getByRole("progressbar", {
+      name: AVAILABLE_FIVE_HOUR_USAGE_GAUGE_NAME,
+    });
+    const lowGauge = screen.getByRole("progressbar", {
+      name: LOW_WEEKLY_USAGE_GAUGE_NAME,
+    });
+    const exhaustedGauge = screen.getByRole("progressbar", {
+      name: EXHAUSTED_SPARK_USAGE_GAUGE_NAME,
+    });
+    const staleGauge = screen.getByRole("progressbar", {
+      name: STALE_USAGE_GAUGE_NAME,
+    });
+    expect(lowGauge.getAttribute("aria-valuenow")).toBe("12");
+    expect(lowGauge.getAttribute("aria-valuetext")).toBe("12% left");
+    expect(availableGauge.querySelector(".bg-emerald-500")).toBeTruthy();
+    expect(lowGauge.querySelector(".bg-amber-500")).toBeTruthy();
+    expect(exhaustedGauge.querySelector(".bg-destructive")).toBeTruthy();
+    expect(staleGauge.querySelector(".bg-amber-500")).toBeTruthy();
     expect(
-      screen
-        .getByRole("progressbar", {
-          name: LOW_WEEKLY_USAGE_GAUGE_NAME,
-        })
-        .getAttribute("aria-valuenow")
-    ).toBe("88");
+      (availableGauge.firstElementChild as HTMLElement | null)?.style.width
+    ).toBe("58%");
+    expect(
+      (lowGauge.firstElementChild as HTMLElement | null)?.style.width
+    ).toBe("12%");
     expect(screen.getByText("Reset time passed")).toBeTruthy();
     expect(screen.getByText("Last updated 1 day ago")).toBeTruthy();
     expect(screen.getByText("Temporarily unavailable.")).toBeTruthy();
