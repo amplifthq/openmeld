@@ -17,3 +17,7 @@ export function isSpaceComposerFileInProgress(
 ): boolean {
 	return file.status === "uploading";
 }
+
+export function isSpaceComposerFileFailed(file: SpaceComposerFile): boolean {
+	return file.status === "failed";
+}

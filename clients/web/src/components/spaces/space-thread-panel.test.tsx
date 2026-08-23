@@ -1241,6 +1241,25 @@ describe("SpaceThreadPanel", () => {
 		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
 	});
 
+	it("does not send a thread reply while a failed file remains", () => {
+		const onSend = vi.fn(async () => undefined);
+		renderThreadPanel({
+			composerFiles: [createFailedComposerFile()],
+			composerText: "Keep the reply draft",
+			onSend,
+		});
+
+		expect(
+			screen.getByText(
+				"Remove files that could not be uploaded before sending."
+			)
+		).toBeTruthy();
+		const sendButton = screen.getByRole("button", { name: "Send reply" });
+		expect(sendButton).toHaveProperty("disabled", true);
+		fireEvent.click(sendButton);
+		expect(onSend).not.toHaveBeenCalled();
+	});
+
 	it("keeps a recently completed root Wake terminal when its thread omits the top-level reply", () => {
 		const wakeSignal = createWakeTextSignal();
 		vi.useFakeTimers();
@@ -1506,6 +1525,20 @@ function createReadyComposerFile() {
 		previewUrl: null,
 		progress: 1,
 		status: "ready" as const,
+	};
+}
+
+function createFailedComposerFile() {
+	return {
+		descriptor: null,
+		errorMessage: "OpenMeld couldn't add this file. Try again.",
+		errorRequestId: "request-file-failed",
+		fileName: "broken.pdf",
+		localId: "local-file-failed",
+		mimeType: "application/pdf",
+		previewUrl: null,
+		progress: 100,
+		status: "failed" as const,
 	};
 }
 

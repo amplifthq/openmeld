@@ -32,6 +32,7 @@ import {
 } from "#/components/spaces/space-composer-attachments";
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
 import {
+	isSpaceComposerFileFailed,
 	isSpaceComposerFileInProgress,
 	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
@@ -1403,6 +1404,7 @@ function ThreadComposer(input: {
 	const uploadInProgress = input.composerFiles.some(
 		isSpaceComposerFileInProgress
 	);
+	const uploadFailed = input.composerFiles.some(isSpaceComposerFileFailed);
 	const composerHasContent =
 		input.composerFiles.length > 0 || input.composerText.trim().length > 0;
 	const {
@@ -1432,7 +1434,10 @@ function ThreadComposer(input: {
 	if (uploadInProgress) {
 		composerHint = "Uploading files before sending…";
 	}
-	if (!uploadInProgress && input.composerFiles.length > 0) {
+	if (uploadFailed) {
+		composerHint = "Remove files that could not be uploaded before sending.";
+	}
+	if (!(uploadInProgress || uploadFailed) && input.composerFiles.length > 0) {
 		composerHint = `${input.composerFiles.length} ${input.composerFiles.length === 1 ? "file" : "files"} ready to send`;
 	}
 	const submitComposer = () => {
@@ -1538,6 +1543,7 @@ function ThreadComposer(input: {
 									disabled={
 										input.isSendingMessage ||
 										uploadInProgress ||
+										uploadFailed ||
 										!composerHasContent
 									}
 									onClick={submitComposer}

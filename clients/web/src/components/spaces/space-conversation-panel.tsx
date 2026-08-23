@@ -54,6 +54,7 @@ import {
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
 import { buildCenterAgentOptimisticReplyItem } from "#/lib/spaces/center-agent-optimistic-reply";
 import {
+	isSpaceComposerFileFailed,
 	isSpaceComposerFileInProgress,
 	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
@@ -397,8 +398,12 @@ export function SpaceConversationPanel(input: SpaceConversationPanelProps) {
 	const composerFileUploadInProgress = input.composerFiles.some(
 		isSpaceComposerFileInProgress
 	);
+	const composerFileUploadFailed = input.composerFiles.some(
+		isSpaceComposerFileFailed
+	);
 	const composerSendBlocked =
 		composerFileUploadInProgress ||
+		composerFileUploadFailed ||
 		(input.composerFiles.length === 0 &&
 			input.composerText.trim().length === 0);
 	const showComposer = shouldRenderSpaceComposer({
@@ -1381,6 +1386,7 @@ function SpaceComposerSection(input: {
 	const fileUploadInProgress = panel.composerFiles.some(
 		isSpaceComposerFileInProgress
 	);
+	const fileUploadFailed = panel.composerFiles.some(isSpaceComposerFileFailed);
 	const fileActionsDisabled = panel.isSendingMessage || !input.canSendMessage;
 	const {
 		addFiles,
@@ -1396,6 +1402,7 @@ function SpaceComposerSection(input: {
 	const fileHint = resolveSpaceComposerFileHint({
 		fileCount: panel.composerFiles.length,
 		fileLimitReached: panel.composerFileLimitReached,
+		fileUploadFailed,
 		fileUploadInProgress,
 	});
 	const defaultComposerHint = panel.agentDirectConversationKind
@@ -1571,10 +1578,14 @@ function SpaceComposerSection(input: {
 function resolveSpaceComposerFileHint(input: {
 	fileCount: number;
 	fileLimitReached: boolean;
+	fileUploadFailed: boolean;
 	fileUploadInProgress: boolean;
 }): string | null {
 	if (input.fileUploadInProgress) {
 		return "Uploading files before sending…";
+	}
+	if (input.fileUploadFailed) {
+		return "Remove files that could not be uploaded before sending.";
 	}
 	if (input.fileLimitReached) {
 		return "You can add up to 10 files.";

@@ -798,8 +798,12 @@ authenticated browser and CLI bytes to Core; Center Agent tools call the same
 Core operation. Core asks the Space Durable Object to authorize the actor and
 prepare the canonical object address, writes one immutable object, then asks
 Space to commit the matching metadata with the supplied base revision. The
-commit rechecks authorization and the base revision. On rejection, Core deletes
-the unreferenced object best-effort and preserves the structured conflict. A
+commit rechecks authorization and the base revision. On rejection or an
+uncertain commit response, Core preserves the immutable object and the
+structured error. It must not delete inline because another exact retry may
+have committed the same deterministic revision key. An object that Space did
+not commit remains unreachable and may be reclaimed only by a future
+Space-owned reconciliation process that proves the revision is unreferenced. A
 read first resolves the authorized canonical revision descriptor through Space
 and only then reads the exact object. An R2 key or file id alone never grants
 access.

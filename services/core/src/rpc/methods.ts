@@ -31,7 +31,9 @@ import {
   authorizeAgentProfileBindingForOrganizationResponseSchema,
   authRpcResolveUserDisplayNameResultSchema,
   buildAgentTaskKey,
+  buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
+  buildSpaceFileRevisionIdForMutation,
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
@@ -11725,8 +11727,21 @@ export async function rpcCenterAgentSaveSpaceFile(
       status: 415,
     });
   }
+  const bytes = new ArrayBuffer(encoded.byteLength);
+  new Uint8Array(bytes).set(encoded);
   const fileId =
-    request.action === "create" ? crypto.randomUUID() : request.fileId;
+    request.action === "create"
+      ? await buildSpaceFileEntryIdForMutation(request.clientMutationId)
+      : request.fileId;
+  const revisionId = await buildSpaceFileRevisionIdForMutation({
+    baseRevision: request.action === "create" ? null : request.baseRevision,
+    bytes,
+    clientMutationId: request.clientMutationId,
+    mimeType: request.mimeType,
+    ...(request.action === "create"
+      ? { name: request.name, parentId: request.parentId ?? null }
+      : {}),
+  });
   const write: CommitSpaceFileWriteInput = {
     baseRevision: request.action === "create" ? null : request.baseRevision,
     clientMutationId: request.clientMutationId,
@@ -11738,12 +11753,10 @@ export async function rpcCenterAgentSaveSpaceFile(
           parentId: request.parentId ?? null,
         }
       : {}),
-    revisionId: crypto.randomUUID(),
+    revisionId,
     sizeBytes: encoded.byteLength,
     spaceId: request.spaceId,
   };
-  const bytes = new ArrayBuffer(encoded.byteLength);
-  new Uint8Array(bytes).set(encoded);
   const file = await rpcWriteSpaceFileContent(env, {
     bytes,
     context: authorization.context,
@@ -16200,19 +16213,15 @@ export async function rpcWriteSpaceFileContent(
   try {
     return await rpcCommitSpaceFileWrite(env, input);
   } catch (error) {
-    try {
-      await bucket.delete(prepared.objectKey);
-    } catch (cleanupError) {
-      console.error("[core.space_file.orphan_cleanup_failed]", {
-        cleanupError,
-        event: "core.space_file.orphan_cleanup_failed",
-        fileId: input.write.fileId,
-        objectKey: prepared.objectKey,
-        requestId: input.context?.actorContext.requestId,
-        revisionId: input.write.revisionId,
-        spaceId: input.spaceId,
-      });
-    }
+    console.warn("[core.space_file.orphan_reconciliation_deferred]", {
+      event: "core.space_file.orphan_reconciliation_deferred",
+      fileId: input.write.fileId,
+      objectKey: prepared.objectKey,
+      outcome: "commit_response_uncertain",
+      requestId: input.context?.actorContext.requestId,
+      revisionId: input.write.revisionId,
+      spaceId: input.spaceId,
+    });
     throw error;
   }
 }
@@ -16239,28 +16248,18 @@ export async function rpcRestoreSpaceFileRevision(
     write: {
       spaceId: input.spaceId,
       fileId: input.fileId,
-      revisionId: await buildSpaceFileRestoreRevisionId(
-        input.body.clientMutationId
-      ),
+      revisionId: await buildSpaceFileRevisionIdForMutation({
+        baseRevision: input.body.baseRevision,
+        bytes: source.bytes,
+        clientMutationId: input.body.clientMutationId,
+        mimeType: source.revision.mimeType,
+      }),
       baseRevision: input.body.baseRevision,
       clientMutationId: input.body.clientMutationId,
       mimeType: source.revision.mimeType,
       sizeBytes: source.revision.sizeBytes,
     },
   });
-}
-
-async function buildSpaceFileRestoreRevisionId(
-  clientMutationId: string
-): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(`space-file-revision-restore:${clientMutationId}`)
-  );
-  const hex = Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0")
-  ).join("");
-  return `restore-${hex}`;
 }
 
 function requireSpaceFileBucket(env: CoreBindings): R2Bucket {

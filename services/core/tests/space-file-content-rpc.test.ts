@@ -1,6 +1,12 @@
-import { buildSpaceFileObjectKey } from "@openmeld/schemas";
-import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import {
+  buildSpaceFileObjectKey,
+  buildSpaceFileRevisionIdForMutation,
+} from "@openmeld/schemas";
+import type {
+  OpenMeldRequestContext,
+  PrepareSpaceFileWriteResponse,
+} from "@openmeld/schemas/types";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { createCoreRpcHttpError } from "../src/rpc/errors";
 import {
@@ -57,6 +63,8 @@ const FILE = {
   updatedAt: "2026-08-22T08:00:00.000Z",
   createdBy: ACTOR,
   updatedBy: ACTOR,
+  trashedAt: null,
+  trashedBy: null,
   latestRevision: REVISION,
 };
 const WRITE = {
@@ -71,6 +79,10 @@ const WRITE = {
   sizeBytes: BYTES.byteLength,
 };
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 function makeEnv(input?: {
   commitError?: Error;
   objectKey?: string;
@@ -79,8 +91,13 @@ function makeEnv(input?: {
   const objectKey = input?.objectKey ?? OBJECT_KEY;
   const stub = {
     rpcPrepareSpaceFileWrite: vi.fn(
-      async (request: { write: { fileId: string; revisionId: string } }) => ({
+      async (request: {
+        write: { fileId: string; revisionId: string };
+      }): Promise<PrepareSpaceFileWriteResponse> => ({
+        fileId: request.write.fileId,
         organizationId: ORGANIZATION_ID,
+        revisionId: request.write.revisionId,
+        spaceId: SPACE_ID,
         objectKey:
           input?.objectKey ??
           buildSpaceFileObjectKey({
@@ -91,7 +108,7 @@ function makeEnv(input?: {
           }),
       })
     ),
-    rpcCommitSpaceFileWrite: vi.fn(() => {
+    rpcCommitSpaceFileWrite: vi.fn((_request: { write: typeof WRITE }) => {
       if (input?.commitError) {
         return Promise.reject(input.commitError);
       }
@@ -154,7 +171,8 @@ describe("Core Space file content RPC", () => {
     expect(stub.rpcCommitSpaceFileWrite).toHaveBeenCalledOnce();
   });
 
-  it("removes an uncommitted R2 object when the metadata commit conflicts", async () => {
+  it("leaves an uncommitted R2 object unreachable when the metadata commit conflicts", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const conflict = createCoreRpcHttpError({
       status: 409,
       code: "space_file.conflict",
@@ -170,7 +188,48 @@ describe("Core Space file content RPC", () => {
         write: WRITE,
       })
     ).rejects.toBe(conflict);
-    expect(bucket.delete).toHaveBeenCalledWith(OBJECT_KEY);
+    expect(bucket.delete).not.toHaveBeenCalled();
+    expect(warn.mock.calls[0]?.[1]).not.toHaveProperty("error");
+  });
+
+  it("does not delete committed bytes after an uncertain commit response", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { bucket, env, stub } = makeEnv();
+    const uncertainCommit = new Error(
+      "Space commit response was lost for launch-notes.md"
+    );
+    stub.rpcCommitSpaceFileWrite.mockImplementationOnce(() => {
+      stub.rpcPrepareSpaceFileWrite.mockResolvedValue({
+        committedFile: FILE,
+        fileId: FILE_ID,
+        objectKey: OBJECT_KEY,
+        organizationId: ORGANIZATION_ID,
+        revisionId: REVISION_ID,
+        spaceId: SPACE_ID,
+      });
+      return Promise.reject(uncertainCommit);
+    });
+
+    await expect(
+      rpcWriteSpaceFileContent(env, {
+        bytes: Uint8Array.from(BYTES).buffer,
+        context: CONTEXT,
+        spaceId: SPACE_ID,
+        write: WRITE,
+      })
+    ).rejects.toBe(uncertainCommit);
+    await expect(
+      rpcWriteSpaceFileContent(env, {
+        bytes: Uint8Array.from(BYTES).buffer,
+        context: CONTEXT,
+        spaceId: SPACE_ID,
+        write: WRITE,
+      })
+    ).resolves.toEqual(FILE);
+
+    expect(bucket.delete).not.toHaveBeenCalled();
+    expect(bucket.put).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0]?.[1]).not.toHaveProperty("error");
   });
 
   it("authorizes metadata before reading the matching R2 revision", async () => {
@@ -251,6 +310,19 @@ describe("Core Space file content RPC", () => {
           mimeType: REVISION.mimeType,
           sizeBytes: BYTES.byteLength,
         }),
+      })
+    );
+    const committedWrite =
+      stub.rpcCommitSpaceFileWrite.mock.calls[0]?.[0].write;
+    if (!committedWrite) {
+      throw new Error("Expected the restored revision to be committed.");
+    }
+    expect(committedWrite.revisionId).toBe(
+      await buildSpaceFileRevisionIdForMutation({
+        baseRevision: 1,
+        bytes: Uint8Array.from(BYTES).buffer,
+        clientMutationId: "restore-version-1",
+        mimeType: REVISION.mimeType,
       })
     );
   });

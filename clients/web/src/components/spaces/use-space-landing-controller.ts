@@ -57,6 +57,7 @@ import {
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
 import {
+	isSpaceComposerFileFailed,
 	isSpaceComposerFileInProgress,
 	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
@@ -320,6 +321,7 @@ function buildComposerFileSubmission(input: {
 		hasComposerFiles: composerFiles.length > 0,
 		messageFiles,
 		previewUrlsByFileId,
+		uploadFailed: composerFiles.some(isSpaceComposerFileFailed),
 		uploadInProgress: composerFiles.some(isSpaceComposerFileInProgress),
 	};
 }
@@ -476,6 +478,12 @@ function prepareSpaceMessageSendAttempt(input: {
 	if (fileSubmission.uploadInProgress) {
 		return { errorMessage: null, status: "blocked" as const };
 	}
+	if (fileSubmission.uploadFailed) {
+		return {
+			errorMessage: "Remove files that could not be uploaded before sending.",
+			status: "blocked" as const,
+		};
+	}
 	const messageSeed = createSpaceMessageSendSeed({
 		composerText: input.composerText,
 		pendingMessage: input.pendingMessage,
@@ -518,6 +526,7 @@ function resolveThreadComposerBlockedReason(input: {
 	hasActiveThread: boolean;
 	hasFiles: boolean;
 	text: string;
+	uploadFailed: boolean;
 	uploadInProgress: boolean;
 }): string | null {
 	if (!input.hasActiveThread) {
@@ -525,6 +534,9 @@ function resolveThreadComposerBlockedReason(input: {
 	}
 	if (input.uploadInProgress) {
 		return "Wait for files to finish uploading before sending.";
+	}
+	if (input.uploadFailed) {
+		return "Remove files that could not be uploaded before sending.";
 	}
 	if (input.text.length === 0 && !input.hasFiles) {
 		return "Enter a reply or add a file before sending.";
@@ -2935,6 +2947,7 @@ function useSpaceThreadController(input: {
 			hasActiveThread: thread !== null,
 			hasFiles: fileSubmission.hasComposerFiles,
 			text: trimmedText,
+			uploadFailed: fileSubmission.uploadFailed,
 			uploadInProgress: fileSubmission.uploadInProgress,
 		});
 		if (blockedReason) {

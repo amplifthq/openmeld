@@ -42,6 +42,79 @@ export const spaceFileSizeBytesSchema = z
   .int()
   .min(0)
   .max(SPACE_FILE_MAX_SIZE_BYTES);
+
+/**
+ * Derives the opaque file identity for a retriable create mutation.
+ * Reusing the mutation identity produces the same file identity.
+ */
+export async function buildSpaceFileEntryIdForMutation(
+  clientMutationId: string
+): Promise<string> {
+  return await buildSpaceFileMutationStorageId({
+    clientMutationId,
+    kind: "file",
+  });
+}
+
+/**
+ * Derives an immutable revision identity from both the mutation and its bytes.
+ * Exact retries reuse the same object key, while changed bytes conflict instead
+ * of overwriting an already committed revision.
+ */
+export async function buildSpaceFileRevisionIdForMutation(input: {
+  baseRevision: number | null;
+  bytes: ArrayBuffer;
+  clientMutationId: string;
+  mimeType: string;
+  name?: string;
+  parentId?: string | null;
+}): Promise<string> {
+  const contentDigest = await sha256Hex(input.bytes);
+  const revisionIdentity = JSON.stringify({
+    baseRevision: spaceFileBaseRevisionSchema.parse(input.baseRevision),
+    contentDigest,
+    mimeType: spaceFileMimeTypeSchema.parse(input.mimeType),
+    name:
+      input.name === undefined ? null : spaceFileNameSchema.parse(input.name),
+    parentId:
+      input.parentId === undefined || input.parentId === null
+        ? null
+        : spaceFileEntryIdSchema.parse(input.parentId),
+  });
+  return await buildSpaceFileMutationStorageId({
+    clientMutationId: input.clientMutationId,
+    revisionIdentity,
+    kind: "revision",
+  });
+}
+
+async function buildSpaceFileMutationStorageId(input: {
+  clientMutationId: string;
+  kind: "file" | "revision";
+  revisionIdentity?: string;
+}): Promise<string> {
+  const clientMutationId = spaceFileClientMutationIdSchema.parse(
+    input.clientMutationId
+  );
+  const encoded = new TextEncoder().encode(
+    [
+      "space-file",
+      input.kind,
+      clientMutationId,
+      input.revisionIdentity ?? "",
+    ].join(":")
+  );
+  const bytes = new ArrayBuffer(encoded.byteLength);
+  new Uint8Array(bytes).set(encoded);
+  return `${input.kind}-${await sha256Hex(bytes)}`;
+}
+
+async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+}
 export const spaceFileMimeTypeSchema = z
   .string()
   .trim()

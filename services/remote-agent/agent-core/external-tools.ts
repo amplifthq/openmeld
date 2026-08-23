@@ -1,5 +1,7 @@
 import {
   buildSpaceAttachmentObjectKey,
+  buildSpaceFileEntryIdForMutation,
+  buildSpaceFileRevisionIdForMutation,
   detectSpaceAttachmentMimeType,
   SPACE_ATTACHMENT_MAX_SIZE_BYTES,
   SPACE_FILE_MAX_SIZE_BYTES,
@@ -561,7 +563,18 @@ async function captureBrowserScreenshot(input: {
       input.request.fileName ?? buildDefaultScreenshotFileName(format);
     if (useCanonicalSpaceFile) {
       const spaceId = turn.turnEnvelope?.space.id ?? "";
-      const fileId = crypto.randomUUID();
+      const clientMutationId = crypto.randomUUID();
+      const [fileId, revisionId] = await Promise.all([
+        buildSpaceFileEntryIdForMutation(clientMutationId),
+        buildSpaceFileRevisionIdForMutation({
+          baseRevision: null,
+          bytes,
+          clientMutationId,
+          mimeType,
+          name: fileName,
+          parentId: null,
+        }),
+      ]);
       const fileDescriptor = spaceFileDescriptorSchema.parse(
         await callCoreRpc(
           input.coreWorker,
@@ -572,12 +585,12 @@ async function captureBrowserScreenshot(input: {
             spaceId,
             write: {
               baseRevision: null,
-              clientMutationId: crypto.randomUUID(),
+              clientMutationId,
               fileId,
               mimeType,
               name: fileName,
               parentId: null,
-              revisionId: crypto.randomUUID(),
+              revisionId,
               sizeBytes: bytes.byteLength,
               spaceId,
             },

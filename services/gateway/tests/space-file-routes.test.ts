@@ -262,6 +262,58 @@ describe("Space file routes", () => {
     expect(bucket.put).not.toHaveBeenCalled();
   });
 
+  it("keeps upload storage ids stable when the client retries a mutation", async () => {
+    const { coreRpc, env } = makeEnv();
+
+    const firstResponse = await app.fetch(
+      uploadRequest(),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const secondResponse = await app.fetch(
+      uploadRequest(),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(firstResponse.status).toBe(201);
+    expect(secondResponse.status).toBe(201);
+    const firstWrite = coreRpc.writeSpaceFileContent.mock.calls[0]?.[0].write;
+    const secondWrite = coreRpc.writeSpaceFileContent.mock.calls[1]?.[0].write;
+    expect(firstWrite?.fileId).toBe(secondWrite?.fileId);
+    expect(firstWrite?.revisionId).toBe(secondWrite?.revisionId);
+  });
+
+  it("keeps revision storage ids stable when the client retries a save", async () => {
+    const { coreRpc, env } = makeEnv();
+    const request = () =>
+      new Request(
+        `http://local/v1/spaces/${SPACE_ID}/files/${FILE_ID}/content?baseRevision=1&clientMutationId=save-retry-route-test`,
+        {
+          body: Uint8Array.from(TEXT_BYTES).buffer,
+          headers: { "content-type": "text/markdown; charset=utf-8" },
+          method: "PUT",
+        }
+      );
+
+    const firstResponse = await app.fetch(
+      request(),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    const secondResponse = await app.fetch(
+      request(),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+    const firstWrite = coreRpc.writeSpaceFileContent.mock.calls[0]?.[0].write;
+    const secondWrite = coreRpc.writeSpaceFileContent.mock.calls[1]?.[0].write;
+    expect(firstWrite?.revisionId).toBe(secondWrite?.revisionId);
+  });
+
   it("preserves a Core revision conflict for the caller", async () => {
     const conflict = createCoreRpcHttpError({
       status: 409,

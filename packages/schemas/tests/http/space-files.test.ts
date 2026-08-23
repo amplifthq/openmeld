@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
+  buildSpaceFileRevisionIdForMutation,
   centerAgentListSpaceFilesRpcInputSchema,
   centerAgentManageSpaceFilesRpcInputSchema,
   createSpaceFolderBodySchema,
@@ -20,6 +22,70 @@ import {
 } from "../../src";
 
 describe("Space Files contracts", () => {
+  it("keeps exact write retries stable and changed bytes distinct", async () => {
+    const firstBytes = new TextEncoder().encode("first");
+    const repeatedBytes = new TextEncoder().encode("first");
+    const changedBytes = new TextEncoder().encode("other");
+    const toArrayBuffer = (value: Uint8Array) => {
+      const bytes = new ArrayBuffer(value.byteLength);
+      new Uint8Array(bytes).set(value);
+      return bytes;
+    };
+
+    expect(await buildSpaceFileEntryIdForMutation("create-retry")).toBe(
+      await buildSpaceFileEntryIdForMutation("create-retry")
+    );
+    expect(
+      await buildSpaceFileRevisionIdForMutation({
+        baseRevision: 1,
+        bytes: toArrayBuffer(firstBytes),
+        clientMutationId: "save-retry",
+        mimeType: "text/plain",
+      })
+    ).toBe(
+      await buildSpaceFileRevisionIdForMutation({
+        baseRevision: 1,
+        bytes: toArrayBuffer(repeatedBytes),
+        clientMutationId: "save-retry",
+        mimeType: "text/plain",
+      })
+    );
+    expect(
+      await buildSpaceFileRevisionIdForMutation({
+        baseRevision: 1,
+        bytes: toArrayBuffer(firstBytes),
+        clientMutationId: "save-retry",
+        mimeType: "text/plain",
+      })
+    ).not.toBe(
+      await buildSpaceFileRevisionIdForMutation({
+        baseRevision: 1,
+        bytes: toArrayBuffer(changedBytes),
+        clientMutationId: "save-retry",
+        mimeType: "text/plain",
+      })
+    );
+    expect(
+      await buildSpaceFileRevisionIdForMutation({
+        baseRevision: null,
+        bytes: toArrayBuffer(firstBytes),
+        clientMutationId: "create-retry",
+        mimeType: "text/plain",
+        name: "first.txt",
+        parentId: null,
+      })
+    ).not.toBe(
+      await buildSpaceFileRevisionIdForMutation({
+        baseRevision: null,
+        bytes: toArrayBuffer(firstBytes),
+        clientMutationId: "create-retry",
+        mimeType: "text/markdown",
+        name: "second.md",
+        parentId: null,
+      })
+    );
+  });
+
   it("keeps one shared immutable revision object-key format", () => {
     expect(
       buildSpaceFileObjectKey({

@@ -1976,7 +1976,9 @@ export {
   spaceDispatchTraceStreamingSchema,
 } from "./http/space-dispatch-trace";
 export {
+  buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
+  buildSpaceFileRevisionIdForMutation,
   commitSpaceFileWriteInputSchema,
   createSpaceFileUploadQuerySchema,
   createSpaceFolderBodySchema,

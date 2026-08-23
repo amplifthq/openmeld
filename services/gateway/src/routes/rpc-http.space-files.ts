@@ -6,6 +6,8 @@ import {
   withRequestIdHeader,
 } from "@openmeld/gateway-contract";
 import {
+  buildSpaceFileEntryIdForMutation,
+  buildSpaceFileRevisionIdForMutation,
   commitSpaceFileWriteInputSchema,
   createSpaceFileUploadQuerySchema,
   createSpaceFolderBodySchema,
@@ -377,10 +379,21 @@ async function uploadSpaceFile(c: Context<HonoBindings>): Promise<Response> {
   if (!body.ok) {
     return body.response;
   }
+  const [fileId, revisionId] = await Promise.all([
+    buildSpaceFileEntryIdForMutation(query.data.clientMutationId),
+    buildSpaceFileRevisionIdForMutation({
+      baseRevision: null,
+      bytes: body.bytes,
+      clientMutationId: query.data.clientMutationId,
+      mimeType: body.mimeType,
+      name: query.data.name,
+      parentId: query.data.parentId ?? null,
+    }),
+  ]);
   const write: CommitSpaceFileWriteInput = {
     spaceId: target.spaceId,
-    fileId: crypto.randomUUID(),
-    revisionId: crypto.randomUUID(),
+    fileId,
+    revisionId,
     name: query.data.name,
     parentId: query.data.parentId ?? null,
     baseRevision: null,
@@ -432,10 +445,16 @@ async function updateSpaceFileContent(
   if (!body.ok) {
     return body.response;
   }
+  const revisionId = await buildSpaceFileRevisionIdForMutation({
+    baseRevision: query.data.baseRevision,
+    bytes: body.bytes,
+    clientMutationId: query.data.clientMutationId,
+    mimeType: body.mimeType,
+  });
   const write = commitSpaceFileWriteInputSchema.parse({
     spaceId: target.spaceId,
     fileId: target.entryId,
-    revisionId: crypto.randomUUID(),
+    revisionId,
     baseRevision: query.data.baseRevision,
     clientMutationId: query.data.clientMutationId,
     mimeType: body.mimeType,

@@ -236,6 +236,7 @@ vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, to }: { children: ReactNode; to: string }) => (
 		<a href={to}>{children}</a>
 	),
+	useBlocker: () => ({ status: "unblocked" as const }),
 	useNavigate: () => useNavigateMock,
 	useRouterState: (input: {
 		select?: (state: { location: { pathname: string } }) => unknown;
@@ -11857,7 +11858,13 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows an actionable upload failure with its request ID without blocking text", async () => {
+	it("blocks publication until an upload failure is removed", async () => {
+		const postNormalMessageMock = vi.fn().mockResolvedValue({
+			signal: createTextSignal({
+				id: "signal-after-failed-file-removed",
+				text: "Text can still be sent",
+			}),
+		});
 		const uploadFileMock = vi.fn().mockRejectedValue(
 			new OpenMeldApiClientHttpError({
 				code: "upstream_error",
@@ -11869,7 +11876,7 @@ describe("SpaceLanding", () => {
 			})
 		);
 		createWebSpaceApiMock.mockReturnValue({
-			postNormalMessage: vi.fn(),
+			postNormalMessage: postNormalMessageMock,
 			uploadFile: uploadFileMock,
 		});
 		mockSpaceQueries({
@@ -11902,8 +11909,14 @@ describe("SpaceLanding", () => {
 		);
 		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
 			"disabled",
-			false
+			true
 		);
+		expect(
+			screen.getByText(
+				"Remove files that could not be uploaded before sending."
+			)
+		).toBeTruthy();
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "Remove broken.png" }));
 		expect(
@@ -11913,6 +11926,19 @@ describe("SpaceLanding", () => {
 		expect(URL.revokeObjectURL).toHaveBeenCalledWith(
 			"blob:source-image-preview"
 		);
+		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
+			"disabled",
+			false
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		await waitFor(() => {
+			expect(postNormalMessageMock).toHaveBeenCalledWith(
+				expect.objectContaining({
+					spaceId: "space-123",
+					text: "Text can still be sent",
+				})
+			);
+		});
 	});
 
 	it("accepts pasted and dropped files and stops at ten files", async () => {

@@ -1,8 +1,13 @@
+import {
+  buildSpaceFileEntryIdForMutation,
+  buildSpaceFileRevisionIdForMutation,
+} from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildRemoteAgentCoreCallbackBody,
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
+  type RemoteAgentCoreWorkerBinding,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
@@ -294,7 +299,9 @@ describe("Remote Agent external tools", () => {
       profileId: request.agentProfileId,
       profileKind: "agent" as const,
     };
-    const writeSpaceFileContent = vi.fn(async () => ({
+    const writeSpaceFileContent = vi.fn<
+      NonNullable<RemoteAgentCoreWorkerBinding["writeSpaceFileContent"]>
+    >(async () => ({
       createdAt: new Date(TEST_NOW_MS).toISOString(),
       createdBy: actor,
       id: "file_browser_screenshot",
@@ -361,6 +368,23 @@ describe("Remote Agent external tools", () => {
         spaceId: request.spaceId,
       },
     });
+    const canonicalWrite = writeSpaceFileContent.mock.calls[0]?.[0].write;
+    if (!canonicalWrite) {
+      throw new Error("Expected the screenshot to be written as a Space File.");
+    }
+    expect(canonicalWrite.fileId).toBe(
+      await buildSpaceFileEntryIdForMutation(canonicalWrite.clientMutationId)
+    );
+    expect(canonicalWrite.revisionId).toBe(
+      await buildSpaceFileRevisionIdForMutation({
+        baseRevision: null,
+        bytes: imageBytes,
+        clientMutationId: canonicalWrite.clientMutationId,
+        mimeType: "image/png",
+        name: "home.png",
+        parentId: null,
+      })
+    );
 
     const context = await readRemoteAgentCallbackContext(
       storage,
