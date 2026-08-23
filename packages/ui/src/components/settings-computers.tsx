@@ -316,7 +316,7 @@ export type SettingsLocalAgentRow = {
   summaryStatuses?: readonly SettingsLocalAgentRowSummaryStatus[];
 };
 
-const LOW_CAPACITY_USED_THRESHOLD_PERCENT = 80;
+const LOW_CAPACITY_REMAINING_THRESHOLD_PERCENT = 20;
 const US_USAGE_PERCENT_FORMATTER = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1,
 });
@@ -339,7 +339,7 @@ type UsageLimitPresentation = {
 type UsageLimitSummary = {
   accessibleDetails: string;
   presentation: UsageLimitPresentation;
-  usedPercent: number;
+  remainingPercent: number;
 };
 
 export function SettingsLocalAgentUsageSummary({
@@ -356,7 +356,9 @@ export function SettingsLocalAgentUsageSummary({
     return null;
   }
   const accessibleLabel = `${agentName} usage limits, ${summary.accessibleDetails}`;
-  const usedPercentLabel = formatUsedPercent(summary.usedPercent);
+  const remainingPercentLabel = formatRemainingPercent(
+    summary.remainingPercent
+  );
 
   return (
     <Tooltip>
@@ -366,7 +368,8 @@ export function SettingsLocalAgentUsageSummary({
             aria-label={accessibleLabel}
             aria-valuemax={100}
             aria-valuemin={0}
-            aria-valuenow={summary.usedPercent}
+            aria-valuenow={summary.remainingPercent}
+            aria-valuetext={`${remainingPercentLabel} left`}
             className="inline-flex h-5 shrink-0 items-center gap-1 font-medium text-xs tabular-nums"
             data-testid="local-agent-usage-summary"
             role="progressbar"
@@ -395,12 +398,12 @@ export function SettingsLocalAgentUsageSummary({
                 pathLength="100"
                 r="7.5"
                 stroke="currentColor"
-                strokeDasharray={`${summary.usedPercent} 100`}
+                strokeDasharray={`${summary.remainingPercent} 100`}
                 strokeLinecap="round"
                 strokeWidth="2.5"
               />
             </svg>
-            <span>{usedPercentLabel}</span>
+            <span>{remainingPercentLabel}</span>
           </span>
         }
       />
@@ -436,13 +439,14 @@ function UsageLimitPreview({
   nowMs: number;
 }) {
   const presentation = resolveUsageLimitPresentation(limit);
+  const remainingPercent = resolveRemainingPercent(limit.usedPercent);
   return (
     <span className="grid gap-0.5">
       <span className="font-medium">{limit.label}</span>
       <span>
-        {limit.usedPercent === null
+        {remainingPercent === null
           ? resolveMissingUsageCopy(limit.status)
-          : `${formatUsedPercent(limit.usedPercent)} used`}
+          : `${formatRemainingPercent(remainingPercent)} left`}
         {" · "}
         {presentation.label}
       </span>
@@ -516,7 +520,7 @@ function SettingsLocalAgentUsageLimitGauge({
   nowMs: number;
 }) {
   const presentation = resolveUsageLimitPresentation(limit);
-  const usedPercent = limit.usedPercent;
+  const remainingPercent = resolveRemainingPercent(limit.usedPercent);
   const resetLabel = formatUsageLimitReset(limit.resetsAt, nowMs);
   const observedLabel = formatUsageLimitObservation({
     nowMs,
@@ -525,7 +529,9 @@ function SettingsLocalAgentUsageLimitGauge({
   });
   const accessibleLabel = [
     `${agentName} ${limit.label}`,
-    usedPercent === null ? null : `${formatUsedPercent(usedPercent)} used`,
+    remainingPercent === null
+      ? null
+      : `${formatRemainingPercent(remainingPercent)} left`,
     presentation.label,
     resetLabel,
     observedLabel,
@@ -539,9 +545,9 @@ function SettingsLocalAgentUsageLimitGauge({
         <div className="min-w-0">
           <p className="truncate font-medium text-sm">{limit.label}</p>
           <p className="mt-0.5 text-muted-foreground text-xs">
-            {usedPercent === null
+            {remainingPercent === null
               ? resolveMissingUsageCopy(limit.status)
-              : `${formatUsedPercent(usedPercent)} used`}
+              : `${formatRemainingPercent(remainingPercent)} left`}
           </p>
         </div>
         <Badge
@@ -551,12 +557,13 @@ function SettingsLocalAgentUsageLimitGauge({
           {presentation.label}
         </Badge>
       </div>
-      {usedPercent === null ? null : (
+      {remainingPercent === null ? null : (
         <div
           aria-label={accessibleLabel}
           aria-valuemax={100}
           aria-valuemin={0}
-          aria-valuenow={usedPercent}
+          aria-valuenow={remainingPercent}
+          aria-valuetext={`${formatRemainingPercent(remainingPercent)} left`}
           className="mt-2 h-2 overflow-hidden rounded-full bg-muted"
           role="progressbar"
         >
@@ -566,7 +573,7 @@ function SettingsLocalAgentUsageLimitGauge({
               "h-full rounded-full",
               resolveUsageLimitBarClassName(presentation.tone)
             )}
-            style={{ width: `${usedPercent}%` }}
+            style={{ width: `${remainingPercent}%` }}
           />
         </div>
       )}
@@ -609,9 +616,10 @@ function resolveUsageLimitPresentation(
   if (limit.status === "unsupported") {
     return { label: "Unsupported", tone: "muted" };
   }
+  const remainingPercent = resolveRemainingPercent(limit.usedPercent);
   if (
-    limit.usedPercent !== null &&
-    limit.usedPercent >= LOW_CAPACITY_USED_THRESHOLD_PERCENT
+    remainingPercent !== null &&
+    remainingPercent <= LOW_CAPACITY_REMAINING_THRESHOLD_PERCENT
   ) {
     return { label: "Low", tone: "warning" };
   }
@@ -647,15 +655,15 @@ function resolveUsageLimitSummary(
     }
   }
 
-  const usedPercent = selectedLimit.usedPercent;
-  if (usedPercent === null) {
+  const remainingPercent = resolveRemainingPercent(selectedLimit.usedPercent);
+  if (remainingPercent === null) {
     return null;
   }
 
   return {
-    accessibleDetails: `${formatUsedPercent(usedPercent)} used, ${selectedPresentation.label}`,
+    accessibleDetails: `${formatRemainingPercent(remainingPercent)} left, ${selectedPresentation.label}`,
     presentation: selectedPresentation,
-    usedPercent,
+    remainingPercent,
   };
 }
 
@@ -690,8 +698,16 @@ function resolveMissingUsageCopy(
   return "Usage percentage not reported.";
 }
 
-function formatUsedPercent(value: number): string {
+function formatRemainingPercent(value: number): string {
   return `${US_USAGE_PERCENT_FORMATTER.format(value)}%`;
+}
+
+function resolveRemainingPercent(usedPercent: number | null): number | null {
+  if (usedPercent === null) {
+    return null;
+  }
+  const remainingPercent = Math.round((100 - usedPercent) * 10) / 10;
+  return Math.max(0, Math.min(100, remainingPercent));
 }
 
 function formatUsageLimitReset(resetsAt: string | null, nowMs: number): string {
