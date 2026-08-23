@@ -58,6 +58,7 @@ import {
 } from "#/query/organizations/organization-directory";
 import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
+import { buildEditableSpaceAgentProfilesById } from "./space-agent-profile-edit-access";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import { SpaceInlineSidePanel } from "./space-inline-side-panel";
 import { isSameOwnerUserId } from "./space-member-ownership";
@@ -645,21 +646,11 @@ function SpaceMembersBody(input: {
 		string | null
 	>(null);
 	const editableAgentProfilesById = useMemo(() => {
-		const profiles = new Map<string, AuthProfileView>();
-		if (!input.agentProfileEditContext) {
-			return profiles;
-		}
-		for (const profile of input.accountProfiles) {
-			if (
-				profile.profileKind === "agent" &&
-				profile.status === "active" &&
-				!profile.managedRole &&
-				profile.ownerUserId === input.currentOwnerUserId
-			) {
-				profiles.set(profile.openMeldProfileId, profile);
-			}
-		}
-		return profiles;
+		return buildEditableSpaceAgentProfilesById({
+			accountProfiles: input.accountProfiles,
+			currentOwnerUserId: input.currentOwnerUserId,
+			editContextAvailable: Boolean(input.agentProfileEditContext),
+		});
 	}, [
 		input.accountProfiles,
 		input.agentProfileEditContext,
@@ -789,6 +780,11 @@ function SpaceMembersBody(input: {
 			{editingAgentProfile && input.agentProfileEditContext ? (
 				<AgentProfileEditDialogController
 					context={input.agentProfileEditContext}
+					hasActiveWake={
+						input.activeWakeDisplayTargetProfileIds?.has(
+							editingAgentProfile.openMeldProfileId
+						) === true
+					}
 					modelCatalog={input.modelCatalog}
 					onOpenChange={(open) => {
 						if (!open) {

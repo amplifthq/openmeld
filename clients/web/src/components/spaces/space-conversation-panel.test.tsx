@@ -520,7 +520,9 @@ describe("SpaceConversationPanel", () => {
 
 	it("anchors a local-agent request under the Wake source and submits its response", async () => {
 		const onAgentInteractionResponse = vi.fn().mockResolvedValue(undefined);
+		const onEditAgentProfile = vi.fn();
 		renderSpaceConversationPanel({
+			editableAgentProfileIds: new Set([TARGET_PROFILE_ID]),
 			ephemeralActivityItems: [
 				{
 					...createWakeProgressItem({ sourceSignalId: "sig-wake" }),
@@ -554,6 +556,7 @@ describe("SpaceConversationPanel", () => {
 				},
 			],
 			onAgentInteractionResponse,
+			onEditAgentProfile,
 			readOnly: false,
 			timelineItems: [
 				createTimelineItem({
@@ -570,6 +573,11 @@ describe("SpaceConversationPanel", () => {
 		expect(sourceMessage).not.toBeNull();
 		const source = within(sourceMessage as HTMLElement);
 		expect(source.getByText("Allow this command?")).toBeTruthy();
+		fireEvent.click(
+			source.getByRole("button", { name: "Edit Agent permissions" })
+		);
+		expect(onEditAgentProfile).toHaveBeenCalledWith(TARGET_PROFILE_ID);
+		expect(onAgentInteractionResponse).not.toHaveBeenCalled();
 		fireEvent.click(source.getByRole("radio", { name: "Allow once" }));
 		fireEvent.click(
 			source.getByRole("button", { name: "Approve and continue" })

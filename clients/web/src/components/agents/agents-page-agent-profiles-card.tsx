@@ -3017,6 +3017,7 @@ function resolveAgentProfileEditDraftInput(input: {
 export function AgentProfileEditDialog(input: {
 	controllerChangeOptions: readonly AgentProfileControllerChangeOption[];
 	editState: AgentProfileEditState | null;
+	hasActiveWake?: boolean;
 	isLoading?: boolean;
 	isPending: boolean;
 	loadErrorMessage?: string | null;
@@ -3175,6 +3176,7 @@ function AgentProfileEditDialogContent(
 						disabled={input.isPending}
 						draftKey={draftKey}
 						editState={input.editState}
+						hasActiveWake={input.hasActiveWake === true}
 						modelCatalog={input.modelCatalog}
 						modelSelection={modelSelection}
 						onDraftChange={setDraft}
@@ -3237,6 +3239,7 @@ function AgentProfileEditDialogFields(input: {
 	controllerPermissionMode: AgentProfileControllerPermissionModeEditState | null;
 	dialogState: AgentProfileEditDialogState;
 	disabled: boolean;
+	hasActiveWake: boolean;
 	draftKey: string;
 	editState: AgentProfileEditState | null;
 	modelCatalog: ModelCatalog | null;
@@ -3278,12 +3281,18 @@ function AgentProfileEditDialogFields(input: {
 							input.editState.controllerPermissionMode
 						}
 						currentModelSelection={input.editState.modelSelection}
-						disabled={input.disabled}
+						disabled={input.disabled || input.hasActiveWake}
 						draftKey={input.draftKey}
 						modelCatalog={input.modelCatalog}
 						onDraftChange={input.onDraftChange}
 						options={input.controllerChangeOptions}
 					/>
+					{input.hasActiveWake ? (
+						<p className="text-muted-foreground text-xs leading-5">
+							Controller changes are unavailable while this Agent is working
+							because reconnecting would interrupt the current Wake.
+						</p>
+					) : null}
 					<AgentProfileModelSelectionEditSection
 						activeDraft={input.activeDraft}
 						disabled={input.disabled}

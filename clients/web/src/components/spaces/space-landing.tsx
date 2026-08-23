@@ -33,7 +33,10 @@ import {
 	useState,
 	useSyncExternalStore,
 } from "react";
-import type { AgentProfileEditDialogContext } from "#/components/agents/agent-profile-edit-dialog-controller";
+import {
+	type AgentProfileEditDialogContext,
+	AgentProfileEditDialogController,
+} from "#/components/agents/agent-profile-edit-dialog-controller";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { COMPLETED_PREPARE_SESSION_POINTER_STORAGE_KEY } from "#/components/connect/prepare-session-pointer";
@@ -101,7 +104,9 @@ import {
 } from "#/query/spaces/account-spaces";
 import type { SpaceBootstrapSnapshot } from "#/query/spaces/bootstrap";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import type { SpaceAgentProfileEditHandler } from "./space-agent-interaction-card";
 import { isManualOnlyAgentRecoveryPlan } from "./space-agent-manual-participation";
+import { buildEditableSpaceAgentProfilesById } from "./space-agent-profile-edit-access";
 import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recovery-action";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
@@ -1351,8 +1356,10 @@ function SpaceLandingReady({
 }) {
 	const {
 		accountProfiles,
+		activeWakeDisplayTargetProfileIds,
 		centerAgentState,
 		currentSpaceIsCenterAgentDirectMessage,
+		currentOwnerUserId,
 		handleAddAgentsFromBanner,
 		handleAddOrganizationDirectoryProfiles,
 		handleAddProfiles,
@@ -1362,6 +1369,7 @@ function SpaceLandingReady({
 		isDesktopMembersPanel,
 		membersOpen,
 		membersPanelWidth,
+		modelCatalog,
 		navigate,
 		organizationId,
 		recovery,
@@ -1453,6 +1461,33 @@ function SpaceLandingReady({
 		},
 		recovery,
 	});
+	const editableAgentProfilesById = useMemo(() => {
+		return buildEditableSpaceAgentProfilesById({
+			accountProfiles,
+			currentOwnerUserId,
+			editContextAvailable: Boolean(agentProfileEditContext),
+		});
+	}, [accountProfiles, agentProfileEditContext, currentOwnerUserId]);
+	const [
+		editingInteractionAgentProfileId,
+		setEditingInteractionAgentProfileId,
+	] = useState<string | null>(null);
+	const editingInteractionAgentProfile = editingInteractionAgentProfileId
+		? (editableAgentProfilesById.get(editingInteractionAgentProfileId) ?? null)
+		: null;
+	const editableAgentProfileIds = useMemo(
+		() => new Set(editableAgentProfilesById.keys()),
+		[editableAgentProfilesById]
+	);
+	const handleEditInteractionAgentProfile:
+		| SpaceAgentProfileEditHandler
+		| undefined = agentProfileEditContext
+		? (profileId) => {
+				if (editableAgentProfilesById.has(profileId)) {
+					setEditingInteractionAgentProfileId(profileId);
+				}
+			}
+		: undefined;
 	const isCompactPresentation = input.presentation === "compact";
 
 	return (
@@ -1535,8 +1570,10 @@ function SpaceLandingReady({
 						composerProfileControl={composerProfileControl}
 						controller={controller}
 						currentSpaceControls={currentSpaceControls}
+						editableAgentProfileIds={editableAgentProfileIds}
 						historyErrorMessage={historyErrorMessage}
 						input={input}
+						onEditAgentProfile={handleEditInteractionAgentProfile}
 						prepareSetupHref={prepareSetupHref}
 						state={state}
 					/>
@@ -1548,13 +1585,31 @@ function SpaceLandingReady({
 							composerProfileControl={composerProfileControl}
 							controller={controller}
 							currentSpaceControls={currentSpaceControls}
+							editableAgentProfileIds={editableAgentProfileIds}
 							input={input}
+							onEditAgentProfile={handleEditInteractionAgentProfile}
 							prepareSetupHref={prepareSetupHref}
 							state={state}
 						/>
 					)}
 				</div>
 			</AppMainContent>
+			{editingInteractionAgentProfile && agentProfileEditContext ? (
+				<AgentProfileEditDialogController
+					context={agentProfileEditContext}
+					hasActiveWake={activeWakeDisplayTargetProfileIds.has(
+						editingInteractionAgentProfile.openMeldProfileId
+					)}
+					modelCatalog={modelCatalog}
+					onOpenChange={(open) => {
+						if (!open) {
+							setEditingInteractionAgentProfileId(null);
+						}
+					}}
+					open={true}
+					profile={editingInteractionAgentProfile}
+				/>
+			) : null}
 		</>
 	);
 }
@@ -1585,8 +1640,10 @@ function SpaceLandingConversation({
 	composerProfileControl,
 	controller,
 	currentSpaceControls,
+	editableAgentProfileIds,
 	historyErrorMessage,
 	input,
+	onEditAgentProfile,
 	prepareSetupHref,
 	state,
 }: {
@@ -1596,8 +1653,10 @@ function SpaceLandingConversation({
 	composerProfileControl: ReactNode;
 	controller: ReadySpaceLandingController;
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
+	editableAgentProfileIds: ReadonlySet<string>;
 	historyErrorMessage: string | null;
 	input: SpaceLandingInput;
+	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	prepareSetupHref: string;
 	state: SpaceLandingState;
 }) {
@@ -1642,6 +1701,7 @@ function SpaceLandingConversation({
 			composerSelection={controller.composerSelection}
 			composerText={controller.composerText}
 			currentOwnerUserId={currentOwnerUserId}
+			editableAgentProfileIds={editableAgentProfileIds}
 			emptyStateDescription={
 				isDirectMessage ? undefined : EMPTY_SPACE_DESCRIPTION
 			}
@@ -1684,6 +1744,7 @@ function SpaceLandingConversation({
 			onComposerKeyDown={controller.onComposerKeyDown}
 			onComposerSelectionChange={controller.onComposerSelectionChange}
 			onCreateThread={controller.onCreateThread}
+			onEditAgentProfile={onEditAgentProfile}
 			onJumpToDate={controller.onJumpToDate}
 			onLoadEarlierHistory={controller.onLoadEarlierHistory}
 			onMentionItemHover={controller.onMentionItemHover}
@@ -1755,7 +1816,9 @@ function SpaceLandingSecondaryPanels({
 	composerProfileControl,
 	controller,
 	currentSpaceControls,
+	editableAgentProfileIds,
 	input,
+	onEditAgentProfile,
 	prepareSetupHref,
 	state,
 }: {
@@ -1768,7 +1831,9 @@ function SpaceLandingSecondaryPanels({
 	composerProfileControl: ReactNode;
 	controller: ReadySpaceLandingController;
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
+	editableAgentProfileIds: ReadonlySet<string>;
 	input: SpaceLandingInput;
+	onEditAgentProfile?: SpaceAgentProfileEditHandler;
 	prepareSetupHref: string;
 	state: SpaceLandingState;
 }) {
@@ -1848,6 +1913,7 @@ function SpaceLandingSecondaryPanels({
 				}
 				composerSelection={controller.threadComposerSelection}
 				composerText={controller.threadComposerText}
+				editableAgentProfileIds={editableAgentProfileIds}
 				ephemeralActivityItems={controller.threadEphemeralActivityItems}
 				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
 				initialFocusSignalId={input.initialFocusSignalId}
@@ -1867,6 +1933,7 @@ function SpaceLandingSecondaryPanels({
 				onComposerChange={controller.onThreadComposerChange}
 				onComposerKeyDown={controller.onThreadComposerKeyDown}
 				onComposerSelectionChange={controller.onThreadComposerSelectionChange}
+				onEditAgentProfile={onEditAgentProfile}
 				onMentionItemHover={controller.onThreadMentionItemHover}
 				onMentionItemSelect={controller.onThreadMentionItemSelect}
 				onMentionPopoverClose={controller.onThreadMentionPopoverClose}

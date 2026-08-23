@@ -39,6 +39,7 @@ export type AgentProfileEditDialogContext = Omit<
 
 export function AgentProfileEditDialogController(input: {
 	context: AgentProfileEditDialogContext;
+	hasActiveWake?: boolean;
 	modelCatalog: ModelCatalog | null;
 	onOpenChange: (open: boolean) => void;
 	open: boolean;
@@ -159,6 +160,7 @@ export function AgentProfileEditDialogController(input: {
 		<AgentProfileEditDialog
 			controllerChangeOptions={controllerChangeOptions}
 			editState={editState}
+			hasActiveWake={input.hasActiveWake}
 			isLoading={input.open && bindingQuery.isPending}
 			isPending={isPending}
 			loadErrorMessage={
