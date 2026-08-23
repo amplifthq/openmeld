@@ -144,6 +144,20 @@ test("treats local component product changes as a CLI release", () => {
   );
 });
 
+test("treats embedded CLI data changes as a CLI release without package changes", () => {
+  assert.deepEqual(
+    resolveAutomaticReleaseScopes({
+      affectedPackages: [],
+      changedPaths: [
+        "changelog/entries/opencode-ox-alpha-free.md",
+        "packages/schemas/tests/config/model-catalog.test.ts",
+        "release/vendor-models.json",
+      ],
+    }),
+    ["cli"]
+  );
+});
+
 test("builds only scope-owned verification steps", () => {
   const labels = buildProductionVerifyStepSpecs({
     changedPaths: ["clients/web/src/routes/index.tsx"],
