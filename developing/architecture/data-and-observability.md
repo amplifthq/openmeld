@@ -806,8 +806,12 @@ access.
 
 Trash is a reversible metadata state in the MVP. Trashing a folder requires it
 to be empty, so one mutation cannot silently hide a subtree. Revision objects
-remain private and retained; physical reclamation is a later explicitly-owned
-maintenance lifecycle, not part of an interactive delete request.
+remain private and retained. An active member may list Trash and restore the
+same stable entry id; restoration fails visibly if its former parent is no
+longer active or its name now collides in that folder. Public and
+Organization-only viewers cannot list Trash. Physical reclamation is a later
+explicitly-owned maintenance lifecycle, not part of an interactive delete
+request.
 
 File audit events include Organization id, Space id, stable entry id, revision
 id when relevant, operation, actor Profile, represented human when applicable,

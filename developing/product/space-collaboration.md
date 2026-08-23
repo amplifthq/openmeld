@@ -134,13 +134,16 @@ preserves both collaborators' work, and requires the writer to read the current
 revision before trying again. This is the MVP multi-player safety boundary. It
 does not claim character-by-character live co-editing or CRDT semantics.
 
-Space access owns file access. A viewer who may read the Space may list folders,
-read metadata, and download files. Only an active Space member may create a
-folder, upload a file, create a new revision, rename or move an entry, or move an
-entry to Trash. Folder placement grants no additional permission and there is no
-per-file ACL in the MVP. Agent writes use an authenticated active Agent Profile
-member or an authorized continuation of that member's accepted execution; a
-Center Agent designation is not an access bypass.
+Space access owns file access. A viewer who may read the Space may list active
+folders, read active metadata, and download active files. Trash is visible only
+to active human or Agent Profile members because deleted names and attribution
+are collaboration history, not public Space content. Only an active member may
+create a folder, upload a file, create a new revision, rename or move an entry,
+move an entry to Trash, or restore it. Folder placement grants no additional
+permission and there is no per-file ACL in the MVP. Agent writes use an
+authenticated active Agent Profile member or an authorized continuation of that
+member's accepted execution; a Center Agent designation is not an access
+bypass.
 
 Space File metadata, hierarchy, revision order, optimistic concurrency, actor
 attribution, and Trash state are canonical in that Space's Durable Object
@@ -168,9 +171,14 @@ may create a new Organization-owned file with clear provenance; it must not
 create bidirectional synchronization, shared identity, or hidden write-through.
 
 Web presents **Messages | Graph | Files** in one Space. Files opens at the Space
-root and supports folder navigation, upload, download, Markdown creation and
-editing, source editing for other supported text formats, rename, move, Trash,
-visible revision and actor information, and explicit conflict recovery.
+root and supports folder navigation, picker or whole-surface drag-and-drop
+upload, download, Markdown creation and editing, source editing for other
+supported text formats, rename, move, recoverable Trash, a compact version
+history, older-version preview and restore, visible actor information, and
+explicit conflict recovery. Restoring an older revision creates a new current
+revision and never deletes later history. Leaving an unsaved file through the
+file back action, Space tabs, another file reference, an internal route, reload,
+or window close uses one save, discard, or cancel contract.
 Markdown files use the same WYSIWYG CommonMark + GFM editor as Organization
 Documents; this shared editing surface does not merge the two storage owners.
 CLI and Agent tools expose the same ids, paths, revisions, MIME inference, and

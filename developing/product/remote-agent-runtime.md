@@ -581,6 +581,12 @@ publish a file, it creates or revises a Space File first and passes the returned
 canonical reference to `openmeld_post_space_message`; that message does not
 copy the bytes or create a Resources projection.
 
+The same tools can request the active tree or member-only Trash, include bounded
+immutable revision history on read, restore a trashed entry, and restore an old
+text revision as a new conflict-fenced latest revision. Tool output keeps actor,
+revision, and stable-id facts explicit so the model never treats a path or
+display name as file authority.
+
 Referenced JPEG and PNG revisions also enter the existing image-understanding
 path. Core resolves the exact immutable revision under the Center Agent's Space
 membership, and Remote Agent reads that private object without creating or

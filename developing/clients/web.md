@@ -2327,17 +2327,20 @@ context; it is not a Resources redirect or a second app shell. Opening Files
 loads the Space root, and opening folders uses breadcrumb navigation without
 changing file identity.
 
-The initial Files surface supports native file upload, folder creation,
-download, Markdown-file creation, supported text-file editing, rename, move,
-and move to Trash. Each row shows the concrete type, size when applicable,
-latest revision, last editor, and update time. Empty, loading, permission,
-network-failure, upload-progress, and conflict states use plain product language
-and one next action. Read-only Space viewers see the same tree without mutation
-controls. Image rows use the current revision as their visual thumbnail instead
-of a generic file icon. In the conversation, canonical image references retain
-the familiar inline image preview and morph into a focused full-size view when
-selected; non-image references remain file cards, and both presentations lead
-to the same canonical entry in Files.
+The initial Files surface supports native file upload, whole-surface drag and
+drop with a visible drop target, folder creation, download, Markdown-file
+creation, supported text-file editing, rename, move, and move to Trash. Trash is
+a separate member-only view with concrete deletion attribution and one-click
+restore; it is not shown to public or Organization-only viewers. Each active row
+shows the concrete type, size when applicable, latest revision, last editor, and
+update time. Empty, loading, permission, network-failure, upload-progress, and
+conflict states use plain product language and one next action. Read-only Space
+viewers see the active tree without mutation controls. Image rows use the
+current revision as their visual thumbnail instead of a generic file icon. In
+the conversation, canonical image references retain the familiar inline image
+preview and morph into a focused full-size view when selected; non-image
+references remain file cards, and both presentations lead to the same canonical
+entry in Files.
 
 Markdown creation and editing reuse the exact rich Plate surface owned by the
 Organization Documents experience. Both surfaces persist one CommonMark + GFM
@@ -2353,8 +2356,17 @@ on `space_file.conflict`, Web keeps the user's unsaved text, explains that a
 collaborator saved a newer version, and offers to reload the latest content or
 copy the local draft. Web never retries a stale save automatically. A
 `space.files.changed` frame invalidates the current file query and never edits
-browser state directly. Returning to the Space file list with a local draft
-uses the same save, discard, or cancel confirmation as Organization Documents.
+browser state directly. **History** opens a temporary right-side drawer instead
+of permanently shrinking the editor. Selecting an older revision closes the
+drawer and previews that snapshot read-only in the main surface. A member may
+restore it as a new latest revision without erasing later revisions. The header
+uses the viewer's local date and time instead of a hard-coded timezone.
+
+Returning to the file list, changing **Messages | Graph | Files**, opening a
+different chat file, following an internal route, reloading, or closing the
+window with a local draft uses the same save, discard, or cancel contract as
+Organization Documents. A repeated click on a chat file card reopens its exact
+sent revision even after the viewer temporarily returned to the current file.
 
 - the main timeline shows root conversation messages
 - `Reply to` creates a normal reply relation to a message

@@ -1043,6 +1043,14 @@ missing entries remain separate explicit outcomes. Upload and download bodies
 are raw bytes, not base64 JSON. Agent-facing text reads and writes adapt through
 Core but preserve the same ids and revision fence.
 
+The list contract names either the active tree or Trash. Trash reads and all
+restore mutations require active Space membership. Entry restore clears Trash
+on the same id and preserves every immutable revision. Revision restore copies
+the selected immutable bytes into a new conflict-fenced current revision; it
+never rewinds or deletes history. Retrying the same prepare/write mutation after
+an uncertain response returns the already committed file before another R2
+write, while reusing a mutation id for different inputs fails explicitly.
+
 `signal.text.data.files`, normal-message bodies, thread-message bodies,
 dispatch source snapshots, Center Agent Space posts, and Local Agent Space
 Actions share one optional bounded array of canonical file references. Each

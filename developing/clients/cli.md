@@ -1344,6 +1344,9 @@ Use scoped owner documents for deeper rules:
 - `space send --file` and `space action reply --file` upload all validated
   canonical Space Files before posting; file failure must not publish a
   file-free fallback.
+- `space files list --trash`, `space files history`, `space files restore`, and
+  `space files restore-version` consume the same member-only Trash and immutable
+  revision contract as Web; restoring a version creates a new latest revision.
 - Status commands must remain read-only.
 - Mutating commands must be explicit and lane-scoped.
 - `openmeld routines` exposes exactly eight commands, uses an explicit target
