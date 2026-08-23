@@ -1185,6 +1185,13 @@ Profiles.
 CLI trace reads the shared observability model. It must not become a direct D1
 reader, direct Durable Object reader, or second trace system.
 
+The current CLI explicitly requests dispatch-trace response contract version
+`2`. Its default Agent View surfaces an authoritative RuntimeCoordinator
+head-waiting reason, hard deadline, wait target, and recovery action before it
+considers historical attempt errors. An older Core may return the legacy
+subset; the CLI must still parse that response and report only the evidence it
+contains.
+
 In Agent View, `--details` requests the bounded Remote Agent runtime diagnostic
 projection when the selected dispatch used the hosted Center Agent. The caller
 still supplies only the normal Space and dispatch selectors. Core resolves the

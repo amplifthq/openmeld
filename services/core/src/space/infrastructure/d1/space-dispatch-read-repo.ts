@@ -9,6 +9,8 @@ import {
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+  spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema,
 } from "@openmeld/schemas";
 import type {
   DispatchResult,
@@ -16,6 +18,7 @@ import type {
   RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceRequest,
   RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse,
   SpaceDispatchTraceResponse,
+  SpaceDispatchTraceResponseContractVersion,
   SpaceDispatchTraceSnapshot,
 } from "@openmeld/schemas/types";
 import {
@@ -250,6 +253,7 @@ export const readSpaceDispatchTrace = async (input: {
   readFinalVisibleMessageTrace?: FinalVisibleMessageTraceReader;
   readRuntimeCoordinatorHeadLifecycleTrace?: RuntimeCoordinatorHeadLifecycleTraceReader;
   readReplySignalTrace: ReplySignalTraceReader;
+  responseContractVersion?: SpaceDispatchTraceResponseContractVersion;
   spaceId: string;
 }): Promise<SpaceDispatchTraceResponse> => {
   const normalizedDispatchId = normalizeOptionalText(input.dispatchId);
@@ -412,7 +416,7 @@ export const readSpaceDispatchTrace = async (input: {
     structuredActionFailure,
   };
 
-  return {
+  const response: SpaceDispatchTraceResponse = {
     correlation: projectObservabilityWakeCorrelation({
       selector: {
         kind: "dispatch",
@@ -465,6 +469,10 @@ export const readSpaceDispatchTrace = async (input: {
       finalVisibleOutcome: projectSpaceDispatchTraceFinalVisibleOutcome(trace),
     },
   };
+  return input.responseContractVersion ===
+    SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+    ? response
+    : projectSpaceDispatchTraceResponseV1(response);
 };
 
 export const readDispatchResultConversationFacts = async (input: {
@@ -964,21 +972,11 @@ function toRuntimeCoordinatorHeadLifecycleTraceRecord(
 
   const sourcePublicationIntent = response.lifecycle.publicationIntent;
   const sourceWaitingBoundary = response.lifecycle.waitingBoundary;
-  // Published CLI versions parse RuntimeCoordinator head details with strict
-  // enums. Keep pending-first-report-only details internal until a versioned
-  // public trace contract can expose them without breaking existing clients.
   let publicationIntent: Extract<
     DispatchTraceRuntimeCoordinatorHeadLifecycleRecord,
     { readStatus: "found" }
   >["publicationIntent"] = null;
-  if (
-    sourcePublicationIntent?.kind === "no_execution_failure" &&
-    sourcePublicationIntent.reasonCode !==
-      "daemon.profile.pending_first_report" &&
-    sourcePublicationIntent.publicationCategory !==
-      "wake_route_registration_pending" &&
-    sourcePublicationIntent.userRecoveryAction !== "wait_for_wake_route_report"
-  ) {
+  if (sourcePublicationIntent?.kind === "no_execution_failure") {
     publicationIntent = {
       intentId: sourcePublicationIntent.intentId,
       kind: sourcePublicationIntent.kind,
@@ -1006,26 +1004,19 @@ function toRuntimeCoordinatorHeadLifecycleTraceRecord(
     ),
     factSource: "runtime_coordinator_head_lifecycle",
     modelVersion: response.lifecycle.modelVersion,
-    noExecutionDecision:
-      response.lifecycle.noExecutionDecision &&
-      response.lifecycle.noExecutionDecision.reasonCode !==
-        "daemon.profile.pending_first_report" &&
-      response.lifecycle.noExecutionDecision.publicationCategory !==
-        "wake_route_registration_pending" &&
-      response.lifecycle.noExecutionDecision.userRecoveryAction !==
-        "wait_for_wake_route_report"
-        ? {
-            decidedAt: toIsoDateTime(
-              response.lifecycle.noExecutionDecision.decidedAtMs
-            ),
-            publicationCategory:
-              response.lifecycle.noExecutionDecision.publicationCategory,
-            reasonCode: response.lifecycle.noExecutionDecision.reasonCode,
-            source: response.lifecycle.noExecutionDecision.source,
-            userRecoveryAction:
-              response.lifecycle.noExecutionDecision.userRecoveryAction,
-          }
-        : null,
+    noExecutionDecision: response.lifecycle.noExecutionDecision
+      ? {
+          decidedAt: toIsoDateTime(
+            response.lifecycle.noExecutionDecision.decidedAtMs
+          ),
+          publicationCategory:
+            response.lifecycle.noExecutionDecision.publicationCategory,
+          reasonCode: response.lifecycle.noExecutionDecision.reasonCode,
+          source: response.lifecycle.noExecutionDecision.source,
+          userRecoveryAction:
+            response.lifecycle.noExecutionDecision.userRecoveryAction,
+        }
+      : null,
     ownerUserId: response.lifecycle.ownerUserId,
     primaryDispatchId: response.lifecycle.primaryDispatchId,
     publicationIntent,
@@ -1074,25 +1065,96 @@ function toRuntimeCoordinatorHeadLifecycleTraceRecord(
       ? { targetDisplay: response.lifecycle.targetDisplay }
       : {}),
     updatedAt: toIsoDateTime(response.lifecycle.updatedAtMs),
-    waitingBoundary:
-      sourceWaitingBoundary?.reasonCode === "daemon.profile.offline"
-        ? {
-            deadlineAt: toIsoDateTime(sourceWaitingBoundary.deadlineAtMs),
-            deadlineOutcome: sourceWaitingBoundary.deadlineOutcome,
-            observedAt: toIsoDateTime(sourceWaitingBoundary.observedAtMs),
-            reasonCode: "daemon.profile.offline",
-            softDeadlineAt: toIsoDateTime(
-              sourceWaitingBoundary.softDeadlineAtMs
-            ),
-            trigger: "openmeld_service_route_connected",
-            triggerOwner: "runtime_coordinator",
-            userRecoveryAction: "start_or_restart_openmeld_service",
-            userVisibleState: "waiting_for_openmeld_service",
-            waitingCategory: "service_not_connected",
-            waitingFor: "openmeld_service_route_connection",
-            waitingSince: toIsoDateTime(sourceWaitingBoundary.waitingSinceMs),
-          }
-        : null,
+    waitingBoundary: projectRuntimeCoordinatorHeadWaitingBoundary(
+      sourceWaitingBoundary
+    ),
+  };
+}
+
+function projectRuntimeCoordinatorHeadWaitingBoundary(
+  source: Extract<
+    RuntimeTransportRuntimeCoordinatorHeadLifecycleTraceResponse,
+    { readStatus: "found" }
+  >["lifecycle"]["waitingBoundary"]
+): Extract<
+  DispatchTraceRuntimeCoordinatorHeadLifecycleRecord,
+  { readStatus: "found" }
+>["waitingBoundary"] {
+  if (!source) {
+    return null;
+  }
+  const common = {
+    deadlineAt: toIsoDateTime(source.deadlineAtMs),
+    deadlineOutcome: source.deadlineOutcome,
+    observedAt: toIsoDateTime(source.observedAtMs),
+    softDeadlineAt: toIsoDateTime(source.softDeadlineAtMs),
+    triggerOwner: source.triggerOwner,
+    waitingSince: toIsoDateTime(source.waitingSinceMs),
+  };
+  if (source.reasonCode === "daemon.profile.pending_first_report") {
+    return {
+      ...common,
+      reasonCode: source.reasonCode,
+      trigger: source.trigger,
+      userRecoveryAction: source.userRecoveryAction,
+      userVisibleState: source.userVisibleState,
+      waitingCategory: source.waitingCategory,
+      waitingFor: source.waitingFor,
+    };
+  }
+  return {
+    ...common,
+    reasonCode: source.reasonCode,
+    trigger: source.trigger,
+    userRecoveryAction: source.userRecoveryAction,
+    userVisibleState: source.userVisibleState,
+    waitingCategory: source.waitingCategory,
+    waitingFor: source.waitingFor,
+  };
+}
+
+function projectSpaceDispatchTraceResponseV1(
+  response: SpaceDispatchTraceResponse
+): SpaceDispatchTraceResponse {
+  const headLifecycle = response.trace?.runtimeCoordinatorHeadLifecycle;
+  if (headLifecycle?.readStatus !== "found") {
+    return response;
+  }
+  const noExecutionDecision = headLifecycle.noExecutionDecision;
+  const publicationIntent = headLifecycle.publicationIntent;
+  const legacyHeadLifecycle =
+    spaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1Schema.parse({
+      ...headLifecycle,
+      noExecutionDecision:
+        noExecutionDecision?.reasonCode ===
+          "daemon.profile.pending_first_report" ||
+        noExecutionDecision?.publicationCategory ===
+          "wake_route_registration_pending" ||
+        noExecutionDecision?.userRecoveryAction === "wait_for_wake_route_report"
+          ? null
+          : noExecutionDecision,
+      publicationIntent:
+        publicationIntent?.kind === "no_execution_failure" &&
+        (publicationIntent.reasonCode ===
+          "daemon.profile.pending_first_report" ||
+          publicationIntent.publicationCategory ===
+            "wake_route_registration_pending" ||
+          publicationIntent.userRecoveryAction === "wait_for_wake_route_report")
+          ? null
+          : publicationIntent,
+      waitingBoundary:
+        headLifecycle.waitingBoundary?.reasonCode === "daemon.profile.offline"
+          ? headLifecycle.waitingBoundary
+          : null,
+    });
+  return {
+    ...response,
+    trace: response.trace
+      ? {
+          ...response.trace,
+          runtimeCoordinatorHeadLifecycle: legacyHeadLifecycle,
+        }
+      : null,
   };
 }
 

@@ -1375,6 +1375,14 @@ responses must expose
 correlation fields from existing facts through
 `projectObservabilityWakeCorrelation(...)`.
 
+The current trace response must preserve the authoritative RuntimeCoordinator
+head-waiting boundary. While a connected Service has not yet reported the
+target Agent Profile's Wake route, that boundary includes
+`daemon.profile.pending_first_report`, the hard and soft deadlines, the wait
+trigger, and `wait_for_wake_route_report`. A historical dispatch-attempt error
+must not replace those current facts or make Trace prescribe reconnecting the
+Service.
+
 Trace output must show absence as evidence: no source signal, no Wake target,
 target not in Space, Binding missing, Runtime unavailable, capability
 unavailable, execution denied, result missing, or reply not delivered.

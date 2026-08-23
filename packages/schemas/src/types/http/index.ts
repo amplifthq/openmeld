@@ -985,13 +985,18 @@ export type {
   SpaceDispatchTraceQuery,
   SpaceDispatchTraceReplySignal,
   SpaceDispatchTraceResponse,
+  SpaceDispatchTraceResponseContractVersion,
+  SpaceDispatchTraceResponseV1,
   SpaceDispatchTraceResult,
   SpaceDispatchTraceResultInbox,
   SpaceDispatchTraceResultInboxPublishState,
   SpaceDispatchTraceRuntimeCoordinatorCreationDiagnostic,
   SpaceDispatchTraceRuntimeCoordinatorEvent,
   SpaceDispatchTraceRuntimeCoordinatorExecution,
+  SpaceDispatchTraceRuntimeCoordinatorHeadLifecycle,
+  SpaceDispatchTraceRuntimeCoordinatorHeadLifecycleV1,
   SpaceDispatchTraceSnapshot,
+  SpaceDispatchTraceSnapshotV1,
 } from "./space-dispatch-trace";
 export type {
   AddCenterAgentToSpaceBody,
