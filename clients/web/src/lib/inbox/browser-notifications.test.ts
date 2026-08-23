@@ -230,6 +230,15 @@ describe("Inbox browser notifications", () => {
 		).toBe(true);
 		expect(
 			isInboxBrowserNotificationEligible(
+				createInboxItem({
+					importance: "normal",
+					attention: "update",
+					kind: "center_agent_task",
+				})
+			)
+		).toBe(true);
+		expect(
+			isInboxBrowserNotificationEligible(
 				createInboxItem({ importance: "urgent" })
 			)
 		).toBe(true);

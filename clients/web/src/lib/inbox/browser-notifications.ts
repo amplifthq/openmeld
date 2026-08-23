@@ -68,11 +68,20 @@ export function isInboxBrowserNotificationEligible(item: InboxItem): boolean {
 	return isDirectlyAddressedInboxUpdate(item.kind);
 }
 
+/**
+ * Update-class items that still directly concern the member: being referenced,
+ * replies addressed to them, their own Wake outcomes, and Center Agent Task
+ * endings. The Task producer only emits an item for needs_attention or a
+ * terminal status (succeeded/failed/stopped), never for intermediate progress,
+ * so every unread center_agent_task update is an ending the requester should
+ * hear about.
+ */
 function isDirectlyAddressedInboxUpdate(kind: InboxItem["kind"]): boolean {
 	return (
 		kind === "space_reference" ||
 		kind === "agent_reply" ||
-		kind === "wake_outcome"
+		kind === "wake_outcome" ||
+		kind === "center_agent_task"
 	);
 }
 

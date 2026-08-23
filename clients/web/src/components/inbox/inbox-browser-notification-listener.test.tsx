@@ -24,7 +24,8 @@ vi.mock("#/lib/inbox/browser-notifications", () => ({
 			item.resolutionStatus === "open") ||
 		item.kind === "space_reference" ||
 		item.kind === "agent_reply" ||
-		item.kind === "wake_outcome",
+		item.kind === "wake_outcome" ||
+		item.kind === "center_agent_task",
 	readInboxBrowserNotificationSettings: () => ({
 		enabled: true,
 		permission: "granted",

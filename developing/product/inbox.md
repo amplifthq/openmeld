@@ -340,12 +340,16 @@ two optional delivery channels:
   and Direct Messages and is reachable from Settings -> Personal ->
   Notifications and from any Space Info. Phase 1 delivers newly observed
   unread items that are urgent, open action-required, or directly addressed to
-  the member: references of that member, replies intended for them (including
-  Center Agent replies), and Wake outcomes that end in a visible failure or
-  stopped state. Ordinary Space message updates stay in Inbox without a system
-  notification. A visible tab suppresses delivery only for the conversation it
-  is currently showing; a hidden tab can deliver any eligible item. They never
-  form a second unread store.
+  the member: references of that member, replies intended for them (a
+  successful Wake reaches its requester through its final reply item), their
+  Wake outcomes that end in a visible failure or stopped state, and Center
+  Agent Task endings (succeeded, failed, or stopped) addressed to the Task
+  requester. The Task producer never creates items for intermediate progress,
+  so these deliveries are always endings, not chatter. Ordinary Space message
+  updates stay in Inbox without a system notification. A visible tab
+  suppresses delivery only for the conversation it is currently showing; a
+  hidden tab can deliver any eligible item. They never form a second unread
+  store.
 - **Urgent email** is enabled by default at the account level and may be turned
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe
