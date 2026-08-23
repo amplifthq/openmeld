@@ -194,9 +194,12 @@ release/vendor-models.json   (repo, PR-reviewed)
   CLI carries a build-time embedded snapshot   ← offline fallback only
 ```
 
-A catalog change reaches Web and online CLI on the next **core deploy**; it does
-**not** require a CLI npm publish and is **not** a direct DB edit. (See §9 for
-why DB editing was rejected.)
+A catalog change is **not** a direct DB edit (see §9 for why DB editing was
+rejected). Because the packaged CLI embeds this catalog, the edit also moves
+the OpenMeld Service bundle hash, and a Core-only deploy fails closed on the
+stale `release/local-components.json` hash. Publish a catalog change through
+the CLI release lane: its Core projection deploy is what brings the new
+catalog to Web and online CLI.
 
 ### 5.3 Maintenance Workflow (must be documented in-repo)
 
@@ -204,9 +207,15 @@ why DB editing was rejected.)
    change a controller default, update reasoning options).
 2. Open a PR. Review is the safety gate for the high-blast-radius default-model
    value. CI validates against the catalog schema in `packages/schemas`.
-3. Merge to main, deploy core (local `wrangler` for now while the release CI
-   pipeline is being repaired separately).
-4. The CLI's embedded snapshot refreshes on the normal CLI release cadence.
+3. Merge to main, stamp on a clean `main` worktree (`pnpm release:local-components
+   stamp --next --cli available --service available --skills available`), and push
+   the stamp commit directly to `main`. Feature and PR branches must keep the base
+   package version and manifest unchanged; the pre-push gate enforces this with
+   deferred-release verification against the PR base.
+4. Dispatch the CLI Release workflow at that commit. It publishes npm, R2, the
+   release tag, and the Core projection. The projection serves the new catalog to
+   Web and online CLI, and the CLI's embedded snapshot ships in the same published
+   version — there is no separate "refresh later" cadence to wait for.
 
 A short maintenance guide (how to add/retire a model, change a default, source
 the exact reasoning option strings, run the owner-doc check, deploy) ships as

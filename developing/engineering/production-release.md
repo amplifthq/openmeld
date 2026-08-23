@@ -21,6 +21,11 @@ Release only what changed.
 - A Gateway fix releases Gateway.
 - A database migration plus Core change releases Database, then Core.
 - A CLI patch publishes CLI and updates its required Core projection.
+- Any change to a file that feeds the packaged CLI or OpenMeld Service bundle,
+  including embedded data such as `release/vendor-models.json`, is a
+  local-component release even when no runtime behavior changes: stamp from a
+  clean `main` worktree and publish through the CLI lane. A Core-only deploy
+  fails closed on the stale bundle hash.
 - `cloud` and `full` are explicit coordinated rollouts, not defaults.
 
 Do not redeploy unrelated services for ceremony. Broader validation may be
@@ -487,7 +492,11 @@ approved that exact version; `--version` and `--next` are mutually exclusive.
 The stamp command rebuilds the packaged CLI before recording its Service hash,
 rejects source drift, and verifies the result. Never hand-edit the hash, reuse
 an existing `dist`, or pass `--current` to prepare a release manifest. Rerun the
-stamp after any merge, rebase, or later local-component change.
+stamp after any merge, rebase, or later local-component change. Stamp commits
+land only on `main`, pushed directly from a clean `main` worktree; feature and
+PR branches must keep the base package version and manifest unchanged, which
+the pre-push gate enforces through deferred-release verification against the
+PR base.
 
 At publication time, `pnpm run release:cli --next --with-binary` rechecks the
 same npm/R2 decision and requires it to match the committed package and manifest;
