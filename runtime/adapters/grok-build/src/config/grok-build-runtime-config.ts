@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  type InstalledLaunchCandidatesOptions,
   type InstalledLaunchCandidatesResolution,
   type LaunchContractVerificationResult,
   type RuntimeAgentControllerLaunchContract,
@@ -12,9 +13,9 @@ import {
 
 const DEFAULT_GROK_BUILD_COMMAND = "grok";
 
-export async function resolveInstalledGrokBuildLaunchCandidates(input?: {
-  timeoutMs?: number | null;
-}): Promise<InstalledLaunchCandidatesResolution> {
+export async function resolveInstalledGrokBuildLaunchCandidates(
+  input?: InstalledLaunchCandidatesOptions
+): Promise<InstalledLaunchCandidatesResolution> {
   const installedCandidates = await resolveInstalledNodeScriptLaunchCandidates({
     additionalCommandDirectories: [join(resolveHome(), ".grok", "bin")],
     commandName: DEFAULT_GROK_BUILD_COMMAND,
@@ -22,6 +23,7 @@ export async function resolveInstalledGrokBuildLaunchCandidates(input?: {
       process.env.OPENMELD_DAEMON_RUNTIME_GROK_BUILD_BIN
     ),
     displayName: "Grok Build",
+    preferredLaunchContract: input?.preferredLaunchContract,
   });
   if (!installedCandidates.ok) {
     return installedCandidates;

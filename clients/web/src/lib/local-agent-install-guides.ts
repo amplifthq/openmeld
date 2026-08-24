@@ -17,7 +17,7 @@ export type LocalAgentInstallGuide = {
 	officialInstallUrl: string;
 	postInstallNote: string;
 	summary: string;
-	verifyCommand: string;
+	verifyCommand?: string;
 };
 
 export const LOCAL_AGENT_INSTALL_GUIDES = {
@@ -39,18 +39,17 @@ export const LOCAL_AGENT_INSTALL_GUIDES = {
 	},
 	codex: {
 		agentId: "codex",
-		displayName: "Codex CLI",
+		displayName: "Codex",
 		installSteps: [
-			"Install Codex CLI with the official installer: curl -fsSL https://chatgpt.com/codex/install.sh | sh",
-			"Open a project folder in Terminal and run codex.",
-			"Complete the first-run sign-in prompt with your ChatGPT account or API key.",
+			"If you already use the ChatGPT app on this computer, open it and make sure you are signed in. OpenMeld can use the Codex included with ChatGPT.",
+			"If you do not use the ChatGPT app, install Codex from OpenAI.",
+			"Open Codex once and sign in with your ChatGPT account.",
 		],
 		officialDocsUrl: "https://developers.openai.com/codex/cli",
 		officialInstallUrl: "https://developers.openai.com/codex/cli",
 		postInstallNote:
-			"OpenMeld verifies Codex by finding a launchable codex executable and checking codex --version. A bundled Codex desktop app binary can also work. Run Codex once and finish sign-in before you check again.",
-		summary: "OpenAI's terminal coding agent for local coding workflows.",
-		verifyCommand: "codex --version",
+			"OpenMeld checks every Codex installation it can safely control. If ChatGPT includes a working signed-in Codex, OpenMeld uses it automatically. You do not need to choose an installation unless you want to change it.",
+		summary: "OpenAI's coding agent for local coding workflows.",
 	},
 	cursor: {
 		agentId: "cursor",

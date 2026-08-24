@@ -7,6 +7,7 @@ import {
   verifyCodexLaunchContract,
 } from "@openmeld/adapter-codex";
 import type {
+  InstalledLaunchCandidatesOptions,
   InstalledLaunchCandidatesResolution,
   LaunchContractVerificationResult,
 } from "@openmeld/adapter-core";
@@ -47,9 +48,9 @@ export type BuiltinControllerInstallResolver = {
   // ("not_installed" | "not_launchable") can never silently drift out of
   // sync between the two -- that exact drift once made this type accept
   // ok:false objects with no reason field, hiding a TypeScript error.
-  resolveInstalledLaunchCandidates: (input?: {
-    timeoutMs?: number | null;
-  }) => Promise<InstalledLaunchCandidatesResolution>;
+  resolveInstalledLaunchCandidates: (
+    input?: InstalledLaunchCandidatesOptions
+  ) => Promise<InstalledLaunchCandidatesResolution>;
   verifyLaunchContract: (input: {
     launchContract: RuntimeAgentControllerLaunchContract;
   }) => Promise<LaunchContractVerificationResult>;
