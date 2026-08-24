@@ -31,9 +31,8 @@ describe("LocalAgentInstallGuideIndexPage", () => {
 		render(<LocalAgentInstallGuideIndexPage />);
 
 		expect(
-			screen.getByRole("heading", { name: "Install a local agent CLI" })
+			screen.getByRole("heading", { name: "Connect a local agent" })
 		).toBeTruthy();
-		expect(screen.getByText("Codex CLI")).toBeTruthy();
 		expect(screen.getByText("Claude Code")).toBeTruthy();
 		expect(screen.getByText("Cursor CLI")).toBeTruthy();
 		expect(screen.getByText("Grok Build")).toBeTruthy();
@@ -50,7 +49,7 @@ describe("LocalAgentInstallGuideIndexPage", () => {
 			true
 		);
 		expect(guideCards.map((card) => card.textContent)).toEqual([
-			expect.stringContaining("Codex CLI"),
+			expect.stringContaining("Codex"),
 			expect.stringContaining("Claude Code"),
 			expect.stringContaining("Grok Build"),
 			expect.stringContaining("Cursor CLI"),
@@ -81,7 +80,7 @@ describe("LocalAgentInstallGuideDetailPage", () => {
 		useNavigateMock.mockReset();
 	});
 
-	it("shows the official install link and detection warning", () => {
+	it("does not require Terminal when Codex is available through ChatGPT", () => {
 		render(
 			<LocalAgentInstallGuideDetailPage
 				guide={LOCAL_AGENT_INSTALL_GUIDES.codex}
@@ -89,7 +88,7 @@ describe("LocalAgentInstallGuideDetailPage", () => {
 		);
 
 		const installLink = screen.getByRole("link", {
-			name: "Open official install guide",
+			name: "Open official setup guide",
 		});
 		expect(installLink.getAttribute("href")).toBe(
 			"https://developers.openai.com/codex/cli"
@@ -97,13 +96,14 @@ describe("LocalAgentInstallGuideDetailPage", () => {
 		expect(installLink.getAttribute("target")).toBe("_blank");
 		expect(installLink.getAttribute("rel")).toBe("noopener");
 		expect(
-			screen.getByText("OpenMeld detects runnable local agent CLIs", {
+			screen.getByText("only lists installations it can control", {
 				exact: false,
 			})
 		).toBeTruthy();
-		expect(screen.getByText("codex --version")).toBeTruthy();
+		expect(screen.queryByText("codex --version")).toBeNull();
+		expect(screen.queryByText("Run this command in Terminal:")).toBeNull();
 		const detailGrid = screen.getByTestId("local-agent-detail-grid");
 		expect(detailGrid.className).toContain("md:grid-cols-2");
-		expect(detailGrid.querySelectorAll("section.rounded-md")).toHaveLength(3);
+		expect(detailGrid.querySelectorAll("section.rounded-md")).toHaveLength(2);
 	});
 });
