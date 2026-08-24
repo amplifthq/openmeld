@@ -11,7 +11,8 @@ for phones and tablets. Pages fit without hidden sideways scrolling, forms stay
 usable without iPhone auto-zoom, touch controls have comfortable targets, and
 dense choices stack when needed. Space creation, conversations, files, and
 long Space names keep their primary actions visible above the mobile navigation
-rail. Navigation and Profile drawers return people to the control that opened
-them, and reduced-motion preferences now remove drawer movement. Tablet layouts
-retain useful contextual sidebars while desktop navigation, density, and saved
-sidebar sizes stay unchanged.
+rail, while conversation date controls remain fully visible and easy to tap.
+Navigation and Profile drawers return people to the control that opened them,
+and reduced-motion preferences now remove drawer movement. Tablet layouts retain
+useful contextual sidebars while desktop navigation, density, and saved sidebar
+sizes stay unchanged.
