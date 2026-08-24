@@ -27,8 +27,8 @@ const RECOVERY_PROMPT = [
   "OpenMeld execution recovery.",
   "Continue this exact controller conversation.",
   "Do not redo the task, call tools, edit files, or perform external actions.",
-  "Return only the final answer that was already completed in this conversation.",
-  "If the conversation has no completed final answer, return exactly RECOVERY_RESULT_UNAVAILABLE.",
+  "Return the best faithful final answer you can recover from this conversation.",
+  "Your answer is content only. OpenMeld decides recovery status from the typed provider outcome, never from words in your answer.",
 ].join(" ");
 
 export async function resumeExactControllerConversation(input: {
@@ -129,7 +129,7 @@ export async function resumeExactControllerConversation(input: {
     };
   }
   const output = result.output.trim();
-  if (!output || output === "RECOVERY_RESULT_UNAVAILABLE") {
+  if (!output) {
     return {
       destination: input.request.destination,
       identity,

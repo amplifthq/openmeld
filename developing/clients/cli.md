@@ -878,9 +878,10 @@ package-backed implementation, OpenMeld may hide that behind the injected shim.
 
 The CLI action command records one local action record for the current dispatch
 attempt. It must not publish a Space message directly and must not bypass
-RuntimeCoordinator or Agent Transport Space Action Delivery. The daemon reads a
-valid CLI action before parsing fallback `openmeld-space-action` blocks. A valid CLI
-action wins and is reported with `spaceActionProvenance: "cli_action"`.
+RuntimeCoordinator or Agent Transport Space Action Delivery. The daemon accepts
+only this dispatch-scoped record or another typed runtime action; it never parses
+model-authored answer text into a Space action. A valid CLI action is reported
+with `spaceActionProvenance: "cli_action"`.
 The command result must describe that record as an unpublished proposal for the
 current Wake. It must not say `Posted to Space` or otherwise claim publication;
 only RuntimeCoordinator finalization followed by Space acceptance can make that

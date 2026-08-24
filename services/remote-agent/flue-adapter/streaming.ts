@@ -11,7 +11,6 @@ import type {
   RemoteAgentStreamDeltaCallbackResponse,
   RemoteAgentStreamPartCallbackBody,
 } from "@openmeld/schemas/types";
-import { inspectStreamingAssistantPublicationProtocol } from "../agent-core/assistant-publication";
 import {
   listRemoteAgentCallbackContexts,
   type RemoteAgentCallbackContext,
@@ -271,17 +270,6 @@ export function createRemoteAgentStreamPublisher(
       transientState,
     });
     const snapshot = currentSnapshot + pendingDelta;
-    if (kind === "text") {
-      const protocolGuardResult = await guardRemoteAgentStreamTextProtocol({
-        snapshot,
-        state,
-        storage: input.storage,
-        transientState,
-      });
-      if (protocolGuardResult) {
-        return protocolGuardResult;
-      }
-    }
     if (
       pendingDelta.length > REMOTE_AGENT_STREAM_DELTA_MAX_CHARS ||
       snapshot.length > AGENT_STREAM_SNAPSHOT_MAX_CHARS
@@ -562,45 +550,6 @@ function disableRemoteAgentThinkingProjection(
   transientState.pendingThinking = "";
   transientState.thinkingProjectionDisabled = true;
   transientState.thinkingSnapshot = "";
-}
-
-async function guardRemoteAgentStreamTextProtocol(input: {
-  snapshot: string;
-  state: RemoteAgentStreamState;
-  storage: RemoteAgentStorage;
-  transientState: RemoteAgentTransientStreamState;
-}): Promise<RemoteAgentStreamPublishResult | null> {
-  const inspection = inspectStreamingAssistantPublicationProtocol(
-    input.snapshot
-  );
-  if (inspection.status === "publishable") {
-    return null;
-  }
-  if (inspection.status === "incomplete") {
-    return {
-      status: "buffered",
-      sequence: input.state.sequence,
-      streamId: input.state.streamId,
-    };
-  }
-
-  console.warn(
-    "[remote_agent.publication.stream_protocol_contamination_blocked]",
-    {
-      marker: inspection.marker,
-      submissionId: input.state.submissionId,
-    }
-  );
-  input.state.disabled = true;
-  input.state.pendingText = "";
-  input.transientState.pendingKindOrder = [];
-  input.transientState.pendingThinking = "";
-  await persistRemoteAgentStreamState(input.storage, input.state);
-  return {
-    status: "disabled",
-    sequence: input.state.sequence,
-    streamId: input.state.streamId,
-  };
 }
 
 async function handleRemoteAgentStreamLimitExceeded(input: {
