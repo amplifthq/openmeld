@@ -49,6 +49,21 @@ export type RuntimeTransportAgentProfileExecutionStateResponse =
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionStateResponseSchema"]
   >;
 
+export type RuntimeTransportAgentProfileControllerMutationRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileControllerMutationRequestSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileControllerMutationAcquireResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileControllerMutationAcquireResponseSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileControllerMutationReleaseResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileControllerMutationReleaseResponseSchema"]
+  >;
+
 export type RuntimeTransportRegisterSessionRequest = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportRegisterSessionRequestSchema"]
 >;

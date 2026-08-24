@@ -112,6 +112,36 @@ export const runtimeTransportAgentProfileExecutionStateResponseSchema =
     }),
   ]);
 
+export const runtimeTransportAgentProfileControllerMutationRequestSchema =
+  z.strictObject({
+    operationId: z.string().trim().min(1).max(256),
+    ownerUserId: z.string().trim().min(1).max(256),
+    targetProfileId: agentProfileIdSchema,
+  });
+
+export const runtimeTransportAgentProfileControllerMutationAcquireResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({
+      expiresAtMs: z.number().int().nonnegative(),
+      operationId: z.string().trim().min(1).max(256),
+      status: z.literal("acquired"),
+    }),
+    z.strictObject({
+      reasonCode: z.string().trim().min(1).max(256),
+      status: z.literal("blocked"),
+    }),
+    z.strictObject({
+      reasonCode: z.string().trim().min(1).max(256),
+      status: z.literal("unavailable"),
+    }),
+  ]);
+
+export const runtimeTransportAgentProfileControllerMutationReleaseResponseSchema =
+  z.discriminatedUnion("status", [
+    z.strictObject({ status: z.literal("released") }),
+    z.strictObject({ status: z.literal("not_owner") }),
+  ]);
+
 export const runtimeTransportErrorCodeSchema = z.enum([
   "daemon.session.reject_conflict",
   "daemon.session.not_found",

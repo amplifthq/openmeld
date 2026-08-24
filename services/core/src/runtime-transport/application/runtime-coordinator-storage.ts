@@ -9,6 +9,10 @@ import type {
   RuntimeCoordinatorFinalizationOutcome,
 } from "@openmeld/schemas/types";
 import {
+  writeRuntimeCoordinatorHeadLifecycleWithAdmission,
+  writeRuntimeCoordinatorTokenAuthorityWithAdmission,
+} from "./agent-profile-execution-admission";
+import {
   buildRuntimeCoordinatorDecisionLogStorageKey,
   buildRuntimeCoordinatorFinalizationCommandStorageKey,
   buildRuntimeCoordinatorFinalizationOutcomeStorageKey,
@@ -35,7 +39,7 @@ import {
 
 type RuntimeCoordinatorStorage = Pick<
   DurableObjectStorage,
-  "delete" | "get" | "put"
+  "delete" | "get" | "list" | "put" | "transaction"
 >;
 
 export const readRuntimeCoordinatorFinalizationCommandFromStorage = async (
@@ -138,12 +142,11 @@ export const writeRuntimeCoordinatorTokenAuthorityToStorage = async (
   storage: RuntimeCoordinatorStorage,
   authority: RuntimeCoordinatorExecutionTokenAuthorityRecord
 ): Promise<void> => {
-  await storage.put(
-    buildRuntimeCoordinatorTokenAuthorityStorageKey(
-      authority.runtimeCoordinatorExecutionId
-    ),
-    authority
-  );
+  await writeRuntimeCoordinatorTokenAuthorityWithAdmission({
+    authority,
+    nowMs: Date.now(),
+    storage,
+  });
 };
 
 export const readRuntimeCoordinatorRunCommandStateFromStorage = async (
@@ -162,31 +165,53 @@ export const writeRuntimeCoordinatorRunCommandStateToStorage = async (
   storage: RuntimeCoordinatorStorage,
   state: RuntimeCoordinatorRunCommandState
 ): Promise<void> => {
-  await storage.put(
-    buildRuntimeCoordinatorRunCommandStateStorageKey(
-      state.runtimeCoordinatorExecutionId
+  await storage.transaction((transaction) =>
+    writeRuntimeCoordinatorRunCommandStateInTransaction(transaction, state)
+  );
+};
+
+export const writeRuntimeCoordinatorRunCommandStateInTransaction = async (
+  transaction: DurableObjectTransaction,
+  state: RuntimeCoordinatorRunCommandState
+): Promise<void> => {
+  const existingIds =
+    await readRuntimeCoordinatorRunCommandStateStorageIndex(transaction);
+  const nextIds = existingIds.includes(state.runtimeCoordinatorExecutionId)
+    ? existingIds
+    : [...existingIds, state.runtimeCoordinatorExecutionId].sort();
+  await Promise.all([
+    transaction.put(
+      buildRuntimeCoordinatorRunCommandStateStorageKey(
+        state.runtimeCoordinatorExecutionId
+      ),
+      state
     ),
-    state
-  );
-  await addRuntimeCoordinatorRunCommandStateToStorageIndex(
-    storage,
-    state.runtimeCoordinatorExecutionId
-  );
+    transaction.put(
+      RUNTIME_COORDINATOR_RUN_COMMAND_STATE_INDEX_STORAGE_KEY,
+      nextIds
+    ),
+  ]);
 };
 
 export const deleteRuntimeCoordinatorRunCommandStateFromStorage = async (
   storage: RuntimeCoordinatorStorage,
   runtimeCoordinatorExecutionId: string
 ): Promise<void> => {
-  await storage.delete(
-    buildRuntimeCoordinatorRunCommandStateStorageKey(
-      runtimeCoordinatorExecutionId
-    )
-  );
-  await removeRuntimeCoordinatorRunCommandStateFromStorageIndex(
-    storage,
-    runtimeCoordinatorExecutionId
-  );
+  await storage.transaction(async (transaction) => {
+    const existingIds =
+      await readRuntimeCoordinatorRunCommandStateStorageIndex(transaction);
+    await Promise.all([
+      transaction.delete(
+        buildRuntimeCoordinatorRunCommandStateStorageKey(
+          runtimeCoordinatorExecutionId
+        )
+      ),
+      transaction.put(
+        RUNTIME_COORDINATOR_RUN_COMMAND_STATE_INDEX_STORAGE_KEY,
+        existingIds.filter((id) => id !== runtimeCoordinatorExecutionId)
+      ),
+    ]);
+  });
 };
 
 export const readRuntimeCoordinatorRunCommandStatesFromStorageIndex = async (
@@ -206,41 +231,8 @@ export const readRuntimeCoordinatorRunCommandStatesFromStorageIndex = async (
   return states;
 };
 
-const addRuntimeCoordinatorRunCommandStateToStorageIndex = async (
-  storage: RuntimeCoordinatorStorage,
-  runtimeCoordinatorExecutionId: string
-): Promise<void> => {
-  const existingIds =
-    await readRuntimeCoordinatorRunCommandStateStorageIndex(storage);
-  if (existingIds.includes(runtimeCoordinatorExecutionId)) {
-    return;
-  }
-  await storage.put(
-    RUNTIME_COORDINATOR_RUN_COMMAND_STATE_INDEX_STORAGE_KEY,
-    [...existingIds, runtimeCoordinatorExecutionId].sort()
-  );
-};
-
-const removeRuntimeCoordinatorRunCommandStateFromStorageIndex = async (
-  storage: RuntimeCoordinatorStorage,
-  runtimeCoordinatorExecutionId: string
-): Promise<void> => {
-  const existingIds =
-    await readRuntimeCoordinatorRunCommandStateStorageIndex(storage);
-  const nextIds = existingIds.filter(
-    (id) => id !== runtimeCoordinatorExecutionId
-  );
-  if (nextIds.length === existingIds.length) {
-    return;
-  }
-  await storage.put(
-    RUNTIME_COORDINATOR_RUN_COMMAND_STATE_INDEX_STORAGE_KEY,
-    nextIds
-  );
-};
-
 const readRuntimeCoordinatorRunCommandStateStorageIndex = async (
-  storage: RuntimeCoordinatorStorage
+  storage: Pick<DurableObjectStorage, "get">
 ): Promise<string[]> => {
   const raw = await storage.get<unknown>(
     RUNTIME_COORDINATOR_RUN_COMMAND_STATE_INDEX_STORAGE_KEY
@@ -273,16 +265,12 @@ export const writeRuntimeCoordinatorHeadLifecycleRecordToStorage = async (
   storage: RuntimeCoordinatorStorage,
   record: RuntimeCoordinatorHeadLifecycleRecord
 ): Promise<void> => {
-  await storage.put(
-    buildRuntimeCoordinatorHeadLifecycleStorageKey(
-      record.targetWakeLifecycleId
-    ),
-    record
-  );
-  await addRuntimeCoordinatorHeadLifecycleToStorageIndex(
+  await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
+    blockForControllerMutation: false,
+    nowMs: record.updatedAtMs,
+    record,
     storage,
-    record.targetWakeLifecycleId
-  );
+  });
 };
 
 export const readRuntimeCoordinatorHeadLifecycleRecordsFromStorageIndex =
@@ -303,23 +291,8 @@ export const readRuntimeCoordinatorHeadLifecycleRecordsFromStorageIndex =
     return records;
   };
 
-const addRuntimeCoordinatorHeadLifecycleToStorageIndex = async (
-  storage: RuntimeCoordinatorStorage,
-  targetWakeLifecycleId: string
-): Promise<void> => {
-  const existingIds =
-    await readRuntimeCoordinatorHeadLifecycleStorageIndex(storage);
-  if (existingIds.includes(targetWakeLifecycleId)) {
-    return;
-  }
-  await storage.put(
-    RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY,
-    [...existingIds, targetWakeLifecycleId].sort()
-  );
-};
-
 const readRuntimeCoordinatorHeadLifecycleStorageIndex = async (
-  storage: RuntimeCoordinatorStorage
+  storage: Pick<DurableObjectStorage, "get">
 ): Promise<string[]> => {
   const raw = await storage.get<unknown>(
     RUNTIME_COORDINATOR_HEAD_LIFECYCLE_INDEX_STORAGE_KEY

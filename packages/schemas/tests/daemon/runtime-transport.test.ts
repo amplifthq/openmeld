@@ -7,6 +7,9 @@ import {
   projectTargetWakeLifecycleIdentity,
   RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  runtimeTransportAgentProfileControllerMutationAcquireResponseSchema,
+  runtimeTransportAgentProfileControllerMutationReleaseResponseSchema,
+  runtimeTransportAgentProfileControllerMutationRequestSchema,
   runtimeTransportAgentProfileExecutionStateRequestSchema,
   runtimeTransportAgentProfileExecutionStateResponseSchema,
   runtimeTransportCapabilitiesSchema,
@@ -221,6 +224,46 @@ describe("runtime transport schema", () => {
       reasonCode: "runtime_coordinator.execution_state_unavailable",
       status: "unavailable",
     });
+  });
+
+  it("validates account-wide Controller mutation admission without a Space selector", () => {
+    const request = {
+      operationId: "controller-mutation-1",
+      ownerUserId: "owner-1",
+      targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
+    };
+    expect(
+      runtimeTransportAgentProfileControllerMutationRequestSchema.parse(request)
+    ).toEqual(request);
+    expect(
+      runtimeTransportAgentProfileControllerMutationAcquireResponseSchema.parse(
+        {
+          expiresAtMs: 1_700_000_300_000,
+          operationId: request.operationId,
+          status: "acquired",
+        }
+      )
+    ).toEqual({
+      expiresAtMs: 1_700_000_300_000,
+      operationId: request.operationId,
+      status: "acquired",
+    });
+    expect(
+      runtimeTransportAgentProfileControllerMutationAcquireResponseSchema.parse(
+        {
+          reasonCode: "runtime_coordinator.agent_profile_execution_active",
+          status: "blocked",
+        }
+      )
+    ).toEqual({
+      reasonCode: "runtime_coordinator.agent_profile_execution_active",
+      status: "blocked",
+    });
+    expect(
+      runtimeTransportAgentProfileControllerMutationReleaseResponseSchema.parse(
+        { status: "released" }
+      )
+    ).toEqual({ status: "released" });
   });
 
   it("accepts bounded per-session disconnect diagnostics and legacy responses without them", () => {

@@ -586,6 +586,51 @@ describe("agent profile binding Core RPC", () => {
     }
   });
 
+  it("rechecks Controller mutation admission atomically after the read-only eligibility result", async () => {
+    const harness = createSqliteD1Harness();
+    applyAgentProfileBindingRpcMigrations(harness);
+    try {
+      const registeredRuntimeId =
+        await seedRuntimeAgentControllerReport(harness);
+      await rpcEnsureAgentProfilePrimaryBinding(coreEnv(harness.db), {
+        agentControllerRef: "builtin:codex",
+        agentProfileId: AGENT_PROFILE_ID,
+        context: DEFAULT_CONTEXT,
+        deviceId: "device-1",
+        lane: "openmeld-dev",
+        openMeldServiceRuntimeId: {
+          source: "runtime_registry_authority",
+          value: registeredRuntimeId.value,
+        },
+      });
+
+      const racingEnv = coreEnv(harness.db, {
+        agentProfileExecutionState: "inactive",
+        controllerMutationAcquireStatus: "blocked",
+      });
+      await expect(
+        rpcDisableAgentProfilePrimaryBinding(racingEnv, {
+          agentProfileId: AGENT_PROFILE_ID,
+          context: DEFAULT_CONTEXT,
+        })
+      ).resolves.toEqual({
+        agentProfileId: AGENT_PROFILE_ID,
+        disabled: false,
+        reasonCodes: [
+          "agent_profile_binding.controller_change_blocked_active_execution",
+        ],
+        status: "unavailable",
+      });
+      expect(
+        harness.queryFirst<{ agent_controller_ref: string }>({
+          sql: "SELECT agent_controller_ref FROM openMeldDaemon_agent_profile_bindings WHERE binding_state = 'enabled_primary'",
+        })
+      ).toEqual({ agent_controller_ref: "builtin:codex" });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("returns saved OpenCode permissions after a fresh primary Binding read", async () => {
     const harness = createSqliteD1Harness();
     applyAgentProfileBindingRpcMigrations(harness);
@@ -1219,6 +1264,7 @@ function coreEnv(
   db: D1Database,
   input?: {
     agentProfileExecutionState?: "active" | "inactive" | "unavailable";
+    controllerMutationAcquireStatus?: "acquired" | "blocked" | "unavailable";
     authWorker?: CoreBindings["OPENMELD_AUTH_WORKER"];
   }
 ): CoreBindings {
@@ -1234,6 +1280,33 @@ function coreEnv(
         status: input?.agentProfileExecutionState ?? ("inactive" as const),
       });
     }),
+    rpcAcquireAgentProfileControllerMutation: vi.fn(() => {
+      let status = input?.controllerMutationAcquireStatus ?? "acquired";
+      if (!input?.controllerMutationAcquireStatus) {
+        if (input?.agentProfileExecutionState === "active") {
+          status = "blocked";
+        } else if (input?.agentProfileExecutionState === "unavailable") {
+          status = "unavailable";
+        }
+      }
+      if (status === "acquired") {
+        return Promise.resolve({
+          expiresAtMs: Date.now() + 300_000,
+          operationId: "controller-mutation-test",
+          status,
+        });
+      }
+      return Promise.resolve({
+        reasonCode:
+          status === "blocked"
+            ? "runtime_coordinator.agent_profile_execution_active"
+            : "runtime_coordinator.execution_state_unavailable",
+        status,
+      });
+    }),
+    rpcReleaseAgentProfileControllerMutation: vi.fn(() =>
+      Promise.resolve({ status: "released" as const })
+    ),
   };
   return {
     OPENMELD_AUTH_WORKER:
