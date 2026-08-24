@@ -23,6 +23,7 @@ import type {
   BootstrapTemplateFacts,
   CenterAgentModelRoute,
   DispatchExecution,
+  DispatchResult,
   HostedCenterAgentRuntimeIdentity,
   MessageEnvelope,
   OpenMeldDaemonDispatchQueueMessage,
@@ -69,6 +70,10 @@ import {
   readRuntimeDeviceDisplayNameByRuntimeId,
   readRuntimeRegistryRecordByRuntimeId,
 } from "../../runtime-registry/infrastructure/d1/runtime-registry-repo";
+import {
+  type RuntimeCoordinatorFinalizationSemantic,
+  resolveRuntimeCoordinatorFinalizationSemantic,
+} from "../../runtime-transport/application/runtime-coordinator-finalization-semantic";
 import {
   type DispatchResultInboxRecord,
   updateDispatchResultInboxPublishState,
@@ -1361,33 +1366,25 @@ const finalizeExistingAcceptedDispatchResult = async (input: {
   inboxRecord: DispatchResultInboxRecord;
   recordPublicationProjection: boolean;
 }): Promise<AcceptedDispatchFinalizationResult> => {
-  if (input.existingResult.publishedSignalId) {
-    if (input.recordPublicationProjection) {
-      await recordDispatchResultInboxPublicationProjection({
-        attemptId: input.inboxRecord.attemptId,
-        db: input.db,
-        dispatchId: input.dispatchMessage.dispatchId,
-        publishedSignalId: input.existingResult.publishedSignalId,
+  if (
+    input.existingResult.publishedSignalId &&
+    input.recordPublicationProjection
+  ) {
+    await recordDispatchResultInboxPublicationProjection({
+      attemptId: input.inboxRecord.attemptId,
+      db: input.db,
+      dispatchId: input.dispatchMessage.dispatchId,
+      executionSemantic: resolveRuntimeCoordinatorFinalizationSemantic({
+        finalMessageKind: resolveArchivedFinalMessageKind(
+          input.existingResult.publicOutcome
+        ),
         publishState: "reply_published",
-        spaceId: input.dispatchMessage.spaceId,
-        targetProfileId: input.dispatchMessage.targetProfileId,
-      });
-    }
-    await markDispatchSucceeded({
-      attemptId: input.inboxRecord.attemptId,
-      db: input.db,
-      idempotencyKey: input.dispatchMessage.idempotencyKey,
-    });
-  } else if (input.existingResult.publicOutcome === "internal_only") {
-    // The agent explicitly kept its outcome internal, so there is nothing
-    // that should have been visible; silence was the requested outcome.
-    await markDispatchStatus({
-      attemptId: input.inboxRecord.attemptId,
-      attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.succeeded,
-      db: input.db,
-      idempotencyKey: input.dispatchMessage.idempotencyKey,
-      nowMs: Date.now(),
-      status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
+        taskResult: input.inboxRecord.taskResult,
+      }),
+      publishedSignalId: input.existingResult.publishedSignalId,
+      publishState: "reply_published",
+      spaceId: input.dispatchMessage.spaceId,
+      targetProfileId: input.dispatchMessage.targetProfileId,
     });
   }
   return {
@@ -1412,6 +1409,56 @@ const markDispatchSucceeded = async (input: {
     idempotencyKey: input.idempotencyKey,
     nowMs: Date.now(),
     status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
+  });
+};
+
+export type ConfirmedAcceptedDispatchSuccess =
+  | { kind: "intentionally_silent" }
+  | { kind: "published_signal"; publishedSignalId: string };
+
+export const recordConfirmedAcceptedDispatchSuccess = async (input: {
+  attemptId: string;
+  db: D1Database;
+  idempotencyKey: string;
+  outcome: ConfirmedAcceptedDispatchSuccess;
+}): Promise<void> => {
+  if (
+    input.outcome.kind === "published_signal" &&
+    input.outcome.publishedSignalId.trim().length === 0
+  ) {
+    throw new Error(
+      "A confirmed accepted dispatch success requires a published signal ID."
+    );
+  }
+  await markDispatchSucceeded({
+    attemptId: input.attemptId,
+    db: input.db,
+    idempotencyKey: input.idempotencyKey,
+  });
+};
+
+export const recordConfirmedAcceptedDispatchFailure = async (input: {
+  attemptId: string;
+  db: D1Database;
+  errorCode: string;
+  errorMessage?: string | null;
+  idempotencyKey: string;
+}): Promise<void> => {
+  const errorCode = input.errorCode.trim();
+  if (!errorCode) {
+    throw new Error(
+      "A confirmed accepted dispatch failure requires an error code."
+    );
+  }
+  await markDispatchStatus({
+    attemptId: input.attemptId,
+    attemptStatus: OPENMELD_DAEMON_DISPATCH_ATTEMPT_STATE.failedTerminal,
+    db: input.db,
+    errorCode,
+    errorMessage: input.errorMessage ?? null,
+    idempotencyKey: input.idempotencyKey,
+    nowMs: Date.now(),
+    status: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
   });
 };
 
@@ -1636,13 +1683,6 @@ export const finalizeAcceptedDispatchResult = async (input: {
     targetProfileName,
     taskResult: input.inboxRecord.taskResult,
   });
-  if (replyEmission.publishedSignalId || replyEmission.intentionallySilent) {
-    await markDispatchSucceeded({
-      attemptId: input.inboxRecord.attemptId,
-      db: input.db,
-      idempotencyKey: input.dispatchMessage.idempotencyKey,
-    });
-  }
   return {
     intentionallySilent: replyEmission.intentionallySilent,
     publishedSignalId: replyEmission.publishedSignalId,
@@ -2582,11 +2622,17 @@ const finalizePublishedDispatchReply = async (input: {
     const publishState = input.plan.blockedExplicitAction
       ? "invalid_space_action"
       : "reply_published";
+    const executionSemantic = resolveRuntimeCoordinatorFinalizationSemantic({
+      finalMessageKind: resolvePublicationPlanFinalMessageKind(input.plan),
+      publishState,
+      taskResult: input.taskResult,
+    });
     const publicationProjectionEvidence =
       await recordDispatchResultInboxPublicationProjection({
         attemptId: input.executionContext.attemptId,
         db: input.db,
         dispatchId: input.dispatchMessage.dispatchId,
+        executionSemantic,
         publishedSignalId: input.emittedSignal.id,
         publishState,
         spaceId: input.dispatchMessage.spaceId,
@@ -2598,9 +2644,10 @@ const finalizePublishedDispatchReply = async (input: {
       latestAttemptId: input.executionContext.attemptId,
       publishedSignalId: input.emittedSignal.id,
       reasonCode:
-        publishState === "reply_published"
+        executionSemantic.reasonCode ??
+        (publishState === "reply_published"
           ? "space.reply_published"
-          : publishState,
+          : publishState),
       replySignalId:
         publishState === "reply_published" ? input.emittedSignal.id : null,
       resultRef: dispatchResult?.resultRef ?? null,
@@ -2609,7 +2656,7 @@ const finalizePublishedDispatchReply = async (input: {
       runtimeKind: "queue",
       sourceSignalId: input.dispatchMessage.sourceEventId,
       spaceId: input.dispatchMessage.spaceId,
-      status: publishState === "reply_published" ? "succeeded" : "failed",
+      status: executionSemantic.status === "failed" ? "failed" : "succeeded",
       targetProfileId: input.dispatchMessage.targetProfileId,
     });
   }
@@ -2619,6 +2666,7 @@ const recordDispatchResultInboxPublicationProjection = async (input: {
   attemptId: string;
   db: D1Database;
   dispatchId: string;
+  executionSemantic?: RuntimeCoordinatorFinalizationSemantic;
   publicationErrorCode?: string | null;
   publishedSignalId?: string | null;
   publishState:
@@ -2686,6 +2734,7 @@ const recordRuntimeCoordinatorPublicationProjection = async (input: {
   attemptId: string;
   db: D1Database;
   dispatchId: string;
+  executionSemantic?: RuntimeCoordinatorFinalizationSemantic;
   publicationErrorCode?: string | null;
   publishedSignalId?: string | null;
   publishState:
@@ -2707,8 +2756,12 @@ const recordRuntimeCoordinatorPublicationProjection = async (input: {
     return { runtimeCoordinatorExecutionId: null };
   }
   const nowMs = Date.now();
-  const status = resolveRuntimeCoordinatorPublicationStatus(input.publishState);
+  const status =
+    input.executionSemantic?.status === "failed"
+      ? "failed_terminal"
+      : resolveRuntimeCoordinatorPublicationStatus(input.publishState);
   const reasonCode =
+    input.executionSemantic?.reasonCode ??
     input.publicationErrorCode ??
     (input.publishState === "invalid_space_action"
       ? "invalid_space_action"
@@ -2785,6 +2838,33 @@ const resolveRuntimeCoordinatorTerminalOutcomeKind = (
     return "failed_terminal";
   }
   return "failed_retryable";
+};
+
+const resolvePublicationPlanFinalMessageKind = (
+  plan: Extract<
+    DispatchPublicationPlan,
+    { kind: "message" | "status" | "system_notice" }
+  >
+): "failure_notice" | "stay_silent" | "success_reply" => {
+  if (plan.kind !== "system_notice") {
+    return "success_reply";
+  }
+  return plan.noticeType === "stay_silent" ? "stay_silent" : "failure_notice";
+};
+
+const resolveArchivedFinalMessageKind = (
+  publicOutcome: DispatchResult["publicOutcome"]
+): "failure_notice" | "stay_silent" | "success_reply" | "unknown" => {
+  if (publicOutcome === "stay_silent") {
+    return "stay_silent";
+  }
+  if (publicOutcome === "system_notice") {
+    return "failure_notice";
+  }
+  if (publicOutcome === "internal_only") {
+    return "unknown";
+  }
+  return "success_reply";
 };
 
 export const normalizePostPublicationDispatchError = (input: {

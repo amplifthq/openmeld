@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1ec53fd6-917b-4cad-ab30-dd60b82ef9b0",
+  "id": "7081ac2e-e835-4d62-99db-d3738723aeca",
   "prevId": "33425920-7d57-4e34-be20-b8277e7ffdab",
   "tables": {
     "accounts": {
@@ -3531,13 +3531,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "source_space_id": {
-          "name": "source_space_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -4693,6 +4686,13 @@
         },
         "failure_code": {
           "name": "failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "report_result": {
+          "name": "report_result",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

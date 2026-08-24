@@ -996,15 +996,15 @@ describe("Center Agent stream observation", () => {
       })
     );
     const writeDataPoint = vi.fn();
+    const completeRemoteAgentSubmission = vi.fn(async () => ({
+      publishedSignalId: "signal-provider-rate-limited",
+      status: "accepted" as const,
+    }));
 
     await handleCenterAgentObservation({
       event: failedPromptObservation(),
       resolveDependencies: () => ({
-        coreWorker: {
-          completeRemoteAgentSubmission: vi.fn(async () => ({
-            status: "accepted" as const,
-          })),
-        },
+        coreWorker: { completeRemoteAgentSubmission },
         env: {
           OPENMELD_OBSERVABILITY: { writeDataPoint },
           OPENMELD_WORKER_ENVIRONMENT: "test",
@@ -1014,6 +1014,17 @@ describe("Center Agent stream observation", () => {
       streamPublisher: createRemoteAgentStreamPublisher(),
     });
 
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        failureCode:
+          REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES.PROVIDER_RATE_LIMITED,
+        failureDetail: "private provider response",
+        failureMessage:
+          "The model provider rate-limited this request. Wait a moment, then wake the agent again.",
+        status: "failed",
+        submissionId: SUBMISSION_ID,
+      })
+    );
     const point = writeDataPoint.mock.calls[0]?.[0] as AnalyticsPoint;
     expect(readBlob(point, "status")).toBe("failed");
     expect(readBlob(point, "reasonCode")).toBe(

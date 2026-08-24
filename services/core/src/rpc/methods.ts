@@ -37,6 +37,7 @@ import {
   bulkAuthorizeAgentProfileBindingsForOrganizationBodySchema,
   bulkAuthorizeAgentProfileBindingsForOrganizationResponseSchema,
   CENTER_AGENT_SLACK_SEARCH_MESSAGES_MAX,
+  CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
   canonicalizeAgentControllerRef,
   centerAgentAddAgentProfilesToSpaceBodySchema,
   centerAgentAddAgentProfilesToSpaceResponseSchema,
@@ -85,6 +86,8 @@ import {
   centerAgentReadSpaceContextResponseSchema,
   centerAgentReadSpaceFileResponseSchema,
   centerAgentReadSpaceFileRpcInputSchema,
+  centerAgentReadTurnDiagnosticsResponseSchema,
+  centerAgentReadTurnDiagnosticsRpcInputSchema,
   centerAgentRecordConnectorActionAuditBodySchema,
   centerAgentRecordConnectorActionAuditResponseSchema,
   centerAgentRecordConnectorActionOperationBodySchema,
@@ -365,6 +368,8 @@ import type {
   CenterAgentReadSpaceContextResponse,
   CenterAgentReadSpaceFileResponse,
   CenterAgentReadSpaceFileRpcInput,
+  CenterAgentReadTurnDiagnosticsResponse,
+  CenterAgentReadTurnDiagnosticsRpcInput,
   CenterAgentRecommendOpportunityToolRpcInput,
   CenterAgentRecordConnectorActionAuditBody,
   CenterAgentRecordConnectorActionAuditResponse,
@@ -739,6 +744,7 @@ import {
 } from "../center-agent/application/product-operations";
 import {
   prepareCenterAgentRepresentedMemberRequest,
+  prepareHostedCenterAgentRequest,
   type VerifiedCenterAgentRepresentedMember,
 } from "../center-agent/application/represented-member-request";
 import { shouldWriteDestinationNeutralTaskContinuations } from "../center-agent/application/task-continuation-rollout";
@@ -967,6 +973,8 @@ import {
 } from "../remote-agent/infrastructure/d1/message-channel-identity-link-token-repo";
 import {
   countActiveRemoteAgentNativeDeliveriesBySpaceIds,
+  listRemoteAgentNativeDeliveryTurnDiagnostics,
+  projectRemoteAgentNativeDeliveryTurnDiagnostic,
   readRemoteAgentNativeDeliveryByDeliveryId,
   readRemoteAgentNativeDeliveryByDispatchAndConversation,
   readRemoteAgentNativeDeliveryBySubmissionId,
@@ -1160,6 +1168,8 @@ export type CenterAgentListAgentActivitySessionsInput =
   CenterAgentListAgentActivitySessionsToolRpcInput;
 export type CenterAgentReadChangelogInput =
   CenterAgentReadChangelogToolRpcInput;
+export type CenterAgentReadTurnDiagnosticsInput =
+  CenterAgentReadTurnDiagnosticsRpcInput;
 export type CenterAgentListOpportunitiesInput =
   CenterAgentListOpportunitiesToolRpcInput;
 export type CenterAgentRecommendOpportunityInput =
@@ -1400,6 +1410,67 @@ export function rpcCenterAgentReadChangelog(
   input: CenterAgentReadChangelogInput
 ) {
   return centerAgentReadChangelog(env, input);
+}
+
+export async function rpcCenterAgentReadTurnDiagnostics(
+  env: CoreBindings,
+  input: CenterAgentReadTurnDiagnosticsInput
+): Promise<CenterAgentReadTurnDiagnosticsResponse> {
+  const parsed = centerAgentReadTurnDiagnosticsRpcInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason:
+        parsed.error.issues[0]?.message ??
+        "invalid Center Agent turn diagnostics request",
+      status: 400,
+    });
+  }
+  const authorization = await prepareHostedCenterAgentRequest(
+    env,
+    requireRpcContext(parsed.data.context)
+  );
+  const submissionId =
+    authorization.context.agentControllerConversationId?.trim();
+  const db = wakeEvidenceDb(env);
+  if (!(submissionId && db)) {
+    throw centerAgentTurnDiagnosticsUnavailableError();
+  }
+  const currentDelivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db,
+    submissionId,
+  });
+  if (
+    !currentDelivery ||
+    (currentDelivery.status !== "accepted" &&
+      currentDelivery.status !== "retry_observed") ||
+    currentDelivery.routineRunId !== null ||
+    currentDelivery.organizationId !==
+      authorization.activeOrganization.organizationId ||
+    currentDelivery.profileId !== authorization.actorProfileId
+  ) {
+    throw centerAgentTurnDiagnosticsUnavailableError();
+  }
+
+  return centerAgentReadTurnDiagnosticsResponseSchema.parse({
+    currentTurn:
+      projectRemoteAgentNativeDeliveryTurnDiagnostic(currentDelivery),
+    organizationId: authorization.activeOrganization.organizationId,
+    previousTurns: await listRemoteAgentNativeDeliveryTurnDiagnostics({
+      currentDelivery,
+      db,
+      limit: parsed.data.limit ?? CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
+    }),
+  });
+}
+
+function centerAgentTurnDiagnosticsUnavailableError(): Error {
+  return createCoreRpcHttpError({
+    code: "center_agent.turn_diagnostics.current_turn_unavailable",
+    reason:
+      "OpenMeld could not verify this Center Agent turn in the native delivery ledger.",
+    status: 409,
+  });
 }
 
 export function rpcCenterAgentListOpportunities(

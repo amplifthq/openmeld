@@ -55,21 +55,6 @@ import {
 import type { RemoteAgentToolDefinition } from "./tool-definition";
 
 const TRAILING_SLASH_PATTERN = /\/+$/u;
-const LEGACY_DESTRUCTIVE_ACTION_TERMS = [
-  "delete",
-  "destroy",
-  "drop",
-  "erase",
-  "merge",
-  "purge",
-  "remove",
-  "trash",
-] as const;
-const DESTRUCTIVE_ACTION_PATTERN = new RegExp(
-  `(?:^|[._\\-\\s])(${LEGACY_DESTRUCTIVE_ACTION_TERMS.join("|")})(?:$|[._\\-\\s])`,
-  "iu"
-);
-const LEGACY_READ_ACTION_ID_PATTERN = /\.(?:get|list)_[a-z0-9_]+$/iu;
 const OPENCONNECTOR_ACTION_SEARCH_LIMIT = 50;
 const GITHUB_DEDICATED_ACTION_INSTRUCTION =
   "This Apps list never reports GitHub access. For a GitHub request, call the matching github_* tool; it will verify the requested Organization or member GitHub connection.";
@@ -279,7 +264,7 @@ async function executeAppAction(input: {
   if (
     externalWriteBlock &&
     policyAction &&
-    resolveConnectorActionEffect(policyAction) !== "read"
+    readDeclaredConnectorActionEffect(policyAction) !== "read"
   ) {
     return {
       actionId: policyAction.id,
@@ -303,7 +288,7 @@ async function executeAppAction(input: {
         })))
       : undefined;
   let executionAction = routineAction ?? policyAction;
-  if (routineAction && isDestructiveConnectorAction(routineAction)) {
+  if (routineAction && requiresHighRiskConnectorActionPolicy(routineAction)) {
     const block = resolveRemoteAgentRoutineDestructiveActionBlock(toolContext);
     if (!block) {
       throw new Error(
@@ -326,7 +311,7 @@ async function executeAppAction(input: {
         connectorExecution: input.dependencies.connectorExecution,
         service: input.request.service,
       }));
-    if (isDestructiveConnectorAction(executionAction)) {
+    if (requiresHighRiskConnectorActionPolicy(executionAction)) {
       const requester = resolveConnectorTurnRequester(toolContext.turnEnvelope);
       confirmedSelection = await requireAvailableConnectorConnection({
         connectionPreference: requester.connectionPreference,
@@ -427,7 +412,7 @@ async function requireMemberResearchReadOnlyConnectorAction(input: {
     return;
   }
   const action = await requireOpenConnectorAction(input);
-  if (resolveConnectorActionEffect(action) !== "read") {
+  if (readDeclaredConnectorActionEffect(action) !== "read") {
     throw new Error(
       "Member research can only execute connected App actions declared read."
     );
@@ -455,7 +440,7 @@ async function resolveConnectedMessageChannelActionPolicy(input: {
     return {};
   }
   const action = await requireOpenConnectorAction(input);
-  const effect = resolveConnectorActionEffect(action);
+  const effect = readDeclaredConnectorActionEffect(action);
   // Registered `write` is the action owner's ordinary-member policy. Actions
   // declared destructive, or without a known effect, still require identity.
   if (effect === "read" || effect === "write") {
@@ -719,28 +704,18 @@ async function requireOpenConnectorAction(input: {
   return action;
 }
 
-function isDestructiveConnectorAction(
+function requiresHighRiskConnectorActionPolicy(
   action: OpenConnectorRuntimeAction
 ): boolean {
-  return (
-    action.effect === "destructive" ||
-    DESTRUCTIVE_ACTION_PATTERN.test(`${action.id} ${action.name}`)
-  );
+  // An omitted effect is missing safety evidence, not evidence that the action
+  // is safe. Keep it behind the same policy boundary as destructive actions.
+  return action.effect === "destructive" || action.effect === undefined;
 }
 
-function resolveConnectorActionEffect(
+function readDeclaredConnectorActionEffect(
   action: OpenConnectorRuntimeAction
 ): OpenConnectorRuntimeAction["effect"] {
-  if (isDestructiveConnectorAction(action)) {
-    return "destructive";
-  }
-  if (action.effect) {
-    return action.effect;
-  }
-  if (LEGACY_READ_ACTION_ID_PATTERN.test(action.id)) {
-    return "read";
-  }
-  return undefined;
+  return action.effect;
 }
 
 async function runOpenConnectorAction(input: {
@@ -830,7 +805,7 @@ function requireConnectorRuntime(
 function toModelVisibleAction(action: OpenConnectorRuntimeAction) {
   return {
     description: action.description,
-    effect: resolveConnectorActionEffect(action) ?? "unspecified",
+    effect: readDeclaredConnectorActionEffect(action) ?? "unspecified",
     id: action.id,
     inputSchema: action.inputSchema,
     name: action.name,

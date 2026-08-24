@@ -13,6 +13,7 @@ import { readOrganizationAccountIdentityProjection } from "../../organizations/o
 import { readRemoteAgentNativeDeliveryBySubmissionId } from "../../remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import type { CurrentDesignatedCenterAgentAuthorization } from "../current-designated-center-agent";
+import { resolveNativeDeliverySourceSpaceId } from "./native-delivery-source-space";
 import {
   prepareCenterAgentRepresentedMemberRequest,
   prepareHostedCenterAgentRequest,
@@ -174,7 +175,7 @@ export async function prepareCenterAgentOrganizationMemberRequest(
       profileId: null,
       role: "member",
       sourceNativeDeliveryId: delivery.deliveryId,
-      sourceSpaceId: delivery.spaceId,
+      sourceSpaceId: resolveNativeDeliverySourceSpaceId(delivery),
       userId: null,
     },
   };

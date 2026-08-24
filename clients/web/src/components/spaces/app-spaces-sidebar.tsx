@@ -180,7 +180,6 @@ export function AppSpacesSidebar(input: {
 		useUsableAccountSpaceActiveWakeSummaryItems({
 			data: activeWakeSummaryQuery.data,
 			isError: activeWakeSummaryQuery.isError,
-			receivedAtMs: activeWakeSummaryQuery.dataUpdatedAt,
 		});
 	const currentSpaceWakeProgressPresentationQuery = useQuery(
 		spaceWakeProgressPresentationQueryOptions({

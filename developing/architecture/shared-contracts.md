@@ -3047,6 +3047,18 @@ tool-name contract rejects the authorization request. Rollback therefore stops
 Remote Agent first, then Core. This expansion changes no CLI, OpenMeld Service,
 local Agent Controller, or workstation Wake contract.
 
+`centerAgentReadTurnDiagnosticsRpcInputSchema` and
+`centerAgentReadTurnDiagnosticsResponseSchema` own the private Center
+Agent/Core self-diagnostics contract. The request carries only the trusted
+OpenMeld request context and a bounded limit; Core derives all conversation and
+requester scope from the current native delivery. The response keeps raw
+lifecycle status, failure evidence, and final publication evidence separate,
+and bounds sanitized failure detail. Deploy Core before Remote Agent: old
+Remote Agent never calls the additive receiver, while new Remote Agent fails
+closed if the receiver is absent. Rollback removes the Remote Agent caller
+before Core. Gateway, Auth, Web, CLI, OpenMeld Service, daemon, Prepare,
+RuntimeCoordinator, and workstation Wake contracts do not change.
+
 The provider-neutral Message Channel identity handoff is additive to
 `openMeldNavigationTargetSchema`. The existing `slack_identity_link` wire target
 remains a rollout-compatible Slack input, but it must not become the product or
@@ -3568,9 +3580,11 @@ Schema rules:
   `actionSet=v20` opts in to the connector audit entry's nullable
   `sourceSpaceId` projection. Interaction-source projections remain absent
   before v14, Routine actions remain absent before v17, and `sourceSpaceId`
-  remains absent before v20. Each version filters later actions and fields in
-  Core before response validation, so an already-published CLI never receives
-  an enum value or optional projection its frozen schema cannot parse.
+  remains absent before v20. The projection is non-null only for a native
+  delivery whose `conversationKind` is `space`; Slack and generic Message
+  Channel locators never populate it. Each version filters later actions and
+  fields in Core before response validation, so an already-published CLI never
+  receives an enum value or optional projection its frozen schema cannot parse.
 - Deploy a new Center Agent RPC receiver and its audit action-set reader in Core
   before deploying the Remote Agent caller or clients that request the new
   action set. During rollback, remove callers first. Once Core has written a new

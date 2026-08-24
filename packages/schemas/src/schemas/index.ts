@@ -475,6 +475,7 @@ export {
   runtimeCoordinatorFinalizationCommandSchema,
   runtimeCoordinatorFinalizationDispatchFactSchema,
   runtimeCoordinatorFinalizationDispatchOwnerSchema,
+  runtimeCoordinatorFinalizationFinalMessageKindSchema,
   runtimeCoordinatorFinalizationOutcomeSchema,
   runtimeCoordinatorFinalizationSuccessOutcomeSchema,
 } from "./daemon/runtime-coordinator-finalization-command";
@@ -1248,6 +1249,16 @@ export {
   stopCenterAgentTaskBodySchema,
   stopCenterAgentTaskRpcInputSchema,
 } from "./http/center-agent-tasks";
+export {
+  CENTER_AGENT_TURN_DIAGNOSTIC_FAILURE_DETAIL_MAX_CHARS,
+  CENTER_AGENT_TURN_DIAGNOSTICS_DEFAULT_LIMIT,
+  CENTER_AGENT_TURN_DIAGNOSTICS_MAX_LIMIT,
+  centerAgentReadTurnDiagnosticsResponseSchema,
+  centerAgentReadTurnDiagnosticsRpcInputSchema,
+  centerAgentTurnDiagnosticPublicationStateSchema,
+  centerAgentTurnDiagnosticSchema,
+  centerAgentTurnDiagnosticStatusSchema,
+} from "./http/center-agent-turn-diagnostics";
 export {
   CHANGELOG_ENTRY_KINDS,
   CHANGELOG_QUERY_DEFAULT_LIMIT,

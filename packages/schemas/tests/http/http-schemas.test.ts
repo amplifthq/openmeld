@@ -4493,6 +4493,117 @@ describe("http schemas", () => {
       });
     });
 
+    it("uses structured publication evidence instead of words in a retry reason", () => {
+      const buildRetryableExecution = (reasonCode: string) => ({
+        bindingId: "binding-demo",
+        agentControllerRef: "builtin:codex",
+        createdAtMs: 1_762_473_599_000,
+        dispatchId: "dispatch-demo",
+        factSource: "runtime_coordinator_projection" as const,
+        legacyPointers: {
+          attemptId: "attempt-2",
+          claimLeaseId: null,
+          connectionGeneration: 1,
+          daemonSessionId: "daemon-session-1",
+          leaseEpoch: 3,
+        },
+        modelVersion: "openmeld.runtime_coordinator.execution.v1" as const,
+        runtimeCoordinatorExecutionId: "rce-demo",
+        openMeldServiceRuntimeId: {
+          source: "runtime_registry_authority" as const,
+          value: "runtime-demo",
+        },
+        sourceClientMessageId: "client-message-demo",
+        spaceId: "space-demo",
+        status: "failed_retryable" as const,
+        targetProfileId: "agt-demo",
+        terminalOutcome: {
+          kind: "failed_retryable" as const,
+          observedAtMs: 1_762_473_604_000,
+          reasonCode,
+        },
+        updatedAtMs: 1_762_473_604_000,
+      });
+      const buildResponse = (
+        reasonCode: string,
+        runtimeCoordinatorEvents: unknown[]
+      ) => ({
+        ...VALID_TRACE_RESPONSE,
+        correlation: {
+          ...VALID_TRACE_RESPONSE.correlation,
+          publishedSignalId: null,
+          replySignalId: null,
+          resultRef: null,
+          runtimeCoordinatorExecutionId: "rce-demo",
+        },
+        trace: {
+          ...VALID_TRACE_RESPONSE.trace,
+          finalVisibleMessage: null,
+          replySignal: null,
+          result: null,
+          resultInbox: null,
+          runtimeCoordinatorEvents,
+          runtimeCoordinatorExecution: buildRetryableExecution(reasonCode),
+        },
+      });
+
+      const lexicalCollision = spaceDispatchTraceResponseSchema.safeParse(
+        buildResponse("provider.publication_catalog_unavailable", [])
+      );
+      expect(lexicalCollision.success).toBe(true);
+      if (!(lexicalCollision.success && lexicalCollision.data.trace)) {
+        throw new Error("expected lexical collision trace");
+      }
+      expect(
+        projectSpaceDispatchTraceFinalVisibleOutcome(
+          lexicalCollision.data.trace
+        )
+      ).toMatchObject({ status: "not_applicable" });
+      expect(
+        projectSpaceDispatchTraceRootCause(lexicalCollision.data.trace)
+      ).toEqual({
+        reasonCode: "provider.publication_catalog_unavailable",
+        source: "runtime_coordinator",
+      });
+
+      const structuredPublicationFailure =
+        spaceDispatchTraceResponseSchema.safeParse(
+          buildResponse("transport.temporarily_unavailable", [
+            {
+              eventId: "event-publication-failed",
+              eventType: "reply_publication_failed",
+              factSource: "runtime_coordinator_projection",
+              idempotencyKey: "publication:dispatch-demo:attempt-2:failed",
+              observedAtMs: 1_762_473_604_000,
+              payloadJson: JSON.stringify({
+                publishState: "reply_publication_failed",
+              }),
+              reasonCode: "transport.temporarily_unavailable",
+              runtimeCoordinatorExecutionId: "rce-demo",
+              statusAfter: "failed_retryable",
+            },
+          ])
+        );
+      expect(structuredPublicationFailure.success).toBe(true);
+      if (
+        !(
+          structuredPublicationFailure.success &&
+          structuredPublicationFailure.data.trace
+        )
+      ) {
+        throw new Error("expected structured publication failure trace");
+      }
+      expect(
+        projectSpaceDispatchTraceFinalVisibleOutcome(
+          structuredPublicationFailure.data.trace
+        )
+      ).toMatchObject({
+        publicationErrorCode: "transport.temporarily_unavailable",
+        sourceFact: "runtime_coordinator_execution",
+        status: "publication_retrying",
+      });
+    });
+
     it("projects the final publication state matrix consistently for success replies and failure notices", () => {
       const headFailureLifecycle = {
         createdAt: "2026-03-09T00:00:01.100Z",

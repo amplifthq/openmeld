@@ -22,7 +22,6 @@ import * as dispatchResultService from "../dispatch/application/dispatch-result-
 import * as dispatchLedgerD1 from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
 import {
   markDispatchStatus,
-  OPENMELD_DAEMON_DISPATCH_STATE,
   readDispatchAttemptExecutionOwnershipFact,
 } from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
@@ -608,7 +607,7 @@ describe("dispatch provider access evidence finalization", () => {
     expect(writeAcceptedAgentExecutionReadinessImpact).not.toHaveBeenCalled();
   });
 
-  it("publishes an accepted successful result without an agent controller conversation id", async () => {
+  it("leaves accepted success settlement to the Space after publishing without a conversation id", async () => {
     await expect(
       finalizeAcceptedDispatchResult({
         db: {} as D1Database,
@@ -627,12 +626,7 @@ describe("dispatch provider access evidence finalization", () => {
       status: "finalized",
     });
 
-    expect(markDispatchStatus).toHaveBeenCalledWith(
-      expect.objectContaining({
-        attemptStatus: "succeeded",
-        status: "succeeded",
-      })
-    );
+    expect(markDispatchStatus).not.toHaveBeenCalled();
   });
 
   it("does not write readiness impact for publication or policy-missed failures", async () => {
@@ -693,7 +687,7 @@ describe("dispatch provider access evidence finalization", () => {
     expect(writeAcceptedAgentExecutionReadinessImpact).not.toHaveBeenCalled();
   });
 
-  it("keeps an existing published result succeeded", async () => {
+  it("does not trust an existing D1 published pointer as dispatch success", async () => {
     vi.mocked(
       dispatchResultService.getDispatchResultByDispatchId
     ).mockResolvedValueOnce({
@@ -707,11 +701,7 @@ describe("dispatch provider access evidence finalization", () => {
 
     await finalizeExistingAcceptedDispatchResultForTest();
 
-    expect(markDispatchStatus).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
-      })
-    );
+    expect(markDispatchStatus).not.toHaveBeenCalled();
   });
   it("does not settle an unpublished non-silent result from the D1 projection alone", async () => {
     vi.mocked(
@@ -730,7 +720,7 @@ describe("dispatch provider access evidence finalization", () => {
     expect(markDispatchStatus).not.toHaveBeenCalled();
   });
 
-  it("keeps an intentionally internal-only result succeeded even when nothing was published", async () => {
+  it("leaves intentionally internal-only settlement to the Space", async () => {
     vi.mocked(
       dispatchResultService.getDispatchResultByDispatchId
     ).mockResolvedValueOnce({
@@ -744,10 +734,6 @@ describe("dispatch provider access evidence finalization", () => {
 
     await finalizeExistingAcceptedDispatchResultForTest();
 
-    expect(markDispatchStatus).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: OPENMELD_DAEMON_DISPATCH_STATE.succeeded,
-      })
-    );
+    expect(markDispatchStatus).not.toHaveBeenCalled();
   });
 });

@@ -27,6 +27,7 @@ import {
   readFinalReplyClaimSignalId,
 } from "../space/infrastructure/sql/space-signal-repo";
 import {
+  resolveConfirmedAcceptedDispatchOutcome,
   resolveRuntimeCoordinatorFinalizationClaimRead,
   resolveRuntimeCoordinatorFinalizationVisibleFinalMessage,
   Space,
@@ -274,6 +275,23 @@ describe("accepted dispatch finalization", () => {
         text: "Updated the task.",
       },
     } satisfies SignalEnvelope;
+    const textSignal = {
+      ...sourceSignal,
+      id: "signal-text-final-1",
+      profile: {
+        kind: "agent",
+        profileId: "agt-1",
+        profileName: "Test Agent",
+      },
+      data: {
+        text: "The provider rejected this request.",
+        meta: {
+          dispatchId: "dispatch-1",
+          purpose: AGENT_REPLY_FINAL_PURPOSE,
+          targetProfileId: "agt-1",
+        },
+      },
+    } satisfies SignalEnvelope;
     const terminalNoticeSignal = {
       ...sourceSignal,
       id: "signal-notice-final-1",
@@ -292,6 +310,26 @@ describe("accepted dispatch finalization", () => {
         text: "The agent could not complete this Wake.",
       },
     } satisfies SignalEnvelope;
+    const failedCommand = {
+      ...baseFinalizationCommand,
+      acceptedResult: {
+        ...baseFinalizationCommand.acceptedResult,
+        taskResult: {
+          ...baseFinalizationCommand.acceptedResult.taskResult,
+          payload: {
+            agentId: "agt-1",
+            attemptId: "attempt-1",
+            deduped: false,
+            errorCode: "provider.rate_limited",
+            errorMessage: "Provider quota exhausted.",
+            errorType: "adapter",
+            sourceEventId: "signal-1",
+            status: "failed",
+            taskId: "task-1",
+          },
+        },
+      },
+    } satisfies RuntimeCoordinatorFinalizationCommand;
 
     expect(
       resolveRuntimeCoordinatorFinalizationVisibleFinalMessage({
@@ -316,6 +354,18 @@ describe("accepted dispatch finalization", () => {
           signalId === statusSignal.id ? statusSignal : null,
       })
     ).toEqual({ ok: true, publishedSignalId: "signal-status-final-1" });
+    for (const signal of [statusSignal, textSignal]) {
+      expect(
+        resolveConfirmedAcceptedDispatchOutcome({
+          command: failedCommand,
+          signal,
+        })
+      ).toEqual({
+        errorCode: "provider.rate_limited",
+        errorMessage: "Provider quota exhausted.",
+        kind: "failure",
+      });
+    }
     expect(
       resolveRuntimeCoordinatorFinalizationVisibleFinalMessage({
         command: baseFinalizationCommand,
@@ -345,6 +395,22 @@ describe("accepted dispatch finalization", () => {
         }),
       })
     ).toEqual({ ok: true, publishedSignalId: "signal-notice-final-1" });
+    expect(
+      resolveConfirmedAcceptedDispatchOutcome({
+        command: baseFinalizationCommand,
+        signal: {
+          ...terminalNoticeSignal,
+          data: {
+            ...terminalNoticeSignal.data,
+            noticeType: "policy_blocked",
+          },
+        },
+      })
+    ).toEqual({
+      errorCode: "reply.invalid_space_action",
+      errorMessage: "The agent could not complete this Wake.",
+      kind: "failure",
+    });
   });
 
   it("keeps a visible publication-exhaustion notice from being reclassified as a successful reply", () => {
@@ -1006,6 +1072,11 @@ describe("accepted dispatch finalization", () => {
     });
     expect(wakeEvidenceDatabase.readTaskOutcomeWriteCount()).toBe(0);
     expect(coordinationDatabase.readTaskOutcomeWriteCount()).toBe(1);
+    expect(wakeEvidenceDatabase.readDispatchLedgerStatuses()).toEqual([
+      "succeeded",
+    ]);
+    expect(wakeEvidenceDatabase.readDispatchSuccessWriteCount()).toBe(2);
+    expect(coordinationDatabase.readDispatchSuccessWriteCount()).toBe(0);
     expect(ordinarySignalPublicationCalls).toEqual([]);
     const finalSignalId = readFinalReplyClaimSignalId(sql, {
       dispatchId: dispatchFact.dispatchId,
@@ -1049,6 +1120,7 @@ describe("accepted dispatch finalization", () => {
       space.rpcReadRuntimeCoordinatorFinalizationClaimOutcome(command)
     ).resolves.toMatchObject({
       outcome: {
+        finalMessageKind: "success_reply",
         finalizationCommandId: "command-protected-status-1",
         ok: true,
         publishedSignalId: finalSignalId,
@@ -1370,6 +1442,7 @@ describe("accepted dispatch finalization", () => {
     await expect(
       space.rpcApplyRuntimeCoordinatorFinalizationCommand(command)
     ).resolves.toMatchObject({
+      finalMessageKind: "failure_notice",
       finalizationCommandId: "command-failed-notice-1",
       ok: true,
       publicationErrorCode: null,
@@ -1378,6 +1451,12 @@ describe("accepted dispatch finalization", () => {
     });
     expect(wakeEvidenceDatabase.readTaskOutcomeWriteCount()).toBe(0);
     expect(coordinationDatabase.readTaskOutcomeWriteCount()).toBe(1);
+    expect(wakeEvidenceDatabase.readDispatchLedgerStatuses()).not.toContain(
+      "succeeded"
+    );
+    expect(wakeEvidenceDatabase.readDispatchLedgerStatuses().at(-1)).toBe(
+      "failed_terminal"
+    );
     expect(deliverAgentTransportSpaceAction).not.toHaveBeenCalled();
     expect(ordinaryRpcFetch).not.toHaveBeenCalled();
     expect(systemNoticeRpcPost).toHaveBeenCalledTimes(1);
@@ -1675,6 +1754,7 @@ describe("accepted dispatch finalization", () => {
     await expect(
       space.rpcApplyRuntimeCoordinatorFinalizationCommand(command)
     ).resolves.toMatchObject({
+      finalMessageKind: "failure_notice",
       finalizationCommandId: "command-center-agent-failed-notice-1",
       ok: true,
       publicationErrorCode: null,
@@ -2659,6 +2739,12 @@ describe("accepted dispatch finalization", () => {
       publishState: "reply_publication_failed",
       status: "retry_later",
     });
+    expect(db.prepare).not.toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE openMeldDaemon_dispatch_ledger")
+    );
+    expect(db.prepare).not.toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE openMeldDaemon_dispatch_attempts")
+    );
   });
 
   it("keeps finalization retryable when a non-silent result has no visible Space outcome", async () => {
@@ -3235,9 +3321,13 @@ function createFinalizationPublishingD1Db(input: {
   dispatchId: string;
   idempotencyKey: string;
 }): D1Database & {
+  readDispatchLedgerStatuses: () => string[];
+  readDispatchSuccessWriteCount: () => number;
   readTaskOutcomeWriteCount: () => number;
   replaceTaskOutcome: (outcome: AgentTaskTerminalOutcome) => void;
 } {
+  let dispatchSuccessWriteCount = 0;
+  const dispatchLedgerStatuses: string[] = [];
   let finalReplyClaimed = false;
   let taskOutcomeWriteCount = 0;
   let terminalOutcomeRow:
@@ -3381,13 +3471,21 @@ function createFinalizationPublishingD1Db(input: {
         query.includes("UPDATE openMeldDaemon_dispatch_attempts")
       ) {
         return {
-          bind: vi.fn(() => ({
-            run: vi.fn().mockResolvedValue({ rowsWritten: 1 }),
+          bind: vi.fn((status: string) => ({
+            run: vi.fn().mockImplementation(() => {
+              dispatchSuccessWriteCount += 1;
+              if (query.includes("UPDATE openMeldDaemon_dispatch_ledger")) {
+                dispatchLedgerStatuses.push(status);
+              }
+              return Promise.resolve({ rowsWritten: 1 });
+            }),
           })),
         };
       }
       throw new Error(`unexpected query: ${query}`);
     }),
+    readDispatchLedgerStatuses: () => [...dispatchLedgerStatuses],
+    readDispatchSuccessWriteCount: () => dispatchSuccessWriteCount,
     readTaskOutcomeWriteCount: () => taskOutcomeWriteCount,
     replaceTaskOutcome: (outcome: AgentTaskTerminalOutcome) => {
       if (!terminalOutcomeRow) {
@@ -3402,6 +3500,8 @@ function createFinalizationPublishingD1Db(input: {
       };
     },
   } as unknown as D1Database & {
+    readDispatchLedgerStatuses: () => string[];
+    readDispatchSuccessWriteCount: () => number;
     readTaskOutcomeWriteCount: () => number;
     replaceTaskOutcome: (outcome: AgentTaskTerminalOutcome) => void;
   };

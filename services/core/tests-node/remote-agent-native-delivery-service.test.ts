@@ -8254,6 +8254,68 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
+  it("keeps a precise provider rate-limit reason in the published failure", async () => {
+    const harness = createSqliteD1Harness();
+    applyRemoteAgentSubmitMigrations(harness);
+    try {
+      await createAcceptedDelivery({
+        db: harness.db,
+        idempotencyKey: "idem_rate_limited",
+        submissionId: "sub_rate_limited",
+        spaceId: SPACE_ID,
+        threadContext: THREAD_CONTEXT,
+      });
+      const env = buildEnv(harness.db, {
+        postSignalId: "signal_rate_limited",
+      });
+
+      await expect(
+        completeRemoteAgentNativeDelivery(env, {
+          submissionId: "sub_rate_limited",
+          idempotencyKey: "idem_rate_limited",
+          organizationId: "org_1",
+          spaceId: SPACE_ID,
+          agentProfileId: AGENT_PROFILE_ID,
+          bindingId: "binding_1",
+          triggerMessageId: "signal_1",
+          dispatchId: "dispatch_1",
+          status: "failed",
+          failureCode: "remote_agent.provider.rate_limited",
+          failureDetail: "Provider request returned 429.",
+          failureMessage:
+            "The model provider rate-limited this request. Wait a moment, then wake the agent again.",
+        })
+      ).resolves.toEqual({
+        status: "accepted",
+        publishedSignalId: "signal_rate_limited",
+      });
+
+      expect(env.__spaceStub.rpcPostSignal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          meta: expect.objectContaining({
+            errorCode: "remote_agent.provider.rate_limited",
+            errorDetail: "Provider request returned 429.",
+            purpose: REMOTE_AGENT_FAILURE_PURPOSE,
+          }),
+          text: "The model provider rate-limited this request. Wait a moment, then wake the agent again.",
+          threadContext: THREAD_CONTEXT,
+        })
+      );
+      expect(env.__spaceStub.rpcCloseAgentStream).toHaveBeenCalledWith({
+        spaceId: SPACE_ID,
+        streamId: "stream:sub_rate_limited",
+        terminal: {
+          kind: "failed",
+          reasonCode: "remote_agent.provider.rate_limited",
+          noticeText:
+            "The model provider rate-limited this request. Wait a moment, then wake the agent again.",
+        },
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("completes member research callbacks without fabricating a Direct Message reply", async () => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);

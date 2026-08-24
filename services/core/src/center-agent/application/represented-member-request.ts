@@ -14,6 +14,7 @@ import {
   type CurrentDesignatedCenterAgentAuthorization,
   requireCurrentDesignatedCenterAgentCaller,
 } from "../current-designated-center-agent";
+import { resolveNativeDeliverySourceSpaceId } from "./native-delivery-source-space";
 
 export type VerifiedCenterAgentRepresentedMember = {
   displayName: string;
@@ -46,7 +47,7 @@ export async function prepareCenterAgentRepresentedMemberRequest(
     authorization: centerAgent,
     representedHuman,
     sourceNativeDeliveryId: sourceDelivery?.deliveryId ?? null,
-    sourceSpaceId: sourceDelivery?.spaceId ?? null,
+    sourceSpaceId: sourceDelivery?.sourceSpaceId ?? null,
   };
 }
 
@@ -55,7 +56,7 @@ async function resolveSourceNativeDelivery(input: {
   context: OpenMeldRequestContext;
   env: CoreBindings;
   representedHuman: VerifiedCenterAgentRepresentedMember;
-}): Promise<{ deliveryId: string; spaceId: string } | null> {
+}): Promise<{ deliveryId: string; sourceSpaceId: string | null } | null> {
   const submissionId = input.context.agentControllerConversationId?.trim();
   const db = wakeEvidenceDb(input.env);
   if (!(submissionId && db)) {
@@ -92,7 +93,10 @@ async function resolveSourceNativeDelivery(input: {
   ) {
     return null;
   }
-  return { deliveryId: delivery.deliveryId, spaceId: delivery.spaceId };
+  return {
+    deliveryId: delivery.deliveryId,
+    sourceSpaceId: resolveNativeDeliverySourceSpaceId(delivery),
+  };
 }
 
 export async function prepareHostedCenterAgentRequest(

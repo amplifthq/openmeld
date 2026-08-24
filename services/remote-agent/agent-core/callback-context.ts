@@ -74,6 +74,8 @@ import type {
   CenterAgentReadSlackWorkspaceDirectoryResponse,
   CenterAgentReadSpaceFileResponse,
   CenterAgentReadSpaceFileRpcInput,
+  CenterAgentReadTurnDiagnosticsResponse,
+  CenterAgentReadTurnDiagnosticsRpcInput,
   CenterAgentRecommendOpportunityToolResponse,
   CenterAgentRecommendOpportunityToolRpcInput,
   CenterAgentRecordConnectorActionAuditBody,
@@ -138,7 +140,6 @@ import type {
 } from "@openmeld/schemas/types";
 import {
   CENTER_AGENT_ASSISTANT_PROTOCOL_CONTAMINATION_REASON_CODE,
-  CENTER_AGENT_ASSISTANT_REPORTED_INTERNAL_FAILURE_REASON_CODE,
   inspectAssistantPublicationProtocol,
 } from "./assistant-publication";
 import {
@@ -167,18 +168,6 @@ const CONVERSATION_COMPACTION_WRITE_MAX_ATTEMPTS = 8;
 export const REMOTE_AGENT_CALLBACK_CONTEXT_WAIT_MS = 5000;
 const REMOTE_AGENT_COMPLETED_TEXT_TRUNCATION_NOTICE =
   "\n\n_Response shortened because it exceeded OpenMeld's 100,000-character response limit._";
-const CENTER_AGENT_INTERNAL_FAILURE_DETAIL_RE =
-  /\b(?:active tool catalog|action catalog|tool catalog|available actions|tools? (?:are |is )?(?:enabled|missing|unavailable)|space management tools|session|runtime|profile id|verified (?:openmeld )?member identity|uuid|rpc|schema|worker|endpoint|stack trace|implementation detail|onbehalfofprofileid|openmeld_[a-z0-9_]+|(?:rejected with|error(?: code)?(?: is|:)?|code(?: is|:)?)\s+[`'"]?[a-z][a-z0-9]*(?:_[a-z0-9]+)+|password (?:cannot be set|required) for this access)\b/iu;
-const CENTER_AGENT_STANDALONE_IDENTITY_FAILURE_RE =
-  /^\s*(?:this|the) action requires a verified (?:openmeld )?member identity[.!]?\s*$/iu;
-const CENTER_AGENT_IDENTITY_REQUIREMENT_RE =
-  /\b(?:requires?|needs?)\s+(?:an?\s+)?verified (?:openmeld )?member identity\b/iu;
-const CENTER_AGENT_AFFIRMATIVE_ACTION_OUTCOME_RE =
-  /\bi\b[^.!?\n]{0,160}\b(?:added|completed|created|finished|posted|sent|updated)\b|\b(?:request|space|task)\b[^.!?\n]{0,80}\b(?:has been|is|was)\s+(?:successfully\s+)?(?:completed|created|finished|updated)\b/iu;
-const CENTER_AGENT_NEGATED_ACTION_OUTCOME_RE =
-  /\b(?:did not|didn['’]t|has not|hasn['’]t|have not|haven['’]t|was not|wasn['’]t|were not|weren['’]t)\b[^.!?\n]{0,80}\b(?:added|completed|created|finished|posted|sent|updated)\b/iu;
-const CENTER_AGENT_FAILURE_OUTCOME_RE =
-  /\b(?:cannot|can't|could not|couldn't|did not|didn't|does not|doesn't|error|failed|failure|missing|no match(?:ing)?|unavailable|unable)\b/iu;
 
 export function computeCallbackRetryDelayMs(attempts: number): number {
   const exponent = Math.max(0, attempts - 1);
@@ -360,6 +349,9 @@ export type RemoteAgentCoreWorkerBinding = {
   centerAgentReadChangelog?(
     input: CenterAgentReadChangelogToolRpcInput
   ): Promise<ChangelogQueryResponse>;
+  centerAgentReadTurnDiagnostics?(
+    input: CenterAgentReadTurnDiagnosticsRpcInput
+  ): Promise<CenterAgentReadTurnDiagnosticsResponse>;
   centerAgentListOpportunities?(
     input: CenterAgentListOpportunitiesToolRpcInput
   ): Promise<CenterAgentListOpportunitiesToolResponse>;
@@ -985,27 +977,6 @@ export function extractCompletedAssistantText(
   return text.length > 0 ? text : null;
 }
 
-export function sanitizeCenterAgentCompletedTextForPublication(
-  text: string
-): string {
-  const includesInternalFailureDetail =
-    CENTER_AGENT_INTERNAL_FAILURE_DETAIL_RE.test(text);
-  const reportsAffirmativeActionOutcome =
-    CENTER_AGENT_AFFIRMATIVE_ACTION_OUTCOME_RE.test(text) &&
-    !CENTER_AGENT_NEGATED_ACTION_OUTCOME_RE.test(text);
-  const reportsUnresolvedIdentityRequirement =
-    CENTER_AGENT_IDENTITY_REQUIREMENT_RE.test(text) &&
-    !reportsAffirmativeActionOutcome;
-  const reportsFailure =
-    CENTER_AGENT_FAILURE_OUTCOME_RE.test(text) ||
-    CENTER_AGENT_STANDALONE_IDENTITY_FAILURE_RE.test(text) ||
-    reportsUnresolvedIdentityRequirement;
-
-  return reportsFailure && includesInternalFailureDetail
-    ? CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY
-    : text;
-}
-
 export function buildRemoteAgentCoreCallbackBody(input: {
   context: RemoteAgentCallbackContext;
   text: string;
@@ -1557,28 +1528,7 @@ export async function handleRemoteAgentChatResponse(input: {
       storage: input.storage,
     });
   }
-  const completedText = extractedCompletedText
-    ? sanitizeCenterAgentCompletedTextForPublication(extractedCompletedText)
-    : null;
-  const assistantReportedInternalFailure = Boolean(
-    extractedCompletedText && completedText !== extractedCompletedText
-  );
-  if (assistantReportedInternalFailure) {
-    console.warn("[remote_agent.publication.internal_failure_classified]", {
-      failureCode: CENTER_AGENT_ASSISTANT_REPORTED_INTERNAL_FAILURE_REASON_CODE,
-      submissionId: context.submissionId,
-    });
-    return recordAndDeliverRemoteAgentTerminalFailure({
-      code: CENTER_AGENT_ASSISTANT_REPORTED_INTERNAL_FAILURE_REASON_CODE,
-      context,
-      coreWorker: input.coreWorker,
-      detail:
-        sanitizeDispatchErrorSummary(extractedCompletedText ?? "") ?? undefined,
-      nowMs,
-      result: input.result,
-      storage: input.storage,
-    });
-  }
+  const completedText = extractedCompletedText;
   if (!completedText) {
     return recordAndDeliverRemoteAgentTerminalFailure({
       code: resolveRemoteAgentResultFailureCode(input.result),

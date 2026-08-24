@@ -1547,6 +1547,111 @@ describe("shared drizzle migration history integrity", () => {
     expect(LATEST_SHARED_MIGRATION_ID).toBe(journal.entries.length);
   });
 
+  it("preserves member research tasks while adding the structured report result", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      const sqlFiles = listSqlMigrationFiles();
+      const reportResultMigrationFiles = sqlFiles.filter(
+        (fileName) =>
+          fileName.startsWith("0137_") || fileName.startsWith("0138_")
+      );
+      expect(reportResultMigrationFiles).toHaveLength(2);
+      applyMigrationFiles(
+        database,
+        sqlFiles.filter((fileName) => fileName.localeCompare("0137_") < 0)
+      );
+      database.exec(`
+        INSERT INTO organizations (id, name, slug, created_at)
+        VALUES ('org-report-result', 'Report Result Org', 'report-result-org', 1000);
+        INSERT INTO center_agent_member_research_batches (
+          id,
+          organization_id,
+          scope,
+          status,
+          requested_by_user_id,
+          requested_by_member_id,
+          requested_by_profile_id,
+          requested_by_display_name,
+          direct_message_space_id,
+          created_at_ms,
+          updated_at_ms
+        ) VALUES (
+          'batch-report-result',
+          'org-report-result',
+          'member',
+          'completed',
+          'user-requester',
+          'member-requester',
+          'profile-requester',
+          'Requester',
+          'space-report-result',
+          1000,
+          1200
+        );
+        INSERT INTO center_agent_member_research_tasks (
+          id,
+          batch_id,
+          subject_user_id,
+          subject_display_name,
+          position,
+          status,
+          created_at_ms,
+          started_at_ms,
+          finished_at_ms
+        ) VALUES (
+          'task-report-result',
+          'batch-report-result',
+          'user-subject',
+          'Subject',
+          1,
+          'completed',
+          1000,
+          1100,
+          1200
+        );
+      `);
+
+      applyMigrationFiles(database, reportResultMigrationFiles);
+
+      expect(
+        database
+          .prepare(
+            `SELECT id, status, report_result
+             FROM center_agent_member_research_tasks
+             WHERE id = 'task-report-result'`
+          )
+          .get()
+      ).toEqual({
+        id: "task-report-result",
+        report_result: null,
+        status: "completed",
+      });
+      expectStatementToThrow(
+        database,
+        `UPDATE center_agent_member_research_tasks
+         SET report_result = 'guessed_from_markdown'
+         WHERE id = 'task-report-result'`,
+        "CHECK constraint failed"
+      );
+      database.exec(`
+        UPDATE center_agent_member_research_tasks
+        SET report_result = 'evidence_backed'
+        WHERE id = 'task-report-result'
+      `);
+      expect(
+        database
+          .prepare(
+            `SELECT report_result
+             FROM center_agent_member_research_tasks
+             WHERE id = 'task-report-result'`
+          )
+          .get()
+      ).toEqual({ report_result: "evidence_backed" });
+    } finally {
+      database.close();
+    }
+  });
+
   it("keeps every journal entry backed by a snapshot", () => {
     const journal = readJournal();
     const snapshotFiles = new Set(listSnapshotFiles());

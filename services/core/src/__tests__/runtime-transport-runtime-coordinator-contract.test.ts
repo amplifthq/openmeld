@@ -919,6 +919,7 @@ const createHarness = (input?: {
       ): RuntimeCoordinatorFinalizationOutcome => {
         appliedFinalizationCommands.push(command);
         return {
+          finalMessageKind: "success_reply" as const,
           finalizationCommandId: command.finalizationCommandId,
           ok: true as const,
           publicationErrorCode: null,
@@ -1341,6 +1342,23 @@ const buildSuccessfulPostMessageTaskResult =
         type: "post_message",
       },
       status: "success",
+      taskId: "task-1",
+    },
+    v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
+  });
+
+const buildFailedVisibleTaskResult =
+  (): RuntimeTransportSubmitTaskResultRequest["taskResult"] => ({
+    code: "service.task_result",
+    payload: {
+      agentId: TARGET_AGENT_PROFILE_ID,
+      attemptId: "attempt-1",
+      deduped: false,
+      errorCode: "quota.exceeded",
+      errorMessage: "Provider quota exhausted.",
+      errorType: "adapter",
+      sourceEventId: "signal-1",
+      status: "failed",
       taskId: "task-1",
     },
     v: OPENMELD_DAEMON_TASK_RESULT_SCHEMA_VERSION,
@@ -10814,6 +10832,88 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toBe(true);
   });
 
+  it("keeps a published failure notice failed across RuntimeCoordinator truth", async () => {
+    const {
+      hub,
+      recordingD1,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+    try {
+      await (
+        hub as unknown as {
+          handleDispatchResultFrame: (
+            webSocket: WebSocket,
+            payload: unknown
+          ) => Promise<void>;
+        }
+      ).handleDispatchResultFrame(
+        socket,
+        buildResultRequest({
+          executionTokenEcho: buildExecutionTokenEcho(executionToken),
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          taskResult: buildFailedVisibleTaskResult(),
+        })
+      );
+      await Promise.all(waitUntilTasks.splice(0));
+
+      expect(
+        recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      ).toMatchObject({
+        status: "failed_terminal",
+      });
+      expect(
+        JSON.parse(
+          String(
+            recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+              ?.terminal_outcome_json
+          )
+        )
+      ).toMatchObject({
+        kind: "failed_terminal",
+        reasonCode: "quota.exceeded",
+      });
+      expect(
+        recordingD1.calls
+          .filter((call) =>
+            call.query.includes("INSERT INTO agent_task_terminal_outcomes")
+          )
+          .map((call) => call.params[2])
+      ).toEqual(["failed"]);
+      const [, authority] =
+        findRuntimeCoordinatorExecutionTokenAuthorityEntry(storageRecords) ??
+        [];
+      expect(authority).toMatchObject({
+        terminalOutcome: {
+          reasonCode: "quota.exceeded",
+          replySignalId: "signal-final-1",
+          status: "failed_terminal",
+        },
+      });
+      expect(consoleInfo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "core.openmeld.space.final_visible_outcome_observed",
+          reasonCode: "quota.exceeded",
+          status: "failed",
+        })
+      );
+    } finally {
+      consoleInfo.mockRestore();
+    }
+  });
+
   it("refuses to mint a replay command from D1 accepted result facts", async () => {
     const {
       appliedFinalizationCommands,
@@ -11014,6 +11114,101 @@ describe("runtime transport runtime coordinator transport contract", () => {
       reasonCode: "daemon.result.finalization_unavailable",
       status: "retry_later",
     });
+  });
+
+  it("upgrades a legacy stored finalization outcome from the verified Space claim", async () => {
+    const {
+      appliedFinalizationCommands,
+      hub,
+      sentFrames,
+      socket,
+      spaceStub,
+      state,
+      storageRecords,
+      waitUntilTasks,
+    } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+
+    await (
+      hub as unknown as {
+        handleDispatchResultFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchResultFrame(
+      socket,
+      buildResultRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
+    await Promise.all(waitUntilTasks.splice(0));
+
+    const command = appliedFinalizationCommands[0];
+    if (!command) {
+      throw new Error("Expected a RuntimeCoordinator finalization command.");
+    }
+    const outcomeKey = buildRuntimeCoordinatorFinalizationOutcomeStorageKey(
+      command.finalizationCommandId
+    );
+    const storedOutcome = storageRecords.get(outcomeKey) as Extract<
+      RuntimeCoordinatorFinalizationOutcome,
+      { ok: true }
+    >;
+    const { finalMessageKind: _legacyMissingKind, ...legacyOutcome } =
+      storedOutcome;
+    storageRecords.set(outcomeKey, legacyOutcome);
+    (
+      spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome as ReturnType<
+        typeof vi.fn
+      >
+    ).mockResolvedValue({
+      outcome: {
+        ...storedOutcome,
+        status: "already_final" as const,
+      },
+      status: "finalization_visible" as const,
+    });
+
+    await expect(
+      (
+        hub as unknown as {
+          rpcReplayRuntimeCoordinatorFinalizationCommand: (
+            input: Record<string, string>
+          ) => Promise<unknown>;
+        }
+      ).rpcReplayRuntimeCoordinatorFinalizationCommand({
+        attemptId: "attempt-1",
+        dispatchId: "dispatch-1",
+        executionTokenRunId: executionToken.runId,
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        spaceId: HEX_SPACE_ID,
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      outcome: {
+        finalMessageKind: "success_reply",
+        publishedSignalId: "signal-final-1",
+        publishState: "reply_published",
+      },
+    });
+    expect(storageRecords.get(outcomeKey)).toEqual(
+      expect.objectContaining({
+        finalMessageKind: "success_reply",
+        publishedSignalId: "signal-final-1",
+        publishState: "reply_published",
+      })
+    );
+    expect(
+      spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome
+    ).toHaveBeenCalledTimes(1);
+    expect(appliedFinalizationCommands).toHaveLength(1);
   });
 
   it("repairs stream closure separately after reply publication succeeds", async () => {
@@ -11333,6 +11528,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             };
           }
           return {
+            finalMessageKind: "success_reply" as const,
             finalizationCommandId: command.finalizationCommandId,
             ok: true as const,
             publicationErrorCode: null,
@@ -12432,6 +12628,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
         Promise.resolve({
           outcome: {
+            finalMessageKind: "success_reply" as const,
             finalizationCommandId: command.finalizationCommandId,
             ok: true as const,
             publicationErrorCode: null,
@@ -12441,6 +12638,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
           },
           status: "finalization_visible" as const,
         })
+      );
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
+        (command: RuntimeCoordinatorFinalizationCommand) => {
+          appliedFinalizationCommands.push(command);
+          return {
+            finalMessageKind: "success_reply" as const,
+            finalizationCommandId: command.finalizationCommandId,
+            ok: true as const,
+            publicationErrorCode: null,
+            publishedSignalId: "signal-after-terminal-decision",
+            publishState: "reply_published" as const,
+            status: "already_final" as const,
+          };
+        }
       );
 
       const taskProjectionAttemptAtMs =
@@ -12452,7 +12663,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(appliedFinalizationCommands).toHaveLength(3);
+      expect(appliedFinalizationCommands).toHaveLength(4);
       expect(
         storageRecords.get(
           RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
@@ -12681,14 +12892,19 @@ describe("runtime transport runtime coordinator transport contract", () => {
     await expect(
       (
         hub as unknown as {
-          setRuntimeCoordinatorPublishedTerminalOutcome: (input: {
+          setRuntimeCoordinatorFinalizationTerminalOutcome: (input: {
             command: RuntimeCoordinatorFinalizationCommand;
+            executionSemantic: {
+              reasonCode: null;
+              status: "succeeded";
+            };
             nowMs: number;
-            publishedSignalId: string;
+            publishedSignalId: string | null;
           }) => Promise<boolean>;
         }
-      ).setRuntimeCoordinatorPublishedTerminalOutcome({
+      ).setRuntimeCoordinatorFinalizationTerminalOutcome({
         command,
+        executionSemantic: { reasonCode: null, status: "succeeded" },
         nowMs: 1_700_000_200_000,
         publishedSignalId: "signal-late-visible-reply",
       })
@@ -12699,7 +12915,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toEqual(terminalOutcome);
   });
 
-  it("keeps a legacy retry when a stored success conflicts with Agent Task publication_failed", async () => {
+  it("keeps a legacy retry when its verified success conflicts with Agent Task publication_failed", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
       // Intentionally suppress the expected structured warning.
@@ -12812,12 +13028,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceStub.rpcCloseAgentStream.mockClear();
 
       (
-        spaceStub.rpcApplyRuntimeCoordinatorPublicationExhaustionCommand as ReturnType<
+        spaceStub.rpcReadRuntimeCoordinatorFinalizationClaimOutcome as ReturnType<
           typeof vi.fn
         >
       ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
         Promise.resolve({
           outcome: {
+            finalMessageKind: "success_reply" as const,
             finalizationCommandId: command.finalizationCommandId,
             ok: true as const,
             publicationErrorCode: null,
@@ -12856,7 +13073,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         "[core.runtime_transport.runtime_coordinator_finalization_task_outcome_conflict]",
         expect.objectContaining({
           actualStatus: "publication_failed",
-          expectedStatus: "failed",
+          expectedStatus: "succeeded",
           runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
         })
       );
@@ -13517,9 +13734,21 @@ describe("runtime transport runtime coordinator transport contract", () => {
         socket,
         state,
       });
+      let finalClaimVisible = false;
       spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
         (command: RuntimeCoordinatorFinalizationCommand) => {
           appliedFinalizationCommands.push(command);
+          if (finalClaimVisible) {
+            return {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-visible-final",
+              publishState: "reply_published" as const,
+              status: "already_final" as const,
+            };
+          }
           return {
             finalizationCommandId: command.finalizationCommandId,
             ok: false as const,
@@ -13535,16 +13764,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
           typeof vi.fn
         >
       ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
-        Promise.resolve({
-          outcome: {
-            finalizationCommandId: command.finalizationCommandId,
-            ok: true as const,
-            publicationErrorCode: null,
-            publishedSignalId: "signal-visible-final",
-            publishState: "reply_published" as const,
-            status: "already_final" as const,
-          },
-          status: "finalization_visible" as const,
+        Promise.resolve().then(() => {
+          finalClaimVisible = true;
+          return {
+            outcome: {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-visible-final",
+              publishState: "reply_published" as const,
+              status: "already_final" as const,
+            },
+            status: "finalization_visible" as const,
+          };
         })
       );
 
@@ -13583,7 +13816,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(appliedFinalizationCommands).toHaveLength(3);
+      expect(appliedFinalizationCommands).toHaveLength(4);
       expect(
         spaceStub.rpcApplyRuntimeCoordinatorPublicationExhaustionCommand
       ).toHaveBeenCalled();
@@ -13664,9 +13897,21 @@ describe("runtime transport runtime coordinator transport contract", () => {
         socket,
         state,
       });
+      let finalClaimVisible = false;
       spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
         (command: RuntimeCoordinatorFinalizationCommand) => {
           appliedFinalizationCommands.push(command);
+          if (finalClaimVisible) {
+            return {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-visible-final-repair",
+              publishState: "reply_published" as const,
+              status: "already_final" as const,
+            };
+          }
           return {
             finalizationCommandId: command.finalizationCommandId,
             ok: false as const,
@@ -13682,16 +13927,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
           typeof vi.fn
         >
       ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
-        Promise.resolve({
-          outcome: {
-            finalizationCommandId: command.finalizationCommandId,
-            ok: true as const,
-            publicationErrorCode: null,
-            publishedSignalId: "signal-visible-final-repair",
-            publishState: "reply_published" as const,
-            status: "already_final" as const,
-          },
-          status: "finalization_visible" as const,
+        Promise.resolve().then(() => {
+          finalClaimVisible = true;
+          return {
+            outcome: {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-visible-final-repair",
+              publishState: "reply_published" as const,
+              status: "already_final" as const,
+            },
+            status: "finalization_visible" as const,
+          };
         })
       );
 
@@ -13730,7 +13979,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(appliedFinalizationCommands).toHaveLength(3);
+      expect(appliedFinalizationCommands).toHaveLength(4);
       expect(
         storageRecords.get(
           RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
@@ -13767,7 +14016,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(appliedFinalizationCommands).toHaveLength(3);
+      expect(appliedFinalizationCommands).toHaveLength(4);
       expect(
         storageRecords.get(
           RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
@@ -13821,9 +14070,21 @@ describe("runtime transport runtime coordinator transport contract", () => {
         socket,
         state,
       });
+      let finalClaimVisible = false;
       spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand.mockImplementation(
         (command: RuntimeCoordinatorFinalizationCommand) => {
           appliedFinalizationCommands.push(command);
+          if (finalClaimVisible) {
+            return {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-visible-final-after-retry",
+              publishState: "reply_published" as const,
+              status: "already_final" as const,
+            };
+          }
           return {
             finalizationCommandId: command.finalizationCommandId,
             ok: false as const,
@@ -13897,16 +14158,20 @@ describe("runtime transport runtime coordinator transport contract", () => {
           typeof vi.fn
         >
       ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
-        Promise.resolve({
-          outcome: {
-            finalizationCommandId: command.finalizationCommandId,
-            ok: true as const,
-            publicationErrorCode: null,
-            publishedSignalId: "signal-visible-final-after-retry",
-            publishState: "reply_published" as const,
-            status: "already_final" as const,
-          },
-          status: "finalization_visible" as const,
+        Promise.resolve().then(() => {
+          finalClaimVisible = true;
+          return {
+            outcome: {
+              finalMessageKind: "success_reply" as const,
+              finalizationCommandId: command.finalizationCommandId,
+              ok: true as const,
+              publicationErrorCode: null,
+              publishedSignalId: "signal-visible-final-after-retry",
+              publishState: "reply_published" as const,
+              status: "already_final" as const,
+            },
+            status: "finalization_visible" as const,
+          };
         })
       );
       const taskRepairAtMs =
@@ -13918,7 +14183,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(appliedFinalizationCommands).toHaveLength(4);
+      expect(appliedFinalizationCommands).toHaveLength(5);
       expect(
         storageRecords.get(
           RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
@@ -13951,7 +14216,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(appliedFinalizationCommands).toHaveLength(5);
+      expect(appliedFinalizationCommands).toHaveLength(6);
       expect(
         storageRecords.get(
           RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY
@@ -13972,7 +14237,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("lets an in-flight late publication settle before exhaustion decides the terminal outcome", async () => {
+  it("lets an in-flight late failure publication settle before exhaustion decides the terminal outcome", async () => {
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     try {
       const {
@@ -14048,6 +14313,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             markLatePublicationStarted();
             await latePublicationGate;
             return {
+              finalMessageKind: "failure_notice" as const,
               finalizationCommandId: command.finalizationCommandId,
               ok: true as const,
               publicationErrorCode: null,
@@ -14122,13 +14388,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
         expect(
           recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
         ).toMatchObject({
-          status: "reply_published",
+          status: "failed_terminal",
         });
       });
       expect(
         recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
       ).toMatchObject({
-        status: "reply_published",
+        status: "failed_terminal",
       });
       expect(
         recordingD1.inboxRows.get("dispatch-1::attempt-1")?.published_signal_id
@@ -14202,16 +14468,34 @@ describe("runtime transport runtime coordinator transport contract", () => {
       spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand as ReturnType<
         typeof vi.fn
       >
+    ).mockClear();
+    let replayApplyCallCount = 0;
+    (
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand as ReturnType<
+        typeof vi.fn
+      >
     ).mockImplementation(
       async (command: RuntimeCoordinatorFinalizationCommand) => {
-        await publicationResponseGate;
+        replayApplyCallCount += 1;
+        if (replayApplyCallCount === 1) {
+          await publicationResponseGate;
+          return {
+            finalizationCommandId: command.finalizationCommandId,
+            ok: false as const,
+            publicationErrorCode: "space.task_outcome_write_failed",
+            publishedSignalId: null,
+            publishState: "reply_publication_failed" as const,
+            status: "retry_later" as const,
+          };
+        }
         return {
+          finalMessageKind: "success_reply" as const,
           finalizationCommandId: command.finalizationCommandId,
-          ok: false as const,
-          publicationErrorCode: "space.task_outcome_write_failed",
-          publishedSignalId: null,
-          publishState: "reply_publication_failed" as const,
-          status: "retry_later" as const,
+          ok: true as const,
+          publicationErrorCode: null,
+          publishedSignalId: "signal-claim-recovered",
+          publishState: "reply_published" as const,
+          status: "already_final" as const,
         };
       }
     );
@@ -14222,6 +14506,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).mockImplementation((command: RuntimeCoordinatorFinalizationCommand) =>
       Promise.resolve({
         outcome: {
+          finalMessageKind: "success_reply" as const,
           finalizationCommandId: command.finalizationCommandId,
           ok: true as const,
           publicationErrorCode: null,
@@ -14255,6 +14540,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
         status: "already_final",
       },
     });
+    expect(
+      spaceStub.rpcApplyRuntimeCoordinatorFinalizationCommand
+    ).toHaveBeenCalledTimes(2);
     expect(
       wakeEvidenceD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
     ).toMatchObject({

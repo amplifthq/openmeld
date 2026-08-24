@@ -5143,6 +5143,13 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_read_center_agent_activity",
     },
     {
+      expectedPayload: { limit: 2 },
+      input: { limit: 2 },
+      response: turnDiagnosticsResponse(),
+      rpcName: "centerAgentReadTurnDiagnostics",
+      toolName: "openmeld_read_center_agent_turn_diagnostics",
+    },
+    {
       expectedPayload: { limit: 25, spaceId: SPACE_ID },
       input: { limit: 25, spaceId: SPACE_ID },
       response: readSpaceContextResponse(),
@@ -6080,6 +6087,50 @@ function auditJournalResponse() {
       },
     ],
     organizationId: "org_123",
+  };
+}
+
+function turnDiagnosticsResponse() {
+  return {
+    currentTurn: {
+      acceptedAtMs: TEST_NOW_MS,
+      callbackReceivedAtMs: null,
+      completedAtMs: null,
+      createdAtMs: TEST_NOW_MS - 100,
+      deliveryId: "delivery_current",
+      dispatchId: "dispatch_current",
+      failureCode: null,
+      failureDetail: null,
+      failureDetailTruncated: false,
+      publicationState: null,
+      publishedResultId: null,
+      status: "accepted" as const,
+      submissionId: "flue_submission_123",
+      submittedAtMs: TEST_NOW_MS - 50,
+      triggerMessageId: "1787539713.153179",
+      updatedAtMs: TEST_NOW_MS,
+    },
+    organizationId: "org_123",
+    previousTurns: [
+      {
+        acceptedAtMs: TEST_NOW_MS - 1000,
+        callbackReceivedAtMs: TEST_NOW_MS - 800,
+        completedAtMs: TEST_NOW_MS - 700,
+        createdAtMs: TEST_NOW_MS - 1100,
+        deliveryId: "delivery_previous",
+        dispatchId: "dispatch_previous",
+        failureCode: null,
+        failureDetail: null,
+        failureDetailTruncated: false,
+        publicationState: "published" as const,
+        publishedResultId: "1787539651.773249",
+        status: "completed" as const,
+        submissionId: "remote-agent-slack:event_previous",
+        submittedAtMs: TEST_NOW_MS - 1050,
+        triggerMessageId: "1787539313.869929",
+        updatedAtMs: TEST_NOW_MS - 700,
+      },
+    ],
   };
 }
 
