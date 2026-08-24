@@ -2548,7 +2548,7 @@ serviceCmd
   .description("Update OpenMeld Service on this device.")
   .option(
     "--force",
-    "Allow force-continue when graceful stop/drain times out (may drop in-flight tasks)"
+    "This option is no longer needed. Updates always let running Agent work finish."
   )
   .option("--json", "Print machine-readable JSON.", false)
   .action(async (opts: ServiceReinstallCliOptions & { json?: boolean }) => {
