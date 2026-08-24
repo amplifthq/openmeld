@@ -21,7 +21,7 @@ export default defineConfig({
   // never parses those imports; the npm runtime never reaches that branch.
   external: [
     /bundled-assets-embedded/,
-    /macos-data-protection-keychain-embedded/,
+    /macos-native-keychain-embedded/,
     "bun:sqlite",
   ],
   // For a Node CLI in a "type: module" package, we want dist/openmeld.js (not .mjs).

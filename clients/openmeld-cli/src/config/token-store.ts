@@ -1,17 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { isBinaryDistribution } from "../runtime/distribution";
 import {
-  deleteMacOsDataProtectionKeychainToken,
-  readMacOsDataProtectionKeychainToken,
-  storeMacOsDataProtectionKeychainToken,
-} from "./macos-data-protection-keychain";
+  deleteMacOsNativeKeychainToken,
+  readMacOsNativeKeychainToken,
+  storeMacOsNativeKeychainToken,
+} from "./macos-native-keychain";
 import { openMeldRootDir } from "./paths";
 
 const TOKEN_STORE_KEYCHAIN_SERVICE = "sh.openmeld.auth.token";
-const MACOS_DATA_PROTECTION_KEYCHAIN_ACCESS_GROUP =
-  "38FFHDPA3B.sh.openmeld.shared";
 const INSECURE_FALLBACK_ENV_KEY = "OPENMELD_AUTH_ALLOW_INSECURE_FILE_TOKEN";
 const FORCE_INSECURE_STORE_ENV_KEY = "OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN";
 const COMMAND_MAX_BUFFER_BYTES = 1024 * 1024;
@@ -23,18 +21,12 @@ const EXEC_FILE_BASE_OPTIONS = {
   timeout: COMMAND_TIMEOUT_MS,
 } as const;
 let insecureFallbackWarningShown = false;
+let macOsPrivateStorageWarningShown = false;
 
 type MacOsTokenRef = {
   provider: "macos-keychain";
   service: string;
   account: string;
-};
-
-type MacOsDataProtectionTokenRef = {
-  provider: "macos-data-protection-keychain";
-  service: string;
-  account: string;
-  accessGroup: string;
 };
 
 type WindowsDpapiTokenRef = {
@@ -49,7 +41,6 @@ type InsecureFileTokenRef = {
 
 export type StoredTokenRef =
   | MacOsTokenRef
-  | MacOsDataProtectionTokenRef
   | WindowsDpapiTokenRef
   | InsecureFileTokenRef;
 
@@ -93,27 +84,20 @@ export async function storeAccessToken(
 
   if (process.platform === "darwin") {
     try {
-      if (shouldUseMacOsDataProtectionKeychain()) {
-        const account = buildMacOsDataProtectionAccount(key);
-        await storeMacOsDataProtectionKeychainToken({
-          accessGroup: MACOS_DATA_PROTECTION_KEYCHAIN_ACCESS_GROUP,
+      const account = buildUniqueMacOsAccount(key);
+      if (shouldUseNativeMacOsKeychain()) {
+        await storeMacOsNativeKeychainToken({
           account,
           service: TOKEN_STORE_KEYCHAIN_SERVICE,
           accessToken: input.accessToken,
         });
-        return {
-          provider: "macos-data-protection-keychain",
+      } else {
+        await setMacOsKeychainToken({
           service: TOKEN_STORE_KEYCHAIN_SERVICE,
           account,
-          accessGroup: MACOS_DATA_PROTECTION_KEYCHAIN_ACCESS_GROUP,
-        };
+          accessToken: input.accessToken,
+        });
       }
-      const account = buildMacOsAccount(key);
-      await setMacOsKeychainToken({
-        service: TOKEN_STORE_KEYCHAIN_SERVICE,
-        account,
-        accessToken: input.accessToken,
-      });
       return {
         provider: "macos-keychain",
         service: TOKEN_STORE_KEYCHAIN_SERVICE,
@@ -130,9 +114,13 @@ export async function storeAccessToken(
           key,
         };
       }
-      throw new Error(
-        `failed to store access token in macOS secure storage: ${toErrorMessage(error)}`
-      );
+      const privateKey = buildUniqueTokenFileKey(key);
+      await setInsecureFileToken({
+        key: privateKey,
+        accessToken: input.accessToken,
+      });
+      warnMacOsPrivateStorageFallback(error);
+      return { provider: "insecure-file", key: privateKey };
     }
   }
 
@@ -184,13 +172,11 @@ export async function readAccessToken(
   ref: StoredTokenRef
 ): Promise<AccessTokenReadResult> {
   try {
-    if (ref.provider === "macos-data-protection-keychain") {
-      return toAccessTokenReadResult(
-        await readMacOsDataProtectionKeychainToken(ref)
-      );
-    }
     if (ref.provider === "macos-keychain") {
-      return toAccessTokenReadResult(await getMacOsKeychainToken(ref));
+      const token = shouldUseNativeMacOsKeychain()
+        ? await readMacOsNativeKeychainToken(ref)
+        : await getMacOsKeychainToken(ref);
+      return toAccessTokenReadResult(token);
     }
     if (ref.provider === "windows-dpapi") {
       return toAccessTokenReadResult(await getWindowsDpapiToken(ref));
@@ -208,12 +194,11 @@ export async function readAccessToken(
 }
 
 export async function deleteAccessToken(ref: StoredTokenRef): Promise<void> {
-  if (ref.provider === "macos-data-protection-keychain") {
-    await deleteMacOsDataProtectionKeychainToken(ref).catch(() => undefined);
-    return;
-  }
   if (ref.provider === "macos-keychain") {
-    await deleteMacOsKeychainToken(ref).catch(() => undefined);
+    const removal = shouldUseNativeMacOsKeychain()
+      ? deleteMacOsNativeKeychainToken(ref)
+      : deleteMacOsKeychainToken(ref);
+    await removal.catch(() => undefined);
     return;
   }
   if (ref.provider === "windows-dpapi") {
@@ -231,17 +216,11 @@ export function isStoredTokenRef(value: unknown): value is StoredTokenRef {
   }
   const record = value as Record<string, unknown>;
   const provider = normalizeString(record.provider);
-  if (provider === "macos-data-protection-keychain") {
+  if (provider === "macos-keychain") {
     return Boolean(
       normalizeString(record.service) &&
         normalizeString(record.account) &&
-        normalizeString(record.accessGroup) ===
-          MACOS_DATA_PROTECTION_KEYCHAIN_ACCESS_GROUP
-    );
-  }
-  if (provider === "macos-keychain") {
-    return Boolean(
-      normalizeString(record.service) && normalizeString(record.account)
+        record.accessGroup === undefined
     );
   }
   if (provider === "windows-dpapi" || provider === "insecure-file") {
@@ -260,16 +239,16 @@ function buildTokenKey(input: {
     .digest("hex");
 }
 
-function buildMacOsAccount(key: string): string {
-  return `openmeld-auth-${key}`;
-}
-
-function buildMacOsDataProtectionAccount(key: string): string {
+function buildUniqueMacOsAccount(key: string): string {
   return `openmeld-auth-${key}-${randomUUID()}`;
 }
 
-function shouldUseMacOsDataProtectionKeychain(): boolean {
-  return isBinaryDistribution() && process.arch === "arm64";
+function buildUniqueTokenFileKey(key: string): string {
+  return createHash("sha256").update(`${key}\n${randomUUID()}`).digest("hex");
+}
+
+function shouldUseNativeMacOsKeychain(): boolean {
+  return isBinaryDistribution();
 }
 
 async function setMacOsKeychainToken(input: {
@@ -277,8 +256,9 @@ async function setMacOsKeychainToken(input: {
   account: string;
   accessToken: string;
 }): Promise<void> {
-  // Keep login non-interactive via the native `security` CLI integration.
-  // This passes token via argv, which is a known exposure tradeoff.
+  // The npm-distributed CLI cannot embed the native addon, so keep its
+  // existing macOS Keychain integration for compatibility. The packaged
+  // binary uses Security.framework directly and never puts the token in argv.
   await runCommand("security", [
     "add-generic-password",
     "-U",
@@ -382,11 +362,15 @@ async function setInsecureFileToken(input: {
   key: string;
   accessToken: string;
 }): Promise<void> {
-  await mkdir(tokenDirectoryPath(), { recursive: true });
-  await writeFile(insecureTokenPath(input.key), `${input.accessToken}\n`, {
+  await ensurePrivateTokenDirectory();
+  const path = insecureTokenPath(input.key);
+  await writeFile(path, `${input.accessToken}\n`, {
     encoding: "utf8",
     mode: 0o600,
   });
+  if (process.platform !== "win32") {
+    await chmod(path, 0o600);
+  }
 }
 
 async function getInsecureFileToken(input: {
@@ -434,6 +418,20 @@ function allowInsecureFallback(): boolean {
   return fallbackEnabled;
 }
 
+function warnMacOsPrivateStorageFallback(error: unknown): void {
+  if (macOsPrivateStorageWarningShown) {
+    return;
+  }
+  macOsPrivateStorageWarningShown = true;
+  console.warn(
+    "[openmeld auth] macOS Keychain is unavailable. OpenMeld saved this " +
+      "session in a private file protected for your macOS user account, so " +
+      "setup can continue. " +
+      "A future successful setup or login will move the session back to " +
+      `Keychain. Details: ${toErrorMessage(error)}`
+  );
+}
+
 function warnInsecureFallback(reason: "env" | "platform"): void {
   if (insecureFallbackWarningShown) {
     return;
@@ -457,6 +455,14 @@ function shouldForceInsecureStore(): boolean {
 
 function isNativeSecureStorePlatform(): boolean {
   return process.platform === "darwin" || process.platform === "win32";
+}
+
+async function ensurePrivateTokenDirectory(): Promise<void> {
+  const directory = tokenDirectoryPath();
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") {
+    await chmod(directory, 0o700);
+  }
 }
 
 async function runPowerShellScript(

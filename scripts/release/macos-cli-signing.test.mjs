@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   assertNotarizationAccepted,
-  buildCiKeychainSearchListArgs,
   buildCodeSignArgs,
   buildNotarytoolSubmitArgs,
   DEFAULT_APPLE_TEAM_ID,
   DEFAULT_NOTARY_KEYCHAIN_PROFILE,
-  MACOS_KEYCHAIN_ACCESS_GROUP,
   parseNotarytoolSubmission,
   REQUIRED_BUN_ENTITLEMENTS,
   resolveAppleReleaseCredentials,
@@ -18,6 +18,11 @@ const INCOMPLETE_CI_CREDENTIALS_RE =
   /APPLE_DEVELOPER_ID_P12_PASSWORD, APPLE_NOTARY_KEY_P8_BASE64, APPLE_NOTARY_KEY_ID, APPLE_NOTARY_ISSUER_ID/u;
 const REJECTED_NOTARIZATION_RE =
   /submission-id.*Invalid.*critical validation errors/su;
+const RESTRICTED_KEYCHAIN_ENTITLEMENT_RE =
+  /<key>keychain-access-groups<\/key>/u;
+const ENTITLEMENTS_PATH = fileURLToPath(
+  new URL("./macos-cli.entitlements.plist", import.meta.url)
+);
 
 test("uses the local signing identity and Keychain notary profile by default", () => {
   assert.deepEqual(resolveAppleReleaseCredentials({}), {
@@ -105,17 +110,12 @@ test("builds hardened-runtime codesign arguments for the Bun executable", () => 
     "com.apple.security.cs.allow-dyld-environment-variables",
     "com.apple.security.cs.disable-library-validation",
   ]);
-  assert.equal(MACOS_KEYCHAIN_ACCESS_GROUP, "38FFHDPA3B.sh.openmeld.shared");
 });
 
-test("adds the ephemeral signing Keychain to the user search list", () => {
-  assert.deepEqual(buildCiKeychainSearchListArgs("/tmp/release.keychain-db"), [
-    "list-keychains",
-    "-d",
-    "user",
-    "-s",
-    "/tmp/release.keychain-db",
-  ]);
+test("keeps the bare Developer ID CLI free of provisioning-profile entitlements", () => {
+  const entitlements = readFileSync(ENTITLEMENTS_PATH, "utf8");
+
+  assert.doesNotMatch(entitlements, RESTRICTED_KEYCHAIN_ENTITLEMENT_RE);
 });
 
 test("builds local and CI notarytool authentication arguments", () => {

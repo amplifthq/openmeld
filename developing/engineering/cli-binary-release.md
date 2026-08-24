@@ -164,6 +164,13 @@ upload
 - Signing uses the Hardened Runtime, a trusted timestamp, identifier
   `sh.openmeld.cli`, and the Bun JIT entitlements in
   `scripts/release/macos-cli.entitlements.plist`.
+- The bare Developer ID CLI must remain launchable without an embedded
+  provisioning profile. Its entitlements therefore include only the Bun
+  runtime requirements and must not include `keychain-access-groups`. A signed
+  launch and native macOS Keychain login/read/logout smoke must pass before any
+  binary upload. CI signing selects its ephemeral signing Keychain explicitly
+  for `security` and `codesign`; it must not replace the user's Keychain search
+  list, because the post-signing smoke needs the normal login Keychain.
 - Notarization uses a temporary ZIP submission envelope. After Apple accepts
   that exact signed executable, release creates the gzip transport from it.
   Decompression therefore reconstructs the signed executable byte for byte.
