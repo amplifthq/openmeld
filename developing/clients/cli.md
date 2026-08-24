@@ -933,14 +933,20 @@ session for the same OpenMeld account. `openmeld setup` must not claim success f
 handoff unless that local session can be reloaded, because OpenMeld Service depends
 on it when launchd/systemd starts the service after sign-in.
 
-The signed macOS binary stores new bearer sessions in the Data Protection
-Keychain under the stable OpenMeld access group. The session file stores only
-the opaque secure-storage reference. Existing legacy macOS Keychain references
-remain readable for compatibility, while a fresh setup or login writes the
-modern reference. A future signed local client may join the same access group;
-it must reuse this session owner instead of creating a parallel sign-in state.
-Setup verifies that the newly stored token can be reloaded before it writes the
-session file or reports success.
+The signed macOS binary stores new bearer sessions in the user's macOS
+Keychain through Security.framework. The bare Developer ID CLI must not request
+a restricted Keychain access-group entitlement, because it has no embedded
+provisioning profile and macOS would reject the executable before it starts.
+The session file stores only the opaque secure-storage reference. Existing
+macOS Keychain references remain readable for compatibility. If the user's
+Keychain is temporarily unavailable, setup writes the bearer session to a
+private OpenMeld directory with mode `0700` and a file with mode `0600`, warns
+clearly about that fallback, and continues. The next successful setup or login
+stores the replacement session in Keychain and removes the previous private
+file. A future signed local client must reuse the CLI-owned session through the
+local OpenMeld Service contract instead of reading the token directly or
+creating a parallel sign-in state. Setup verifies that the newly stored token
+can be reloaded before it writes the session file or reports success.
 
 The CLI must prove account alignment. Missing, unknown, expired, or mismatched
 terminal authentication must fail closed and tell the user the next safe action.

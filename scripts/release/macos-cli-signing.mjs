@@ -26,7 +26,6 @@ const SIGNING_TIMESTAMP_RE = /(?:Timestamp|Signed Time)=/u;
 
 export const DEFAULT_APPLE_TEAM_ID = "38FFHDPA3B";
 export const DEFAULT_NOTARY_KEYCHAIN_PROFILE = "openmeld-notary";
-export const MACOS_KEYCHAIN_ACCESS_GROUP = "38FFHDPA3B.sh.openmeld.shared";
 export const REQUIRED_BUN_ENTITLEMENTS = [
   "com.apple.security.cs.allow-jit",
   "com.apple.security.cs.allow-unsigned-executable-memory",
@@ -87,8 +86,35 @@ export function buildCodeSignArgs(input) {
   ];
 }
 
-export function buildCiKeychainSearchListArgs(keychainPath) {
-  return ["list-keychains", "-d", "user", "-s", keychainPath];
+export function buildCiKeychainSearchListPlan(input) {
+  const originalPaths = String(input.currentSearchList ?? "")
+    .split(LINE_SPLIT_RE)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      let parsed;
+      try {
+        parsed = JSON.parse(line);
+      } catch (error) {
+        throw new Error(
+          `Could not parse the macOS user Keychain search list entry ${line}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      if (typeof parsed !== "string" || parsed.length === 0) {
+        throw new Error(
+          `macOS returned an invalid user Keychain search list entry: ${line}`
+        );
+      }
+      return parsed;
+    });
+  const activePaths = [
+    input.ephemeralKeychainPath,
+    ...originalPaths.filter((path) => path !== input.ephemeralKeychainPath),
+  ];
+  return {
+    activateArgs: buildUserKeychainSearchListArgs(activePaths),
+    restoreArgs: buildUserKeychainSearchListArgs(originalPaths),
+  };
 }
 
 export function buildNotarytoolSubmitArgs(input) {
@@ -169,16 +195,30 @@ export function signAndNotarizeCliBinary(input) {
     path.join(tmpdir(), "openmeld-apple-release-")
   );
   let ephemeralKeychainPath = null;
+  let restoreUserKeychainSearchListArgs = null;
 
   try {
     let activeCredentials = credentials;
     if (credentials.mode === "ci") {
+      ephemeralKeychainPath = path.join(tempDirectory, "release.keychain-db");
+      const currentSearchList = runCommand({
+        args: ["list-keychains", "-d", "user"],
+        command: "security",
+        env,
+        label: "Read the existing user Keychain search list",
+      });
+      const searchListPlan = buildCiKeychainSearchListPlan({
+        currentSearchList,
+        ephemeralKeychainPath,
+      });
+      restoreUserKeychainSearchListArgs = searchListPlan.restoreArgs;
       const ciAssets = prepareCiSigningAssets({
         credentials,
         env,
+        keychainPath: ephemeralKeychainPath,
+        keychainSearchListArgs: searchListPlan.activateArgs,
         tempDirectory,
       });
-      ephemeralKeychainPath = ciAssets.keychainPath;
       activeCredentials = {
         ...credentials,
         keyPath: ciAssets.keyPath,
@@ -249,10 +289,20 @@ export function signAndNotarizeCliBinary(input) {
       teamId: credentials.teamId,
     };
   } finally {
-    if (ephemeralKeychainPath) {
-      spawnSync("security", ["delete-keychain", ephemeralKeychainPath], {
-        encoding: "utf8",
+    if (restoreUserKeychainSearchListArgs) {
+      runCleanupCommand({
+        args: restoreUserKeychainSearchListArgs,
+        command: "security",
         env,
+        label: "Restore the original user Keychain search list",
+      });
+    }
+    if (ephemeralKeychainPath) {
+      runCleanupCommand({
+        args: ["delete-keychain", ephemeralKeychainPath],
+        command: "security",
+        env,
+        label: "Delete the ephemeral signing Keychain",
       });
     }
     rmSync(tempDirectory, { force: true, recursive: true });
@@ -260,7 +310,6 @@ export function signAndNotarizeCliBinary(input) {
 }
 
 function prepareCiSigningAssets(input) {
-  const keychainPath = path.join(input.tempDirectory, "release.keychain-db");
   const keyPath = path.join(input.tempDirectory, "AuthKey.p8");
   const p12Path = path.join(input.tempDirectory, "DeveloperID.p12");
   const keychainPassword = randomBytes(32).toString("base64url");
@@ -277,19 +326,19 @@ function prepareCiSigningAssets(input) {
   });
 
   runCommand({
-    args: ["create-keychain", "-p", keychainPassword, keychainPath],
+    args: ["create-keychain", "-p", keychainPassword, input.keychainPath],
     command: "security",
     env: input.env,
     label: "Create an ephemeral signing Keychain",
   });
   runCommand({
-    args: ["set-keychain-settings", "-lut", "21600", keychainPath],
+    args: ["set-keychain-settings", "-lut", "21600", input.keychainPath],
     command: "security",
     env: input.env,
     label: "Configure the ephemeral signing Keychain",
   });
   runCommand({
-    args: ["unlock-keychain", "-p", keychainPassword, keychainPath],
+    args: ["unlock-keychain", "-p", keychainPassword, input.keychainPath],
     command: "security",
     env: input.env,
     label: "Unlock the ephemeral signing Keychain",
@@ -299,7 +348,7 @@ function prepareCiSigningAssets(input) {
       "import",
       p12Path,
       "-k",
-      keychainPath,
+      input.keychainPath,
       "-P",
       input.credentials.p12Password,
       "-T",
@@ -319,20 +368,19 @@ function prepareCiSigningAssets(input) {
       "-s",
       "-k",
       keychainPassword,
-      keychainPath,
+      input.keychainPath,
     ],
     command: "security",
     env: input.env,
     label: "Authorize Apple signing tools in the ephemeral Keychain",
   });
   runCommand({
-    args: buildCiKeychainSearchListArgs(keychainPath),
+    args: input.keychainSearchListArgs,
     command: "security",
     env: input.env,
-    label: "Select the ephemeral signing Keychain for this CI user",
+    label: "Add the signing Keychain beside the normal user Keychains",
   });
-
-  return { keychainPath, keyPath };
+  return { keyPath };
 }
 
 function resolveDeveloperIdIdentity(input) {
@@ -410,11 +458,9 @@ function verifySignedCliBinary(input) {
       );
     }
   }
-  if (
-    !entitlements.includes(`<string>${MACOS_KEYCHAIN_ACCESS_GROUP}</string>`)
-  ) {
+  if (entitlements.includes("<key>keychain-access-groups</key>")) {
     throw new Error(
-      `Signed CLI is missing the OpenMeld Keychain access group: ${MACOS_KEYCHAIN_ACCESS_GROUP}`
+      "Signed bare CLI must not require a provisioning profile for Keychain access."
     );
   }
 }
@@ -481,6 +527,25 @@ function runCommand(input) {
     );
   }
   return output.trim();
+}
+
+function buildUserKeychainSearchListArgs(paths) {
+  return ["list-keychains", "-d", "user", "-s", ...paths];
+}
+
+function runCleanupCommand(input) {
+  const result = spawnSync(input.command, input.args, {
+    encoding: "utf8",
+    env: input.env,
+  });
+  if (!result.error && result.status === 0) {
+    return;
+  }
+  const output = `${String(result.stdout ?? "")}${String(result.stderr ?? "")}`;
+  const detail = result.error
+    ? result.error.message
+    : `exit ${String(result.status)}${output.trim() ? `: ${output.trim()}` : ""}`;
+  process.stderr.write(`[release:apple] ${input.label} failed: ${detail}\n`);
 }
 
 function hasCredentialValue(value) {

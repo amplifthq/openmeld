@@ -1010,6 +1010,16 @@ Catalog consumption rules:
   unchanged. Clearing, replacing, or editing that payload invalidates the
   in-process copy; a new Service process reloads it from secure storage. Remote
   authorization checks still decide whether the bearer session is valid.
+- The managed CLI and its Service carrier own that local auth session. Future
+  local clients reuse its status and actions through the Service contract; they
+  do not read the bearer token through a shared Keychain access group or create
+  a parallel local sign-in state.
+- On macOS, the packaged CLI uses Security.framework with the user's normal
+  Keychain. When Keychain is unavailable, setup may keep the current session in
+  a mode-`0600` file inside a mode-`0700` OpenMeld directory and must expose the
+  downgrade as a warning. The Service may consume that same CLI-owned session;
+  it must not create a second authentication owner. The next successful login
+  replaces the fallback with a Keychain item and removes the old file.
 - A background Service must not preflight a custom workspace with the POSIX
   `access` syscall. On macOS, a LaunchAgent can block indefinitely while that
   syscall crosses a protected-folder privacy boundary. Catalog inspection uses
@@ -1232,6 +1242,12 @@ The npm distribution invokes its generated OpenMeld-owned wrapper through
 directly. The user-facing stop path must disable the LaunchAgent before booting
 it out, so explicitly stopping OpenMeld Service is respected instead of being
 immediately undone by launchd.
+
+The npm Service bundle copies and fingerprints only its platform-neutral
+JavaScript runtime. CLI-only compiled artifacts, including the macOS secure
+storage addon, stay outside that bundle and remain covered by the CLI artifact's
+own signed release integrity. Their presence must not make the Service bundle
+hash differ between macOS and Linux.
 
 The OS service manager registration is a per-user global resource keyed only by
 the env preset. `OPENMELD_HOME` isolates lane files but does not isolate this

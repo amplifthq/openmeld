@@ -20,9 +20,13 @@ vi.mock("../src/config/token-store", () => ({
 import { getAuthSession, setAuthSession } from "../src/config/auth-session";
 
 const TOKEN_REF = {
-  accessGroup: "38FFHDPA3B.sh.openmeld.shared",
   account: "openmeld-auth-test",
-  provider: "macos-data-protection-keychain" as const,
+  provider: "macos-keychain" as const,
+  service: "sh.openmeld.auth.token",
+};
+const REPLACEMENT_TOKEN_REF = {
+  account: "openmeld-auth-replacement",
+  provider: "macos-keychain" as const,
   service: "sh.openmeld.auth.token",
 };
 
@@ -75,5 +79,35 @@ describe("auth session secure storage boundary", () => {
     });
 
     expect(secureStorage.readAccessToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes a private fallback after a later login succeeds in Keychain", async () => {
+    const privateFallbackRef = {
+      key: "a".repeat(64),
+      provider: "insecure-file" as const,
+    };
+    secureStorage.storeAccessToken
+      .mockResolvedValueOnce(privateFallbackRef)
+      .mockResolvedValueOnce(REPLACEMENT_TOKEN_REF);
+
+    await withTempHome(async () => {
+      await setAuthSession({
+        accessToken: secureStorage.accessToken,
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      });
+      await setAuthSession({
+        accessToken: secureStorage.accessToken,
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      });
+    });
+
+    expect(secureStorage.deleteAccessToken).toHaveBeenCalledWith(
+      privateFallbackRef
+    );
+    expect(secureStorage.deleteAccessToken).not.toHaveBeenCalledWith(
+      REPLACEMENT_TOKEN_REF
+    );
   });
 });

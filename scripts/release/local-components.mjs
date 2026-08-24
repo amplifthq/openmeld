@@ -38,7 +38,10 @@ const CLI_LOCAL_COMPONENTS_SOURCE_PATH =
 const RUNTIME_TRANSPORT_SCHEMA_SOURCE_PATH =
   "packages/schemas/src/schemas/daemon/runtime-transport.ts";
 const CLI_DIST_ROOT_PATH = "clients/openmeld-cli/dist";
-const SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS = new Set(["binary"]);
+// Platform-specific CLI artifacts have their own signed release integrity.
+// They are not copied into the npm Service bundle and must not make its
+// platform-neutral content hash differ between macOS and Linux.
+const SERVICE_BUNDLE_IGNORED_TOP_LEVEL_DIRS = new Set(["binary", "native"]);
 const SKILLS_ROOT_PATH = "clients/openmeld-cli/skills";
 
 const POLICY_VALUES = new Set(["ok", "available", "required"]);
