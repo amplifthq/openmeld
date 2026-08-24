@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-24T07:36:46.894Z",
+  "updatedAt": "2026-08-24T08:07:02.025Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-05-local-components-v1",
-      "packageVersion": "0.3.90",
+      "packageVersion": "0.3.91",
       "updatePolicy": "available",
-      "reason": "Keep Agent outcomes structured and Service process ownership lane-safe."
+      "reason": "Keep failed-turn review from changing local-agent permissions or replacing the original conversation."
     },
     "service": {
-      "bundleHash": "a1e2eacb07d6af5d030a1fee506696295b2118e3eb1be5383b7f4149065153a4",
-      "bundleVersion": "0.3.90",
+      "bundleHash": "cfc537f5c32b2666b88447d9cdd2d40c6c86b31d38b19f92418d789d79e9f975",
+      "bundleVersion": "0.3.91",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-08-agent-answers-content-v1",
       "updatePolicy": "available",
-      "reason": "Keep Agent outcomes structured and Service process ownership lane-safe."
+      "reason": "Keep failed-turn review from changing local-agent permissions or replacing the original conversation."
     },
     "skills": {
       "bundleHash": "95a67c5b65f4f20f08fc3f7048df23f4cb53278c5d206ab1d6fdfadedcfbd4e4",
