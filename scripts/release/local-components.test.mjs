@@ -145,7 +145,7 @@ test("computes the service bundle hash with the CLI daemon source-dist algorithm
   }
 });
 
-test("ignores CLI binary release artifacts when computing the service bundle hash", async () => {
+test("ignores CLI-only artifacts when computing the service bundle hash", async () => {
   const repoRoot = await createFixtureRepo();
   const serviceDistRoot = join(repoRoot, "clients/openmeld-cli/dist");
   try {
@@ -164,6 +164,11 @@ test("ignores CLI binary release artifacts when computing the service bundle has
       serviceDistRoot,
       "binary/manifest.json",
       '{"schemaVersion":1}\n'
+    );
+    await writeFixtureFile(
+      serviceDistRoot,
+      "native/openmeld-keychain.node",
+      "macOS secure storage addon\n"
     );
 
     const releaseHash = await computeServiceBundleHash({
@@ -850,6 +855,30 @@ test("classifies release-sensitive paths narrowly", () => {
     true
   );
   assert.equal(isCliReleasePath("clients/openmeld-cli/package.json"), true);
+  assert.equal(
+    isCliReleasePath(
+      "clients/openmeld-cli/native/macos-keychain/src/openmeld_keychain.mm"
+    ),
+    true
+  );
+  assert.equal(
+    isServiceReleasePath(
+      "clients/openmeld-cli/native/macos-keychain/src/openmeld_keychain.mm"
+    ),
+    false
+  );
+  assert.equal(
+    isCliReleasePath(
+      "clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs"
+    ),
+    true
+  );
+  assert.equal(
+    isServiceReleasePath(
+      "clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs"
+    ),
+    false
+  );
   assert.equal(isCliReleasePath("release/vendor-models.json"), true);
   assert.equal(isServiceReleasePath("release/vendor-models.json"), true);
   assert.equal(isServiceReleasePath("release/local-components.json"), false);
@@ -1584,7 +1613,7 @@ async function listCliDaemonSourceDistFiles(path) {
   const entries = await readdir(path, { withFileTypes: true });
   const filePaths = [];
   for (const entry of entries) {
-    if (entry.name === "binary") {
+    if (entry.name === "binary" || entry.name === "native") {
       continue;
     }
     const entryPath = join(path, entry.name);

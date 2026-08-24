@@ -381,6 +381,12 @@ describe("local service bundle", () => {
           "compiled binary\n",
           "utf8"
         );
+        await mkdir(join(fixture.distRootPath, "native"), { recursive: true });
+        await writeFile(
+          join(fixture.distRootPath, "native", "openmeld-keychain.node"),
+          "macOS secure storage addon\n",
+          "utf8"
+        );
         const bundleState = await prepareDaemonServiceBundle({
           daemonVersion: "1.2.3",
           cliScriptPath: fixture.cliScriptPath,
@@ -441,6 +447,9 @@ describe("local service bundle", () => {
         await expect(stat(entryPath ?? "")).resolves.toBeDefined();
         await expect(
           stat(join(bundleRootPath, "dist", "binary", "manifest.json"))
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(
+          stat(join(bundleRootPath, "dist", "native", "openmeld-keychain.node"))
         ).rejects.toMatchObject({ code: "ENOENT" });
         await expect(stat(bundlePackageJsonPath)).resolves.toBeDefined();
         await expect(

@@ -4,15 +4,15 @@ const PRE_PUSH_RELEASE_GATE_CONTROL_PATHS = new Set([
   "package.json",
 ]);
 const PRE_PUSH_RELEASE_GATE_CONTROL_PATH_PREFIXES = ["scripts/release/"];
-const CLI_AND_SERVICE_RELEASE_PATH_PREFIXES = [
+const CLI_AND_SERVICE_RELEASE_PATH_PREFIXES = ["packages/agent-runtime/src/"];
+const CLI_RELEASE_PATH_PREFIXES = [
   "clients/openmeld-cli/native/",
-  "packages/agent-runtime/src/",
+  "clients/openmeld-cli/src/",
 ];
-const CLI_AND_SERVICE_RELEASE_PATHS = new Set([
+const CLI_RELEASE_PATHS = new Set([
+  "clients/openmeld-cli/package.json",
   "clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs",
 ]);
-const CLI_RELEASE_PATH_PREFIXES = ["clients/openmeld-cli/src/"];
-const CLI_RELEASE_PATHS = new Set(["clients/openmeld-cli/package.json"]);
 // Repo-authored data files that the build embeds into both the packaged CLI
 // and the OpenMeld Service bundle. Editing them moves the Service bundle hash,
 // so they release like local-component changes even with no source edit.
@@ -97,11 +97,8 @@ function isPrePushReleaseGateControlPath(path) {
 }
 
 function isCliAndServiceReleasePath(path) {
-  return (
-    CLI_AND_SERVICE_RELEASE_PATHS.has(path) ||
-    CLI_AND_SERVICE_RELEASE_PATH_PREFIXES.some((prefix) =>
-      path.startsWith(prefix)
-    )
+  return CLI_AND_SERVICE_RELEASE_PATH_PREFIXES.some((prefix) =>
+    path.startsWith(prefix)
   );
 }
 

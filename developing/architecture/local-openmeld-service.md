@@ -1233,6 +1233,12 @@ directly. The user-facing stop path must disable the LaunchAgent before booting
 it out, so explicitly stopping OpenMeld Service is respected instead of being
 immediately undone by launchd.
 
+The npm Service bundle copies and fingerprints only its platform-neutral
+JavaScript runtime. CLI-only compiled artifacts, including the macOS secure
+storage addon, stay outside that bundle and remain covered by the CLI artifact's
+own signed release integrity. Their presence must not make the Service bundle
+hash differ between macOS and Linux.
+
 The OS service manager registration is a per-user global resource keyed only by
 the env preset. `OPENMELD_HOME` isolates lane files but does not isolate this
 registration, so any process that mutates a service registration must fail
